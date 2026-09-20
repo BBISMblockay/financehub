@@ -23,6 +23,10 @@
 // Mutations (each must make a specific assertion fail):
 //   STAMP_MUTATION=helper-drops-everything  (helper back to unconditional DROP+CREATE)
 //   STAMP_MUTATION=verify-counts            (check 6 back to the count comparison)
+//   STAMP_MUTATION=predicate-loose          (both predicates back to `tgenabled <> 'D'`
+//                                            and bitwise `& 4`, which accept a
+//                                            replica-only trigger and a
+//                                            BEFORE INSERT OR UPDATE one)
 //
 // Run: node scripts/tests/stamp-trigger-helper.test.mjs
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
@@ -33,7 +37,8 @@ import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/inde
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
 const mutation = process.env.STAMP_MUTATION || '';
-assert.ok(['', 'helper-drops-everything', 'verify-counts'].includes(mutation), `Unknown mutation: ${mutation}`);
+assert.ok(['', 'helper-drops-everything', 'verify-counts', 'predicate-loose'].includes(mutation),
+  `Unknown mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
 const root = new URL('../../', import.meta.url);
@@ -66,6 +71,10 @@ await db.exec(`
 await db.exec(await readFile(new URL('supabase/migrations/20260616060000_stamp_company_entity_id_on_insert.sql', root), 'utf8'));
 
 let sql = await readFile(new URL('supabase/migrations/20260920150000_stamp_trigger_idempotent_and_verified.sql', root), 'utf8');
+if (mutation === 'predicate-loose') {
+  sql = sql.replace("and tg.tgenabled in ('O', 'A')", "and tg.tgenabled <> 'D'")
+           .replace('and tg.tgtype = 7', 'and (tg.tgtype & 1) = 1 and (tg.tgtype & 2) = 2 and (tg.tgtype & 4) = 4');
+}
 if (mutation === 'helper-drops-everything') {
   // Put the unconditional loop back: no "already correct" filter at all.
   sql = sql.replace(/-- The whole point[\s\S]*?\n       \)\n  loop/, '  loop');
@@ -129,6 +138,10 @@ const verifyCheck = async () => {
   const end = verify.indexOf('-- 7. Shopify integration tables');
   assert.ok(start > 0 && end > start, 'check 6 must be locatable by its own comment');
   let stmt = verify.slice(start, end).split(/;\s*\n/)[0] + ';';
+  if (mutation === 'predicate-loose') {
+    stmt = stmt.replace("and tg.tgenabled in ('O', 'A')", "and tg.tgenabled <> 'D'")
+               .replace('and tg.tgtype = 7', 'and (tg.tgtype & 1) = 1 and (tg.tgtype & 2) = 2 and (tg.tgtype & 4) = 4');
+  }
   if (mutation === 'verify-counts') {
     stmt = `select count(*)::int as required_tables,
       case when count(*) >= (
@@ -157,6 +170,47 @@ await test('check 6 goes red for exactly ONE missing table, and names it', async
   assert.match(status, /bravo/, 'the failure must name the table, or the next person counts by hand');
   await q('select public.attach_stamp_company_entity_id_triggers()');
   assert.equal(await verifyCheck(), 'ok', 'and the helper repairs it');
+});
+
+// ── 5. A trigger that exists but does not FIRE ──────────────────────────────
+// The nastiest shape, because both safeguards agree on the wrong answer: a
+// replica-only trigger is present, enabled and correctly bound, and does not
+// run in the origin session mode every application insert uses.
+await test('a replica-only trigger is treated as missing, not as healthy', async () => {
+  await db.exec('alter table public.charlie enable replica trigger stamp_company_entity_id');
+  const status = await verifyCheck();
+  assert.notEqual(status, 'ok',
+    'a replica-only trigger does not fire for ordinary inserts, so the backstop is off '
+    + 'while the check reports healthy');
+  assert.match(status, /charlie/, 'and the failure must name it');
+
+  await q('select public.attach_stamp_company_entity_id_triggers()');
+  const fixed = await one(`select tg.tgenabled, tg.tgtype from pg_trigger tg
+     join pg_class cl on cl.oid=tg.tgrelid
+    where cl.relname='charlie' and tg.tgname='stamp_company_entity_id' and not tg.tgisinternal`);
+  assert.equal(fixed.tgenabled, 'O', 'the helper must repair it to origin mode');
+  assert.equal(fixed.tgtype, 7);
+  assert.equal(await verifyCheck(), 'ok');
+});
+
+// ── 6. A trigger that fires TOO MUCH ────────────────────────────────────────
+await test('a BEFORE INSERT OR UPDATE trigger is treated as missing, not as equivalent', async () => {
+  await db.exec(`
+    drop trigger stamp_company_entity_id on public.alpha;
+    create trigger stamp_company_entity_id before insert or update on public.alpha
+      for each row execute function public.stamp_company_entity_id();
+  `);
+  const status = await verifyCheck();
+  assert.notEqual(status, 'ok',
+    'INSERT OR UPDATE re-stamps a company_entity_id somebody deliberately cleared, '
+    + 'which is a different trigger from the one this check exists to require');
+  assert.match(status, /alpha/);
+
+  await q('select public.attach_stamp_company_entity_id_triggers()');
+  assert.equal((await one(`select tg.tgtype from pg_trigger tg join pg_class cl on cl.oid=tg.tgrelid
+     where cl.relname='alpha' and tg.tgname='stamp_company_entity_id' and not tg.tgisinternal`)).tgtype,
+    7, 'repaired back to ROW|BEFORE|INSERT exactly');
+  assert.equal(await verifyCheck(), 'ok');
 });
 
 console.log(`\n${passed} assertions passed${mutation ? ` (mutation: ${mutation})` : ''}.`);

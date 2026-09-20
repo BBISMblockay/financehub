@@ -22,11 +22,29 @@
 --
 -- It now enumerates only tables whose trigger is MISSING or WRONGLY BOUND, so
 -- a re-run with nothing to do takes no DDL locks at all. "Wrongly bound" is
--- checked rather than assumed: right name, right function, BEFORE (tgtype bit
--- 1), INSERT (bit 4), FOR EACH ROW (bit 0), enabled. A trigger carrying the
--- right NAME and the wrong body is the failure a name-only check would wave
--- through, and it is the one worth catching -- so such a trigger is dropped
--- and recreated, which is the only case where this still issues a DROP.
+-- checked rather than assumed: right name, right function, and EXACTLY
+-- `tgtype = 7` (ROW|BEFORE|INSERT) while enabled in origin mode. A trigger
+-- carrying the right NAME and the wrong body is the failure a name-only check
+-- would wave through, and such a trigger is dropped and recreated -- the only
+-- case where this still issues a DROP.
+--
+-- Two near-misses the first version of this predicate accepted, both found by
+-- the review's cycle 2 and both silent by construction, because the helper and
+-- check 6 would have agreed on the wrong answer:
+--
+--   * `tgenabled <> 'D'` also accepts 'R'. A REPLICA-ONLY trigger does not
+--     fire in the origin session mode application inserts use, so a single
+--     `alter table ... enable replica trigger` turns the backstop off while
+--     both safeguards report healthy -- and the next onboarding insert that
+--     omits company_entity_id hits the NOT NULL instead of being stamped.
+--   * Testing `(tgtype & 4) = 4` requires INSERT without REJECTING the other
+--     event bits, so BEFORE INSERT OR UPDATE passes as equivalent. That
+--     trigger re-stamps a company_entity_id somebody deliberately cleared on
+--     UPDATE rather than letting the write fail.
+--
+-- Measured before tightening: all 169 stamp triggers on production are already
+-- exactly tgtype 7 / 'O', so this is a no-op there and cannot cause a spurious
+-- repair or a false red.
 --
 -- Exclusions are UNCHANGED (inventory_on_hand, sales_by_day). Narrowing what
 -- the helper covers is a policy decision about the plaid_* tables and
@@ -103,10 +121,18 @@ begin
             and tg.tgname = 'stamp_company_entity_id'
             and not tg.tgisinternal
             and tg.tgfoid = 'public.stamp_company_entity_id()'::regprocedure
-            and tg.tgenabled <> 'D'
-            and (tg.tgtype & 1) = 1    -- FOR EACH ROW
-            and (tg.tgtype & 2) = 2    -- BEFORE
-            and (tg.tgtype & 4) = 4    -- INSERT
+            -- 'O' = origin (the default), 'A' = always. NOT `<> 'D'`: that
+            -- also accepts 'R', a REPLICA-ONLY trigger, which does not fire in
+            -- the origin session mode every application insert runs in. One
+            -- `alter table ... enable replica trigger` and the backstop is
+            -- silently off while both this helper and check 6 call it healthy.
+            and tg.tgenabled in ('O', 'A')
+            -- EXACTLY ROW(1)|BEFORE(2)|INSERT(4). An `and (tgtype & 4) = 4`
+            -- style test requires INSERT without REJECTING the other event
+            -- bits, so BEFORE INSERT OR UPDATE passes as equivalent -- and
+            -- that trigger re-stamps a deliberately cleared company_entity_id
+            -- on UPDATE instead of letting the write fail.
+            and tg.tgtype = 7
        )
   loop
     if r.name_taken then

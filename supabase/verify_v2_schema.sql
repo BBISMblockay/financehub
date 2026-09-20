@@ -141,10 +141,14 @@ missing as (
       and tg.tgname = 'stamp_company_entity_id'
       and not tg.tgisinternal
       and tg.tgfoid = 'public.stamp_company_entity_id()'::regprocedure
-      and tg.tgenabled <> 'D'
-      and (tg.tgtype & 1) = 1    -- FOR EACH ROW
-      and (tg.tgtype & 2) = 2    -- BEFORE
-      and (tg.tgtype & 4) = 4    -- INSERT
+      -- 'O' origin (default) or 'A' always. NOT `<> 'D'`, which also accepts
+      -- 'R': a replica-only trigger does not fire for ordinary application
+      -- inserts, so the backstop would be off while this read 'ok'.
+      and tg.tgenabled in ('O', 'A')
+      -- EXACTLY ROW|BEFORE|INSERT. A bitwise `& 4` test requires INSERT
+      -- without rejecting UPDATE/DELETE/TRUNCATE/INSTEAD, so BEFORE INSERT OR
+      -- UPDATE would pass -- and that re-stamps a cleared company on UPDATE.
+      and tg.tgtype = 7
   )
 )
 select

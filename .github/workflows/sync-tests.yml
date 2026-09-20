@@ -533,7 +533,7 @@ jobs:
       - name: Each stamp-helper guarantee, removed, must break it
         run: |
           set -u
-          for m in helper-drops-everything verify-counts; do
+          for m in helper-drops-everything verify-counts predicate-loose; do
             echo "--- $m ---"
             if STAMP_MUTATION="$m" node scripts/tests/stamp-trigger-helper.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guarantee it removes is untested"
