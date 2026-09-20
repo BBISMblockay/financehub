@@ -14,7 +14,44 @@ const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
 // as either a mistake or a leak of who else uses SILO. SILO_MAIL_FROM is an
 // edge-function secret; the literal stays as the fallback so nothing changes
 // for Baseballism until that secret is set.
-const FROM = Deno.env.get('SILO_MAIL_FROM') || 'SILO <noreply@silo-baseballism.com>';
+// The sender identity is PER TENANT and resolved at send time, not
+// configured: a single env string cannot carry one company's name for one
+// email and another's for the next. resolve_notification_sender() is the one
+// definition of both halves (20260920170000) -- it returns the From header
+// built from the company's own title, and the Reply-To for this KIND of
+// notification, falling back to the tenant's general contact, then the person
+// who triggered it, then an owner-admin, and NEVER to a SILO address.
+//
+// Deliberately NOT a module-level mutable: a Deno isolate serves concurrent
+// requests, so a shared `sender` would put one tenant's name and reply address
+// on another tenant's email. It is passed explicitly instead.
+const FROM_FALLBACK = Deno.env.get('SILO_MAIL_FROM') || 'SILO <noreply@silo-baseballism.com>';
+
+type Sender = { from: string; replyTo: string | null };
+
+async function resolveSender(
+  companyId: string | null | undefined,
+  purpose: string,
+  actorEmail?: string | null,
+): Promise<Sender> {
+  const fallback: Sender = { from: FROM_FALLBACK, replyTo: actorEmail ?? null };
+  if (!companyId) return fallback;
+  try {
+    const { data, error } = await db.rpc('resolve_notification_sender', {
+      p_company_entity_id: companyId,
+      p_purpose: purpose,
+      p_actor_email: actorEmail ?? null,
+    });
+    const row = Array.isArray(data) ? data[0] : data;
+    // A resolution failure must not stop the notification: the message
+    // matters more than the header. Falling back still never names SILO as
+    // the reply address -- it just carries no Reply-To at all.
+    if (error || !row?.from_header) return fallback;
+    return { from: row.from_header as string, replyTo: (row.reply_to as string | null) ?? null };
+  } catch {
+    return fallback;
+  }
+}
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -33,12 +70,13 @@ async function sha256hex(s: string): Promise<string> {
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+async function sendEmail(sender: Sender, to: string, subject: string, html: string): Promise<boolean> {
   if (!RESEND_KEY) return false;
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${RESEND_KEY}` },
-    body: JSON.stringify({ from: FROM, to: [to], subject, html }),
+    body: JSON.stringify({ from: sender.from, to: [to], subject, html,
+      ...(sender.replyTo ? { reply_to: sender.replyTo } : {}) }),
   });
   if (!res.ok) console.error('[review-send] resend error', res.status, await res.text());
   return res.ok;
@@ -121,7 +159,8 @@ Deno.serve(async (req: Request) => {
       managerName = mgr?.name || mgr?.email || managerName;
     }
 
-    const emailSent = await sendEmail(
+    const sender = await resolveSender(review.company_entity_id, 'hr_comp', null);
+    const emailSent = await sendEmail(sender, 
       review.employees.email,
       `Your ${review.period_label ? review.period_label + ' ' : ''}performance review is ready`,
       emailHtml(review.employees.name, managerName, review.period_label || '', link),
@@ -130,6 +169,6 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ ok: true, email_sent: emailSent, link }), { headers: CORS });
   } catch (err) {
     console.error('[review-send]', err);
-    return new Response(JSON.stringify({ error: String(err?.message || err) }), { status: 500, headers: CORS });
+    return new Response(JSON.stringify({ error: String((err as Error)?.message || err) }), { status: 500, headers: CORS });
   }
 });

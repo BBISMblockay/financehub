@@ -1689,3 +1689,50 @@ asserting against Baseballism would pass whether or not the fix is present.
 `verify_v2_schema.sql` gains **Entity admin gate is company-scoped**, confirmed
 CRITICAL against production before the migration was applied.
 
+## Per-tenant notification sender — `20260920170000_notification_reply_contacts.sql`
+
+Agreed with Blake 2026-09-20. The target:
+
+```
+From:     Baseballism - SILO <notifications@get-silo.com>
+Reply-To: the tenant's own contact for that kind of notification
+```
+
+**Why this could not be configuration.** All ten mail edge functions held one
+global constant, `SILO_MAIL_FROM`, defaulting to
+`SILO <noreply@silo-baseballism.com>` — and **nine of the ten set no `Reply-To`
+at all** (only `payment-request-forward-melio` did). One env string cannot carry
+one company's name on one email and another's on the next, so the sender
+identity is resolved at send time from the company rather than configured.
+
+**`resolve_notification_sender(company, purpose, actor_email)`** is the one
+definition of both halves. The display name is the tenant's; the address stays
+SILO's, because the From domain must be one SILO authenticates for SPF/DKIM.
+`Reply-To` carries no such constraint — which is exactly why the split works.
+
+**The fallback chain is the point**: purpose → `general_ops` → the person who
+triggered the notification → an owner-admin → nothing. **Never a SILO address.**
+Omitting `Reply-To` looks harmless and silently routes every reply about an
+invoice to `notifications@get-silo.com`; `support@get-silo.com` is for platform
+support only. `reply_to_source` records which rung answered, so the Notifications
+tab can say *why* a blank row still reaches someone.
+
+**A database function, not a `_shared/` TypeScript module.** `_shared` sits
+outside each function directory and `deployment-drift-check.yml` diffs each
+*deployed* function against the repo, so a cross-directory import risks showing
+all ten as permanently drifted. It also puts the logic where the data already
+is, and makes it testable without deploying anything.
+
+**`company_notification_contacts`** holds one address per purpose per company —
+one, not a list, so a tenant-controlled group address keeps staff changes out of
+SILO. Read: any active member. Write: `is_admin_user()`, matching Integrations
+rather than the owner-only rename.
+
+The From display name is **sanitised**: a company title carrying a quote, comma,
+angle bracket or CRLF would otherwise split the header.
+
+Verified by `scripts/tests/notification-sender.test.mjs` — 10 assertions, 4
+mutations, all caught, including `fallback-to-silo`. `verify_v2_schema.sql`
+gains **Notification sender resolves per tenant**, which fails if the resolver's
+fallback can ever name a SILO domain.
+

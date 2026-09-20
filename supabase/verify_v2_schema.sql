@@ -4386,6 +4386,33 @@ select 'Entity admin gate is company-scoped' as check_name,
    then 'CRITICAL: authenticated can DELETE entities'
  else 'ok' end as status;
 
+-- A notification must name the tenant it is about, and a reply must reach that
+-- tenant. The last rung is the one that matters: before 20260920170000 nine of
+-- the ten mail functions set no Reply-To at all, so a reply about an invoice
+-- went to whatever the From address was -- i.e. to SILO.
+select 'Notification sender resolves per tenant' as check_name,
+ case
+ when not exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='resolve_notification_sender')
+   then 'MISSING: resolve_notification_sender'
+ when to_regclass('public.company_notification_contacts') is null
+   then 'MISSING: company_notification_contacts'
+ -- The fallback must never name a SILO domain. A resolver that answers with
+ -- support@ or notifications@ turns SILO into the reply desk for every tenant
+ -- that has not configured anything yet, which is every tenant on day one.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='resolve_notification_sender')
+   ~* '(reply|v_reply)[^;]*(get-silo\.com|silo-baseballism\.com)'
+   then 'CRITICAL: the Reply-To fallback can resolve to a SILO address'
+ when not exists(select 1 from pg_policy where polrelid='public.company_notification_contacts'::regclass
+   and polcmd in ('w','a','*','d'))
+   then 'CRITICAL: company_notification_contacts has no write policy'
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='resolve_notification_sender'
+     and has_function_privilege('anon', p.oid, 'execute'))
+   then 'CRITICAL: anon can execute resolve_notification_sender'
+ else 'ok' end as status;
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further

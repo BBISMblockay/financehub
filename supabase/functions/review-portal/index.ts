@@ -20,7 +20,44 @@ const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
 // as either a mistake or a leak of who else uses SILO. SILO_MAIL_FROM is an
 // edge-function secret; the literal stays as the fallback so nothing changes
 // for Baseballism until that secret is set.
-const FROM = Deno.env.get('SILO_MAIL_FROM') || 'SILO <noreply@silo-baseballism.com>';
+// The sender identity is PER TENANT and resolved at send time, not
+// configured: a single env string cannot carry one company's name for one
+// email and another's for the next. resolve_notification_sender() is the one
+// definition of both halves (20260920170000) -- it returns the From header
+// built from the company's own title, and the Reply-To for this KIND of
+// notification, falling back to the tenant's general contact, then the person
+// who triggered it, then an owner-admin, and NEVER to a SILO address.
+//
+// Deliberately NOT a module-level mutable: a Deno isolate serves concurrent
+// requests, so a shared `sender` would put one tenant's name and reply address
+// on another tenant's email. It is passed explicitly instead.
+const FROM_FALLBACK = Deno.env.get('SILO_MAIL_FROM') || 'SILO <noreply@silo-baseballism.com>';
+
+type Sender = { from: string; replyTo: string | null };
+
+async function resolveSender(
+  companyId: string | null | undefined,
+  purpose: string,
+  actorEmail?: string | null,
+): Promise<Sender> {
+  const fallback: Sender = { from: FROM_FALLBACK, replyTo: actorEmail ?? null };
+  if (!companyId) return fallback;
+  try {
+    const { data, error } = await db.rpc('resolve_notification_sender', {
+      p_company_entity_id: companyId,
+      p_purpose: purpose,
+      p_actor_email: actorEmail ?? null,
+    });
+    const row = Array.isArray(data) ? data[0] : data;
+    // A resolution failure must not stop the notification: the message
+    // matters more than the header. Falling back still never names SILO as
+    // the reply address -- it just carries no Reply-To at all.
+    if (error || !row?.from_header) return fallback;
+    return { from: row.from_header as string, replyTo: (row.reply_to as string | null) ?? null };
+  } catch {
+    return fallback;
+  }
+}
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -39,12 +76,13 @@ async function sha256hex(s: string): Promise<string> {
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+async function sendEmail(sender: Sender, to: string, subject: string, html: string): Promise<boolean> {
   if (!RESEND_KEY) return false;
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${RESEND_KEY}` },
-    body: JSON.stringify({ from: FROM, to: [to], subject, html }),
+    body: JSON.stringify({ from: sender.from, to: [to], subject, html,
+      ...(sender.replyTo ? { reply_to: sender.replyTo } : {}) }),
   });
   if (!res.ok) console.error('[review-portal] resend error', res.status, await res.text());
   return res.ok;
@@ -95,7 +133,8 @@ Deno.serve(async (req: Request) => {
 
       const origin = Deno.env.get('SILO_SITE_URL') || 'https://silo-baseballism.com';
       const link = `${origin}/pages/review.html?token=${raw}`;
-      const sent = await sendEmail(
+      const sender = await resolveSender(review.company_entity_id, 'hr_comp', null);
+      const sent = await sendEmail(sender,
         review.employees.email,
         'Your fresh review link',
         `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p style="font-size:14px">Hi ${review.employees.name}, here is a fresh link to your performance review:</p><a href="${link}" style="display:inline-block;background:#14181d;color:#fff;font-weight:700;font-size:14px;padding:12px 22px;border-radius:8px;text-decoration:none">Open your review</a><p style="color:#7f8b96;font-size:12px">This link expires in 30 days.</p></div>`,
@@ -160,7 +199,8 @@ Deno.serve(async (req: Request) => {
 
       const { data: mgr } = await db.from('profiles').select('name, email').eq('id', review.manager_user_id).single();
       if (mgr?.email) {
-        await sendEmail(
+        const sender = await resolveSender(review.company_entity_id, 'hr_comp', null);
+        await sendEmail(sender,
           mgr.email,
           `${review.employees.name} signed their performance review`,
           `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p style="font-size:14px"><strong>${review.employees.name}</strong> acknowledged and signed their ${review.period_label ? review.period_label + ' ' : ''}review.</p>${response ? `<p style="font-size:12px;font-weight:600;color:#7f8b96;margin:16px 0 4px;text-transform:uppercase;letter-spacing:.04em">Employee's Comments</p><p style="font-size:13px;color:#444;border-left:3px solid #ddd;padding-left:12px;white-space:pre-wrap;margin-top:0">${String(response).slice(0, 2000)}</p>` : ''}<p style="font-size:12px;color:#7f8b96">Open the Review Board in SILO to see the finished review.</p></div>`,
@@ -172,6 +212,6 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'Unknown action' }, 400);
   } catch (err) {
     console.error('[review-portal]', err);
-    return json({ error: String(err?.message || err) }, 500);
+    return json({ error: String((err as Error)?.message || err) }, 500);
   }
 });
