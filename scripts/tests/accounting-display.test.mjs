@@ -44,10 +44,10 @@ test('a fetched empty schedule explains the result without asking for the fetch 
 
 test('each suite page pins its shared design assets to the shipped content',async()=>{
  const {createHash}=await import('node:crypto');
- for(const page of ['transactions','accounting-books','qbo-reports','cash-forecast','schedules','fixed-assets','accounting-export']){
+ for(const page of ['transactions','accounting-books','qbo-reports','cash-forecast','schedules','fixed-assets','accounting-export','customers']){
   const html=await readFile(new URL(page+'.html',root),'utf8');
   assert.match(html,/silo-main accounting-workspace/);
-  const assets=['accounting-suite.css',...(page==='cash-forecast'?['cashflow-model.js','cashflow.js','cashflow.css','cashflow-charts.js']:[]),...(page==='transactions'?['plaid-bank-feed.js']:[]),...(page==='accounting-books'?['accounting-books.css','accounting-books.js','qbo-history.js','migration-status.js']:[])];
+  const assets=['accounting-suite.css',...(page==='cash-forecast'?['cashflow-model.js','cashflow.js','cashflow.css','cashflow-charts.js']:[]),...(page==='transactions'?['plaid-bank-feed.js']:[]),...(page==='accounting-books'?['accounting-books.css','accounting-books.js','qbo-history.js','migration-status.js']:[]),...(page==='customers'?['customers.css']:[])];
   for(const asset of assets){
    const hash=createHash('sha256').update(await readFile(new URL(asset,root))).digest('hex').slice(0,12);
    assert.ok(html.includes(`${asset}?v=${hash}`),`${page} must load current ${asset}`);
