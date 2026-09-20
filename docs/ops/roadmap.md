@@ -141,19 +141,28 @@ What remains is coverage and one missing branch.
       agent read the CATALOG. Curating them there upgrades every future run
       instead of auditing output one report at a time
 
-- [ ] **The Marketing RPCs hardcode `location_tag = 'online'`, which is a
-      multi-tenant bug.** `locations` already carries `store_type` per company
-      and CLAUDE.md already documents `locations.store_type = 'online'` as the
-      definition — the literal is drift from the repo's own stated rule. It
-      works only because Baseballism happened to name their online location
-      "online"; the second company's codes are `baseballismdsg_dsg` and
-      `chicago`, so every report would return zeros and read as a quiet week
-      rather than a misconfiguration. Fix is a lookup
-      (`location_tag in (select location_code from locations where
-      store_type = 'online')`) in each `wow_*` RPC and the rollup. No new
-      mapping needed in Integrations. Do it with the before/after md5
-      comparison used for the sales rollup — that method caught the one real
-      difference last time
+- [x] **The Marketing RPCs hardcoded `location_tag = 'online'`.** Done
+      2026-09-20 (`20260920170000`, `20260920180000`), and the reason recorded
+      here needed correcting twice. Seven sites across five DEPLOYED functions,
+      not the handful this file implied. **The fix this file proposed would not
+      have worked**: it said to swap the literal for a
+      `locations.store_type = 'online'` lookup, but measured across the three
+      live tenants that lookup is EMPTY for two of them -- Test Company has two
+      locations, both retail and genuinely no online store, and BlockayOps has
+      no `locations` rows at all. So the swap alone still returns zero rows; it
+      just makes the zero principled. What was actually missing is that an
+      empty scope must READ as "not configured" rather than as $0, which is now
+      `wow_channel_status()` and a banner on `/v2/wow-report.html` and the
+      Integrations location panel. Second correction: a first draft added a
+      `location_channel_map` table on the belief that nothing maintained
+      `store_type` -- true of the Shopify sync, false of the app, since the
+      Integrations location mapper has always written it. That would have been
+      a SECOND admin control for one fact. No new table; `store_type` stays the
+      source of truth behind `silo_channel_location_tags()`. Verified with the
+      before/after method this file asked for: `= any(...)` returns
+      $51,226,349.47 exactly as the literal did, and both migrations assert
+      their way rather than guessing.
+
 - [ ] **Retail has no ad measurement anywhere.** Retail is $7.59M of $25.2M YTD
       (30%), a live `PMax Store Visits` campaign spent $24,069, and every
       Marketing page reads online-store revenue only. `wow_paid_media_reality()`
