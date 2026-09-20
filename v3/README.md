@@ -1198,3 +1198,20 @@ that array: the resolved SQL carried the expected literal, an invalid value
 produced *zero* calls. A tile can look right and be running the wrong query —
 which is exactly how two widgets shipped rendering an `information_schema`
 lookup.
+
+### Company-calendar report dates
+
+A date declaration can opt into `date_basis: "company"`. Relative defaults
+(`today-Nd`, month/year boundaries) then become allowlisted SQL expressions
+using `public.silo_business_today()`, evaluated when the report runs. Exact
+YYYY-MM-DD overrides stay literal dates. Existing declarations retain their
+browser-calendar behavior. Mixed calendars sharing a key surface a conflict.
+The filter bar keeps company dates as separate From/Through controls so its
+browser-local range presets cannot freeze or misstate them. Copying/editing a
+report preserves this declaration. The UI labels these as “Company calendar”.
+
+Shared sales/marketing templates default through yesterday and retain their
+existing IDs and aliases. `weeks_of_cover` still includes incoming stock;
+`weeks_on_hand` is the additional current-stock measure. Cover and attribution
+ratios refuse additive totals. Missing ratio components prevent pooling.
+Assets for this change use `20260920c`.

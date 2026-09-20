@@ -1,0 +1,696 @@
+[
+  {
+    "id": "5110de50-0000-4000-a000-000000000001",
+    "title": "Daily Sales",
+    "queries_run": [
+      "\n-- orders come from shopify_orders_v (one row per order), NOT from summing\n-- the rollup's own `orders` column: that column repeats per product title,\n-- so summing it counted an order once per product and reported 9,995 orders\n-- on a day with 2,298. Caught by the tie-out, not by reading the SQL.\nwith sales as materialized (\n  select day_date,\n         sum(net_sales)  as net_sales,\n         sum(units_sold) as units_sold\n    from sales_by_product_title_daily_v\n   where day_date >= silo_business_today() - 60\n     and day_date <= silo_business_yesterday()\n   group by 1\n),\nord as materialized (\n  select shopify_processed_at::date as day_date, count(*) as orders\n    from shopify_orders_v\n   where shopify_processed_at >= (silo_business_today() - 60)::timestamptz\n     and shopify_processed_at <  silo_business_today()::timestamptz\n     and cancelled_at is null\n   group by 1\n)\nselect s.day_date,\n       round(s.net_sales) as net_sales,\n       s.units_sold,\n       o.orders\n  from sales s\n  left join ord o using (day_date)\n order by s.day_date\n"
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "orders": {
+        "semantic": "count"
+      },
+      "day_date": {
+        "label": "Day",
+        "semantic": "date"
+      },
+      "net_sales": {
+        "label": "Net Sales",
+        "semantic": "currency"
+      },
+      "units_sold": {
+        "label": "Units Sold",
+        "semantic": "count"
+      }
+    },
+    "description": "Daily net sales, units and DISTINCT orders across every channel. Today is excluded — it is always a partial day."
+  },
+  {
+    "id": "5110de50-0000-4000-a000-000000000002",
+    "title": "Top Products — last 30 days",
+    "queries_run": [
+      "\n     select product_title,\n            sum(units_sold) as units_sold,\n            sum(net_sales)  as net_sales,\n            sum(orders)     as orders\n       from sales_by_product_title_daily_v\n      where day_date >= current_date - 30\n        and lower(product_title) <> 'x-redo'\n        and product_title not ilike '%package protection%'\n      group by product_title\n      order by units_sold desc\n      limit 50\n   "
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "orders": {
+        "source": "authored",
+        "semantic": "count"
+      },
+      "net_sales": {
+        "source": "authored",
+        "semantic": "currency"
+      },
+      "units_sold": {
+        "source": "authored",
+        "semantic": "count"
+      },
+      "product_title": {
+        "source": "authored",
+        "semantic": "category"
+      }
+    },
+    "description": "Best-selling products by units over the last 30 days. Excludes x-redo (Redo's Package Protection checkout line item), which is not merchandise."
+  },
+  {
+    "id": "5110de50-0000-4000-a000-000000000003",
+    "title": "Sales by Location — last 30 days",
+    "queries_run": [
+      "\n     select coalesce(location_tag, 'Unknown') as location_tag,\n            sum(net_sales)  as net_sales,\n            sum(units_sold) as units_sold\n       from sales_by_product_title_daily_v\n      where day_date >= current_date - 30\n      group by 1\n      order by net_sales desc\n   "
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "net_sales": {
+        "source": "authored",
+        "semantic": "currency"
+      },
+      "units_sold": {
+        "source": "authored",
+        "semantic": "count"
+      },
+      "location_tag": {
+        "source": "authored",
+        "semantic": "category"
+      }
+    },
+    "description": "Net sales split by sales channel / location over the last 30 days."
+  },
+  {
+    "id": "5110de50-0000-4000-a000-000000000004",
+    "title": "Open Purchase Orders",
+    "queries_run": [
+      "\n     select po_name,\n            factory_name,\n            status,\n            order_date,\n            expected_arrival_date,\n            total_units,\n            total_estimated_cost\n       from v_po_header_summary\n      where coalesce(status, '') not in ('Received', 'Closed', 'Cancelled')\n      order by expected_arrival_date nulls last\n   "
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "status": {
+        "source": "authored",
+        "semantic": "category"
+      },
+      "po_name": {
+        "source": "authored",
+        "semantic": "category"
+      },
+      "order_date": {
+        "source": "authored",
+        "semantic": "date"
+      },
+      "total_units": {
+        "source": "authored",
+        "semantic": "count"
+      },
+      "factory_name": {
+        "source": "authored",
+        "semantic": "category"
+      },
+      "total_estimated_cost": {
+        "source": "authored",
+        "semantic": "currency"
+      },
+      "expected_arrival_date": {
+        "source": "authored",
+        "semantic": "date"
+      }
+    },
+    "description": "Purchase orders not yet received, closed or cancelled, soonest expected arrival first."
+  },
+  {
+    "id": "c1000000-0000-4000-a000-000000000001",
+    "title": "Logistics · Inventory and on order",
+    "queries_run": [
+      "\nselect sum(units_on_hand)   as units_on_hand,\n       sum(units_on_order)  as units_on_order,\n       round(sum(units_on_hand + units_on_order)\n             / nullif(sum(units_per_week_12m), 0), 1) as weeks_of_cover\n  from demand_coverage_by_type_v\n where has_inventory and has_purchase_history\n"
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "units_on_hand": {
+        "semantic": "count"
+      },
+      "units_on_order": {
+        "semantic": "count"
+      },
+      "weeks_of_cover": {
+        "label": "Weeks Of Cover",
+        "semantic": "number"
+      }
+    },
+    "description": "Units on hand, units on purchase order, and weeks of cover across all merchandise."
+  },
+  {
+    "id": "c1000000-0000-4000-a000-000000000002",
+    "title": "Logistics · Purchase orders past their arrival date",
+    "queries_run": [
+      "\nselect po_name,\n       factory_name,\n       status,\n       expected_arrival_date,\n       (silo_business_today() - expected_arrival_date) as days_late,\n       total_units,\n       style_count\n  from v_po_incoming_summary\n where status in ('Confirmed','Sent to Factory','In Production','In Transit')\n   and expected_arrival_date is not null\n   and expected_arrival_date < silo_business_today()\n order by expected_arrival_date asc\n"
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "status": {
+        "semantic": "category"
+      },
+      "po_name": {
+        "label": "PO",
+        "semantic": "category"
+      },
+      "days_late": {
+        "label": "Days Late",
+        "semantic": "count"
+      },
+      "style_count": {
+        "label": "Styles",
+        "semantic": "count"
+      },
+      "total_units": {
+        "label": "Units",
+        "semantic": "count"
+      },
+      "factory_name": {
+        "label": "Factory",
+        "semantic": "category"
+      },
+      "expected_arrival_date": {
+        "label": "Expected",
+        "semantic": "date"
+      }
+    },
+    "description": "Open POs whose expected arrival has passed and which have not been received."
+  },
+  {
+    "id": "c1000000-0000-4000-a000-000000000003",
+    "title": "Logistics · Units arriving by month",
+    "queries_run": [
+      "\nselect date_trunc('month', expected_arrival_date)::date as arrival_month,\n       sum(total_units)          as units_arriving,\n       count(*)                  as purchase_orders\n  from v_po_incoming_summary\n where status in ('Confirmed','Sent to Factory','In Production','In Transit')\n   and expected_arrival_date is not null\n group by 1\n order by 1\n"
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "arrival_month": {
+        "label": "Arrival Month",
+        "semantic": "date"
+      },
+      "units_arriving": {
+        "label": "Units Arriving",
+        "semantic": "count"
+      },
+      "purchase_orders": {
+        "label": "Purchase Orders",
+        "semantic": "count"
+      }
+    },
+    "description": "Units on open purchase orders, grouped by expected arrival month."
+  },
+  {
+    "id": "c1000000-0000-4000-a000-000000000004",
+    "title": "Logistics · Open units by factory",
+    "queries_run": [
+      "\nselect factory_name,\n       sum(total_units)  as units_open,\n       count(*)          as purchase_orders,\n       min(expected_arrival_date) as next_arrival\n  from v_po_incoming_summary\n where status in ('Confirmed','Sent to Factory','In Production','In Transit')\n   and factory_name is not null\n group by 1\n order by 2 desc\n"
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "units_open": {
+        "label": "Units Open",
+        "semantic": "count"
+      },
+      "factory_name": {
+        "label": "Factory",
+        "semantic": "category"
+      },
+      "next_arrival": {
+        "label": "Next Arrival",
+        "semantic": "date"
+      },
+      "purchase_orders": {
+        "label": "Purchase Orders",
+        "semantic": "count"
+      }
+    },
+    "description": "Units on open purchase orders by factory, largest first."
+  },
+  {
+    "id": "c1000000-0000-4000-a000-000000000005",
+    "title": "Logistics · Cover and momentum by product type",
+    "queries_run": [
+      "\nselect product_type,\n       units_on_hand,\n       units_on_order,\n       units_per_week_12m,\n       weeks_of_cover,\n       momentum_pct\n  from demand_coverage_by_type_v\n where has_inventory and has_purchase_history\n   and units_12m >= 500\n order by units_per_week_12m desc nulls last\n"
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "momentum_pct": {
+        "label": "Momentum",
+        "semantic": "percent"
+      },
+      "product_type": {
+        "label": "Product Type",
+        "semantic": "category"
+      },
+      "units_on_hand": {
+        "label": "On Hand",
+        "semantic": "count"
+      },
+      "units_on_order": {
+        "label": "On Order",
+        "semantic": "count"
+      },
+      "weeks_of_cover": {
+        "label": "Weeks Of Cover",
+        "semantic": "number"
+      },
+      "units_per_week_12m": {
+        "label": "Units Per Week (12m)",
+        "semantic": "number"
+      }
+    },
+    "description": "Weeks of cover against 3-month vs 12-month momentum, for merchandise only."
+  },
+  {
+    "id": "c1000000-0000-4000-a000-000000000006",
+    "title": "Logistics · Running thin",
+    "queries_run": [
+      "\nselect product_type,\n       units_on_hand,\n       units_on_order,\n       units_per_week_12m,\n       weeks_of_cover,\n       momentum_pct\n  from demand_coverage_by_type_v\n where has_inventory and has_purchase_history\n   and units_12m >= 500\n   and weeks_of_cover is not null\n   and weeks_of_cover < {{cover_weeks}}\n order by weeks_of_cover asc\n"
+    ],
+    "parameters": [
+      {
+        "key": "cover_weeks",
+        "type": "number",
+        "label": "Cover under (weeks)",
+        "default": 26
+      }
+    ],
+    "columns_metadata": {
+      "momentum_pct": {
+        "label": "Momentum",
+        "semantic": "percent"
+      },
+      "product_type": {
+        "label": "Product Type",
+        "semantic": "category"
+      },
+      "units_on_hand": {
+        "label": "On Hand",
+        "semantic": "count"
+      },
+      "units_on_order": {
+        "label": "On Order",
+        "semantic": "count"
+      },
+      "weeks_of_cover": {
+        "label": "Weeks Of Cover",
+        "semantic": "number"
+      },
+      "units_per_week_12m": {
+        "label": "Units Per Week (12m)",
+        "semantic": "number"
+      }
+    },
+    "description": "Merchandise types with fewer weeks of cover than the threshold. Empty is a good answer."
+  },
+  {
+    "id": "c1000000-0000-4000-a000-000000000007",
+    "title": "Logistics · Overstocked and slowing",
+    "queries_run": [
+      "\nselect product_type,\n       units_on_hand,\n       units_on_order,\n       weeks_of_cover,\n       momentum_pct,\n       units_per_week_12m\n  from demand_coverage_by_type_v\n where has_inventory and has_purchase_history\n   and units_12m >= 500\n   and weeks_of_cover >= 52\n   and momentum_pct < 0\n order by weeks_of_cover desc\n"
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "momentum_pct": {
+        "label": "Momentum",
+        "semantic": "percent"
+      },
+      "product_type": {
+        "label": "Product Type",
+        "semantic": "category"
+      },
+      "units_on_hand": {
+        "label": "On Hand",
+        "semantic": "count"
+      },
+      "units_on_order": {
+        "label": "On Order",
+        "semantic": "count"
+      },
+      "weeks_of_cover": {
+        "label": "Weeks Of Cover",
+        "semantic": "number"
+      },
+      "units_per_week_12m": {
+        "label": "Units Per Week (12m)",
+        "semantic": "number"
+      }
+    },
+    "description": "Merchandise types carrying more than a year of cover while demand is falling."
+  },
+  {
+    "id": "c1000000-0000-4000-a000-000000000008",
+    "title": "Logistics · Dead stock (velocity-verified)",
+    "queries_run": [
+      "\nselect product_title,\n       product_type,\n       sum(total_available_quantity)                as on_hand,\n       round(sum(total_available_inventory_value))  as value_at_retail,\n       max(last_sold_date)                          as last_sold\n  from inventory_workboard_v\n where velocity_matched\n   and total_available_quantity > 0\n   and product_type is not null\n   and product_type not in ('Package Protection','Bundles & Multi-Packs','Uncategorized','custom_sale')\n group by 1, 2\nhaving sum(sold_30) = 0\n   and sum(total_available_quantity) >= {{min_units}}\n order by 4 desc nulls last\n"
+    ],
+    "parameters": [
+      {
+        "key": "min_units",
+        "type": "number",
+        "label": "At least (units on hand)",
+        "default": 200
+      }
+    ],
+    "columns_metadata": {
+      "on_hand": {
+        "label": "On Hand",
+        "semantic": "count"
+      },
+      "last_sold": {
+        "label": "Last Sold",
+        "semantic": "date"
+      },
+      "product_type": {
+        "label": "Product Type",
+        "semantic": "category"
+      },
+      "product_title": {
+        "label": "Product",
+        "semantic": "category"
+      },
+      "value_at_retail": {
+        "label": "Value At Retail",
+        "semantic": "currency"
+      }
+    },
+    "description": "Stocked products with no units sold in 30 days. Only rows whose sales velocity actually matched."
+  },
+  {
+    "id": "c1000000-0000-4000-a000-000000000009",
+    "title": "Logistics · Sell-through by product type",
+    "queries_run": [
+      "\nselect product_type,\n       units_3m                as units_sold_3m,\n       units_on_hand,\n       round(units_3m / nullif(units_3m + units_on_hand, 0) * 100, 1) as sell_through_pct\n  from demand_coverage_by_type_v\n where has_inventory and has_purchase_history\n   and units_12m >= 500\n order by units_3m desc nulls last\n"
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "product_type": {
+        "label": "Product Type",
+        "semantic": "category"
+      },
+      "units_on_hand": {
+        "label": "On Hand",
+        "semantic": "count"
+      },
+      "units_sold_3m": {
+        "label": "Units Sold (3m)",
+        "semantic": "count"
+      },
+      "sell_through_pct": {
+        "label": "Sell-Through",
+        "semantic": "percent"
+      }
+    },
+    "description": "Units sold in the last 3 months against units still on hand."
+  },
+  {
+    "id": "c1000000-0000-4000-a000-00000000000a",
+    "title": "Logistics · Top products by units sold",
+    "queries_run": [
+      "\nselect product_title,\n       product_type,\n       sum(units_sold) as units_sold,\n       sum(net_sales)  as net_sales,\n       count(distinct day_date) as days_with_sales\n  from sales_by_product_title_daily_v\n where day_date >= {{date_from}}\n   and product_title is not null\n   and product_title <> 'x-redo'\n group by 1, 2\n order by 3 desc\n"
+    ],
+    "parameters": [
+      {
+        "key": "date_from",
+        "type": "date",
+        "label": "Since",
+        "default": "today-28d"
+      }
+    ],
+    "columns_metadata": {
+      "net_sales": {
+        "label": "Net Sales",
+        "semantic": "currency"
+      },
+      "units_sold": {
+        "label": "Units Sold",
+        "semantic": "count"
+      },
+      "product_type": {
+        "label": "Product Type",
+        "semantic": "category"
+      },
+      "product_title": {
+        "label": "Product",
+        "semantic": "category"
+      },
+      "days_with_sales": {
+        "label": "Days With Sales",
+        "semantic": "count"
+      }
+    },
+    "description": "Best-selling products over the chosen window, by units."
+  },
+  {
+    "id": "c3000000-0000-4000-a000-000000000001",
+    "title": "Ownership · Sales vs last year",
+    "queries_run": [
+      "\n-- AS MATERIALIZED is load-bearing, not style. Without it Postgres inlines\n-- these CTEs and re-scans them once per period per lateral -- twelve scans\n-- of twenty months of sales and orders. Measured: 14,949ms inlined,\n-- 588ms materialised.\nwith asof as (select (silo_business_yesterday()) as d),\nspan as (select (date_trunc('year', (select d from asof))::date - interval '1 year')::date as from_d),\ndaily as materialized (\n  select day_date, sum(total_net_sales) as net_sales, sum(total_quantity_sold) as units,\n         sum(total_refunds) as refunds\n    from wow_sales_daily_type_v\n   where day_date >= (select from_d from span) and day_date <= (select d from asof)\n   group by 1\n),\ndaily_orders as materialized (\n  select o.shopify_processed_at::date as day_date, count(*) as orders\n    from shopify_orders_v o\n   where o.shopify_processed_at >= (select from_d from span)::timestamptz\n     and o.shopify_processed_at <  ((select d from asof) + 1)::timestamptz\n     and o.cancelled_at is null\n   group by 1\n),\nperiods as (\n  select 'Yesterday' as period, 1 as ord, d as start_d, d as end_d from asof\n  union all select 'Last 7 days',   2, d - 6, d from asof\n  union all select 'Month to date', 3, date_trunc('month', d)::date, d from asof\n  union all select 'Year to date',  4, date_trunc('year', d)::date, d from asof\n)\nselect p.period,\n       round(dc.net_sales)  as net_sales,\n       round(dl.net_sales)  as net_sales_ly,\n       round((dc.net_sales / nullif(dl.net_sales,0) - 1) * 100, 1) as vs_last_year,\n       o.orders,\n       round(dc.net_sales / nullif(o.orders,0), 2) as aov,\n       dc.units::bigint     as units,\n       round(dc.refunds)    as refunds\n  from periods p\n  left join lateral (select sum(net_sales) net_sales, sum(units) units, sum(refunds) refunds\n                       from daily where day_date between p.start_d and p.end_d) dc on true\n  left join lateral (select sum(net_sales) net_sales from daily\n                      where day_date between (p.start_d - interval '1 year')::date\n                                         and (p.end_d   - interval '1 year')::date) dl on true\n  left join lateral (select sum(orders) orders from daily_orders\n                      where day_date between p.start_d and p.end_d) o on true\n order by p.ord\n"
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "aov": {
+        "label": "AOV",
+        "semantic": "currency"
+      },
+      "units": {
+        "semantic": "count"
+      },
+      "orders": {
+        "semantic": "count"
+      },
+      "period": {
+        "label": "Period",
+        "semantic": "category"
+      },
+      "refunds": {
+        "semantic": "currency"
+      },
+      "net_sales": {
+        "label": "Net Sales",
+        "semantic": "currency"
+      },
+      "net_sales_ly": {
+        "label": "Net Sales LY",
+        "semantic": "currency"
+      },
+      "vs_last_year": {
+        "label": "vs Last Year",
+        "semantic": "percent"
+      }
+    },
+    "description": "Yesterday, last 7 days, month to date and year to date, each against the same period a year ago."
+  },
+  {
+    "id": "c3000000-0000-4000-a000-000000000002",
+    "title": "Ownership · Net sales by day",
+    "queries_run": [
+      "\nselect day_date,\n       round(sum(total_net_sales)) as net_sales,\n       sum(total_quantity_sold)    as units\n  from sales_by_day_verification_v\n where day_date >= {{date_from}}\n   and day_date <= silo_business_yesterday()\n group by 1\n order by 1\n"
+    ],
+    "parameters": [
+      {
+        "key": "date_from",
+        "type": "date",
+        "label": "Since",
+        "default": "today-90d"
+      }
+    ],
+    "columns_metadata": {
+      "units": {
+        "semantic": "count"
+      },
+      "day_date": {
+        "label": "Day",
+        "semantic": "date"
+      },
+      "net_sales": {
+        "label": "Net Sales",
+        "semantic": "currency"
+      }
+    },
+    "description": "Daily net sales across every channel. Today is excluded — it is always a partial day."
+  },
+  {
+    "id": "c3000000-0000-4000-a000-000000000003",
+    "title": "Ownership · Sales by channel",
+    "queries_run": [
+      "\n-- subtotal_price, NOT total_price. total_price includes tax and shipping,\n-- which over 28 days is $115k tax + $110k shipping -- so a channel tile\n-- built on it totalled $2.25M against the board's $1.95M of net sales, and\n-- the two numbers sat one tile apart without tying. subtotal_price is\n-- merchandise only and is already net of discounts; it lands within ~4% of\n-- net sales, the remainder being refunds, which are separate transactions\n-- in shopify_orders and so cannot be netted here.\nselect resolved_channel_name          as channel,\n       count(*)                       as orders,\n       round(sum(subtotal_price))     as merch_revenue,\n       round(avg(subtotal_price), 2)  as aov\n  from shopify_orders_v\n where shopify_processed_at >= {{date_from}}::timestamptz\n   and shopify_processed_at <  silo_business_today()::timestamptz\n   and cancelled_at is null\n group by 1\n order by 3 desc\n"
+    ],
+    "parameters": [
+      {
+        "key": "date_from",
+        "type": "date",
+        "label": "Since",
+        "default": "today-28d"
+      }
+    ],
+    "columns_metadata": {
+      "aov": {
+        "label": "AOV",
+        "semantic": "currency"
+      },
+      "orders": {
+        "semantic": "count"
+      },
+      "channel": {
+        "semantic": "category"
+      },
+      "merch_revenue": {
+        "label": "Merch Revenue",
+        "semantic": "currency"
+      }
+    },
+    "description": "Orders and merchandise revenue by Shopify sales channel. Merchandise revenue is the order subtotal — before tax, shipping and refunds — so it will not tie exactly to net sales."
+  },
+  {
+    "id": "c3000000-0000-4000-a000-000000000004",
+    "title": "Ownership · Paid media by platform",
+    "queries_run": [
+      "\nselect platform,\n       round(sum(spend))                                      as spend,\n       round(sum(conversion_value))                           as platform_claimed_value,\n       round(sum(conversion_value) / nullif(sum(spend),0), 2) as claimed_roas,\n       round(sum(conversions))                                as claimed_conversions,\n       round(sum(spend) / nullif(sum(conversions),0), 2)      as cost_per_conversion,\n       sum(clicks)                                            as clicks\n  from marketing_kpis_daily\n where day_date >= {{date_from}}\n   and day_date <= silo_business_yesterday()\n   and spend > 0\n group by 1\n order by 2 desc\n"
+    ],
+    "parameters": [
+      {
+        "key": "date_from",
+        "type": "date",
+        "label": "Since",
+        "default": "today-28d"
+      }
+    ],
+    "columns_metadata": {
+      "spend": {
+        "semantic": "currency"
+      },
+      "clicks": {
+        "semantic": "count"
+      },
+      "platform": {
+        "semantic": "category"
+      },
+      "claimed_roas": {
+        "label": "Claimed ROAS",
+        "semantic": "number"
+      },
+      "claimed_conversions": {
+        "label": "Claimed Conversions",
+        "semantic": "count"
+      },
+      "cost_per_conversion": {
+        "label": "Cost Per Conversion",
+        "semantic": "currency"
+      },
+      "platform_claimed_value": {
+        "label": "Platform Claimed Value",
+        "semantic": "currency"
+      }
+    },
+    "description": "Spend, platform-claimed return and cost per claimed conversion. Analytics-only sources are excluded."
+  },
+  {
+    "id": "c3000000-0000-4000-a000-000000000005",
+    "title": "Ownership · What the ad platforms claim vs what actually sold",
+    "queries_run": [
+      "\n-- Rebuilt from the base tables rather than v_marketing_mer_daily: that view\n-- aggregates ALL of sales_by_day (1.14M rows) inside a CTE with no date\n-- bound, so an outer date filter cannot save it. Same definition, same\n-- numbers (verified 375,589 / 924,778 / 1,133,188 over 28 days),\n-- 5,622ms -> 501ms. ga4 is excluded exactly as the view does: it reports no\n-- spend and half a million events, because it is analytics, not ad spend.\nwith spend as materialized (\n  select day_date, sum(spend) as ad_spend, sum(conversion_value) as claimed\n    from marketing_kpis_daily\n   where platform <> 'ga4'\n     and day_date >= {{date_from}} and day_date <= silo_business_yesterday()\n   group by 1\n),\nonline as materialized (\n  select s.day_date, sum(s.total_net_sales) as online_net_sales\n    from sales_by_day s\n    join locations l\n      on l.company_entity_id = s.company_entity_id\n     and l.store_type = 'online'\n     and nullif(btrim(regexp_replace(lower(coalesce(nullif(l.location_code,''), l.location_name)),\n                      '[^a-z0-9]+','_','g'), '_'), '') = s.location_tag\n   where s.day_date >= {{date_from}} and s.day_date <= silo_business_yesterday()\n   group by 1\n)\nselect round(sum(sp.ad_spend))                                        as ad_spend,\n       round(sum(sp.claimed))                                         as platforms_claim,\n       round(sum(o.online_net_sales))                                 as actually_sold_online,\n       round(sum(sp.claimed) / nullif(sum(sp.ad_spend),0), 2)         as claimed_roas,\n       round(sum(o.online_net_sales) / nullif(sum(sp.ad_spend),0), 2) as real_online_roas,\n       round(sum(sp.claimed) / nullif(sum(o.online_net_sales),0), 2)  as claim_ratio\n  from spend sp full join online o using (day_date)\n"
+    ],
+    "parameters": [
+      {
+        "key": "date_from",
+        "type": "date",
+        "label": "Since",
+        "default": "today-28d"
+      }
+    ],
+    "columns_metadata": {
+      "ad_spend": {
+        "label": "Ad Spend",
+        "semantic": "currency"
+      },
+      "claim_ratio": {
+        "label": "Claim Ratio",
+        "semantic": "number"
+      },
+      "claimed_roas": {
+        "label": "Claimed ROAS",
+        "semantic": "number"
+      },
+      "platforms_claim": {
+        "label": "Platforms Claim",
+        "semantic": "currency"
+      },
+      "real_online_roas": {
+        "label": "Real Online ROAS",
+        "semantic": "number"
+      },
+      "actually_sold_online": {
+        "label": "Actually Sold Online",
+        "semantic": "currency"
+      }
+    },
+    "description": "Platform-reported conversion value against real online net sales over the same days. The ratio is how much of a real dollar the platforms take credit for."
+  },
+  {
+    "id": "c3000000-0000-4000-a000-000000000006",
+    "title": "Ownership · Marketing efficiency by day",
+    "queries_run": [
+      "\n-- Same rebuild as the claimed-vs-actual report: base tables with real date\n-- bounds instead of v_marketing_mer_daily, which scans all of sales_by_day.\nwith spend as materialized (\n  select day_date, sum(spend) as ad_spend\n    from marketing_kpis_daily\n   where platform <> 'ga4'\n     and day_date >= {{date_from}} and day_date <= silo_business_yesterday()\n   group by 1\n),\nonline as materialized (\n  select s.day_date, sum(s.total_net_sales) as online_net_sales\n    from sales_by_day s\n    join locations l\n      on l.company_entity_id = s.company_entity_id\n     and l.store_type = 'online'\n     and nullif(btrim(regexp_replace(lower(coalesce(nullif(l.location_code,''), l.location_name)),\n                      '[^a-z0-9]+','_','g'), '_'), '') = s.location_tag\n   where s.day_date >= {{date_from}} and s.day_date <= silo_business_yesterday()\n   group by 1\n)\nselect coalesce(sp.day_date, o.day_date)                                  as day_date,\n       round(coalesce(sp.ad_spend, 0))                                    as ad_spend,\n       round(coalesce(o.online_net_sales, 0))                             as online_net_sales,\n       round(coalesce(o.online_net_sales,0) / nullif(sp.ad_spend,0), 2)   as mer\n  from spend sp full join online o using (day_date)\n order by 1\n"
+    ],
+    "parameters": [
+      {
+        "key": "date_from",
+        "type": "date",
+        "label": "Since",
+        "default": "today-28d"
+      }
+    ],
+    "columns_metadata": {
+      "mer": {
+        "label": "MER",
+        "semantic": "number"
+      },
+      "ad_spend": {
+        "label": "Ad Spend",
+        "semantic": "currency"
+      },
+      "day_date": {
+        "label": "Day",
+        "semantic": "date"
+      },
+      "online_net_sales": {
+        "label": "Online Net Sales",
+        "semantic": "currency"
+      }
+    },
+    "description": "Daily ad spend against online net sales, and the resulting MER."
+  },
+  {
+    "id": "c3000000-0000-4000-a000-000000000007",
+    "title": "Ownership · Upcoming launches",
+    "queries_run": [
+      "\nselect launch_date,\n       title,\n       coalesce(launch_type, '—')     as launch_type,\n       expected_units,\n       launch_readiness,\n       (launch_date - silo_business_today())   as days_away\n  from launch_calendar\n where launch_date >= silo_business_today()\n order by launch_date\n"
+    ],
+    "parameters": null,
+    "columns_metadata": {
+      "title": {
+        "label": "Launch",
+        "semantic": "category"
+      },
+      "days_away": {
+        "label": "Days Away",
+        "semantic": "count"
+      },
+      "launch_date": {
+        "label": "Launch Date",
+        "semantic": "date"
+      },
+      "launch_type": {
+        "label": "Type",
+        "semantic": "category"
+      },
+      "expected_units": {
+        "label": "Expected Units",
+        "semantic": "count"
+      },
+      "launch_readiness": {
+        "label": "Readiness",
+        "semantic": "category"
+      }
+    },
+    "description": "Everything on the launch calendar from today forward."
+  }
+]

@@ -124,6 +124,7 @@
         label: String(raw.label || '').trim() || key.replace(/_/g, ' '),
         default: raw.default === undefined || raw.default === null ? '' : String(raw.default),
       };
+      if (type === 'date' && raw.date_basis === 'company') decl.date_basis = 'company';
       if (type === 'enum') {
         decl.options = (Array.isArray(raw.options) ? raw.options : [])
           .map((o) => String(o)).filter((o) => o !== '');
@@ -170,6 +171,21 @@
     }
 
     if (decl.type === 'date') {
+      // Only generated, allowlisted expressions can cross this boundary.
+      // Resolve at execution, in the active company's calendar, not the viewer's.
+      if (decl.date_basis === 'company') {
+        const token = raw.trim().toLowerCase();
+        const today = '(select public.silo_business_today())';
+        const relative = RELATIVE_RE.exec(token);
+        if (relative) return { literal: `(${today} - ${Number(relative[1] || 0)})` };
+        const boundaries = {
+          month_start: `date_trunc('month', ${today})::date`,
+          year_start: `date_trunc('year', ${today})::date`,
+          month_end: `(date_trunc('month', ${today}) + interval '1 month - 1 day')::date`,
+          year_end: `(date_trunc('year', ${today}) + interval '1 year - 1 day')::date`,
+        };
+        if (Object.prototype.hasOwnProperty.call(boundaries, token)) return { literal: `(${boundaries[token]})` };
+      }
       const iso = resolveDateExpr(raw);
       if (!iso) return { error: `"${label}" must be ${DATE_HINT}.` };
       return { literal: `date '${iso}'` };
@@ -280,6 +296,9 @@
         }
         prev.usedBy.push(w.id);
         if (prev.type !== d.type) prev.conflict = `declared as both ${prev.type} and ${d.type}`;
+        if (prev.type === 'date' && d.type === 'date' && prev.date_basis !== d.date_basis) {
+          prev.conflict = 'reports use different calendars; use separate date parameters';
+        }
         if (prev.type === 'enum' && d.type === 'enum') {
           // Intersect: only offer a choice EVERY report using this key can
           // accept, so picking one can never break a tile.

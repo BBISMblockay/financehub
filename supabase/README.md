@@ -1689,3 +1689,18 @@ asserting against Baseballism would pass whether or not the fix is present.
 `verify_v2_schema.sql` gains **Entity admin gate is company-scoped**, confirmed
 CRITICAL against production before the migration was applied.
 
+### Canned report accuracy — 20260920075344
+
+Updates 16 existing global report definitions in place; IDs, output aliases,
+query index and private copies remain stable. Removes hidden PO-history stock
+filters, separates on-hand from incoming cover, requires complete zero-sales
+evidence, includes paid attribution on zero-spend days, and preserves missing
+marketing measures as NULL. Sales totals use the canonical de-duplicated view;
+orders use company-local date boundaries. Relative defaults are resolved by
+the company-calendar parameter support in v3.
+
+Deploy the frontend **before** applying the migration, then run the schema
+verifier and `run_report_tieouts()` as the relevant tenant. Strict checks can
+flag existing source/rollup staleness; they do not repair ingestion. No new
+secrets, functions, policies or source-data writes. See
+`docs/ops/canned-report-accuracy.md` and the isolated database test.

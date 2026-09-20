@@ -2415,6 +2415,24 @@ select
     else 'ok'
   end as system_reports_tie_out;
 
+-- Canned report accuracy definitions (fixture-tested).
+with expected(id) as (select unnest(array['5110de50-0000-4000-a000-000000000001','5110de50-0000-4000-a000-000000000002','5110de50-0000-4000-a000-000000000003','c3000000-0000-4000-a000-000000000001','c3000000-0000-4000-a000-000000000002','c3000000-0000-4000-a000-000000000003','c3000000-0000-4000-a000-000000000004','c3000000-0000-4000-a000-000000000005','c3000000-0000-4000-a000-000000000006','c1000000-0000-4000-a000-000000000001','c1000000-0000-4000-a000-000000000005','c1000000-0000-4000-a000-000000000006','c1000000-0000-4000-a000-000000000007','c1000000-0000-4000-a000-000000000008','c1000000-0000-4000-a000-000000000009','c1000000-0000-4000-a000-00000000000a']::uuid[]))
+select case
+ when exists (select 1 from expected e left join public.silo_chat_saved_reports r on r.id=e.id
+              where r.id is null or r.source <> 'system' or r.company_entity_id is not null)
+ then 'MISSING — shared canned report definitions'
+ when exists (select 1 from expected e join public.silo_chat_saved_reports r on r.id=e.id
+              where r.parameters is null or exists (
+                select 1 from jsonb_array_elements(r.parameters) p
+                where p->>'type'='date' and (p->>'date_basis' is distinct from 'company' or p->>'default' !~ '^today-[0-9]+d$')))
+ then 'STALE — canned report defaults must follow the company calendar'
+ when exists (select 1 from expected e where not exists (
+              select 1 from public.silo_report_tieouts t where t.report_id=e.id and t.enabled
+              and t.kind='reconciliation' and t.tolerance<=0.01 and t.check_sql like '%md5(queries_run::text || parameters::text)%'))
+ then 'WEAK — canned reports need strict checks tied to their deployed definitions'
+ else 'ok' end as canned_report_accuracy;
+-- End canned report accuracy definitions.
+
 select
   case
     when not exists (select 1 from information_schema.columns

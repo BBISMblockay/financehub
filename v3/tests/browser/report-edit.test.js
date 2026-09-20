@@ -231,12 +231,26 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
 
   // ── A central system definition ────────────────────────────────────
   console.log('\n── a central SILO definition ──');
+  await p.evaluate(() => {
+    const db=window.__FAKE_DB__;
+    const r=db.silo_chat_saved_reports.find(x=>x.id==='R12');
+    r.parameters=[{key:'date_from',type:'date',default:'today-60d',date_basis:'company'}];
+    r.queries_run=['select {{date_from}} as day_date'];
+    sessionStorage.setItem('__FAKE_DB_STATE__',JSON.stringify({dashboards:db.dashboards,dashboard_widgets:db.dashboard_widgets,silo_chat_saved_reports:db.silo_chat_saved_reports,profiles:db.profiles}));
+  });
   await openReport('R12');
   ok('a system report is read-only for everyone, including its own company',
      (await p.textContent('#pageTitle')).includes('read-only'));
   ok('and says it is shared by every company',
      /every company/.test(await p.textContent('#status')),
      await p.textContent('#status'));
+  ok('opening a central report preserves its company calendar',
+    await p.evaluate(()=>window.__siloReportBuilder.cfg.parameters[0].date_basis==='company'));
+  await p.click('#btnPreview'); await p.waitForTimeout(700);
+  await p.click('#btnSave'); await p.waitForTimeout(300);
+  await p.click('#btnConfirmSave'); await p.waitForTimeout(600);
+  ok('a saved copy keeps the rolling company-calendar declaration',await p.evaluate(()=>
+    window.__FAKE_DB__.silo_chat_saved_reports.some(r=>r.id!=='R12'&&r.parameters?.[0]?.date_basis==='company'&&r.parameters[0].default==='today-60d')));
 
   // ── A report that no longer exists ─────────────────────────────────
   console.log('\n── a broken link ──');

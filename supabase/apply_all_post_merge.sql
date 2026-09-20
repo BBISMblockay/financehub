@@ -19008,3 +19008,6 @@ $c$select (select count(*) from v_po_header_summary
 -- and DELETE on entities, since founding and destroying a company are definer
 -- function acts. Idempotent: create-or-replace, drop-if-exists, revokes.
 \i migrations/20260920160000_entity_admin_gate_company_scope.sql
+
+-- Canned report definitions only; deploy v3 company-calendar support first.
+\i migrations/20260920075344_canned_report_accuracy.sql
