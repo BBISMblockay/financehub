@@ -80,6 +80,10 @@
 
   const isRate = (semantic) => semantic === 'percent';
 
+  // These ratios do not always carry their underlying parts in the result.
+  // Treat them as ratios even when saved metadata says "number".
+  const NON_ADDITIVE = new Set(['weeks_of_cover', 'weeks_on_hand', 'claimed_roas', 'real_online_roas', 'claim_ratio', 'cost_per_conversion']);
+
   /** The ratio definition for a column, if SILO knows one. */
   function ratioFor(name) {
     return RATIOS[String(name || '').toLowerCase()] || null;
@@ -116,7 +120,7 @@
    * than the one it fixes.
    */
   function isRatio(field, semantic) {
-    return !!ratioFor(field) || isRate(semantic);
+    return !!ratioFor(field) || NON_ADDITIVE.has(String(field || '').toLowerCase()) || isRate(semantic);
   }
 
   /* first/last/min/max/count SELECT one row's value. They do not combine
@@ -166,9 +170,14 @@
       // One row is not an aggregation -- it is the value.
       if (list.length === 1) return { value: nums[0], method: 'single row' };
 
-      const def = ratioFor(field);
+      let def = ratioFor(field);
       const cols = list[0] ? Object.keys(list[0]) : [];
+      if (field === 'mer' && !cols.includes('net_sales') && cols.includes('online_net_sales')) def = { ...def, numerator: 'online_net_sales' };
+      if (field === 'aov' && !cols.includes('net_sales') && cols.includes('merch_revenue')) def = { ...def, numerator: 'merch_revenue' };
       if (def && cols.includes(def.numerator) && cols.includes(def.denominator)) {
+        if (list.some((r) => num(r[def.numerator]) === null || num(r[def.denominator]) === null)) {
+          return { value: null, refused: true, note: 'Some rows are missing the values needed for this ratio' };
+        }
         const n = sumOf(list, def.numerator);
         const d = sumOf(list, def.denominator);
         if (n !== null && d) {

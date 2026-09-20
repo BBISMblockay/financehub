@@ -197,5 +197,19 @@ console.log('\n── month_end / year_end ──');
     ok(P.toLiteral({ key: 'd', type: 'date', label: 'D' }, 'quarter_end').error));
 }
 
+t('company-calendar defaults remain relative SQL through normalize/substitute', () => {
+  const ds = [{key:'d',type:'date',date_basis:'company',default:'today-28d'}];
+  eq(P.substitute('select {{d}}',ds,{}).sql,'select ((select public.silo_business_today()) - 28)');
+  eq(P.substitute('select {{d}}',ds,{d:'2024-02-29'}).sql,"select date '2024-02-29'");
+  ok(P.substitute('select {{d}}',ds,{d:'today-1d); select 1 --'}).error);
+  ok(P.substitute('select {{d}}',ds,{d:'2025-02-29'}).error);
+});
+t('mixed company/browser calendars do not silently merge', () => {
+  const ds=P.mergeDeclarations([
+    {id:'a',query_sql:'select {{d}}',report_parameters:[{key:'d',type:'date',date_basis:'company',default:'today'}]},
+    {id:'b',query_sql:'select {{d}}',report_parameters:[{key:'d',type:'date',default:'today'}]},
+  ]);
+  ok(ds[0].conflict);
+});
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

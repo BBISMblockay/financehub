@@ -19009,6 +19009,26 @@ $c$select (select count(*) from v_po_header_summary
 -- function acts. Idempotent: create-or-replace, drop-if-exists, revokes.
 \i migrations/20260920160000_entity_admin_gate_company_scope.sql
 
+-- Canned report definitions only; deploy v3 company-calendar support first.
+\i migrations/20260920075344_canned_report_accuracy.sql
+
+-- ── Channel scope resolves from locations, not a literal (2026-09-20) ──────
+-- The five wow_* RPCs carried a hardcoded `location_tag = 'online'` at seven
+-- sites. That only ever matched because Baseballism named their online
+-- location "online"; for a tenant whose codes are `chicago` and
+-- `baseballismdsg_dsg` it matches nothing, and a Marketing page renders an
+-- empty scope as a quiet week rather than as a misconfiguration.
+--
+-- 20260920170000 names the derivation (silo_location_slug /
+-- silo_location_channel / silo_channel_location_tags) over the store_type the
+-- Integrations location mapper has always written, and asserts the derived
+-- online set equals the literal's set for every company before anything moves.
+-- 20260920180000 then rewrites the five DEPLOYED bodies by assertion-guarded
+-- string replacement -- never by retyping them, which is how wow_creatives
+-- nearly lost two headline metrics. Both are idempotent and both refuse
+-- rather than guess.
+\i migrations/20260920170000_location_channel_resolver.sql
+\i migrations/20260920180000_wow_channel_resolver.sql
 -- ── Per-tenant notification sender and Reply-To (2026-09-20) ──────────────
 -- Ten mail functions held one global SILO_MAIL_FROM and nine set no Reply-To
 -- at all, so a reply about an invoice reached SILO rather than the tenant. The
@@ -19016,5 +19036,4 @@ $c$select (select count(*) from v_po_header_summary
 -- company_notification_contacts, resolved at send time by
 -- resolve_notification_sender(). The fallback chain ends at an owner-admin and
 -- never at a SILO address. Idempotent: create-if-not-exists, create-or-replace.
-\i migrations/20260920170000_notification_reply_contacts.sql
-
+\i migrations/20260920190000_notification_reply_contacts.sql

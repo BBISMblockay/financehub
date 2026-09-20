@@ -101,6 +101,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
     await p.waitForSelector('#btnAddWidget:not([hidden])', { timeout: 10000 });
     await p.click('#btnAddWidget');
     await p.waitForSelector('.v3-report-card');
+    await p.click('[data-report-tab="saved"]');
     await p.click('.v3-report-card:has-text("Big series report")');
     await p.waitForSelector('.dw');
 

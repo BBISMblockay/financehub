@@ -80,6 +80,7 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
+  v_actor uuid := auth.uid();
   v_title text;
   v_address text := coalesce(
     nullif(current_setting('silo.notifications_address', true), ''),
@@ -87,6 +88,27 @@ declare
   v_reply text;
   v_source text;
 begin
+  -- A DEFINER function that takes a company id and is granted to `authenticated`
+  -- is an RLS bypass unless it re-checks the caller itself. Without this, a
+  -- member of company A could pass company B's uuid and read B's configured
+  -- reply address -- and, where none is set, B's owner-admin email out of the
+  -- fallback. Found by the independent review on PR #745, reproduced against
+  -- two synthetic tenants; the same shape as the unscoped is_owner_admin() gate
+  -- closed the same day in 20260920160000.
+  --
+  -- auth.uid() is NULL for the service role, which is how every mail function
+  -- calls this: the edge functions keep working, and only a browser session is
+  -- held to its own memberships. The settings page only ever asks about its own
+  -- active company, so nothing legitimate is narrowed.
+  if v_actor is not null and not exists (
+    select 1 from public.entity_memberships m
+    where m.entity_id = p_company_entity_id
+      and m.user_id = v_actor
+  ) then
+    raise exception 'Not a member of this company'
+      using errcode = '42501';
+  end if;
+
   select e.title into v_title from public.entities e where e.id = p_company_entity_id;
 
   -- The display name is the tenant's, the address is always SILO's: the From
@@ -145,6 +167,6 @@ revoke all on function public.resolve_notification_sender(uuid, text, text) from
 grant execute on function public.resolve_notification_sender(uuid, text, text) to authenticated, service_role;
 
 comment on function public.resolve_notification_sender(uuid, text, text) is
-  'The one definition of a notification''s From header and Reply-To. Falls back purpose -> general_ops -> the acting user -> an owner_admin, and NEVER to a SILO address: an unconfigured tenant must not make SILO the reply desk. reply_to_source says which rung answered.';
+  'The one definition of a notification''s From header and Reply-To. An authenticated caller must belong to the company it names; the service role, which is how the mail functions call it, is exempt. Falls back purpose -> general_ops -> the acting user -> an owner_admin, and NEVER to a SILO address: an unconfigured tenant must not make SILO the reply desk. reply_to_source says which rung answered.';
 
 select public.attach_stamp_company_entity_id_triggers();

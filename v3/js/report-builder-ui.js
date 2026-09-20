@@ -308,6 +308,7 @@
           </div>` : ''}
           <div class="bcn-field-group">
             <label class="bcn-label">Default</label>
+            ${p.type === 'date' && p.date_basis === 'company' ? '<span class="bcn-hint">Relative dates follow the company calendar.</span>' : ''}
             <input class="bcn-field bcn-field--mono" data-p="default" data-i="${i}"
                    value="${esc(p.default || '')}"
                    placeholder="${p.type === 'date' ? 'today-27d' : ''}" />
@@ -573,6 +574,7 @@
     cfg.parameters = Array.isArray(rep.parameters) ? rep.parameters.map((d) => ({
       key: d.key || '', label: d.label || '', type: d.type || 'text',
       default: d.default == null ? '' : String(d.default), options: d.options || [],
+      date_basis: d.date_basis,
     })) : [];
 
     editing = {

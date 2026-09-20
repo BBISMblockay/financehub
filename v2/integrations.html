@@ -750,7 +750,7 @@
             <span class="int-card-icon int-card-icon--stripe" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 7H9.5a2.5 2.5 0 0 0 0 5h5a2.5 2.5 0 0 1 0 5H7"/><path d="M12 3v18"/></svg></span>
             <div class="int-card-header-text">
               <h2>Stripe</h2>
-              <p>Two separate things that share a vendor. <strong>Invoicing</strong> bills <em>your</em> customers through <em>your own</em> Stripe account — the money settles to you and never passes through SILO. <strong>Billing</strong> is what this company pays for SILO itself. Neither is managed here; both live on their own pages, and card details never touch SILO. See <a href="https://github.com/BBISMblockay/financehub/blob/main/docs/ops/stripe.md">docs/ops/stripe.md</a>.</p>
+              <p><strong>Customer payments</strong> use your connected Stripe account, so funds settle directly to your business. <strong>SILO billing</strong> is your workspace subscription. Manage each from its own page.</p>
             </div>
             <button type="button" class="int-card-collapse-btn" data-card="stripe" aria-label="Collapse Stripe">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
@@ -779,7 +779,7 @@
     const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      document.getElementById('status').textContent = 'Missing Supabase config';
+      document.getElementById('status').textContent = 'SILO could not start. Please contact support.';
       document.getElementById('status').className = 'bcn-status bcn-status--neg';
       document.getElementById('status').hidden = false;
     }
@@ -842,6 +842,7 @@
     // ── Auth + Chrome ──────────────────────────────────────────────
     let _session = null;
     let _co = null;
+    let _navProfile = 'standard';
 
     db.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { window.location.href = '/pages/login.html'; return; }
@@ -875,6 +876,11 @@
       // login.html (sessionStorage empty on deep links / reopened tabs) by
       // reading the server-side profiles.active_company_id.
       _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(db) || null;
+      _navProfile = window.SiloNav?.resolveNavProfile?.(_co) || 'standard';
+      if (_navProfile === 'standard') {
+        const tiktokButton = document.getElementById('btn-connect-tiktok');
+        if (tiktokButton) tiktokButton.hidden = true;
+      }
 
       loadConnections();
       loadAdConnections();
@@ -1609,6 +1615,7 @@
           <button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;"
             onclick="refreshLocationMapper('${connectionId}')">Refresh</button>
         </div>
+        <div id="chan-scope-${connectionId}" class="int-scope-warn" style="margin-bottom:8px;" hidden></div>
         ${mappedCount < total ? `<div class="int-scope-warn" style="margin-bottom:8px;">
           Sales at unmapped locations fall back to the connection's default location code;
           without one they are skipped (counted in the sync result as <code>no_location_lines</code>).
@@ -1631,6 +1638,46 @@
 
       for (const s of shopifyLocations || []) {
         onLocationMapModeChange(connectionId, s.id);
+      }
+
+      // What a store_type actually MEANS for reporting. Read from the
+      // database (wow_channel_status) rather than re-deriving the mapping in
+      // JS: a second copy of "which store_type counts as online" is the
+      // normalize_merchant trap, where the SQL and the page drift apart and
+      // nothing fails loudly. This panel is where store_type is edited, so it
+      // is where the consequence belongs.
+      renderChannelScope(connectionId);
+    }
+
+    async function renderChannelScope(connectionId) {
+      const box = document.getElementById(`chan-scope-${connectionId}`);
+      if (!box) return;
+      try {
+        const { data, error } = await db.rpc('wow_channel_status', { p_channel: 'online' });
+        if (error) throw new Error(error.message);
+        if (!data) { box.hidden = true; return; }
+        const un = Number(data.unclassified_count || 0);
+        const bits = [];
+        if (data.configured) {
+          bits.push(`Reporting scope: <strong>online</strong> resolves to ${data.location_tag_count} location(s) &mdash; ${(data.location_tags || []).map(escHtml).join(', ')}.`);
+        } else {
+          bits.push('<strong>No location has store type <code>online</code>.</strong> Every Marketing report is scoped to the online channel, so all of them will be empty for this workspace. If this company sells online, set the right location\'s store type to <code>online</code> below.');
+        }
+        if (un > 0) {
+          bits.push(`<strong>${un} location(s) with sales have no store type</strong>, so they are counted in no channel: ${(data.unclassified_tags || []).slice(0, 8).map(escHtml).join(', ')}${un > 8 ? ' &hellip;' : ''}.`);
+        }
+        box.innerHTML = bits.join('<br>');
+        if (data.configured && un === 0) {
+          box.style.background = '#f0fdf4'; box.style.borderColor = '#bbf7d0'; box.style.color = '#166534';
+        } else {
+          box.style.background = ''; box.style.borderColor = ''; box.style.color = '';
+        }
+        box.hidden = false;
+      } catch (e) {
+        // A workspace whose database predates 20260920170000 simply has no
+        // such function; the panel is still fully usable without this line.
+        console.warn('channel scope unavailable:', e.message);
+        box.hidden = true;
       }
     }
 
@@ -1911,6 +1958,7 @@
 
     function renderAdConnections(rows) {
       const tbody = document.getElementById('ad-connections-list');
+      if (_navProfile === 'standard') rows = rows.filter((row) => row.platform !== 'tiktok_ads');
       if (!rows.length) {
         tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><strong>No ad platforms connected</strong>Connect a platform below</div></td></tr>';
         return;

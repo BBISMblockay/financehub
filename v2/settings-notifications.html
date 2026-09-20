@@ -57,14 +57,12 @@
         <div class="ws-card">
           <div class="ws-card-head">
             <div class="ws-title">Company recipients</div>
-            <div class="ws-sub">Derived, not configured</div>
+            <div class="ws-sub">Based on team assignments</div>
           </div>
           <div class="ws-body">
             <p class="ws-note" style="margin-bottom:14px;">
-              SILO has no per-company notification recipient list. Every notification that goes to a
-              <em>team</em> rather than to one named person is addressed by <strong>department</strong>,
-              resolved when it sends. This is that resolution, read live — change it by changing
-              someone's department in <a href="/v2/settings-team.html">Team</a>, not here.
+              Team notifications follow the department assignments shown in
+              <a href="/v2/settings-team.html">Team</a>. This list shows who will receive them today.
             </p>
             <table class="ws-table" id="tblRecipients">
               <thead><tr><th>Notification</th><th>Goes to</th><th>Currently</th></tr></thead>
@@ -82,10 +80,10 @@
             </p>
             <ul class="ws-note" style="margin-top:8px;padding-left:18px;line-height:1.8;">
               <li><strong>Payment request receipts and paid notices</strong> — the person who submitted the request.</li>
-              <li><strong>Compensation decisions</strong> — the manager who raised the request.</li>
+              <li data-grandfathered><strong>Compensation decisions</strong> — the manager who raised the request.</li>
               <li><strong>Mail routing</strong> — the assignee, or the submitter once it is done.</li>
               <li><strong>Sample updates</strong> — the assignee when one is set (email, plus a Slack DM where Slack is configured).</li>
-              <li><strong>Performance reviews</strong> — the employee, then their manager on signature.</li>
+              <li data-grandfathered><strong>Performance reviews</strong> — the employee, then their manager on signature.</li>
             </ul>
           </div>
         </div>
@@ -126,7 +124,7 @@
   const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     document.querySelector('.silo-main').innerHTML =
-      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+      '<div style="padding:48px;text-align:center;font-weight:700">SILO could not start. Please contact support.</div>';
     return;
   }
   const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -142,6 +140,8 @@
     if (ms) setTimeout(() => { n.hidden = true; }, ms);
   }
 
+  // Team-wide notifications resolve their recipients from the active
+  // workspace's department assignments at send time.
   // Each row names the edge function that actually sends, and the department
   // IT selects on -- not a restatement from memory. comp-request-notify emails
   // the finance DEPARTMENT only, deliberately narrower than who may act on a
@@ -165,10 +165,8 @@
   let _contacts = {};
 
   const RULES = [
-    { label: 'New compensation request', who: 'finance department', depts: ['finance'],
-      fn: 'comp-request-notify' },
-    { label: 'Sample requested or received (no assignee)', who: 'logistics department', depts: ['logistics'],
-      fn: 'sample-notify' },
+    { label: 'New compensation request', who: 'Finance', depts: ['finance'], profiles: ['grandfathered'] },
+    { label: 'Sample requested or received (no assignee)', who: 'Logistics', depts: ['logistics'] },
   ];
 
   // Rendered from the RESOLVER, not from the row: what someone needs to know
@@ -261,14 +259,16 @@
       : { data: [] };
     const active = (profiles || []).filter((p) => p.is_active !== false);
 
-    el('tblRecipients').querySelector('tbody').innerHTML = RULES.map((r) => {
+    const profile = window.SiloNav?.resolveNavProfile?.(_co) || 'standard';
+    const rules = RULES.filter((r) => !r.profiles || r.profiles.includes(profile));
+    el('tblRecipients').querySelector('tbody').innerHTML = rules.map((r) => {
       const hits = active.filter((p) => r.depts.includes(String(p.department || '').toLowerCase()));
       // "Nobody" is a real and actionable answer here, so it is stated rather
       // than rendered as an empty cell that reads like a loading failure.
       const list = hits.length
         ? hits.map((p) => esc(p.email || p.name)).join('<br>')
         : '<span class="ws-you">nobody in this workspace — this notification reaches no one</span>';
-      return `<tr><td>${esc(r.label)}<div class="ws-you">${esc(r.fn)}</div></td>
+      return `<tr><td>${esc(r.label)}</td>
         <td>${esc(r.who)}</td><td>${list}</td></tr>`;
     }).join('');
   }
@@ -290,6 +290,9 @@
     });
 
     if (!_co) { setStatus('No active company for this session.', 'neg'); return; }
+    if ((window.SiloNav?.resolveNavProfile?.(_co) || 'standard') === 'standard') {
+      document.querySelectorAll('[data-grandfathered]').forEach((node) => node.remove());
+    }
 
     // Mirrors is_admin_user(): membership role decides where there is one, and
     // the legacy profile role only where there is not. Nav gating is UX; the

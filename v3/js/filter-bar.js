@@ -85,11 +85,11 @@
     const out = [];
     for (const d of decls) {
       if (consumed.has(d.key)) continue;
-      if (d.type === 'date' && !d.conflict) {
+      if (d.type === 'date' && !d.conflict && d.date_basis !== 'company') {
         const m = START_RE.exec(d.key);
         if (m) {
           const prefix = m[1];
-          const partner = decls.find((o) => o !== d && o.type === 'date' && !o.conflict
+          const partner = decls.find((o) => o !== d && o.type === 'date' && !o.conflict && o.date_basis !== 'company'
             && !consumed.has(o.key) && (END_RE.exec(o.key) || [])[1] === prefix);
           if (partner && byKey.has(partner.key)) {
             consumed.add(d.key); consumed.add(partner.key);
@@ -120,11 +120,11 @@
 
   /* A relative token reads as an instruction; the reader needs the date it
      currently means. Both are shown, always -- never one or the other. */
-  function dateNote(v) {
+  function dateNote(v, decl) {
     const iso = resolved(v);
     if (!iso) return '';
     return DATE_PRESETS.some((p) => p.value === v) || /^today/.test(String(v)) || /_(start|end)$/.test(String(v))
-      ? iso : '';
+      ? (decl && decl.date_basis === 'company' ? 'Company calendar' : iso) : '';
   }
 
   function create(options) {
@@ -338,7 +338,15 @@
       return {
         wrap,
         update(v) {
-          const isPreset = DATE_PRESETS.some((p) => p.value === v);
+          // Preserve saved rolling defaults even when they are not one of the
+          // short preset list. Do not turn a rolling 60-day window into a date.
+          const relative = resolved(v) && !/^\d{4}-\d{2}-\d{2}$/.test(String(v));
+          if (relative && !Array.from(sel.options).some((o) => o.value === v)) {
+            const o = document.createElement('option'); o.value = v;
+            o.textContent = /^today-\d+d$/.test(v) ? `${v.slice(6, -1)} days ago` : v;
+            sel.appendChild(o);
+          }
+          const isPreset = !!relative;
           sel.value = isPreset ? v : '__custom';
           const iso = resolved(v);
           input.value = iso || '';
@@ -346,7 +354,7 @@
           // The resolved date is shown for BOTH shapes: a preset needs it
           // because 'today-7d' is not a date, and a literal one shows it in
           // the input itself.
-          note.textContent = iso || '';
+          note.textContent = dateNote(v, decl);
         },
       };
     }
@@ -516,7 +524,7 @@
         if (d.conflict) continue;
         const v = values[d.key];
         if (v === undefined || v === '') continue;
-        const note = [d.type === 'date' ? dateNote(v) : '', reachNote([d.key])]
+        const note = [d.type === 'date' ? dateNote(v, d) : '', reachNote([d.key])]
           .filter(Boolean).join(' · ');
         parts.push(chipHtml(d.label, v, note));
       }

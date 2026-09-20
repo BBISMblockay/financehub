@@ -16,6 +16,11 @@
 //   SENDER_MUTATION=no-purpose        (rung 1 skipped, everything gets general_ops)
 //   SENDER_MUTATION=no-sanitize       (company title goes into the header raw)
 //   SENDER_MUTATION=write-open        (any member may rewrite where replies go)
+//   SENDER_MUTATION=cross-tenant-open (the resolver stops checking the caller's
+//                                      own memberships -- a DEFINER function
+//                                      taking a company id is an RLS bypass
+//                                      unless it re-checks; found by the
+//                                      independent review on PR #745)
 //
 // Run: node scripts/tests/notification-sender.test.mjs
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
@@ -27,7 +32,8 @@ import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/inde
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
 const mutation = process.env.SENDER_MUTATION || '';
-assert.ok(['', 'fallback-to-silo', 'no-purpose', 'no-sanitize', 'write-open'].includes(mutation),
+assert.ok(['', 'fallback-to-silo', 'no-purpose', 'no-sanitize', 'write-open',
+  'cross-tenant-open'].includes(mutation),
   `Unknown mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -85,7 +91,7 @@ await q(`insert into public.entity_memberships(entity_id,user_id,role)
 
 // ── Apply the migration under test ──────────────────────────────────────────
 let sql = await readFile(
-  new URL('supabase/migrations/20260920170000_notification_reply_contacts.sql', root), 'utf8');
+  new URL('supabase/migrations/20260920190000_notification_reply_contacts.sql', root), 'utf8');
 if (mutation === 'fallback-to-silo') {
   sql = sql.replace("v_source := case when v_reply is null then 'none' else 'owner_admin' end;",
     "v_reply := coalesce(v_reply, 'support@get-silo.com'); v_source := 'owner_admin';");
@@ -96,6 +102,8 @@ if (mutation === 'fallback-to-silo') {
   sql = sql.replace(`regexp_replace(btrim(v_title), '["\\r\\n,<>]', '', 'g')`, 'btrim(v_title)');
 } else if (mutation === 'write-open') {
   sql = sql.replace(/and public\.is_admin_user\(\)/g, '');
+} else if (mutation === 'cross-tenant-open') {
+  sql = sql.replace(/  if v_actor is not null and not exists \([\s\S]*?  end if;\n\n/, '');
 }
 await db.exec(sql);
 if (!mutation) await db.exec(sql);   // idempotent: applied twice on a clean run
@@ -199,6 +207,50 @@ await test('an admin can set one', async () => {
     `insert into public.company_notification_contacts(company_entity_id,purpose,reply_to_email)
      values ($1,'purchasing','buying@tenant.com') returning id`, [company]));
   assert.equal(rows.length, 1, 'an admin must be able to configure contacts');
+});
+
+// ── 6. The resolver is not a way around RLS ─────────────────────────────────
+// It is SECURITY DEFINER, it takes a company id, and it is granted to every
+// authenticated user. Without a caller check that is a straight bypass: the
+// direct table read is scoped by RLS, but the RPC would answer about anyone.
+await test('an authenticated member of one company cannot resolve another', async () => {
+  const otherCo = randomUUID();
+  const otherOwner = randomUUID();
+  await q(`insert into auth.users(id,email) values ($1,'owner@other.com')`, [otherOwner]);
+  await q(`insert into public.entities(id,module,entity_type,entity_key,source,title,meta)
+           values ($1,'finance_hub','company','other','seed','Other Co','{}'::jsonb)`, [otherCo]);
+  await q(`update public.profiles set active_company_id=$2, is_active=true where id=$1`,
+    [otherOwner, otherCo]);
+  await q(`insert into public.entity_memberships(entity_id,user_id,role) values ($1,$2,'owner_admin')`,
+    [otherCo, otherOwner]);
+  await q(`insert into public.company_notification_contacts(company_entity_id,purpose,reply_to_email)
+           values ($1,'finance_ap','secret-finance@other.com')`, [otherCo]);
+
+  // The direct read is already scoped; this proves the fixture's RLS works, so
+  // a leak through the RPC below is the RPC's, not the table's.
+  const direct = await as(admin, () => q(
+    `select reply_to_email from public.company_notification_contacts where company_entity_id=$1`,
+    [otherCo]));
+  assert.equal(direct.length, 0, 'RLS should already hide another company\'s contacts');
+
+  await assert.rejects(
+    () => as(admin, () => resolve(otherCo, 'finance_ap')),
+    /Not a member of this company/,
+    'an authenticated caller resolved a company it does not belong to -- this leaks that ' +
+    'company\'s reply address, and its owner-admin email through the fallback');
+
+  // And the same caller still resolves its OWN company.
+  const own = await as(admin, () => resolve(company, 'finance_ap'));
+  assert.equal(own.reply_to, 'finance@tenant.com', 'the caller lost access to its own company');
+});
+
+await test('the service role (every mail function) is not narrowed by that check', async () => {
+  // auth.uid() is null for the service role, which is how all ten edge
+  // functions call this. If that were held to memberships, every notification
+  // would stop sending.
+  const r = await resolve(company, 'finance_ap');
+  assert.equal(r.reply_to, 'finance@tenant.com');
+  assert.equal(r.from_header, 'Baseballism - SILO <notifications@get-silo.com>');
 });
 
 console.log(`\n${passed} assertions passed${mutation ? ` (mutation: ${mutation})` : ''}.`);

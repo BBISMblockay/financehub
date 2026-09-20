@@ -276,6 +276,7 @@
     </header>
 
     <div class="bcn-status" id="status" hidden></div>
+    <div class="bcn-status" id="channelBanner" hidden></div>
 
     <div class="bcn-kpi-band">
       <div class="bcn-kpi"><div class="bcn-kpi-label">Total Sales</div><div id="kSales" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kSalesSub">matches Shopify "total sales"</div></div>
@@ -514,6 +515,38 @@
 
   const el = id => document.getElementById(id);
   const esc = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+
+  // Every figure on this page is scoped to the ONLINE channel, which is
+  // derived from locations.store_type (silo_channel_location_tags). A
+  // workspace with no online location resolves to an EMPTY scope -- the
+  // correct answer for a retail-only company, and one that must never be
+  // drawn as a row of zeroes. Measured 2026-09-20: of three live tenants,
+  // exactly one has an online location.
+  function renderChannelBanner(st) {
+    const box = document.getElementById('channelBanner');
+    if (!box) return;
+    if (!st) { box.hidden = true; return; }
+    const parts = [];
+    if (!st.configured) {
+      parts.push('<strong>No online location is configured for this workspace.</strong> '
+        + 'Every number on this page is scoped to the online channel, so they read as empty \u2014 '
+        + 'that is "not configured", not "no sales". Set a location\'s store type to '
+        + '<code>online</code> in <a href="/v2/integrations.html">Integrations</a>.');
+    }
+    const un = Number(st.unclassified_count || 0);
+    if (un > 0) {
+      const tags = (st.unclassified_tags || []).slice(0, 8).map(esc).join(', ');
+      parts.push('<strong>' + un + ' location' + (un === 1 ? '' : 's')
+        + ' with sales ' + (un === 1 ? 'has' : 'have') + ' no store type</strong>, so '
+        + (un === 1 ? 'it is' : 'they are') + ' counted in no channel at all: <code>' + tags + '</code>'
+        + (un > 8 ? ' \u2026' : '') + '. Classify ' + (un === 1 ? 'it' : 'them')
+        + ' in <a href="/v2/integrations.html">Integrations</a>.');
+    }
+    if (!parts.length) { box.hidden = true; return; }
+    box.className = 'bcn-status bcn-status--' + (st.configured ? 'info' : 'neg');
+    box.innerHTML = parts.join('<br><br>');
+    box.hidden = false;
+  }
   const money  = v => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v));
   const money2 = v => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(Number(v));
   const intFmt = v => (v==null||!isFinite(v)) ? '—' : Math.round(Number(v)).toLocaleString();
@@ -2093,6 +2126,10 @@
       const { data } = await sb.rpc('wow_data_through');
       through = data?.complete_through || null;
     } catch (e) { console.warn('data_through unavailable:', e.message); }
+    try {
+      const { data: chan } = await sb.rpc('wow_channel_status', { p_channel: 'online' });
+      renderChannelBanner(chan);
+    } catch (e) { console.warn('channel status unavailable:', e.message); }
     DATA_THROUGH = through;
     el('reportDate').value = through || iso(new Date());
     // Cap the picker at today, NOT at the last complete day. Capping at

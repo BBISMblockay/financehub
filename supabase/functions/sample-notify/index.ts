@@ -468,8 +468,8 @@ Deno.serve(async (req: Request) => {
     // other event (requested, received, ready, size-request) still
     // broadcasts to the channel even when there's an assignee — the
     // assignee's personal DM is additional reach, not a replacement.
+    const sender = await resolveSender(record.company_entity_id, 'purchasing', null);
     const [emailResult, slackResult, slackDmResult] = await Promise.all([
-      const sender = await resolveSender(record.company_entity_id, 'purchasing', null);
       sendEmail(sender, toEmails, subject, html),
       type === 'SAMPLE_ASSIGNED'
         ? Promise.resolve<SendResult>({ sent: false, reason: 'assignment kept private — DM/email only' })

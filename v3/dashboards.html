@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SILO · Reports</title>
+  <title>SILO · Dashboards</title>
   <link rel="stylesheet" href="../v2/beacon.css" />
   <link rel="stylesheet" href="../v2/silo-brand.css" />
 <!--
@@ -16,7 +16,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260911a" />
+  <link rel="stylesheet" href="dashboard.css?v=20260920c" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -35,19 +35,19 @@
          (accounting, purchasing, planning) into a generic canvas. -->
     <header class="bcn-header v3-header">
       <div class="bcn-header-title v3-header-title">
-        <h1>Reports</h1>
-        <span class="bcn-pill">In testing</span>
+        <h1 id="hubTitle">Reports</h1>
+        <span class="bcn-pill" id="hubTestingPill">In testing</span>
       </div>
       <div class="bcn-header-actions">
         <a class="bcn-btn bcn-btn--ghost" href="/v2/silo-chat.html">Ask SILO</a>
-        <a class="bcn-btn bcn-btn--ghost" href="/v3/report-builder.html">+ New report</a>
+        <a class="bcn-btn bcn-btn--ghost" id="btnNewReport" href="/v3/report-builder.html">+ New report</a>
         <button type="button" class="bcn-btn bcn-btn--primary" id="btnNew">+ New dashboard</button>
       </div>
     </header>
 
     <div class="bcn-tabs v3-hub-tabs" role="tablist" aria-label="Reports">
       <button type="button" class="bcn-tab bcn-tab--active" role="tab" data-pane="dashboards" aria-selected="true">Dashboards</button>
-      <button type="button" class="bcn-tab" role="tab" data-pane="reports" aria-selected="false">Saved reports</button>
+      <button type="button" class="bcn-tab" id="tabReports" role="tab" data-pane="reports" aria-selected="false">Saved reports</button>
     </div>
 
     <div class="bcn-status" id="status" hidden></div>
@@ -115,10 +115,10 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260911a"></script>
-<script src="js/field-semantics.js?v=20260911a"></script>
-<script src="js/metrics.js?v=20260911a"></script>
-<script src="js/chart-adapter.js?v=20260911a"></script>
+<script src="js/report-params.js?v=20260920c"></script>
+<script src="js/field-semantics.js?v=20260920c"></script>
+<script src="js/metrics.js?v=20260920c"></script>
+<script src="js/chart-adapter.js?v=20260920c"></script>
 <script>
 (function () {
   'use strict';
@@ -143,6 +143,7 @@
   }
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   let userId = null;
+  let navProfile = 'standard';
   let reportRows = [];
   let reportFilter = '';
 
@@ -151,11 +152,14 @@
     if (error) { el('listBody').innerHTML = `<div class="v3-empty">Couldn't load dashboards: ${esc(error.message)}</div>`; return; }
     const rows = data || [];
     if (!rows.length) {
-      el('listBody').innerHTML = `<div class="v3-empty">
-        No dashboards yet. Create one, then drop any saved report onto the canvas — an answer pinned from
-        <a href="/v2/silo-chat.html">Ask SILO</a>, a central SILO definition, or one you
-        <a href="/v3/report-builder.html">build from any table or view</a>.
-      </div>`;
+      el('listBody').innerHTML = navProfile === 'standard'
+        ? `<div class="v3-empty">No dashboards yet. Create one or use
+            <a href="/v2/silo-chat.html">Ask SILO</a> to turn a question into a reusable view.</div>`
+        : `<div class="v3-empty">
+            No dashboards yet. Create one, then drop any saved report onto the canvas — an answer pinned from
+            <a href="/v2/silo-chat.html">Ask SILO</a>, a central SILO definition, or one you
+            <a href="/v3/report-builder.html">build from any table or view</a>.
+          </div>`;
       return;
     }
     el('listBody').innerHTML = `<div class="v3-dash-grid">${rows.map((d) => `
@@ -287,7 +291,16 @@
     const sessRes = await sb.auth.getSession();
     if (!sessRes?.data?.session) { window.location.href = '/pages/login.html'; return; }
     userId = sessRes.data.session.user.id;
-    await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+    const company = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+    navProfile = window.SiloNav?.resolveNavProfile?.(company) || 'standard';
+
+    if (navProfile === 'standard') {
+      el('hubTitle').textContent = 'Dashboards';
+      el('hubTestingPill').hidden = true;
+      el('btnNewReport').hidden = true;
+      el('tabReports').hidden = true;
+      document.querySelector('.v3-hub-tabs').hidden = true;
+    }
 
     const { data: profile } = await sb.from('profiles').select('name, email, role').eq('id', userId).single();
     if (window.SiloChrome) {
@@ -295,13 +308,13 @@
         appEl: '#silo-app',
         active: 'reports/dashboards',
         user: { email: profile?.email || sessRes.data.session.user.email, role: profile?.role },
-        crumbs: ['Reports'],
+        crumbs: navProfile === 'standard' ? ['Insights', 'Dashboards'] : ['Reports'],
         supabaseClient: sb,
       });
     }
     await loadList();
     // Deep link straight to the library, so the nav can point at it.
-    if (new URLSearchParams(location.search).get('tab') === 'reports') {
+    if (navProfile !== 'standard' && new URLSearchParams(location.search).get('tab') === 'reports') {
       document.querySelector('[data-pane="reports"]').click();
     }
   }

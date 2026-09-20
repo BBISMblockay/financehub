@@ -121,8 +121,8 @@
 
     <div class="fin-landing">
       <div class="fin-landing-head">
-        <h1 id="finLandingTitle">Finance Department</h1>
-        <p id="finLandingSub">Baseballism · SILO v2 console — select a tool from the sidebar or below.</p>
+        <h1 id="finLandingTitle">SILO Home</h1>
+        <p id="finLandingSub">Choose a tool from the sidebar or below.</p>
       </div>
 
       <div class="fin-sections">
@@ -135,8 +135,9 @@
         </div>
 
         <div class="fin-card">
-          <div class="fin-card-head"><h2>Requests</h2></div>
+          <div class="fin-card-head"><h2>Finance</h2></div>
           <div class="fin-links">
+            <a class="fin-link" data-departments="exec,finance" href="/v2/customers.html">Customers</a>
             <a class="fin-link" href="/v2/purchase_request.html">Payment Request</a>
             <a class="fin-link" data-departments="exec,finance" href="/v2/request_manager.html">Request Manager</a>
             <a class="fin-link" href="/v2/mail-intake.html">Mail Intake</a>
@@ -167,7 +168,7 @@
           </div>
         </div>
 
-        <div class="fin-card">
+        <div class="fin-card" data-nav-profile="grandfathered">
           <div class="fin-card-head"><h2>Team</h2></div>
           <div class="fin-links">
             <a class="fin-link" href="/v2/reviews.html">Performance Reviews</a>
@@ -194,7 +195,7 @@
           <div class="fin-card-head"><h2>Workspace</h2></div>
           <div class="fin-links">
             <a class="fin-link" href="/v2/profile.html">My Profile</a>
-            <a class="fin-link" href="/v2/integrations.html">Integrations</a>
+            <a class="fin-link" href="/v2/settings-company.html">Workspace Settings</a>
           </div>
         </div>
 
@@ -228,19 +229,21 @@
     appEl: '#silo-app',
     active: 'finance/menu',
     user: { email: '', role: 'MEMBER' },
-    crumbs: ['Finance Department'],
+    crumbs: ['Home'],
     supabaseClient,
   });
 
-  (function polishFinanceHub() {
+  (async function polishFinanceHub() {
     if (!window.SiloChrome?.resolveNavProfile) return;
-    const company = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+    const company = window.__SILO_CONFIG__?.getActiveCompany?.()
+      || await window.__SILO_CONFIG__?.ensureActiveCompany?.(supabaseClient)
+      || null;
     if (window.SiloChrome.resolveNavProfile(company) !== 'standard') return;
 
     const title = document.getElementById('finLandingTitle');
     const sub = document.getElementById('finLandingSub');
     if (title) title.textContent = company?.title || 'Company home';
-    if (sub) sub.textContent = 'SILO company console — select a tool from the sidebar or below.';
+    if (sub) sub.textContent = 'Choose a tool from the sidebar or below.';
 
     document.querySelectorAll('[data-nav-profile="grandfathered"]').forEach((el) => el.remove());
     document.querySelectorAll('.fin-card').forEach((card) => {

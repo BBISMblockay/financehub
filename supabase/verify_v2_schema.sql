@@ -2415,6 +2415,24 @@ select
     else 'ok'
   end as system_reports_tie_out;
 
+-- Canned report accuracy definitions (fixture-tested).
+with expected(id) as (select unnest(array['5110de50-0000-4000-a000-000000000001','5110de50-0000-4000-a000-000000000002','5110de50-0000-4000-a000-000000000003','c3000000-0000-4000-a000-000000000001','c3000000-0000-4000-a000-000000000002','c3000000-0000-4000-a000-000000000003','c3000000-0000-4000-a000-000000000004','c3000000-0000-4000-a000-000000000005','c3000000-0000-4000-a000-000000000006','c1000000-0000-4000-a000-000000000001','c1000000-0000-4000-a000-000000000005','c1000000-0000-4000-a000-000000000006','c1000000-0000-4000-a000-000000000007','c1000000-0000-4000-a000-000000000008','c1000000-0000-4000-a000-000000000009','c1000000-0000-4000-a000-00000000000a']::uuid[]))
+select case
+ when exists (select 1 from expected e left join public.silo_chat_saved_reports r on r.id=e.id
+              where r.id is null or r.source <> 'system' or r.company_entity_id is not null)
+ then 'MISSING — shared canned report definitions'
+ when exists (select 1 from expected e join public.silo_chat_saved_reports r on r.id=e.id
+              where r.parameters is null or exists (
+                select 1 from jsonb_array_elements(r.parameters) p
+                where p->>'type'='date' and (p->>'date_basis' is distinct from 'company' or p->>'default' !~ '^today-[0-9]+d$')))
+ then 'STALE — canned report defaults must follow the company calendar'
+ when exists (select 1 from expected e where not exists (
+              select 1 from public.silo_report_tieouts t where t.report_id=e.id and t.enabled
+              and t.kind='reconciliation' and t.tolerance<=0.01 and t.check_sql like '%md5(queries_run::text || parameters::text)%'))
+ then 'WEAK — canned reports need strict checks tied to their deployed definitions'
+ else 'ok' end as canned_report_accuracy;
+-- End canned report accuracy definitions.
+
 select
   case
     when not exists (select 1 from information_schema.columns
@@ -4386,6 +4404,64 @@ select 'Entity admin gate is company-scoped' as check_name,
    then 'CRITICAL: authenticated can DELETE entities'
  else 'ok' end as status;
 
+-- ── Channel scope: which locations a Marketing report covers ─────────
+-- The five wow_* RPCs used to carry a hardcoded `location_tag = 'online'`.
+-- That is drift from this repo's own stated rule and it only ever worked
+-- because Baseballism named their online location "online" -- for a tenant
+-- whose codes are `chicago` and `baseballismdsg_dsg` it matches NOTHING, and
+-- a Marketing page reads an empty scope as a quiet week. The literal coming
+-- back is the regression this check exists to catch.
+select 'Channel scope resolves from locations, not a literal' as check_name,
+ case
+ when to_regprocedure('public.silo_location_slug(text)') is null
+   then 'MISSING: channel resolver migration (20260920190000)'
+ when to_regprocedure('public.silo_location_channel(text)') is null
+   then 'MISSING: silo_location_channel'
+ when to_regprocedure('public.silo_channel_location_tags(text)') is null
+   then 'MISSING: silo_channel_location_tags'
+ when to_regprocedure('public.wow_channel_status(text)') is null
+   then 'MISSING: wow_channel_status -- a page cannot tell "not configured" from "sold nothing"'
+ -- Behavioural, not merely present. Same reasoning as the normalize_merchant
+ -- checks: the slug is one half of a join whose other half lives in
+ -- scripts/lib/shopify-sync-core.mjs, and a silently changed slug stops
+ -- locations matching sales rows without erroring anywhere.
+ when public.silo_location_slug('Field of Dreams') is distinct from 'field_of_dreams'
+   then 'CRITICAL: silo_location_slug no longer matches the sync''s slugify()'
+ when public.silo_location_slug('  --Online--  ') is distinct from 'online'
+   then 'CRITICAL: silo_location_slug no longer trims separator runs'
+ -- Every value the Integrations store-type select can emit must map somewhere.
+ -- An unmapped one returns NULL, which silently drops that store out of every
+ -- channel total rather than failing.
+ when public.silo_location_channel('online')    is distinct from 'online'
+   or public.silo_location_channel('retail')    is distinct from 'retail'
+   or public.silo_location_channel('outlet')    is distinct from 'retail'
+   or public.silo_location_channel('pop_up')    is distinct from 'retail'
+   or public.silo_location_channel('wholesale') is distinct from 'wholesale'
+   or public.silo_location_channel('warehouse') is distinct from 'other'
+   then 'CRITICAL: a store_type the Integrations select offers maps to no channel, so that location counts in none'
+ -- Unclassified must stay NULL. Folding it into 'other' would make "nobody has
+ -- said" indistinguishable from "somebody said none of these".
+ when public.silo_location_channel('something nobody has mapped') is not null
+   then 'CRITICAL: an unknown store_type is being classified instead of left unclassified'
+ -- The literal itself, anywhere in public. This is the actual regression.
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prokind = 'f'
+     and pg_get_functiondef(p.oid) ~ 'location_tag\)* = ''online'''
+ ) then 'CRITICAL: a public function has reintroduced a hardcoded location_tag = online; it will return no rows for any tenant that did not name their store "online"'
+ -- And the five that were fixed must still be resolving.
+ when (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.prokind = 'f'
+         and p.proname in ('wow_report','wow_data_through','wow_kpi_compare',
+                           'wow_online_shop_domains','wow_paid_media_reality')
+         and pg_get_functiondef(p.oid) like '%silo_channel_location_tags%') < 5
+   then 'CRITICAL: a wow_* RPC no longer resolves its channel through silo_channel_location_tags'
+ -- Same class as chat_run_readonly_query's anon grant: Supabase's default
+ -- privileges re-grant EXECUTE on any newly created public function.
+ when has_function_privilege('anon', 'public.silo_channel_location_tags(text)', 'execute')
+   or has_function_privilege('anon', 'public.wow_channel_status(text)', 'execute')
+   then 'CRITICAL: a channel resolver is anon-reachable'
+
 -- A notification must name the tenant it is about, and a reply must reach that
 -- tenant. The last rung is the one that matters: before 20260920170000 nine of
 -- the ten mail functions set no Reply-To at all, so a reply about an invoice
@@ -4407,6 +4483,14 @@ select 'Notification sender resolves per tenant' as check_name,
  when not exists(select 1 from pg_policy where polrelid='public.company_notification_contacts'::regclass
    and polcmd in ('w','a','*','d'))
    then 'CRITICAL: company_notification_contacts has no write policy'
+ -- A DEFINER function that takes a company id and is granted to `authenticated`
+ -- is an RLS bypass unless it re-checks the caller. Without this an ordinary
+ -- member of one tenant could read another tenant's reply address, and its
+ -- owner-admin email out of the fallback.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='resolve_notification_sender')
+   not like '%entity_memberships%'
+   then 'CRITICAL: resolve_notification_sender does not check the caller''s own memberships'
  when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
    where n.nspname='public' and p.proname='resolve_notification_sender'
      and has_function_privilege('anon', p.oid, 'execute'))

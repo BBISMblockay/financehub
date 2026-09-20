@@ -19,6 +19,8 @@ on:
     paths: &sync_paths
       - 'scripts/lib/**'
       - 'scripts/tests/**'
+      - 'supabase/migrations/*canned_report_accuracy.sql'
+      - 'v3/js/report-params.js'
       - 'scripts/shopify-sync.mjs'
       - 'scripts/shopify-orders-backfill.mjs'
       - 'scripts/ad-platforms-sync.mjs'
@@ -503,6 +505,8 @@ jobs:
           node-version: '22'
       - name: Install isolated PostgreSQL test dependency
         run: npm ci --prefix scripts/tests/finance-db --ignore-scripts
+      - name: Execute canned report accuracy and drift regressions
+        run: node scripts/tests/canned-reports-database.test.mjs
       - name: Execute finance migration, approval and void regressions
         run: node scripts/tests/finance-v1-database.test.mjs
       - name: Execute Plaid authority, lifecycle and audit regressions

@@ -176,9 +176,9 @@ if (founderPathSrc) {
 }
 
 r.ok('the standalone Create account action is hidden in the shipped markup',
-  /id="btnGoSignup"[^>]*class="[^"]*\\bhidden\\b/.test(LOGIN));
+  /id="btnGoSignup"[^>]*class="[^"]*\bhidden\b/.test(LOGIN));
 r.ok('only the company-onboarding path gate reveals that action',
-  /if \\(isCompanyOnboardingPath\\(safeNextPath\\(\\)\\)\\) \\{\\s*btnGoSignup\\.classList\\.remove\\("hidden"\\)/.test(LOGIN));
+  /if \(isCompanyOnboardingPath\(safeNextPath\(\)\)\) \{\s*btnGoSignup\.classList\.remove\("hidden"\)/.test(LOGIN));
 
 /* ── 3. The onboarding page never offers what the RPC will reject ─────────── */
 
