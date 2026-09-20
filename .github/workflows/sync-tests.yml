@@ -530,6 +530,27 @@ jobs:
       - name: Execute stamp trigger helper and verifier regressions
         run: node scripts/tests/stamp-trigger-helper.test.mjs
 
+      # The entity admin gate answered about the wrong company: is_owner_admin()
+      # asked "am I an admin ANYWHERE" and then said yes for every tenant. The
+      # fixture reproduces the wide gate AND the four policies built on it, and
+      # deletes a YOUNG tenant -- Baseballism is shielded by NO ACTION child FKs,
+      # so asserting against it would pass with or without the fix.
+      - name: Execute entity admin gate scoping regressions
+        run: node scripts/tests/entity-admin-gate-scope.test.mjs
+
+      - name: Each entity-gate guard, removed one at a time, must break it
+        run: |
+          set -u
+          for m in gate-unscoped gate-inlined vocabulary-kept grant-kept \
+                   policy-kept policy-and-gate-kept; do
+            echo "--- $m ---"
+            if GATE_MUTATION="$m" node scripts/tests/entity-admin-gate-scope.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       - name: Each stamp-helper guarantee, removed, must break it
         run: |
           set -u

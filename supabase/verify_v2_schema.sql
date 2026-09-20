@@ -4352,6 +4352,40 @@ select 'Workspace membership administration' as check_name,
    then 'CRITICAL: entities is client-writable, so a rename can also rewrite entity_key/meta'
  else 'ok' end as status;
 
+-- The entity admin gate must name the entity it is deciding about. Found live
+-- 2026-09-20: is_owner_admin() had no entity_id predicate, so an admin of any
+-- tenant read every tenant's row through can_access_entity() and could delete
+-- one through entities_delete_admin_only. See 20260920160000.
+select 'Entity admin gate is company-scoped' as check_name,
+ case
+ when not exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='is_entity_admin')
+   then 'MISSING: is_entity_admin'
+ -- A zero-argument "am I an admin" helper cannot be scoped to a row, so its
+ -- mere existence is the finding -- the next caller reopens the hole.
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='is_owner_admin' and p.pronargs=0)
+   then 'CRITICAL: is_owner_admin() is back; it matches every entity, not the one being acted on'
+ when exists(select 1 from pg_policy
+   where coalesce(pg_get_expr(polqual,polrelid),'') like '%is_owner_admin()%'
+      or coalesce(pg_get_expr(polwithcheck,polrelid),'') like '%is_owner_admin()%')
+   then 'CRITICAL: a policy is gated on the unscoped is_owner_admin(); policies are OR-ed, so one reopens it'
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='can_access_entity') like '%is_owner_admin%'
+   then 'CRITICAL: can_access_entity still ORs in the unscoped gate'
+ -- Per-company roles are owner_admin|admin|member|viewer. A gate still testing
+ -- role in ('owner','admin') matches NO owner_admin row and locks every owner
+ -- out of their own company -- the same stale vocabulary, failing the other way.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='is_entity_admin') not like '%owner_admin%'
+   then 'CRITICAL: is_entity_admin tests a stale role vocabulary and excludes every owner_admin'
+ -- Founding and destroying a company are definer-function acts, not table DML.
+ when has_table_privilege('authenticated', 'public.entities', 'insert')
+   then 'CRITICAL: authenticated can INSERT entities, founding a tenant outside the platform-invite flow'
+ when has_table_privilege('authenticated', 'public.entities', 'delete')
+   then 'CRITICAL: authenticated can DELETE entities'
+ else 'ok' end as status;
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further

@@ -18994,3 +18994,17 @@ $c$select (select count(*) from v_po_header_summary
 --
 -- Must stay AFTER 20260920140000, which calls the old helper for the repair.
 \i migrations/20260920150000_stamp_trigger_idempotent_and_verified.sql
+
+-- ── Entity admin gate scoped to the entity (2026-09-20) ───────────────────
+-- is_owner_admin() had no entity_id predicate: it asked "do I hold an
+-- owner/admin membership ANYWHERE" and answered true for EVERY company. It
+-- gated entities_select_access through can_access_entity() and was the entire
+-- qual of entities_delete_admin_only, with DELETE still granted to
+-- authenticated. Measured live: a BlockayOps-only admin listed all three
+-- tenants. 20260913054723 fixed this same root cause for `profiles` only.
+--
+-- Also corrects the stale role vocabulary failing the OTHER way -- a gate on
+-- role in ('owner','admin') matches no owner_admin row -- and revokes INSERT
+-- and DELETE on entities, since founding and destroying a company are definer
+-- function acts. Idempotent: create-or-replace, drop-if-exists, revokes.
+\i migrations/20260920160000_entity_admin_gate_company_scope.sql
