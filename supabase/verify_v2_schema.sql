@@ -4414,7 +4414,7 @@ select 'Entity admin gate is company-scoped' as check_name,
 select 'Channel scope resolves from locations, not a literal' as check_name,
  case
  when to_regprocedure('public.silo_location_slug(text)') is null
-   then 'MISSING: channel resolver migration (20260920190000)'
+   then 'MISSING: channel resolver migration (20260920170000)'
  when to_regprocedure('public.silo_location_channel(text)') is null
    then 'MISSING: silo_location_channel'
  when to_regprocedure('public.silo_channel_location_tags(text)') is null
@@ -4461,9 +4461,10 @@ select 'Channel scope resolves from locations, not a literal' as check_name,
  when has_function_privilege('anon', 'public.silo_channel_location_tags(text)', 'execute')
    or has_function_privilege('anon', 'public.wow_channel_status(text)', 'execute')
    then 'CRITICAL: a channel resolver is anon-reachable'
+ else 'ok' end as status;
 
 -- A notification must name the tenant it is about, and a reply must reach that
--- tenant. The last rung is the one that matters: before 20260920170000 nine of
+-- tenant. The last rung is the one that matters: before 20260920190000 nine of
 -- the ten mail functions set no Reply-To at all, so a reply about an invoice
 -- went to whatever the From address was -- i.e. to SILO.
 select 'Notification sender resolves per tenant' as check_name,
