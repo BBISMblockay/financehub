@@ -214,47 +214,40 @@
     // The other two drop their 'Marketing' prefix: the section header above
     // them already says MARKETING, so repeating it three times crowded out the
     // word that actually distinguishes each one.
-    { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered'] },
-    { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered'] },
-    { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered'] },
+    // These three pages are the customer-ready marketing surface: a prepared
+    // report, an executive performance view, and the drill-down explorer.
+    // Their queries are company-scoped and their empty states explain what to
+    // connect, so standard workspaces can discover them without inheriting
+    // Baseballism's standalone Sales pages or the report-building tools.
+    { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered', 'standard'] },
     // SEO overview over the search_console_*_daily tables (2026-09-10). Soft
     // launch: exec-only in the sidebar while the first reports are reviewed
     // -- the same EXEC_ROLES gate Ask SILO and the v3 workspace carry, and
     // for the same reason (who sees it first, not who may read it; RLS is
     // the boundary). Widen `roles` (or drop it) once the overview is trusted.
-    { roles: EXEC_ROLES, id: 'reports/seo-overview', section: 'Marketing', label: 'SEO', href: '/v2/seo-overview.html', profiles: ['grandfathered'] },
+    { roles: EXEC_ROLES, id: 'reports/seo-overview', section: 'Marketing', label: 'SEO', href: '/v2/seo-overview.html', profiles: ['grandfathered', 'standard'] },
 
-    // Deliberately left in its own 'Reports' section by the Sales/Marketing
-    // split above, not moved and not promoted, because it is still in soft
-    // launch. Section matters here beyond labelling: 'Reports' is absent
-    // from STANDARD_SECTION_ORDER, so a standard-profile company drops this
-    // link entirely regardless of role -- moving it to a listed section
-    // would surface it to standard-profile execs. Give it a top-level row
-    // when the launch opens up, not before.
-    // Soft launch: exec-only for now. Everyone can already use the page and
-    // read taught notes if they have the URL (nothing behind it needs
-    // restricting) -- this just controls who sees it in the sidebar first.
-    // Widen `roles` (or drop it) once ready for the whole team.
-    { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Reports', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
+    // Standard workspaces get a small Insights surface: curated dashboards
+    // plus Ask SILO. Baseballism keeps the established Reports label. Access
+    // remains exec/owner or an explicit Ask SILO grant; nav is discovery only.
+    { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Reports', sectionStandard: 'Insights', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
     // The v3 reporting workspace: dashboards, the saved-report library, and
     // the report builder. Three rows rather than one because they are three
     // different intents -- open a board, find a definition, build a new one
     // -- and burying two of them inside the third is what made them
     // undiscoverable while this was URL-only.
     //
-    // The soft-launch gate is UNCHANGED from the commented-out row this
-    // replaces: EXEC_ROLES, and 'Reports' is absent from
-    // STANDARD_SECTION_ORDER so a standard-profile company drops all three
-    // regardless of role. Nobody who could not already reach these pages can
-    // now, and RLS is the real boundary either way -- these rows control who
-    // DISCOVERS them. Widening to the whole team is deleting `roles`, one
-    // edit per row, exactly as Ask SILO's row above is written.
+    // Only Dashboards moves into standard Insights. Saved reports and the
+    // builder remain under Reports, which standard navigation deliberately
+    // omits until that authoring workflow is ready for customers.
     //
     // Deliberately NOT moved here: Accounting Export, PO Builder, Planning
     // Scenarios and the rest. They are operational workflows that happen to
     // contain numbers, not reports, and consolidating them into a generic
     // canvas would cost their specialised behaviour for a tidier menu.
-    { roles: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', label: 'Dashboards', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
+    { roles: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', sectionStandard: 'Insights', label: 'Dashboards', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
     { roles: EXEC_ROLES, id: 'reports/library', section: 'Reports', label: 'Saved reports', href: '/v3/dashboards.html?tab=reports', profiles: ['grandfathered', 'standard'] },
     { roles: EXEC_ROLES, id: 'reports/builder', section: 'Reports', label: 'Report builder', href: '/v3/report-builder.html', profiles: ['grandfathered', 'standard'] },
     // Hidden from nav for now -- redo_returns only covers a small, recent
@@ -299,9 +292,9 @@
   // Standard-profile section order. A section missing from this list is
   // DROPPED for standard-profile companies (the grandfathered branch below
   // appends leftovers; this one does not) -- 'Sales' and 'Marketing' are
-  // listed here purely so a future standard-profile report doesn't vanish
-  // silently. No standard-profile item uses either section today.
-  const STANDARD_SECTION_ORDER = ['Start', 'Finance', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Marketing', 'Settings', 'Platform'];
+  // Sales remains listed as a safe landing place for a future canonical
+  // dashboard/page, but no standalone Sales report is exposed today.
+  const STANDARD_SECTION_ORDER = ['Start', 'Insights', 'Finance', 'Marketing', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Settings', 'Platform'];
 
   /**
    * @param {'grandfathered' | 'standard'} profile

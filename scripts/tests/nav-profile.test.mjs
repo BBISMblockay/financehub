@@ -74,3 +74,25 @@ test('workspace owner membership receives admin navigation without raw role leak
   assert.ok(ids.includes('start/setup'));
   assert.ok(ids.includes('settings/workspace'));
 });
+
+test('standard workspaces surface Insights and the proven Marketing pages only', () => {
+  const sections = navSectionsForProfile('standard', 'marketing', 'owner_admin', new Set());
+  const insights = sections.find((section) => section.section === 'Insights');
+  const marketing = sections.find((section) => section.section === 'Marketing');
+  const ids = sections.flatMap((section) => section.items.map((item) => item.id));
+
+  assert.deepEqual(insights.items.map((item) => item.id), [
+    'reports/silo-chat',
+    'reports/dashboards',
+  ]);
+  assert.deepEqual(marketing.items.map((item) => item.id), [
+    'reports/wow-report',
+    'reports/marketing-overview',
+    'reports/marketing-explorer',
+    'reports/seo-overview',
+  ]);
+  assert.ok(!sections.some((section) => section.section === 'Reports'));
+  assert.ok(!sections.some((section) => section.section === 'Sales'));
+  assert.ok(!ids.includes('reports/library'));
+  assert.ok(!ids.includes('reports/builder'));
+});
