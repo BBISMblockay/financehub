@@ -47,6 +47,10 @@ on:
       - 'v2/billing.html'
       - 'supabase/migrations/*workspace_settings_admin.sql'
       - 'supabase/migrations/*entities_update_lockdown.sql'
+      - 'supabase/migrations/*stamp_company_entity_id_on_insert.sql'
+      - 'supabase/migrations/*stamp_trigger_idempotent_and_verified.sql'
+      - 'supabase/migrations/*stamp_triggers_for_customer_accounts.sql'
+      - 'supabase/verify_v2_schema.sql'
       # page-inspect's admission logic is a SECURITY BOUNDARY and lives in the
       # function directory, so a change there must run these tests. Without
       # this path the allowlist could be edited and nothing would run.
@@ -517,6 +521,26 @@ jobs:
       # proves something.
       - name: Execute entities client-write lockdown regressions
         run: node scripts/tests/entities-update-lockdown.test.mjs
+
+      # The stamp helper is a per-migration checklist step now, so "re-running
+      # it is free" has to be true rather than asserted. Proven by trigger OID
+      # stability -- an oid cannot survive a drop-and-recreate. Also pins that
+      # check 6 goes red for ONE missing table: the count-vs-count version it
+      # replaced needed six.
+      - name: Execute stamp trigger helper and verifier regressions
+        run: node scripts/tests/stamp-trigger-helper.test.mjs
+
+      - name: Each stamp-helper guarantee, removed, must break it
+        run: |
+          set -u
+          for m in helper-drops-everything verify-counts predicate-loose; do
+            echo "--- $m ---"
+            if STAMP_MUTATION="$m" node scripts/tests/stamp-trigger-helper.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guarantee it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
 
       - name: Each entities layer, removed one at a time, must break it
         run: |

@@ -690,10 +690,20 @@ deploys, applies a migration, or touches production data — those stay Blake's.
 2. Make it idempotent (`if not exists`, `create or replace`)
 3. Enable RLS: `alter table public.tablename enable row level security`
 4. Add policies (select for all authenticated, write gated by role if needed)
-5. Add the table to `supabase/verify_v2_schema.sql`
-6. Add the table to `supabase/apply_all_post_merge.sql`
-7. Update `supabase/README.md` migration list
-8. **If you applied it straight to prod (Supabase MCP/CLI), open the PR in the
+5. **If the table carries `company_entity_id`, end the migration with
+   `select public.attach_stamp_company_entity_id_triggers();`** — the BEFORE
+   INSERT stamp is the backstop for an insert that forgets to set the company,
+   and it is not automatic. `20260919140000` added six `customer_account*`
+   tables without it and `verify_v2_schema.sql` check 6 was MISSING on every
+   drift run from that merge until 2026-09-20. Since `20260920150000` the
+   function touches ONLY tables whose trigger is missing or wrongly bound, so a
+   call with nothing to do takes no locks — that is what makes it safe as a
+   routine step rather than 164 `ACCESS EXCLUSIVE` locks per migration. It
+   skips `inventory_on_hand` / `sales_by_day`
+6. Add the table to `supabase/verify_v2_schema.sql`
+7. Add the table to `supabase/apply_all_post_merge.sql`
+8. Update `supabase/README.md` migration list
+9. **If you applied it straight to prod (Supabase MCP/CLI), open the PR in the
    same session.** Prod must never sit ahead of `main` with the repo record
    parked on an unmerged branch — that is the same drift as an undeployed edge
    function, just pointing the other way, and it is worse: rebuilding from
