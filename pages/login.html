@@ -214,8 +214,8 @@
             </button>
 
             <div class="pt-2 flex items-center justify-between">
-              <button id="btnGoSignup" type="button" class="text-sm font-semibold text-[oklch(0.55_0.20_245)] hover:underline underline-offset-2">
-                Create account
+              <button id="btnGoSignup" type="button" class="hidden text-sm font-semibold text-[oklch(0.55_0.20_245)] hover:underline underline-offset-2">
+                Create account to continue
               </button>
               <button id="btnForgot" type="button" class="text-sm text-slate-500 hover:text-slate-700 hover:underline underline-offset-2">
                 Forgot password?
@@ -557,6 +557,22 @@
         return isSafeInternalPath(raw) ? raw : null;
       }
 
+      // Account creation is not a public way to found or join a company. It is
+      // exposed only while following a platform-admin invitation to create a
+      // company. Existing-company invitations have their own token-gated
+      // "set password & join" flow below.
+      function isCompanyOnboardingPath(raw) {
+        if (!raw) return false;
+        try {
+          const target = new URL(raw, window.location.origin);
+          return target.origin === window.location.origin &&
+            target.pathname === '/v2/company-onboarding.html' &&
+            !!target.searchParams.get('invite');
+        } catch (_) {
+          return false;
+        }
+      }
+
       // Guarded so the explicit sign-in handlers and the SIGNED_IN auth event
       // (which fires for the same login) can both call it without racing the
       // invite redemption or double-redirecting.
@@ -642,6 +658,9 @@
       const dlgSignup = document.getElementById("dlgSignup");
       const btnGoSignup = document.getElementById("btnGoSignup");
       const btnCloseSignup = document.getElementById("btnCloseSignup");
+      if (isCompanyOnboardingPath(safeNextPath())) {
+        btnGoSignup.classList.remove("hidden");
+      }
       btnGoSignup.addEventListener("click", () => dlgSignup.showModal());
       btnCloseSignup.addEventListener("click", () => dlgSignup.close());
 

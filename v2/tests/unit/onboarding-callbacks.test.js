@@ -151,6 +151,35 @@ if (cbSrc) {
     !unsafe.includes('next='), unsafe);
 }
 
+/* ── 2b. Signup is offered only for a company-founder invitation ─────────── */
+
+const founderPathSrc = extract(LOGIN, 'function isCompanyOnboardingPath(raw)');
+r.ok('login defines the founder-signup path gate', !!founderPathSrc);
+
+if (founderPathSrc) {
+  const ctx = vm.createContext({
+    URL,
+    window: { location: { origin: 'https://get-silo.com' } },
+  });
+  vm.runInContext(founderPathSrc + '; isCompanyOnboardingPath;', ctx);
+  const accepts = (raw) => vm.runInContext(`isCompanyOnboardingPath(${JSON.stringify(raw)})`, ctx);
+
+  r.ok('a platform founder invitation may create its auth account',
+    accepts('/v2/company-onboarding.html?invite=founder-token'));
+  r.ok('the ordinary login page is not a public signup surface', !accepts(null));
+  r.ok('company onboarding without an invite does not expose signup',
+    !accepts('/v2/company-onboarding.html'));
+  r.ok('an arbitrary internal destination does not expose signup',
+    !accepts('/v2/finance.html?invite=founder-token'));
+  r.ok('an off-site lookalike does not expose signup',
+    !accepts('https://evil.example/v2/company-onboarding.html?invite=founder-token'));
+}
+
+r.ok('the standalone Create account action is hidden in the shipped markup',
+  /id="btnGoSignup"[^>]*class="[^"]*\\bhidden\\b/.test(LOGIN));
+r.ok('only the company-onboarding path gate reveals that action',
+  /if \\(isCompanyOnboardingPath\\(safeNextPath\\(\\)\\)\\) \\{\\s*btnGoSignup\\.classList\\.remove\\("hidden"\\)/.test(LOGIN));
+
 /* ── 3. The onboarding page never offers what the RPC will reject ─────────── */
 
 const ONBOARD = fs.readFileSync(path.join(REPO, 'v2', 'company-onboarding.html'), 'utf8');
