@@ -97,8 +97,7 @@
         <p class="ws-note">
           A workspace role decides what somebody can do <em>here</em>. Removing a member removes them
           from this workspace only — it does not touch any other company they belong to.
-          Departments, notes and Ask SILO access live in the
-          <a href="/v2/backend.html">Backend hub</a>.
+          Contact a SILO administrator if a member's department or additional access needs to change.
         </p>
       </div>
     </main>
@@ -111,7 +110,7 @@
   const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     document.querySelector('.silo-main').innerHTML =
-      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+      '<div style="padding:48px;text-align:center;font-weight:700">SILO could not start. Please contact support.</div>';
     return;
   }
   const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);

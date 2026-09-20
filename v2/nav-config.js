@@ -78,13 +78,13 @@
   // silo_chat_notes write access (review-templates.html, silo-chat.html) --
   // UX only, not a security boundary; membership owner_admin isn't checked
   // here the way the real is_exec_or_owner() RLS gate checks it.
-  const EXEC_ROLES = ['owner', 'executive'];
+  const EXEC_ROLES = ['owner', 'owner_admin', 'executive'];
 
   // profiles.role values that see admin-only links (e.g. Integrations,
   // which reads connection secrets gated server-side by is_admin_user() --
   // see 20260814000000_lock_connection_secrets_to_admin.sql). UX only, same
   // caveat as EXEC_ROLES: the real boundary is RLS, not this list.
-  const ADMIN_ROLES = ['owner', 'admin', 'executive'];
+  const ADMIN_ROLES = ['owner', 'owner_admin', 'admin', 'executive'];
 
   /**
    * profiles: which nav profiles include this link
@@ -125,25 +125,15 @@
     { roles: ADMIN_ROLES, id: 'start/setup', section: 'Start', label: 'Setup', href: '/v2/setup-checklist.html', profiles: ['standard'] },
 
 
-    { departments: FINANCE_DEPTS, id: 'finance/accounting', section: 'Accounting', sectionStandard: 'Operations', label: 'Accounting', href: '/v2/transactions.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/accounting', section: 'Accounting', sectionStandard: 'Finance', label: 'Accounting', href: '/v2/transactions.html', profiles: ['grandfathered', 'standard'] },
     { departments: FINANCE_DEPTS, id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
     // Invoicing lives inside ACCOUNTING_PAGES rather than duplicating a
     // sidebar destination. The page/Stripe function retain their finance
     // authorization; workspace navigation is never the security boundary.
 
-    // ── Customers: HIDDEN UNTIL ACTIVATION (2026-09-19) ─────────────────────
-    // The internal page works on RPCs alone once the migration is applied --
-    // but its primary action is minting an application link, and that link
-    // opens /v2/customer-onboarding.html, which is backed by the
-    // customer-onboarding Edge Function. Merging does not deploy, so until it
-    // is deployed the main thing this page does produces a link that cannot
-    // work. Same reasoning as Invoicing above, and the same activation: deploy
-    // customer-onboarding AND redeploy stripe-webhook (it gained the
-    // connect_setup routing), add checkout.session.completed and
-    // checkout.session.expired to the CONNECT webhook endpoint in Stripe, then
-    // uncomment this line. Gate when restored: FINANCE_DEPTS, mirroring
-    // can_manage_client_invoices(), which is what every RPC on the page checks.
-    // { departments: FINANCE_DEPTS, id: 'finance/customers', section: 'Accounting', sectionStandard: 'Operations', label: 'Customers', href: '/v2/customers.html', profiles: ['grandfathered', 'standard'] },
+    // Customer onboarding and Connect routing are deployed. Keep discovery
+    // aligned with the finance authorization used by the page's RPCs.
+    { departments: FINANCE_DEPTS, id: 'finance/customers', section: 'Accounting', sectionStandard: 'Finance', label: 'Customers', href: '/v2/customers.html', profiles: ['grandfathered', 'standard'] },
 
     // Requests (AP intake/approval + mail handling) was split out of
     // Accounting once that section reached nine items and stopped reading as
@@ -153,27 +143,27 @@
     // The nav is an accordion with one section open at a time, so this costs
     // no height -- opening Requests collapses Accounting.
     //
-    // sectionStandard stays 'Operations' on purpose. A section name absent
+    // sectionStandard stays 'Finance' on purpose. A section name absent
     // from STANDARD_SECTION_ORDER is DROPPED for standard-profile companies,
     // so renaming it here without adding it there would make these links
     // vanish for every company but this one. Standard profile already reads
-    // all four of these as one 'Operations' bucket, so this change is
+    // all four of these as one 'Finance' bucket, so this change is
     // grandfathered-only.
     // WPV Receivables removed 2026-08-16 — stale Google Sheets flow, page retired.
-    { id: 'finance/payment-request', section: 'Requests', sectionStandard: 'Operations', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'finance/payment-request', section: 'Requests', sectionStandard: 'Finance', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
     // Payment Request 2 pulled from the menu 2026-09-19 (Blake) while it is
     // still beta. The page and its tests are untouched and it stays reachable
     // at /v2/purchase_request2.html -- uncommenting this line is the whole of
     // putting it back.
-    // { id: 'finance/payment-request-2', section: 'Requests', sectionStandard: 'Operations', label: 'Payment Request 2 · Beta', href: '/v2/purchase_request2.html', profiles: ['grandfathered', 'standard'] },
+    // { id: 'finance/payment-request-2', section: 'Requests', sectionStandard: 'Finance', label: 'Payment Request 2 · Beta', href: '/v2/purchase_request2.html', profiles: ['grandfathered', 'standard'] },
     // logistics added alongside FINANCE_DEPTS so that department can still
     // see Request Manager to track payment requests they submitted --
     // RLS (payment_requests_active_select) already lets anyone see their
     // own created_by rows regardless of department; this just keeps the
     // nav link (and dept-guard.js on the page itself) from hiding it.
-    { departments: [...FINANCE_DEPTS, 'logistics'], id: 'finance/request-manager', section: 'Requests', sectionStandard: 'Operations', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'finance/mail-intake', section: 'Requests', sectionStandard: 'Operations', label: 'Mail Intake', href: '/v2/mail-intake.html', profiles: ['grandfathered', 'standard'] },
-    { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Requests', sectionStandard: 'Operations', label: 'Mailroom', href: '/v2/mailroom.html', profiles: ['grandfathered', 'standard'] },
+    { departments: [...FINANCE_DEPTS, 'logistics'], id: 'finance/request-manager', section: 'Requests', sectionStandard: 'Finance', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'finance/mail-intake', section: 'Requests', sectionStandard: 'Finance', label: 'Mail Intake', href: '/v2/mail-intake.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Requests', sectionStandard: 'Finance', label: 'Mailroom', href: '/v2/mailroom.html', profiles: ['grandfathered', 'standard'] },
     // Travel Report removed 2026-08-16 — stale Google Sheets dashboard, page retired.
 
     { id: 'planning/calendar', section: 'Planning', label: 'Org Calendar', href: '/v2/calendar.html', profiles: ['grandfathered', 'standard'] },
@@ -301,10 +291,8 @@
     { requiresGrant: true, grantTable: 'platform_admins', id: 'platform/admin', section: 'Platform', label: 'Silo Admin', href: '/v2/platform-admin.html', profiles: ['grandfathered', 'standard'] },
 
     // Billing has no sidebar row of its own by design -- it is the Billing tab
-    // of Workspace settings above. (It previously sat here commented out
-    // pending the Stripe deploy; the page is unchanged and the deploy is still
-    // step 7 of docs/ops/stripe.md. Changing the plan needs owner_admin, which
-    // stripe-billing enforces server-side.) Settings rather than Accounting:
+    // of Workspace settings above. Changing the plan needs owner_admin, which
+    // stripe-billing enforces server-side. Settings rather than Accounting:
     // account administration, not part of anybody's close.
   ];
 
@@ -313,7 +301,7 @@
   // appends leftovers; this one does not) -- 'Sales' and 'Marketing' are
   // listed here purely so a future standard-profile report doesn't vanish
   // silently. No standard-profile item uses either section today.
-  const STANDARD_SECTION_ORDER = ['Start', 'Operations', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Marketing', 'Settings', 'Platform'];
+  const STANDARD_SECTION_ORDER = ['Start', 'Finance', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Marketing', 'Settings', 'Platform'];
 
   /**
    * @param {'grandfathered' | 'standard'} profile

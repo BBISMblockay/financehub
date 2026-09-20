@@ -320,7 +320,7 @@
 
   const BUCKET = "payment-request-files";
   const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+  let _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
   const els = {
     authCard: document.getElementById("authCard"),
@@ -366,7 +366,9 @@
     successFileName: document.getElementById("successFileName")
   };
 
-  const VENDORS = [
+  // Legacy convenience list for Baseballism only. Every other workspace learns
+  // its suggestions exclusively from its own prior requests.
+  const BASEBALLISM_VENDORS = [
     "21 In Right, Inc.",
     "Addison Holub",
     "Aiden McIntyre/Motive LA",
@@ -601,7 +603,8 @@
     try {
       const priorVendors = await fetchPriorVendors();
       const vendorMap = new Map();
-      [...priorVendors, ...VENDORS].forEach(name => {
+      const seededVendors = _co?.entity_key === 'baseballism' ? BASEBALLISM_VENDORS : [];
+      [...priorVendors, ...seededVendors].forEach(name => {
         const clean = String(name || "").trim();
         if (!clean) return;
         const key = normalizeName(clean);
@@ -613,7 +616,8 @@
         .join("");
     } catch (error) {
       console.error("Vendor load failed:", error);
-      vendorOptions.innerHTML = VENDORS.slice().sort((a, b) => a.localeCompare(b))
+      const seededVendors = _co?.entity_key === 'baseballism' ? BASEBALLISM_VENDORS : [];
+      vendorOptions.innerHTML = seededVendors.slice().sort((a, b) => a.localeCompare(b))
         .map(v => `<option value="${escapeAttr(v)}"></option>`)
         .join("");
     }
@@ -1096,6 +1100,7 @@
 
       showAuthState();
       if (currentUser) {
+        _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(supabaseClient) || _co;
         await Promise.all([populateVendorOptions(), loadPoOptions(), guardCompanyActivation()]);
       }
 
@@ -1103,6 +1108,7 @@
         currentUser = session?.user || null;
         showAuthState();
         if (currentUser) {
+          _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(supabaseClient) || _co;
           await Promise.all([populateVendorOptions(), loadPoOptions(), guardCompanyActivation()]);
         }
       });
