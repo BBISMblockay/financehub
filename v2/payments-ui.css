@@ -24,7 +24,15 @@
 .payments-workspace .bcn-pill { border-radius: 5px; padding: 3px 7px; font-family: var(--bcn-mono); }
 .pay-scroll { overflow: auto; }
 .pay-muted { color: var(--bcn-ink-3); font-size: 12px; }
-.pay-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* left/top pin it to the viewport origin. Without them an absolutely
+   positioned element with no offsets sits at its STATIC position, and its
+   containing block here is the initial one -- so this 1px span rendered at
+   x=586, inside the horizontally scrolled invoice table, and stretched
+   documentElement.scrollWidth to 587 against a 390px phone. body's
+   `overflow-x: clip` hides the paint but does not stop html counting it, so
+   the page scrolled sideways with nothing visible out there. Measured at
+   390px: scrollWidth 587 before, 390 after. */
+.pay-sr-only { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .inv-connection { margin-bottom: 20px; }
 .payments-workspace .bcn-btn--ghost, .payments-detail .bcn-btn--ghost { border-color: transparent; background: transparent; box-shadow: none; color: var(--bcn-ink-2); }
 .payments-workspace .bcn-btn--ghost:hover, .payments-detail .bcn-btn--ghost:hover { color: var(--bcn-accent); background: var(--bcn-accent-soft); }

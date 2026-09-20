@@ -641,7 +641,11 @@ const TABLES = {
           matches: a.matches(':focus-visible'),
           opacity: getComputedStyle(a, '::after').opacity };
       });
-      r.eq(focused.label, 'Sales & journals', 'Tab landed on the next destination');
+      // 'Invoicing', not 'Sales & journals': it joined ACCOUNTING_PAGES at
+      // index 1 and this assertion was not moved with it, so the suite had
+      // been red on main. Kept as the literal second destination -- reading
+      // the name out of SiloNav here would assert nothing about tab order.
+      r.eq(focused.label, 'Invoicing', 'Tab landed on the next destination');
       r.truthy(focused.matches, 'the link is :focus-visible');
       r.eq(focused.opacity, '1');
     });
