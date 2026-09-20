@@ -1615,6 +1615,7 @@
           <button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;"
             onclick="refreshLocationMapper('${connectionId}')">Refresh</button>
         </div>
+        <div id="chan-scope-${connectionId}" class="int-scope-warn" style="margin-bottom:8px;" hidden></div>
         ${mappedCount < total ? `<div class="int-scope-warn" style="margin-bottom:8px;">
           Sales at unmapped locations fall back to the connection's default location code;
           without one they are skipped (counted in the sync result as <code>no_location_lines</code>).
@@ -1637,6 +1638,46 @@
 
       for (const s of shopifyLocations || []) {
         onLocationMapModeChange(connectionId, s.id);
+      }
+
+      // What a store_type actually MEANS for reporting. Read from the
+      // database (wow_channel_status) rather than re-deriving the mapping in
+      // JS: a second copy of "which store_type counts as online" is the
+      // normalize_merchant trap, where the SQL and the page drift apart and
+      // nothing fails loudly. This panel is where store_type is edited, so it
+      // is where the consequence belongs.
+      renderChannelScope(connectionId);
+    }
+
+    async function renderChannelScope(connectionId) {
+      const box = document.getElementById(`chan-scope-${connectionId}`);
+      if (!box) return;
+      try {
+        const { data, error } = await db.rpc('wow_channel_status', { p_channel: 'online' });
+        if (error) throw new Error(error.message);
+        if (!data) { box.hidden = true; return; }
+        const un = Number(data.unclassified_count || 0);
+        const bits = [];
+        if (data.configured) {
+          bits.push(`Reporting scope: <strong>online</strong> resolves to ${data.location_tag_count} location(s) &mdash; ${(data.location_tags || []).map(escHtml).join(', ')}.`);
+        } else {
+          bits.push('<strong>No location has store type <code>online</code>.</strong> Every Marketing report is scoped to the online channel, so all of them will be empty for this workspace. If this company sells online, set the right location\'s store type to <code>online</code> below.');
+        }
+        if (un > 0) {
+          bits.push(`<strong>${un} location(s) with sales have no store type</strong>, so they are counted in no channel: ${(data.unclassified_tags || []).slice(0, 8).map(escHtml).join(', ')}${un > 8 ? ' &hellip;' : ''}.`);
+        }
+        box.innerHTML = bits.join('<br>');
+        if (data.configured && un === 0) {
+          box.style.background = '#f0fdf4'; box.style.borderColor = '#bbf7d0'; box.style.color = '#166534';
+        } else {
+          box.style.background = ''; box.style.borderColor = ''; box.style.color = '';
+        }
+        box.hidden = false;
+      } catch (e) {
+        // A workspace whose database predates 20260920170000 simply has no
+        // such function; the panel is still fully usable without this line.
+        console.warn('channel scope unavailable:', e.message);
+        box.hidden = true;
       }
     }
 

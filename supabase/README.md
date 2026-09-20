@@ -1704,3 +1704,58 @@ verifier and `run_report_tieouts()` as the relevant tenant. Strict checks can
 flag existing source/rollup staleness; they do not repair ingestion. No new
 secrets, functions, policies or source-data writes. See
 `docs/ops/canned-report-accuracy.md` and the isolated database test.
+
+## Channel scope resolves from locations — `20260920170000` + `20260920180000`
+
+Five deployed RPCs scoped themselves to the online store with a hardcoded
+`location_tag = 'online'`, at seven sites (`wow_report` ×3, `wow_data_through`,
+`wow_kpi_compare`, `wow_online_shop_domains`, `wow_paid_media_reality`).
+
+**Why it is a multi-tenant bug and not a style problem.** Measured 2026-09-20
+across the three live tenants: Baseballism has 27 locations (1 online, 26
+retail, 1 wholesale); Test Company has 2, both retail, and **no online store at
+all**; BlockayOps has no `locations` rows. So for tenants two and three the
+literal matches *nothing*, every Marketing figure comes back empty, and the
+page draws that as zero — indistinguishable from a bad week.
+
+**Why there is no new table.** A first draft added a `location_channel_map`,
+on the belief that nothing maintained `locations.store_type`. That is true of
+the Shopify sync (it only *reads* `locations`, for id mapping) but **not of the
+app**: `/v2/integrations.html`'s location mapper has always written
+`store_type` from a constrained select — `online`, `retail`, `outlet`,
+`pop_up`, `warehouse`, `wholesale`. A new table would have been a *second*
+admin control for one fact, which is the drift being removed. `store_type`
+stays the source of truth; what was missing was a named way to read it as a
+channel.
+
+Three functions do that: `silo_location_slug(text)` (the sync's `slugify()`,
+previously inlined by hand in `v_marketing_mer_daily`, the ownership reports
+and one tie-out), `silo_location_channel(text)` (store_type vocabulary →
+channel; **NULL means unclassified**, never silently `other`) and
+`silo_channel_location_tags(text)` → `text[]`.
+
+The array return is deliberate: a set-returning function in a `WHERE` clause
+carries the planner's default 1000-row estimate, the trap `wow_window()` needed
+`ROWS 1` for. A STABLE scalar is evaluated once and `= any(...)` still uses the
+`(company_entity_id, location_tag, day_date)` btree indexes. It is not filtered
+on `is_active` — a closed store's history is still retail revenue.
+
+**An empty channel is "not configured", never "sold nothing".**
+`wow_channel_status(text)` reports `configured` plus the sold-from locations
+that carry no store type at all; `/v2/wow-report.html` and the Integrations
+location panel both render that instead of a zero.
+
+**Both migrations refuse rather than guess.** `20260920170000` asserts, per
+company, that the derived online set equals the set the literal matched
+(verified: Baseballism `{online}` = `{online}`, the other two `{}` = `{}`), so
+it cannot restate a published number. `20260920180000` rewrites the *deployed*
+bodies by string replacement — the method from `20260901120000` /
+`20260901140000`, because several of these have been edited in place and the
+repo text is not what runs — asserting each function's site count (3,1,1,1,1)
+and that every literal is a `location_tag` predicate before touching anything.
+
+`verify_v2_schema.sql` gains a check that fails CRITICAL if the literal returns
+anywhere in `public`, if any of the five stops resolving, if a `store_type` the
+Integrations select offers maps to no channel, or if a resolver is
+anon-reachable. Verified the check fires: the regex matches exactly those 5
+functions before the fix.

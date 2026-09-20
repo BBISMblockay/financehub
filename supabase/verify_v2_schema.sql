@@ -4404,6 +4404,65 @@ select 'Entity admin gate is company-scoped' as check_name,
    then 'CRITICAL: authenticated can DELETE entities'
  else 'ok' end as status;
 
+-- ── Channel scope: which locations a Marketing report covers ─────────
+-- The five wow_* RPCs used to carry a hardcoded `location_tag = 'online'`.
+-- That is drift from this repo's own stated rule and it only ever worked
+-- because Baseballism named their online location "online" -- for a tenant
+-- whose codes are `chicago` and `baseballismdsg_dsg` it matches NOTHING, and
+-- a Marketing page reads an empty scope as a quiet week. The literal coming
+-- back is the regression this check exists to catch.
+select 'Channel scope resolves from locations, not a literal' as check_name,
+ case
+ when to_regprocedure('public.silo_location_slug(text)') is null
+   then 'MISSING: channel resolver migration (20260920170000)'
+ when to_regprocedure('public.silo_location_channel(text)') is null
+   then 'MISSING: silo_location_channel'
+ when to_regprocedure('public.silo_channel_location_tags(text)') is null
+   then 'MISSING: silo_channel_location_tags'
+ when to_regprocedure('public.wow_channel_status(text)') is null
+   then 'MISSING: wow_channel_status -- a page cannot tell "not configured" from "sold nothing"'
+ -- Behavioural, not merely present. Same reasoning as the normalize_merchant
+ -- checks: the slug is one half of a join whose other half lives in
+ -- scripts/lib/shopify-sync-core.mjs, and a silently changed slug stops
+ -- locations matching sales rows without erroring anywhere.
+ when public.silo_location_slug('Field of Dreams') is distinct from 'field_of_dreams'
+   then 'CRITICAL: silo_location_slug no longer matches the sync''s slugify()'
+ when public.silo_location_slug('  --Online--  ') is distinct from 'online'
+   then 'CRITICAL: silo_location_slug no longer trims separator runs'
+ -- Every value the Integrations store-type select can emit must map somewhere.
+ -- An unmapped one returns NULL, which silently drops that store out of every
+ -- channel total rather than failing.
+ when public.silo_location_channel('online')    is distinct from 'online'
+   or public.silo_location_channel('retail')    is distinct from 'retail'
+   or public.silo_location_channel('outlet')    is distinct from 'retail'
+   or public.silo_location_channel('pop_up')    is distinct from 'retail'
+   or public.silo_location_channel('wholesale') is distinct from 'wholesale'
+   or public.silo_location_channel('warehouse') is distinct from 'other'
+   then 'CRITICAL: a store_type the Integrations select offers maps to no channel, so that location counts in none'
+ -- Unclassified must stay NULL. Folding it into 'other' would make "nobody has
+ -- said" indistinguishable from "somebody said none of these".
+ when public.silo_location_channel('something nobody has mapped') is not null
+   then 'CRITICAL: an unknown store_type is being classified instead of left unclassified'
+ -- The literal itself, anywhere in public. This is the actual regression.
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prokind = 'f'
+     and pg_get_functiondef(p.oid) ~ 'location_tag\)* = ''online'''
+ ) then 'CRITICAL: a public function has reintroduced a hardcoded location_tag = online; it will return no rows for any tenant that did not name their store "online"'
+ -- And the five that were fixed must still be resolving.
+ when (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.prokind = 'f'
+         and p.proname in ('wow_report','wow_data_through','wow_kpi_compare',
+                           'wow_online_shop_domains','wow_paid_media_reality')
+         and pg_get_functiondef(p.oid) like '%silo_channel_location_tags%') < 5
+   then 'CRITICAL: a wow_* RPC no longer resolves its channel through silo_channel_location_tags'
+ -- Same class as chat_run_readonly_query's anon grant: Supabase's default
+ -- privileges re-grant EXECUTE on any newly created public function.
+ when has_function_privilege('anon', 'public.silo_channel_location_tags(text)', 'execute')
+   or has_function_privilege('anon', 'public.wow_channel_status(text)', 'execute')
+   then 'CRITICAL: a channel resolver is anon-reachable'
+ else 'ok' end as status;
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further
