@@ -299,6 +299,14 @@ test('canned MER uses online revenue and refuses incomplete source days', () => 
 test('channel AOV pools merchandise subtotal over orders', () => {
   eq(M.aggregate([{aov:10,merch_revenue:100,orders:10},{aov:20,merch_revenue:20,orders:1}],'aov','currency',{}).value,120/11);
 });
+test('additional revenue columns do not redefine existing MER or AOV', () => {
+  const rows=[
+    {mer:10,aov:10,net_sales:100,online_net_sales:40,merch_revenue:200,ad_spend:10,orders:10},
+    {mer:20,aov:20,net_sales:200,online_net_sales:60,merch_revenue:300,ad_spend:10,orders:10},
+  ];
+  eq(M.aggregate(rows,'mer','number',{}).value,15);
+  eq(M.aggregate(rows,'aov','currency',{}).value,15);
+});
 test('cover and attribution ratios are never added across products/platforms', () => {
   for (const field of ['weeks_of_cover','weeks_on_hand','claimed_roas','real_online_roas','claim_ratio','cost_per_conversion']) {
     eq(M.aggregate([{[field]:2},{[field]:10}],field,'number',{}).value,null,field);

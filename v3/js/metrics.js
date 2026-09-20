@@ -172,8 +172,8 @@
 
       let def = ratioFor(field);
       const cols = list[0] ? Object.keys(list[0]) : [];
-      if (field === 'mer' && cols.includes('online_net_sales')) def = { ...def, numerator: 'online_net_sales' };
-      if (field === 'aov' && cols.includes('merch_revenue')) def = { ...def, numerator: 'merch_revenue' };
+      if (field === 'mer' && !cols.includes('net_sales') && cols.includes('online_net_sales')) def = { ...def, numerator: 'online_net_sales' };
+      if (field === 'aov' && !cols.includes('net_sales') && cols.includes('merch_revenue')) def = { ...def, numerator: 'merch_revenue' };
       if (def && cols.includes(def.numerator) && cols.includes(def.denominator)) {
         if (list.some((r) => num(r[def.numerator]) === null || num(r[def.denominator]) === null)) {
           return { value: null, refused: true, note: 'Some rows are missing the values needed for this ratio' };

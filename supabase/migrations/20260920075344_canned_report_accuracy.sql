@@ -305,11 +305,12 @@ and r.id in ('5110de50-0000-4000-a000-000000000001','5110de50-0000-4000-a000-000
 -- Any later query/default edit produces NO DATA rather than silently passing
 -- a check of an obsolete query. The SQL remains SECURITY INVOKER via the existing runner.
 do $checks$
-declare r record; p jsonb; q text; literal text; lhs text; rhs text; check_name text; guard text;
+declare r record; p jsonb; q text; literal text; lhs text; rhs text; check_name text; guard text; date_from_sql text; date_to_sql text;
 begin
 for r in select * from public.silo_chat_saved_reports where source='system' and company_entity_id is null
 and id in ('5110de50-0000-4000-a000-000000000001','5110de50-0000-4000-a000-000000000002','5110de50-0000-4000-a000-000000000003','c3000000-0000-4000-a000-000000000001','c3000000-0000-4000-a000-000000000002','c3000000-0000-4000-a000-000000000003','c3000000-0000-4000-a000-000000000004','c3000000-0000-4000-a000-000000000005','c3000000-0000-4000-a000-000000000006','c1000000-0000-4000-a000-000000000001','c1000000-0000-4000-a000-000000000005','c1000000-0000-4000-a000-000000000006','c1000000-0000-4000-a000-000000000007','c1000000-0000-4000-a000-000000000008','c1000000-0000-4000-a000-000000000009','c1000000-0000-4000-a000-00000000000a') loop
  q := r.queries_run->>0;
+ date_from_sql := null; date_to_sql := null;
  for p in select value from jsonb_array_elements(r.parameters) loop
   if p->>'type'='date' then
    if p->>'default' ~ '^today-[0-9]+d$' then
@@ -318,6 +319,8 @@ and id in ('5110de50-0000-4000-a000-000000000001','5110de50-0000-4000-a000-00000
   elsif p->>'type'='number' then literal := ((p->>'default')::numeric)::text;
   else raise exception 'Unsupported canned parameter'; end if;
   q := replace(q, '{{'||(p->>'key')||'}}',literal);
+  if p->>'key'='date_from' then date_from_sql := literal; end if;
+  if p->>'key'='date_to' then date_to_sql := literal; end if;
  end loop;
  guard := format('(select md5(queries_run::text || parameters::text) = %L from public.silo_chat_saved_reports where id=%L)',
  md5(r.queries_run::text || r.parameters::text),r.id);
@@ -347,10 +350,11 @@ and id in ('5110de50-0000-4000-a000-000000000001','5110de50-0000-4000-a000-00000
  end if;
  -- Separate source reconciliation for title-ranked reports and verified no-sales stock.
  if r.id::text in ('5110de50-0000-4000-a000-000000000002','c1000000-0000-4000-a000-00000000000a') then
+ if date_from_sql is null or date_to_sql is null then raise exception 'Product report date bounds are required'; end if;
  insert into public.silo_report_tieouts(report_id,name,kind,check_sql,tolerance,note)
  values(r.id,'Product rollup completeness vs canonical sales','reconciliation',format(
- 'select case when %s then (select sum(net_sales) from sales_by_product_title_daily_v where day_date between (select silo_business_today())-28 and (select silo_business_today())-1) end,
- (select sum(total_net_sales) from sales_by_day_verification_v where day_date between (select silo_business_today())-28 and (select silo_business_today())-1)',guard),0.01,
+ 'select case when %s then (select sum(net_sales) from sales_by_product_title_daily_v where day_date between %s and %s) end,
+ (select sum(total_net_sales) from sales_by_day_verification_v where day_date between %s and %s)',guard,date_from_sql,date_to_sql,date_from_sql,date_to_sql),0.01,
  'Full source coverage before top-N/merchandise exclusions. Mismatch exposes stale rollups, catalog fan-out or historical source overlap; no large tolerance masks it.');
  end if;
  if r.id::text='c1000000-0000-4000-a000-000000000008' then

@@ -1214,4 +1214,4 @@ Shared sales/marketing templates default through yesterday and retain their
 existing IDs and aliases. `weeks_of_cover` still includes incoming stock;
 `weeks_on_hand` is the additional current-stock measure. Cover and attribution
 ratios refuse additive totals. Missing ratio components prevent pooling.
-Assets for this change use `20260920b`.
+Assets for this change use `20260920c`.

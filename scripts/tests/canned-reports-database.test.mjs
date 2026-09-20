@@ -100,6 +100,17 @@ await db.exec("update inventory_on_hand_current_v set total_available_quantity=9
 check=(await db.query(thin.check_sql)).rows[0];assert.notEqual(n(check.left_value),n(check.right_value),'live inventory drift is caught');
 const titleCheck=checks.find(c=>c.report_id===id('sales','2'));
 let values=Object.values((await db.query(titleCheck.check_sql)).rows[0]);assert.equal(n(values[0]),n(values[1]));
+const logisticsTitleCheck=checks.find(c=>c.report_id===id('inventory','a'));
+for (const age of [29,30]) {
+ await db.query("insert into sales_by_day_verification_v(day_date,location_tag,total_net_sales,total_quantity_sold) values(silo_business_today()-$1::integer,'online',25,1)",[age]);
+ values=Object.values((await db.query(titleCheck.check_sql)).rows[0]);
+ assert.notEqual(n(values[0]),n(values[1]),`missing rollup on day -${age} fails the 30-day report check`);
+ const shorter=Object.values((await db.query(logisticsTitleCheck.check_sql)).rows[0]);
+ assert.equal(n(shorter[0]),n(shorter[1]),'28-day logistics check excludes older days');
+ await db.query("insert into sales_by_product_title_daily_v values(silo_business_today()-$1::integer,'Older','Tees','online',25,1,1)",[age]);
+ values=Object.values((await db.query(titleCheck.check_sql)).rows[0]);
+ assert.equal(n(values[0]),n(values[1]),'restored source coverage reconciles');
+}
 await db.exec("update sales_by_product_title_daily_v set net_sales=net_sales+1 where day_date='2026-09-19'");
 values=Object.values((await db.query(titleCheck.check_sql)).rows[0]);assert.notEqual(n(values[0]),n(values[1]),'one-dollar rollup drift fails');
 await db.query("update silo_chat_saved_reports set queries_run='[\"select 1\"]' where id=$1",[id('inventory','6')]);
