@@ -841,9 +841,9 @@ than this section.
   mirroring `can_manage_client_invoices()`. **Billing is now the Billing tab of Workspace Settings**
   (2026-09-20) and so is reachable by an admin — the page is unchanged, `stripe-billing` is still
   undeployed, and until it is deployed the tab renders its own error rather than a plan. That was a
-  deliberate trade: the settings area is coherent or it is not, and a tab that says what is wrong
-  beats a settings area missing the one thing every customer looks for. Deploying `stripe-billing`
-  remains the fix. Both rows landed alongside the
+  deliberate trade, **confirmed by Blake 2026-09-20**: the settings area is coherent or it is not,
+  and a tab that says what is wrong beats a settings area missing the one thing every customer
+  looks for. Do not hide the tab as a tidy-up. Deploying `stripe-billing` remains the fix. Both rows landed alongside the
   restore of `v2/nav-config.js` itself, which `631ff17` had deleted while every Pattern 1 page
   still loaded it. **The four Edge Function handlers live in `handler.ts` with a two-line
   `index.ts`** — the plaid-finance split — so `scripts/tests/stripe-handlers.test.mjs` can
