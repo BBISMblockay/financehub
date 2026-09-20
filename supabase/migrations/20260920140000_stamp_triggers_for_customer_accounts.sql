@@ -1,0 +1,35 @@
+-- =============================================================================
+-- Re-attach the company stamp triggers.
+--
+-- 20260919140000 added six customer_account* tables, each carrying
+-- `company_entity_id`, and did not attach the BEFORE INSERT stamp trigger that
+-- every other company-scoped table has. Production ran without it from that
+-- merge until 2026-09-20, when verify_v2_schema.sql check 6 went MISSING and
+-- somebody finally read the row -- it had been red on every drift run since.
+--
+-- WHAT WAS ACTUALLY AT RISK, stated narrowly: the trigger is a BACKSTOP, not
+-- the mechanism. `submit_customer_account()` and friends set company_entity_id
+-- explicitly, so no row was mis-stamped. What was missing is the layer that
+-- catches an insert which FORGETS to -- and `customer_accounts` is a table
+-- with client-side column privileges, so "nobody forgets" is a claim about
+-- code that has not been written yet.
+--
+-- The function is idempotent by construction (drop-if-exists then create, per
+-- table) and deliberately skips `inventory_on_hand` and `sales_by_day`, the
+-- two high-volume sync tables, so re-running it costs nothing and cannot put
+-- a per-row trigger on the 1.1M-row sales path.
+--
+-- MEASURED when this ran against production on 2026-09-20: 163 tables carried
+-- the trigger before, 169 after -- exactly the six customer_account* tables --
+-- and the two sync tables stayed excluded. The five tables where the
+-- function's exclusion list is narrower than check 6's (the four plaid_* and
+-- finance_audit_events) already carried the trigger, so for them this is a
+-- drop and recreate of an identical trigger, not a new behaviour on finance
+-- records.
+--
+-- This migration exists so a rebuild from apply_all_post_merge.sql reproduces
+-- that state. Calling the function is the whole of it: enumerating the six
+-- tables by name here would drift the moment a seventh is added.
+-- =============================================================================
+
+select public.attach_stamp_company_entity_id_triggers();

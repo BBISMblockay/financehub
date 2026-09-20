@@ -18972,3 +18972,13 @@ $c$select (select count(*) from v_po_header_summary
 --
 -- Idempotent: drop-if-exists plus revokes.
 \i migrations/20260920130000_entities_update_lockdown.sql
+
+-- ── Re-attach the company stamp triggers (2026-09-20) ─────────────────────
+-- 20260919140000 added six customer_account* tables with `company_entity_id`
+-- and no stamp trigger; verify_v2_schema.sql check 6 had been MISSING on every
+-- drift run since. Idempotent and safe to re-run: the function drops and
+-- recreates per table and skips inventory_on_hand / sales_by_day.
+--
+-- Keep this LAST. It stamps whatever company-scoped tables exist at the point
+-- it runs, so a table added by a migration below it would be missed.
+\i migrations/20260920140000_stamp_triggers_for_customer_accounts.sql
