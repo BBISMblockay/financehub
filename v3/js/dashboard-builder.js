@@ -145,6 +145,7 @@
     let inspectingId = null;
     let reportsCache = [];
     let reportFilter = '';
+    let activeReportTab = 'overview';
     let pickedReport = null;      // report awaiting a query choice
     /* Dashboards this user can OPEN, for the drill-through target list.
        Read through dashboards_v, so RLS decides what is offered -- a board
@@ -169,6 +170,7 @@
     // ── Add-widget modal: pick a saved report, then which of its queries ──
     async function openAddWidget() {
       reportFilter = '';
+      activeReportTab = 'overview';
       pickedReport = null;
       el('addBackdrop').classList.add('open');
       el('addBody').innerHTML = '<div class="v3-empty">Loading saved reports…</div>';
@@ -194,39 +196,46 @@
     }
 
     function renderReportList() {
-      const q = reportFilter.trim().toLowerCase();
+      const catalog = global.SiloReportCatalog;
+      const q = reportFilter.trim();
       const usable = reportsCache.filter((r) => (r.queries_run || []).length > 0);
-      const visible = usable.filter((r) => !q
-        || String(r.title || '').toLowerCase().includes(q)
-        || String(r.question || '').toLowerCase().includes(q));
+      const visible = catalog.visibleReports(usable, activeReportTab, q);
+      const counts = catalog.tabCounts(usable);
 
       const skipped = reportsCache.length - usable.length;
       const toolbar = `
         <div class="v3-picker-toolbar">
-          <input type="search" class="bcn-field" id="reportSearch" placeholder="Filter saved reports…" value="${esc(reportFilter)}" />
-          <span class="v3-picker-count">${visible.length} of ${usable.length}</span>
+          <input type="search" class="bcn-field" id="reportSearch" placeholder="Search every insight…" aria-label="Search every insight" value="${esc(reportFilter)}" />
+          <span class="v3-picker-count">${q ? `${visible.length} found` : `${visible.length} shown`}</span>
           <a class="bcn-btn bcn-btn--ghost" href="/v3/report-builder.html">+ New report</a>
+        </div>
+        <div class="v3-catalog-tabs" role="tablist" aria-label="Insight categories">
+          ${catalog.TABS.map((tab) => `<button type="button"
+            class="v3-catalog-tab${!q && tab.id === activeReportTab ? ' is-active' : ''}"
+            role="tab" data-report-tab="${tab.id}"
+            aria-selected="${!q && tab.id === activeReportTab}">
+              <span>${esc(tab.label)}</span><span class="v3-catalog-tab-count">${counts[tab.id]}</span>
+          </button>`).join('')}
         </div>`;
 
       if (!usable.length) {
         el('addBody').innerHTML = toolbar + `<div class="v3-empty">
-          No saved report has stored SQL yet. A widget can be built on any saved report —
-          an answer pinned from <a href="/v2/silo-chat.html">Ask SILO</a> (ask a question, then
-          <strong>Save report</strong> under the answer), a central SILO definition, or one you
-          <a href="/v3/report-builder.html">build from any table or view</a>.
+          No insights are available yet. Ask a question in <a href="/v2/silo-chat.html">Ask SILO</a>,
+          then save the answer to use it here.
         </div>`;
         return;
       }
 
       const cards = visible.map((r) => {
         const n = (r.queries_run || []).length;
+        const system = r.source === 'system';
         return `<button type="button" class="v3-report-card" data-report="${esc(r.id)}">
-          <span class="v3-report-title">${esc(r.title)}</span>
+          <span class="v3-report-title">${esc(catalog.displayTitle(r))}</span>
           <span class="v3-report-question">${esc(reportSubtitle(r))}</span>
           <span class="v3-report-foot">
-            <span class="bcn-pill bcn-pill--dark">${esc(SOURCE_LABEL[r.source] || r.source || 'Report')}</span>
-            ${scopePill(r)}
-            <span class="bcn-pill">${n} quer${n === 1 ? 'y' : 'ies'}</span>
+            <span class="bcn-pill bcn-pill--dark">${system ? 'SILO' : esc(SOURCE_LABEL[r.source] || r.source || 'Saved')}</span>
+            ${system ? '' : scopePill(r)}
+            ${!system && n > 1 ? `<span class="bcn-pill">${n} views</span>` : ''}
             ${sizePill(r)}
             ${r.created_by_name ? `<span class="v3-report-meta">${esc(r.created_by_name)}</span>` : ''}
           </span>
@@ -244,11 +253,14 @@
         : '';
 
       const skipNote = skipped
-        ? `<div class="v3-picker-note">${skipped} saved report${skipped === 1 ? '' : 's'} hidden — no stored SQL to run.</div>`
+        ? `<div class="v3-picker-note">${skipped} saved report${skipped === 1 ? '' : 's'} not shown because ${skipped === 1 ? 'it has' : 'they have'} no usable data view.</div>`
         : '';
 
       el('addBody').innerHTML = toolbar + privacyNote + skipNote
-        + (visible.length ? `<div class="v3-report-grid">${cards}</div>` : `<div class="v3-empty">Nothing matches “${esc(reportFilter)}”.</div>`);
+        + (visible.length ? `<div class="v3-report-grid">${cards}</div>`
+          : `<div class="v3-empty">${q
+            ? `Nothing matches “${esc(reportFilter)}”.`
+            : `No ${esc(catalog.TABS.find((tab) => tab.id === activeReportTab)?.label || '')} insights yet.`}</div>`);
 
       const input = el('reportSearch');
       if (input && reportFilter) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
@@ -1168,6 +1180,13 @@
       el('addBackdrop').addEventListener('click', (e) => {
         if (e.target.id === 'addBackdrop' || e.target.closest('#btnCloseAdd')) { closeAddWidget(); return; }
         if (e.target.closest('[data-act="back"]')) { renderReportList(); return; }
+        const tab = e.target.closest('[data-report-tab]');
+        if (tab) {
+          activeReportTab = tab.dataset.reportTab;
+          reportFilter = '';
+          renderReportList();
+          return;
+        }
         const card = e.target.closest('[data-report]');
         if (card) {
           const report = reportsCache.find((r) => r.id === card.dataset.report);

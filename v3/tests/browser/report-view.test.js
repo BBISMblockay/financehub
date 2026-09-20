@@ -9,6 +9,7 @@ const { startSuite, inspectorTab, PERSIST_FAKE_DB } = require('../lib/harness');
     await page.goto(`${suite.BASE}/v3/dashboard.html?id=D1&edit=1`);
     await page.waitForSelector('#btnAddWidget:not([hidden])');
     await page.click('#btnAddWidget');
+    await page.click('[data-report-tab="saved"]');
     await page.click('.v3-report-card:has-text("Sales by product, one store")');
     await page.waitForSelector('.dw');
     await inspectorTab(page, 'visual');

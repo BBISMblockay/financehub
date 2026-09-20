@@ -24,6 +24,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
   // ── 1. A many-query answer offers "Add as Answer widget" ────────────
   await p.click('#btnAddWidget');
   await p.waitForSelector('.v3-report-card');
+  await p.click('[data-report-tab="saved"]');
   await p.click('.v3-report-card[data-report="R5"]');
   await p.waitForSelector('.v3-picker-head');
   ok('a 7-query answer is flagged as an analysis, not a dataset',
@@ -98,6 +99,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
   await p.click('#btnCloseInspector');
   await p.click('#btnAddWidget');
   await p.waitForSelector('.v3-report-card');
+  await p.click('[data-report-tab="saved"]');
   await p.click('.v3-report-card[data-report="R2"]'); // 2 queries, no `answer` field
   await p.waitForSelector('.v3-picker-head');
   ok('a report with no answer text gets no CTA', (await p.locator('.v3-answer-cta').count()) === 0);

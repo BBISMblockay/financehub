@@ -20,7 +20,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260911a" />
+  <link rel="stylesheet" href="dashboard.css?v=20260920a" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -46,7 +46,7 @@
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnReportView" aria-pressed="false">Report view</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnPrintReport" hidden>Print / PDF</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnDensity" title="Switch between comfortable and compact spacing">Compact</button>
-        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddWidget" hidden>+ Widget</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddWidget" hidden>+ Insight</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddSection" hidden>+ Section</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnSettings" hidden
                 aria-expanded="false" aria-controls="metaBar"
@@ -119,11 +119,10 @@
       <div class="v3-blank" id="blank" hidden>
         <h3>Nothing on this dashboard yet</h3>
         <p>
-          Widgets are built from saved reports. Any saved report works — an answer pinned from
-          <a href="/v2/silo-chat.html">Ask SILO</a> (<strong>Save report</strong> under the answer), or a
-          central SILO report definition. Add one and SILO reads the columns that came back to suggest a visual.
+          Choose a ready-made insight, or use an answer you saved from
+          <a href="/v2/silo-chat.html">Ask SILO</a>. SILO will suggest a clear visual for it.
         </p>
-        <button type="button" class="bcn-btn bcn-btn--primary" id="btnBlankAdd" hidden>+ Add widget</button>
+        <button type="button" class="bcn-btn bcn-btn--primary" id="btnBlankAdd" hidden>+ Add insight</button>
       </div>
     </div>
   </main>
@@ -151,11 +150,11 @@
   <div class="v3-inspector-body" id="inspectorBody"></div>
 </aside>
 
-<!-- Saved-report picker -->
+<!-- Insight picker -->
 <div class="v3-backdrop" id="addBackdrop">
   <div class="v3-modal" role="dialog" aria-modal="true" aria-labelledby="addTitle">
     <div class="v3-modal-head">
-      <h3 id="addTitle">Add a widget</h3>
+      <h3 id="addTitle">Add insight</h3>
       <button type="button" class="v3-close" id="btnCloseAdd" aria-label="Close">✕</button>
     </div>
     <div class="v3-modal-body" id="addBody"></div>
@@ -195,19 +194,20 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260911a"></script>
-<script src="js/field-semantics.js?v=20260911a"></script>
-<script src="js/metrics.js?v=20260911a"></script>
-<script src="js/chart-adapter.js?v=20260911a"></script>
-<script src="js/filter-bar.js?v=20260911a"></script>
+<script src="js/report-params.js?v=20260920a"></script>
+<script src="js/field-semantics.js?v=20260920a"></script>
+<script src="js/metrics.js?v=20260920a"></script>
+<script src="js/chart-adapter.js?v=20260920a"></script>
+<script src="js/filter-bar.js?v=20260920a"></script>
+<script src="js/report-catalog.js?v=20260920a"></script>
 <!-- The dashboard page does not compose SQL, but it does have to READ a
      saved answer: which of its queries is the answer and which is the
      model looking up column names. isSchemaProbe/defaultQueryIndex live
      in report-builder.js because that is where "what does this SQL mean"
      belongs; duplicating them here is how the two would drift. -->
-<script src="js/report-builder.js?v=20260911a"></script>
-<script src="js/dashboard-renderer.js?v=20260911a"></script>
-<script src="js/dashboard-builder.js?v=20260911a"></script>
+<script src="js/report-builder.js?v=20260920a"></script>
+<script src="js/dashboard-renderer.js?v=20260920a"></script>
+<script src="js/dashboard-builder.js?v=20260920a"></script>
 <script>
 (function () {
   'use strict';
