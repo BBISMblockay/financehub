@@ -101,6 +101,17 @@ async function resolve(token: unknown, purpose: 'onboarding' | 'card_setup') {
   };
 }
 
+/* The tenant's own name, shown to the applicant. Read here rather than
+   trusted from the page: the caller is anonymous and the company comes from
+   the resolved token. Falls back to neutral wording rather than a blank, and
+   a lookup failure is never fatal -- a missing heading must not cost somebody
+   their application. */
+async function companyTitle(companyId: string): Promise<string> {
+  const { data } = await db
+    .from('entities').select('title').eq('id', companyId).maybeSingle();
+  return data?.title || 'our team';
+}
+
 async function loadAccount(accountId: string) {
   const { data, error } = await db
     .from('customer_accounts')
@@ -152,13 +163,10 @@ export async function handleCustomerOnboarding(req: Request): Promise<Response> 
 async function peek(body: any) {
   const tok = await resolve(body?.token, 'onboarding');
   const account = await loadAccount(tok.accountId);
-  const { data: entity } = await db
-    .from('entities').select('title').eq('id', tok.company).single();
-
   return {
     ok: true,
     email: tok.email,
-    company_title: entity?.title ?? 'our team',
+    company_title: await companyTitle(tok.company),
     account_type: account.account_type,
     legal_name: account.legal_name,
     status: account.status,
@@ -516,6 +524,10 @@ async function status(body: any) {
     ok: true,
     status: account.status,
     card_setup_status: account.card_setup_status,
+    // Carried for the same reason as consent_text below: somebody returning
+    // from Stripe holds only the card-setup token, and the page still has to
+    // name the company they are applying to.
+    company_title: await companyTitle(tok.company),
     // Carried here as well as on peek(), because someone who reloads after
     // submitting holds only the CARD-SETUP token -- peek would (correctly)
     // refuse it, and the card screen still has to render the exact words the

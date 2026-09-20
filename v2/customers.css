@@ -1,0 +1,98 @@
+/* Customers — the wholesale account register.
+ *
+ * Styled to the Accounting Suite (12px type, 6–8px radii, no shadows, tabular
+ * numerals, 6px cell padding) but deliberately NOT a member of it: the page
+ * sets `accounting-workspace` to inherit the suite's header, button, field and
+ * dialog baselines, and is absent from SiloNav.ACCOUNTING_PAGES, so
+ * accounting-suite.js never mounts the seven-icon nav here. A customer
+ * register is not a ledger, and an eighth icon would push that row toward
+ * scrolling on every existing suite page.
+ *
+ * Tokens are read WITHOUT fallbacks so v2/tests/unit/beacon-tokens.test.js
+ * catches a name beacon.css does not define.
+ */
+
+.silo-main { min-width: 0; overflow: hidden; }
+/* The page header stays put while the register scrolls under it. beacon.css
+   does not make .bcn-header sticky and accounting-suite.css only sets its
+   padding, so this rule is the whole behaviour -- it was lost once already
+   when these styles moved out of the page's inline <style> block. */
+.bcn-header { position: sticky; top: 0; z-index: 30;
+              background: var(--bcn-surface); border-bottom: 1px solid var(--bcn-border); }
+.cu-page { flex: 1; min-height: 0; overflow: auto; background: var(--bcn-bg); padding: 12px 18px 28px; }
+
+/* ── Summary tiles ────────────────────────────────────────────────────────
+   Tighter than the stock KPI band, to the suite's scale. `Card on file` is
+   split from the rest by an accent rule because it is the one number that
+   says whether an account can actually be invoiced. */
+.cu-page .bcn-kpi-band { gap: 8px; margin-bottom: 10px; }
+.cu-page .bcn-kpi { padding: 8px 11px; border-radius: 8px; box-shadow: none;
+                    border: 1px solid var(--bcn-border); background: var(--bcn-surface); }
+.cu-page .bcn-kpi-label { font: 400 10px var(--bcn-mono); letter-spacing: .06em;
+                          text-transform: uppercase; color: var(--bcn-ink-3); }
+.cu-page .bcn-kpi-value { font: 650 20px var(--bcn-font); letter-spacing: -.025em;
+                          font-variant-numeric: tabular-nums; margin-top: 2px; }
+.cu-kpi--card { border-left: 3px solid var(--bcn-accent); }
+
+.cu-page .bcn-filter-bar { padding: 9px 12px; border-radius: 8px; gap: 8px; margin-bottom: 10px; }
+.cu-page .bcn-filter { min-width: 0; }
+.cu-page .bcn-filter input, .cu-page .bcn-filter select { min-width: 160px; }
+
+/* ── Register ─────────────────────────────────────────────────────────────── */
+.cu-card { background: var(--bcn-surface); border: 1px solid var(--bcn-border);
+           border-radius: 8px; overflow: hidden; margin-bottom: 10px; }
+.cu-card-head { padding: 9px 12px; border-bottom: 1px solid var(--bcn-border);
+                display: flex; justify-content: space-between; align-items: center;
+                gap: 10px; flex-wrap: wrap; }
+.cu-title { font: 650 13px var(--bcn-font); letter-spacing: -.015em; }
+.cu-sub { font: 400 11px var(--bcn-font); line-height: 1.45; color: var(--bcn-ink-2); }
+
+.cu-scroll { overflow: auto; max-height: 64vh; }
+.cu-table { width: 100%; min-width: 880px; border-collapse: collapse; font-size: 12px; }
+.cu-table th { position: sticky; top: 0; z-index: 2; background: var(--bcn-sunken);
+               text-align: left; font: 400 10px var(--bcn-mono);
+               text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
+               padding: 7px 10px; border-bottom: 1px solid var(--bcn-border); white-space: nowrap; }
+.cu-table td { padding: 6px 10px; border-bottom: 1px solid var(--bcn-border);
+               vertical-align: top; line-height: 1.45; }
+.cu-table tbody tr:hover td { background: var(--bcn-sunken); }
+.cu-name { font-weight: 600; color: var(--bcn-ink); }
+.cu-num { font-family: var(--bcn-font); font-variant-numeric: tabular-nums;
+          text-align: right; white-space: nowrap; }
+.cu-link { background: none; border: 0; padding: 4px 7px; border-radius: 5px;
+           color: var(--bcn-accent); font: 500 12px var(--bcn-font); cursor: pointer; }
+.cu-link:hover { background: var(--bcn-accent-soft); }
+
+/* ── Detail / invite drawers ──────────────────────────────────────────────
+   A right-hand drawer rather than a centred dialog: reading an application
+   against the register behind it is the actual task, the same reason the
+   transaction row-detail drawer is shaped this way. */
+.cu-drawer { position: fixed; inset: 0; z-index: 60; display: none; }
+.cu-drawer[data-open="1"] { display: block; }
+.cu-scrim { position: absolute; inset: 0; background: rgba(15,23,42,.45); }
+.cu-panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(540px, 100%);
+            background: var(--bcn-surface); border-left: 1px solid var(--bcn-border);
+            overflow: auto; padding: 16px 18px 40px; }
+.cu-panel h3 { font: 650 16px var(--bcn-font); letter-spacing: -.02em; margin: 0 0 3px; }
+.cu-group { border-top: 1px solid var(--bcn-border); margin-top: 15px; padding-top: 12px; }
+.cu-group-title { font: 400 10px var(--bcn-mono); letter-spacing: .06em;
+                  text-transform: uppercase; color: var(--bcn-ink-3); margin-bottom: 7px; }
+.cu-kv { display: grid; grid-template-columns: 148px 1fr; gap: 5px 12px; font-size: 12.5px; margin: 0; }
+.cu-kv dt { color: var(--bcn-ink-3); }
+.cu-kv dd { margin: 0; overflow-wrap: anywhere; }
+.cu-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cu-field-wrap { margin-bottom: 10px; }
+.cu-field-wrap .bcn-label { display: block; margin-bottom: 4px; }
+.cu-copy { width: 100%; font-family: var(--bcn-mono); font-size: 11px; }
+.cu-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+[hidden] { display: none !important; }
+
+@media (max-width: 760px) {
+  .cu-page { padding: 10px 12px 24px; }
+  .cu-panel { width: 100%; }
+  .cu-row { grid-template-columns: 1fr; }
+  .cu-kv { grid-template-columns: 1fr; gap: 1px 0; }
+  .cu-kv dd { margin-bottom: 7px; }
+  .cu-scroll { max-height: none; }
+}

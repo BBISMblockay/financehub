@@ -6,51 +6,8 @@
   <title>SILO · Customers</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
-  <style>
-    .silo-main { min-width: 0; overflow: hidden; }
-    .bcn-header { position: sticky; top: 0; z-index: 30;
-      background: var(--bcn-surface); border-bottom: 1px solid var(--bcn-border); }
-    .cu-page { flex: 1; min-height: 0; overflow: auto; background: var(--bcn-bg); padding: 16px 20px 64px; }
-
-    .cu-card { background: var(--bcn-surface); border: 1px solid var(--bcn-border);
-      border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
-    .cu-card-head { padding: 10px 14px; border-bottom: 1px solid var(--bcn-border);
-      display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-    .cu-title { font-weight: 650; font-size: 14px; }
-    .cu-sub { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
-
-    .cu-scroll { overflow: auto; max-height: 62vh; }
-    .cu-table { width: 100%; min-width: 900px; border-collapse: collapse; font-size: 12px; }
-    .cu-table th { position: sticky; top: 0; z-index: 2; background: var(--bcn-sunken);
-      text-align: left; font-family: var(--bcn-mono); font-size: 10px;
-      text-transform: uppercase; letter-spacing: .04em; color: var(--bcn-ink-3);
-      padding: 7px 10px; border-bottom: 1px solid var(--bcn-border); white-space: nowrap; }
-    .cu-table td { padding: 7px 10px; border-bottom: 1px solid var(--bcn-border);
-      vertical-align: top; line-height: 1.45; }
-    .cu-table tbody tr:nth-child(even) td { background: rgba(15,23,42,.015); }
-    .cu-num { font-family: var(--bcn-mono); text-align: right; white-space: nowrap; }
-    .cu-link { background: none; border: 0; padding: 0; color: var(--bcn-accent);
-      font: inherit; cursor: pointer; text-decoration: underline; }
-
-    .cu-drawer { position: fixed; inset: 0; z-index: 60; display: none; }
-    .cu-drawer[data-open="1"] { display: block; }
-    .cu-scrim { position: absolute; inset: 0; background: rgba(2,6,23,.38); }
-    .cu-panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(560px, 100%);
-      background: var(--bcn-surface); border-left: 1px solid var(--bcn-border);
-      overflow: auto; padding: 18px 20px 48px; }
-    .cu-panel h3 { font-size: 15px; font-weight: 650; margin: 0 0 2px; }
-    .cu-group { border-top: 1px solid var(--bcn-border); margin-top: 18px; padding-top: 14px; }
-    .cu-group-title { font-family: var(--bcn-mono); font-size: 10px; letter-spacing: .06em;
-      text-transform: uppercase; color: var(--bcn-ink-3); margin-bottom: 8px; }
-    .cu-kv { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; font-size: 12.5px; }
-    .cu-kv dt { color: var(--bcn-ink-3); }
-    .cu-kv dd { margin: 0; }
-    .cu-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .cu-field-wrap { margin-bottom: 10px; }
-    .cu-field-wrap .bcn-label { display: block; margin-bottom: 4px; }
-    .cu-copy { width: 100%; font-family: var(--bcn-mono); font-size: 11px; }
-    [hidden] { display: none !important; }
-  </style>
+  <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
+  <link rel="stylesheet" href="customers.css?v=cf72c6511b38" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="avatar.js"></script>
@@ -60,9 +17,14 @@
 </head>
 <body>
   <div class="silo-app" id="silo-app">
-    <main class="silo-main">
+    <main class="silo-main accounting-workspace">
       <header class="bcn-header">
-        <div class="bcn-header-title">Customers</div>
+        <div>
+          <div class="bcn-header-title">Customers</div>
+          <div class="bcn-header-sub">
+            Wholesale accounts, their approved terms, and whether a card is on file.
+          </div>
+        </div>
         <div class="bcn-header-actions">
           <button class="bcn-btn bcn-btn--primary" id="btnInvite">Invite a customer</button>
         </div>
@@ -84,7 +46,7 @@
             <div class="bcn-kpi-label">Invited, not returned</div>
             <div class="bcn-kpi-value" id="kpiInvited">—</div>
           </div>
-          <div class="bcn-kpi">
+          <div class="bcn-kpi cu-kpi--card">
             <div class="bcn-kpi-label">Card on file</div>
             <div class="bcn-kpi-value" id="kpiCards">—</div>
           </div>
@@ -178,7 +140,7 @@
           <label class="bcn-label" for="dTier">Price tier</label>
           <input class="bcn-field" id="dTier" />
         </div>
-        <div class="bcn-header-actions" style="gap:8px;display:flex;flex-wrap:wrap">
+        <div class="cu-actions">
           <button class="bcn-btn bcn-btn--primary" id="dApprove">Approve</button>
           <button class="bcn-btn bcn-btn--danger" id="dReject">Reject</button>
           <button class="bcn-btn bcn-btn--ghost" data-close="1">Close</button>
@@ -325,7 +287,7 @@
     const body = rows.length
       ? rows.map((r) => `<tr>
           <td>
-            <div>${esc(r.legal_name || '(not yet supplied)')}</div>
+            <div class="cu-name">${esc(r.legal_name || '(not yet supplied)')}</div>
             ${r.dba_name ? `<div class="cu-sub">${esc(r.dba_name)}</div>` : ''}
           </td>
           <td>

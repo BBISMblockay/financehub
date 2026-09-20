@@ -1,5 +1,11 @@
 <!doctype html>
-<html lang="en">
+<!-- beacon.css defines every --bcn-* token under :root[data-theme="light"]
+     and :root[data-theme="dark"], and under no bare :root. A page that sets
+     neither resolves NONE of them, so every var() without a fallback is
+     invalid at computed-value time and the page renders as unstyled HTML.
+     53 of the 63 v2 pages set this; this one did not, and survived only
+     because its old stylesheet carried a fallback on every single var(). -->
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -11,309 +17,462 @@
   <style>
     /* Chrome-less on purpose, like company-onboarding.html: the person filling
        this in has no SILO login and never will, so there is no sidebar to
-       render and nothing for SiloChrome to mount against. */
-    .co-wrap { min-height: 100vh; background: var(--bcn-canvas, #f4f5f7); padding: 24px 16px 64px; }
-    .co-card { width: 100%; max-width: 720px; margin: 0 auto; background: var(--bcn-surface, #fff);
-               border: 1px solid var(--bcn-border, #e2e5ea); border-radius: 14px;
-               padding: 32px 28px; box-shadow: 0 8px 28px rgba(2,6,23,.07); }
-    .co-logo { width: 40px; height: 40px; background: var(--bcn-band, #0f1117); border-radius: 10px;
-               display: flex; align-items: center; justify-content: center; color: #fff;
-               font-weight: 700; font-size: 18px; margin-bottom: 20px; }
-    .co-title { font-size: 19px; font-weight: 600; color: var(--bcn-ink, #111827); margin-bottom: 4px; }
-    .co-sub { font-size: 13px; color: var(--bcn-ink-3, #6b7280); margin-bottom: 24px; line-height: 1.5; }
-    .co-section { border-top: 1px solid var(--bcn-border, #e2e5ea); margin-top: 26px; padding-top: 22px; }
-    .co-section:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
-    .co-section-title { font-family: 'IBM Plex Mono', monospace; font-size: 11px;
-                        letter-spacing: .08em; text-transform: uppercase;
-                        color: var(--bcn-ink-3, #6b7280); margin-bottom: 14px; }
-    .co-field { margin-bottom: 16px; }
-    .co-field .bcn-label { display: block; margin-bottom: 6px; }
-    .co-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .co-row-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 14px; }
+       render and nothing for SiloChrome to mount against.
+
+       The shape is a five-step wizard rather than one long scroll. Thirty
+       inputs on one page is a wall on a phone, which is where this link is
+       opened -- it arrives by email. Nothing is persisted between steps: the
+       submit is still ONE atomic call that consumes the token, so the steps
+       are presentation and the backend contract is untouched.
+
+       Tokens are read WITHOUT fallbacks so v2/tests/unit/beacon-tokens.test.js
+       catches a name that does not exist. The old file read --bcn-canvas,
+       which is defined nowhere, so it always painted its own fallback and
+       never followed the theme. */
+    body { margin: 0; background: var(--bcn-bg); }
+    .co-wrap { min-height: 100vh; min-height: 100dvh; padding: 22px 16px 40px;
+               display: flex; flex-direction: column; align-items: center; }
+    /* `clip`, never `hidden`. Both clip to the radius, but `overflow: hidden`
+       makes this card a SCROLL CONTAINER, and a position:sticky descendant
+       sticks within its nearest scroll container -- so the action bar stopped
+       sticking to the viewport and sat wherever the step ended. Measured on
+       the Delivery & billing step at 390x780: the bar rendered 807px below
+       the fold, on the exact steps the sticky bar exists for. `clip` creates
+       no scroll container, so sticky keeps resolving against the viewport. */
+    .co-card { width: 100%; max-width: 680px; background: var(--bcn-surface);
+               border: 1px solid var(--bcn-border); border-radius: 10px;
+               display: flex; flex-direction: column; overflow: clip; }
+
+    /* ── Brand header ──────────────────────────────────────────────────────
+       The applicant is applying to the TENANT, not to SILO. The monogram is
+       the tenant's own initial, derived from the name the peek already
+       returns -- no logo upload, no new column, nothing to keep in sync. */
+    .co-brand { display: flex; align-items: center; gap: 10px;
+                padding: 14px 20px; border-bottom: 1px solid var(--bcn-border); }
+    .co-mark { width: 30px; height: 30px; flex: none; border-radius: 7px;
+               background: var(--bcn-band); color: var(--bcn-band-ink);
+               display: flex; align-items: center; justify-content: center;
+               font: 650 14px var(--bcn-font); letter-spacing: -.02em; }
+    .co-brand-name { font: 650 13px var(--bcn-font); color: var(--bcn-ink); letter-spacing: -.01em; }
+    .co-brand-sub { font: 400 11px var(--bcn-mono); color: var(--bcn-ink-3);
+                    letter-spacing: .06em; text-transform: uppercase; margin-top: 1px; }
+
+    .co-body { padding: 18px 20px 20px; }
+    .co-title { font: 650 19px var(--bcn-font); color: var(--bcn-ink);
+                letter-spacing: -.025em; line-height: 1.25; }
+    .co-sub { font-size: 13px; color: var(--bcn-ink-2); margin-top: 5px; line-height: 1.5; }
+
+    /* ── Progress rail ─────────────────────────────────────────────────────
+       A real <ol>, so the sequence is conveyed structurally and not only by
+       colour. Labels collapse below 620px, where only the current step keeps
+       its name -- five labels in a row is unreadable on a phone. */
+    .co-rail { display: flex; list-style: none; margin: 16px 0 0; padding: 0; gap: 4px; }
+    .co-rail li { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+    .co-rail-bar { height: 3px; border-radius: 2px; background: var(--bcn-border); }
+    .co-rail-label { font: 500 11px var(--bcn-font); color: var(--bcn-ink-3);
+                     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .co-rail li[data-state="done"] .co-rail-bar { background: var(--bcn-pos); }
+    .co-rail li[data-state="current"] .co-rail-bar { background: var(--bcn-accent); }
+    .co-rail li[data-state="current"] .co-rail-label { color: var(--bcn-accent); font-weight: 650; }
+    .co-rail-count { display: none; font: 400 11px var(--bcn-mono); color: var(--bcn-ink-3);
+                     letter-spacing: .06em; text-transform: uppercase; margin-top: 8px; }
+
+    /* ── Steps ─────────────────────────────────────────────────────────────
+       Every step stays in the DOM. buildForm() reads the same ids it always
+       did, so the payload cannot drift from what the wizard shows. */
+    .co-step[hidden] { display: none; }
+    .co-step-title { font: 650 14px var(--bcn-font); color: var(--bcn-ink);
+                     letter-spacing: -.015em; margin: 20px 0 2px; }
+    .co-step-note { font-size: 12px; color: var(--bcn-ink-3); line-height: 1.45; margin-bottom: 14px; }
+
+    .co-field { margin-bottom: 13px; }
+    .co-field .bcn-label { display: block; margin-bottom: 5px; }
+    .co-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .co-row-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; }
     @media (max-width: 560px) { .co-row, .co-row-3 { grid-template-columns: 1fr; } }
-    .co-check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px;
-                color: var(--bcn-ink-2, #374151); line-height: 1.5; margin-bottom: 14px; }
-    .co-check input { margin-top: 2px; flex: none; }
-    .co-hint { font-size: 12px; color: var(--bcn-ink-3, #6b7280); margin-top: 6px; line-height: 1.45; }
-    .co-consent { font-size: 12.5px; line-height: 1.6; color: var(--bcn-ink-2, #374151);
-                  background: var(--bcn-canvas, #f4f5f7); border: 1px solid var(--bcn-border, #e2e5ea);
-                  border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
-    .co-actions { margin-top: 26px; display: flex; gap: 10px; align-items: center; }
-    .co-card-saved { font-family: 'IBM Plex Mono', monospace; font-size: 13px;
-                     border: 1px solid var(--bcn-pos, #059669); border-radius: 8px;
-                     padding: 12px 14px; color: var(--bcn-ink, #111827);
-                     background: rgba(5,150,105,.06); }
+    .co-hint { font-size: 12px; color: var(--bcn-ink-3); margin-top: 5px; line-height: 1.45; }
+
+    /* A "same as" choice is a real decision, so it reads as a card rather than
+       a loose checkbox -- and the fields it controls sit inside its own block,
+       so the relationship is visible rather than inferred from proximity. */
+    .co-choice { border: 1px solid var(--bcn-border); border-radius: 8px;
+                 padding: 11px 13px; margin-bottom: 11px; background: var(--bcn-sunken); }
+    .co-check { display: flex; align-items: flex-start; gap: 9px; font-size: 13px;
+                color: var(--bcn-ink); line-height: 1.45; cursor: pointer; }
+    .co-check + .co-check { margin-top: 9px; }
+    .co-check input { margin: 2px 0 0; flex: none; accent-color: var(--bcn-accent); }
+    .co-reveal { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--bcn-border); }
+
+    .co-consent { font-size: 12.5px; line-height: 1.6; color: var(--bcn-ink-2);
+                  background: var(--bcn-sunken); border: 1px solid var(--bcn-border);
+                  border-radius: 8px; padding: 13px 15px; margin-bottom: 12px;
+                  max-height: 220px; overflow: auto; white-space: pre-wrap; }
+
+    /* ── Review ────────────────────────────────────────────────────────────
+       Rendered FROM buildForm(), the same function that builds the payload,
+       so the summary cannot claim something different from what is sent.
+       Same reasoning as je-composer.js re-reading its draft from the database
+       before anyone approves it. */
+    .co-review { border: 1px solid var(--bcn-border); border-radius: 8px; overflow: hidden; }
+    .co-review-group + .co-review-group { border-top: 1px solid var(--bcn-border); }
+    .co-review-head { display: flex; align-items: baseline; justify-content: space-between;
+                      gap: 10px; padding: 9px 13px; background: var(--bcn-sunken); }
+    .co-review-head h3 { font: 650 12px var(--bcn-font); color: var(--bcn-ink); margin: 0;
+                         letter-spacing: -.01em; }
+    .co-review-edit { background: none; border: 0; padding: 0; cursor: pointer;
+                      font: 500 12px var(--bcn-font); color: var(--bcn-accent); }
+    .co-review-edit:hover { text-decoration: underline; }
+    .co-kv { display: grid; grid-template-columns: 148px 1fr; gap: 5px 14px;
+             margin: 0; padding: 11px 13px; font-size: 12.5px; }
+    .co-kv dt { color: var(--bcn-ink-3); }
+    .co-kv dd { margin: 0; color: var(--bcn-ink); overflow-wrap: anywhere; }
+    .co-kv dd.co-empty { color: var(--bcn-ink-4); }
+    @media (max-width: 520px) { .co-kv { grid-template-columns: 1fr; gap: 1px 0; }
+                                .co-kv dd { margin-bottom: 7px; } }
+
+    /* ── Actions ───────────────────────────────────────────────────────────
+       Sticky at the bottom of the card so Continue is always reachable on a
+       phone without scrolling past every field first. */
+    .co-actions { position: sticky; bottom: 0; display: flex; align-items: center; gap: 9px;
+                  padding: 12px 20px; background: var(--bcn-surface);
+                  border-top: 1px solid var(--bcn-border); }
+    .co-actions .co-spacer { flex: 1; }
+    .co-actions .bcn-btn { min-height: 34px; border-radius: 6px; font-size: 13px; }
+    .co-saved { font: 500 13px var(--bcn-mono); border: 1px solid var(--bcn-pos-border);
+                border-radius: 8px; padding: 12px 14px; color: var(--bcn-ink);
+                background: var(--bcn-pos-soft); margin-top: 14px; }
+    .co-foot { max-width: 680px; width: 100%; margin: 10px auto 0; font-size: 11.5px;
+               color: var(--bcn-ink-3); line-height: 1.5; text-align: center; }
     [hidden] { display: none !important; }
+
+    @media (max-width: 620px) {
+      .co-wrap { padding: 0 0 0; }
+      .co-card { border-radius: 0; border-left: 0; border-right: 0; min-height: 100dvh; }
+      .co-rail-label { display: none; }
+      .co-rail li[data-state="current"] .co-rail-label { display: block; }
+      .co-rail-count { display: block; }
+      .co-actions { padding: 11px 16px; padding-bottom: max(11px, env(safe-area-inset-bottom)); }
+      .co-body { padding: 16px 16px 18px; }
+      .co-brand { padding: 13px 16px; }
+      .co-actions .bcn-btn { min-height: 42px; flex: 1; }
+      .co-actions .co-spacer { display: none; }
+      .co-foot { padding: 0 16px 16px; }
+    }
   </style>
 </head>
 <body>
   <div class="co-wrap">
     <div class="co-card">
-      <div class="co-logo">S</div>
 
-      <div class="bcn-status" id="status" hidden></div>
-
-      <!-- ── Gate: an invalid or spent link never shows the form ──────────── -->
-      <div id="gate" hidden>
-        <div class="co-title" id="gateTitle">This link is not valid</div>
-        <div class="co-sub" id="gateBody">
-          Ask your contact for a new application link.
+      <!-- The applicant is applying to the tenant. Filled from peek's
+           company_title; the neutral default is what shows if the link is
+           dead, where naming a company would be a disclosure. -->
+      <div class="co-brand">
+        <div class="co-mark" id="brandMark" aria-hidden="true">·</div>
+        <div>
+          <div class="co-brand-name" id="brandName">Wholesale application</div>
+          <div class="co-brand-sub">New account</div>
         </div>
       </div>
 
-      <!-- ── Step 1: the application ──────────────────────────────────────── -->
-      <form id="form" hidden autocomplete="on">
-        <div class="co-title">Wholesale account application</div>
-        <div class="co-sub" id="formSub">Tell us about your business.</div>
+      <div class="co-body">
+        <div class="bcn-status" id="status" hidden></div>
 
-        <div class="co-section">
-          <div class="co-section-title">1 · Business information</div>
-          <div class="co-field">
-            <label class="bcn-label" for="legal_name">Legal business name *</label>
-            <input class="bcn-field" id="legal_name" name="organization" required />
-          </div>
-          <div class="co-row">
-            <div class="co-field">
-              <label class="bcn-label" for="dba_name">DBA / store name</label>
-              <input class="bcn-field" id="dba_name" />
-            </div>
-            <div class="co-field">
-              <label class="bcn-label" for="website">Website</label>
-              <input class="bcn-field" id="website" inputmode="url" placeholder="https://" />
-            </div>
-          </div>
-          <div class="co-row">
-            <div class="co-field">
-              <label class="bcn-label" for="federal_ein">Federal EIN / Tax ID</label>
-              <input class="bcn-field bcn-field--mono" id="federal_ein" autocomplete="off" />
-            </div>
-            <div class="co-field">
-              <label class="bcn-label" for="resale_tax_id">Resale certificate / sales tax ID</label>
-              <input class="bcn-field bcn-field--mono" id="resale_tax_id" autocomplete="off" />
-            </div>
-          </div>
-          <div class="co-field">
-            <label class="bcn-label" for="certificate">Resale certificate / seller's permit</label>
-            <input class="bcn-field" type="file" id="certificate"
-                   accept="application/pdf,image/jpeg,image/png,image/heic" />
-            <div class="co-hint">PDF, JPG, PNG or HEIC. Uploaded when you submit.</div>
+        <!-- ── Gate: an invalid or spent link never shows the form ────────── -->
+        <div id="gate" hidden>
+          <div class="co-title" id="gateTitle">This link is not valid</div>
+          <div class="co-sub" id="gateBody">
+            Ask your contact for a new application link.
           </div>
         </div>
 
-        <div class="co-section">
-          <div class="co-section-title">2 · Primary contact</div>
-          <div class="co-row">
-            <div class="co-field">
-              <label class="bcn-label" for="first_name">First name *</label>
-              <input class="bcn-field" id="first_name" autocomplete="given-name" required />
-            </div>
-            <div class="co-field">
-              <label class="bcn-label" for="last_name">Last name *</label>
-              <input class="bcn-field" id="last_name" autocomplete="family-name" required />
-            </div>
-          </div>
-          <div class="co-row">
-            <div class="co-field">
-              <label class="bcn-label" for="title">Title / position</label>
-              <input class="bcn-field" id="title" autocomplete="organization-title" />
-            </div>
-            <div class="co-field">
-              <label class="bcn-label" for="contact_email">Email *</label>
-              <input class="bcn-field" id="contact_email" type="email" autocomplete="email" required />
-            </div>
-          </div>
-          <div class="co-field">
-            <label class="bcn-label" for="contact_phone">Phone</label>
-            <input class="bcn-field" id="contact_phone" type="tel" autocomplete="tel" />
-          </div>
-        </div>
+        <!-- ── The application ────────────────────────────────────────────── -->
+        <form id="form" hidden autocomplete="on" novalidate>
+          <div class="co-title">Wholesale account application</div>
+          <div class="co-sub" id="formSub">Tell us about your business.</div>
 
-        <div class="co-section">
-          <div class="co-section-title">3 · Store / business location</div>
-          <div class="co-field">
-            <label class="bcn-label" for="biz_recipient">Store name</label>
-            <input class="bcn-field" id="biz_recipient" />
-          </div>
-          <div class="co-field">
-            <label class="bcn-label" for="biz_street1">Street address *</label>
-            <input class="bcn-field" id="biz_street1" autocomplete="address-line1" required />
-            <input class="bcn-field" id="biz_street2" style="margin-top:8px"
-                   autocomplete="address-line2" placeholder="Suite, unit (optional)" />
-          </div>
-          <div class="co-row-3">
-            <div class="co-field">
-              <label class="bcn-label" for="biz_city">City *</label>
-              <input class="bcn-field" id="biz_city" autocomplete="address-level2" required />
-            </div>
-            <div class="co-field">
-              <label class="bcn-label" for="biz_region">State / province</label>
-              <input class="bcn-field" id="biz_region" autocomplete="address-level1" />
-            </div>
-            <div class="co-field">
-              <label class="bcn-label" for="biz_postal">ZIP / postal</label>
-              <input class="bcn-field" id="biz_postal" autocomplete="postal-code" />
-            </div>
-          </div>
-          <div class="co-row">
-            <div class="co-field">
-              <label class="bcn-label" for="biz_country">Country *</label>
-              <input class="bcn-field" id="biz_country" autocomplete="country-name" value="US" required />
-            </div>
-            <div class="co-field">
-              <label class="bcn-label" for="biz_phone">Store phone</label>
-              <input class="bcn-field" id="biz_phone" type="tel" />
-            </div>
-          </div>
-        </div>
+          <ol class="co-rail" id="rail" aria-label="Application progress">
+            <li data-state="current"><span class="co-rail-bar"></span><span class="co-rail-label">Business</span></li>
+            <li data-state="todo"><span class="co-rail-bar"></span><span class="co-rail-label">Contact</span></li>
+            <li data-state="todo"><span class="co-rail-bar"></span><span class="co-rail-label">Location</span></li>
+            <li data-state="todo"><span class="co-rail-bar"></span><span class="co-rail-label">Delivery &amp; billing</span></li>
+            <li data-state="todo"><span class="co-rail-bar"></span><span class="co-rail-label">Review</span></li>
+          </ol>
+          <div class="co-rail-count" id="railCount">Step 1 of 5 · Business</div>
 
-        <div class="co-section">
-          <div class="co-section-title">4 · Shipping</div>
-          <label class="co-check">
-            <input type="checkbox" id="ship_same" checked />
-            <span>Same as store / business address</span>
-          </label>
-          <div id="ship_fields" hidden>
+          <!-- ── 1 · Business ─────────────────────────────────────────────── -->
+          <section class="co-step" data-step="1">
+            <div class="co-step-title">Business information</div>
+            <div class="co-step-note">How your business is registered and taxed.</div>
+            <div class="co-field">
+              <label class="bcn-label" for="legal_name">Legal business name *</label>
+              <input class="bcn-field" id="legal_name" name="organization" required />
+            </div>
             <div class="co-row">
               <div class="co-field">
-                <label class="bcn-label" for="ship_recipient">Shipping company / recipient</label>
-                <input class="bcn-field" id="ship_recipient" />
+                <label class="bcn-label" for="dba_name">DBA / store name</label>
+                <input class="bcn-field" id="dba_name" />
               </div>
               <div class="co-field">
-                <label class="bcn-label" for="ship_attention">Receiving contact</label>
-                <input class="bcn-field" id="ship_attention" />
-              </div>
-            </div>
-            <div class="co-field">
-              <label class="bcn-label" for="ship_street1">Shipping address</label>
-              <input class="bcn-field" id="ship_street1" />
-              <input class="bcn-field" id="ship_street2" style="margin-top:8px"
-                     placeholder="Suite, unit (optional)" />
-            </div>
-            <div class="co-row-3">
-              <div class="co-field">
-                <label class="bcn-label" for="ship_city">City</label>
-                <input class="bcn-field" id="ship_city" />
-              </div>
-              <div class="co-field">
-                <label class="bcn-label" for="ship_region">State / province</label>
-                <input class="bcn-field" id="ship_region" />
-              </div>
-              <div class="co-field">
-                <label class="bcn-label" for="ship_postal">ZIP / postal</label>
-                <input class="bcn-field" id="ship_postal" />
+                <label class="bcn-label" for="website">Website</label>
+                <input class="bcn-field" id="website" inputmode="url" placeholder="https://" />
               </div>
             </div>
             <div class="co-row">
               <div class="co-field">
-                <label class="bcn-label" for="ship_country">Country</label>
-                <input class="bcn-field" id="ship_country" value="US" />
+                <label class="bcn-label" for="federal_ein">Federal EIN / Tax ID</label>
+                <input class="bcn-field bcn-field--mono" id="federal_ein" autocomplete="off" />
               </div>
               <div class="co-field">
-                <label class="bcn-label" for="ship_phone">Receiving phone</label>
-                <input class="bcn-field" id="ship_phone" type="tel" />
+                <label class="bcn-label" for="resale_tax_id">Resale certificate / sales tax ID</label>
+                <input class="bcn-field bcn-field--mono" id="resale_tax_id" autocomplete="off" />
               </div>
             </div>
-          </div>
-          <!-- The receiving contact stays with the ADDRESS rather than moving to
-               the contacts list: it is part of the shipping label, not a person
-               anyone will email. -->
-          <div class="co-hint" id="ship_attention_same_wrap">
-            <label class="bcn-label" for="ship_attention_same"
-                   style="display:block;margin:10px 0 6px">Receiving contact</label>
-            <input class="bcn-field" id="ship_attention_same" placeholder="Who receives deliveries" />
-          </div>
-        </div>
-
-        <div class="co-section">
-          <div class="co-section-title">5 · Billing</div>
-          <label class="co-check">
-            <input type="checkbox" id="bill_same_biz" checked />
-            <span>Same as business address</span>
-          </label>
-          <label class="co-check">
-            <input type="checkbox" id="bill_same_ship" />
-            <span>Same as shipping address</span>
-          </label>
-          <div id="bill_fields" hidden>
             <div class="co-field">
-              <label class="bcn-label" for="bill_street1">Billing address</label>
-              <input class="bcn-field" id="bill_street1" />
-              <input class="bcn-field" id="bill_street2" style="margin-top:8px"
-                     placeholder="Suite, unit (optional)" />
+              <label class="bcn-label" for="certificate">Resale certificate / seller's permit</label>
+              <input class="bcn-field" type="file" id="certificate"
+                     accept="application/pdf,image/jpeg,image/png,image/heic" />
+              <div class="co-hint">PDF, JPG, PNG or HEIC. Uploaded when you submit.</div>
+            </div>
+          </section>
+
+          <!-- ── 2 · Contact ──────────────────────────────────────────────── -->
+          <section class="co-step" data-step="2" hidden>
+            <div class="co-step-title">Primary contact</div>
+            <div class="co-step-note">Who we speak to about this account.</div>
+            <div class="co-row">
+              <div class="co-field">
+                <label class="bcn-label" for="first_name">First name *</label>
+                <input class="bcn-field" id="first_name" autocomplete="given-name" required />
+              </div>
+              <div class="co-field">
+                <label class="bcn-label" for="last_name">Last name *</label>
+                <input class="bcn-field" id="last_name" autocomplete="family-name" required />
+              </div>
+            </div>
+            <div class="co-row">
+              <div class="co-field">
+                <label class="bcn-label" for="title">Title / position</label>
+                <input class="bcn-field" id="title" autocomplete="organization-title" />
+              </div>
+              <div class="co-field">
+                <label class="bcn-label" for="contact_email">Email *</label>
+                <input class="bcn-field" id="contact_email" type="email" autocomplete="email" required />
+              </div>
+            </div>
+            <div class="co-field">
+              <label class="bcn-label" for="contact_phone">Phone</label>
+              <input class="bcn-field" id="contact_phone" type="tel" autocomplete="tel" />
+            </div>
+          </section>
+
+          <!-- ── 3 · Location ─────────────────────────────────────────────── -->
+          <section class="co-step" data-step="3" hidden>
+            <div class="co-step-title">Store / business location</div>
+            <div class="co-step-note">Your registered business address.</div>
+            <div class="co-field">
+              <label class="bcn-label" for="biz_recipient">Store name</label>
+              <input class="bcn-field" id="biz_recipient" />
+            </div>
+            <div class="co-field">
+              <label class="bcn-label" for="biz_street1">Street address *</label>
+              <input class="bcn-field" id="biz_street1" autocomplete="address-line1" required />
+              <input class="bcn-field" id="biz_street2" style="margin-top:8px"
+                     autocomplete="address-line2" placeholder="Suite, unit (optional)" />
             </div>
             <div class="co-row-3">
               <div class="co-field">
-                <label class="bcn-label" for="bill_city">City</label>
-                <input class="bcn-field" id="bill_city" />
+                <label class="bcn-label" for="biz_city">City *</label>
+                <input class="bcn-field" id="biz_city" autocomplete="address-level2" required />
               </div>
               <div class="co-field">
-                <label class="bcn-label" for="bill_region">State / province</label>
-                <input class="bcn-field" id="bill_region" />
+                <label class="bcn-label" for="biz_region">State / province</label>
+                <input class="bcn-field" id="biz_region" autocomplete="address-level1" />
               </div>
               <div class="co-field">
-                <label class="bcn-label" for="bill_postal">ZIP / postal</label>
-                <input class="bcn-field" id="bill_postal" />
+                <label class="bcn-label" for="biz_postal">ZIP / postal</label>
+                <input class="bcn-field" id="biz_postal" autocomplete="postal-code" />
+              </div>
+            </div>
+            <div class="co-row">
+              <div class="co-field">
+                <label class="bcn-label" for="biz_country">Country *</label>
+                <input class="bcn-field" id="biz_country" autocomplete="country-name" value="US" required />
+              </div>
+              <div class="co-field">
+                <label class="bcn-label" for="biz_phone">Store phone</label>
+                <input class="bcn-field" id="biz_phone" type="tel" />
+              </div>
+            </div>
+          </section>
+
+          <!-- ── 4 · Delivery & billing ───────────────────────────────────── -->
+          <section class="co-step" data-step="4" hidden>
+            <div class="co-step-title">Delivery &amp; billing</div>
+            <div class="co-step-note">Where orders ship, and where invoices go.</div>
+
+            <div class="co-choice">
+              <label class="co-check">
+                <input type="checkbox" id="ship_same" checked />
+                <span>Ships to the store / business address</span>
+              </label>
+              <!-- The receiving contact stays with the ADDRESS rather than
+                   moving to the contacts list: it is part of the shipping
+                   label, not a person anyone will email. -->
+              <div class="co-reveal" id="ship_attention_same_wrap">
+                <label class="bcn-label" for="ship_attention_same">Receiving contact</label>
+                <input class="bcn-field" id="ship_attention_same" placeholder="Who receives deliveries" />
+              </div>
+              <div class="co-reveal" id="ship_fields" hidden>
+                <div class="co-row">
+                  <div class="co-field">
+                    <label class="bcn-label" for="ship_recipient">Shipping company / recipient</label>
+                    <input class="bcn-field" id="ship_recipient" />
+                  </div>
+                  <div class="co-field">
+                    <label class="bcn-label" for="ship_attention">Receiving contact</label>
+                    <input class="bcn-field" id="ship_attention" />
+                  </div>
+                </div>
+                <div class="co-field">
+                  <label class="bcn-label" for="ship_street1">Shipping address</label>
+                  <input class="bcn-field" id="ship_street1" />
+                  <input class="bcn-field" id="ship_street2" style="margin-top:8px"
+                         placeholder="Suite, unit (optional)" />
+                </div>
+                <div class="co-row-3">
+                  <div class="co-field">
+                    <label class="bcn-label" for="ship_city">City</label>
+                    <input class="bcn-field" id="ship_city" />
+                  </div>
+                  <div class="co-field">
+                    <label class="bcn-label" for="ship_region">State / province</label>
+                    <input class="bcn-field" id="ship_region" />
+                  </div>
+                  <div class="co-field">
+                    <label class="bcn-label" for="ship_postal">ZIP / postal</label>
+                    <input class="bcn-field" id="ship_postal" />
+                  </div>
+                </div>
+                <div class="co-row">
+                  <div class="co-field">
+                    <label class="bcn-label" for="ship_country">Country</label>
+                    <input class="bcn-field" id="ship_country" value="US" />
+                  </div>
+                  <div class="co-field">
+                    <label class="bcn-label" for="ship_phone">Receiving phone</label>
+                    <input class="bcn-field" id="ship_phone" type="tel" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="co-choice">
+              <label class="co-check">
+                <input type="checkbox" id="bill_same_biz" checked />
+                <span>Bill the business address</span>
+              </label>
+              <label class="co-check">
+                <input type="checkbox" id="bill_same_ship" />
+                <span>Bill the shipping address</span>
+              </label>
+              <div class="co-reveal" id="bill_fields" hidden>
+                <div class="co-field">
+                  <label class="bcn-label" for="bill_street1">Billing address</label>
+                  <input class="bcn-field" id="bill_street1" />
+                  <input class="bcn-field" id="bill_street2" style="margin-top:8px"
+                         placeholder="Suite, unit (optional)" />
+                </div>
+                <div class="co-row-3">
+                  <div class="co-field">
+                    <label class="bcn-label" for="bill_city">City</label>
+                    <input class="bcn-field" id="bill_city" />
+                  </div>
+                  <div class="co-field">
+                    <label class="bcn-label" for="bill_region">State / province</label>
+                    <input class="bcn-field" id="bill_region" />
+                  </div>
+                  <div class="co-field">
+                    <label class="bcn-label" for="bill_postal">ZIP / postal</label>
+                    <input class="bcn-field" id="bill_postal" />
+                  </div>
+                </div>
+                <div class="co-field">
+                  <label class="bcn-label" for="bill_country">Country</label>
+                  <input class="bcn-field" id="bill_country" value="US" />
+                </div>
+              </div>
+            </div>
+
+            <div class="co-field">
+              <label class="bcn-label" for="requested_terms">Payment terms you're requesting</label>
+              <input class="bcn-field" id="requested_terms" placeholder="e.g. Net 30" />
+              <div class="co-hint">
+                A request, not an agreement — terms are confirmed when your account is approved.
               </div>
             </div>
             <div class="co-field">
-              <label class="bcn-label" for="bill_country">Country</label>
-              <input class="bcn-field" id="bill_country" value="US" />
+              <label class="bcn-label" for="applicant_notes">Anything else we should know</label>
+              <textarea class="bcn-field" id="applicant_notes" rows="3"></textarea>
             </div>
-          </div>
-          <div class="co-field" style="margin-top:14px">
-            <label class="bcn-label" for="requested_terms">Payment terms you're requesting</label>
-            <input class="bcn-field" id="requested_terms" placeholder="e.g. Net 30" />
-            <div class="co-hint">
-              A request, not an agreement — terms are confirmed when your account is approved.
+          </section>
+
+          <!-- ── 5 · Review ───────────────────────────────────────────────── -->
+          <section class="co-step" data-step="5" hidden>
+            <div class="co-step-title">Review your application</div>
+            <div class="co-step-note">
+              This is exactly what will be sent. Edit any section before submitting.
             </div>
+            <div class="co-review" id="review"></div>
+          </section>
+
+          <div class="co-actions">
+            <button class="bcn-btn bcn-btn--ghost" type="button" id="backBtn" hidden>Back</button>
+            <span class="co-spacer"></span>
+            <button class="bcn-btn bcn-btn--primary" type="button" id="nextBtn">Continue</button>
+            <button class="bcn-btn bcn-btn--primary" type="submit" id="submitBtn" hidden>
+              Submit application
+            </button>
           </div>
-          <div class="co-field">
-            <label class="bcn-label" for="applicant_notes">Anything else we should know</label>
-            <textarea class="bcn-field" id="applicant_notes" rows="3"></textarea>
+        </form>
+
+        <!-- ── The card ───────────────────────────────────────────────────── -->
+        <div id="cardStep" hidden>
+          <div class="co-title">Save a card for your account</div>
+          <div class="co-sub">
+            Your application is in. The last step is a payment method for invoices on this
+            account. Card details are entered on Stripe's own secure page — they never
+            touch our systems.
+          </div>
+          <div class="co-consent" id="consentText"></div>
+          <label class="co-check">
+            <input type="checkbox" id="consentBox" />
+            <span>I authorise the charges described above.</span>
+          </label>
+          <div class="co-actions">
+            <button class="bcn-btn bcn-btn--ghost" id="skipBtn" type="button">I'll do this later</button>
+            <span class="co-spacer"></span>
+            <button class="bcn-btn bcn-btn--primary" id="cardBtn" disabled>
+              Continue to secure card entry
+            </button>
           </div>
         </div>
 
-        <div class="co-actions">
-          <button class="bcn-btn bcn-btn--primary" type="submit" id="submitBtn">
-            Submit application
-          </button>
+        <!-- ── Done ───────────────────────────────────────────────────────── -->
+        <div id="done" hidden>
+          <div class="co-title">Thank you — we have everything we need</div>
+          <div class="co-sub" id="doneSub">
+            Your application is with our team. We'll be in touch once it's reviewed.
+          </div>
+          <div class="co-saved" id="savedCard" hidden></div>
         </div>
-      </form>
-
-      <!-- ── Step 2: the card ─────────────────────────────────────────────── -->
-      <div id="cardStep" hidden>
-        <div class="co-title">Save a card for your account</div>
-        <div class="co-sub">
-          Your application is in. The last step is a payment method for invoices on this
-          account. Card details are entered on Stripe's own secure page — they never
-          touch our systems.
-        </div>
-
-        <div class="co-consent" id="consentText"></div>
-        <label class="co-check">
-          <input type="checkbox" id="consentBox" />
-          <span>I authorise the charges described above.</span>
-        </label>
-
-        <div class="co-actions">
-          <button class="bcn-btn bcn-btn--primary" id="cardBtn" disabled>
-            Continue to secure card entry
-          </button>
-          <button class="bcn-btn bcn-btn--ghost" id="skipBtn" type="button">I'll do this later</button>
-        </div>
-      </div>
-
-      <!-- ── Done ─────────────────────────────────────────────────────────── -->
-      <div id="done" hidden>
-        <div class="co-title">Thank you — we have everything we need</div>
-        <div class="co-sub" id="doneSub">
-          Your application is with our team. We'll be in touch once it's reviewed.
-        </div>
-        <div class="co-card-saved" id="savedCard" hidden></div>
       </div>
     </div>
-  </div>
 
+    <p class="co-foot" id="foot" hidden>
+      Your answers stay in this browser until you submit.
+    </p>
+  </div>
 <script>
 (() => {
   'use strict';
@@ -355,6 +514,7 @@
     $('gateBody').textContent = body;
     $('form').hidden = true;
     $('cardStep').hidden = true;
+    $('foot').hidden = true;
   }
 
   // ── Section visibility ────────────────────────────────────────────────────
@@ -454,6 +614,143 @@
     };
   }
 
+  // ── Wizard ────────────────────────────────────────────────────────────────
+  // Presentation only. Every step stays in the DOM and nothing is persisted
+  // between them: the submit is still one atomic call that consumes the token.
+  const STEP_NAMES = ['Business', 'Contact', 'Location', 'Delivery & billing', 'Review'];
+  const LAST = STEP_NAMES.length;
+  let step = 1;
+
+  const stepEl = (n) => $('form').querySelector(`.co-step[data-step="${n}"]`);
+
+  /* Native constraint validation is driven by hand (the form carries
+     `novalidate`) because a `required` field in a hidden step is not
+     focusable: the browser would refuse to submit, report nothing a person
+     can see, and log to a console nobody has open. Validating the step in
+     front of them instead means the field being complained about is always
+     on screen. */
+  function firstInvalid(n) {
+    const root = stepEl(n);
+    for (const f of root.querySelectorAll('input, select, textarea')) {
+      /* Skip a section the applicant chose not to fill -- a separate shipping
+         or billing address -- but NEVER the step wrapper itself. Every step
+         except the one on screen is hidden, so a bare closest('[hidden]')
+         test skips every field the submit-time sweep is there to check, and
+         the sweep silently becomes a no-op. */
+      const hiddenAncestor = f.closest('[hidden]');
+      if (hiddenAncestor && hiddenAncestor !== root) continue;
+      if (!f.checkValidity()) return f;
+    }
+    return null;
+  }
+
+  function showStep(n, first = false) {
+    step = n;
+    for (let i = 1; i <= LAST; i++) stepEl(i).hidden = i !== n;
+
+    const rail = $('rail').children;
+    for (let i = 0; i < LAST; i++) {
+      rail[i].dataset.state = i + 1 < n ? 'done' : i + 1 === n ? 'current' : 'todo';
+    }
+    $('railCount').textContent = `Step ${n} of ${LAST} · ${STEP_NAMES[n - 1]}`;
+
+    $('backBtn').hidden = n === 1;
+    $('nextBtn').hidden = n === LAST;
+    $('submitBtn').hidden = n !== LAST;
+    if (n === LAST) renderReview();
+
+    /* Long steps on a phone otherwise open scrolled to wherever the last one
+       ended. NOT on the first render: scrolling the form to the top of the
+       viewport pushes the brand header off screen, so the applicant's first
+       sight of the page is one without the name of who they are applying to
+       on it. */
+    if (!first) $('form').scrollIntoView({ block: 'start', behavior: 'auto' });
+    const focusable = stepEl(n).querySelector('input:not([type=file]), textarea');
+    if (focusable && !matchMedia('(hover: none)').matches) focusable.focus();
+  }
+
+  $('nextBtn').addEventListener('click', () => {
+    const bad = firstInvalid(step);
+    if (bad) return bad.reportValidity();
+    showStep(Math.min(step + 1, LAST));
+  });
+  $('backBtn').addEventListener('click', () => showStep(Math.max(step - 1, 1)));
+
+  // ── Review ────────────────────────────────────────────────────────────────
+  // Built FROM buildForm(), so the summary is the payload rather than a second
+  // description of it that could drift.
+  function renderReview() {
+    const f = buildForm();
+    const byType = Object.fromEntries(f.addresses.map((a) => [a.address_type, a]));
+    const c = f.contacts[0];
+    const file = $('certificate').files?.[0];
+
+    const lines = (a) => {
+      if (!a) return '—';
+      if (a.same_as_address_type) {
+        const same = `Same as ${a.same_as_address_type} address`;
+        return a.attention_name ? `${same}\nAttn: ${a.attention_name}` : same;
+      }
+      const town = [a.city, a.region, a.postal_code].filter(Boolean).join(', ');
+      return [a.recipient_name, a.attention_name && `Attn: ${a.attention_name}`,
+        a.street1, a.street2, town, a.country, a.phone].filter(Boolean).join('\n') || '—';
+    };
+
+    const groups = [
+      ['Business', 1, [
+        ['Legal name', f.legal_name], ['DBA / store', f.dba_name], ['Website', f.website],
+        ['Federal EIN', f.federal_ein], ['Resale / sales tax ID', f.resale_tax_id],
+        ['Certificate', file ? file.name : ''],
+      ]],
+      ['Primary contact', 2, [
+        ['Name', [c.first_name, c.last_name].filter(Boolean).join(' ')],
+        ['Title', c.title], ['Email', c.email], ['Phone', c.phone],
+      ]],
+      ['Business location', 3, [['Address', lines(byType.business)]]],
+      ['Delivery & billing', 4, [
+        ['Ships to', lines(byType.shipping)],
+        ['Bill to', lines(byType.billing)],
+        ['Requested terms', f.requested_payment_terms],
+        ['Notes', f.applicant_notes],
+      ]],
+    ];
+
+    const review = $('review');
+    review.textContent = '';
+    for (const [title, target, rows] of groups) {
+      const g = document.createElement('div');
+      g.className = 'co-review-group';
+
+      const head = document.createElement('div');
+      head.className = 'co-review-head';
+      const h = document.createElement('h3');
+      h.textContent = title;
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'co-review-edit';
+      edit.textContent = 'Edit';
+      edit.setAttribute('aria-label', `Edit ${title}`);
+      edit.addEventListener('click', () => showStep(target));
+      head.append(h, edit);
+
+      const dl = document.createElement('dl');
+      dl.className = 'co-kv';
+      for (const [k, v] of rows) {
+        const dt = document.createElement('dt');
+        dt.textContent = k;
+        const dd = document.createElement('dd');
+        // textContent, never innerHTML: every value here was typed by an
+        // anonymous applicant.
+        dd.textContent = v || 'Not provided';
+        if (!v) dd.className = 'co-empty';
+        else dd.style.whiteSpace = 'pre-line';
+        dl.append(dt, dd);
+      }
+      g.append(head, dl);
+      review.append(g);
+    }
+  }
+
   // ── Certificate upload ────────────────────────────────────────────────────
   // Uploaded through a signed URL the function mints: the applicant is
   // anonymous and cannot write to a private bucket under any policy.
@@ -495,6 +792,42 @@
   // ── Submit ────────────────────────────────────────────────────────────────
   $('form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
+
+    /* Enter in a text field triggers HTML's implicit submission, which
+       activates the form's default submit button -- and `hidden` does not
+       disable a button, so the Submit control living on step 5 was reachable
+       from every earlier step. Measured before this guard: fill Business and
+       Contact, type the business address, press Enter in City, and the whole
+       application posted from step 3. The sweep passed because every REQUIRED
+       field was filled by then (country defaults to US), so the applicant
+       never saw Delivery & billing or Review, shipping and billing were
+       committed as "same as business", requested terms went blank -- and the
+       single-use invite was consumed, so they could not go back and correct
+       any of it.
+
+       Enter therefore means "next" everywhere except the last step, which is
+       what it appears to mean to the person pressing it. The only submission
+       that reaches the API is an explicit one from Review. */
+    if (step < LAST) {
+      const bad = firstInvalid(step);
+      if (bad) return bad.reportValidity();
+      return showStep(step + 1);
+    }
+
+    /* A sweep of every step, not just this one. The wizard is linear so the
+       earlier steps were each validated on the way through, but an autofill
+       or a browser restore can empty a field behind you -- and refusing to
+       submit while showing the review, with the offending field three steps
+       back, would be a dead button. */
+    for (let n = 1; n < LAST; n++) {
+      const bad = firstInvalid(n);
+      if (bad) {
+        showStep(n);
+        bad.reportValidity();
+        return;
+      }
+    }
+
     $('submitBtn').disabled = true;
     setStatus('Submitting your application…', 'info');
     try {
@@ -505,6 +838,7 @@
       // link is spent, and reloading with it will correctly say so.
       token = continuation;
       $('form').hidden = true;
+      $('foot').hidden = true;
       // A certificate upload that failed already wrote its own message; don't
       // clear it on the way to the card step.
       if (!$('status').textContent.includes('certificate')) $('status').hidden = true;
@@ -519,6 +853,8 @@
   let consentText = '';
 
   async function showCardStep() {
+    $('form').hidden = true;
+    $('foot').hidden = true;
     $('cardStep').hidden = false;
     $('consentText').textContent = consentText;
   }
@@ -546,6 +882,8 @@
 
   async function finish(hasCard) {
     $('cardStep').hidden = true;
+    $('form').hidden = true;
+    $('foot').hidden = true;
     $('done').hidden = false;
     if (!hasCard) {
       $('doneSub').textContent =
@@ -563,6 +901,16 @@
   }
 
   // ── Boot ──────────────────────────────────────────────────────────────────
+  function brand(title) {
+    if (!title) return;
+    $('brandName').textContent = title;
+    // The monogram is typography, not a logo: first letter of the name the
+    // peek already returns, so there is nothing to upload or keep in sync.
+    const initial = title.trim().charAt(0).toUpperCase();
+    if (initial) $('brandMark').textContent = initial;
+    document.title = `${title} · Wholesale application`;
+  }
+
   (async () => {
     if (!cfg.SUPABASE_URL || !ANON) {
       return gate('Missing Supabase config', 'This page is not configured. Contact your administrator.');
@@ -577,6 +925,7 @@
     if (cardParam) {
       try {
         const s = await call('status');
+        brand(s.company_title);
         if (s.card_setup_status === 'succeeded') return finish(true);
         // Stripe's success_url fires before the webhook necessarily lands, so
         // "saved" plus a not-yet-succeeded status is a timing gap, not a
@@ -597,18 +946,22 @@
     try {
       const info = await call('peek');
       consentText = info.consent_text || '';
+      brand(info.company_title);
       $('formSub').textContent =
         `${info.company_title} invited ${info.email} to open a wholesale account.`;
       if (info.legal_name) $('legal_name').value = info.legal_name;
       $('contact_email').value = info.email || '';
       $('form').hidden = false;
+      $('foot').hidden = false;
       syncShipping();
       syncBilling();
+      showStep(1, true);
     } catch (e) {
       // A spent onboarding token may still be a live CARD-SETUP one: that is
       // exactly what someone reloading after submitting has in their URL.
       try {
         const s = await call('status');
+        brand(s.company_title);
         if (s.card_setup_status === 'succeeded') return finish(true);
         consentText = s.consent_text || '';
         return showCardStep();

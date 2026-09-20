@@ -57,6 +57,47 @@ Until step 5, `/v2/customers.html` is reachable by URL for the walkthrough.
 
 ---
 
+## The application form
+
+Five steps — Business, Contact, Location, Delivery & billing, Review — not one
+scroll of thirty inputs. The link arrives by email and is opened on a phone,
+which is the case the shape is chosen for.
+
+**The steps are presentation.** Every field stays in the DOM, `buildForm()`
+reads the same ids it always did, and the submit is still ONE atomic call that
+consumes the token. Nothing is persisted between steps, so a closed tab loses
+the form — the honest trade for not needing a draft state, a second RPC, and a
+rework of the token/idempotency design.
+
+Three things are easy to break here:
+
+- **The review is rendered FROM `buildForm()`**, the same function that builds
+  the payload, so the summary cannot describe something other than what is
+  sent. Same reasoning as `je-composer.js` re-reading its draft from the
+  database before anyone approves it. Do not render it from the fields again.
+- **The form carries `novalidate` and validates by hand.** A `required` field
+  in a hidden step is not focusable, so the browser refuses to submit, reports
+  nothing visible and logs to a console nobody has open. `firstInvalid(n)`
+  skips a section the applicant chose not to fill (a separate shipping or
+  billing address) but **never the step wrapper itself** — every step except
+  the visible one is hidden, so a bare `closest('[hidden]')` test makes the
+  submit-time sweep a silent no-op. That exact bug shipped into review here and
+  was caught by `v2/tests/browser/customer-onboarding-wizard.test.js`.
+- **The page sets `data-theme="light"`.** `beacon.css` defines every `--bcn-*`
+  token under `:root[data-theme=...]` and under no bare `:root`, so a page
+  setting neither resolves NONE of them and every fallback-less `var()` is
+  invalid at computed-value time — the whole application renders as unstyled
+  serif HTML. The old version survived only because it carried a fallback on
+  every single `var()`. `v2/company-onboarding.html` still has no `data-theme`
+  and is still relying on its fallbacks.
+
+The heading carries the TENANT's name and initial, from `company_title`, which
+both `peek` and `status` return — the applicant is applying to the tenant, not
+to SILO. It is typography, not a logo: nothing to upload and nothing to keep in
+sync.
+
+---
+
 ## The two tokens
 
 The onboarding link is **spent** when the application is submitted, and the same
