@@ -1109,6 +1109,16 @@ reports tab over the same library the add-widget picker reads. Three nav rows
 hidden row already carried, so nobody who could not already reach these pages
 can now.
 
+The dashboard's **Add insight** picker does not dump the whole report library
+into one grid. It opens on six deliberately selected Overview definitions,
+then groups the full catalog under Sales, Marketing, Inventory, Purchasing and
+Saved. Search crosses every tab. This is presentation-only curation:
+`report-catalog.js` changes no report row, SQL, metric, visibility or RLS
+policy, and an unrecognised future system definition falls into Saved rather
+than disappearing. Inventory and purchasing definitions remain separate so a
+later logistics reconciliation can change their underlying reports without
+changing dashboard discovery again.
+
 Specialised operational pages stay where they are. Accounting Export, PO
 Builder and Planning Scenarios are workflows that contain numbers, not
 reports, and folding them into a generic canvas would cost their specialised

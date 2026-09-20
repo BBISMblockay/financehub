@@ -59,6 +59,7 @@ const ok = (n, c, extra) => {
   await openBoard('&edit=1');
   await page.click('#btnAddWidget');
   await page.waitForSelector('.v3-report-card');
+  await page.click('[data-report-tab="saved"]');
   await page.click('.v3-report-card:has-text("Sales by product, one store")');
   await page.waitForSelector('.dw', { timeout: 5000 });
   await page.waitForTimeout(600);
@@ -386,6 +387,7 @@ const ok = (n, c, extra) => {
   await openBoard('&edit=1');
   await page.click('#btnAddWidget');
   await page.waitForSelector('.v3-report-card');
+  await page.click('[data-report-tab="saved"]');
   await page.click('.v3-report-card:has-text("Units by size and location")');
   await page.waitForSelector('.dw', { timeout: 5000 });
   await page.waitForTimeout(600);
@@ -405,6 +407,7 @@ const ok = (n, c, extra) => {
   await openBoard('&edit=1');
   await page.click('#btnAddWidget');
   await page.waitForSelector('.v3-report-card');
+  await page.click('[data-report-tab="saved"]');
   await page.click('.v3-report-card:has-text("Top products 30d")');
   await page.waitForSelector('.dw', { timeout: 5000 });
   await page.waitForTimeout(600);

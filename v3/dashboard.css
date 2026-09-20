@@ -264,6 +264,29 @@
 .v3-picker-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .v3-picker-toolbar .bcn-field { flex: 1; }
 .v3-picker-count { font-family: var(--bcn-mono); font-size: 10.5px; color: var(--bcn-ink-3); white-space: nowrap; }
+.v3-catalog-tabs {
+  display: flex; align-items: center; gap: 3px; overflow-x: auto;
+  margin: -2px 0 12px; padding-bottom: 4px;
+  border-bottom: 1px solid var(--bcn-border);
+  scrollbar-width: thin;
+}
+.v3-catalog-tab {
+  display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  padding: 7px 9px; border: 0; border-bottom: 2px solid transparent;
+  background: transparent; color: var(--bcn-ink-3); cursor: pointer;
+  font: inherit; font-size: 11.5px; font-weight: 650;
+}
+.v3-catalog-tab:hover { color: var(--bcn-ink); background: var(--bcn-sunken); }
+.v3-catalog-tab:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: -2px; }
+.v3-catalog-tab.is-active { color: var(--bcn-accent); border-bottom-color: var(--bcn-accent); }
+.v3-catalog-tab-count {
+  min-width: 17px; padding: 1px 5px; border-radius: 999px;
+  background: var(--bcn-sunken); color: var(--bcn-ink-3);
+  font-family: var(--bcn-mono); font-size: 9.5px; text-align: center;
+}
+.v3-catalog-tab.is-active .v3-catalog-tab-count {
+  background: var(--bcn-accent-soft); color: var(--bcn-accent);
+}
 .v3-picker-note {
   font-size: 11.5px; color: var(--bcn-ink-2); line-height: 1.5; margin-bottom: 10px;
   padding: 7px 10px; background: var(--bcn-sunken); border-radius: var(--bcn-radius);
@@ -293,6 +316,13 @@
 }
 .v3-report-foot { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 2px; }
 .v3-report-meta { font-family: var(--bcn-mono); font-size: 9.5px; color: var(--bcn-ink-4); }
+
+@media (max-width: 700px) {
+  .v3-picker-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .v3-picker-toolbar .bcn-field { flex-basis: 100%; }
+  .v3-picker-toolbar .bcn-btn { margin-left: auto; }
+  .v3-catalog-tabs { margin-left: -4px; margin-right: -4px; }
+}
 
 .v3-query-list { display: flex; flex-direction: column; gap: 8px; }
 .v3-query-card {

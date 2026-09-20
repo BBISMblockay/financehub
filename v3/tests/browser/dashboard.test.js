@@ -26,28 +26,27 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   ok('edit mode offers dashboard settings', await page.isVisible('#btnSettings'));
   ok('...without dropping the band onto the page', await page.isHidden('#metaBar'));
 
-  // ── 2. Add a widget from a saved report ─────────────────────────────
+  // ── 2. Add an insight from the curated report catalog ───────────────
   await page.click('#btnAddWidget');
   await page.waitForSelector('.v3-report-card');
-  // Counted from the fixtures rather than pinned to a number: the picker's
-  // rule is "every saved report that has SQL", and a hardcoded count turns
-  // adding any fixture into an unrelated test failure.
   const withSql = await page.evaluate(() =>
     window.__FAKE_DB__.silo_chat_saved_reports.filter((r) => (r.queries_run || []).length).length);
-  ok('picker lists every source, not just Ask SILO',
-     (await page.locator('.v3-report-card').count()) === withSql, 'expected ' + withSql);
-  ok('a saved report with no stored SQL is not offered',
-    (await page.locator('.v3-report-card[data-report="R4"]').count()) === 0);
-  ok('...and the picker says so rather than hiding it silently',
-    (await page.textContent('#addBody')).includes('1 saved report hidden'));
+  ok('the first view is curated rather than dumping the whole catalog',
+     (await page.locator('.v3-report-card').count()) <= 6
+     && (await page.locator('.v3-report-card').count()) < withSql);
+  ok('the catalog is divided into six business-language tabs',
+    (await page.locator('[data-report-tab]').count()) === 6);
   ok('a central SILO definition is offered as a widget source',
     (await page.locator('.v3-report-card[data-report="S1"]').count()) === 1);
-  ok('the system definition is badged as its own source',
-    (await page.locator('.v3-report-card[data-report="S1"]').textContent()).includes('SILO report'));
-  ok('a global definition reads Global, not Company',
-    (await page.locator('.v3-report-card[data-report="S1"]').textContent()).includes('Global'));
+  ok('the system definition is badged simply as SILO',
+    (await page.locator('.v3-report-card[data-report="S1"]').textContent()).includes('SILO'));
   ok('a system report shows its description in place of a chat question',
     (await page.locator('.v3-report-card[data-report="S1"]').textContent()).includes('central SILO definition'));
+  await page.click('[data-report-tab="saved"]');
+  ok('a saved report with no usable data view is not offered',
+    (await page.locator('.v3-report-card[data-report="R4"]').count()) === 0);
+  ok('...and the picker says so rather than hiding it silently',
+    (await page.textContent('#addBody')).includes('1 saved report not shown'));
   ok('an Ask SILO save is badged as Ask SILO',
     (await page.locator('.v3-report-card[data-report="R1"]').textContent()).includes('Ask SILO'));
   await page.click('.v3-report-card[data-report="R1"]');
@@ -208,6 +207,7 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   await page2.waitForSelector('#btnAddWidget:not([hidden])');
   await page2.click('#btnAddWidget');
   await page2.waitForSelector('.v3-report-card');
+  await page2.click('[data-report-tab="saved"]');
   await page2.click('.v3-report-card[data-report="R2"]');
   await page2.waitForSelector('.v3-query-card');
   ok('multi-query report asks which dataset', (await page2.locator('.v3-query-card').count()) === 2);
@@ -232,6 +232,7 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   // ── 7b. Semantic typing, grounded in the schema catalog ─────────────
   await page2.click('#btnAddWidget');
   await page2.waitForSelector('.v3-report-card');
+  await page2.click('[data-report-tab="saved"]');
   await page2.click('.v3-report-card[data-report="R3"]');
   await page2.waitForTimeout(700);
   const wSem = await page2.evaluate(() => {
@@ -275,6 +276,7 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   // ── 10. A report that returns nested JSON ────────────────────────────
   await page2.click('#btnAddWidget');
   await page2.waitForSelector('.v3-report-card');
+  await page2.click('[data-report-tab="saved"]');
   await page2.click('.v3-report-card[data-report="R6"]');
   await page2.waitForTimeout(800);
   const jsonW = await page2.evaluate(() =>
@@ -289,6 +291,7 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   // ── 11. The ROAS acceptance test: three measures, one chart ──────────
   await page2.click('#btnAddWidget');
   await page2.waitForSelector('.v3-report-card');
+  await page2.click('[data-report-tab="saved"]');
   await page2.click('.v3-report-card[data-report="R7"]');
   await page2.waitForTimeout(900);
   ok('the flat daily query auto-picks a line chart',
