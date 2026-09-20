@@ -17,7 +17,7 @@ create function active_company_id() returns uuid language sql as $$ select '0000
 create function silo_business_today() returns date language sql as $$ select current_setting('test.today')::date $$;
 create function silo_business_timezone() returns text language sql as $$ select 'America/Los_Angeles'::text $$;
 set test.today='2026-09-20';
-create table silo_chat_saved_reports(id uuid primary key,title text,description text,queries_run jsonb,parameters jsonb,columns_metadata jsonb,source text,company_entity_id uuid);
+create table silo_chat_saved_reports(id uuid primary key,title text,description text,queries_run text[],parameters jsonb,columns_metadata jsonb,source text,company_entity_id uuid);
 create table silo_report_tieouts(id uuid default gen_random_uuid(),report_id uuid,name text,kind text,check_sql text,tolerance numeric,enabled boolean default true,note text,unique(report_id,name));
 create table sales_by_day_verification_v(day_date date,location_tag text,company_entity_id uuid default active_company_id(),total_net_sales numeric,total_quantity_sold numeric,total_refunds numeric default 0);
 create table sales_by_product_title_daily_v(day_date date,product_title text,product_type text,location_tag text,net_sales numeric,units_sold numeric,orders numeric);
@@ -52,7 +52,7 @@ insert into inventory_workboard_v values
 insert into sales_monthly_product_type_rollup_v values('No PO','2026-08-01',5),('Incoming','2026-08-01',130);
 `);
 for (const r of before) await db.query('insert into silo_chat_saved_reports values($1,$2,$3,$4,$5,$6,$7,null)',[r.id,r.title,r.description,r.queries_run,r.parameters,r.columns_metadata,'system']);
-await db.query("insert into silo_chat_saved_reports values(gen_random_uuid(),'Private copy','untouched','[\"select 1\"]','[]','{}','manual',active_company_id())");
+await db.query("insert into silo_chat_saved_reports values(gen_random_uuid(),'Private copy','untouched',ARRAY['select 1'],'[]','{}','manual',active_company_id())");
 await db.exec(migration);
 const afterFirst = (await db.query('select * from silo_chat_saved_reports order by id')).rows;
 await db.exec(migration);
@@ -113,7 +113,7 @@ for (const age of [29,30]) {
 }
 await db.exec("update sales_by_product_title_daily_v set net_sales=net_sales+1 where day_date='2026-09-19'");
 values=Object.values((await db.query(titleCheck.check_sql)).rows[0]);assert.notEqual(n(values[0]),n(values[1]),'one-dollar rollup drift fails');
-await db.query("update silo_chat_saved_reports set queries_run='[\"select 1\"]' where id=$1",[id('inventory','6')]);
+await db.query("update silo_chat_saved_reports set queries_run=ARRAY['select 1'] where id=$1",[id('inventory','6')]);
 assert.equal((await db.query(thin.check_sql)).rows[0].left_value,null,'changed definitions cannot pass stale checks');
 // Company date arithmetic runs in Postgres even when browser and DB calendars differ.
 await db.exec("set test.today='2024-03-01'");
