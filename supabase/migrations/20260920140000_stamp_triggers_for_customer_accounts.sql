@@ -14,10 +14,18 @@
 -- with client-side column privileges, so "nobody forgets" is a claim about
 -- code that has not been written yet.
 --
--- The function is idempotent by construction (drop-if-exists then create, per
--- table) and deliberately skips `inventory_on_hand` and `sales_by_day`, the
--- two high-volume sync tables, so re-running it costs nothing and cannot put
--- a per-row trigger on the 1.1M-row sales path.
+-- The function is idempotent in EFFECT and deliberately skips
+-- `inventory_on_hand` and `sales_by_day`, so it cannot put a per-row trigger
+-- on the 1.1M-row sales path.
+--
+-- It is NOT free to re-run at this point in the file, and an earlier version
+-- of this comment said it was. As of this migration the helper still loops
+-- every eligible table and issues DROP + CREATE TRIGGER unconditionally -- 164
+-- ACCESS EXCLUSIVE locks, held to COMMIT inside a transaction. That is
+-- acceptable for this one repair and is not acceptable as the routine step
+-- CLAUDE.md now makes it, which is what 20260920150000 fixes: from there the
+-- helper skips anything already correctly bound and a no-op run takes no locks
+-- at all. Found by the independent review on PR #736.
 --
 -- MEASURED when this ran against production on 2026-09-20: 163 tables carried
 -- the trigger before, 169 after -- exactly the six customer_account* tables --

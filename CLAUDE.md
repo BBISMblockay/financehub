@@ -695,8 +695,11 @@ deploys, applies a migration, or touches production data — those stay Blake's.
    INSERT stamp is the backstop for an insert that forgets to set the company,
    and it is not automatic. `20260919140000` added six `customer_account*`
    tables without it and `verify_v2_schema.sql` check 6 was MISSING on every
-   drift run from that merge until 2026-09-20. The function is idempotent and
-   skips `inventory_on_hand` / `sales_by_day`, so calling it costs nothing
+   drift run from that merge until 2026-09-20. Since `20260920150000` the
+   function touches ONLY tables whose trigger is missing or wrongly bound, so a
+   call with nothing to do takes no locks — that is what makes it safe as a
+   routine step rather than 164 `ACCESS EXCLUSIVE` locks per migration. It
+   skips `inventory_on_hand` / `sales_by_day`
 6. Add the table to `supabase/verify_v2_schema.sql`
 7. Add the table to `supabase/apply_all_post_merge.sql`
 8. Update `supabase/README.md` migration list

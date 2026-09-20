@@ -95,28 +95,65 @@ left join pg_proc f
   on f.proname = want.name
 left join pg_namespace n on n.oid = f.pronamespace and n.nspname = 'public';
 
+-- An ANTI-JOIN, not a count comparison. The previous version compared a COUNT
+-- of triggers against a COUNT of required tables, and the two were counted
+-- over different sets: the denominator excluded seven tables while the
+-- numerator counted triggers on all of them. Five of those seven -- the four
+-- plaid_* and finance_audit_events -- do carry the trigger, so the numerator
+-- sat five ahead permanently and one through five required tables could lose
+-- their trigger with this still reading 'ok'. Measured on production
+-- 2026-09-20: 169 vs 164, slack 5. That is why 20260919140000's SIX missing
+-- tables were caught and five would not have been -- a check that only fires
+-- past a threshold of six is credited as coverage it does not provide.
+--
+-- Each required table is now tested on its own, and the failure NAMES them,
+-- because "MISSING" with no list sends the next person to count triggers by
+-- hand. The binding is checked too, not just the name: a trigger called
+-- stamp_company_entity_id that points somewhere else is exactly what a
+-- name-only test waves through.
+with required as (
+  select c.table_name
+  from information_schema.columns c
+  join information_schema.tables t
+    on t.table_schema = c.table_schema and t.table_name = c.table_name
+  where c.table_schema = 'public'
+    and c.column_name = 'company_entity_id'
+    and t.table_type = 'BASE TABLE'
+    -- Service-owned finance records require explicit NOT NULL companies.
+    -- This set is deliberately WIDER than attach_stamp_company_entity_id_triggers()'s
+    -- own exclusions (which are only inventory_on_hand / sales_by_day): the
+    -- helper still maintains a trigger on these five if one goes missing, this
+    -- check simply does not require it. Unifying the two sets would either
+    -- stop maintaining them or start requiring them -- a decision about
+    -- service-owned finance records, not a tidy-up.
+    and c.table_name not in ('inventory_on_hand','sales_by_day','plaid_connections','plaid_connection_secrets','plaid_accounts','plaid_sync_exceptions','finance_audit_events')
+),
+missing as (
+  select r.table_name
+  from required r
+  where not exists (
+    select 1
+    from pg_trigger tg
+    join pg_class cl on cl.oid = tg.tgrelid
+    join pg_namespace n on n.oid = cl.relnamespace
+    where n.nspname = 'public'
+      and cl.relname = r.table_name
+      and tg.tgname = 'stamp_company_entity_id'
+      and not tg.tgisinternal
+      and tg.tgfoid = 'public.stamp_company_entity_id()'::regprocedure
+      and tg.tgenabled <> 'D'
+      and (tg.tgtype & 1) = 1    -- FOR EACH ROW
+      and (tg.tgtype & 2) = 2    -- BEFORE
+      and (tg.tgtype & 4) = 4    -- INSERT
+  )
+)
 select
-  count(*)::int as stamped_tables,
+  (select count(*) from required)::int as required_tables,
   case
-    when count(*) >= (
-      select count(*)
-      from information_schema.columns c
-      join information_schema.tables t
-        on t.table_schema = c.table_schema and t.table_name = c.table_name
-      where c.table_schema = 'public'
-        and c.column_name = 'company_entity_id'
-        and t.table_type = 'BASE TABLE'
-        -- Service-owned finance records require explicit NOT NULL companies.
-        and c.table_name not in ('inventory_on_hand','sales_by_day','plaid_connections','plaid_connection_secrets','plaid_accounts','plaid_sync_exceptions','finance_audit_events')
-    ) then 'ok'
-    else 'MISSING — run attach_stamp_company_entity_id_triggers()'
-  end as status
-from pg_trigger t
-join pg_class c on c.oid = t.tgrelid
-join pg_namespace n on n.oid = c.relnamespace
-where n.nspname = 'public'
-  and t.tgname = 'stamp_company_entity_id'
-  and not t.tgisinternal;
+    when not exists (select 1 from missing) then 'ok'
+    else 'MISSING — run attach_stamp_company_entity_id_triggers(); no stamp trigger on: '
+         || (select string_agg(table_name, ', ' order by table_name) from missing)
+  end as status;
 
 -- 7. Shopify integration tables
 select
