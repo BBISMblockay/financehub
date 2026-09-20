@@ -74,6 +74,27 @@ begin
     raise exception 'no active company';
   end if;
 
+
+  -- Serialise every owner-count decision for this company, across BOTH
+  -- functions. `for update` below locks only the TARGET membership row, while
+  -- the last-owner check counts the OTHER rows unlocked -- check-then-act
+  -- across two different rows. Self-demotion is allowed on purpose, so two
+  -- owners can each step back with no overlapping row lock at all: both count
+  -- two owners, both pass, both commit, and the workspace has none. Nothing in
+  -- the product can put an owner back, so that state is permanent.
+  --
+  -- ONE key shared by set_workspace_member_role and remove_workspace_member,
+  -- not one per function: the invariant spans the pair, and a per-function key
+  -- would serialise each against itself while leaving "one owner demoted while
+  -- another is removed" wide open. Same mechanism and same reasoning as the
+  -- per-company currency lock in 20260918120000.
+  --
+  -- Measured, not argued: scripts/tests/workspace-settings-concurrency.test.mjs
+  -- drives two real connections and leaves the workspace with ZERO owners
+  -- without this line (WS_RACE_MUTATION=owner-count-unlocked).
+  perform pg_advisory_xact_lock(
+    hashtextextended('silo-workspace-membership|' || v_company::text, 0));
+
   v_role := lower(trim(coalesce(p_role, '')));
   if v_role not in ('owner_admin', 'admin', 'member', 'viewer') then
     raise exception 'unknown workspace role: %', coalesce(p_role, '(null)');
@@ -164,6 +185,12 @@ begin
   if v_company is null then
     raise exception 'no active company';
   end if;
+
+
+  -- The same shared per-company lock the role change takes; see the comment
+  -- there. The invariant spans both functions, so they must share one key.
+  perform pg_advisory_xact_lock(
+    hashtextextended('silo-workspace-membership|' || v_company::text, 0));
 
   if p_user_id = auth.uid() then
     raise exception 'you cannot remove yourself from this workspace';

@@ -350,6 +350,14 @@ await test('the verify_v2_schema check passes here, and fails when its guard is 
   assert.match((await one(stmt)).status, /anon can execute/);
   await db.exec('revoke execute on function public.remove_workspace_member(uuid) from anon');
 
+  // The lock clause, dropped: a replacement body with no advisory lock in it.
+  // This is the static half of the guard -- the behavioural half is
+  // scripts/tests/workspace-settings-concurrency.test.mjs, which needs two
+  // real connections and so cannot live here.
+  await db.exec(`create or replace function public.remove_workspace_member(p_user_id uuid)
+                 returns json language sql security definer as $ws$ select '{}'::json $ws$`);
+  assert.match((await one(stmt)).status, /owner-count lock is missing/);
+
   await db.exec('drop function public.set_workspace_company_name(text)');
   assert.match((await one(stmt)).status, /MISSING/);
 });

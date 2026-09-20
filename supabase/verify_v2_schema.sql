@@ -4287,6 +4287,17 @@ select 'Workspace membership administration' as check_name,
  when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
    where n.nspname='public' and p.proname='platform_list_companies') not like '%is_platform_admin%'
    then 'CRITICAL: platform_list_companies is not gated by is_platform_admin()'
+ -- The last-owner invariant is check-then-act across two DIFFERENT rows: the
+ -- target membership is locked, the owner count is not. Without the shared
+ -- per-company advisory lock, two owners each stepping back both count two
+ -- owners and both commit -- measured, ZERO owners left
+ -- (scripts/tests/workspace-settings-concurrency.test.mjs). Both functions
+ -- must take it, and on the SAME key, or the pair is still open.
+ when (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname in ('set_workspace_member_role','remove_workspace_member')
+     and p.prosrc like '%silo-workspace-membership|%'
+     and p.prosrc like '%pg_advisory_xact_lock%') <> 2
+   then 'CRITICAL: the shared per-company owner-count lock is missing; a workspace can be left with no owner'
  -- These functions are the ONLY write path. A client grant restored on
  -- entity_memberships would make them beside the point (20260917220000).
  when has_table_privilege('authenticated', 'public.entity_memberships', 'insert')

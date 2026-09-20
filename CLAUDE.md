@@ -486,7 +486,12 @@ set_workspace_member_role(p_user_id, p_role)  -- is_admin() + active company. Wr
                                               -- other org, because that column is not per-company
                                               -- and gates read it alone. Only an owner grants or
                                               -- removes owner_admin; a workspace can never be left
-                                              -- without one
+                                              -- without one. That last check is check-then-act across
+                                              -- two DIFFERENT rows, so this and remove_workspace_member
+                                              -- take ONE shared per-company pg_advisory_xact_lock
+                                              -- before counting -- same mechanism as the currency
+                                              -- guard. Without it two owners each stepping back leave
+                                              -- ZERO owners (measured, two real connections)
 remove_workspace_member(p_user_id)            -- removes ONE membership, not the global is_active
                                               -- flag (which locks a person out of every company).
                                               -- Revokes their pending invite here, repoints

@@ -70,14 +70,24 @@
           <div class="ws-card-head"><div class="ws-title">Sender</div></div>
           <div class="ws-body">
             <dl class="ws-grid">
+              <!-- Labelled as the FALLBACK, not as the current sender. Ten edge
+                   functions read `SILO_MAIL_FROM` and fall back to this literal,
+                   and that secret is readable only inside the function -- so a
+                   deployment that has set it sends from an address this page
+                   cannot see. Printing the constant as a fact would make the one
+                   screen someone checks notification configuration on the one
+                   screen that is confidently wrong. -->
               <div class="ws-field"><span class="ws-label">From address</span>
-                <span id="factSender">SILO &lt;noreply@silo-baseballism.com&gt;</span></div>
+                <span id="factSender">Not readable from here</span>
+                <span class="ws-you">falls back to SILO &lt;noreply@silo-baseballism.com&gt;</span></div>
               <div class="ws-field"><span class="ws-label">Delivery</span><span>Resend</span></div>
             </dl>
             <p class="ws-note" style="margin-top:12px;">
               The sender is an edge-function secret (<code>SILO_MAIL_FROM</code>), set per deployment
-              rather than per company, and it is not changed from here. Custom per-customer sending
-              domains are not offered.
+              rather than per company, and it is not changed from here. It is a secret, so this page
+              cannot read the value actually in effect — it can only name what every sending function
+              falls back to when it is unset. Check the deployed secret to confirm which is live.
+              Custom per-customer sending domains are not offered.
             </p>
           </div>
         </div>

@@ -1532,7 +1532,16 @@ are `entity_memberships`' own `owner_admin` / `admin` / `member` / `viewer`.
   global profile **only when the target belongs to no other organization**, the
   same rule `accept_org_invite` and `redeem_platform_invite` already follow.
   Only an owner grants or removes `owner_admin`, and a workspace can never be
-  left without one (nothing in the product could put one back).
+  left without one (nothing in the product could put one back). **That last
+  check is check-then-act across two DIFFERENT rows** — the target membership
+  is locked, the owner count is not — so this and `remove_workspace_member`
+  take **one shared per-company `pg_advisory_xact_lock`** before counting, the
+  same mechanism and reasoning as the per-company currency lock in
+  `20260918120000`. One key across both, not one per function: self-demotion is
+  allowed on purpose, so two owners can each step back with no overlapping row
+  lock at all, and a per-function key would still leave "one owner demoted
+  while another is removed" open. Measured rather than argued — without it, two
+  real connections leave the workspace with **zero** owners.
 - **`remove_workspace_member(user)`** — removing somebody from *one* workspace
   had no implementation. The nearest thing, `admin_update_profile(p_is_active
   => false)`, sets a global flag and locks the person out of every company they
@@ -1558,5 +1567,8 @@ Verify: the `Workspace membership administration` check in
 restored on `entity_memberships` — these functions are the only write path.
 
 Regressions: `scripts/tests/workspace-settings-database.test.mjs` (16
-assertions, 7 mutations) and `scripts/tests/workspace-settings.test.mjs` (7
-navigation suites), both in `sync-tests.yml`.
+assertions, 7 mutations), `scripts/tests/workspace-settings.test.mjs` (7
+navigation suites), and `scripts/tests/workspace-settings-concurrency.test.mjs`
+(two real PostgreSQL connections; skips loudly without a server, and CI sets
+`SILO_PG_REQUIRED=1` so an absent one fails rather than passing quietly). All
+three in `sync-tests.yml`.
