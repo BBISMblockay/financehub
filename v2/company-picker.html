@@ -97,7 +97,7 @@
     <div class="picker-card">
       <div class="picker-logo">S</div>
       <div class="picker-title">Choose a company</div>
-      <div class="picker-sub">You have access to multiple organizations. Select one to continue.</div>
+      <div class="picker-sub" id="pickerSub">Choose the workspace you want to open.</div>
       <div class="company-list" id="companyList"></div>
       <div class="picker-err" id="errMsg" style="display:none"></div>
     </div>
@@ -116,6 +116,18 @@
       function showErr(msg) {
         errEl.textContent = msg;
         errEl.style.display = '';
+      }
+
+      function roleLabel(role) {
+        return ({ owner_admin: 'Owner', owner: 'Owner', executive: 'Executive',
+          admin: 'Admin', member: 'Member', user: 'Member', viewer: 'Viewer' })[
+          String(role || '').toLowerCase()] || 'Member';
+      }
+
+      function esc(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        })[c]);
       }
 
       // Same-origin absolute paths only; anything else falls back to Home.
@@ -148,16 +160,20 @@
         if (!companies.length) { window.location.href = DEST; return; }
       }
 
+      document.getElementById('pickerSub').textContent = companies.length > 1
+        ? 'Choose the workspace you want to open.'
+        : 'Open your workspace to continue.';
+
       companies.forEach(function (co) {
         const btn = document.createElement('button');
         btn.className = 'company-btn';
 
         const initials = (co.title || co.entity_key || '?').slice(0, 2).toUpperCase();
         btn.innerHTML = `
-          <div class="company-avatar">${initials}</div>
+          <div class="company-avatar">${esc(initials)}</div>
           <div>
-            <div class="company-name">${co.title || co.entity_key}</div>
-            <div class="company-role">${co.role || 'member'}</div>
+            <div class="company-name">${esc(co.title || co.entity_key)}</div>
+            <div class="company-role">${esc(roleLabel(co.role))}</div>
           </div>
         `;
 

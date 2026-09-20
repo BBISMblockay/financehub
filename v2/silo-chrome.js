@@ -234,7 +234,7 @@
             ${renderSidebarAvatar(user, opts.avatarUrl)}
             <div class="silo-sb-user-text">
               <span class="silo-sb-user-name">${escHtml(shortName(user && user.email))}</span>
-              <span class="silo-sb-user-role">${escHtml(user && user.role || 'Member')} · RLS</span>
+              <span class="silo-sb-user-role" data-silo-role>${escHtml(roleLabel(user && user.role))}</span>
             </div>
           </div>
         </div>
@@ -257,6 +257,14 @@
     return local.length > 18 ? local.slice(0, 16) + '…' : local;
   }
 
+  function roleLabel(role) {
+    const value = String(role || '').trim().toLowerCase();
+    return ({
+      owner_admin: 'Owner', owner: 'Owner', executive: 'Executive',
+      admin: 'Admin', member: 'Member', user: 'Member', viewer: 'Viewer',
+    })[value] || 'Member';
+  }
+
   function renderUtility(opts) {
     const crumbs = (opts.crumbs || []).map((c, i, a) => {
       const last = i === a.length - 1;
@@ -270,7 +278,7 @@
         <div class="silo-crumbs">${crumbs}</div>
         <div class="silo-utility-spacer"></div>
         <div class="silo-utility-divider"></div>
-        <span class="bcn-pill" data-silo-rls>RLS · ${escHtml(opts.user && opts.user.role || 'MEMBER')}</span>
+        <span class="bcn-pill" data-silo-role>${escHtml(roleLabel(opts.user && opts.user.role))}</span>
         <button class="silo-icon-btn" type="button" data-silo-action="theme" aria-label="Toggle theme" data-silo-theme-icon>${ICONS.moon}</button>
         <button class="silo-icon-btn" type="button" data-silo-action="bell" aria-label="Notifications">${ICONS.bell}</button>
         <button class="silo-icon-btn" type="button" data-silo-action="signout" aria-label="Sign out" title="Sign out">
@@ -442,8 +450,10 @@
     const appEl = typeof opts.appEl === 'string' ? document.querySelector(opts.appEl) : opts.appEl;
     if (!appEl) { console.error('SiloChrome.mount: appEl not found'); return; }
 
-    // The palette filters by the same role the sidebar renders with.
-    paletteRole = (opts.user && opts.user.role) || null;
+    // The palette filters by the same role the sidebar renders with. This is
+    // replaced by the active workspace membership as soon as it resolves.
+    let effectiveRole = (opts.user && opts.user.role) || null;
+    paletteRole = effectiveRole;
 
     // restore collapsed state
     const collapsed = localStorage.getItem(LS_COLLAPSED) === '1';
@@ -479,7 +489,7 @@
       resolveDepartment(opts.supabaseClient).then((dept) => {
         if (!dept) return;
         const navEl = sidebar.querySelector('#siloSbNav');
-        if (navEl) navEl.innerHTML = renderNavSections(navActive, dept, opts.user && opts.user.role);
+        if (navEl) navEl.innerHTML = renderNavSections(navActive, dept, effectiveRole);
       });
     }
 
@@ -498,7 +508,7 @@
         .then((company) => {
           if (!company) return;
           const navEl = sidebar.querySelector('#siloSbNav');
-          if (navEl) navEl.innerHTML = renderNavSections(navActive, getCachedDepartment(), opts.user && opts.user.role, getCachedGrantIds());
+          if (navEl) navEl.innerHTML = renderNavSections(navActive, getCachedDepartment(), effectiveRole, getCachedGrantIds());
         })
         .catch(() => {});
     }
@@ -512,7 +522,7 @@
         const navEl = sidebar.querySelector('#siloSbNav');
         // navActive, not opts.active: a suite page's own id is not a sidebar
         // id, so repainting with it left no row highlighted at all.
-        if (navEl) navEl.innerHTML = renderNavSections(navActive, getCachedDepartment(), opts.user && opts.user.role, grantIds);
+        if (navEl) navEl.innerHTML = renderNavSections(navActive, getCachedDepartment(), effectiveRole, grantIds);
       });
     }
 
@@ -528,6 +538,32 @@
           if (existing) existing.outerHTML = renderSidebarAvatar(opts.user, avatarUrl);
         }
       });
+    }
+
+    // Use the role for this workspace, not a page's first-paint placeholder
+    // or the legacy global profile role. The database value still controls
+    // authorization; this keeps the shared chrome consistent and human-readable.
+    if (opts.supabaseClient) {
+      Promise.resolve(window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient))
+        .then(async (company) => {
+          if (!company?.id) return;
+          const sess = await opts.supabaseClient.auth.getSession();
+          const uid = sess?.data?.session?.user?.id;
+          if (!uid) return;
+          const { data } = await opts.supabaseClient.from('entity_memberships')
+            .select('role').eq('entity_id', company.id).eq('user_id', uid).maybeSingle();
+          if (!data?.role) return;
+          effectiveRole = data.role;
+          paletteRole = effectiveRole;
+
+          appEl.querySelectorAll('[data-silo-role]').forEach((node) => {
+            node.textContent = roleLabel(data.role);
+          });
+          const navEl = sidebar.querySelector('#siloSbNav');
+          if (navEl) navEl.innerHTML = renderNavSections(
+            navActive, getCachedDepartment(), effectiveRole, getCachedGrantIds());
+        })
+        .catch(() => {});
     }
 
     function setNavOpen(open) {

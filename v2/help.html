@@ -65,7 +65,7 @@
     <section class="bcn-filter-bar">
       <div class="bcn-filter" style="flex:1;max-width:420px;">
         <label class="bcn-label" for="searchInput">Search</label>
-        <input class="bcn-field" type="text" id="searchInput" placeholder="e.g. comp request, PO, live schedule, active company…" autocomplete="off" />
+        <input class="bcn-field" type="text" id="searchInput" placeholder="Search payments, customers, purchasing…" autocomplete="off" />
       </div>
     </section>
 
@@ -90,7 +90,7 @@
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     document.querySelector('.silo-main').innerHTML =
-      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">SILO could not start. Please contact support.</div></div>`;
     throw new Error('Missing Supabase config');
   }
 
@@ -108,27 +108,18 @@
       items: [
         {
           q: 'What\'s the difference between my role and my department?',
-          a: `<p><strong>Role</strong> (owner / admin / executive / member / viewer) controls how much you can DO —
-             write access to things like POs, review templates, roster visibility.</p>
-             <p><strong>Department</strong> (finance, logistics, marketing, retail, exec, …) mostly controls what
-             shows up in your <strong>sidebar</strong> and which broadcast emails you're on (e.g. finance-only
-             comp request notifications, logistics-only sample notifications). Changing department rarely changes
-             what you're actually allowed to click — that's almost always governed by role/membership instead.</p>`,
+          a: `<p><strong>Role</strong> controls what you can manage in the workspace. <strong>Department</strong>
+             helps SILO show the tools and team notifications most relevant to your work.</p>`,
         },
         {
           q: 'Why don\'t I see a tool in my sidebar that a coworker has?',
-          a: `<p>Sidebar visibility is gated by department and/or role in <code>nav-config.js</code> — it's a
-             convenience filter, not the real security boundary (that's always the database's row-level security).
-             A few tools are also intentionally hidden from everyone right now while they're still being reviewed
-             — those still work if you go to the URL directly, just ask if you're not sure a link should exist yet.</p>`,
+          a: `<p>Your sidebar reflects your workspace role, department, and the tools enabled for your company.
+             Ask a workspace administrator if you think something is missing.</p>`,
         },
         {
           q: 'What is "active company" and why does it matter?',
-          a: `<p>SILO supports more than one company in the same login system. Your <strong>active company</strong>
-             is whichever one your current session is scoped to — it's what determines which company's data you
-             see. If you belong to only one company it's set automatically at login. If a page ever looks
-             empty right after you followed a bookmark or a shared link, it can mean the tab never picked up your
-             active company — reloading from the sidebar (not a raw bookmark) usually fixes it.</p>`,
+          a: `<p>Your active company is the workspace you are currently using. If you belong to more than one,
+             use the company name in the sidebar to switch.</p>`,
         },
         {
           q: 'A page shows a red "failed" status — what do I do?',
@@ -141,7 +132,7 @@
     },
     {
       id: 'accounting',
-      title: 'Accounting / Operations',
+      title: 'Finance',
       items: [
         {
           q: 'Payment Request — how do I ask for something to be paid?',
@@ -203,6 +194,7 @@
              drop. <strong>Task Manager</strong> is general-purpose to-dos not tied to a specific launch.</p>`,
         },
         {
+          profiles: ['grandfathered'],
           q: 'TikTok Live Schedule — how do I claim a slot?',
           path: '/v2/live-schedule.html',
           a: `<p>Opens on a <strong>Month view</strong> — a calendar grid showing how filled each day is
@@ -218,6 +210,7 @@
     {
       id: 'team',
       title: 'Team',
+      profiles: ['grandfathered'],
       items: [
         {
           q: 'Performance Reviews — how do I add someone to my roster?',
@@ -350,13 +343,21 @@
   // ── Render ────────────────────────────────────────────────────────────
   const esc = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
-  function renderSections() {
+  function renderSections(company) {
     const jump = document.getElementById('jumpNav');
     const content = document.getElementById('hpContent');
+    const profile = window.SiloNav?.resolveNavProfile?.(company) || 'standard';
+    const visibleSections = SECTIONS
+      .filter((section) => !section.profiles || section.profiles.includes(profile))
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) => !item.profiles || item.profiles.includes(profile)),
+      }))
+      .filter((section) => section.items.length);
 
-    jump.innerHTML = SECTIONS.map((s) => `<a href="#sec-${s.id}">${esc(s.title)}</a>`).join('');
+    jump.innerHTML = visibleSections.map((s) => `<a href="#sec-${s.id}">${esc(s.title)}</a>`).join('');
 
-    content.innerHTML = SECTIONS.map((s) => `
+    content.innerHTML = visibleSections.map((s) => `
       <section class="bcn-card" id="sec-${s.id}">
         <div class="bcn-card-header"><span>${esc(s.title)}</span></div>
         <div class="bcn-card-body" style="padding:0">
@@ -364,7 +365,6 @@
             <details class="hp-item" data-idx="${s.id}-${i}">
               <summary>
                 <span>${item.q}</span>
-                ${item.path ? `<span class="hp-item-path">${esc(item.path)}</span>` : ''}
               </summary>
               <div class="hp-body">${item.a}</div>
             </details>`).join('')}
@@ -407,7 +407,8 @@
       supabaseClient: sb,
     });
 
-    renderSections();
+    const company = await cfg.ensureActiveCompany?.(sb) || null;
+    renderSections(company);
   }
 
   boot();

@@ -51,26 +51,13 @@
               </label>
             </div>
             <p class="ws-note" style="margin-top:14px;">
-              The business timezone is what “today” and “yesterday” mean everywhere in SILO.
-              Only timezones SILO honours end to end are offered — a timezone stored but ignored
-              reads as configured and is not.
+              Your timezone keeps dates and daily reports aligned with your business day.
             </p>
             <p class="ws-note" id="currencyNote" hidden></p>
             <div class="ws-actions" style="margin-top:14px;">
               <button class="bcn-btn bcn-btn--primary" id="btnSave" disabled>Save changes</button>
               <span class="ws-you" id="saveHint"></span>
             </div>
-          </div>
-        </div>
-
-        <div class="ws-card">
-          <div class="ws-card-head"><div class="ws-title">Logo</div></div>
-          <div class="ws-body">
-            <p class="ws-note">
-              SILO has no per-company logo field today — the product is branded SILO throughout and
-              nothing reads a company image. This is where it would live; it is named here rather
-              than left as an empty control that appears to save something.
-            </p>
           </div>
         </div>
 
@@ -95,12 +82,18 @@
   const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     document.querySelector('.silo-main').innerHTML =
-      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+      '<div style="padding:48px;text-align:center;font-weight:700">SILO could not start. Please contact support.</div>';
     return;
   }
   const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const el = (id) => document.getElementById(id);
   let _co = null, _canEdit = false, _loaded = null;
+
+  function roleLabel(role) {
+    return ({ owner_admin: 'Owner', owner: 'Owner', executive: 'Executive',
+      admin: 'Admin', member: 'Member', user: 'Member', viewer: 'Viewer' })[
+      String(role || '').toLowerCase()] || 'Member';
+  }
 
   function setStatus(msg, type = 'info', ms = 0) {
     const n = el('status');
@@ -230,7 +223,7 @@
 
     const { data: membership } = await db.from('entity_memberships')
       .select('role').eq('entity_id', _co.id).eq('user_id', user.id).maybeSingle();
-    el('factRole').textContent = membership?.role || 'not a member';
+    el('factRole').textContent = membership ? roleLabel(membership.role) : 'Not a member';
 
     // The client-side answer to "may I edit" is the same fact
     // is_owner_admin_of_active_company() reads, taken from the membership row

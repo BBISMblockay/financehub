@@ -28,7 +28,7 @@ const root = new URL('../../', import.meta.url);
 const source = await readFile(new URL('v2/nav-config.js', root), 'utf8');
 const globalStub = {};
 new Function('window', source)(globalStub);
-const { resolveNavProfile } = globalStub.SiloNav;
+const { resolveNavProfile, navSectionsForProfile } = globalStub.SiloNav;
 
 test('an unresolved company fails closed to the standard menu', () => {
   // The regression. Anything other than 'standard' here means a tenant whose
@@ -57,4 +57,20 @@ test('entities.meta.nav_profile remains the explicit override', () => {
   // An unrecognised override value must not be honoured -- fall through to the
   // entity_key rules rather than trusting arbitrary metadata.
   assert.equal(resolveNavProfile({ id: 'y', entity_key: 'acme-commerce', meta: { nav_profile: 'everything' } }), 'standard');
+});
+
+test('standard workspaces use Finance and surface Customers', () => {
+  const sections = navSectionsForProfile('standard', 'finance', 'owner_admin', new Set());
+  const finance = sections.find((section) => section.section === 'Finance');
+  assert.ok(finance, 'standard finance navigation exists');
+  assert.ok(!sections.some((section) => section.section === 'Operations'));
+  assert.ok(finance.items.some((item) => item.id === 'finance/customers'));
+  assert.ok(finance.items.some((item) => item.id === 'finance/accounting'));
+});
+
+test('workspace owner membership receives admin navigation without raw role leakage', () => {
+  const ids = navSectionsForProfile('standard', 'finance', 'owner_admin', new Set())
+    .flatMap((section) => section.items.map((item) => item.id));
+  assert.ok(ids.includes('start/setup'));
+  assert.ok(ids.includes('settings/workspace'));
 });

@@ -84,7 +84,7 @@
             <div class="bcn-field-group">
               <label class="bcn-label">Role</label>
               <input id="fRole" class="bcn-field" type="text" disabled />
-              <p class="hint">Role changes are managed by an admin in Backend hub.</p>
+              <p class="hint">A workspace administrator can change your role.</p>
             </div>
             <div class="bcn-field-group">
               <label class="bcn-label">Department</label>
@@ -502,12 +502,15 @@
       const SHIPPED = ['Shipped','In Transit','Partially Received','Received'];
       try {
         let _qpo = db.from('v_po_header_summary').select('id, status').in('status', ACTIVE).limit(500);
-        if (_co?.id) _qpo = _qpo.eq('company_entity_id', _co.id);
+        // The security-invoker view is already tenant-scoped by the underlying
+        // tables. It intentionally does not expose company_entity_id.
         const { data: poData, error: poErr } = await _qpo;
         if (poErr) { console.warn('costing queue: po fetch failed', poErr.message); return; }
 
         let _qcost = db.from('v_po_costing_summary').select('po_header_id, phase').limit(500);
-        if (_co?.id) _qcost = _qcost.eq('company_entity_id', _co.id);
+        // Same shape as the PO summary view: tenant filtering happens below
+        // the view, so adding a non-existent company column makes the whole
+        // work queue silently look clear.
         const { data: costData, error: costErr } = await _qcost;
         if (costErr) { console.warn('costing queue: costing fetch failed', costErr.message); return; }
 
@@ -552,7 +555,7 @@
         if (error) return;
         const n = Array.isArray(data) ? data.length : 0;
         if (n > 0) {
-          pushFeedItem(items, { kind: 'admin_access', title: `${n} access request${n === 1 ? '' : 's'} pending`, detail: 'Approve in Backend hub.', href: '/v2/backend.html', severity: 'warn', count: n });
+          pushFeedItem(items, { kind: 'admin_access', title: `${n} access request${n === 1 ? '' : 's'} pending`, detail: 'Review pending access.', href: '/v2/backend.html', severity: 'warn', count: n });
         }
       } catch (e) { /* optional */ }
     }
@@ -582,7 +585,7 @@
       mail_unassigned: { domain: 'Mailroom', workspace: 'Mailroom', icon: 'mailbox' },
       mail_due_soon: { domain: 'Mailroom', workspace: 'Mailroom', icon: 'mailbox' },
       sample_pipeline: { domain: 'Samples', workspace: 'Products', icon: 'camera' },
-      admin_access: { domain: 'Admin', workspace: 'Backend hub', icon: 'shield' },
+      admin_access: { domain: 'Admin', workspace: 'Access requests', icon: 'shield' },
     };
 
     function feedKindMeta(kind) {
@@ -861,7 +864,7 @@
 
       if (error) {
         els.loadErr.hidden = false;
-        els.loadErr.innerHTML = `<p><strong>Your SILO profile record could not be loaded.</strong></p><p class="hint" style="margin-top:8px;">You are signed in as <strong>${esc(authUser.email)}</strong>. An admin may need to enable profile access in Supabase, or approve your account in <a href="/v2/backend.html">Backend hub</a>.</p><p class="hint" style="margin-top:8px;font-family:var(--bcn-mono);font-size:10px;">${esc(error.message)}</p>`;
+        els.loadErr.innerHTML = `<p><strong>Your profile could not be loaded.</strong></p><p class="hint" style="margin-top:8px;">You are signed in as <strong>${esc(authUser.email)}</strong>. Ask a workspace administrator to check your access.</p>`;
         profile = { email: authUser.email, id: authUser.id };
         fillForm();
         showPanels(false);
@@ -874,7 +877,7 @@
 
       if (!data) {
         els.loadWarn.hidden = false;
-        els.loadWarn.innerHTML = `<p><strong>No <code>profiles</code> row</strong> for ${esc(authUser.email)}.</p><p class="hint" style="margin-top:8px;">Ask an admin to approve your account in Backend hub. You are signed in; app data may still be blocked until a profile exists.</p>`;
+        els.loadWarn.innerHTML = `<p><strong>Your profile is not ready yet.</strong></p><p class="hint" style="margin-top:8px;">Ask a workspace administrator to finish setting up access for ${esc(authUser.email)}.</p>`;
         profile = { email: authUser.email, id: authUser.id };
         fillForm();
         showPanels(false);
@@ -913,8 +916,7 @@
       els.btnSave.disabled = false;
       if (error) {
         els.saveStatus.textContent = '';
-        alert('Could not save profile.\n\n' + (error.message || error) +
-          '\n\nAsk an admin to allow profile updates in Supabase, or use Backend hub.');
+        alert('Could not save profile. Ask a workspace administrator to check your access.');
         return;
       }
       profile = { ...profile, ...payload };
@@ -926,7 +928,7 @@
     async function boot() {
       if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
         els.loadErr.hidden = false;
-        els.loadErr.textContent = 'Missing Supabase config (pages/config.js).';
+        els.loadErr.textContent = 'SILO could not start. Please contact support.';
         els.bootStatus.textContent = '';
         return;
       }
