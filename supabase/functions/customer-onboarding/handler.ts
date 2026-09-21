@@ -183,12 +183,21 @@ const OPEN_REASONS: Record<string, { message: string; status: number }> = {
   },
 };
 
-/** Map the RPC's own reason codes to something an applicant can act on. */
-function openError(message: string): OnboardingError {
-  for (const [reason, mapped] of Object.entries(OPEN_REASONS)) {
-    if (message.includes(reason)) return new OnboardingError(mapped.message, mapped.status);
+/* Map the RPC's OWN reason codes to something an applicant can act on --
+   and nothing else. 28000 is what open_customer_application raises
+   deliberately; every other error is a fault, and a fault answered with a
+   4xx would tell an applicant their application was rejected when the truth
+   is that the database was unreachable, while never reaching console.error
+   or the 502 path. The invited door draws the same line. */
+function openError(error: { code?: string; message?: string } | string): Error {
+  const message = typeof error === 'string' ? error : (error?.message ?? '');
+  const deliberate = typeof error === 'string' || error?.code === '28000';
+  if (deliberate) {
+    for (const [reason, mapped] of Object.entries(OPEN_REASONS)) {
+      if (message.includes(reason)) return new OnboardingError(mapped.message, mapped.status);
+    }
   }
-  return new OnboardingError('This application could not be submitted', 400);
+  return new Error(`open_customer_application: ${message || 'unknown failure'}`);
 }
 
 async function openPeek(body: any) {
@@ -232,7 +241,7 @@ async function openSubmit(body: any) {
     p_email: email,
     p_payload: payload,
   });
-  if (error) throw openError(error.message);
+  if (error) throw openError(error);
 
   return {
     ok: true,

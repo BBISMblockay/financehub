@@ -31,6 +31,7 @@
 // Added with the open (shareable) application link:
 //   CUSTOMER_ONBOARDING_MUTATION=open-body-company  (the company comes from the form payload)
 //   CUSTOMER_ONBOARDING_MUTATION=open-email-by-position (the account email is contacts[0], not the primary)
+//   CUSTOMER_ONBOARDING_MUTATION=open-faults-are-client-errors (a database fault is answered as a 4xx)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -47,7 +48,7 @@ assert.ok([
   'webhook-trusts-session', 'webhook-no-owner-check', 'webhook-owner-any-customer',
   'webhook-transient-swallowed', 'cert-recorded-early', 'cert-trusts-caller',
   // The open door.
-  'open-body-company', 'open-email-by-position',
+  'open-body-company', 'open-email-by-position', 'open-faults-are-client-errors',
 ].includes(mutation), `Unknown mutation: ${mutation}`);
 
 const HANDLER_MUTATIONS = {
@@ -56,6 +57,11 @@ const HANDLER_MUTATIONS = {
   'open-body-company': (s) => s.replace(
     "    p_company_key: key,\n    p_account_type:",
     "    p_company_key: body?.form?.company_key ?? key,\n    p_account_type:"),
+  // Any database error mapped to a friendly 4xx, which is how a fault comes
+  // to read as "your application was rejected".
+  'open-faults-are-client-errors': (s) => s.replace(
+    "  const deliberate = typeof error === 'string' || error?.code === '28000';",
+    '  const deliberate = true;'),
   // validateSubmission guarantees a primary contact with a valid email, but
   // not that it is first in the array.
   'open-email-by-position': (s) => s.replace(
@@ -1088,6 +1094,37 @@ await test('a duplicate application is explained, not shown as a database error'
   assert.match(res.body.error, /already have an application/i);
   assert.doesNotMatch(res.body.error, /open_duplicate/,
     'a reason code is not a message for an applicant');
+});
+
+await test('a database FAULT is a fault, not a rejected application', async () => {
+  // A connection failure, a permission problem, a bug: none of them mean the
+  // applicant did anything wrong. Answering 4xx would tell them their
+  // application was refused, and would skip the 502 path that logs it.
+  const db = baseDb({
+    rpcs: {
+      peek_open_customer_application: () => [
+        { company_entity_id: COMPANY, company_title: 'Baseballism' }],
+      open_customer_application: () => ({
+        data: null,
+        // A real fault whose message happens to quote the function's own
+        // source -- Postgres routinely includes context like that. It is the
+        // only case where the code check does any work: a fault with no
+        // reason token in it falls through to 502 either way, so testing
+        // with one would credit the guard without exercising it.
+        error: {
+          code: '08006',
+          message: 'connection failure while evaluating open_duplicate check',
+        },
+      }),
+    },
+  });
+  const call = await onboarding({ db, stripe: fakeStripe() });
+  const res = await call({
+    body: { action: 'open_submit', company: 'baseballism', form: OPEN_FORM },
+  });
+  assert.equal(res.status, 502, 'a database fault was reported as the applicant\'s problem');
+  assert.doesNotMatch(res.body.error, /could not be submitted/,
+    'a fault must not be dressed up as a refusal');
 });
 
 await test('an invalid open submission is refused before the database is asked', async () => {

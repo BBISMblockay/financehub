@@ -942,8 +942,9 @@
         const info = await call('open_peek');
         consentText = info.consent_text || '';
         brand(info.company_title);
-        $('formSub').textContent =
-          `Apply for a wholesale account with ${info.company_title}.`;
+        // Not "a wholesale account": the applicant picks the type below, and
+        // four of the five choices are not wholesale.
+        $('formSub').textContent = `Apply for a trade account with ${info.company_title}.`;
         // The database decides what a valid type is; the page renders the
         // list it is given rather than carrying its own copy.
         const sel = $('account_type');
