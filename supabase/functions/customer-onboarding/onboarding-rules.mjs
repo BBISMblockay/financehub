@@ -50,7 +50,7 @@ export const ADDRESS_TYPES = ['business', 'shipping', 'billing'];
 /* The account types the open form offers. Kept here rather than in the page
    so the dropdown cannot offer something customer_accounts' CHECK will
    refuse; the handler serves this list to the page on open_peek. */
-export const ACCOUNT_TYPES = ['wholesale', 'retail', 'distributor', 'licensee', 'other'];
+export const ACCOUNT_TYPES = ['wholesale'];
 
 // Only what SILO genuinely cannot proceed without. Everything else on the form
 // is collected and left optional on purpose: a required field the applicant
