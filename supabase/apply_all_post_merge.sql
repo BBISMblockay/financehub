@@ -19029,3 +19029,11 @@ $c$select (select count(*) from v_po_header_summary
 -- rather than guess.
 \i migrations/20260920170000_location_channel_resolver.sql
 \i migrations/20260920180000_wow_channel_resolver.sql
+-- ── Per-tenant notification sender and Reply-To (2026-09-20) ──────────────
+-- Ten mail functions held one global SILO_MAIL_FROM and nine set no Reply-To
+-- at all, so a reply about an invoice reached SILO rather than the tenant. The
+-- From header is now built from the company's own title and the Reply-To from
+-- company_notification_contacts, resolved at send time by
+-- resolve_notification_sender(). The fallback chain ends at an owner-admin and
+-- never at a SILO address. Idempotent: create-if-not-exists, create-or-replace.
+\i migrations/20260920190000_notification_reply_contacts.sql

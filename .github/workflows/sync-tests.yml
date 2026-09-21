@@ -130,6 +130,20 @@ on:
       # The splitter is tested against the real verify file, so a change to
       # the file must re-run that test.
       - 'supabase/verify_v2_schema.sql'
+      # Notification sender identity: the resolver, its tests, the editable
+      # contacts tab, and the ten mail functions that now typecheck in CI.
+      # Without these paths the functions could be edited and nothing would run.
+      - 'supabase/migrations/*notification_reply_contacts.sql'
+      - 'supabase/functions/org-invite-send/**'
+      - 'supabase/functions/payment-request-notify/**'
+      - 'supabase/functions/payment-request-submitted-notify/**'
+      - 'supabase/functions/comp-request-notify/**'
+      - 'supabase/functions/mail-item-notify/**'
+      - 'supabase/functions/sample-notify/**'
+      - 'supabase/functions/review-send/**'
+      - 'supabase/functions/review-finish/**'
+      - 'supabase/functions/review-portal/**'
+      - 'supabase/functions/payment-request-forward-melio/**'
       - '.github/workflows/sync-tests.yml'
   pull_request:
     paths: *sync_paths
@@ -398,6 +412,20 @@ jobs:
           for fn in stripe-webhook stripe-connect stripe-invoice stripe-billing customer-onboarding; do
             npx --yes deno@2.9.6 check --config "supabase/functions/$fn/deno.json" "supabase/functions/$fn/index.ts"
           done
+          # The ten mail functions. Nothing typechecked these before, which is
+          # how four of them carried a `err?.message`-on-`{}` error for months:
+          # Supabase does not typecheck on deploy, and they are only exercised
+          # when an email actually sends. They now resolve their From and
+          # Reply-To per tenant, so a signature mistake here is a notification
+          # that does not send -- worth catching in CI rather than in an inbox.
+          # --node-modules-dir=none because the repo root has a package.json,
+          # which otherwise puts deno in node_modules mode; these functions
+          # import a fully-specified npm: specifier and need no import map.
+          for fn in org-invite-send payment-request-notify payment-request-submitted-notify \
+                    comp-request-notify mail-item-notify sample-notify review-send \
+                    review-finish review-portal payment-request-forward-melio; do
+            npx --yes deno@2.9.6 check --node-modules-dir=none "supabase/functions/$fn/index.ts"
+          done
 
   onboarding-concurrency:
     name: Onboarding concurrency (real PostgreSQL)
@@ -539,6 +567,23 @@ jobs:
       # fixture reproduces the wide gate AND the four policies built on it, and
       # deletes a YOUNG tenant -- Baseballism is shielded by NO ACTION child FKs,
       # so asserting against it would pass with or without the fix.
+      # Reply-To is the property that matters: an unconfigured tenant must
+      # never make SILO the reply desk for its own invoices.
+      - name: Execute notification sender resolution regressions
+        run: node scripts/tests/notification-sender.test.mjs
+
+      - name: Each sender guarantee, removed one at a time, must break it
+        run: |
+          set -u
+          for m in fallback-to-silo no-purpose no-sanitize write-open; do
+            echo "--- $m ---"
+            if SENDER_MUTATION="$m" node scripts/tests/notification-sender.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guarantee it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       - name: Execute entity admin gate scoping regressions
         run: node scripts/tests/entity-admin-gate-scope.test.mjs
 

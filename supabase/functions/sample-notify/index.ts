@@ -46,7 +46,44 @@ const SLACK_BOT_TOKEN = Deno.env.get('SLACK_BOT_TOKEN') || '';
 // as either a mistake or a leak of who else uses SILO. SILO_MAIL_FROM is an
 // edge-function secret; the literal stays as the fallback so nothing changes
 // for Baseballism until that secret is set.
-const FROM = Deno.env.get('SILO_MAIL_FROM') || 'SILO <noreply@silo-baseballism.com>';
+// The sender identity is PER TENANT and resolved at send time, not
+// configured: a single env string cannot carry one company's name for one
+// email and another's for the next. resolve_notification_sender() is the one
+// definition of both halves (20260920170000) -- it returns the From header
+// built from the company's own title, and the Reply-To for this KIND of
+// notification, falling back to the tenant's general contact, then the person
+// who triggered it, then an owner-admin, and NEVER to a SILO address.
+//
+// Deliberately NOT a module-level mutable: a Deno isolate serves concurrent
+// requests, so a shared `sender` would put one tenant's name and reply address
+// on another tenant's email. It is passed explicitly instead.
+const FROM_FALLBACK = Deno.env.get('SILO_MAIL_FROM') || 'SILO <noreply@silo-baseballism.com>';
+
+type Sender = { from: string; replyTo: string | null };
+
+async function resolveSender(
+  companyId: string | null | undefined,
+  purpose: string,
+  actorEmail?: string | null,
+): Promise<Sender> {
+  const fallback: Sender = { from: FROM_FALLBACK, replyTo: actorEmail ?? null };
+  if (!companyId) return fallback;
+  try {
+    const { data, error } = await db.rpc('resolve_notification_sender', {
+      p_company_entity_id: companyId,
+      p_purpose: purpose,
+      p_actor_email: actorEmail ?? null,
+    });
+    const row = Array.isArray(data) ? data[0] : data;
+    // A resolution failure must not stop the notification: the message
+    // matters more than the header. Falling back still never names SILO as
+    // the reply address -- it just carries no Reply-To at all.
+    if (error || !row?.from_header) return fallback;
+    return { from: row.from_header as string, replyTo: (row.reply_to as string | null) ?? null };
+  } catch {
+    return fallback;
+  }
+}
 const PHOTO_BUCKET = 'sample-images';
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -106,13 +143,14 @@ async function firstSamplePhotoUrl(sampleId: string): Promise<string | null> {
 
 type SendResult = { sent: boolean; reason?: string };
 
-async function sendEmail(to: string[], subject: string, html: string): Promise<SendResult> {
+async function sendEmail(sender: Sender, to: string[], subject: string, html: string): Promise<SendResult> {
   if (!RESEND_KEY) return { sent: false, reason: 'RESEND_API_KEY not set' };
   if (!to.length) return { sent: false, reason: 'no recipient' };
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${RESEND_KEY}` },
-    body: JSON.stringify({ from: FROM, to, subject, html }),
+    body: JSON.stringify({ from: sender.from, to, subject, html,
+      ...(sender.replyTo ? { reply_to: sender.replyTo } : {}) }),
   });
   if (!res.ok) {
     const body = await res.text();
@@ -430,8 +468,9 @@ Deno.serve(async (req: Request) => {
     // other event (requested, received, ready, size-request) still
     // broadcasts to the channel even when there's an assignee — the
     // assignee's personal DM is additional reach, not a replacement.
+    const sender = await resolveSender(record.company_entity_id, 'purchasing', null);
     const [emailResult, slackResult, slackDmResult] = await Promise.all([
-      sendEmail(toEmails, subject, html),
+      sendEmail(sender, toEmails, subject, html),
       type === 'SAMPLE_ASSIGNED'
         ? Promise.resolve<SendResult>({ sent: false, reason: 'assignment kept private — DM/email only' })
         : sendSlack(slackText, slackBlocks),

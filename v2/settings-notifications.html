@@ -32,6 +32,30 @@
 
         <div class="ws-card">
           <div class="ws-card-head">
+            <div class="ws-title">Reply-to contacts</div>
+            <div class="ws-sub" id="replySub">Where replies land</div>
+          </div>
+          <div class="ws-body">
+            <p class="ws-note" style="margin-bottom:14px;">
+              Notifications send from <strong>SILO</strong> under your company's name. Replies go
+              wherever you send them here. Prefer a group address you control
+              (<code>finance@yourcompany.com</code>) over one person's — it keeps staff changes out of
+              SILO and makes replies predictable.
+            </p>
+            <table class="ws-table" id="tblReply">
+              <thead><tr><th>Kind</th><th>Replies go to</th><th></th></tr></thead>
+              <tbody><tr><td colspan="3" class="ws-empty">Loading…</td></tr></tbody>
+            </table>
+            <p class="ws-note" style="margin-top:12px;">
+              Leave one blank and SILO falls back to your general contact, then to whoever triggered
+              the notification, then to an owner-admin. It never falls back to a SILO address —
+              <code>support@get-silo.com</code> is for platform support only, not for your invoices.
+            </p>
+          </div>
+        </div>
+
+        <div class="ws-card">
+          <div class="ws-card-head">
             <div class="ws-title">Company recipients</div>
             <div class="ws-sub">Based on team assignments</div>
           </div>
@@ -68,11 +92,24 @@
           <div class="ws-card-head"><div class="ws-title">Sender</div></div>
           <div class="ws-body">
             <dl class="ws-grid">
-              <div class="ws-field"><span class="ws-label">From</span><span>SILO notifications</span></div>
-              <div class="ws-field"><span class="ws-label">Delivery</span><span>Managed automatically</span></div>
+              <!-- Labelled as the FALLBACK, not as the current sender. Ten edge
+                   functions read `SILO_MAIL_FROM` and fall back to this literal,
+                   and that secret is readable only inside the function -- so a
+                   deployment that has set it sends from an address this page
+                   cannot see. Printing the constant as a fact would make the one
+                   screen someone checks notification configuration on the one
+                   screen that is confidently wrong. -->
+              <div class="ws-field"><span class="ws-label">From</span>
+                <span id="factSender">Loading…</span>
+                <span class="ws-you">built from your company name</span></div>
+              <div class="ws-field"><span class="ws-label">Delivery</span><span>Resend</span></div>
             </dl>
             <p class="ws-note" style="margin-top:12px;">
-              Replies are not monitored. Contact your workspace administrator if an expected message does not arrive.
+              The display name is your company's; the address is SILO's and stays SILO's, because the
+              sending domain has to be one SILO authenticates (SPF/DKIM). Reply-To carries no such
+              constraint, which is why replies can go to you while the From stays here. Shown above is
+              the real header, read from the same function that builds it at send time — not a
+              description of it. Custom per-customer sending domains are not offered.
             </p>
           </div>
         </div>
@@ -105,10 +142,110 @@
 
   // Team-wide notifications resolve their recipients from the active
   // workspace's department assignments at send time.
+  // Each row names the edge function that actually sends, and the department
+  // IT selects on -- not a restatement from memory. comp-request-notify emails
+  // the finance DEPARTMENT only, deliberately narrower than who may act on a
+  // request; sample-notify falls back to logistics when no assignee is set.
+  // The vocabulary is the table's CHECK constraint, and the wording says what
+  // each one actually covers rather than naming edge functions at someone who
+  // is trying to decide where replies should land.
+  const PURPOSES = [
+    { key: 'finance_ap', label: 'Finance / AP',
+      hint: 'Payment requests, invoices, anything about money owed.' },
+    { key: 'purchasing', label: 'Purchasing',
+      hint: 'Samples and supplier-facing notifications.' },
+    { key: 'hr_comp', label: 'HR / compensation',
+      hint: 'Performance reviews and compensation requests.' },
+    { key: 'general_ops', label: 'General operations',
+      hint: 'Mail routing, invitations, and the fallback for everything above.' },
+    { key: 'technical', label: 'Technical / integrations',
+      hint: 'Reserved for sync and integration alerts. Nothing sends here yet.' },
+  ];
+  let _canEdit = false;
+  let _contacts = {};
+
   const RULES = [
     { label: 'New compensation request', who: 'Finance', depts: ['finance'], profiles: ['grandfathered'] },
     { label: 'Sample requested or received (no assignee)', who: 'Logistics', depts: ['logistics'] },
   ];
+
+  // Rendered from the RESOLVER, not from the row: what someone needs to know
+  // is where a reply actually goes today, which for an unset purpose is a
+  // fallback several rungs down. Printing the stored value would leave every
+  // blank row silent about the thing it decides.
+  async function loadReplyContacts() {
+    const { data: rows } = await db.from('company_notification_contacts')
+      .select('purpose, reply_to_email').eq('company_entity_id', _co.id);
+    _contacts = Object.fromEntries((rows || []).map((r) => [r.purpose, r.reply_to_email]));
+
+    const resolved = {};
+    await Promise.all(PURPOSES.map(async (p) => {
+      const { data } = await db.rpc('resolve_notification_sender', {
+        p_company_entity_id: _co.id, p_purpose: p.key, p_actor_email: null,
+      });
+      resolved[p.key] = Array.isArray(data) ? data[0] : data;
+    }));
+
+    const first = resolved[PURPOSES[0].key];
+    el('factSender').textContent = first?.from_header || 'Not resolved';
+    el('replySub').textContent = _canEdit ? 'Editable' : 'Read only — admins can change these';
+
+    el('tblReply').querySelector('tbody').innerHTML = PURPOSES.map((p) => {
+      const set = _contacts[p.key] || '';
+      const r = resolved[p.key] || {};
+      // An unset purpose is not blank: it says which rung is answering, so
+      // "nobody configured this" and "this reaches an owner-admin" are
+      // distinguishable at a glance.
+      const effective = set
+        ? ''
+        : r.reply_to
+          ? `<div class="ws-you">falls back to ${esc(r.reply_to)}${r.reply_to_source === 'general_ops'
+              ? ' (general operations)' : r.reply_to_source === 'owner_admin' ? ' (owner-admin)' : ''}</div>`
+          : '<div class="ws-you">no reply address at all — replies would bounce</div>';
+      const cell = _canEdit
+        ? `<input class="bcn-field" type="email" id="rt_${p.key}" value="${esc(set)}"
+             placeholder="finance@yourcompany.com" style="min-width:240px" />${effective}`
+        : `${set ? esc(set) : '<span class="ws-you">not set</span>'}${effective}`;
+      const action = _canEdit
+        ? `<button class="bcn-btn" data-save="${p.key}">Save</button>`
+        : '';
+      return `<tr><td>${esc(p.label)}<div class="ws-you">${esc(p.hint)}</div></td>
+        <td>${cell}</td><td>${action}</td></tr>`;
+    }).join('');
+
+    el('tblReply').querySelectorAll('[data-save]').forEach((b) => {
+      b.addEventListener('click', () => saveContact(b.getAttribute('data-save')));
+    });
+  }
+
+  async function saveContact(purpose) {
+    const input = el(`rt_${purpose}`);
+    const value = String(input?.value || '').trim();
+    try {
+      if (!value) {
+        const { error } = await db.from('company_notification_contacts')
+          .delete().eq('company_entity_id', _co.id).eq('purpose', purpose);
+        if (error) throw error;
+        setStatus('Cleared — replies fall back to your next contact.', 'info', 4000);
+      } else {
+        // An RLS refusal on a write is a SUCCESS WITH ZERO ROWS, not an error,
+        // so the returning row is what proves it landed. Without this check a
+        // non-admin sees "Saved" and nothing changes.
+        const { data, error } = await db.from('company_notification_contacts')
+          .upsert({ company_entity_id: _co.id, purpose, reply_to_email: value },
+                  { onConflict: 'company_entity_id,purpose' })
+          .select('id');
+        if (error) throw error;
+        if (!data || !data.length) {
+          throw new Error('Not saved — your account may not have admin access here.');
+        }
+        setStatus('Saved.', 'pos', 3000);
+      }
+      await loadReplyContacts();
+    } catch (e) {
+      setStatus(e?.message || String(e), 'neg');
+    }
+  }
 
   async function load() {
     // Members of the active company only: profiles_select_active_company is
@@ -156,6 +293,18 @@
     if ((window.SiloNav?.resolveNavProfile?.(_co) || 'standard') === 'standard') {
       document.querySelectorAll('[data-grandfathered]').forEach((node) => node.remove());
     }
+
+    // Mirrors is_admin_user(): membership role decides where there is one, and
+    // the legacy profile role only where there is not. Nav gating is UX; the
+    // write policy is the real boundary, which is why a refused save is
+    // handled by name above rather than trusted to this check.
+    const { data: mem } = await db.from('entity_memberships')
+      .select('role').eq('entity_id', _co.id).eq('user_id', user.id).maybeSingle();
+    _canEdit = mem?.role
+      ? ['owner_admin', 'admin'].includes(mem.role)
+      : ['owner', 'admin'].includes(String(profile?.role || ''));
+
+    await loadReplyContacts();
     await load();
   })().catch((e) => {
     console.error(e);

@@ -1705,7 +1705,7 @@ flag existing source/rollup staleness; they do not repair ingestion. No new
 secrets, functions, policies or source-data writes. See
 `docs/ops/canned-report-accuracy.md` and the isolated database test.
 
-## Channel scope resolves from locations — `20260920170000` + `20260920180000`
+## Channel scope resolves from locations — `20260920190000` + `20260920180000`
 
 Five deployed RPCs scoped themselves to the online store with a hardcoded
 `location_tag = 'online'`, at seven sites (`wow_report` ×3, `wow_data_through`,
@@ -1745,7 +1745,7 @@ on `is_active` — a closed store's history is still retail revenue.
 that carry no store type at all; `/v2/wow-report.html` and the Integrations
 location panel both render that instead of a zero.
 
-**Both migrations refuse rather than guess.** `20260920170000` asserts, per
+**Both migrations refuse rather than guess.** `20260920190000` asserts, per
 company, that the derived online set equals the set the literal matched
 (verified: Baseballism `{online}` = `{online}`, the other two `{}` = `{}`), so
 it cannot restate a published number. `20260920180000` rewrites the *deployed*
@@ -1759,3 +1759,60 @@ anywhere in `public`, if any of the five stops resolving, if a `store_type` the
 Integrations select offers maps to no channel, or if a resolver is
 anon-reachable. Verified the check fires: the regex matches exactly those 5
 functions before the fix.
+## Per-tenant notification sender — `20260920190000_notification_reply_contacts.sql`
+
+Agreed with Blake 2026-09-20. The target:
+
+```
+From:     Baseballism - SILO <notifications@get-silo.com>
+Reply-To: the tenant's own contact for that kind of notification
+```
+
+**Why this could not be configuration.** All ten mail edge functions held one
+global constant, `SILO_MAIL_FROM`, defaulting to
+`SILO <noreply@silo-baseballism.com>` — and **nine of the ten set no `Reply-To`
+at all** (only `payment-request-forward-melio` did). One env string cannot carry
+one company's name on one email and another's on the next, so the sender
+identity is resolved at send time from the company rather than configured.
+
+**`resolve_notification_sender(company, purpose, actor_email)`** is the one
+definition of both halves. The display name is the tenant's; the address stays
+SILO's, because the From domain must be one SILO authenticates for SPF/DKIM.
+`Reply-To` carries no such constraint — which is exactly why the split works.
+
+**The fallback chain is the point**: purpose → `general_ops` → the person who
+triggered the notification → an owner-admin → nothing. **Never a SILO address.**
+Omitting `Reply-To` looks harmless and silently routes every reply about an
+invoice to `notifications@get-silo.com`; `support@get-silo.com` is for platform
+support only. `reply_to_source` records which rung answered, so the Notifications
+tab can say *why* a blank row still reaches someone.
+
+**A database function, not a `_shared/` TypeScript module.** `_shared` sits
+outside each function directory and `deployment-drift-check.yml` diffs each
+*deployed* function against the repo, so a cross-directory import risks showing
+all ten as permanently drifted. It also puts the logic where the data already
+is, and makes it testable without deploying anything.
+
+**The resolver re-checks the caller.** It is SECURITY DEFINER, it takes a
+company id, and it is granted to every authenticated user — which is an RLS
+bypass unless it checks memberships itself. Without that, a member of company A
+could pass company B's uuid and read B's configured reply address, and B's
+owner-admin email out of the fallback. Found by the independent review on
+PR #745 and reproduced against two synthetic tenants; it is the same shape as
+the unscoped `is_owner_admin()` gate closed the same day in `20260920160000`.
+`auth.uid()` is NULL for the service role, which is how all ten mail functions
+call it, so the sending path is unaffected and only browser sessions are held to
+their own memberships.
+
+**`company_notification_contacts`** holds one address per purpose per company —
+one, not a list, so a tenant-controlled group address keeps staff changes out of
+SILO. Read: any active member. Write: `is_admin_user()`, matching Integrations
+rather than the owner-only rename.
+
+The From display name is **sanitised**: a company title carrying a quote, comma,
+angle bracket or CRLF would otherwise split the header.
+
+Verified by `scripts/tests/notification-sender.test.mjs` — 10 assertions, 4
+mutations, all caught, including `fallback-to-silo`. `verify_v2_schema.sql`
+gains **Notification sender resolves per tenant**, which fails if the resolver's
+fallback can ever name a SILO domain.

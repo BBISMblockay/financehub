@@ -4463,6 +4463,52 @@ select 'Channel scope resolves from locations, not a literal' as check_name,
    then 'CRITICAL: a channel resolver is anon-reachable'
  else 'ok' end as status;
 
+-- A notification must name the tenant it is about, and a reply must reach that
+-- tenant. The last rung is the one that matters: before 20260920190000 nine of
+-- the ten mail functions set no Reply-To at all, so a reply about an invoice
+-- went to whatever the From address was -- i.e. to SILO.
+select 'Notification sender resolves per tenant' as check_name,
+ case
+ when not exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='resolve_notification_sender')
+   then 'MISSING: resolve_notification_sender'
+ when to_regclass('public.company_notification_contacts') is null
+   then 'MISSING: company_notification_contacts'
+ -- The fallback must never name a SILO domain. A resolver that answers with
+ -- support@ or notifications@ turns SILO into the reply desk for every tenant
+ -- that has not configured anything yet, which is every tenant on day one.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='resolve_notification_sender')
+   ~* '(reply|v_reply)[^;]*(get-silo\.com|silo-baseballism\.com)'
+   then 'CRITICAL: the Reply-To fallback can resolve to a SILO address'
+ when not exists(select 1 from pg_policy where polrelid='public.company_notification_contacts'::regclass
+   and polcmd in ('w','a','*','d'))
+   then 'CRITICAL: company_notification_contacts has no write policy'
+ -- A DEFINER function that takes a company id and is granted to `authenticated`
+ -- is an RLS bypass unless it re-checks the caller. Without this an ordinary
+ -- member of one tenant could read another tenant's reply address, and its
+ -- owner-admin email out of the fallback.
+ -- Test the GUARD's own text, not the table name. The owner-admin fallback
+ -- further down reads entity_memberships too, so `like '%entity_memberships%'`
+ -- was green with the guard deleted -- a verifier that cannot see the bug it
+ -- exists to catch (found by the additional review Blake requested on #745,
+ -- reproduced by removing only the guard). Both halves are required, so
+ -- renaming one does not silently re-open it. scripts/tests/notification-sender.test.mjs
+ -- executes THIS statement against a guarded and an unguarded resolver.
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='resolve_notification_sender')
+   not like '%Not a member of this company%'
+   then 'CRITICAL: resolve_notification_sender does not refuse a caller outside the company'
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='resolve_notification_sender')
+   not like '%v_actor is not null%'
+   then 'CRITICAL: resolve_notification_sender does not gate its caller check on auth.uid()'
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='resolve_notification_sender'
+     and has_function_privilege('anon', p.oid, 'execute'))
+   then 'CRITICAL: anon can execute resolve_notification_sender'
+ else 'ok' end as status;
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further
