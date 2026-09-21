@@ -64,6 +64,8 @@ assert.ok([
   'open-trusts-type', 'helper-client-callable',
   // The app-settable toggle.
   'toggle-ungated', 'toggle-needs-settings-row', 'toggle-guesses-currency',
+  // Archiving.
+  'archive-ungated', 'archive-blocks-reapply', 'archive-keeps-links-live',
 ].includes(mutation), `Unknown mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -134,12 +136,22 @@ let sql = await readFile(
   new URL('supabase/migrations/20260919140000_customer_account_onboarding.sql', root), 'utf8');
 let openSql = await readFile(
   new URL('supabase/migrations/20260921120000_open_customer_applications.sql', root), 'utf8');
+let toggleSql = await readFile(
+  new URL('supabase/migrations/20260921140000_open_applications_toggle.sql', root), 'utf8');
+let archiveSql = await readFile(
+  new URL('supabase/migrations/20260921160000_archive_customer_accounts.sql', root), 'utf8');
 
 function patch(target, replacement) {
   // Some mutations target a whole policy or DO block by regex rather than by
   // literal text, so membership is tested by attempting the replacement and
   // comparing -- String.prototype.includes throws on a RegExp, and testing
   // with it was itself a false "caught" on three mutations.
+  //
+  // Applied to EVERY migration, not just the first two. Each later one
+  // redefines functions the earlier ones created, so the ACTIVE definition of
+  // a guard may live in any of them: 20260921160000 redefines
+  // open_customer_application, and covering only two files silently disarmed
+  // open-allows-duplicate and open-trusts-type.
   let hit = false;
   const applied = (before) => {
     const after = before.replace(target, replacement);
@@ -148,9 +160,11 @@ function patch(target, replacement) {
   };
   sql = applied(sql);
   openSql = applied(openSql);
+  toggleSql = applied(toggleSql);
+  archiveSql = applied(archiveSql);
   assert.ok(hit,
-    `mutation ${mutation}: its target text is in neither migration, so it would `
-    + 'have changed nothing and the guard it removes would be untested');
+    `mutation ${mutation}: its target text is in none of the migrations, so it `
+    + 'would have changed nothing and the guard it removes would be untested');
 }
 
 if (mutation === 'tax-open') {
@@ -294,25 +308,35 @@ if (mutation === 'helper-client-callable') {
 await db.exec(openSql);
 
 // The app-settable toggle, on top again.
-let toggleSql = await readFile(
-  new URL('supabase/migrations/20260921140000_open_applications_toggle.sql', root), 'utf8');
 if (mutation === 'toggle-ungated') {
-  toggleSql = toggleSql.replace(
+  patch(
     '  if not public.is_owner_admin_of_active_company() then',
     '  if false then');
 }
 if (mutation === 'toggle-needs-settings-row') {
   // The shape that silently did nothing for Baseballism.
-  toggleSql = toggleSql.replace(
+  patch(
     '  if not exists (select 1 from public.company_settings where company_entity_id = v_company) then',
     '  if false then');
 }
 if (mutation === 'toggle-guesses-currency') {
-  toggleSql = toggleSql.replace(
+  patch(
     '    select base_currency into v_currency\n      from public.accounting_settings where company_entity_id = v_company;',
     '    v_currency := null;');
 }
 await db.exec(toggleSql);
+
+if (mutation === 'archive-ungated') {
+  patch("  if not public.can_manage_client_invoices() then\n    raise exception 'not authorized';\n  end if;", '');
+}
+if (mutation === 'archive-blocks-reapply') {
+  // The shape where an archived row keeps that email locked forever.
+  patch("       and status in ('invited','submitted','approved')\n       and archived_at is null", "       and status in ('invited','submitted','approved')");
+}
+if (mutation === 'archive-keeps-links-live') {
+  patch("  if p_archived then\n    update public.customer_account_invites\n       set status = 'revoked'\n     where customer_account_id = p_account_id and status = 'pending';\n  end if;", '');
+}
+await db.exec(archiveSql);
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 await q(`insert into public.stripe_connect_accounts
@@ -1137,7 +1161,7 @@ await test('the verify_v2_schema checks for this feature return ok on a correct 
   const all = splitSqlStatements(
     await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8')).map(text);
   const mine = all.filter((st) => st.includes("'Customer "));
-  assert.equal(mine.length, 4, 'expected four customer-account checks in verify_v2_schema.sql');
+  assert.equal(mine.length, 5, 'expected five customer-account checks in verify_v2_schema.sql');
   for (const stmt of mine) {
     const row = await one(stmt);
     assert.equal(row.status, 'ok', `${row.check_name}: ${row.status}`);
@@ -1302,6 +1326,79 @@ await test('turning it off closes the form and keeps the applications', async ()
   const now = (await one(`select count(*)::int as n from public.customer_accounts
                            where company_entity_id = $1`, [companyA])).n;
   assert.equal(now, kept, 'closing the form deleted applications');
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 13. Archiving
+// ════════════════════════════════════════════════════════════════════════════
+// DELETE is revoked outright, which was right while every row came from an
+// invite somebody chose to send. The open form changed that, and archiving is
+// how junk leaves the register without the evidence leaving the database.
+
+await test('archiving is gated like the rest of the review work', async () => {
+  const acct = (await one(`select id from public.customer_accounts
+                            where company_entity_id = $1 limit 1`, [companyA])).id;
+  await assert.rejects(
+    as(ops, () => q(`select public.set_customer_account_archived($1, true)`, [acct])),
+    /not authorized/, 'an ordinary admin archived an application');
+});
+
+await test('archiving hides the row, keeps it, and kills its live links', async () => {
+  const inv = await invite('archive-me@shop.test');
+  const acct = inv.customer_account_id;
+  const before = (await one(`select count(*)::int as n from public.customer_account_invites
+                              where customer_account_id = $1 and status = 'pending'`, [acct])).n;
+  assert.equal(before, 1, 'expected a live onboarding link to begin with');
+
+  await as(finance, () => q(`select public.set_customer_account_archived($1, true)`, [acct]));
+
+  const row = await one(`select archived_at, archived_by, status
+                           from public.customer_accounts where id = $1`, [acct]);
+  assert.ok(row.archived_at, 'archived_at was not stamped');
+  assert.ok(row.archived_by, 'archived_by was not recorded');
+  assert.equal(row.status, 'invited',
+    'archiving overwrote the status; it is meant to be orthogonal to it');
+
+  const live = (await one(`select count(*)::int as n from public.customer_account_invites
+                            where customer_account_id = $1 and status = 'pending'`, [acct])).n;
+  assert.equal(live, 0, 'an archived application kept a live link somebody could still use');
+
+  const v = await one(`select is_archived from public.customer_accounts_v where id = $1`, [acct]);
+  assert.equal(v.is_archived, true, 'the view does not expose the archived state');
+});
+
+await test('an archived application does not lock its email forever', async () => {
+  // The failure mode: archived junk keeps status 'submitted', so a genuine
+  // later application from that address hits "we already have your
+  // application" or a unique-index violation and can never get in.
+  await q(`update public.company_settings set open_customer_applications = true
+            where company_entity_id = $1`, [companyA]);
+  const form = { ...FORM, contacts: [{ ...FORM.contacts[0], email: 'archive-me@shop.test' }] };
+  const r = (await one(
+    `select public.open_customer_application('baseballism','wholesale','archive-me@shop.test',$1) as r`,
+    [JSON.stringify(form)])).r;
+  assert.equal(r.ok, true, 'an archived row blocked a fresh application');
+
+  // And re-inviting that address starts a new application rather than
+  // resurrecting the archived one.
+  const again = await invite('archive-me@shop.test');
+  assert.ok(again.customer_account_id, 'the re-invite failed');
+  assert.ok(again.email, 'the invite RPC stopped returning the email it used to');
+});
+
+await test('restoring brings the row back without resurrecting a token', async () => {
+  const inv = await invite('restore-me@shop.test');
+  const acct = inv.customer_account_id;
+  await as(finance, () => q(`select public.set_customer_account_archived($1, true)`, [acct]));
+  await as(finance, () => q(`select public.set_customer_account_archived($1, false)`, [acct]));
+  const row = await one(`select archived_at, archived_by from public.customer_accounts
+                          where id = $1`, [acct]);
+  assert.equal(row.archived_at, null, 'restoring left it archived');
+  assert.equal(row.archived_by, null, 'restoring kept a stale actor');
+  const live = (await one(`select count(*)::int as n from public.customer_account_invites
+                            where customer_account_id = $1 and status = 'pending'`, [acct])).n;
+  assert.equal(live, 0,
+    'restoring resurrected a revoked link; a fresh invite is the intended path');
 });
 
 console.log(`\n${passed} customer onboarding database assertions passed`);

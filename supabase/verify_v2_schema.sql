@@ -4230,6 +4230,30 @@ select 'Membership is not self-grantable' as check_name,
 -- function to anon and authenticated, so the revoke is the whole boundary --
 -- without it any signed-in user could rewrite any customer's addresses and
 -- contacts by id, and anon could file applications against any tenant.
+select 'Customer archiving' as check_name,
+ case
+ when to_regclass('public.customer_accounts') is null
+   then 'MISSING: customer account onboarding migration 20260919140000'
+ when not exists(select 1 from information_schema.columns
+   where table_schema='public' and table_name='customer_accounts' and column_name='archived_at')
+   then 'MISSING: archiving migration 20260921160000'
+ when not exists(select 1 from information_schema.columns
+   where table_schema='public' and table_name='customer_accounts_v' and column_name='is_archived')
+   then 'STALE: customer_accounts_v predates archived_at; recreate it'
+ -- An archived row must not keep its email locked: the partial unique index
+ -- and the two live-account lookups all have to exclude it, or a genuine
+ -- re-application is refused forever.
+ when not exists(select 1 from pg_indexes
+   where schemaname='public' and indexname='customer_accounts_live_email_uidx'
+     and indexdef like '%archived_at IS NULL%')
+   then 'CRITICAL: the live-email index counts archived rows; an archived application locks that address'
+ when to_regprocedure('public.set_customer_account_archived(uuid,boolean)') is null
+   then 'MISSING: set_customer_account_archived'
+ when has_function_privilege('anon',
+     to_regprocedure('public.set_customer_account_archived(uuid,boolean)'), 'EXECUTE')
+   then 'CRITICAL: archiving is callable with the anon key'
+ else 'ok' end as status;
+
 select 'Customer open applications' as check_name,
  case
  when to_regclass('public.customer_accounts') is null
