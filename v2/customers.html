@@ -91,6 +91,12 @@
               <option value="inactive">Inactive</option>
             </select>
           </div>
+          <div class="bcn-filter">
+            <label class="co-switch">
+              <input type="checkbox" id="showArchived" />
+              <span>Show archived</span>
+            </label>
+          </div>
         </section>
 
         <div class="cu-card">
@@ -169,6 +175,19 @@
           <button class="bcn-btn bcn-btn--primary" id="dApprove">Approve</button>
           <button class="bcn-btn bcn-btn--danger" id="dReject">Reject</button>
           <button class="bcn-btn bcn-btn--ghost" data-close="1">Close</button>
+        </div>
+      </div>
+
+      <!-- Always available, whatever the status: archiving is orthogonal to
+           the decision. Junk from the public form is the reason it exists. -->
+      <div class="cu-group">
+        <div class="cu-group-title">Register</div>
+        <div class="cu-actions">
+          <button class="bcn-btn bcn-btn--ghost" id="dArchive">Archive</button>
+        </div>
+        <div class="cu-sub" style="margin-top:6px" id="dArchiveNote">
+          Hides it from the register and revokes any live application link.
+          Nothing is deleted.
         </div>
       </div>
 
@@ -278,17 +297,24 @@
   }
 
   function renderKpis() {
-    const n = (s) => _rows.filter((r) => r.status === s).length;
+    // Live rows only. An archived application is not awaiting anything, and a
+    // count that includes it overstates the queue.
+    const live = _rows.filter((r) => !r.is_archived);
+    const n = (s) => live.filter((r) => r.status === s).length;
     el('kpiSubmitted').textContent = n('submitted');
     el('kpiApproved').textContent = n('approved');
     el('kpiInvited').textContent = n('invited');
-    el('kpiCards').textContent = _rows.filter((r) => r.has_card_on_file).length;
+    el('kpiCards').textContent = live.filter((r) => r.has_card_on_file).length;
   }
 
   function applyFilter() {
     const term = el('search').value.trim().toLowerCase();
     const status = el('statusFilter').value;
+    const showArchived = el('showArchived').checked;
     const rows = _rows.filter((r) => {
+      // Archived is orthogonal to status, so it filters separately. Hidden by
+      // default: that is the whole point of archiving.
+      if (!showArchived && r.is_archived) return false;
       if (status && r.status !== status) return false;
       if (!term) return true;
       return [r.legal_name, r.dba_name, r.contact_email, r.primary_contact_email]
@@ -312,7 +338,8 @@
     const body = rows.length
       ? rows.map((r) => `<tr>
           <td>
-            <div class="cu-name">${esc(r.legal_name || '(not yet supplied)')}</div>
+            <div class="cu-name">${esc(r.legal_name || '(not yet supplied)')}${
+              r.is_archived ? ' <span class="bcn-pill bcn-pill--dark">archived</span>' : ''}</div>
             ${r.dba_name ? `<div class="cu-sub">${esc(r.dba_name)}</div>` : ''}
           </td>
           <td>
@@ -366,6 +393,10 @@
     el('dLimit').value = row.credit_limit ?? '';
     el('dTier').value = row.price_tier || '';
     el('dDecisionGroup').hidden = row.status !== 'submitted';
+    el('dArchive').textContent = row.is_archived ? 'Restore to register' : 'Archive';
+    el('dArchiveNote').textContent = row.is_archived
+      ? 'Currently archived. Restoring does not bring back any revoked application link — send a fresh invite for that.'
+      : 'Hides it from the register and revokes any live application link. Nothing is deleted.';
 
     el('drawer').dataset.open = '1';
 
@@ -424,6 +455,7 @@
   });
   el('search').addEventListener('input', applyFilter);
   el('statusFilter').addEventListener('change', applyFilter);
+  el('showArchived').addEventListener('change', applyFilter);
 
   document.addEventListener('click', (ev) => {
     if (ev.target.closest('[data-close]')) {
@@ -468,6 +500,25 @@
       await load();
     } catch (e) {
       setStatus(e.message, 'neg');
+    }
+  });
+
+  el('dArchive').addEventListener('click', async () => {
+    if (!_open) return;
+    const want = !_open.is_archived;
+    el('dArchive').disabled = true;
+    try {
+      const { error } = await sb.rpc('set_customer_account_archived', {
+        p_account_id: _open.id, p_archived: want,
+      });
+      if (error) throw new Error(error.message);
+      setStatus(want ? 'Archived.' : 'Restored to the register.', 'info', 4000);
+      el('drawer').dataset.open = '0';
+      await load();
+    } catch (e) {
+      setStatus(e.message, 'neg');
+    } finally {
+      el('dArchive').disabled = false;
     }
   });
 

@@ -1882,3 +1882,33 @@ The created row needs two columns this feature has no opinion about:
 
 The toggle lives in the header card on `/v2/customers.html`, rendered only for
 an owner-admin (UX; the RPC re-checks) and showing the shareable link once on.
+
+## Archiving a customer application — `20260921160000_archive_customer_accounts.sql`
+
+`DELETE` is revoked outright on `customer_accounts` and there is no delete
+policy. That was right while every row came from an invite somebody chose to
+send; once anyone with a link can submit, the register accumulates rows nobody
+wants and there was no way to clear them from the app.
+
+`archived_at` / `archived_by` + `set_customer_account_archived(id, boolean)`,
+gated by `can_manage_client_invoices()` — the same gate as approve and reject,
+since triaging the register is the work of whoever reviews it.
+
+**A timestamp, not a status.** `status` records what the application IS;
+archiving is orthogonal. Archiving a `submitted` application must not erase
+that it was submitted, and an approved customer who is later archived is still
+approved. Reusing `inactive` would have needed no migration and would have
+conflated "a former customer" with "junk from the public form".
+
+Archiving revokes any live application link — a form somebody could still
+complete for a record nobody is watching is a loose end. Restoring does **not**
+bring the token back; a fresh invite is one click and a resurrected token is a
+surprise.
+
+**Three places treat "live" as a matter of status alone, and all three had to
+learn about `archived_at`**, or an archived row would keep that email locked
+forever: the `customer_accounts_live_email_uidx` partial unique index, the
+duplicate check in `open_customer_application`, and the resume-or-create
+lookup in `create_customer_account_invite` (which would otherwise quietly
+un-hide an archived row when somebody re-invited that address).
+`verify_v2_schema.sql` asserts the index carries the clause.
