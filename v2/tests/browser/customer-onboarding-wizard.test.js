@@ -309,9 +309,44 @@ const PEEK = {
 
   console.log('\n── the open, shareable link ──');
 
+  await t('one offered account type is not asked about at all', async () => {
+    /* The production configuration: ACCOUNT_TYPES is ['wholesale'], so there
+       is nothing to choose and the question is not put. A dropdown holding
+       one option is a step the applicant clears for no information. The
+       single type must still reach the submission. */
+    const only = await suite.context.newPage();
+    only.setDefaultTimeout(5000);
+    await only.route('**/functions/v1/customer-onboarding', async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      if (body.action === 'open_peek') {
+        return route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true, open: true, company_title: COMPANY,
+            account_types: ['wholesale'],
+            consent_version: 'test.v1', consent_text: 'Authorisation text.',
+          }),
+        });
+      }
+      return route.fallback();
+    });
+    await only.goto(`${suite.base}/v2/customer-onboarding.html?apply=baseballism`);
+    await only.waitForSelector('#form:not([hidden])');
+    r.eq(await only.isVisible('#accountTypeWrap'), false,
+      'a single account type was still offered as a dropdown');
+    r.has(await only.textContent('#formSub'), 'wholesale account',
+      'the subtitle did not name the one type on offer');
+    // No options are built, so the submit path has nothing to read from the
+    // select and must fall through to the one offered type.
+    const options = await only.$$eval('#account_type option', (els) => els.length);
+    r.eq(options, 0, 'options were built for a dropdown that is never shown');
+    await only.close();
+  });
+
   await t('an open link asks which kind of account, and an invited one does not', async () => {
     /* The invited page already knows the type, because whoever sent the
-       invite chose it. Only the open form may ask.
+       invite chose it. Only the open form may ask — and only when there is
+       genuinely more than one type, which this fixture serves.
 
        Checked on a FRESH invited page, not the one the earlier tests drove:
        that page has finished and its form is hidden, so every element inside
