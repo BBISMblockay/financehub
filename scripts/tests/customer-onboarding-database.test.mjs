@@ -62,6 +62,8 @@ assert.ok([
   // The open door.
   'open-default-on', 'open-ignores-switch', 'open-allows-duplicate',
   'open-trusts-type', 'helper-client-callable',
+  // The app-settable toggle.
+  'toggle-ungated', 'toggle-needs-settings-row', 'toggle-guesses-currency',
 ].includes(mutation), `Unknown mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -110,6 +112,8 @@ await q(`insert into public.profiles(id,email,role,department,active_company_id)
   ($3,'ops@baseballism.com','admin','ops',$5),
   ($4,'owner@rival.test','owner','exec',$6)`,
   [blake, finance, ops, rival, companyA, companyB]);
+await q(`insert into public.accounting_settings(company_entity_id,base_currency)
+  values ($1,'CAD')`, [companyA]);
 await q(`insert into public.entity_memberships(entity_id,user_id,role) values
   ($1,$3,'owner_admin'),($1,$4,'admin'),($1,$5,'admin'),($2,$6,'owner_admin')`,
   [companyA, companyB, blake, finance, ops, rival]);
@@ -288,6 +292,27 @@ if (mutation === 'helper-client-callable') {
 }
 
 await db.exec(openSql);
+
+// The app-settable toggle, on top again.
+let toggleSql = await readFile(
+  new URL('supabase/migrations/20260921140000_open_applications_toggle.sql', root), 'utf8');
+if (mutation === 'toggle-ungated') {
+  toggleSql = toggleSql.replace(
+    '  if not public.is_owner_admin_of_active_company() then',
+    '  if false then');
+}
+if (mutation === 'toggle-needs-settings-row') {
+  // The shape that silently did nothing for Baseballism.
+  toggleSql = toggleSql.replace(
+    '  if not exists (select 1 from public.company_settings where company_entity_id = v_company) then',
+    '  if false then');
+}
+if (mutation === 'toggle-guesses-currency') {
+  toggleSql = toggleSql.replace(
+    '    select base_currency into v_currency\n      from public.accounting_settings where company_entity_id = v_company;',
+    '    v_currency := null;');
+}
+await db.exec(toggleSql);
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 await q(`insert into public.stripe_connect_accounts
@@ -1131,7 +1156,8 @@ await test('the open form is OFF until a company switches it on', async () => {
   let seen = await q(`select * from public.peek_open_customer_application('baseballism')`);
   assert.equal(seen.length, 0, 'a company with no settings row must not be open');
 
-  await q(`insert into public.company_settings(company_entity_id) values ($1)`, [companyA]);
+  await q(`insert into public.company_settings(company_entity_id,business_timezone,default_currency)
+            values ($1,'America/Los_Angeles','CAD')`, [companyA]);
   seen = await q(`select * from public.peek_open_customer_application('baseballism')`);
   assert.equal(seen.length, 0, 'the switch defaults to off, so a settings row alone is not enough');
 
@@ -1222,6 +1248,60 @@ await test('the shared payload writer is not reachable from a browser', async ()
         where n.nspname = 'public' and p.proname = $1`, [fn]);
     assert.equal(row.granted, false, `${fn} is callable by anon or authenticated`);
   }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 12. The app-settable toggle
+// ════════════════════════════════════════════════════════════════════════════
+
+await test('only an owner-admin may publish the form', async () => {
+  // finance can invite a customer and read every application, and still
+  // cannot publish a public endpoint in the company's name.
+  await assert.rejects(
+    as(finance, () => q(`select public.set_open_customer_applications(true)`)),
+    /not authorized/, 'a non-owner published the public form');
+  await assert.rejects(
+    as(ops, () => q(`select public.set_open_customer_applications(true)`)),
+    /not authorized/, 'an ordinary admin published the public form');
+});
+
+await test('an owner-admin turns it on, and the form opens', async () => {
+  // companyA has no company_settings row at this point -- which is exactly
+  // Baseballism's real state, and the case a bare UPDATE fails silently on.
+  await q(`delete from public.company_settings where company_entity_id = $1`, [companyA]);
+  const before = await q(`select * from public.peek_open_customer_application('baseballism')`);
+  assert.equal(before.length, 0, 'the form was already open');
+
+  const row = await as(blake, async () => (await q(
+    `select * from public.set_open_customer_applications(true)`))[0]);
+  assert.equal(row.enabled, true);
+  assert.equal(row.company_key, 'baseballism', 'the link key was not returned');
+  assert.equal(row.created_settings, true, 'the missing settings row was not created');
+
+  const after = await q(`select * from public.peek_open_customer_application('baseballism')`);
+  assert.equal(after.length, 1, 'the form did not open');
+});
+
+await test('the created row takes its currency from the books, not a guess', async () => {
+  // default_currency is guarded on both sides against contradicting
+  // accounting_settings.base_currency. A hardcoded USD would raise for any
+  // company whose books say otherwise.
+  const row = await one(`select business_timezone, default_currency
+                           from public.company_settings where company_entity_id = $1`, [companyA]);
+  assert.equal(row.business_timezone, 'America/Los_Angeles');
+  assert.equal(row.default_currency, 'CAD',
+    'the currency was guessed rather than read from the connected books');
+});
+
+await test('turning it off closes the form and keeps the applications', async () => {
+  const kept = (await one(`select count(*)::int as n from public.customer_accounts
+                            where company_entity_id = $1`, [companyA])).n;
+  await as(blake, () => q(`select public.set_open_customer_applications(false)`));
+  const seen = await q(`select * from public.peek_open_customer_application('baseballism')`);
+  assert.equal(seen.length, 0, 'the form stayed open');
+  const now = (await one(`select count(*)::int as n from public.customer_accounts
+                           where company_entity_id = $1`, [companyA])).n;
+  assert.equal(now, kept, 'closing the form deleted applications');
 });
 
 console.log(`\n${passed} customer onboarding database assertions passed`);

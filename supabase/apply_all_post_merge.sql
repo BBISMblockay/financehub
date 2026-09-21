@@ -18941,6 +18941,7 @@ $c$select (select count(*) from v_po_header_summary
 -- trigger/grant loops that drop before creating.
 \i migrations/20260919140000_customer_account_onboarding.sql
 \i migrations/20260921120000_open_customer_applications.sql
+\i migrations/20260921140000_open_applications_toggle.sql
 
 -- ── Workspace Settings administration (2026-09-20) ────────────────────────
 -- Four SECURITY DEFINER functions behind the Workspace Settings Team and

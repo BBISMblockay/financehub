@@ -96,3 +96,12 @@
   .cu-kv dd { margin-bottom: 7px; }
   .cu-scroll { max-height: none; }
 }
+
+/* ── Public application link ──────────────────────────────────────────────
+   The toggle publishes an unauthenticated endpoint, so it reads as a
+   deliberate switch rather than a filter checkbox. */
+.co-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+             font: 500 12px var(--bcn-font); color: var(--bcn-ink-2); }
+.co-switch input { accent-color: var(--bcn-accent); width: 16px; height: 16px; }
+.cu-card-body { padding: 11px 12px; }
+#openState { margin-top: 2px; }

@@ -57,8 +57,30 @@ create policy ar_customers_active_select on public.ar_customers
 -- needed here: the open-applications migration adds its own switch, and the
 -- timezone/currency columns belong to a different feature's tests. Same
 -- stance as the storage and ar_customers stand-ins above.
+create table if not exists public.supported_business_timezones (
+  tz_name text primary key
+);
+insert into public.supported_business_timezones(tz_name)
+  values ('America/Los_Angeles') on conflict do nothing;
+
+-- Enough of the accounting foundation for the toggle to read a MEASURED
+-- currency. CAD on purpose: a hardcoded USD in the toggle would pass a test
+-- fixture that used USD, and would raise in production against books that
+-- say otherwise.
+create table if not exists public.accounting_settings (
+  company_entity_id uuid primary key references public.entities(id) on delete cascade,
+  base_currency text not null
+);
+
 create table if not exists public.company_settings (
-  company_entity_id uuid primary key references public.entities(id) on delete cascade
+  company_entity_id uuid primary key references public.entities(id) on delete cascade,
+  business_timezone text not null references public.supported_business_timezones(tz_name),
+  default_currency text not null,
+  -- open_customer_applications is DELIBERATELY absent: 20260921120000 adds it,
+  -- and declaring it here makes that `add column if not exists` a no-op, which
+  -- silently disarms the open-default-on mutation. Production had no such
+  -- column either, so the fixture matching production is also the correct test.
+  updated_at timestamptz not null default now()
 );
 
 alter table public.company_settings enable row level security;

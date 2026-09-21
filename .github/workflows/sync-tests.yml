@@ -124,6 +124,7 @@ on:
       - 'v2/invoice-request.js'
       - 'supabase/migrations/*customer_account_onboarding.sql'
       - 'supabase/migrations/*open_customer_applications.sql'
+      - 'supabase/migrations/*open_applications_toggle.sql'
       - 'supabase/functions/customer-onboarding/**'
       - 'scripts/tests/customer-onboarding-bootstrap.sql'
       - 'v2/customers.html'
@@ -758,7 +759,8 @@ jobs:
                    storage-bucket-only public-rpc-granted table-writable owner-any-company \
                    activity-every-call \
                    open-default-on open-ignores-switch open-allows-duplicate \
-                   open-trusts-type helper-client-callable; do
+                   open-trusts-type helper-client-callable \
+                   toggle-ungated toggle-needs-settings-row toggle-guesses-currency; do
             echo "--- $m ---"
             if CUSTOMER_DB_MUTATION="$m" node scripts/tests/customer-onboarding-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
