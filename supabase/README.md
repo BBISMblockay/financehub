@@ -1852,3 +1852,33 @@ Note the migration **drops and recreates `customer_accounts_v`**. It selects
 `ca.*`, which expands to a fixed column list at creation time, so a view made
 before `source` existed never carries it — and `create or replace` cannot fix
 that, since the new column lands mid-list and a replace may only append.
+
+## Open-form toggle — `20260921140000_open_applications_toggle.sql`
+
+`set_open_customer_applications(boolean)` — owner-admin only, so a tenant can
+publish or retract its own application form without anybody running SQL.
+Owner-admin rather than `can_manage_client_invoices()`: switching it on
+publishes an unauthenticated endpoint that creates rows in the company's name,
+which is a different decision from issuing one customer an invite.
+
+**It creates the `company_settings` row when there is none**, which is the
+whole reason the RPC exists rather than a bare UPDATE. Baseballism has no such
+row — only companies created through `/v2/company-onboarding.html` get one —
+so `update company_settings set open_customer_applications = true where …`
+matched zero rows and reported success, and
+`peek_open_customer_application` INNER JOINs that table, so the form could
+never have opened for the tenant most likely to want it.
+
+The created row needs two columns this feature has no opinion about:
+
+- `business_timezone` — constrained to `supported_business_timezones`, which
+  holds exactly one value, so there is nothing to ask.
+- `default_currency` — a DECLARED fact, guarded on both sides against
+  contradicting `accounting_settings.base_currency`, which is MEASURED from a
+  connected QuickBooks realm. So the RPC reads the currency **from the books
+  when they exist** and falls back to USD only when they do not — the one case
+  where nothing can contradict it yet. The test fixture seeds CAD books
+  precisely so a hardcoded USD fails.
+
+The toggle lives in the header card on `/v2/customers.html`, rendered only for
+an owner-admin (UX; the RPC re-checks) and showing the shareable link once on.

@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
-  <link rel="stylesheet" href="customers.css?v=cf72c6511b38" />
+  <link rel="stylesheet" href="customers.css?v=65ff30d6c84d" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="avatar.js"></script>
@@ -32,6 +32,31 @@
 
       <div class="cu-page">
         <div class="bcn-status" id="status" hidden></div>
+
+        <!-- The public application link. Rendered only for an owner-admin,
+             because switching it on publishes an unauthenticated endpoint
+             that creates rows in this company's name. The RPC re-checks. -->
+        <div class="cu-card" id="openCard" hidden>
+          <div class="cu-card-head">
+            <div>
+              <div class="cu-title">Public application link</div>
+              <div class="cu-sub" id="openState">Off — applications are invite-only.</div>
+            </div>
+            <label class="co-switch">
+              <input type="checkbox" id="openToggle" />
+              <span id="openToggleLabel">Off</span>
+            </label>
+          </div>
+          <div class="cu-card-body" id="openBody" hidden>
+            <input class="bcn-field cu-copy" id="openLink" readonly />
+            <div class="cu-sub" style="margin-top:8px">
+              Anyone with this link can apply. Applications arrive tagged
+              <span class="bcn-pill bcn-pill--accent">open link</span> so you can tell them
+              from ones you invited.
+            </div>
+            <button class="bcn-btn bcn-btn--ghost" id="openCopy" style="margin-top:8px">Copy link</button>
+          </div>
+        </div>
 
         <section class="bcn-kpi-band">
           <div class="bcn-kpi">
@@ -446,6 +471,79 @@
     }
   });
 
+  // ── Public application link ───────────────────────────────────────────────
+  // The toggle is shown only to an owner-admin. That is UX: the RPC re-checks
+  // with is_owner_admin_of_active_company(), which is the real boundary.
+  let _openKey = '';
+
+  function renderOpen(enabled) {
+    el('openToggle').checked = !!enabled;
+    el('openToggleLabel').textContent = enabled ? 'On' : 'Off';
+    el('openState').textContent = enabled
+      ? 'On — anyone with the link can apply.'
+      : 'Off — applications are invite-only.';
+    const haveLink = !!(enabled && _openKey);
+    el('openBody').hidden = !haveLink;
+    if (haveLink) {
+      el('openLink').value =
+        `${location.origin}/v2/customer-onboarding.html?apply=${encodeURIComponent(_openKey)}`;
+    }
+  }
+
+  async function loadOpenState() {
+    // Owner-admin only. Asked of the database rather than inferred from the
+    // profile role, because the switch is a per-company membership question.
+    const { data: isOwner } = await sb.rpc('is_owner_admin_of_active_company');
+    if (!isOwner) return;
+    el('openCard').hidden = false;
+
+    // A company with no company_settings row reads as OFF, which is correct --
+    // and is the state Baseballism is actually in.
+    const [{ data: settings }, { data: ent }] = await Promise.all([
+      sb.from('company_settings').select('open_customer_applications')
+        .eq('company_entity_id', _co?.id).maybeSingle(),
+      sb.from('entities').select('entity_key').eq('id', _co?.id).maybeSingle(),
+    ]);
+    _openKey = ent?.entity_key || '';
+    renderOpen(!!settings?.open_customer_applications);
+  }
+
+  el('openToggle').addEventListener('change', async () => {
+    const want = el('openToggle').checked;
+    el('openToggle').disabled = true;
+    try {
+      const { data, error } = await sb.rpc('set_open_customer_applications', {
+        p_enabled: want,
+      });
+      if (error) throw new Error(error.message);
+      const row = Array.isArray(data) ? data[0] : data;
+      // The key comes back from the RPC, so the link is right even for a
+      // company whose settings row was created by this very call.
+      if (row?.company_key) _openKey = row.company_key;
+      renderOpen(row?.enabled ?? want);
+      setStatus(want
+        ? 'Public applications are on. Share the link below.'
+        : 'Public applications are off. Existing applications are unaffected.',
+      want ? 'pos' : 'info', 5000);
+    } catch (e) {
+      // Put the switch back where it was: it reflects stored state, not intent.
+      renderOpen(!want);
+      setStatus(e.message, 'neg');
+    } finally {
+      el('openToggle').disabled = false;
+    }
+  });
+
+  el('openCopy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(el('openLink').value);
+      setStatus('Link copied.', 'pos', 2500);
+    } catch {
+      el('openLink').select();
+      setStatus('Press Ctrl/Cmd+C to copy.', 'info', 4000);
+    }
+  });
+
   // ── Invite ────────────────────────────────────────────────────────────────
   el('btnInvite').addEventListener('click', () => {
     el('iResult').hidden = true;
@@ -506,6 +604,9 @@
 
     try {
       await load();
+      // After the register, and never fatal to it: a toggle that fails to
+      // render must not cost somebody the customer list.
+      try { await loadOpenState(); } catch (e) { console.warn('open-state', e); }
     } catch (e) {
       setStatus(e.message, 'neg');
       el('table').querySelector('tbody').innerHTML =
