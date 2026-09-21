@@ -16,6 +16,10 @@
 //   SENDER_MUTATION=no-purpose        (rung 1 skipped, everything gets general_ops)
 //   SENDER_MUTATION=no-sanitize       (company title goes into the header raw)
 //   SENDER_MUTATION=write-open        (any member may rewrite where replies go)
+//   SENDER_MUTATION=verify-weak       (the VERIFIER goes back to matching the bare
+//                                      table name, which the owner-admin fallback
+//                                      also contains -- the false negative the
+//                                      additional review found)
 //   SENDER_MUTATION=cross-tenant-open (the resolver stops checking the caller's
 //                                      own memberships -- a DEFINER function
 //                                      taking a company id is an RLS bypass
@@ -28,12 +32,13 @@ process.on('unhandledRejection', (e) => { console.error('\nFAILED:', (e && e.mes
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { splitSqlStatements } from '../lib/sql-statements.mjs';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
 const mutation = process.env.SENDER_MUTATION || '';
 assert.ok(['', 'fallback-to-silo', 'no-purpose', 'no-sanitize', 'write-open',
-  'cross-tenant-open'].includes(mutation),
+  'cross-tenant-open', 'verify-weak'].includes(mutation),
   `Unknown mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -90,8 +95,12 @@ await q(`insert into public.entity_memberships(entity_id,user_id,role)
   [company, owner, member, admin]);
 
 // ── Apply the migration under test ──────────────────────────────────────────
-let sql = await readFile(
+const MIGRATION = await readFile(
   new URL('supabase/migrations/20260920190000_notification_reply_contacts.sql', root), 'utf8');
+// Removing ONLY the caller guard. Shared by the cross-tenant-open mutation and
+// by the verifier regression below, so both exercise the same edit.
+const STRIP_GUARD = /  if v_actor is not null and not exists \([\s\S]*?  end if;\n\n/;
+let sql = MIGRATION;
 if (mutation === 'fallback-to-silo') {
   sql = sql.replace("v_source := case when v_reply is null then 'none' else 'owner_admin' end;",
     "v_reply := coalesce(v_reply, 'support@get-silo.com'); v_source := 'owner_admin';");
@@ -103,7 +112,7 @@ if (mutation === 'fallback-to-silo') {
 } else if (mutation === 'write-open') {
   sql = sql.replace(/and public\.is_admin_user\(\)/g, '');
 } else if (mutation === 'cross-tenant-open') {
-  sql = sql.replace(/  if v_actor is not null and not exists \([\s\S]*?  end if;\n\n/, '');
+  sql = sql.replace(STRIP_GUARD, '');
 }
 await db.exec(sql);
 if (!mutation) await db.exec(sql);   // idempotent: applied twice on a clean run
@@ -251,6 +260,50 @@ await test('the service role (every mail function) is not narrowed by that check
   const r = await resolve(company, 'finance_ap');
   assert.equal(r.reply_to, 'finance@tenant.com');
   assert.equal(r.from_header, 'Baseballism - SILO <notifications@get-silo.com>');
+});
+
+// ── 7. The VERIFIER can see the bug it exists to catch ──────────────────────
+// Its first version asserted `prosrc like '%entity_memberships%'` -- but the
+// owner-admin fallback reads that table too, so deleting the guard left the
+// check green. A verifier that cannot fail against the vulnerable definition is
+// worse than none, because it is credited as coverage. Found by the additional
+// review Blake requested on #745. This executes the REAL statement out of
+// verify_v2_schema.sql against both definitions rather than asserting its text.
+await test('verify_v2_schema.sql goes CRITICAL when the caller guard is removed', async () => {
+  let verifySql = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+  if (mutation === 'verify-weak') {
+    // The original clause, restored verbatim: it matches a table name the
+    // owner-admin fallback also uses, so it cannot tell the guard is gone.
+    verifySql = verifySql.replace(
+      /   not like '%Not a member of this company%'\n[\s\S]*?not like '%v_actor is not null%'\n   then 'CRITICAL: resolve_notification_sender does not gate its caller check on auth\.uid\(\)'/,
+      "   not like '%entity_memberships%'\n   then 'CRITICAL: resolve_notification_sender does not check the caller''s own memberships'");
+  }
+  const matches = splitSqlStatements(verifySql)
+    .filter((st) => st.text.includes("'Notification sender resolves per tenant'"));
+  assert.equal(matches.length, 1,
+    'expected exactly one sender check in the verify file; the statement could not be located');
+  const check = matches[0].text;
+
+  assert.equal((await one(check)).status, 'ok',
+    'the committed resolver should pass its own check');
+
+  const unguarded = MIGRATION.replace(STRIP_GUARD, '');
+  assert.notEqual(unguarded, MIGRATION,
+    'the guard-removal pattern matched nothing -- this test would prove nothing');
+  await db.exec(unguarded);
+
+  // The leak is real with the guard gone -- asserted here too, so the check's
+  // verdict is tied to observable behaviour and not just to a source string.
+  await assert.doesNotReject(
+    () => as(admin, () => resolve(company, 'finance_ap')),
+    'with the guard stripped the resolver must answer -- if it still refuses, the strip ' +
+    'pattern is stale and the CRITICAL below would be proving nothing');
+
+  assert.match((await one(check)).status, /^CRITICAL/,
+    'the verifier stayed green against a resolver with no caller guard');
+
+  await db.exec(MIGRATION);   // restore, so any later assertion sees the real thing
+  assert.equal((await one(check)).status, 'ok', 'restoring the guard should go green again');
 });
 
 console.log(`\n${passed} assertions passed${mutation ? ` (mutation: ${mutation})` : ''}.`);

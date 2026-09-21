@@ -4488,10 +4488,21 @@ select 'Notification sender resolves per tenant' as check_name,
  -- is an RLS bypass unless it re-checks the caller. Without this an ordinary
  -- member of one tenant could read another tenant's reply address, and its
  -- owner-admin email out of the fallback.
+ -- Test the GUARD's own text, not the table name. The owner-admin fallback
+ -- further down reads entity_memberships too, so `like '%entity_memberships%'`
+ -- was green with the guard deleted -- a verifier that cannot see the bug it
+ -- exists to catch (found by the additional review Blake requested on #745,
+ -- reproduced by removing only the guard). Both halves are required, so
+ -- renaming one does not silently re-open it. scripts/tests/notification-sender.test.mjs
+ -- executes THIS statement against a guarded and an unguarded resolver.
  when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
    where n.nspname='public' and p.proname='resolve_notification_sender')
-   not like '%entity_memberships%'
-   then 'CRITICAL: resolve_notification_sender does not check the caller''s own memberships'
+   not like '%Not a member of this company%'
+   then 'CRITICAL: resolve_notification_sender does not refuse a caller outside the company'
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='resolve_notification_sender')
+   not like '%v_actor is not null%'
+   then 'CRITICAL: resolve_notification_sender does not gate its caller check on auth.uid()'
  when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
    where n.nspname='public' and p.proname='resolve_notification_sender'
      and has_function_privilege('anon', p.oid, 'execute'))
