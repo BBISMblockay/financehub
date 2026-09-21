@@ -508,6 +508,11 @@
      submission hands back, exactly as the invited path does. */
   const openCompany = params.get('apply') || '';
   const isOpen = !token && !!openCompany;
+  // The account types this company offers, served by open_peek. Declared here
+  // rather than beside the boot block so the submit handler can never read it
+  // before it exists.
+  let openTypes = ['wholesale'];
+  const titleCase = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
 
   async function call(action, extra = {}) {
     const res = await fetch(FN, {
@@ -846,7 +851,9 @@
       const out = isOpen
         ? await call('open_submit', {
           form: buildForm(),
-          account_type: $('account_type').value || 'wholesale',
+          // The dropdown exists only when more than one type is offered;
+          // otherwise the single offered type is what is submitted.
+          account_type: $('account_type').value || openTypes[0] || 'wholesale',
         })
         : await call('submit', { form: buildForm() });
       const continuation = out.continuation_token;
@@ -942,19 +949,26 @@
         const info = await call('open_peek');
         consentText = info.consent_text || '';
         brand(info.company_title);
-        // Not "a wholesale account": the applicant picks the type below, and
-        // four of the five choices are not wholesale.
-        $('formSub').textContent = `Apply for a trade account with ${info.company_title}.`;
         // The database decides what a valid type is; the page renders the
-        // list it is given rather than carrying its own copy.
-        const sel = $('account_type');
-        for (const value of info.account_types || ['wholesale']) {
-          const opt = document.createElement('option');
-          opt.value = value;
-          opt.textContent = value.charAt(0).toUpperCase() + value.slice(1);
-          sel.append(opt);
+        // list it is given rather than carrying its own copy. With ONE type
+        // offered there is nothing to choose, so the question is not asked
+        // at all and that single value is submitted -- a dropdown holding one
+        // option is a step the applicant has to clear for no information.
+        const types = (info.account_types || []).filter(Boolean);
+        openTypes = types.length ? types : ['wholesale'];
+        const label = openTypes.length === 1 ? titleCase(openTypes[0]) : 'trade';
+        $('formSub').textContent =
+          `Apply for a ${label.toLowerCase()} account with ${info.company_title}.`;
+        if (openTypes.length > 1) {
+          const sel = $('account_type');
+          for (const value of openTypes) {
+            const opt = document.createElement('option');
+            opt.value = value;
+            opt.textContent = titleCase(value);
+            sel.append(opt);
+          }
+          $('accountTypeWrap').hidden = false;
         }
-        $('accountTypeWrap').hidden = false;
         $('form').hidden = false;
         $('foot').hidden = false;
         syncShipping();
