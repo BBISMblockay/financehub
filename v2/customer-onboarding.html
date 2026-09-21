@@ -204,6 +204,12 @@
           <section class="co-step" data-step="1">
             <div class="co-step-title">Business information</div>
             <div class="co-step-note">How your business is registered and taxed.</div>
+            <!-- Open applications only. An invited one already knows which
+                 type it is, because whoever sent the invite chose. -->
+            <div class="co-field" id="accountTypeWrap" hidden>
+              <label class="bcn-label" for="account_type">What kind of account?</label>
+              <select class="bcn-field" id="account_type"></select>
+            </div>
             <div class="co-field">
               <label class="bcn-label" for="legal_name">Legal business name *</label>
               <input class="bcn-field" id="legal_name" name="organization" required />
@@ -496,12 +502,18 @@
   // session on a shared or borrowed computer.
   const params = new URLSearchParams(location.search);
   let token = params.get('token') || '';
+  /* The open door. `?apply=<company key>` instead of a token: there is no
+     account yet, so the submission CREATES one. Everything after that --
+     the card step, the status poll -- runs on the continuation token the
+     submission hands back, exactly as the invited path does. */
+  const openCompany = params.get('apply') || '';
+  const isOpen = !token && !!openCompany;
 
   async function call(action, extra = {}) {
     const res = await fetch(FN, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: ANON },
-      body: JSON.stringify({ action, token, ...extra }),
+      body: JSON.stringify({ action, token, company: openCompany, ...extra }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
@@ -831,7 +843,12 @@
     $('submitBtn').disabled = true;
     setStatus('Submitting your application…', 'info');
     try {
-      const out = await call('submit', { form: buildForm() });
+      const out = isOpen
+        ? await call('open_submit', {
+          form: buildForm(),
+          account_type: $('account_type').value || 'wholesale',
+        })
+        : await call('submit', { form: buildForm() });
       const continuation = out.continuation_token;
       await uploadCertificate(continuation);
       // From here on the page runs on the CONTINUATION token: the original
@@ -915,8 +932,38 @@
     if (!cfg.SUPABASE_URL || !ANON) {
       return gate('Missing Supabase config', 'This page is not configured. Contact your administrator.');
     }
-    if (!token) {
+    if (!token && !isOpen) {
       return gate('This link is not valid', 'Ask your contact for a new application link.');
+    }
+
+    // ── Open application ────────────────────────────────────────────────────
+    if (isOpen) {
+      try {
+        const info = await call('open_peek');
+        consentText = info.consent_text || '';
+        brand(info.company_title);
+        // Not "a wholesale account": the applicant picks the type below, and
+        // four of the five choices are not wholesale.
+        $('formSub').textContent = `Apply for a trade account with ${info.company_title}.`;
+        // The database decides what a valid type is; the page renders the
+        // list it is given rather than carrying its own copy.
+        const sel = $('account_type');
+        for (const value of info.account_types || ['wholesale']) {
+          const opt = document.createElement('option');
+          opt.value = value;
+          opt.textContent = value.charAt(0).toUpperCase() + value.slice(1);
+          sel.append(opt);
+        }
+        $('accountTypeWrap').hidden = false;
+        $('form').hidden = false;
+        $('foot').hidden = false;
+        syncShipping();
+        syncBilling();
+        showStep(1, true);
+      } catch (e) {
+        gate('This application link is not active', e.message);
+      }
+      return;
     }
 
     // Returning from Stripe: the URL carries the CONTINUATION token, so the

@@ -59,6 +59,9 @@ assert.ok([
   'webhook-any-company',
   'webhook-any-customer', 'rebind-allowed', 'storage-bucket-only', 'public-rpc-granted',
   'table-writable', 'owner-any-company', 'activity-every-call',
+  // The open door.
+  'open-default-on', 'open-ignores-switch', 'open-allows-duplicate',
+  'open-trusts-type', 'helper-client-callable',
 ].includes(mutation), `Unknown mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -111,13 +114,44 @@ await q(`insert into public.entity_memberships(entity_id,user_id,role) values
   ($1,$3,'owner_admin'),($1,$4,'admin'),($1,$5,'admin'),($2,$6,'owner_admin')`,
   [companyA, companyB, blake, finance, ops, rival]);
 
-// ── Apply the migration under test ──────────────────────────────────────────
+// ── Apply the migrations under test ─────────────────────────────────────────
+// Both are read BEFORE any mutation is applied, because 20260921120000
+// REDEFINES submit_customer_account and moves its body into a shared helper.
+// A mutation patched into the older file's copy would simply be overwritten by
+// the newer definition, and String.replace with no match is silent -- so the
+// guard would quietly stop being tested while the suite still passed. That is
+// exactly what happened to submit-takes-terms, submit-after-approval and
+// token-not-consumed when the refactor landed; CI caught it only because the
+// mutation loop asserts each one still fails the suite.
+//
+// patch() therefore applies to whichever file contains the text, and RAISES
+// when neither does.
 let sql = await readFile(
   new URL('supabase/migrations/20260919140000_customer_account_onboarding.sql', root), 'utf8');
+let openSql = await readFile(
+  new URL('supabase/migrations/20260921120000_open_customer_applications.sql', root), 'utf8');
+
+function patch(target, replacement) {
+  // Some mutations target a whole policy or DO block by regex rather than by
+  // literal text, so membership is tested by attempting the replacement and
+  // comparing -- String.prototype.includes throws on a RegExp, and testing
+  // with it was itself a false "caught" on three mutations.
+  let hit = false;
+  const applied = (before) => {
+    const after = before.replace(target, replacement);
+    if (after !== before) hit = true;
+    return after;
+  };
+  sql = applied(sql);
+  openSql = applied(openSql);
+  assert.ok(hit,
+    `mutation ${mutation}: its target text is in neither migration, so it would `
+    + 'have changed nothing and the guard it removes would be untested');
+}
 
 if (mutation === 'tax-open') {
   // The tempting simplification: gate the tax profile like the directory.
-  sql = sql.replace(
+  patch(
     `create policy customer_account_tax_profiles_select on public.customer_account_tax_profiles
   for select to authenticated
   using (company_entity_id = public.active_company_id() and public.can_manage_client_invoices());`,
@@ -131,19 +165,19 @@ create policy customer_account_invites_select on public.customer_account_invites
   for select to authenticated using (company_entity_id = public.active_company_id());`;
 }
 if (mutation === 'submit-takes-terms') {
-  sql = sql.replace(
+  patch(
     `         applicant_notes = nullif(btrim(coalesce(p_payload->>'applicant_notes', '')), ''),`,
     `         applicant_notes = nullif(btrim(coalesce(p_payload->>'applicant_notes', '')), ''),
          approved_payment_terms = coalesce(nullif(btrim(coalesce(p_payload->>'approved_payment_terms','')),''), approved_payment_terms),
          credit_limit = coalesce((p_payload->>'credit_limit')::numeric, credit_limit),`);
 }
 if (mutation === 'submit-after-approval') {
-  sql = sql.replace(
+  patch(
     `  if v_account.status not in ('invited','submitted') then`,
     `  if false then`);
 }
 if (mutation === 'token-not-consumed') {
-  sql = sql.replace(
+  patch(
     `  update public.customer_account_invites
      set status = 'consumed', consumed_at = now()
    where id = v_tok.invite_id;`, '');
@@ -151,7 +185,7 @@ if (mutation === 'token-not-consumed') {
 if (mutation === 'claim-unguarded') {
   // Check-then-act, from the caller's point of view: every request is told to
   // create a session.
-  sql = sql.replace(
+  patch(
     `     and (
        card_setup_status in ('not_started','abandoned')
        -- A stale claim that never got as far as recording a session: the
@@ -165,28 +199,28 @@ if (mutation === 'claim-unguarded') {
 if (mutation === 'claim-steals-session') {
   // The rule the Billing surface needed a correction to get right: a claim
   // that recorded a session is resolved by asking Stripe, never by a timer.
-  sql = sql.replace(
+  patch(
     `       or (card_setup_session_id is null
            and card_setup_claimed_at < now() - interval '10 minutes')`,
     `       or (card_setup_claimed_at < now() - interval '10 minutes')`);
 }
 if (mutation === 'release-no-bump') {
-  sql = sql.replace('         card_setup_attempt = card_setup_attempt + 1\n', '');
+  patch('         card_setup_attempt = card_setup_attempt + 1\n', '');
 }
 if (mutation === 'webhook-any-company') {
-  sql = sql.replace(
+  patch(
     `  if v_account.company_entity_id <> p_company then
     return json_build_object('ok', false, 'reason', 'company_mismatch');
   end if;`, '');
 }
 if (mutation === 'webhook-any-customer') {
-  sql = sql.replace(
+  patch(
     `  if v_account.stripe_customer_id is distinct from p_customer_id then
     return json_build_object('ok', false, 'reason', 'customer_mismatch');
   end if;`, '');
 }
 if (mutation === 'rebind-allowed') {
-  sql = sql.replace(
+  patch(
     `  if v_existing is not null and v_existing <> p_customer_id then
     raise exception 'customer account % is already bound to Stripe customer %',
       p_account_id, v_existing;
@@ -195,14 +229,14 @@ if (mutation === 'rebind-allowed') {
 if (mutation === 'storage-bucket-only') {
   // How schedule-item-files actually shipped: named "by company", gating on
   // nothing but the bucket.
-  sql = sql.replace(
+  patch(
     /create policy "customer account files readable with the tax profile"\n  on storage\.objects for select to authenticated\n  using \([\s\S]*?\n  \);/,
     `create policy "customer account files readable with the tax profile"
   on storage.objects for select to authenticated
   using (bucket_id = 'customer-account-files');`);
 }
 if (mutation === 'public-rpc-granted') {
-  sql = sql.replace(
+  patch(
     /do \$\$\ndeclare r text;\nbegin\n  for r in select unnest\(array\[\n    'customer_onboarding_resolve_token\(text,text\)',[\s\S]*?\nend;\n\$\$;/,
     '-- mutated: the public-path revokes are gone, so Supabase defaults stand');
 }
@@ -210,20 +244,50 @@ if (mutation === 'public-rpc-granted') {
 if (mutation === 'table-writable') {
   // The shape this started as: one `for all` policy, and Supabase's default
   // table grants left in place behind it.
-  sql = sql.replace(
+  patch(
     /revoke insert, update, delete on public\.customer_accounts from authenticated;[\s\S]*?on public\.customer_accounts to authenticated;/,
     'grant insert, update, delete on public.customer_accounts to authenticated;');
 }
 if (mutation === 'activity-every-call') {
-  sql = sql.replace(
+  patch(
     "  if v_account.card_setup_status is distinct from 'succeeded' then",
     '  if true then');
 }
 if (mutation === 'owner-any-company') {
-  sql = sql.replace("     and ca.company_entity_id = p_company;", "     ;");
+  patch("     and ca.company_entity_id = p_company;", "     ;");
 }
 
 await db.exec(sql);
+
+if (mutation === 'open-default-on') {
+  // The tempting simplification: default the switch to true so the feature
+  // "just works". That silently gives every tenant a public write endpoint.
+  patch(
+    'add column if not exists open_customer_applications boolean not null default false;',
+    'add column if not exists open_customer_applications boolean not null default true;');
+}
+if (mutation === 'open-ignores-switch') {
+  // Resolve the company without consulting company_settings at all.
+  patch('     and cs.open_customer_applications\n', '');
+}
+if (mutation === 'open-allows-duplicate') {
+  patch("    raise exception 'open_duplicate' using errcode = '28000';",
+    '    null;');
+}
+if (mutation === 'open-trusts-type') {
+  patch(
+    "  if v_type not in ('wholesale','retail','distributor','licensee','other') then\n    raise exception 'open_bad_type' using errcode = '28000';\n  end if;",
+    '');
+}
+if (mutation === 'helper-client-callable') {
+  // The revoke is the boundary: Supabase grants EXECUTE on new public
+  // functions to authenticated by default.
+  patch(
+    'revoke all on function public.apply_customer_account_payload(uuid, jsonb) from authenticated;',
+    '');
+}
+
+await db.exec(openSql);
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 await q(`insert into public.stripe_connect_accounts
@@ -1048,10 +1112,115 @@ await test('the verify_v2_schema checks for this feature return ok on a correct 
   const all = splitSqlStatements(
     await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8')).map(text);
   const mine = all.filter((st) => st.includes("'Customer "));
-  assert.equal(mine.length, 3, 'expected three customer-account checks in verify_v2_schema.sql');
+  assert.equal(mine.length, 4, 'expected four customer-account checks in verify_v2_schema.sql');
   for (const stmt of mine) {
     const row = await one(stmt);
     assert.equal(row.status, 'ok', `${row.check_name}: ${row.status}`);
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 11. The open door
+// ════════════════════════════════════════════════════════════════════════════
+// A shareable link that anyone can open. The risk is not the form -- it is
+// that a PUBLIC endpoint now creates rows, so what it refuses matters more
+// than what it accepts.
+
+await test('the open form is OFF until a company switches it on', async () => {
+  // No company_settings row at all: the link resolves to nothing.
+  let seen = await q(`select * from public.peek_open_customer_application('baseballism')`);
+  assert.equal(seen.length, 0, 'a company with no settings row must not be open');
+
+  await q(`insert into public.company_settings(company_entity_id) values ($1)`, [companyA]);
+  seen = await q(`select * from public.peek_open_customer_application('baseballism')`);
+  assert.equal(seen.length, 0, 'the switch defaults to off, so a settings row alone is not enough');
+
+  await q(`update public.company_settings set open_customer_applications = true
+            where company_entity_id = $1`, [companyA]);
+  seen = await q(`select * from public.peek_open_customer_application('baseballism')`);
+  assert.equal(seen.length, 1, 'the company did not open after being switched on');
+  assert.equal(seen[0].company_title, 'Baseballism');
+});
+
+await test('a closed or unknown company answers identically', async () => {
+  // Rival Co exists and has NOT switched the form on. If that returned a
+  // different answer from a company that does not exist, the endpoint would
+  // enumerate which tenants are here.
+  const closed = await q(`select * from public.peek_open_customer_application('rival')`);
+  const missing = await q(`select * from public.peek_open_customer_application('no-such-co')`);
+  assert.deepEqual(closed, missing, 'a closed company is distinguishable from a missing one');
+  assert.equal(closed.length, 0);
+});
+
+await test('an open submission creates the account and returns a card token', async () => {
+  const form = { ...FORM, contacts: [{ ...FORM.contacts[0], email: 'walkin@shop.test' }] };
+  const r = (await one(
+    `select public.open_customer_application('baseballism','distributor','walkin@shop.test',$1) as r`,
+    [JSON.stringify(form)])).r;
+  assert.equal(r.ok, true);
+  assert.ok(r.continuation_token, 'no card-setup continuation was issued');
+
+  const row = await one(`select * from public.customer_accounts where id = $1`,
+    [r.customer_account_id]);
+  assert.equal(row.company_entity_id, companyA);
+  assert.equal(row.status, 'submitted');
+  assert.equal(row.account_type, 'distributor', 'the chosen type was not stored');
+  assert.equal(row.source, 'open_link', 'an open application must be distinguishable later');
+  assert.equal(row.created_by, null, 'nobody at the company created this row');
+
+  // The payload landed through the SHARED writer, so the addresses and the
+  // tax profile are stored exactly as an invited application stores them.
+  const addrs = await q(`select address_type, same_as_address_type, street1
+                           from public.customer_account_addresses
+                          where customer_account_id = $1 order by address_type`,
+    [r.customer_account_id]);
+  assert.equal(addrs.length, 3);
+  assert.equal(addrs.find((a) => a.address_type === 'shipping').same_as_address_type, 'business');
+  assert.equal(addrs.find((a) => a.address_type === 'shipping').street1, null,
+    'a pointer row must carry no street');
+  const tax = await one(`select federal_ein from public.customer_account_tax_profiles
+                          where customer_account_id = $1`, [r.customer_account_id]);
+  assert.equal(tax.federal_ein, '12-3456789');
+});
+
+await test('a second application for the same address is refused, not duplicated', async () => {
+  const form = { ...FORM, contacts: [{ ...FORM.contacts[0], email: 'walkin@shop.test' }] };
+  await assert.rejects(
+    q(`select public.open_customer_application('baseballism','wholesale','walkin@shop.test',$1)`,
+      [JSON.stringify(form)]),
+    /open_duplicate/,
+    'the open door let one address open a second live account');
+});
+
+await test('the account type is checked, not trusted', async () => {
+  await assert.rejects(
+    q(`select public.open_customer_application('baseballism','platinum','new@shop.test',$1)`,
+      [JSON.stringify(FORM)]),
+    /open_bad_type/,
+    'an invented account type was accepted');
+});
+
+await test('a closed company cannot be applied to', async () => {
+  await assert.rejects(
+    q(`select public.open_customer_application('rival','wholesale','new@shop.test',$1)`,
+      [JSON.stringify(FORM)]),
+    /open_unavailable/,
+    'an application reached a company that never opened the form');
+});
+
+await test('the shared payload writer is not reachable from a browser', async () => {
+  // Supabase grants EXECUTE on every new public function to authenticated, so
+  // the revoke is the boundary. Without it any signed-in user could rewrite
+  // any account's addresses and contacts by id.
+  for (const fn of ['apply_customer_account_payload', 'issue_customer_card_setup_token',
+    'open_customer_application', 'peek_open_customer_application']) {
+    const row = await one(
+      `select bool_or(has_function_privilege(r.rolname, p.oid, 'EXECUTE')) as granted
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         cross join (select unnest(array['anon','authenticated']) as rolname) r
+        where n.nspname = 'public' and p.proname = $1`, [fn]);
+    assert.equal(row.granted, false, `${fn} is callable by anon or authenticated`);
   }
 });
 

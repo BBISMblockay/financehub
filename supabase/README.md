@@ -1816,3 +1816,39 @@ Verified by `scripts/tests/notification-sender.test.mjs` — 10 assertions, 4
 mutations, all caught, including `fallback-to-silo`. `verify_v2_schema.sql`
 gains **Notification sender resolves per tenant**, which fails if the resolver's
 fallback can ever name a SILO domain.
+
+## Open wholesale applications — `20260921120000_open_customer_applications.sql`
+
+The second door into `customer_accounts`. Until now the only way in was an
+emailed, email-bound, single-use invite that created the row up front; the
+public page filled in a row that already existed. This adds one shareable URL
+per company — `/v2/customer-onboarding.html?apply=<entity_key>` — where the
+SUBMISSION creates the account.
+
+Three things carry the safety:
+
+- **`company_settings.open_customer_applications`, default FALSE.** A public
+  endpoint that creates rows is not something every tenant should get because
+  a migration ran. Invite links are unaffected by the switch.
+- **A closed company and an unknown one answer identically** (no row), so the
+  endpoint cannot be used to enumerate which tenants exist.
+- **One live application per email per company**, exactly as the invite path
+  enforces — raised as `open_duplicate` so the page can explain it rather than
+  surfacing a constraint violation.
+
+It also factors the two halves both doors share into
+`apply_customer_account_payload()` (what a submitted application writes) and
+`issue_customer_card_setup_token()` (the 2-hour card continuation).
+`submit_customer_account` keeps its signature and behaviour and now calls
+both. A second copy of those inserts would have drifted the moment either
+door gained a column, and the drift would have been invisible — the same
+reasoning as `card_coding_effective_lines`.
+
+`customer_accounts.source` (`invite` | `open_link`) records which door an
+application came through. `created_by` cannot stand in for it: it is null for
+an open submission *and* for anything a service role wrote.
+
+Note the migration **drops and recreates `customer_accounts_v`**. It selects
+`ca.*`, which expands to a fixed column list at creation time, so a view made
+before `source` existed never carries it — and `create or replace` cannot fix
+that, since the new column lands mid-list and a replace may only append.

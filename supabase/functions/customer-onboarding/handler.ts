@@ -33,6 +33,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@17.7.0';
 import {
+  ACCOUNT_TYPES,
   CONSENT_TEXT,
   CONSENT_VERSION,
   certificatePath,
@@ -142,6 +143,8 @@ export async function handleCustomerOnboarding(req: Request): Promise<Response> 
 
   try {
     switch (body?.action) {
+      case 'open_peek':        return reply(await openPeek(body));
+      case 'open_submit':      return reply(await openSubmit(body));
       case 'peek':             return reply(await peek(body));
       case 'submit':           return reply(await submit(body));
       case 'certificate_url':  return reply(await certificateUrl(body));
@@ -157,6 +160,95 @@ export async function handleCustomerOnboarding(req: Request): Promise<Response> 
     console.error('customer-onboarding failed', body?.action, message);
     return reply({ error: message }, 502);
   }
+}
+
+// ── The open door ──────────────────────────────────────────────────────────
+// A shareable link, not an emailed one. There is no token: the URL carries a
+// company KEY, and the company must have switched the public form on. A
+// company that has not is indistinguishable from one that does not exist --
+// the RPC returns no row either way -- so this cannot be used to find out
+// which tenants are here.
+
+const OPEN_REASONS: Record<string, { message: string; status: number }> = {
+  open_unavailable: {
+    message: 'This application link is not active. Ask your contact for a current one.',
+    status: 404,
+  },
+  open_bad_email: { message: 'A valid email address is required', status: 400 },
+  open_bad_type: { message: 'Choose an account type from the list', status: 400 },
+  open_duplicate: {
+    message: 'We already have an application for that email address. '
+      + 'Contact us and we will pick it up from there.',
+    status: 409,
+  },
+};
+
+/* Map the RPC's OWN reason codes to something an applicant can act on --
+   and nothing else. 28000 is what open_customer_application raises
+   deliberately; every other error is a fault, and a fault answered with a
+   4xx would tell an applicant their application was rejected when the truth
+   is that the database was unreachable, while never reaching console.error
+   or the 502 path. The invited door draws the same line. */
+function openError(error: { code?: string; message?: string } | string): Error {
+  const message = typeof error === 'string' ? error : (error?.message ?? '');
+  const deliberate = typeof error === 'string' || error?.code === '28000';
+  if (deliberate) {
+    for (const [reason, mapped] of Object.entries(OPEN_REASONS)) {
+      if (message.includes(reason)) return new OnboardingError(mapped.message, mapped.status);
+    }
+  }
+  return new Error(`open_customer_application: ${message || 'unknown failure'}`);
+}
+
+async function openPeek(body: any) {
+  const key = String(body?.company ?? '').trim();
+  const { data, error } = await db.rpc('peek_open_customer_application', {
+    p_company_key: key,
+  });
+  if (error) throw new Error(`peek_open_customer_application: ${error.message}`);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.company_entity_id) throw openError('open_unavailable');
+  return {
+    ok: true,
+    open: true,
+    company_title: row.company_title ?? 'our team',
+    // The applicant chooses, so the page is told what the database will
+    // accept rather than carrying its own copy of the list.
+    account_types: ACCOUNT_TYPES,
+    consent_version: CONSENT_VERSION,
+    consent_text: CONSENT_TEXT,
+  };
+}
+
+async function openSubmit(body: any) {
+  const key = String(body?.company ?? '').trim();
+
+  // Same validation, same shape, same refusal as the invited door: a
+  // stranger's application is held to exactly the standard an invited one is.
+  const { ok, errors, payload } = validateSubmission(body?.form);
+  if (!ok) throw new OnboardingError(errors.join('. '), 422);
+
+  // The applicant's own email is the account's contact address. Taken from
+  // the PRIMARY contact by name rather than by position -- validateSubmission
+  // guarantees a primary exists with a valid email, but not that it is first
+  // in the array.
+  const primary = (payload.contacts ?? []).find((c: any) => c.contact_type === 'primary');
+  const email = String(primary?.email ?? '').trim();
+
+  const { data, error } = await db.rpc('open_customer_application', {
+    p_company_key: key,
+    p_account_type: String(body?.account_type ?? 'wholesale'),
+    p_email: email,
+    p_payload: payload,
+  });
+  if (error) throw openError(error);
+
+  return {
+    ok: true,
+    customer_account_id: data?.customer_account_id,
+    continuation_token: data?.continuation_token,
+    expires_at: data?.expires_at,
+  };
 }
 
 // ── peek: what the form shows before anything is typed ─────────────────────
