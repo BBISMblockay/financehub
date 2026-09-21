@@ -51,3 +51,19 @@ alter table public.ar_customers enable row level security;
 create policy ar_customers_active_select on public.ar_customers
   for select to authenticated
   using (company_entity_id = public.active_company_id());
+
+-- ── company_settings ────────────────────────────────────────────────────────
+-- A stand-in for what 20260918120000 creates. Only the identity column is
+-- needed here: the open-applications migration adds its own switch, and the
+-- timezone/currency columns belong to a different feature's tests. Same
+-- stance as the storage and ar_customers stand-ins above.
+create table if not exists public.company_settings (
+  company_entity_id uuid primary key references public.entities(id) on delete cascade
+);
+
+alter table public.company_settings enable row level security;
+
+drop policy if exists company_settings_select on public.company_settings;
+create policy company_settings_select on public.company_settings
+  for select to authenticated
+  using (company_entity_id = public.active_company_id());

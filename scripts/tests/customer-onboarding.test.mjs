@@ -28,6 +28,9 @@
 //   CUSTOMER_ONBOARDING_MUTATION=webhook-transient-swallowed (a 5xx on the default update is made terminal)
 //   CUSTOMER_ONBOARDING_MUTATION=cert-recorded-early (the certificate is recorded before it exists)
 //   CUSTOMER_ONBOARDING_MUTATION=cert-trusts-caller (certificate_done does not verify the object)
+// Added with the open (shareable) application link:
+//   CUSTOMER_ONBOARDING_MUTATION=open-body-company  (the company comes from the form payload)
+//   CUSTOMER_ONBOARDING_MUTATION=open-email-by-position (the account email is contacts[0], not the primary)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -43,9 +46,21 @@ assert.ok([
   'consent-from-page', 'consent-not-checked', 'webhook-any-mode', 'webhook-default-fatal',
   'webhook-trusts-session', 'webhook-no-owner-check', 'webhook-owner-any-customer',
   'webhook-transient-swallowed', 'cert-recorded-early', 'cert-trusts-caller',
+  // The open door.
+  'open-body-company', 'open-email-by-position',
 ].includes(mutation), `Unknown mutation: ${mutation}`);
 
 const HANDLER_MUTATIONS = {
+  // The open form's company must come from the URL key the RPC resolves, never
+  // from anything the applicant can put in the body.
+  'open-body-company': (s) => s.replace(
+    "    p_company_key: key,\n    p_account_type:",
+    "    p_company_key: body?.form?.company_key ?? key,\n    p_account_type:"),
+  // validateSubmission guarantees a primary contact with a valid email, but
+  // not that it is first in the array.
+  'open-email-by-position': (s) => s.replace(
+    "  const primary = (payload.contacts ?? []).find((c: any) => c.contact_type === 'primary');",
+    '  const primary = (payload.contacts ?? [])[0];'),
   'body-account': (s) => s.replace(
     "  const tok = await resolve(body?.token, 'card_setup');\n  const account = await loadAccount(tok.accountId);",
     "  const tok = await resolve(body?.token, 'card_setup');\n  if (body?.customer_account_id) tok.accountId = body.customer_account_id;\n  const account = await loadAccount(tok.accountId);"),
@@ -954,6 +969,147 @@ await test('an abandoned card step releases the claim so a fresh session can sta
 // So this walks the real handler sources against the real migrations. It is a
 // text check, deliberately: the alternative is executing every path against a
 // real PostgREST, which this suite cannot do.
+// ════════════════════════════════════════════════════════════════════════════
+// The open door
+// ════════════════════════════════════════════════════════════════════════════
+// Same trust shape as the rest of this function: nothing in the body names a
+// company or an account. The URL carries a company KEY, the database turns it
+// into a company only if that company switched the form on, and the
+// submission creates the account.
+
+const OPEN_FORM = {
+  legal_name: 'Walk In Sports',
+  addresses: [
+    { address_type: 'business', street1: '9 Elm', city: 'Bend', region: 'OR',
+      postal_code: '97701', country: 'US' },
+    { address_type: 'shipping', same_as_address_type: 'business' },
+    { address_type: 'billing', same_as_address_type: 'business' },
+  ],
+  contacts: [
+    { contact_type: 'buyer', first_name: 'Other', last_name: 'Person',
+      email: 'buyer-not-primary@shop.test' },
+    { contact_type: 'primary', first_name: 'Ada', last_name: 'Vaughn',
+      email: 'ada@shop.test' },
+  ],
+};
+
+await test('an inactive open link is refused, and says nothing about the company', async () => {
+  const db = baseDb({ rpcs: { peek_open_customer_application: () => [] } });
+  const call = await onboarding({ db, stripe: fakeStripe() });
+  const res = await call({ body: { action: 'open_peek', company: 'nobody' } });
+  assert.equal(res.status, 404);
+  assert.match(res.body.error, /not active/i);
+  assert.doesNotMatch(JSON.stringify(res.body), /nobody/,
+    'the answer must not confirm anything about the key that was tried');
+});
+
+await test('an open peek serves the company name and the types the DB accepts', async () => {
+  const db = baseDb({
+    rpcs: {
+      peek_open_customer_application: () => [
+        { company_entity_id: COMPANY, company_title: 'Baseballism' }],
+    },
+  });
+  const call = await onboarding({ db, stripe: fakeStripe() });
+  const res = await call({ body: { action: 'open_peek', company: 'baseballism' } });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.company_title, 'Baseballism');
+  assert.deepEqual(res.body.account_types, rules.ACCOUNT_TYPES,
+    'the page must be served the list the database will accept');
+  assert.ok(res.body.consent_text, 'the card step needs the consent wording');
+});
+
+await test('an open submission names its company by KEY, never from the payload', async () => {
+  let seen = null;
+  const db = baseDb({
+    rpcs: {
+      peek_open_customer_application: () => [
+        { company_entity_id: COMPANY, company_title: 'Baseballism' }],
+      open_customer_application: (args) => {
+        seen = args;
+        return { data: { ok: true, customer_account_id: ACCOUNT,
+          continuation_token: 'cont-token-0123456789' }, error: null };
+      },
+    },
+  });
+  const call = await onboarding({ db, stripe: fakeStripe() });
+  const res = await call({
+    body: {
+      action: 'open_submit',
+      company: 'baseballism',
+      account_type: 'distributor',
+      // A hostile applicant trying to file against another tenant.
+      form: { ...OPEN_FORM, company_key: 'rival', company_entity_id: 'some-other-company' },
+    },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(seen.p_company_key, 'baseballism', 'the company came from the payload');
+  assert.equal(seen.p_account_type, 'distributor');
+  assert.ok(res.body.continuation_token, 'the card step needs the continuation');
+});
+
+await test('the account email is the PRIMARY contact, not whichever is first', async () => {
+  let seen = null;
+  const db = baseDb({
+    rpcs: {
+      peek_open_customer_application: () => [
+        { company_entity_id: COMPANY, company_title: 'Baseballism' }],
+      open_customer_application: (args) => {
+        seen = args;
+        return { data: { ok: true, customer_account_id: ACCOUNT,
+          continuation_token: 'cont-token-0123456789' }, error: null };
+      },
+    },
+  });
+  const call = await onboarding({ db, stripe: fakeStripe() });
+  await call({
+    body: { action: 'open_submit', company: 'baseballism', form: OPEN_FORM },
+  });
+  assert.equal(seen.p_email, 'ada@shop.test',
+    'the account was opened under a non-primary contact\'s address');
+});
+
+await test('a duplicate application is explained, not shown as a database error', async () => {
+  const db = baseDb({
+    rpcs: {
+      peek_open_customer_application: () => [
+        { company_entity_id: COMPANY, company_title: 'Baseballism' }],
+      open_customer_application: () => ({
+        data: null,
+        error: { code: '28000', message: 'open_duplicate' },
+      }),
+    },
+  });
+  const call = await onboarding({ db, stripe: fakeStripe() });
+  const res = await call({
+    body: { action: 'open_submit', company: 'baseballism', form: OPEN_FORM },
+  });
+  assert.equal(res.status, 409);
+  assert.match(res.body.error, /already have an application/i);
+  assert.doesNotMatch(res.body.error, /open_duplicate/,
+    'a reason code is not a message for an applicant');
+});
+
+await test('an invalid open submission is refused before the database is asked', async () => {
+  let asked = false;
+  const db = baseDb({
+    rpcs: {
+      peek_open_customer_application: () => [
+        { company_entity_id: COMPANY, company_title: 'Baseballism' }],
+      open_customer_application: () => { asked = true; return { data: null, error: null }; },
+    },
+  });
+  const call = await onboarding({ db, stripe: fakeStripe() });
+  const res = await call({
+    body: { action: 'open_submit', company: 'baseballism',
+      form: { ...OPEN_FORM, legal_name: '' } },
+  });
+  // 422, exactly as the invited door answers a bad form: a stranger's
+  // application is held to the same standard and refused the same way.
+  assert.equal(res.status, 422);
+  assert.equal(asked, false, 'an invalid application reached the database');
+});
+
 await test('every RPC call site passes parameters the migration declares', async () => {
   const { readdir } = await import('node:fs/promises');
   const migDir = new URL('../../supabase/migrations/', import.meta.url);

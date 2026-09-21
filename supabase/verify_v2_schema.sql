@@ -4223,6 +4223,45 @@ select 'Membership is not self-grantable' as check_name,
 
 -- ── Customer accounts: the onboarding form is on the open internet ─────────
 -- Four properties, each of which fails silently rather than loudly.
+-- Open (shareable) wholesale applications, 20260921120000.
+-- The two things that make a PUBLIC row-creating endpoint acceptable: it is
+-- off unless a company switched it on, and the writers behind it are not
+-- reachable from a browser. Supabase grants EXECUTE on every new public
+-- function to anon and authenticated, so the revoke is the whole boundary --
+-- without it any signed-in user could rewrite any customer's addresses and
+-- contacts by id, and anon could file applications against any tenant.
+select 'Customer open applications' as check_name,
+ case
+ when to_regclass('public.customer_accounts') is null
+   then 'MISSING: customer account onboarding migration 20260919140000'
+ when not exists(select 1 from information_schema.columns
+   where table_schema='public' and table_name='company_settings'
+     and column_name='open_customer_applications')
+   then 'MISSING: open applications migration 20260921120000'
+ when not exists(select 1 from information_schema.columns
+   where table_schema='public' and table_name='customer_accounts' and column_name='source')
+   then 'MISSING: customer_accounts.source'
+ -- Defaulting this on would hand every tenant a public write endpoint they
+ -- never asked for.
+ when coalesce((select column_default from information_schema.columns
+   where table_schema='public' and table_name='company_settings'
+     and column_name='open_customer_applications'), '') not like '%false%'
+   then 'CRITICAL: open customer applications default to ON'
+ when exists(select 1 from unnest(array[
+     'public.apply_customer_account_payload(uuid,jsonb)',
+     'public.open_customer_application(text,text,text,jsonb)',
+     'public.peek_open_customer_application(text)']) f
+   where to_regprocedure(f) is not null
+     and (has_function_privilege('anon', to_regprocedure(f), 'EXECUTE')
+       or has_function_privilege('authenticated', to_regprocedure(f), 'EXECUTE')))
+   then 'CRITICAL: an open-application writer is callable with the anon or authenticated key'
+ -- ca.* expands at creation time, so a view left over from before the column
+ -- existed silently drops it and every application looks invited.
+ when not exists(select 1 from information_schema.columns
+   where table_schema='public' and table_name='customer_accounts_v' and column_name='source')
+   then 'STALE: customer_accounts_v predates customer_accounts.source; recreate it'
+ else 'ok' end as status;
+
 select 'Customer account onboarding' as check_name,
  case
  when to_regclass('public.customer_accounts') is null

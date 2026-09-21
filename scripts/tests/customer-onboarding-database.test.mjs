@@ -59,6 +59,9 @@ assert.ok([
   'webhook-any-company',
   'webhook-any-customer', 'rebind-allowed', 'storage-bucket-only', 'public-rpc-granted',
   'table-writable', 'owner-any-company', 'activity-every-call',
+  // The open door.
+  'open-default-on', 'open-ignores-switch', 'open-allows-duplicate',
+  'open-trusts-type', 'helper-client-callable',
 ].includes(mutation), `Unknown mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -112,6 +115,10 @@ await q(`insert into public.entity_memberships(entity_id,user_id,role) values
   [companyA, companyB, blake, finance, ops, rival]);
 
 // ── Apply the migration under test ──────────────────────────────────────────
+// The open-applications migration (20260921120000) is applied after it, below.
+// That matters for more than the open path: it MOVES the body of
+// submit_customer_account into a shared helper, so every assertion in this
+// file about the invited path is then running against the refactored version.
 let sql = await readFile(
   new URL('supabase/migrations/20260919140000_customer_account_onboarding.sql', root), 'utf8');
 
@@ -224,6 +231,41 @@ if (mutation === 'owner-any-company') {
 }
 
 await db.exec(sql);
+
+// The open door, applied on top. Mutations that target it are applied to this
+// half rather than the one above.
+let openSql = await readFile(
+  new URL('supabase/migrations/20260921120000_open_customer_applications.sql', root), 'utf8');
+
+if (mutation === 'open-default-on') {
+  // The tempting simplification: default the switch to true so the feature
+  // "just works". That silently gives every tenant a public write endpoint.
+  openSql = openSql.replace(
+    'add column if not exists open_customer_applications boolean not null default false;',
+    'add column if not exists open_customer_applications boolean not null default true;');
+}
+if (mutation === 'open-ignores-switch') {
+  // Resolve the company without consulting company_settings at all.
+  openSql = openSql.replace('     and cs.open_customer_applications\n', '');
+}
+if (mutation === 'open-allows-duplicate') {
+  openSql = openSql.replace("    raise exception 'open_duplicate' using errcode = '28000';",
+    '    null;');
+}
+if (mutation === 'open-trusts-type') {
+  openSql = openSql.replace(
+    "  if v_type not in ('wholesale','retail','distributor','licensee','other') then\n    raise exception 'open_bad_type' using errcode = '28000';\n  end if;",
+    '');
+}
+if (mutation === 'helper-client-callable') {
+  // The revoke is the boundary: Supabase grants EXECUTE on new public
+  // functions to authenticated by default.
+  openSql = openSql.replace(
+    'revoke all on function public.apply_customer_account_payload(uuid, jsonb) from authenticated;',
+    '');
+}
+
+await db.exec(openSql);
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 await q(`insert into public.stripe_connect_accounts
@@ -1048,10 +1090,115 @@ await test('the verify_v2_schema checks for this feature return ok on a correct 
   const all = splitSqlStatements(
     await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8')).map(text);
   const mine = all.filter((st) => st.includes("'Customer "));
-  assert.equal(mine.length, 3, 'expected three customer-account checks in verify_v2_schema.sql');
+  assert.equal(mine.length, 4, 'expected four customer-account checks in verify_v2_schema.sql');
   for (const stmt of mine) {
     const row = await one(stmt);
     assert.equal(row.status, 'ok', `${row.check_name}: ${row.status}`);
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 11. The open door
+// ════════════════════════════════════════════════════════════════════════════
+// A shareable link that anyone can open. The risk is not the form -- it is
+// that a PUBLIC endpoint now creates rows, so what it refuses matters more
+// than what it accepts.
+
+await test('the open form is OFF until a company switches it on', async () => {
+  // No company_settings row at all: the link resolves to nothing.
+  let seen = await q(`select * from public.peek_open_customer_application('baseballism')`);
+  assert.equal(seen.length, 0, 'a company with no settings row must not be open');
+
+  await q(`insert into public.company_settings(company_entity_id) values ($1)`, [companyA]);
+  seen = await q(`select * from public.peek_open_customer_application('baseballism')`);
+  assert.equal(seen.length, 0, 'the switch defaults to off, so a settings row alone is not enough');
+
+  await q(`update public.company_settings set open_customer_applications = true
+            where company_entity_id = $1`, [companyA]);
+  seen = await q(`select * from public.peek_open_customer_application('baseballism')`);
+  assert.equal(seen.length, 1, 'the company did not open after being switched on');
+  assert.equal(seen[0].company_title, 'Baseballism');
+});
+
+await test('a closed or unknown company answers identically', async () => {
+  // Rival Co exists and has NOT switched the form on. If that returned a
+  // different answer from a company that does not exist, the endpoint would
+  // enumerate which tenants are here.
+  const closed = await q(`select * from public.peek_open_customer_application('rival')`);
+  const missing = await q(`select * from public.peek_open_customer_application('no-such-co')`);
+  assert.deepEqual(closed, missing, 'a closed company is distinguishable from a missing one');
+  assert.equal(closed.length, 0);
+});
+
+await test('an open submission creates the account and returns a card token', async () => {
+  const form = { ...FORM, contacts: [{ ...FORM.contacts[0], email: 'walkin@shop.test' }] };
+  const r = (await one(
+    `select public.open_customer_application('baseballism','distributor','walkin@shop.test',$1) as r`,
+    [JSON.stringify(form)])).r;
+  assert.equal(r.ok, true);
+  assert.ok(r.continuation_token, 'no card-setup continuation was issued');
+
+  const row = await one(`select * from public.customer_accounts where id = $1`,
+    [r.customer_account_id]);
+  assert.equal(row.company_entity_id, companyA);
+  assert.equal(row.status, 'submitted');
+  assert.equal(row.account_type, 'distributor', 'the chosen type was not stored');
+  assert.equal(row.source, 'open_link', 'an open application must be distinguishable later');
+  assert.equal(row.created_by, null, 'nobody at the company created this row');
+
+  // The payload landed through the SHARED writer, so the addresses and the
+  // tax profile are stored exactly as an invited application stores them.
+  const addrs = await q(`select address_type, same_as_address_type, street1
+                           from public.customer_account_addresses
+                          where customer_account_id = $1 order by address_type`,
+    [r.customer_account_id]);
+  assert.equal(addrs.length, 3);
+  assert.equal(addrs.find((a) => a.address_type === 'shipping').same_as_address_type, 'business');
+  assert.equal(addrs.find((a) => a.address_type === 'shipping').street1, null,
+    'a pointer row must carry no street');
+  const tax = await one(`select federal_ein from public.customer_account_tax_profiles
+                          where customer_account_id = $1`, [r.customer_account_id]);
+  assert.equal(tax.federal_ein, '12-3456789');
+});
+
+await test('a second application for the same address is refused, not duplicated', async () => {
+  const form = { ...FORM, contacts: [{ ...FORM.contacts[0], email: 'walkin@shop.test' }] };
+  await assert.rejects(
+    q(`select public.open_customer_application('baseballism','wholesale','walkin@shop.test',$1)`,
+      [JSON.stringify(form)]),
+    /open_duplicate/,
+    'the open door let one address open a second live account');
+});
+
+await test('the account type is checked, not trusted', async () => {
+  await assert.rejects(
+    q(`select public.open_customer_application('baseballism','platinum','new@shop.test',$1)`,
+      [JSON.stringify(FORM)]),
+    /open_bad_type/,
+    'an invented account type was accepted');
+});
+
+await test('a closed company cannot be applied to', async () => {
+  await assert.rejects(
+    q(`select public.open_customer_application('rival','wholesale','new@shop.test',$1)`,
+      [JSON.stringify(FORM)]),
+    /open_unavailable/,
+    'an application reached a company that never opened the form');
+});
+
+await test('the shared payload writer is not reachable from a browser', async () => {
+  // Supabase grants EXECUTE on every new public function to authenticated, so
+  // the revoke is the boundary. Without it any signed-in user could rewrite
+  // any account's addresses and contacts by id.
+  for (const fn of ['apply_customer_account_payload', 'issue_customer_card_setup_token',
+    'open_customer_application', 'peek_open_customer_application']) {
+    const row = await one(
+      `select bool_or(has_function_privilege(r.rolname, p.oid, 'EXECUTE')) as granted
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         cross join (select unnest(array['anon','authenticated']) as rolname) r
+        where n.nspname = 'public' and p.proname = $1`, [fn]);
+    assert.equal(row.granted, false, `${fn} is callable by anon or authenticated`);
   }
 });
 

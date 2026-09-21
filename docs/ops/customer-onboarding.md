@@ -98,6 +98,66 @@ sync.
 
 ---
 
+## Two doors in
+
+| | Invite | Open link |
+|---|---|---|
+| URL | `?token=<one-time token>` | `?apply=<company key>` |
+| Who can use it | the one address it was minted for | anyone with the link |
+| The account row | created when the invite is minted | created **by the submission** |
+| Account type | chosen by whoever invited | chosen by the applicant |
+| `source` | `invite` | `open_link` |
+
+The open link is **off until a company switches it on**
+(`company_settings.open_customer_applications`, default false). A public
+endpoint that creates rows is not something a tenant should acquire because a
+migration ran. Invite links work regardless of the switch.
+
+To turn it on for a company:
+
+```sql
+update public.company_settings
+   set open_customer_applications = true
+ where company_entity_id = '<entity id>';
+```
+
+The link is then `/v2/customer-onboarding.html?apply=<entities.entity_key>` —
+`?apply=baseballism`, for example.
+
+Three properties worth keeping:
+
+- **A closed company and an unknown one answer identically** — no row from
+  `peek_open_customer_application` either way — so the endpoint cannot be used
+  to find out which tenants exist here.
+- **One live application per email per company**, the same rule the invite
+  path enforces, raised as `open_duplicate` so the page can say "we already
+  have your application" instead of surfacing a constraint violation.
+- **The company comes from the URL key**, never from the request body. Same
+  stance as everything else in this function: nothing a caller sends names a
+  company or an account.
+
+Both doors share one writer. `apply_customer_account_payload()` is what a
+submitted application writes, and `issue_customer_card_setup_token()` mints
+the 2-hour card continuation; `submit_customer_account` and
+`open_customer_application` both call them. A second copy of those inserts
+would have drifted the first time either door gained a column, and the drift
+would have been invisible — the same reasoning as
+`card_coding_effective_lines`.
+
+### What this deliberately does NOT have
+
+No bot check, no email verification, no per-link management. The full business
+application is itself a large filter, and the defences would have cost more
+than the thing being defended. If junk starts arriving, the cheapest first
+move is a Turnstile check on submit; `source = 'open_link'` is already there
+to measure whether it is actually a problem.
+
+The applicant's email is **self-asserted** on this path — nobody proved they
+own it. Worth remembering before treating an open application's address as a
+verified contact.
+
+---
+
 ## The two tokens
 
 The onboarding link is **spent** when the application is submitted, and the same

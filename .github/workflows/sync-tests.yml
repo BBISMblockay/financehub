@@ -123,6 +123,7 @@ on:
       - 'v2/billing.html'
       - 'v2/invoice-request.js'
       - 'supabase/migrations/*customer_account_onboarding.sql'
+      - 'supabase/migrations/*open_customer_applications.sql'
       - 'supabase/functions/customer-onboarding/**'
       - 'scripts/tests/customer-onboarding-bootstrap.sql'
       - 'v2/customers.html'
@@ -380,7 +381,8 @@ jobs:
                    no-reclaim consent-from-page consent-not-checked webhook-any-mode \
                    webhook-default-fatal webhook-trusts-session webhook-no-owner-check \
                    webhook-owner-any-customer webhook-transient-swallowed \
-                   cert-recorded-early cert-trusts-caller; do
+                   cert-recorded-early cert-trusts-caller \
+                   open-body-company open-email-by-position; do
             echo "--- $m ---"
             if CUSTOMER_ONBOARDING_MUTATION="$m" node scripts/tests/customer-onboarding.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
@@ -754,7 +756,9 @@ jobs:
                    token-not-consumed claim-unguarded claim-steals-session release-no-bump \
                    webhook-any-company webhook-any-customer rebind-allowed \
                    storage-bucket-only public-rpc-granted table-writable owner-any-company \
-                   activity-every-call; do
+                   activity-every-call \
+                   open-default-on open-ignores-switch open-allows-duplicate \
+                   open-trusts-type helper-client-callable; do
             echo "--- $m ---"
             if CUSTOMER_DB_MUTATION="$m" node scripts/tests/customer-onboarding-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"

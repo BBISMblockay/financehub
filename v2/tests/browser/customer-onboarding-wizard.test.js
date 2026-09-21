@@ -59,6 +59,23 @@ const PEEK = {
   // its own JSON, its own error handling all still run.
   await suite.context.route('**/functions/v1/customer-onboarding', async (route) => {
     const body = JSON.parse(route.request().postData() || '{}');
+    if (body.action === 'open_peek') {
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true, open: true, company_title: COMPANY,
+          account_types: ['wholesale', 'retail', 'distributor', 'licensee', 'other'],
+          consent_version: 'test.v1', consent_text: 'Authorisation text.',
+        }),
+      });
+    }
+    if (body.action === 'open_submit') {
+      submissions.push(body);
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, continuation_token: 'continuation-token-0123456789' }),
+      });
+    }
     if (body.action === 'peek') {
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(PEEK) });
     }
@@ -288,6 +305,84 @@ const PEEK = {
     });
     r.eq(step, 4, 'Enter did not advance to Delivery & billing');
     await fresh.close();
+  });
+
+  console.log('\n── the open, shareable link ──');
+
+  await t('an open link asks which kind of account, and an invited one does not', async () => {
+    /* The invited page already knows the type, because whoever sent the
+       invite chose it. Only the open form may ask.
+
+       Checked on a FRESH invited page, not the one the earlier tests drove:
+       that page has finished and its form is hidden, so every element inside
+       it reports invisible whatever the markup says. Asserting there passed
+       against a deliberately broken build -- caught by mutation. */
+    const invited = await suite.context.newPage();
+    invited.setDefaultTimeout(5000);
+    await invited.goto(`${suite.base}/v2/customer-onboarding.html?token=onboarding-token-0123456789`);
+    await invited.waitForSelector('#form:not([hidden])');
+    r.eq(await invited.isVisible('#accountTypeWrap'), false,
+      'the invited form offered an account-type choice');
+    await invited.close();
+
+    const open = await suite.context.newPage();
+    open.setDefaultTimeout(5000);
+    await open.goto(`${suite.base}/v2/customer-onboarding.html?apply=baseballism`);
+    await open.waitForSelector('#form:not([hidden])');
+    r.eq(await open.isVisible('#accountTypeWrap'), true,
+      'the open form did not offer an account-type choice');
+    // The list is served by the function, so the page cannot offer something
+    // the database will refuse.
+    const options = await open.$$eval('#account_type option', (els) => els.map((e) => e.value));
+    r.eq(options, ['wholesale', 'retail', 'distributor', 'licensee', 'other']);
+    r.eq(await open.textContent('#brandName'), COMPANY);
+    await open.close();
+  });
+
+  await t('an open application submits through the open action, carrying its choice', async () => {
+    const open = await suite.context.newPage();
+    open.setDefaultTimeout(5000);
+    await open.goto(`${suite.base}/v2/customer-onboarding.html?apply=baseballism`);
+    await open.waitForSelector('#form:not([hidden])');
+    const before = submissions.length;
+
+    await open.selectOption('#account_type', 'distributor');
+    await open.fill('#legal_name', 'Walk In Sports');
+    await open.click('#nextBtn');
+    await open.fill('#first_name', 'Ada');
+    await open.fill('#last_name', 'Vaughn');
+    // No invite, so nothing is pre-filled: the applicant types their own.
+    r.eq(await open.inputValue('#contact_email'), '',
+      'an open form pre-filled an email it could not know');
+    await open.fill('#contact_email', 'ada@shop.test');
+    await open.click('#nextBtn');
+    await open.fill('#biz_street1', '9 Elm');
+    await open.fill('#biz_city', 'Bend');
+    await open.click('#nextBtn');
+    await open.click('#nextBtn');
+    await open.click('#submitBtn');
+    await open.waitForFunction(() => document.getElementById('cardStep')
+      && !document.getElementById('cardStep').hidden);
+
+    const sent = submissions[submissions.length - 1];
+    r.eq(submissions.length, before + 1, 'expected exactly one open submission');
+    r.eq(sent.action, 'open_submit', 'an open application used the invited submit action');
+    r.eq(sent.company, 'baseballism', 'the company key from the URL was not carried');
+    r.eq(sent.account_type, 'distributor', 'the chosen account type was not sent');
+    r.eq(sent.token, '', 'an open application must carry no invite token');
+    r.eq(sent.form.contacts[0].email, 'ada@shop.test');
+    // The card step is reached exactly as it is from an invite.
+    r.eq(await open.isVisible('#consentBox'), true, 'the card step was not reached');
+    await open.close();
+  });
+
+  await t('a link with neither a token nor a company is refused', async () => {
+    const bare = await suite.context.newPage();
+    bare.setDefaultTimeout(5000);
+    await bare.goto(`${suite.base}/v2/customer-onboarding.html`);
+    await bare.waitForSelector('#gate:not([hidden])');
+    r.eq(await bare.isVisible('#form'), false, 'a bare URL showed the application form');
+    await bare.close();
   });
 
   console.log('\n── the phone case this reshape exists for ──');
