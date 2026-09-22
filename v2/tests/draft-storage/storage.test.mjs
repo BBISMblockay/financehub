@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 import { saveDraft, listDrafts } from '../../payment-request2-drafts.js';
-import { submitRequest, resumeMessage } from '../../payment-request2-submit.js';
-import { FIELD_NAMES } from '../../payment-request2-core.js';
+import { submitRequest, resumeMessage, repairDraftText } from '../../payment-request2-submit.js';
+import { FIELD_NAMES, requestPayload } from '../../payment-request2-core.js';
 const scope = 'company:user';
 const connect = version => new Promise((resolve, reject) => {
   const request = indexedDB.open('silo-payment-request2', version);
@@ -64,3 +64,21 @@ assert.equal(kept.status, 'submitting'); assert.ok(kept.payload); assert.equal(k
 assert.match(resumeMessage(kept).message, /row-level security policy for table "payment_requests" \[42501\]/);
 assert.equal(resumeMessage(kept).tone, 'neg');
 console.log('PASS a rejected submission keeps its reason and code across a reload');
+// A real persisted frozen draft, plus an old tab racing the correction.
+const unicode = draft('unicode-recovery'), unicodeApi = server();
+unicode.payload = requestPayload(unicode, 'user', 'company');
+unicode.payload.notes_comments = 'note\u0000'; unicode.fields.notes_comments = 'note\u0000';
+unicode.status = 'submitting'; unicode.lastSubmitError = { code: '22P05', message: 'unsupported Unicode escape sequence' };
+await saveDraft(scope, unicode);
+const otherTab = structuredClone(unicode);
+const repairArgs = { db: unicodeApi.db, userId: 'user', companyId: 'company', assertContext: async () => {}, checkpoint: value => saveDraft(scope, value), review: async () => true };
+await repairDraftText({ ...repairArgs, draft: unicode });
+const recovered = await stored(unicode.id);
+assert.equal(recovered.payload.notes_comments, 'note');
+assert.equal(recovered.payload.id, unicode.id); assert.equal(await recovered.files[0].blob.text(), 'confidential bytes');
+await assert.rejects(repairDraftText({ ...repairArgs, draft: otherTab }), /changed in another tab/);
+assert.equal(otherTab.payload.notes_comments, 'note\u0000');
+await assert.rejects(unicodeApi.run(otherTab), /changed in another tab/);
+assert.equal(unicodeApi.inserts, 0);
+await unicodeApi.run(recovered); assert.equal(unicodeApi.inserts, 1); clean(await stored(unicode.id));
+console.log('PASS persisted Unicode recovery keeps ID/files and blocks stale-tab repair and submission');

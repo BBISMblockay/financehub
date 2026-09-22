@@ -26,6 +26,14 @@
       <div id="status" class="bcn-status bcn-status--info" role="status" aria-live="polite">Checking your account…</div>
       <section id="signedOut" class="bcn-card pr2-message" hidden><h2>Sign in to continue</h2><p>Use your SILO account to create a payment request.</p><a class="bcn-btn bcn-btn--primary" href="../pages/login.html">Sign in</a></section>
       <div id="app" hidden>
+        <button id="repairText" class="bcn-btn bcn-btn--ghost" type="button" hidden>Review text repair</button>
+        <dialog id="textRepairDialog" class="pr2-text-repair" aria-labelledby="textRepairTitle">
+          <h2 id="textRepairTitle">Review corrected text</h2>
+          <p>Some text contains characters the database cannot store. Null characters are removed; broken characters become �. Check each correction against your document.</p>
+          <div id="textRepairChanges"></div>
+          <p>Your reference and attachments stay the same. Saving this correction does not submit the request.</p>
+          <form method="dialog"><button class="bcn-btn bcn-btn--ghost" value="cancel">Cancel</button> <button class="bcn-btn bcn-btn--primary" value="save">Save corrected text</button></form>
+        </dialog>
         <ol class="pr2-steps" aria-label="Request progress"><li id="stepDocument">1 <span>Add document or start manually</span></li><li id="stepReview" aria-current="step">2 <span>Review request</span></li><li>3 <span>AP review</span></li></ol>
         <section id="draftShelf" class="bcn-card pr2-draft-shelf" hidden><h2>Continue a draft on this device</h2><div id="draftList"></div></section>
         <div class="pr2-layout">

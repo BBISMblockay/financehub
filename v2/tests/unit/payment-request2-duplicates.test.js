@@ -70,6 +70,7 @@ const assert = require('node:assert/strict');
   await test('real form wiring auto-checks with company scope and blocks changed matches or lookup failures at submission', async () => {
     const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
     const core = await import('../../payment-request2-core.js');
+    const text = await import('../../payment-request2-text.js');
     const source = fs.readFileSync(path.join(__dirname, '../../payment-request2.js'), 'utf8').replace(/^import .*;$/gm, '').replace('void boot();', '');
     const html = fs.readFileSync(path.join(__dirname, '../../purchase_request2.html'), 'utf8');
     const node = () => ({ value: '', checked: false, hidden: false, children: [], append(...items) { this.children.push(...items); }, replaceChildren(...items) { this.children = items; }, setAttribute() {}, querySelectorAll() { return []; } });
@@ -89,7 +90,7 @@ const assert = require('node:assert/strict');
         };
       },
     };
-    const context = vm.createContext({ ...core, createDuplicateChecker: io => createDuplicateChecker({ ...io, setTimer(fn) { timers.set(++sequence, fn); return sequence; }, clearTimer(id) { timers.delete(id); } }), duplicateAcknowledgement,
+    const context = vm.createContext({ ...core, ...text, createDuplicateChecker: io => createDuplicateChecker({ ...io, setTimer(fn) { timers.set(++sequence, fn); return sequence; }, clearTimer(id) { timers.delete(id); } }), duplicateAcknowledgement,
       window: {}, document: { getElementById: id => nodes[id] || null, createElement: node }, navigator: { locks: { request: async (name, opts, fn) => fn({}) } },
       submitRequest: async () => { writes++; return { message: 'Submitted', requestId: 'draft-a' }; }, dbMock, draftValue,
     });

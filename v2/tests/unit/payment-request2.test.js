@@ -4,7 +4,8 @@ const { pathToFileURL } = require('node:url');
 
 (async () => {
   const core = await import(pathToFileURL(path.resolve(__dirname, '../../payment-request2-core.js')));
-  const { submitRequest, safeInsertFailure, insertFailureMessage, resumeMessage } = await import(pathToFileURL(path.resolve(__dirname, '../../payment-request2-submit.js')));
+  const { submitRequest, safeInsertFailure, insertFailureMessage, resumeMessage, repairDraftText } = await import(pathToFileURL(path.resolve(__dirname, '../../payment-request2-submit.js')));
+  const text = await import(pathToFileURL(path.resolve(__dirname, '../../payment-request2-text.js')));
   let checks = 0;
   async function test(name, fn) { await fn(); checks++; console.log('PASS', name); }
   const fresh = () => ({ id: 'request-1', status: 'draft', reviewed: true, fields: { vendor_name: 'Northline Packaging', request_type: 'inventory_freight', amount_due: '2580.00', invoice_number: '1048', due_date: '2026-10-18', flex_id: 'F-19', requester_email: 'tester@example.com', location_name: 'Main warehouse', notes_comments: 'Two POs', currency: 'USD' }, poNames: ['PO-329', 'PO-330'], files: [{ id: 'file-1', name: 'invoice.pdf', type: 'application/pdf', blob: new Blob(['%PDF-test']) }] });
@@ -153,6 +154,86 @@ const { pathToFileURL } = require('node:url');
   await test('AP-owned later states do not receive resumed attachments', async () => {
     const f = fixture(); const d = fresh(); f.state.requests.set(d.id, { id: d.id, created_by: 'user-1', company_entity_id: 'company-1', workflow_status: 'paid' });
     const r = await submitRequest({ ...f.args, draft: d }); assert.equal(r.filesComplete, false); assert.equal(f.state.uploads, 0); assert.equal(f.state.receipts, 0);
+  });
+  function rejectedDraft() {
+    const d = fresh(); d.payload = core.requestPayload(d, 'user-1', 'company-1');
+    d.payload.vendor_name = 'North\u0000line'; d.payload.invoice_number = 'INV-\uD8009';
+    d.status = 'submitting'; d.lastSubmitError = { code: '22P05', message: 'unsupported Unicode escape sequence' };
+    return d;
+  }
+  await test('Unicode validation preserves emoji/languages and rejects only unsupported scalars', () => {
+    const valid = 'Café 東京 🧾 e\u0301\n\t literal \\u0000';
+    assert.equal(text.hasUnsupportedText(valid), false); assert.equal(text.repairText(valid), valid);
+    for (const bad of ['a\u0000b', 'a\uD800b', 'a\uDC00b', '\uD800\uD800']) {
+      const d = fresh(); d.fields.notes_comments = bad;
+      assert.throws(() => core.requestPayload(d, 'u', 'c'), /Notes for AP/);
+      d.fields.notes_comments = ''; d.poNames = [bad];
+      assert.throws(() => core.requestPayload(d, 'u', 'c'), /PO references/);
+    }
+    assert.equal(text.repairText('a\u0000b\uD800🧾'), 'ab�🧾');
+  });
+  await test('invalid new input never freezes or writes and requires renewed review after repair', async () => {
+    const f = fixture(), d = fresh(); d.fields.vendor_name = 'North\u0000line';
+    await assert.rejects(submitRequest({ ...f.args, draft: d }), /Unsupported/);
+    assert.equal(d.payload, undefined); assert.equal(f.state.insertAttempts, 0);
+    assert.equal(await repairDraftText({ ...f.args, draft: d, review: async () => true }), true);
+    assert.equal(d.fields.vendor_name, 'Northline'); assert.equal(d.reviewed, false);
+    await assert.rejects(submitRequest({ ...f.args, draft: d }), /Review/);
+  });
+  await test('cancelled repair leaves the exact frozen draft and attachments intact', async () => {
+    const f = fixture(), d = rejectedDraft(), original = structuredClone(d);
+    assert.equal(await repairDraftText({ ...f.args, draft: d, review: async changes => { assert.equal(changes.length, 2); return false; } }), false);
+    assert.deepEqual(d, original); assert.equal(f.state.checkpoints.length, 0);
+  });
+  await test('legacy frozen drafts without a stored error gain a repair path without an insert', async () => {
+    const f = fixture(), d = rejectedDraft(); delete d.lastSubmitError;
+    await assert.rejects(submitRequest({ ...f.args, draft: d }), /Unsupported/);
+    assert.equal(f.state.insertAttempts, 0);
+    assert.equal(d.lastSubmitError.source, 'local-validation');
+    assert.equal(text.textRepairPlan(structuredClone(f.state.checkpoints.at(-1))).length, 2);
+  });
+  await test('reviewed recovery persists same reference, amount and files before a separate retry', async () => {
+    const f = fixture(), d = rejectedDraft(), original = structuredClone(d);
+    await repairDraftText({ ...f.args, draft: d, review: async () => true });
+    assert.equal(f.state.insertAttempts, 0); assert.equal(f.state.receipts, 0);
+    const saved = structuredClone(f.state.checkpoints.at(-1));
+    assert.equal(saved.payload.vendor_name, 'Northline'); assert.equal(saved.payload.invoice_number, 'INV-�9');
+    assert.equal(saved.payload.id, original.payload.id); assert.equal(saved.payload.amount_due, original.payload.amount_due);
+    assert.equal(saved.payload.request_type, original.payload.request_type); assert.equal(saved.payload.due_date, original.payload.due_date);
+    assert.deepEqual(saved.files, original.files); assert.equal(saved.lastSubmitError, undefined);
+    assert.equal(saved.payload.vendor_name_norm, core.normalizeName(original.payload.vendor_name));
+    await submitRequest({ ...f.args, draft: saved }); await submitRequest({ ...f.args, draft: saved });
+    assert.equal(f.state.insertAttempts, 1); assert.equal(f.state.files.size, 1); assert.equal(f.state.receipts, 1);
+  });
+  await test('recovery refuses other rejections, saved requests, receipts and wrong identity', async () => {
+    for (const change of [d => d.lastSubmitError.code = '42501', d => d.requestSaved = true, d => d.receiptAttempted = true, d => d.payload.company_entity_id = 'other', d => d.payload.created_by = 'other', d => d.payload.id = 'other']) {
+      const f = fixture(), d = rejectedDraft(); change(d); const original = structuredClone(d);
+      await assert.rejects(repairDraftText({ ...f.args, draft: d, review: async () => true }));
+      assert.deepEqual(d, original); assert.equal(f.state.checkpoints.length, 0);
+    }
+  });
+  await test('failed reads, existing rows, context drift and checkpoint conflicts leave recovery unchanged', async () => {
+    for (const options of [{ readFailure: true }, { checkpointFailure: true }, { companyChanged: true }, { existing: true }]) {
+      const f = fixture(options), d = rejectedDraft(), original = structuredClone(d);
+      if (options.existing) f.state.requests.set(d.id, { id: d.id, company_entity_id: 'company-1', created_by: 'user-1' });
+      await assert.rejects(repairDraftText({ ...f.args, draft: d, review: async () => true }));
+      assert.deepEqual(d, original); assert.equal(f.state.insertAttempts, 0);
+    }
+    const f = fixture(), d = rejectedDraft(), original = structuredClone(d);
+    await assert.rejects(repairDraftText({ ...f.args, draft: d, review: async () => { f.options.companyChanged = true; return true; } }), /company/);
+    assert.deepEqual(d, original);
+  });
+  await test('row created during repair review or before retry is never overwritten', async () => {
+    const f = fixture(), d = rejectedDraft(), original = structuredClone(d);
+    await assert.rejects(repairDraftText({ ...f.args, draft: d, review: async () => {
+      f.state.requests.set(d.id, { ...d.payload, workflow_status: 'paid' }); return true;
+    } }), /AP already/);
+    assert.deepEqual(d, original);
+    f.state.requests.clear();
+    await repairDraftText({ ...f.args, draft: d, review: async () => true });
+    f.state.requests.set(d.id, { ...d.payload, workflow_status: 'paid' });
+    await submitRequest({ ...f.args, draft: d });
+    assert.equal(f.state.insertAttempts, 0); assert.equal(f.state.uploads, 0);
   });
   console.log(`${checks} Payment Request 2 checks passed.`);
 })().catch(error => { console.error(error); process.exit(1); });
