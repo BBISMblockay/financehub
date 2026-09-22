@@ -1944,6 +1944,16 @@ right after saving", or "products not known yet". The last is stored here —
 `auth.uid()` by `trg_launch_products_unknown` (never from the browser) — and
 the launch carries a "Products not known yet" marker plus a MEASUREMENT filter
 until it is linked. A CHECK keeps `_by`/`_note` null while the flag is unset.
+**The flag cannot outlive a link, whoever writes it**: attaching a
+`launch_product_readiness` row clears it in the same transaction
+(`trg_launch_products_unknown_clear`, AFTER INSERT / UPDATE OF launch_id), and
+the `launch_calendar` trigger drops it whenever a PO is linked or products
+already exist. Removing the last product later does NOT restore it — the launch
+then reads "No products or PO". The drawer's product-add paths once left a
+stale flag that a later removal would resurrect (independent review, cycle 1);
+enforcing it in the database covers every writer, not just the launch form.
+Both trigger functions are SECURITY INVOKER — the two tables share one write
+policy, so whoever may attach a product may clear the flag.
 No policy change and no change to `launch_measurability_v`,
 `launch_actuals_v` or `launch_product_actuals_v`. Ends with
 `refresh_chat_schema_catalog()`. Before it is applied, the page still saves

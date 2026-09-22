@@ -171,6 +171,23 @@ async function newLaunch(page, title) {
     await page.evaluate(() => openDrawer('l-unknown'));
     R.ok('the drawer shows the marker too',
       !!(await page.$('#drawerLaunchMeta [data-link-followup="unknown"]')));
+
+    // Attaching a product from the drawer: the database clears the flag in the
+    // same transaction (trg_launch_products_unknown_clear, proven against
+    // Postgres in scripts/tests/launch-products-unknown-database.test.mjs).
+    // What the page owes is to READ THAT BACK rather than keep showing the
+    // flag it loaded -- so assert a launch_calendar read follows each add path.
+    const readBackAfterInsert = () => page.evaluate(() => {
+      const q = window.__QUERIES__ || [];
+      const ins = q.map((x, i) => (x.table === 'launch_product_readiness' && x._op === 'insert') ? i : -1).filter((i) => i >= 0).pop();
+      return ins !== undefined && q.slice(ins + 1).some((x) => x.table === 'launch_calendar' && x._op === 'select');
+    });
+    await page.evaluate(() => quickAddProduct({ product_title: 'Quick Tee' }, null));
+    R.ok('quick add re-reads the launch after attaching', await readBackAfterInsert());
+    await page.evaluate(() => { openDrawer('l-unknown'); switchDrawerTab('dp-products'); openProductForm(null); });
+    await page.fill('#prodTitle', 'Form Tee');
+    await page.evaluate(() => saveProductReadiness({ preventDefault() {} }));
+    R.ok('the product form re-reads the launch after attaching', await readBackAfterInsert());
     await page.close();
 
     // ── 6: before the migration is applied ──────────────────────────────

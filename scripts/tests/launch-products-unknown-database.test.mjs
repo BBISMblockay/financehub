@@ -5,7 +5,9 @@ process.on('unhandledRejection', (error) => { console.error('\nFAILED:', error?.
 // additive, applies twice, stamps `products_unknown_by` from auth.uid() and
 // never from the client, keeps the original author on later edits, and a
 // cleared flag carries no stale author or note -- by trigger for app writes and
-// by CHECK for any writer that goes round the trigger.
+// by CHECK for any writer that goes round the trigger. And the flag cannot
+// outlive a link: attaching a product or linking a PO clears it, from any
+// writer, and removing the product later does not bring it back.
 // Run: node scripts/tests/launch-products-unknown-database.test.mjs
 // (needs `npm ci --prefix scripts/tests/finance-db --ignore-scripts`)
 import assert from 'node:assert/strict';
@@ -33,17 +35,19 @@ await db.exec(`
   end $$;
   create table public.launch_calendar(id uuid primary key default gen_random_uuid(), title text not null,
     launch_date date not null, linked_po_id uuid);
+  create table public.launch_product_readiness(id uuid primary key default gen_random_uuid(),
+    launch_id uuid references public.launch_calendar(id) on delete cascade, product_title text);
   create function public.refresh_chat_schema_catalog() returns void language sql as $$ select $$;
 `);
 await db.exec(migration);
 await db.exec(migration);
 
-await test('applies twice; three columns, one trigger, one CHECK', async () => {
+await test('applies twice; three columns, both triggers, one CHECK', async () => {
   const c = await one(`select count(*)::int n from information_schema.columns where table_schema='public'
     and table_name='launch_calendar' and column_name like 'products_unknown%'`);
   assert.equal(c.n, 3);
-  const t = await one(`select count(*)::int n from pg_trigger where tgname='trg_launch_products_unknown' and not tgisinternal`);
-  assert.equal(t.n, 1);
+  const t = await one(`select count(*)::int n from pg_trigger where tgname in ('trg_launch_products_unknown','trg_launch_products_unknown_clear') and not tgisinternal`);
+  assert.equal(t.n, 2);
   const k = await one(`select count(*)::int n from pg_constraint where conname='launch_calendar_products_unknown_consistent'`);
   assert.equal(k.n, 1);
 });
@@ -92,11 +96,74 @@ await test('the CHECK refuses a note with no flag when the trigger is bypassed',
   await db.exec(`alter table public.launch_calendar enable trigger trg_launch_products_unknown`);
 });
 
-await test('the trigger function is not callable by anon or authenticated', async () => {
-  const r = await one(`select has_function_privilege('anon','public.stamp_launch_products_unknown()','EXECUTE') a,
-                              has_function_privilege('authenticated','public.stamp_launch_products_unknown()','EXECUTE') b`);
-  assert.equal(r.a, false);
-  assert.equal(r.b, false);
+// The review's sequence, end to end: unknown -> attach -> cleared -> remove.
+const flagged = async (title, note = 'tbd') => (await one(`insert into public.launch_calendar(title, launch_date, products_unknown_at, products_unknown_note)
+  values ($1, '2026-11-01', now(), $2) returning id`, [title, note])).id;
+const flag = async (launchId) => one(`select products_unknown_at, products_unknown_by, products_unknown_note from public.launch_calendar where id=$1`, [launchId]);
+
+await test('attaching a product clears the flag, author and note in the same statement', async () => {
+  await asUser(ALICE);
+  const l = await flagged('Attach me', 'waiting on factory');
+  assert.notEqual((await flag(l)).products_unknown_at, null);
+  await db.query(`insert into public.launch_product_readiness(launch_id, product_title) values ($1, 'Tee')`, [l]);
+  const f = await flag(l);
+  assert.equal(f.products_unknown_at, null);
+  assert.equal(f.products_unknown_by, null);
+  assert.equal(f.products_unknown_note, null);
+});
+
+await test('removing the last product does NOT resurrect the old follow-up', async () => {
+  const l = await flagged('Remove me', 'old note');
+  await db.query(`insert into public.launch_product_readiness(launch_id, product_title) values ($1, 'Tee')`, [l]);
+  await db.query(`delete from public.launch_product_readiness where launch_id=$1`, [l]);
+  const f = await flag(l);
+  assert.equal(f.products_unknown_at, null);
+  assert.equal(f.products_unknown_note, null);
+});
+
+await test('moving a product onto a flagged launch clears that launch', async () => {
+  const from = await flagged('Source');
+  const to = await flagged('Destination');
+  await db.query(`delete from public.launch_product_readiness`);
+  // Attaching to `from` clears `from`; `to` stays flagged until the move.
+  const r = await one(`insert into public.launch_product_readiness(launch_id, product_title) values ($1, 'Cap') returning id`, [from]);
+  assert.notEqual((await flag(to)).products_unknown_at, null);
+  await db.query(`update public.launch_product_readiness set launch_id=$2 where id=$1`, [r.id, to]);
+  assert.equal((await flag(to)).products_unknown_at, null);
+});
+
+await test('attaching to an unflagged launch touches nothing', async () => {
+  const l = (await one(`insert into public.launch_calendar(title, launch_date) values ('Plain', '2026-11-02') returning id`)).id;
+  await db.query(`insert into public.launch_product_readiness(launch_id, product_title) values ($1, 'Tee')`, [l]);
+  assert.equal((await flag(l)).products_unknown_at, null);
+});
+
+await test('linking a PO clears the flag, whoever writes it', async () => {
+  const l = await flagged('PO me');
+  await db.query(`update public.launch_calendar set linked_po_id=gen_random_uuid() where id=$1`, [l]);
+  const f = await flag(l);
+  assert.equal(f.products_unknown_at, null);
+  assert.equal(f.products_unknown_note, null);
+});
+
+await test('the flag cannot be set on a launch that is already linked', async () => {
+  const withPo = (await one(`insert into public.launch_calendar(title, launch_date, linked_po_id, products_unknown_at, products_unknown_note)
+    values ('Has PO', '2026-11-03', gen_random_uuid(), now(), 'stale') returning id`)).id;
+  assert.equal((await flag(withPo)).products_unknown_at, null);
+  const withProduct = (await one(`insert into public.launch_calendar(title, launch_date) values ('Has product', '2026-11-04') returning id`)).id;
+  await db.query(`insert into public.launch_product_readiness(launch_id, product_title) values ($1, 'Tee')`, [withProduct]);
+  await db.query(`update public.launch_calendar set products_unknown_at=now(), products_unknown_note='stale form' where id=$1`, [withProduct]);
+  const f = await flag(withProduct);
+  assert.equal(f.products_unknown_at, null, 'a form opened before a colleague attached a product cannot re-flag it');
+  assert.equal(f.products_unknown_note, null);
+});
+
+await test('the trigger functions are not callable by anon or authenticated', async () => {
+  for (const fn of ['public.stamp_launch_products_unknown()', 'public.clear_launch_products_unknown_on_attach()']) {
+    const r = await one(`select has_function_privilege('anon',$1,'EXECUTE') a, has_function_privilege('authenticated',$1,'EXECUTE') b`, [fn]);
+    assert.equal(r.a, false, fn);
+    assert.equal(r.b, false, fn);
+  }
 });
 
 console.log(`\n${checks} checks passed`);

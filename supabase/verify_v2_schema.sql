@@ -4268,7 +4268,8 @@ select 'Company document identity' as check_name,
 
 -- The launch form records an intentional "products not known yet" so an
 -- unmeasurable launch stays visible for follow-up (20260922150000). `by` is
--- stamped by trigger, never trusted from the browser.
+-- stamped by trigger, never trusted from the browser, and the flag is cleared
+-- by trigger the moment a product is attached or a PO linked, by any writer.
 select 'Launch products-unknown flag' as check_name,
  case
  when (select count(*) from information_schema.columns
@@ -4278,6 +4279,9 @@ select 'Launch products-unknown flag' as check_name,
  when not exists(select 1 from pg_trigger
    where tgrelid='public.launch_calendar'::regclass and tgname='trg_launch_products_unknown' and not tgisinternal)
    then 'MISSING: trg_launch_products_unknown (products_unknown_by would be client-supplied)'
+ when not exists(select 1 from pg_trigger
+   where tgrelid='public.launch_product_readiness'::regclass and tgname='trg_launch_products_unknown_clear' and not tgisinternal)
+   then 'MISSING: trg_launch_products_unknown_clear (attaching a product would leave a stale "not known yet")'
  when not exists(select 1 from pg_constraint
    where conrelid='public.launch_calendar'::regclass and conname='launch_calendar_products_unknown_consistent')
    then 'MISSING: launch_calendar_products_unknown_consistent'
