@@ -151,14 +151,14 @@
     // grandfathered-only.
     // WPV Receivables removed 2026-08-16 — stale Google Sheets flow, page retired.
     // Promoted 2026-09-22 (Blake): the assisted intake that shipped as
-    // "Payment Request 2 · Beta" is now THE Payment Request, and the original
-    // form takes the "2" slot beneath it. URLs are deliberately unchanged --
-    // purchase_request2.html is the promoted page and purchase_request.html
-    // the original -- because six inbound links, bookmarks and the docs name
-    // them, and the nav is what people click. Swapping the files would buy
-    // nothing but broken links.
+    // "Payment Request 2 · Beta" is now THE Payment Request, and the only
+    // one in the menu. The original form is renamed "Payment Request 2" and
+    // stays at /v2/purchase_request.html, reachable from the promoted page's
+    // header link but deliberately NOT a nav row (Blake, same day). URLs are
+    // unchanged -- purchase_request2.html is the promoted page -- because six
+    // inbound links, bookmarks and the docs name them, and the nav is what
+    // people click. Swapping the files would buy nothing but broken links.
     { id: 'finance/payment-request', section: 'Requests', sectionStandard: 'Finance', label: 'Payment Request', href: '/v2/purchase_request2.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'finance/payment-request-2', section: 'Requests', sectionStandard: 'Finance', label: 'Payment Request 2', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
     // logistics added alongside FINANCE_DEPTS so that department can still
     // see Request Manager to track payment requests they submitted --
     // RLS (payment_requests_active_select) already lets anyone see their
