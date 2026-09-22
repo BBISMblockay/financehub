@@ -62,6 +62,70 @@
         </div>
 
         <div class="ws-card">
+          <div class="ws-card-head">
+            <div class="ws-title">Documents</div>
+            <div class="ws-sub">What a vendor sees on your purchase orders</div>
+          </div>
+          <div class="ws-body">
+            <div class="ws-grid">
+              <label class="ws-field">
+                <span class="ws-label">Legal name</span>
+                <input data-col="legal_name" class="bcn-field" type="text" maxlength="160" autocomplete="organization" />
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">Phone</span>
+                <input data-col="phone" class="bcn-field" type="text" maxlength="40" autocomplete="tel" />
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">Ship-to address</span>
+                <input data-col="address_line1" class="bcn-field" type="text" maxlength="160" autocomplete="address-line1" />
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">Address line 2</span>
+                <input data-col="address_line2" class="bcn-field" type="text" maxlength="160" autocomplete="address-line2" />
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">City</span>
+                <input data-col="city" class="bcn-field" type="text" maxlength="80" autocomplete="address-level2" />
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">State / region</span>
+                <input data-col="region" class="bcn-field" type="text" maxlength="80" autocomplete="address-level1" />
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">Postal code</span>
+                <input data-col="postal_code" class="bcn-field" type="text" maxlength="20" autocomplete="postal-code" />
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">Country</span>
+                <input data-col="country" class="bcn-field" type="text" maxlength="80" autocomplete="country-name" />
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">Purchasing contact</span>
+                <input data-col="purchasing_contact_name" class="bcn-field" type="text" maxlength="120" />
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">Contact phone</span>
+                <input data-col="purchasing_contact_phone" class="bcn-field" type="text" maxlength="40" />
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">Contact email</span>
+                <input data-col="purchasing_contact_email" class="bcn-field" type="email" maxlength="160" />
+              </label>
+            </div>
+            <p class="ws-note" style="margin-top:14px;">
+              Printed on the PO Builder's vendor PDF: the legal name in the header and footer, the ship-to
+              block, and the buyer contact. Leave the legal name blank to use the company name above; leave
+              the contact blank to print whoever generates the PO. A blank address is shown as not configured.
+            </p>
+            <div class="ws-actions" style="margin-top:14px;">
+              <button class="bcn-btn bcn-btn--primary" id="btnSaveDocs" disabled>Save changes</button>
+              <span class="ws-you" id="docsHint"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ws-card">
           <div class="ws-card-head"><div class="ws-title">Workspace</div></div>
           <div class="ws-body">
             <dl class="ws-grid">
@@ -87,7 +151,12 @@
   }
   const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const el = (id) => document.getElementById(id);
-  let _co = null, _canEdit = false, _loaded = null;
+  let _co = null, _canEdit = false, _loaded = null, _docsAvailable = true;
+  // Document identity columns on company_settings (20260922130000): what the
+  // PO Builder's vendor PDF prints. One input per column, keyed by data-col.
+  const DOC_COLS = ['legal_name', 'address_line1', 'address_line2', 'city', 'region', 'postal_code', 'country', 'phone', 'purchasing_contact_name', 'purchasing_contact_phone', 'purchasing_contact_email'];
+  const docInputs = () => [...document.querySelectorAll('[data-col]')];
+  const docValues = () => Object.fromEntries(docInputs().map((n) => [n.dataset.col, n.value.trim() || null]));
 
   function roleLabel(role) {
     return ({ owner_admin: 'Owner', owner: 'Owner', executive: 'Executive',
@@ -109,7 +178,12 @@
   // Disabling the inputs makes that visible before somebody types into them.
   function applyPermission() {
     for (const id of ['fldName', 'fldTimezone', 'fldCurrency']) el(id).disabled = !_canEdit;
+    for (const n of docInputs()) n.disabled = !_canEdit || !_docsAvailable;
     el('btnSave').disabled = true;
+    el('btnSaveDocs').disabled = true;
+    el('docsHint').textContent = !_docsAvailable
+      ? 'Not available yet: the company document identity migration has not been applied to this database.'
+      : _canEdit ? '' : 'Only a workspace owner can change these settings.';
     el('saveHint').textContent = _canEdit
       ? '' : 'Only a workspace owner can change these settings.';
   }
@@ -118,13 +192,25 @@
     if (!_loaded) return false;
     return el('fldName').value.trim() !== _loaded.title
       || el('fldTimezone').value !== _loaded.business_timezone
-      || el('fldCurrency').value.trim().toUpperCase() !== _loaded.default_currency;
+      || el('fldCurrency').value.trim().toUpperCase() !== _loaded.default_currency
+      || (_docsAvailable && DOC_COLS.some((c) => (docValues()[c] || null) !== (_loaded.docs[c] || null)));
   }
 
   async function load() {
+    // Feature-detect the document columns (20260922130000): a 42703 means the
+    // migration is not applied yet, so read the base row and say the Documents
+    // card is unavailable rather than rendering the page as if the workspace
+    // had no settings at all.
+    let settingsRead = await db.from('company_settings')
+      .select('business_timezone, default_currency, ' + DOC_COLS.join(', '))
+      .eq('company_entity_id', _co.id).maybeSingle();
+    _docsAvailable = settingsRead.error?.code !== '42703';
+    if (!_docsAvailable) {
+      settingsRead = await db.from('company_settings').select('business_timezone, default_currency')
+        .eq('company_entity_id', _co.id).maybeSingle();
+    }
     const [{ data: settings }, { data: tzs }, { data: entity }, { count: members }] = await Promise.all([
-      db.from('company_settings').select('business_timezone, default_currency')
-        .eq('company_entity_id', _co.id).maybeSingle(),
+      settingsRead,
       db.from('supported_business_timezones').select('tz_name, note').eq('is_supported', true).order('tz_name'),
       db.from('entities').select('title, entity_key, created_at').eq('id', _co.id).maybeSingle(),
       db.from('entity_memberships').select('user_id', { count: 'exact', head: true }).eq('entity_id', _co.id),
@@ -134,7 +220,9 @@
       title: entity?.title || '',
       business_timezone: settings?.business_timezone || '',
       default_currency: settings?.default_currency || '',
+      docs: Object.fromEntries(DOC_COLS.map((c) => [c, settings?.[c] || null])),
     };
+    for (const n of docInputs()) n.value = _loaded.docs[n.dataset.col] || '';
 
     el('fldName').value = _loaded.title;
     el('fldCurrency').value = _loaded.default_currency;
@@ -168,8 +256,14 @@
     const currency = el('fldCurrency').value.trim().toUpperCase();
     if (!name) { setStatus('A company name is required.', 'neg', 8000); return; }
     if (!/^[A-Z]{3}$/.test(currency)) { setStatus('Currency must be a three-letter code, e.g. USD.', 'neg', 8000); return; }
+    const docs = docValues();
+    if (docs.purchasing_contact_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(docs.purchasing_contact_email)) {
+      setStatus('The purchasing contact email does not look like an email address.', 'neg', 8000); return;
+    }
+    const docsChanged = _docsAvailable && DOC_COLS.some((c) => (docs[c] || null) !== (_loaded.docs[c] || null));
 
     el('btnSave').disabled = true;
+    el('btnSaveDocs').disabled = true;
     setStatus('Saving…', 'info');
     try {
       // Through an RPC, not a table UPDATE: `entities` has no update policy,
@@ -178,9 +272,9 @@
         const { error } = await db.rpc('set_workspace_company_name', { p_title: name });
         if (error) throw error;
       }
-      if (tz !== _loaded.business_timezone || currency !== _loaded.default_currency) {
+      if (tz !== _loaded.business_timezone || currency !== _loaded.default_currency || docsChanged) {
         const { data, error } = await db.from('company_settings')
-          .update({ business_timezone: tz, default_currency: currency })
+          .update({ business_timezone: tz, default_currency: currency, ...(_docsAvailable ? docs : {}) })
           .eq('company_entity_id', _co.id)
           .select('company_entity_id');
         if (error) throw error;
@@ -198,6 +292,7 @@
       setStatus(e?.message || String(e), 'neg', 15000);
     } finally {
       el('btnSave').disabled = !dirty();
+      el('btnSaveDocs').disabled = !dirty();
     }
   }
 
@@ -235,11 +330,13 @@
     await load();
     applyPermission();
 
-    for (const id of ['fldName', 'fldTimezone', 'fldCurrency']) {
-      el(id).addEventListener('input', () => { el('btnSave').disabled = !_canEdit || !dirty(); });
-      el(id).addEventListener('change', () => { el('btnSave').disabled = !_canEdit || !dirty(); });
+    const refreshButtons = () => { const off = !_canEdit || !dirty(); el('btnSave').disabled = off; el('btnSaveDocs').disabled = off; };
+    for (const n of [el('fldName'), el('fldTimezone'), el('fldCurrency'), ...docInputs()]) {
+      n.addEventListener('input', refreshButtons);
+      n.addEventListener('change', refreshButtons);
     }
     el('btnSave').addEventListener('click', save);
+    el('btnSaveDocs').addEventListener('click', save);
   })().catch((e) => {
     console.error(e);
     setStatus(`Unexpected error: ${e?.message || e}`, 'neg');

@@ -4254,6 +4254,18 @@ select 'Customer archiving' as check_name,
    then 'CRITICAL: archiving is callable with the anon key'
  else 'ok' end as status;
 
+-- The PO Builder vendor PDF prints the company's legal name, ship-to and
+-- buyer contact from these columns (20260922130000). Before that they were
+-- Baseballism literals in the page, printed for every tenant.
+select 'Company document identity' as check_name,
+ case
+ when (select count(*) from information_schema.columns
+   where table_schema='public' and table_name='company_settings'
+     and column_name in ('legal_name','address_line1','address_line2','city','region','postal_code',
+                         'country','phone','purchasing_contact_name','purchasing_contact_phone','purchasing_contact_email')) < 11
+   then 'MISSING: company document identity migration 20260922130000'
+ else 'ok' end as status;
+
 select 'Customer open applications' as check_name,
  case
  when to_regclass('public.customer_accounts') is null

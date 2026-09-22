@@ -18943,6 +18943,16 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260921120000_open_customer_applications.sql
 \i migrations/20260921140000_open_applications_toggle.sql
 \i migrations/20260921160000_archive_customer_accounts.sql
+-- ── Pause legacy Slack (2026-09-22, #750) ─────────────────────────────────
+-- Drops the seven trg_slack_* triggers, their functions and the daily cron
+-- that called the unauthenticated notify-slack function. Idempotent.
+-- (Missed from this file when #750 merged; added with the next migration.)
+\i migrations/20260922023803_pause_legacy_slack_notifications.sql
+-- ── Company document identity (2026-09-22) ────────────────────────────────
+-- Legal name, ship-to and purchasing contact on company_settings, read by the
+-- PO Builder vendor PDF instead of the Baseballism literals it printed for
+-- every tenant. Additive; the Baseballism seed writes only where null.
+\i migrations/20260922130000_company_document_identity.sql
 
 -- ── Workspace Settings administration (2026-09-20) ────────────────────────
 -- Four SECURITY DEFINER functions behind the Workspace Settings Team and

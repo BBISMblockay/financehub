@@ -40,6 +40,9 @@ on:
       # membership RPCs behind the Team tab.
       - 'v2/workspace-settings.*'
       - 'v2/settings-company.html'
+      - 'v2/po-builder.html'
+      - 'v2/po-document-identity.js'
+      - 'supabase/migrations/*company_document_identity.sql'
       - 'v2/settings-team.html'
       - 'v2/settings-notifications.html'
       - 'v2/platform-admin.html'
@@ -224,6 +227,12 @@ jobs:
       # platform link that a company owner can never see.
       - name: Workspace settings navigation and platform separation
         run: node --test scripts/tests/workspace-settings.test.mjs
+
+      # The PO Builder vendor PDF names the company from company_settings.
+      # It printed Baseballism's name, address and buyer for every tenant
+      # until 2026-09-22; this pins the fallbacks and that no literal returns.
+      - name: PO document identity comes from company settings, never a literal
+        run: node --test scripts/tests/po-document-identity.test.mjs
 
       # Making an env var mandatory in a script silently breaks every workflow
       # that runs it without one, and a workflow_dispatch-only job proves itself
@@ -578,6 +587,12 @@ jobs:
       # the PGlite install above.
       - name: Execute legacy Slack pause regressions
         run: node scripts/tests/legacy-slack-pause.test.mjs
+
+      # 20260922130000: the PO Builder's document identity columns. Proves the
+      # migration applies twice, seeds Baseballism with what its PDF printed
+      # before, and never overwrites a value the settings page wrote.
+      - name: Execute company document identity migration regressions
+        run: node scripts/tests/company-document-identity-database.test.mjs
 
       # The entity admin gate answered about the wrong company: is_owner_admin()
       # asked "am I an admin ANYWHERE" and then said yes for every tenant. The
