@@ -120,6 +120,7 @@
             </p>
             <div class="ws-actions" style="margin-top:14px;">
               <button class="bcn-btn bcn-btn--primary" id="btnSaveDocs" disabled>Save changes</button>
+              <span class="ws-you" id="docsHint"></span>
             </div>
           </div>
         </div>
@@ -150,7 +151,7 @@
   }
   const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const el = (id) => document.getElementById(id);
-  let _co = null, _canEdit = false, _loaded = null;
+  let _co = null, _canEdit = false, _loaded = null, _docsAvailable = true;
   // Document identity columns on company_settings (20260922130000): what the
   // PO Builder's vendor PDF prints. One input per column, keyed by data-col.
   const DOC_COLS = ['legal_name', 'address_line1', 'address_line2', 'city', 'region', 'postal_code', 'country', 'phone', 'purchasing_contact_name', 'purchasing_contact_phone', 'purchasing_contact_email'];
@@ -177,9 +178,12 @@
   // Disabling the inputs makes that visible before somebody types into them.
   function applyPermission() {
     for (const id of ['fldName', 'fldTimezone', 'fldCurrency']) el(id).disabled = !_canEdit;
-    for (const n of docInputs()) n.disabled = !_canEdit;
+    for (const n of docInputs()) n.disabled = !_canEdit || !_docsAvailable;
     el('btnSave').disabled = true;
     el('btnSaveDocs').disabled = true;
+    el('docsHint').textContent = !_docsAvailable
+      ? 'Not available yet: the company document identity migration has not been applied to this database.'
+      : _canEdit ? '' : 'Only a workspace owner can change these settings.';
     el('saveHint').textContent = _canEdit
       ? '' : 'Only a workspace owner can change these settings.';
   }
@@ -189,13 +193,24 @@
     return el('fldName').value.trim() !== _loaded.title
       || el('fldTimezone').value !== _loaded.business_timezone
       || el('fldCurrency').value.trim().toUpperCase() !== _loaded.default_currency
-      || DOC_COLS.some((c) => (docValues()[c] || null) !== (_loaded.docs[c] || null));
+      || (_docsAvailable && DOC_COLS.some((c) => (docValues()[c] || null) !== (_loaded.docs[c] || null)));
   }
 
   async function load() {
+    // Feature-detect the document columns (20260922130000): a 42703 means the
+    // migration is not applied yet, so read the base row and say the Documents
+    // card is unavailable rather than rendering the page as if the workspace
+    // had no settings at all.
+    let settingsRead = await db.from('company_settings')
+      .select('business_timezone, default_currency, ' + DOC_COLS.join(', '))
+      .eq('company_entity_id', _co.id).maybeSingle();
+    _docsAvailable = settingsRead.error?.code !== '42703';
+    if (!_docsAvailable) {
+      settingsRead = await db.from('company_settings').select('business_timezone, default_currency')
+        .eq('company_entity_id', _co.id).maybeSingle();
+    }
     const [{ data: settings }, { data: tzs }, { data: entity }, { count: members }] = await Promise.all([
-      db.from('company_settings').select('business_timezone, default_currency, ' + DOC_COLS.join(', '))
-        .eq('company_entity_id', _co.id).maybeSingle(),
+      settingsRead,
       db.from('supported_business_timezones').select('tz_name, note').eq('is_supported', true).order('tz_name'),
       db.from('entities').select('title, entity_key, created_at').eq('id', _co.id).maybeSingle(),
       db.from('entity_memberships').select('user_id', { count: 'exact', head: true }).eq('entity_id', _co.id),
@@ -245,7 +260,7 @@
     if (docs.purchasing_contact_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(docs.purchasing_contact_email)) {
       setStatus('The purchasing contact email does not look like an email address.', 'neg', 8000); return;
     }
-    const docsChanged = DOC_COLS.some((c) => (docs[c] || null) !== (_loaded.docs[c] || null));
+    const docsChanged = _docsAvailable && DOC_COLS.some((c) => (docs[c] || null) !== (_loaded.docs[c] || null));
 
     el('btnSave').disabled = true;
     el('btnSaveDocs').disabled = true;
@@ -259,7 +274,7 @@
       }
       if (tz !== _loaded.business_timezone || currency !== _loaded.default_currency || docsChanged) {
         const { data, error } = await db.from('company_settings')
-          .update({ business_timezone: tz, default_currency: currency, ...docs })
+          .update({ business_timezone: tz, default_currency: currency, ...(_docsAvailable ? docs : {}) })
           .eq('company_entity_id', _co.id)
           .select('company_entity_id');
         if (error) throw error;
