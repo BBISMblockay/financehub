@@ -54,11 +54,16 @@ is the authority on what is still to do.
       Deploy it that way, not by transmitting the file through an API client:
       that is what truncated two deploys and took Ask SILO down on 2026-08-25,
       and the workflow exists specifically to remove the failure mode
-- [ ] **Launch capture discipline.** 43 of 61 launches cannot be measured
+- [x] **Launch capture discipline.** 43 of 61 launches cannot be measured
       because nobody attached products or linked a PO, and nothing in the UI
       asks. This is unrecoverable after the fact — launches overlap heavily,
-      so you cannot reconstruct which one sold what. Cheapest fix in the
-      system: prompt for it in the launch form
+      so you cannot reconstruct which one sold what. Done 2026-09-22
+      (`20260922150000`): the launch form refuses to save an unlinked launch
+      until the person commits to attaching products or marks them "not known
+      yet", which is stored and stays visible (drawer/agenda marker and a
+      MEASUREMENT filter) until the launch is linked. The existing 43 are not
+      back-filled — they surface under "No products or PO" for a person to fix
+      or leave
 - [ ] Post-merge SQL checklist on every DB PR (`verify_v2_schema.sql`)
 - [x] Sync architecture: one GitHub Action (`shopify-sync.yml`, daily 08:30 UTC)
       pulls sales + inventory + catalog + payouts straight from the Shopify
