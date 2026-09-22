@@ -128,3 +128,29 @@ test('tenant and data-source inputs are required, never blank-defaulted', async 
       `${workflowName} input ${input} still carries a blank default`);
   }
 });
+
+// A suite that no workflow names is a suite CI never runs, and the workflow
+// still goes green because `scripts/tests/**` triggered it. PR #750 shipped
+// legacy-slack-pause.test.mjs that way: every listed step passed, none of its
+// six assertions executed, and only the independent review noticed. The two
+// names below were already unwired when this check was written and are
+// pinned so the list cannot rot: wiring one of them up must remove it here.
+const KNOWN_UNWIRED = new Set(['customer-readiness-ui.test.mjs', 'seo-overview.test.mjs']);
+
+test('every suite under scripts/tests is invoked by some workflow', async () => {
+  const suites = (await readdir(new URL('tests/', SCRIPT_DIR))).filter((f) => f.endsWith('.test.mjs'));
+  // Only a `node ...` invocation on a non-comment line counts. A plain
+  // substring match passed with the step deleted, because a comment in the
+  // trigger-paths block still named the file (caught by mutation, not review).
+  const invocations = [...workflows.values()].join('\n').split('\n')
+    .filter((line) => !/^\s*#/.test(line) && /\bnode\b/.test(line)).join('\n');
+  const isInvoked = (name) => invocations.includes(name);
+  const unwired = suites.filter((name) => !isInvoked(name));
+  const unexpected = unwired.filter((name) => !KNOWN_UNWIRED.has(name));
+  assert.deepEqual(unexpected, [],
+    `no workflow runs:\n  ${unexpected.join('\n  ')}\nadd a step to .github/workflows/sync-tests.yml`);
+  const nowWired = [...KNOWN_UNWIRED].filter(isInvoked);
+  assert.deepEqual(nowWired, [], `remove from KNOWN_UNWIRED, a workflow now runs: ${nowWired.join(', ')}`);
+  const missing = [...KNOWN_UNWIRED].filter((name) => !suites.includes(name));
+  assert.deepEqual(missing, [], `KNOWN_UNWIRED names a suite that no longer exists: ${missing.join(', ')}`);
+});

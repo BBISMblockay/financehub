@@ -11,9 +11,9 @@
  * Both have happened here. `silo-chat` ran a version behind `main` twice in
  * two weeks (2026-08-26 and 2026-09-07) because merging a PR does not deploy,
  * and the only way anyone found out was a model being told a row cap that
- * was no longer true. Four functions (bright-action, replace-product-tags,
- * notify-slack, oneoff-meta-sync) are deployed with no source checked in;
- * one of them is called by a DB trigger. Those four are KNOWN and listed
+ * was no longer true. Three functions (bright-action, replace-product-tags,
+ * oneoff-meta-sync) are deployed with no source checked in. Those three are
+ * KNOWN and listed
  * below so they warn rather than fail -- a new one fails, because a function
  * that exists only in production is exactly the drift this exists to catch.
  *
@@ -33,7 +33,7 @@ const FN_DIR = 'supabase/functions';
 // Deployed with no source in this repo, as of 2026-09-10. Documented in
 // CLAUDE.md ("Not in this repo"). Adding a slug here is a decision to keep
 // living with it; the honest fix is checking the source in.
-const KNOWN_UNSOURCED = new Set(['bright-action', 'replace-product-tags', 'notify-slack', 'oneoff-meta-sync']);
+const KNOWN_UNSOURCED = new Set(['bright-action', 'replace-product-tags', 'oneoff-meta-sync']);
 
 // A content difference somebody has decided not to reconcile YET.
 //

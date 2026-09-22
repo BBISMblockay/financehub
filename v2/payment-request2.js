@@ -3,7 +3,7 @@ import { saveDraft, listDrafts } from './payment-request2-drafts.js';
 import { readDocumentOnDevice } from './payment-request2-reader-browser.js';
 import { mountPdfPreview } from './payment-request2-preview.js';
 import { interpretMissing } from './payment-request2-reader.js';
-import { submitRequest } from './payment-request2-submit.js';
+import { submitRequest, resumeMessage } from './payment-request2-submit.js';
 import { createDuplicateChecker, duplicateAcknowledgement } from './payment-request2-duplicates.js';
 
 const $ = id => document.getElementById(id);
@@ -43,7 +43,7 @@ function lockUI() {
   $('dropzone').setAttribute('aria-disabled', String(busy || frozen || invalidSession));
   $('submitBtn').textContent = busy ? 'Working…' : frozen ? 'Retry this request' : 'Submit to AP';
   if (!busy && !frozen && !invalidSession) $('readDocument').disabled = !readablePrimary();
-  $('draftBadge').textContent = frozen ? 'Submission started' : 'Not submitted';
+  $('draftBadge').textContent = frozen ? (draft.lastSubmitError ? 'Last attempt rejected' : 'Submission started') : 'Not submitted';
   $('duplicateAck').disabled = busy || frozen || invalidSession;
   for (const button of $('attachmentList').querySelectorAll('button')) button.disabled = busy || frozen || invalidSession;
 }
@@ -67,8 +67,9 @@ async function showDraftShelf() {
     button.addEventListener('click', () => {
       if (busy || draft.payload) return;
       if (dirty) { feedback('Save your current draft on this device before opening another.'); return; }
+      const resume = resumeMessage(item);
       draft = item; renderDraft(); $('draftShelf').hidden = true;
-      feedback(item.payload ? 'Submission already started. Retry here to finish the same request; fields are frozen.' : 'Draft restored from this device. Recheck the details before submitting.');
+      feedback(resume.message, resume.tone);
     });
     $('draftList').append(button);
   }

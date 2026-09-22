@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 import { saveDraft, listDrafts } from '../../payment-request2-drafts.js';
-import { submitRequest } from '../../payment-request2-submit.js';
+import { submitRequest, resumeMessage } from '../../payment-request2-submit.js';
 import { FIELD_NAMES } from '../../payment-request2-core.js';
 const scope = 'company:user';
 const connect = version => new Promise((resolve, reject) => {
@@ -18,9 +18,9 @@ const stored = async id => { const db = await connect(2); try { return await tra
 const draft = id => ({ id, revision: 0, status: 'draft', reviewed: true, fields: { ...Object.fromEntries(FIELD_NAMES.map(k => [k, ''])), vendor_name: 'Confidential Vendor', amount_due: '250', currency: 'USD', request_type: 'invoice_vendor_payment', requester_email: 'private@example.invalid' }, poNames: [], files: [{ id: `file-${id}`, name: 'confidential.pdf', blob: new Blob(['confidential bytes']) }], localRead: { text: 'confidential invoice plaintext' }, suggestion: { vendor_name: 'Confidential Vendor' } });
 const tombstoneKeys = ['id', 'key', 'revision', 'savedAt', 'scope', 'status'].sort();
 function clean(record) { assert.deepEqual(Object.keys(record).sort(), tombstoneKeys); assert.equal(record.status, 'submitted'); assert.equal(JSON.stringify(record).includes('confidential'), false); }
-function server({ failUpload = false, status } = {}) {
+function server({ failUpload = false, failInsert = null, status } = {}) {
   const requests = new Map(), files = new Map(); let inserts = 0;
-  const db = { from(table) { const filters = {}; return { select() { return this; }, eq(k, v) { filters[k] = v; return this; }, async maybeSingle() { return { data: [...(table === 'payment_requests' ? requests : files).values()].find(r => Object.entries(filters).every(([k, v]) => r[k] === v)) || null }; }, async insert(row) { (table === 'payment_requests' ? requests : files).set(row.id, structuredClone(row)); if (table === 'payment_requests') inserts++; return {}; } }; }, storage: { from: () => ({ upload: async () => failUpload ? { error: Error('offline') } : {}, download: async () => ({ error: Error('missing') }) }) }, functions: { invoke: async () => ({ data: { ok: true } }) } };
+  const db = { from(table) { const filters = {}; return { select() { return this; }, eq(k, v) { filters[k] = v; return this; }, async maybeSingle() { return { data: [...(table === 'payment_requests' ? requests : files).values()].find(r => Object.entries(filters).every(([k, v]) => r[k] === v)) || null }; }, async insert(row) { if (table === 'payment_requests' && failInsert) return { error: failInsert }; (table === 'payment_requests' ? requests : files).set(row.id, structuredClone(row)); if (table === 'payment_requests') inserts++; return {}; } }; }, storage: { from: () => ({ upload: async () => failUpload ? { error: Error('offline') } : {}, download: async () => ({ error: Error('missing') }) }) }, functions: { invoke: async () => ({ data: { ok: true } }) } };
   return { db, requests, get inserts() { return inserts; }, prepare(d) { if (status) requests.set(d.id, { id: d.id, company_entity_id: 'company', created_by: 'user', workflow_status: status }); }, run: async d => submitRequest({ db, draft: d, userId: 'user', companyId: 'company', assertContext: async () => {}, checkpoint: value => saveDraft(scope, value) }) };
 }
 // Seed the old shipped version before the new code opens its connection.
@@ -54,3 +54,13 @@ assert.equal((await ap.run(forwarded)).filesComplete, false);
 assert.equal((await stored(forwarded.id)).status, 'needs_ap_help'); assert.equal((await stored(forwarded.id)).files[0].blob.size, 18);
 assert.ok((await listDrafts(scope)).some(row => row.id === forwarded.id));
 console.log('PASS unfinished AP-forwarded requests keep their remaining documents visible');
+// The reason an insert was rejected must survive the reload it is recovered
+// through: it rides the same IndexedDB record as the frozen payload, and the
+// draft shelf renders it from that record.
+const rejected = draft('rejected'); const denied = server({ failInsert: { code: '42501', message: 'new row violates row-level security policy for table "payment_requests"' } });
+await assert.rejects(denied.run(rejected), /\[42501\]/);
+const kept = (await listDrafts(scope)).find(row => row.id === rejected.id);
+assert.equal(kept.status, 'submitting'); assert.ok(kept.payload); assert.equal(kept.lastSubmitError.code, '42501');
+assert.match(resumeMessage(kept).message, /row-level security policy for table "payment_requests" \[42501\]/);
+assert.equal(resumeMessage(kept).tone, 'neg');
+console.log('PASS a rejected submission keeps its reason and code across a reload');

@@ -1,5 +1,43 @@
 import { requestPayload, safeFileName } from './payment-request2-core.js';
 
+function cleanErrorPart(value, max = 280) {
+  return String(value || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+// PostgREST/Supabase errors are already written for API callers, but keep the
+// displayed text bounded and free of control characters. Persisting the same
+// safe shape in the local draft means a retry never erases the reason the
+// first attempt failed.
+export function safeInsertFailure(error) {
+  const code = cleanErrorPart(error?.code, 40);
+  const message = cleanErrorPart(error?.message || error, 280) || 'The database did not accept the request.';
+  const details = cleanErrorPart(error?.details, 180);
+  const hint = cleanErrorPart(error?.hint, 180);
+  return { code: code || null, message, details: details || null, hint: hint || null };
+}
+
+export function insertFailureMessage(failure) {
+  const suffix = failure.code ? ` [${failure.code}]` : '';
+  return `Request was not created: ${failure.message}${suffix}`;
+}
+
+// What the page says when a saved item is reopened from the draft shelf. A
+// reload is the recovery path for a submission the database rejected, so the
+// stored reason and code are rendered there rather than a generic prompt --
+// otherwise the diagnostic persisted above is visible only until the refresh.
+// The stored shape is re-bounded through safeInsertFailure so an older or
+// hand-edited record cannot put an unbounded string on the page.
+export function resumeMessage(item) {
+  if (item?.payload && item.lastSubmitError) {
+    const failure = safeInsertFailure(item.lastSubmitError);
+    const at = Date.parse(item.lastSubmitError.at);
+    const when = Number.isFinite(at) ? ` (${new Date(at).toLocaleString()})` : '';
+    return { tone: 'neg', message: `Submission already started, and the last attempt${when} was rejected. ${insertFailureMessage(failure)} Retry here to finish the same request; fields are frozen.` };
+  }
+  if (item?.payload) return { tone: 'info', message: 'Submission already started. Retry here to finish the same request; fields are frozen.' };
+  return { tone: 'info', message: 'Draft restored from this device. Recheck the details before submitting.' };
+}
+
 // Every side effect is reached through this function in both the page and tests.
 // A checkpoint must succeed BEFORE the first write and before receipt delivery.
 export async function submitRequest({ db, draft, userId, companyId, assertContext, checkpoint, progress = () => {} }) {
@@ -29,9 +67,15 @@ export async function submitRequest({ db, draft, userId, companyId, assertContex
     catch (error) { insertError = error; }
     if (insertError) {
       row = await readRequest();
-      if (!row) throw Error('Submission could not be confirmed. Your saved draft keeps the same reference; retry here.');
+      if (!row) {
+        const failure = safeInsertFailure(insertError);
+        draft.lastSubmitError = { ...failure, at: new Date().toISOString() };
+        await checkpoint(draft);
+        throw Error(`${insertFailureMessage(failure)} Your saved draft keeps the same reference; retry here.`);
+      }
     } else row = { ...payload };
   }
+  delete draft.lastSubmitError;
   draft.requestSaved = true;
   await checkpoint(draft);
   if (!['new', 'in_review', 'needs_info'].includes(row.workflow_status)) {
