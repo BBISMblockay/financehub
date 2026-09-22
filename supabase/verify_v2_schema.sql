@@ -4572,6 +4572,23 @@ select 'Notification sender resolves per tenant' as check_name,
    then 'CRITICAL: anon can execute resolve_notification_sender'
  else 'ok' end as status;
 
+-- Legacy shared Slack must remain fully disconnected while the integration is
+-- paused. sample-notify is intentionally excluded: email still uses it and its
+-- optional Slack delivery is secret-gated.
+select 'Legacy Slack delivery is paused' as check_name,
+  case when exists (
+    select 1
+    from pg_trigger t
+    join pg_proc p on p.oid = t.tgfoid
+    where not t.tgisinternal
+      and (t.tgname like 'trg_slack_%' or p.proname like 'notify_slack_%')
+  ) or exists (
+    select 1 from cron.job
+    where jobname = 'silo-daily-slack-summary'
+       or command ilike '%send_daily_slack_summary%'
+  ) then 'CRITICAL — a legacy Slack trigger or cron is still active'
+  else 'ok' end as status;
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further
