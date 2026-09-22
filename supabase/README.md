@@ -1932,3 +1932,24 @@ a re-run. Ends with `refresh_chat_schema_catalog()`.
 
 Regression: `scripts/tests/po-document-identity.test.mjs` (Unit job).
 
+## Launch "products not known yet" — `20260922150000_launch_products_unknown.sql`
+
+A launch is measured only through a linked PO or products attached in its
+Products tab, and 43 of 61 launches were unmeasurable because nobody attached
+either — unrecoverable afterwards, since launches overlap and a date window
+cannot separate them. `/v2/launch-calendar.html` now refuses to save a launch
+with no link until the person picks one of: link a PO, "I'll attach products
+right after saving", or "products not known yet". The last is stored here —
+`launch_calendar.products_unknown_at` / `_note`, with `_by` stamped from
+`auth.uid()` by `trg_launch_products_unknown` (never from the browser) — and
+the launch carries a "Products not known yet" marker plus a MEASUREMENT filter
+until it is linked. A CHECK keeps `_by`/`_note` null while the flag is unset.
+No policy change and no change to `launch_measurability_v`,
+`launch_actuals_v` or `launch_product_actuals_v`. Ends with
+`refresh_chat_schema_catalog()`. Before it is applied, the page still saves
+every launch; only the "not known yet" choice fails, with a message naming this
+migration.
+
+Regression: `v2/tests/unit/launch-product-link.test.js`,
+`v2/tests/browser/launch-form-link.test.js`.
+

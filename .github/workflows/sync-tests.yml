@@ -43,6 +43,8 @@ on:
       - 'v2/po-builder.html'
       - 'v2/po-document-identity.js'
       - 'supabase/migrations/*company_document_identity.sql'
+      - 'supabase/migrations/*launch_products_unknown.sql'
+      - 'scripts/tests/launch-products-unknown-database.test.mjs'
       - 'v2/settings-team.html'
       - 'v2/settings-notifications.html'
       - 'v2/platform-admin.html'
@@ -593,6 +595,12 @@ jobs:
       # before, and never overwrites a value the settings page wrote.
       - name: Execute company document identity migration regressions
         run: node scripts/tests/company-document-identity-database.test.mjs
+
+      # 20260922150000: the launch form's "products not known yet" flag. Proves
+      # the author is stamped from auth.uid() (never the client), survives a
+      # later edit, and a cleared flag carries no stale author or note.
+      - name: Execute launch products-unknown migration regressions
+        run: node scripts/tests/launch-products-unknown-database.test.mjs
 
       # The entity admin gate answered about the wrong company: is_owner_admin()
       # asked "am I an admin ANYWHERE" and then said yes for every tenant. The

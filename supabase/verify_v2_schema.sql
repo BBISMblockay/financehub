@@ -4266,6 +4266,23 @@ select 'Company document identity' as check_name,
    then 'MISSING: company document identity migration 20260922130000'
  else 'ok' end as status;
 
+-- The launch form records an intentional "products not known yet" so an
+-- unmeasurable launch stays visible for follow-up (20260922150000). `by` is
+-- stamped by trigger, never trusted from the browser.
+select 'Launch products-unknown flag' as check_name,
+ case
+ when (select count(*) from information_schema.columns
+   where table_schema='public' and table_name='launch_calendar'
+     and column_name in ('products_unknown_at','products_unknown_by','products_unknown_note')) < 3
+   then 'MISSING: launch products-unknown migration 20260922150000'
+ when not exists(select 1 from pg_trigger
+   where tgrelid='public.launch_calendar'::regclass and tgname='trg_launch_products_unknown' and not tgisinternal)
+   then 'MISSING: trg_launch_products_unknown (products_unknown_by would be client-supplied)'
+ when not exists(select 1 from pg_constraint
+   where conrelid='public.launch_calendar'::regclass and conname='launch_calendar_products_unknown_consistent')
+   then 'MISSING: launch_calendar_products_unknown_consistent'
+ else 'ok' end as status;
+
 select 'Customer open applications' as check_name,
  case
  when to_regclass('public.customer_accounts') is null
