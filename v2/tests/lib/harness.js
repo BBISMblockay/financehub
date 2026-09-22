@@ -405,7 +405,10 @@ async function startSuite(options = {}) {
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
-  const base = `http://silo.test:${port}`;
+  // Secure-context suites need real Web Locks/crypto, not a shim. Loopback is
+  // trustworthy in Chromium; the insecure-origin override did not make the
+  // silo.test context secure in CI. Keep the neutral host for demo-aware pages.
+  const base = `http://${options.secureContext ? '127.0.0.1' : 'silo.test'}:${port}`;
 
   // Some pages (projections.html) switch themselves into a built-in DEMO mode
   // when the hostname looks like localhost -- which a test server always does.
@@ -413,7 +416,7 @@ async function startSuite(options = {}) {
   // Supabase path against the fixtures, rather than its demo seed data.
   const browser = await chromium.launch({
     executablePath: chromiumPath(),
-    args: ['--host-resolver-rules=MAP silo.test 127.0.0.1', ...(options.secureContext ? [`--unsafely-treat-insecure-origin-as-secure=${base}`] : [])],
+    args: ['--host-resolver-rules=MAP silo.test 127.0.0.1'],
   });
   const context = await browser.newContext({ viewport });
 

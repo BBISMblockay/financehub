@@ -5,6 +5,12 @@ const { startSuite, fakeSupabaseScript } = require('../lib/harness');
 (async () => {
   const suite = await startSuite({ secureContext: true });
   try {
+    // Fail on the actual missing capability rather than timing out at page boot.
+    const probe = await suite.context.newPage();
+    await probe.goto(`${suite.base}/v2/payment-request2.css`);
+    assert.deepEqual(await probe.evaluate(() => ({ secure: isSecureContext, uuid: typeof crypto.randomUUID, locks: typeof navigator.locks?.request })),
+      { secure: true, uuid: 'function', locks: 'function' });
+    await probe.close();
     // Payment intake subscribes to auth changes. No real auth or network calls.
     await suite.context.route('**/cdn.jsdelivr.net/**supabase**', route => route.fulfill({ contentType: 'text/javascript', body: fakeSupabaseScript().replace('signOut: function', 'onAuthStateChange: function () { return {}; }, signOut: function') }));
     const tables = {

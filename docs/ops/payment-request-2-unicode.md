@@ -52,9 +52,16 @@ inserting, so a row that appears meanwhile is reconciled, never overwritten.
   primary key on request ID. No production records were read or written.
 - Added a browser test executing the actual page against synthetic fixtures:
   preview/cancel, same-reference recovery/reload/submission, attachment retention,
-  inert HTML text, new-draft review reset and mobile dialog sizing. Local browser
-  gate was attempted but could not launch: Chromium is absent and its download
-  failed/timed out. Browser results are pending CI; no visual pass is claimed.
+  inert HTML text, new-draft review reset and mobile dialog sizing.
+- CI run 35688031001 exposed a test-origin boot failure: the `silo.test` origin
+  remained insecure despite the Chromium override, so `crypto.randomUUID` was
+  unavailable and the page stopped before rendering. Reproduced the original
+  timeout and inspected the page's boot status. Secure-context suites now use
+  loopback; other suites retain their neutral hostname to avoid demo mode.
+  The real recovery browser suite passes locally with Chromium 153. A capability
+  assertion checks native secure context, UUIDs and Web Locks before page boot;
+  restoring the insecure host makes that assertion fail. No production recovery
+  code, authorization checks or submission guarantees changed for this correction.
 - The exact source of the user's reported 22P05 is not proven from their private
   draft. This fixes unsupported text present in the submitted fields; a 22P05
   arising entirely inside a database trigger would need separate investigation.
