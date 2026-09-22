@@ -7,7 +7,11 @@
 .pr2-page .bcn-label { font-size: 14px; margin: 0 0 5px; }
 .pr2-page .bcn-field { width: 100%; min-width: 0; min-height: 42px; font-size: 15px; }
 .pr2-page .bcn-btn { min-height: 42px; font-size: 14px; white-space: normal; }
+/* The repair control is the only way forward for a rejected draft, so it sits
+   directly under the rejection notice as a primary button. As a ghost button it
+   read as a caption and was missed (2026-09-22). */
 .pr2-page .bcn-status { margin: 14px 0; }
+.pr2-page .pr2-repair { display: inline-flex; margin: -4px 0 16px; }
 .pr2-heading { align-items: center; gap: 16px; }
 .pr2-heading p { color: var(--bcn-ink-2); }
 .pr2-steps { display: flex; gap: 24px; list-style: none; padding: 12px 0 20px; margin: 0; color: var(--bcn-ink-2); font-size: 14px; }
