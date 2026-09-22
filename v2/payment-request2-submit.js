@@ -21,6 +21,23 @@ export function insertFailureMessage(failure) {
   return `Request was not created: ${failure.message}${suffix}`;
 }
 
+// What the page says when a saved item is reopened from the draft shelf. A
+// reload is the recovery path for a submission the database rejected, so the
+// stored reason and code are rendered there rather than a generic prompt --
+// otherwise the diagnostic persisted above is visible only until the refresh.
+// The stored shape is re-bounded through safeInsertFailure so an older or
+// hand-edited record cannot put an unbounded string on the page.
+export function resumeMessage(item) {
+  if (item?.payload && item.lastSubmitError) {
+    const failure = safeInsertFailure(item.lastSubmitError);
+    const at = Date.parse(item.lastSubmitError.at);
+    const when = Number.isFinite(at) ? ` (${new Date(at).toLocaleString()})` : '';
+    return { tone: 'neg', message: `Submission already started, and the last attempt${when} was rejected. ${insertFailureMessage(failure)} Retry here to finish the same request; fields are frozen.` };
+  }
+  if (item?.payload) return { tone: 'info', message: 'Submission already started. Retry here to finish the same request; fields are frozen.' };
+  return { tone: 'info', message: 'Draft restored from this device. Recheck the details before submitting.' };
+}
+
 // Every side effect is reached through this function in both the page and tests.
 // A checkpoint must succeed BEFORE the first write and before receipt delivery.
 export async function submitRequest({ db, draft, userId, companyId, assertContext, checkpoint, progress = () => {} }) {

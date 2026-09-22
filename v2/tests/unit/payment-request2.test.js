@@ -4,7 +4,7 @@ const { pathToFileURL } = require('node:url');
 
 (async () => {
   const core = await import(pathToFileURL(path.resolve(__dirname, '../../payment-request2-core.js')));
-  const { submitRequest, safeInsertFailure, insertFailureMessage } = await import(pathToFileURL(path.resolve(__dirname, '../../payment-request2-submit.js')));
+  const { submitRequest, safeInsertFailure, insertFailureMessage, resumeMessage } = await import(pathToFileURL(path.resolve(__dirname, '../../payment-request2-submit.js')));
   let checks = 0;
   async function test(name, fn) { await fn(); checks++; console.log('PASS', name); }
   const fresh = () => ({ id: 'request-1', status: 'draft', reviewed: true, fields: { vendor_name: 'Northline Packaging', request_type: 'inventory_freight', amount_due: '2580.00', invoice_number: '1048', due_date: '2026-10-18', flex_id: 'F-19', requester_email: 'tester@example.com', location_name: 'Main warehouse', notes_comments: 'Two POs', currency: 'USD' }, poNames: ['PO-329', 'PO-330'], files: [{ id: 'file-1', name: 'invoice.pdf', type: 'application/pdf', blob: new Blob(['%PDF-test']) }] });
@@ -103,6 +103,22 @@ const { pathToFileURL } = require('node:url');
     assert.equal(d.lastSubmitError.message, 'insert failed');
     d.fields.amount_due = '1'; f.options.insertReject = false;
     await submitRequest({ ...f.args, draft: d }); assert.equal(f.state.requests.get(d.id).amount_due, 2580); assert.equal(f.state.requests.size, 1); assert.equal(d.lastSubmitError, undefined);
+  });
+  await test('reopening a rejected submission shows the stored reason and code, not the generic prompt', async () => {
+    const f = fixture({ insertReject: true }); const d = fresh();
+    await assert.rejects(submitRequest({ ...f.args, draft: d }), /insert failed/);
+    // The reload path reads the CHECKPOINTED record, so resume from that, not from memory.
+    const saved = structuredClone(f.state.checkpoints.at(-1));
+    const resumed = resumeMessage(saved);
+    assert.equal(resumed.tone, 'neg');
+    assert.match(resumed.message, /Request was not created: insert failed/);
+    assert.match(resumed.message, /Retry here to finish the same request/);
+    const coded = resumeMessage({ payload: {}, lastSubmitError: { code: '42501', message: 'new row violates row-level security policy', at: '2026-09-22T03:00:00Z' } });
+    assert.match(coded.message, /new row violates row-level security policy \[42501\]/);
+    // A stored record is re-bounded, never trusted: an oversized message cannot reach the page.
+    assert.ok(resumeMessage({ payload: {}, lastSubmitError: { message: 'x'.repeat(2000) } }).message.length < 600);
+    assert.deepEqual(resumeMessage({ payload: {} }), { tone: 'info', message: 'Submission already started. Retry here to finish the same request; fields are frozen.' });
+    assert.match(resumeMessage(fresh()).message, /Draft restored/);
   });
   await test('upload failure preserves request and resumes attachments after reload', async () => {
     const f = fixture({ uploadFailure: true }); let d = fresh(); await assert.rejects(submitRequest({ ...f.args, draft: d }), /Request saved/);

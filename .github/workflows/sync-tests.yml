@@ -147,6 +147,10 @@ on:
       - 'supabase/functions/review-finish/**'
       - 'supabase/functions/review-portal/**'
       - 'supabase/functions/payment-request-forward-melio/**'
+      # legacy-slack-pause.test.mjs executes this migration and reads the
+      # inert endpoint; an edit to either must re-run it.
+      - 'supabase/migrations/*pause_legacy_slack_notifications.sql'
+      - 'supabase/functions/notify-slack/**'
       - '.github/workflows/sync-tests.yml'
   pull_request:
     paths: *sync_paths
@@ -565,6 +569,15 @@ jobs:
       # replaced needed six.
       - name: Execute stamp trigger helper and verifier regressions
         run: node scripts/tests/stamp-trigger-helper.test.mjs
+
+      # The seven shared Slack triggers, their functions and the daily cron
+      # must stay gone while the integration is paused, and the checked-in
+      # notify-slack endpoint must be unable to reach Slack. This suite landed
+      # on PR #750 without a step invoking it, so the workflow triggered and
+      # passed having executed none of it (cycle-1 review finding). It needs
+      # the PGlite install above.
+      - name: Execute legacy Slack pause regressions
+        run: node scripts/tests/legacy-slack-pause.test.mjs
 
       # The entity admin gate answered about the wrong company: is_owner_admin()
       # asked "am I an admin ANYWHERE" and then said yes for every tenant. The
