@@ -1,3 +1,5 @@
+import { assertSupportedText } from './payment-request2-text.js';
+
 export const REQUEST_TYPES = {
   invoice_vendor_payment: 'Invoice / vendor payment',
   inventory_deposit: 'Inventory deposit',
@@ -23,6 +25,7 @@ export function validDate(value) {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 export function validateFields(fields, reviewed) {
+  assertSupportedText(fields);
   if (!String(fields.vendor_name || '').trim()) throw Error('Choose who should be paid.');
   if (!Object.hasOwn(REQUEST_TYPES, fields.request_type)) throw Error('Choose a request type.');
   if (money(fields.amount_due) === null) throw Error('Enter the amount requested, with no more than two decimal places.');
@@ -34,6 +37,7 @@ export function validateFields(fields, reviewed) {
 export function requestPayload(draft, userId, companyId) {
   const f = draft.fields;
   validateFields(f, draft.reviewed);
+  assertSupportedText({ internal_po_number: draft.poNames.join(', ') });
   return {
     id: draft.id, company_entity_id: companyId, created_by: userId, updated_by: userId,
     vendor_name: f.vendor_name.trim(), vendor_name_norm: normalizeName(f.vendor_name),

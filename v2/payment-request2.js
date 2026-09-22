@@ -3,7 +3,8 @@ import { saveDraft, listDrafts } from './payment-request2-drafts.js';
 import { readDocumentOnDevice } from './payment-request2-reader-browser.js';
 import { mountPdfPreview } from './payment-request2-preview.js';
 import { interpretMissing } from './payment-request2-reader.js';
-import { submitRequest, resumeMessage } from './payment-request2-submit.js';
+import { submitRequest, resumeMessage, repairDraftText } from './payment-request2-submit.js';
+import { textRepairPlan, visibleText } from './payment-request2-text.js';
 import { createDuplicateChecker, duplicateAcknowledgement } from './payment-request2-duplicates.js';
 
 const $ = id => document.getElementById(id);
@@ -32,6 +33,11 @@ function changed() {
   queueDuplicateCheck();
   $('saveState').textContent = 'Unsaved changes · Drafts stay on this device.';
   updateHints();
+  renderRepairControl();
+}
+function renderRepairControl() {
+  $('repairText').hidden = !textRepairPlan(draft).length;
+  $('repairText').disabled = busy || invalidSession;
 }
 function lockUI() {
   const frozen = !!draft?.payload;
@@ -46,6 +52,38 @@ function lockUI() {
   $('draftBadge').textContent = frozen ? (draft.lastSubmitError ? 'Last attempt rejected' : 'Submission started') : 'Not submitted';
   $('duplicateAck').disabled = busy || frozen || invalidSession;
   for (const button of $('attachmentList').querySelectorAll('button')) button.disabled = busy || frozen || invalidSession;
+  renderRepairControl();
+}
+function reviewTextRepair(changes) {
+  const dialog = $('textRepairDialog');
+  $('textRepairChanges').replaceChildren();
+  for (const change of changes) {
+    const block = element('section');
+    block.append(element('h3', change.label), element('small', 'Original (unsupported characters marked)'), element('pre', visibleText(change.before)), element('small', 'Corrected'), element('pre', change.after || '(empty)'));
+    $('textRepairChanges').append(block);
+  }
+  dialog.returnValue = 'cancel';
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'save'), { once: true });
+    dialog.showModal();
+  });
+}
+async function repairTextOnDevice() {
+  if (busy || invalidSession) return;
+  capture();
+  if (!navigator.locks) { feedback('Use a current browser to safely repair this saved draft.', 'neg'); return; }
+  busy = true; lockUI();
+  try {
+    await navigator.locks.request(`silo-pr2:${scope}:${draft.id}`, { ifAvailable: true }, async lock => {
+      if (!lock) throw Error('This request is open for submission in another tab. Wait, then reload.');
+      const repaired = await repairDraftText({ db, draft, userId: user.id, companyId: company.id, assertContext, checkpoint, review: reviewTextRepair });
+      if (repaired) {
+        renderDraft();
+        feedback(draft.payload ? 'Corrected text saved with the same reference. Use Retry this request to submit.' : 'Corrected text saved. Review your request and check the confirmation before submitting.');
+      }
+    });
+  } catch (error) { feedback(error.message, 'neg'); }
+  finally { busy = false; lockUI(); }
 }
 async function assertContext() {
   if (invalidSession) throw Error('Your session changed. Reload this page before continuing.');
@@ -314,6 +352,7 @@ async function loadLookups() {
   if (reads.some(r => r.status === 'rejected' || r.value.error)) feedback('Some suggestions could not load. You can still enter the request manually.');
 }
 function bind() {
+  $('repairText').addEventListener('click', repairTextOnDevice);
   $('requestForm').addEventListener('submit', submit);
   for (const key of FIELD_NAMES) $(key).addEventListener('input', changed);
   $('manualPo').addEventListener('input', () => { changed(); renderPOs(); });
@@ -340,6 +379,7 @@ function bind() {
   window.addEventListener('beforeunload', e => { if (dirty || busy) { e.preventDefault(); e.returnValue = ''; } });
   db.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_OUT' || session?.user?.id && session.user.id !== user.id) {
+      if ($('textRepairDialog').open) $('textRepairDialog').close('cancel');
       invalidSession = true; readingController?.abort(); readGeneration++; duplicateChecker.dispose(); lockUI();
       $('app').hidden = true; $('success').hidden = true; $('signedOut').hidden = false;
       disposePreview?.(); disposePreview = null;

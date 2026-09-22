@@ -1,4 +1,43 @@
-import { requestPayload, safeFileName } from './payment-request2-core.js';
+import { requestPayload, safeFileName, normalizeName, validateFields } from './payment-request2-core.js';
+import { assertSupportedText, textRepairPlan } from './payment-request2-text.js';
+
+// Called under the SAME Web Lock as submission. No database writes; checkpoint
+// a candidate before replacing the active draft, so failed persistence cannot
+// silently change the next retry's payload. Review never triggers submission.
+export async function repairDraftText({ db, draft, userId, companyId, assertContext, checkpoint, review }) {
+  const changes = textRepairPlan(draft);
+  if (!changes.length) throw Error('No supported text repair is available for this draft.');
+  await assertContext();
+  if (draft.payload && (draft.payload.id !== draft.id || draft.payload.created_by !== userId || draft.payload.company_entity_id !== companyId)) throw Error('This saved request belongs to a different session.');
+  if (!await review(changes)) return false;
+  await assertContext();
+  if (draft.payload) {
+    const { data, error } = await db.from('payment_requests').select('id').eq('id', draft.id).eq('company_entity_id', companyId).maybeSingle();
+    if (error) throw Error('Could not confirm whether AP received this request. Text was not changed; retry later.');
+    if (data) throw Error('AP already has this request. Text was not changed; use Retry this request to finish attachments.');
+  }
+  const next = structuredClone(draft);
+  for (const { key, after } of changes) {
+    if (next.payload) next.payload[key] = after.trim() || (key === 'vendor_name' || key === 'requester_email' ? '' : null);
+    if (key === 'internal_po_number') next.poNames = after.split(',').map(x => x.trim()).filter(Boolean);
+    else next.fields[key] = after;
+  }
+  if (next.payload) {
+    next.payload.vendor_name_norm = normalizeName(next.payload.vendor_name);
+    next.payload.vendor_name_manual_norm = normalizeName(next.payload.vendor_name);
+    next.payload.requester_email_norm = next.payload.requester_email.trim().toLowerCase();
+    // Validate the frozen values, not possibly stale editable fields.
+    validateFields({ ...next.payload, amount_due: String(next.payload.amount_due), currency: next.fields.currency }, true);
+    assertSupportedText(next.payload);
+  } else next.reviewed = false;
+  next.textRepair = { at: new Date().toISOString(), fields: changes.map(change => change.key) };
+  delete next.lastSubmitError;
+  await assertContext();
+  await checkpoint(next);
+  Object.assign(draft, next);
+  delete draft.lastSubmitError;
+  return true;
+}
 
 function cleanErrorPart(value, max = 280) {
   return String(value || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -60,6 +99,14 @@ export async function submitRequest({ db, draft, userId, companyId, assertContex
   };
   let row = await readRequest();
   if (!row) {
+    try { assertSupportedText(payload); }
+    catch (error) {
+      // Also recover drafts frozen by an older client before it could persist
+      // the server's error code. No insert is attempted for invalid text.
+      draft.lastSubmitError = { code: '22P05', message: error.message, at: new Date().toISOString(), source: 'local-validation' };
+      await checkpoint(draft);
+      throw error;
+    }
     progress('Sending your reviewed request to AP…');
     await assertContext();
     let insertError;

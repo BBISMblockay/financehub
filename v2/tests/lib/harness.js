@@ -413,7 +413,7 @@ async function startSuite(options = {}) {
   // Supabase path against the fixtures, rather than its demo seed data.
   const browser = await chromium.launch({
     executablePath: chromiumPath(),
-    args: ['--host-resolver-rules=MAP silo.test 127.0.0.1'],
+    args: ['--host-resolver-rules=MAP silo.test 127.0.0.1', ...(options.secureContext ? [`--unsafely-treat-insecure-origin-as-secure=${base}`] : [])],
   });
   const context = await browser.newContext({ viewport });
 
