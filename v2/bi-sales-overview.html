@@ -228,7 +228,7 @@
          ov-status keeps single-line clamping rather than display:none --
          it doubles as the load-failure error surface (setStatus()), so it
          has to stay visible, just not allowed to wrap to 2 lines. */
-      .bcn-header-title, .bcn-header-sub { display:none; }
+      .bcn-header-title, .bcn-header-sub, .silo-header-details { display:none; }
       .bcn-header { padding:6px 14px 5px; gap:4px; }
       .bcn-header h1 { font-size:14px; }
       .ov-refresh-pill {
@@ -271,7 +271,11 @@
           <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
         </div>
         <h1>Sales Performance Overview</h1>
-        <div class="bcn-header-sub">Day / MTD / YTD vs. prior year, by store, through the last complete day — the in-progress day is excluded so CY and PY always compare full days. Refreshes automatically after nightly sync — see <a href="/v2/sales-verification.html">Sales Report</a> for row-level detail.</div>
+        <div class="bcn-header-sub">Day / MTD / YTD vs. prior year, by store, through the last complete day.</div>
+        <details class="silo-header-details">
+          <summary>About these numbers</summary>
+          <p>The in-progress day is excluded so CY and PY always compare full days. Refreshes automatically after nightly sync — see <a href="/v2/sales-verification.html">Sales Report</a> for row-level detail.</p>
+        </details>
       </div>
       <div class="bcn-header-actions">
         <span id="lastRefreshPill" class="bcn-pill bcn-pill--dark ov-refresh-pill">Comps as of: —</span>

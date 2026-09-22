@@ -92,7 +92,12 @@
           <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
         </div>
         <h1>Marketing Performance</h1>
-        <div class="bcn-header-sub">Online store · blended ad spend against Shopify online net revenue — the ledger MER — with GA4 as the directional channel layer and Meta ad-level creative detail. "Blended" means across ad PLATFORMS, not across sales channels: retail is not measured here or anywhere else in SILO. Synced nightly. See <a href="/v2/integrations.html">Integrations</a> to manage connections.</div>
+        <div class="bcn-header-sub">Online store · blended MER · synced nightly</div>
+        <details class="silo-header-details">
+          <summary>About these numbers</summary>
+          <p>Blended ad spend against Shopify online net revenue — the ledger MER — with GA4 as the directional channel layer and Meta ad-level creative detail. "Blended" means across ad PLATFORMS, not across sales channels: retail is not measured here or anywhere else in SILO.</p>
+          <p><a href="/v2/integrations.html">Open Integrations</a> to manage connections.</p>
+        </details>
       </div>
       <div class="bcn-header-actions">
         <div class="mo-window" id="windowBtns">
@@ -259,7 +264,7 @@
             <div style="overflow:auto;max-height:340px">
               <table class="mo-tbl">
                 <thead><tr id="fbHead"><th>Day</th><th>Post engagements</th></tr></thead>
-                <tbody id="fbBody"><tr><td class="mo-empty" colspan="4">No Facebook Page data yet — set the Page ID on the Meta connection in Integrations.</td></tr></tbody>
+                <tbody id="fbBody"><tr><td class="mo-empty" colspan="4">No Facebook Page data yet — set the Page ID on the Meta connection. <a href="/v2/integrations.html">Open Integrations</a></td></tr></tbody>
               </table>
             </div>
           </div>
@@ -274,7 +279,7 @@
                 <th>Post</th><th>Type</th><th>Posted</th><th>Views</th>
                 <th>Reach</th><th>Likes</th><th>Comments</th><th>Shares</th><th>Saves</th>
               </tr></thead>
-              <tbody id="organicBody"><tr><td class="mo-empty" colspan="9">Not connected — organic Instagram/Page insights need additional Meta permissions (pages_read_engagement, instagram_basic, instagram_manage_insights) and the account IDs set on the Meta connection in Integrations.</td></tr></tbody>
+              <tbody id="organicBody"><tr><td class="mo-empty" colspan="9">Not connected — organic Instagram/Page insights need additional Meta permissions (pages_read_engagement, instagram_basic, instagram_manage_insights) and the account IDs set on the Meta connection. <a href="/v2/integrations.html">Open Integrations</a></td></tr></tbody>
             </table>
           </div>
           <div class="mo-note">Organic reach/engagement — no spend or attribution concept, not part of MER. "Views" unifies what used to be separate impression/video-view metrics (Meta's 2024 change).</div>
@@ -467,7 +472,7 @@
     const order = ['google_ads','meta_ads','tiktok_ads','ga4'];
     const list = [...byPlatform.values()].sort((a,b)=>order.indexOf(a.platform)-order.indexOf(b.platform));
     if (!list.length){
-      el('platformBody').innerHTML = `<tr><td class="mo-empty" colspan="9">No marketing KPI data yet — connect a platform in Integrations and enable nightly sync.</td></tr>`;
+      el('platformBody').innerHTML = `<tr><td class="mo-empty" colspan="9">No marketing KPI data yet — connect a platform and enable nightly sync. <a href="/v2/integrations.html">Open Integrations</a></td></tr>`;
       return;
     }
     const rowsHtml = list.map(p => {
