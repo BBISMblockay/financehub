@@ -62,6 +62,9 @@ inserting, so a row that appears meanwhile is reconciled, never overwritten.
   assertion checks native secure context, UUIDs and Web Locks before page boot;
   restoring the insecure host makes that assertion fail. No production recovery
   code, authorization checks or submission guarantees changed for this correction.
+- The shared Supabase fixture supplies `onAuthStateChange` directly; the recovery
+  suite no longer edits JavaScript with string replacement. A unit guard compiles
+  the exact fixture script and checks the auth subscription/unsubscribe contract.
 - The exact source of the user's reported 22P05 is not proven from their private
   draft. This fixes unsupported text present in the submitted fields; a 22P05
   arising entirely inside a database trigger would need separate investigation.

@@ -319,6 +319,9 @@ window.__QUERIES__ = [];
           getUser: function () {
             return Promise.resolve({ data: { user: { id: 'test-user', email: 'test@baseballism.com' } }, error: null });
           },
+          onAuthStateChange: function () {
+            return { data: { subscription: { unsubscribe: function () {} } } };
+          },
           signOut: function () { return Promise.resolve({ error: null }); }
         },
         from: builder,

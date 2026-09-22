@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { startSuite, fakeSupabaseScript } = require('../lib/harness');
+const { startSuite } = require('../lib/harness');
 
 (async () => {
   const suite = await startSuite({ secureContext: true });
@@ -11,8 +11,6 @@ const { startSuite, fakeSupabaseScript } = require('../lib/harness');
     assert.deepEqual(await probe.evaluate(() => ({ secure: isSecureContext, uuid: typeof crypto.randomUUID, locks: typeof navigator.locks?.request })),
       { secure: true, uuid: 'function', locks: 'function' });
     await probe.close();
-    // Payment intake subscribes to auth changes. No real auth or network calls.
-    await suite.context.route('**/cdn.jsdelivr.net/**supabase**', route => route.fulfill({ contentType: 'text/javascript', body: fakeSupabaseScript().replace('signOut: function', 'onAuthStateChange: function () { return {}; }, signOut: function') }));
     const tables = {
       profiles: [{ id: 'test-user', is_active: true, active_company_id: 'test-company', role: 'owner', department: 'finance' }],
       entity_memberships: [{ user_id: 'test-user', entity_id: 'test-company' }],
