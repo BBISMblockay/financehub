@@ -1,6 +1,6 @@
 # Payment Request 2
 
-Separate assisted intake at `/v2/purchase_request2.html`. The existing intake and AP workbench keep their behavior.
+The assisted intake at `/v2/purchase_request2.html`. **Promoted 2026-09-22**: it is now the `Payment Request` nav row, and the original form at `/v2/purchase_request.html` is the `Payment Request 2` row beneath it (names and links swapped, URLs unchanged). The AP workbench keeps its behavior.
 
 ## Original PR preflight and decisions (historical)
 
