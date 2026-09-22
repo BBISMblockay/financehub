@@ -43,7 +43,8 @@ test('standard dashboard hub hides report authoring while keeping Ask SILO', asy
   const html = await read('v3/dashboards.html');
   assert.match(html, /navProfile === 'standard'/);
   assert.match(html, /el\('btnNewReport'\)\.hidden = true/);
-  assert.match(html, /el\('tabReports'\)\.hidden = true/);
+  assert.match(html, /el\('tab-silo'\)\.hidden = true/);
+  assert.match(html, /el\('tab-mine'\)\.hidden = true/);
   assert.match(html, /crumbs: navProfile === 'standard' \? \['Insights', 'Dashboards'\]/);
   assert.match(html, /href="\/v2\/silo-chat\.html">Ask SILO<\/a>/);
 });

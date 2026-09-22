@@ -1103,11 +1103,30 @@ with no database change at all, because both live in `visual_config`.
 
 ## Reports discovery
 
-`/v3/dashboards.html` is the **Reports hub**: a Dashboards tab and a Saved
-reports tab over the same library the add-widget picker reads. Three nav rows
-(Dashboards, Saved reports, Report builder) under the soft-launch gate the
-hidden row already carried, so nobody who could not already reach these pages
-can now.
+`/v3/dashboards.html` is the **Reports library** (2026-09-22): one sidebar row
+labelled Reports (plus Report builder) under the soft-launch gate the hidden
+row already carried, and three tabs over what RLS already lets the viewer read:
+
+| Tab | Rows | Contextual action |
+|---|---|---|
+| SILO Reports (default) | `source = 'system' AND company_entity_id IS NULL` | open → builder, which offers a copy |
+| My Reports | every other readable report — company-shared ones by colleagues included; **not** an ownership filter | New report |
+| Dashboards | every readable dashboard | New dashboard |
+
+Ask SILO is the secondary action on all three. The tab is in `?tab=`
+(`replaceState`, so reload and Back from a report return to it without tab
+clicks becoming history entries); `?tab=reports` from the old combined list
+lands on My Reports. Search is scoped to the active tab and cleared on a tab
+change. A card shows the title and the FIRST SENTENCE of the stored
+description — a prefix, never a rewrite, so it cannot drop a caveat into a
+different claim — and the full definition sits behind Details. SILO cards carry
+no badges; custom reports and boards keep Only me / Company. The rules live in
+`js/report-library.js` (unit-tested); a standard-profile workspace sees
+Dashboards only.
+
+`report-catalog.js` files a report by its TITLE first: the 2026-09-22 short
+titles dropped the `Logistics ·` / `Ownership ·` context the text rules leaned
+on, and six reports misfiled until it did.
 
 The dashboard's **Add insight** picker does not dump the whole report library
 into one grid. It opens on six deliberately selected Overview definitions,

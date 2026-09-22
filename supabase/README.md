@@ -1932,3 +1932,22 @@ a re-run. Ends with `refresh_chat_schema_catalog()`.
 
 Regression: `scripts/tests/po-document-identity.test.mjs` (Unit job).
 
+## Record the SILO report catalog cleanup — `20260922170000_record_report_catalog_cleanup.sql`
+
+On 2026-09-22 the canned SILO report catalog was cleaned up in production by
+hand: 21 → 17 `system` reports (Logistics Top Products, Ownership Net Sales by
+Day, Sales Relative to Current Stock and Upcoming Launches removed), three
+Logistics/Ownership widgets reconnected to retained reports, two obsolete ones
+removed, and every remaining title shortened. `apply_all_post_merge.sql`
+re-runs every migration, and five seed migrations UPSERT the catalog — so a
+re-run would have re-created the four retired reports, restored the long
+titles and re-pointed the reconnected widgets at deleted rows. This migration
+re-asserts production's state by id (deletes, widget report/title/layout, report
+titles and descriptions, the two boards' filter_state) and is a **no-op against
+production**. It must stay the LAST include in `apply_all_post_merge.sql`.
+`verify_v2_schema.sql` drops the retired ids from `canned_report_accuracy` and
+adds `retired_silo_reports` (STALE if a retired id returns or a seeded board
+widget loses its report).
+
+Regression: `scripts/tests/report-catalog-cleanup-database.test.mjs` (executes
+the real seeds in PGlite, proves the risk, proves the fix twice).

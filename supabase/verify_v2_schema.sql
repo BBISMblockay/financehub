@@ -2415,8 +2415,10 @@ select
     else 'ok'
   end as system_reports_tie_out;
 
--- Canned report accuracy definitions (fixture-tested).
-with expected(id) as (select unnest(array['5110de50-0000-4000-a000-000000000001','5110de50-0000-4000-a000-000000000002','5110de50-0000-4000-a000-000000000003','c3000000-0000-4000-a000-000000000001','c3000000-0000-4000-a000-000000000002','c3000000-0000-4000-a000-000000000003','c3000000-0000-4000-a000-000000000004','c3000000-0000-4000-a000-000000000005','c3000000-0000-4000-a000-000000000006','c1000000-0000-4000-a000-000000000001','c1000000-0000-4000-a000-000000000005','c1000000-0000-4000-a000-000000000006','c1000000-0000-4000-a000-000000000007','c1000000-0000-4000-a000-000000000008','c1000000-0000-4000-a000-000000000009','c1000000-0000-4000-a000-00000000000a']::uuid[]))
+-- Canned report accuracy definitions (fixture-tested). c3..02, c1..09 and
+-- c1..0a were retired in the 2026-09-22 catalog cleanup
+-- (20260922170000) and are no longer expected here.
+with expected(id) as (select unnest(array['5110de50-0000-4000-a000-000000000001','5110de50-0000-4000-a000-000000000002','5110de50-0000-4000-a000-000000000003','c3000000-0000-4000-a000-000000000001','c3000000-0000-4000-a000-000000000003','c3000000-0000-4000-a000-000000000004','c3000000-0000-4000-a000-000000000005','c3000000-0000-4000-a000-000000000006','c1000000-0000-4000-a000-000000000001','c1000000-0000-4000-a000-000000000005','c1000000-0000-4000-a000-000000000006','c1000000-0000-4000-a000-000000000007','c1000000-0000-4000-a000-000000000008']::uuid[]))
 select case
  when exists (select 1 from expected e left join public.silo_chat_saved_reports r on r.id=e.id
               where r.id is null or r.source <> 'system' or r.company_entity_id is not null)
@@ -2432,6 +2434,25 @@ select case
  then 'WEAK — canned reports need strict checks tied to their deployed definitions'
  else 'ok' end as canned_report_accuracy;
 -- End canned report accuracy definitions.
+
+-- The 2026-09-22 catalog cleanup retired four SILO reports. The seed
+-- migrations upsert the catalog, so a re-run of apply_all_post_merge.sql
+-- without 20260922170000 as its last include brings them back (and the long
+-- titles, and widgets pointing at them). This makes that visible.
+select case
+ when exists (select 1 from public.silo_chat_saved_reports
+              where id in ('c1000000-0000-4000-a000-000000000009','c1000000-0000-4000-a000-00000000000a',
+                           'c3000000-0000-4000-a000-000000000002','c3000000-0000-4000-a000-000000000007'))
+ then 'STALE — a retired SILO report is back; re-run 20260922170000_record_report_catalog_cleanup.sql'
+ -- Only the two SEEDED boards: their widgets read SILO reports, which no
+ -- client can delete, so a null there means a retirement went wrong. A
+ -- user's own board may legitimately hold an orphaned tile (report_id is
+ -- ON DELETE SET NULL by design) and must not trip this.
+ when exists (select 1 from public.dashboard_widgets w
+              where w.dashboard_id in ('da5b0a2d-0000-4000-a000-00000000000c','da5b0a2d-0000-4000-a000-00000000000e')
+                and w.visual_type <> 'section' and w.report_id is null)
+ then 'STALE — a seeded Logistics/Ownership widget has lost its report'
+ else 'ok' end as retired_silo_reports;
 
 select
   case

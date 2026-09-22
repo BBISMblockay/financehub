@@ -19050,3 +19050,12 @@ $c$select (select count(*) from v_po_header_summary
 -- resolve_notification_sender(). The fallback chain ends at an owner-admin and
 -- never at a SILO address. Idempotent: create-if-not-exists, create-or-replace.
 \i migrations/20260920190000_notification_reply_contacts.sql
+
+-- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
+-- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above
+-- upsert the catalog, so re-running this file without it re-creates the four
+-- retired SILO reports, restores the long titles and re-points reconnected
+-- widgets at deleted reports. This re-asserts production as of 2026-09-22.
+-- scripts/tests/report-catalog-cleanup-database.test.mjs fails if anything
+-- is included after it.
+\i migrations/20260922170000_record_report_catalog_cleanup.sql
