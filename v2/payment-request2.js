@@ -315,7 +315,7 @@ async function submit(event) {
       validateFields(draft.fields, $('reviewed').checked);
       if (draft.suggestion?.currency && draft.suggestion.currency !== 'USD') throw Error('The source document uses another currency. Ask AP to resolve it before submitting; it cannot be relabeled USD.');
     }
-    if (!navigator.locks) throw Error('This browser cannot safely coordinate a resumed submission. Use a current browser or the standard form.');
+    if (!navigator.locks) throw Error('This browser cannot safely coordinate a resumed submission. Use a current browser or Payment Request 2, the original form.');
     busy = true; lockUI();
     if (!draft.payload) {
       const priorAck = $('duplicateAck').checked;
@@ -401,9 +401,9 @@ async function boot() {
     await assertContext();
     const { data: settings, error: settingsError } = await db.from('company_settings').select('default_currency').eq('company_entity_id', company.id).maybeSingle();
     if (settingsError) throw Error('Could not verify the company currency. Reload before creating a request.');
-    if (settings && settings.default_currency !== 'USD') throw Error('Payment Request 2 currently supports USD companies only. Ask AP about your company’s payment workflow.');
+    if (settings && settings.default_currency !== 'USD') throw Error('This form currently supports USD companies only. Ask AP about your company’s payment workflow.');
     if (!window.SiloChrome) $('silo-app').classList.add('pr2-standalone');
-    window.SiloChrome?.mount({ appEl: '#silo-app', active: 'finance/payment-request-2', user: { email: user.email, role: 'MEMBER' }, crumbs: ['Requests', 'Payment Request 2'], supabaseClient: db });
+    window.SiloChrome?.mount({ appEl: '#silo-app', active: 'finance/payment-request', user: { email: user.email, role: 'MEMBER' }, crumbs: ['Requests', 'Payment Request'], supabaseClient: db });
     $('app').hidden = false; bind(); renderDraft(); feedback('');
     await loadLookups(); await showDraftShelf();
   } catch (error) { feedback(error.message || 'Could not load this page. Please retry.', 'neg'); }
