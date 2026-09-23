@@ -72,10 +72,12 @@ where t.status = 'uncoded' and b.status in ('draft','categorized');
 
 ## Limits worth knowing
 
-- One scheduler call prepares at most 160 rows of one import (four model
-  calls, one concurrent wave), so it ends well inside the 150s gateway cut.
-  The runner stays on an import while it makes progress, up to ten calls, and
-  stops a pass at 200 calls.
+- One scheduler call prepares at most 40 rows of one import (four model
+  calls of ten merchants, one concurrent wave), so it ends well inside the
+  150s gateway cut. The runner stays on an import while it makes progress, up
+  to ten calls (400 rows), and stops a pass at 200 calls. A test ties the row
+  limit to the batch size and concurrency in `prepare.ts`, so shrinking one
+  without the other fails.
 - A failed row is retried automatically four more times, backing off; after
   that it waits for someone to press Retry.
 - A dismissal holds until the transaction's facts change.

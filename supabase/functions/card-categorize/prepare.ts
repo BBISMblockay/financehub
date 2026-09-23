@@ -28,10 +28,13 @@ const MODEL = Deno.env.get('CARD_CODING_MODEL') || 'claude-sonnet-5';
 // One merchant is one question. Beyond this the request is split into several
 // model calls rather than truncated -- a silently dropped merchant comes back
 // as an uncoded row with no explanation, which is worse than a slower import.
-// 40, not 60. A batch of 60 with real reasoning strings ran past max_tokens and
-// came back truncated mid-array -- and truncation used to discard the whole
-// batch, which is what "Some merchants failed" was.
-const BATCH_SIZE = 40;
+// 10, not 40. A batch of 60 with real reasoning strings ran past max_tokens and
+// came back truncated mid-array. 40 then ran past the time limit: the first
+// background run (2026-09-23, 38 merchants, now with history evidence in the
+// prompt) put everything in ONE call, which took over 110s and failed all 89
+// rows. Slices run 4 at a time, so smaller slices finish sooner in parallel,
+// and one slow or failed slice loses a quarter of the work instead of all of it.
+const BATCH_SIZE = 10;
 // Recorded on every run and suggestion, so a quality comparison can tell which
 // prompt produced which answer.
 export const PROMPT_VERSION = 'card-categorize/2026-09-23';

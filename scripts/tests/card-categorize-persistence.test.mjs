@@ -14,6 +14,7 @@
 //   CATEGORIZE_PERSIST_MUTATION=retry-ignores-change  an Ask again pays even after another answer landed
 //   CATEGORIZE_PERSIST_MUTATION=ignore-rules       rows a saved rule codes are sent to the model anyway
 //   CATEGORIZE_PERSIST_MUTATION=history-after-context  history waits for the other reads instead of running with them
+//   CATEGORIZE_PERSIST_MUTATION=big-batches        all merchants go into one slow model call again
 //   CATEGORIZE_PERSIST_MUTATION=usage-cache-ignores-run  a new P&L report run is served the previous run's usage
 //   CATEGORIZE_PERSIST_MUTATION=one-record-call    a slice's rows sent in one oversized call
 import test from 'node:test';
@@ -37,6 +38,7 @@ const MUTATIONS = {
   'ignore-rules': [['    for (const r of data) ruleAnswered.add(String(r.transaction_id));', '    void data;']],
   'history-after-context': [["    timed('history', fetchHistory(supabase, companyId, connectionId, merchants)),\n  ]);",
     "    Promise.resolve(null),\n  ]).then(async (r) => { r[6] = await timed('history', fetchHistory(supabase, companyId, connectionId, merchants)); return r; });"]],
+  'big-batches': [['const BATCH_SIZE = 10;', 'const BATCH_SIZE = 40;']],
   'usage-cache-ignores-run': [['  const key = `${companyId}|${connectionId}|${head.id}`;', '  const key = `${companyId}|${connectionId}`;']],
   'one-record-call': [['    for (const part of chunks(rows, RECORD_CHUNK)) {', '    for (const part of [rows]) {']],
 };
@@ -118,24 +120,24 @@ function fixture({ merchants = 3, live = [], modelFails = () => false, omit = ()
 }
 
 test('each finished model call is recorded before the slowest one returns; a failed call is recorded as failed', async () => {
-  // 50 merchants = two slices of 40 and 10. The slice holding "vendor 45"
+  // 12 merchants = two slices of 10 and 2. The slice holding "vendor 11"
   // fails; the other completes first and is saved while the failure is pending.
-  const h = fixture({ merchants: 50, modelFails: (asked) => asked.includes('vendor 45'), delay: (asked) => asked.includes('vendor 45') ? 30 : 0 });
+  const h = fixture({ merchants: 12, modelFails: (asked) => asked.includes('vendor 11'), delay: (asked) => asked.includes('vendor 11') ? 30 : 0 });
   const { status, body } = await h.run();
   assert.equal(status, 200, JSON.stringify(body));
   assert.equal(h.modelCalls.length, 2);
   const firstRecord = h.db.timeline.indexOf('rpc:record_card_coding_suggestions');
-  const slowDone = h.db.timeline.indexOf('model-done:10');
+  const slowDone = h.db.timeline.indexOf('model-done:2');
   assert.ok(firstRecord > 0 && slowDone > 0 && firstRecord < slowDone,
     `the fast slice is saved before the slow one returns: ${h.db.timeline.join(' ')}`);
   const byOutcome = (o) => h.recorded.filter((r) => r.outcome === o).length;
-  assert.equal(byOutcome('suggested'), 40, 'the finished slice survives its neighbour failing');
-  assert.equal(byOutcome('failed'), 10);
+  assert.equal(byOutcome('suggested'), 10, 'the finished slice survives its neighbour failing');
+  assert.equal(byOutcome('failed'), 2);
   assert.match(h.recorded.find((r) => r.outcome === 'failed').error_code, /anthropic_529/);
-  assert.equal(body.run_status, 'partial'); assert.equal(body.suggested, 40); assert.equal(body.failed, 10);
+  assert.equal(body.run_status, 'partial'); assert.equal(body.suggested, 10); assert.equal(body.failed, 2);
   const finalRun = h.db.runs[0];
   assert.equal(finalRun.status, 'partial'); assert.equal(finalRun.model_calls, 2); assert.equal(finalRun.model_calls_failed, 1);
-  assert.equal(finalRun.suggestions_recorded, 40); assert.equal(finalRun.failures_recorded, 10);
+  assert.equal(finalRun.suggestions_recorded, 10); assert.equal(finalRun.failures_recorded, 2);
   assert.ok(finalRun.finished_at);
   assert.deepEqual(h.db.writes, [], 'nothing but the run log is written directly');
 });
@@ -369,4 +371,18 @@ test('report usage is cached per company, connection AND report run; a new run i
   h.records.quickbooks_report_runs.push(runRow('pl-2', '2026-09-20T00:00:00Z'));
   r = await h.run(undefined, { retry: true });
   assert.equal(reads(), 2, 'a newer report run is a new key'); assert.equal(r.body.timings.usage_cached, false);
+});
+
+// 2026-09-23: the first background run put 38 merchants into ONE model call,
+// which ran past the 110s timeout and failed all 89 rows. Merchants are now
+// split ten to a call and the calls run four at a time.
+test('38 merchants become four calls of at most ten, run in parallel', async () => {
+  const h = fixture({ merchants: 38, delay: () => 5 });
+  const { body } = await h.run();
+  assert.equal(h.modelCalls.length, 4);
+  assert.ok(h.modelCalls.every((asked) => asked.length <= 10));
+  assert.equal(body.suggested, 38);
+  // All four were in flight before the first came back.
+  const t = h.db.timeline, firstDone = t.findIndex((e) => e.startsWith('model-done:'));
+  assert.equal(t.slice(0, firstDone).filter((e) => e.startsWith('model:')).length, 4);
 });

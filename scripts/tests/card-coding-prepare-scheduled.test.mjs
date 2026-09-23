@@ -4,6 +4,7 @@
 //
 // Run: node --import ./scripts/tests/plaid-oidc/register.mjs scripts/tests/card-coding-prepare-scheduled.test.mjs
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { generateKeyPair, SignJWT } from 'npm:jose@6.2.12';
 import { verifySchedulerIdentity, WORKFLOWS } from '../../supabase/functions/card-coding-prepare-scheduled/oidc.mjs';
@@ -81,7 +82,15 @@ test('one import per call: the database picks the work, and the service gets an 
     trigger: 'nightly', requestedBy: null, retry: false, skipIneligible: true });
   assert.deepEqual(body, { done: false, batch_id: BATCH, ok: true, status: 200, run_id: '00000000-0000-4000-8000-00000000000a',
     run_status: 'completed', suggested: 2, needs_judgment: 0, failed: 0, in_progress: 0, asked: 2, remaining: 3 });
-  assert.ok(ROWS_PER_INVOCATION <= 160, 'one invocation stays within one concurrent wave of model calls');
+  // One invocation must fit in ONE concurrent wave of model calls: rows <=
+  // merchants per call x calls in flight, read from the preparation service
+  // itself so the two limits cannot drift apart again (they did on 2026-09-23:
+  // the batch went 40 -> 10 while this stayed at 160, four waves).
+  const prepare = readFileSync(new URL('../../supabase/functions/card-categorize/prepare.ts', import.meta.url), 'utf8');
+  const batch = Number(prepare.match(/const BATCH_SIZE = (\d+);/)[1]);
+  const inFlight = Number(prepare.match(/const LIMIT = (\d+);/)[1]);
+  assert.ok(ROWS_PER_INVOCATION <= batch * inFlight,
+    `one invocation (${ROWS_PER_INVOCATION} rows) stays within one wave of ${inFlight} calls of ${batch}`);
 });
 
 test('no work left ends the pass; a work unit that breaks the cursor is refused', async () => {
