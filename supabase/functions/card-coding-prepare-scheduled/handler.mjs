@@ -1,9 +1,13 @@
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 const reply = (body, status = 200) => Response.json(body, { status });
-// One import per invocation, and at most this many of its rows: 160 rows is at
-// most 160 merchant groups, which is four model calls -- one concurrent wave --
-// so an invocation finishes well inside the gateway's 150s.
-export const ROWS_PER_INVOCATION = 160;
+// One import per invocation, and at most this many of its rows: 40 rows is at
+// most 40 merchant groups, which at ten per model call and four calls at a
+// time is ONE concurrent wave -- so an invocation finishes well inside the
+// runner's 145s and the gateway's 150s. It must shrink with the batch size:
+// scripts/tests/card-coding-prepare-scheduled.test.mjs reads both and fails
+// if this ever needs more than one wave again. The runner's cursor carries the
+// rest of an import through further bounded invocations.
+export const ROWS_PER_INVOCATION = 40;
 
 // Scheduled coding preparation. The caller is the scheduler, identified by its
 // GitHub OIDC token -- never a person, and never a borrowed person's session.
