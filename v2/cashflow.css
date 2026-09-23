@@ -611,3 +611,75 @@ dialog::backdrop {
   font-size: 11px;
   padding: 4px 8px;
 }
+/* Planned activity: overrides, planned movements and payment requests live
+   in a side panel beside the grid instead of below it. On a wide screen the
+   page makes room so the grid stays readable while the panel is open. */
+.cf-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 90;
+  width: min(400px, 100vw);
+  overflow: auto;
+  padding: 14px 16px 24px;
+  background: var(--bcn-surface);
+  border-left: 1px solid var(--bcn-border);
+  box-shadow: -12px 0 32px rgba(15, 23, 42, 0.12);
+}
+.cf-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.cf-drawer-head h2 {
+  font-size: 15px;
+  margin: 0;
+}
+.cf-drawer-note {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--bcn-ink-3);
+  margin: 4px 0 8px;
+}
+.cf-drawer .cf-plans {
+  border-top: 1px solid var(--bcn-border);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.cf-drawer .cf-section-head a {
+  font-size: 11px;
+}
+.cf-drawer .cf-check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  margin: 4px 0 6px;
+}
+@media (min-width: 1100px) {
+  .cf-page--drawer {
+    padding-right: 420px;
+  }
+}
+/* A forecast cell that includes a planned movement or a payment request. */
+.cf-planned button::after {
+  content: " \2022";
+  color: var(--bcn-warn, #b45309);
+}
+.cf-request-list {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+}
+.cf-drawer .cf-section-head {
+  flex-wrap: wrap;
+}
+.cf-drawer .cf-empty {
+  font-size: 12px;
+  padding: 8px 0;
+  text-align: left;
+  margin: 0;
+}

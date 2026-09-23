@@ -270,6 +270,8 @@
     timing = true,
     projections = [],
     projectionEnabled = false,
+    requests = [],
+    requestsEnabled = false,
     collectionPercent = 100,
     collectionLag = 0,
     whatIf = [],
@@ -596,6 +598,67 @@
         );
       }
     }
+    // Open payment requests (Request Manager) as a PLANNING line: a signal
+    // for one-off checks and wires the bank trend cannot see yet. Never an
+    // actual and never matched to bank rows -- a request leaves the forecast
+    // the moment it is marked paid. "Open" is anything not paid, completed,
+    // rejected or cancelled, because the approval status is not reliably used.
+    // A request already past due is NOT forecast: most are paid but never
+    // marked, and placing them all on tomorrow would invent a cash cliff.
+    // They, and requests with no due date, are listed for clean-up instead.
+    // Due today (the day is an actual column) lands on the first forecast day.
+    const requestInfo = {
+      enabled: requestsEnabled && currency === baseCurrency && selected === "all",
+      count: 0,
+      total: 0,
+      included: [],
+      overdue: [],
+      undated: [],
+      beyond: [],
+    };
+    const seenRequests = new Set();
+    for (const q of requests) {
+      if (
+        !q ||
+        seenRequests.has(q.id) ||
+        q.completed ||
+        ["paid", "rejected", "cancelled"].includes(q.workflow_status)
+      )
+        continue;
+      seenRequests.add(q.id);
+      const amount = cents(q.amount_due);
+      if (amount === null || amount <= 0) continue;
+      const item = { ...q, amount };
+      if (!validDate(q.due_date)) {
+        requestInfo.undated.push(item);
+        continue;
+      }
+      if (q.due_date < today) {
+        requestInfo.overdue.push(item);
+        continue;
+      }
+      const date = q.due_date < futureStart ? futureStart : q.due_date;
+      if (date > futureEnd) {
+        requestInfo.beyond.push(item);
+        continue;
+      }
+      requestInfo.included.push({ ...item, date });
+      if (!requestInfo.enabled) continue;
+      requestInfo.count++;
+      requestInfo.total += amount;
+      appendMovement(
+        events,
+        { id: "request|" + q.id },
+        date,
+        -amount,
+        {
+          key: "flow|Payment requests",
+          name: "Payment requests",
+          flow: "Payment requests",
+        },
+        "request",
+      );
+    }
     for (const p of resolvedPlans) {
       if (p.movement === null || !p.movement)
         throw new Error("A planning item has an invalid amount.");
@@ -716,6 +779,7 @@
           trend: Array(cols.length).fill(0),
           manual: Array(cols.length).fill(0),
           projection: Array(cols.length).fill(0),
+          request: Array(cols.length).fill(0),
           whatif: Array(cols.length).fill(0),
           overrides: Array.from({ length: cols.length }, () => []),
           transactions: Array.from({ length: cols.length }, () => []),
@@ -873,6 +937,7 @@
       savedDaily: trajectory(savedEvents).daily,
       patterns,
       projectionInfo,
+      requestInfo,
       whatIfTotal,
       whatIfCount,
       liquidity,
