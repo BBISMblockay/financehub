@@ -35,6 +35,10 @@
   const OVERVIEW_TITLES = new Set([
     'daily sales',
     'open purchase orders',
+    'inventory summary',
+    'low stock',
+    'sales vs last year',
+    'marketing efficiency',
     'logistics · inventory and on order',
     'logistics · running thin',
     'ownership · sales vs last year',
@@ -54,8 +58,24 @@
       && (OVERVIEW_IDS.has(report.id) || OVERVIEW_TITLES.has(title));
   }
 
+  // Titles are short and specific since the 2026-09 catalog cleanup, and
+  // they are the better evidence: descriptions now carry caveats that name
+  // other domains ("including types without PO history" on a stock report,
+  // "attribution ... sale" on a marketing one), which filed Stock Cover,
+  // Inventory Summary and Overstock under Purchasing, Attribution vs Sales
+  // under Sales, and Ads by Platform nowhere at all. Order matters: a stock
+  // report that mentions sales is still a stock report.
+  const TITLE_RULES = [
+    ['marketing', /marketing|attribution|\bads?\b|ad platform|paid media|roas|launch/],
+    ['inventory', /stock|inventory|cover|sell-through/],
+    ['purchasing', /purchase order|\bpo\b|arriv|factory/],
+    ['sales', /sales|product|location|channel/],
+  ];
+
   function categoryFor(report) {
     if (!report || report.source !== 'system') return 'saved';
+    const title = String(report.title || '').toLowerCase();
+    for (const [tab, rule] of TITLE_RULES) if (rule.test(title)) return tab;
     const text = textFor(report);
 
     if (/marketing|paid media|ad platform|launch/.test(text)) return 'marketing';

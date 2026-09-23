@@ -74,5 +74,25 @@ test('cards drop redundant internal prefixes without changing stored titles', ()
   eq(report.title, 'Ownership · Marketing efficiency by day');
 });
 
+// Production titles after the 2026-09-22 cleanup. The short titles lost the
+// "Logistics ·" / "Ownership ·" context the old text rules leaned on, so the
+// category has to come from the title itself -- six of these filed wrongly
+// (Marketing Efficiency under Sales, Low Stock under Other) until it did.
+test('the 17 live SILO report titles each file under the right category', () => {
+  const live = {
+    'Marketing Efficiency': 'marketing', 'Ads by Platform': 'marketing', 'Attribution vs Sales': 'marketing',
+    'Sales vs Last Year': 'sales', 'Sales by Channel': 'sales', 'Daily Sales': 'sales',
+    'Sales by Location': 'sales', 'Top Products': 'sales',
+    'PO Units by Factory': 'purchasing', 'Monthly Arrivals': 'purchasing',
+    'Overdue Purchase Orders': 'purchasing', 'Open Purchase Orders': 'purchasing',
+    'Low Stock': 'inventory', 'Stock Cover': 'inventory', 'Inventory Summary': 'inventory',
+    'Overstock': 'inventory', 'Stock Without Sales': 'inventory',
+  };
+  const wrong = Object.entries(live)
+    .map(([title, want]) => [title, want, C.categoryFor(system('x', title))])
+    .filter(([, want, got]) => want !== got);
+  eq(wrong, []);
+});
+
 const result = R.summary();
 process.exit(result.fail ? 1 : 0);
