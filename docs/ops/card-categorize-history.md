@@ -51,30 +51,83 @@ held to 0.55 even when the visible sample is consistent, so it lands inside the 
 
 ## Window and scoping
 
-Each merchant group anchors on the LATEST `txn_date` among its rows (a row with no
-date anchors on today, which can only widen "before"). History counts from 24 months
-before the anchor up to the anchor; nothing dated after it counts. There is no
-cross-company read: SILO rows carry `company_entity_id`, ledger lines are only
-reachable through this company's imports for this connection.
+Since 2026-09-23 (`20260923140000`) history is read by ONE database function,
+`card_coding_history_evidence(company, connection, pairs, per_key, exclude)`,
+service-role only. Each merchant group asks with its own date: the EARLIEST
+`txn_date` among its rows (a row with no date counts as today, which cannot
+move an earlier anchor). History counts from 24 months before that date up to
+it; nothing dated after ANY line of the group counts. Before, the anchor was
+the latest line, so a coding made between a group's first and last line could
+be cited as precedent for the first.
+
+There is no cross-company or cross-realm read: SILO rows must belong to this
+company and to a batch bound to this QuickBooks connection (the batch's own
+binding, else its source's); ledger lines are reached only through this
+company's archive imports for this connection.
+
+## Matching BEFORE capping
+
+The old read paged the window's ledger lines newest-first, stopped at 5,000
+and then searched those for the merchant. On Baseballism the 24-month window
+held 53,869 lines (18,001 after deduplicating nine overlapping snapshots), so
+5,000 reached back only to 2026-06-30 and most merchants' history was never
+looked at. The function now matches first, per merchant, and caps each
+merchant separately (100 lines per source, exact matches kept ahead of
+similar ones), returning how many lines matched, so a capped merchant is
+disclosed (`History sample capped`) rather than read as the whole story.
+Matching runs against the distinct normalised payees and memos, so its cost
+follows how many different names the ledger holds: 2.6s on Baseballism
+production for the 52 merchants then uncoded (13s before the normalised lists
+were materialised).
 
 ## Matching and weighting
 
-SILO rows match on `merchant_norm`, the same key the request groups by. Ledger lines
-have no merchant key, so the counterparty is reduced with `normalizeMerchant()`, a
-mirror of `public.normalize_merchant` (and the copy in `v2/transactions.html`).
-Changing one without the others silently stops history matching. A "similar payee
-name" match is whole-word containment of a key at least 4 characters long ("state
-farm" inside "state farm insurance co"; "sun" never claims "sunrise bakery").
+SILO rows match on the merchant key exactly. Ledger lines match on the payee
+(exact, or whole-word similar at 4+ characters: "state farm" inside "state
+farm insurance co"; "sun" never claims "sunrise bakery") or on the MEMO (exact,
+or the memo containing the key) -- QuickBooks bank-feed lines often carry the
+descriptor in the memo with no payee. A memo-exact match is exact evidence; a
+contains match is similar. In a bank feed the direction is part of the
+question: SILO rows must have the same sign, and an outflow never takes an
+income-account line as precedent. `normalize_merchant` is now used only in
+SQL for this; the TypeScript mirror was removed.
+
+**The company's own confirmed SILO codings take precedence.** Where a merchant
+has any, ledger lines are read and disclosed (`N QBO ledger lines not
+weighed`) but do not vote. The archive records the PREVIOUS bookkeeping
+practice. See "Backtest" below for why.
 
 Each matched line adds weight to its account: recency 1.0 (within 6 months of the
-anchor), 0.7 (within 12), 0.4 (within 24), multiplied by 1.0 for a SILO exact match,
-0.8 for a ledger exact match, 0.4 for a ledger similar-name match. An account that is
+anchor), 0.7 (within 12), 0.4 (within 24), multiplied by 1.0 for a SILO match,
+0.8 for a ledger exact or memo match, 0.4 for a similar match. An account that is
 still active in QuickBooks but not offered for this transaction type (an income account
 in card mode) is tallied separately as "not offered for this transaction type"; an
 account absent from the active chart altogether is tallied as "since-removed". Neither
-can lead, and the two are never confused, because the function loads the whole active
-chart separately from the mode's eligible types. If that full-chart read fails, the
-state is reported as "could not be read", never as removed.
+can lead, and the two are never confused. The chart is read once per request; if
+that read fails the request stops before any model call.
+
+## Backtest (2026-09-23, evidence only)
+
+`scripts/sql/card_coding_evidence_backtest.sql`, read-only against production:
+1,764 Baseballism rows coded by a person between 2026-07-01 and 2026-09-18,
+each asked about with history dated up to its own date and never itself. It
+measures the EVIDENCE (does history lead with the account the person chose),
+not the model's answer.
+
+| Retrieval | Exact precedent | Agrees | Disagrees | Consistent and wrong |
+|---|---|---|---|---|
+| Old (capped 5,000 lines, payee only) | 857 | 738 | 119 | 96 |
+| New, ledger weighed against SILO | 770 | 609 | 161 | 38 |
+| **New, SILO first (shipped)** | **964** | **858** | **106** | **48** |
+
+Weighing the full ledger against SILO made agreement WORSE: the older archive
+codes many vendors differently than the current bookkeeper does, and its
+volume outvoted the company's own recent codings. Shortening the ledger window
+(3/6/12 months) helped only partly (713/654/633 agree). Letting confirmed SILO
+codings decide, and the ledger answer only merchants SILO has never coded (831
+of the 1,764 rows), gave the best result on every column but one. Direction
+filtering changed nothing on this sample. This is one company; the model's
+own accuracy with this evidence is not yet measured.
 
 ## Statuses and confidence caps
 

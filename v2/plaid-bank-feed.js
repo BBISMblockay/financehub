@@ -47,6 +47,7 @@
     return Number(transaction.amount) > 0
       && (transaction.origin !== 'plaid' || transaction.accounting_treatment === 'purchase');
   }
+  /* Mirrored in SQL by public.card_coding_rule_match (20260923140000); change both. */
   function ruleScopeMatches(rule, transaction, source) {
     if (!source || !isAvailable(transaction)) return false;
     const direction = directionOf(transaction);

@@ -43,6 +43,7 @@ on:
       - 'scripts/card-coding-prepare.mjs'
       - '.github/workflows/card-coding-prepare.yml'
       - 'supabase/migrations/*card_coding_background_preparation.sql'
+      - 'supabase/migrations/*card_coding_evidence_and_rules.sql'
       - '.github/workflows/redo-backfill.yml'
       - '.github/workflows/redo-marketing-probe.yml'
       - '.github/workflows/mailroom-backfill.yml'
@@ -587,6 +588,13 @@ jobs:
       # retry limit, exclusive claims, one import per scheduler call.
       - name: Execute background coding preparation regressions
         run: node scripts/tests/card-coding-background-database.test.mjs
+
+      # Evidence retrieval and saved rules: history matched per merchant before
+      # any cap, never later than the line, this company and realm only; the
+      # page's rule decision in SQL; and the JavaScript stand-in the
+      # categorizer suites use checked row-for-row against the real function.
+      - name: Execute coding evidence and saved-rule regressions
+        run: node scripts/tests/card-coding-evidence-database.test.mjs
 
       - name: Execute profiles tenant-isolation regressions
         run: node --test scripts/tests/profiles-tenant-scope.test.mjs

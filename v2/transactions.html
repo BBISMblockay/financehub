@@ -663,7 +663,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="je-composer.js"></script>
-<script src="plaid-bank-feed.js?v=0d4ec5dd42fc"></script>
+<script src="plaid-bank-feed.js?v=3bb27ed5e68f"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
 <script src="transaction-dates.js?v=0bad96d29084"></script>
@@ -1575,6 +1575,9 @@
   // only thing that says so. Letting the merchant rule win there would code it
   // silently and plausibly wrong, which is the worst shape an error can take in
   // a ledger.
+  // MIRRORED in SQL by public.card_coding_rule_match (20260923140000), which
+  // lets background preparation skip rows a rule already answers. Change the
+  // two together or the worker and this page disagree about those rows.
   function ruleMatches(txn) {
     const norm = merchantKey(txn);
     const raw = String(txn.description || '').toLowerCase();
@@ -2120,7 +2123,7 @@
   async function prepareRows(rows, { retry = false, current = () => true, batchOf = (t) => t.batch_id } = {}) {
     const batches=new Map();
     for(const t of rows){const b=batchOf(t);if(!batches.has(b))batches.set(b,[]);batches.get(b).push(t);}
-    const totals={suggested:0,needs_judgment:0,failed:0,already:0};let failures=0,completed=0;
+    const totals={suggested:0,needs_judgment:0,failed:0,already:0,rule:0};let failures=0,completed=0;
     state.codingBusy=true;
     const since=new Date(Date.now()-5000).toISOString();
     try {
@@ -2143,7 +2146,7 @@
             // rather than reloading an empty table and implying Claude had
             // nothing to suggest.
             if(!('run_id' in out))throw new Error('the coding service has not been updated to save suggestions yet (deploy card-categorize)');
-            totals.suggested+=out.suggested||0;totals.needs_judgment+=out.needs_judgment||0;totals.failed+=out.failed||0;totals.already+=out.already_prepared||0;
+            totals.suggested+=out.suggested||0;totals.needs_judgment+=out.needs_judgment||0;totals.failed+=out.failed||0;totals.already+=out.already_prepared||0;totals.rule+=out.answered_by_rule||0;
             if(out.errors?.length)failures++;
           } catch(error) {if(!current())return;failures++;prepareError=error.message;}
           // Not awaited: the poll is asleep on a timer and exits on its own next wake.
@@ -2158,6 +2161,9 @@
         if(totals.needs_judgment)parts.push(`${totals.needs_judgment} need you to choose a category`);
         if(totals.failed)parts.push(`${totals.failed} failed — retry from the row or run Prepare coding again`);
         if(totals.already)parts.push(`${totals.already} already prepared`);
+        // A saved rule answers these; asking Claude would pay for a question
+        // already settled. Apply rules codes them.
+        if(totals.rule)parts.push(`${totals.rule} left to your saved rules — use Apply rules`);
         if(failures && !totals.failed)parts.push(`preparation stopped early${prepareError?`: ${prepareError}`:''}; run it again to finish`);
         setStatus(`Coding prepared: ${parts.join(' · ')}.`,failures || totals.failed || totals.needs_judgment?'info':'pos',9000);
       }

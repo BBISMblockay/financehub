@@ -6,6 +6,7 @@
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
+import { historyEvidence } from './history-evidence-fake.mjs';
 
 export const PREPARE_URL = new URL('../../../supabase/functions/card-categorize/prepare.ts', import.meta.url);
 export const prepareSource = () => readFile(PREPARE_URL, 'utf8');
@@ -15,7 +16,7 @@ export const prepareSource = () => readFile(PREPARE_URL, 'utf8');
 export function loadCategorizer(source, { createClient, fetch, env = () => 'synthetic', console: log = console }) {
   const runnable = stripTypeScriptTypes(source.replace(/^export /gm, ''), { mode: 'strip' })
     + '\nDeno.serve(createCategorizeHandler({ createDb: () => createClient() }));'
-    + '\nglobalThis.__exports = { prepareCoding, PROMPT_VERSION };';
+    + '\nglobalThis.__exports = { prepareCoding, PROMPT_VERSION, buildEvidence };';
   let handler;
   const context = {
     Request, Response, AbortSignal, performance, crypto: globalThis.crypto, console: log, createClient, fetch,
@@ -83,8 +84,14 @@ export function fakeDatabase(records, { rpc = {}, fail = {} } = {}) {
     from: (table) => new Query(table),
     rpc: async (name, args) => {
       timeline.push(`rpc:${name}`); rpcCalls.push({ name, args: structuredClone(args) });
-      if (!rpc[name]) throw new Error(`Unexpected rpc ${name}`);
-      return rpc[name](args);
+      if (rpc[name]) return rpc[name](args);
+      // Defaults for the two reads every preparation makes: no saved rule
+      // answers anything, and history is what the records hold.
+      if (name === 'card_coding_rule_answered') return { data: [], error: null };
+      if (name === 'card_coding_history_evidence') {
+        return historyEvidence({ ...records, card_transactions: records.card_transactions || records.card_transactions_v || [] }, args);
+      }
+      throw new Error(`Unexpected rpc ${name}`);
     },
   };
   return { client, timeline, writes, runs, rpcCalls };

@@ -2028,6 +2028,26 @@ Regression: `scripts/tests/card-coding-suggestions-database.test.mjs`
 (finance-database job; five mutation hooks), and the Plaid fixture executes the
 new `verify_v2_schema.sql` check.
 
+## Coding evidence and saved rules — `20260923140000_card_coding_evidence_and_rules.sql`
+
+- `card_coding_history_evidence(company, connection, pairs, per_key, exclude)`
+  (service role only): per-merchant history matched BEFORE any cap, each merchant
+  windowed to the 24 months up to its own date, this company and QuickBooks
+  realm only, direction-aware in a bank feed, ledger matched on payee or memo and
+  deduplicated across snapshots, with a per-merchant `total` so a cap is
+  disclosed. See `docs/ops/card-categorize-history.md` for the backtest.
+- `card_coding_rule_match(t, s)` is the page's saved-rule decision (`ruleMatches`
+  in `v2/transactions.html`, `ruleScopeMatches` in `v2/plaid-bank-feed.js`) in
+  SQL. `card_coding_rule_answered(company, ids)` (service role) lists rows a rule
+  codes outright; `card_coding_needs_preparation` now returns `rule_applies` for
+  them, so neither the scheduler nor the Prepare button pays the model for a
+  question a saved rule already answers. A merchant/card CONFLICT is not an
+  answer: those rows are still prepared.
+
+Regression: `scripts/tests/card-coding-evidence-database.test.mjs` (12 checks,
+seven mutation hooks, and the JavaScript stand-in the categorizer suites use
+checked row for row against the real function).
+
 ## Background coding preparation — `20260923130000_card_coding_background_preparation.sql`
 
 Makes coding preparation run without a browser: after every bank feed sync
