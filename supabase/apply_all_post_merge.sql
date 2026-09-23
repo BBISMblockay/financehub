@@ -18953,6 +18953,11 @@ $c$select (select count(*) from v_po_header_summary
 -- PO Builder vendor PDF instead of the Baseballism literals it printed for
 -- every tenant. Additive; the Baseballism seed writes only where null.
 \i migrations/20260922130000_company_document_identity.sql
+-- ── Launch "products not known yet" (2026-09-22) ──────────────────────────
+-- Three nullable launch_calendar columns + a stamping trigger, so the launch
+-- form's intentional deferral stays visible for follow-up. Additive; no view
+-- or measurement rule changes.
+\i migrations/20260922150000_launch_products_unknown.sql
 
 -- ── Workspace Settings administration (2026-09-20) ────────────────────────
 -- Four SECURITY DEFINER functions behind the Workspace Settings Team and

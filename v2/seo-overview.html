@@ -218,7 +218,7 @@
     }
     if (!f.max_day) {
       el('strip').innerHTML = `<span class="neg"><b>No Search Console data ingested yet.</b></span>
-        <span>Connect and enable the property in Integrations, then run the nightly sync.</span>`;
+        <span>Connect and enable the property, then run the nightly sync. <a href="/v2/integrations.html">Open Integrations</a></span>`;
       el('subtitle').textContent = 'Google Search Console · final data · no property ingested';
       return;
     }

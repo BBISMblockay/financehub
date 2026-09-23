@@ -254,7 +254,20 @@ window.__QUERIES__ = [];
         q._op = 'update'; q.patch = patch; window.__QUERIES__.push(q);
         var mcu = missingColumn(Object.keys(patch || {}).join(','));
         var uErr = mcu ? { code: '42703', message: 'column ' + table + '.' + mcu + ' does not exist' } : null;
-        return { eq: function () { return Promise.resolve({ data: uErr ? null : [], error: uErr }); } };
+        // Chainable like insert: launch-calendar.html does
+        // .update(p).eq('id',id).select().single(). Still thenable with the
+        // same resolved shape, so 'await ...update(p).eq(...)' is unchanged.
+        return { eq: function () {
+          var one = Object.assign({ id: 'fixture-updated-id' }, patch || {});
+          var upd = {
+            eq: function () { return upd; },
+            select: function () { return upd; },
+            single: function () { return Promise.resolve(uErr ? { data: null, error: uErr } : { data: one, error: null }); },
+            maybeSingle: function () { return Promise.resolve(uErr ? { data: null, error: uErr } : { data: one, error: null }); },
+            then: function (res, rej) { return Promise.resolve({ data: uErr ? null : [], error: uErr }).then(res, rej); }
+          };
+          return upd;
+        } };
       },
       upsert: function (r) { q._op = 'upsert'; q.rows = r; window.__QUERIES__.push(q); return Promise.resolve({ data: r, error: null }); },
       delete: function () { q._op = 'delete'; window.__QUERIES__.push(q); return { eq: function () { return Promise.resolve({ data: [], error: null }); } }; },
@@ -436,6 +449,10 @@ async function startSuite(options = {}) {
   await context.route('**/pages/config.js', (route) =>
     route.fulfill({ contentType: 'text/javascript', body: CONFIG_STUB }));
   await context.route('**/cdn.jsdelivr.net/**supabase**', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: fakeSupabaseScript() }));
+  // calendar.html and launch-calendar.html load a LOCAL copy of the SDK
+  // rather than the CDN one; serve them the same stand-in.
+  await context.route('**/v2/lib/supabase-js.min.js', (route) =>
     route.fulfill({ contentType: 'text/javascript', body: fakeSupabaseScript() }));
   await context.route('**/fonts.googleapis.com/**', (route) =>
     route.fulfill({ contentType: 'text/css', body: '' }));

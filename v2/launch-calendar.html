@@ -191,6 +191,16 @@
     details.lf-sec > summary { list-style:none; cursor:pointer; display:flex; justify-content:space-between; align-items:center; margin-bottom:0; }
     details.lf-sec > summary::-webkit-details-marker { display:none; }
     details.lf-sec > summary .lf-sec-title { margin-bottom:0; }
+    /* Measurement link: a launch is measured only through what is attached to it. */
+    .lf-measure-state { font-size:12px; line-height:1.45; margin-bottom:8px; }
+    .lf-measure-ok   { color:var(--bcn-pos); }
+    .lf-measure-warn { color:var(--bcn-warn); }
+    .lf-measure-neg  { color:var(--bcn-neg); }
+    .lf-measure-opt  { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--bcn-ink-2); padding:3px 0; cursor:pointer; }
+    .lf-measure--needs { border-left:3px solid var(--bcn-warn); }
+    .lf-measure--flag  { border-left-color:var(--bcn-neg); box-shadow:0 0 0 1px var(--bcn-neg); }
+    .pill-link-missing { color:var(--bcn-neg); border-color:var(--bcn-neg); }
+    .pill-link-unknown { color:var(--bcn-warn); border-color:var(--bcn-warn); }
     details.lf-sec[open] > summary { margin-bottom:10px; }
     details.lf-sec > summary .lf-toggle { font-size:10px; color:var(--bcn-ink-4); font-family:var(--bcn-mono); }
     .lf-g2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
@@ -410,7 +420,8 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
 .lc2-toolbar .pg-tab--active { background:var(--bcn-accent);color:white; }
 .lc2-toolbar #q { min-width:120px!important;width:210px;border:1px solid var(--bcn-border);background:var(--bcn-surface);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--bcn-ink); }
 .lc2-filters[hidden] { display:none!important; }
-.lc2-filters { flex-wrap:wrap;flex-shrink:0; }
+.lc2-filters { flex-wrap:wrap;flex-shrink:0;height:auto;min-height:36px; }  /* wraps to a second row instead of clipping it */
+.lc2-filters > .bcn-filter { height:36px; }
 .lc2-workspace { display:flex;flex:1;min-height:0;min-width:0;overflow:hidden; }
 .lc2-views { flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden; }
 #pane-calendar { margin:0!important;min-height:0; }
@@ -655,6 +666,16 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
           <option value="needs_inventory">Needs Inventory</option>
           <option value="needs_assets">Needs Assets</option>
           <option value="ready">Ready</option>
+        </select>
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">MEASUREMENT</span>
+        <select id="linkFilter">
+          <option value="">All</option>
+          <option value="needs">Needs products (either)</option>
+          <option value="unknown">Products not known yet</option>
+          <option value="missing">No products or PO</option>
+          <option value="linked">Linked</option>
         </select>
       </div>
       <div class="bcn-filter">
@@ -1092,6 +1113,17 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
           </div>
         </div>
 
+        <div class="lf-sec lf-measure" id="measureSec" style="margin-top:12px;">
+          <div class="lf-sec-title">MEASUREMENT LINK</div>
+          <div id="measureState" class="lf-measure-state" role="status"></div>
+          <div id="measureChoices" role="radiogroup" aria-labelledby="measureState">
+            <label class="lf-measure-opt"><input type="radio" name="measureChoice" value="attach_next" /> I'll attach products right after saving</label>
+            <label class="lf-measure-opt"><input type="radio" name="measureChoice" value="unknown" /> Products not known yet &mdash; flag this launch for follow-up</label>
+            <input class="bcn-field" id="measureNote" maxlength="500" placeholder="What is missing, or who will add it (optional)" style="margin-top:6px;" hidden />
+            <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="measureLinkPoBtn" style="margin-top:8px;">LINK A PO&hellip;</button>
+          </div>
+        </div>
+
         <details class="lf-sec" style="margin-top:12px;">
           <summary><span class="lf-sec-title">PRIMARY REFERENCES</span><span class="lf-toggle">▼ EXPAND</span></summary>
           <div class="lf-g3">
@@ -1146,6 +1178,7 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
   </div>
 </div>
 
+<script src="launch-product-link.js"></script>
 <script src="nav-config.js"></script>
 <script src="avatar.js"></script>
   <script src="silo-chrome.js"></script>
@@ -1278,8 +1311,9 @@ let activeLaunch = null;
 let view = 'calendar';
 let monthAnchor = startOfMonth(new Date());
 let feedAnchor  = startOfDay(new Date());
-const F = { q:'', status:'', type:'', designer:'', readiness:'', from:'', to:'' };
+const F = { q:'', status:'', type:'', designer:'', readiness:'', link:'', from:'', to:'' };
 let pendingImageFile = null;
+let launchFormExisting = null;   // the stored row the launch form is editing, or null
 
 const $ = id => document.getElementById(id);
 const esc = v => String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
@@ -1345,6 +1379,8 @@ async function boot(){
 }
 
 function bind(){
+  document.querySelectorAll('input[name="measureChoice"]').forEach(r=>r.onchange=()=>renderMeasureSection());
+  $('measureLinkPoBtn').onclick = openPoLinkLookup;
   $('newLaunchBtn').onclick = () => openLaunchModal();
   $('refreshBtn').onclick   = () => loadAll();
   $('closeModal').onclick   = closeLaunchModal;
@@ -1364,14 +1400,14 @@ function bind(){
   $('todayFeed').onclick  = () => { feedAnchor=startOfDay(new Date());  render(); };
 
   $('resetBtn').onclick = () => {
-    Object.assign(F,{q:'',status:'',type:'',designer:'',readiness:'',from:'',to:''});
-    ['q','statusFilter','typeFilter','designerFilter','readinessFilter','fromFilter','toFilter'].forEach(id=>$(id).value='');
+    Object.assign(F,{q:'',status:'',type:'',designer:'',readiness:'',link:'',from:'',to:''});
+    ['q','statusFilter','typeFilter','designerFilter','readinessFilter','linkFilter','fromFilter','toFilter'].forEach(id=>$(id).value='');
     applyFilters(); render();
   };
 
   const applyD = debounce(()=>{syncF();applyFilters();render();},180);
   $('q').oninput = applyD;
-  ['statusFilter','typeFilter','designerFilter','readinessFilter','fromFilter','toFilter']
+  ['statusFilter','typeFilter','designerFilter','readinessFilter','linkFilter','fromFilter','toFilter']
     .forEach(id=>$(id).onchange=()=>{syncF();applyFilters();render();});
 
   document.querySelectorAll('[data-tab]').forEach(btn=>btn.addEventListener('click',()=>switchTab(btn.dataset.tab)));
@@ -1464,7 +1500,7 @@ function bind(){
 
 function syncF(){
   F.q=$('q').value; F.status=$('statusFilter').value; F.type=$('typeFilter').value;
-  F.designer=$('designerFilter').value; F.readiness=$('readinessFilter').value;
+  F.designer=$('designerFilter').value; F.readiness=$('readinessFilter').value; F.link=$('linkFilter').value;
   F.from=$('fromFilter').value; F.to=$('toFilter').value;
 }
 
@@ -1582,6 +1618,11 @@ function applyFilters(){
     if(F.type&&x.launch_type!==F.type) return false;
     if(F.designer&&x.designer!==F.designer) return false;
     if(F.readiness&&x.launch_readiness!==F.readiness) return false;
+    if(F.link){
+      const st=window.SiloLaunchLink.linkState(x, attachedProductCount(x.id));
+      const needs=st==='missing'||st==='unknown';
+      if(F.link==='needs'?!needs:F.link==='linked'?needs:st!==F.link) return false;
+    }
     if(F.from&&x.launch_date<F.from) return false;
     if(F.to&&x.launch_date>F.to) return false;
     if(q){
@@ -1740,6 +1781,7 @@ function renderAgenda(){
         <div class="agenda-meta">${esc([x.product_title,x.product_type,x.po_number,x.designer].filter(Boolean).join(' · '))}</div>
         <div class="agenda-pills">
           <span class="bcn-pill ${rCls}">${esc(x.launch_readiness||'not_reviewed')}</span>
+          ${linkFollowUpPill(x)}
           ${x.po_number?`<span class="bcn-pill" style="color:var(--bcn-accent)">${esc(x.po_number)}</span>`:''}
           <span class="bcn-pill">${prodCount} products</span>
           <span class="bcn-pill">${chCount} initiatives</span>
@@ -2332,6 +2374,10 @@ function openLaunchModal(x=null){
   pendingImageFile=null;
   $('lookupBox').style.display='none'; $('lookupResults').innerHTML=''; $('lookupSearchInput').value='';
   $('productSourceInput').value='manual';
+  launchFormExisting=x||null;
+  setMeasureChoice(window.SiloLaunchLink.initialChoice(x));
+  $('measureNote').value=x?.products_unknown_note||'';
+  renderMeasureSection();
   $('launchModal').classList.add('open');
 }
 function closeLaunchModal(){ $('launchModal').classList.remove('open'); pendingImageFile=null; hideImgPreview(); }
@@ -2372,23 +2418,51 @@ async function saveLaunch(){
       notes:$('notesInput').value.trim()||null,
     };
     if(!payload.title||!payload.launch_date){ $('formMsg').textContent='Title and date are required.'; return; }
+    // A launch is measured only through a linked PO or attached products, and
+    // a link nobody recorded now cannot be reconstructed later. Ask before
+    // saving rather than after (see v2/launch-product-link.js).
+    const choiceAtSave=currentMeasureChoice();
+    const link=window.SiloLaunchLink.decideSave({
+      linkedPoId:payload.linked_po_id,
+      attachedCount:attachedProductCount(id),
+      choice:choiceAtSave,
+      note:$('measureNote').value,
+      existing:id?launchFormExisting:null,
+    });
+    if(!link.ok){
+      $('formMsg').textContent=link.message;
+      renderMeasureSection(true);
+      $('measureSec').scrollIntoView({behavior:'smooth',block:'nearest'});
+      return;
+    }
+    Object.assign(payload,link.patch);
     let res;
     if(id) res=await db.from('launch_calendar').update(payload).eq('id',id).select().single();
     else { payload.created_by=currentUser.id; if(_co?.id) payload.company_entity_id=_co.id; res=await db.from('launch_calendar').insert(payload).select().single(); }
-    if(res?.error) throw res.error;
+    if(res?.error){
+      if(window.SiloLaunchLink.isMissingDeferralColumn(res.error))
+        throw new Error('"Products not known yet" cannot be recorded until migration 20260922150000_launch_products_unknown.sql is applied. Link a PO or choose to attach products after saving instead.');
+      throw res.error;
+    }
     const savedId=res.data?.id||id;
     const wasNew=!id;
     closeLaunchModal();
     await loadAll();
+    // One message: the follow-up hint used to be overwritten a line later by
+    // the generic "Saved", so nobody ever read it.
+    let savedMsg=null;
     if(savedId){
       openDrawer(savedId);
-      if(wasNew){
-        switchDrawerTab('dp-products');
-        const count=products.filter(p=>String(p.launch_id)===String(savedId)).length;
-        if(!count) setStatus('Launch saved — add product lines in the Products tab.','info',4500);
-      }
+      const count=products.filter(p=>String(p.launch_id)===String(savedId)).length;
+      const unlinked=!count&&!payload.linked_po_id;
+      // "I'll attach products right after saving" is a promise the page can
+      // help keep: land on the Products tab whether the launch is new or not.
+      if(wasNew||(unlinked&&choiceAtSave==='attach_next')) switchDrawerTab('dp-products');
+      if(unlinked) savedMsg=choiceAtSave==='unknown'
+        ? `Saved · ${payload.title} — flagged "products not known yet" for follow-up.`
+        : `Saved · ${payload.title} — add product lines in the Products tab.`;
     }
-    setStatus(`Saved · ${payload.title}`,'pos',2000);
+    if(savedMsg) setStatus(savedMsg,'info',6000); else setStatus(`Saved · ${payload.title}`,'pos',2000);
   } catch(e){
     console.error(e);
     $('formMsg').textContent='Save failed: '+(e?.message||e);
@@ -2887,9 +2961,65 @@ function renderPoLinkStatus(){
     const b=$('btnClearPoLink');
     if(b) b.onclick=()=>{ $('linkedPoIdInput').value=''; renderPoLinkStatus(); };
   } else {
-    el.innerHTML=`<span style="color:var(--bcn-ink-4)">not linked \u2014 use FIND PRODUCT \u2192 PO to link, or this launch can only be estimated</span>`;
+    el.innerHTML=`<span style="color:var(--bcn-ink-4)">not linked \u2014 use FIND PRODUCT \u2192 PO to link, or attach products after saving</span>`;
   }
+  if($('measureSec')) renderMeasureSection();
 }
+/* ---- measurement link (launch form) ------------------------------------ */
+// Products attached to a SAVED launch; a new launch has none until it exists.
+function attachedProductCount(launchId){
+  if(!launchId) return 0;
+  return products.filter(p=>String(p.launch_id)===String(launchId)).length;
+}
+function currentMeasureChoice(){
+  const r=document.querySelector('input[name="measureChoice"]:checked');
+  return r?r.value:'';
+}
+function setMeasureChoice(v){
+  document.querySelectorAll('input[name="measureChoice"]').forEach(r=>{ r.checked=(r.value===v); });
+}
+// States the link on the form itself. `flag` marks the section after a save
+// was refused, so the reason sits next to the choices that resolve it.
+function renderMeasureSection(flag){
+  const L=window.SiloLaunchLink, sec=$('measureSec');
+  const id=$('launchId').value;
+  const count=attachedProductCount(id);
+  const state=L.linkState({ linked_po_id:$('linkedPoIdInput').value }, count);
+  const linked=state===L.STATE.PO||state===L.STATE.PRODUCTS;
+  const choice=currentMeasureChoice();
+  const el=$('measureState');
+  if(state===L.STATE.PO){
+    el.innerHTML='<span class="lf-measure-ok">\u25CF Linked to a PO \u2014 sales measurable by SKU.</span>';
+  } else if(state===L.STATE.PRODUCTS){
+    el.innerHTML=`<span class="lf-measure-ok">\u25CF ${count} product${count===1?'':'s'} attached \u2014 measured through them.</span>`;
+  } else if(choice===L.CHOICE.UNKNOWN){
+    el.innerHTML='<span class="lf-measure-warn">\u25CF Products not known yet \u2014 this launch will show as needing products until they are attached or a PO is linked.</span>';
+  } else if(choice===L.CHOICE.ATTACH_NEXT){
+    el.innerHTML='<span class="lf-measure-warn">\u25CF No products attached yet \u2014 the Products tab opens after saving.</span>';
+  } else {
+    el.innerHTML='<span class="lf-measure-neg">\u25CF No products or PO attached. Sales can only be measured through what is attached to a launch \u2014 overlapping launches cannot be separated by date. Choose one before saving.</span>';
+  }
+  $('measureChoices').hidden=linked;
+  $('measureNote').hidden=linked||choice!==L.CHOICE.UNKNOWN;
+  sec.classList.toggle('lf-measure--needs',!linked&&!choice);
+  sec.classList.toggle('lf-measure--flag',!!flag&&!linked&&!choice);
+  if(!flag&&(linked||choice)&&/no products or PO attached/i.test($('formMsg').textContent)) $('formMsg').textContent='';
+}
+// Follow-up marker for a saved launch with no link; empty once linked.
+function linkFollowUpPill(x){
+  const f=window.SiloLaunchLink.followUp(x, attachedProductCount(x.id));
+  if(!f) return '';
+  return `<span class="bcn-pill pill-link-${f.state}" data-link-followup="${f.state}" title="${esc(f.title)}">${esc(f.label)}</span>`;
+}
+// The form's existing PO picker is the OPTIONAL PREFILL lookup; open it on PO.
+function openPoLinkLookup(){
+  const det=$('productSourceInput').closest('details');
+  if(det) det.open=true;
+  $('productSourceInput').value='po_incoming';
+  $('lookupSearchInput').focus();
+  det?.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
 function applyProductToShell(r){ $('productTitleInput').value=r.product_title||''; $('productTypeInput').value=r.product_type||''; $('vendorInput').value=r.vendor_original||''; $('skuInput').value=r.sample_sku||''; if(!$('titleInput').value)$('titleInput').value=r.product_title||''; if(r.image_url&&!$('imageInput').value){$('imageInput').value=r.image_url;showImgPreview(r.image_url);} $('lookupBox').style.display='none'; }
 function applyPOToProductForm(r){ openProductForm(null); pendingProductSource={kind:'po',raw:r}; $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.factory_name||''; $('prodPo').value=r.po_name||''; $('prodEta').value=r.expected_arrival_date||''; $('prodUnits').value=r.total_units??''; $('prodLookupResults').innerHTML=''; }
 function applyProductToProductForm(r){ openProductForm(null); pendingProductSource={kind:'master',raw:r}; $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.vendor_original||''; $('prodLookupResults').innerHTML=''; }
@@ -2923,7 +3053,7 @@ function applyProductToProductForm(r){ openProductForm(null); pendingProductSour
     originalOverview(prods,chans,tsks);
     const x=activeLaunch, open=tsks.filter(t=>!['done','complete'].includes(t.status));
     const label=v=>String(v||'Not reviewed').replaceAll('_',' ');
-    $('drawerLaunchMeta').innerHTML=`<div class="lc2-hero">${x.launch_image_url?`<img src="${esc(x.launch_image_url)}" alt="Launch artwork">`:''}<div><div style="display:flex;gap:5px;flex-wrap:wrap"><span class="bcn-pill">${esc(label(x.status||'planned'))}</span><span class="bcn-pill">${esc(label(x.launch_readiness))}</span>${x.launch_type?`<span class="bcn-pill">${esc(x.launch_type)}</span>`:''} </div><div class="dp-item-meta">${prods.length} products · ${chans.length} initiatives · ${open.length} open tasks</div>${x.designer?`<div class="dp-item-meta">Designer: ${esc(x.designer)}</div>`:''}${x.marketing_channel?`<div class="dp-item-meta">Channel: ${esc(x.marketing_channel)}</div>`:''}</div></div>`;
+    $('drawerLaunchMeta').innerHTML=`<div class="lc2-hero">${x.launch_image_url?`<img src="${esc(x.launch_image_url)}" alt="Launch artwork">`:''}<div><div style="display:flex;gap:5px;flex-wrap:wrap"><span class="bcn-pill">${esc(label(x.status||'planned'))}</span><span class="bcn-pill">${esc(label(x.launch_readiness))}</span>${x.launch_type?`<span class="bcn-pill">${esc(x.launch_type)}</span>`:''}${linkFollowUpPill(x)} </div><div class="dp-item-meta">${prods.length} products · ${chans.length} initiatives · ${open.length} open tasks</div>${x.designer?`<div class="dp-item-meta">Designer: ${esc(x.designer)}</div>`:''}${x.marketing_channel?`<div class="dp-item-meta">Channel: ${esc(x.marketing_channel)}</div>`:''}</div></div>`;
     let summary=$('lc2-summary');if(!summary){summary=document.createElement('div');summary.id='lc2-summary';$('drawerLaunchMeta').after(summary);}
     const scheduled=[...chans].sort((a,b)=>String(a.scheduled_date||'9999').localeCompare(String(b.scheduled_date||'9999'))||String(a.scheduled_time||'').localeCompare(String(b.scheduled_time||'')));
     summary.innerHTML=`<section class="dp-section"><div class="lc2-section-head"><strong>Readiness</strong></div><div class="lc2-readiness"><div><small>Launch status</small><strong>${esc(label(x.launch_readiness))}</strong></div><div><small>Checklist</small><strong>${open.length} open tasks</strong></div></div><div class="lc2-next"><strong>${x.launch_readiness==='ready'?'Launch marked ready':'Review launch readiness'}</strong><p>Review product readiness and the launch checklist.</p><button class="bcn-btn bcn-btn--primary" data-lc2-tab="dp-products">Review products →</button></div></section><section class="dp-section" style="margin-top:12px"><div class="lc2-section-head"><strong>Initiatives (${chans.length})</strong><button class="bcn-btn bcn-btn--ghost" data-lc2-tab="dp-channels">View all →</button></div>${scheduled.slice(0,3).map(c=>`<div class="lc2-init"><span class="bcn-pill pill-ch ${chClass(c.channel)}">${esc(c.channel||'other')}</span><span class="lc2-init-title">${esc(c.item_title||'Initiative')}</span><small>${c.scheduled_date?esc(fmt(c.scheduled_date)):'Unscheduled'}${c.scheduled_time?' · '+esc(c.scheduled_time.slice(0,5)):''}</small></div>`).join('')||'<div class="dp-sub">No initiatives yet.</div>'}</section><section class="dp-section" style="margin-top:12px"><div class="lc2-section-head"><strong>Open tasks (${open.length})</strong><button class="bcn-btn bcn-btn--ghost" data-lc2-tab="dp-tasks">View tasks →</button></div>${open.slice(0,3).map(t=>`<div class="dp-item-meta">${esc(t.task_title||t.title||'Task')}</div>`).join('')||'<div class="dp-sub">No open tasks.</div>'}</section>${x.details||x.notes?`<section class="dp-section" style="margin-top:12px"><strong>Launch notes</strong><div class="dp-item-meta">${esc(x.details||x.notes)}</div></section>`:''}`;

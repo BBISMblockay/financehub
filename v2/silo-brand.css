@@ -258,3 +258,25 @@ html.silo-brand body {
 .bcn-header-sub.bcn-header-sub--trimmed {
   display: none;
 }
+
+/* Header notes: long "how to read this page" copy moved out of .bcn-header-sub
+   into a collapsed <details>. The one-line sub above it stays visible. */
+.silo-header-details {
+  margin-top: 3px;
+  max-width: 110ch;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--bcn-ink-3);
+}
+.silo-header-details > summary {
+  cursor: pointer;
+  width: fit-content;
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--bcn-ink-3);
+}
+.silo-header-details > summary:hover,
+.silo-header-details[open] > summary { color: var(--bcn-ink-2); }
+.silo-header-details > p { margin: 4px 0 0; }
