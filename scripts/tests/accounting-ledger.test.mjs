@@ -86,3 +86,110 @@ test('a closing date in a later fiscal year is flagged', () => {
   assert.equal(L.crossesFiscalYear('2026-07-31', '2026-10-01', 10), true);
   assert.match(L.render(L.rollForward({ opening, postings: [], trialBalance: new Map(), closingDate: '2027-02-01' }), { fiscalCrossed: true }), /later fiscal year/);
 });
+
+// ---- mount(): the real read path, against a mock that honours eq/gte
+// filters, ordering, ranges, limits and a server-side row cap -------------
+function fakeDb(data, { cap = Infinity } = {}) {
+  const calls = [];
+  return {
+    calls,
+    from(table) {
+      const q = { table, eq: [], gte: [], order: null, range: null, limit: null };
+      calls.push(q);
+      const api = {
+        select() { return api; },
+        eq(c, v) { q.eq.push([c, v]); return api; },
+        gte(c, v) { q.gte.push([c, v]); return api; },
+        order(c) { q.order = q.order || c; return api; },
+        range(a, b) { q.range = [a, b]; return api; },
+        limit(n) { q.limit = n; return api; },
+        then(res, rej) {
+          let rows = (data[table] || []).filter((r) => q.eq.every(([c, v]) => r[c] === v) && q.gte.every(([c, v]) => String(r[c]) >= String(v)));
+          if (q.order) rows = rows.slice().sort((a, b) => String(a[q.order]).localeCompare(String(b[q.order])));
+          if (q.range) rows = rows.slice(q.range[0], Math.min(q.range[1] + 1, q.range[0] + cap));
+          if (q.limit) rows = rows.slice(0, q.limit);
+          return Promise.resolve({ data: rows, error: null }).then(res, rej);
+        },
+      };
+      return api;
+    },
+  };
+}
+function fakeEls() {
+  const m = new Map();
+  return (id) => {
+    if (!m.has(id)) m.set(id, { innerHTML: '', textContent: '', value: '', hidden: false, checked: false, addEventListener() {} });
+    return m.get(id);
+  };
+}
+const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
+const acc = { ...opening, snapshot: { ...opening.snapshot, basis: 'Accrual', currency: 'USD' } };
+const header = (basis = 'Accrual', extra = {}) => ({ ReportName: 'TrialBalance', ReportBasis: basis, Currency: 'USD', EndPeriod: '2026-09-22', ...extra });
+const cols = { Column: [{ ColType: 'Account', ColTitle: '' }, { ColType: 'Money', ColTitle: 'Debit' }, { ColType: 'Money', ColTitle: 'Credit' }] };
+const run = (id, extra = {}) => ({ id, company_entity_id: 'co', connection_id: 'A', report_name: 'TrialBalance', status: 'ok', end_date: '2026-09-22', fetched_at: '2026-09-23', params: { start_date: '2026-01-01', end_date: '2026-09-22', accounting_method: 'Accrual' }, raw_response: { Header: header(), Columns: cols, ...trialBalance }, ...extra });
+const stored = (id, date, lines, extra = {}) => ({ ...posting(id, date, lines), company_entity_id: 'co', connection_id: 'A', ...extra });
+async function mountWith(data, options = {}) {
+  const el = fakeEls();
+  const db = fakeDb(data, options);
+  await L.mount({ db, companyId: 'co', opening: acc, settings: { qbo_connection_id: 'A', fiscal_year_start_month: 1, accounting_basis: 'Accrual' }, businessToday: '2026-09-23', el });
+  await settle();
+  return { el, db };
+}
+
+test('posted activity is read for the books’ own QuickBooks connection only', async () => {
+  const { el, db } = await mountWith({
+    quickbooks_journal_postings: [
+      stored('a1', '2026-08-31', [line('163', 'Debit', 500), line('290', 'Credit', 500)]),
+      // Connection B, colliding account id 83: must not reach connection A's books.
+      stored('b1', '2026-08-31', [line('83', 'Debit', 10), line('300', 'Credit', 10)], { connection_id: 'B' }),
+    ],
+    quickbooks_report_runs: [run('tb-a')],
+  });
+  const html = el('ledgerTable').innerHTML;
+  assert.match(html, /data-ledger-account="290"/);
+  assert.ok(!/data-ledger-account="83"/.test(html), 'a connection-B journal must not appear as Silo activity');
+  assert.ok(db.calls.filter((c) => c.table === 'quickbooks_journal_postings').every((c) => c.eq.some(([k, v]) => k === 'connection_id' && v === 'A')));
+});
+
+test('a closing report on a different basis is never compared with the opening balances', async () => {
+  // A newer Cash report beside an older Accrual one: only the Accrual one is offered.
+  let r = await mountWith({ quickbooks_journal_postings: [], quickbooks_report_runs: [
+    run('tb-cash', { fetched_at: '2026-09-24', params: { start_date: '2026-01-01', end_date: '2026-09-22', accounting_method: 'Cash' }, raw_response: { Header: header('Cash'), Columns: cols, ...trialBalance } }),
+    run('tb-accrual'),
+  ] });
+  assert.match(r.el('ledgerRun').innerHTML, /tb-accrual/);
+  assert.ok(!/tb-cash/.test(r.el('ledgerRun').innerHTML));
+  // Only a Cash report: nothing is compared, and the page says why.
+  r = await mountWith({ quickbooks_journal_postings: [], quickbooks_report_runs: [
+    run('tb-cash', { params: { accounting_method: 'Cash' }, raw_response: { Header: header('Cash'), Columns: cols, ...trialBalance } }),
+  ] });
+  assert.match(r.el('ledgerTable').innerHTML, /1 saved trial balance was left out because it does not match the opening balances&#39; Accrual basis/);
+  assert.ok(!/1,400\.00/.test(r.el('ledgerTable').innerHTML), 'no closing balance from an incompatible report');
+  // Params claim Accrual but the report header says Cash: the header wins.
+  r = await mountWith({ quickbooks_journal_postings: [], quickbooks_report_runs: [
+    run('tb-lying', { raw_response: { Header: header('Cash'), Columns: cols, ...trialBalance } }),
+  ] });
+  assert.match(r.el('ledgerTable').innerHTML, /cannot be compared with the opening balances \(Cash basis, opening balances are Accrual\)/);
+  assert.ok(!/1,400\.00/.test(r.el('ledgerTable').innerHTML));
+});
+
+test('compatibility rules mirror how the opening balances were seeded', () => {
+  const snap = acc.snapshot;
+  assert.equal(L.paramsIncompatibility({ accounting_method: 'Accrual', start_date: 'x', end_date: 'y' }, snap), null);
+  assert.match(L.paramsIncompatibility({ accounting_method: 'Accrual', account: '83' }, snap), /filtered/);
+  assert.match(L.paramsIncompatibility({ accounting_method: 'Cash' }, snap), /Cash basis/);
+  const raw = { Header: header(), Columns: cols };
+  assert.equal(L.closingIncompatibility(raw, { endDate: '2026-09-22' }, snap), null);
+  assert.match(L.closingIncompatibility({ ...raw, Header: header('Accrual', { Currency: 'CAD' }) }, { endDate: '2026-09-22' }, snap), /CAD currency/);
+  assert.match(L.closingIncompatibility({ ...raw, Header: header('Accrual', { EndPeriod: '2026-09-01' }) }, { endDate: '2026-09-22' }, snap), /period/);
+  assert.match(L.closingIncompatibility({ ...raw, Columns: { Column: [cols.Column[0], { ColTitle: 'Jan 2026' }] } }, { endDate: '2026-09-22' }, snap), /Debit\/Credit/);
+});
+
+test('every posted journal is read, past any page size or server row cap', async () => {
+  const early = Array.from({ length: 5000 }, (_, i) => stored('p' + String(i).padStart(5, '0'), '2026-07-15', [line('163', 'Debit', 1), line('290', 'Credit', 1)]));
+  // Sorts after every pre-opening row, so it sits well past the first page.
+  const late = stored('z-late', '2026-08-31', [line('83', 'Debit', 10), line('300', 'Credit', 10)]);
+  const { el } = await mountWith({ quickbooks_journal_postings: [...early, late], quickbooks_report_runs: [run('tb-a')] }, { cap: 700 });
+  assert.match(el('ledgerTable').innerHTML, /data-ledger-account="83"/, 'the in-period journal beyond the first page is counted');
+  assert.match(el('ledgerTable').innerHTML, /5000 posted entries are dated on or before the opening date/);
+});

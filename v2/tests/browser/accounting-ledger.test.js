@@ -24,12 +24,16 @@ const FIXTURES = () => ({
         { qbo_account_id: '300', name: 'Equity', account_type: 'Equity', debit: 0, credit: 6000 },
       ] } }],
   accounting_accounts: [],
-  quickbooks_journal_postings: [{ id: 'p1', source: 'prepaid_amortization', status: 'posted', qbo_doc_number: 'SILO-AMORT',
+  quickbooks_journal_postings: [{ id: 'p1', connection_id: 'conn-1', source: 'prepaid_amortization', status: 'posted', qbo_doc_number: 'SILO-AMORT',
     payload: { TxnDate: '2026-08-31', Line: [
       { Amount: 500, Description: 'Epic Games — 2026-08', JournalEntryLineDetail: { AccountRef: { value: '163' }, PostingType: 'Debit' } },
       { Amount: 500, Description: 'Epic Games — 2026-08', JournalEntryLineDetail: { AccountRef: { value: '290' }, PostingType: 'Credit' } }] } }],
   quickbooks_report_runs: [{ id: 'tb-1', report_name: 'TrialBalance', status: 'ok', end_date: '2026-09-22', fetched_at: '2026-09-23T00:00:00Z', connection_id: 'conn-1',
-    raw_response: { Rows: { Row: [tbRow('83', 'Checking', '1400.00', ''), tbRow('290', 'Prepaid licensing', '4500.00', ''), tbRow('300', 'Equity', '', '6000.00'), tbRow('163', 'Amortization', '500.00', ''), tbRow('400', 'Sales', '', '400.00')] } } }],
+    params: { start_date: '2026-01-01', end_date: '2026-09-22', accounting_method: 'Accrual' },
+    raw_response: {
+      Header: { ReportName: 'TrialBalance', ReportBasis: 'Accrual', Currency: 'USD', EndPeriod: '2026-09-22' },
+      Columns: { Column: [{ ColType: 'Account', ColTitle: '' }, { ColType: 'Money', ColTitle: 'Debit' }, { ColType: 'Money', ColTitle: 'Credit' }] },
+      Rows: { Row: [tbRow('83', 'Checking', '1400.00', ''), tbRow('290', 'Prepaid licensing', '4500.00', ''), tbRow('300', 'Equity', '', '6000.00'), tbRow('163', 'Amortization', '500.00', ''), tbRow('400', 'Sales', '', '400.00')] } } }],
   accounting_journal_register: [],
 });
 
