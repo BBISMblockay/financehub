@@ -479,3 +479,48 @@
  #tblCoding .txn-merchant {grid-column:2;grid-row:3;width:auto;font-size:11px;}
  #tblCoding .txn-category {grid-row:4;}
 }
+
+/* The selection / save toolbar floats over the list, pinned to the bottom of
+   the SCREEN rather than of the card. Sticky could not hold it: every
+   ancestor from the card to .silo-app clips overflow, so a sticky bar only
+   ever reached the end of the list -- off screen on a long month, and at the
+   bottom of a 2,000px page on a phone. Fixed is measured from the viewport,
+   so it stays in reach while rows are picked anywhere in the list. Centred on
+   the main column (the 224px sidebar, or 56px collapsed). */
+.transaction-list #codeActionBar {position:fixed;z-index:40;bottom:18px;left:calc(224px + (100vw - 224px) / 2);transform:translateX(-50%);
+  width:max-content;max-width:calc(100vw - 224px - 32px);display:flex;align-items:center;flex-wrap:nowrap;gap:6px;margin:0;
+  padding:7px 7px 7px 14px;background:var(--bcn-band);color:var(--bcn-band-ink);border:1px solid var(--bcn-band-hi);border-radius:14px;
+  box-shadow:0 14px 34px rgba(0,0,0,.28),0 2px 6px rgba(0,0,0,.18);}
+.silo-app[data-collapsed="true"] .transaction-list #codeActionBar {left:calc(56px + (100vw - 56px) / 2);max-width:calc(100vw - 56px - 32px);}
+.transaction-list:has(#codeActionBar:not([hidden])) .cc-body {padding-bottom:84px;}
+.transaction-list #codeActionBar .cc-bulk {display:flex;align-items:center;flex-wrap:nowrap;gap:6px;flex:1 1 auto;min-width:0;padding:0;border:0;background:none;}
+.transaction-list #codeActionBar > .bcn-btn,.transaction-list #codeActionBar .cc-bulk > .bcn-btn,.transaction-list #codeActionBar .cc-bulk-count {flex:none;white-space:nowrap;}
+.transaction-list #codeActionBar .cc-bulk[hidden] {display:none;}
+.transaction-list #codeActionBar .cc-bulk-count {font:600 12px var(--bcn-mono);color:var(--bcn-band-ink);padding-right:8px;margin-right:2px;border-right:1px solid var(--bcn-band-hi);white-space:nowrap;}
+.transaction-list #codeActionBar .cc-bulk-set {display:flex;gap:4px;padding:3px;border-radius:10px;background:var(--bcn-band-hi);flex:1 1 auto;min-width:0;}
+.transaction-list #codeActionBar .cc-bulk-set select {width:auto!important;flex:1 1 150px;min-width:96px;max-width:210px;height:32px;padding:0 26px 0 10px;border:0;border-radius:7px;
+  background-color:transparent;color:var(--bcn-band-ink);font:500 12px var(--bcn-font);cursor:pointer;}
+.transaction-list #codeActionBar #bulkEntity {flex-basis:180px;min-width:150px;}
+.transaction-list #codeActionBar .cc-bulk-set select:hover,.transaction-list #codeActionBar .cc-bulk-set select:focus-visible {background-color:var(--bcn-band);}
+.transaction-list #codeActionBar .cc-bulk-set select:focus-visible {outline:2px solid var(--bcn-accent);outline-offset:0;}
+.transaction-list #codeActionBar .cc-bulk-set select option {color:var(--bcn-ink);background:var(--bcn-surface);}
+.transaction-list #codeActionBar .bcn-btn {min-height:32px;height:32px;padding:0 12px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--bcn-band-ink);font:500 12px var(--bcn-font);}
+.transaction-list #codeActionBar .bcn-btn:hover:not(:disabled) {background:var(--bcn-band-hi);}
+.transaction-list #codeActionBar .bcn-btn:focus-visible {outline:2px solid var(--bcn-accent);outline-offset:1px;}
+.transaction-list #codeActionBar .bcn-btn:disabled {opacity:.45;}
+.transaction-list #codeActionBar #btnBulkAccept {border-color:var(--bcn-band-hi);}
+.transaction-list #codeActionBar .cc-bulk-clear {width:32px;padding:0;font-size:18px;line-height:1;color:var(--bcn-band-ink);opacity:.75;}
+.transaction-list #codeActionBar #unsavedCount {margin-left:8px;color:var(--bcn-warn);font:500 12px var(--bcn-font);}
+.transaction-list #codeActionBar #btnSaveCoding {background:var(--bcn-accent);border-color:var(--bcn-accent);color:#fff;font-weight:600;}
+.transaction-list #codeActionBar #btnSaveCoding:hover:not(:disabled) {background:var(--bcn-accent);filter:brightness(1.08);}
+@media(max-width:1000px) {
+ .transaction-list #codeActionBar,.transaction-list #codeActionBar .cc-bulk {flex-wrap:wrap;}
+ .transaction-list #codeActionBar .cc-bulk {flex-basis:100%;}
+ .transaction-list #codeActionBar .cc-bulk-set {flex-basis:100%;flex-wrap:wrap;}
+ .transaction-list #codeActionBar .cc-bulk-set select {flex:1 1 30%;min-width:0;max-width:none;padding:0 22px 0 8px;}
+ .transaction-list:has(#codeActionBar:not([hidden])) .cc-body {padding-bottom:150px;}
+}
+@media(max-width:900px) {
+ /* The sidebar is a drawer here, so the bar spans the screen. */
+ .transaction-list #codeActionBar,.silo-app[data-collapsed="true"] .transaction-list #codeActionBar {left:50%;bottom:calc(8px + env(safe-area-inset-bottom, 0px));max-width:calc(100vw - 16px);width:calc(100vw - 16px);padding:8px;border-radius:12px;}
+}
