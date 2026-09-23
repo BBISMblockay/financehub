@@ -683,6 +683,46 @@ const TABLES = {
       r.truthy(seen.scroll <= seen.inner + 1, 'page scrolls sideways: ' + seen.scroll);
     });
 
+    // Review finding (PR #767 cycle 1): the fixed selection toolbar sized for
+    // a 1300px window overflowed the main column at 1024-1100px with the
+    // sidebar expanded. Every control must stay on screen and clear of it.
+    console.log('\n\u2500\u2500 selection toolbar \u2500\u2500');
+    for (const width of [1024, 1100, 1300, 390]) {
+      await check(`the selection toolbar stays inside the main column at ${width}px`, async () => {
+        await page.setViewportSize({ width, height: 800 });
+        await page.waitForTimeout(150);
+        await page.evaluate(() => {
+          if (document.querySelector('#tblCoding [data-pick]:checked')) return;
+          document.querySelector('#tblCoding [data-pick]:not(:disabled)').click();
+        });
+        await page.waitForTimeout(150);
+        const seen = await page.evaluate(() => {
+          const bar = document.getElementById('codeActionBar');
+          const side = document.querySelector('.silo-sidebar');
+          const sideRect = side && getComputedStyle(side).display !== 'none' ? side.getBoundingClientRect() : null;
+          const floor = sideRect && sideRect.width > 0 && sideRect.right > 0 && innerWidth > 900 ? sideRect.right : 0;
+          const controls = [...bar.querySelectorAll('select, button, .cc-bulk-count')]
+            .filter((n) => n.offsetParent !== null)
+            .map((n) => ({ id: n.id || n.className, ...n.getBoundingClientRect().toJSON() }));
+          return { hidden: bar.hidden, floor, inner: innerWidth, controls };
+        });
+        r.eq(seen.hidden, false, 'toolbar showed for a selected row');
+        r.truthy(seen.controls.length >= 6, 'controls rendered: ' + seen.controls.length);
+        for (const c of seen.controls) {
+          r.truthy(c.left >= seen.floor - 1 && c.right <= seen.inner + 1,
+            `${c.id} spans ${Math.round(c.left)}-${Math.round(c.right)} outside ${Math.round(seen.floor)}-${seen.inner}`);
+        }
+        // No control may sit under another: a squeezed group spilled its
+        // last select beneath the button beside it.
+        for (const [i, a] of seen.controls.entries()) for (const b of seen.controls.slice(i + 1)) {
+          const overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1
+            && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+          r.truthy(!overlap, `${a.id} overlaps ${b.id}`);
+        }
+      });
+    }
+    await page.evaluate(() => document.getElementById('btnBulkClear')?.click());
+
   } catch (err) {
     r.test('suite ran to completion', () => { throw err; });
   } finally {

@@ -2156,3 +2156,23 @@ its own is updated, another PO's is left alone. The per-PO index is dropped
 (this one implies it). 0 violations, 0 null-company rows and 0 items linked to
 another company's PO when it was created (2026-09-23). `verify_v2_schema.sql`'s
 "Product tracker PO link" check reports it MISSING if absent.
+
+## PO Report shipment audit — `20260923160000_incoming_shipment_audit.sql`
+
+`incoming_shipments` and `incoming_shipment_lines` gain `created_by` and
+`updated_by` (profiles.id), stamped by `stamp_shipment_audit()` so the PO
+Report page needs no change.
+
+- **From the session, never the client.** With a signed-in caller both
+  columns are `auth.uid()` whatever the payload says; a value is kept only on a
+  write with no session (service role).
+- **`created_by` never changes** on update; `updated_by` is the caller, or
+  NULL for a system write — never the previous editor.
+- Rows from before 2026-09-23 stay NULL (no record to recover them from).
+  Deletes are not recorded.
+- **Keys to `profiles(id)`** (`20260923170000`), plain NO ACTION like
+  `mail_items`: a service-role write naming a non-person is refused. Not
+  `ON DELETE SET NULL` — that action is an UPDATE the trigger would undo by
+  pinning `created_by`; SILO deactivates people rather than deleting profiles.
+  The same migration refreshes the Ask SILO / report-builder catalog.
+- Test: `scripts/tests/incoming-shipment-audit-database.test.mjs`.

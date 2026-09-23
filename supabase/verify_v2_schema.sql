@@ -1058,6 +1058,24 @@ select
     else 'ok'
   end as incoming_shipment_tracking;
 
+-- 34b. Who created / last changed a shipment (migration 20260923160000)
+select
+  case
+    when (select count(*) from information_schema.columns
+          where table_schema='public' and table_name in ('incoming_shipments','incoming_shipment_lines')
+            and column_name in ('created_by','updated_by')) <> 4
+      then 'MISSING — run 20260923160000_incoming_shipment_audit.sql'
+    when (select count(*) from pg_trigger
+          where tgname in ('trg_incoming_shipments_audit','trg_incoming_shipment_lines_audit') and not tgisinternal) <> 2
+      then 'MISSING — shipment audit triggers'
+    when (select count(*) from pg_constraint
+          where contype='f' and confrelid='public.profiles'::regclass
+            and conrelid in ('public.incoming_shipments'::regclass, 'public.incoming_shipment_lines'::regclass)
+            and conname like '%\_by\_fkey') <> 4
+      then 'MISSING — run 20260923170000_incoming_shipment_audit_fks.sql (audit columns must reference profiles)'
+    else 'ok'
+  end as incoming_shipment_audit;
+
 -- 35. factories.country (migration 20260818220000) — powers the PO Report shipment map
 select
   case
