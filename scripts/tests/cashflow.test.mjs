@@ -79,6 +79,9 @@ test("posted uncoded and excluded cash is included; pending, removed, cards, cur
   assert.equal(m.currentCash, 100000);
   assert.equal(m.postedCount, 2);
   assert.equal(m.pending, 1);
+  // Pending rows are counted per date so a column can say it is still settling.
+  assert.equal([...m.pendingByDate.values()].reduce((a, b) => a + b, 0), 1);
+  assert.equal(m.pendingByDate.get(txn("c", 100).txn_date), 1);
   assert.equal(m.excluded, 1);
   assert.equal(m.uncategorized, 2);
 });

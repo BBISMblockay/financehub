@@ -54,3 +54,47 @@ test('each suite page pins its shared design assets to the shipped content',asyn
   }
  }
 });
+
+test('schedules separate what is due by date from what was actually posted',()=>{
+ const h=harness(schedules,'renderCatchup,setPosted(value){postedRecognized=value;}');
+ const items=[{recognized_to_date:300,remaining_balance:900,schedule_type:'prepaid'}];
+ // Unread posting state is unknown, never zero.
+ h.api.setPosted(null);h.api.renderCatchup(items);
+ assert.equal(h.el('cuRecognized').textContent,'$300.00');assert.equal(h.el('cuPosted').textContent,'—');
+ assert.match(h.el('cuNote').textContent,/could not be read/);
+ h.api.setPosted(100);h.api.renderCatchup(items);
+ assert.equal(h.el('cuPosted').textContent,'$100.00');assert.equal(h.el('cuBehind').textContent,'$200.00');
+ assert.match(h.el('cuNote').textContent,/\$200\.00 is due but not posted/);assert.match(h.el('catchup').className,/sc-tie--off/);
+ h.api.setPosted(300);h.api.renderCatchup(items);
+ assert.match(h.el('cuNote').textContent,/Everything prepaid that is due to date has been posted/);assert.match(h.el('catchup').className,/sc-tie--ok/);
+ h.api.setPosted(400);h.api.renderCatchup(items);assert.match(h.el('cuNote').textContent,/more has been posted than is due/);
+});
+
+test('only prepaid items drive due / posted / not posted; other schedule types are named, never a false gap',()=>{
+ const h=harness(schedules,'renderCatchup,setPosted(value){postedRecognized=value;}');
+ // Review finding on #758: $1,200 prepaid with $300 due, $600 deferred revenue
+ // with $150 due, prepaid amortization posted. There is no missing prepaid
+ // month, and the $150 cannot be posted from this page.
+ const mixed=[{recognized_to_date:300,remaining_balance:900,schedule_type:'prepaid'},{recognized_to_date:150,remaining_balance:450,schedule_type:'deferred_revenue'}];
+ h.api.setPosted(300);h.api.renderCatchup(mixed);
+ assert.equal(h.el('cuRecognized').textContent,'$300.00');assert.equal(h.el('cuBehind').textContent,'$0.00');
+ assert.equal(h.el('cuRemaining').textContent,'$900.00','balance once posted is on the same prepaid scope');
+ assert.match(h.el('catchup').className,/sc-tie--ok/);
+ assert.match(h.el('cuNote').textContent,/Everything prepaid that is due to date has been posted/);
+ assert.match(h.el('cuNote').textContent,/1 other item \(deferred_revenue\) has \$150\.00 due by date, which does not post from this page/);
+ assert.ok(!/is due but not posted/.test(h.el('cuNote').textContent));
+ // A deferred-only account is never described as prepaid QuickBooks still holds.
+ h.api.setPosted(0);h.api.renderCatchup([mixed[1]]);
+ assert.match(h.el('cuNote').textContent,/No prepaid items are stamped/);assert.ok(!/still holds it as prepaid/.test(h.el('cuNote').textContent));
+ assert.match(h.el('catchup').className,/sc-tie--ok/);
+});
+
+test('reports choose a statement by tile, and the adjustment list lives in Journals',async()=>{
+ const html=await readFile(new URL('qbo-reports.html',root),'utf8');
+ for(const r of ['ProfitAndLoss','BalanceSheet','TrialBalance','GeneralLedger','CashFlow','ProfitAndLossDetail','TransactionList'])
+  assert.match(html,new RegExp(`class="qr-tile" data-report="${r}"`),r);
+ assert.ok(!/<select[^>]*id="report"/.test(html),'the report dropdown is gone');
+ assert.ok(!/id="adjCard"|id="btnAdjust"|loadAdjustments/.test(html),'the staged/posted list moved to Books');
+ assert.match(html,/href="accounting-books.html#register"/);
+ assert.match(html,/id="drillPostAdjustment"/,'an adjustment can still start from the account being looked at');
+});
