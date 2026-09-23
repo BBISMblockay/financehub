@@ -779,7 +779,7 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
     const live = new Map<string, any>();
     for (const part of chunks(ids, 100)) {
       const { data, error } = await supabase.from('card_coding_suggestions_v')
-        .select('transaction_id,review_status,outcome,stale_reason')
+        .select('id,transaction_id,review_status,outcome,stale_reason')
         .eq('company_entity_id', companyId).in('transaction_id', part).in('review_status', ['open', 'dismissed']);
       if (error) return null;
       for (const r of data || []) live.set(String(r.transaction_id), r);
@@ -818,7 +818,17 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
   const heldRows = unprepared.filter((row) => claimed.has(String(row.id)));
   const after = heldRows.length ? await readLive(heldRows.map((row) => String(row.id))) : new Map<string, any>();
   if (!after) { await release(); return fail(503, 'Could not re-read prepared suggestions. Retry.'); }
-  const pendingRows = heldRows.filter((row) => stillNeeds(row, after));
+  // An explicit retry asks again about the suggestion the person was looking
+  // at. If a DIFFERENT valid one landed in between (another tab's Ask again,
+  // or a scheduled run), that answer is the retry they wanted: keep it.
+  const stillWanted = (row: any) => {
+    if (!stillNeeds(row, after)) return false;
+    if (!retry) return true;
+    const was = before.get(String(row.id)), now = after.get(String(row.id));
+    if (!now || now.stale_reason || (now.review_status === 'open' && now.outcome === 'failed')) return true;
+    return String(was?.id ?? '') === String(now.id ?? '');
+  };
+  const pendingRows = heldRows.filter(stillWanted);
   alreadyPrepared += heldRows.length - pendingRows.length;
   const inProgress = unprepared.length - heldRows.length;
   try {

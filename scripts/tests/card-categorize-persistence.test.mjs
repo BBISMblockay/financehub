@@ -11,6 +11,7 @@
 //   CATEGORIZE_PERSIST_MUTATION=ignore-claims      rows another worker holds are asked anyway
 //   CATEGORIZE_PERSIST_MUTATION=no-release         a finished request keeps its claim until the lease expires
 //   CATEGORIZE_PERSIST_MUTATION=no-reread          the pre-claim snapshot is trusted after the claim
+//   CATEGORIZE_PERSIST_MUTATION=retry-ignores-change  an Ask again pays even after another answer landed
 //   CATEGORIZE_PERSIST_MUTATION=one-record-call    a slice's rows sent in one oversized call
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,7 +29,8 @@ const MUTATIONS = {
   'reask-prepared': [['    if (!current || current.stale_reason) return true;', '    return true;']],
   'ignore-claims': [['  const heldRows = unprepared.filter((row) => claimed.has(String(row.id)));', '  const heldRows = unprepared;']],
   'no-release': [['    await release();', '    void release;']],
-  'no-reread': [['  const pendingRows = heldRows.filter((row) => stillNeeds(row, after));', '  const pendingRows = heldRows;']],
+  'no-reread': [['  const pendingRows = heldRows.filter(stillWanted);', '  const pendingRows = heldRows;']],
+  'retry-ignores-change': [["    return String(was?.id ?? '') === String(now.id ?? '');", '    return true;']],
   'one-record-call': [['    for (const part of chunks(rows, RECORD_CHUNK)) {', '    for (const part of [rows]) {']],
 };
 const mutation = process.env.CATEGORIZE_PERSIST_MUTATION || '';
@@ -301,3 +303,20 @@ test("a row another worker finished between this request's read and its claim is
   assert.equal(h.released.length, 1, 'the claim is still released');
 });
 
+
+// Review finding (#761, cycle 2): two tabs both click Ask again on S0. Tab A
+// claims, pays, saves S1 and releases; tab B then claims. B's retry was about
+// S0, and S1 is the new answer it wanted, so B must not pay again.
+test('an Ask again that another Ask again already answered is not paid for twice', async () => {
+  const s0 = (i) => ({ id: `s0-${i}`, transaction_id: txnId(i), review_status: 'open', outcome: 'suggested', stale_reason: null });
+  const h = fixture({ merchants: 3, live: [0, 1, 2].map(s0), onClaim: (records) => {
+    const list = records.card_coding_suggestions_v;
+    const at = list.findIndex((r) => r.transaction_id === txnId(1));
+    list.splice(at, 1, { company_entity_id: COMPANY, ...s0(1), id: 's1-1' });
+  } });
+  const { body } = await h.run(undefined, { retry: true });
+  assert.deepEqual(h.modelCalls.flat().sort(), ['vendor 0', 'vendor 2'], 'the rows still showing S0 are asked again');
+  assert.equal(body.already_prepared, 1);
+  assert.equal(h.recorded.some((r) => r.transaction_id === txnId(1)), false);
+  assert.equal(h.released.length, 1);
+});
