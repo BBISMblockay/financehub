@@ -667,7 +667,7 @@
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
 <script src="transaction-dates.js?v=0bad96d29084"></script>
-<script src="coding-suggestions.js?v=bf924c931ee4"></script>
+<script src="coding-suggestions.js?v=08bc45603fb5"></script>
 <script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
 <script src="card-splits.js?v=050d8f3d5bed"></script>
 <script src="transaction-filters.js?v=53b49e70ff5e"></script>
@@ -2814,15 +2814,27 @@
       .filter(([t, s]) => s && s.kind === 'ready' && rowEditable(t) && resolveSuggestedAccount(t, s));
     if (!picked.length) return setStatus('None of these rows has a suggested category to use.', 'info', 4000);
     state.codingBusy = true; renderCoding(); renderEntry();
+    // accept_card_coding_suggestions takes at most 500 ids. Each batch stands
+    // on its own: rows a batch saved are shown saved even if a later one fails.
+    const accepted = [], refused = []; let failure = null;
     try {
-      const out = await CS.accept(sb, picked.map(([, s]) => s.id));
-      await refreshRows(picked.map(([t]) => t.id));
-      await loadBatches(); renderBatches();
-      const done = out.accepted.length, refused = out.refused;
+      for (let i = 0; i < picked.length; i += CS.ACCEPT_BATCH) {
+        const part = picked.slice(i, i + CS.ACCEPT_BATCH);
+        try {
+          const out = await CS.accept(sb, part.map(([, s]) => s.id));
+          accepted.push(...out.accepted); refused.push(...out.refused);
+        } catch (e) { failure = e; break; }
+      }
+      const touched = picked.map(([t]) => t.id);
+      await refreshRows(touched);
+      if (accepted.length) { await loadBatches(); renderBatches(); }
+      const done = accepted.length;
       const why = refused.length ? ` ${refused.length} not applied: ${[...new Set(refused.map((r) => CS.reasonText(r.reason)))].join('; ')}.` : '';
+      const stopped = failure ? ` The rest could not be sent — ${failure.message}. Select them again to retry.` : '';
       setStatus(done
-        ? `${done} categor${done === 1 ? 'y' : 'ies'} saved. Approve the import when you are ready; nothing posts until then.${why}`
-        : `Nothing was applied.${why}`, refused.length ? 'info' : 'pos', refused.length ? 9000 : 5000);
+        ? `${done} categor${done === 1 ? 'y' : 'ies'} saved. Approve the import when you are ready; nothing posts until then.${why}${stopped}`
+        : failure ? `The suggestion could not be used — ${failure.message}` : `Nothing was applied.${why}`,
+        failure ? 'neg' : refused.length ? 'info' : 'pos', failure || refused.length ? 9000 : 5000);
     } catch (e) {
       setStatus(`The suggestion could not be used — ${e.message}`, 'neg', 8000);
     } finally {

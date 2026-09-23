@@ -16,8 +16,11 @@
 --     approval and posting are people's acts and nothing here reaches them.
 
 -- ── Is a suggestion still about these facts? One definition ───────────────
--- Used by the read view and by the needs-preparation predicate, so "stale"
--- means one thing on the page and in the scheduler.
+-- 20260923120000 made this the one test the read view, the writer's duplicate
+-- gate and (here) the scheduler all ask. It now also treats a retired LOCATION
+-- as stale: accept refuses an inactive location, so a suggestion naming one
+-- would sit on screen as ready, fail when used, and -- counted as prepared --
+-- never be replaced.
 create or replace function public.card_coding_suggestion_stale_reason(
   g public.card_coding_suggestions, t public.card_transactions, s public.card_sources)
 returns text
@@ -31,19 +34,11 @@ as $$
     when g.outcome = 'suggested' and not exists (select 1 from public.quickbooks_accounts a
       where a.company_entity_id = g.company_entity_id and a.connection_id = g.qbo_connection_id
         and a.qbo_account_id = g.qbo_account_id and a.is_active) then 'account_unavailable'
+    when g.qbo_location_id is not null and not exists (select 1 from public.quickbooks_locations l
+      where l.company_entity_id = g.company_entity_id and l.connection_id = g.qbo_connection_id
+        and l.qbo_location_id = g.qbo_location_id and l.is_active) then 'location_unavailable'
     else null end
 $$;
-
-create or replace view public.card_coding_suggestions_v with (security_invoker = true) as
-select g.*,
-  t.batch_id,
-  t.status as transaction_status,
-  public.card_coding_suggestion_stale_reason(g, t, s) as stale_reason
-from public.card_coding_suggestions g
-join public.card_transactions t on t.id = g.transaction_id and t.company_entity_id = g.company_entity_id
-join public.card_import_batches b on b.id = t.batch_id
-join public.card_sources s on s.id = b.source_id;
-grant select on public.card_coding_suggestions_v to authenticated;
 
 -- ── Which accounts are prepared in the background at all ────────────────
 -- Explicit, per account, and off by default: background preparation spends

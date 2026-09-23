@@ -154,5 +154,7 @@
     return c;
   }
 
-  window.SiloCodingSuggestions = { load, applies, accept, dismiss, prepare, progress, freshness, ago, counts, reasonText, kind };
+  // accept_card_coding_suggestions refuses more than 500 ids in one call.
+  const ACCEPT_BATCH = 500;
+  window.SiloCodingSuggestions = { load, applies, accept, dismiss, prepare, progress, freshness, ago, counts, reasonText, kind, ACCEPT_BATCH };
 })();

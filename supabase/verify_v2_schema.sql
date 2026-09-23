@@ -5254,4 +5254,8 @@ select 'Background coding preparation' as check_name,
  -- The view and the scheduler must share one definition of stale.
  when pg_get_viewdef('public.card_coding_suggestions_v'::regclass) not like '%card_coding_suggestion_stale_reason%'
   then 'STALE: the suggestions view no longer reads card_coding_suggestion_stale_reason; apply 20260923130000'
+ -- A retired location must read as stale, or a suggestion naming it stays on
+ -- screen as ready, fails when used, and is never replaced.
+ when pg_get_functiondef(to_regprocedure('public.card_coding_suggestion_stale_reason(public.card_coding_suggestions,public.card_transactions,public.card_sources)')) not like '%location_unavailable%'
+  then 'STALE: a suggestion naming a retired location is not treated as stale; apply 20260923130000'
  else 'ok' end as status;

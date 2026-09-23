@@ -39,6 +39,9 @@ export const PROMPT_VERSION = 'card-categorize/2026-09-23';
 // than holding the whole request until the gateway's 150s cut, which would
 // lose every slice with it.
 const MODEL_TIMEOUT_MS = 110_000;
+// Rows per record_card_coding_suggestions call. The writer refuses more than
+// 2,000; 500 keeps each call short enough to hold its per-row locks briefly.
+const RECORD_CHUNK = 500;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -772,21 +775,27 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
   // Work already done is not done again. A live suggestion about the current
   // facts stands -- including a dismissal -- unless someone explicitly asks
   // again. A failure is always retried: that is what the button is for.
-  const live = new Map<string, any>();
-  for (const part of chunks(transactionIds, 100)) {
-    const { data, error } = await supabase.from('card_coding_suggestions_v')
-      .select('transaction_id,review_status,outcome,stale_reason')
-      .eq('company_entity_id', companyId).in('transaction_id', part).in('review_status', ['open', 'dismissed']);
-    if (error) return fail(503, 'Could not read prepared suggestions. Apply the card coding suggestions migration, then retry.');
-    for (const r of data || []) live.set(String(r.transaction_id), r);
-  }
-  const unprepared = selectedRows.filter((row) => {
+  const readLive = async (ids: string[]) => {
+    const live = new Map<string, any>();
+    for (const part of chunks(ids, 100)) {
+      const { data, error } = await supabase.from('card_coding_suggestions_v')
+        .select('transaction_id,review_status,outcome,stale_reason')
+        .eq('company_entity_id', companyId).in('transaction_id', part).in('review_status', ['open', 'dismissed']);
+      if (error) return null;
+      for (const r of data || []) live.set(String(r.transaction_id), r);
+    }
+    return live;
+  };
+  const stillNeeds = (row: any, live: Map<string, any>) => {
     const current = live.get(String(row.id));
     if (!current || current.stale_reason) return true;
     if (retry) return true;
     return current.review_status === 'open' && current.outcome === 'failed';
-  });
-  const alreadyPrepared = selectedRows.length - unprepared.length;
+  };
+  const before = await readLive(selectedRows.map((row) => String(row.id)));
+  if (!before) return fail(503, 'Could not read prepared suggestions. Apply the card coding suggestions migration, then retry.');
+  const unprepared = selectedRows.filter((row) => stillNeeds(row, before));
+  let alreadyPrepared = selectedRows.length - unprepared.length;
 
   // Claim before paying. Rows another worker -- or another click -- is
   // preparing right now are left to it; the claim is released at the end and
@@ -800,11 +809,18 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
     if (error || !Array.isArray(data)) return fail(503, 'Could not reserve these transactions for preparation. Apply the background preparation migration, then retry.');
     for (const id of data) claimed.add(String(typeof id === 'string' ? id : Object.values(id)[0]));
   }
-  const pendingRows = unprepared.filter((row) => claimed.has(String(row.id)));
-  const inProgress = unprepared.length - pendingRows.length;
   const release = () => claimed.size
     ? supabase.rpc('release_card_coding_preparation', { p_token: claimToken }).then(() => undefined, () => undefined)
     : Promise.resolve();
+  // The snapshot above was read BEFORE the claim. Another worker may have
+  // prepared, saved and released these rows in between, so the claim alone
+  // proves only that nobody is preparing them NOW. Ask again, holding it.
+  const heldRows = unprepared.filter((row) => claimed.has(String(row.id)));
+  const after = heldRows.length ? await readLive(heldRows.map((row) => String(row.id))) : new Map<string, any>();
+  if (!after) { await release(); return fail(503, 'Could not re-read prepared suggestions. Retry.'); }
+  const pendingRows = heldRows.filter((row) => stillNeeds(row, after));
+  alreadyPrepared += heldRows.length - pendingRows.length;
+  const inProgress = unprepared.length - heldRows.length;
   try {
     return await prepareClaimed();
   } finally {
@@ -1123,16 +1139,22 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       }
     }
     if (!rows.length) return;
-    const t = performance.now();
-    const { data, error } = await supabase.rpc('record_card_coding_suggestions', { p_run_id: runId, p_rows: rows, p_retry: retry });
-    persistMs += elapsed(t);
-    if (error) { errors.push(`record: ${String(error.message || error).slice(0, 160)}`); return; }
-    const skipped = Array.isArray(data?.skipped) ? data.skipped : [];
-    const skippedIds = new Set(skipped.map((x: any) => String(x.transaction_id)));
-    totals.recorded += Number(data?.recorded || 0); totals.skipped += skipped.length;
-    for (const r of rows) {
-      if (skippedIds.has(String(r.transaction_id))) continue;
-      if (r.outcome === 'suggested') totals.suggested++; else if (r.outcome === 'failed') totals.failed++; else totals.needs_judgment++;
+    // One merchant group expands to every transaction sharing its merchant and
+    // card, so a single slice can carry thousands of rows. The writer takes a
+    // bounded payload; send it in chunks, and keep whatever landed if a later
+    // chunk fails.
+    for (const part of chunks(rows, RECORD_CHUNK)) {
+      const t = performance.now();
+      const { data, error } = await supabase.rpc('record_card_coding_suggestions', { p_run_id: runId, p_rows: part, p_retry: retry });
+      persistMs += elapsed(t);
+      if (error) { errors.push(`record: ${String(error.message || error).slice(0, 160)}`); continue; }
+      const skipped = Array.isArray(data?.skipped) ? data.skipped : [];
+      const skippedIds = new Set(skipped.map((x: any) => String(x.transaction_id)));
+      totals.recorded += Number(data?.recorded || 0); totals.skipped += skipped.length;
+      for (const r of part) {
+        if (skippedIds.has(String(r.transaction_id))) continue;
+        if (r.outcome === 'suggested') totals.suggested++; else if (r.outcome === 'failed') totals.failed++; else totals.needs_judgment++;
+      }
     }
     progress = progress.then(() => supabase.from('card_coding_preparation_runs').update({
       model_calls: totals.model_calls, model_calls_failed: totals.model_calls_failed,

@@ -16,6 +16,7 @@
 //   CARD_BACKGROUND_MUTATION=claims-ignored    claimed rows handed out again
 //   CARD_BACKGROUND_MUTATION=dismissal-ignored dismissed rows prepared again
 //   CARD_BACKGROUND_MUTATION=claim-steals      a live claim can be taken over
+//   CARD_BACKGROUND_MUTATION=location-not-stale a retired location still reads as prepared
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -27,6 +28,10 @@ const MUTATIONS = {
   'claims-ignored': ["if exists (select 1 from public.card_coding_preparation_claims c where c.transaction_id = t.id and c.expires_at > now()) then", 'if false then'],
   'dismissal-ignored': ["if v_live.review_status = 'dismissed' then return 'dismissed'; end if;", ''],
   'claim-steals': ['where c.expires_at <= now() or c.claim_token = excluded.claim_token', 'where true'],
+  'location-not-stale': [`    when g.qbo_location_id is not null and not exists (select 1 from public.quickbooks_locations l
+      where l.company_entity_id = g.company_entity_id and l.connection_id = g.qbo_connection_id
+        and l.qbo_location_id = g.qbo_location_id and l.is_active) then 'location_unavailable'
+`, ''],
 };
 const mutation = process.env.CARD_BACKGROUND_MUTATION || '';
 assert.ok(!mutation || MUTATIONS[mutation], 'Unknown mutation');
@@ -98,7 +103,8 @@ try {
   await q("insert into profiles(id,name,role,department,active_company_id) values($1,'F','user','finance',$2)", [finance, co]);
   await q("insert into entity_memberships(entity_id,user_id,role) values($1,$2,'member')", [co, finance]);
   await q("insert into quickbooks_connections(id,company_entity_id,realm_id,access_token) values($1,$2,'r','s'),($3,$4,'r2','s')", [conn, co, otherConn, other]);
-  await q("insert into quickbooks_accounts(company_entity_id,connection_id,qbo_account_id,name,account_type,is_active) values($1,$2,'supplies','Office supplies','Expense',true)", [co, conn]);
+  await q("insert into quickbooks_accounts(company_entity_id,connection_id,qbo_account_id,name,account_type,is_active) values($1,$2,'supplies','Office supplies','Expense',true),($1,$2,'meals','Meals','Expense',true)", [co, conn]);
+  await q("insert into quickbooks_locations(company_entity_id,connection_id,qbo_location_id,name,is_active) values($1,$2,'hq','HQ',true),($1,$2,'shop','Shop',true)", [co, conn]);
   await q(`insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,credit_qbo_account_id,credit_qbo_account_name,is_active)
            values($1,$2,$3,'card','Card','card','cc','Card',true),($4,$5,$6,'card','Other','card','cc','Other',true)`,
     [source, co, conn, otherSource, other, otherConn]);
@@ -125,6 +131,42 @@ try {
     await q("update quickbooks_accounts set is_active=true where qbo_account_id='supplies'");
     const view = await as(finance, () => one("select stale_reason from card_coding_suggestions_v where transaction_id=$1 and review_status='open'", [t]));
     assert.equal(view.stale_reason, null, 'the view and the scheduler share one definition of stale');
+  });
+
+  // Review finding (#761, cycle 1, P1): a retired account made the row
+  // eligible again, but the writer refused the replacement as already
+  // prepared -- so every sync and nightly paid for a call that saved nothing.
+  await test('a retired account is replaced once by the scheduler, and the row then leaves the schedule', async () => {
+    const t = await newTxn(batch, 35);
+    await prepare(t);
+    await q("update quickbooks_accounts set is_active=false where qbo_account_id='supplies'");
+    try {
+      assert.equal(await needs(t), null, 'the stale suggestion makes the row eligible');
+      const out = await prepare(t, 'suggested', { qbo_account_id: 'meals' });
+      assert.equal(out.recorded, 1, JSON.stringify(out));
+      assert.equal(await needs(t), 'prepared', 'and once replaced it is no longer scheduled');
+      assert.equal((await one("select qbo_account_id from card_coding_suggestions where transaction_id=$1 and review_status='open'", [t])).qbo_account_id, 'meals');
+    } finally { await q("update quickbooks_accounts set is_active=true where qbo_account_id='supplies'"); }
+  });
+
+  // Review finding (#761, cycle 1, P2): accept refuses a retired location, so
+  // a suggestion naming one must read as stale -- hidden, and replaceable.
+  await test('a retired location makes a suggestion stale, replaceable and acceptable again', async () => {
+    const t = await newTxn(batch, 36);
+    await prepare(t, 'suggested', { location_name: 'HQ' });
+    assert.equal((await one("select qbo_location_id from card_coding_suggestions where transaction_id=$1 and review_status='open'", [t])).qbo_location_id, 'hq');
+    await q("update quickbooks_locations set is_active=false where qbo_location_id='hq'");
+    try {
+      const view = await as(finance, () => one("select stale_reason from card_coding_suggestions_v where transaction_id=$1 and review_status='open'", [t]));
+      assert.equal(view.stale_reason, 'location_unavailable');
+      assert.equal(await needs(t), null);
+      const out = await prepare(t, 'suggested', { location_name: 'Shop' });
+      assert.equal(out.recorded, 1, JSON.stringify(out));
+      const fresh = await one("select id, qbo_location_id from card_coding_suggestions where transaction_id=$1 and review_status='open'", [t]);
+      assert.equal(fresh.qbo_location_id, 'shop');
+      const accepted = await as(finance, () => rpc('accept_card_coding_suggestions', [[fresh.id]]));
+      assert.equal(accepted.accepted.length, 1, JSON.stringify(accepted));
+    } finally { await q("update quickbooks_locations set is_active=true where qbo_location_id='hq'"); }
   });
 
   await test('a dismissed row is not prepared again automatically', async () => {

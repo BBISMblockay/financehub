@@ -10,6 +10,8 @@
 //   CATEGORIZE_PERSIST_MUTATION=reask-prepared     live suggestions ignored, every row asked again
 //   CATEGORIZE_PERSIST_MUTATION=ignore-claims      rows another worker holds are asked anyway
 //   CATEGORIZE_PERSIST_MUTATION=no-release         a finished request keeps its claim until the lease expires
+//   CATEGORIZE_PERSIST_MUTATION=no-reread          the pre-claim snapshot is trusted after the claim
+//   CATEGORIZE_PERSIST_MUTATION=one-record-call    a slice's rows sent in one oversized call
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadCategorizer, prepareSource, fakeDatabase } from './lib/card-categorize-sandbox.mjs';
@@ -24,8 +26,10 @@ const MUTATIONS = {
      '  const inputHash = new Map<string, string>();\n  await supabase.from(\'card_transactions_v\').select(\'id\').eq(\'company_entity_id\', companyId);\n  for (const part of chunks(transactionIds, 500)) {'],
   ],
   'reask-prepared': [['    if (!current || current.stale_reason) return true;', '    return true;']],
-  'ignore-claims': [['  const pendingRows = unprepared.filter((row) => claimed.has(String(row.id)));', '  const pendingRows = unprepared;']],
+  'ignore-claims': [['  const heldRows = unprepared.filter((row) => claimed.has(String(row.id)));', '  const heldRows = unprepared;']],
   'no-release': [['    await release();', '    void release;']],
+  'no-reread': [['  const pendingRows = heldRows.filter((row) => stillNeeds(row, after));', '  const pendingRows = heldRows;']],
+  'one-record-call': [['    for (const part of chunks(rows, RECORD_CHUNK)) {', '    for (const part of [rows]) {']],
 };
 const mutation = process.env.CATEGORIZE_PERSIST_MUTATION || '';
 let source = await prepareSource();
@@ -38,10 +42,11 @@ const COMPANY = '00000000-0000-4000-8000-000000000006', BATCH = '00000000-0000-4
 const SOURCE = '00000000-0000-4000-8000-000000000002', CONNECTION = '00000000-0000-4000-8000-000000000005';
 const txnId = (i) => `00000000-0000-4000-9000-${String(i).padStart(12, '0')}`;
 
-function fixture({ merchants = 3, live = [], modelFails = () => false, omit = () => false, recordFails = false, delay = () => 0, heldElsewhere = [] } = {}) {
+function fixture({ merchants = 3, live = [], modelFails = () => false, omit = () => false, recordFails = false, delay = () => 0, heldElsewhere = [], sameMerchant = false, recordFailsOn = () => false, onClaim = () => {} } = {}) {
   const claims = [], released = [];
+  let recordCalls = 0;
   const transactions = Array.from({ length: merchants }, (_, i) => ({
-    id: txnId(i), batch_id: BATCH, company_entity_id: COMPANY, merchant_norm: `vendor ${i}`, card_name: null,
+    id: txnId(i), batch_id: BATCH, company_entity_id: COMPANY, merchant_norm: sameMerchant ? 'vendor 0' : `vendor ${i}`, card_name: null,
     description: `VENDOR ${i} #44`, amount: 10 + i, currency: 'USD', status: 'uncoded', qbo_account_id: null,
     origin: 'csv', provider_status: null, accounting_treatment: 'unknown', txn_date: '2026-09-10',
   }));
@@ -65,11 +70,13 @@ function fixture({ merchants = 3, live = [], modelFails = () => false, omit = ()
     claim_card_coding_preparation: ({ p_ids, p_token }) => {
       const mine = p_ids.filter((id) => !heldElsewhere.includes(id));
       claims.push({ token: p_token, ids: mine });
+      onClaim(records);
       return { data: mine, error: null };
     },
     release_card_coding_preparation: ({ p_token }) => { released.push(p_token); return { data: 1, error: null }; },
     record_card_coding_suggestions: ({ p_rows }) => {
-      if (recordFails) return { data: null, error: { message: 'synthetic record failure' } };
+      recordCalls++;
+      if (recordFails || recordFailsOn(recordCalls)) return { data: null, error: { message: 'synthetic record failure' } };
       recorded.push(...structuredClone(p_rows));
       return { data: { recorded: p_rows.length, skipped: [] }, error: null };
     },
@@ -264,3 +271,33 @@ test('with no model key nothing is claimed or recorded, so no row burns its retr
   assert.equal(result.status, 503); assert.match(result.body.error, /ANTHROPIC_API_KEY/);
   assert.equal(h.claims.length, 0); assert.equal(h.recorded.length, 0); assert.equal(h.db.runs.length, 0);
 });
+// Review finding (cycle 1): one merchant group is every transaction sharing its
+// merchant and card, so a single model slice can expand past the writer's
+// 2,000-row limit -- one oversized call saved nothing and every retry paid again.
+test('a slice that expands to thousands of rows is saved in bounded chunks, and a failed chunk loses only itself', async () => {
+  const h = fixture({ merchants: 1201, sameMerchant: true, recordFailsOn: (n) => n === 2 });
+  const { status, body } = await h.run();
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(h.modelCalls.length, 1, 'one merchant is one question');
+  const sizes = h.db.rpcCalls.filter((c) => c.name === 'record_card_coding_suggestions').map((c) => c.args.p_rows.length);
+  assert.deepEqual(sizes, [500, 500, 201]);
+  assert.ok(sizes.every((n) => n <= 2000), 'never above the writer limit');
+  assert.equal(h.recorded.length, 701, 'the chunks around the failed one are kept');
+  assert.equal(body.suggested, 701); assert.equal(body.run_status, 'partial');
+  assert.match(body.errors.join(' '), /record: synthetic record failure/);
+});
+
+// Review finding (#761, cycle 1): worker B reads "nothing prepared", worker A
+// then claims, pays, saves and releases, and B acquires the now-free claim.
+// The claim proves only that nobody is preparing the row NOW; B must ask again.
+test("a row another worker finished between this request's read and its claim is not paid for again", async () => {
+  const h = fixture({ merchants: 3, onClaim: (records) => {
+    records.card_coding_suggestions_v.push({ company_entity_id: COMPANY, transaction_id: txnId(1), review_status: 'open', outcome: 'suggested', stale_reason: null });
+  } });
+  const { body } = await h.run();
+  assert.deepEqual(h.modelCalls.flat().sort(), ['vendor 0', 'vendor 2']);
+  assert.equal(body.already_prepared, 1);
+  assert.equal(h.recorded.some((r) => r.transaction_id === txnId(1)), false);
+  assert.equal(h.released.length, 1, 'the claim is still released');
+});
+
