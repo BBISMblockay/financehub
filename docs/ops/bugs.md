@@ -12,6 +12,25 @@ No open P1s.
 
 ---
 
+## Renaming a PO line mid-typing can leave a stray Pipeline item (P3)
+
+`/v2/po-builder.html` autosaves a line 650ms after typing stops, and on a
+new-product PO every save syncs the Pipeline (`v2/po-pipeline-sync.js`). If
+someone renames a line's product title and pauses mid-word, the half-typed
+title ("Solo Tee - Bl") briefly exists on the PO and gets its own Pipeline
+item. When typing finishes that item's product is no longer on the PO, so it
+is **released** (unlinked, expected units cleared) — never left reporting
+units — but it is not deleted, because the sync never deletes an item a
+person may have added photos, samples or a launch to. Result: a stray,
+figure-less Pipeline item to delete by hand.
+
+Not new: before PR #769 the sync created the same stray item AND kept a
+one-size figure on it. Fix direction: sync product-title changes on the
+title field's `change` (blur) rather than on autosave, keeping qty/other
+edits on autosave. Workaround: delete the stray item from the Pipeline drawer.
+
+---
+
 ## Ask SILO's 30s query budget has never been in effect (P2)
 
 `chat_run_readonly_query` declares `set local statement_timeout = '30s'`. It does

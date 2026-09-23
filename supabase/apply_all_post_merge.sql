@@ -19074,6 +19074,25 @@ $c$select (select count(*) from v_po_header_summary
 -- asserted anchors, idempotent. Additive; no policy change.
 \i migrations/20260923150000_meta_creative_preview_link.sql
 
+-- ── Pipeline items from a PO: link + expected units (2026-09-23) ─────────
+-- Data correction only. Links auto-added product_tracker items to the one PO
+-- their note names, and replaces an expected_units that is one size line's qty
+-- with that PO's total across every size line (plus the paired launch
+-- readiness copy). Touches only still-unlinked items, so it converges after
+-- one pass. No schema or policy change.
+\i migrations/20260923160000_product_tracker_po_expected_units.sql
+-- The two cases that one could not reach: an item holding a line of the same
+-- product on ANOTHER new-product PO (the old sync matched by title across
+-- POs), and items whose noted PO no longer carries the product, linked to the
+-- one new-product PO that does. Converges after one pass.
+\i migrations/20260923170000_product_tracker_moved_po_products.sql
+-- One Pipeline item per product per PO (partial unique index), so two tabs
+-- syncing the same PO cannot both add an item. Additive; re-runnable.
+\i migrations/20260923180000_product_tracker_po_product_unique.sql
+-- ...keyed on the COMPANY instead: one linked item per product, so two POs
+-- carrying the same product cannot each add one either. Drops the per-PO
+-- index above, which this one implies. Additive; re-runnable.
+\i migrations/20260923190000_product_tracker_company_product_unique.sql
 -- ── PO Report shipment audit (2026-09-23) ─────────────────────────────────
 -- created_by / updated_by on incoming_shipments and incoming_shipment_lines,
 -- stamped from the session by trigger. Additive; no policy change.

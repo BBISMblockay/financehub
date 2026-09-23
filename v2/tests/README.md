@@ -67,6 +67,8 @@ asserting against what production actually serves.
 | `unit/inventory-vs-transfer` | **Bug 3.** Inventory status and transfer eligibility are separate answers; transfer never says OK; OK is earned, never fallen into |
 | `unit/inventory-page-scope` | The purchasing surfaces are gone and stay gone; tagging, selection, exports and the four view levels survived; the performance fixes are still in place |
 | `browser/inventory-page` | All three bugs again, end to end, against the real page in a real browser |
+| `unit/po-pipeline-sync` | A new-product PO's products reach the Products Pipeline with Expected Units summed across EVERY size line (Incotexco-496's youth tee read 105, one line, against 550); an item another PO owns is never overwritten or duplicated; overlapping autosaves cannot add an item twice; every function in `po-builder.html` that writes PO lines syncs afterwards |
+| `browser/po-builder-pipeline` | The same, through the real PO Builder: one qty edit or an import adds every product with no Save or `→ TRK`; a stored one-line figure is corrected and linked; a restock PO adds nothing until `→ TRK` |
 
 ## Adding to them
 

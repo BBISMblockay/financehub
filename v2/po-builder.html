@@ -15,6 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <script src="nav-config.js"></script>
   <script src="po-document-identity.js"></script>
+  <script src="po-pipeline-sync.js"></script>
   <script src="silo-chrome.js"></script>
   <style>
     .bcn-header-sub { display: none; }
@@ -536,7 +537,7 @@
       collapseHeader();
     }
 
-    function renderFactoryOptions(){ const current=el.factoryId.value; el.factoryId.innerHTML=['<option value="">Select factory</option>'].concat(state.factories.map(f=>`<option value="${f.id}">${escapeHtml(f.factory_name)}${f.short_code ? ` · ${escapeHtml(f.short_code)}` : ''}</option>`)).join(''); if(current) el.factoryId.value=current; const trkFac=document.getElementById('trkFactory'); if(trkFac) trkFac.innerHTML='<option value="">— none —</option>'+state.factories.map(f=>`<option value="${f.id}">${escapeHtml(f.factory_name)}</option>`).join(''); }
+    function renderFactoryOptions(){ const current=el.factoryId.value; el.factoryId.innerHTML=['<option value="">Select factory</option>'].concat(state.factories.map(f=>`<option value="${f.id}">${escapeHtml(f.factory_name)}${f.short_code ? ` · ${escapeHtml(f.short_code)}` : ''}</option>`)).join(''); if(current) el.factoryId.value=current; }
     function renderFactoryFilter(){ const current=el.poFactoryFilter.value; el.poFactoryFilter.innerHTML=['<option value="">All factories</option>'].concat(state.factories.map(f=>`<option value="${escapeHtml(f.factory_name)}">${escapeHtml(f.factory_name)}</option>`)).join(''); el.poFactoryFilter.value=current; }
     function renderStatusOptions(){ el.status.innerHTML=PO_STATUSES.map(s=>`<option value="${s}">${s}</option>`).join(''); el.poStatusFilter.innerHTML=['<option value="">All statuses</option>'].concat(PO_STATUSES.map(s=>`<option value="${s}">${s}</option>`)).join(''); }
 
@@ -590,6 +591,10 @@
       const rows=sortLinesForDisplay(state.currentLines||[]);
       state.currentLines=rows;
       renderLineSortMarks();
+      const linesMeta=document.getElementById('linesCardMeta');
+      if(linesMeta) linesMeta.textContent=state.currentPO?.is_new_product_po
+        ? 'Auto-save on edit · products sync to the Pipeline automatically'
+        : 'Auto-save on edit · save button is backup';
 
       if(!rows.length){ el.linesTbody.innerHTML='<tr><td colspan="12" class="bcn-empty">No lines — use catalog, bulk SKU, import, or manual add</td></tr>'; }
       else {
@@ -605,7 +610,7 @@
           <td class="po-line-num-cell"><input class="po-line-input po-line-input--num" type="number" min="0" step="1" data-line-field="qty" data-line-id="${line.id}" value="${Number(line.qty||0)}"></td>
           <td class="td-total po-line-num-cell" data-line-retail-value="${line.id}">${money(line.retail_value||0)}</td>
           <td class="bcn-th-left po-line-text-cell"><textarea class="po-line-input po-line-input--text po-line-input--notes" rows="1" data-line-field="line_notes" data-line-id="${line.id}">${escapeHtml(line.line_notes||'')}</textarea></td>
-          <td><div class="po-line-actions"><span class="line-autosave-state" data-line-save-state="${line.id}">Saved</span><button class="bcn-btn bcn-btn--ghost bcn-btn--mono line-save-btn" data-line-save="${line.id}">Save</button><button class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-line-tracker="${line.id}" title="Push to Product Tracker">→ TRK</button><button class="bcn-btn bcn-btn--danger bcn-btn--mono line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
+          <td><div class="po-line-actions"><span class="line-autosave-state" data-line-save-state="${line.id}">Saved</span><button class="bcn-btn bcn-btn--ghost bcn-btn--mono line-save-btn" data-line-save="${line.id}">Save</button>${state.currentPO?.is_new_product_po ? '' : `<button class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-line-tracker="${line.id}" title="Add this product, every size line summed, to the Products Pipeline">→ TRK</button>`}<button class="bcn-btn bcn-btn--danger bcn-btn--mono line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
         </tr>`).join('');
         fitPoLineTextareas(el.linesTbody);
       }
@@ -681,32 +686,73 @@
       let savedId=state.currentPO?.id||null;
       if(savedId){ const {error}=await sb.from('po_headers').update(payload).eq('id',savedId); if(error) throw error; }
       else { const {data,error}=await sb.from('po_headers').insert({...payload,...(_co?.id?{company_entity_id:_co.id}:{})}).select('*').single(); if(error) throw error; state.currentPO=data; savedId=data.id; }
-      await refreshAll(); if(savedId) await openPO(savedId);
+      await refreshAll(); if(savedId){ await openPO(savedId); await syncPipeline(); }
       collapseHeader();
     }
 
-    async function autoSyncLineToTracker(linePayload){
-      const po=state.currentPO;
-      const title=(linePayload.title_snapshot||'').trim();
-      if(!title) return;
-      const {data:existing}=await sb.from('product_tracker').select('id').ilike('product_title',title).limit(1);
-      const trackerPayload={
-        product_title:title,
-        product_type:linePayload.product_type_snapshot||null,
-        factory_id:po.factory_id||null,
-        bulk_eta:po.expected_arrival_date||null,
-        expected_units:Number(linePayload.qty)||null,
-      };
-      if(existing&&existing.length){
-        // already tracked -- keep expected units current as the PO line changes, silent
-        const {error}=await sb.from('product_tracker').update({expected_units:trackerPayload.expected_units}).eq('id',existing[0].id);
-        if(error) setStatus('Tracker sync failed: '+error.message,'neg');
+    // ---- PO -> Pipeline (v2/po-pipeline-sync.js) --------------------------
+    // A new-product PO's products reach /v2/products.html's Pipeline on their
+    // own, after ANY change to the PO's lines -- catalog, bulk SKU, import,
+    // manual, concepts, an edit, a delete, or ticking "New product PO" on the
+    // header -- with Expected Units summed across every size line of the
+    // product. Nobody has to press Save or -> TRK for it. Syncs for one PO are
+    // coalesced within this tab; across tabs the database's unique index on
+    // (PO, product) is what stops a second item (see the module header).
+    async function pipelineCompanyId(){
+      try{ const co=await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb); return (co||_co)?.id||null; }
+      catch(e){ console.warn('pipeline company',e); return _co?.id||null; }
+    }
+    // Each run reports its own outcome: coalesced requests share one promise,
+    // and reporting only the last run would drop an earlier run's "added"
+    // notice or error.
+    const pipelineQueue=window.SiloPoPipeline.createQueue(
+      async({po,keys,explicit})=>{
+        // A new-product PO creates and claims items for every product on it;
+        // any other PO only for what someone pressed -> TRK on. Items a PO
+        // already owns are kept in step either way -- and released when their
+        // product leaves it -- so every change runs the full sync.
+        const create=po.is_new_product_po ? true : (keys.length ? keys : false);
+        const res=await window.SiloPoPipeline.sync(sb,{po,companyId:await pipelineCompanyId(),create});
+        reportPipeline(res,explicit?keys:null);
+        return res;
+      },
+      (a,b)=>({po:b.po, keys:[...new Set([...(a.keys||[]),...(b.keys||[])])], explicit:a.explicit||b.explicit})
+    );
+    function reportPipeline(res, explicitKeys){
+      if(!res) return;
+      if(res.errors.length){
+        const e=res.errors[0];
+        setStatus(`Pipeline sync failed${e.title?` for "${e.title}"`:''}: ${e.message}`,'neg',9000);
         return;
       }
-      trackerPayload.notes=`Auto-added from PO: ${po.po_name||''}`.trim();
-      const {error}=await sb.from('product_tracker').insert(trackerPayload);
-      if(error){ setStatus('Tracker sync failed: '+error.message,'neg'); return; }
-      setStatus(`"${title}" added to Product Tracker.`,'pos',3000);
+      const units=a=>a.units!=null?`${Number(a.units).toLocaleString()} expected units across ${a.lineCount} size line${a.lineCount===1?'':'s'}`:'no quantity on this PO yet';
+      const names=list=>list.map(a=>`"${a.title}"`).join(', ');
+      // A product leaving the PO is news whether or not anything was added.
+      const released=res.released.length
+        ? ` ${names(res.released)} ${res.released.length===1?'is':'are'} no longer on this PO: unlinked in the Pipeline, expected units cleared.`
+        : '';
+      if(res.inserted.length){
+        setStatus((res.inserted.length===1
+          ? `"${res.inserted[0].title}" added to the Pipeline — ${units(res.inserted[0])}.`
+          : `${res.inserted.length} products added to the Pipeline: ${names(res.inserted)}.`)+released,'pos',7000);
+        return;
+      }
+      if(released){ setStatus(released.trim(),'info',8000); return; }
+      if(!explicitKeys) return;
+      const mine=list=>list.find(a=>explicitKeys.includes(a.key));
+      const a=mine(res.updated)||mine(res.unchanged);
+      if(a){ setStatus(`"${a.title}" is in the Pipeline — ${units(a)}.`,'pos',5000); return; }
+      const o=mine(res.otherPo);
+      if(o) setStatus(`"${o.title}" is already in the Pipeline from another PO; its expected units were left as they are.`,'info',7000);
+    }
+    // Every path that changes this PO's lines ends here. Never throws: a
+    // Pipeline failure is reported, and must not read as the PO save failing.
+    async function syncPipeline(opts={}){
+      const po=state.currentPO;
+      if(!po?.id) return null;
+      try{
+        return await pipelineQueue(po.id,{po:{...po},keys:opts.keys||[],explicit:!!opts.keys});
+      }catch(e){ console.error(e); setStatus('Pipeline sync failed: '+(e.message||e),'neg',9000); return null; }
     }
 
     // ---- Product Concepts -> PO ------------------------------------------
@@ -875,6 +921,8 @@
       await refreshAll(); await openPO(poId);
       modalClose(document.getElementById('conceptModal'));
       setStatus(`Added ${lines.length} line${lines.length===1?'':'s'} from ${picked.length} concept${picked.length===1?'':'s'}. Adjust quantities before approving.`,'pos',6000);
+      // After the status above, so a Pipeline failure is not overwritten by it.
+      await syncPipeline();
     }
 
     async function addCatalogLine(productId, qty){
@@ -882,7 +930,7 @@
       if(!qty || Number(qty)<=0){ alert('Enter a quantity greater than 0.'); return; }
       const payload=productToLine(productId, qty);
       const {error}=await sb.from('po_lines').insert({...payload,...(_co?.id?{company_entity_id:_co.id}:{})}); if(error) throw error;
-      await refreshAll(); await openPO(state.currentPO.id); modalClose(el.catalogModal);
+      await refreshAll(); await openPO(state.currentPO.id); await syncPipeline(); modalClose(el.catalogModal);
     }
 
     async function addSelectedCatalogLines(){
@@ -903,6 +951,7 @@
 
       await refreshAll();
       await openPO(state.currentPO.id);
+      await syncPipeline();
       qtyInputs.forEach(input=>{ input.value=0; });
       modalClose(el.catalogModal);
     }
@@ -916,7 +965,7 @@
       if(!state.currentPO?.id){ alert('Save the PO header first.'); return; }
       const payload=manualPayload(); if(!payload.title_snapshot || payload.qty<=0){ alert('Manual line needs at least a title and qty > 0.'); return; }
       const {error}=await sb.from('po_lines').insert({...payload,...(_co?.id?{company_entity_id:_co.id}:{})}); if(error) throw error;
-      clearManualModal(); await refreshAll(); await openPO(state.currentPO.id); if(!keepOpen) modalClose(el.manualModal);
+      clearManualModal(); await refreshAll(); await openPO(state.currentPO.id); await syncPipeline(); if(!keepOpen) modalClose(el.manualModal);
     }
 
     function getLinePayloadFromRow(lineId){
@@ -991,11 +1040,11 @@
       if(idx>=0) state.currentLines[idx]={...state.currentLines[idx],...payload};
       updateRetailPreview(lineId);
       setLineSaveState(lineId,'is-saved','Saved');
-      if(state.currentPO?.is_new_product_po) await autoSyncLineToTracker(payload);
+      await syncPipeline();
       if(!opts.silent){ await refreshAll(); if(state.currentPO?.id) await openPO(state.currentPO.id); }
     }
 
-    async function deleteLine(lineId){ if(!confirm('Delete this PO line?')) return; const {error}=await sb.from('po_lines').delete().eq('id',lineId); if(error) throw error; await refreshAll(); if(state.currentPO?.id) await openPO(state.currentPO.id); }
+    async function deleteLine(lineId){ if(!confirm('Delete this PO line?')) return; const {error}=await sb.from('po_lines').delete().eq('id',lineId); if(error) throw error; await refreshAll(); if(state.currentPO?.id){ await openPO(state.currentPO.id); await syncPipeline(); } }
 
     async function duplicateCurrentPO(){
       if(!state.currentPO?.id){ alert('Open a PO first.'); return; }
@@ -1008,7 +1057,7 @@
       const {data:newPo,error:headerErr}=await sb.from('po_headers').insert({...header,...(_co?.id?{company_entity_id:_co.id}:{})}).select('*').single(); if(headerErr) throw headerErr;
       const copied=(state.currentLines||[]).map(line=>({...{ po_header_id:newPo.id, product_master_id:line.product_master_id||null, product_type_snapshot:line.product_type_snapshot||null, title_snapshot:line.title_snapshot||null, variant_title_snapshot:line.variant_title_snapshot||null, sku_snapshot:line.sku_snapshot||null, upc_snapshot:line.upc_snapshot||null, barcode_snapshot:line.barcode_snapshot||null, retail_price:line.retail_price||null, unit_cost:line.unit_cost||null, qty:Number(line.qty||0), retail_value:Number(line.retail_price||0)*Number(line.qty||0), line_notes:line.line_notes||null },...(_co?.id?{company_entity_id:_co.id}:{})}));
       if(copied.length){ const {error:lineErr}=await sb.from('po_lines').insert(copied); if(lineErr) throw lineErr; }
-      await refreshAll(); await openPO(newPo.id); alert(`Duplicated PO as ${newName}`);
+      await refreshAll(); await openPO(newPo.id); await syncPipeline(); alert(`Duplicated PO as ${newName}`);
     }
 
     function clearManualModal(){ ['manualProductType','manualTitle','manualVariant','manualSku','manualUpc','manualBarcode','manualRetail','manualCost','manualNotes'].forEach(id=>el[id].value=''); el.manualQty.value=0; }
@@ -1050,7 +1099,7 @@
         inserts.push(productRecordToLine(product, item.qty));
       }
 
-      if(inserts.length){ const _ins=inserts.map(r=>({...r,...(_co?.id?{company_entity_id:_co.id}:{})})); const {error}=await sb.from('po_lines').insert(_ins); if(error) throw error; await refreshAll(); await openPO(state.currentPO.id); }
+      if(inserts.length){ const _ins=inserts.map(r=>({...r,...(_co?.id?{company_entity_id:_co.id}:{})})); const {error}=await sb.from('po_lines').insert(_ins); if(error) throw error; await refreshAll(); await openPO(state.currentPO.id); await syncPipeline(); }
       el.bulkSkuResult.innerHTML=`Added ${inserts.length} line${inserts.length===1?'':'s'}.${missing.length?`<br>Unmatched: ${missing.map(escapeHtml).join(', ')}`:''}`;
     }
 
@@ -1074,7 +1123,7 @@
       const rows=parseImportRows(el.importText.value).sort(compareProductLines);
       if(!rows.length){ el.importResult.textContent='No valid import rows found.'; return; }
       const {error}=await sb.from('po_lines').insert(rows.map(r=>({...r,...(_co?.id?{company_entity_id:_co.id}:{})}))); if(error) throw error;
-      await refreshAll(); await openPO(state.currentPO.id);
+      await refreshAll(); await openPO(state.currentPO.id); await syncPipeline();
       el.importResult.textContent=`Imported ${rows.length} line${rows.length===1?'':'s'}.`;
     }
 
@@ -1482,49 +1531,24 @@
       const addCatalogBtn=ev.target.closest('[data-add-catalog]'); if(addCatalogBtn){ const id=addCatalogBtn.getAttribute('data-add-catalog'); const qtyInput=document.querySelector(`[data-catalog-qty="${id}"]`); const qty=Number(qtyInput?.value||0); try{ await addCatalogLine(id,qty); }catch(e){ console.error(e); alert(e.message||'Add line failed'); } return; }
       const saveLineBtn=ev.target.closest('[data-line-save]'); if(saveLineBtn){ const lineId=saveLineBtn.getAttribute('data-line-save'); clearTimeout(lineSaveTimers.get(lineId)); lineSaveTimers.delete(lineId); try{ await saveLine(lineId); }catch(e){ console.error(e); alert(e.message||'Line save failed'); } return; }
       const delBtn=ev.target.closest('[data-line-delete]'); if(delBtn){ try{ await deleteLine(delBtn.getAttribute('data-line-delete')); }catch(e){ console.error(e); alert(e.message||'Delete failed'); } return; }
-      const trkBtn=ev.target.closest('[data-line-tracker]'); if(trkBtn){ openTrackerFromLine(trkBtn.getAttribute('data-line-tracker')); return; }
+      const trkBtn=ev.target.closest('[data-line-tracker]'); if(trkBtn){ try{ await pushLineToPipeline(trkBtn.getAttribute('data-line-tracker')); }catch(e){ console.error(e); setStatus(e.message||'Pipeline push failed','neg'); } return; }
       const closeBtn=ev.target.closest('[data-close]'); if(closeBtn){ const node=document.getElementById(closeBtn.getAttribute('data-close')); if(node) modalClose(node); }
     });
 
-    // ── Tracker push modal ──────────────────────────────────────────────────
-    async function openTrackerFromLine(lineId) {
-      const line = (state.lines||[]).find(l=>l.id===lineId);
-      if (!line) return;
-      const title = (line.title_snapshot||'').trim();
-      if (!title) { setStatus('Add a product title to this line before pushing to Tracker.','neg'); return; }
-
-      // Check if already in tracker
-      const { data: existing } = await sb.from('product_tracker').select('id,product_title').ilike('product_title', title).limit(1);
-      if (existing && existing.length) {
-        setStatus(`"${title}" is already in Product Tracker.`, 'info', 4000);
-        return;
-      }
-
-      // Pre-fill mini modal
-      document.getElementById('trkModalTitle').textContent = `Push to Product Tracker`;
-      document.getElementById('trkTitle').value = title;
-      document.getElementById('trkType').value = '';
-      document.getElementById('trkEta').value = state.po?.expected_arrival_date ? state.po.expected_arrival_date.slice(0,10) : '';
-      document.getElementById('trkFactory').value = state.po?.factory_id || '';
-      document.getElementById('trkLineId').value = lineId;
-      document.getElementById('trkModal').style.display='flex';
-    }
-
-    window.saveFromPOLine = saveFromPOLine;
-    async function saveFromPOLine() {
-      const title = document.getElementById('trkTitle').value.trim();
-      if (!title) { setStatus('Title required','neg'); return; }
-      const payload = {
-        product_title: title,
-        product_type: document.getElementById('trkType').value.trim() || null,
-        factory_id: document.getElementById('trkFactory').value || null,
-        bulk_eta: document.getElementById('trkEta').value || null,
-        notes: `Pushed from PO: ${state.po?.po_name||''}`.trim(),
-      };
-      const { error } = await sb.from('product_tracker').insert(payload);
-      if (error) { setStatus('Failed: '+error.message,'neg'); return; }
-      setStatus(`"${title}" added to Product Tracker.`, 'pos', 3500);
-      document.getElementById('trkModal').style.display='none';
+    // -> TRK: put ONE product of a restock PO in the Pipeline by hand. (A
+    // new-product PO does this on its own and hides the button.) It reads the
+    // product's whole size set, so the figure is the same one the automatic
+    // sync would have written. The old version looked the line up in
+    // state.lines, which does not exist, so the button silently did nothing.
+    async function pushLineToPipeline(lineId){
+      const line=(state.currentLines||[]).find(l=>String(l.id)===String(lineId));
+      if(!line) return;
+      const title=(line.title_snapshot||'').trim();
+      if(!title){ setStatus('Add a product title to this line before adding it to the Pipeline.','neg'); return; }
+      // A qty typed in the last 650ms is not saved yet; save it first so the
+      // total read from the database is the one on screen.
+      if(lineSaveTimers.has(lineId)){ clearTimeout(lineSaveTimers.get(lineId)); lineSaveTimers.delete(lineId); await saveLine(lineId,{silent:true}); }
+      await syncPipeline({keys:[window.SiloPoPipeline.titleKey(title)]});
     }
 
     async function boot(){
@@ -1569,23 +1593,5 @@
     boot();
   </script>
 
-<!-- Tracker push mini-modal -->
-<div id="trkModal" style="display:none;position:fixed;inset:0;z-index:900;align-items:center;justify-content:center;background:rgba(0,0,0,.45);">
-  <div style="background:#fff;border-radius:10px;padding:28px 24px;width:420px;max-width:95vw;box-shadow:0 8px 32px rgba(0,0,0,.22);">
-    <h3 id="trkModalTitle" style="margin:0 0 18px;font-size:16px;font-weight:700;">Push to Product Tracker</h3>
-    <input type="hidden" id="trkLineId">
-    <div class="bcn-field-group" style="margin-bottom:12px;"><label class="bcn-label">Title</label><input class="bcn-field" id="trkTitle"></div>
-    <div class="bcn-field-group" style="margin-bottom:12px;"><label class="bcn-label">Product type</label><input class="bcn-field" id="trkType" placeholder="e.g. Headwear"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;">
-      <div class="bcn-field-group"><label class="bcn-label">Factory</label><select class="bcn-field" id="trkFactory"><option value="">— none —</option></select></div>
-      <div class="bcn-field-group"><label class="bcn-label">Bulk ETA</label><input class="bcn-field" type="date" id="trkEta"></div>
-    </div>
-    <div style="display:flex;gap:10px;">
-      <button class="bcn-btn bcn-btn--primary" onclick="saveFromPOLine()">Add to Tracker</button>
-      <button class="bcn-btn bcn-btn--ghost" onclick="document.getElementById('trkModal').style.display='none'">Cancel</button>
-      <a class="bcn-btn bcn-btn--ghost" href="/v2/products.html?tab=pipeline" style="margin-left:auto;">Open Products →</a>
-    </div>
-  </div>
-</div>
 </body>
 </html>
