@@ -66,10 +66,27 @@ test('schedules separate what is due by date from what was actually posted',()=>
  assert.equal(h.el('cuPosted').textContent,'$100.00');assert.equal(h.el('cuBehind').textContent,'$200.00');
  assert.match(h.el('cuNote').textContent,/\$200\.00 is due but not posted/);assert.match(h.el('catchup').className,/sc-tie--off/);
  h.api.setPosted(300);h.api.renderCatchup(items);
- assert.match(h.el('cuNote').textContent,/Everything due to date has been posted/);assert.match(h.el('catchup').className,/sc-tie--ok/);
+ assert.match(h.el('cuNote').textContent,/Everything prepaid that is due to date has been posted/);assert.match(h.el('catchup').className,/sc-tie--ok/);
  h.api.setPosted(400);h.api.renderCatchup(items);assert.match(h.el('cuNote').textContent,/more has been posted than is due/);
- h.api.setPosted(0);h.api.renderCatchup([{recognized_to_date:0,remaining_balance:1200,schedule_type:'deferred_revenue'}]);
- assert.match(h.el('cuNote').textContent,/Nothing is due[\s\S]*Only prepaid items post/);
+});
+
+test('only prepaid items drive due / posted / not posted; other schedule types are named, never a false gap',()=>{
+ const h=harness(schedules,'renderCatchup,setPosted(value){postedRecognized=value;}');
+ // Review finding on #758: $1,200 prepaid with $300 due, $600 deferred revenue
+ // with $150 due, prepaid amortization posted. There is no missing prepaid
+ // month, and the $150 cannot be posted from this page.
+ const mixed=[{recognized_to_date:300,remaining_balance:900,schedule_type:'prepaid'},{recognized_to_date:150,remaining_balance:450,schedule_type:'deferred_revenue'}];
+ h.api.setPosted(300);h.api.renderCatchup(mixed);
+ assert.equal(h.el('cuRecognized').textContent,'$300.00');assert.equal(h.el('cuBehind').textContent,'$0.00');
+ assert.equal(h.el('cuRemaining').textContent,'$900.00','balance once posted is on the same prepaid scope');
+ assert.match(h.el('catchup').className,/sc-tie--ok/);
+ assert.match(h.el('cuNote').textContent,/Everything prepaid that is due to date has been posted/);
+ assert.match(h.el('cuNote').textContent,/1 other item \(deferred_revenue\) has \$150\.00 due by date, which does not post from this page/);
+ assert.ok(!/is due but not posted/.test(h.el('cuNote').textContent));
+ // A deferred-only account is never described as prepaid QuickBooks still holds.
+ h.api.setPosted(0);h.api.renderCatchup([mixed[1]]);
+ assert.match(h.el('cuNote').textContent,/No prepaid items are stamped/);assert.ok(!/still holds it as prepaid/.test(h.el('cuNote').textContent));
+ assert.match(h.el('catchup').className,/sc-tie--ok/);
 });
 
 test('reports choose a statement by tile, and the adjustment list lives in Journals',async()=>{

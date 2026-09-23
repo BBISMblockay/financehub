@@ -637,15 +637,26 @@
 
   function renderCatchup(items) {
     // Catch-up only means anything once something is stamped.
-    const due = items.reduce((n, i) => n + Number(i.recognized_to_date || 0), 0);
-    const remaining = items.reduce((n, i) => n + Number(i.remaining_balance || 0), 0);
     const cu = el('catchup');
     if (!items.length) { cu.hidden = true; return; }
     cu.hidden = false;
+    // Only prepaid items post from this page (the builder selects
+    // schedule_type = 'prepaid' and "posted" counts schedules:prepaid:*), so
+    // the due / posted / not-posted control is scoped to prepaid items.
+    // Deferred and other types are named separately rather than mixed in,
+    // where they would read as prepaid months someone forgot to post.
+    const prepaid = items.filter((i) => i.schedule_type === 'prepaid');
+    const others = items.filter((i) => i.schedule_type !== 'prepaid');
+    const due = prepaid.reduce((n, i) => n + Number(i.recognized_to_date || 0), 0);
+    const remaining = prepaid.reduce((n, i) => n + Number(i.remaining_balance || 0), 0);
+    const otherDue = others.reduce((n, i) => n + Number(i.recognized_to_date || 0), 0);
     el('cuRecognized').textContent = money(due);
     el('cuRemaining').textContent = money(remaining);
-    const onlyPrepaid = items.every((i) => i.schedule_type === 'prepaid');
-    const scope = onlyPrepaid ? '' : ' Only prepaid items post from this page.';
+    const scope = others.length
+      ? ` These figures cover prepaid items only. ${others.length} other item${others.length === 1 ? '' : 's'}`
+        + ` (${[...new Set(others.map((i) => i.schedule_type))].join(', ')}) ha${others.length === 1 ? 's' : 've'}`
+        + ` ${money(otherDue)} due by date, which does not post from this page.`
+      : '';
     if (postedRecognized == null) {
       el('cuPosted').textContent = '—';
       el('cuBehind').textContent = '—';
@@ -659,15 +670,18 @@
     el('cuBehind').textContent = money(behind);
     const settled = Math.abs(behind) < 0.005;
     cu.className = 'sc-tie' + (settled ? ' sc-tie--ok' : ' sc-tie--off');
-    el('cuNote').textContent = (due < 0.005 && postedRecognized < 0.005
-      ? 'Nothing is due for recognition yet on the stamped items.'
-      : settled ? 'Everything due to date has been posted.'
-      : behind > 0
-        ? `${money(behind)} is due but not posted, so QuickBooks still holds it as prepaid. `
-          + 'Post the missing months below.'
-        : `${money(-behind)} more has been posted than is due — check for a duplicate month `
-          + 'or an item whose term changed after posting.') + scope;
+    el('cuNote').textContent = (!prepaid.length
+      ? 'No prepaid items are stamped on this account.'
+      : due < 0.005 && postedRecognized < 0.005
+        ? 'Nothing prepaid is due for recognition yet.'
+        : settled ? 'Everything prepaid that is due to date has been posted.'
+        : behind > 0
+          ? `${money(behind)} is due but not posted, so QuickBooks still holds it as prepaid. `
+            + 'Post the missing months below.'
+          : `${money(-behind)} more has been posted than is due — check for a duplicate month `
+            + 'or an item whose term changed after posting.') + scope;
   }
+
 
   async function refresh() {
     const acct = el('account').value;
