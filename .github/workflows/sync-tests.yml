@@ -57,6 +57,8 @@ on:
       - 'v2/po-document-identity.js'
       - 'supabase/migrations/*company_document_identity.sql'
       - 'supabase/migrations/*launch_products_unknown.sql'
+      # Meta ad preview links (meta-creative-links-database.test.mjs).
+      - 'supabase/migrations/*meta_creative_preview_link.sql'
       - 'scripts/tests/launch-products-unknown-database.test.mjs'
       - 'v2/settings-team.html'
       - 'v2/settings-notifications.html'

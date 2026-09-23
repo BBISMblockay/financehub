@@ -517,8 +517,19 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
 const POST_FIELDS_NARROW = 'message';
 const POST_FIELDS_WIDE = 'message,attachments{unshimmed_url}';
 
-const CREATIVE_OPTIONAL_FIELDS = ['object_url', 'url_tags', 'asset_feed_spec'];
-const CREATIVE_DROP_ORDER = ['url_tags', 'object_url', 'asset_feed_spec'];
+/* preview_shareable_link is an AD field, not a creative one -- Meta's
+ * shareable fb.me link to the ad as it actually runs, readable by anyone with
+ * the link and no Ads Manager login. It rides the same refusal handling as the
+ * creative fields (a refused field is dropped and the run goes on), and it is
+ * dropped FIRST on an unnamed refusal: losing it costs only itself, while the
+ * fields after it are what every destination comes from.
+ *
+ * MEASURED 2026-09-23 with meta-creative-probe.mjs on the live account: 10 of
+ * 10 ads returned one -- PHOTO, VIDEO, SHARE, PAGE, POST_DELETED, from 2018 to
+ * this week -- and the account refused nothing. */
+const AD_LEVEL_OPTIONAL_FIELDS = ['preview_shareable_link'];
+const CREATIVE_OPTIONAL_FIELDS = ['preview_shareable_link', 'object_url', 'url_tags', 'asset_feed_spec'];
+const CREATIVE_DROP_ORDER = ['preview_shareable_link', 'url_tags', 'object_url', 'asset_feed_spec'];
 /** Fields whose Graph selection is not just the field name. */
 const CREATIVE_FIELD_SELECTION = { asset_feed_spec: 'asset_feed_spec{link_urls}' };
 /** A refusal can name the SUBfield; map it back to the field that carries it. */
@@ -526,13 +537,14 @@ const CREATIVE_FIELD_ALIASES = { link_urls: 'asset_feed_spec' };
 
 function metaCreativeFields(active) {
   const optional = CREATIVE_OPTIONAL_FIELDS
-    .filter((f) => active.has(f))
+    .filter((f) => active.has(f) && !AD_LEVEL_OPTIONAL_FIELDS.includes(f))
     .map((f) => CREATIVE_FIELD_SELECTION[f] || f);
+  const adLevel = AD_LEVEL_OPTIONAL_FIELDS.filter((f) => active.has(f));
   const sub = 'id,thumbnail_url,body,title,object_type,'
     + 'effective_object_story_id,object_story_spec'
     + (optional.length ? `,${optional.join(',')}` : '');
   return encodeURIComponent(
-    `id,name,effective_status,campaign_id,adset_id,creative{${sub}}`);
+    `id,name,effective_status,campaign_id,adset_id${adLevel.length ? `,${adLevel.join(',')}` : ''},creative{${sub}}`);
 }
 
 /** The optional field a refusal message names, or null.
@@ -581,6 +593,28 @@ function metaBatchRejectedFields(data) {
 function allItemsFailed(data) {
   return Array.isArray(data) && data.length > 0
     && data.every((item) => !item || item.code !== 200);
+}
+
+/** Every item in a batch failed, and every failure is a PERMISSION refusal
+ * (code 10, 190 or 200-299, or the message says so) rather than a missing ad.
+ *
+ * The case metaBatchRejectedFields() cannot see: a token allowed to read the
+ * ad but not one of its fields answers per item with a permission error, not
+ * an unknown-field one, so nothing is narrowed and the parse loop skips every
+ * item -- names, copy, destinations and previews all stop refreshing behind a
+ * clean log line. A batch of deleted ads (404 / "does not exist") is ordinary
+ * and is deliberately not matched. */
+function allItemsPermissionDenied(data) {
+  if (!allItemsFailed(data)) return false;
+  return data.every((item) => {
+    if (!item) return false;
+    let err = null;
+    try { err = JSON.parse(item.body)?.error || null; } catch { /* unparseable */ }
+    const code = Number(err?.code);
+    const msg = String(err?.message || item.body || '');
+    return code === 10 || code === 190 || (code >= 200 && code < 300)
+      || /permission/i.test(msg);
+  });
 }
 
 /** The field name out of a Meta error message, for dropping and for the log. */
@@ -643,6 +677,15 @@ function usableDestination(raw) {
   if (!/^https?:\/\/[^\s<>"']+$/i.test(v)) return null;
   if (/^https?:\/\/(?:[a-z0-9-]+\.)*(?:l|lm)\.facebook\.com\//i.test(v)) return null;
   return v;
+}
+
+/** Meta's shareable preview link, or null. Same http(s)/no-whitespace gate as
+ * a destination -- it is put in an href -- but NOT the shim rejection: a
+ * preview is a facebook link by definition (fb.me), and that is the point. */
+function usablePreview(raw) {
+  if (typeof raw !== 'string') return null;
+  const v = raw.trim();
+  return /^https?:\/\/[^\s<>"']+$/i.test(v) ? v : null;
 }
 
 function resolveCreativeLink(creative) {
@@ -781,6 +824,21 @@ export async function fetchMetaAdCreatives(connection, adIds) {
           + ', retrying without it');
         continue;
       }
+      // Every item refused on PERMISSION. The preview is the one field a
+      // token scope might plausibly withhold, so it goes first, once, without
+      // waiting to be named. If the narrower read is refused just the same,
+      // the token cannot read these ads at all: say so rather than return
+      // nothing and let the caller log a successful zero.
+      if (allItemsPermissionDenied(data)) {
+        if (activeFields.delete('preview_shareable_link')) {
+          refusedFields.push('preview_shareable_link');
+          console.warn('[warn] Meta refused every ad in a batch on permission;'
+            + ' retrying without preview_shareable_link');
+          continue;
+        }
+        throw new Error(`Meta ads batch: every ad refused on permission (${slice.length} ads)`
+          + ` -- the token cannot read these creatives`);
+      }
       break;
     }
     if (!Array.isArray(data)) throw new Error(`Meta ads batch: unexpected response shape`);
@@ -825,6 +883,10 @@ export async function fetchMetaAdCreatives(connection, adIds) {
         // campaign tag can split it; guessing at a canonical parse here
         // would bake one reading of a free-text field into the table.
         linkUrlTags: clean(a.creative?.url_tags),
+        // Meta's shareable preview of the ad itself. Null when Meta returned
+        // none OR the field was refused this run -- which is why the writers
+        // only ever write a non-null one, never a null over a stored link.
+        previewUrl: usablePreview(a.preview_shareable_link),
       };
       out.push(row);
 
@@ -989,6 +1051,9 @@ export async function fetchMetaAdCreatives(connection, adIds) {
     .sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `${k}=${n}`)
     .join(' ') || 'none';
+  const withPreview = out.filter((r) => r.previewUrl).length;
+  console.log(`[meta] creative previews: ${withPreview}/${out.length}`
+    + `${activeFields.has('preview_shareable_link') ? '' : ' [preview_shareable_link REFUSED]'}`);
   console.log(`[meta] creative links: ${withLink}/${out.length} resolved (${sourceSummary})`
     + ` [asked: ${[...activeFields].join(',') || 'none'}`
     + `${refusedFields.length ? `, refused: ${refusedFields.join(',')}` : ''}`
@@ -1074,12 +1139,28 @@ export async function runMetaAdLevelSync(supabase, connection, {
   const creativesUpserted = await upsertInChunks(
     supabase, 'meta_ad_creatives', creativeRows, 'company_entity_id,ad_id',
   );
+  // The preview link is written SEPARATELY and only where Meta returned one.
+  // It is kept out of the full-row upsert above on purpose: that write sets
+  // every column it names, so carrying preview_shareable_link there would
+  // write NULL over a stored link on any run where Meta refused the field or
+  // omitted it for one ad. A preview never goes from known to unknown here.
+  const previewRows = creatives
+    .filter((c) => c.previewUrl)
+    .map((c) => ({
+      company_entity_id: connection.company_entity_id,
+      ad_id: String(c.adId),
+      preview_shareable_link: c.previewUrl,
+    }));
+  const previewsUpserted = previewRows.length
+    ? await upsertInChunks(supabase, 'meta_ad_creatives', previewRows, 'company_entity_id,ad_id')
+    : 0;
 
   return {
     window,
     ad_rows_fetched: raw.length,
     ad_rows_upserted: perfUpserted,
     creatives_upserted: creativesUpserted,
+    previews_upserted: previewsUpserted,
     synced_at: syncedAt,
   };
 }
@@ -1659,7 +1740,8 @@ export async function runConnectionSync(supabase, env, connection, {
 //      Re-asking about an ad whose asset_feed_spec was refused mid-run would
 //      otherwise DESTROY a destination the nightly had already resolved. A
 //      null here keeps its established meaning -- "not resolved" -- and never
-//      becomes "asked and has none".
+//      becomes "asked and has none". The preview link (preview_shareable_link)
+//      follows the same rule, as 1b below, and so does the nightly.
 //   2. `body` is written only when it came back non-null. The page-post pass
 //      degrades gracefully (a missing scope, a deleted post) and a blanket
 //      full-row upsert would blank the copy that pass had already recovered.
@@ -1741,6 +1823,8 @@ export async function runMetaCreativeBackfill(supabase, connection, {
     links_resolved: 0,
     link_rows_written: 0,
     body_rows_written: 0,
+    preview_rows_written: 0,
+    previews_returned: 0,
     new_creative_rows: 0,
     failed: null,
   };
@@ -1770,6 +1854,7 @@ export async function runMetaCreativeBackfill(supabase, connection, {
           link_url: c.linkUrl ?? null,
           link_url_source: c.linkUrlSource ?? null,
           link_url_tags: c.linkUrlTags ?? null,
+          preview_shareable_link: c.previewUrl ?? null,
           title: c.title,
           object_type: c.objectType,
           synced_at: syncedAt,
@@ -1785,6 +1870,15 @@ export async function runMetaCreativeBackfill(supabase, connection, {
           link_url_source: c.linkUrlSource,
           link_url_tags: c.linkUrlTags ?? null,
           synced_at: syncedAt,
+        }));
+
+      // Rule 1b: only a RETURNED preview link is written back, same as a link.
+      const previewRows = creatives
+        .filter((c) => knownIds.has(String(c.adId)) && c.previewUrl)
+        .map((c) => ({
+          company_entity_id: connection.company_entity_id,
+          ad_id: String(c.adId),
+          preview_shareable_link: c.previewUrl,
         }));
 
       // Rule 2: only recovered copy is written back.
@@ -1809,12 +1903,17 @@ export async function runMetaCreativeBackfill(supabase, connection, {
         result.body_rows_written += await upsertInChunks(
           supabase, 'meta_ad_creatives', bodyRows, 'company_entity_id,ad_id');
       }
+      if (previewRows.length) {
+        result.preview_rows_written += await upsertInChunks(
+          supabase, 'meta_ad_creatives', previewRows, 'company_entity_id,ad_id');
+      }
 
       // Counted from what Meta returned, not from what was written: a new row
       // carrying a link is a resolved link too, and it lands in newRows.
       const resolvedHere = creatives.filter((c) => c.linkUrl).length;
       result.ads_returned += creatives.length;
       result.links_resolved += resolvedHere;
+      result.previews_returned += creatives.filter((c) => c.previewUrl).length;
       result.chunks_completed += 1;
       if (onChunk) {
         onChunk({
@@ -1826,6 +1925,7 @@ export async function runMetaCreativeBackfill(supabase, connection, {
           new_rows: newRows.length,
           link_rows: linkRows.length,
           body_rows: bodyRows.length,
+          preview_rows: previewRows.length,
         });
       }
       if (pauseMs) await sleep(pauseMs);

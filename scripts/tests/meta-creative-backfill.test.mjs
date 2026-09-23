@@ -287,6 +287,33 @@ await test('an ad with no stored row gets a FULL row, not a partial one', async 
   assert.equal(r.new_creative_rows, 1);
 });
 
+await test('a returned preview IS written onto an existing row; a missing one is not', async () => {
+  fakeGraph({ ads: {
+    a1: { ...adNoLink('a1'), preview_shareable_link: 'https://fb.me/a1' },
+    a2: adNoLink('a2'),
+  } });
+  const db = fakeSupabase();
+  const r = await runMetaCreativeBackfill(db, CONNECTION, {
+    adIds: ['a1', 'a2'], knownIds: new Set(['a1', 'a2']), chunkSize: 50,
+  });
+  const p1 = rowsFor(db, 'a1').filter((x) => 'preview_shareable_link' in x);
+  assert.deepEqual(p1.map((x) => x.preview_shareable_link), ['https://fb.me/a1']);
+  assert.equal(rowsFor(db, 'a2').filter((x) => 'preview_shareable_link' in x).length, 0,
+    'no preview came back, so nothing may be written over a stored one');
+  assert.equal(r.preview_rows_written, 1);
+  assert.equal(r.previews_returned, 1);
+});
+
+await test('a brand-new row carries its preview', async () => {
+  fakeGraph({ ads: { new1: { ...adWithLink('new1', 'https://www.baseballism.com/new'),
+    preview_shareable_link: 'https://fb.me/new1' } } });
+  const db = fakeSupabase();
+  await runMetaCreativeBackfill(db, CONNECTION, {
+    adIds: ['new1'], knownIds: new Set(), chunkSize: 50,
+  });
+  assert.equal(rowsFor(db, 'new1')[0].preview_shareable_link, 'https://fb.me/new1');
+});
+
 await test('a deleted ad (per-item 404) is skipped without failing the chunk', async () => {
   fakeGraph({ ads: { a1: adWithLink('a1', 'https://x.com/1') } });
   const db = fakeSupabase();

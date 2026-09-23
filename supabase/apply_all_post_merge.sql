@@ -19066,6 +19066,13 @@ $c$select (select count(*) from v_po_header_summary
 -- import per scheduler call, and closure of runs the gateway cut off.
 \i migrations/20260923130000_card_coding_background_preparation.sql
 
+-- ── Meta ad preview links (2026-09-23) ────────────────────────────────────
+-- meta_ad_creatives.preview_shareable_link (Meta's shareable fb.me preview of
+-- the ad itself) plus a web-URL CHECK, and wow_creatives carries it as
+-- 'preview'. wow_creatives is edited in place from its deployed definition,
+-- asserted anchors, idempotent. Additive; no policy change.
+\i migrations/20260923150000_meta_creative_preview_link.sql
+
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above
 -- upsert the catalog, so re-running this file without it re-creates the four

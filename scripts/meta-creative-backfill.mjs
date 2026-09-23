@@ -17,7 +17,8 @@
 // Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 // Optional:
 //   META_BACKFILL_MODE      missing (default) | all
-//                           `missing` = stored creatives with no link_url.
+//                           `missing` = stored creatives with no link_url
+//                                       OR no preview_shareable_link.
 //                           `all`     = every stored creative, re-asked.
 //   META_BACKFILL_DISCOVER  true (default) | false — also enumerate the
 //                           account's own ad ids, reaching ads that have
@@ -64,7 +65,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 
 /** Every stored creative for this company, paged past PostgREST's row cap.
  * Returns the full id set (for the known/new decision) and the subset that
- * still has no destination (the default candidate set). */
+ * still has no destination or no preview link (the default candidate set). */
 async function loadStoredCreatives(companyId) {
   const known = new Set();
   const missingLink = [];
@@ -72,7 +73,7 @@ async function loadStoredCreatives(companyId) {
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from('meta_ad_creatives')
-      .select('ad_id, link_url, synced_at')
+      .select('ad_id, link_url, preview_shareable_link, synced_at')
       .eq('company_entity_id', companyId)
       // Newest-synced first: the most recently active ads are the ones a
       // marketer is most likely to ask about, so a run that dies partway
@@ -85,7 +86,8 @@ async function loadStoredCreatives(companyId) {
     if (!data?.length) break;
     for (const r of data) {
       known.add(String(r.ad_id));
-      if (!r.link_url) missingLink.push(String(r.ad_id));
+      // Either gap makes an ad worth re-asking: one Meta read answers both.
+      if (!r.link_url || !r.preview_shareable_link) missingLink.push(String(r.ad_id));
     }
     if (data.length < PAGE) break;
   }
@@ -114,7 +116,7 @@ async function backfillConnection(connection) {
   if (LIMIT) candidates = candidates.slice(0, LIMIT);
 
   console.log(`[meta-creative-backfill] ${label}: mode=${MODE} candidates=${candidates.length}`
-    + ` (stored=${known.size}, missing_link=${missingLink.length}, discovered=${discovered})`);
+    + ` (stored=${known.size}, missing_link_or_preview=${missingLink.length}, discovered=${discovered})`);
   if (!candidates.length) return { skipped: true, ads_requested: 0 };
 
   const { data: job, error: jobErr } = await supabase.from('sync_jobs').insert({
@@ -197,7 +199,8 @@ async function main() {
       console.log(`[ok] ${label}: ${result.chunks_completed} chunks, ${result.ads_returned} ads returned,`
         + ` ${result.links_resolved} destinations resolved`
         + ` (${result.new_creative_rows} new rows, ${result.link_rows_written} links written,`
-        + ` ${result.body_rows_written} bodies recovered)`);
+        + ` ${result.body_rows_written} bodies recovered,`
+        + ` ${result.preview_rows_written} preview links written of ${result.previews_returned} returned)`);
     }
   }
   if (hadError) process.exit(1);

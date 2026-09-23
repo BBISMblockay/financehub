@@ -3631,6 +3631,18 @@ select 'Meta creative destination' as check_name,
  when to_regprocedure('public.wow_creatives(date,text,int)') is not null
    and pg_get_functiondef(to_regprocedure('public.wow_creatives(date,text,int)')) not like '%cost_per_thruplay%'
    then 'CRITICAL: wow_creatives has lost thruplays/leads; the Marketing Report reads them by name'
+ -- Meta's shareable preview of the ad itself (20260923150000). It goes into
+ -- an href on three pages, so the web-URL check is the part that matters.
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='meta_ad_creatives' and column_name='preview_shareable_link')
+   then 'MISSING: preview_shareable_link; apply 20260923150000'
+ when not exists(select 1 from pg_constraint
+   where conrelid=to_regclass('public.meta_ad_creatives')
+     and conname='meta_ad_creatives_preview_is_web_url')
+   then 'CRITICAL: preview_shareable_link accepts values that are not web URLs, and it is rendered as a link'
+ when to_regprocedure('public.wow_creatives(date,text,int)') is not null
+   and pg_get_functiondef(to_regprocedure('public.wow_creatives(date,text,int)')) not like '%preview_shareable_link%'
+   then 'STALE: wow_creatives does not carry the ad preview link; apply 20260923150000'
  else 'ok' end as status;
 
 -- /v2/products.html: a Pipeline item can record the PO it came from. (The

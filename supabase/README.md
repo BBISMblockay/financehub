@@ -2059,3 +2059,23 @@ through the `card-coding-prepare-scheduled` function.
 
 Regression: `scripts/tests/card-coding-background-database.test.mjs` (four
 mutation hooks); the Plaid fixture executes the new verify check.
+
+## Meta ad preview links — `20260923150000_meta_creative_preview_link.sql`
+
+Adds `meta_ad_creatives.preview_shareable_link`: Meta's shareable fb.me
+preview of the ad itself, read from the Ad object by the Meta sync. It is not
+the destination (`link_url`). A CHECK holds it to a web URL, because three pages
+render it as a link. `wow_creatives` gains `'preview'` per ad. That function is
+edited in place from its deployed definition, on two anchors that must each
+match exactly once, rather than retyped from a file (the thruplays/leads drift
+recorded in `20260915150000`). The Ask SILO catalog note is appended, never
+replaced. Additive; no policy change; re-runnable.
+
+The sync writes the column only when Meta returned a link, so null means never
+returned. Coverage comes from the nightly (ads that spent in the last 30 days)
+plus one run of `meta-creative-backfill.yml` (default `missing` mode), which
+now selects ads missing a preview as well as a destination.
+
+Regressions: `scripts/tests/meta-creative-links.test.mjs`,
+`meta-creative-backfill.test.mjs`, `meta-creative-backfill-driver.test.mjs`,
+`meta-creative-links-database.test.mjs`.

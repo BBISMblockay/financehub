@@ -145,7 +145,7 @@ async function main() {
   const tally = {
     ads: 0, creative_read_failed: 0,
     with_any_url: 0, with_product_set: 0, with_template: 0,
-    with_story_id: 0, post_read_ok: 0, post_with_url: 0,
+    with_story_id: 0, post_read_ok: 0, post_with_url: 0, with_preview: 0,
   };
   const pathHits = new Map();   // json path -> count, across ads
   const refusals = new Map();   // refused field -> count
@@ -153,7 +153,10 @@ async function main() {
 
   for (const adId of adIds) {
     tally.ads += 1;
-    const ad = await getWithNegotiation(adId, ['id', 'name', 'creative{' + PROBE_FIELDS.join(',') + '}'], token, `ad ${adId}`);
+    // preview_shareable_link is an AD field, not a creative one: Meta's
+    // shareable preview of the ad as it runs. Asked here so a refusal (and
+    // its exact wording) is measured before the sync depends on it.
+    const ad = await getWithNegotiation(adId, ['id', 'name', 'preview_shareable_link', 'creative{' + PROBE_FIELDS.join(',') + '}'], token, `ad ${adId}`);
     if (ad.error) {
       tally.creative_read_failed += 1;
       console.log(`--- ad ${adId}\n    READ FAILED: ${ad.error}`);
@@ -172,6 +175,8 @@ async function main() {
     for (const u of urls) pathHits.set(u.path, (pathHits.get(u.path) || 0) + 1);
 
     console.log(`--- ad ${adId}  ${String(ad.data?.name || '').slice(0, 44)}`);
+    if (ad.data?.preview_shareable_link) tally.with_preview += 1;
+    console.log(`    preview_shareable_link=${ad.data?.preview_shareable_link ?? '(absent)'}`);
     console.log(`    object_type=${creative.object_type ?? '?'}`
       + `  product_set_id=${creative.product_set_id ?? '-'}`
       + `  story_id=${storyId ?? '-'}`);
