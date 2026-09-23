@@ -151,6 +151,22 @@ r.test('an item linked to another PO is neither overwritten nor duplicated (dupl
   r.eq(a.row.id, 't');
 });
 
+r.test('an item whose note names a PO that no longer carries the product is claimed', () => {
+  // Creytex-335's hoodies now sit on ShaoxingTianyun-111: the PO was recreated
+  // under the new factory, and the note still names the old one.
+  const stored = { id: 'moved', product_title: MEN, po_header_id: null, expected_units: 10, notes: 'Auto-added from PO: Creytex-335' };
+  const a = byTitle(P.plan(PO, totals, [stored], null, () => false))[MEN];
+  r.eq(a.kind, 'update');
+  r.eq(a.patch.po_header_id, 'po-496');
+  r.eq(a.patch.expected_units, 325);
+});
+
+r.test('...but not when the noted PO still carries it, and not when that is unknown', () => {
+  const stored = { id: 't', product_title: MEN, po_header_id: null, expected_units: 10, notes: 'Auto-added from PO: Incotexco-487' };
+  r.eq(byTitle(P.plan(PO, totals, [stored], null, () => true))[MEN].kind, 'other_po', 'still carried');
+  r.eq(byTitle(P.plan(PO, totals, [stored], null, undefined))[MEN].kind, 'other_po', 'unknown = leave it');
+});
+
 r.test('onlyKeys plans just the named products', () => {
   const acts = P.plan(PO, totals, [], [P.titleKey(YOUTH)]);
   r.eq(acts.map((a) => a.title), [YOUTH]);
@@ -173,8 +189,14 @@ function fakeSb(tables, opts = {}) {
     calls.push(q);
     if (opts.fail && opts.fail(q)) return { data: null, error: { message: 'refused by RLS' } };
     const rows = db[q.table] || (db[q.table] = []);
-    const match = (row) => q.filters.every(([c, v]) => String(row[c]) === String(v));
-    if (q.op === 'select') return { data: rows.filter(match).map((x) => ({ ...x })), error: null };
+    const match = (row) => q.filters.every(([c, v, op]) => (op === 'in'
+      ? v.map(String).includes(String(row[c]))
+      : String(row[c]) === String(v)));
+    if (q.op === 'select') {
+      let got = rows.filter(match).map((x) => ({ ...x }));
+      if (q.range) got = got.slice(q.range[0], q.range[1] + 1);
+      return { data: got, error: null };
+    }
     if (q.op === 'insert') { rows.push({ id: `new-${++seq}`, ...q.payload }); return { data: null, error: null }; }
     if (q.op === 'update') { rows.filter(match).forEach((x) => Object.assign(x, q.payload)); return { data: null, error: null }; }
     throw new Error('unexpected op ' + q.op);
@@ -186,6 +208,9 @@ function fakeSb(tables, opts = {}) {
       insert(p) { q.op = 'insert'; q.payload = p; return b; },
       update(p) { q.op = 'update'; q.payload = p; return b; },
       eq(c, v) { q.filters.push([c, v]); return b; },
+      in(c, vals) { q.filters.push([c, vals, 'in']); return b; },
+      order() { return b; },
+      range(a, z) { q.range = [a, z]; return b; },
       then(ok, bad) {
         const run = () => exec(q);
         const p = opts.delayMs ? new Promise((res) => setTimeout(() => res(run()), opts.delayMs)) : Promise.resolve().then(run);
@@ -287,6 +312,76 @@ const run = async (name, fn) => {
     const res = await P.sync(sb, { po: PO });
     r.has(res.errors[0].message, 'Could not read the Pipeline');
     r.eq(sb.calls.filter((c) => c.op !== 'select').length, 0);
+  });
+
+  const MOVED = { id: 't-moved', product_title: YOUTH, po_header_id: null, expected_units: 105,
+    notes: 'Auto-added from PO: Creytex-335' };
+
+  await run('sync claims an item whose noted PO no longer exists', async () => {
+    const sb = fakeSb({ po_lines: LINES, po_headers: [{ id: 'po-496', po_name: 'Incotexco-496' }], product_tracker: [MOVED] });
+    const res = await P.sync(sb, { po: PO });
+    const row = byTitleRows(sb.db.product_tracker)[YOUTH];
+    r.eq(sb.db.product_tracker.filter((x) => x.product_title === YOUTH).length, 1, 'claimed, not duplicated');
+    r.eq(row.po_header_id, 'po-496');
+    r.eq(row.expected_units, 550);
+    r.eq(res.errors, []);
+  });
+
+  await run('sync claims it when the noted PO exists but no longer carries the product (the KCMTAR-6 -> 58 case)', async () => {
+    const sb = fakeSb({
+      po_lines: LINES.concat([{ po_header_id: 'po-335', title_snapshot: 'Some Other Hoodie', qty: 50 }]),
+      po_headers: [{ id: 'po-496', po_name: 'Incotexco-496' }, { id: 'po-335', po_name: 'CREYTEX-335' }],
+      product_tracker: [MOVED],
+    });
+    await P.sync(sb, { po: PO });
+    r.eq(byTitleRows(sb.db.product_tracker)[YOUTH].po_header_id, 'po-496');
+  });
+
+  await run('sync leaves it alone while the noted PO still carries the product', async () => {
+    const sb = fakeSb({
+      po_lines: LINES.concat([{ po_header_id: 'po-335', title_snapshot: ` ${YOUTH.toUpperCase()} `, qty: 50 }]),
+      po_headers: [{ id: 'po-496', po_name: 'Incotexco-496' }, { id: 'po-335', po_name: 'Creytex-335' }],
+      product_tracker: [MOVED],
+    });
+    const res = await P.sync(sb, { po: PO });
+    const youth = sb.db.product_tracker.filter((x) => x.product_title === YOUTH);
+    r.eq(youth.length, 1, 'no second item');
+    r.eq(youth[0].po_header_id, null);
+    r.eq(youth[0].expected_units, 105);
+    r.eq(res.otherPo.map((a) => a.title), [YOUTH]);
+  });
+
+  await run('a failed PO lookup never turns into claiming another PO\'s item', async () => {
+    for (const table of ['po_headers', 'po_lines']) {
+      const sb = fakeSb({
+        po_lines: LINES, po_headers: [{ id: 'po-496', po_name: 'Incotexco-496' }], product_tracker: [MOVED],
+      }, { fail: (q) => q.table === table && q.op === 'select' && (table === 'po_headers' || q.filters.some((f) => f[2] === 'in')) });
+      // make the noted PO exist so the po_lines read is actually reached
+      if (table === 'po_lines') sb.db.po_headers.push({ id: 'po-335', po_name: 'Creytex-335' });
+      await P.sync(sb, { po: PO });
+      const youth = sb.db.product_tracker.filter((x) => x.product_title === YOUTH);
+      r.eq(youth.length, 1, `${table} failure: no duplicate`);
+      r.eq(youth[0].po_header_id, null, `${table} failure: not claimed`);
+    }
+  });
+
+  await run('a noted PO past the first 1,000 headers is still found (the lookup pages)', async () => {
+    const filler = Array.from({ length: 1000 }, (_, i) => ({ id: `po-f${String(i).padStart(4, '0')}`, po_name: `Filler-${i}` }));
+    const sb = fakeSb({
+      po_lines: LINES.concat([{ po_header_id: 'po-zzz', title_snapshot: YOUTH, qty: 50 }]),
+      po_headers: filler.concat([{ id: 'po-zzz', po_name: 'Creytex-335' }]),
+      product_tracker: [MOVED],
+    });
+    await P.sync(sb, { po: PO });
+    const youth = sb.db.product_tracker.filter((x) => x.product_title === YOUTH);
+    r.eq(youth[0].po_header_id, null, 'Creytex-335 still carries it, so it is not claimed');
+    r.eq(sb.calls.filter((c) => c.table === 'po_headers').length, 2, 'two pages read');
+  });
+
+  await run('the PO lookup only happens when an item actually needs it', async () => {
+    const sb = fakeSb({ po_lines: LINES, product_tracker: [] });
+    await P.sync(sb, { po: PO });
+    r.eq(sb.calls.filter((c) => c.table === 'po_headers').length, 0);
   });
 
   await run('no PO id: nothing is read or written', async () => {

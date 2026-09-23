@@ -19081,6 +19081,11 @@ $c$select (select count(*) from v_po_header_summary
 -- readiness copy). Touches only still-unlinked items, so it converges after
 -- one pass. No schema or policy change.
 \i migrations/20260923160000_product_tracker_po_expected_units.sql
+-- The two cases that one could not reach: an item holding a line of the same
+-- product on ANOTHER new-product PO (the old sync matched by title across
+-- POs), and items whose noted PO no longer carries the product, linked to the
+-- one new-product PO that does. Converges after one pass.
+\i migrations/20260923170000_product_tracker_moved_po_products.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

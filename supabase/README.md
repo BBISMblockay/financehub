@@ -2119,3 +2119,19 @@ product's line quantities — the bug's fingerprint. A paired
 the item held. Measured 2026-09-23: 159 linked, 49 corrected, 22 readiness
 copies corrected, 2 linked items keep a figure that is not a line qty.
 Everything it touches becomes linked, so a re-run finds nothing.
+
+`20260923170000_product_tracker_moved_po_products.sql` reaches the two cases
+the first could not. (1) The old sync matched by TITLE across every
+new-product PO, so a product on two POs had its item overwritten by lines of
+either: KCMTar-48's youth tee read 205, the YXL line of KCMTAR-49, and the
+first migration linked it but kept the 205 because it only recognised the
+item's own PO's lines. (2) A PO is recreated when its factory changes, so a
+note can name a PO that no longer carries the product (Creytex-335's hoodies
+are on ShaoxingTianyun-111); those were unresolvable, and the page's claim
+rule refused them for naming another PO — `v2/po-pipeline-sync.js` now looks
+the noted PO up. Measured and applied 2026-09-23: 1 item corrected
+(205 → 2,000), 16 linked to the one new-product PO carrying them, 5 of those
+corrected, 3 launch readiness copies corrected. Left alone: 7 items no
+new-product PO carries, and one item at 600 that is a line on no PO. The
+fingerprint here is a line of the product on ANY new-product PO (the old
+sync's reach), never a restock PO's.

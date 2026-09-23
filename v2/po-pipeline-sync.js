@@ -3,7 +3,8 @@
  *
  * One Pipeline item is one PRODUCT (a product title), while a PO carries one
  * line per SIZE. The sync this replaces ran per line, on line save only, and
- * wrote that one line's qty into expected_units -- so the last size saved won
+ * wrote that one line's qty into expected_units, matching the item by title
+ * on ANY PO -- so the last size saved won, whichever PO it was on
  * (Incotexco-496's youth tee read 105, its YXL line, instead of the 550 its
  * four size lines add up to), and lines that arrived by import, bulk SKU,
  * catalog or concept never reached the Pipeline until someone edited one.
@@ -18,11 +19,19 @@
  * Which Pipeline item a PO may write to (decided per product title):
  *   - one already recorded against THIS PO (po_header_id)   -> keep in step
  *   - an unlinked one (no po_header_id) not auto-added from
- *     a DIFFERENT PO                                        -> claim it
+ *     a DIFFERENT PO that still carries the product         -> claim it
  *   - only ones belonging to another PO                     -> leave alone:
  *     "Expected Units (from the originating PO)" belongs to the first PO, and
  *     a duplicated or split PO must not overwrite it or add a second item
  *   - none                                                  -> create one
+ *
+ * "Still carries" matters. A PO is recreated when its factory changes (the
+ * name comes from the factory), and deleting one nulls po_header_id, so an
+ * item's note routinely names a PO that no longer holds the product --
+ * Creytex-335's hoodies now sit on ShaoxingTianyun-111. A note alone would
+ * leave such an item unclaimable by the PO that does carry the product,
+ * forever. sync() looks the noted PO up; plan() blocks only when it cannot
+ * tell, or when the noted PO really does still carry it.
  *
  * Expected units is the ONLY field a PO overwrites. Factory, manufacturer,
  * type and bulk ETA are filled when blank and never replaced, because the
@@ -79,6 +88,9 @@
    *   totals     productTotals(lines)
    *   trackers   the company's product_tracker rows
    *   onlyKeys   optional array of titleKeys: plan for those products only
+   *   noteHolds  optional (notedPoName, key) -> bool: does the PO an item's
+   *              note names still carry that product? Omitted = assume it
+   *              does, so an item auto-added from another PO is left alone
    *
    * Returns one action per product:
    *   { kind, key, title, units, lineCount, row?, patch? }
@@ -87,7 +99,7 @@
    *   kind 'unchanged'  row already says what the PO says
    *   kind 'other_po'   row belongs to another PO; nothing written
    */
-  function plan(po, totals, trackers, onlyKeys) {
+  function plan(po, totals, trackers, onlyKeys, noteHolds) {
     var p = po || {};
     var rows = trackers || [];
     var poName = hasText(p.po_name) ? String(p.po_name).trim() : '';
@@ -105,7 +117,8 @@
       var claimable = own ? null : same.find(function (r) {
         if (hasText(r.po_header_id)) return false;
         var noted = notedPoName(r.notes);
-        return !noted || noted.toLowerCase() === poName.toLowerCase();
+        if (!noted || noted.toLowerCase() === poName.toLowerCase()) return true;
+        return typeof noteHolds === 'function' ? !noteHolds(noted, t.key) : false;
       });
       var row = own || claimable;
 
@@ -142,6 +155,55 @@
   function errText(e) { return (e && (e.message || e.details)) || String(e); }
 
   /**
+   * For unlinked items whose note names a DIFFERENT PO, find out whether that
+   * PO still carries the product. Returns plan()'s noteHolds, or undefined
+   * (= assume it does) when nothing needs asking or the answer is unknown: a
+   * failed read must never turn into claiming another PO's item. Two reads,
+   * and only when such an item exists for a product on this PO.
+   */
+  var HEADER_PAGE = 1000;
+
+  async function noteHoldsFor(sb, o, po, totals, trackers) {
+    var keys = new Set(totals.map(function (t) { return t.key; }));
+    var mine = String(po.po_name || '').trim().toLowerCase();
+    var names = new Set();
+    (trackers || []).forEach(function (r) {
+      if (hasText(r.po_header_id) || !keys.has(titleKey(r.product_title))) return;
+      var n = notedPoName(r.notes);
+      if (n && n.toLowerCase() !== mine) names.add(n.toLowerCase());
+    });
+    if (!names.size) return undefined;
+
+    // Paged: a response is capped (1,000 rows by default), and a noted PO
+    // lost past the cap would read as "gone" and hand its item to this PO.
+    var nameById = new Map();
+    for (var from = 0; ; from += HEADER_PAGE) {
+      var hq = sb.from('po_headers').select('id,po_name');
+      if (o.companyId) hq = hq.eq('company_entity_id', o.companyId);
+      var heads = await hq.order('id', { ascending: true }).range(from, from + HEADER_PAGE - 1);
+      if (heads.error) return undefined;
+      var page = heads.data || [];
+      page.forEach(function (h) {
+        var n = String(h.po_name || '').trim().toLowerCase();
+        if (names.has(n)) nameById.set(String(h.id), n);
+      });
+      if (page.length < HEADER_PAGE) break;
+    }
+
+    var held = new Set();
+    if (nameById.size) {
+      var lq = sb.from('po_lines').select('po_header_id,title_snapshot').in('po_header_id', Array.from(nameById.keys()));
+      if (o.companyId) lq = lq.eq('company_entity_id', o.companyId);
+      var got = await lq;
+      if (got.error) return undefined;
+      (got.data || []).forEach(function (l) {
+        held.add(nameById.get(String(l.po_header_id)) + '|' + titleKey(l.title_snapshot));
+      });
+    }
+    return function (noted, key) { return held.has(String(noted).trim().toLowerCase() + '|' + key); };
+  }
+
+  /**
    * Read the PO's lines and the company's Pipeline, then apply plan().
    * Never throws: failures come back in `errors`, one per product, so one
    * refused write does not hide what the others did.
@@ -173,7 +235,7 @@
       var trackers = await tq;
       if (trackers.error) throw new Error('Could not read the Pipeline: ' + errText(trackers.error));
 
-      actions = plan(po, totals, trackers.data, o.onlyKeys);
+      actions = plan(po, totals, trackers.data, o.onlyKeys, await noteHoldsFor(sb, o, po, totals, trackers.data));
     } catch (e) {
       out.errors.push({ title: null, message: errText(e) });
       return out;
