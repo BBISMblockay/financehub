@@ -20,6 +20,15 @@ on:
       - 'scripts/lib/**'
       - 'scripts/tests/**'
       - 'supabase/migrations/*canned_report_accuracy.sql'
+      # The SILO report catalog seeds and the migration that re-asserts the
+      # 2026-09-22 cleanup after them (report-catalog-cleanup-database.test.mjs).
+      - 'supabase/migrations/*seed_system_reports.sql'
+      - 'supabase/migrations/*logistics_reports.sql'
+      - 'supabase/migrations/*logistics_dashboard.sql'
+      - 'supabase/migrations/*ownership_reports.sql'
+      - 'supabase/migrations/*ownership_dashboard.sql'
+      - 'supabase/migrations/*record_report_catalog_cleanup.sql'
+      - 'supabase/apply_all_post_merge.sql'
       - 'v3/js/report-params.js'
       - 'scripts/shopify-sync.mjs'
       - 'scripts/shopify-orders-backfill.mjs'
@@ -595,6 +604,13 @@ jobs:
       # before, and never overwrites a value the settings page wrote.
       - name: Execute company document identity migration regressions
         run: node scripts/tests/company-document-identity-database.test.mjs
+
+      # 20260922170000: the report catalog cleanup was applied to production
+      # directly, and the seed migrations UPSERT the catalog. Executes the real
+      # seeds, proves they re-create the retired reports, then proves the
+      # recording migration lands the catalog where production is -- twice.
+      - name: Execute report catalog cleanup regressions
+        run: node scripts/tests/report-catalog-cleanup-database.test.mjs
 
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a
