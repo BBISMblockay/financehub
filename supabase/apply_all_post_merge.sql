@@ -19061,6 +19061,10 @@ $c$select (select count(*) from v_po_header_summary
 -- re-checks the row and writes through apply_card_coding; approval and posting
 -- are untouched. Idempotent: create-if-not-exists, create-or-replace.
 \i migrations/20260923120000_card_coding_suggestions.sql
+-- Background preparation: which rows still need a suggestion (derived, not
+-- queued), leased claims so two workers never pay for the same rows, one
+-- import per scheduler call, and closure of runs the gateway cut off.
+\i migrations/20260923130000_card_coding_background_preparation.sql
 
 -- ── Meta ad preview links (2026-09-23) ────────────────────────────────────
 -- meta_ad_creatives.preview_shareable_link (Meta's shareable fb.me preview of

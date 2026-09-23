@@ -107,7 +107,7 @@
      shown separately: fresh bank data says nothing about whether it has been
      prepared, and the reverse. */
   async function freshness(db, company, source) {
-    const result = { feedSyncedAt: null, preparedAt: null, preparedStatus: null, available: true };
+    const result = { feedSyncedAt: null, preparedAt: null, preparedStatus: null, available: true, runningSince: null, background: false };
     if (!company || !source?.id) return result;
     if (source.ingest_mode === 'plaid') {
       const { data } = await db.from('plaid_accounts').select('last_synced_at')
@@ -120,6 +120,18 @@
       .order('finished_at', { ascending: false }).limit(1);
     if (error) { if (missingTable(error)) result.available = false; return result; }
     if (data?.length) { result.preparedAt = data[0].finished_at; result.preparedStatus = data[0].status; }
+    // Is preparation happening without anyone here? A run started in the last
+    // ten minutes and not finished is in flight (older ones are interrupted and
+    // get closed); a background run in the last day means the manual button is
+    // only for catching up.
+    const since = new Date(Date.now() - 24 * 3600e3).toISOString();
+    const { data: recent } = await db.from('card_coding_preparation_runs').select('trigger,status,started_at')
+      .eq('company_entity_id', company).eq('source_id', source.id).gte('started_at', since)
+      .order('started_at', { ascending: false }).limit(20);
+    for (const run of recent || []) {
+      if (run.trigger === 'background' || run.trigger === 'nightly') result.background = true;
+      if (run.status === 'running' && Date.parse(run.started_at) > Date.now() - 10 * 60e3 && !result.runningSince) result.runningSince = run.started_at;
+    }
     return result;
   }
 

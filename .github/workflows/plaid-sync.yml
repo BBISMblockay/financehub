@@ -28,3 +28,25 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: node scripts/plaid-sync.mjs
+
+  # Coding preparation runs AFTER ingestion, as its own job: a model outage or
+  # a preparation failure turns this job red and leaves the sync job -- and
+  # the rows it ingested -- exactly as they were. It runs whatever the sync's
+  # outcome, because rows already in the database still need preparing.
+  # Preparation writes suggestions only; accepting, approval and posting stay
+  # with people. No Plaid call is made here.
+  prepare-coding:
+    needs: sync
+    if: ${{ !cancelled() && vars.CODING_PREP_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare coding for new and changed settled transactions
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          CODING_PREP_TRIGGER: background
+        run: node scripts/card-coding-prepare.mjs

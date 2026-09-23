@@ -39,6 +39,10 @@ on:
       - 'supabase/functions/plaid-scheduled-sync/**'
       - 'scripts/plaid-sync.mjs'
       - '.github/workflows/plaid-sync.yml'
+      - 'supabase/functions/card-coding-prepare-scheduled/**'
+      - 'scripts/card-coding-prepare.mjs'
+      - '.github/workflows/card-coding-prepare.yml'
+      - 'supabase/migrations/*card_coding_background_preparation.sql'
       - '.github/workflows/redo-backfill.yml'
       - '.github/workflows/redo-marketing-probe.yml'
       - '.github/workflows/mailroom-backfill.yml'
@@ -271,6 +275,14 @@ jobs:
           npm ci --prefix scripts/tests/plaid-oidc
           node --import ./scripts/tests/plaid-oidc/register.mjs scripts/tests/plaid-scheduled-sync.test.mjs
 
+      # Background coding preparation: only the two preparation workflows on
+      # main may call it, the caller cannot name a company or rows, and the
+      # runner walks imports without spinning on work it cannot do now.
+      - name: Scheduled coding preparation identity, admission and runner
+        run: |
+          node --import ./scripts/tests/plaid-oidc/register.mjs --test scripts/tests/card-coding-prepare-scheduled.test.mjs
+          node --test scripts/tests/card-coding-prepare.test.mjs
+
       # A manual 730-day backfill once finished GREEN in two minutes having
       # written nothing (run #354, 2026-09-09): Shopify refused with HTTP 200
       # and the rate limit inside the GraphQL errors array, ~100 already-fetched
@@ -447,6 +459,7 @@ jobs:
       - name: Check actual Edge imports and types
         run: |
           npx --yes deno@2.9.6 check --config supabase/functions/plaid-scheduled-sync/deno.json supabase/functions/plaid-scheduled-sync/index.ts
+          npx --yes deno@2.9.6 check --config supabase/functions/card-coding-prepare-scheduled/deno.json supabase/functions/card-coding-prepare-scheduled/index.ts
           npx --yes deno@2.9.6 check supabase/functions/plaid-finance/index.ts supabase/functions/card-categorize/index.ts supabase/functions/quickbooks-report/index.ts
           for fn in stripe-webhook stripe-connect stripe-invoice stripe-billing customer-onboarding; do
             npx --yes deno@2.9.6 check --config "supabase/functions/$fn/deno.json" "supabase/functions/$fn/index.ts"
@@ -569,6 +582,11 @@ jobs:
       # row, the facts and the account before writing through apply_card_coding.
       - name: Execute prepared coding suggestion regressions
         run: node scripts/tests/card-coding-suggestions-database.test.mjs
+
+      # Background preparation: work derived from stored facts, backoff and a
+      # retry limit, exclusive claims, one import per scheduler call.
+      - name: Execute background coding preparation regressions
+        run: node scripts/tests/card-coding-background-database.test.mjs
 
       - name: Execute profiles tenant-isolation regressions
         run: node --test scripts/tests/profiles-tenant-scope.test.mjs

@@ -1,0 +1,41 @@
+name: Coding preparation catch-up
+
+# The nightly catch-up for coding preparation. plaid-sync.yml prepares after
+# every bank feed sync; this pass covers what that cannot: CSV imports, a sync
+# run GitHub dropped, a preparation cut off mid-run, and failures whose retry
+# backoff has elapsed. Work is derived from the database each time
+# (next_card_coding_work), so a missed run leaves nothing to reconcile -- the
+# next one finds it.
+#
+# No Plaid or bank call is made here: fresher bank data and more frequent
+# preparation are separate concerns.
+
+on:
+  schedule:
+    # 10:41 UTC: after the Pacific-midnight Shopify sync and before the
+    # 11:53-ish bank feed run, so a morning reviewer finds last night's CSV
+    # imports prepared.
+    - cron: '41 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  prepare:
+    # Opt in only after both migrations, both functions, the
+    # CODING_PREP_BACKGROUND_ENABLED function secret and a first manual run.
+    if: vars.CODING_PREP_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare coding that is missing, interrupted or due a retry
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          CODING_PREP_TRIGGER: nightly
+        run: node scripts/card-coding-prepare.mjs
