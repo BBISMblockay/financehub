@@ -1988,7 +1988,7 @@ migration.
 Regression: `v2/tests/unit/launch-product-link.test.js`,
 `v2/tests/browser/launch-form-link.test.js`.
 
-## Meta ad preview links — `20260923120000_meta_creative_preview_link.sql`
+## Meta ad preview links — `20260923150000_meta_creative_preview_link.sql`
 
 Adds `meta_ad_creatives.preview_shareable_link`: Meta's shareable fb.me
 preview of the ad itself, read from the Ad object by the Meta sync. It is not

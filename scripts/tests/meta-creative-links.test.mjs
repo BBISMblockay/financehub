@@ -32,6 +32,7 @@
  *   META_LINK_MUTATION=preview-in-full-row  (nightly full row can null a stored preview)
  *   META_LINK_MUTATION=preview-not-requested (preview asked inside creative{}, never on the ad)
  *   META_LINK_MUTATION=preview-dropped-last (unnamed refusal spends destinations first)
+ *   META_LINK_MUTATION=no-permission-retry (all-permission batch skipped silently)
  *
  * No network, no database. Run:
  *   node scripts/tests/meta-creative-links.test.mjs
@@ -47,14 +48,16 @@ const CORE = join(ROOT, 'scripts/lib/ad-platforms-sync-core.mjs');
 const mutation = process.env.META_LINK_MUTATION || '';
 assert.ok(['', 'no-item-check', 'effective-first', 'no-url-guard', 'drops-by-order',
   'no-template', 'post-on-body-only', 'post-shimmed-url', 'post-overwrites-body', 'no-shim-guard',
-  'preview-in-full-row', 'preview-not-requested', 'preview-dropped-last'].includes(mutation),
+  'preview-in-full-row', 'preview-not-requested', 'preview-dropped-last', 'no-permission-retry'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 // The module is loaded from source so a mutation can be applied to the real
 // file's text rather than to a copy of the logic -- a test that re-implements
 // the thing it guards proves nothing about the shipped file.
 let source = readFileSync(CORE, 'utf8');
-if (mutation === 'no-item-check') {
+if (mutation === 'no-permission-retry') {
+  source = source.replace('if (allItemsPermissionDenied(data)) {', 'if (false) {');
+} else if (mutation === 'no-item-check') {
   source = source.replace(
     'if (activeFields.size && metaBatchRejectedFields(data)) {',
     'if (false && metaBatchRejectedFields(data)) {');
@@ -585,7 +588,7 @@ function fakeSupabase() {
 }
 
 /** Insights first (the ad-level spend rows), then the creative batch. */
-function fakeMetaForSync({ ads, insights, rejectPreview = false }) {
+function fakeMetaForSync({ ads, insights, rejectPreview = false, permission = null }) {
   globalThis.fetch = async (url, opts = {}) => {
     const u = String(url);
     if (u.includes('/insights?')) {
@@ -594,9 +597,17 @@ function fakeMetaForSync({ ads, insights, rejectPreview = false }) {
     const params = new URLSearchParams(String(opts.body || ''));
     const batch = JSON.parse(params.get('batch') || '[]');
     const asked = decodeURIComponent(batch[0]?.relative_url || '');
+    // A token scope refusal, per item: code 10, not the unknown-field shape.
+    // 'preview' refuses only while the preview is asked for; 'all' always.
+    const denied = permission === 'all'
+      || (permission === 'preview' && asksFor(asked, 'preview_shareable_link'));
     const items = batch.map((b) => {
       const id = b.relative_url.split('?')[0].split('/').pop();
       const ad = ads[id];
+      if (denied) {
+        return { code: 403, body: JSON.stringify({ error: {
+          code: 10, message: '(#10) Application does not have permission for this action' } }) };
+      }
       if (!ad) return { code: 404, body: JSON.stringify({ error: { message: 'not found' } }) };
       const served = { ...ad, creative: { ...(ad.creative || {}) } };
       for (const f of ['effective_object_url', 'url_tags', 'asset_feed_spec']) {
@@ -896,6 +907,57 @@ await test('a run where Meta refuses the preview writes no preview at all', asyn
   assert.ok(writes.length >= 1, 'the creative row is still written');
   assert.ok(!writes.some((r) => 'preview_shareable_link' in r),
     'a stored preview must be left exactly as it was');
+});
+
+await test('a per-item PERMISSION refusal of the preview drops it and keeps the creatives', async () => {
+  // Review cycle 1 of #762: permission errors are not the unknown-field shape,
+  // so nothing was narrowed and every item was skipped -- zero creatives,
+  // names/copy/destinations frozen, and an [ok] line.
+  fakeMetaForSync({
+    insights: [{ account_id: 'act_1', date_start: '2026-09-22', ad_id: '1', ad_name: 'a', spend: '1' },
+               { account_id: 'act_1', date_start: '2026-09-22', ad_id: '2', ad_name: 'b', spend: '1' }],
+    ads: {
+      1: AD('1', { id: 'a', body: 'copy one' }, { preview_shareable_link: 'https://fb.me/one' }),
+      2: AD('2', { id: 'b', body: 'copy two' }, { preview_shareable_link: 'https://fb.me/two' }),
+    },
+    permission: 'preview',
+  });
+  const sb = fakeSupabase();
+  const res = await runMetaAdLevelSync(sb, {
+    id: 'conn', company_entity_id: 'co', access_token: 'tok',
+    meta_ad_account_id: 'act_1', days_back: 1,
+  }, { batchId: 'b1' });
+  const writes = sb.writes.meta_ad_creatives || [];
+  assert.deepEqual(writes.filter((r) => r.body).map((r) => r.ad_id).sort(), ['1', '2'],
+    'both creatives still land, copy included');
+  assert.ok(!writes.some((r) => 'preview_shareable_link' in r), 'and no preview is written');
+  assert.equal(res.previews_upserted, 0);
+});
+
+await test('a token refused on EVERY field surfaces an error, not a successful zero', async () => {
+  fakeMetaForSync({
+    insights: [{ account_id: 'act_1', date_start: '2026-09-22', ad_id: '1', ad_name: 'a', spend: '1' }],
+    ads: { 1: AD('1', { id: 'a', body: 'copy' }) },
+    permission: 'all',
+  });
+  const sb = fakeSupabase();
+  await assert.rejects(runMetaAdLevelSync(sb, {
+    id: 'conn', company_entity_id: 'co', access_token: 'tok',
+    meta_ad_account_id: 'act_1', days_back: 1,
+  }, { batchId: 'b1' }), /refused on permission/);
+});
+
+await test('a batch of deleted ads (404s) is still skipped quietly, preview kept', async () => {
+  fakeMetaForSync({
+    insights: [{ account_id: 'act_1', date_start: '2026-09-22', ad_id: '9', ad_name: 'gone', spend: '1' }],
+    ads: {},
+  });
+  const sb = fakeSupabase();
+  const res = await runMetaAdLevelSync(sb, {
+    id: 'conn', company_entity_id: 'co', access_token: 'tok',
+    meta_ad_account_id: 'act_1', days_back: 1,
+  }, { batchId: 'b1' });
+  assert.equal(res.previews_upserted, 0, 'no error thrown for ordinary missing ads');
 });
 
 console.log(`\n${passed} assertions passed${mutation ? ` (mutation: ${mutation})` : ''}`);

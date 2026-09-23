@@ -398,7 +398,7 @@
     } catch(e){ console.warn('meta_ad_performance_daily unavailable', e); return []; }
   }
 
-  // preview_shareable_link arrived with 20260923120000. The page and the
+  // preview_shareable_link arrived with 20260923150000. The page and the
   // migration ship separately, so a database without the column must still
   // load every creative: ask for it, and on refusal ask again without it.
   async function loadCreatives(){
@@ -414,6 +414,11 @@
     return new Map(rows.map(r => [r.ad_id, r]));
   }
   const safeHref = (v) => (typeof v === 'string' && /^https?:\/\/[^\s<>"']+$/i.test(v.trim()) ? v.trim() : null);
+  // A row's name: a link to Meta's ad preview when there is one, else text.
+  // One definition for both the thumbnail and the no-thumbnail layout.
+  const rowNameHtml = (r) => r.preview
+    ? `<a class="mx-name" href="${esc(r.preview)}" target="_blank" rel="noopener noreferrer" title="Open Meta's preview of this ad">${esc(r.name)} ↗</a>`
+    : esc(r.name);
 
   async function loadAdPerfMin(){
     const { data } = await scopeQ(sb.from('meta_ad_performance_daily').select('day_date'))
@@ -622,11 +627,12 @@
 
     el('mainBody').innerHTML = rows.map((r,i) => {
       const icon = PLATFORM_ICON[r.drillId] || '';
+      // The name is linked or plain on its own terms: a preview does not
+      // depend on a thumbnail (older and deleted ads often have none).
+      const nameHtml = rowNameHtml(r);
       const nameInner = r.thumb
-        ? `<div class="mx-ad-cell"><img class="mx-thumb" src="${esc(r.thumb)}" alt="" loading="lazy" /><div><div class="mx-name">${icon}${r.preview
-            ? `<a class="mx-name" href="${esc(r.preview)}" target="_blank" rel="noopener noreferrer" title="Open Meta's preview of this ad">${esc(r.name)} ↗</a>`
-            : esc(r.name)}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}</div></div>`
-        : `<div class="mx-name">${icon}${esc(r.name)}${isUpperFunnel(r)?'<span class="mx-flag" title="Attributed revenue under 10% of spend — likely an awareness objective, not a ROAS play">awareness</span>':''}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}`;
+        ? `<div class="mx-ad-cell"><img class="mx-thumb" src="${esc(r.thumb)}" alt="" loading="lazy" /><div><div class="mx-name">${icon}${nameHtml}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}</div></div>`
+        : `<div class="mx-name">${icon}${nameHtml}${isUpperFunnel(r)?'<span class="mx-flag" title="Attributed revenue under 10% of spend — likely an awareness objective, not a ROAS play">awareness</span>':''}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}`;
       return `<tr class="${canDrill?'mx-drillable':''}" data-idx="${i}">
         <td class="mx-c-rank">${i+1}</td>
         <td class="mx-c-name">${nameInner}</td>

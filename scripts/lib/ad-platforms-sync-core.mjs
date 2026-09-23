@@ -595,6 +595,28 @@ function allItemsFailed(data) {
     && data.every((item) => !item || item.code !== 200);
 }
 
+/** Every item in a batch failed, and every failure is a PERMISSION refusal
+ * (code 10, 190 or 200-299, or the message says so) rather than a missing ad.
+ *
+ * The case metaBatchRejectedFields() cannot see: a token allowed to read the
+ * ad but not one of its fields answers per item with a permission error, not
+ * an unknown-field one, so nothing is narrowed and the parse loop skips every
+ * item -- names, copy, destinations and previews all stop refreshing behind a
+ * clean log line. A batch of deleted ads (404 / "does not exist") is ordinary
+ * and is deliberately not matched. */
+function allItemsPermissionDenied(data) {
+  if (!allItemsFailed(data)) return false;
+  return data.every((item) => {
+    if (!item) return false;
+    let err = null;
+    try { err = JSON.parse(item.body)?.error || null; } catch { /* unparseable */ }
+    const code = Number(err?.code);
+    const msg = String(err?.message || item.body || '');
+    return code === 10 || code === 190 || (code >= 200 && code < 300)
+      || /permission/i.test(msg);
+  });
+}
+
 /** The field name out of a Meta error message, for dropping and for the log. */
 function metaFieldNameFromMessage(msg) {
   const named = /nonexisting field \(([^)]+)\)|field ([\w{}]+)/i.exec(String(msg || ''));
@@ -801,6 +823,21 @@ export async function fetchMetaAdCreatives(connection, adIds) {
           + `${named && normalizeRefusedField(named) !== dropped ? ` (named: ${named}, unrecognised)` : ''}`
           + ', retrying without it');
         continue;
+      }
+      // Every item refused on PERMISSION. The preview is the one field a
+      // token scope might plausibly withhold, so it goes first, once, without
+      // waiting to be named. If the narrower read is refused just the same,
+      // the token cannot read these ads at all: say so rather than return
+      // nothing and let the caller log a successful zero.
+      if (allItemsPermissionDenied(data)) {
+        if (activeFields.delete('preview_shareable_link')) {
+          refusedFields.push('preview_shareable_link');
+          console.warn('[warn] Meta refused every ad in a batch on permission;'
+            + ' retrying without preview_shareable_link');
+          continue;
+        }
+        throw new Error(`Meta ads batch: every ad refused on permission (${slice.length} ads)`
+          + ` -- the token cannot read these creatives`);
       }
       break;
     }

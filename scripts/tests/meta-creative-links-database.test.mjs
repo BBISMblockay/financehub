@@ -358,9 +358,9 @@ await test('re-running the catalog correction does not double-apply', async () =
   assert.equal(hits, 1, `replacement text present ${hits} times`);
 });
 
-/* ── Preview links (20260923120000) ──────────────────────────────────── */
+/* ── Preview links (20260923150000) ──────────────────────────────────── */
 await q("insert into silo_chat_schema_catalog(relname, description, keywords) values('meta_ad_creatives', 'Creative metadata per ad.', '{}')");
-let previewSql = await read('supabase/migrations/20260923120000_meta_creative_preview_link.sql');
+let previewSql = await read('supabase/migrations/20260923150000_meta_creative_preview_link.sql');
 if (mutation === 'preview-no-check') {
   previewSql = previewSql.replace(`or preview_shareable_link ~ '^https?://[^[:space:]<>"'']+$'`, 'or true');
 } else if (mutation === 'preview-not-in-report') {

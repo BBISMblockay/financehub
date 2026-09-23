@@ -19061,7 +19061,7 @@ $c$select (select count(*) from v_po_header_summary
 -- the ad itself) plus a web-URL CHECK, and wow_creatives carries it as
 -- 'preview'. wow_creatives is edited in place from its deployed definition,
 -- asserted anchors, idempotent. Additive; no policy change.
-\i migrations/20260923120000_meta_creative_preview_link.sql
+\i migrations/20260923150000_meta_creative_preview_link.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

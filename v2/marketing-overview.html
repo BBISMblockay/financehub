@@ -377,7 +377,7 @@
     } catch(e){ console.warn('meta_ad_performance_daily unavailable', e); return []; }
   }
 
-  // preview_shareable_link arrived with 20260923120000. The page and the
+  // preview_shareable_link arrived with 20260923150000. The page and the
   // migration ship separately, so a database without the column must still
   // load every creative: ask for it, and on refusal ask again without it.
   const CREATIVE_COLS = 'ad_id,ad_name,effective_status,thumbnail_url,title,body,object_type';
