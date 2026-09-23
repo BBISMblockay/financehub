@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { loadCategorizer, prepareSource } from './lib/card-categorize-sandbox.mjs';
+import { historyEvidence } from './lib/history-evidence-fake.mjs';
 const source = await prepareSource();
 const effectiveSource=process.env.BANK_AI_MUTATION==='clearing-account' ? source.replace("const canSuggestAccount = !!candidate && (allowedTypes[treatment] || []).includes(candidate.type);",'const canSuggestAccount = true;') : source;
 const ids = { batch: '00000000-0000-4000-8000-000000000001', source: '00000000-0000-4000-8000-000000000002',
@@ -84,6 +85,8 @@ function fixture(options = {}) {
   // echoes what it was given so a test can read exactly what would be stored.
   const fakeRpc = async (name, args) => {
     rpcCalls.push({ name, args: structuredClone(args) });
+    if (name === 'card_coding_rule_answered') return { data: options.ruleAnswered || [], error: null };
+    if (name === 'card_coding_history_evidence') return historyEvidence({ ...records, card_transactions: records.card_transactions_v }, args);
     if (name === 'card_coding_input_hashes') return { data: args.p_ids.map((id) => ({ transaction_id: id, input_hash: `hash:${id}` })), error: null };
     // Every row is free to claim here; claim contention has its own suite.
     if (name === 'claim_card_coding_preparation') return { data: args.p_ids, error: null };

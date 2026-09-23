@@ -5271,3 +5271,23 @@ select 'Background coding preparation' as check_name,
  when pg_get_functiondef(to_regprocedure('public.card_coding_suggestion_stale_reason(public.card_coding_suggestions,public.card_transactions,public.card_sources)')) not like '%location_unavailable%'
   then 'STALE: a suggestion naming a retired location is not treated as stale; apply 20260923130000'
  else 'ok' end as status;
+
+-- Coding evidence and saved rules (20260923140000). History is matched per
+-- merchant BEFORE it is capped, and a row a saved rule codes is never sent to
+-- the model. Both functions read every company's rows as service role with an
+-- explicit company filter, so they must never be callable from a browser; and
+-- the scheduler must know about rules, or it pays for questions a rule
+-- already answers on every sync.
+select 'Coding evidence and saved rules' as check_name,
+ case when to_regprocedure('public.card_coding_history_evidence(uuid,uuid,jsonb,integer,uuid[])') is null
+   or to_regprocedure('public.card_coding_rule_match(public.card_transactions,public.card_sources)') is null
+   or to_regprocedure('public.card_coding_rule_answered(uuid,uuid[])') is null
+  then 'MISSING: coding evidence and saved rules migration (20260923140000)'
+ when has_function_privilege('authenticated', to_regprocedure('public.card_coding_history_evidence(uuid,uuid,jsonb,integer,uuid[])'), 'EXECUTE')
+   or has_function_privilege('anon', to_regprocedure('public.card_coding_history_evidence(uuid,uuid,jsonb,integer,uuid[])'), 'EXECUTE')
+   or has_function_privilege('authenticated', to_regprocedure('public.card_coding_rule_answered(uuid,uuid[])'), 'EXECUTE')
+   or has_function_privilege('anon', to_regprocedure('public.card_coding_rule_answered(uuid,uuid[])'), 'EXECUTE')
+  then 'CRITICAL: a service-only coding evidence function is callable from the browser'
+ when pg_get_functiondef(to_regprocedure('public.card_coding_needs_preparation(public.card_transactions,public.card_import_batches,public.card_sources)')) not like '%rule_applies%'
+  then 'STALE: background preparation does not skip rows a saved rule answers; apply 20260923140000'
+ else 'ok' end as status;

@@ -7,21 +7,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { loadCategorizer, prepareSource } from './lib/card-categorize-sandbox.mjs';
+import { historyEvidence } from './lib/history-evidence-fake.mjs';
 const source = await prepareSource();
 // Mutation hooks: run with CATEGORIZE_HISTORY_MUTATION=<name> and the suite
 // must FAIL, or the assertion it guards is not really guarding anything.
+// Scope, confirmation and matching now live in SQL (card_coding_history_evidence)
+// and are mutation-tested against the real function in
+// card-coding-evidence-database.test.mjs; these guard what the SERVICE does
+// with the rows it is given.
 const MUTATIONS = {
   'no-disagree-cap': ["confidence = Math.min(confidence, HISTORY_CAPS.consistent_disagree);", "confidence = confidence;"],
   'no-conflict-cap': ["confidence = Math.min(confidence, HISTORY_CAPS.conflicting);", "confidence = confidence;"],
-  'count-unconfirmed-ai': ["|| (r.coding_source === 'ai' && ['approved', 'posted'].includes(String(r.batch_status)));", "|| r.coding_source === 'ai';"],
   'ignore-window': ["const inWindow = (d: string) => d >= from && d <= anchor;", "const inWindow = (d: string) => true;"],
-  'drop-connection-scope': [".eq('qbo_connection_id', connectionId);", ";"],
   'similar-is-precedent': ["const strong = leading.weight >= 0.8 && (leading.count - leading.similar) >= 1;", "const strong = leading.weight >= 0.8;"],
-  'drop-source-scope': ["return bound ? bound === connectionId : sourceKeys.has(String(r.source_key));", "return bound ? bound === connectionId : true;"],
   'no-cap-ceiling': ["confidence = Math.min(confidence, HISTORY_CAPS.capped);", "confidence = confidence;"],
   'ineligible-as-removed': ["if (live) tally(ineligible, id, live.name, date); else tally(inactive, id, name || id, date);", "tally(inactive, id, name || id, date);"],
-  'ignore-batch-binding': ["return bound ? bound === connectionId : sourceKeys.has(String(r.source_key));", "return sourceKeys.has(String(r.source_key));"],
   'chart-failure-as-removed': ["if (!activeById) { tally(unresolved, id, name || id, date); return; }", ""],
+  'latest-anchor': ["if (!merchant.anchor || rowDate < merchant.anchor) merchant.anchor = rowDate;", "if (rowDate > merchant.anchor) merchant.anchor = rowDate;"],
+  'memo-as-similar': ["recencyWeight(r.transaction_date, anchor) * (r.match === 'similar' ? 0.4 : 0.8), 'ledger', r.match);", "recencyWeight(r.transaction_date, anchor) * (r.match === 'exact' ? 0.8 : 0.4), 'ledger', r.match === 'exact' ? 'exact' : 'similar');"],
+  'failed-history-as-none': ["if (!found) return buildEvidence(m.anchor, [], [], eligibleById, activeById, { silo: false, ledger: false }, unavailable.length ? unavailable : HISTORY_SOURCES);", "if (!found) return buildEvidence(m.anchor, [], [], eligibleById, activeById, { silo: false, ledger: false }, []);"],
 };
 const mutation = process.env.CATEGORIZE_HISTORY_MUTATION;
 let effective = source;
@@ -52,6 +56,7 @@ function ledgerLine(overrides = {}) {
     qbo_transaction_id: `t${Math.random()}`, natural_amount: 120.5, ...overrides };
 }
 
+let exported = null;
 function fixture(options = {}) {
   const records = {
     profiles: [{ id: 'user', active_company_id: ids.company, is_active: true, role: 'owner', department: 'finance' }],
@@ -115,17 +120,9 @@ function fixture(options = {}) {
       writes.push(value); throw new Error('Categorizer must not write'); }
     single() { return Promise.resolve(this.writeResult || this.execute()); }
     delete() { throw new Error('Categorizer must not delete'); }
-    isHistoryQuery() {
-      return (this.table === 'card_transactions_v' && this.filters.some(([op, key]) => op === 'in' && key === 'merchant_norm'))
-        || this.table === 'qbo_history_imports' || this.table === 'qbo_history_lines';
-    }
-    // The full-chart read is the one quickbooks_accounts query with no account_type filter.
-    isFullChartQuery() { return this.table === 'quickbooks_accounts' && !this.filters.some(([op, key]) => op === 'in' && key === 'account_type'); }
     execute() {
       queries.push({ table: this.table, filters: structuredClone(this.filters), columns: this.columns });
-      const sourceName = this.table === 'card_transactions_v' ? 'silo' : 'ledger';
-      if (this.isHistoryQuery() && failures.has(sourceName)) return { data: null, error: { message: 'synthetic read failure' } };
-      if (this.isFullChartQuery() && failures.has('chart')) return { data: null, error: { message: 'synthetic chart read failure' } };
+      if (this.table === 'quickbooks_accounts' && failures.has('chart')) return { data: null, error: { message: 'synthetic chart read failure' } };
       const rows = (records[this.table] || []).filter((row) => this.filters.every(([op, key, value]) => {
         if (op === 'eq') return row[key] === value;
         if (op === 'in') return value.includes(row[key]);
@@ -149,6 +146,11 @@ function fixture(options = {}) {
   // echoes what it was given so a test can read exactly what would be stored.
   const fakeRpc = async (name, args) => {
     rpcCalls.push({ name, args: structuredClone(args) });
+    if (name === 'card_coding_history_evidence') {
+      if (failures.has('history')) return { data: null, error: { message: 'synthetic read failure' } };
+      return historyEvidence({ ...records, card_transactions: records.card_transactions_v }, args);
+    }
+    if (name === 'card_coding_rule_answered') return { data: options.ruleAnswered || [], error: null };
     if (name === 'card_coding_input_hashes') return { data: args.p_ids.map((id) => ({ transaction_id: id, input_hash: `hash:${id}` })), error: null };
     // Every row is free to claim here; claim contention has its own suite.
     if (name === 'claim_card_coding_preparation') return { data: args.p_ids, error: null };
@@ -159,7 +161,7 @@ function fixture(options = {}) {
     }
     throw new Error(`Unexpected rpc ${name}`);
   };
-  const { handler } = loadCategorizer(effective, {
+  const { handler, exports } = loadCategorizer(effective, {
     console: { ...console, warn() {} },
     createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'user' } }, error: null }) }, from: (table) => new Query(table), rpc: async (name, args) => fakeRpc(name, args) }),
     fetch: async (url, init) => {
@@ -176,6 +178,7 @@ function fixture(options = {}) {
       body: JSON.stringify({ batch_id: ids.batch, transaction_ids }) }));
     return { status: response.status, body: await response.json() };
   };
+  exported = exports;
   return { records, queries, modelCalls, writes, runWrites, rpcCalls, runIds, run: () => runIds([ids.tx]) };
 }
 const many = (n, make) => Array.from({ length: n }, (_, i) => make(i));
@@ -189,8 +192,8 @@ test('similar insurance accounts: consistent history outranks the model when the
   assert.equal(s.confidence, 0.5);
   assert.match(s.evidence, /^History points to Insurance - General Liability; the model chose Insurance Expense\./);
   assert.match(s.evidence, /6 confirmed SILO codings/); assert.match(s.evidence, /3 ledger lines \(3 by similar payee name\)/);
-  assert.match(system, /# Historical coding evidence/); assert.match(system, /- "state farm" \(lines dated up to 2026-09-01\) -> CONSISTENT: Insurance - General Liability/);
-  assert.equal(r.body.history.silo_rows, 6); assert.equal(r.body.history.ledger_lines, 3); assert.equal(r.body.history.ledger_imports, 1);
+  assert.match(system, /# Historical coding evidence/); assert.match(system, /- "state farm" \(history up to 2026-09-01, its earliest line\) -> CONSISTENT: Insurance - General Liability/);
+  assert.equal(r.body.history.silo_rows, 6); assert.equal(r.body.history.ledger_lines, 3); assert.equal(r.body.history.capped_merchants, 0);
   assert.equal(h.writes.length, 0);
 });
 
@@ -229,16 +232,14 @@ test('no history in the window: stated plainly, confidence capped, no precedent 
 });
 
 test('history unavailable: both sources failing to read is named, not silently treated as no history', async () => {
-  const both = fixture({ silo: many(3, () => siloRow()), ledger: [ledgerLine()], historyFailure: ['silo', 'ledger'] });
+  const both = fixture({ silo: many(3, () => siloRow()), ledger: [ledgerLine()], historyFailure: ['history'] });
   let { s, r } = await first(both);
   assert.equal(s.history_status, 'unavailable'); assert.equal(s.confidence, 0.75);
   assert.equal(s.evidence, 'History unavailable: SILO coding history and QBO ledger archive could not be read (SILO coding history unavailable; QBO ledger archive unavailable).');
   assert.deepEqual(r.body.history.unavailable, ['SILO coding history', 'QBO ledger archive']);
-  // One source down degrades to the other and says which was missing.
-  const ledgerOnly = fixture({ silo: many(3, () => siloRow()), ledger: many(2, () => ledgerLine({ counterparty: 'STATE FARM' })), historyFailure: ['silo'] });
-  ({ s } = await first(ledgerOnly));
-  assert.equal(s.history_status, 'consistent');
-  assert.match(s.evidence, /2 ledger lines; last 2026-06-01\] \(SILO coding history unavailable\)\./);
+  // Both sources come back in one read, so a failed read loses both -- and
+  // says so, rather than presenting an unread history as "no history".
+  assert.ok(!/No confirmed coding/.test(s.evidence));
 });
 
 test('history pointing only at accounts no longer in the chart cannot lead and lowers confidence', async () => {
@@ -265,25 +266,12 @@ test('company isolation: another company\'s codings and another connection\'s le
   const { s, r } = await first(h);
   assert.equal(s.history_status, 'none'); assert.equal(r.body.history.silo_rows, 0); assert.equal(r.body.history.ledger_lines, 0);
   assert.equal(JSON.stringify(h.modelCalls).includes('FOREIGN'), false);
-  for (const q of h.queries.filter((q) => ['qbo_history_imports', 'qbo_history_lines'].includes(q.table) || (q.table === 'card_transactions_v' && q.filters.some(([op, k]) => op === 'in' && k === 'merchant_norm')))) {
-    assert.ok(q.filters.some(([op, k, v]) => op === 'eq' && k === 'company_entity_id' && v === ids.company), `${q.table} is company scoped`);
-  }
-  assert.ok(h.queries.some((q) => q.table === 'qbo_history_imports' && q.filters.some(([op, k, v]) => op === 'eq' && k === 'qbo_connection_id' && v === ids.connection)), 'ledger imports are connection scoped');
-});
-
-test('only confirmed codings count: unsaved AI in draft batches and voided batches are excluded', async () => {
-  const h = fixture({ silo: [
-    ...many(5, () => siloRow({ coding_source: 'ai', batch_status: 'draft', qbo_account_id: 'ins-exp', qbo_account_name: EXP })),
-    ...many(5, () => siloRow({ coding_source: 'ai', batch_status: 'categorized', qbo_account_id: 'ins-exp', qbo_account_name: EXP })),
-    ...many(3, () => siloRow({ coding_source: 'manual', batch_status: 'voided', qbo_account_id: 'ins-exp', qbo_account_name: EXP })),
-    ...many(2, () => siloRow({ coding_source: 'ai', batch_status: 'posted' })),
-    ...many(1, () => siloRow({ coding_source: 'rule', batch_status: 'approved' })),
-  ], suggestion: { account_name: GL } });
-  const { s, r } = await first(h);
-  assert.equal(r.body.history.silo_rows, 3, 'two posted-AI plus one approved rule row');
-  assert.equal(s.history_status, 'consistent');
-  assert.equal(s.evidence, 'History agrees. CONSISTENT: Insurance - General Liability [3 confirmed SILO codings; last 2026-07-01].');
-  assert.equal(s.evidence.includes(EXP), false, 'unconfirmed and voided rows leave no trace');
+  // The service names this company and this connection; the database proves
+  // the scoping itself (card-coding-evidence-database.test.mjs).
+  const calls = h.rpcCalls.filter((c) => c.name === 'card_coding_history_evidence');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].args.p_company, ids.company); assert.equal(calls[0].args.p_connection, ids.connection);
+  assert.deepEqual(calls[0].args.p_pairs, [{ key: 'state farm', before: ANCHOR, direction: null }]);
 });
 
 test('the 24-month window precedes the transaction date: older rows and later rows are ignored', async () => {
@@ -314,7 +302,6 @@ test('a retained zero-amount ledger line (row_kind zero_amount) never becomes a 
   const { r, s } = await first(h);
   assert.equal(s.history_status, 'none'); assert.equal(r.body.history.ledger_lines, 0);
   assert.ok(!(s.evidence || '').includes('ledger line'), s.evidence);
-  assert.ok(h.queries.some((q) => q.table === 'qbo_history_lines' && q.filters.some(([op, k, v]) => op === 'eq' && k === 'row_kind' && v === 'transaction')), 'the ledger read is pinned to row_kind transaction');
   // The same line as a real transaction is what the filter is there to admit.
   const real = fixture({ ledger: [ledgerLine({ counterparty: 'STATE FARM' })] });
   assert.equal((await first(real)).r.body.history.ledger_lines, 1);
@@ -355,28 +342,25 @@ test('a colliding account id from a previous QuickBooks realm never becomes prec
   const { s, r } = await first(h);
   assert.equal(s.history_status, 'none'); assert.equal(r.body.history.silo_rows, 0);
   assert.equal(JSON.stringify(h.modelCalls).includes('Old Realm'), false);
-  assert.ok(h.queries.some((q) => q.table === 'card_sources' && q.filters.some(([op, k, v]) => op === 'eq' && k === 'qbo_connection_id' && v === ids.connection)), 'sources are resolved for this connection');
   // The same rows on a source bound to THIS connection do count.
   const here = fixture({ silo: many(6, () => siloRow()) , suggestion: { account_name: GL } });
   assert.equal((await first(here)).s.history_status, 'consistent');
 });
 
-test('SILO history is paged deterministically and a capped sample is disclosed and bounded', async () => {
-  // 1,001 rows cross one page and are all read.
-  const paged = fixture({ silo: many(1001, (i) => siloRow({ txn_date: monthsAgo(1 + (i % 20)) })), suggestion: { account_name: GL } });
-  let { s, r } = await first(paged);
-  assert.equal(r.body.history.silo_rows, 1001); assert.equal(r.body.history.silo_capped, false);
+test('history is capped per merchant AFTER matching, and a capped sample is disclosed and bounded', async () => {
+  // 100 matched rows fit the per-merchant cap and read as the whole story.
+  const full = fixture({ silo: many(100, (i) => siloRow({ txn_date: monthsAgo(1 + (i % 20)) })), suggestion: { account_name: GL } });
+  let { s, r } = await first(full);
+  assert.equal(r.body.history.silo_rows, 100); assert.equal(r.body.history.capped_merchants, 0);
   assert.equal(s.history_status, 'consistent'); assert.equal(s.confidence, 0.9);
-  assert.ok(paged.queries.filter((q) => q.table === 'card_transactions_v' && q.filters.some(([op, k]) => op === 'in' && k === 'merchant_norm')).length >= 2, 'a second page was requested');
-  // 5,001 rows exceed the cap: the newest 5,000 are kept, the cap is named
-  // in the evidence, and confidence cannot stay high on a partial sample.
-  const capped = fixture({ silo: many(5001, (i) => siloRow({ txn_date: monthsAgo(1 + (i % 20)) })), suggestion: { account_name: GL } });
+  // 101 exceed it: the newest 100 are kept, the cap is named in the
+  // evidence, and confidence cannot stay high on a partial sample.
+  const capped = fixture({ silo: many(101, (i) => siloRow({ txn_date: monthsAgo(1 + (i % 20)) })), suggestion: { account_name: GL } });
   ({ s, r } = await first(capped));
-  assert.equal(r.body.history.silo_rows, 5000); assert.equal(r.body.history.silo_capped, true);
+  assert.equal(r.body.history.silo_rows, 100); assert.equal(r.body.history.capped_merchants, 1);
   assert.equal(s.confidence, 0.55, 'a partial sample lands inside the Low-confidence filter');
-  assert.match(s.evidence, /^History sample capped, treat as partial\. History agrees\. CONSISTENT: Insurance - General Liability \[5000 confirmed SILO codings; last 2026-08-01\] \(SILO sample capped\)\.$/);
+  assert.match(s.evidence, /^History sample capped, treat as partial\. History agrees\. CONSISTENT: Insurance - General Liability \[100 confirmed SILO codings; last 2026-08-01\] \(SILO sample capped\)\.$/);
 });
-
 test('an active account outside this mode\'s eligible types is labelled as not offered, never as removed', async () => {
   const h = fixture({
     accounts: [{ company_entity_id: ids.company, connection_id: ids.connection, qbo_account_id: 'sales', name: 'Sales income', account_type: 'Income', is_active: true }],
@@ -402,19 +386,43 @@ test('a source rebound to this realm keeps its old-realm batches out of preceden
   assert.equal(s.history_status, 'consistent');
   assert.equal(s.evidence, 'History agrees. CONSISTENT: Insurance - General Liability [5 confirmed SILO codings; last 2026-07-01].');
   assert.equal(JSON.stringify(h.modelCalls).includes('Realm A'), false);
-  // An unbound legacy batch on a source NOT bound here is excluded too.
-  const foreignLegacy = fixture({ silo: many(4, () => siloRow({ batch_id: 'batch-unbound', source_key: 'old-card' })) });
-  assert.equal((await first(foreignLegacy)).s.history_status, 'none');
 });
 
-test('a failed full-chart read reports account state as unknown, never as removed', async () => {
-  const h = fixture({ silo: many(4, () => siloRow({ qbo_account_id: 'ins-old', qbo_account_name: 'Insurance (retired)' })), historyFailure: ['chart'] });
-  const { s } = await first(h);
-  assert.equal(s.history_status, 'none'); assert.equal(s.confidence, 0.75);
-  assert.equal(s.evidence, 'No confirmed coding for this merchant in the 24 months before 2026-09-01 (account states unavailable). Also coded to account(s) whose current chart state could not be read: Insurance (retired) [4; last 2026-07-01].');
-  assert.equal(s.evidence.includes('no longer in the active chart'), false);
+test('a failed chart read stops preparation; an unreadable chart state is reported as unknown, never as removed', async () => {
+  // One read serves the offered accounts AND the active-chart map, so the
+  // service can no longer hold one without the other: a failed read is a 400
+  // before any model call.
+  const h = fixture({ silo: many(4, () => siloRow()), historyFailure: ['chart'] });
+  const r = await h.run();
+  assert.equal(r.status, 400); assert.equal(h.modelCalls.length, 0);
+  // The evidence builder still refuses to call an account removed when it
+  // was not told the chart.
+  const eligible = new Map([['ins-gl', { name: GL, type: 'Expense' }]]);
+  const ev = exported.buildEvidence(ANCHOR, many(4, () => ({ qbo_account_id: 'ins-old', qbo_account_name: 'Insurance (retired)', txn_date: monthsAgo(2) })), [],
+    eligible, null, { silo: false, ledger: false }, []);
+  assert.equal(ev.status, 'none');
+  assert.equal(ev.summary, 'No confirmed coding for this merchant in the 24 months before 2026-09-01 (account states unavailable). Also coded to account(s) whose current chart state could not be read: Insurance (retired) [4; last 2026-07-01].');
+  // And never counts a row dated after the anchor, whatever it is handed.
+  const later = exported.buildEvidence(ANCHOR, [{ qbo_account_id: 'ins-gl', qbo_account_name: GL, txn_date: '2026-09-02' }], [],
+    eligible, new Map(eligible), { silo: false, ledger: false }, []);
+  assert.equal(later.status, 'none');
 });
 
+test('a memo match is exact evidence; a merchant asks about history up to its EARLIEST line', async () => {
+  // QuickBooks bank-feed lines often carry the descriptor in the memo with no
+  // payee; that is the same merchant, not a similar one.
+  const memo = fixture({ ledger: many(2, () => ledgerLine({ counterparty: null, memo: 'STATE FARM #4421' })), suggestion: { account_name: GL } });
+  const m = await first(memo);
+  assert.equal(m.s.history_status, 'consistent'); assert.match(m.s.evidence, /2 ledger lines \(2 by memo\)/);
+  // Two state farm lines, 1 and 20 September. A coding dated 10 September is
+  // later than the first, so it is not precedent for the group.
+  const h = fixture({ silo: [siloRow({ txn_date: '2026-09-10' })] });
+  h.records.card_transactions_v.push({ id: ids.tx.replace(/3$/, '4'), batch_id: ids.batch, company_entity_id: ids.company, merchant_norm: 'state farm', card_name: null,
+    description: 'STATE FARM INSURANCE 4421', amount: 99, currency: 'USD', status: 'uncoded', qbo_account_id: null, origin: 'csv', provider_status: null, accounting_treatment: 'unknown', txn_date: '2026-09-20' });
+  const response = await h.runIds([ids.tx, ids.tx.replace(/3$/, '4')]);
+  assert.equal(response.body.suggestions[0].history_status, 'none');
+  assert.equal(h.rpcCalls.find((c) => c.name === 'card_coding_history_evidence').args.p_pairs[0].before, ANCHOR);
+});
 test('failed model calls still carry the evidence so the row is not blank', async () => {
   const h = fixture({ silo: many(2, () => siloRow()) });
   h.records.quickbooks_accounts.length = 0;

@@ -12,6 +12,9 @@
 //   CATEGORIZE_PERSIST_MUTATION=no-release         a finished request keeps its claim until the lease expires
 //   CATEGORIZE_PERSIST_MUTATION=no-reread          the pre-claim snapshot is trusted after the claim
 //   CATEGORIZE_PERSIST_MUTATION=retry-ignores-change  an Ask again pays even after another answer landed
+//   CATEGORIZE_PERSIST_MUTATION=ignore-rules       rows a saved rule codes are sent to the model anyway
+//   CATEGORIZE_PERSIST_MUTATION=history-after-context  history waits for the other reads instead of running with them
+//   CATEGORIZE_PERSIST_MUTATION=usage-cache-ignores-run  a new P&L report run is served the previous run's usage
 //   CATEGORIZE_PERSIST_MUTATION=one-record-call    a slice's rows sent in one oversized call
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,6 +34,10 @@ const MUTATIONS = {
   'no-release': [['    await release();', '    void release;']],
   'no-reread': [['  const pendingRows = heldRows.filter(stillWanted);', '  const pendingRows = heldRows;']],
   'retry-ignores-change': [["    return String(was?.id ?? '') === String(now.id ?? '');", '    return true;']],
+  'ignore-rules': [['    for (const r of data) ruleAnswered.add(String(r.transaction_id));', '    void data;']],
+  'history-after-context': [["    timed('history', fetchHistory(supabase, companyId, connectionId, merchants)),\n  ]);",
+    "    Promise.resolve(null),\n  ]).then(async (r) => { r[6] = await timed('history', fetchHistory(supabase, companyId, connectionId, merchants)); return r; });"]],
+  'usage-cache-ignores-run': [['  const key = `${companyId}|${connectionId}|${head.id}`;', '  const key = `${companyId}|${connectionId}`;']],
   'one-record-call': [['    for (const part of chunks(rows, RECORD_CHUNK)) {', '    for (const part of [rows]) {']],
 };
 const mutation = process.env.CATEGORIZE_PERSIST_MUTATION || '';
@@ -44,7 +51,7 @@ const COMPANY = '00000000-0000-4000-8000-000000000006', BATCH = '00000000-0000-4
 const SOURCE = '00000000-0000-4000-8000-000000000002', CONNECTION = '00000000-0000-4000-8000-000000000005';
 const txnId = (i) => `00000000-0000-4000-9000-${String(i).padStart(12, '0')}`;
 
-function fixture({ merchants = 3, live = [], modelFails = () => false, omit = () => false, recordFails = false, delay = () => 0, heldElsewhere = [], sameMerchant = false, recordFailsOn = () => false, onClaim = () => {} } = {}) {
+function fixture({ merchants = 3, live = [], modelFails = () => false, omit = () => false, recordFails = false, delay = () => 0, heldElsewhere = [], sameMerchant = false, recordFailsOn = () => false, onClaim = () => {}, ruleAnswered = [], reportRuns = [] } = {}) {
   const claims = [], released = [];
   let recordCalls = 0;
   const transactions = Array.from({ length: merchants }, (_, i) => ({
@@ -63,7 +70,7 @@ function fixture({ merchants = 3, live = [], modelFails = () => false, omit = ()
     card_transactions_v: transactions,
     card_coding_suggestions_v: live.map((l) => ({ company_entity_id: COMPANY, ...l })),
     quickbooks_accounts: [{ company_entity_id: COMPANY, connection_id: CONNECTION, qbo_account_id: 'supplies', name: 'Supplies', account_type: 'Expense', is_active: true }],
-    quickbooks_locations: [], quickbooks_report_runs: [], card_coding_rules: [], qbo_history_imports: [], qbo_history_lines: [],
+    quickbooks_locations: [], quickbooks_report_runs: reportRuns, card_coding_rules: [], qbo_history_imports: [], qbo_history_lines: [],
   };
   const recorded = [];
   const db = fakeDatabase(records, { rpc: {
@@ -76,6 +83,7 @@ function fixture({ merchants = 3, live = [], modelFails = () => false, omit = ()
       return { data: mine, error: null };
     },
     release_card_coding_preparation: ({ p_token }) => { released.push(p_token); return { data: 1, error: null }; },
+    card_coding_rule_answered: ({ p_ids }) => ({ data: p_ids.filter((id) => ruleAnswered.includes(id)).map((id) => ({ transaction_id: id, rule_id: 'rule-1' })), error: null }),
     record_card_coding_suggestions: ({ p_rows }) => {
       recordCalls++;
       if (recordFails || recordFailsOn(recordCalls)) return { data: null, error: { message: 'synthetic record failure' } };
@@ -106,7 +114,7 @@ function fixture({ merchants = 3, live = [], modelFails = () => false, omit = ()
       body: JSON.stringify({ batch_id: BATCH, transaction_ids: ids, ...body }) }));
     return { status: response.status, body: await response.json() };
   };
-  return { db, recorded, modelCalls, run, transactions, claims, released };
+  return { db, records, recorded, modelCalls, run, transactions, claims, released };
 }
 
 test('each finished model call is recorded before the slowest one returns; a failed call is recorded as failed', async () => {
@@ -319,4 +327,46 @@ test('an Ask again that another Ask again already answered is not paid for twice
   assert.equal(body.already_prepared, 1);
   assert.equal(h.recorded.some((r) => r.transaction_id === txnId(1)), false);
   assert.equal(h.released.length, 1);
+});
+
+test('a row a saved rule already codes is never sent to the model', async () => {
+  const h = fixture({ merchants: 3, ruleAnswered: [txnId(1)] });
+  const { body } = await h.run();
+  assert.deepEqual(h.modelCalls.flat().sort(), ['vendor 0', 'vendor 2']);
+  assert.equal(body.answered_by_rule, 1);
+  assert.equal(h.recorded.some((r) => r.transaction_id === txnId(1)), false);
+  // Every row answered: no claim, no run, no model call.
+  const all = fixture({ merchants: 2, ruleAnswered: [txnId(0), txnId(1)] });
+  const r = await all.run();
+  assert.equal(r.body.answered_by_rule, 2); assert.equal(all.modelCalls.length, 0); assert.equal(all.db.runs.length, 0);
+});
+
+test('history is read alongside the other context reads, not after them', async () => {
+  const h = fixture({ merchants: 2 });
+  const { body } = await h.run();
+  const t = h.db.timeline;
+  // The fake answers a read when it is awaited, so order in the timeline is
+  // order of issue: history must be asked for before the last context read
+  // (the saved-rule examples) is, not after all of them have come back.
+  const history = t.indexOf('rpc:card_coding_history_evidence'), rules = t.lastIndexOf('from:card_coding_rules');
+  assert.ok(history >= 0 && rules >= 0);
+  assert.ok(history < rules, `history was requested with the other reads (${t.join(', ')})`);
+  assert.equal(typeof body.timings.context_reads_ms.history, 'number');
+  assert.equal(typeof body.timings.context_reads_ms.chart, 'number');
+});
+
+test('report usage is cached per company, connection AND report run; a new run is read afresh', async () => {
+  const runRow = (id, fetched) => ({ id, company_entity_id: COMPANY, connection_id: CONNECTION, report_name: 'ProfitAndLoss', status: 'ok',
+    fetched_at: fetched, start_date: '2026-01-01', end_date: '2026-08-31', raw_response: { Rows: { Row: [] } } });
+  const h = fixture({ merchants: 1, reportRuns: [runRow('pl-1', '2026-09-01T00:00:00Z')] });
+  const reads = () => h.db.timeline.filter((e) => e === 'from:quickbooks_report_runs').length;
+  let r = await h.run();
+  assert.equal(reads(), 2, 'the head, then the payload'); assert.equal(r.body.timings.usage_cached, false);
+  h.db.timeline.length = 0;
+  r = await h.run(undefined, { retry: true });
+  assert.equal(reads(), 1, 'the head only: the payload for this run is cached'); assert.equal(r.body.timings.usage_cached, true);
+  h.db.timeline.length = 0;
+  h.records.quickbooks_report_runs.push(runRow('pl-2', '2026-09-20T00:00:00Z'));
+  r = await h.run(undefined, { retry: true });
+  assert.equal(reads(), 2, 'a newer report run is a new key'); assert.equal(r.body.timings.usage_cached, false);
 });

@@ -19065,6 +19065,7 @@ $c$select (select count(*) from v_po_header_summary
 -- queued), leased claims so two workers never pay for the same rows, one
 -- import per scheduler call, and closure of runs the gateway cut off.
 \i migrations/20260923130000_card_coding_background_preparation.sql
+\i migrations/20260923140000_card_coding_evidence_and_rules.sql
 
 -- ── Meta ad preview links (2026-09-23) ────────────────────────────────────
 -- meta_ad_creatives.preview_shareable_link (Meta's shareable fb.me preview of

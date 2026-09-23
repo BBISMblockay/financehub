@@ -56,7 +56,7 @@ type Merchant = {
   sample: string;          // one raw descriptor, for context
   count: number;
   total: number;
-  anchor: string;          // latest txn_date in the group: history must PRECEDE it
+  anchor: string;          // EARLIEST txn_date in the group: history may not be later than any line
 };
 
 type Suggestion = {
@@ -92,27 +92,17 @@ type Suggestion = {
 //   2. The QBO ledger archive (qbo_history_lines): what the accountant coded
 //      the vendor to in QuickBooks, before SILO existed for that period.
 //
-// History is read for the 24 months PRECEDING the transaction being coded,
-// never after it, and never across companies: SILO rows carry the company id,
-// ledger lines are reached only through imports for this company AND this
-// QBO connection. Recent, exact, confirmed matches outweigh old or similar
+// History is read for the 24 months up to the EARLIEST line being coded,
+// never after it, and never across companies or QuickBooks realms: matching,
+// scoping and windowing all happen in card_coding_history_evidence
+// (20260923140000), which matches each merchant BEFORE it caps, so a busy
+// ledger can no longer push a merchant's history out of the sample. Recent, exact, confirmed matches outweigh old or similar
 // ones. Where the sources disagree the conflict is shown, not resolved, and
 // confidence is capped so a person looks. Where history is missing or could
 // not be read, that is stated, and account-name similarity is NOT presented
 // as ledger evidence.
 // ---------------------------------------------------------------------------
 const HISTORY_MONTHS = 24;
-// Both sources are paged deterministically (newest first, then row id) and
-// stop at a cap that is DISCLOSED: a silent API row limit would hand back an
-// arbitrary partial sample that could still read as consistent history.
-const HISTORY_PAGE = 1000;
-const HISTORY_MAX_PAGES = 5;
-// Ledger lines on settlement-side accounts (the AP or card leg of a bill) say
-// how it was PAID, not what it WAS; only the expense/asset/income leg counts.
-const LEDGER_EVIDENCE_TYPES = [
-  'Expense', 'Other Expense', 'Cost of Goods Sold', 'Fixed Asset', 'Other Asset',
-  'Other Current Asset', 'Income', 'Other Income',
-];
 // Confidence ceilings applied AFTER the model answers. They only ever lower.
 const HISTORY_CAPS = {
   consistent_disagree: 0.5,  // history clearly says X, the model chose Y
@@ -126,7 +116,7 @@ const HISTORY_CAPS = {
 type HistoryStatus = 'consistent' | 'conflicting' | 'inactive_only' | 'none' | 'unavailable';
 type HistoryCandidate = {
   account: string; account_id: string; weight: number; count: number; last: string;
-  silo: number; ledger: number; similar: number;
+  silo: number; ledger: number; similar: number; memo: number;
 };
 type HistoryEvidence = {
   status: HistoryStatus;
@@ -139,15 +129,16 @@ type HistoryEvidence = {
   notes: string[];
   capped: boolean;   // a source stopped at its page cap: treat as partial
 };
-type SiloHistoryRow = {
-  merchant_norm: string; txn_date: string; qbo_account_id: string; qbo_account_name: string | null;
-  coding_source: string; batch_status: string; status: string; source_key: string | null; batch_id: string;
-};
+// Rows come back from card_coding_history_evidence already MATCHED to one
+// merchant, scoped to this company and QuickBooks connection, confirmed, and
+// inside that merchant's own window -- see the migration for each rule.
+type SiloHistoryRow = { qbo_account_id: string; qbo_account_name: string | null; txn_date: string };
 type ChartEntry = { name: string; type: string };
-type LedgerHistoryRow = {
-  qbo_account_id: string; account_name: string; transaction_date: string; counterparty: string | null;
-  qbo_transaction_id: string | null; natural_amount: number | string;
-};
+// exact = the payee is this merchant; memo = the line's memo is (QuickBooks
+// bank-feed lines often carry the descriptor there and no payee); similar = a
+// whole-word containment either way, which is a hint and never precedent.
+type LedgerMatch = 'exact' | 'memo' | 'similar';
+type LedgerHistoryRow = { qbo_account_id: string; account_name: string; transaction_date: string; match: LedgerMatch };
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 function monthsBefore(iso: string, months: number): string {
@@ -165,30 +156,8 @@ function recencyWeight(dateIso: string, anchorIso: string): number {
   const m = monthsBetween(dateIso, anchorIso);
   return m <= 6 ? 1 : m <= 12 ? 0.7 : 0.4;
 }
-// Mirrors public.normalize_merchant (and the copy in v2/transactions.html) so
-// a ledger counterparty and a card descriptor reduce to the same key. Changing
-// one without the others silently stops history matching.
-function normalizeMerchant(text: unknown): string {
-  let t = String(text || '').toLowerCase();
-  t = t.replace(/^(sq|tst|sp|py|paypal|pp|ppl|dd|ec)\s*\*+\s*/i, '');
-  t = t.replace(/\s*\*+\s*[a-z0-9-]*[0-9][a-z0-9-]*\s*$/g, '');
-  t = t.replace(/\s*[#*]?\s*[0-9]{2,}\s*$/g, '');
-  t = t.replace(/\s+[a-z0-9]*[0-9][a-z0-9]{3,}\s*$/g, '');
-  t = t.replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
-  return t;
-}
-// "state farm" against "state farm insurance co": the same payee under a
-// longer ledger name. Only whole-word containment of a key at least four
-// characters long, so "sun" does not claim "sunrise bakery".
-function similarKey(key: string, other: string): boolean {
-  if (!key || !other || key === other) return false;
-  const [short, long] = key.length <= other.length ? [key, other] : [other, key];
-  if (short.length < 4) return false;
-  return (` ${long} `).includes(` ${short} `);
-}
 
 function buildEvidence(
-  key: string,
   anchor: string,
   siloRows: SiloHistoryRow[],
   ledgerRows: LedgerHistoryRow[],
@@ -198,6 +167,9 @@ function buildEvidence(
   unavailable: string[],
 ): HistoryEvidence {
   const from = monthsBefore(anchor, HISTORY_MONTHS);
+  // The database already windowed these; this is the same rule again, so a
+  // row dated after the transaction can never become precedent even if a
+  // caller hands one in.
   const inWindow = (d: string) => d >= from && d <= anchor;
   const byAccount = new Map<string, HistoryCandidate>();
   const inactive = new Map<string, { account: string; count: number; last: string }>();
@@ -207,7 +179,7 @@ function buildEvidence(
     const cur = map.get(id) || { account: name, count: 0, last: '' };
     cur.count++; if (date > cur.last) cur.last = date; map.set(id, cur);
   };
-  const bump = (id: string, name: string | null, date: string, weight: number, source: 'silo' | 'ledger', similar: boolean) => {
+  const bump = (id: string, name: string | null, date: string, weight: number, source: 'silo' | 'ledger', match: LedgerMatch) => {
     const chart = eligibleById.get(id);
     if (!chart) {
       // Still active in QuickBooks but not offered for this transaction type
@@ -220,23 +192,21 @@ function buildEvidence(
       if (live) tally(ineligible, id, live.name, date); else tally(inactive, id, name || id, date);
       return;
     }
-    const cur = byAccount.get(id) || { account: chart.name, account_id: id, weight: 0, count: 0, last: '', silo: 0, ledger: 0, similar: 0 };
+    const cur = byAccount.get(id) || { account: chart.name, account_id: id, weight: 0, count: 0, last: '', silo: 0, ledger: 0, similar: 0, memo: 0 };
     cur.weight += weight; cur.count++; if (date > cur.last) cur.last = date;
     if (source === 'silo') cur.silo++; else cur.ledger++;
-    if (similar) cur.similar++;
+    if (match === 'similar') cur.similar++;
+    if (match === 'memo') cur.memo++;
     byAccount.set(id, cur);
   };
   for (const r of siloRows) {
-    if (r.merchant_norm !== key || !r.txn_date || !inWindow(r.txn_date)) continue;
-    bump(String(r.qbo_account_id), r.qbo_account_name, r.txn_date, recencyWeight(r.txn_date, anchor), 'silo', false);
+    if (!r.txn_date || !inWindow(r.txn_date)) continue;
+    bump(String(r.qbo_account_id), r.qbo_account_name, r.txn_date, recencyWeight(r.txn_date, anchor), 'silo', 'exact');
   }
   for (const r of ledgerRows) {
-    const cp = normalizeMerchant(r.counterparty);
-    const exact = cp === key;
-    if (!exact && !similarKey(key, cp)) continue;
     if (!r.transaction_date || !inWindow(r.transaction_date)) continue;
     bump(String(r.qbo_account_id), r.account_name, r.transaction_date,
-      recencyWeight(r.transaction_date, anchor) * (exact ? 0.8 : 0.4), 'ledger', !exact);
+      recencyWeight(r.transaction_date, anchor) * (r.match === 'similar' ? 0.4 : 0.8), 'ledger', r.match);
   }
   const candidates = [...byAccount.values()].sort((a, b) => b.weight - a.weight || b.last.localeCompare(a.last));
   const total = candidates.reduce((n, c) => n + c.weight, 0);
@@ -248,7 +218,10 @@ function buildEvidence(
   const describe = (c: HistoryCandidate) => {
     const parts: string[] = [];
     if (c.silo) parts.push(`${c.silo} confirmed SILO coding${c.silo === 1 ? '' : 's'}`);
-    if (c.ledger) parts.push(`${c.ledger} ledger line${c.ledger === 1 ? '' : 's'}${c.similar ? ` (${c.similar} by similar payee name)` : ''}`);
+    if (c.ledger) {
+      const how = [c.memo ? `${c.memo} by memo` : '', c.similar ? `${c.similar} by similar payee name` : ''].filter(Boolean).join(', ');
+      parts.push(`${c.ledger} ledger line${c.ledger === 1 ? '' : 's'}${how ? ` (${how})` : ''}`);
+    }
     return `${c.account} [${parts.join(', ')}; last ${c.last}]`;
   };
   const windowText = `${HISTORY_MONTHS} months before ${anchor}`;
@@ -268,9 +241,9 @@ function buildEvidence(
   } else {
     leading = candidates[0];
     const share = total > 0 ? leading.weight / total : 0;
-    // A precedent needs weight AND at least one EXACT match. Similar payee
-    // names alone ("amazon" beside "amazon web services") are a hint, never
-    // history, however many of them there are.
+    // A precedent needs weight AND at least one EXACT match (payee, memo or a
+    // confirmed SILO coding). Similar names alone ("amazon" beside "amazon web
+    // services") are a hint, never history, however many of them there are.
     const strong = leading.weight >= 0.8 && (leading.count - leading.similar) >= 1;
     if (!strong && candidates.every((c) => c.count === c.similar)) {
       status = 'conflicting';
@@ -293,146 +266,88 @@ function buildEvidence(
     window: { from, to: anchor }, summary, notes, capped: capped.silo || capped.ledger };
 }
 
-// Reads both sources for every merchant in the request. A read failure on one
-// source degrades to the other and is recorded, never thrown: the request
-// should still return suggestions, and the evidence line should say that the
-// ledger (or SILO history) could not be consulted.
-async function loadHistory(
+// One merchant group's history, as the database matched it.
+type RawHistory = { silo: SiloHistoryRow[]; ledger: LedgerHistoryRow[]; capped: { silo: boolean; ledger: boolean } };
+// Merchants per call and matched lines kept per merchant and source. The cap
+// is applied AFTER matching and exact matches come first, so a busy merchant
+// can only crowd out its own oldest or weakest lines, never another's.
+const HISTORY_PAIRS_PER_CALL = 50;
+const HISTORY_PER_KEY = 100;
+const HISTORY_SOURCES = ['SILO coding history', 'QBO ledger archive'];
+
+// A merchant group asks about the 24 months up to its EARLIEST line: nothing
+// dated after any line being coded may count as precedent for it. In a bank
+// feed the direction is part of the question -- a Shopify payout and a
+// Shopify subscription share a name and not an account.
+const historyKey = (m: Merchant) => `${m.merchant}|${m.anchor}|${m.direction || ''}`;
+
+// Reads matched history for every merchant group in the request. A failed
+// read is recorded, never thrown: the request still returns suggestions, and
+// each evidence line says history could not be consulted.
+async function fetchHistory(
   supabase: any,
   companyId: string,
   connectionId: string,
   merchants: Merchant[],
-  eligibleById: Map<string, ChartEntry>,
-  activeById: Map<string, ChartEntry> | null,
-): Promise<{ byKey: Map<string, HistoryEvidence>; stats: Record<string, unknown> }> {
-  const keys = [...new Set(merchants.map((m) => m.merchant).filter(Boolean))];
-  const anchors = merchants.map((m) => m.anchor);
-  const windowTo = anchors.reduce((a, b) => (a > b ? a : b));
-  const windowFrom = monthsBefore(anchors.reduce((a, b) => (a < b ? a : b)), HISTORY_MONTHS);
-  const unavailable: string[] = [];
-  const capped = { silo: false, ledger: false };
-
-  // 1. Confirmed SILO codings, this company only, keyed on the same merchant
-  //    key the request uses, and ONLY from card sources bound to this QBO
-  //    connection. An account id is only meaningful inside its realm: a
-  //    company that moved realms can have an old "42 = Travel" and a current
-  //    "42 = Advertising", and a row from the old realm must not be relabelled
-  //    as current precedent. The binding that matters is the BATCH's own
-  //    qbo_connection_id, frozen when the batch was made, not the source's
-  //    current one: a CSV source can be rebound from realm A to realm B while
-  //    its realm-A batches keep their own binding. A batch with no binding at
-  //    all (made before batches recorded one) falls back to its source's
-  //    current connection, which is the best fact available for it. Both are
-  //    checked BEFORE any account id is resolved. Confirmation is decided
-  //    HERE, not in SQL, so the rule is one place and testable.
-  const siloRows: SiloHistoryRow[] = [];
-  const { data: sourceRows, error: sourceError } = await supabase
-    .from('card_sources')
-    .select('source_key,qbo_connection_id')
-    .eq('company_entity_id', companyId)
-    .eq('qbo_connection_id', connectionId);
-  const sourceKeys = new Set<string>((sourceRows || []).map((r: any) => String(r.source_key)));
-  const batchConnection = new Map<string, string | null>();
-  let batchError: unknown = null;
-  for (let page = 0; page < HISTORY_MAX_PAGES && !batchError; page++) {
-    const { data, error } = await supabase
-      .from('card_import_batches')
-      .select('id,qbo_connection_id')
-      .eq('company_entity_id', companyId)
-      .order('id', { ascending: true })
-      .range(page * HISTORY_PAGE, (page + 1) * HISTORY_PAGE - 1);
-    if (error) { batchError = error; break; }
-    for (const b of data || []) batchConnection.set(String(b.id), b.qbo_connection_id ? String(b.qbo_connection_id) : null);
-    if ((data || []).length < HISTORY_PAGE) break;
-  }
-  const rowIsBoundHere = (r: SiloHistoryRow) => {
-    if (!batchConnection.has(String(r.batch_id))) return false;
-    const bound = batchConnection.get(String(r.batch_id));
-    return bound ? bound === connectionId : sourceKeys.has(String(r.source_key));
-  };
-  if (sourceError || batchError) unavailable.push('SILO coding history');
-  else {
-    keyLoop: for (let i = 0; i < keys.length; i += 100) {
-      for (let page = 0; page < HISTORY_MAX_PAGES; page++) {
-        const { data, error } = await supabase
-          .from('card_transactions_v')
-          .select('merchant_norm,txn_date,qbo_account_id,qbo_account_name,coding_source,batch_status,status,source_key,batch_id')
-          .eq('company_entity_id', companyId)
-          .eq('status', 'coded')
-          .not('qbo_account_id', 'is', null)
-          .in('merchant_norm', keys.slice(i, i + 100))
-          .gte('txn_date', windowFrom)
-          .lte('txn_date', windowTo)
-          .order('txn_date', { ascending: false })
-          .order('id', { ascending: true })
-          .range(page * HISTORY_PAGE, (page + 1) * HISTORY_PAGE - 1);
-        if (error) { unavailable.push('SILO coding history'); siloRows.length = 0; break keyLoop; }
-        for (const r of data || []) {
-          if (!rowIsBoundHere(r)) continue;
-          const confirmed = r.coding_source === 'manual' || r.coding_source === 'rule'
-            || (r.coding_source === 'ai' && ['approved', 'posted'].includes(String(r.batch_status)));
-          if (confirmed && r.batch_status !== 'voided') siloRows.push(r);
-        }
-        if ((data || []).length < HISTORY_PAGE) break;
-        if (page === HISTORY_MAX_PAGES - 1) capped.silo = true;
-      }
-    }
-  }
-
-  // 2. The QBO ledger archive, reached only through this company's imports for
-  //    THIS connection. Lines are not keyed by merchant, so the window's
-  //    expense-side lines are paged in and matched here; a cap is reported.
-  const ledgerRows: LedgerHistoryRow[] = [];
-  let ledgerImports = 0;
-  const { data: imports, error: importsError } = await supabase
-    .from('qbo_history_imports')
-    .select('id')
-    .eq('company_entity_id', companyId)
-    .eq('qbo_connection_id', connectionId);
-  if (importsError) unavailable.push('QBO ledger archive');
-  else if ((imports || []).length) {
-    ledgerImports = imports.length;
-    const importIds = imports.map((i: any) => i.id);
-    const seen = new Set<string>();
-    for (let page = 0; page < HISTORY_MAX_PAGES; page++) {
-      const { data, error } = await supabase
-        .from('qbo_history_lines')
-        .select('qbo_account_id,account_name,transaction_date,counterparty,qbo_transaction_id,natural_amount')
-        .eq('company_entity_id', companyId)
-        .in('import_id', importIds)
-        .eq('row_kind', 'transaction')
-        .in('account_type', LEDGER_EVIDENCE_TYPES)
-        .gte('transaction_date', windowFrom)
-        .lte('transaction_date', windowTo)
-        .order('transaction_date', { ascending: false })
-        .range(page * HISTORY_PAGE, (page + 1) * HISTORY_PAGE - 1);
-      if (error) { unavailable.push('QBO ledger archive'); ledgerRows.length = 0; break; }
-      for (const r of data || []) {
-        // Overlapping snapshots hold the same QuickBooks line twice.
-        const id = `${r.qbo_transaction_id || ''}|${r.qbo_account_id}|${r.transaction_date}|${r.natural_amount}|${r.counterparty || ''}`;
-        if (seen.has(id)) continue;
-        seen.add(id); ledgerRows.push(r);
-      }
-      if ((data || []).length < HISTORY_PAGE) break;
-      if (page === HISTORY_MAX_PAGES - 1) capped.ledger = true;
-    }
-  }
-
-  const byKey = new Map<string, HistoryEvidence>();
+): Promise<{ byKey: Map<string, RawHistory>; unavailable: string[]; stats: Record<string, unknown> }> {
+  const pairs = new Map<string, { key: string; before: string; direction: string | null }>();
   for (const m of merchants) {
-    if (!m.merchant || byKey.has(`${m.merchant}|${m.anchor}`)) continue;
-    byKey.set(`${m.merchant}|${m.anchor}`, buildEvidence(m.merchant, m.anchor, siloRows, ledgerRows, eligibleById, activeById, capped, unavailable));
+    if (m.merchant && m.anchor) pairs.set(historyKey(m), { key: m.merchant, before: m.anchor, direction: m.direction || null });
   }
+  const byKey = new Map<string, RawHistory>();
+  const entries = [...pairs.entries()];
+  const results = await Promise.all(chunks(entries, HISTORY_PAIRS_PER_CALL).map(async (part) => {
+    const { data, error } = await supabase.rpc('card_coding_history_evidence', {
+      p_company: companyId, p_connection: connectionId, p_per_key: HISTORY_PER_KEY,
+      p_pairs: part.map(([, p]) => p),
+    });
+    return { part, data, error };
+  }));
+  let failed = false, siloRows = 0, ledgerLines = 0, cappedKeys = 0;
+  for (const { part, data, error } of results) {
+    if (error || !data || !Array.isArray(data.rows) || !Array.isArray(data.totals)) { failed = true; continue; }
+    const local = part.map(() => ({ silo: [] as SiloHistoryRow[], ledger: [] as LedgerHistoryRow[], capped: { silo: false, ledger: false } }));
+    for (const r of data.rows) {
+      const slot = local[Number(r.i)];
+      if (!slot) continue;
+      if (r.src === 'silo') slot.silo.push({ qbo_account_id: String(r.account_id), qbo_account_name: r.account_name ?? null, txn_date: String(r.date) });
+      else slot.ledger.push({ qbo_account_id: String(r.account_id), account_name: String(r.account_name ?? r.account_id),
+        transaction_date: String(r.date), match: r.match === 'memo' ? 'memo' : r.match === 'similar' ? 'similar' : 'exact' });
+    }
+    for (const t of data.totals) {
+      const slot = local[Number(t.i)];
+      if (!slot) continue;
+      const got = t.src === 'silo' ? slot.silo.length : slot.ledger.length;
+      if (Number(t.total) > got) slot.capped[t.src === 'silo' ? 'silo' : 'ledger'] = true;
+    }
+    part.forEach(([key], i) => {
+      const slot = local[i];
+      siloRows += slot.silo.length; ledgerLines += slot.ledger.length;
+      if (slot.capped.silo || slot.capped.ledger) cappedKeys++;
+      byKey.set(key, slot);
+    });
+  }
+  // A failed call leaves its merchants with NO entry, so their evidence reads
+  // "unavailable" rather than a confident "no history".
+  const unavailable = failed ? HISTORY_SOURCES : [];
   return {
-    byKey,
+    byKey, unavailable,
     stats: {
-      window_months: HISTORY_MONTHS, silo_rows: siloRows.length, silo_capped: capped.silo,
-      ledger_lines: ledgerRows.length, ledger_imports: ledgerImports, ledger_capped: capped.ledger,
-      unavailable: unavailable.length ? unavailable : undefined,
+      window_months: HISTORY_MONTHS, merchants: pairs.size, per_key: HISTORY_PER_KEY,
+      silo_rows: siloRows, ledger_lines: ledgerLines, capped_merchants: cappedKeys,
+      unavailable: failed ? HISTORY_SOURCES : undefined,
     },
   };
 }
-const historyKey = (m: Merchant) => `${m.merchant}|${m.anchor}`;
+
+function evidenceFor(
+  raw: Map<string, RawHistory>, m: Merchant, unavailable: string[],
+  eligibleById: Map<string, ChartEntry>, activeById: Map<string, ChartEntry> | null,
+): HistoryEvidence {
+  const found = raw.get(historyKey(m));
+  if (!found) return buildEvidence(m.anchor, [], [], eligibleById, activeById, { silo: false, ledger: false }, unavailable.length ? unavailable : HISTORY_SOURCES);
+  return buildEvidence(m.anchor, found.silo, found.ledger, eligibleById, activeById, found.capped, []);
+}
 
 function systemPrompt(
   accounts: { name: string; type: string; sub: string | null; used: number | null }[],
@@ -508,7 +423,7 @@ ${locations.map((l) => `- ${l}`).join('\n')}
 ${exampleList}
 
 # Historical coding evidence for the lines you are given
-Read from this company's own confirmed codings and its QuickBooks ledger archive, for the ${HISTORY_MONTHS} months BEFORE each line's date. This is the strongest evidence you have for choosing between similar accounts, because it says where THIS vendor was actually put, not where a vendor like it usually goes.
+Read from this company's own confirmed codings and its QuickBooks ledger archive, for the ${HISTORY_MONTHS} months up to each merchant's EARLIEST line in this request, never after it. This is the strongest evidence you have for choosing between similar accounts, because it says where THIS vendor was actually put, not where a vendor like it usually goes.
 ${history.length ? history.join('\n') : '(no history was consulted for these lines)'}
 
 - CONSISTENT: prefer that account. Choose a different one only when the descriptor plainly shows a different kind of purchase, and say why.
@@ -603,6 +518,40 @@ async function askModel(
 // QBO reports nest arbitrarily deep -- sections inside sections, each with a
 // Summary row. Every line that names an account carries ColData[0].id, so the
 // walk keys on that rather than trying to model the report's shape.
+// Which accounts this company actually posts to, from the most recent P&L
+// SILO already holds. The report payload is the heaviest read in preparation,
+// and it only changes when a new report run is stored -- so the computed map
+// is cached per company, QuickBooks connection AND report run id. A new run is
+// a new key; nothing is ever served across companies or realms, and an
+// isolate that is recycled simply reads it again. Absent any run, every
+// account is annotated null and the prompt says nothing about usage rather
+// than implying everything is dead.
+type UsageInfo = { map: Map<string, number> | null; from: string | null; to: string | null; cached?: boolean };
+const usageCache = new Map<string, UsageInfo>();
+const USAGE_CACHE_LIMIT = 32;
+async function accountUsageFor(supabase: any, companyId: string, connectionId: string): Promise<UsageInfo> {
+  const { data: head, error } = await supabase
+    .from('quickbooks_report_runs')
+    .select('id, start_date, end_date')
+    .eq('company_entity_id', companyId)
+    .eq('connection_id', connectionId)
+    .in('report_name', ['ProfitAndLoss', 'ProfitAndLossDetail'])
+    .eq('status', 'ok')
+    .order('fetched_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !head?.id) return { map: null, from: null, to: null };
+  const key = `${companyId}|${connectionId}|${head.id}`;
+  const hit = usageCache.get(key);
+  if (hit) return { ...hit, cached: true };
+  const { data: full } = await supabase.from('quickbooks_report_runs').select('raw_response')
+    .eq('id', head.id).eq('company_entity_id', companyId).maybeSingle();
+  const info: UsageInfo = { map: full?.raw_response ? accountUsage(full.raw_response) : null, from: head.start_date ?? null, to: head.end_date ?? null };
+  if (usageCache.size >= USAGE_CACHE_LIMIT) usageCache.delete(usageCache.keys().next().value as string);
+  usageCache.set(key, info);
+  return info;
+}
+
 function accountUsage(report: unknown): Map<string, number> {
   const out = new Map<string, number>();
 
@@ -772,6 +721,21 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       : 'Card suggestions require uncoded purchase outflows. Save changes and review payments or pending rows separately.');
   }
 
+  // Saved rules first. A row one of this company's rules already codes is the
+  // rule's to answer: the page applies it the moment the import is opened, so
+  // a model call about it is money spent on a question already settled. Same
+  // decision as the page (card_coding_rule_match mirrors ruleMatches), and a
+  // CONFLICT between a merchant rule and a card rule is not an answer -- those
+  // rows still go on, since a person has to choose and evidence helps.
+  const ruleAnswered = new Set<string>();
+  for (const part of chunks(selectedRows.map((row) => String(row.id)), 1000)) {
+    const { data, error } = await supabase.rpc('card_coding_rule_answered', { p_company: companyId, p_ids: part });
+    if (error || !Array.isArray(data)) return fail(503, 'Could not check saved rules. Apply the coding evidence migration, then retry.');
+    for (const r of data) ruleAnswered.add(String(r.transaction_id));
+  }
+  const answeredByRule = selectedRows.filter((row) => ruleAnswered.has(String(row.id))).length;
+  if (answeredByRule) selectedRows.splice(0, selectedRows.length, ...selectedRows.filter((row) => !ruleAnswered.has(String(row.id))));
+
   // Work already done is not done again. A live suggestion about the current
   // facts stands -- including a dismissal -- unless someone explicitly asks
   // again. A failure is always retried: that is what the button is for.
@@ -854,10 +818,11 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
     };
     merchant.count++;
     merchant.total += bankMode ? Math.abs(Number(row.amount)) : Number(row.amount);
-    // History must precede the transaction. A row with no date anchors on
-    // today, which can only widen what "before" means, never narrow it.
+    // History may not be later than ANY line in the group, so the group asks
+    // about the window ending at its earliest line. A row with no date counts
+    // as today, which cannot move an earlier anchor.
     const rowDate = /^\d{4}-\d{2}-\d{2}$/.test(String(row.txn_date || '')) ? String(row.txn_date) : isoDate(new Date());
-    if (rowDate > merchant.anchor) merchant.anchor = rowDate;
+    if (!merchant.anchor || rowDate < merchant.anchor) merchant.anchor = rowDate;
     byStoredMerchant.set(key, merchant);
     rowsByKey.set(key, [...(rowsByKey.get(key) || []), row]);
   }
@@ -865,101 +830,19 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
   const sourceName: string = source.display_name || 'card';
   timings.load_ms = elapsed(phase);
   if (!merchants.length) return { status: 200, body: { ok: true, suggestions: [], run_id: null, already_prepared: alreadyPrepared,
-    in_progress: inProgress, skipped_ineligible: skippedIneligible, recorded: 0 } };
+    in_progress: inProgress, skipped_ineligible: skippedIneligible, answered_by_rule: answeredByRule, recorded: 0 } };
 
   phase = performance.now();
-  // Bank suggestions include revenue and clearing/card destinations. The response
-  // validator still requires a category type compatible with the movement.
-  const { data: accountRows } = await supabase
-    .from('quickbooks_accounts')
-    .select('qbo_account_id, name, fully_qualified_name, account_type, account_sub_type')
-    .eq('company_entity_id', companyId)
-    .eq('connection_id', connectionId)
-    .eq('is_active', true)
-    .in('account_type', [
-      'Expense', 'Other Expense', 'Cost of Goods Sold',
-      'Fixed Asset', 'Other Current Asset',
-      ...(bankMode ? ['Other Asset','Income','Other Income','Other Current Liability','Credit Card','Accounts Payable'] : []),
-    ]);
-
-  // Which accounts this company actually posts to, from the most recent P&L
-  // SILO already holds. Absent one, every account is annotated null and the
-  // prompt says nothing about usage rather than implying everything is dead.
-  const { data: plRun } = await supabase
-    .from('quickbooks_report_runs')
-    .select('raw_response, start_date, end_date')
-    .eq('company_entity_id', companyId)
-    .eq('connection_id', connectionId)
-    .in('report_name', ['ProfitAndLoss', 'ProfitAndLossDetail'])
-    .eq('status', 'ok')
-    .order('fetched_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const usage = plRun?.raw_response ? accountUsage(plRun.raw_response) : null;
-
-  type ChartAccount = { id: string; name: string; type: string; sub: string | null; used: number | null };
-  const accounts: ChartAccount[] = (accountRows || []).map((a: any) => ({
-    id: String(a.qbo_account_id),
-    name: a.fully_qualified_name || a.name,
-    type: a.account_type,
-    sub: a.account_sub_type,
-    used: usage ? (usage.get(String(a.qbo_account_id)) ?? 0) : null,
-  }));
-  if (!accounts.length) {
-    return fail(400, 'No QuickBooks accounts pulled yet — run Pull accounts in Integrations.');
-  }
-
-  // The intercompany accounts ARE the list of related entities -- there is no
-  // separate register of them, and asking the model to recognise "a name that
-  // looks like a business rather than an employee" was exactly the guess that
-  // made it decline 76 rows on a card belonging to a member of staff.
-  const { data: intercoRows } = await supabase
-    .from('quickbooks_accounts')
-    .select('name, account_type')
-    .eq('company_entity_id', companyId)
-    .eq('connection_id', connectionId)
-    .eq('is_active', true)
-    .in('account_type', ['Accounts Receivable', 'Accounts Payable']);
-
-  // The card feeds themselves settle to AP accounts ('Brex Account', 'Divvy
-  // Account', 'Parker'), which are emphatically NOT related entities -- listing
-  // them would invite the model to decline a card's own rows.
-  const { data: cardAccts } = await supabase
-    .from('card_sources')
-    .select('credit_qbo_account_name')
-    .eq('company_entity_id', companyId)
-    .eq('qbo_connection_id', connectionId);
-  const cardAccountNames = new Set((cardAccts || [])
-    .map((c: any) => String(c.credit_qbo_account_name || '').toLowerCase().trim())
-    .filter(Boolean));
-
-  // Only accounts that actually follow the intercompany naming convention --
-  // "<entity> Receivable" or "Due From/To <entity>". Taking every AR/AP account
-  // sweeps up 'Accrued', 'Accounts Payable (A/P)', 'American Express - LOC' and
-  // 'Amazon Unavailable Balance'; that last one is the dangerous one, since a
-  // list containing the word Amazon invites the model to decline Amazon rows.
-  const INTERCO_NAME = /\sreceivable\s*$|^due\s+(from|to)\s+/i;
-
-  const relatedEntities: string[] = [...new Set<string>((intercoRows || [])
-    .filter((a: any) => !cardAccountNames.has(String(a.name || '').toLowerCase().trim()))
-    .filter((a: any) => INTERCO_NAME.test(String(a.name || '')))
-    .map((a: any) => String(a.name || '')
-      .replace(/\s*receivable\s*$/i, '')
-      .replace(/^due\s+(from|to)\s+/i, '')
-      .trim())
-    .filter((n: string) => n && !/^accounts?$/i.test(n) && n.length > 2))]
-    .sort();
-
-  const { data: locationRows } = await supabase
-    .from('quickbooks_locations')
-    .select('name, fully_qualified_name')
-    .eq('company_entity_id', companyId)
-    .eq('connection_id', connectionId)
-    .eq('is_active', true);
-  const locations: string[] = (locationRows || []).map((l: any) => String(l.fully_qualified_name || l.name));
-
-  // A sample of what humans have already confirmed, most-used first.
+  // Every read below is independent of the others, so they run together --
+  // history included, which is the slowest. The chart is read ONCE: the
+  // accounts offered for this mode, the intercompany names and the "is it
+  // still active" map are all cuts of it, and three reads of one table could
+  // disagree with each other.
+  const MODE_TYPES = [
+    'Expense', 'Other Expense', 'Cost of Goods Sold',
+    'Fixed Asset', 'Other Current Asset',
+    ...(bankMode ? ['Other Asset','Income','Other Income','Other Current Liability','Credit Card','Accounts Payable'] : []),
+  ];
   let ruleQuery = supabase
     .from('card_coding_rules')
     .select('pattern, qbo_account_name, qbo_location_name, hit_count')
@@ -970,9 +853,74 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
     .limit(120);
   ruleQuery = batch.origin === 'plaid' ? ruleQuery.eq('source_id', source.id)
     : ruleQuery.or(`source_id.is.null,source_id.eq.${source.id}`);
-  const { data: ruleRows } = await ruleQuery;
+  const timed = async <T>(name: string, work: Promise<T>): Promise<T> => {
+    const t = performance.now();
+    try { return await work; } finally { readMs[name] = elapsed(t); }
+  };
+  const readMs: Record<string, number> = {};
+  const [chartRes, usage, cardAcctsRes, locationRes, ruleRes, entityRes, rawHistory] = await Promise.all([
+    timed('chart', supabase.from('quickbooks_accounts')
+      .select('qbo_account_id, name, fully_qualified_name, account_type, account_sub_type')
+      .eq('company_entity_id', companyId).eq('connection_id', connectionId).eq('is_active', true)),
+    timed('usage', accountUsageFor(supabase, companyId, connectionId)),
+    timed('card_sources', supabase.from('card_sources').select('credit_qbo_account_name')
+      .eq('company_entity_id', companyId).eq('qbo_connection_id', connectionId)),
+    timed('locations', supabase.from('quickbooks_locations').select('name, fully_qualified_name')
+      .eq('company_entity_id', companyId).eq('connection_id', connectionId).eq('is_active', true)),
+    timed('rules', ruleQuery),
+    timed('company', supabase.from('entities').select('title').eq('id', companyId).maybeSingle()),
+    timed('history', fetchHistory(supabase, companyId, connectionId, merchants)),
+  ]);
+  timings.context_reads_ms = readMs;
+  timings.usage_cached = !!usage.cached;
+  const chartRows: any[] = chartRes.error ? [] : (chartRes.data || []);
 
-  const examples = (ruleRows || [])
+  type ChartAccount = { id: string; name: string; type: string; sub: string | null; used: number | null };
+  const accounts: ChartAccount[] = chartRows.filter((a: any) => MODE_TYPES.includes(a.account_type)).map((a: any) => ({
+    id: String(a.qbo_account_id),
+    name: a.fully_qualified_name || a.name,
+    type: a.account_type,
+    sub: a.account_sub_type,
+    used: usage.map ? (usage.map.get(String(a.qbo_account_id)) ?? 0) : null,
+  }));
+  if (!accounts.length) {
+    return fail(400, 'No QuickBooks accounts pulled yet — run Pull accounts in Integrations.');
+  }
+
+  // The intercompany accounts ARE the list of related entities -- there is no
+  // separate register of them, and asking the model to recognise "a name that
+  // looks like a business rather than an employee" was exactly the guess that
+  // made it decline 76 rows on a card belonging to a member of staff.
+  const intercoRows = chartRows.filter((a: any) => ['Accounts Receivable', 'Accounts Payable'].includes(a.account_type));
+
+  // The card feeds themselves settle to AP accounts ('Brex Account', 'Divvy
+  // Account', 'Parker'), which are emphatically NOT related entities -- listing
+  // them would invite the model to decline a card's own rows.
+  const cardAccountNames = new Set((cardAcctsRes.data || [])
+    .map((c: any) => String(c.credit_qbo_account_name || '').toLowerCase().trim())
+    .filter(Boolean));
+
+  // Only accounts that actually follow the intercompany naming convention --
+  // "<entity> Receivable" or "Due From/To <entity>". Taking every AR/AP account
+  // sweeps up 'Accrued', 'Accounts Payable (A/P)', 'American Express - LOC' and
+  // 'Amazon Unavailable Balance'; that last one is the dangerous one, since a
+  // list containing the word Amazon invites the model to decline Amazon rows.
+  const INTERCO_NAME = /\sreceivable\s*$|^due\s+(from|to)\s+/i;
+
+  const relatedEntities: string[] = [...new Set<string>(intercoRows
+    .filter((a: any) => !cardAccountNames.has(String(a.name || '').toLowerCase().trim()))
+    .filter((a: any) => INTERCO_NAME.test(String(a.name || '')))
+    .map((a: any) => String(a.name || '')
+      .replace(/\s*receivable\s*$/i, '')
+      .replace(/^due\s+(from|to)\s+/i, '')
+      .trim())
+    .filter((n: string) => n && !/^accounts?$/i.test(n) && n.length > 2))]
+    .sort();
+
+  const locations: string[] = (locationRes.data || []).map((l: any) => String(l.fully_qualified_name || l.name));
+
+  // A sample of what humans have already confirmed, most-used first.
+  const examples = (ruleRes.data || [])
     .filter((r: any) => accounts.some((a) => a.name === r.qbo_account_name))
     .map((r: any) => ({
     merchant: r.pattern,
@@ -981,9 +929,7 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
   }));
 
   // The company's own name, not a name baked into this function.
-  const { data: entityRow } = await supabase
-    .from('entities').select('title').eq('id', companyId).maybeSingle();
-  const companyName = entityRow?.title || 'this company';
+  const companyName = entityRes.data?.title || 'this company';
 
   // The card names in THIS file, rather than one company's examples. A card
   // named "VIRTUAL ACCT SHIPPING" means nothing to a company that names its
@@ -995,22 +941,19 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
   const validAccounts = new Set(accounts.map((a) => a.name));
   const validLocations = new Set(locations);
 
-  // What this company did with these merchants before -- confirmed SILO
-  // codings and the QBO ledger archive, 24 months back from each line.
+  // What this company did with these merchants before. Every active account,
+  // not only the types offered for this mode, so a live income account in
+  // card mode is labelled "not offered here" rather than "removed".
   const eligibleById = new Map<string, ChartEntry>(accounts.map((a) => [a.id, { name: a.name, type: a.type }]));
-  // The WHOLE active chart, not only the types offered for this mode, so a
-  // live income account in card mode is labelled "not offered here" rather
-  // than "removed from the chart".
-  const { data: activeRows, error: activeError } = await supabase
-    .from('quickbooks_accounts')
-    .select('qbo_account_id, name, fully_qualified_name, account_type')
-    .eq('company_entity_id', companyId)
-    .eq('connection_id', connectionId)
-    .eq('is_active', true);
-  // A failed read is "state unknown", never "every account is removed".
-  const activeById: Map<string, ChartEntry> | null = activeError ? null : new Map<string, ChartEntry>((activeRows || [])
+  const activeById = new Map<string, ChartEntry>(chartRows
     .map((a: any) => [String(a.qbo_account_id), { name: a.fully_qualified_name || a.name, type: a.account_type }]));
+  const history = {
+    byKey: new Map(merchants.map((m) => [historyKey(m),
+      evidenceFor(rawHistory.byKey, m, rawHistory.unavailable, eligibleById, activeById)] as [string, HistoryEvidence])),
+    stats: rawHistory.stats,
+  };
   timings.context_ms = elapsed(phase);
+  timings.history_ms = readMs.history;
 
   // The run exists before any model call, so a request the gateway cuts off
   // still leaves a record of what it had finished.
@@ -1022,12 +965,9 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
   if (runError || !run?.id) return fail(503, 'Could not record the preparation run. Apply the card coding suggestions migration, then retry.');
   const runId = String(run.id);
 
-  phase = performance.now();
-  const history = await loadHistory(supabase, companyId, connectionId, merchants, eligibleById, activeById);
-  timings.history_ms = elapsed(phase);
   const historyLine = (m: Merchant) => {
     const ev = history.byKey.get(historyKey(m));
-    return ev ? `- "${m.merchant}" (lines dated up to ${m.anchor}) -> ${ev.summary}` : null;
+    return ev ? `- "${m.merchant}" (history up to ${m.anchor}, its earliest line) -> ${ev.summary}` : null;
   };
 
   // Validates one model answer for one merchant group. The model's account
@@ -1241,12 +1181,13 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       already_prepared: alreadyPrepared,
       in_progress: inProgress,
       skipped_ineligible: skippedIneligible,
+      answered_by_rule: answeredByRule,
       merchants_asked: merchants.length,
       batches: slices.length,
       related_entities: relatedEntities.length,
       company: companyName,
-      usage_from: usage ? `${plRun?.start_date} to ${plRun?.end_date}` : null,
-      accounts_with_activity: usage ? accounts.filter((a) => (a.used ?? 0) > 0).length : null,
+      usage_from: usage.map ? `${usage.from} to ${usage.to}` : null,
+      accounts_with_activity: usage.map ? accounts.filter((a) => (a.used ?? 0) > 0).length : null,
       history: history.stats,
       model: MODEL,
       timings,
