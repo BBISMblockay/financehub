@@ -909,6 +909,25 @@ await test('a ready suggestion can be used from the collapsed row with one click
  assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" hidden/);
  assert.ok(!rowHtml(h,row.id).includes('data-accept-suggestion'));
 });
+// Blake, 2026-09-23: "No category suggested" is not an AI result to clear.
+await test('a declined suggestion stays out of the AI queue and needs no dismissal',async()=>{
+ const h=await pageHarness();const row=h.page.state.txns[0];
+ h.data.card_coding_suggestions_v.push(prepared(row,{outcome:'needs_judgment',qbo_account_id:null,qbo_account_name:null,reasoning:'Could be rent or utilities.'}));
+ await h.page.loadSuggestions([row]);h.page.renderCoding();
+ assert.match(h.el('codeFilterSegments').innerHTML,/AI <span>0/);
+ assert.match(h.el('codeFilterSegments').innerHTML,/Needs categorizing <span>1/);
+ const collapsed=rowHtml(h,row.id);
+ assert.match(collapsed,/Needs category/);assert.ok(!/Needs your choice|Suggestion ready/.test(collapsed));
+ assert.match(collapsed,/data-edit="account"/);
+ // Claude's note is still readable in the details, with no Dismiss to clear.
+ assert.match(h.el('tblCoding').innerHTML,/No category suggested/);
+ assert.ok(!h.el('tblCoding').innerHTML.includes('data-dismiss-suggestion'));
+ assert.match(h.el('tblCoding').innerHTML,/data-retry-suggestion/);
+ // A ready one next to it still counts.
+ const other={...row,id:'txn-two'};h.page.state.txns.push(other);
+ h.data.card_coding_suggestions_v.push(prepared(other));await h.page.loadSuggestions([row,other]);h.page.renderCoding();
+ assert.match(h.el('codeFilterSegments').innerHTML,/AI <span>1/);
+});
 await test('the row-level Use is disabled over unsaved edits or a locked import, and a low confidence reads amber',async()=>{
  const h=await pageHarness();const row=h.page.state.txns[0];
  h.data.card_coding_suggestions_v.push(prepared(row,{confidence:.55}));await h.page.loadSuggestions([row]);

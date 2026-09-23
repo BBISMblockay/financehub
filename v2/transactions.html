@@ -220,7 +220,7 @@
     .cc-chip--split { background: rgba(37,99,235,.12); border-color: var(--bcn-accent); }
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
-  <link rel="stylesheet" href="./transactions-workspace.css?v=ef5b781f7ee8" />
+  <link rel="stylesheet" href="./transactions-workspace.css?v=6f34445694ce" />
   <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -448,13 +448,15 @@
             <div class="cc-foot" id="codeActionBar" hidden>
             <div class="cc-bulk" id="codeBulk" hidden>
               <span class="cc-bulk-count" id="bulkCount"></span>
-              <select class="bcn-field bcn-field--mono" id="bulkAccount" style="width:280px"></select>
-              <select class="bcn-field bcn-field--mono" id="bulkLocation" style="width:200px"></select>
-              <select class="bcn-field bcn-field--mono" id="bulkEntity" style="width:220px"></select>
+              <span class="cc-bulk-set" role="group" aria-label="Apply to selected">
+                <select class="bcn-field" id="bulkAccount" aria-label="Set category on selected"></select>
+                <select class="bcn-field" id="bulkLocation" aria-label="Set location on selected"></select>
+                <select class="bcn-field" id="bulkEntity" aria-label="Set vendor or customer on selected"></select>
+              </span>
               <button class="bcn-btn" id="btnBulkAccept" title="Save the prepared category on each selected row that has one">Use suggestions</button>
               <button class="bcn-btn" id="btnBulkExclude">Exclude</button>
               <button class="bcn-btn" id="btnBulkInclude">Include</button>
-              <button class="bcn-btn" id="btnBulkClear">Clear selection</button>
+              <button class="bcn-btn cc-bulk-clear" id="btnBulkClear" aria-label="Clear selection" title="Clear selection">×</button>
             </div>
               <span id="unsavedCount" class="cc-note"></span>
               <button class="bcn-btn" id="btnSaveCoding">Save categories</button>
@@ -1062,6 +1064,12 @@
   }
   // The suggestion a row should show, if any: only while the row still needs a category.
   function liveSuggestion(t) { const s = t && suggestions.get(t.id); return s && CS.applies(t, isSplit(t)) ? s : null; }
+  /* A suggestion that actually names a category the chart still has. Only
+     this counts as "AI" in the list: when Claude declined to name one ("No
+     category suggested") or preparation failed, the row is an ordinary
+     uncategorized row -- it belongs under Needs categorizing, not in an AI
+     queue that someone must clear by dismissing. */
+  function readySuggestion(t) { const s = liveSuggestion(t); return s && s.kind === 'ready' && resolveSuggestedAccount(t, s) ? s : null; }
   async function refreshFreshness() {
     const source = batchSource(), company = _co?.id;
     try {
@@ -1744,7 +1752,7 @@
     merchantKey,
     merchantLabel: (key) => merchantLabels.get(key) || '',
     sourceName: () => batchSource()?.display_name || '',
-    hasSuggestion: (t) => !!liveSuggestion(t),
+    hasSuggestion: (t) => !!readySuggestion(t),
     accountName: (id) => acctName(id) || state.allAccounts.find((a) => a.id === id)?.name || id,
     typeLabel: (v) => TREATMENTS[v] || v,
     statusLabel: (v) => ({ uncoded: 'Needs categorizing', conflict: 'Card vs merchant',
@@ -1772,7 +1780,7 @@
       if(t.status==='uncoded')counts.uncoded++;
       if(t.coding_conflict)counts.conflict++;
       if(t.status!=='excluded' && (t.confidence??1)<.6)counts.low++;
-      if(t.coding_source==='ai' || liveSuggestion(t))counts.ai++;
+      if(t.coding_source==='ai' || readySuggestion(t))counts.ai++;
       if(t.status==='excluded')counts.excluded++;
     }
     const segments=[['all','All'],['uncoded','Needs categorizing'],['conflict','Conflicts'],['ai','AI'],['low','Low confidence'],['excluded','Excluded']];
@@ -1882,7 +1890,7 @@
         <td class="txn-select"><input type="checkbox" class="cc-check" data-pick ${!rowEditable(t)?'disabled title="This transaction is locked or unavailable"':''} aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
         <td class="txn-date">${esc(t.txn_date || '—')}</td>
         <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${esc(t.description)}</button>
-          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?(suggestedCategory?'Suggestion ready':suggestion.kind==='failed'?'Preparation failed':'Needs your choice'):t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
+          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestedCategory?'Suggestion ready':suggestion?.kind==='failed'?'Preparation failed':t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-merchant">${merchantCell(t)}</td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
         <td class="txn-category" data-cell="account">${suggestedCategory?quickAccept(t,suggestion,suggestedCategory,expanded):isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}</td>
@@ -2381,9 +2389,9 @@
     if (!n) return;
     el('bulkCount').textContent = `${n} selected`;
     if (!el('bulkAccount').options.length) {
-      el('bulkAccount').innerHTML = `<option value="">Set category…</option>${_acctOptions}`;
-      el('bulkLocation').innerHTML = `<option value="">Set location…</option>${_locOptions}`;
-      el('bulkEntity').innerHTML = `<option value="">Set entity…</option>${_entityOptions}`;
+      el('bulkAccount').innerHTML = `<option value="">Category…</option>${_acctOptions}`;
+      el('bulkLocation').innerHTML = `<option value="">Location…</option>${_locOptions}`;
+      el('bulkEntity').innerHTML = `<option value="">Vendor / customer…</option>${_entityOptions}`;
     }
   }
 
@@ -2784,9 +2792,10 @@
     }
     const account = s.kind === 'ready' ? resolveSuggestedAccount(t, s) : null;
     if (!account) {
-      return `<div class="cc-note"><b>No category suggested</b><br>${esc(s.reasoning || '')}${evidence}<br>Choose a category below.<br><span class="cc-evidence">${esc(preparedLine(s))}</span></div>
-        <button class="bcn-btn" data-retry-suggestion ${locked} title="Ask Claude again about this transaction">Ask again</button>
-        <button class="bcn-btn" data-dismiss-suggestion ${locked}>Dismiss</button>`;
+      // Nothing to dismiss: choosing a category is the whole decision, and
+      // it retires this note (the save supersedes the open suggestion).
+      return `<div class="cc-note"><b>No category suggested</b><br>${esc(s.reasoning || '')}${evidence}<br>Choose a category from the list.<br><span class="cc-evidence">${esc(preparedLine(s))}</span></div>
+        <button class="bcn-btn" data-retry-suggestion ${locked} title="Ask Claude again about this transaction">Ask again</button>`;
     }
     return `<div class="cc-note"><b>${esc(account.name)}</b>${s.qbo_location_name ? ' @ ' + esc(s.qbo_location_name) : ''} · ${confidencePct(s)}% confidence<br>${esc(s.reasoning || '')}${evidence}<br><span class="cc-evidence">${esc(preparedLine(s))}</span></div>
       <button class="bcn-btn" data-accept-suggestion ${locked} title="Save this category. The import still needs approval before anything posts.">Use category</button>
