@@ -365,6 +365,7 @@
                 <div class="cc-sub" id="codeSub">Choose an account and dates above</div>
                 <button class="bcn-btn bcn-btn--ghost" id="codeShowRemoved" type="button" hidden></button>
                 <div class="cc-note" id="codeStatus" role="status"></div>
+                <div class="cc-note txn-freshness" id="codeFreshness" aria-live="polite"></div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                 <input class="bcn-field bcn-field--mono" id="codeSearch" type="search"
@@ -382,7 +383,7 @@
                 <button class="bcn-btn" id="btnFilterToggle" type="button" aria-expanded="false" aria-controls="codeFilterPanel">Filters</button>
                 <button class="bcn-btn" id="btnDateBack" hidden>All activity in dates</button>
                 <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from categorized rows</button><button class="bcn-btn" id="btnApplyRules">Apply saved rules</button></div></details>
-                <button class="bcn-btn" id="btnAiCode">Suggest categories</button>
+                <button class="bcn-btn" id="btnAiCode" title="Ask Claude about uncategorized rows that have no suggestion yet, and retry any that failed">Prepare coding</button>
               </div>
             </div>
             <!-- Combinable filters over the WHOLE loaded set. The controls are
@@ -450,6 +451,7 @@
               <select class="bcn-field bcn-field--mono" id="bulkAccount" style="width:280px"></select>
               <select class="bcn-field bcn-field--mono" id="bulkLocation" style="width:200px"></select>
               <select class="bcn-field bcn-field--mono" id="bulkEntity" style="width:220px"></select>
+              <button class="bcn-btn" id="btnBulkAccept" title="Save the prepared category on each selected row that has one">Use suggestions</button>
               <button class="bcn-btn" id="btnBulkExclude">Exclude</button>
               <button class="bcn-btn" id="btnBulkInclude">Include</button>
               <button class="bcn-btn" id="btnBulkClear">Clear selection</button>
@@ -665,6 +667,7 @@
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
 <script src="transaction-dates.js?v=0bad96d29084"></script>
+<script src="coding-suggestions.js?v=98cb818cc256"></script>
 <script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
 <script src="card-splits.js?v=050d8f3d5bed"></script>
 <script src="transaction-filters.js?v=53b49e70ff5e"></script>
@@ -719,7 +722,7 @@
   let showRemoved = false;
   let splitsError = '';
   let journalPreviewBatch=null;
-  let dateContext = null, dateAiProgress = '';
+  let dateContext = null;
   let dateStorage;try {dateStorage=window.sessionStorage;}catch{}
 
   // -------------------------------------------------------------- filters
@@ -749,7 +752,12 @@
   }
   const datePrefs=window.SiloTransactionDates.preferences(dateStorage);
   const dateRange = () => ({start:el('dateStart').value,end:el('dateEnd').value});
+  // Live prepared suggestions for the rows on screen, keyed by transaction id.
+  // A CACHE of card_coding_suggestions, reloaded with the rows -- never the
+  // record, so a reload or a colleague's screen shows the same prepared work.
   const suggestions = new Map();
+  const CS = window.SiloCodingSuggestions;
+  let suggestionsAvailable = true, suggestionsError = '', freshnessInfo = null, prepareProgress = '', prepareError = '';
   const askFinance = options => window.SiloFinanceDialog.ask(options);
   const batchSource = () => state.sources.find(source=>source.id===(dateBrowse?workspace?.selected():state.batch?.source_id));
   const workingRows = () => dateBrowse ? dateRows.filter(t=>!bank.wasPendingWhenRemoved(t) && (showRemoved || !bank.isRemovedByBank(t))) : state.txns;
@@ -1030,6 +1038,53 @@
     state.txns = rows;
     state.dirty.clear();
     await loadSplits(rows);
+    await loadSuggestions(rows);
+  }
+
+  /* Prepared suggestions for these rows, from the database. Merges rather than
+     clears, so rows elsewhere keep theirs. A missing table (migration not yet
+     applied) disables the feature and says so; any other failure says so too
+     and never shows a stale in-page answer in its place. */
+  async function loadSuggestions(rows) {
+    if (!rows?.length || !_co?.id) return;
+    try {
+      const { available, byTransaction } = await CS.load(sb, _co.id, rows.map((t) => t.id));
+      suggestionsAvailable = available; suggestionsError = '';
+      for (const t of rows) {
+        if (byTransaction.has(t.id)) suggestions.set(t.id, byTransaction.get(t.id));
+        else suggestions.delete(t.id);
+      }
+    } catch (error) {
+      suggestionsError = error.message;
+      for (const t of rows) suggestions.delete(t.id);
+    }
+    refreshFreshness();
+  }
+  // The suggestion a row should show, if any: only while the row still needs a category.
+  function liveSuggestion(t) { const s = t && suggestions.get(t.id); return s && CS.applies(t, isSplit(t)) ? s : null; }
+  async function refreshFreshness() {
+    const source = batchSource(), company = _co?.id;
+    try {
+      const info = await CS.freshness(sb, company, source);
+      if (company === _co?.id && source === batchSource()) { freshnessInfo = info; renderFreshness(); }
+    } catch { /* freshness is informational; the table still works */ }
+  }
+  function renderFreshness() {
+    const node = el('codeFreshness'); if (!node) return;
+    const parts = [];
+    if (!suggestionsAvailable) parts.push('Prepared suggestions are unavailable until the latest database update is applied');
+    else {
+      if (freshnessInfo?.feedSyncedAt !== undefined && batchSource()?.ingest_mode === 'plaid')
+        parts.push(`Feed synced ${CS.ago(freshnessInfo.feedSyncedAt) || 'never'}`);
+      parts.push(`Coding prepared ${CS.ago(freshnessInfo?.preparedAt) || 'never'}`);
+      const c = CS.counts(suggestions, reviewDateRows(), isSplit);
+      if (c.ready) parts.push(`${c.ready} ready to review`);
+      if (c.judgment) parts.push(`${c.judgment} need${c.judgment === 1 ? 's' : ''} a person to choose`);
+      if (c.failed) parts.push(`${c.failed} failed to prepare`);
+      if (suggestionsError) parts.push(`Suggestions could not load: ${suggestionsError}`);
+    }
+    if (prepareProgress) parts.unshift(prepareProgress);
+    node.textContent = parts.join(' · ');
   }
 
   /* Split lines for the rows on screen. Read separately rather than through a
@@ -1490,17 +1545,8 @@
       if (error || !data) throw new Error(error?.message || 'Batch is unavailable.');
       state.batch = data;
     }
-    const retainedSuggestions=new Map(suggestions);
-    suggestions.clear();
-    for(const [key,s] of retainedSuggestions)if(s.dateRevision)suggestions.set(key,s);
     await loadTxns(id);
     if (!state.batches.some(batch => batch.id === id)) state.batches.push(state.batch);
-    for(const t of state.txns) {
-      const s=retainedSuggestions.get(t.id);
-      if(s && (s.dateRevision ? s.dateRevision===window.SiloTransactionDates.fingerprint(t) : s.revision===JSON.stringify(t)))
-        suggestions.set(t.id,{...s,revision:JSON.stringify(t)});
-      else suggestions.delete(t.id);
-    }
     buildOptionCache();
     for (const id of ['bulkAccount', 'bulkLocation', 'bulkEntity']) el(id).innerHTML = '';
     if(previousBatch?.id!==id) {state.selected.clear();setQuickSearch('');}
@@ -1687,7 +1733,7 @@
     merchantKey,
     merchantLabel: (key) => merchantLabels.get(key) || '',
     sourceName: () => batchSource()?.display_name || '',
-    hasSuggestion: (t) => suggestions.has(t.id),
+    hasSuggestion: (t) => !!liveSuggestion(t),
     accountName: (id) => acctName(id) || state.allAccounts.find((a) => a.id === id)?.name || id,
     typeLabel: (v) => TREATMENTS[v] || v,
     statusLabel: (v) => ({ uncoded: 'Needs categorizing', conflict: 'Card vs merchant',
@@ -1715,7 +1761,7 @@
       if(t.status==='uncoded')counts.uncoded++;
       if(t.coding_conflict)counts.conflict++;
       if(t.status!=='excluded' && (t.confidence??1)<.6)counts.low++;
-      if(t.coding_source==='ai' || suggestions.has(t.id))counts.ai++;
+      if(t.coding_source==='ai' || liveSuggestion(t))counts.ai++;
       if(t.status==='excluded')counts.excluded++;
     }
     const segments=[['all','All'],['uncoded','Needs categorizing'],['conflict','Conflicts'],['ai','AI'],['low','Low confidence'],['excluded','Excluded']];
@@ -1733,7 +1779,8 @@
       button.setAttribute('aria-pressed',String(range.start===dateRange().start && range.end===dateRange().end));
       button.disabled=state.codingBusy || !!state.dirty.size;
     }
-    el('btnAiCode').textContent=state.codingBusy && dateAiProgress?'Suggesting…':'Suggest categories';
+    el('btnAiCode').textContent=state.codingBusy && prepareProgress?'Preparing…':'Prepare coding';
+    renderFreshness();
     renderFilterSegments(reviewDateRows());
     // Computed before the early returns below so the chips and the "showing
     // X of Y" count are right even when the table itself has nothing to draw.
@@ -1760,7 +1807,7 @@
     el('btnLearnRules').disabled = state.codingBusy;
     el('btnReloadCoding').disabled = state.codingBusy;
     el('btnReloadCoding').hidden = state.dirty.size === 0;
-    el('btnAiCode').disabled = locked || !(dateBrowse?dateAiCandidates().length:reviewDateRows().some(txn=>bank.eligibleForAi(txn,batchSource())));
+    el('btnAiCode').disabled = locked || !(dateBrowse?dateAiCandidates().length:reviewDateRows().some(txn=>bank.eligibleForAi(txn,batchSource()) && needsPreparing(txn)));
     if ((!dateBrowse && !state.batch) || (dateBrowse && (dateLoading || dateError))) {
       el('codeTitle').textContent = 'Transactions';
       el('codeSub').textContent = 'Choose an account and dates above';
@@ -1775,7 +1822,7 @@
       ? `${reviewDateRows().length} transactions`
       : `${reviewDateRows().length} in dates · ${state.txns.length} in journal review · ${state.batch.label || 'Import'}`;
     if(state.codingBusy)el('codeSub').textContent+=' · Coding in progress';
-    el('codeStatus').textContent=dateAiProgress || (state.codingBusy?'Working…':'');
+    el('codeStatus').textContent=prepareProgress || (state.codingBusy?'Working…':'');
 
     const coded = reviewDateRows().filter((t) => t.status === 'coded').length;
     const uncoded = reviewDateRows().filter((t) => t.status === 'uncoded').length;
@@ -1817,14 +1864,14 @@
         <th class="txn-category">Category</th><th class="txn-review"><span class="txn-sr-only">Review transaction</span></th>
       </tr></thead><tbody>` + rows.map((t) => {
       const expanded = expandedTransaction === t.id;
-      const suggestion = suggestions.get(t.id);
-      const suggestedCategory=suggestion && resolveSuggestedAccount(t,suggestion);
+      const suggestion = liveSuggestion(t);
+      const suggestedCategory=suggestion?.kind==='ready' && resolveSuggestedAccount(t,suggestion);
       const entityMissing = needsEntity(t) && !t.entity_qbo_id;
       return `<tr class="txn-row ${t.status === 'excluded' ? 'cc-row--excluded' : ''} ${expanded?'txn-row--open':''} ${state.selected.has(t.id)?'txn-row--selected':''}" data-txn="${esc(t.id)}">
         <td class="txn-select"><input type="checkbox" class="cc-check" data-pick ${!rowEditable(t)?'disabled title="This transaction is locked or unavailable"':''} aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
         <td class="txn-date">${esc(t.txn_date || '—')}</td>
         <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${esc(t.description)}</button>
-          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?(suggestedCategory?'Category suggestion ready':'Category needs review'):t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
+          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?(suggestedCategory?'Suggestion ready':suggestion.kind==='failed'?'Preparation failed':'Needs your choice'):t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-merchant">${merchantCell(t)}</td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
         <td class="txn-category" data-cell="account">${suggestedCategory?`<button class="txn-suggestion-button" data-review aria-expanded="${expanded}">${esc(suggestedCategory.name)} · Review</button>`:isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}</td>
@@ -1839,7 +1886,7 @@
     for (const row of el('tblCoding').querySelectorAll('[data-txn]')) {
       const transaction = workingRows().find((value) => value.id === row.dataset.txn);
       if (!rowEditable(transaction)) {
-        for (const control of row.querySelectorAll('[data-edit], [data-toggle-exclude], [data-pick], [data-accept-suggestion], [data-dismiss-suggestion], select')) control.disabled = true;
+        for (const control of row.querySelectorAll('[data-edit], [data-toggle-exclude], [data-pick], [data-accept-suggestion], [data-dismiss-suggestion], [data-retry-suggestion], select')) control.disabled = true;
       }
     }
     if (el('codeAll')) {el('codeAll').disabled = !pickable.length;el('codeAll').indeterminate=state.selected.size>0 && !allChecked;}
@@ -2045,48 +2092,71 @@
     const sourceId=workspace?.selected(),source=state.sources.find(s=>s.id===sourceId);
     if(!source)return [];
     const editableBatches=new Set(state.batches.filter(b=>b.company_entity_id===_co?.id && b.source_id===sourceId && bank.canEditBatch(b)).map(b=>b.id));
-    return dateDisplayRows().filter(t=>t.status==='uncoded' && !t.qbo_account_id && !suggestions.has(t.id) && editableBatches.has(t.batch_id) && bank.eligibleForAi(t,source) && merchantKey(t));
+    return dateDisplayRows().filter(t=>t.status==='uncoded' && !t.qbo_account_id && needsPreparing(t) && editableBatches.has(t.batch_id) && bank.eligibleForAi(t,source) && merchantKey(t));
   }
+  // A row is worth asking about when nothing current was prepared for it, or
+  // when preparation failed. Dismissed rows are left alone by the server too.
+  function needsPreparing(t) { const s = suggestions.get(t.id); return !s || s.kind === 'failed'; }
   async function suggestDateCategories() {
-    if(state.dirty.size)return setStatus('Save or discard your edits before requesting suggestions.','neg');
+    if(state.dirty.size)return setStatus('Save or discard your edits before preparing coding.','neg');
     if(state.codingBusy || dateLoading || dateError)return;
     const candidates=dateAiCandidates();
-    if(!candidates.length)return setStatus('No eligible uncategorized transactions in this view.','info',4000);
-    const company=_co.id,sourceId=workspace.selected(),source=state.sources.find(s=>s.id===sourceId),generation=dateGeneration;
+    if(!candidates.length)return setStatus('Every uncategorized transaction in this view is already prepared. Review the suggestions, or retry one from its row.','info',5000);
+    const company=_co.id,sourceId=workspace.selected(),generation=dateGeneration;
     const current=()=>_co?.id===company && workspace?.selected()===sourceId && dateGeneration===generation;
+    await prepareRows(candidates, { current });
+  }
+  /* One path for both views and for retries: group by import, ask
+     card-categorize for each, then reload what it SAVED. The response is not
+     trusted as the record -- the database is. */
+  async function prepareRows(rows, { retry = false, current = () => true, batchOf = (t) => t.batch_id } = {}) {
     const batches=new Map();
-    for(const t of candidates){if(!batches.has(t.batch_id))batches.set(t.batch_id,[]);batches.get(t.batch_id).push(t);}
-    let suggested=0,needsCategory=0,failures=0,completed=0;
+    for(const t of rows){const b=batchOf(t);if(!batches.has(b))batches.set(b,[]);batches.get(b).push(t);}
+    const totals={suggested:0,needs_judgment:0,failed:0,already:0};let failures=0,completed=0;
     state.codingBusy=true;
+    const since=new Date(Date.now()-5000).toISOString();
     try {
       const {data:{session}}=await sb.auth.getSession();
-      for(const [batchId,rows] of batches) {
-        for(let offset=0;offset<rows.length;offset+=5000) {
+      for(const [batchId,list] of batches) {
+        for(let offset=0;offset<list.length;offset+=5000) {
           if(!current())return;
-          const pending=rows.slice(offset,offset+5000);
-          dateAiProgress=`Suggesting categories · import ${completed+1} of ${batches.size}`;renderCoding();
+          const pending=list.slice(offset,offset+5000);
+          const label=batches.size>1?` · import ${completed+1} of ${batches.size}`:'';
+          prepareProgress=`Preparing ${pending.length} transaction${pending.length===1?'':'s'}${label}`;renderCoding();
+          // The function saves as each model call returns; the run row shows
+          // how far it has got while this request is still open.
+          let polling=true;
+          const poll=(async()=>{while(polling){await new Promise(r=>setTimeout(r,2500));if(!polling)return;
+            const p=await CS.progress(sb,_co.id,batchId,since).catch(()=>null);
+            if(p && polling && current()){prepareProgress=`Preparing${label} · ${p.done} of ${p.transactions_requested} saved`;renderFreshness();}}})();
           try {
-            const res=await fetch(`${SUPABASE_URL}/functions/v1/card-categorize`,{
-              method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${session?.access_token}`},
-              body:JSON.stringify({batch_id:batchId,transaction_ids:pending.map(t=>t.id)})
-            });
-            const out=await res.json();if(!res.ok || !Array.isArray(out.suggestions))throw new Error(out.error || 'Invalid suggestion response');
-            if(!current())return;
-            const byKey=new Map(out.suggestions.map(s=>[`${s.merchant}||${s.card_name || ''}${source.source_type==='bank'?'||'+s.direction:''}`,s]));
-            for(const t of pending){
-              const s=byKey.get(`${merchantKey(t)}||${t.card_name || ''}${source.source_type==='bank'?'||'+bank.directionOf(t):''}`);
-              if(s){suggestions.set(t.id,{...s,dateRevision:window.SiloTransactionDates.fingerprint(t)});if(resolveSuggestedAccount(t,s))suggested++;else needsCategory++;}
-            }
+            const out=await CS.prepare({url:SUPABASE_URL,token:session?.access_token,batchId,ids:pending.map(t=>t.id),retry});
+            // An older card-categorize answers without saving anything. Say so,
+            // rather than reloading an empty table and implying Claude had
+            // nothing to suggest.
+            if(!('run_id' in out))throw new Error('the coding service has not been updated to save suggestions yet (deploy card-categorize)');
+            totals.suggested+=out.suggested||0;totals.needs_judgment+=out.needs_judgment||0;totals.failed+=out.failed||0;totals.already+=out.already_prepared||0;
             if(out.errors?.length)failures++;
-          } catch(error) {if(!current())return;failures++;}
+          } catch(error) {if(!current())return;failures++;prepareError=error.message;}
+          // Not awaited: the poll is asleep on a timer and exits on its own next wake.
+          finally {polling=false;void poll;}
+          if(!current())return;
+          await loadSuggestions(pending);
         }
         completed++;
       }
-      if(current())setStatus(`${suggested} COA category suggestions ready.${needsCategory?` ${needsCategory} still need a category chosen manually.`:''}${failures?` ${failures} requests had errors; retry remaining transactions.`:''} Review a suggested category before applying it.`,failures || needsCategory?'info':'pos',9000);
+      if(current()){
+        const parts=[`${totals.suggested} ready to review`];
+        if(totals.needs_judgment)parts.push(`${totals.needs_judgment} need you to choose a category`);
+        if(totals.failed)parts.push(`${totals.failed} failed — retry from the row or run Prepare coding again`);
+        if(totals.already)parts.push(`${totals.already} already prepared`);
+        if(failures && !totals.failed)parts.push(`preparation stopped early${prepareError?`: ${prepareError}`:''}; run it again to finish`);
+        setStatus(`Coding prepared: ${parts.join(' · ')}.`,failures || totals.failed || totals.needs_judgment?'info':'pos',9000);
+      }
     } catch(error) {
-      if(current())setStatus(`Suggestions could not load — ${error.message}. Retry when ready.`,'neg',8000);
+      if(current())setStatus(`Coding could not be prepared — ${error.message}. Retry when ready.`,'neg',8000);
     } finally {
-      state.codingBusy=false;dateAiProgress='';renderCoding();renderEntry();
+      state.codingBusy=false;prepareProgress='';prepareError='';refreshFreshness();renderCoding();renderEntry();
     }
   }
   // The AI candidate list has to be the rows the table is SHOWING, or
@@ -2109,7 +2179,7 @@
       dateRows=rows;
       await loadSplits(rows);
       if(generation!==dateGeneration || company!==_co?.id)return;
-      for(const t of rows){const s=suggestions.get(t.id);if(s?.dateRevision && s.dateRevision!==window.SiloTransactionDates.fingerprint(t))suggestions.delete(t.id);}
+      await loadSuggestions(rows);
     } catch(error) {if(generation===dateGeneration) dateError=error.message;}
     finally {if(generation===dateGeneration){dateLoading=false;renderCoding();renderEntry();}}
   }
@@ -2686,117 +2756,122 @@
   }
 
   const resolveSuggestedAccount=(t,s)=>window.SiloTransactionDates.suggestionAccount(t,s,refsForConnection(state.accounts));
+  function confidencePct(s) { return Math.round((Number(s.confidence) || 0)*100); }
+  // Where a suggestion came from, in the words a reviewer checks it by.
+  function preparedLine(s) { return `Prepared by Claude ${CS.ago(s.prepared_at) || ''}${s.prepared_via==='background' || s.prepared_via==='nightly'?' in the background':''}${s.attempt>1?` · attempt ${s.attempt}`:''}`; }
   function suggestionCell(t) {
-    const s = suggestions.get(t.id);
+    const s = liveSuggestion(t);
     if (!s) return '';
-    const account=resolveSuggestedAccount(t,s);
-    return `<div class="cc-note"><b>${account?esc(account.name):'No COA category suggested'}</b>${account?' · '+Math.round((s.confidence || 0)*100)+'% confidence':''}<br>${esc(s.reasoning || '')}${s.evidence?`<br><span class="cc-evidence">History: ${esc(s.evidence)}</span>`:''}${account?'':'<br>Choose a category from your chart of accounts.'}</div>
-      ${account?`<button class="bcn-btn" data-accept-suggestion ${!rowEditable(t)?'disabled':''}>Use category</button>`:''}
-      <button class="bcn-btn" data-dismiss-suggestion ${!rowEditable(t)?'disabled':''}>Dismiss</button>`;
-  }
-  function acceptSuggestion(id) {
-    if (!requireEditable()) return;
-    const t = workingRows().find(t=>t.id===id), s = suggestions.get(id);
-    if (!t || !s || !rowEditable(t)) return;
-    if ((s.dateRevision ? s.dateRevision!==window.SiloTransactionDates.fingerprint(t) : s.revision!==JSON.stringify(t)) || !bank.eligibleForAi(t,batchSource())) {
-      suggestions.delete(id); renderCoding(); return setStatus('This row changed. Request a fresh suggestion.', 'neg');
+    const locked = !rowEditable(t) || state.dirty.has(t.id) ? 'disabled' : '';
+    const evidence = s.evidence ? `<br><span class="cc-evidence">History: ${esc(s.evidence)}</span>` : '';
+    if (s.kind === 'failed') {
+      return `<div class="cc-note"><b>Preparation did not finish</b><br>${esc(s.error_code || 'The request failed.')}<br><span class="cc-evidence">${esc(preparedLine(s))}</span></div>
+        <button class="bcn-btn" data-retry-suggestion ${locked}>Retry</button>`;
     }
-    const acct=resolveSuggestedAccount(t,s);
-    if(!acct)return setStatus('No COA category was suggested. Choose a category manually.','info');
-    const treatment = s.accounting_treatment || (Number(t.amount)>0?'purchase':'refund');
-    t.accounting_treatment = treatment;
-    t.qbo_account_id = acct?.id || null; t.qbo_account_name = acct?.name || null;
-    t.entity_qbo_id = null; t.entity_name = null; t.entity_type = null;
-    const loc = acct && refsForConnection(state.locations).find(l=>l.name===s.location_name);
-    t.qbo_location_id = loc?.id || null; t.qbo_location_name = loc?.name || null;
-    // The evidence line travels with the accepted row: it is the part of the
-    // reasoning a reviewer can check against the ledger.
-    t.ai_reasoning = s.evidence ? `${s.reasoning || ''} History: ${s.evidence}`.trim() : s.reasoning; t.confidence = s.confidence; t.coding_source = 'ai';
-    t.vendor_name = s.vendor_name || t.vendor_name; t.status = acct ? 'coded' : 'uncoded';
-    state.dirty.add(id); suggestions.delete(id); renderCoding(); renderEntry();
+    const account = s.kind === 'ready' ? resolveSuggestedAccount(t, s) : null;
+    if (!account) {
+      return `<div class="cc-note"><b>No category suggested</b><br>${esc(s.reasoning || '')}${evidence}<br>Choose a category below.<br><span class="cc-evidence">${esc(preparedLine(s))}</span></div>
+        <button class="bcn-btn" data-retry-suggestion ${locked} title="Ask Claude again about this transaction">Ask again</button>
+        <button class="bcn-btn" data-dismiss-suggestion ${locked}>Dismiss</button>`;
+    }
+    return `<div class="cc-note"><b>${esc(account.name)}</b>${s.qbo_location_name ? ' @ ' + esc(s.qbo_location_name) : ''} · ${confidencePct(s)}% confidence<br>${esc(s.reasoning || '')}${evidence}<br><span class="cc-evidence">${esc(preparedLine(s))}</span></div>
+      <button class="bcn-btn" data-accept-suggestion ${locked} title="Save this category. The import still needs approval before anything posts.">Use category</button>
+      <button class="bcn-btn" data-dismiss-suggestion ${locked}>Dismiss</button>`;
+  }
+  /* Re-read transactions after a server-side write, then their suggestions.
+     Same shape as refreshSplitRow: the database decides what the row now is. */
+  async function refreshRows(ids) {
+    const fresh = [];
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data, error } = await sb.from('card_transactions').select('*')
+        .eq('company_entity_id', _co.id).in('id', ids.slice(i, i + 200));
+      if (error) throw new Error(error.message);
+      fresh.push(...(data || []));
+    }
+    const byId = new Map(fresh.map((row) => [row.id, row]));
+    const patch = (rows) => rows.map((row) => (byId.has(row.id) ? { ...row, ...byId.get(row.id) } : row));
+    state.txns = patch(state.txns); dateRows = patch(dateRows);
+    journalPreviewBatch = null;
+    await loadSuggestions(fresh);
+  }
+  /* Accepting SAVES: accept_card_coding_suggestions re-checks the row, its
+     batch, the facts and the account, then writes through apply_card_coding
+     as the person clicking. No separate Save step -- but approval and
+     posting are still separate, and the message says so. */
+  async function acceptSuggestion(ids) {
+    if (!requireEditable()) return;
+    const rows = ids.map((id) => workingRows().find((t) => t.id === id)).filter(Boolean);
+    if (rows.some((t) => state.dirty.has(t.id))) return setStatus('Save or discard your edits to these rows before using a suggestion.', 'neg', 6000);
+    const picked = rows.map((t) => [t, liveSuggestion(t)])
+      .filter(([t, s]) => s && s.kind === 'ready' && rowEditable(t) && resolveSuggestedAccount(t, s));
+    if (!picked.length) return setStatus('None of these rows has a suggested category to use.', 'info', 4000);
+    state.codingBusy = true; renderCoding(); renderEntry();
+    // accept_card_coding_suggestions takes at most 500 ids. Each batch stands
+    // on its own: rows a batch saved are shown saved even if a later one fails.
+    const accepted = [], refused = []; let failure = null;
+    try {
+      for (let i = 0; i < picked.length; i += CS.ACCEPT_BATCH) {
+        const part = picked.slice(i, i + CS.ACCEPT_BATCH);
+        try {
+          const out = await CS.accept(sb, part.map(([, s]) => s.id));
+          accepted.push(...out.accepted); refused.push(...out.refused);
+        } catch (e) { failure = e; break; }
+      }
+      const touched = picked.map(([t]) => t.id);
+      await refreshRows(touched);
+      if (accepted.length) { await loadBatches(); renderBatches(); }
+      const done = accepted.length;
+      const why = refused.length ? ` ${refused.length} not applied: ${[...new Set(refused.map((r) => CS.reasonText(r.reason)))].join('; ')}.` : '';
+      const stopped = failure ? ` The rest could not be sent — ${failure.message}. Select them again to retry.` : '';
+      setStatus(done
+        ? `${done} categor${done === 1 ? 'y' : 'ies'} saved. Approve the import when you are ready; nothing posts until then.${why}${stopped}`
+        : failure ? `The suggestion could not be used — ${failure.message}` : `Nothing was applied.${why}`,
+        failure ? 'neg' : refused.length ? 'info' : 'pos', failure || refused.length ? 9000 : 5000);
+    } catch (e) {
+      setStatus(`The suggestion could not be used — ${e.message}`, 'neg', 8000);
+    } finally {
+      state.codingBusy = false; renderCoding(); renderEntry();
+    }
+  }
+  async function dismissSuggestion(ids) {
+    if (!requireEditable()) return;
+    const picked = ids.map((id) => workingRows().find((t) => t.id === id)).filter((t) => t && liveSuggestion(t) && rowEditable(t));
+    if (!picked.length) return;
+    try {
+      await CS.dismiss(sb, picked.map((t) => liveSuggestion(t).id));
+      for (const t of picked) suggestions.delete(t.id);
+      renderCoding();
+      setStatus('Dismissed. It will not come back unless the transaction changes or you ask again.', 'info', 5000);
+    } catch (e) { setStatus(`Could not dismiss — ${e.message}`, 'neg', 6000); }
+  }
+  async function retrySuggestion(id) {
+    const t = workingRows().find((x) => x.id === id);
+    if (!t || !rowEditable(t) || state.codingBusy) return;
+    if (state.dirty.size) return setStatus('Save or discard your edits before asking again.', 'neg', 6000);
+    await prepareRows([t], { retry: true, batchOf: (row) => (dateBrowse ? row.batch_id : state.batch?.id) });
   }
   el('tblCoding').addEventListener('click', event=>{
     const row=event.target.closest('[data-txn]'); if(!row)return;
-    if(event.target.closest('[data-accept-suggestion]')) acceptSuggestion(row.dataset.txn);
-    if(event.target.closest('[data-dismiss-suggestion]') && editable()){suggestions.delete(row.dataset.txn);renderCoding();}
+    if(event.target.closest('[data-accept-suggestion]')) acceptSuggestion([row.dataset.txn]);
+    if(event.target.closest('[data-dismiss-suggestion]')) dismissSuggestion([row.dataset.txn]);
+    if(event.target.closest('[data-retry-suggestion]')) retrySuggestion(row.dataset.txn);
   });
+  el('btnBulkAccept').addEventListener('click', () => acceptSuggestion([...state.selected]));
   async function aiCategorise() {
     if(dateBrowse)return suggestDateCategories();
     if (!state.batch || !requireEditable()) return;
-    if (batchSource()?.ingest_mode === 'plaid' && state.dirty.size) return setStatus('Save coding and treatment changes before asking AI.', 'neg', 6000);
-    const pending = reviewDateRows().filter((t) => t.status === 'uncoded' && !t.qbo_account_id && bank.eligibleForAi(t, batchSource()));
-    if (!pending.length) return setStatus('No eligible uncategorized transactions. Review existing suggestions or choose another period.', 'info', 4000);
-
-    // One question per merchant, not per row.
-    const byMerchant = new Map();
-    for (const t of pending) {
-      const m = merchantKey(t);
-      if (!m) continue;
-      // Keyed on merchant AND card name. Bill.com is the reason: as a merchant
-      // it means nothing -- it is a payment processor -- but on the
-      // 'Lease & Rent' card it is unmistakably rent, and one answer for both
-      // would be wrong for one of them.
-      const key = `${m}||${t.card_name || ''}`;
-      const cur = byMerchant.get(key)
-        || { merchant: m, card_name: t.card_name || null, sample: t.description, count: 0, total: 0 };
-      cur.count++;
-      cur.total += Number(t.amount || 0);
-      byMerchant.set(key, cur);
-    }
-    const merchants = [...byMerchant.values()];
-
-    state.codingBusy = true;
-    el('codeStatus').textContent = `Asking about ${merchants.length} merchant${merchants.length === 1 ? '' : 's'}…`;
-
-    try {
-      renderCoding();
-      renderEntry();
-      const { data: { session } } = await sb.auth.getSession();
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/card-categorize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token}`,
-        },
-        body: JSON.stringify({ batch_id: state.batch.id, transaction_ids: pending.filter((txn) => merchantKey(txn)).map((txn) => txn.id) }),
-      });
-      const out = await res.json();
-      if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
-
-      const byKey = new Map((out.suggestions || [])
-        .map((s) => [`${s.merchant}||${s.card_name || ''}${batchSource()?.source_type==='bank'?'||'+s.direction:''}`, s]));
-      let applied = 0,needsCategory=0;
-      for (const t of pending) {
-        const s = byKey.get(`${merchantKey(t)}||${t.card_name || ''}${batchSource()?.source_type==='bank'?'||'+bank.directionOf(t):''}`);
-        if (!s) continue;
-        suggestions.set(t.id, { ...s, revision: JSON.stringify(t) });
-        if(resolveSuggestedAccount(t,s))applied++;else needsCategory++;
-      }
-
-      renderCoding();
-      renderEntry();
-      const low = state.txns.filter((t) => t.coding_source === 'ai' && (t.confidence ?? 0) < 0.6).length;
-      setStatus(
-        `${applied} COA category suggestions from ${merchants.length} merchants.${needsCategory?` ${needsCategory} still need a category chosen manually.`:''}`
-        + (low ? ` ${low} came back under 60% — read those before approving.` : '')
-        + ' Accept or dismiss each suggestion. Accepted changes still require Save coding.',
-        low ? 'info' : 'pos', 9000);
-      if (out.errors?.length) {
-        setStatus(`Some merchants failed: ${out.errors[0]}`, 'neg', 9000);
-      }
-    } catch (e) {
-      setStatus(`Suggestions could not load — ${e.message}. Retry or review these transactions manually.`, 'neg', 8000);
-    } finally {
-      el('codeStatus').textContent = '';
-      state.codingBusy = false;
-      renderCoding();
-      renderEntry();
-    }
+    if (state.dirty.size) return setStatus('Save coding changes before preparing coding.', 'neg', 6000);
+    const pending = reviewDateRows().filter((t) => t.status === 'uncoded' && !t.qbo_account_id
+      && bank.eligibleForAi(t, batchSource()) && merchantKey(t) && needsPreparing(t));
+    if (!pending.length) return setStatus('Every uncategorized transaction here is already prepared. Review the suggestions, or retry one from its row.', 'info', 5000);
+    // In the single-import view the import IS state.batch.
+    const batchId = state.batch.id;
+    await prepareRows(pending, { batchOf: () => batchId });
   }
 
   // Turns confirmed rows into rules. Only rows a person can be said to have
-  // stood behind: coded by hand, or an AI suggestion the person left in place
-  // AND saved. An unsaved suggestion teaches nothing.
+  // stood behind: coded by hand, or a prepared suggestion a person accepted.
+  // A suggestion nobody accepted teaches nothing.
   async function learnRules() {
     if (!batchSource()) return;
     if (state.codingBusy) return setStatus('Wait for coding to finish before learning rules.', 'neg', 6000);
@@ -2907,7 +2982,7 @@
       if(dateBrowse) {
         state.codingBusy=true;renderCoding();
         const rows=await window.SiloTransactionDates.read(sb,_co.id,workspace.selected(),state.batches,dateContext.range);
-        dateRows=rows;await loadSplits(rows);state.dirty.clear();state.selected.clear();suggestions.clear();journalPreviewBatch=null;return;
+        dateRows=rows;await loadSplits(rows);state.dirty.clear();state.selected.clear();suggestions.clear();await loadSuggestions(rows);journalPreviewBatch=null;return;
       }
       await loadBatches();
       state.batch = state.batches.find((batch) => batch.id === state.batch.id) || state.batch;
