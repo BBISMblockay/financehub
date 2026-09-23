@@ -1,13 +1,10 @@
 // Execute the real categorizer callback; no Anthropic or database network calls.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import vm from 'node:vm';
-import { readFile } from 'node:fs/promises';
-import { stripTypeScriptTypes } from 'node:module';
 
-const source = await readFile(new URL('../../supabase/functions/card-categorize/index.ts', import.meta.url), 'utf8');
+import { loadCategorizer, prepareSource } from './lib/card-categorize-sandbox.mjs';
+const source = await prepareSource();
 const effectiveSource=process.env.BANK_AI_MUTATION==='clearing-account' ? source.replace("const canSuggestAccount = !!candidate && (allowedTypes[treatment] || []).includes(candidate.type);",'const canSuggestAccount = true;') : source;
-const runnable = stripTypeScriptTypes(effectiveSource.replace(/import \{ createClient \} from 'https:[^']+';/, ''), { mode: 'strip' });
 const ids = { batch: '00000000-0000-4000-8000-000000000001', source: '00000000-0000-4000-8000-000000000002',
   tx: '00000000-0000-4000-8000-000000000003', otherTx: '00000000-0000-4000-8000-000000000004',
   connection: '00000000-0000-4000-8000-000000000005', company: '00000000-0000-4000-8000-000000000006' };
@@ -42,7 +39,7 @@ function fixture(options = {}) {
       status: 'ok', raw_response: { ColData: [{ id: 'expense' }, { value: '987654321' }] }, start_date: 'FOREIGN YEAR', end_date: 'FOREIGN YEAR' }],
     card_coding_rules: [],
   };
-  const queries = [], modelCalls = [], writes = [];
+  const queries = [], modelCalls = [], writes = [], runWrites = [], rpcCalls = [];
   class Query {
     constructor(table) { this.table = table; this.filters = []; this.singleResult = false; this.maxRows = Infinity; }
     select(columns) { this.columns = columns; return this; }
@@ -55,8 +52,13 @@ function fixture(options = {}) {
     order() { return this; }
     limit(count) { this.maxRows = count; return this; }
     range(from, to) { this.offset = from; this.maxRows = to - from + 1; return this; }
-    update(value) { writes.push(value); throw new Error('Categorizer must not write'); }
-    insert(value) { writes.push(value); throw new Error('Categorizer must not write'); }
+    // The run log is the one table the preparer writes directly. Any other
+    // write -- above all to card_transactions -- is refused and counted.
+    update(value) { if (this.table === 'card_coding_preparation_runs') { runWrites.push(['update', value]); this.writeResult = { data: null, error: null }; return this; }
+      writes.push(value); throw new Error('Categorizer must not write'); }
+    insert(value) { if (this.table === 'card_coding_preparation_runs') { runWrites.push(['insert', value]); this.writeResult = { data: { id: 'run-1' }, error: null }; return this; }
+      writes.push(value); throw new Error('Categorizer must not write'); }
+    single() { return Promise.resolve(this.writeResult || this.execute()); }
     delete() { throw new Error('Categorizer must not delete'); }
     execute() {
       queries.push({ table: this.table, filters: structuredClone(this.filters), columns: this.columns });
@@ -76,13 +78,22 @@ function fixture(options = {}) {
       return { data: structuredClone(this.singleResult ? rows[0] ?? null : rows), error: null };
     }
     maybeSingle() { this.singleResult = true; return Promise.resolve(this.execute()); }
-    then(resolve, reject) { return Promise.resolve(this.execute()).then(resolve, reject); }
+    then(resolve, reject) { return Promise.resolve(this.writeResult || this.execute()).then(resolve, reject); }
   }
-  let handler;
-  vm.runInNewContext(runnable, {
-    Request, Response, console,
-    Deno: { env: { get: () => 'synthetic' }, serve: (callback) => { handler = callback; } },
-    createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'user' } }, error: null }) }, from: (table) => new Query(table) }),
+  // The two RPCs the preparer calls. Fingerprints come back per id; the writer
+  // echoes what it was given so a test can read exactly what would be stored.
+  const fakeRpc = async (name, args) => {
+    rpcCalls.push({ name, args: structuredClone(args) });
+    if (name === 'card_coding_input_hashes') return { data: args.p_ids.map((id) => ({ transaction_id: id, input_hash: `hash:${id}` })), error: null };
+    if (name === 'record_card_coding_suggestions') {
+      if (options.recordFailure) return { data: null, error: { message: 'synthetic record failure' } };
+      return { data: { recorded: args.p_rows.length, skipped: [] }, error: null };
+    }
+    throw new Error(`Unexpected rpc ${name}`);
+  };
+  const { handler } = loadCategorizer(effectiveSource, {
+    console: console,
+    createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'user' } }, error: null }) }, from: (table) => new Query(table), rpc: async (name, args) => fakeRpc(name, args) }),
     fetch: async (url, init) => {
       assert.equal(url, 'https://api.anthropic.com/v1/messages');
       modelCalls.push(JSON.parse(init.body));
@@ -90,7 +101,7 @@ function fixture(options = {}) {
         direction: 'outflow', accounting_treatment: 'purchase', account_name: 'Supplies expense', location_name: 'HQ', vendor_name: 'Store', confidence: 0.9, reasoning: 'Synthetic purchase.', ...options.suggestion }] }) }], stop_reason: 'end_turn' });
     },
   });
-  return { records, queries, modelCalls, writes, async run(body = {}) {
+  return { records, queries, modelCalls, writes, runWrites, rpcCalls, async run(body = {}) {
     const response = await handler(new Request('https://silo.test/card-categorize', { method: 'POST',
       headers: { Authorization: 'Bearer test-user', 'Content-Type': 'application/json' },
       body: JSON.stringify({ batch_id: ids.batch, transaction_ids: [ids.tx],

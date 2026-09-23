@@ -19055,6 +19055,12 @@ $c$select (select count(*) from v_po_header_summary
 -- resolve_notification_sender(). The fallback chain ends at an owner-admin and
 -- never at a SILO address. Idempotent: create-if-not-exists, create-or-replace.
 \i migrations/20260920190000_notification_reply_contacts.sql
+-- ── Prepared coding suggestions (2026-09-23) ─────────────────────────────
+-- Claude's coding suggestions stored server-side, apart from accepted coding,
+-- with a run log carrying per-phase timings and token counts. Accepting
+-- re-checks the row and writes through apply_card_coding; approval and posting
+-- are untouched. Idempotent: create-if-not-exists, create-or-replace.
+\i migrations/20260923120000_card_coding_suggestions.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

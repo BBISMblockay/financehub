@@ -1988,3 +1988,42 @@ migration.
 Regression: `v2/tests/unit/launch-product-link.test.js`,
 `v2/tests/browser/launch-form-link.test.js`.
 
+
+## Prepared coding suggestions — `20260923120000_card_coding_suggestions.sql`
+
+Claude's coding suggestions lived in a browser `Map`: a reload, a second tab or
+a colleague's screen lost the prepared work, and it had to be paid for again.
+This migration stores them server-side, **apart from accepted coding**:
+
+- `card_coding_preparation_runs` — one row per preparation run (manual, retry,
+  and — from the next change — background/nightly): counts, per-phase
+  `timings` in milliseconds, the model's own token `usage`, model and prompt
+  version. Measurements, never estimates.
+- `card_coding_suggestions` — append-only history with one LIVE row per
+  transaction (`open` or `dismissed`, partial unique index). `outcome` is
+  `suggested` (an active chart account) / `needs_judgment` / `failed`.
+  Superseded and accepted rows stay as history.
+- `card_coding_input_hash(card_transactions)` is the ONE definition of "the
+  facts a suggestion was made from". `card_coding_suggestions_v` exposes
+  `stale_reason` (`facts_changed` / `connection_changed` /
+  `account_unavailable`) and the page never shows a stale suggestion.
+- `record_card_coding_suggestions` (service role only) refuses a row whose
+  fingerprint differs from the one the preparer read BEFORE reading the facts,
+  any row that may not be prepared (`card_coding_preparation_blocker`: coded,
+  excluded, split, pending, locked batch…), keeps a dismissal until the facts
+  change or someone asks again, never trades a prepared answer for a failure,
+  and takes the account NAME from the chart, never from the model.
+- `accept_card_coding_suggestions(ids)` re-checks company, finance access,
+  the batch, the row, the facts, the connection and the account at the moment
+  of acceptance, then writes through **`apply_card_coding`** as the person
+  accepting. Each id succeeds or is refused on its own, with a reason.
+  `dismiss_card_coding_suggestions(ids)` persists a dismissal.
+
+Nothing reads suggestions as history: an accepted one becomes a
+`coding_source = 'ai'` row, which history counts only once its batch is
+approved or posted. No client write grant on either table. Ends with
+`refresh_chat_schema_catalog()`.
+
+Regression: `scripts/tests/card-coding-suggestions-database.test.mjs`
+(finance-database job; five mutation hooks), and the Plaid fixture executes the
+new `verify_v2_schema.sql` check.
