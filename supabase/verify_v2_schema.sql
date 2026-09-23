@@ -3668,8 +3668,8 @@ select 'Product tracker PO link' as check_name,
      and c.confrelid=to_regclass('public.po_headers') and c.confdeltype <> 'n')
    then 'CRITICAL: product_tracker.po_header_id does not use ON DELETE SET NULL'
  -- v2/po-pipeline-sync.js relies on this index to stop two tabs, or two POs
- -- carrying the same product, adding a second linked Pipeline item for it;
- -- without it the second insert just lands. Keyed on the COMPANY: the per-PO
+ -- carrying the same product, adding a second linked Pipeline item for it.
+ -- Without it the second insert just lands. Keyed on the COMPANY: the per-PO
  -- index it replaced (20260923180000) let two POs each add one.
  when not exists(select 1 from pg_indexes where schemaname='public'
    and tablename='product_tracker' and indexname='product_tracker_company_product_uniq'
