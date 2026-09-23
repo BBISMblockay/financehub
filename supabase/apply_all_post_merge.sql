@@ -19086,6 +19086,9 @@ $c$select (select count(*) from v_po_header_summary
 -- POs), and items whose noted PO no longer carries the product, linked to the
 -- one new-product PO that does. Converges after one pass.
 \i migrations/20260923170000_product_tracker_moved_po_products.sql
+-- One Pipeline item per product per PO (partial unique index), so two tabs
+-- syncing the same PO cannot both add an item. Additive; re-runnable.
+\i migrations/20260923180000_product_tracker_po_product_unique.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

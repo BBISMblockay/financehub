@@ -167,9 +167,54 @@ r.test('...but not when the noted PO still carries it, and not when that is unkn
   r.eq(byTitle(P.plan(PO, totals, [stored], null, undefined))[MEN].kind, 'other_po', 'unknown = leave it');
 });
 
-r.test('onlyKeys plans just the named products', () => {
+r.test('-> TRK creates only the product it was pressed on', () => {
   const acts = P.plan(PO, totals, [], [P.titleKey(YOUTH)]);
   r.eq(acts.map((a) => a.title), [YOUTH]);
+});
+
+// ── lifecycle: a product leaving its PO, and unticking "New product PO" ─────
+
+const owned = (title, units, extra) => Object.assign({ id: `own-${title}`, product_title: title, po_header_id: 'po-496',
+  expected_units: units, factory_id: 'fac-inco', manufacturer: 'Incotexco', product_type: 'T-Shirts', bulk_eta: '2026-12-25' }, extra);
+
+r.test('the last line of a product deleted: its item is released, not left at the old figure', () => {
+  // The reviewer's reproduction: an empty line set used to return no actions.
+  const acts = P.plan(PO, [], [owned('Solo Tee', 100)]);
+  r.eq(acts.length, 1);
+  r.eq(acts[0].kind, 'release');
+  r.eq(acts[0].patch, { po_header_id: null, expected_units: null });
+});
+
+r.test('a renamed product: the old item is released, the new title gets its own item', () => {
+  const lines = [{ title_snapshot: 'Solo Tee - Black', qty: 100 }];
+  const acts = byTitle(P.plan(PO, P.productTotals(lines), [owned('Solo Tee', 100)]));
+  r.eq(acts['Solo Tee'].kind, 'release');
+  r.eq(acts['Solo Tee - Black'].kind, 'insert');
+  r.eq(acts['Solo Tee - Black'].patch.expected_units, 100);
+});
+
+r.test('an item another PO owns is never released by this one', () => {
+  r.eq(P.plan(PO, [], [owned('Solo Tee', 100, { po_header_id: 'po-other' })]), []);
+});
+
+r.test('an unlinked item is never released (it is not this PO\'s)', () => {
+  r.eq(P.plan(PO, [], [owned('Solo Tee', 100, { po_header_id: null })]), []);
+});
+
+r.test('"New product PO" unticked: owned items stay in step, nothing is created or claimed', () => {
+  const manual = { id: 'manual', product_title: YOUTH, po_header_id: null, expected_units: null, notes: null };
+  const acts = byTitle(P.plan(PO, totals, [owned(MEN, 300), manual], false));
+  r.eq(acts[MEN].kind, 'update');
+  r.eq(acts[MEN].patch, { expected_units: 325 });
+  r.truthy(!acts[YOUTH], 'the unlinked youth item is not claimed and nothing is inserted');
+});
+
+r.test('an item released and then re-added to the same PO is claimed back', () => {
+  const released = owned('Solo Tee', null, { po_header_id: null, notes: 'Auto-added from PO: Incotexco-496' });
+  const a = P.plan(PO, P.productTotals([{ title_snapshot: 'Solo Tee', qty: 40 }]), [released])[0];
+  r.eq(a.kind, 'update');
+  r.eq(a.patch.po_header_id, 'po-496');
+  r.eq(a.patch.expected_units, 40);
 });
 
 r.test('notedPoName reads the first line of the note only', () => {
@@ -197,8 +242,20 @@ function fakeSb(tables, opts = {}) {
       if (q.range) got = got.slice(q.range[0], q.range[1] + 1);
       return { data: got, error: null };
     }
-    if (q.op === 'insert') { rows.push({ id: `new-${++seq}`, ...q.payload }); return { data: null, error: null }; }
-    if (q.op === 'update') { rows.filter(match).forEach((x) => Object.assign(x, q.payload)); return { data: null, error: null }; }
+    // product_tracker_po_product_uniq: one linked item per (PO, product).
+    const clash = (candidate, selfId) => opts.unique && q.table === 'product_tracker' && candidate.po_header_id
+      && rows.some((x) => x.id !== selfId && x.po_header_id === candidate.po_header_id
+        && P.titleKey(x.product_title) === P.titleKey(candidate.product_title));
+    const dup = { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "product_tracker_po_product_uniq"' } };
+    if (q.op === 'insert') {
+      if (clash(q.payload, null)) return dup;
+      rows.push({ id: `new-${++seq}`, ...q.payload }); return { data: null, error: null };
+    }
+    if (q.op === 'update') {
+      const targets = rows.filter(match);
+      if (targets.some((x) => clash({ ...x, ...q.payload }, x.id))) return dup;
+      targets.forEach((x) => Object.assign(x, q.payload)); return { data: null, error: null };
+    }
     throw new Error('unexpected op ' + q.op);
   };
   const from = (table) => {
@@ -393,10 +450,99 @@ const run = async (name, fn) => {
 
   // ── createQueue ────────────────────────────────────────────────────────────
 
-  await run('the race is real: two overlapping syncs without the queue add the item twice', async () => {
+  await run('the race is real: without the unique index, two tabs add the item twice', async () => {
     const sb = fakeSb({ po_lines: LINES.slice(6), product_tracker: [] }, { delayMs: 5 });
     await Promise.all([P.sync(sb, { po: PO }), P.sync(sb, { po: PO })]);
-    r.eq(sb.db.product_tracker.length, 2, 'this is what the queue exists to prevent');
+    r.eq(sb.db.product_tracker.length, 2, 'this is what product_tracker_po_product_uniq exists to prevent');
+  });
+
+  await run('two tabs (two independent queues) add ONE item, and neither reports an error', async () => {
+    const sb = fakeSb({ po_lines: LINES.slice(6), product_tracker: [] }, { delayMs: 5, unique: true });
+    const tabA = P.createQueue((arg) => P.sync(sb, arg));
+    const tabB = P.createQueue((arg) => P.sync(sb, arg));
+    const [a, b] = await Promise.all([tabA('po-496', { po: PO }), tabB('po-496', { po: PO })]);
+    r.eq(sb.db.product_tracker.length, 1, 'one item');
+    r.eq(sb.db.product_tracker[0].expected_units, 550);
+    r.eq(a.errors.concat(b.errors), [], 'the loser re-read the winner instead of failing');
+    r.eq(a.inserted.length + b.inserted.length, 1);
+    r.eq(a.unchanged.length + b.unchanged.length, 1, 'the loser found it already right');
+  });
+
+  /** Make "another tab" land a row between this tab's read and its write. */
+  function interleave(sb, verb, when, row) {
+    const origFrom = sb.from;
+    let done = false;
+    sb.from = (table) => {
+      const b = origFrom(table);
+      const orig = b[verb];
+      b[verb] = (payload) => {
+        if (table === 'product_tracker' && !done && when(payload)) { done = true; sb.db.product_tracker.push(row); }
+        return orig(payload);
+      };
+      return b;
+    };
+  }
+
+  await run('a losing tab brings the winner in step when its own figure is newer', async () => {
+    // This tab's lines total 650 (a YXL edit the other tab never saw); the
+    // other tab's insert of 550 lands between this tab's read and its insert.
+    const sb = fakeSb({
+      po_lines: LINES.slice(6).map((l) => (l.variant_title_snapshot === 'YXL' ? { ...l, qty: 205 } : l)),
+      product_tracker: [],
+    }, { unique: true });
+    interleave(sb, 'insert', (p) => p.product_title === YOUTH,
+      { id: 'won', product_title: YOUTH, po_header_id: 'po-496', expected_units: 550 });
+    const res = await P.sync(sb, { po: PO, create: true });
+    r.eq(sb.db.product_tracker.length, 1, 'no duplicate');
+    r.eq(sb.db.product_tracker[0].id, 'won');
+    r.eq(sb.db.product_tracker[0].expected_units, 650, 'the conflict path re-read the winner and updated it');
+    r.eq(res.errors, []);
+    r.eq(res.updated.map((a) => a.title), [YOUTH]);
+  });
+
+  await run('a claim that collides with an item another tab just created resolves to that item', async () => {
+    const manual = { id: 'manual', product_title: YOUTH, po_header_id: null, expected_units: null, notes: null };
+    const sb = fakeSb({ po_lines: LINES.slice(6), product_tracker: [manual] }, { unique: true });
+    interleave(sb, 'update', (p) => p.po_header_id === 'po-496',
+      { id: 'other-tab', product_title: YOUTH, po_header_id: 'po-496', expected_units: 550 });
+    const res = await P.sync(sb, { po: PO, create: true });
+    r.eq(res.errors, []);
+    r.eq(sb.db.product_tracker.find((x) => x.id === 'manual').po_header_id, null, 'the unlinked item stays unlinked');
+    r.eq(sb.db.product_tracker.filter((x) => x.po_header_id === 'po-496').length, 1, 'one linked item');
+  });
+
+  await run('deleting the last line of a product releases its item and clears its launch copy', async () => {
+    const sb = fakeSb({
+      po_lines: LINES.filter((l) => l.title_snapshot === MEN),
+      product_tracker: [
+        { id: 't-y', product_title: YOUTH, po_header_id: 'po-496', expected_units: 550, launch_id: 'launch-1' },
+        { id: 't-m', product_title: MEN, po_header_id: 'po-496', expected_units: 325 },
+      ],
+      launch_product_readiness: [{ id: 'lpr', product_tracker_id: 't-y', expected_units: 550 }],
+    });
+    const res = await P.sync(sb, { po: PO });
+    const youth = sb.db.product_tracker.find((x) => x.id === 't-y');
+    r.eq(youth.po_header_id, null);
+    r.eq(youth.expected_units, null, 'cleared, never left reporting units the PO no longer has');
+    r.eq(sb.db.launch_product_readiness[0].expected_units, null);
+    r.eq(res.released.map((a) => a.title), [YOUTH]);
+    r.eq(sb.db.product_tracker.length, 2, 'released, never deleted');
+  });
+
+  await run('a PO with no lines left still releases what it owns (it used to return early)', async () => {
+    const sb = fakeSb({ po_lines: [], product_tracker: [{ id: 't', product_title: 'Solo Tee', po_header_id: 'po-496', expected_units: 100 }] });
+    const res = await P.sync(sb, { po: PO });
+    r.eq(res.released.length, 1);
+    r.eq(sb.db.product_tracker[0].expected_units, null);
+  });
+
+  await run('"New product PO" unticked: an owned item keeps following the PO; no new item appears', async () => {
+    const restock = { ...PO, is_new_product_po: false };
+    const sb = fakeSb({ po_lines: LINES, product_tracker: [{ id: 't-m', product_title: MEN, po_header_id: 'po-496', expected_units: 300 }] });
+    const res = await P.sync(sb, { po: restock });
+    r.eq(sb.db.product_tracker.length, 1, 'the youth tee was not added');
+    r.eq(sb.db.product_tracker[0].expected_units, 325);
+    r.eq(res.inserted, []);
   });
 
   await run('through the queue, overlapping requests add it once, and the last change is still synced', async () => {
@@ -482,7 +628,7 @@ const run = async (name, fn) => {
   });
 
   r.test('restock POs are never auto-added; -> TRK is the explicit path', () => {
-    pageHas('const onlyKeys=(all && po.is_new_product_po) ? null : keys;');
+    pageHas("const create=po.is_new_product_po ? true : (keys.length ? keys : false);");
     r.has(fnBody('pushLineToPipeline'), 'syncPipeline({keys:');
   });
 

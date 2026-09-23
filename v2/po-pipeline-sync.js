@@ -24,6 +24,23 @@
  *     "Expected Units (from the originating PO)" belongs to the first PO, and
  *     a duplicated or split PO must not overwrite it or add a second item
  *   - none                                                  -> create one
+ * Creating and claiming happen only for a new-product PO (or for the one
+ * product someone pressed -> TRK on). Keeping items the PO ALREADY owns in
+ * step happens on every PO, so unticking "New product PO" stops new items
+ * without freezing the ones it made.
+ *
+ * An item whose product has LEFT the PO it is linked to -- its last line
+ * deleted, or renamed to another title -- is released: unlinked, and its
+ * expected units cleared (so is its launch readiness copy). Never deleted:
+ * the item carries photos, samples and launch links a person made, and the
+ * units are what stopped being true. A released item can be claimed again by
+ * whichever PO carries the product next, this one included.
+ *
+ * Two tabs, or two people, can sync the same PO at once. The browser queue
+ * only serialises one tab; the database is the boundary: a partial unique
+ * index on (po_header_id, lower(btrim(product_title))) (20260923180000) makes
+ * the second insert fail, and sync() then re-reads the row that won and
+ * updates it instead of adding a duplicate.
  *
  * "Still carries" matters. A PO is recreated when its factory changes (the
  * name comes from the factory), and deleting one nulls po_header_id, so an
@@ -81,25 +98,34 @@
 
   function sameId(a, b) { return hasText(a) && hasText(b) && String(a) === String(b); }
 
+  /** create: true = any product; an array of titleKeys = those products only;
+   *  anything else = none. Undefined means true (the pure planner's default). */
+  function mayCreate(create, key) {
+    if (create === undefined || create === null || create === true) return true;
+    return Array.isArray(create) && create.indexOf(key) !== -1;
+  }
+
   /**
    * Decide what to write. Pure: no I/O.
    *
    *   po         { id, po_name, factory_id, factory_name, expected_arrival_date }
-   *   totals     productTotals(lines)
+   *   totals     productTotals(lines) -- EVERY product on the PO
    *   trackers   the company's product_tracker rows
-   *   onlyKeys   optional array of titleKeys: plan for those products only
+   *   create     who may be created or claimed (see mayCreate)
    *   noteHolds  optional (notedPoName, key) -> bool: does the PO an item's
    *              note names still carry that product? Omitted = assume it
    *              does, so an item auto-added from another PO is left alone
    *
-   * Returns one action per product:
+   * Returns one action per product on the PO that has anything to say, plus
+   * one per item this PO owns whose product is no longer on it:
    *   { kind, key, title, units, lineCount, row?, patch? }
    *   kind 'insert'     patch is the new row
    *   kind 'update'     patch names only the columns that change
    *   kind 'unchanged'  row already says what the PO says
    *   kind 'other_po'   row belongs to another PO; nothing written
+   *   kind 'release'    the product left this PO: unlink, clear the units
    */
-  function plan(po, totals, trackers, onlyKeys, noteHolds) {
+  function plan(po, totals, trackers, create, noteHolds) {
     var p = po || {};
     var rows = trackers || [];
     var poName = hasText(p.po_name) ? String(p.po_name).trim() : '';
@@ -109,11 +135,15 @@
       bulk_eta: hasText(p.expected_arrival_date) ? String(p.expected_arrival_date).slice(0, 10) : null,
     };
 
-    var only = onlyKeys ? new Set(onlyKeys) : null;
-    return (totals || []).filter(function (t) { return !only || only.has(t.key); }).map(function (t) {
+    var onPo = new Set();
+    var actions = [];
+    (totals || []).forEach(function (t) {
+      onPo.add(t.key);
       var base = { key: t.key, title: t.title, units: t.units, lineCount: t.lineCount };
       var same = rows.filter(function (r) { return titleKey(r.product_title) === t.key; });
       var own = same.find(function (r) { return sameId(r.po_header_id, p.id); });
+      var canCreate = mayCreate(create, t.key);
+      if (!own && !canCreate) return;
       var claimable = own ? null : same.find(function (r) {
         if (hasText(r.po_header_id)) return false;
         var noted = notedPoName(r.notes);
@@ -123,8 +153,8 @@
       var row = own || claimable;
 
       if (!row) {
-        if (same.length) return Object.assign({ kind: 'other_po', row: same[0] }, base);
-        return Object.assign({ kind: 'insert', patch: {
+        if (same.length) { actions.push(Object.assign({ kind: 'other_po', row: same[0] }, base)); return; }
+        actions.push(Object.assign({ kind: 'insert', patch: {
             product_title: t.title,
             product_type: t.productType,
             factory_id: fills.factory_id,
@@ -133,7 +163,8 @@
             expected_units: t.units,
             po_header_id: p.id,
             notes: ('Auto-added from PO: ' + poName).trim(),
-          } }, base);
+          } }, base));
+        return;
       }
 
       var patch = {};
@@ -144,15 +175,29 @@
       ['factory_id', 'manufacturer', 'bulk_eta'].forEach(function (c) {
         if (!hasText(row[c]) && fills[c]) patch[c] = fills[c];
       });
-      return Object.keys(patch).length
+      actions.push(Object.keys(patch).length
         ? Object.assign({ kind: 'update', row: row, patch: patch }, base)
-        : Object.assign({ kind: 'unchanged', row: row }, base);
+        : Object.assign({ kind: 'unchanged', row: row }, base));
     });
+
+    // Items this PO owns whose product is no longer on it.
+    rows.forEach(function (r) {
+      if (!sameId(r.po_header_id, p.id)) return;
+      var key = titleKey(r.product_title);
+      if (onPo.has(key)) return;
+      actions.push({ kind: 'release', key: key, title: String(r.product_title || '').trim(), units: null, lineCount: 0,
+        row: r, patch: { po_header_id: null, expected_units: null } });
+    });
+    return actions;
   }
 
   var TRACKER_COLUMNS = 'id,product_title,po_header_id,expected_units,factory_id,manufacturer,product_type,bulk_eta,launch_id,notes';
+  var UNIQUE_VIOLATION = '23505';
 
   function errText(e) { return (e && (e.message || e.details)) || String(e); }
+  function isConflict(e) { return !!e && String(e.code || '') === UNIQUE_VIOLATION; }
+
+  var HEADER_PAGE = 1000;
 
   /**
    * For unlinked items whose note names a DIFFERENT PO, find out whether that
@@ -161,8 +206,6 @@
    * failed read must never turn into claiming another PO's item. Two reads,
    * and only when such an item exists for a product on this PO.
    */
-  var HEADER_PAGE = 1000;
-
   async function noteHoldsFor(sb, o, po, totals, trackers) {
     var keys = new Set(totals.map(function (t) { return t.key; }));
     var mine = String(po.po_name || '').trim().toLowerCase();
@@ -203,6 +246,37 @@
     return function (noted, key) { return held.has(String(noted).trim().toLowerCase() + '|' + key); };
   }
 
+  /** The launch readiness copy of a launch-linked item follows its figure,
+   *  exactly as the Pipeline drawer's own save does (launch_product_actuals_v
+   *  reads it for % of expected). */
+  async function syncReadiness(sb, row, units) {
+    if (!hasText(row && row.launch_id)) return;
+    var lpr = await sb.from('launch_product_readiness').update({ expected_units: units }).eq('product_tracker_id', row.id);
+    if (lpr.error) throw new Error('Pipeline updated, but its launch still shows the old expected units: ' + errText(lpr.error));
+  }
+
+  /**
+   * Another tab or person got there first: the unique index refused a second
+   * item for this PO and product. Re-read the one that won and bring it in
+   * step instead. Returns the action actually applied.
+   */
+  async function resolveConflict(sb, o, po, a) {
+    var q = sb.from('product_tracker').select(TRACKER_COLUMNS).eq('po_header_id', po.id);
+    if (o.companyId) q = q.eq('company_entity_id', o.companyId);
+    var got = await q;
+    if (got.error) throw new Error('Could not re-read the Pipeline after a conflict: ' + errText(got.error));
+    var winner = (got.data || []).filter(function (r) { return titleKey(r.product_title) === a.key; });
+    if (!winner.length) throw new Error('The Pipeline refused a duplicate item, and the existing one could not be found.');
+    var total = { key: a.key, title: a.title, units: a.units, lineCount: a.lineCount, productType: a.patch && a.patch.product_type };
+    var again = plan(po, [total], winner, [a.key])[0];
+    if (again.kind === 'update') {
+      var upd = await sb.from('product_tracker').update(again.patch).eq('id', again.row.id);
+      if (upd.error) throw upd.error;
+      if ('expected_units' in again.patch) await syncReadiness(sb, again.row, again.patch.expected_units);
+    }
+    return again;
+  }
+
   /**
    * Read the PO's lines and the company's Pipeline, then apply plan().
    * Never throws: failures come back in `errors`, one per product, so one
@@ -211,13 +285,15 @@
    *   opts.po         the PO (see plan)
    *   opts.companyId  active company id, or null (RLS still scopes the reads
    *                   and the stamp trigger still stamps the insert)
-   *   opts.onlyKeys   optional, see plan
+   *   opts.create     see mayCreate; defaults to the PO's own "New product
+   *                   PO" flag, so a restock PO never adds items by itself
    */
   async function sync(sb, opts) {
     var o = opts || {};
     var po = o.po || {};
-    var out = { inserted: [], updated: [], unchanged: [], otherPo: [], errors: [] };
+    var out = { inserted: [], updated: [], unchanged: [], otherPo: [], released: [], errors: [] };
     if (!hasText(po.id)) return out;
+    var create = o.create !== undefined ? o.create : !!po.is_new_product_po;
 
     var actions;
     try {
@@ -225,17 +301,16 @@
       if (o.companyId) lq = lq.eq('company_entity_id', o.companyId);
       var lines = await lq;
       if (lines.error) throw new Error('Could not read the PO lines: ' + errText(lines.error));
-
       var totals = productTotals(lines.data);
-      if (o.onlyKeys) totals = totals.filter(function (t) { return o.onlyKeys.indexOf(t.key) !== -1; });
-      if (!totals.length) return out;
 
+      // Read even when the PO has no lines left: that is exactly when the
+      // items it owns have to be released.
       var tq = sb.from('product_tracker').select(TRACKER_COLUMNS);
       if (o.companyId) tq = tq.eq('company_entity_id', o.companyId);
       var trackers = await tq;
       if (trackers.error) throw new Error('Could not read the Pipeline: ' + errText(trackers.error));
 
-      actions = plan(po, totals, trackers.data, o.onlyKeys, await noteHoldsFor(sb, o, po, totals, trackers.data));
+      actions = plan(po, totals, trackers.data, create, await noteHoldsFor(sb, o, po, totals, trackers.data));
     } catch (e) {
       out.errors.push({ title: null, message: errText(e) });
       return out;
@@ -248,20 +323,17 @@
           var row = Object.assign({}, a.patch);
           if (o.companyId) row.company_entity_id = o.companyId;
           var ins = await sb.from('product_tracker').insert(row);
+          if (isConflict(ins.error)) { pushResult(out, await resolveConflict(sb, o, po, a)); continue; }
           if (ins.error) throw ins.error;
           out.inserted.push(a);
-        } else if (a.kind === 'update') {
+        } else if (a.kind === 'update' || a.kind === 'release') {
           var upd = await sb.from('product_tracker').update(a.patch).eq('id', a.row.id);
+          // Claiming an unlinked item can collide with an item another tab
+          // just created for the same PO and product.
+          if (a.kind === 'update' && isConflict(upd.error)) { pushResult(out, await resolveConflict(sb, o, po, a)); continue; }
           if (upd.error) throw upd.error;
-          out.updated.push(a);
-          // A Pipeline item linked to a launch has a paired
-          // launch_product_readiness row carrying its own copy of the figure
-          // (launch_product_actuals_v reads it for % of expected). Keep it in
-          // step, exactly as the Pipeline drawer's own save does.
-          if ('expected_units' in a.patch && hasText(a.row.launch_id)) {
-            var lpr = await sb.from('launch_product_readiness').update({ expected_units: a.patch.expected_units }).eq('product_tracker_id', a.row.id);
-            if (lpr.error) throw new Error('Pipeline updated, but its launch still shows the old expected units: ' + errText(lpr.error));
-          }
+          (a.kind === 'release' ? out.released : out.updated).push(a);
+          if ('expected_units' in a.patch) await syncReadiness(sb, a.row, a.patch.expected_units);
         } else if (a.kind === 'unchanged') {
           out.unchanged.push(a);
         } else {
@@ -272,6 +344,12 @@
       }
     }
     return out;
+  }
+
+  function pushResult(out, a) {
+    if (a.kind === 'update') out.updated.push(a);
+    else if (a.kind === 'unchanged') out.unchanged.push(a);
+    else out.otherPo.push(a);
   }
 
   /**

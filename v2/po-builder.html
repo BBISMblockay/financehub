@@ -696,7 +696,8 @@
     // manual, concepts, an edit, a delete, or ticking "New product PO" on the
     // header -- with Expected Units summed across every size line of the
     // product. Nobody has to press Save or -> TRK for it. Syncs for one PO are
-    // coalesced so overlapping autosaves cannot create the same item twice.
+    // coalesced within this tab; across tabs the database's unique index on
+    // (PO, product) is what stops a second item (see the module header).
     async function pipelineCompanyId(){
       try{ const co=await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb); return (co||_co)?.id||null; }
       catch(e){ console.warn('pipeline company',e); return _co?.id||null; }
@@ -705,18 +706,19 @@
     // and reporting only the last run would drop an earlier run's "added"
     // notice or error.
     const pipelineQueue=window.SiloPoPipeline.createQueue(
-      async({po,all,keys,explicit})=>{
-        // Restock POs never add to the Pipeline on their own; -> TRK (keys)
-        // is the explicit way to put one of their products there.
-        const onlyKeys=(all && po.is_new_product_po) ? null : keys;
-        if(onlyKeys && !onlyKeys.length) return null;
-        const res=await window.SiloPoPipeline.sync(sb,{po,companyId:await pipelineCompanyId(),onlyKeys});
-        reportPipeline(res,explicit);
+      async({po,keys,explicit})=>{
+        // A new-product PO creates and claims items for every product on it;
+        // any other PO only for what someone pressed -> TRK on. Items a PO
+        // already owns are kept in step either way -- and released when their
+        // product leaves it -- so every change runs the full sync.
+        const create=po.is_new_product_po ? true : (keys.length ? keys : false);
+        const res=await window.SiloPoPipeline.sync(sb,{po,companyId:await pipelineCompanyId(),create});
+        reportPipeline(res,explicit?keys:null);
         return res;
       },
-      (a,b)=>({po:b.po, all:a.all||b.all, keys:[...new Set([...(a.keys||[]),...(b.keys||[])])], explicit:a.explicit||b.explicit})
+      (a,b)=>({po:b.po, keys:[...new Set([...(a.keys||[]),...(b.keys||[])])], explicit:a.explicit||b.explicit})
     );
-    function reportPipeline(res, explicit){
+    function reportPipeline(res, explicitKeys){
       if(!res) return;
       if(res.errors.length){
         const e=res.errors[0];
@@ -724,16 +726,23 @@
         return;
       }
       const units=a=>a.units!=null?`${Number(a.units).toLocaleString()} expected units across ${a.lineCount} size line${a.lineCount===1?'':'s'}`:'no quantity on this PO yet';
+      const names=list=>list.map(a=>`"${a.title}"`).join(', ');
+      // A product leaving the PO is news whether or not anything was added.
+      const released=res.released.length
+        ? ` ${names(res.released)} ${res.released.length===1?'is':'are'} no longer on this PO: unlinked in the Pipeline, expected units cleared.`
+        : '';
       if(res.inserted.length){
-        setStatus(res.inserted.length===1
+        setStatus((res.inserted.length===1
           ? `"${res.inserted[0].title}" added to the Pipeline — ${units(res.inserted[0])}.`
-          : `${res.inserted.length} products added to the Pipeline: ${res.inserted.map(a=>`"${a.title}"`).join(', ')}.`,'pos',6000);
+          : `${res.inserted.length} products added to the Pipeline: ${names(res.inserted)}.`)+released,'pos',7000);
         return;
       }
-      if(!explicit) return;
-      const a=res.updated[0]||res.unchanged[0];
+      if(released){ setStatus(released.trim(),'info',8000); return; }
+      if(!explicitKeys) return;
+      const mine=list=>list.find(a=>explicitKeys.includes(a.key));
+      const a=mine(res.updated)||mine(res.unchanged);
       if(a){ setStatus(`"${a.title}" is in the Pipeline — ${units(a)}.`,'pos',5000); return; }
-      const o=res.otherPo[0];
+      const o=mine(res.otherPo);
       if(o) setStatus(`"${o.title}" is already in the Pipeline from another PO; its expected units were left as they are.`,'info',7000);
     }
     // Every path that changes this PO's lines ends here. Never throws: a
@@ -742,7 +751,7 @@
       const po=state.currentPO;
       if(!po?.id) return null;
       try{
-        return await pipelineQueue(po.id,{po:{...po},all:!opts.keys,keys:opts.keys||[],explicit:!!opts.keys});
+        return await pipelineQueue(po.id,{po:{...po},keys:opts.keys||[],explicit:!!opts.keys});
       }catch(e){ console.error(e); setStatus('Pipeline sync failed: '+(e.message||e),'neg',9000); return null; }
     }
 

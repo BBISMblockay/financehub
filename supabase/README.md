@@ -2135,3 +2135,13 @@ corrected, 3 launch readiness copies corrected. Left alone: 7 items no
 new-product PO carries, and one item at 600 that is a line on no PO. The
 fingerprint here is a line of the product on ANY new-product PO (the old
 sync's reach), never a restock PO's.
+
+`20260923180000_product_tracker_po_product_unique.sql` adds a partial unique
+index on `product_tracker (po_header_id, lower(btrim(product_title))) where
+po_header_id is not null` — one Pipeline item per product per PO. The page
+coalesces overlapping syncs inside one tab only; two tabs or two people could
+each find no item and each insert one. The second insert now fails with
+`23505` and `v2/po-pipeline-sync.js` re-reads the item that won and updates it.
+Unlinked (hand-typed) items are unaffected. 0 existing violations when it was
+created (2026-09-23). `verify_v2_schema.sql`'s "Product tracker PO link" check
+reports it MISSING if absent.
