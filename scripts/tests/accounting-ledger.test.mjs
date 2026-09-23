@@ -182,6 +182,9 @@ test('compatibility rules mirror how the opening balances were seeded', () => {
   assert.equal(L.closingIncompatibility(raw, { endDate: '2026-09-22' }, snap), null);
   assert.match(L.closingIncompatibility({ ...raw, Header: header('Accrual', { Currency: 'CAD' }) }, { endDate: '2026-09-22' }, snap), /CAD currency/);
   assert.match(L.closingIncompatibility({ ...raw, Header: header('Accrual', { EndPeriod: '2026-09-01' }) }, { endDate: '2026-09-22' }, snap), /period/);
+  // Review finding (cycle 2): a missing period is not a match, nor is a run with no saved end date.
+  assert.match(L.closingIncompatibility({ ...raw, Header: header('Accrual', { EndPeriod: undefined }) }, { endDate: '2026-09-22' }, snap), /did not confirm the report period/);
+  assert.match(L.closingIncompatibility(raw, { endDate: null }, snap), /did not confirm the report period/);
   assert.match(L.closingIncompatibility({ ...raw, Columns: { Column: [cols.Column[0], { ColTitle: 'Jan 2026' }] } }, { endDate: '2026-09-22' }, snap), /Debit\/Credit/);
 });
 

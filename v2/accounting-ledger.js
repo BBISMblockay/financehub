@@ -154,7 +154,9 @@
     if (h.ReportName !== 'TrialBalance') return 'not a trial balance';
     if (!snap?.basis || h.ReportBasis !== snap.basis) return `${h.ReportBasis || 'unknown'} basis, opening balances are ${snap?.basis || 'unknown'}`;
     if (!snap?.currency || h.Currency !== snap.currency) return `${h.Currency || 'unknown'} currency, opening balances are ${snap?.currency || 'unknown'}`;
-    if (endDate && h.EndPeriod && h.EndPeriod !== endDate) return 'report period does not match its saved end date';
+    // Fail closed: QuickBooks itself must state the period, and it must be the
+    // date the ledger will print over the closing column.
+    if (!endDate || !h.EndPeriod || h.EndPeriod !== endDate) return 'QuickBooks did not confirm the report period';
     const cols = raw?.Columns?.Column || [];
     if (cols.length !== 3 || cols[0]?.ColType !== 'Account'
       || String(cols[1]?.ColTitle).toLowerCase() !== 'debit' || String(cols[2]?.ColTitle).toLowerCase() !== 'credit')
