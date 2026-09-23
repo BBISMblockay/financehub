@@ -2099,3 +2099,60 @@ now selects ads missing a preview as well as a destination.
 Regressions: `scripts/tests/meta-creative-links.test.mjs`,
 `meta-creative-backfill.test.mjs`, `meta-creative-backfill-driver.test.mjs`,
 `meta-creative-links-database.test.mjs`.
+
+## Pipeline items from a PO — `20260923160000_product_tracker_po_expected_units.sql`
+
+Data correction only; no schema, policy or grant change. `/v2/po-builder.html`
+synced a new-product PO into `product_tracker` one LINE at a time, on line save
+only, writing that one line's qty into `expected_units` — so whichever size was
+saved last won (Incotexco-496's youth tee read 105, its YXL line, against the
+550 its four size lines sum to). It never set `po_header_id` either. The page
+now syncs the whole PO (`v2/po-pipeline-sync.js`); this fixes what the old sync
+already wrote.
+
+It links each still-unlinked auto-added item to the ONE PO its
+`Auto-added from PO: <name>` note names (case-insensitive, same company, PO
+must carry lines with the item's title), and replaces `expected_units` with the
+PO's total only where the stored figure is null or exactly one of that
+product's line quantities — the bug's fingerprint. A paired
+`launch_product_readiness` row is updated only where it holds the same figure
+the item held. Measured 2026-09-23: 159 linked, 49 corrected, 22 readiness
+copies corrected, 2 linked items keep a figure that is not a line qty.
+Everything it touches becomes linked, so a re-run finds nothing.
+
+`20260923170000_product_tracker_moved_po_products.sql` reaches the two cases
+the first could not. (1) The old sync matched by TITLE across every
+new-product PO, so a product on two POs had its item overwritten by lines of
+either: KCMTar-48's youth tee read 205, the YXL line of KCMTAR-49, and the
+first migration linked it but kept the 205 because it only recognised the
+item's own PO's lines. (2) A PO is recreated when its factory changes, so a
+note can name a PO that no longer carries the product (Creytex-335's hoodies
+are on ShaoxingTianyun-111); those were unresolvable, and the page's claim
+rule refused them for naming another PO — `v2/po-pipeline-sync.js` now looks
+the noted PO up. Measured and applied 2026-09-23: 1 item corrected
+(205 → 2,000), 16 linked to the one new-product PO carrying them, 5 of those
+corrected, 3 launch readiness copies corrected. Left alone: 7 items no
+new-product PO carries, and one item at 600 that is a line on no PO. The
+fingerprint here is a line of the product on ANY new-product PO (the old
+sync's reach), never a restock PO's.
+
+`20260923180000_product_tracker_po_product_unique.sql` adds a partial unique
+index on `product_tracker (po_header_id, lower(btrim(product_title))) where
+po_header_id is not null` — one Pipeline item per product per PO. The page
+coalesces overlapping syncs inside one tab only; two tabs or two people could
+each find no item and each insert one. The second insert now fails with
+`23505` and `v2/po-pipeline-sync.js` re-reads the item that won and updates it.
+Unlinked (hand-typed) items are unaffected. 0 existing violations when it was
+created (2026-09-23).
+
+`20260923190000_product_tracker_company_product_unique.sql` replaces it with
+`product_tracker_company_product_uniq` on `(company_entity_id,
+lower(btrim(product_title))) where po_header_id is not null` — one LINKED item
+per product per company. The per-PO key still let two POs carrying the same
+product (KCMTar-48 and KCMTAR-49) each add an item when they synced at once,
+and the duplicate never healed, since each PO then preferred its own row. The
+sync's 23505 re-read now looks for the linked item for the product on any PO:
+its own is updated, another PO's is left alone. The per-PO index is dropped
+(this one implies it). 0 violations, 0 null-company rows and 0 items linked to
+another company's PO when it was created (2026-09-23). `verify_v2_schema.sql`'s
+"Product tracker PO link" check reports it MISSING if absent.
