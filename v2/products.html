@@ -2518,10 +2518,10 @@
       const {data,error:insErr}=await sb.from('product_tracker').insert(payload).select().single();
       error=insErr; trackerId=data?.id||null;
     }
-    // product_tracker_po_product_uniq (20260923180000): one item per product
-    // per PO. Say which rule refused the save rather than the raw constraint.
+    // product_tracker_company_product_uniq (20260923190000): one PO-linked
+    // item per product. Say which rule refused the save, not the constraint.
     if(error){setStatus(error.code==='23505'
-      ? 'Another Pipeline item is already linked to that PO for this product. Open that item instead, or unlink the PO here.'
+      ? 'Another Pipeline item for this product is already linked to a PO. Open that item instead, or unlink the PO here.'
       : error.message,'neg',8000);return;}
     if(trackerId) await ensureLaunchReadinessLink(trackerId, payload);
     clearStatus(); setStatus('Saved.','pos',2500);

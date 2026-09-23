@@ -2143,5 +2143,16 @@ coalesces overlapping syncs inside one tab only; two tabs or two people could
 each find no item and each insert one. The second insert now fails with
 `23505` and `v2/po-pipeline-sync.js` re-reads the item that won and updates it.
 Unlinked (hand-typed) items are unaffected. 0 existing violations when it was
-created (2026-09-23). `verify_v2_schema.sql`'s "Product tracker PO link" check
-reports it MISSING if absent.
+created (2026-09-23).
+
+`20260923190000_product_tracker_company_product_unique.sql` replaces it with
+`product_tracker_company_product_uniq` on `(company_entity_id,
+lower(btrim(product_title))) where po_header_id is not null` — one LINKED item
+per product per company. The per-PO key still let two POs carrying the same
+product (KCMTar-48 and KCMTAR-49) each add an item when they synced at once,
+and the duplicate never healed, since each PO then preferred its own row. The
+sync's 23505 re-read now looks for the linked item for the product on any PO:
+its own is updated, another PO's is left alone. The per-PO index is dropped
+(this one implies it). 0 violations, 0 null-company rows and 0 items linked to
+another company's PO when it was created (2026-09-23). `verify_v2_schema.sql`'s
+"Product tracker PO link" check reports it MISSING if absent.

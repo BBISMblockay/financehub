@@ -19089,6 +19089,10 @@ $c$select (select count(*) from v_po_header_summary
 -- One Pipeline item per product per PO (partial unique index), so two tabs
 -- syncing the same PO cannot both add an item. Additive; re-runnable.
 \i migrations/20260923180000_product_tracker_po_product_unique.sql
+-- ...keyed on the COMPANY instead: one linked item per product, so two POs
+-- carrying the same product cannot each add one either. Drops the per-PO
+-- index above, which this one implies. Additive; re-runnable.
+\i migrations/20260923190000_product_tracker_company_product_unique.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

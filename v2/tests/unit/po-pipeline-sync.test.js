@@ -16,7 +16,10 @@
  *     with no Save or -> TRK press
  *   - an item another PO already owns is never overwritten or duplicated
  *   - expected units is the only field a PO overwrites
- *   - overlapping autosaves cannot create the same item twice
+ *   - overlapping autosaves cannot create the same item twice -- not from
+ *     two tabs on one PO, and not from two POs carrying the same product
+ *   - a release is planned only from the PO's COMPLETE line list, however
+ *     small the server's response cap
  */
 'use strict';
 
@@ -217,6 +220,15 @@ r.test('an item released and then re-added to the same PO is claimed back', () =
   r.eq(a.patch.expected_units, 40);
 });
 
+r.test('an unlinked item is not claimed while another PO owns the product (one linked item per product)', () => {
+  const trackers = [
+    { id: 'loose', product_title: YOUTH, po_header_id: null, notes: null },
+    { id: 'theirs', product_title: YOUTH, po_header_id: 'po-other', expected_units: 2000 },
+  ];
+  const acts = P.plan(PO, P.productTotals(LINES.slice(6)), trackers, true);
+  r.eq(acts.map((a) => [a.kind, a.row && a.row.id]), [['other_po', 'theirs']]);
+});
+
 r.test('notedPoName reads the first line of the note only', () => {
   r.eq(P.notedPoName('Auto-added from PO: KCMTar-34\nreorder planned'), 'KCMTar-34');
   r.eq(P.notedPoName('Pushed from PO: X-1'), 'X-1');
@@ -240,13 +252,19 @@ function fakeSb(tables, opts = {}) {
     if (q.op === 'select') {
       let got = rows.filter(match).map((x) => ({ ...x }));
       if (q.range) got = got.slice(q.range[0], q.range[1] + 1);
+      // A server response cap (PostgREST max_rows), applied after the offset.
+      if (opts.cap) got = got.slice(0, opts.cap);
       return { data: got, error: null };
     }
-    // product_tracker_po_product_uniq: one linked item per (PO, product).
+    // product_tracker_company_product_uniq: one LINKED item per (company,
+    // product), whichever PO it is linked to. unique: 'po' is the weaker
+    // per-PO index it replaced, kept to show why that was not enough.
     const clash = (candidate, selfId) => opts.unique && q.table === 'product_tracker' && candidate.po_header_id
-      && rows.some((x) => x.id !== selfId && x.po_header_id === candidate.po_header_id
+      && rows.some((x) => x.id !== selfId && x.po_header_id
+        && (opts.unique === 'po' ? x.po_header_id === candidate.po_header_id
+          : String(x.company_entity_id) === String(candidate.company_entity_id))
         && P.titleKey(x.product_title) === P.titleKey(candidate.product_title));
-    const dup = { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "product_tracker_po_product_uniq"' } };
+    const dup = { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "product_tracker_company_product_uniq"' } };
     if (q.op === 'insert') {
       if (clash(q.payload, null)) return dup;
       rows.push({ id: `new-${++seq}`, ...q.payload }); return { data: null, error: null };
@@ -432,7 +450,20 @@ const run = async (name, fn) => {
     await P.sync(sb, { po: PO });
     const youth = sb.db.product_tracker.filter((x) => x.product_title === YOUTH);
     r.eq(youth[0].po_header_id, null, 'Creytex-335 still carries it, so it is not claimed');
-    r.eq(sb.calls.filter((c) => c.table === 'po_headers').length, 2, 'two pages read');
+    r.eq(sb.calls.filter((c) => c.table === 'po_headers').length, 3, 'read until an empty page');
+  });
+
+  await run("the noted PO's lines are read in full too: a product past the cap still holds its item", async () => {
+    const others = Array.from({ length: 5 }, (_, i) => ({ po_header_id: 'po-zzz', title_snapshot: `Other ${i}`, qty: 10 }));
+    const sb = fakeSb({
+      po_lines: LINES.concat(others, [{ po_header_id: 'po-zzz', title_snapshot: YOUTH, qty: 50 }]),
+      po_headers: [{ id: 'po-zzz', po_name: 'Creytex-335' }],
+      product_tracker: [MOVED],
+    }, { cap: 3 });
+    const res = await P.sync(sb, { po: PO });
+    r.eq(res.errors, []);
+    r.eq(sb.db.product_tracker.find((x) => x.product_title === YOUTH).po_header_id, null,
+      'Creytex-335 still carries it (its 6th line), so it is not claimed');
   });
 
   await run('the PO lookup only happens when an item actually needs it', async () => {
@@ -453,7 +484,96 @@ const run = async (name, fn) => {
   await run('the race is real: without the unique index, two tabs add the item twice', async () => {
     const sb = fakeSb({ po_lines: LINES.slice(6), product_tracker: [] }, { delayMs: 5 });
     await Promise.all([P.sync(sb, { po: PO }), P.sync(sb, { po: PO })]);
-    r.eq(sb.db.product_tracker.length, 2, 'this is what product_tracker_po_product_uniq exists to prevent');
+    r.eq(sb.db.product_tracker.length, 2, 'this is what the unique index exists to prevent');
+  });
+
+  // Two POs carrying the same product (KCMTar-48 and KCMTAR-49 both carry the
+  // Ken Griffey Jr. youth tee). A NEW product: neither PO has an item yet.
+  const PO_B = { ...PO, id: 'po-b', po_name: 'Incotexco-497' };
+  const linesOn = (po) => LINES.slice(6).map((l) => ({ ...l, po_header_id: po.id }));
+
+  await run('two POs carrying one product, synced at once: a per-PO index lets BOTH add an item', async () => {
+    const sb = fakeSb({ po_lines: linesOn(PO).concat(linesOn(PO_B)), product_tracker: [] }, { delayMs: 5, unique: 'po' });
+    await Promise.all([P.sync(sb, { po: PO }), P.sync(sb, { po: PO_B })]);
+    r.eq(sb.db.product_tracker.length, 2, 'why the index is keyed on the company, not the PO');
+  });
+
+  await run('two POs carrying one product, from two independent queues: ONE item, the other PO leaves it alone', async () => {
+    const sb = fakeSb({ po_lines: linesOn(PO).concat(linesOn(PO_B)), product_tracker: [] }, { delayMs: 5, unique: true });
+    const tabA = P.createQueue((arg) => P.sync(sb, arg));
+    const tabB = P.createQueue((arg) => P.sync(sb, arg));
+    const [a, b] = await Promise.all([tabA(PO.id, { po: PO }), tabB(PO_B.id, { po: PO_B })]);
+    r.eq(sb.db.product_tracker.length, 1, 'one item for the product');
+    r.eq(a.errors.concat(b.errors), [], 'the loser re-read the winner instead of failing');
+    r.eq(a.inserted.length + b.inserted.length, 1);
+    r.eq(a.otherPo.length + b.otherPo.length, 1, 'the loser found it belongs to the other PO');
+    const winner = sb.db.product_tracker[0];
+    r.eq(winner.expected_units, 550, "the winner's own total, not overwritten by the loser");
+  });
+
+  await run("a claim that collides with ANOTHER PO's item leaves both alone", async () => {
+    const manual = { id: 'manual', product_title: YOUTH, po_header_id: null, expected_units: null, notes: null };
+    const sb = fakeSb({ po_lines: LINES.slice(6), product_tracker: [manual] }, { unique: true });
+    interleave(sb, 'update', (p) => p.po_header_id === 'po-496',
+      { id: 'po-b-item', product_title: YOUTH, po_header_id: 'po-b', expected_units: 300 });
+    const res = await P.sync(sb, { po: PO, create: true });
+    r.eq(res.errors, []);
+    r.eq(res.otherPo.map((a) => a.title), [YOUTH]);
+    r.eq(sb.db.product_tracker.find((x) => x.id === 'manual').po_header_id, null, 'the unlinked item stays unlinked');
+    r.eq(sb.db.product_tracker.find((x) => x.id === 'po-b-item').expected_units, 300, "the other PO's figure is untouched");
+  });
+
+  // ── complete reads ─────────────────────────────────────────────────────────
+
+  await run('a response cap smaller than the PO: every line is still read, and nothing is released', async () => {
+    const sb = fakeSb({
+      po_lines: LINES,
+      product_tracker: [
+        { id: 't-m', product_title: MEN, po_header_id: 'po-496', expected_units: 325 },
+        { id: 't-y', product_title: YOUTH, po_header_id: 'po-496', expected_units: 550, launch_id: 'launch-1' },
+      ],
+      launch_product_readiness: [{ id: 'lpr', product_tracker_id: 't-y', expected_units: 550 }],
+    }, { cap: 4 });
+    const res = await P.sync(sb, { po: PO });
+    r.eq(res.errors, []);
+    r.eq(res.released, [], 'the youth lines sit past the cap; they are still on the PO');
+    r.eq(sb.db.product_tracker.find((x) => x.id === 't-y').po_header_id, 'po-496');
+    r.eq(sb.db.product_tracker.find((x) => x.id === 't-y').expected_units, 550);
+    r.eq(sb.db.launch_product_readiness[0].expected_units, 550);
+    r.eq(res.updated.concat(res.unchanged).map((a) => a.units).sort((x, y) => x - y), [325, 550], 'both totals read in full');
+  });
+
+  await run('a response cap on the Pipeline read: an owned item past it is updated, not duplicated', async () => {
+    const filler = Array.from({ length: 7 }, (_, i) => ({ id: `f${i}`, product_title: `Filler ${i}`, po_header_id: null }));
+    const sb = fakeSb({
+      po_lines: LINES.slice(6),
+      product_tracker: filler.concat([{ id: 't-y', product_title: YOUTH, po_header_id: 'po-496', expected_units: 105 }]),
+    }, { cap: 3 }); // no unique index here: the READ must find it, not the conflict retry
+    const res = await P.sync(sb, { po: PO });
+    r.eq(res.errors, []);
+    r.eq(sb.db.product_tracker.filter((x) => x.product_title === YOUTH).length, 1);
+    r.eq(sb.db.product_tracker.find((x) => x.id === 't-y').expected_units, 550);
+  });
+
+  await run('readAll stops, with an error, if the server ignores the range (no endless loop)', async () => {
+    const rows = Array.from({ length: P.PAGE + 1 }, (_, i) => ({ id: i }));
+    let calls = 0;
+    const q = { order() { return q; }, range() { return q; }, then(ok) { calls += 1; return Promise.resolve({ data: rows, error: null }).then(ok); } };
+    const got = await P.readAll(() => q);
+    r.truthy(got.error, 'an error, not a hang');
+    r.eq(got.data, null, 'never a partial list');
+    r.eq(calls, 1);
+  });
+
+  await run('a failed later page of PO lines: nothing is written, nothing released', async () => {
+    const sb = fakeSb({
+      po_lines: LINES,
+      product_tracker: [{ id: 't-y', product_title: YOUTH, po_header_id: 'po-496', expected_units: 550 }],
+    }, { cap: 4, fail: (q) => q.table === 'po_lines' && q.range && q.range[0] > 0 });
+    const res = await P.sync(sb, { po: PO });
+    r.eq(res.errors.length, 1);
+    r.eq(sb.calls.filter((c) => c.op !== 'select').length, 0, 'a partial line list never plans a release');
+    r.eq(sb.db.product_tracker[0].po_header_id, 'po-496');
   });
 
   await run('two tabs (two independent queues) add ONE item, and neither reports an error', async () => {

@@ -36,11 +36,18 @@
  * units are what stopped being true. A released item can be claimed again by
  * whichever PO carries the product next, this one included.
  *
- * Two tabs, or two people, can sync the same PO at once. The browser queue
- * only serialises one tab; the database is the boundary: a partial unique
- * index on (po_header_id, lower(btrim(product_title))) (20260923180000) makes
- * the second insert fail, and sync() then re-reads the row that won and
- * updates it instead of adding a duplicate.
+ * Two tabs, or two people, can sync at once -- the same PO, or two POs that
+ * carry the same product. The browser queue only serialises one tab; the
+ * database is the boundary: a partial unique index on (company_entity_id,
+ * lower(btrim(product_title))) over LINKED items (20260923190000) allows one
+ * linked item per product per company, so the second insert or claim fails,
+ * and sync() re-reads the item that won: its own PO's is brought in step,
+ * another PO's is left alone, exactly as if it had been there all along.
+ *
+ * Every read is paged to the end (readAll). A release is destructive -- it
+ * clears expected units and the launch copy -- so it may only be planned
+ * from the PO's COMPLETE line list: a product lost past a response cap would
+ * otherwise read as "left the PO".
  *
  * "Still carries" matters. A PO is recreated when its factory changes (the
  * name comes from the factory), and deleting one nulls po_header_id, so an
@@ -122,7 +129,8 @@
    *   kind 'insert'     patch is the new row
    *   kind 'update'     patch names only the columns that change
    *   kind 'unchanged'  row already says what the PO says
-   *   kind 'other_po'   row belongs to another PO; nothing written
+   *   kind 'other_po'   row belongs to another PO (or was auto-added from
+   *                     one that still carries it); nothing written
    *   kind 'release'    the product left this PO: unlink, clear the units
    */
   function plan(po, totals, trackers, create, noteHolds) {
@@ -144,6 +152,11 @@
       var own = same.find(function (r) { return sameId(r.po_header_id, p.id); });
       var canCreate = mayCreate(create, t.key);
       if (!own && !canCreate) return;
+      // Another PO already owns this product: leave it alone, and claim
+      // nothing -- one linked item per product (the unique index refuses a
+      // second one anyway).
+      var elsewhere = own ? null : same.find(function (r) { return hasText(r.po_header_id); });
+      if (elsewhere) { actions.push(Object.assign({ kind: 'other_po', row: elsewhere }, base)); return; }
       var claimable = own ? null : same.find(function (r) {
         if (hasText(r.po_header_id)) return false;
         var noted = notedPoName(r.notes);
@@ -197,7 +210,29 @@
   function errText(e) { return (e && (e.message || e.details)) || String(e); }
   function isConflict(e) { return !!e && String(e.code || '') === UNIQUE_VIOLATION; }
 
-  var HEADER_PAGE = 1000;
+  var PAGE = 1000;
+
+  /**
+   * Every row a query matches, however many responses that takes. A response
+   * is capped (1,000 rows by default, and the cap is server configuration),
+   * so this pages by offset in a stable order and stops only on an EMPTY
+   * page -- stopping on a short one would silently truncate under any lower
+   * cap. `build` returns a fresh query each call. Any page's error is the
+   * whole read's error: a partial list is never returned.
+   */
+  async function readAll(build) {
+    var all = [];
+    for (;;) {
+      var got = await build().order('id', { ascending: true }).range(all.length, all.length + PAGE - 1);
+      if (got.error) return { data: null, error: got.error };
+      var page = got.data || [];
+      if (!page.length) return { data: all, error: null };
+      // More than was asked for means the range was ignored; paging on would
+      // re-read the same rows forever.
+      if (page.length > PAGE) return { data: null, error: { message: 'The server ignored paging; the read was stopped.' } };
+      all = all.concat(page);
+    }
+  }
 
   /**
    * For unlinked items whose note names a DIFFERENT PO, find out whether that
@@ -217,33 +252,39 @@
     });
     if (!names.size) return undefined;
 
-    // Paged: a response is capped (1,000 rows by default), and a noted PO
-    // lost past the cap would read as "gone" and hand its item to this PO.
-    var nameById = new Map();
-    for (var from = 0; ; from += HEADER_PAGE) {
+    // Paged: a noted PO, or one of its lines, lost past a response cap would
+    // read as "gone" and hand its item to this PO.
+    var heads = await readAll(function () {
       var hq = sb.from('po_headers').select('id,po_name');
-      if (o.companyId) hq = hq.eq('company_entity_id', o.companyId);
-      var heads = await hq.order('id', { ascending: true }).range(from, from + HEADER_PAGE - 1);
-      if (heads.error) return undefined;
-      var page = heads.data || [];
-      page.forEach(function (h) {
-        var n = String(h.po_name || '').trim().toLowerCase();
-        if (names.has(n)) nameById.set(String(h.id), n);
-      });
-      if (page.length < HEADER_PAGE) break;
-    }
+      return o.companyId ? hq.eq('company_entity_id', o.companyId) : hq;
+    });
+    if (heads.error) return undefined;
+    var nameById = new Map();
+    heads.data.forEach(function (h) {
+      var n = String(h.po_name || '').trim().toLowerCase();
+      if (names.has(n)) nameById.set(String(h.id), n);
+    });
 
     var held = new Set();
     if (nameById.size) {
-      var lq = sb.from('po_lines').select('po_header_id,title_snapshot').in('po_header_id', Array.from(nameById.keys()));
-      if (o.companyId) lq = lq.eq('company_entity_id', o.companyId);
-      var got = await lq;
+      var ids = Array.from(nameById.keys());
+      var got = await readAll(function () {
+        var lq = sb.from('po_lines').select('id,po_header_id,title_snapshot').in('po_header_id', ids);
+        return o.companyId ? lq.eq('company_entity_id', o.companyId) : lq;
+      });
       if (got.error) return undefined;
-      (got.data || []).forEach(function (l) {
+      got.data.forEach(function (l) {
         held.add(nameById.get(String(l.po_header_id)) + '|' + titleKey(l.title_snapshot));
       });
     }
     return function (noted, key) { return held.has(String(noted).trim().toLowerCase() + '|' + key); };
+  }
+
+  function readTrackers(sb, o) {
+    return readAll(function () {
+      var tq = sb.from('product_tracker').select(TRACKER_COLUMNS);
+      return o.companyId ? tq.eq('company_entity_id', o.companyId) : tq;
+    });
   }
 
   /** The launch readiness copy of a launch-linked item follows its figure,
@@ -257,15 +298,15 @@
 
   /**
    * Another tab or person got there first: the unique index refused a second
-   * item for this PO and product. Re-read the one that won and bring it in
-   * step instead. Returns the action actually applied.
+   * linked item for this product. Re-read the linked item that won -- this
+   * PO's, or another PO's -- and treat it exactly as if it had been there
+   * when we planned: this PO's is brought in step, another PO's is left
+   * alone. Returns the action actually applied.
    */
   async function resolveConflict(sb, o, po, a) {
-    var q = sb.from('product_tracker').select(TRACKER_COLUMNS).eq('po_header_id', po.id);
-    if (o.companyId) q = q.eq('company_entity_id', o.companyId);
-    var got = await q;
+    var got = await readTrackers(sb, o);
     if (got.error) throw new Error('Could not re-read the Pipeline after a conflict: ' + errText(got.error));
-    var winner = (got.data || []).filter(function (r) { return titleKey(r.product_title) === a.key; });
+    var winner = got.data.filter(function (r) { return hasText(r.po_header_id) && titleKey(r.product_title) === a.key; });
     if (!winner.length) throw new Error('The Pipeline refused a duplicate item, and the existing one could not be found.');
     var total = { key: a.key, title: a.title, units: a.units, lineCount: a.lineCount, productType: a.patch && a.patch.product_type };
     var again = plan(po, [total], winner, [a.key])[0];
@@ -297,17 +338,17 @@
 
     var actions;
     try {
-      var lq = sb.from('po_lines').select('title_snapshot,product_type_snapshot,qty').eq('po_header_id', po.id);
-      if (o.companyId) lq = lq.eq('company_entity_id', o.companyId);
-      var lines = await lq;
+      // The COMPLETE line list, or nothing: releases are planned from it.
+      var lines = await readAll(function () {
+        var lq = sb.from('po_lines').select('id,title_snapshot,product_type_snapshot,qty').eq('po_header_id', po.id);
+        return o.companyId ? lq.eq('company_entity_id', o.companyId) : lq;
+      });
       if (lines.error) throw new Error('Could not read the PO lines: ' + errText(lines.error));
       var totals = productTotals(lines.data);
 
       // Read even when the PO has no lines left: that is exactly when the
       // items it owns have to be released.
-      var tq = sb.from('product_tracker').select(TRACKER_COLUMNS);
-      if (o.companyId) tq = tq.eq('company_entity_id', o.companyId);
-      var trackers = await tq;
+      var trackers = await readTrackers(sb, o);
       if (trackers.error) throw new Error('Could not read the Pipeline: ' + errText(trackers.error));
 
       actions = plan(po, totals, trackers.data, create, await noteHoldsFor(sb, o, po, totals, trackers.data));
@@ -329,7 +370,7 @@
         } else if (a.kind === 'update' || a.kind === 'release') {
           var upd = await sb.from('product_tracker').update(a.patch).eq('id', a.row.id);
           // Claiming an unlinked item can collide with an item another tab
-          // just created for the same PO and product.
+          // just linked for the same product, from this PO or another.
           if (a.kind === 'update' && isConflict(upd.error)) { pushResult(out, await resolveConflict(sb, o, po, a)); continue; }
           if (upd.error) throw upd.error;
           (a.kind === 'release' ? out.released : out.updated).push(a);
@@ -390,6 +431,8 @@
     plan: plan,
     sync: sync,
     createQueue: createQueue,
+    readAll: readAll,
+    PAGE: PAGE,
     TRACKER_COLUMNS: TRACKER_COLUMNS,
   };
 })(typeof window !== 'undefined' ? window : this);
