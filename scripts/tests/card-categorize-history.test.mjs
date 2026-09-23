@@ -25,6 +25,7 @@ const MUTATIONS = {
   'chart-failure-as-removed': ["if (!activeById) { tally(unresolved, id, name || id, date); return; }", ""],
   'latest-anchor': ["if (!merchant.anchor || rowDate < merchant.anchor) merchant.anchor = rowDate;", "if (rowDate > merchant.anchor) merchant.anchor = rowDate;"],
   'memo-as-similar': ["recencyWeight(r.transaction_date, anchor) * (r.match === 'similar' ? 0.4 : 0.8), 'ledger', r.match);", "recencyWeight(r.transaction_date, anchor) * (r.match === 'exact' ? 0.8 : 0.4), 'ledger', r.match === 'exact' ? 'exact' : 'similar');"],
+  'ledger-outvotes-silo': ["if (siloDecides) { ledgerSetAside++; continue; }", ""],
   'failed-history-as-none': ["if (!found) return buildEvidence(m.anchor, [], [], eligibleById, activeById, { silo: false, ledger: false }, unavailable.length ? unavailable : HISTORY_SOURCES);", "if (!found) return buildEvidence(m.anchor, [], [], eligibleById, activeById, { silo: false, ledger: false }, []);"],
 };
 const mutation = process.env.CATEGORIZE_HISTORY_MUTATION;
@@ -191,7 +192,10 @@ test('similar insurance accounts: consistent history outranks the model when the
   assert.equal(s.account_name, EXP, 'the model answer stands; history sets the ceiling');
   assert.equal(s.confidence, 0.5);
   assert.match(s.evidence, /^History points to Insurance - General Liability; the model chose Insurance Expense\./);
-  assert.match(s.evidence, /6 confirmed SILO codings/); assert.match(s.evidence, /3 ledger lines \(3 by similar payee name\)/);
+  assert.match(s.evidence, /6 confirmed SILO codings/);
+  // The ledger was read, but this company's own confirmed codings decide.
+  assert.match(s.evidence, / 3 QBO ledger lines not weighed: this company's confirmed SILO codings take precedence\./);
+  assert.doesNotMatch(s.evidence, /3 ledger lines/);
   assert.match(system, /# Historical coding evidence/); assert.match(system, /- "state farm" \(history up to 2026-09-01, its earliest line\) -> CONSISTENT: Insurance - General Liability/);
   assert.equal(r.body.history.silo_rows, 6); assert.equal(r.body.history.ledger_lines, 3); assert.equal(r.body.history.capped_merchants, 0);
   assert.equal(h.writes.length, 0);
@@ -427,4 +431,19 @@ test('failed model calls still carry the evidence so the row is not blank', asyn
   const h = fixture({ silo: many(2, () => siloRow()) });
   h.records.quickbooks_accounts.length = 0;
   const r = await h.run(); assert.equal(r.status, 400);
+});
+
+test('the ledger answers a merchant SILO has never coded, and cannot outvote one it has', async () => {
+  // Ledger only: it is the evidence.
+  const ledgerOnly = fixture({ ledger: many(3, () => ledgerLine({ counterparty: 'STATE FARM' })), suggestion: { account_name: GL } });
+  let { s } = await first(ledgerOnly);
+  assert.equal(s.history_status, 'consistent'); assert.match(s.evidence, /3 ledger lines/);
+  // Two recent SILO codings to one account against thirty ledger lines to
+  // another: the confirmed SILO practice leads, and the ledger is disclosed.
+  const both = fixture({ silo: many(2, () => siloRow()),
+    ledger: many(30, () => ledgerLine({ counterparty: 'STATE FARM', qbo_account_id: 'ins-exp', account_name: EXP })), suggestion: { account_name: GL } });
+  ({ s } = await first(both));
+  assert.equal(s.history_status, 'consistent'); assert.equal(s.confidence, 0.9);
+  assert.match(s.evidence, /^History agrees\. CONSISTENT: Insurance - General Liability \[2 confirmed SILO codings/);
+  assert.match(s.evidence, /30 QBO ledger lines not weighed/);
 });

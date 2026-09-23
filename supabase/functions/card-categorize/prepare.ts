@@ -203,8 +203,19 @@ function buildEvidence(
     if (!r.txn_date || !inWindow(r.txn_date)) continue;
     bump(String(r.qbo_account_id), r.qbo_account_name, r.txn_date, recencyWeight(r.txn_date, anchor), 'silo', 'exact');
   }
+  // This company's own confirmed codings come first. The QuickBooks archive
+  // records the PREVIOUS bookkeeping practice, and where the two disagree the
+  // current one is right: backtested 2026-09-23 on 1,764 rows people coded
+  // since 1 July (history strictly before each row), letting ledger volume
+  // outvote SILO codings agreed with the person on 609 rows and let the
+  // ledger speak only where SILO has none agreed on 858 (the old capped read:
+  // 738), with confident-and-wrong down from 96 to 48. The ledger is still
+  // read, and a merchant SILO has never seen is answered from it.
+  const siloDecides = byAccount.size > 0;
+  let ledgerSetAside = 0;
   for (const r of ledgerRows) {
     if (!r.transaction_date || !inWindow(r.transaction_date)) continue;
+    if (siloDecides) { ledgerSetAside++; continue; }
     bump(String(r.qbo_account_id), r.account_name, r.transaction_date,
       recencyWeight(r.transaction_date, anchor) * (r.match === 'similar' ? 0.4 : 0.8), 'ledger', r.match);
   }
@@ -261,6 +272,7 @@ function buildEvidence(
     if (inactive.size) summary += ` Also coded to since-removed account(s): ${[...inactive.values()].map((i) => i.account).join(', ')}.`;
   }
   if (ineligible.size) summary += ` Also coded to account(s) not offered for this transaction type: ${[...ineligible.values()].map((i) => `${i.account} [${i.count}; last ${i.last}]`).join(', ')}.`;
+  if (ledgerSetAside) summary += ` ${ledgerSetAside} QBO ledger line${ledgerSetAside === 1 ? '' : 's'} not weighed: this company's confirmed SILO codings take precedence.`;
   if (unresolved.size) summary += ` Also coded to account(s) whose current chart state could not be read: ${[...unresolved.values()].map((i) => `${i.account} [${i.count}; last ${i.last}]`).join(', ')}.`;
   return { status, leading, candidates, inactive: [...inactive.values()], ineligible: [...ineligible.values()],
     window: { from, to: anchor }, summary, notes, capped: capped.silo || capped.ledger };

@@ -19,6 +19,16 @@
 -- Weights mirror buildEvidence: recency 1 / 0.7 / 0.4 at 6 / 12 / 24 months;
 -- ledger exact or memo x0.8, similar x0.4; a candidate needs one exact match.
 --
+-- Result, Baseballism, 1,764 rows coded by a person 2026-07-01..2026-09-18
+-- (measured 2026-09-23):
+--   method           exact precedent  agrees  disagrees  consistent+wrong
+--   old                    857         738      119            96
+--   new_all_weighed        770         609      161            38
+--   new (SILO first)       964         858      106            48
+-- Direction on SILO history changed nothing here; memo-contains matches cost
+-- coverage when the ledger was weighed against SILO; the deciding change was
+-- letting the company's own confirmed codings take precedence.
+--
 -- Set the company and the sample window in the first CTE.
 with params as (
   select '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'::uuid co, date '2026-07-01' since, 5000 old_cap
@@ -87,7 +97,12 @@ ledger_new as (select p.id tid, l.acct, l.dt, l.w, l.exact from pairs p join key
   where p.dir is distinct from 'outflow' or l.account_type not in ('Income','Other Income')),
 ev as (
   select 'old' method, tid, acct, dt, w, exact from silo_old union all select 'old', tid, acct, dt, w, exact from ledger_old
-  union all select 'new', tid, acct, dt, w, exact from silo_new union all select 'new', tid, acct, dt, w, exact from ledger_new
+  -- new: SILO confirmed codings decide where they exist; the ledger answers
+  -- only a merchant SILO has none for (what buildEvidence does).
+  union all select 'new', tid, acct, dt, w, exact from silo_new
+  union all select 'new', l.tid, l.acct, l.dt, l.w, l.exact from ledger_new l where not exists (select 1 from silo_new s where s.tid = l.tid)
+  -- For comparison: the new retrieval with ledger volume weighed against SILO.
+  union all select 'new_all_weighed', tid, acct, dt, w, exact from silo_new union all select 'new_all_weighed', tid, acct, dt, w, exact from ledger_new
 ),
 scored as (
   select e.method, e.tid, e.acct,
@@ -107,6 +122,6 @@ select m.method,
   count(l.tid) filter (where l.any_exact and l.acct <> p.human) precedent_disagrees,
   count(l.tid) filter (where l.any_exact and l.share >= 0.75 and l.acct = p.human) consistent_and_agrees,
   count(l.tid) filter (where l.any_exact and l.share >= 0.75 and l.acct <> p.human) consistent_and_disagrees
-from (values ('old'), ('new')) m(method) cross join pairs p
+from (values ('old'), ('new_all_weighed'), ('new')) m(method) cross join pairs p
 left join lead_acct l on l.method = m.method and l.tid = p.id
-group by m.method order by m.method desc;
+group by m.method order by m.method;
