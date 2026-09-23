@@ -2440,6 +2440,13 @@ select case
 -- without 20260922170000 as its last include brings them back (and the long
 -- titles, and widgets pointing at them). This makes that visible.
 select case
+ -- 20260922170000 keeps a retired definition while any widget still reads
+ -- it (deleting it would blank that tile). Named separately, because the
+ -- fix is moving those widgets, not re-running the migration.
+ when exists (select 1 from public.dashboard_widgets w
+              where w.report_id in ('c1000000-0000-4000-a000-000000000009','c1000000-0000-4000-a000-00000000000a',
+                                    'c3000000-0000-4000-a000-000000000002','c3000000-0000-4000-a000-000000000007'))
+ then 'STALE — a dashboard widget still reads a retired SILO report; point it at a retained report, then re-run 20260922170000_record_report_catalog_cleanup.sql'
  when exists (select 1 from public.silo_chat_saved_reports
               where id in ('c1000000-0000-4000-a000-000000000009','c1000000-0000-4000-a000-00000000000a',
                            'c3000000-0000-4000-a000-000000000002','c3000000-0000-4000-a000-000000000007'))

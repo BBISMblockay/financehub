@@ -1945,9 +1945,14 @@ titles and re-pointed the reconnected widgets at deleted rows. This migration
 re-asserts production's state by id (deletes, widget report/title/layout, report
 titles and descriptions, the two boards' filter_state) and is a **no-op against
 production**. It must stay the LAST include in `apply_all_post_merge.sql`.
-`verify_v2_schema.sql` drops the retired ids from `canned_report_accuracy` and
-adds `retired_silo_reports` (STALE if a retired id returns or a seeded board
-widget loses its report).
+A retired report is deleted only while NO widget references it: any user can
+add one to their own board, and the FK is ON DELETE SET NULL, so deleting
+under that widget would blank it. A still-used definition is kept until the
+widget is moved (production had none on 2026-09-22). `verify_v2_schema.sql`
+drops the retired ids from `canned_report_accuracy` and adds
+`retired_silo_reports` (STALE, with its own message, if a widget still reads a
+retired report, if a retired id returns, or if a seeded board widget loses its
+report).
 
 Regression: `scripts/tests/report-catalog-cleanup-database.test.mjs` (executes
 the real seeds in PGlite, proves the risk, proves the fix twice).

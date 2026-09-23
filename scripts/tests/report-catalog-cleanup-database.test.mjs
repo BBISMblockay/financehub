@@ -148,6 +148,36 @@ await runSeeds();
 await runRecord();
 await assertCleaned('after a full re-run');
 
+// A user's own board can hold a retired report: Add insight stores the report
+// id directly. Deleting under it would blank the tile (ON DELETE SET NULL), so
+// the retirement must wait for that consumer -- and finish once it is gone.
+await runSeeds();
+await db.exec(`
+  insert into public.dashboards (id, company_entity_id, name, visibility)
+  values ('00000000-0000-4000-a000-0000000000d1', '00000000-0000-4000-a000-0000000000c1', 'My board', 'private');
+  insert into public.dashboard_widgets (id, dashboard_id, report_id, query_index, title, visual_type)
+  values ('00000000-0000-4000-a000-0000000000e1', '00000000-0000-4000-a000-0000000000d1',
+          'c3000000-0000-4000-a000-000000000002', 0, 'My net sales', 'table');`);
+await runRecord();
+
+await test('a retired report still used on a user board is kept, and the widget keeps a runnable report', async () => {
+  const [w] = await rows(`select w.report_id::text, cardinality(r.queries_run) n from public.dashboard_widgets w
+    left join public.silo_chat_saved_reports r on r.id = w.report_id
+    where w.id = '00000000-0000-4000-a000-0000000000e1'`);
+  assert.equal(w.report_id, 'c3000000-0000-4000-a000-000000000002');
+  assert.ok(w.n > 0, 'the kept report still carries its query');
+});
+await test('...while the three unused retired reports are still removed', async () => {
+  const left = (await rows(`select id::text from public.silo_chat_saved_reports where id = any($1::uuid[])`, [RETIRED]))
+    .map((r) => r.id);
+  assert.deepEqual(left, ['c3000000-0000-4000-a000-000000000002']);
+});
+
+// Once the consumer is moved, the next run finishes the retirement.
+await db.exec(`delete from public.dashboard_widgets where id = '00000000-0000-4000-a000-0000000000e1'`);
+await runRecord();
+await assertCleaned('after the last consumer is moved');
+
 await test('the record migration is the last file apply_all_post_merge.sql includes', async () => {
   const all = await readFile(new URL('supabase/apply_all_post_merge.sql', root), 'utf8');
   const includes = [...all.matchAll(/^\\i migrations\/(\S+)/gm)].map((m) => m[1]);

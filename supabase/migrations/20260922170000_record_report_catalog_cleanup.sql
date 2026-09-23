@@ -67,8 +67,19 @@ update public.dashboard_widgets set report_id = 'c1000000-0000-4000-a000-0000000
 update public.dashboard_widgets set report_id = 'c1000000-0000-4000-a000-000000000002', query_index = 0, title = 'Overdue Purchase Orders', visual_type = 'table', visual_config = '{"limit": 5, "columns": ["po_name", "factory_name", "days_late", "total_units"]}'::jsonb, layout = '{"h": 7, "w": 5, "x": 7, "y": 18}'::jsonb, sort_order = 10 where id = 'c4000000-0000-4000-a000-00000000000d';
 
 -- 3. The four retired SILO reports. Their tie-outs go with them (ON DELETE
---    CASCADE); no widget points at them after step 2. Scoped to global
---    system rows so a same-id row of any other kind is never touched.
+--    CASCADE). Scoped to global system rows so a same-id row of any other
+--    kind is never touched.
+--
+--    Deleted ONLY while no widget references them. Step 2 re-points every
+--    SEEDED widget, but any user can add one of these reports to their own
+--    board (the Add insight picker stores the report id directly), and the
+--    FK is ON DELETE SET NULL -- deleting under such a widget would blank it
+--    with "No saved report attached". A still-used definition is KEPT, and
+--    verify_v2_schema.sql's retired_silo_reports check names it as STALE
+--    until those widgets are moved. Production had no such widget on
+--    2026-09-22 (measured), so there this deletes nothing (the rows are
+--    already gone) and on a re-run it deletes exactly what the seeds
+--    re-created.
 --      c1..09  Sales Relative to Current Stock (Logistics · Sell-through by product type)
 --      c1..0a  Logistics Top Products          (Top products by units sold)
 --      c3..02  Ownership Net Sales by Day      (Daily Sales covers it)
@@ -78,7 +89,9 @@ delete from public.silo_chat_saved_reports
               'c1000000-0000-4000-a000-00000000000a',
               'c3000000-0000-4000-a000-000000000002',
               'c3000000-0000-4000-a000-000000000007')
-   and source = 'system' and company_entity_id is null;
+   and source = 'system' and company_entity_id is null
+   and not exists (select 1 from public.dashboard_widgets w
+                    where w.report_id = silo_chat_saved_reports.id);
 
 -- 4. The 17 retained SILO reports' shortened titles and current definitions.
 update public.silo_chat_saved_reports set title = 'Daily Sales', description = 'Daily canonical net sales, units and distinct non-cancelled orders. Defaults to 60 completed company-calendar days. A blank measure means that source has no rows for the day.' where id = '5110de50-0000-4000-a000-000000000001' and source = 'system' and company_entity_id is null;
