@@ -85,6 +85,9 @@ function fixture(options = {}) {
   const fakeRpc = async (name, args) => {
     rpcCalls.push({ name, args: structuredClone(args) });
     if (name === 'card_coding_input_hashes') return { data: args.p_ids.map((id) => ({ transaction_id: id, input_hash: `hash:${id}` })), error: null };
+    // Every row is free to claim here; claim contention has its own suite.
+    if (name === 'claim_card_coding_preparation') return { data: args.p_ids, error: null };
+    if (name === 'release_card_coding_preparation') return { data: args.p_ids?.length || 0, error: null };
     if (name === 'record_card_coding_suggestions') {
       if (options.recordFailure) return { data: null, error: { message: 'synthetic record failure' } };
       return { data: { recorded: args.p_rows.length, skipped: [] }, error: null };

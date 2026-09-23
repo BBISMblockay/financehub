@@ -19061,6 +19061,10 @@ $c$select (select count(*) from v_po_header_summary
 -- re-checks the row and writes through apply_card_coding; approval and posting
 -- are untouched. Idempotent: create-if-not-exists, create-or-replace.
 \i migrations/20260923120000_card_coding_suggestions.sql
+-- Background preparation: which rows still need a suggestion (derived, not
+-- queued), leased claims so two workers never pay for the same rows, one
+-- import per scheduler call, and closure of runs the gateway cut off.
+\i migrations/20260923130000_card_coding_background_preparation.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

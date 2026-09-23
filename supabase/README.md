@@ -2027,3 +2027,35 @@ approved or posted. No client write grant on either table. Ends with
 Regression: `scripts/tests/card-coding-suggestions-database.test.mjs`
 (finance-database job; five mutation hooks), and the Plaid fixture executes the
 new `verify_v2_schema.sql` check.
+
+## Background coding preparation — `20260923130000_card_coding_background_preparation.sql`
+
+Makes coding preparation run without a browser: after every bank feed sync
+(`plaid-sync.yml`'s `prepare-coding` job) and nightly (`card-coding-prepare.yml`),
+through the `card-coding-prepare-scheduled` function.
+
+- **Per account, off by default.** `card_sources.auto_prepare_coding` must be
+  true for the scheduler to touch an account: background preparation spends
+  model calls on a company's behalf. The Prepare button ignores it.
+- **Work is derived, not enqueued.** `card_coding_needs_preparation(t, b, s)`
+  returns NULL when a row should be prepared now, and otherwise why not:
+  every `card_coding_preparation_blocker` reason, `no_connection`,
+  `in_progress` (claimed), `prepared`, `dismissed`, `backoff` or
+  `retry_limit`. A missed sync or an interrupted run leaves nothing to
+  reconcile — the next pass finds the rows.
+- **Failures back off** 15m, 30m, 1h, 2h (`card_coding_retry_after`) and stop
+  after the fifth attempt, when the page's Retry is the way forward.
+- **Claims** (`card_coding_preparation_claims`, service role only, no policy)
+  are leased for 240s: `claim_card_coding_preparation` returns only the rows
+  this caller now holds, a live claim cannot be taken over, an expired one
+  can, and `release_card_coding_preparation` frees them. The bookkeeper's
+  button claims too, so two clicks or a click and a background run never pay
+  for the same rows.
+- `next_card_coding_work(after, batch, limit)` hands out ONE import at a time,
+  newest rows first, with the company read from the import, and first closes
+  runs left `running` for over ten minutes (`close_interrupted_card_coding_runs`).
+- `card_coding_suggestion_stale_reason()` is now the one definition of stale,
+  shared by `card_coding_suggestions_v` and the scheduler.
+
+Regression: `scripts/tests/card-coding-background-database.test.mjs` (four
+mutation hooks); the Plaid fixture executes the new verify check.

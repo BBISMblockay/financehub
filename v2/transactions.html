@@ -667,7 +667,7 @@
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
 <script src="transaction-dates.js?v=0bad96d29084"></script>
-<script src="coding-suggestions.js?v=550c787958a3"></script>
+<script src="coding-suggestions.js?v=bf924c931ee4"></script>
 <script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
 <script src="card-splits.js?v=050d8f3d5bed"></script>
 <script src="transaction-filters.js?v=53b49e70ff5e"></script>
@@ -1083,8 +1083,16 @@
       if (c.failed) parts.push(`${c.failed} failed to prepare`);
       if (suggestionsError) parts.push(`Suggestions could not load: ${suggestionsError}`);
     }
+    if (!prepareProgress && freshnessInfo?.runningSince) parts.unshift('Preparing in the background');
     if (prepareProgress) parts.unshift(prepareProgress);
     node.textContent = parts.join(' · ');
+    // Once preparation runs by itself, the button is for catching up and
+    // retries, and looks like it.
+    const button = el('btnAiCode');
+    if (button) {
+      button.classList.toggle('bcn-btn--ghost', !!freshnessInfo?.background);
+      if (!state.codingBusy) button.textContent = freshnessInfo?.background ? 'Prepare now' : 'Prepare coding';
+    }
   }
 
   /* Split lines for the rows on screen. Read separately rather than through a
@@ -1779,7 +1787,7 @@
       button.setAttribute('aria-pressed',String(range.start===dateRange().start && range.end===dateRange().end));
       button.disabled=state.codingBusy || !!state.dirty.size;
     }
-    el('btnAiCode').textContent=state.codingBusy && prepareProgress?'Preparing…':'Prepare coding';
+    el('btnAiCode').textContent=state.codingBusy && prepareProgress?'Preparing…':freshnessInfo?.background?'Prepare now':'Prepare coding';
     renderFreshness();
     renderFilterSegments(reviewDateRows());
     // Computed before the early returns below so the chips and the "showing

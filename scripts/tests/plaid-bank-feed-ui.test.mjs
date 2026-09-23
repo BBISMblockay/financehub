@@ -764,6 +764,15 @@ await test('refusals from the database are named in words, and accepted rows are
  await h.page.acceptSuggestion([a.id,b.id]);
  assert.match(h.el('status').textContent,/1 category saved.*1 not applied: the bank or card details changed after it was prepared/);
 });
+await test('when preparation runs by itself the page says so, and the button becomes a catch-up',async()=>{
+ const h=await pageHarness();const now=Date.now();
+ h.data.card_coding_preparation_runs=[
+   {finished_at:new Date(now-3600e3).toISOString(),status:'completed',trigger:'background',started_at:new Date(now-3700e3).toISOString()},
+   {finished_at:null,status:'running',trigger:'background',started_at:new Date(now-120e3).toISOString()}];
+ await h.page.loadSuggestions(h.page.state.txns);await new Promise(r=>setImmediate(r));
+ assert.match(h.el('codeFreshness').textContent,/^Preparing in the background · .*Coding prepared 1h ago/);
+ assert.equal(h.el('btnAiCode').textContent,'Prepare now');
+});
 await test('feed sync and coding preparation are reported as separate times',async()=>{
  const h=await pageHarness();
  const now=Date.now();

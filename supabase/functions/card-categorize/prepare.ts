@@ -682,7 +682,14 @@ export type PrepareRequest = {
   requestedBy: string | null;   // the signed-in person, or null for the scheduler
   retry: boolean;               // ask again even where a live suggestion stands
   authMs?: number;              // time the caller spent establishing who is asking
+  // The scheduler selected rows that WERE eligible; one coded or excluded by a
+  // person since is skipped, not a reason to refuse the rest. The bookkeeper's
+  // endpoint keeps the strict refusal, because it names rows the page showed.
+  skipIneligible?: boolean;
 };
+// Long enough to outlive a request the gateway cuts at 150s, short enough that
+// a crashed claimant's rows come back within minutes.
+const CLAIM_LEASE_SECONDS = 240;
 export type PrepareResult = { status: number; body: Record<string, unknown> };
 
 const VALID_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -694,6 +701,9 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
   const timings: Record<string, unknown> = request.authMs === undefined ? {} : { auth_ms: request.authMs };
   const fail = (status: number, error: string): PrepareResult => ({ status, body: { error } });
   const { companyId, transactionIds, retry } = request;
+  // Refused before anything is claimed: without a key every call would fail,
+  // be recorded as a failure and burn the rows' automatic retries for nothing.
+  if (!ANTHROPIC_API_KEY) return fail(503, 'ANTHROPIC_API_KEY is not configured for this project.');
   let phase = performance.now();
 
   const { data: batch, error: batchError } = await supabase.from('card_import_batches')
@@ -742,13 +752,18 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
     if (error || !rows) return fail(503, 'Could not load the selected card transactions.');
     selectedRows.push(...rows);
   }
-  if (selectedRows.length !== transactionIds.length) {
-    return fail(409, 'Some selected transactions are no longer in this batch. Reload it and try again.');
-  }
-  if (selectedRows.some((row) => row.status !== 'uncoded' || row.qbo_account_id
+  const ineligible = (row: any) => row.status !== 'uncoded' || row.qbo_account_id
       || !Number.isFinite(Number(row.amount)) || Number(row.amount) === 0 || (!bankMode && Number(row.amount) < 0) || row.currency !== 'USD'
       || row.origin !== batch.origin || (row.origin === 'plaid'
-        && (row.provider_status !== 'posted' || (!bankMode && row.accounting_treatment !== 'purchase'))))) {
+        && (row.provider_status !== 'posted' || (!bankMode && row.accounting_treatment !== 'purchase')));
+  let skippedIneligible = 0;
+  if (request.skipIneligible) {
+    selectedRows.splice(0, selectedRows.length, ...selectedRows.filter((row) => !ineligible(row)));
+    skippedIneligible = transactionIds.length - selectedRows.length;
+  } else if (selectedRows.length !== transactionIds.length) {
+    return fail(409, 'Some selected transactions are no longer in this batch. Reload it and try again.');
+  }
+  if (selectedRows.some(ineligible)) {
     return fail(409, bankMode
       ? 'Select uncoded, settled USD bank transactions. Reload this period to remove changed or unavailable rows.'
       : 'Card suggestions require uncoded purchase outflows. Save changes and review payments or pending rows separately.');
@@ -765,13 +780,38 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
     if (error) return fail(503, 'Could not read prepared suggestions. Apply the card coding suggestions migration, then retry.');
     for (const r of data || []) live.set(String(r.transaction_id), r);
   }
-  const pendingRows = selectedRows.filter((row) => {
+  const unprepared = selectedRows.filter((row) => {
     const current = live.get(String(row.id));
     if (!current || current.stale_reason) return true;
     if (retry) return true;
     return current.review_status === 'open' && current.outcome === 'failed';
   });
-  const alreadyPrepared = selectedRows.length - pendingRows.length;
+  const alreadyPrepared = selectedRows.length - unprepared.length;
+
+  // Claim before paying. Rows another worker -- or another click -- is
+  // preparing right now are left to it; the claim is released at the end and
+  // expires by itself if this request dies first.
+  const claimToken = crypto.randomUUID();
+  const claimed = new Set<string>();
+  for (const part of chunks(unprepared.map((row) => String(row.id)), 500)) {
+    if (!part.length) continue;
+    const { data, error } = await supabase.rpc('claim_card_coding_preparation',
+      { p_company: companyId, p_ids: part, p_token: claimToken, p_lease_seconds: CLAIM_LEASE_SECONDS });
+    if (error || !Array.isArray(data)) return fail(503, 'Could not reserve these transactions for preparation. Apply the background preparation migration, then retry.');
+    for (const id of data) claimed.add(String(typeof id === 'string' ? id : Object.values(id)[0]));
+  }
+  const pendingRows = unprepared.filter((row) => claimed.has(String(row.id)));
+  const inProgress = unprepared.length - pendingRows.length;
+  const release = () => claimed.size
+    ? supabase.rpc('release_card_coding_preparation', { p_token: claimToken }).then(() => undefined, () => undefined)
+    : Promise.resolve();
+  try {
+    return await prepareClaimed();
+  } finally {
+    await release();
+  }
+
+  async function prepareClaimed(): Promise<PrepareResult> {
 
   const byStoredMerchant = new Map<string, Merchant>();
   const rowsByKey = new Map<string, any[]>();
@@ -798,7 +838,8 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
   const merchants = [...byStoredMerchant.values()];
   const sourceName: string = source.display_name || 'card';
   timings.load_ms = elapsed(phase);
-  if (!merchants.length) return { status: 200, body: { ok: true, suggestions: [], run_id: null, already_prepared: alreadyPrepared, recorded: 0 } };
+  if (!merchants.length) return { status: 200, body: { ok: true, suggestions: [], run_id: null, already_prepared: alreadyPrepared,
+    in_progress: inProgress, skipped_ineligible: skippedIneligible, recorded: 0 } };
 
   phase = performance.now();
   // Bank suggestions include revenue and clearing/card destinations. The response
@@ -1166,6 +1207,8 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       failed: totals.failed,
       skipped: totals.skipped,
       already_prepared: alreadyPrepared,
+      in_progress: inProgress,
+      skipped_ineligible: skippedIneligible,
       merchants_asked: merchants.length,
       batches: slices.length,
       related_entities: relatedEntities.length,
@@ -1179,6 +1222,7 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       errors: errors.length ? errors : undefined,
     },
   };
+  }
 }
 
 // ---------------------------------------------------------------------------

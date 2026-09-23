@@ -8,6 +8,8 @@
 //   CATEGORIZE_PERSIST_MUTATION=save-at-end        results recorded only after every call returns
 //   CATEGORIZE_PERSIST_MUTATION=facts-before-hash  fingerprints read after the facts
 //   CATEGORIZE_PERSIST_MUTATION=reask-prepared     live suggestions ignored, every row asked again
+//   CATEGORIZE_PERSIST_MUTATION=ignore-claims      rows another worker holds are asked anyway
+//   CATEGORIZE_PERSIST_MUTATION=no-release         a finished request keeps its claim until the lease expires
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadCategorizer, prepareSource, fakeDatabase } from './lib/card-categorize-sandbox.mjs';
@@ -22,6 +24,8 @@ const MUTATIONS = {
      '  const inputHash = new Map<string, string>();\n  await supabase.from(\'card_transactions_v\').select(\'id\').eq(\'company_entity_id\', companyId);\n  for (const part of chunks(transactionIds, 500)) {'],
   ],
   'reask-prepared': [['    if (!current || current.stale_reason) return true;', '    return true;']],
+  'ignore-claims': [['  const pendingRows = unprepared.filter((row) => claimed.has(String(row.id)));', '  const pendingRows = unprepared;']],
+  'no-release': [['    await release();', '    void release;']],
 };
 const mutation = process.env.CATEGORIZE_PERSIST_MUTATION || '';
 let source = await prepareSource();
@@ -34,7 +38,8 @@ const COMPANY = '00000000-0000-4000-8000-000000000006', BATCH = '00000000-0000-4
 const SOURCE = '00000000-0000-4000-8000-000000000002', CONNECTION = '00000000-0000-4000-8000-000000000005';
 const txnId = (i) => `00000000-0000-4000-9000-${String(i).padStart(12, '0')}`;
 
-function fixture({ merchants = 3, live = [], modelFails = () => false, omit = () => false, recordFails = false, delay = () => 0 } = {}) {
+function fixture({ merchants = 3, live = [], modelFails = () => false, omit = () => false, recordFails = false, delay = () => 0, heldElsewhere = [] } = {}) {
+  const claims = [], released = [];
   const transactions = Array.from({ length: merchants }, (_, i) => ({
     id: txnId(i), batch_id: BATCH, company_entity_id: COMPANY, merchant_norm: `vendor ${i}`, card_name: null,
     description: `VENDOR ${i} #44`, amount: 10 + i, currency: 'USD', status: 'uncoded', qbo_account_id: null,
@@ -56,6 +61,13 @@ function fixture({ merchants = 3, live = [], modelFails = () => false, omit = ()
   const recorded = [];
   const db = fakeDatabase(records, { rpc: {
     card_coding_input_hashes: ({ p_ids }) => ({ data: p_ids.map((id) => ({ transaction_id: id, input_hash: `hash:${id}` })), error: null }),
+    // Claims as the database answers them: rows another holder keeps are absent.
+    claim_card_coding_preparation: ({ p_ids, p_token }) => {
+      const mine = p_ids.filter((id) => !heldElsewhere.includes(id));
+      claims.push({ token: p_token, ids: mine });
+      return { data: mine, error: null };
+    },
+    release_card_coding_preparation: ({ p_token }) => { released.push(p_token); return { data: 1, error: null }; },
     record_card_coding_suggestions: ({ p_rows }) => {
       if (recordFails) return { data: null, error: { message: 'synthetic record failure' } };
       recorded.push(...structuredClone(p_rows));
@@ -85,7 +97,7 @@ function fixture({ merchants = 3, live = [], modelFails = () => false, omit = ()
       body: JSON.stringify({ batch_id: BATCH, transaction_ids: ids, ...body }) }));
     return { status: response.status, body: await response.json() };
   };
-  return { db, recorded, modelCalls, run, transactions };
+  return { db, recorded, modelCalls, run, transactions, claims, released };
 }
 
 test('each finished model call is recorded before the slowest one returns; a failed call is recorded as failed', async () => {
@@ -189,4 +201,66 @@ test('retry must be a boolean; the endpoint still refuses malformed requests', a
   const { status } = await h.run(undefined, { retry: 'yes' });
   assert.equal(status, 400);
   assert.equal(h.modelCalls.length, 0);
+});
+
+test('rows another worker or click holds are left to it, and this request releases its own claim', async () => {
+  const h = fixture({ merchants: 3, heldElsewhere: [txnId(1)] });
+  const { body } = await h.run();
+  assert.deepEqual(h.modelCalls.flat().sort(), ['vendor 0', 'vendor 2']);
+  assert.equal(body.in_progress, 1);
+  assert.equal(h.claims.length, 1); assert.deepEqual(h.released, [h.claims[0].token]);
+  const hashes = h.db.timeline.indexOf('rpc:card_coding_input_hashes'), claim = h.db.timeline.indexOf('rpc:claim_card_coding_preparation');
+  const firstModel = h.db.timeline.findIndex((e) => e.startsWith('model:'));
+  assert.ok(hashes < claim && claim < firstModel, 'rows are claimed before any model call is paid for');
+});
+
+test('a claim is released even when every model call fails', async () => {
+  const h = fixture({ merchants: 2, modelFails: () => true });
+  await h.run();
+  assert.equal(h.released.length, 1);
+  assert.equal(h.db.runs[0].status, 'failed');
+});
+
+test('everything held elsewhere: no run, no model call, and the reason is reported', async () => {
+  const h = fixture({ merchants: 2, heldElsewhere: [txnId(0), txnId(1)] });
+  const { body } = await h.run();
+  assert.equal(body.run_id, null); assert.equal(body.in_progress, 2);
+  assert.equal(h.modelCalls.length, 0); assert.equal(h.db.runs.length, 0);
+});
+
+test('the scheduler path skips a row a person coded since selection instead of refusing the import', async () => {
+  // Driven through prepareCoding() exactly as the scheduled worker calls it:
+  // explicit company and batch, no person, background trigger.
+  const h = fixture({ merchants: 3 });
+  h.transactions[1].status = 'coded'; h.transactions[1].qbo_account_id = 'supplies';
+  const { exports } = (await import('./lib/card-categorize-sandbox.mjs')).loadCategorizer(source, {
+    console: { ...console, warn() {} }, createClient: () => h.db.client,
+    fetch: async (url, init) => {
+      const asked = [...JSON.parse(init.body).messages[0].content.matchAll(/merchant: "([^"]+)"/g)].map((m) => m[1]);
+      h.modelCalls.push(asked);
+      return Response.json({ content: [{ type: 'text', text: JSON.stringify({ suggestions: asked.map((merchant) => ({ merchant, card_name: null,
+        account_name: 'Supplies', location_name: null, vendor_name: null, confidence: 0.7, reasoning: 'Synthetic.' })) }) }], stop_reason: 'end_turn', usage: {} });
+    },
+  });
+  const result = await exports.prepareCoding(h.db.client, { companyId: COMPANY, batchId: BATCH, transactionIds: h.transactions.map((t) => t.id),
+    trigger: 'background', requestedBy: null, retry: false, skipIneligible: true });
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(result.body.skipped_ineligible, 1);
+  assert.deepEqual(h.modelCalls.flat().sort(), ['vendor 0', 'vendor 2']);
+  assert.equal(h.db.runs[0].trigger, 'background'); assert.equal(h.db.runs[0].requested_by, null);
+  // The bookkeeper's endpoint keeps its strict refusal for the same situation.
+  const strict = fixture({ merchants: 2 }); strict.transactions[0].status = 'coded'; strict.transactions[0].qbo_account_id = 'supplies';
+  assert.equal((await strict.run()).status, 409);
+});
+
+test('with no model key nothing is claimed or recorded, so no row burns its retries', async () => {
+  const h = fixture({ merchants: 1 });
+  const { exports } = (await import('./lib/card-categorize-sandbox.mjs')).loadCategorizer(source, {
+    console: { ...console, warn() {} }, createClient: () => h.db.client, fetch: async () => { throw new Error('no model call expected'); },
+    env: (key) => (key === 'ANTHROPIC_API_KEY' ? '' : 'synthetic'),
+  });
+  const result = await exports.prepareCoding(h.db.client, { companyId: COMPANY, batchId: BATCH, transactionIds: [txnId(0)],
+    trigger: 'background', requestedBy: null, retry: false, skipIneligible: true });
+  assert.equal(result.status, 503); assert.match(result.body.error, /ANTHROPIC_API_KEY/);
+  assert.equal(h.claims.length, 0); assert.equal(h.recorded.length, 0); assert.equal(h.db.runs.length, 0);
 });
