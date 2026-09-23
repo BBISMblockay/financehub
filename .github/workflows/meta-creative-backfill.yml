@@ -26,7 +26,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "missing = stored creatives with no destination (default); all = re-ask about every stored creative"
+        description: "missing = stored creatives with no destination or no preview link (default); all = re-ask about every stored creative"
         required: false
         type: choice
         options: ["missing", "all"]

@@ -24,6 +24,8 @@
  *   META_LINK_DB_MUTATION=catalog-replaces    (the catalog description overwrites)
  *   META_LINK_DB_MUTATION=catalog-not-corrected (the disproved "no destination
  *                                              field" claim stays in the prompt)
+ *   META_LINK_DB_MUTATION=preview-no-check    (a non-web preview link is accepted)
+ *   META_LINK_DB_MUTATION=preview-not-in-report (wow_creatives never carries it)
  *
  * Run:  node scripts/tests/meta-creative-links-database.test.mjs
  * Needs:  npm ci --prefix scripts/tests/finance-db
@@ -35,7 +37,8 @@ import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/inde
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
 const mutation = process.env.META_LINK_DB_MUTATION || '';
-assert.ok(['', 'no-together-check', 'path-keeps-query', 'catalog-replaces', 'catalog-not-corrected'].includes(mutation),
+assert.ok(['', 'no-together-check', 'path-keeps-query', 'catalog-replaces', 'catalog-not-corrected',
+  'preview-no-check', 'preview-not-in-report'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -353,6 +356,51 @@ await test('re-running the catalog correction does not double-apply', async () =
   const row = await one("select description from silo_chat_schema_catalog where relname='meta_ad_performance_v'");
   const hits = row.description.split('It names where the destination came from').length - 1;
   assert.equal(hits, 1, `replacement text present ${hits} times`);
+});
+
+/* ── Preview links (20260923150000) ──────────────────────────────────── */
+await q("insert into silo_chat_schema_catalog(relname, description, keywords) values('meta_ad_creatives', 'Creative metadata per ad.', '{}')");
+let previewSql = await read('supabase/migrations/20260923150000_meta_creative_preview_link.sql');
+if (mutation === 'preview-no-check') {
+  previewSql = previewSql.replace(`or preview_shareable_link ~ '^https?://[^[:space:]<>"'']+$'`, 'or true');
+} else if (mutation === 'preview-not-in-report') {
+  previewSql = previewSql.replace(`execute newdef;`, `null;`);
+}
+// Twice: re-runnable, like every migration here.
+await db.exec(previewSql); await db.exec(previewSql);
+
+await test('the preview link reaches the Marketing Report beside the destination', async () => {
+  await q("update meta_ad_creatives set preview_shareable_link='https://fb.me/2bSdoqkx1fUbb5I' where ad_id='ad_link'");
+  const out = await one('select wow_creatives(current_date,$1,50) as j', ['week']);
+  const ad = out.j.groups[0].ads[0];
+  assert.equal(ad.preview, 'https://fb.me/2bSdoqkx1fUbb5I');
+  assert.equal(ad.link, 'https://baseballism.com/collections/bts?utm_campaign=bts',
+    'the destination is untouched and stays a separate field');
+});
+
+await test('the rewrite kept thruplays and leads', async () => {
+  const out = await one('select wow_creatives(current_date,$1,50) as j', ['week']);
+  for (const k of ['thruplays', 'leads', 'cost_per_thruplay', 'cost_per_lead']) {
+    assert.ok(k in out.j.groups[0].ads[0], `ad lost ${k}`);
+  }
+});
+
+await test('a re-run adds the preview to wow_creatives exactly once', async () => {
+  const def = (await one("select pg_get_functiondef(p.oid) d from pg_proc p where proname='wow_creatives'")).d;
+  assert.equal(def.split('a.preview_shareable_link').length - 1, 1);
+  assert.equal(def.split('c.preview_shareable_link').length - 1, 1);
+});
+
+await refused(
+  () => insertCreative('badpreview', { preview_shareable_link: 'javascript:alert(1)' }),
+  /preview_is_web_url/,
+  'a preview link that is not a web URL',
+);
+
+await test('the catalog note on meta_ad_creatives is appended once, never replacing', async () => {
+  const row = await one("select description from silo_chat_schema_catalog where relname='meta_ad_creatives'");
+  assert.ok(row.description.startsWith('Creative metadata per ad.'), 'the existing description must survive');
+  assert.equal(row.description.split("preview_shareable_link is Meta's shareable").length - 1, 1);
 });
 
 console.log(`\n${passed} assertions passed${mutation ? ` (mutation: ${mutation})` : ''}`);
