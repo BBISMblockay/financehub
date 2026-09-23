@@ -11,7 +11,7 @@
  *
  * What is proven here:
  *   1. The default `missing` mode asks only about creatives with no
- *      destination, so a re-run after a partial failure resumes rather than
+ *      destination or no preview link, so a re-run after a partial failure resumes rather than
  *      re-walking 4,000 ads.
  *   2. Stored creatives are paged past PostgREST's 1,000-row cap. A single
  *      unpaged select would silently backfill the first 1,000 ads and report
@@ -192,16 +192,19 @@ async function runDriver(env, opts) {
   return { asked, exitCode };
 }
 
-await test('default mode asks only about creatives with no destination', async () => {
+await test('default mode asks only about creatives missing a destination or a preview', async () => {
   const { asked } = await runDriver(
     { META_BACKFILL_DISCOVER: 'false' },
     { creatives: [
-      { ad_id: 'has', link_url: 'https://x/1', synced_at: '2026-09-16' },
-      { ad_id: 'missing1', link_url: null, synced_at: '2026-09-15' },
+      { ad_id: 'has', link_url: 'https://x/1', preview_shareable_link: 'https://fb.me/a', synced_at: '2026-09-16' },
+      { ad_id: 'missing1', link_url: null, preview_shareable_link: 'https://fb.me/b', synced_at: '2026-09-15' },
       { ad_id: 'missing2', link_url: null, synced_at: '2026-09-14' },
+      // Has a destination, has never had its preview asked for: every ad
+      // stored before 2026-09-23. One Meta read answers both gaps.
+      { ad_id: 'nopreview', link_url: 'https://x/2', preview_shareable_link: null, synced_at: '2026-09-13' },
     ] });
-  assert.deepEqual(asked.sort(), ['missing1', 'missing2'],
-    'an ad that already has a destination must not be re-asked in the default mode');
+  assert.deepEqual(asked.sort(), ['missing1', 'missing2', 'nopreview'],
+    'an ad with both a destination and a preview must not be re-asked in the default mode');
 });
 
 await test('mode=all re-asks about every stored creative', async () => {
@@ -246,7 +249,7 @@ await test('a run records a sync_jobs row and finishes it as success', async () 
 
 await test('nothing to backfill does no work and records no job', async () => {
   const { asked } = await runDriver({ META_BACKFILL_DISCOVER: 'false' },
-    { creatives: [{ ad_id: 'has', link_url: 'https://x/1', synced_at: '2026-09-16' }] });
+    { creatives: [{ ad_id: 'has', link_url: 'https://x/1', preview_shareable_link: 'https://fb.me/a', synced_at: '2026-09-16' }] });
   assert.equal(asked.length, 0);
   assert.equal(state.jobs.length, 0, 'an empty run must not open a sync_jobs row');
 });

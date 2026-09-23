@@ -167,6 +167,11 @@
     /* A destination that is not the advertiser's site -- a page post standing
        in for a landing page -- is marked rather than hidden. */
     .wow-dest--offsite { color:var(--bcn-warn); }
+    /* The ad name opens Meta's shareable preview of the ad itself, when the
+       sync has one. Underlined only on hover: every row may carry one. */
+    .wow-ad-name { color:inherit; text-decoration:none; }
+    .wow-ad-name:hover, .wow-ad-name:focus-visible { color:var(--bcn-accent); text-decoration:underline; }
+    .wow-ad-name .wow-ext { font-size:9px; margin-left:3px; color:var(--bcn-ink-3); }
 
     .wow-note { padding:9px 14px; font-size:11px; color:var(--bcn-ink-3);
       border-top:1px solid var(--bcn-border); line-height:1.5; }
@@ -1826,6 +1831,19 @@
       title="${esc(url)}${esc(why)} [source: ${esc(src)}]">${esc(label)}</a>`;
   }
 
+  /* The ad's name, linked to Meta's shareable preview of the ad itself
+   * (preview_shareable_link, an fb.me link anyone can open). Not the
+   * destination -- that is the line underneath. No preview, plain text: the
+   * sync has not been given one for that ad yet, which is not a claim the ad
+   * cannot be previewed. */
+  function adNameCell(a) {
+    const name = esc(a.ad || a.ad_id);
+    const url = safeUrl(a.preview);
+    if (!url) return `<span>${name}</span>`;
+    return `<a class="wow-ad-name" href="${esc(url)}" target="_blank" rel="noopener noreferrer"
+      title="Open Meta's preview of this ad">${name}<span class="wow-ext" aria-hidden="true">↗</span></a>`;
+  }
+
   function renderCreatives(){
     const root = el('creRoot');
     if (!root) return;
@@ -1861,7 +1879,7 @@
         return `<tr>
           <td><div class="wow-ad">${a.thumb
               ? `<img class="wow-thumb" src="${esc(a.thumb)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />`
-              : `<span class="wow-thumb"></span>`}<div class="wow-ad-lines"><span>${esc(a.ad || a.ad_id)}</span>${destCell(a, destSupported)}</div></div></td>
+              : `<span class="wow-thumb"></span>`}<div class="wow-ad-lines">${adNameCell(a)}${destCell(a, destSupported)}</div></div></td>
           <td style="text-align:left;white-space:normal;font-size:11px;color:var(--bcn-ink-3)">${esc(a.adset || '—')}</td>
           <td class="wow-copy">${copy}</td>
           ${cols.map(([k]) => `<td>${creFmt(creVal(a, k), k)}</td>`).join('')}
@@ -2012,12 +2030,12 @@
       // Destination and its SOURCE both go out. The URL alone cannot be judged
       // once it is in a spreadsheet away from the page's host styling -- a
       // page-post destination looks exactly like a landing page there.
-      push('Ad','Ad set','Campaign','Copy','Copy source','Destination','Destination source',
+      push('Ad','Ad set','Campaign','Copy','Copy source','Destination','Destination source','Ad preview',
            'Spend','ROAS','CPA','Conversions','Clicks',
            `Spend ${G().delta} %`,'New this period');
       (g.ads || []).forEach(a => push(a.ad ?? '', a.adset ?? '', a.campaign ?? '',
         a.copy ?? '', a.copy_source ?? 'not synced',
-        a.link ?? 'not resolved', a.link_source ?? '',
+        a.link ?? 'not resolved', a.link_source ?? '', a.preview ?? '',
         a.spend ?? '', a.roas ?? '', a.cpa ?? '',
         a.conversions ?? '', a.clicks ?? '', a.spend_wow ?? '', a.is_new ? 'yes' : ''));
     });

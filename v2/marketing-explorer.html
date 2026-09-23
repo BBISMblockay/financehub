@@ -89,6 +89,8 @@
     .mx-c-rank { width:34px; padding-right:2px !important; color:var(--bcn-ink-4) !important; font-size:10.5px !important; }
     .mx-c-name { text-align:left !important; white-space:normal !important; font-family:var(--bcn-font) !important; }
     .mx-name { font-size:13px; font-weight:650; color:var(--bcn-ink); line-height:1.3; }
+    a.mx-name { color:inherit; text-decoration:none; }
+    a.mx-name:hover, a.mx-name:focus-visible { color:var(--bcn-accent); text-decoration:underline; }
     /* Real brand mark (simple-icons) on platform-level rows/crumbs only —
        both mainBody and the breadcrumb trail are fully rebuilt via innerHTML
        every render, never patched in place, so an inline <svg> is safe. */
@@ -396,14 +398,22 @@
     } catch(e){ console.warn('meta_ad_performance_daily unavailable', e); return []; }
   }
 
+  // preview_shareable_link arrived with 20260923120000. The page and the
+  // migration ship separately, so a database without the column must still
+  // load every creative: ask for it, and on refusal ask again without it.
   async function loadCreatives(){
-    try {
-      const rows = await loadPaged(() => scopeQ(
-        sb.from('meta_ad_creatives').select('ad_id,ad_name,thumbnail_url,title,effective_status')
-          .order('ad_id', { ascending:true })));
-      return new Map(rows.map(r => [r.ad_id, r]));
-    } catch(e){ console.warn('meta_ad_creatives unavailable', e); return new Map(); }
+    const cols = 'ad_id,ad_name,thumbnail_url,title,effective_status';
+    const q = (c) => loadPaged(() => scopeQ(
+      sb.from('meta_ad_creatives').select(c).order('ad_id', { ascending:true })));
+    let rows;
+    try { rows = await q(cols + ',preview_shareable_link'); }
+    catch(e){
+      try { rows = await q(cols); }
+      catch(e2){ console.warn('meta_ad_creatives unavailable', e2); return new Map(); }
+    }
+    return new Map(rows.map(r => [r.ad_id, r]));
   }
+  const safeHref = (v) => (typeof v === 'string' && /^https?:\/\/[^\s<>"']+$/i.test(v.trim()) ? v.trim() : null);
 
   async function loadAdPerfMin(){
     const { data } = await scopeQ(sb.from('meta_ad_performance_daily').select('day_date'))
@@ -523,7 +533,8 @@
         name: r.adset_name || '(no ad set)', sub:'', drillId: r.adset_id, drillName: r.adset_name }));
     return rollup(selectedAdPerf(), r => r.ad_id, r => {
       const c = CREATIVES.get(r.ad_id) || {};
-      return { name: r.ad_name || c.ad_name || r.ad_id, sub: c.effective_status || '', thumb: c.thumbnail_url || '' };
+      return { name: r.ad_name || c.ad_name || r.ad_id, sub: c.effective_status || '', thumb: c.thumbnail_url || '',
+               preview: safeHref(c.preview_shareable_link) };
     });
   }
 
@@ -612,7 +623,9 @@
     el('mainBody').innerHTML = rows.map((r,i) => {
       const icon = PLATFORM_ICON[r.drillId] || '';
       const nameInner = r.thumb
-        ? `<div class="mx-ad-cell"><img class="mx-thumb" src="${esc(r.thumb)}" alt="" loading="lazy" /><div><div class="mx-name">${icon}${esc(r.name)}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}</div></div>`
+        ? `<div class="mx-ad-cell"><img class="mx-thumb" src="${esc(r.thumb)}" alt="" loading="lazy" /><div><div class="mx-name">${icon}${r.preview
+            ? `<a class="mx-name" href="${esc(r.preview)}" target="_blank" rel="noopener noreferrer" title="Open Meta's preview of this ad">${esc(r.name)} ↗</a>`
+            : esc(r.name)}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}</div></div>`
         : `<div class="mx-name">${icon}${esc(r.name)}${isUpperFunnel(r)?'<span class="mx-flag" title="Attributed revenue under 10% of spend — likely an awareness objective, not a ROAS play">awareness</span>':''}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}`;
       return `<tr class="${canDrill?'mx-drillable':''}" data-idx="${i}">
         <td class="mx-c-rank">${i+1}</td>
