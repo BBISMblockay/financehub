@@ -335,6 +335,10 @@
       series = new Map(),
       coverage = new Map(),
       seen = new Set();
+    // Pending rows never count toward actuals (Plaid replaces them with posted
+    // rows later), but the days they sit on are not complete yet -- counted per
+    // date so the view can flag those columns as still settling.
+    const pendingByDate = new Map();
     let pending = 0,
       uncategorized = 0,
       excluded = 0,
@@ -350,7 +354,10 @@
       )
         continue;
       if (t.provider_status === "pending") {
-        if (selectedIds.has(t.plaid_account_id)) pending++;
+        if (selectedIds.has(t.plaid_account_id)) {
+          pending++;
+          pendingByDate.set(t.txn_date, (pendingByDate.get(t.txn_date) || 0) + 1);
+        }
         continue;
       }
       if (t.provider_status !== "posted") continue;
@@ -701,6 +708,7 @@
           direction,
           categoryKey: category.key,
           flow: category.flow,
+          accountType: category.type || null,
           label: group === "cashflow" ? category.flow : category.name,
           actual: Array(cols.length).fill(0),
           forecast: Array(cols.length).fill(0),
@@ -880,6 +888,7 @@
           days: days(start, addDays(today, -1)),
         })),
       pending,
+      pendingByDate,
       uncategorized,
       excluded,
       postedCount,

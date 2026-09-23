@@ -27,6 +27,9 @@
     ready = false;
   let whatIf = [],
     whatIfSequence = 0;
+  // COA mode shows one collapsed total per QuickBooks account type first;
+  // these are the "direction|type" groups a reader has opened. Session-only.
+  const openGroups = new Set();
   let filters = {
     currency: "USD",
     selected: "all",
@@ -251,7 +254,7 @@
       render();
       if (!model.invalidAssignments.length)
         status(
-          `Saved Plaid data · company date ${today}. Refresh reloads the latest saved sync.`,
+          `Saved Plaid data · ${syncFreshness()} · company date ${today}. Refresh reloads the latest saved sync.`,
         );
     } catch (e) {
       ready = false;
@@ -281,6 +284,22 @@
       el("refresh").disabled = false;
       el("matrix").setAttribute("aria-busy", "false");
     }
+  }
+  // How old the least-recently synced cash account is. A forecast anchored on a
+  // stale balance, or actuals missing a day of activity, should say so up top.
+  function syncFreshness() {
+    const cash = data.accounts.filter(
+      (a) => a.type === "depository" && a.connection_status !== "disconnected",
+    );
+    if (!cash.length) return "no cash accounts synced";
+    const times = cash.map((a) => Date.parse(a.last_synced_at || ""));
+    if (times.some((t) => !Number.isFinite(t)))
+      return "an account has never synced";
+    const hours = Math.floor((Date.now() - Math.min(...times)) / 3600000);
+    return (
+      "oldest bank sync " +
+      (hours < 1 ? "under an hour ago" : hours < 48 ? hours + "h ago" : Math.floor(hours / 24) + " days ago")
+    );
   }
   function allCashBalance() {
     const balances = data.accounts
@@ -339,7 +358,7 @@
                       currency: a.iso_currency_code,
                     }).format(value / 100)
                   : "—";
-          return `<button class="cf-account" data-account="${esc(a.id)}" aria-pressed="${filters.selected === a.id}" ${selectable ? "" : "disabled"}>${esc(a.name)} ${a.mask ? "· " + esc(a.mask) : ""}<strong>${esc(formatted)}</strong><small>${esc(a.type === "depository" ? "Cash" : a.type + " · not cash")} · ${esc(a.connection_status)}</small><small>Balance as of ${esc(a.balance_updated_at?.slice(0, 16).replace("T", " ") || "unknown")} UTC</small></button>`;
+          return `<button class="cf-account" data-account="${esc(a.id)}" aria-pressed="${filters.selected === a.id}" ${selectable ? "" : "disabled"}>${esc(a.name)} ${a.mask ? "· " + esc(a.mask) : ""}<strong>${esc(formatted)}</strong><small title="Balance as of ${esc(a.balance_updated_at?.slice(0, 16).replace("T", " ") || "unknown")} UTC">${esc(a.type === "depository" ? "Cash" : a.type + " · not cash")} · ${esc(a.connection_status)} · as of ${esc(a.balance_updated_at ? short(a.balance_updated_at.slice(0, 10)) : "unknown")}</small></button>`;
         })
         .join("");
     const end = model.ending.at(-1),
@@ -368,27 +387,65 @@
       `${c.kind === "forecast" ? "cf-future" : ""} ${i === first ? "cf-boundary" : ""}`;
     const total = (label, values, rowClass = "cf-total") =>
       `<tr class="${rowClass}"><th scope="row">${label}</th>${model.cols.map((c, i) => `<td class="${cls(c, i)} ${values[i] < 0 ? "cf-neg" : ""}">${money(values[i])}</td>`).join("")}</tr>`;
+    const rowHtml = (r, index, rowClass = "") =>
+      `<tr${rowClass ? ` class="${rowClass}"` : ""}><th scope="row">${esc(r.label)}</th>${model.cols
+        .map((c, i) => {
+          const amount = c.kind === "actual" ? r.actual[i] : r.forecast[i];
+          return `<td class="${cls(c, i)} ${r.overrides[i].length ? "cf-manual" : ""}"><button data-cell="${index}:${i}" aria-label="${esc(r.label + " " + c.start + " to " + c.end)}" title="${c.kind === "forecast" ? esc("Trend " + money(r.trend[i]) + " · planned " + money(r.planned[i]) + " · manual " + money(r.manual[i])) : "View bank movements"}">${money(amount)}</button></td>`;
+        })
+        .join("")}</tr>`;
+    const grouped = filters.group === "coa";
     let body = "";
     for (const direction of ["in", "out"]) {
       body += total(
         direction === "in" ? "Money in" : "Money out",
         direction === "in" ? model.inflow : model.outflow,
       );
-      model.rows.forEach((r, index) => {
-        if (r.direction !== direction) return;
-        body += `<tr><th scope="row">${esc(r.label)}</th>${model.cols
-          .map((c, i) => {
-            const amount = c.kind === "actual" ? r.actual[i] : r.forecast[i];
-            return `<td class="${cls(c, i)} ${r.overrides[i].length ? "cf-manual" : ""}"><button data-cell="${index}:${i}" aria-label="${esc(r.label + " " + c.start + " to " + c.end)}" title="${c.kind === "forecast" ? esc("Trend " + money(r.trend[i]) + " · planned " + money(r.planned[i]) + " · manual " + money(r.manual[i])) : "View bank movements"}">${money(amount)}</button></td>`;
-          })
+      const members = model.rows
+        .map((r, index) => ({ r, index }))
+        .filter(({ r }) => r.direction === direction);
+      if (!grouped) {
+        members.forEach(({ r, index }) => (body += rowHtml(r, index)));
+        continue;
+      }
+      // COA buckets roll up under their QuickBooks account type (Income, Cost
+      // of Goods Sold, Expense…): the total reads first, and opening it lists
+      // the accounts that make it up. Grouping by cashflow flow instead would
+      // put nearly every row under "Operating". Transfers and card paydowns
+      // keep their own group, as do rows with no account (uncategorized,
+      // plans, projections).
+      const groups = new Map();
+      for (const m of members) {
+        const flow = ["Transfers", "Card paydowns"].includes(m.r.flow)
+          ? m.r.flow
+          : m.r.accountType || m.r.flow || "Other";
+        if (!groups.has(flow)) groups.set(flow, []);
+        groups.get(flow).push(m);
+      }
+      for (const [flow, list] of groups) {
+        const key = direction + "|" + flow,
+          open = openGroups.has(key);
+        const sums = model.cols.map((c, i) =>
+          list.reduce(
+            (n, { r }) => n + (c.kind === "actual" ? r.actual[i] : r.forecast[i]),
+            0,
+          ),
+        );
+        body += `<tr class="cf-group"><th scope="row"><button type="button" class="cf-group-toggle" data-group="${esc(key)}" aria-expanded="${open}">${esc(flow)}<small>${list.length} ${list.length === 1 ? "account" : "accounts"}</small></button></th>${model.cols
+          .map(
+            (c, i) =>
+              `<td class="${cls(c, i)} ${sums[i] < 0 ? "cf-neg" : ""} ${list.some(({ r }) => r.overrides[i].length) ? "cf-manual" : ""}">${money(sums[i])}</td>`,
+          )
           .join("")}</tr>`;
-      });
+        if (open)
+          list.forEach(({ r, index }) => (body += rowHtml(r, index, "cf-child")));
+      }
     }
     body +=
       total("Net cash movement", model.net) +
       total("Projected ending cash", model.ending);
     el("matrix").innerHTML = model.cash.length
-      ? `<table><thead><tr><th scope="col">${filters.group === "coa" ? "COA bucket" : "Cashflow category"}<small>${filters.currency}</small></th>${model.cols.map((c, i) => `<th scope="col" class="${cls(c, i)}" ${i === first ? 'id="forecastStart"' : ""}>${short(c.start)}${c.end !== c.start ? " – " + short(c.end) : ""}<small>${c.kind === "actual" ? "Actual" : "Forecast"} · ${c.start.slice(0, 4)}</small></th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`
+      ? `<table><thead><tr><th scope="col">${filters.group === "coa" ? "COA bucket" : "Cashflow category"}<small>${filters.currency}</small></th>${model.cols.map((c, i) => { const settle = settling(c); return `<th scope="col" class="${cls(c, i)}${settle ? " cf-settling" : ""}" ${i === first ? 'id="forecastStart"' : ""}${settle ? ` title="${esc(settle.title)}"` : ""}>${short(c.start)}${c.end !== c.start ? " – " + short(c.end) : ""}<small>${c.kind === "actual" ? "Actual" : "Forecast"} · ${c.start.slice(0, 4)}</small>${settle ? `<small class="cf-settle">${esc(settle.label)}</small>` : ""}</th>`; }).join("")}</tr></thead><tbody>${body}</tbody></table>`
       : '<div class="cf-empty">Connect a Plaid checking or savings account to see cashflow. Credit cards and investments are outside cash balances.</div>';
     el("matrix").scrollLeft = scrollLeft;
     el("matrix").scrollTop = scrollTop;
@@ -410,6 +467,29 @@
           )
           .join("")
       : '<p class="cf-empty">Add known payments and receipts to shape the forecast.</p>';
+  }
+  // An actual column is not final while it contains today (the day is still
+  // running) or pending bank rows (Plaid posts them later, often on a
+  // different date). Flag it rather than let it read as a complete day.
+  function settling(c) {
+    if (c.kind !== "actual") return null;
+    let pending = 0;
+    for (let d = c.start; d <= c.end; d = M.addDays(d, 1))
+      pending += model.pendingByDate?.get(d) || 0;
+    const inProgress = c.start <= today && today <= c.end;
+    if (!pending && !inProgress) return null;
+    const label = [inProgress ? "in progress" : "", pending ? pending + " pending" : ""]
+      .filter(Boolean)
+      .join(" · ");
+    return {
+      label,
+      title:
+        (inProgress ? "Today is not over, so this column is incomplete. " : "") +
+        (pending
+          ? pending + " pending bank transaction" + (pending === 1 ? " is" : "s are") +
+            " not counted until Plaid posts " + (pending === 1 ? "it" : "them") + "."
+          : ""),
+    };
   }
   function categoryName(key) {
     return (
@@ -1036,14 +1116,60 @@
       if (button && !button.disabled) openPlan(button.dataset.plan);
     });
     el("matrix").addEventListener("click", (e) => {
+      const group = e.target.closest("[data-group]");
+      if (group && ready) {
+        const key = group.dataset.group;
+        openGroups.has(key) ? openGroups.delete(key) : openGroups.add(key);
+        render();
+        return;
+      }
       const button = e.target.closest("[data-cell]");
       if (button && ready) detail(button.dataset.cell);
     });
+    el("expandAll").addEventListener("click", () => {
+      if (!ready) return;
+      const keys = [...el("matrix").querySelectorAll("[data-group]")].map(
+        (b) => b.dataset.group,
+      );
+      const allOpen = keys.length && keys.every((k) => openGroups.has(k));
+      keys.forEach((k) => (allOpen ? openGroups.delete(k) : openGroups.add(k)));
+      render();
+    });
+    const charts = el("chartsWrap");
+    try {
+      if (localStorage.getItem("silo-cashflow-charts") === "closed")
+        charts.open = false;
+    } catch {}
+    charts.addEventListener("toggle", () => {
+      try {
+        localStorage.setItem("silo-cashflow-charts", charts.open ? "open" : "closed");
+      } catch {}
+    });
+    // Land with the forecast grid on screen and the actual/forecast boundary
+    // about a quarter of the way in, so the last actual columns stay visible
+    // beside the first forecast ones. Scrolling only sideways left the grid
+    // below the fold whenever the charts were open.
     el("jump").addEventListener("click", () => {
+      const matrix = el("matrix"),
+        page = matrix.closest(".cf-page"),
+        head = el("forecastHead") || matrix;
+      if (page)
+        page.scrollTop +=
+          head.getBoundingClientRect().top - page.getBoundingClientRect().top - 8;
       const start = el("forecastStart");
       if (start) {
-        el("matrix").scrollLeft = Math.max(0, start.offsetLeft - 230);
-        el("liquidity").scrollLeft = el("matrix").scrollLeft;
+        // Measured from the grid itself: the header cell's offsetParent is
+        // the page body, so offsetLeft would include the sidebar's width.
+        const label = matrix.querySelector("thead th")?.offsetWidth || 0,
+          x =
+            start.getBoundingClientRect().left -
+            matrix.getBoundingClientRect().left +
+            matrix.scrollLeft;
+        matrix.scrollLeft = Math.max(
+          0,
+          x - label - (matrix.clientWidth - label) * 0.25,
+        );
+        el("liquidity").scrollLeft = matrix.scrollLeft;
       }
     });
     document.querySelectorAll("[data-close]").forEach((b) =>

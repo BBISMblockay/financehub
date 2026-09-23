@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
     <link rel="stylesheet" href="beacon-mirrors-unified.css" />
     <link rel="stylesheet" href="v2-mobile.css" />
-    <link rel="stylesheet" href="cashflow.css?v=a6cdd4edecf8" />
+    <link rel="stylesheet" href="cashflow.css?v=f93ee6ad4263" />
     <script src="v2-shell.js" defer></script>
     <script src="nav-config.js"></script>
     <script src="avatar.js"></script>
@@ -17,9 +17,9 @@
     <script src="silo-chrome.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="/pages/config.js"></script>
-    <script src="cashflow-model.js?v=a1f36b95b4d7" defer></script>
+    <script src="cashflow-model.js?v=17bf0671c652" defer></script>
     <script src="cashflow-charts.js?v=5c54a7bc99f4" defer></script>
-    <script src="cashflow.js?v=ec7d852546e2" defer></script>
+    <script src="cashflow.js?v=1be02ea11f67" defer></script>
   </head>
   <body>
     <div class="silo-app" id="silo-app">
@@ -144,14 +144,23 @@
             id="summary"
             aria-label="Cash outlook"
           ></section>
-          <section
-            class="cf-charts"
-            id="charts"
-            aria-label="Cashflow dashboard charts"
-          ></section>
-          <div class="cf-section-head">
+          <details class="cf-charts-wrap" id="chartsWrap" open>
+            <summary>Charts</summary>
+            <section
+              class="cf-charts"
+              id="charts"
+              aria-label="Cashflow dashboard charts"
+            ></section>
+          </details>
+          <div class="cf-section-head" id="forecastHead">
             <h2>Cashflow forecast</h2>
-            <span>Click a forecast cell to adjust its total</span>
+            <span
+              >Click a category to see its accounts · click a forecast cell to
+              adjust it</span
+            >
+            <button type="button" class="bcn-btn cf-expand" id="expandAll">
+              Expand / collapse all
+            </button>
           </div>
           <div
             class="cf-matrix"

@@ -17,6 +17,19 @@
       background: var(--bcn-surface); border: 1px solid var(--bcn-border);
       border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
     }
+    /* Report picker: one tile per statement, so choosing a report is the
+       first click rather than a dropdown hunt. Dates and the account filter
+       stay ordinary controls in the bar beneath. */
+    .qr-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+      gap: 8px; margin-bottom: 10px; }
+    .qr-tile { display: flex; flex-direction: column; gap: 3px; text-align: left; cursor: pointer;
+      background: var(--bcn-surface); color: var(--bcn-ink); border: 1px solid var(--bcn-border);
+      border-radius: 10px; padding: 10px 12px; font: inherit; }
+    .qr-tile:hover { border-color: var(--bcn-accent); }
+    .qr-tile[aria-pressed="true"] { border-color: var(--bcn-accent);
+      box-shadow: inset 0 0 0 1px var(--bcn-accent); background: var(--bcn-accent-soft, #eaf1fb); }
+    .qr-tile-name { font-weight: 650; font-size: 13px; }
+    .qr-tile-desc { font-size: 11px; line-height: 1.35; color: var(--bcn-ink-3); }
     .qr-field { display: flex; flex-direction: column; gap: 4px; }
     .qr-field label {
       font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
@@ -140,7 +153,7 @@
         </div>
         <div class="bcn-header-actions">
           <button class="bcn-btn bcn-btn--primary" id="btnRun">Run report</button>
-          <button class="bcn-btn bcn-btn--dark" id="btnAdjust">Post adjustment</button>
+          <a class="bcn-btn" href="accounting-books.html#register" title="Staged, posted and voided journal entries">Journals</a>
           <button class="bcn-btn" id="btnCsv">CSV</button>
         </div>
       </header>
@@ -148,21 +161,18 @@
       <div class="qr-page">
         <div class="bcn-status" id="status" hidden></div>
 
+        <div class="qr-tiles" id="reportTiles" aria-label="Report">
+          <button type="button" class="qr-tile" data-report="ProfitAndLoss" aria-pressed="false"><span class="qr-tile-name">Profit &amp; Loss</span><span class="qr-tile-desc">Income and expenses for the period</span></button>
+          <button type="button" class="qr-tile" data-report="BalanceSheet" aria-pressed="false"><span class="qr-tile-name">Balance Sheet</span><span class="qr-tile-desc">Assets, liabilities and equity at the end date</span></button>
+          <button type="button" class="qr-tile" data-report="TrialBalance" aria-pressed="false"><span class="qr-tile-name">Trial Balance</span><span class="qr-tile-desc">Every account's debit or credit balance</span></button>
+          <button type="button" class="qr-tile" data-report="GeneralLedger" aria-pressed="true"><span class="qr-tile-name">General Ledger</span><span class="qr-tile-desc">Transaction detail by account</span></button>
+          <button type="button" class="qr-tile" data-report="CashFlow" aria-pressed="false"><span class="qr-tile-name">Cash Flow</span><span class="qr-tile-desc">Operating, investing and financing cash</span></button>
+          <button type="button" class="qr-tile" data-report="ProfitAndLossDetail" aria-pressed="false"><span class="qr-tile-name">P&amp;L Detail</span><span class="qr-tile-desc">The transactions behind the P&amp;L</span></button>
+          <button type="button" class="qr-tile" data-report="TransactionList" aria-pressed="false"><span class="qr-tile-name">Transaction List</span><span class="qr-tile-desc">Every transaction in the period</span></button>
+        </div>
         <div class="qr-filters">
-          <div class="qr-field">
-            <label for="report">Report</label>
-            <select class="bcn-field" id="report">
-              <option value="BalanceSheet">Balance Sheet</option>
-              <option value="GeneralLedger" selected>General Ledger (transaction detail)</option>
-              <option value="TransactionList">Transaction List</option>
-              <option value="ProfitAndLoss">Profit &amp; Loss</option>
-              <option value="ProfitAndLossDetail">P&amp;L Detail</option>
-              <option value="TrialBalance">Trial Balance</option>
-              <option value="CashFlow">Cash Flow</option>
-            </select>
-          </div>
-
-          <div class="qr-field qr-field--wide">
+          <input type="hidden" id="report" value="GeneralLedger" />
+          <div class="qr-field qr-field--wide" id="accountField">
             <label for="account">Account filter</label>
             <select class="bcn-field bcn-field--mono" id="account">
               <option value="">— all accounts —</option>
@@ -199,7 +209,7 @@
           <div class="qr-card-head">
             <div>
               <div class="qr-title" id="cardTitle">No report run yet</div>
-              <div class="qr-sub" id="cardSub">Pick a report and click Run report</div>
+              <div class="qr-sub" id="cardSub">Pick a report above to run it</div>
             </div>
             <div class="qr-sub" id="rowCount"></div>
           </div>
@@ -207,23 +217,6 @@
             <table class="qr-table" id="tbl">
               <tbody><tr><td class="qr-empty">Nothing loaded.</td></tr></tbody>
             </table>
-          </div>
-        </div>
-
-        <div class="qr-card" id="adjCard" hidden>
-          <div class="qr-card-head">
-            <div>
-              <div class="qr-title">Adjustments</div>
-              <div class="qr-sub">Every close-process source that posts to QuickBooks through
-                SILO — Card Coding, Fixed Assets, Schedules, Accounting Export, and hand-written
-                adjustments — in one list, so checking the close doesn't mean visiting each
-                page. Deleting an entry in QuickBooks does not tell SILO, so void a posted one
-                here to correct and re-post it.</div>
-            </div>
-            <div class="qr-sub" id="adjCount"></div>
-          </div>
-          <div class="qr-scroll">
-            <table class="qr-table" id="adjTbl"><tbody></tbody></table>
           </div>
         </div>
       </div>
@@ -357,7 +350,7 @@
     const body = lastRows.map((r) => {
       const cls = r.kind === 'summary' ? 'qr-summary' : `qr-depth-${r.depth}`;
       // QBO stamps the account id on the first cell of an account row. Where it
-      // is there, the row is the fastest way into an adjustment about it.
+      // is there, the row opens that account's transactions (and an adjustment from there).
       const acctId = r.cells?.[0]?.id ? String(r.cells[0].id) : '';
       const tds = headers.map((_, i) => {
         const cell = r.cells[i];
@@ -373,7 +366,7 @@
       return `<tr class="${cls}${acctId ? ' qr-clickable' : ''}"`
         + (acctId
           ? ` data-acct="${esc(acctId)}" data-label="${esc(r.cells[0].value || '')}"`
-            + ' title="Post an adjustment against this account"'
+            + ' title="Open this account\'s transactions"'
           : '')
         + `>${tds}</tr>`;
     }).join('');
@@ -577,6 +570,7 @@
   // (GeneralLedger, TransactionList, ProfitAndLossDetail) are already
   // transaction-level -- summarize_column_by doesn't apply to them.
   const SUMMARY_REPORTS = ['BalanceSheet', 'ProfitAndLoss', 'TrialBalance', 'CashFlow'];
+  const ACCOUNT_FILTER_REPORTS = ['GeneralLedger', 'TransactionList', 'ProfitAndLossDetail'];
 
   async function run() {
     const report = el('report').value;
@@ -597,7 +591,7 @@
     // to a Balance Sheet is silently ignored by QBO, which reads as the filter
     // not working rather than not applying.
     const acct = el('account').value;
-    if (acct && ['GeneralLedger', 'TransactionList', 'ProfitAndLossDetail'].includes(report)) {
+    if (acct && ACCOUNT_FILTER_REPORTS.includes(report)) {
       params.account = acct;
     } else if (acct) {
       setStatus(`${report} does not support an account filter — running unfiltered.`, 'info', 6000);
@@ -620,7 +614,8 @@
         setStatus(`Report failed: ${body.error || res.status}`, 'neg', 12000);
         return;
       }
-      el('cardTitle').textContent = report;
+      el('cardTitle').textContent =
+        document.querySelector(`#reportTiles [data-report="${report}"] .qr-tile-name`)?.textContent || report;
       el('cardSub').textContent =
         `${params.start_date || 'start'} → ${params.end_date || 'today'} · ${params.accounting_method}`
         + ` · fetched ${new Date(body.fetched_at).toLocaleString()}`;
@@ -643,129 +638,19 @@
       context: `qbo-reports:${el('report').value}`,
       prefill,
       adjustmentId,
-      onStaged: loadAdjustments,
+      onStaged: () => setStatus('Staged. Find it in Journals to review, post or discard.', 'pos', 8000),
       onPosted: async (out) => {
         setStatus(
           `Posted journal entry ${out.doc_number || out.qbo_journal_entry_id}. Re-running the report…`,
           'pos', 10000);
-        await loadAdjustments();
         await run();
       },
     });
   }
 
-  // Staged drafts are listed alongside posted entries on purpose: a draft you
-  // cannot find again is an orphan, and staging would just be a way to lose
-  // work. This is where you come back to one.
-  // Two independent posting paths feed quickbooks_journal_postings today --
-  // a hand-written adjustment (journal_adjustments, covers Fixed Assets,
-  // Schedules, Accounting Export, and adjustments composed from this page)
-  // and a coded card batch (card_import_batches, one per card source --
-  // Divvy, Amex, Parker, Shopify CC...). Neither table knows about the
-  // other, so "everything posted this close" only exists if this page
-  // queries both and merges them -- otherwise Card Coding is invisible
-  // here even though it posts through the exact same quickbooks-post-journal
-  // function and the exact same quickbooks_journal_postings log.
-  function normalizeAdjustmentRow(a) {
-    return {
-      kind: 'adjustment', id: a.id, date: a.entry_date, memo: a.memo,
-      amount: Number(a.debits || 0), status: a.status,
-      qbo_doc_number: a.qbo_doc_number, qbo_journal_entry_id: a.qbo_journal_entry_id,
-      detail: `${a.line_count} line${a.line_count === 1 ? '' : 's'} · ${a.status}`,
-    };
-  }
-  function normalizeCardBatchRow(b) {
-    return {
-      kind: 'card_import', id: b.id, date: b.entry_date || b.period_end,
-      memo: `${b.source_name} — ${b.label || b.file_name || 'card import'}`,
-      amount: Number(b.total_amount || 0), status: b.status,
-      qbo_doc_number: b.qbo_doc_number, qbo_journal_entry_id: b.qbo_journal_entry_id,
-      detail: `${b.txn_count} txn${b.txn_count === 1 ? '' : 's'} · ${b.status}`,
-    };
-  }
-
-  async function loadAdjustments() {
-    let aq = sb.from('journal_adjustments_v')
-      .select('*').in('status', ['draft', 'approved', 'posted'])
-      .order('entry_date', { ascending: false }).limit(25);
-    let cq = sb.from('card_import_batches_v')
-      .select('*').in('status', ['draft', 'categorized', 'approved', 'posted'])
-      .order('entry_date', { ascending: false }).limit(25);
-    if (_co?.id) { aq = aq.eq('company_entity_id', _co.id); cq = cq.eq('company_entity_id', _co.id); }
-    const [{ data: adj, error: aErr }, { data: batches, error: cErr }] = await Promise.all([aq, cq]);
-    if (aErr) console.warn('adjustments load failed', aErr);
-    if (cErr) console.warn('card batches load failed', cErr);
-
-    const rows = [
-      ...(adj || []).map(normalizeAdjustmentRow),
-      ...(batches || []).map(normalizeCardBatchRow),
-    ].sort((x, y) => (y.date || '').localeCompare(x.date || ''));
-
-    el('adjCard').hidden = rows.length === 0;
-    if (!rows.length) return;
-
-    const staged = rows.filter((a) => a.status !== 'posted');
-    const posted = rows.filter((a) => a.status === 'posted');
-    el('adjCount').textContent =
-      `${staged.length} staged · ${posted.length} posted`;
-
-    const KIND_LABEL = { adjustment: 'Adjustment', card_import: 'Card Coding' };
-    const section = (label, list, actions) => list.length
-      ? `<tr class="qr-summary"><td colspan="6">${esc(label)}</td></tr>`
-        + list.map((a) => `<tr>
-            <td class="bcn-mono">${esc(a.date)}</td>
-            <td class="qr-sub">${esc(KIND_LABEL[a.kind])}</td>
-            <td>${esc(a.memo)}</td>
-            <td class="qr-num">${esc(fmtMoney(a.amount))}</td>
-            <td class="bcn-mono">${esc(a.qbo_doc_number || a.qbo_journal_entry_id || a.detail)}</td>
-            <td>${actions(a)}</td>
-          </tr>`).join('')
-      : '';
-
-    el('adjTbl').innerHTML =
-      '<thead><tr><th>Date</th><th>Source</th><th>Memo</th><th class="qr-num">Amount</th>'
-      + '<th>Entry</th><th></th></tr></thead><tbody>'
-      + section('Staged — not yet in QuickBooks', staged, (a) => a.kind === 'adjustment'
-        ? `<button class="bcn-btn" data-open="${esc(a.id)}">Open</button> `
-          + `<button class="bcn-btn" data-drop="${esc(a.id)}">Discard</button>`
-        : `<a class="bcn-btn" href="/v2/transactions.html">Review transactions</a>`)
-      + section('Posted to QuickBooks', posted, (a) =>
-        `<button class="bcn-btn" data-void="${esc(a.id)}" data-void-kind="${esc(a.kind)}">Void</button>`)
-      + '</tbody>';
-  }
-
-  async function discardAdjustment(id) {
-    if (!confirm('Discard this staged adjustment? It has not been posted, so '
-      + 'nothing in QuickBooks changes.')) return;
-    // The lines go with it -- journal_adjustment_lines cascades on the parent.
-    const { error } = await sb.from('journal_adjustments').delete().eq('id', id);
-    if (error) { setStatus(`Could not discard: ${error.message}`, 'neg', 10000); return; }
-    setStatus('Staged adjustment discarded.', 'pos', 5000);
-    await loadAdjustments();
-  }
-
-  function fmtMoney(n) {
-    const v = Number(n || 0);
-    return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-
-  async function voidAdjustment(id, kind) {
-    const reason = prompt(
-      'Why is this being voided? (Recorded against the posting.)\n\n'
-      + 'Void only after the entry has actually been deleted in QuickBooks — '
-      + 'this changes what SILO believes, not what QuickBooks holds.');
-    if (reason === null) return;
-    const isCardBatch = kind === 'card_import';
-    const { data, error } = await sb.rpc(
-      isCardBatch ? 'void_card_posting' : 'void_journal_adjustment',
-      isCardBatch ? { p_batch_id: id, p_reason: reason } : { p_adjustment_id: id, p_reason: reason });
-    if (error) { setStatus(`Void failed: ${error.message}`, 'neg', 12000); return; }
-    setStatus(`Voided entry ${data?.doc_number || data?.qbo_journal_entry_id || ''}.`
-      + ` The ${isCardBatch ? 'batch' : 'adjustment'} is back to approved and can be posted again.`,
-      'pos', 10000);
-    await loadAdjustments();
-  }
-
+  // The staged / posted list (and Discard / Void) lives in Books & setup →
+  // Journal register, which already lists every source that posts through
+  // quickbooks-post-journal. One list means one place to check the close.
   function csv() {
     if (!lastRows.length) { setStatus('Run a report first.', 'info', 3000); return; }
     const lines = lastRows.map((r) =>
@@ -812,9 +697,6 @@
 
     el('btnRun').addEventListener('click', run);
     el('btnCsv').addEventListener('click', csv);
-    el('btnAdjust').addEventListener('click', () => openComposer({
-      entryDate: el('to').value || undefined,
-    }));
 
     // Clicking an account row now drills into its transactions rather than
     // jumping straight to posting -- Post Adjustment moved into the
@@ -826,9 +708,22 @@
     });
 
     el('report').addEventListener('change', () => {
-      const summarizable = SUMMARY_REPORTS.includes(el('report').value);
+      const report = el('report').value;
+      const summarizable = SUMMARY_REPORTS.includes(report);
       el('byMonth').disabled = !summarizable;
       if (!summarizable) el('byMonth').checked = false;
+      // Only the transaction-level reports take an account filter; hiding it
+      // elsewhere beats offering a control that is silently ignored.
+      el('accountField').hidden = !ACCOUNT_FILTER_REPORTS.includes(report);
+      document.querySelectorAll('#reportTiles [data-report]').forEach((t) =>
+        t.setAttribute('aria-pressed', String(t.dataset.report === report)));
+    });
+    el('reportTiles').addEventListener('click', (e) => {
+      const tile = e.target.closest('[data-report]');
+      if (!tile || el('btnRun').disabled) return;
+      el('report').value = tile.dataset.report;
+      el('report').dispatchEvent(new Event('change'));
+      run().catch((err) => setStatus(`Report failed: ${err?.message || err}`, 'neg', 12000));
     });
     el('report').dispatchEvent(new Event('change'));
 
@@ -854,16 +749,6 @@
       });
     });
 
-    el('adjTbl').addEventListener('click', (e) => {
-      const v = e.target.closest('[data-void]');
-      if (v) { voidAdjustment(v.dataset.void, v.dataset.voidKind); return; }
-      const o = e.target.closest('[data-open]');
-      if (o) { openComposer(null, o.dataset.open); return; }
-      const d = e.target.closest('[data-drop]');
-      if (d) discardAdjustment(d.dataset.drop);
-    });
-
-    await loadAdjustments();
   })().catch((e) => {
     console.error(e);
     setStatus(`Unexpected error: ${e?.message || e}`, 'neg');

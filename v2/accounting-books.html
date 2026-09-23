@@ -9,7 +9,7 @@
 <script src="v2-shell.js" defer></script><script src="nav-config.js"></script><script src="avatar.js"></script>
 <script src="accounting-suite.js"></script><script src="silo-chrome.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/pages/config.js"></script>
-<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=c2c2ac767e22"></script><script src="migration-status.js?v=7891a44c7e1d"></script><script src="accounting-books.js?v=b3e0debab067" defer></script>
+<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=c2c2ac767e22"></script><script src="migration-status.js?v=7891a44c7e1d"></script><script src="accounting-books.js?v=bc9d7dfe7146" defer></script>
 </head>
 <body><div class="silo-app" id="silo-app"><main class="silo-main accounting-workspace">
 <div class="books-page">
@@ -44,7 +44,7 @@
 <article class="books-card"><details><summary>Ledger ownership &amp; migration scope</summary><p>QuickBooks remains the official ledger during this phase. Silo retains your opening history and its own account identities. Transactions keep their existing human approval and QBO recovery controls.</p><p>Opening balances are not historical transaction detail. Open invoices, bills, reconciliation, period locks, reversals and independent Silo ledger roll-forward require the next accounting phase before switching book ownership.</p><a href="transactions.html">Review bank-feed mappings and source cutovers →</a></details></article>
 </section>
 <section id="accounts" class="books-surface" hidden><div class="books-card"><h2>Your chart of accounts</h2><p>Seeded from QuickBooks, with stable Silo account IDs. Refreshing QBO cannot overwrite the saved account snapshot.</p><div id="accountsTable">Prepare opening balances to seed your chart.</div></div></section>
-<section id="register" class="books-surface" hidden><div class="books-card"><div class="books-row"><div><h2>Journal register</h2><p>Existing transaction batches and journal adjustments. Opening history appears separately in Setup.</p></div><button id="newJournal" class="bcn-btn">New journal entry</button></div><div id="registerTable"></div><button id="more" class="bcn-btn">Load more</button></div></section>
+<section id="register" class="books-surface" hidden><div class="books-card"><div class="books-row"><div><h2>Journal register</h2><p>Every entry that posts to QuickBooks through Silo — Transactions, Schedules, Fixed assets, Sales &amp; journals and hand-written adjustments. Discard a draft or void a posted entry here. Opening history appears separately in Setup.</p></div><button id="newJournal" class="bcn-btn">New journal entry</button></div><div id="registerTable"></div><button id="more" class="bcn-btn">Load more</button></div></section>
 <section id="history" class="books-surface" hidden>
 
 <!-- The facts as figures. Everything here was previously three paragraphs of
