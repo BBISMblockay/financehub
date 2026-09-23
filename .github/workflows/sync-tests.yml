@@ -61,6 +61,9 @@ on:
       # Meta ad preview links (meta-creative-links-database.test.mjs).
       - 'supabase/migrations/*meta_creative_preview_link.sql'
       - 'scripts/tests/launch-products-unknown-database.test.mjs'
+      # PO Report shipment audit columns (incoming-shipment-audit-database.test.mjs).
+      - 'supabase/migrations/*incoming_shipment_audit.sql'
+      - 'scripts/tests/incoming-shipment-audit-database.test.mjs'
       - 'v2/settings-team.html'
       - 'v2/settings-notifications.html'
       - 'v2/platform-admin.html'
@@ -660,6 +663,12 @@ jobs:
       # later edit, and a cleared flag carries no stale author or note.
       - name: Execute launch products-unknown migration regressions
         run: node scripts/tests/launch-products-unknown-database.test.mjs
+
+      # 20260923160000: who created / last changed a PO Report shipment. Proves
+      # both columns come from the session and never the client, created_by
+      # never moves, and a write with no session records no person.
+      - name: Execute incoming shipment audit migration regressions
+        run: node scripts/tests/incoming-shipment-audit-database.test.mjs
 
       # The entity admin gate answered about the wrong company: is_owner_admin()
       # asked "am I an admin ANYWHERE" and then said yes for every tenant. The

@@ -2099,3 +2099,18 @@ now selects ads missing a preview as well as a destination.
 Regressions: `scripts/tests/meta-creative-links.test.mjs`,
 `meta-creative-backfill.test.mjs`, `meta-creative-backfill-driver.test.mjs`,
 `meta-creative-links-database.test.mjs`.
+
+## PO Report shipment audit — `20260923160000_incoming_shipment_audit.sql`
+
+`incoming_shipments` and `incoming_shipment_lines` gain `created_by` and
+`updated_by` (profiles.id), stamped by `stamp_shipment_audit()` so the PO
+Report page needs no change.
+
+- **From the session, never the client.** With a signed-in caller both
+  columns are `auth.uid()` whatever the payload says; a value is kept only on a
+  write with no session (service role).
+- **`created_by` never changes** on update; `updated_by` is the caller, or
+  NULL for a system write — never the previous editor.
+- Rows from before 2026-09-23 stay NULL (no record to recover them from).
+  Deletes are not recorded.
+- Test: `scripts/tests/incoming-shipment-audit-database.test.mjs`.
