@@ -5,11 +5,9 @@
 // arbitrary. Nothing here is a real Baseballism vendor, account or figure.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import vm from 'node:vm';
-import { readFile } from 'node:fs/promises';
-import { stripTypeScriptTypes } from 'node:module';
 
-const source = await readFile(new URL('../../supabase/functions/card-categorize/index.ts', import.meta.url), 'utf8');
+import { loadCategorizer, prepareSource } from './lib/card-categorize-sandbox.mjs';
+const source = await prepareSource();
 // Mutation hooks: run with CATEGORIZE_HISTORY_MUTATION=<name> and the suite
 // must FAIL, or the assertion it guards is not really guarding anything.
 const MUTATIONS = {
@@ -32,7 +30,6 @@ if (mutation) {
   if (!from || !source.includes(from)) throw new Error(`Unknown or stale mutation ${mutation}`);
   effective = source.replace(from, to);
 }
-const runnable = stripTypeScriptTypes(effective.replace(/import \{ createClient \} from 'https:[^']+';/, ''), { mode: 'strip' });
 
 const ids = { batch: '00000000-0000-4000-8000-000000000001', source: '00000000-0000-4000-8000-000000000002',
   tx: '00000000-0000-4000-8000-000000000003', connection: '00000000-0000-4000-8000-000000000005',
@@ -96,7 +93,7 @@ function fixture(options = {}) {
     qbo_history_imports: options.imports || [{ id: ids.importId, company_entity_id: ids.company, qbo_connection_id: ids.connection }],
     qbo_history_lines: options.ledger || [],
   };
-  const queries = [], modelCalls = [], writes = [];
+  const queries = [], modelCalls = [], writes = [], runWrites = [], rpcCalls = [];
   const failures = new Set(options.historyFailure || []);
   class Query {
     constructor(table) { this.table = table; this.filters = []; this.singleResult = false; this.maxRows = Infinity; }
@@ -110,8 +107,13 @@ function fixture(options = {}) {
     order(key, opts) { this.orders = [...(this.orders || []), [key, opts?.ascending !== false]]; return this; }
     limit(count) { this.maxRows = count; return this; }
     range(from, to) { this.offset = from; this.maxRows = to - from + 1; return this; }
-    update(value) { writes.push(value); throw new Error('Categorizer must not write'); }
-    insert(value) { writes.push(value); throw new Error('Categorizer must not write'); }
+    // The run log is the one table the preparer writes directly. Any other
+    // write -- above all to card_transactions -- is refused and counted.
+    update(value) { if (this.table === 'card_coding_preparation_runs') { runWrites.push(['update', value]); this.writeResult = { data: null, error: null }; return this; }
+      writes.push(value); throw new Error('Categorizer must not write'); }
+    insert(value) { if (this.table === 'card_coding_preparation_runs') { runWrites.push(['insert', value]); this.writeResult = { data: { id: 'run-1' }, error: null }; return this; }
+      writes.push(value); throw new Error('Categorizer must not write'); }
+    single() { return Promise.resolve(this.writeResult || this.execute()); }
     delete() { throw new Error('Categorizer must not delete'); }
     isHistoryQuery() {
       return (this.table === 'card_transactions_v' && this.filters.some(([op, key]) => op === 'in' && key === 'merchant_norm'))
@@ -141,13 +143,22 @@ function fixture(options = {}) {
       return { data: structuredClone(this.singleResult ? page[0] ?? null : page), error: null };
     }
     maybeSingle() { this.singleResult = true; return Promise.resolve(this.execute()); }
-    then(resolve, reject) { return Promise.resolve(this.execute()).then(resolve, reject); }
+    then(resolve, reject) { return Promise.resolve(this.writeResult || this.execute()).then(resolve, reject); }
   }
-  let handler;
-  vm.runInNewContext(runnable, {
-    Request, Response, console: { ...console, warn() {} },
-    Deno: { env: { get: () => 'synthetic' }, serve: (callback) => { handler = callback; } },
-    createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'user' } }, error: null }) }, from: (table) => new Query(table) }),
+  // The two RPCs the preparer calls. Fingerprints come back per id; the writer
+  // echoes what it was given so a test can read exactly what would be stored.
+  const fakeRpc = async (name, args) => {
+    rpcCalls.push({ name, args: structuredClone(args) });
+    if (name === 'card_coding_input_hashes') return { data: args.p_ids.map((id) => ({ transaction_id: id, input_hash: `hash:${id}` })), error: null };
+    if (name === 'record_card_coding_suggestions') {
+      if (options.recordFailure) return { data: null, error: { message: 'synthetic record failure' } };
+      return { data: { recorded: args.p_rows.length, skipped: [] }, error: null };
+    }
+    throw new Error(`Unexpected rpc ${name}`);
+  };
+  const { handler } = loadCategorizer(effective, {
+    console: { ...console, warn() {} },
+    createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'user' } }, error: null }) }, from: (table) => new Query(table), rpc: async (name, args) => fakeRpc(name, args) }),
     fetch: async (url, init) => {
       assert.equal(url, 'https://api.anthropic.com/v1/messages');
       modelCalls.push(JSON.parse(init.body));
@@ -162,7 +173,7 @@ function fixture(options = {}) {
       body: JSON.stringify({ batch_id: ids.batch, transaction_ids }) }));
     return { status: response.status, body: await response.json() };
   };
-  return { records, queries, modelCalls, writes, runIds, run: () => runIds([ids.tx]) };
+  return { records, queries, modelCalls, writes, runWrites, rpcCalls, runIds, run: () => runIds([ids.tx]) };
 }
 const many = (n, make) => Array.from({ length: n }, (_, i) => make(i));
 const first = async (h) => { const r = await h.run(); assert.equal(r.status, 200, JSON.stringify(r.body)); return { r, s: r.body.suggestions[0], system: h.modelCalls[0]?.system || '' }; };

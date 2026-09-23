@@ -16,6 +16,9 @@ const splitsSource = await readFile(new URL('../../v2/card-splits.js', import.me
 // The page reads its filter position through SiloTransactionFilters from its
 // first statement, so the harness has to load it exactly as the page does.
 const filtersSource = await readFile(new URL('../../v2/transaction-filters.js', import.meta.url), 'utf8');
+// Prepared suggestions live in the database; the page reads and acts on them
+// through this module, loaded the way the page loads it.
+const suggestionsSource = await readFile(new URL('../../v2/coding-suggestions.js', import.meta.url), 'utf8');
 const html = await readFile(new URL('../../v2/transactions.html', import.meta.url), 'utf8');
 const inlineSource = html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>', html.indexOf('<script>')));
 class Element {
@@ -45,7 +48,7 @@ const transaction = { id: 'txn-one', origin: 'plaid', provider_status: 'posted',
 function target(row, selector) { return { closest(value) { return value === selector ? this : value === '[data-bank-account]' || value === '[data-bank-exception]' ? row : null; } }; }
 function query(data, writes, table) {
   let window = null;
-  const q = { select() { return q; }, eq() { return q; }, order() { return q; }, range(start, end) { window = [start, end]; return q; }, limit() { return q; }, single() { return q; },
+  const q = { select() { return q; }, eq() { return q; }, in() { return q; }, gte() { return q; }, lte() { return q; }, not() { return q; }, order() { return q; }, range(start, end) { window = [start, end]; return q; }, limit() { return q; }, single() { return q; },
     upsert(value) { writes.push({ table, value: clone(value) }); return q; },
     then(resolve, reject) { const rows = data[table] || []; return Promise.resolve({ data: window ? rows.slice(window[0], window[1] + 1) : rows, error: null }).then(resolve, reject); } };
   return q;
@@ -89,18 +92,47 @@ function harness({ dirty = false, invokeError = null, syncResult = { exceptions:
     bank: window.SiloBankFeeds, get changed() { return changed; } };
 }
 async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'plaid', amount = 10, treatment = 'unknown', fetchImpl, confirmImpl } = {}) {
-  const d = dom(), calls = [], writes = [], fetches = [], window = { location:{href:'https://silo.test/v2/transactions.html'}, listeners:{}, addEventListener(type,fn){this.listeners[type]=fn;}, __SILO_CONFIG__: { SUPABASE_URL: 'https://silo.test', SUPABASE_ANON_KEY: 'public-key' } };
+  const d = dom(), calls = [], writes = [], fetches = [];
+  const fetchCalls = async (url, args) => { fetches.push({ url, body: JSON.parse(args.body) }); return fetchImpl ? fetchImpl(url, args, data) : { ok: true, json: async () => ({ suggestions: [] }) }; };
+  const window = { location:{href:'https://silo.test/v2/transactions.html'}, listeners:{}, addEventListener(type,fn){this.listeners[type]=fn;}, __SILO_CONFIG__: { SUPABASE_URL: 'https://silo.test', SUPABASE_ANON_KEY: 'public-key' } };
+  // What the database holds: prepared suggestions and the rows accept re-reads.
+  // accept/dismiss behave like the RPCs -- the row is coded SERVER-side and
+  // the page learns it only by reading it back.
+  const data = { card_coding_suggestions_v: [], card_transactions: [], card_coding_preparation_runs: [] };
   const db = { auth: { getSession: async () => ({ data: { session: { access_token: 'fake-token' } } }) },
-    from: (table) => query({}, writes, table), rpc: async (name, args) => { calls.push({ name, args: clone(args) }); return { data: args.p_rows?.length || 0 }; } };
+    from: (table) => query(data, writes, table), rpc: async (name, args) => {
+      calls.push({ name, args: clone(args) });
+      if (name === 'accept_card_coding_suggestions') {
+        const accepted = [], refused = [];
+        for (const id of args.p_ids) {
+          const s = data.card_coding_suggestions_v.find((x) => x.id === id);
+          if (!s || s.refuse) { refused.push({ id, reason: s?.refuse || 'not_found' }); continue; }
+          const row = [...window.testPage.state.txns, ...window.testPage.dateState().dateRows].find((t) => t.id === s.transaction_id);
+          data.card_transactions.push({ ...row, status: 'coded', qbo_account_id: s.qbo_account_id, qbo_account_name: s.qbo_account_name,
+            coding_source: 'ai', confidence: s.confidence, accounting_treatment: s.accounting_treatment,
+            ai_reasoning: `${s.reasoning || ''}${s.evidence ? ' History: ' + s.evidence : ''}` });
+          data.card_coding_suggestions_v = data.card_coding_suggestions_v.filter((x) => x.id !== id);
+          accepted.push({ id, transaction_id: s.transaction_id });
+        }
+        return { data: { accepted, refused } };
+      }
+      if (name === 'dismiss_card_coding_suggestions') {
+        const before = data.card_coding_suggestions_v.length;
+        data.card_coding_suggestions_v = data.card_coding_suggestions_v.filter((x) => !args.p_ids.includes(x.id));
+        return { data: before - data.card_coding_suggestions_v.length };
+      }
+      return { data: args.p_rows?.length || 0 };
+    } };
   window.supabase = { createClient: () => db };
   vm.runInNewContext(moduleSource, { window });
   vm.runInNewContext(datesSource, { window });
   vm.runInNewContext(splitsSource, { window, document: d.document });
   vm.runInNewContext(filtersSource, { window });
+  vm.runInNewContext(suggestionsSource, { window, fetch: (...args) => fetchCalls(...args) });
   const testable = inlineSource.slice(0, inlineSource.lastIndexOf('  boot().catch('))
-    + 'window.testPage = { state, suggestions, openLinkedJournal, acceptSuggestion, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches, browseDates, setWorkspace(v){workspace=v;}, dateState(){return {dateBrowse,dateRows,dateLoading,dateError};} };\n})();';
+    + 'window.testPage = { state, suggestions, openLinkedJournal, acceptSuggestion, dismissSuggestion, retrySuggestion, loadSuggestions, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches, browseDates, setWorkspace(v){workspace=v;}, dateState(){return {dateBrowse,dateRows,dateLoading,dateError};} };\n})();';
   vm.runInNewContext(testable, { window, URL, crypto:webcrypto,TextEncoder, document: d.document, console, setTimeout() {}, clearTimeout() {},
-    fetch: async (url, args) => { fetches.push({ url, body: JSON.parse(args.body) }); return fetchImpl ? fetchImpl(url, args) : { ok: true, json: async () => ({ suggestions: [] }) }; },
+    fetch: fetchCalls,
     confirm() { if(confirmImpl)return confirmImpl();throw new Error('Unexpected destructive confirmation'); }, prompt() { throw new Error('Unexpected prompt'); } });
   const page = window.testPage;
   page.setCompany({ id: 'company-one' });
@@ -108,7 +140,13 @@ async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'pl
     batch: { id: 'batch-one', source_id: source.id, status, source_name: 'Checking', entry_date: '2026-09-30' },
     txns: [{ ...transaction, origin, amount, accounting_treatment: treatment }] });
   d.el('codeFilter').value = 'all';
-  return { ...d, page, db, calls, writes, fetches, window };
+  return { ...d, page, db, data, calls, writes, fetches, window };
+}
+// A suggestion as card_coding_suggestions_v returns it.
+function prepared(row, overrides = {}) {
+  return { id: `sugg-${row.id}`, transaction_id: row.id, outcome: 'suggested', review_status: 'open', qbo_account_id: '2', qbo_account_name: 'Expense',
+    qbo_location_id: null, qbo_location_name: null, accounting_treatment: 'purchase', confidence: 0.9, reasoning: 'Synthetic.', evidence: null,
+    history_status: 'none', error_code: null, prepared_at: '2026-09-23T00:00:00Z', prepared_via: 'manual', attempt: 1, stale_reason: null, ...overrides };
 }
 let tests = 0;
 async function test(name, callback) { await callback(); tests++; console.log(`ok - ${name}`); }
@@ -278,7 +316,7 @@ await test('malformed Link exchange response cannot claim connection success', a
 });
 await test('unsaved Plaid treatment cannot be sent as trusted AI input', async () => {
   const h = await pageHarness({ sourceType: 'card', treatment: 'purchase' }); h.page.state.dirty.add('txn-one');
-  await h.page.aiCategorise(); assert.equal(h.fetches.length, 0); assert.match(h.el('status').textContent, /Save coding and treatment/);
+  await h.page.aiCategorise(); assert.equal(h.fetches.length, 0); assert.match(h.el('status').textContent, /Save coding changes before preparing/);
 });
 
 
@@ -309,7 +347,7 @@ await test('pending save locks actual row, bulk and rules callbacks until the sa
   assert.equal(h.el('btnSaveCoding').disabled, false); assert.equal(h.el('bulkAccount').disabled, false);
   assert.equal(h.el('btnLearnRules').disabled, false);
 });
-await test('pending AI prevents manual edits and competing requests before applying its unsaved suggestion', async () => {
+await test('pending preparation locks manual edits and competing requests, then shows what the function SAVED', async () => {
   const gate = deferred(), started = deferred();
   const h = await pageHarness({ sourceType: 'card', treatment: 'purchase', fetchImpl: () => { started.resolve(); return gate.promise; } });
   h.page.state.selected.add('txn-one');
@@ -319,14 +357,24 @@ await test('pending AI prevents manual edits and competing requests before apply
   await attemptConcurrentCoding(h);
   assert.deepEqual(clone(h.page.state.txns), before); assert.equal(h.page.state.dirty.size, 0);
   assert.equal(h.fetches.length, 1); assert.equal(h.calls.length, 0); assert.equal(h.writes.length, 0);
-  gate.resolve({ ok: true, json: async () => ({ suggestions: [{ merchant: 'merchant', account_name: 'Expense', confidence: 0.9 }] }) });
+  // The function saves as it goes; what the page shows is what the database holds,
+  // not what the response said.
+  h.data.card_coding_suggestions_v.push(prepared(h.page.state.txns[0]));
+  gate.resolve({ ok: true, json: async () => ({ ok: true, run_id: 'run-1', suggestions: [{ merchant: 'IGNORED', account_name: 'Not what was saved' }], suggested: 1 }) });
   await categorising;
   assert.deepEqual(clone(h.page.state.txns),before); assert.equal(h.page.state.dirty.size,0);
-  assert.equal(h.page.suggestions.size,1); h.page.acceptSuggestion('txn-one');
-  assert.equal(h.page.state.txns[0].qbo_account_id, '2'); assert.equal(h.page.state.txns[0].coding_source, 'ai');
-  assert.equal(h.page.state.txns[0].accounting_treatment, 'purchase'); assert.equal(h.page.state.dirty.size, 1);
+  assert.equal(h.page.suggestions.size,1); assert.equal(h.page.suggestions.get('txn-one').qbo_account_name, 'Expense');
   assert.equal(h.page.state.codingBusy, false); assert.equal(h.el('btnSaveCoding').disabled, false);
   assert.equal(h.el('bulkAccount').disabled, false); assert.equal(h.el('btnReloadCoding').disabled, false);
+  // Accepting SAVES through the accept RPC -- no dirty row, no Save step -- and
+  // the row is what the database now says it is.
+  await h.page.acceptSuggestion(['txn-one']);
+  assert.deepEqual(h.calls.find((c) => c.name === 'accept_card_coding_suggestions').args, { p_ids: ['sugg-txn-one'] });
+  assert.equal(h.calls.some((c) => c.name === 'apply_card_coding'), false, 'the page does not write the coding itself');
+  assert.equal(h.page.state.txns[0].qbo_account_id, '2'); assert.equal(h.page.state.txns[0].coding_source, 'ai');
+  assert.equal(h.page.state.txns[0].status, 'coded'); assert.equal(h.page.state.dirty.size, 0);
+  assert.match(h.el('status').textContent, /1 category saved\. Approve the import when you are ready; nothing posts until then\./);
+  assert.equal(h.page.suggestions.has('txn-one'), false);
 });
 await test('monthly bank batch loads beyond the API1000-row limit', async () => {
   const h = await pageHarness(); const rows = Array.from({ length: 1001 }, (_, index) => ({ ...transaction, id: `txn-${index}`, row_no: index + 1 }));
@@ -624,8 +672,12 @@ await test('editing an uncoded checked row preserves its checkbox, visibility an
  h.page.state.dirty.clear();h.page.renderCoding();assert.equal(h.page.state.selected.has('txn-one'),true,'saving does not uncheck the row');
  assert.match(h.el('tblCoding').innerHTML,/data-txn="txn-one"/);
 });
-await test('date-list suggestions send eligible batch requests and accept directly in the list without writing',async()=>{
- const h=await pageHarness({fetchImpl:async()=>({ok:true,json:async()=>({suggestions:[{merchant:'merchant',direction:'outflow',account_name:'Expense',confidence:.9}]})})});
+await test('date-list preparation asks per import, reloads what was saved, and accepting saves only the chosen row',async()=>{
+ const h=await pageHarness({fetchImpl:async(url,args,data)=>{
+   const body=JSON.parse(args.body);
+   for(const id of body.transaction_ids)data.card_coding_suggestions_v.push(prepared({id},{prepared_via:'manual'}));
+   return {ok:true,json:async()=>({ok:true,run_id:'run-1',suggested:body.transaction_ids.length})};
+ }});
  h.page.setWorkspace({selected:()=>source.id,followBatch(){},render(){}});
  const rows=[{...transaction,batch_id:'batch-one'},{...transaction,id:'txn-two',batch_id:'batch-two'}, {...transaction,id:'locked',batch_id:'approved'}];
  h.page.state.batches=['batch-one','batch-two','approved'].map(id=>({id,source_id:source.id,company_entity_id:'company-one',status:id==='approved'?'approved':'draft'}));
@@ -634,10 +686,15 @@ await test('date-list suggestions send eligible batch requests and accept direct
  await h.page.aiCategorise();
  assert.deepEqual(h.fetches.map(f=>f.body.batch_id),['batch-one','batch-two']);
  assert.deepEqual(h.fetches.map(f=>f.body.transaction_ids),[['txn-one'],['txn-two']]);
- assert.equal(h.page.suggestions.size,2);assert.equal(h.page.state.dirty.size,0);assert.equal(h.writes.length,0);assert.equal(h.calls.length,0);
- assert.ok(h.page.suggestions.get('txn-two').dateRevision);
- h.page.acceptSuggestion('txn-two');assert.equal(h.page.dateState().dateRows[1].qbo_account_id,'2');assert.equal(h.page.state.dirty.has('txn-two'),true);
- assert.equal(h.writes.length,0);assert.equal(h.calls.length,0,'acceptance stays local until Save');
+ assert.equal(h.fetches.some(f=>'retry' in f.body),false,'a routine prepare never forces a re-ask');
+ assert.equal(h.page.suggestions.size,2);assert.equal(h.page.state.dirty.size,0);assert.equal(h.writes.length,0);
+ assert.match(h.el('status').textContent,/Coding prepared: 2 ready to review/);
+ // Nothing left to prepare: the button says so rather than paying again.
+ await h.page.aiCategorise();assert.equal(h.fetches.length,2);
+ await h.page.acceptSuggestion(['txn-two']);
+ assert.equal(h.page.dateState().dateRows[1].qbo_account_id,'2');assert.equal(h.page.state.dirty.size,0);
+ assert.deepEqual(h.calls.filter(c=>c.name==='accept_card_coding_suggestions').map(c=>c.args.p_ids),[['sugg-txn-two']]);
+ assert.equal(h.page.dateState().dateRows[0].qbo_account_id,undefined,'the other row is untouched');
 });
 await test('dirty review refuses date changes and restores the applied dates',async()=>{
  const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
@@ -647,16 +704,92 @@ await test('dirty review refuses date changes and restores the applied dates',as
  await h.page.browseDates();assert.equal(h.el('dateStart').value,'2026-08-01');assert.equal(h.el('dateEnd').value,'2026-08-31');
  assert.equal(h.page.state.dirty.size,1);
 });
-await test('a provider change invalidates a date suggestion before review acceptance',async()=>{
- const h=await pageHarness({fetchImpl:async()=>({ok:true,json:async()=>({suggestions:[{merchant:'merchant',direction:'outflow',account_name:'Expense'}]})})});
+await test('a suggestion the database marks stale is never shown or accepted',async()=>{
+ const h=await pageHarness();
  h.page.setWorkspace({selected:()=>source.id,followBatch(){},render(){}});
  const row={...transaction,batch_id:'batch-one',provider_updated_at:'2026-09-12T01:00:00Z'};
  h.page.state.batches=[{...h.page.state.batch,company_entity_id:'company-one'}];h.window.SiloTransactionDates.read=async()=>[row];
- await h.page.browseDates();await h.page.aiCategorise();assert.equal(h.page.suggestions.size,1);
+ h.data.card_coding_suggestions_v.push(prepared(row));
+ await h.page.browseDates();assert.equal(h.page.suggestions.size,1);
+ // The bank corrected the amount: the view now reports the facts changed.
+ h.data.card_coding_suggestions_v[0].stale_reason='facts_changed';
  h.window.SiloTransactionDates.read=async()=>[{...row,amount:20,provider_updated_at:'2026-09-12T02:00:00Z'}];await h.page.browseDates();
- assert.equal(h.page.suggestions.has('txn-one'),false);h.page.acceptSuggestion('txn-one');assert.equal(h.page.state.dirty.size,0);
+ assert.equal(h.page.suggestions.has('txn-one'),false);
+ await h.page.acceptSuggestion(['txn-one']);assert.equal(h.page.state.dirty.size,0);
+ assert.equal(h.calls.some(c=>c.name==='accept_card_coding_suggestions'),false);
 });
-
+await test('prepared suggestions survive a reload: they are read back from the database with the rows',async()=>{
+ const h=await pageHarness();const row=h.page.state.txns[0];
+ h.data.card_transactions=[{...row,row_no:1}];
+ h.data.card_coding_suggestions_v.push(prepared(row,{evidence:'CONSISTENT: Expense [4 confirmed SILO codings; last 2026-08-01].',prepared_via:'background'}));
+ h.page.suggestions.clear();
+ await h.page.loadTxns('batch-one');
+ assert.equal(h.page.suggestions.get(row.id).kind,'ready');
+ h.page.renderCoding();
+ assert.match(h.el('tblCoding').innerHTML,/History: CONSISTENT: Expense \[4 confirmed SILO codings/);
+ assert.match(h.el('tblCoding').innerHTML,/Prepared by Claude .* in the background/);
+ assert.match(h.el('tblCoding').innerHTML,/data-accept-suggestion/);
+});
+await test('dismissing persists through the RPC; a failed preparation offers a retry that asks again',async()=>{
+ const h=await pageHarness({fetchImpl:async()=>({ok:true,json:async()=>({ok:true,run_id:'run-1',suggested:1})})});const row=h.page.state.txns[0];
+ h.data.card_coding_suggestions_v.push(prepared(row));await h.page.loadSuggestions([row]);
+ await h.page.dismissSuggestion([row.id]);
+ assert.deepEqual(h.calls.find(c=>c.name==='dismiss_card_coding_suggestions').args,{p_ids:['sugg-txn-one']});
+ assert.equal(h.page.suggestions.has(row.id),false);assert.match(h.el('status').textContent,/will not come back unless the transaction changes/);
+ h.data.card_coding_suggestions_v.push(prepared(row,{id:'sugg-failed',outcome:'failed',qbo_account_id:null,qbo_account_name:null,error_code:'anthropic_529',attempt:2}));
+ await h.page.loadSuggestions([row]);h.page.renderCoding();
+ assert.match(h.el('tblCoding').innerHTML,/Preparation did not finish/);assert.match(h.el('tblCoding').innerHTML,/data-retry-suggestion/);
+ assert.ok(!h.el('tblCoding').innerHTML.includes('data-accept-suggestion'));
+ await h.page.retrySuggestion(row.id);
+ assert.equal(h.fetches.at(-1).body.retry,true);assert.deepEqual(h.fetches.at(-1).body.transaction_ids,[row.id]);
+});
+await test('an out-of-date coding service is named, not mistaken for Claude having nothing to suggest',async()=>{
+ const h=await pageHarness({sourceType:'card',treatment:'purchase',fetchImpl:async()=>({ok:true,json:async()=>({ok:true,suggestions:[{merchant:'merchant',account_name:'Expense'}]})})});
+ await h.page.aiCategorise();
+ assert.match(h.el('status').textContent,/has not been updated to save suggestions yet/);
+ assert.equal(h.page.suggestions.size,0);
+});
+// Review finding (cycle 1): the accept RPC refuses more than 500 ids, and the
+// page sent every selected one in a single call, so select-all on a big month
+// saved nothing.
+await test('accepting more than 500 suggestions goes in batches, and a later batch failing keeps the earlier saves',async()=>{
+ const h=await pageHarness();const base=h.page.state.txns[0];
+ h.page.state.txns=Array.from({length:501},(_,i)=>({...base,id:`txn-${i}`}));
+ h.data.card_coding_suggestions_v=h.page.state.txns.map(t=>prepared(t));
+ await h.page.loadSuggestions(h.page.state.txns);
+ const original=h.db.rpc;let acceptCalls=0;
+ h.db.rpc=async(name,args)=>{if(name==='accept_card_coding_suggestions' && ++acceptCalls===2){h.calls.push({name,args:clone(args)});return {error:{message:'statement timeout'}};}return original(name,args);};
+ await h.page.acceptSuggestion(h.page.state.txns.map(t=>t.id));
+ const sizes=h.calls.filter(c=>c.name==='accept_card_coding_suggestions').map(c=>c.args.p_ids.length);
+ assert.deepEqual(sizes,[500,1]);
+ assert.equal(h.page.state.txns.filter(t=>t.status==='coded').length,500,'the first batch is shown saved');
+ assert.match(h.el('status').textContent,/500 categories saved.*The rest could not be sent — statement timeout/);
+ assert.equal(h.page.state.codingBusy,false);
+});
+await test('a row with unsaved edits cannot take a suggestion until they are saved or discarded',async()=>{
+ const h=await pageHarness();const row=h.page.state.txns[0];
+ h.data.card_coding_suggestions_v.push(prepared(row));await h.page.loadSuggestions([row]);
+ h.page.state.dirty.add(row.id);
+ await h.page.acceptSuggestion([row.id]);
+ assert.equal(h.calls.some(c=>c.name==='accept_card_coding_suggestions'),false);
+ assert.match(h.el('status').textContent,/Save or discard your edits/);
+});
+await test('refusals from the database are named in words, and accepted rows are still counted',async()=>{
+ const h=await pageHarness();const [a]=h.page.state.txns;const b={...a,id:'txn-two'};h.page.state.txns.push(b);
+ h.data.card_coding_suggestions_v.push(prepared(a),prepared(b,{refuse:'facts_changed'}));
+ await h.page.loadSuggestions([a,b]);
+ await h.page.acceptSuggestion([a.id,b.id]);
+ assert.match(h.el('status').textContent,/1 category saved.*1 not applied: the bank or card details changed after it was prepared/);
+});
+await test('feed sync and coding preparation are reported as separate times',async()=>{
+ const h=await pageHarness();
+ const now=Date.now();
+ h.data.plaid_accounts=[{last_synced_at:new Date(now-2*3600e3).toISOString()}];
+ h.data.card_coding_preparation_runs=[{finished_at:new Date(now-5*3600e3).toISOString(),status:'completed'}];
+ await h.page.loadSuggestions(h.page.state.txns);
+ await new Promise(r=>setImmediate(r));
+ assert.match(h.el('codeFreshness').textContent,/Feed synced 2h ago · Coding prepared 5h ago/);
+});
 await test('category selection saves across imports, derives treatment, and excludes locked rows',async()=>{
  const h=await pageHarness();h.page.setWorkspace({selected:()=>source.id,render(){},followBatch(){}});
  h.page.state.batches=['batch-one','batch-two','locked'].map(id=>({id,source_id:source.id,company_entity_id:'company-one',status:id==='locked'?'posted':'draft'}));
@@ -727,30 +860,38 @@ await test('journal review explicitly loads the full import while retaining the 
 
 await test('a payment-type-only response is never accepted or displayed as a COA category',async()=>{
  const h=await pageHarness();const row=h.page.state.txns[0];
- h.page.suggestions.set(row.id,{accounting_treatment:'card_payment',account_name:null,reasoning:'Card payment detected',revision:JSON.stringify(row)});
- h.page.renderCoding();assert.match(h.el('tblCoding').innerHTML,/No COA category suggested/);
+ h.data.card_coding_suggestions_v.push(prepared(row,{outcome:'needs_judgment',qbo_account_id:null,qbo_account_name:null,accounting_treatment:'card_payment',reasoning:'Card payment detected'}));
+ await h.page.loadSuggestions([row]);
+ h.page.renderCoding();assert.match(h.el('tblCoding').innerHTML,/No category suggested/);
  assert.ok(!h.el('tblCoding').innerHTML.includes('data-accept-suggestion'));
  assert.match(h.el('tblCoding').innerHTML,/data-edit="account"/);
- const before=JSON.stringify(row);h.page.acceptSuggestion(row.id);assert.equal(JSON.stringify(row),before);assert.equal(h.page.state.dirty.size,0);
+ const before=JSON.stringify(row);await h.page.acceptSuggestion([row.id]);assert.equal(JSON.stringify(row),before);assert.equal(h.page.state.dirty.size,0);
+ assert.equal(h.calls.some(c=>c.name==='accept_card_coding_suggestions'),false);
 });
-await test('a suggestion shows its historical evidence and keeps it on the accepted row',async()=>{
+await test('a suggestion shows its historical evidence, and the accepted row keeps it',async()=>{
  const h=await pageHarness();const row=h.page.state.txns[0];
  // 0.55 is the ceiling the function applies to a capped (partial) sample; it
  // must land inside the Low confidence (< 0.6) filter a reviewer uses.
- h.page.suggestions.set(row.id,{accounting_treatment:'purchase',account_id:'2',account_name:'Expense',confidence:.55,reasoning:'Synthetic premium.',history_status:'consistent',evidence:'History sample capped, treat as partial. History agrees. CONSISTENT: Expense [5000 confirmed SILO codings; last 2026-08-01] (SILO sample capped).',revision:JSON.stringify(row)});
+ const evidence='History sample capped, treat as partial. History agrees. CONSISTENT: Expense [5000 confirmed SILO codings; last 2026-08-01] (SILO sample capped).';
+ h.data.card_coding_suggestions_v.push(prepared(row,{confidence:.55,reasoning:'Synthetic premium.',history_status:'consistent',evidence}));
+ await h.page.loadSuggestions([row]);
  h.page.renderCoding();assert.match(h.el('tblCoding').innerHTML,/History: History sample capped, treat as partial\./);
- h.page.acceptSuggestion(row.id);assert.equal(row.qbo_account_id,'2');assert.equal(row.confidence,.55);
- assert.equal(row.ai_reasoning,'Synthetic premium. History: History sample capped, treat as partial. History agrees. CONSISTENT: Expense [5000 confirmed SILO codings; last 2026-08-01] (SILO sample capped).');
+ assert.match(h.el('tblCoding').innerHTML,/55% confidence/);
+ await h.page.acceptSuggestion([row.id]);const saved=h.page.state.txns[0];
+ assert.equal(saved.qbo_account_id,'2');assert.equal(saved.confidence,.55);
+ assert.equal(saved.ai_reasoning,'Synthetic premium. History: '+evidence);
  h.page.renderCoding();assert.match(h.el('codeFilterSegments').innerHTML,/Low confidence <span>1/);
 });
-await test('COA suggestions apply category and transaction type together for supported bank movements',async()=>{
+await test('COA suggestions for supported bank movements are offered and sent to the accept RPC',async()=>{
  for(const [treatment,type,amount] of [['deposit','Income',-20],['transfer','Other Current Asset',20],['card_payment','Credit Card',20]]) {
   const h=await pageHarness({amount});const row=h.page.state.txns[0];
   h.page.state.accounts=[...chart,{id:'destination',name:'Chosen COA',type,connectionId:'qbo-one'}];
-  h.page.suggestions.set(row.id,{accounting_treatment:treatment,account_id:'destination',account_name:'Chosen COA',revision:JSON.stringify(row)});
-  h.page.acceptSuggestion(row.id);assert.equal(row.qbo_account_id,'destination');assert.equal(row.qbo_account_name,'Chosen COA');
-  assert.equal(row.accounting_treatment,treatment);assert.equal(row.status,'coded');assert.equal(h.page.state.dirty.has(row.id),true);
-  assert.equal(h.calls.length,0,'Acceptance is local until saved');
+  h.data.card_coding_suggestions_v.push(prepared(row,{accounting_treatment:treatment,qbo_account_id:'destination',qbo_account_name:'Chosen COA'}));
+  await h.page.loadSuggestions([row]);h.page.renderCoding();
+  assert.match(h.el('tblCoding').innerHTML,/data-accept-suggestion/,treatment);
+  await h.page.acceptSuggestion([row.id]);
+  assert.deepEqual(h.calls.find(c=>c.name==='accept_card_coding_suggestions').args.p_ids,[`sugg-${row.id}`]);
+  assert.equal(h.page.state.txns[0].accounting_treatment,treatment);assert.equal(h.page.state.dirty.size,0);
  }
 });
 await test('choosing a COA category manually dismisses an unresolved type-only suggestion',async()=>{

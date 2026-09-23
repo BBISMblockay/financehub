@@ -5206,3 +5206,37 @@ select 'Plaid removal classification' as check_name,
 --
 -- So: put a check for anything OUTSIDE the finance/Plaid schema above the
 -- Plaid marker, and only add to the tail when the fixture genuinely covers it.
+
+-- Prepared coding suggestions (20260923120000). Claude's suggestions are stored
+-- apart from accepted coding: preparing writes only card_coding_suggestions,
+-- through a service-role writer that refuses answers about facts it did not
+-- read; accepting re-checks the row, the facts and the account and then writes
+-- through apply_card_coding as the person accepting. A client-writable table
+-- would let the browser author a suggestion Claude never made, or mark one
+-- accepted without coding anything.
+select 'Prepared coding suggestions' as check_name,
+ case when to_regclass('public.card_coding_suggestions') is null or to_regclass('public.card_coding_preparation_runs') is null
+   or to_regclass('public.card_coding_suggestions_v') is null
+  then 'MISSING: prepared coding suggestions migration (20260923120000)'
+ when (select count(*) from pg_class where relrowsecurity and oid in (to_regclass('public.card_coding_suggestions'),
+   to_regclass('public.card_coding_preparation_runs'))) <> 2
+  then 'CRITICAL: a coding suggestion table has RLS disabled'
+ when has_table_privilege('authenticated', to_regclass('public.card_coding_suggestions'), 'INSERT,UPDATE,DELETE,TRUNCATE')
+   or has_table_privilege('authenticated', to_regclass('public.card_coding_preparation_runs'), 'INSERT,UPDATE,DELETE,TRUNCATE')
+   or has_table_privilege('anon', to_regclass('public.card_coding_suggestions'), 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+   or has_table_privilege('anon', to_regclass('public.card_coding_preparation_runs'), 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+  then 'CRITICAL: coding suggestions are client-writable; they may only be written by record_card_coding_suggestions'
+ when has_function_privilege('authenticated', to_regprocedure('public.record_card_coding_suggestions(uuid,jsonb,boolean)'), 'EXECUTE')
+   or has_function_privilege('anon', to_regprocedure('public.record_card_coding_suggestions(uuid,jsonb,boolean)'), 'EXECUTE')
+   or has_function_privilege('authenticated', to_regprocedure('public.card_coding_input_hashes(uuid,uuid[])'), 'EXECUTE')
+   or has_function_privilege('anon', to_regprocedure('public.card_coding_input_hashes(uuid,uuid[])'), 'EXECUTE')
+  then 'CRITICAL: the service-role suggestion writer is reachable from the browser'
+ when has_function_privilege('anon', to_regprocedure('public.accept_card_coding_suggestions(uuid[])'), 'EXECUTE')
+   or has_function_privilege('anon', to_regprocedure('public.dismiss_card_coding_suggestions(uuid[])'), 'EXECUTE')
+  then 'CRITICAL: anon can accept or dismiss coding suggestions'
+ when pg_get_functiondef(to_regprocedure('public.accept_card_coding_suggestions(uuid[])')) not like '%public.apply_card_coding(%'
+   or pg_get_functiondef(to_regprocedure('public.accept_card_coding_suggestions(uuid[])')) not like '%card_coding_input_hash(v_t) <> v_g.input_hash%'
+  then 'CRITICAL: accepting a suggestion no longer re-checks its facts or no longer writes through apply_card_coding'
+ when not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'card_coding_suggestions_live')
+  then 'CRITICAL: nothing stops two live suggestions for one transaction'
+ else 'ok' end as status;

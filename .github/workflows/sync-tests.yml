@@ -117,6 +117,8 @@ on:
       - 'v2/transaction-dates.js'
       - 'v2/transaction-filters.js'
       - 'v2/card-splits.js'
+      - 'v2/coding-suggestions.js'
+      - 'supabase/migrations/*card_coding_suggestions.sql'
       - 'v2/transactions-workspace.css'
       - 'v2/bank-workspace.js'
       - 'v2/accounting-suite*'
@@ -223,6 +225,11 @@ jobs:
 
       - name: Card AI historical coding evidence
         run: node scripts/tests/card-categorize-history.test.mjs
+
+      # The categorizer as a preparation service: each model call saved as it
+      # returns, fingerprints read before facts, prepared work not re-asked.
+      - name: Card AI preparation persistence
+        run: node --test scripts/tests/card-categorize-persistence.test.mjs
 
       - name: Account workspace states and cutover confirmation
         run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
@@ -556,6 +563,12 @@ jobs:
       # remember the accounts without ever remembering an amount.
       - name: Execute card transaction split regressions
         run: node scripts/tests/card-splits-database.test.mjs
+
+      # Prepared coding suggestions: stored apart from coding, never recorded
+      # against unread facts, dismissals persist, and acceptance re-checks the
+      # row, the facts and the account before writing through apply_card_coding.
+      - name: Execute prepared coding suggestion regressions
+        run: node scripts/tests/card-coding-suggestions-database.test.mjs
 
       - name: Execute profiles tenant-isolation regressions
         run: node --test scripts/tests/profiles-tenant-scope.test.mjs
