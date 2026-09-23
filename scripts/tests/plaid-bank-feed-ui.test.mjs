@@ -749,6 +749,23 @@ await test('an out-of-date coding service is named, not mistaken for Claude havi
  assert.match(h.el('status').textContent,/has not been updated to save suggestions yet/);
  assert.equal(h.page.suggestions.size,0);
 });
+// Review finding (cycle 1): the accept RPC refuses more than 500 ids, and the
+// page sent every selected one in a single call, so select-all on a big month
+// saved nothing.
+await test('accepting more than 500 suggestions goes in batches, and a later batch failing keeps the earlier saves',async()=>{
+ const h=await pageHarness();const base=h.page.state.txns[0];
+ h.page.state.txns=Array.from({length:501},(_,i)=>({...base,id:`txn-${i}`}));
+ h.data.card_coding_suggestions_v=h.page.state.txns.map(t=>prepared(t));
+ await h.page.loadSuggestions(h.page.state.txns);
+ const original=h.db.rpc;let acceptCalls=0;
+ h.db.rpc=async(name,args)=>{if(name==='accept_card_coding_suggestions' && ++acceptCalls===2){h.calls.push({name,args:clone(args)});return {error:{message:'statement timeout'}};}return original(name,args);};
+ await h.page.acceptSuggestion(h.page.state.txns.map(t=>t.id));
+ const sizes=h.calls.filter(c=>c.name==='accept_card_coding_suggestions').map(c=>c.args.p_ids.length);
+ assert.deepEqual(sizes,[500,1]);
+ assert.equal(h.page.state.txns.filter(t=>t.status==='coded').length,500,'the first batch is shown saved');
+ assert.match(h.el('status').textContent,/500 categories saved.*The rest could not be sent — statement timeout/);
+ assert.equal(h.page.state.codingBusy,false);
+});
 await test('a row with unsaved edits cannot take a suggestion until they are saved or discarded',async()=>{
  const h=await pageHarness();const row=h.page.state.txns[0];
  h.data.card_coding_suggestions_v.push(prepared(row));await h.page.loadSuggestions([row]);

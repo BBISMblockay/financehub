@@ -8,6 +8,7 @@
 //   CATEGORIZE_PERSIST_MUTATION=save-at-end        results recorded only after every call returns
 //   CATEGORIZE_PERSIST_MUTATION=facts-before-hash  fingerprints read after the facts
 //   CATEGORIZE_PERSIST_MUTATION=reask-prepared     live suggestions ignored, every row asked again
+//   CATEGORIZE_PERSIST_MUTATION=one-record-call    a slice's rows sent in one oversized call
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadCategorizer, prepareSource, fakeDatabase } from './lib/card-categorize-sandbox.mjs';
@@ -22,6 +23,7 @@ const MUTATIONS = {
      '  const inputHash = new Map<string, string>();\n  await supabase.from(\'card_transactions_v\').select(\'id\').eq(\'company_entity_id\', companyId);\n  for (const part of chunks(transactionIds, 500)) {'],
   ],
   'reask-prepared': [['    if (!current || current.stale_reason) return true;', '    return true;']],
+  'one-record-call': [['    for (const part of chunks(rows, RECORD_CHUNK)) {', '    for (const part of [rows]) {']],
 };
 const mutation = process.env.CATEGORIZE_PERSIST_MUTATION || '';
 let source = await prepareSource();
@@ -34,9 +36,10 @@ const COMPANY = '00000000-0000-4000-8000-000000000006', BATCH = '00000000-0000-4
 const SOURCE = '00000000-0000-4000-8000-000000000002', CONNECTION = '00000000-0000-4000-8000-000000000005';
 const txnId = (i) => `00000000-0000-4000-9000-${String(i).padStart(12, '0')}`;
 
-function fixture({ merchants = 3, live = [], modelFails = () => false, omit = () => false, recordFails = false, delay = () => 0 } = {}) {
+function fixture({ merchants = 3, live = [], modelFails = () => false, omit = () => false, recordFails = false, delay = () => 0, sameMerchant = false, recordFailsOn = () => false } = {}) {
+  let recordCalls = 0;
   const transactions = Array.from({ length: merchants }, (_, i) => ({
-    id: txnId(i), batch_id: BATCH, company_entity_id: COMPANY, merchant_norm: `vendor ${i}`, card_name: null,
+    id: txnId(i), batch_id: BATCH, company_entity_id: COMPANY, merchant_norm: sameMerchant ? 'vendor 0' : `vendor ${i}`, card_name: null,
     description: `VENDOR ${i} #44`, amount: 10 + i, currency: 'USD', status: 'uncoded', qbo_account_id: null,
     origin: 'csv', provider_status: null, accounting_treatment: 'unknown', txn_date: '2026-09-10',
   }));
@@ -57,7 +60,8 @@ function fixture({ merchants = 3, live = [], modelFails = () => false, omit = ()
   const db = fakeDatabase(records, { rpc: {
     card_coding_input_hashes: ({ p_ids }) => ({ data: p_ids.map((id) => ({ transaction_id: id, input_hash: `hash:${id}` })), error: null }),
     record_card_coding_suggestions: ({ p_rows }) => {
-      if (recordFails) return { data: null, error: { message: 'synthetic record failure' } };
+      recordCalls++;
+      if (recordFails || recordFailsOn(recordCalls)) return { data: null, error: { message: 'synthetic record failure' } };
       recorded.push(...structuredClone(p_rows));
       return { data: { recorded: p_rows.length, skipped: [] }, error: null };
     },
@@ -190,3 +194,20 @@ test('retry must be a boolean; the endpoint still refuses malformed requests', a
   assert.equal(status, 400);
   assert.equal(h.modelCalls.length, 0);
 });
+
+// Review finding (cycle 1): one merchant group is every transaction sharing its
+// merchant and card, so a single model slice can expand past the writer's
+// 2,000-row limit -- one oversized call saved nothing and every retry paid again.
+test('a slice that expands to thousands of rows is saved in bounded chunks, and a failed chunk loses only itself', async () => {
+  const h = fixture({ merchants: 1201, sameMerchant: true, recordFailsOn: (n) => n === 2 });
+  const { status, body } = await h.run();
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(h.modelCalls.length, 1, 'one merchant is one question');
+  const sizes = h.db.rpcCalls.filter((c) => c.name === 'record_card_coding_suggestions').map((c) => c.args.p_rows.length);
+  assert.deepEqual(sizes, [500, 500, 201]);
+  assert.ok(sizes.every((n) => n <= 2000), 'never above the writer limit');
+  assert.equal(h.recorded.length, 701, 'the chunks around the failed one are kept');
+  assert.equal(body.suggested, 701); assert.equal(body.run_status, 'partial');
+  assert.match(body.errors.join(' '), /record: synthetic record failure/);
+});
+

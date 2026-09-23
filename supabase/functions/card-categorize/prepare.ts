@@ -39,6 +39,9 @@ export const PROMPT_VERSION = 'card-categorize/2026-09-23';
 // than holding the whole request until the gateway's 150s cut, which would
 // lose every slice with it.
 const MODEL_TIMEOUT_MS = 110_000;
+// Rows per record_card_coding_suggestions call. The writer refuses more than
+// 2,000; 500 keeps each call short enough to hold its per-row locks briefly.
+const RECORD_CHUNK = 500;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -1082,16 +1085,22 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       }
     }
     if (!rows.length) return;
-    const t = performance.now();
-    const { data, error } = await supabase.rpc('record_card_coding_suggestions', { p_run_id: runId, p_rows: rows, p_retry: retry });
-    persistMs += elapsed(t);
-    if (error) { errors.push(`record: ${String(error.message || error).slice(0, 160)}`); return; }
-    const skipped = Array.isArray(data?.skipped) ? data.skipped : [];
-    const skippedIds = new Set(skipped.map((x: any) => String(x.transaction_id)));
-    totals.recorded += Number(data?.recorded || 0); totals.skipped += skipped.length;
-    for (const r of rows) {
-      if (skippedIds.has(String(r.transaction_id))) continue;
-      if (r.outcome === 'suggested') totals.suggested++; else if (r.outcome === 'failed') totals.failed++; else totals.needs_judgment++;
+    // One merchant group expands to every transaction sharing its merchant and
+    // card, so a single slice can carry thousands of rows. The writer takes a
+    // bounded payload; send it in chunks, and keep whatever landed if a later
+    // chunk fails.
+    for (const part of chunks(rows, RECORD_CHUNK)) {
+      const t = performance.now();
+      const { data, error } = await supabase.rpc('record_card_coding_suggestions', { p_run_id: runId, p_rows: part, p_retry: retry });
+      persistMs += elapsed(t);
+      if (error) { errors.push(`record: ${String(error.message || error).slice(0, 160)}`); continue; }
+      const skipped = Array.isArray(data?.skipped) ? data.skipped : [];
+      const skippedIds = new Set(skipped.map((x: any) => String(x.transaction_id)));
+      totals.recorded += Number(data?.recorded || 0); totals.skipped += skipped.length;
+      for (const r of part) {
+        if (skippedIds.has(String(r.transaction_id))) continue;
+        if (r.outcome === 'suggested') totals.suggested++; else if (r.outcome === 'failed') totals.failed++; else totals.needs_judgment++;
+      }
     }
     progress = progress.then(() => supabase.from('card_coding_preparation_runs').update({
       model_calls: totals.model_calls, model_calls_failed: totals.model_calls_failed,

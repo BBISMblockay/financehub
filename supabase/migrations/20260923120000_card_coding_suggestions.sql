@@ -195,19 +195,34 @@ grant select on public.card_coding_suggestions to authenticated;
 grant all on public.card_coding_preparation_runs to service_role;
 grant all on public.card_coding_suggestions to service_role;
 
--- ── Read view: is the suggestion still about these facts? ──────────────────
-drop view if exists public.card_coding_suggestions_v;
-create view public.card_coding_suggestions_v with (security_invoker = true) as
-select g.*,
-  t.batch_id,
-  t.status as transaction_status,
-  case
+-- ── Is a suggestion still about these facts? One definition ───────────────
+-- The read view, the writer's duplicate gate and the accept path all ask this,
+-- so "stale" means one thing everywhere: the facts moved, the account is bound
+-- to another realm, or the suggested account is no longer active. A stale
+-- suggestion is never shown, never accepted, and never blocks a fresh one.
+create or replace function public.card_coding_suggestion_stale_reason(
+  g public.card_coding_suggestions, t public.card_transactions, s public.card_sources)
+returns text
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select case
     when public.card_coding_input_hash(t) <> g.input_hash then 'facts_changed'
     when s.qbo_connection_id is distinct from g.qbo_connection_id then 'connection_changed'
     when g.outcome = 'suggested' and not exists (select 1 from public.quickbooks_accounts a
       where a.company_entity_id = g.company_entity_id and a.connection_id = g.qbo_connection_id
         and a.qbo_account_id = g.qbo_account_id and a.is_active) then 'account_unavailable'
-    else null end as stale_reason
+    else null end
+$$;
+
+-- ── Read view ─────────────────────────────────────────────────────────────
+drop view if exists public.card_coding_suggestions_v;
+create view public.card_coding_suggestions_v with (security_invoker = true) as
+select g.*,
+  t.batch_id,
+  t.status as transaction_status,
+  public.card_coding_suggestion_stale_reason(g, t, s) as stale_reason
 from public.card_coding_suggestions g
 join public.card_transactions t on t.id = g.transaction_id and t.company_entity_id = g.company_entity_id
 join public.card_import_batches b on b.id = t.batch_id
@@ -284,7 +299,11 @@ begin
 
     select * into v_live from public.card_coding_suggestions
       where transaction_id = v_txn and review_status in ('open','dismissed') for update;
-    if v_live.id is not null and v_live.input_hash = v_hash and v_live.qbo_connection_id = v_run.qbo_connection_id then
+    -- The shortcuts below apply only while the live suggestion is still valid
+    -- by the same test the view uses: one whose account was deactivated must
+    -- make way for a fresh answer, not block it as "already prepared".
+    if v_live.id is not null and v_live.qbo_connection_id = v_run.qbo_connection_id
+      and public.card_coding_suggestion_stale_reason(v_live, v_t, v_s) is null then
       -- A dismissal stands until the facts change or someone asks again.
       if v_live.review_status = 'dismissed' and not p_retry then
         v_skipped := v_skipped || jsonb_build_object('transaction_id', v_txn, 'reason', 'dismissed'); continue;
@@ -459,6 +478,8 @@ revoke all on function public.accept_card_coding_suggestions(uuid[]) from public
 grant execute on function public.accept_card_coding_suggestions(uuid[]) to authenticated, service_role;
 revoke all on function public.dismiss_card_coding_suggestions(uuid[]) from public, anon;
 grant execute on function public.dismiss_card_coding_suggestions(uuid[]) to authenticated, service_role;
+revoke all on function public.card_coding_suggestion_stale_reason(public.card_coding_suggestions, public.card_transactions, public.card_sources) from public, anon;
+grant execute on function public.card_coding_suggestion_stale_reason(public.card_coding_suggestions, public.card_transactions, public.card_sources) to authenticated, service_role;
 revoke all on function public.card_coding_input_hash(public.card_transactions) from public, anon;
 grant execute on function public.card_coding_input_hash(public.card_transactions) to authenticated, service_role;
 revoke all on function public.card_coding_preparation_blocker(public.card_transactions, public.card_import_batches, public.card_sources) from public, anon;

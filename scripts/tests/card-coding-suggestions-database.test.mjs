@@ -18,6 +18,7 @@
 //   CARD_SUGGESTION_MUTATION=accept-ignores-company
 //   CARD_SUGGESTION_MUTATION=record-ignores-read-revision
 //   CARD_SUGGESTION_MUTATION=failure-replaces-prepared
+//   CARD_SUGGESTION_MUTATION=stale-blocks-replacement
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -35,6 +36,8 @@ const MUTATIONS = {
     'select * into v_t from public.card_transactions where id = v_g.transaction_id for update;']],
   'record-ignores-read-revision': ["if public.card_coding_input_hash(v_t) is distinct from nullif(v_row->>'expected_input_hash','') then", 'if false then'],
   'failure-replaces-prepared': ["if v_outcome = 'failed' and v_live.outcome <> 'failed' then", 'if false then'],
+  // The cycle-1 bug: the duplicate gate judged "same work" by fingerprint alone.
+  'stale-blocks-replacement': ["and public.card_coding_suggestion_stale_reason(v_live, v_t, v_s) is null then", "and v_live.input_hash = v_hash then"],
 };
 const mutation = process.env.CARD_SUGGESTION_MUTATION || '';
 assert.ok(!mutation || MUTATIONS[mutation], 'Unknown card suggestion mutation');
@@ -295,6 +298,34 @@ try {
     const [, fineId] = await make();
     const mixed = await accept([changedId, fineId]);
     assert.deepEqual(mixed.accepted.map((a) => a.id), [fineId]);
+  });
+
+  // Review finding (cycle 1): the page hides a suggestion whose account was
+  // deactivated, so a fresh preparation must be able to replace it -- or the
+  // row is stuck with nothing to review while every retry pays again.
+  await test('a suggestion whose account was deactivated makes way for a fresh one, which can then be accepted', async () => {
+    const t = await newTxn(batch, 130);
+    await record(await newRun(), [await suggestRow(t)]);
+    await q("update quickbooks_accounts set is_active=false where qbo_account_id='supplies' and connection_id=$1", [conn]);
+    try {
+      const stale = await as(finance, () => one("select stale_reason from card_coding_suggestions_v where transaction_id=$1 and review_status='open'", [t]));
+      assert.equal(stale.stale_reason, 'account_unavailable');
+      const out = await record(await newRun({ trigger: 'background' }), [await suggestRow(t, { qbo_account_id: 'meals' })]);
+      assert.equal(out.recorded, 1, JSON.stringify(out));
+      const fresh = await one("select id, qbo_account_id from card_coding_suggestions where transaction_id=$1 and review_status='open'", [t]);
+      assert.equal(fresh.qbo_account_id, 'meals');
+      const accepted = await accept([fresh.id]);
+      assert.equal(accepted.accepted.length, 1, JSON.stringify(accepted));
+      assert.equal((await one('select qbo_account_id from card_transactions where id=$1', [t])).qbo_account_id, 'meals');
+      // A dismissal of a still-valid suggestion is unaffected: it still holds.
+      const d = await newTxn(batch, 131);
+      await record(await newRun(), [await suggestRow(d, { qbo_account_id: 'meals' })]);
+      await dismiss([(await live(d)).id]);
+      const again = await record(await newRun({ trigger: 'background' }), [await suggestRow(d, { qbo_account_id: 'meals' })]);
+      assert.equal(again.skipped[0]?.reason, 'dismissed');
+    } finally {
+      await q("update quickbooks_accounts set is_active=true where qbo_account_id='supplies' and connection_id=$1", [conn]);
+    }
   });
 
   await test('the read view says why a suggestion is stale', async () => {
