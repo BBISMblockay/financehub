@@ -865,7 +865,9 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
     .limit(120);
   ruleQuery = batch.origin === 'plaid' ? ruleQuery.eq('source_id', source.id)
     : ruleQuery.or(`source_id.is.null,source_id.eq.${source.id}`);
-  const timed = async <T>(name: string, work: Promise<T>): Promise<T> => {
+  // supabase is untyped here, so each read resolves to any; the history read
+  // keeps its declared shape.
+  const timed = async (name: string, work: PromiseLike<any>): Promise<any> => {
     const t = performance.now();
     try { return await work; } finally { readMs[name] = elapsed(t); }
   };
