@@ -19074,6 +19074,14 @@ $c$select (select count(*) from v_po_header_summary
 -- asserted anchors, idempotent. Additive; no policy change.
 \i migrations/20260923150000_meta_creative_preview_link.sql
 
+-- ── Pipeline items from a PO: link + expected units (2026-09-23) ─────────
+-- Data correction only. Links auto-added product_tracker items to the one PO
+-- their note names, and replaces an expected_units that is one size line's qty
+-- with that PO's total across every size line (plus the paired launch
+-- readiness copy). Touches only still-unlinked items, so it converges after
+-- one pass. No schema or policy change.
+\i migrations/20260923160000_product_tracker_po_expected_units.sql
+
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above
 -- upsert the catalog, so re-running this file without it re-creates the four

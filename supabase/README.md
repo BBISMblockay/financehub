@@ -2099,3 +2099,23 @@ now selects ads missing a preview as well as a destination.
 Regressions: `scripts/tests/meta-creative-links.test.mjs`,
 `meta-creative-backfill.test.mjs`, `meta-creative-backfill-driver.test.mjs`,
 `meta-creative-links-database.test.mjs`.
+
+## Pipeline items from a PO — `20260923160000_product_tracker_po_expected_units.sql`
+
+Data correction only; no schema, policy or grant change. `/v2/po-builder.html`
+synced a new-product PO into `product_tracker` one LINE at a time, on line save
+only, writing that one line's qty into `expected_units` — so whichever size was
+saved last won (Incotexco-496's youth tee read 105, its YXL line, against the
+550 its four size lines sum to). It never set `po_header_id` either. The page
+now syncs the whole PO (`v2/po-pipeline-sync.js`); this fixes what the old sync
+already wrote.
+
+It links each still-unlinked auto-added item to the ONE PO its
+`Auto-added from PO: <name>` note names (case-insensitive, same company, PO
+must carry lines with the item's title), and replaces `expected_units` with the
+PO's total only where the stored figure is null or exactly one of that
+product's line quantities — the bug's fingerprint. A paired
+`launch_product_readiness` row is updated only where it holds the same figure
+the item held. Measured 2026-09-23: 159 linked, 49 corrected, 22 readiness
+copies corrected, 2 linked items keep a figure that is not a line qty.
+Everything it touches becomes linked, so a re-run finds nothing.
