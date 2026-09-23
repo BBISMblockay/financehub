@@ -5228,3 +5228,34 @@ select 'Prepared coding suggestions' as check_name,
  when not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'card_coding_suggestions_live')
   then 'CRITICAL: nothing stops two live suggestions for one transaction'
  else 'ok' end as status;
+
+-- Background coding preparation (20260923130000). Preparation runs without a
+-- browser: after each bank feed sync and nightly. Which rows need preparing is
+-- DERIVED (card_coding_needs_preparation), claims stop two workers paying for
+-- the same rows, and the scheduler's functions are service-role only -- a
+-- browser that could call next_card_coding_work or claim rows could starve or
+-- steer another company's preparation.
+select 'Background coding preparation' as check_name,
+ case when to_regclass('public.card_coding_preparation_claims') is null
+   or to_regprocedure('public.next_card_coding_work(uuid,uuid,integer)') is null
+   or to_regprocedure('public.card_coding_needs_preparation(public.card_transactions,public.card_import_batches,public.card_sources)') is null
+  then 'MISSING: background coding preparation migration (20260923130000)'
+ when not (select relrowsecurity from pg_class where oid = to_regclass('public.card_coding_preparation_claims'))
+   or has_table_privilege('authenticated', to_regclass('public.card_coding_preparation_claims'), 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+   or has_table_privilege('anon', to_regclass('public.card_coding_preparation_claims'), 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+  then 'CRITICAL: coding preparation claims are reachable from the browser'
+ when has_function_privilege('authenticated', to_regprocedure('public.next_card_coding_work(uuid,uuid,integer)'), 'EXECUTE')
+   or has_function_privilege('anon', to_regprocedure('public.next_card_coding_work(uuid,uuid,integer)'), 'EXECUTE')
+   or has_function_privilege('authenticated', to_regprocedure('public.claim_card_coding_preparation(uuid,uuid[],uuid,integer)'), 'EXECUTE')
+   or has_function_privilege('anon', to_regprocedure('public.claim_card_coding_preparation(uuid,uuid[],uuid,integer)'), 'EXECUTE')
+   or has_function_privilege('authenticated', to_regprocedure('public.release_card_coding_preparation(uuid)'), 'EXECUTE')
+   or has_function_privilege('authenticated', to_regprocedure('public.close_interrupted_card_coding_runs()'), 'EXECUTE')
+  then 'CRITICAL: a scheduler-only preparation function is callable from the browser'
+ -- The view and the scheduler must share one definition of stale.
+ when pg_get_viewdef('public.card_coding_suggestions_v'::regclass) not like '%card_coding_suggestion_stale_reason%'
+  then 'STALE: the suggestions view no longer reads card_coding_suggestion_stale_reason; apply 20260923130000'
+ -- A retired location must read as stale, or a suggestion naming it stays on
+ -- screen as ready, fails when used, and is never replaced.
+ when pg_get_functiondef(to_regprocedure('public.card_coding_suggestion_stale_reason(public.card_coding_suggestions,public.card_transactions,public.card_sources)')) not like '%location_unavailable%'
+  then 'STALE: a suggestion naming a retired location is not treated as stale; apply 20260923130000'
+ else 'ok' end as status;

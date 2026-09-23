@@ -18,7 +18,7 @@ export function loadCategorizer(source, { createClient, fetch, env = () => 'synt
     + '\nglobalThis.__exports = { prepareCoding, PROMPT_VERSION };';
   let handler;
   const context = {
-    Request, Response, AbortSignal, performance, console: log, createClient, fetch,
+    Request, Response, AbortSignal, performance, crypto: globalThis.crypto, console: log, createClient, fetch,
     Deno: { env: { get: env }, serve: (callback) => { handler = callback; } },
   };
   vm.runInNewContext(runnable, context);

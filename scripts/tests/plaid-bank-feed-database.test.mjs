@@ -193,7 +193,7 @@ try {
     // of the file, so each migration whose check lands after that marker must
     // be applied here first. #684 and #686 appended checks without doing so and
     // the finance-database job went red on every push to main from then on.
-    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql', '20260915220000_plaid_removed_from_status.sql', '20260923120000_card_coding_suggestions.sql']) {
+    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql', '20260915220000_plaid_removed_from_status.sql', '20260923120000_card_coding_suggestions.sql', '20260923130000_card_coding_background_preparation.sql']) {
       const sql = await readFile(new URL(`supabase/migrations/${later}`, root), 'utf8');
       await db.exec(sql); await db.exec(sql);
     }
@@ -940,6 +940,18 @@ try {
     await apply(account, { modified: [{ ...provider, amount: 105, name: 'Synthetic merchant renamed' }] });
     assert.equal((await first('select description from card_transactions where id=$1', [row.id])).description,
       'Synthetic merchant renamed', 'the feed keeps flowing after the correction');
+  });
+
+  // Background coding preparation is opted into per account, and a mapped
+  // feed's source is guarded against rebinding: the switch must be a plain
+  // column update that the guard lets through, and it must not be a way to
+  // rebind anything.
+  await test('a mapped bank feed can be switched into background coding preparation, by finance, without rebinding it', async () => {
+    const account = await bankAccount();
+    await asFinance(() => q('update card_sources set auto_prepare_coding=true where id=$1', [account.source]));
+    assert.equal(await scalar('select auto_prepare_coding from card_sources where id=$1', [account.source]), true);
+    await assert.rejects(asFinance(() => q("update card_sources set auto_prepare_coding=false, authoritative_from='2030-01-01' where id=$1", [account.source])),
+      /rebound|cutover|configure/i, 'the switch cannot smuggle a cutover change past the guard');
   });
 
   console.log(`${passed} Plaid database tests passed (local PostgreSQL only).`);

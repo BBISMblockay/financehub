@@ -71,9 +71,11 @@ jobs:
           fi
           if [ "${{ inputs.function_name }}" = "all" ]; then
             supabase functions deploy --project-ref "${{ inputs.project_ref }}"
-          elif [ "${{ inputs.function_name }}" = "plaid-scheduled-sync" ]; then
-            # This endpoint validates GitHub RS256 identity itself before any DB access.
-            supabase functions deploy plaid-scheduled-sync --no-verify-jwt --project-ref "${{ inputs.project_ref }}"
+          elif [ "${{ inputs.function_name }}" = "plaid-scheduled-sync" ] || [ "${{ inputs.function_name }}" = "card-coding-prepare-scheduled" ]; then
+            # Both scheduler endpoints validate a GitHub RS256 identity (OIDC,
+            # pinned to their workflows on main) before any DB access; the
+            # caller has no Supabase JWT to present.
+            supabase functions deploy "${{ inputs.function_name }}" --no-verify-jwt --project-ref "${{ inputs.project_ref }}"
           else
             supabase functions deploy "${{ inputs.function_name }}" --project-ref "${{ inputs.project_ref }}"
           fi
