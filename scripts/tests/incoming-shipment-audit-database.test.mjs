@@ -1,7 +1,8 @@
 process.on('uncaughtException', (error) => { console.error('\nFAILED:', error.message); process.exit(1); });
 process.on('unhandledRejection', (error) => { console.error('\nFAILED:', error?.message || error); process.exit(1); });
 
-// 20260923160000_incoming_shipment_audit.sql against a real PostgreSQL: the
+// 20260923160000_incoming_shipment_audit.sql + 20260923170000 (profile keys,
+// catalog refresh) against a real PostgreSQL: the
 // PO Report's shipment tables record who created and who last changed each
 // row, from the session and never from the client; created_by never moves;
 // a write with no session records no person; existing rows stay unattributed.
@@ -25,6 +26,7 @@ if (process.env.SHIPMENT_AUDIT_MUTATION === 'trust-client') {
     new.updated_by := coalesce(new.updated_by, auth.uid());`)
     .replace('    new.created_by := old.created_by;\n    new.updated_by := auth.uid();', '    new.updated_by := coalesce(new.updated_by, auth.uid());');
 }
+const followUp = await readFile(new URL('supabase/migrations/20260923170000_incoming_shipment_audit_fks.sql', root), 'utf8');
 const db = new PGlite();
 let checks = 0;
 const test = async (name, fn) => { await fn(); checks += 1; console.log(`ok ${checks} - ${name}`); };
@@ -48,11 +50,20 @@ await db.exec(`
     shipment_id uuid references public.incoming_shipments(id) on delete cascade, qty numeric,
     created_at timestamptz default now(), updated_at timestamptz default now());
   insert into public.incoming_shipments(shipment_status) values ('Shipped');
+  create table public.profiles(id uuid primary key);
+  insert into public.profiles(id) values ('11111111-1111-4111-8111-111111111111'), ('22222222-2222-4222-8222-222222222222');
+  create table public.catalog_refreshes(at timestamptz default now());
+  create function public.refresh_chat_schema_catalog() returns void language sql as
+    $$ insert into public.catalog_refreshes default values $$;
 `);
-await db.exec(migration);
-await db.exec(migration);
+for (let i = 0; i < 2; i += 1) { await db.exec(migration); await db.exec(followUp); }
 
-await test('applies twice: four columns, two triggers', async () => {
+await test('applies twice: four columns, two triggers, four profile keys, catalog refreshed', async () => {
+  const k = await one(`select count(*)::int n from pg_constraint where contype='f' and confrelid='public.profiles'::regclass
+    and conrelid in ('public.incoming_shipments'::regclass, 'public.incoming_shipment_lines'::regclass)`);
+  assert.equal(k.n, 4);
+  const r = await one(`select count(*)::int n from public.catalog_refreshes`);
+  assert.equal(r.n, 2, 'the follow-up refreshes the Ask SILO / report-builder catalog on every apply');
   const c = await one(`select count(*)::int n from information_schema.columns where table_schema='public'
     and table_name in ('incoming_shipments','incoming_shipment_lines') and column_name in ('created_by','updated_by')`);
   assert.equal(c.n, 4);
@@ -89,6 +100,14 @@ await test('a write with no session records no person rather than the previous e
   assert.equal(s.created_by, ALICE); assert.equal(s.updated_by, null);
   const n = await one(`insert into public.incoming_shipments(shipment_status, created_by) values ('Shipped', $1) returning *`, [BOB]);
   assert.equal(n.created_by, BOB, 'a service-role import may name the person it writes for');
+});
+
+await test('a system write naming someone who is not a profile is refused', async () => {
+  await asUser(null);
+  await assert.rejects(db.query(`insert into public.incoming_shipments(shipment_status, created_by) values ('Shipped', $1)`, [FORGED]),
+    /foreign key|violates/);
+  await assert.rejects(db.query(`insert into public.incoming_shipment_lines(qty, created_by) values (1, $1)`, [FORGED]),
+    /foreign key|violates/);
 });
 
 await test('nobody can call the trigger function directly', async () => {

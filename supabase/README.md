@@ -2113,4 +2113,9 @@ Report page needs no change.
   NULL for a system write — never the previous editor.
 - Rows from before 2026-09-23 stay NULL (no record to recover them from).
   Deletes are not recorded.
+- **Keys to `profiles(id)`** (`20260923170000`), plain NO ACTION like
+  `mail_items`: a service-role write naming a non-person is refused. Not
+  `ON DELETE SET NULL` — that action is an UPDATE the trigger would undo by
+  pinning `created_by`; SILO deactivates people rather than deleting profiles.
+  The same migration refreshes the Ask SILO / report-builder catalog.
 - Test: `scripts/tests/incoming-shipment-audit-database.test.mjs`.

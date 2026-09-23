@@ -62,7 +62,7 @@ on:
       - 'supabase/migrations/*meta_creative_preview_link.sql'
       - 'scripts/tests/launch-products-unknown-database.test.mjs'
       # PO Report shipment audit columns (incoming-shipment-audit-database.test.mjs).
-      - 'supabase/migrations/*incoming_shipment_audit.sql'
+      - 'supabase/migrations/*incoming_shipment_audit*.sql'
       - 'scripts/tests/incoming-shipment-audit-database.test.mjs'
       - 'v2/settings-team.html'
       - 'v2/settings-notifications.html'
@@ -666,7 +666,8 @@ jobs:
 
       # 20260923160000: who created / last changed a PO Report shipment. Proves
       # both columns come from the session and never the client, created_by
-      # never moves, and a write with no session records no person.
+      # never moves, a write with no session records no person, and
+      # (20260923170000) an unknown profile is refused and the catalog refreshed.
       - name: Execute incoming shipment audit migration regressions
         run: node scripts/tests/incoming-shipment-audit-database.test.mjs
 

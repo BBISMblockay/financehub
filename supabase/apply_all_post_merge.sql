@@ -19078,6 +19078,8 @@ $c$select (select count(*) from v_po_header_summary
 -- created_by / updated_by on incoming_shipments and incoming_shipment_lines,
 -- stamped from the session by trigger. Additive; no policy change.
 \i migrations/20260923160000_incoming_shipment_audit.sql
+-- Follow-up: profile keys on the four audit columns + catalog refresh.
+\i migrations/20260923170000_incoming_shipment_audit_fks.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

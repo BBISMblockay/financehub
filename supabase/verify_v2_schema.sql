@@ -1068,6 +1068,11 @@ select
     when (select count(*) from pg_trigger
           where tgname in ('trg_incoming_shipments_audit','trg_incoming_shipment_lines_audit') and not tgisinternal) <> 2
       then 'MISSING — shipment audit triggers'
+    when (select count(*) from pg_constraint
+          where contype='f' and confrelid='public.profiles'::regclass
+            and conrelid in ('public.incoming_shipments'::regclass, 'public.incoming_shipment_lines'::regclass)
+            and conname like '%\_by\_fkey') <> 4
+      then 'MISSING — run 20260923170000_incoming_shipment_audit_fks.sql (audit columns must reference profiles)'
     else 'ok'
   end as incoming_shipment_audit;
 
