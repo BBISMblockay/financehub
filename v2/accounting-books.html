@@ -4,12 +4,12 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SILO · Books & setup</title>
 <link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
-<link rel="stylesheet" href="accounting-books.css?v=d727ab397a4c"><link rel="stylesheet" href="accounting-suite.css?v=615de4bff781">
+<link rel="stylesheet" href="accounting-books.css?v=2586f04b4164"><link rel="stylesheet" href="accounting-suite.css?v=615de4bff781">
 <link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
 <script src="v2-shell.js" defer></script><script src="nav-config.js"></script><script src="avatar.js"></script>
 <script src="accounting-suite.js"></script><script src="silo-chrome.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/pages/config.js"></script>
-<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=c2c2ac767e22"></script><script src="migration-status.js?v=7891a44c7e1d"></script><script src="accounting-books.js?v=bc9d7dfe7146" defer></script>
+<script src="finance-dialog.js"></script><script src="je-composer.js"></script><script src="qbo-history.js?v=c2c2ac767e22"></script><script src="migration-status.js?v=7891a44c7e1d"></script><script src="accounting-ledger.js?v=22e465b164b2"></script><script src="accounting-books.js?v=9935c1d2cb9c" defer></script>
 </head>
 <body><div class="silo-app" id="silo-app"><main class="silo-main accounting-workspace">
 <div class="books-page">
@@ -17,15 +17,17 @@
 <p id="booksIntro">Your accounts, opening balances and journal history.</p></div><span id="booksBadge" class="books-badge">Loading setup…</span></header>
 <div id="status" class="bcn-status" role="status" aria-live="polite">Loading your company’s books…</div>
 <section class="migration-flow" id="migrationFlow" aria-labelledby="migrationFlowTitle" hidden>
-<div class="migration-flow-head"><div><p class="books-eyebrow">QuickBooks → Silo</p><h2 id="migrationFlowTitle" data-migration-headline>Reading where your migration stands…</h2></div></div>
+<div class="migration-flow-head"><div><p class="books-eyebrow">QuickBooks → Silo</p><h2 id="migrationFlowTitle" data-migration-headline>Reading where your migration stands…</h2></div><button type="button" id="migrationToggle" class="bcn-btn bcn-btn--ghost" aria-expanded="true" aria-controls="migrationBody">Hide steps</button></div>
+<div id="migrationBody">
 <ol class="migration-steps" data-migration-steps aria-label="Migration steps"></ol>
 <div id="migrationDetail" class="migration-detail" hidden></div>
 <!-- How the flow is measured. It used to sit open beside the headline and was
      display:none below 560px, so the trust framing was three permanent lines on
      a desktop and unreachable on a phone. A disclosure is the other way round. -->
 <details class="migration-note"><summary>How these steps are measured</summary><p>Every step is read from your books each time this page loads. Nothing here is a checkbox someone ticks, and a step Silo could not measure reads “Unknown”, never “Done”.</p></details>
+</div>
 </section>
-<nav class="books-tabs" aria-label="Books"><button class="bcn-btn" data-surface="setup" aria-pressed="true">Setup & opening balances</button><button class="bcn-btn" data-surface="accounts" aria-pressed="false">Chart of accounts</button><button class="bcn-btn" data-surface="register" aria-pressed="false">Journal register</button><button class="bcn-btn" data-surface="history" aria-pressed="false">QBO history</button></nav>
+<nav class="books-tabs" aria-label="Books"><button class="bcn-btn" data-surface="ledger" aria-pressed="false">Ledger</button><button class="bcn-btn" data-surface="register" aria-pressed="false">Journals</button><button class="bcn-btn" data-surface="accounts" aria-pressed="false">Chart of accounts</button><button class="bcn-btn" data-surface="locations" aria-pressed="false">Locations</button><button class="bcn-btn" data-surface="setup" aria-pressed="true">Setup & opening balances</button><button class="bcn-btn" data-surface="history" aria-pressed="false">QBO history</button></nav>
 <section id="setup" class="books-surface">
 <div class="books-columns"><article class="books-card"><details id="setupInputs" open><summary id="setupInputsLabel">Prepare opening balances</summary>
 <p>Import a trial balance as of the day before Silo’s accounting start date. Currency and accounting basis come from QBO; confirm your fiscal year below.</p>
@@ -43,7 +45,12 @@
 <div id="opening" class="books-card" hidden></div>
 <article class="books-card"><details><summary>Ledger ownership &amp; migration scope</summary><p>QuickBooks remains the official ledger during this phase. Silo retains your opening history and its own account identities. Transactions keep their existing human approval and QBO recovery controls.</p><p>Opening balances are not historical transaction detail. Open invoices, bills, reconciliation, period locks, reversals and independent Silo ledger roll-forward require the next accounting phase before switching book ownership.</p><a href="transactions.html">Review bank-feed mappings and source cutovers →</a></details></article>
 </section>
-<section id="accounts" class="books-surface" hidden><div class="books-card"><h2>Your chart of accounts</h2><p>Seeded from QuickBooks, with stable Silo account IDs. Refreshing QBO cannot overwrite the saved account snapshot.</p><div id="accountsTable">Prepare opening balances to seed your chart.</div></div></section>
+<section id="accounts" class="books-surface" hidden><div class="books-card"><h2>Your chart of accounts</h2><p>Seeded from QuickBooks, with stable Silo account IDs. Refreshing QBO cannot overwrite the saved account snapshot, so each account shows both its status when it was seeded and its status in QuickBooks now.</p><div id="accountsTable">Prepare opening balances to seed your chart.</div></div></section>
+<section id="locations" class="books-surface" hidden><div class="books-card"><div class="books-row"><div><h2>Locations</h2><p>QuickBooks locations journal lines are tagged with, and the Silo sales locations mapped to each. Mappings are edited in <a href="accounting-export.html">Sales &amp; journals</a>.</p></div></div><div id="locationsTable">Loading locations…</div></div></section>
+<section id="ledger" class="books-surface" hidden><div class="books-card"><div class="books-row"><div><h2>Ledger roll-forward</h2><p>Opening balance + activity = closing balance, for every account. Silo's own postings and everything entered directly in QuickBooks are shown apart, so it is clear what Silo originated and what it did not. Click a Posted by Silo amount to see its lines.</p></div>
+<div class="ledger-controls"><label>Closing balances<select id="ledgerRun" class="bcn-field"></select></label><button id="ledgerFetch" class="bcn-btn" type="button" hidden>Fetch trial balance through today</button></div></div>
+<label class="ledger-check"><input type="checkbox" id="ledgerAll"> Show accounts with no balance or activity</label>
+<div id="ledgerTable">Loading the ledger…</div><div id="ledgerLines" class="ledger-lines" hidden></div></div></section>
 <section id="register" class="books-surface" hidden><div class="books-card"><div class="books-row"><div><h2>Journal register</h2><p>Every entry that posts to QuickBooks through Silo — Transactions, Schedules, Fixed assets, Sales &amp; journals and hand-written adjustments. Discard a draft or void a posted entry here. Opening history appears separately in Setup.</p></div><button id="newJournal" class="bcn-btn">New journal entry</button></div><div id="registerTable"></div><button id="more" class="bcn-btn">Load more</button></div></section>
 <section id="history" class="books-surface" hidden>
 

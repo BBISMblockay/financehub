@@ -185,3 +185,17 @@
 /* A date must break as a whole or not at all: '2025-12-' above '31' reads as
    two numbers. */
 .books-nowrap{white-space:nowrap}
+/* A status that is not the healthy one: inactive, missing from the last sync,
+   or a sales location with no QuickBooks location. Words carry it; colour only
+   draws the eye. */
+.books-flag { color: var(--bcn-warn, #b45309); font-weight: 600; }
+/* Ledger roll-forward */
+.ledger-controls { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.ledger-controls label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--bcn-ink-3); }
+.books-card .ledger-check { display: flex; gap: 6px; align-items: center; font-size: 12px; margin: 8px 0; }
+.ledger-table td small { display: block; font-size: 10px; color: var(--bcn-ink-3); }
+.ledger-table .ledger-total td, .ledger-table tfoot td { font-weight: 650; background: var(--bcn-sunken); }
+.ledger-drill { background: none; border: 0; padding: 0; font: inherit; color: var(--bcn-accent); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px; }
+.ledger-lines { margin-top: 12px; border-top: 1px solid var(--bcn-border); padding-top: 10px; }
+.books-card .ledger-check input { width: auto; min-height: 0; }

@@ -972,3 +972,68 @@ test("unavailable projections do not block bank-only forecasts and an enabled fa
   await h.api.load();
   assert.match(h.el("coverage").textContent, /501 posted/);
 });
+const plain = (x) => JSON.parse(JSON.stringify(x));
+const request = (id, extra = {}) => ({
+  id,
+  vendor_name: "Vendor " + id,
+  amount_due: 500,
+  due_date: "2026-10-05",
+  workflow_status: "new",
+  completed: false,
+  ...extra,
+});
+test("open payment requests are a planning line: due date or first forecast day, never past due, never actuals", () => {
+  const options = {
+    unit: "day",
+    requests: [
+      request("future"),
+      request("today", { due_date: "2026-09-13" }),
+      request("overdue", { due_date: "2026-09-01" }),
+      request("undated", { due_date: null }),
+      request("paid", { workflow_status: "paid" }),
+      request("completed", { completed: true }),
+      request("rejected", { workflow_status: "rejected" }),
+      request("cancelled", { workflow_status: "cancelled" }),
+      request("zero", { amount_due: 0 }),
+      request("late", { due_date: "2027-03-01" }),
+      request("future"),
+    ],
+  };
+  const off = build(options),
+    on = build({ ...options, requestsEnabled: true });
+  // Off by default: classified and listed, but nothing reaches the forecast.
+  assert.equal(off.requestInfo.enabled, false);
+  assert.equal(off.requestInfo.count, 0);
+  assert.equal(off.requestInfo.included.length, 2);
+  assert.equal(off.ending.at(-1), build({ unit: "day" }).ending.at(-1));
+  // On: both open, dated, in-horizon requests leave cash; nothing else does.
+  assert.deepEqual(
+    plain(on.requestInfo.included.map((q) => [q.id, q.date])),
+    [
+      ["future", "2026-10-05"],
+      ["today", "2026-09-14"],
+    ],
+  );
+  assert.equal(on.requestInfo.total, 100000);
+  assert.equal(off.ending.at(-1) - on.ending.at(-1), 100000);
+  assert.deepEqual(plain(on.requestInfo.overdue.map((q) => q.id)), ["overdue"]);
+  assert.deepEqual(plain(on.requestInfo.undated.map((q) => q.id)), ["undated"]);
+  assert.deepEqual(plain(on.requestInfo.beyond.map((q) => q.id)), ["late"]);
+  const row = on.rows.find((r) => r.label === "Payment requests");
+  assert.equal(row.direction, "out");
+  assert.equal(row.request[on.cols.findIndex((c) => c.start === "2026-10-05")], -50000);
+  assert.equal(row.request[on.cols.findIndex((c) => c.start === "2026-09-14")], -50000);
+  // Never an actual, and never part of the bank trend.
+  assert.equal(actual(on), actual(off));
+  assert.equal(sum(row.actual), 0);
+  assert.equal(
+    sum(on.rows.flatMap((r) => r.trend)),
+    sum(off.rows.flatMap((r) => r.trend)),
+  );
+});
+test("payment requests only join the company view in the base currency", () => {
+  const options = { requestsEnabled: true, requests: [request("future")] };
+  assert.equal(build(options).requestInfo.count, 1);
+  assert.equal(build({ ...options, selected: "bank" }).requestInfo.count, 0);
+  assert.equal(build({ ...options, baseCurrency: "CAD" }).requestInfo.count, 0);
+});

@@ -66,6 +66,11 @@ function cashFixtures() {
     revenue_projections: [],
     accounting_settings: [{ base_currency: 'USD' }],
     card_transactions: txns,
+    payment_requests: [
+      { id: 'r-soon', vendor_name: 'Mill Supply', amount_due: 1200, due_date: addDays(TODAY, 3), workflow_status: 'new', completed: false },
+      { id: 'r-old', vendor_name: 'Old Invoice Co', amount_due: 9000, due_date: addDays(TODAY, -40), workflow_status: 'new', completed: false },
+      { id: 'r-paid', vendor_name: 'Paid Vendor', amount_due: 500, due_date: addDays(TODAY, 5), workflow_status: 'paid', completed: true },
+    ],
   };
 }
 
@@ -135,6 +140,27 @@ function cashFixtures() {
         });
         r.truthy(pos.x > pos.label, `boundary at ${pos.x}px is not hidden under the ${pos.label}px label column`);
         r.truthy(pos.x < pos.label + (pos.width - pos.label) / 2, `boundary at ${pos.x}px sits in the first half of the grid`);
+      });
+
+      await check('payment requests sit in the Planned activity panel, off until switched on', async () => {
+        r.eq(await page.$eval('#planDrawer', (n) => n.hidden), true, 'panel starts closed');
+        await page.click('#planToggle');
+        r.eq(await page.$eval('#planDrawer', (n) => n.hidden), false);
+        r.eq(await page.$eval('#planToggle', (n) => n.getAttribute('aria-expanded')), 'true');
+        const text = await page.$eval('#requests', (n) => n.textContent);
+        r.has(text, 'Mill Supply');
+        r.has(text, '1 past due');
+        r.has(text, 'not in forecast');
+        r.not(text, 'Paid Vendor');
+        r.eq(await page.$eval('#requestsEnabled', (n) => n.checked), false, 'off by default');
+        const hasLine = () => [...document.querySelectorAll('#matrix tbody th[scope="row"]')].some((x) => x.textContent.trim() === 'Payment requests');
+        r.eq(await page.evaluate(hasLine), false, 'no forecast line while the switch is off');
+        await page.check('#requestsEnabled');
+        await page.waitForFunction(hasLine);
+        r.truthy(await page.$$eval('#matrix td.cf-planned', (n) => n.length) > 0, 'the cell carrying the request is marked');
+        r.has(await page.$eval('#planToggle', (n) => n.textContent), '· 1');
+        await page.click('#planClose');
+        r.eq(await page.$eval('#planDrawer', (n) => n.hidden), true);
       });
 
       await check('charts collapse', async () => {

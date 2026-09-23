@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
     <link rel="stylesheet" href="beacon-mirrors-unified.css" />
     <link rel="stylesheet" href="v2-mobile.css" />
-    <link rel="stylesheet" href="cashflow.css?v=f93ee6ad4263" />
+    <link rel="stylesheet" href="cashflow.css?v=267e089cff8d" />
     <script src="v2-shell.js" defer></script>
     <script src="nav-config.js"></script>
     <script src="avatar.js"></script>
@@ -17,9 +17,9 @@
     <script src="silo-chrome.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="/pages/config.js"></script>
-    <script src="cashflow-model.js?v=17bf0671c652" defer></script>
+    <script src="cashflow-model.js?v=c97cc522e798" defer></script>
     <script src="cashflow-charts.js?v=5c54a7bc99f4" defer></script>
-    <script src="cashflow.js?v=1be02ea11f67" defer></script>
+    <script src="cashflow.js?v=1b75e4c8760a" defer></script>
   </head>
   <body>
     <div class="silo-app" id="silo-app">
@@ -32,6 +32,13 @@
           <div class="bcn-header-actions">
             <a class="bcn-btn" href="transactions.html">Manage accounts</a
             ><button class="bcn-btn" id="refresh">Refresh</button
+            ><button
+              class="bcn-btn"
+              id="planToggle"
+              aria-expanded="false"
+              aria-controls="planDrawer"
+            >
+              Planned activity</button
             ><button class="bcn-btn" id="overrideAdd" disabled>
               Override forecast</button
             ><button class="bcn-btn bcn-btn--primary" id="add" disabled>
@@ -256,6 +263,39 @@
               currency conversion or ledger posting occurs.
             </p>
           </details>
+        </div>
+        <aside
+          class="cf-drawer"
+          id="planDrawer"
+          aria-label="Planned activity"
+          hidden
+        >
+          <div class="cf-drawer-head">
+            <h2>Planned activity</h2>
+            <button
+              type="button"
+              class="bcn-btn"
+              id="planClose"
+              aria-label="Close planned activity"
+            >
+              ×
+            </button>
+          </div>
+          <p class="cf-drawer-note">
+            What shapes the forecast besides bank trends. Cells it touches carry
+            a dot; click a cell for its breakdown.
+          </p>
+          <section class="cf-plans">
+            <div class="cf-section-head">
+              <h2>Payment requests</h2>
+              <a href="request_manager.html">Request Manager →</a>
+            </div>
+            <label class="cf-check"
+              ><input type="checkbox" id="requestsEnabled" /> Add open payment
+              requests to the forecast</label
+            >
+            <div id="requests"></div>
+          </section>
           <section class="cf-plans">
             <div class="cf-section-head">
               <h2>Manual overrides</h2>
@@ -272,7 +312,7 @@
             </div>
             <div id="plans"></div>
           </section>
-        </div>
+        </aside>
       </main>
     </div>
     <dialog id="planDialog">

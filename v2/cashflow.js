@@ -40,6 +40,7 @@
     trend: true,
     timing: true,
     projectionEnabled: false,
+    requestsEnabled: false,
     collectionPercent: 100,
     collectionLag: 0,
   };
@@ -100,6 +101,7 @@
         trend: [true, false],
         timing: [true, false],
         projectionEnabled: [true, false],
+        requestsEnabled: [true, false],
       }))
         if (allowed.includes(f[key])) filters[key] = f[key];
       if (
@@ -150,6 +152,7 @@
         overrides,
         settings,
         revenue,
+        paymentRequests,
       ] = await Promise.all([
         pages(
           "plaid_accounts",
@@ -186,6 +189,15 @@
               .eq("scenario", "active")
               .gte("projection_date", M.addDays(today, 1))
               .lte("projection_date", M.addMonths(today, 6)),
+        ).then(
+          (rows) => ({ rows, error: null }),
+          (e) => ({ rows: [], error: e.message }),
+        ),
+        // Open-or-not is decided in the model (status + completed); the list
+        // is small, and a failure here must never block the bank forecast.
+        pages(
+          "payment_requests",
+          "id,vendor_name,vendor_name_manual,amount_due,due_date,workflow_status,completed,request_type",
         ).then(
           (rows) => ({ rows, error: null }),
           (e) => ({ rows: [], error: e.message }),
@@ -227,6 +239,8 @@
         baseCurrency: settings?.base_currency || "USD",
         projections: revenue.rows,
         projectionError: revenue.error,
+        requests: paymentRequests.rows,
+        requestsError: paymentRequests.error,
       };
       const currencies = [
         ...new Set(
@@ -277,6 +291,7 @@
       el("overrides").innerHTML = "";
       el("accounts").innerHTML = "";
       el("plans").innerHTML = "";
+      el("requests").innerHTML = "";
       el("coverage").textContent = "";
       el("planScope").textContent = "";
     } finally {
@@ -391,7 +406,8 @@
       `<tr${rowClass ? ` class="${rowClass}"` : ""}><th scope="row">${esc(r.label)}</th>${model.cols
         .map((c, i) => {
           const amount = c.kind === "actual" ? r.actual[i] : r.forecast[i];
-          return `<td class="${cls(c, i)} ${r.overrides[i].length ? "cf-manual" : ""}"><button data-cell="${index}:${i}" aria-label="${esc(r.label + " " + c.start + " to " + c.end)}" title="${c.kind === "forecast" ? esc("Trend " + money(r.trend[i]) + " · planned " + money(r.planned[i]) + " · manual " + money(r.manual[i])) : "View bank movements"}">${money(amount)}</button></td>`;
+          const planned = c.kind === "forecast" && (r.planned[i] || r.request[i]);
+          return `<td class="${cls(c, i)} ${r.overrides[i].length ? "cf-manual" : ""} ${planned ? "cf-planned" : ""}"><button data-cell="${index}:${i}" aria-label="${esc(r.label + " " + c.start + " to " + c.end)}" title="${c.kind === "forecast" ? esc("Trend " + money(r.trend[i]) + " · planned " + money(r.planned[i]) + " · manual " + money(r.manual[i])) : "View bank movements"}">${money(amount)}</button></td>`;
         })
         .join("")}</tr>`;
     const grouped = filters.group === "coa";
@@ -423,6 +439,12 @@
         groups.get(flow).push(m);
       }
       for (const [flow, list] of groups) {
+        // A line that is not a COA account (payment requests, projections,
+        // uncategorized…) and stands alone is its own total: no toggle.
+        if (list.length === 1 && !list[0].r.accountType) {
+          body += rowHtml(list[0].r, list[0].index);
+          continue;
+        }
         const key = direction + "|" + flow,
           open = openGroups.has(key);
         const sums = model.cols.map((c, i) =>
@@ -434,7 +456,7 @@
         body += `<tr class="cf-group"><th scope="row"><button type="button" class="cf-group-toggle" data-group="${esc(key)}" aria-expanded="${open}">${esc(flow)}<small>${list.length} ${list.length === 1 ? "account" : "accounts"}</small></button></th>${model.cols
           .map(
             (c, i) =>
-              `<td class="${cls(c, i)} ${sums[i] < 0 ? "cf-neg" : ""} ${list.some(({ r }) => r.overrides[i].length) ? "cf-manual" : ""}">${money(sums[i])}</td>`,
+              `<td class="${cls(c, i)} ${sums[i] < 0 ? "cf-neg" : ""} ${list.some(({ r }) => r.overrides[i].length) ? "cf-manual" : ""} ${c.kind === "forecast" && list.some(({ r }) => r.planned[i] || r.request[i]) ? "cf-planned" : ""}">${money(sums[i])}</td>`,
           )
           .join("")}</tr>`;
         if (open)
@@ -459,6 +481,7 @@
       `Company plans · ${data.baseCurrency}${model.companyPlans ? "" : " · switch to All cash accounts / " + data.baseCurrency + " to include and edit"}`;
     renderOverrides();
     renderPlanning();
+    renderRequests();
     el("plans").innerHTML = data.plans.length
       ? data.plans
           .map(
@@ -695,6 +718,60 @@
         `${model.invalidAssignments.length} assumptions reference unavailable accounts and are omitted. Reassign those accounts in the saved movement or override.`,
       );
   }
+  // Open payment requests, as the model classified them. Past-due and undated
+  // requests are listed with their totals but never forecast (see the model).
+  function renderRequests() {
+    const info = model.requestInfo,
+      usd = (c) =>
+        new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: data.baseCurrency,
+        }).format(c / 100),
+      sum = (list) => list.reduce((n, q) => n + q.amount, 0),
+      name = (q) => q.vendor_name || q.vendor_name_manual || q.request_type || "Request";
+    const box = el("requestsEnabled");
+    box.checked = filters.requestsEnabled;
+    box.disabled = !model.companyPlans || !!data.requestsError;
+    const planCount =
+      data.plans.length + data.overrides.length + (info.enabled ? info.count : 0);
+    el("planToggle").textContent = planCount
+      ? `Planned activity · ${planCount}`
+      : "Planned activity";
+    if (data.requestsError) {
+      el("requests").innerHTML = `<p class="cf-empty">Payment requests could not be read: ${esc(data.requestsError)}</p>`;
+      return;
+    }
+    const line = (q, when) =>
+      `<div class="cf-plan"><span>${esc(name(q))}<small>${esc(when)} · ${esc(q.workflow_status || "new")}</small></span><b>${esc(usd(q.amount))}</b></div>`;
+    const parts = [];
+    parts.push(
+      `<p class="cf-drawer-note">${info.included.length} open request${info.included.length === 1 ? "" : "s"} due in this horizon · ${esc(usd(sum(info.included)))}${info.enabled ? " · in the forecast" : " · not added (switch is off)"}. Visible to you: ${data.requests.length} request${data.requests.length === 1 ? "" : "s"} in all.${model.companyPlans ? "" : " Switch to All cash accounts in " + esc(data.baseCurrency) + " to add them."}</p>`,
+    );
+    parts.push(
+      info.included
+        .slice()
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((q) => line(q, "due " + q.due_date + (q.date !== q.due_date ? " → forecast " + q.date : "")))
+        .join(""),
+    );
+    if (info.overdue.length)
+      parts.push(
+        `<details class="cf-method"><summary>${info.overdue.length} past due · ${esc(usd(sum(info.overdue)))} — not in forecast</summary><p>Still open in Request Manager after their due date. Most are usually paid but not marked; mark them paid or update the due date there to bring one back.</p>${info.overdue
+          .slice()
+          .sort((a, b) => a.due_date.localeCompare(b.due_date))
+          .map((q) => line(q, "was due " + q.due_date))
+          .join("")}</details>`,
+      );
+    if (info.undated.length)
+      parts.push(
+        `<details class="cf-method"><summary>${info.undated.length} with no due date · ${esc(usd(sum(info.undated)))} — not in forecast</summary>${info.undated.map((q) => line(q, "no due date")).join("")}</details>`,
+      );
+    if (info.beyond.length)
+      parts.push(
+        `<p class="cf-drawer-note">${info.beyond.length} more due after ${esc(model.futureEnd)} · ${esc(usd(sum(info.beyond)))}.</p>`,
+      );
+    el("requests").innerHTML = parts.join("");
+  }
   function renderOverrides() {
     el("overrides").innerHTML = data.overrides.length
       ? data.overrides
@@ -902,9 +979,17 @@
               : o.category_key === row.categoryKey),
       );
       el("detailBody").innerHTML =
-        `<p>Bank trend: ${money(row.trend[i])}</p><p>Planned movements: ${money(row.planned[i])}</p><p>Manual override: ${money(row.manual[i])}</p><p>Revenue projections: ${money(row.projection[i])}</p><p>What-if scenario: ${money(row.whatif[i])}</p><p><b>Projected total: ${money(row.forecast[i])}</b></p><div class="cf-detail-actions">${model.companyPlans ? (overlapping.length ? overlapping.map((o) => `<button class="bcn-btn" data-edit-override="${esc(o.id)}">Edit ${esc(o.category_label)} · ${short(o.start_date)}–${short(o.end_date)}</button>`).join("") : `<button class="bcn-btn bcn-btn--primary" data-new-override="${r}:${i}">Override this total</button>`) : "<p>Switch to All cash accounts in the base currency to edit assumptions.</p>"}</div>`;
+        `<p>Bank trend: ${money(row.trend[i])}</p><p>Planned movements: ${money(row.planned[i])}</p><p>Manual override: ${money(row.manual[i])}</p><p>Revenue projections: ${money(row.projection[i])}</p><p>Payment requests: ${money(row.request[i])}</p>${row.request[i] ? requestsIn(model.cols[i]) : ""}<p>What-if scenario: ${money(row.whatif[i])}</p><p><b>Projected total: ${money(row.forecast[i])}</b></p><div class="cf-detail-actions">${model.companyPlans ? (overlapping.length ? overlapping.map((o) => `<button class="bcn-btn" data-edit-override="${esc(o.id)}">Edit ${esc(o.category_label)} · ${short(o.start_date)}–${short(o.end_date)}</button>`).join("") : `<button class="bcn-btn bcn-btn--primary" data-new-override="${r}:${i}">Override this total</button>`) : "<p>Switch to All cash accounts in the base currency to edit assumptions.</p>"}</div>`;
     }
     el("detailDialog").showModal();
+  }
+  function requestsIn(col) {
+    const list = model.requestInfo.included.filter(
+      (q) => q.date >= col.start && q.date <= col.end,
+    );
+    return list.length
+      ? `<ul class="cf-request-list">${list.map((q) => `<li>${esc(q.vendor_name || q.vendor_name_manual || q.request_type || "Request")} · due ${esc(q.due_date)} · ${money(-q.amount)}</li>`).join("")}</ul><p><a href="request_manager.html">Open Request Manager →</a></p>`
+      : "";
   }
   function renderPlanning() {
     const future = model.cols
@@ -912,7 +997,7 @@
         .filter((i) => i >= 0),
       sum = (values) => future.reduce((n, i) => n + values[i], 0);
     el("flowTotals").innerHTML =
-      `<span>${short(model.futureStart)}–${short(model.futureEnd)}</span><span>Money in<strong>${money(sum(model.inflow))}</strong></span><span>Money out<strong>${money(-sum(model.outflow))}</strong></span><span>Net<strong>${money(sum(model.net))}</strong></span><span>Projections<strong>${money(model.projectionInfo.total)}</strong></span><span>What-if impact<strong>${money(model.whatIfTotal)}</strong></span>`;
+      `<span>${short(model.futureStart)}–${short(model.futureEnd)}</span><span>Money in<strong>${money(sum(model.inflow))}</strong></span><span>Money out<strong>${money(-sum(model.outflow))}</strong></span><span>Net<strong>${money(sum(model.net))}</strong></span><span>Projections<strong>${money(model.projectionInfo.total)}</strong></span><span>Payment requests<strong>${money(-model.requestInfo.total)}</strong></span><span>What-if impact<strong>${money(model.whatIfTotal)}</strong></span>`;
     el("timing").checked = filters.timing;
     el("timingSummary").textContent =
       `Recurring timing · ${filters.timing ? model.patterns.length + " patterns detected" : "daily averages selected"}`;
@@ -1125,6 +1210,33 @@
       }
       const button = e.target.closest("[data-cell]");
       if (button && ready) detail(button.dataset.cell);
+    });
+    const drawer = el("planDrawer");
+    const setDrawer = (open) => {
+      // Starts below the page header so the header's own buttons stay usable.
+      const header = document.querySelector(".silo-main > .bcn-header");
+      drawer.style.top = header
+        ? Math.max(0, Math.round(header.getBoundingClientRect().bottom)) + "px"
+        : "";
+      drawer.hidden = !open;
+      el("planToggle").setAttribute("aria-expanded", String(open));
+      document.querySelector(".cf-page")?.classList.toggle("cf-page--drawer", open);
+      try {
+        localStorage.setItem("silo-cashflow-drawer", open ? "open" : "closed");
+      } catch {}
+    };
+    el("planToggle").addEventListener("click", () => setDrawer(drawer.hidden));
+    el("planClose").addEventListener("click", () => {
+      setDrawer(false);
+      el("planToggle").focus();
+    });
+    try {
+      if (localStorage.getItem("silo-cashflow-drawer") === "open") setDrawer(true);
+    } catch {}
+    el("requestsEnabled").addEventListener("change", (e) => {
+      if (!ready || !model.companyPlans || data.requestsError) return;
+      filters.requestsEnabled = e.target.checked;
+      render();
     });
     el("expandAll").addEventListener("click", () => {
       if (!ready) return;
