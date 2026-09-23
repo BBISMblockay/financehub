@@ -524,3 +524,17 @@
  /* The sidebar is a drawer here, so the bar spans the screen. */
  .transaction-list #codeActionBar,.silo-app[data-collapsed="true"] .transaction-list #codeActionBar {left:50%;bottom:calc(8px + env(safe-area-inset-bottom, 0px));max-width:calc(100vw - 16px);width:calc(100vw - 16px);padding:8px;border-radius:12px;}
 }
+@media(min-width:901px) and (max-width:1240px) {
+ /* One line needs ~930px of main column; below that (a 1024-1240px window
+    beside the expanded sidebar) the bar spans the column in two rows --
+    count and the category/location/vendor group, then the actions with Save
+    at the end -- instead of squeezing the group until a select slides under
+    the button beside it. */
+ .transaction-list #codeActionBar {width:calc(100vw - 224px - 32px);flex-wrap:wrap;row-gap:6px;}
+ .silo-app[data-collapsed="true"] .transaction-list #codeActionBar {width:calc(100vw - 56px - 32px);}
+ .transaction-list #codeActionBar .cc-bulk:not([hidden]) {display:contents;}
+ .transaction-list #codeActionBar .cc-bulk-set {flex:1 1 calc(100% - 110px);}
+ .transaction-list #codeActionBar .cc-bulk-set select {max-width:none;}
+ .transaction-list #codeActionBar #unsavedCount {margin-left:auto;}
+ .transaction-list:has(#codeActionBar:not([hidden])) .cc-body {padding-bottom:124px;}
+}
