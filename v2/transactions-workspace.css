@@ -408,6 +408,11 @@
 .txn-review-button {border-color:transparent;background:transparent;}
 .txn-review-button:hover {border-color:var(--bcn-border);background:var(--bcn-surface);}
 .txn-suggestion-button {padding:4px 7px;border:1px solid var(--bcn-border);border-radius:4px;background:var(--bcn-accent-soft);color:var(--bcn-accent);font:500 11px var(--bcn-font);cursor:pointer;text-align:left;}
+.txn-suggestion {display:inline-flex;align-items:stretch;flex-wrap:wrap;gap:4px;max-width:100%;}
+.txn-suggestion-button--low {color:var(--bcn-warn);}
+.txn-accept-button {padding:4px 9px;border:1px solid var(--bcn-accent);border-radius:4px;background:var(--bcn-accent);color:#fff;font:600 11px var(--bcn-font);cursor:pointer;}
+.txn-accept-button:hover:not(:disabled) {filter:brightness(1.08);}
+.txn-accept-button:disabled {opacity:.45;cursor:not-allowed;}
 .txn-treatment-detail {display:flex;align-items:center;gap:10px;font-size:12px;color:var(--bcn-ink-2);}
 .txn-treatment-detail select {flex:1;min-width:0;max-width:230px;font-size:12px;height:30px;}
 .txn-detail-panel {padding:14px 16px;gap:20px;border-radius:6px;margin:0 8px 8px;}

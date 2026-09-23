@@ -220,7 +220,7 @@
     .cc-chip--split { background: rgba(37,99,235,.12); border-color: var(--bcn-accent); }
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
-  <link rel="stylesheet" href="./transactions-workspace.css?v=e4767b717672" />
+  <link rel="stylesheet" href="./transactions-workspace.css?v=ef5b781f7ee8" />
   <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -1885,7 +1885,7 @@
           <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestion?(suggestedCategory?'Suggestion ready':suggestion.kind==='failed'?'Preparation failed':'Needs your choice'):t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-merchant">${merchantCell(t)}</td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
-        <td class="txn-category" data-cell="account">${suggestedCategory?`<button class="txn-suggestion-button" data-review aria-expanded="${expanded}">${esc(suggestedCategory.name)} · Review</button>`:isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}</td>
+        <td class="txn-category" data-cell="account">${suggestedCategory?quickAccept(t,suggestion,suggestedCategory,expanded):isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}</td>
         <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close':'Review'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${expanded?'−':'↗'}</button></td>
       </tr>
       <tr class="txn-detail-row" data-txn="${esc(t.id)}" id="txn-detail-${esc(t.id)}" ${expanded?'':'hidden'}><td colspan="7"><div class="txn-detail-panel">
@@ -2791,6 +2791,18 @@
     return `<div class="cc-note"><b>${esc(account.name)}</b>${s.qbo_location_name ? ' @ ' + esc(s.qbo_location_name) : ''} · ${confidencePct(s)}% confidence<br>${esc(s.reasoning || '')}${evidence}<br><span class="cc-evidence">${esc(preparedLine(s))}</span></div>
       <button class="bcn-btn" data-accept-suggestion ${locked} title="Save this category. The import still needs approval before anything posts.">Use category</button>
       <button class="bcn-btn" data-dismiss-suggestion ${locked}>Dismiss</button>`;
+  }
+  /* A ready suggestion in the row itself: the category and its confidence
+     (which opens the reasoning and history), plus one click to use it. The
+     reasoning is one click away rather than in the way -- the row already
+     says who prepared it and the confidence, and a low one reads amber, the
+     same < 60% line the Low confidence filter uses. Using it goes through
+     acceptSuggestion exactly as the panel's button does, so every check
+     (unsaved edits, locked import, stale facts, the RPC's own re-check) holds. */
+  function quickAccept(t, s, account, expanded) {
+    const pct = confidencePct(s), low = (Number(s.confidence) || 0) < 0.6;
+    const locked = !rowEditable(t) || state.dirty.has(t.id) ? 'disabled' : '';
+    return `<span class="txn-suggestion"><button class="txn-suggestion-button ${low ? 'txn-suggestion-button--low' : ''}" data-review aria-expanded="${expanded}" title="See why Claude suggested this">${esc(account.name)} · ${pct}%</button><button class="txn-accept-button" data-accept-suggestion ${locked} aria-label="Use ${esc(account.name)} for ${esc(t.description)}" title="Use this category. The import still needs approval before anything posts.">Use</button></span>`;
   }
   /* Re-read transactions after a server-side write, then their suggestions.
      Same shape as refreshSplitRow: the database decides what the row now is. */

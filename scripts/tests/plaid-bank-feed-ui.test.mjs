@@ -891,6 +891,34 @@ await test('a suggestion shows its historical evidence, and the accepted row kee
  assert.equal(saved.ai_reasoning,'Synthetic premium. History: '+evidence);
  h.page.renderCoding();assert.match(h.el('codeFilterSegments').innerHTML,/Low confidence <span>1/);
 });
+// Blake, 2026-09-23: approve a prepared category from the row without opening
+// it. The panel always renders (hidden), so these read the ROW, not the table.
+const rowHtml=(h,id)=>{const html=h.el('tblCoding').innerHTML,start=html.indexOf(`<tr class="txn-row`);return html.slice(start,html.indexOf(`id="txn-detail-${id}"`,start));};
+await test('a ready suggestion can be used from the collapsed row with one click',async()=>{
+ const h=await pageHarness();const row=h.page.state.txns[0];
+ h.data.card_coding_suggestions_v.push(prepared(row));await h.page.loadSuggestions([row]);h.page.renderCoding();
+ const collapsed=rowHtml(h,row.id);
+ assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" hidden/);
+ assert.match(collapsed,/data-accept-suggestion(?! disabled)/);assert.match(collapsed,/Expense · 90%/);
+ const tr=new Element();tr.dataset.txn=row.id;
+ await h.el('tblCoding').fire('click',{target:{closest:s=>s==='[data-txn]'?tr:s==='[data-accept-suggestion]'?{}:null,matches:()=>false}});
+ await new Promise(r=>setTimeout(r,0));
+ assert.deepEqual(h.calls.find(c=>c.name==='accept_card_coding_suggestions').args.p_ids,[`sugg-${row.id}`]);
+ assert.equal(h.page.state.txns[0].qbo_account_id,'2');
+ // Accepting did not open the row.
+ assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" hidden/);
+ assert.ok(!rowHtml(h,row.id).includes('data-accept-suggestion'));
+});
+await test('the row-level Use is disabled over unsaved edits or a locked import, and a low confidence reads amber',async()=>{
+ const h=await pageHarness();const row=h.page.state.txns[0];
+ h.data.card_coding_suggestions_v.push(prepared(row,{confidence:.55}));await h.page.loadSuggestions([row]);
+ h.page.renderCoding();assert.match(rowHtml(h,row.id),/txn-suggestion-button--low/);
+ h.page.state.dirty.add(row.id);h.page.renderCoding();
+ assert.match(rowHtml(h,row.id),/data-accept-suggestion disabled/);
+ const locked=await pageHarness({status:'approved'});const lr=locked.page.state.txns[0];
+ locked.data.card_coding_suggestions_v.push(prepared(lr));await locked.page.loadSuggestions([lr]);locked.page.renderCoding();
+ assert.ok(!/data-accept-suggestion(?! disabled)/.test(rowHtml(locked,lr.id)));
+});
 await test('COA suggestions for supported bank movements are offered and sent to the accept RPC',async()=>{
  for(const [treatment,type,amount] of [['deposit','Income',-20],['transfer','Other Current Asset',20],['card_payment','Credit Card',20]]) {
   const h=await pageHarness({amount});const row=h.page.state.txns[0];
