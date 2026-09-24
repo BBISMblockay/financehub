@@ -2204,3 +2204,31 @@ backfill) from Redo's GraphQL reporting API with the token already on
   `redo_marketing` to the live `sync_jobs.job_type` list.
 - Tests: `scripts/tests/redo-marketing-sync.test.mjs`,
   `scripts/tests/redo-marketing-database.test.mjs`.
+
+## Business-timezone sweep — `20260924130000` … `20260924130400`
+
+Finishes what `20260918120000` started, so a company outside Pacific can be
+onboarded. Five files, split by area so each database suite loads its part:
+
+- `130000_business_timezone_core` — `silo_company_timezone(company)`, the ONE
+  place the Pacific fallback is written; `silo_business_timezone()` delegates to it.
+- `130100_business_timezone_seo` — the SEO ordering triggers judge the
+  publication day in the row's company timezone; `seo_baseline_conflicts` takes
+  the timezone as an argument (still IMMUTABLE) and the Pacific-only two-argument
+  form is dropped.
+- `130200_business_timezone_forecast` — `forecast_candidate_ledger.business_timezone`,
+  stamped at insert by trigger; the frozen-before-outcome CHECK and the
+  `frozen_days_into_horizon` generated column read it (neither can look anything
+  up). Existing rows backfilled Pacific, which is what they were computed in.
+- `130300_business_timezone_reporting` — the store comp summary anchors on each
+  company's own last completed day (same single sequential scan: 4.7s measured
+  against 4.8s before); Org Calendar live-session slots use the company's clock.
+- `130400_business_timezone_onboarding` — LAST on purpose: adds Mountain,
+  Arizona, Central and Eastern to `supported_business_timezones` and rewrites the
+  refusal message.
+
+Unchanged for every existing company (all Pacific). `verify_v2_schema.sql`'s
+"Pacific is written in one place" check lists any public function or view that
+names Pacific other than the helper. Tests: `company-onboarding-database`,
+`seo-workflow-database`, `forecast-candidate-database`,
+`business-timezone-reporting-database`, `business-timezone-westmost`.

@@ -120,6 +120,10 @@ on:
       - 'supabase/migrations/*seo_project_workflow.sql'
       - 'supabase/migrations/*seo_workflow_integrity.sql'
       - 'supabase/migrations/*seo_baseline_business_timezone.sql'
+      # The business-timezone sweep (its four database suites + the reporting one).
+      - 'supabase/migrations/*business_timezone_*.sql'
+      - 'v2/company-onboarding.html'
+      - 'v2/daily-trend-kpis.js'
       - 'supabase/migrations/*page_inspection.sql'
       - 'supabase/migrations/*search_console_daily.sql'
       - 'supabase/migrations/*search_console_newest_run_wins.sql'
@@ -322,6 +326,11 @@ jobs:
       # paging by startRow with the guard flagging truncation, query x page
       # never requested, and the backfill keeping completed chunks when a
       # later one fails.
+      # The sync scripts reason in Pacific as a BOUND, which is only safe while
+      # no supported timezone is west of it. Adding Alaska or Hawaii fails here.
+      - name: Supported timezones are never west of Pacific
+        run: node scripts/tests/business-timezone-westmost.test.mjs
+
       - name: Search Console sync
         run: node scripts/tests/search-console-sync.test.mjs
 
@@ -806,6 +815,14 @@ jobs:
       # manual service-role script that no workflow ran.
       - name: Execute SEO workflow approval, publication and measurement regressions
         run: node scripts/tests/seo-workflow-database.test.mjs
+
+      # The business-timezone sweep's reporting half: the store comp summary
+      # anchors on each company's OWN last completed day, and Org Calendar
+      # live-session slots land on the company's clock. Uses UTC+14 / UTC-12
+      # so a Pacific regression is caught at any hour CI runs.
+      # Mutations: TZ_REPORTING_MUTATION=comp-pacific | calendar-pacific
+      - name: Execute business-timezone reporting regressions
+        run: node scripts/tests/business-timezone-reporting-database.test.mjs
 
       # The prospective forecast ledger. Two assertions earn the job on their
       # own: the frozen run reproduced from Baseballism's REAL Youth series

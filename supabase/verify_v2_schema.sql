@@ -379,9 +379,12 @@ select
       join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public'
         and p.proname = 'refresh_sales_verification_store_comp_summary'
-        and pg_get_functiondef(p.oid) ilike '%America/Los_Angeles%'
+        -- The anchor is each company's own completed day since 20260924130300;
+        -- before that it was the Pacific literal (20260707030000).
+        and pg_get_functiondef(p.oid) ilike '%silo_company_timezone%'
+        and pg_get_functiondef(p.oid) ilike '%day_date < t.today%'
     ) then 'ok'
-    else 'MISSING — run 20260707030000_comp_summary_complete_day_anchor.sql'
+    else 'MISSING — run 20260924130300_business_timezone_reporting.sql (the complete-day anchor, per company)'
   end as refresh_complete_day_anchor;
 
 select
@@ -3270,11 +3273,14 @@ select
 -- a result computed under one timezone for reuse under another.
 select
   case
+    -- Since 20260924130100 the business timezone is an ARGUMENT (the row's
+    -- company's), not the Pacific literal; either way it must be explicit.
     when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
                      where n.nspname='public' and p.proname='seo_baseline_conflicts'
-                       and pg_get_functiondef(p.oid) like '%America/Los_Angeles%')
+                       and pg_get_functiondef(p.oid) like '%at time zone p_tz%')
       then 'CRITICAL — seo_baseline_conflicts() no longer pins the publication date to '
-        || 'the business timezone; the baseline boundary moves with the session TimeZone'
+        || 'the company''s business timezone; the baseline boundary moves with the session TimeZone '
+        || '(run 20260924130100_business_timezone_seo.sql)'
     -- The bare cast is what made it session-dependent. If it comes back the
     -- explicit conversion has been undone.
     when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
@@ -3876,7 +3882,7 @@ select 'Forecast candidate ledger' as check_name,
  -- Any row that slipped in before the constraint existed is retrospective
  -- evidence wearing a prospective label.
  when exists(select 1 from public.forecast_candidate_ledger
-   where executed_at >= timezone('America/Los_Angeles', horizon_end_date::timestamp))
+   where executed_at >= timezone(business_timezone, horizon_end_date::timestamp))
    then 'CRITICAL: a ledger row was frozen at or after its own horizon closed'
  -- Recording the issuance lag protects nothing unless the scorer reads it: a
  -- forecast issued on day 16 is otherwise scored against the whole month,
@@ -4871,6 +4877,41 @@ select 'Stripe tenant pairing and ordering guards' as check_name,
      where a.company_entity_id = i.company_entity_id
        and a.stripe_account_id = i.stripe_account_id))
    then 'CRITICAL: an invoice row is not paired with its company''s connected account'
+ else 'ok' end as status;
+
+-- ── Business-timezone sweep (20260924130000-130400) ────────────────────────
+-- Pacific is the FALLBACK for a company with no settings row, written once, in
+-- silo_company_timezone(). Any other public function or view that names it is
+-- computing a day boundary in Pacific for every tenant -- the state that made
+-- onboarding refuse every other timezone until this sweep. Same shape of guard
+-- as the `'online'` channel literal above.
+select 'Pacific is written in one place' as check_name,
+ case
+ when to_regprocedure('public.silo_company_timezone(uuid)') is null
+   then 'MISSING: silo_company_timezone -- run 20260924130000_business_timezone_core.sql'
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.prokind='f' and p.proname <> 'silo_company_timezone'
+     and p.prosrc like '%America/Los_Angeles%')
+   then 'CRITICAL: ' || (select string_agg(p.proname, ', ' order by p.proname)
+     from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+     where n.nspname='public' and p.prokind='f' and p.proname <> 'silo_company_timezone'
+       and p.prosrc like '%America/Los_Angeles%')
+     || ' computes a day boundary in Pacific instead of the company''s timezone (run 20260924130000-130300)'
+ when exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+   where n.nspname='public' and c.relkind in ('v','m')
+     and pg_get_viewdef(c.oid) like '%America/Los_Angeles%')
+   then 'CRITICAL: ' || (select string_agg(c.relname, ', ' order by c.relname)
+     from pg_class c join pg_namespace n on n.oid=c.relnamespace
+     where n.nspname='public' and c.relkind in ('v','m')
+       and pg_get_viewdef(c.oid) like '%America/Los_Angeles%')
+     || ' anchors to Pacific instead of the company''s timezone'
+ when to_regprocedure('public.seo_baseline_conflicts(date,timestamptz)') is not null
+   then 'CRITICAL: the Pacific-only two-argument seo_baseline_conflicts is back beside the per-company one'
+ when has_function_privilege('anon', 'public.silo_company_timezone(uuid)', 'execute')
+   then 'CRITICAL: anon can execute silo_company_timezone (a SECURITY DEFINER read of company_settings)'
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='forecast_candidate_ledger' and column_name='business_timezone')
+   then 'MISSING: forecast_candidate_ledger.business_timezone -- run 20260924130200_business_timezone_forecast.sql'
  else 'ok' end as status;
 
 -- ── Company onboarding (20260918120000) ─────────────────────────────────────

@@ -48,7 +48,13 @@ export const TIKTOK_API_BASE = 'https://business-api.tiktok.com/open_api/v1.3';
  * is. With the [startDate, endDate) clamp in fetchFacebookPageInsights, an
  * endDate of Pacific-today means the newest day written is always Pacific
  * YESTERDAY -- a genuinely complete day -- no matter what hour the run fires.
- * That is what makes a late or extra cron harmless instead of corrupting. */
+ * That is what makes a late or extra cron harmless instead of corrupting.
+ *
+ * Pacific is also the WESTERNMOST timezone SILO supports (20260924130000; pinned by
+ * scripts/tests/business-timezone-westmost.test.mjs), so for a company in any other
+ * supported zone this boundary is conservative, never wrong: a window
+ * ending on Pacific today never writes a day an account in an eastern zone has
+ * not finished; at worst it waits a few hours longer to include one. */
 export function pacificDateOnly(d = new Date()) {
   // en-CA formats as YYYY-MM-DD, which is the shape every day_date uses.
   return new Intl.DateTimeFormat('en-CA', {

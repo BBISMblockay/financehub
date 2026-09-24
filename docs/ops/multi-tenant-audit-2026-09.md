@@ -463,7 +463,7 @@ to fail the suite.
 | BI dashboards (`/v3/`) | B | Yes | Seeded boards are Baseballism-owned rows | Starter board per tenant | Low | Optional |
 | Ask SILO | A | Yes | Tester allowlist (gated feature) | Grant table | Low | Before that ships |
 | Finance / accounting / card coding | B | Yes | Seeded COA map is config | Per-tenant mapping | Low | Expected setup |
-| Date / period logic | **C** | **No** | **Pacific hardcoded** | Company timezone | **Med-High** | Highest-value remaining fix |
+| Date / period logic | **was C, now A** | Yes | Pacific is the fallback, written once | Alaska/Hawaii (schedule) | Low | Done 2026-09-24 (`20260924130000`-`130400`) |
 | Storage | A | Yes | None | — | Low | Fixed 2026-09-04 |
 | Audit trail | A | Yes | None | — | Low | None |
 | Edge function deploys | C | N/A | None | Automation | Med | Manual today |
@@ -519,8 +519,9 @@ report, the acceptance-test output, and a green `verify_v2_schema.sql`.
    seven days (measured 2026-09-18). Its flat sales series is its shops not
    selling. What remains is that no tenant has been onboarded *from zero* since
    this work, so the first-run path is undemonstrated rather than unbuilt.
-2. Pacific is hardcoded, so period-anchored reporting is wrong for any client
-   outside that timezone.
+2. ~~Pacific is hardcoded, so period-anchored reporting is wrong for any client
+   outside that timezone.~~ **Resolved 2026-09-24** for the US mainland
+   (`20260924130000`-`130400`); Alaska and Hawaii still need a sync schedule.
 3. Backfills and edge-function deploys still need an operator.
 4. Onboarding has no self-serve connector *validation* step that tells a client
    their data is complete — the freshness alarm covers ongoing lag, not initial

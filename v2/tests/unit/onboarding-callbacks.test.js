@@ -352,6 +352,35 @@ const REDEEMED = {
   const normal = await runOnboarding({
     peek: ACCEPTED, zones: PACIFIC, redeem: () => REDEEMED,
   });
+  /* Several supported zones (the business-timezone sweep, 20260924130400):
+     nothing is preselected, and an unchosen zone never reaches the server. */
+  const FIVE = ['America/Phoenix', 'America/Chicago', 'America/New_York', 'America/Denver', 'America/Los_Angeles']
+    .map((tz_name) => ({ tz_name, label: tz_name, is_supported: true }));
+  let sentTz = null;
+  const choose = await runOnboarding({
+    peek: PENDING, zones: FIVE, redeem: (args) => { sentTz = args.p_timezone; return REDEEMED; },
+  });
+  const opts = choose.els.timezone.children;
+  r.ok('with a real choice, the first option is a placeholder, not a zone',
+    opts[0] && opts[0].value === '' && opts[0].disabled === true && opts[0].selected === true,
+    `first option: ${JSON.stringify(opts[0] && { value: opts[0].value, disabled: opts[0].disabled })}`);
+  r.ok('and the select is required', choose.els.timezone.required === true);
+  r.ok('and all five zones are offered', opts.length === 6);
+  r.ok('the control is a choice, so no single-zone warning', choose.els.tzWarn.hidden === true);
+  const submit = (choose.els.obForm.listeners.submit || [])[0];
+  r.ok('the form is wired', typeof submit === 'function');
+  if (submit) {
+    choose.els.timezone.value = '';
+    await submit({ preventDefault() {} });
+    r.ok('an unchosen timezone is refused on the page, before any RPC',
+      !choose.calls.includes('redeem_platform_invite') && /Choose your business timezone/.test(choose.els.status.textContent),
+      `status: ${choose.els.status.textContent}`);
+    choose.els.timezone.value = 'America/New_York';
+    choose.els.companyName.value = 'Eastern Co';
+    await submit({ preventDefault() {} });
+    r.ok('a chosen zone is what the server is sent', sentTz === 'America/New_York', `sent: ${sentTz}`);
+  }
+
   r.ok('an accepted invite resumes with Pacific supported too', !normal.els.obResume.hidden);
   await normal.els.btnResume.listeners.click[0]();
   r.ok('and lands in the same place',
