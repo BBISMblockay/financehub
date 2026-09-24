@@ -78,7 +78,9 @@
 
   const label = (name) => LABELS[String(name || '').toLowerCase()] || null;
 
-  const isRate = (semantic) => semantic === 'percent';
+  // 'fraction' is a percentage stored as 0-1 (see field-semantics.js); it is
+  // every bit as much a rate as 'percent'.
+  const isRate = (semantic) => semantic === 'percent' || semantic === 'fraction';
 
   // These ratios do not always carry their underlying parts in the result.
   // Treat them as ratios even when saved metadata says "number".
@@ -181,8 +183,13 @@
         const n = sumOf(list, def.numerator);
         const d = sumOf(list, def.denominator);
         if (n !== null && d) {
+          // A known ratio's `scale` is the scale of its 'percent' form
+          // (conversion_rate is 0-100). A column DECLARED 'fraction' is 0-1
+          // and formatValue multiplies it by 100 itself, so applying the
+          // x100 here as well printed 9.9% as 992%.
+          const scale = semantic === 'fraction' ? 1 : (def.scale || 1);
           const out = {
-            value: (n / d) * (def.scale || 1),
+            value: (n / d) * scale,
             method: `pooled from ${def.numerator} ÷ ${def.denominator}`,
           };
           // Say when the author asked for something else. Overriding a
@@ -234,7 +241,9 @@
     const absolute = c - p;
     const out = { ok: true, absolute, current: c, prior: p, semantic };
     if (isRate(semantic)) {
-      out.points = absolute;
+      // A fraction's points are its difference x100: 0.042 to 0.051 is
+      // +0.9pp, not +0.009pp.
+      out.points = semantic === 'fraction' ? absolute * 100 : absolute;
       out.unit = 'pp';
       out.direction = absolute === 0 ? 'flat' : absolute > 0 ? 'up' : 'down';
       // The relative change of a rate is still computable and is still a
