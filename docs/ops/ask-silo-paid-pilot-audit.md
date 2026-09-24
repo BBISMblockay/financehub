@@ -100,18 +100,20 @@ found. **Assumption** = can't be settled from code; needs a live measurement.
 
 ## 2. Smallest practical implementation sequence
 
-Each phase ships on its own, and none weakens a protection listed above.
+Each phase ships on its own, and none weakens a protection listed above. It follows
+the decisions recorded in §5: a one-time $10 trial, then top-up only, 22% markup,
+admins spend, and a company-set monthly cap of $100–$1,000.
 
 ### Phase A — cost tracking and budget enforcement (required before the pilot)
 
 1. **Price book and config.** `ai_price_book(model, input, output, cache_write,
    cache_read, web_search, effective_from)` stores **provider** rates. A per-company
-   `ai_billing_config` holds `markup_bps` (defaulting from a platform row). Both are
+   `ai_billing_config` holds `markup_bps` (platform default **2200**, i.e. 22%). Both are
    written only by migration or service role, like `billing_plans`.
 2. **Usage ledger** `ai_usage_ledger`: `request_id uuid UNIQUE NOT NULL`, company,
    user, model, token totals by type, `provider_cost_micros`,
    `customer_charge_micros`, `markup_bps`, the `ai_price_book` row used, `bucket`
-   (trial / allowance / prepaid), and `status` (`reserved` → `settled` | `swept`).
+   (trial / prepaid), and `status` (`reserved` → `settled` | `swept`).
    **Provider cost and customer charge are separate columns.** Markup and price-book
    row are **snapshotted at reserve time**. Micros are computed once, from token
    totals at settle, not summed from rounded per-call values (a cache-read token is
@@ -119,17 +121,24 @@ Each phase ships on its own, and none weakens a protection listed above.
    (1 + bps/10000). **The server mints the `request_id` when the client sends none
    or an invalid one.** Today it falls back to `null` (`index.ts:1382`), and a null
    slips past UNIQUE and past dedupe.
-3. **Balances** `ai_company_balances`: remaining SILO trial allowance (kept separate
-   from the Stripe trial, since `trialing` already counts as `is_entitled`,
-   `20260919120000:1864`), remaining period allowance, prepaid balance, a hard
-   monthly cap, and auto-recharge (enabled / amount / monthly cap / count this
-   period). The allowance resets only when a newer `current_period_start` arrives.
-   Webhooks can come late, twice or out of order, so `ai_reserve` also resets lazily.
+3. **Balances** `ai_company_balances`:
+   - **Trial remaining.** $10 of customer charge, granted once per company and never
+     reset. It is separate from the Stripe trial, since `trialing` already counts as
+     `is_entitled` (`20260919120000:1864`).
+   - **Prepaid balance.** Plans include no usage; everything after the trial is
+     top-up.
+   - **Monthly cap.** Set by the company, CHECKed to $100–$1,000. It limits total
+     customer charges per calendar month, top-ups included.
+   - **Auto-recharge.** Enabled flag, amount, and the amount already charged this
+     month.
+
+   A month rolls over lazily inside `ai_reserve`, never from a webhook, so late or
+   repeated deliveries can't reset it twice.
 4. **Reserve → record → settle.**
    - **Reserve.** Before the first model call, `ai_reserve(request_id, company,
-     user, estimate)` locks the balance row. It refuses with **402** when no bucket
-     covers the estimate, the hard cap would be exceeded, or the SILO trial is
-     exhausted and the company is not entitled. It also refuses a **null company**,
+     user, estimate)` locks the balance row. It refuses with **402** when neither the trial
+     nor the prepaid balance covers the estimate, or when the month's charges would
+     pass the company's cap. It also refuses a **null company**,
      which today reaches the loop (`index.ts:1445-1447` only rejects a *mismatch*).
      Because it runs as service role, it re-checks that the user is an active member
      of that company.
@@ -143,7 +152,7 @@ Each phase ships on its own, and none weakens a protection listed above.
    - **Sweep.** A scheduled sweep closes rows still `reserved` after the gateway
      limit (~150 s, not minutes, or an orphaned hold blocks the per-company cap). It
      settles provider cost **from the last recorded usage**, with customer charge 0
-     (nothing was delivered; see §5.3).
+     (nothing was delivered; see §5).
    - **One winner.** Settle and sweep both use `UPDATE … WHERE status = 'reserved'`,
      so only one of them wins.
 5. **Only the service role writes the ledger.** The reserve/record/settle RPCs must
@@ -159,47 +168,55 @@ Each phase ships on its own, and none weakens a protection listed above.
 
    All queries keep running under the caller's JWT. Update the §1 row above once
    this lands.
-6. **Server-side spend gate.** Decide who in a company may spend (see §5) and enforce
-   it in the function, not in the nav.
+6. **Server-side spend gate: admins only.** The function refuses callers failing
+   `is_admin_user()` (membership `owner_admin`/`admin`, or profile fallback). The
+   same gate covers buying top-ups and changing the cap. Today `stripe-billing` is
+   owner-admin only, so this is a deliberate widening for credit purchases, not for
+   subscriptions.
+7. **Failed-request UX.** No customer charge when no answer was saved. The chat says
+   the question failed and suggests a reworded version. Default: a fixed hint chosen
+   by failure reason (timeout → narrow the date range; query error → name the metric
+   or table; round cap → split the question). A model-written rewrite costs an extra
+   call that SILO absorbs, so use it only if the hints prove too weak.
 
 ### Phase B — reliable processing
 
-7. **Admission table** keyed by the existing `request_id`. The insert at entry
+8. **Admission table** keyed by the existing `request_id`. The insert at entry
    **dedupes** (409 if the request is already in flight) and enforces a **per-company
    in-flight cap** (e.g. 2) plus a **global cap**, returning 429 + `Retry-After`. That
    gives fairness across companies with no new infrastructure. It can be the ledger
    reservation row itself.
-8. **Anthropic retry.** 2–3 jittered retries on 429/529/5xx, bounded by the time
+9. **Anthropic retry.** 2–3 jittered retries on 429/529/5xx, bounded by the time
    budget that's left.
-9. **Cache the growing transcript.** Add a second `cache_control` breakpoint on the
+10. **Cache the growing transcript.** Add a second `cache_control` breakpoint on the
    last message so earlier tool results are read from cache instead of re-billed. This
    is the biggest cost lever (see §3).
-10. **Protect the app DB.** Give chat SQL its own role and `statement_timeout`. Today
+11. **Protect the app DB.** Give chat SQL its own role and `statement_timeout`. Today
     the 8 s `authenticated` timeout governs, not the declared 30 s (`docs/ops/bugs.md`).
     Consider a read replica for chat and dashboards together: dashboards fire one
     `chat_run_readonly_query` per widget via `Promise.all`
     (`v3/js/dashboard-renderer.js:744`, `:864`) on the same role.
-11. **Later, if p95 nears 150 s:** process asynchronously (return `request_id`, run
+12. **Later, if p95 nears 150 s:** process asynchronously (return `request_id`, run
     the loop in a worker, client polls). The recovery poll the client already has is
     the read side.
 
 ### Phase C — customer and admin controls
 
-12. Customer:
+13. Customer:
     - A usage-and-balance panel on Billing.
     - **Credit-pack purchase.** Checkout in `mode: 'payment'`. The webhook already
       routes `checkout.session.completed` as a subscription checkout, so it must
       branch on `mode`. Key each credit on a **UNIQUE `payment_intent` id**.
       `stripe_webhook_events` dedupes by event and deliberately re-runs errored
       rows (`20260919120000:958-960`), so it can't be the only guard.
-    - **Auto-recharge** opt-in with its own monthly cap. It needs one in-flight flag
+    - **Auto-recharge** opt-in, never exceeding the company's monthly cap. It needs one in-flight flag
       per company and a Stripe idempotency key per (company, period, count),
       because two concurrent reservations can both trigger it.
     - A clear 402/429 message in chat.
-13. Admin (Silo Admin): per-company provider cost vs. charge vs. margin, markup
+14. Admin (Silo Admin): per-company provider cost vs. charge vs. margin, markup
     override, manual credit/adjustment entry (as a ledger row, never an in-place
     edit), and a platform-wide daily provider-cost alarm.
-14. Replace `PRODUCT_CONCEPT_TESTERS` with a per-company feature flag.
+15. Replace `PRODUCT_CONCEPT_TESTERS` with a per-company feature flag.
 
 ---
 
@@ -231,14 +248,14 @@ is not included; one search per question adds ~$0.01.
 | Provider cost / day (mix) | ≈ $520 | ≈ $1,300 |
 | Provider cost / 30 days | ≈ $15,600 | ≈ $39,000 |
 | Bounds / day (all light … all heavy) | $240 … $4,000 | $600 … $10,000 |
-| Customer charge at an illustrative 20% markup (30 days, mix) | ≈ $18,700 | ≈ $46,800 |
+| Customer charge at the 22% markup (30 days, mix) | ≈ $19,000 | ≈ $47,600 |
 
 What this means:
 - The **heavy tail sets the budget.** Five percent of questions carry about 40% of
-  the cost. Step 9 (transcript caching) and a per-question cost ceiling inside
+  the cost. Step 10 (transcript caching) and a per-question cost ceiling inside
   `ai_reserve` limit it.
 - Averaged across 2,000 companies, 5,000/day is only ~75 questions per company per
-  month. Use a per-company cap, not an average, to size the trial and allowance.
+  month. The $10 trial buys about 30 typical questions ($0.26 × 1.22 ≈ $0.32 each).
 - Capacity (assumption): 80% of 5,000 in a 10-hour day at a ~45 s p50 is about 5
   requests in flight on average, and ~15–25 at a 3× spike. That's modest for the
   database. The number that must be checked is **Anthropic input TPM**. Because the
@@ -272,29 +289,31 @@ What this means:
    A user with no active company is refused before any model call.
 8. **Probes through `run_sql`**: every `*_mv`, `pg_stat_activity`, `auth.users` and
    `set_active_company` fail (see §1 assumptions).
-9. **Spend gate.** A member who isn't allowed to spend gets refused when calling the
+9. **Spend gate.** A non-admin member gets refused when calling the
    endpoint directly with curl.
 10. **App stays responsive.** With the global cap saturated, a dashboard open and a
     PO list load stay within their normal latency.
 11. `verify_v2_schema.sql` is all-ok, with checks added for the new tables and for
     the grants on the ledger RPCs.
 
-## 5. Decisions needed before launch
+## 5. Decisions
 
-1. **Trial size and period allowance** per plan, in dollars of provider cost or in
-   questions. (A dollar allowance is fairer to heavy questions. A question count is
-   easier to explain.)
-2. **Markup**: platform default and whether it can be overridden per company.
-3. **Charging failures**: does the customer pay for a request that errored or timed
-   out? The provider cost is incurred either way. Recommendation: record the provider
-   cost always, and charge the customer only for delivered answers during the pilot.
-4. **Who may spend**: every member, admins only, or a new grant like
-   `silo_chat_managers`? This also settles the exec-only nav soft launch.
-5. **Hard caps**: per-question ceiling, per-company monthly cap, platform daily
-   alarm threshold.
-6. **Concurrency limits**: per-company in-flight cap and global cap. These need the
+### Recorded (Blake, 2026-09-24)
+
+| Decision | Answer |
+|---|---|
+| Pricing model | **One-time $10 trial per company, then top-up only.** Plans include no Ask SILO usage |
+| Markup | **22%** on provider cost (`markup_bps = 2200`) |
+| Spending limit | **Company-set monthly cap, $100–$1,000**, covering all charges including auto-recharge |
+| Who may spend | **Admins** (ask questions, buy top-ups, set the cap) |
+| Failed requests | **No charge.** If no answer is saved, say it failed and suggest a reworded question. Provider cost is still recorded |
+| Data terms | **Standard Anthropic retention; `web_search` stays on** |
+
+### Still open
+
+1. **Auto-recharge amount**: fixed packs, or chosen by the company within its cap?
+2. **Concurrency limits**: per-company in-flight cap and global cap. These need the
    Anthropic tier figure first.
-7. **Data terms**: Anthropic retention/ZDR posture, and whether `web_search` stays
-   enabled for tenants.
-8. **Plan copy**: `docs/ops/stripe.md` must stop saying Ask SILO is included without
-   limits.
+3. **Platform alarm**: daily provider-cost threshold.
+4. **Plan copy**: `docs/ops/stripe.md` must stop saying Ask SILO is included in
+   Growth.
