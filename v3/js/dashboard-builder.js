@@ -631,7 +631,7 @@
 
       const SEMANTIC_LABEL = {
         currency: 'Currency ($)', count: 'Whole count', number: 'Number',
-        percent: 'Percentage (%)', date: 'Date', category: 'Category', boolean: 'True/false',
+        percent: 'Percentage (%)', fraction: 'Percentage, stored as 0–1', date: 'Date', category: 'Category', boolean: 'True/false',
         link: 'Link', image: 'Image',
       };
 

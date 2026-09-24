@@ -36,9 +36,17 @@
   // they say how to draw a cell, not how to aggregate it. Neither is a
   // measure, and neither is a useful dimension (grouping by URL is
   // meaningless), so both stay out of MEASURES and out of the chart pickers.
-  const SEMANTICS = ['currency', 'count', 'number', 'percent', 'date', 'category', 'boolean',
+  // 'fraction' is a percentage whose SCALE is declared: the value is a 0-1
+  // fraction, always multiplied by 100 to print. 'percent' has to guess the
+  // scale from the value (see formatValue in chart-adapter.js), and the guess
+  // is wrong both ways -- a 0-1 rate above 1 (opens on messages delivered
+  // before the window) prints as "1.1%" instead of 108%, and a 0-100 value
+  // below 1 prints 100x too big. 'fraction' is never inferred from a name:
+  // only a report or widget that KNOWS its scale declares it.
+  const SEMANTICS = ['currency', 'count', 'number', 'percent', 'fraction', 'date', 'category', 'boolean',
                      'link', 'image'];
-  const MEASURES = new Set(['currency', 'count', 'number', 'percent']);
+  const MEASURES = new Set(['currency', 'count', 'number', 'percent', 'fraction']);
+
 
   const PERCENT_RE = /(pct|percent|rate|share|ratio)/i;
   const COUNT_RE = /(units?|qty|quantity|orders?|count|sessions?|clicks?|impressions?|items?|visits?|users?|skus?|days?)\b/i;

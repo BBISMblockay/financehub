@@ -78,7 +78,9 @@
 
   const label = (name) => LABELS[String(name || '').toLowerCase()] || null;
 
-  const isRate = (semantic) => semantic === 'percent';
+  // 'fraction' is a percentage stored as 0-1 (see field-semantics.js); it is
+  // every bit as much a rate as 'percent'.
+  const isRate = (semantic) => semantic === 'percent' || semantic === 'fraction';
 
   // These ratios do not always carry their underlying parts in the result.
   // Treat them as ratios even when saved metadata says "number".
@@ -234,7 +236,9 @@
     const absolute = c - p;
     const out = { ok: true, absolute, current: c, prior: p, semantic };
     if (isRate(semantic)) {
-      out.points = absolute;
+      // A fraction's points are its difference x100: 0.042 to 0.051 is
+      // +0.9pp, not +0.009pp.
+      out.points = semantic === 'fraction' ? absolute * 100 : absolute;
       out.unit = 'pp';
       out.direction = absolute === 0 ? 'flat' : absolute > 0 ? 'up' : 'down';
       // The relative change of a rate is still computable and is still a

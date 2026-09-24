@@ -284,6 +284,13 @@
         maximumFractionDigits: Math.abs(n) >= 1000 ? 0 : 2,
       });
     }
+    if (semantic === 'fraction') {
+      // Declared 0-1: always x100, whatever the size. Small rates keep two
+      // decimals -- an unsubscribe rate of 0.17% printed as 0.2% loses the
+      // only digit anyone compares.
+      const scaled = n * 100;
+      return `${scaled.toLocaleString(undefined, { maximumFractionDigits: Math.abs(scaled) < 1 ? 2 : 1 })}%`;
+    }
     if (semantic === 'percent') {
       // Values arrive either as 0-1 fractions or as already-scaled 0-100
       // percentages depending on the query. Guessing wrong by 100x is the
@@ -307,7 +314,7 @@
     const abs = Math.abs(n);
     const unit = abs >= 1e9 ? ['e9', 1e9] : abs >= 1e6 ? ['M', 1e6] : abs >= 1e3 ? ['k', 1e3] : ['', 1];
     const short = `${(n / unit[1]).toLocaleString(undefined, { maximumFractionDigits: unit[1] === 1 ? 0 : 1 })}${unit[0] === 'e9' ? 'B' : unit[0]}`;
-    return semantic === 'currency' ? (n < 0 ? `-$${short.slice(1)}` : `$${short}`) : semantic === 'percent' ? formatValue(n, 'percent') : short;
+    return semantic === 'currency' ? (n < 0 ? `-$${short.slice(1)}` : `$${short}`) : (semantic === 'percent' || semantic === 'fraction') ? formatValue(n, semantic) : short;
   }
 
   // ── Shaping ──────────────────────────────────────────────────────────
@@ -320,7 +327,7 @@
    * already aggregated and must not be touched.
    */
   function defaultAggregate(semantic) {
-    return semantic === 'percent' ? 'avg' : 'sum';
+    return (semantic === 'percent' || semantic === 'fraction') ? 'avg' : 'sum';
   }
 
   function aggregateValues(nums, agg) {
@@ -1046,7 +1053,7 @@
       if (!dims.length) return { ok: false, reason: 'needs a dimension for the steps' };
       if (!meas.length) return { ok: false, reason: 'needs a numeric column for each step' };
       const sem = semanticOf((cfg.y_field || meas[0].name), semantics, prof);
-      if (sem === 'percent') {
+      if (sem === 'percent' || sem === 'fraction') {
         return { ok: false, reason: 'a bridge adds its steps up, and rates do not add up' };
       }
       return { ok: true };
@@ -1061,7 +1068,7 @@
     if (!meas.length) return { ok: false, reason: 'needs a numeric column to measure' };
     if (visualType === 'donut') {
       const sem = semanticOf((cfg.y_field || meas[0].name), semantics, prof);
-      if (sem === 'percent') {
+      if (sem === 'percent' || sem === 'fraction') {
         return { ok: false, reason: 'slices of a whole have to add up, and rates do not' };
       }
     }
@@ -1188,7 +1195,7 @@
     if (value === null || value === undefined) return '';
     const n = toNumber(value);
     if (n === null || n >= 0) return '';
-    return (semantic === 'currency' || semantic === 'number' || semantic === 'percent')
+    return (semantic === 'currency' || semantic === 'number' || semantic === 'percent' || semantic === 'fraction')
       ? ' dw-neg' : '';
   }
 

@@ -148,6 +148,18 @@ Semantics decide two things: how a value is printed, and which aggregation
 makes sense. Sum is right for currency and counts and wrong for rates
 (40%/50%/60% averages to 50%, sums to 150%), so `percent` defaults to `avg`.
 
+**`percent` guesses its scale; `fraction` declares it** (2026-09-24). A
+`percent` value of 1 or less is read as a 0–1 fraction and anything larger as
+already ×100 — a guess that is wrong both ways: a 0–1 rate above 1 prints as
+about 1% (Redo's automation open rate over a window measured 1.0818 and printed
+"1.1%"), and a 0–100 value below 1 prints 100× too big. A report whose rates
+are known to be 0–1 fractions declares `{"semantic": "fraction"}` in
+`columns_metadata`; it always prints ×100 (two decimals under 1%), and every
+rate rule — never summed, refused by donut and waterfall, change in percentage
+points (×100) — applies to it exactly as to `percent`. It is never inferred
+from a column name: only a source that knows the scale may declare it.
+`v3/tests/unit/fraction-semantic.test.js` pins each rule.
+
 ## Seeded system reports
 
 `20260828150000_seed_system_reports.sql` ships four `source = 'system'`
