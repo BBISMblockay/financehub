@@ -85,5 +85,35 @@ test('a waterfall refuses it', () =>
 test('a negative fraction is coloured like a negative percent', () =>
   has(C.tableHtml([{ a: 'x', d: -0.02 }], {}, { a: 'category', d: 'fraction' }), 'dw-neg'));
 
+console.log('\n── known ratios pooled from their parts ──');
+// Found in review of PR #771: a known ratio carries its PERCENT scale (x100)
+// in metrics.js, and a 'fraction' column is x100 again at print, so a
+// conversion rate pooled to 0.0992 rendered as 992%.
+const CONV = [
+  { store: 'A', conversion_rate: 0.02, orders: 2, sessions: 100 },
+  { store: 'B', conversion_rate: 0.1, orders: 1000, sessions: 10000 },
+];
+test('a fraction pools to a fraction: (2 + 1000) / (100 + 10000)', () => {
+  const r = M.aggregate(CONV, 'conversion_rate', 'fraction', {});
+  truthy(Math.abs(r.value - 1002 / 10100) < 1e-12);
+});
+test('the same ratio declared percent keeps its x100 scale', () => {
+  const r = M.aggregate(CONV, 'conversion_rate', 'percent', {});
+  truthy(Math.abs(r.value - (1002 / 10100) * 100) < 1e-9);
+});
+test('the KPI renders the pooled fraction as 9.9%, not 992%', () => {
+  const html = C.kpiHtml(CONV, { y_field: 'conversion_rate' },
+    { store: 'category', conversion_rate: 'fraction', orders: 'count', sessions: 'count' });
+  has(html, '9.9%');
+  not(html, '992');
+});
+test('a chart grouping the ratio pools it on the same scale', () => {
+  const rows = CONV.map((r) => ({ ...r, store: 'All' }));
+  const shaped = C.shape(rows, { x_field: 'store', y_field: 'conversion_rate' },
+    { store: 'category', conversion_rate: 'fraction', orders: 'count', sessions: 'count' });
+  const v = shaped.points ? shaped.points[0].value : null;
+  truthy(v !== null && Math.abs(v - 1002 / 10100) < 1e-12);
+});
+
 const r = R.summary();
 process.exit(r.fail ? 1 : 0);

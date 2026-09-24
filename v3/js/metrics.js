@@ -183,8 +183,13 @@
         const n = sumOf(list, def.numerator);
         const d = sumOf(list, def.denominator);
         if (n !== null && d) {
+          // A known ratio's `scale` is the scale of its 'percent' form
+          // (conversion_rate is 0-100). A column DECLARED 'fraction' is 0-1
+          // and formatValue multiplies it by 100 itself, so applying the
+          // x100 here as well printed 9.9% as 992%.
+          const scale = semantic === 'fraction' ? 1 : (def.scale || 1);
           const out = {
-            value: (n / d) * (def.scale || 1),
+            value: (n / d) * scale,
             method: `pooled from ${def.numerator} ÷ ${def.denominator}`,
           };
           // Say when the author asked for something else. Overriding a
