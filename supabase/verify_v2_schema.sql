@@ -379,7 +379,7 @@ select
       join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public'
         and p.proname = 'refresh_sales_verification_store_comp_summary'
-        -- The anchor is each company's own completed day since 20260924130300;
+        -- The anchor is each company's own completed day since 20260924130300,
         -- before that it was the Pacific literal (20260707030000).
         and pg_get_functiondef(p.oid) ilike '%silo_company_timezone%'
         and pg_get_functiondef(p.oid) ilike '%day_date < t.today%'
