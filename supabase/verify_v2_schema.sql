@@ -4752,6 +4752,25 @@ select 'Pacific is written in one place' as check_name,
  case
  when to_regprocedure('public.silo_company_timezone(uuid)') is null
    then 'MISSING: silo_company_timezone -- run 20260924130000_business_timezone_core.sql'
+ -- The stamp triggers are what make the per-row timezone trustworthy; the
+ -- columns alone are not (20260924130100/130200).
+ when to_regclass('public.seo_task_publications') is not null
+   and not exists (select 1 from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+                    where t.tgrelid = to_regclass('public.seo_task_publications') and not t.tgisinternal
+                      and t.tgname = 'trg_business_timezone_seo_publication' and t.tgenabled <> 'D'
+                      and p.proname = 'seo_publication_stamp_business_timezone'
+                      and (t.tgtype & 3) = 3 and (t.tgtype & 20) = 20
+                      and p.prosrc like '%new.business_timezone := public.silo_company_timezone(new.company_entity_id)%'
+                      and p.prosrc like '%new.business_timezone := old.business_timezone%')
+   then 'CRITICAL: seo_task_publications has no enabled business_timezone stamp trigger; a writer can choose the timezone'
+ when to_regclass('public.forecast_candidate_ledger') is not null
+   and not exists (select 1 from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+                    where t.tgrelid = to_regclass('public.forecast_candidate_ledger') and not t.tgisinternal
+                      and t.tgname = 'trg_forecast_ledger_business_timezone' and t.tgenabled <> 'D'
+                      and p.proname = 'forecast_ledger_stamp_business_timezone'
+                      and (t.tgtype & 3) = 3 and (t.tgtype & 4) = 4
+                      and p.prosrc like '%new.business_timezone := public.silo_company_timezone(new.company_entity_id)%')
+   then 'CRITICAL: forecast_candidate_ledger has no enabled business_timezone stamp trigger; a writer can choose the timezone'
  when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
    where n.nspname='public' and p.prokind='f' and p.proname <> 'silo_company_timezone'
      and p.prosrc like '%America/Los_Angeles%')

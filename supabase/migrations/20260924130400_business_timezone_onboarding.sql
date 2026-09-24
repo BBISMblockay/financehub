@@ -46,6 +46,33 @@ begin
                         and column_name = 'business_timezone') then
     v_bad := 'seo_task_publications (no business_timezone column)';
   end if;
+  -- The COLUMNS alone prove nothing: their defaults are dropped, so it is the
+  -- BEFORE triggers that decide what gets stored. Without them an insert that
+  -- names the column persists whatever timezone the writer chose. Each must
+  -- exist, be enabled, fire BEFORE ... FOR EACH ROW on the right events, and
+  -- call a function that stamps from silo_company_timezone() (and, for
+  -- publications, keeps the old value on update).
+  if v_bad is null
+     and to_regclass('public.seo_task_publications') is not null
+     and not exists (select 1 from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+                    where t.tgrelid = to_regclass('public.seo_task_publications') and not t.tgisinternal
+                      and t.tgname = 'trg_business_timezone_seo_publication' and t.tgenabled <> 'D'
+                      and p.proname = 'seo_publication_stamp_business_timezone'
+                      and (t.tgtype & 3) = 3 and (t.tgtype & 20) = 20
+                      and p.prosrc like '%new.business_timezone := public.silo_company_timezone(new.company_entity_id)%'
+                      and p.prosrc like '%new.business_timezone := old.business_timezone%') then
+    v_bad := 'seo_task_publications (stamp trigger missing, disabled or not stamping)';
+  end if;
+  if v_bad is null
+     and to_regclass('public.forecast_candidate_ledger') is not null
+     and not exists (select 1 from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+                    where t.tgrelid = to_regclass('public.forecast_candidate_ledger') and not t.tgisinternal
+                      and t.tgname = 'trg_forecast_ledger_business_timezone' and t.tgenabled <> 'D'
+                      and p.proname = 'forecast_ledger_stamp_business_timezone'
+                      and (t.tgtype & 3) = 3 and (t.tgtype & 4) = 4
+                      and p.prosrc like '%new.business_timezone := public.silo_company_timezone(new.company_entity_id)%') then
+    v_bad := 'forecast_candidate_ledger (stamp trigger missing, disabled or not stamping)';
+  end if;
   if v_bad is not null then
     raise exception 'not unlocking new business timezones: % still anchor(s) the day to Pacific. Apply 20260924130000-130300 first.', v_bad;
   end if;

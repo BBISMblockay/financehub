@@ -84,6 +84,19 @@ async function test(name, fn) {
   }
 }
 const iso = (d) => d.toISOString().slice(0, 10);
+
+// The unlock migration's guard block (the first DO block in 130400), and the
+// verifier's business-timezone check, executed against THIS fixture.
+async function unlockGuardSql() {
+  const sql = await readFile(new URL('supabase/migrations/20260924130400_business_timezone_onboarding.sql', root), 'utf8');
+  const start = sql.indexOf('do $$');
+  const end = sql.indexOf('end $$;', start) + 'end $$;'.length;
+  return sql.slice(start, end);
+}
+async function sweepVerifySql() {
+  const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+  return splitSqlStatements(verify).find((s) => s.text.includes("'Pacific is written in one place'")).text;
+}
 const addDays = (day, n) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
 
 async function project(actor = member) {
@@ -539,6 +552,34 @@ try {
     } finally {
       await q('delete from company_settings where company_entity_id=$1', [co]);
     }
+  });
+
+  await test('the unlock and the verifier refuse a publication stamp trigger that is missing, disabled or not stamping', async () => {
+    const guard = await unlockGuardSql();
+    const check = await sweepVerifySql();
+    const status = async () => Object.values(await first(check)).at(-1);
+    await db.exec(guard);   // the fixture as migrated: the guard passes
+    assert.doesNotMatch(await status(), /seo_task_publications has no enabled/);
+
+    await db.exec('alter table public.seo_task_publications disable trigger trg_business_timezone_seo_publication');
+    try {
+      await refused(() => db.exec(guard), /seo_task_publications \(stamp trigger missing, disabled or not stamping\)/, 'disabled trigger');
+      assert.match(await status(), /seo_task_publications has no enabled business_timezone stamp trigger/);
+    } finally {
+      await db.exec('alter table public.seo_task_publications enable trigger trg_business_timezone_seo_publication');
+    }
+
+    // Present and enabled, but no longer stamping: a writer's value would stand.
+    const def = await scalar("select pg_get_functiondef('public.seo_publication_stamp_business_timezone()'::regprocedure)");
+    await db.exec(`create or replace function public.seo_publication_stamp_business_timezone() returns trigger
+                     language plpgsql as $f$ begin return new; end $f$`);
+    try {
+      await refused(() => db.exec(guard), /seo_task_publications \(stamp trigger/, 'hollow stamp function');
+      assert.match(await status(), /seo_task_publications has no enabled/);
+    } finally {
+      await db.exec(def);
+    }
+    await db.exec(guard);
   });
 
   await test('the committed SEO workflow verification checks return ok on the migrated database', async () => {

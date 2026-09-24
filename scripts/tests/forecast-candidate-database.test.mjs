@@ -109,6 +109,19 @@ const first = async (sql, params = []) => (await q(sql, params))[0];
 const scalar = async (sql, params = []) => Object.values(await first(sql, params))[0];
 const num = (v) => (v === null || v === undefined ? null : Number(v));
 
+// The unlock migration's guard block (the first DO block in 130400), and the
+// verifier's business-timezone check, executed against THIS fixture.
+async function unlockGuardSql() {
+  const sql = await readFile(new URL('supabase/migrations/20260924130400_business_timezone_onboarding.sql', root), 'utf8');
+  const start = sql.indexOf('do $$');
+  const end = sql.indexOf('end $$;', start) + 'end $$;'.length;
+  return sql.slice(start, end);
+}
+async function sweepVerifySql() {
+  const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+  return splitSqlStatements(verify).find((s) => s.text.includes("'Pacific is written in one place'")).text;
+}
+
 let passed = 0;
 async function test(name, fn) {
   try { await fn(); passed += 1; console.log(`ok ${passed} - ${name}`); }
@@ -1378,6 +1391,26 @@ await test("an EASTERN company's forecast is frozen and judged on Eastern days, 
   await refused(() => asService(() => q(
     "update public.forecast_candidate_ledger set business_timezone = 'UTC' where company_entity_id = $1", [east])),
     /append-only/, 'the stamped timezone is as frozen as the forecast');
+});
+
+await test('the unlock refuses a ledger stamp trigger that is missing, disabled or not stamping', async () => {
+  const guard = await unlockGuardSql();
+  await db.exec(guard);
+  await db.exec('alter table public.forecast_candidate_ledger disable trigger trg_forecast_ledger_business_timezone');
+  try {
+    await refused(() => db.exec(guard), /forecast_candidate_ledger \(stamp trigger missing, disabled or not stamping\)/, 'disabled ledger trigger');
+  } finally {
+    await db.exec('alter table public.forecast_candidate_ledger enable trigger trg_forecast_ledger_business_timezone');
+  }
+  const def = await scalar("select pg_get_functiondef('public.forecast_ledger_stamp_business_timezone()'::regprocedure)");
+  await db.exec(`create or replace function public.forecast_ledger_stamp_business_timezone() returns trigger
+                   language plpgsql as $f$ begin return new; end $f$`);
+  try {
+    await refused(() => db.exec(guard), /forecast_candidate_ledger \(stamp trigger/, 'hollow ledger stamp');
+  } finally {
+    await db.exec(def);
+  }
+  await db.exec(guard);
 });
 
 await test('the migration re-applies over a populated database without damage', async () => {
