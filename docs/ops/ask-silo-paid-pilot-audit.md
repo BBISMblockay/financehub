@@ -101,8 +101,8 @@ found. **Assumption** = can't be settled from code; needs a live measurement.
 ## 2. Smallest practical implementation sequence
 
 Each phase ships on its own, and none weakens a protection listed above. It follows
-the decisions recorded in §5: a one-time $10 trial, then top-up only, 22% markup,
-admins spend, and a company-set monthly cap of $100–$1,000.
+the decisions recorded in §5: a 3-question trial, then top-up only, 22% markup,
+admins spend, and a company-set running-total spend limit of $100–$1,000.
 
 ### Phase A — cost tracking and budget enforcement (required before the pilot)
 
@@ -122,23 +122,28 @@ admins spend, and a company-set monthly cap of $100–$1,000.
    or an invalid one.** Today it falls back to `null` (`index.ts:1382`), and a null
    slips past UNIQUE and past dedupe.
 3. **Balances** `ai_company_balances`:
-   - **Trial remaining.** $10 of customer charge, granted once per company and never
-     reset. It is separate from the Stripe trial, since `trialing` already counts as
-     `is_entitled` (`20260919120000:1864`).
+   - **Trial questions remaining.** **3**, granted once per company and never
+     reset. Each trial question has a hard **$0.50 provider-cost ceiling**, and the
+     loop forces the final answer as it nears it. That caps SILO's exposure at $1.50
+     per company, or **$3,000 across all 2,000 companies in the worst case**
+     (≈ $1,600 at the typical $0.26). A dollar trial doesn't bound cost the same way:
+     $10 each on 2,000 companies is up to ~$16,000 of provider cost. Founding a
+     company is invite-gated (`redeem_platform_invite`), so nobody can farm trials
+     by signing up repeatedly. The trial is separate from the Stripe trial, since
+     `trialing` already counts as `is_entitled` (`20260919120000:1864`).
    - **Prepaid balance.** Plans include no usage; everything after the trial is
      top-up.
-   - **Monthly cap.** Set by the company, CHECKed to $100–$1,000. It limits total
-     customer charges per calendar month, top-ups included.
-   - **Auto-recharge.** Enabled flag, amount, and the amount already charged this
-     month.
-
-   A month rolls over lazily inside `ai_reserve`, never from a webhook, so late or
-   repeated deliveries can't reset it twice.
+   - **Spend limit.** Set by the company, CHECKed to $100–$1,000. It is a **running
+     total** of customer charges that never resets on a calendar. When it is
+     reached, Ask SILO stops until an admin raises the limit. `spent_total` only
+     grows, so no rollover logic exists and no late webhook can reset it.
+   - **Auto-recharge.** Enabled flag and amount. It never recharges past the spend
+     limit.
 4. **Reserve → record → settle.**
    - **Reserve.** Before the first model call, `ai_reserve(request_id, company,
      user, estimate)` locks the balance row. It refuses with **402** when neither the trial
-     nor the prepaid balance covers the estimate, or when the month's charges would
-     pass the company's cap. It also refuses a **null company**,
+     nor the prepaid balance covers the estimate, or when the running total would
+     pass the company's spend limit. It also refuses a **null company**,
      which today reaches the loop (`index.ts:1445-1447` only rejects a *mismatch*).
      Because it runs as service role, it re-checks that the user is an active member
      of that company.
@@ -209,7 +214,7 @@ admins spend, and a company-set monthly cap of $100–$1,000.
       branch on `mode`. Key each credit on a **UNIQUE `payment_intent` id**.
       `stripe_webhook_events` dedupes by event and deliberately re-runs errored
       rows (`20260919120000:958-960`), so it can't be the only guard.
-    - **Auto-recharge** opt-in, never exceeding the company's monthly cap. It needs one in-flight flag
+    - **Auto-recharge** opt-in, never exceeding the company's spend limit. It needs one in-flight flag
       per company and a Stripe idempotency key per (company, period, count),
       because two concurrent reservations can both trigger it.
     - A clear 402/429 message in chat.
@@ -255,7 +260,8 @@ What this means:
   the cost. Step 10 (transcript caching) and a per-question cost ceiling inside
   `ai_reserve` limit it.
 - Averaged across 2,000 companies, 5,000/day is only ~75 questions per company per
-  month. The $10 trial buys about 30 typical questions ($0.26 × 1.22 ≈ $0.32 each).
+  month. Priced at 22%, a typical question costs the customer about $0.32
+  ($0.26 × 1.22).
 - Capacity (assumption): 80% of 5,000 in a 10-hour day at a ~45 s p50 is about 5
   requests in flight on average, and ~15–25 at a 3× spike. That's modest for the
   database. The number that must be checked is **Anthropic input TPM**. Because the
@@ -269,31 +275,33 @@ What this means:
    rows, one per `request_id`, including requests sent with no id. Provider cost
    matches Anthropic's Usage & Cost report for the same window within rounding.
    Customer charge = provider cost × (1 + stored bps/10000).
-2. **Caps hold under concurrency.** One company fires 20 parallel questions with
+2. **Trial holds.** A 4th trial question gets 402. A deliberately heavy trial
+   question stops at the $0.50 ceiling with an answer.
+3. **Caps hold under concurrency.** One company fires 20 parallel questions with
    balance for 3. At most the cap runs, the rest get 402/429, and the balance never
    goes negative beyond one reservation estimate.
-3. **Auto-recharge stops at its cap.** Drain the balance repeatedly. Recharges stop
-   at the monthly cap, and a duplicated webhook delivery credits once.
-4. **Failures are recorded.** Inject a 429, a 5xx and a forced 150 s timeout. Each
+4. **Auto-recharge stops at its cap.** Drain the balance repeatedly. Recharges stop
+   at the spend limit, and a duplicated webhook delivery credits once.
+5. **Failures are recorded.** Inject a 429, a 5xx and a forced 150 s timeout. Each
    one leaves a settled or swept row whose provider cost reflects the calls that
    actually ran. None charges the customer, and none produces two rows for one
    `request_id`.
-5. **Client can't write the ledger.** Calling reserve/settle as `authenticated` and
+6. **Client can't write the ledger.** Calling reserve/settle as `authenticated` and
    as anon is permission-denied.
-6. **Two-tenant walkthrough.** Tenants A and B each ask the same question, save a
+7. **Two-tenant walkthrough.** Tenants A and B each ask the same question, save a
    report, add it to a dashboard and publish. There's no row overlap. B can't see A's
    report or dashboard ids. `dashboard_widgets_v.query_sql` is null across tenants.
    Each ledger row is charged to the asking company.
-7. **Company switch mid-question** returns 409 `company_changed`. The provider cost
+8. **Company switch mid-question** returns 409 `company_changed`. The provider cost
    is recorded against the company that reserved it, and the customer charge is 0.
    A user with no active company is refused before any model call.
-8. **Probes through `run_sql`**: every `*_mv`, `pg_stat_activity`, `auth.users` and
+9. **Probes through `run_sql`**: every `*_mv`, `pg_stat_activity`, `auth.users` and
    `set_active_company` fail (see §1 assumptions).
-9. **Spend gate.** A non-admin member gets refused when calling the
+10. **Spend gate.** A non-admin member gets refused when calling the
    endpoint directly with curl.
-10. **App stays responsive.** With the global cap saturated, a dashboard open and a
+11. **App stays responsive.** With the global cap saturated, a dashboard open and a
     PO list load stay within their normal latency.
-11. `verify_v2_schema.sql` is all-ok, with checks added for the new tables and for
+12. `verify_v2_schema.sql` is all-ok, with checks added for the new tables and for
     the grants on the ledger RPCs.
 
 ## 5. Decisions
@@ -302,9 +310,9 @@ What this means:
 
 | Decision | Answer |
 |---|---|
-| Pricing model | **One-time $10 trial per company, then top-up only.** Plans include no Ask SILO usage |
+| Pricing model | **3 free trial questions per company (each capped at $0.50 provider cost), then top-up only.** Plans include no Ask SILO usage. Replaces an earlier $10 trial, which could expose ~$16,000 across 2,000 companies |
 | Markup | **22%** on provider cost (`markup_bps = 2200`) |
-| Spending limit | **Company-set monthly cap, $100–$1,000**, covering all charges including auto-recharge |
+| Spending limit | **Company-set running total, $100–$1,000**, not reset monthly. It covers all charges including auto-recharge, and Ask SILO stops at it until an admin raises it |
 | Who may spend | **Admins** (ask questions, buy top-ups, set the cap) |
 | Failed requests | **No charge.** If no answer is saved, say it failed and suggest a reworded question. Provider cost is still recorded |
 | Data terms | **Standard Anthropic retention; `web_search` stays on** |
