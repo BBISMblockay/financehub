@@ -121,7 +121,21 @@ admins spend, and a company-set running-total spend limit of $100–$1,000.
    (1 + bps/10000). **The server mints the `request_id` when the client sends none
    or an invalid one.** Today it falls back to `null` (`index.ts:1382`), and a null
    slips past UNIQUE and past dedupe.
-3. **Balances** `ai_company_balances`:
+3. **Balances** `ai_company_balances`. **Every money field names its unit.**
+   All amounts are integer micros (millionths of a dollar), in one of two units
+   that are never mixed:
+   - **Customer dollars** (provider cost × (1 + markup)): the prepaid balance, the
+     spend limit and `spent_total`, auto-recharge amounts, and credit packs.
+   - **Provider dollars** (what Anthropic charges SILO): the trial ceiling, the
+     internal failure budget, and unconfirmed-charge reconciliation.
+
+   A reservation records **both**: the estimated provider cost, and the estimated
+   customer charge at the markup snapshotted for that request. Customer-dollar
+   buckets are debited in customer dollars, and provider-dollar budgets in provider
+   dollars. Reserving provider cost from a customer balance would under-collect by
+   the markup at settlement.
+
+   The fields:
    - **Trial questions remaining.** **3**, granted once per company and never
      reset. Each trial question has a hard **$0.50 provider-cost ceiling**, and the
      loop forces the final answer as it nears it. That caps SILO's exposure at $1.50
@@ -131,9 +145,9 @@ admins spend, and a company-set running-total spend limit of $100–$1,000.
      company is invite-gated (`redeem_platform_invite`), so nobody can farm trials
      by signing up repeatedly. The trial is separate from the Stripe trial, since
      `trialing` already counts as `is_entitled` (`20260919120000:1864`).
-   - **Prepaid balance.** Plans include no usage; everything after the trial is
-     top-up.
-   - **Spend limit.** Set by the company, CHECKed to $100–$1,000. It is a **running
+   - **Prepaid balance** (customer dollars). Plans include no usage; everything
+     after the trial is top-up.
+   - **Spend limit** (customer dollars). Set by the company, CHECKed to $100–$1,000. It is a **running
      total** of customer charges that never resets on a calendar. When it is
      reached, Ask SILO stops until an admin raises the limit. `spent_total` only
      grows, so no rollover logic exists and no late webhook can reset it.
@@ -145,8 +159,9 @@ admins spend, and a company-set running-total spend limit of $100–$1,000.
      - **At entry**, `ai_open_request(request_id, company, user)` refuses a **null
        company** (today one reaches the loop; `index.ts:1445-1447` only rejects a
        *mismatch*) and re-checks active membership, since it runs as service role.
-       It then reserves the worst-case cost of the first call **plus one
-       final-answer call**.
+       It then reserves the worst-case cost of the first call **plus the forced
+       final call and its max-tokens continuation**, so every model call the loop
+       can make is covered (up to 22).
      - **Before each later call**, `ai_reserve_call` reserves that call's worst case:
        the input tokens about to be sent × the input price, plus `max_tokens` × the
        output price. This is a single conditional `UPDATE … SET reserved = reserved
@@ -237,21 +252,37 @@ admins spend, and a company-set running-total spend limit of $100–$1,000.
 
 ### Phase C — customer and admin controls
 
-13. Customer:
-    - A usage-and-balance panel on Billing.
+13. **Read path for billing data (tenant-safe).** The ledger and balance tables
+    stay **closed to clients**: RLS on, no policy, and SELECT revoked from anon and
+    authenticated. Two read paths, and nothing else:
+    - **Customer summary.** `ai_usage_summary()` runs under the caller's JWT and
+      takes **no company argument**. It resolves `active_company_id()`, checks
+      active membership, and returns only customer-dollar fields for that company:
+      prepaid balance, spent total, spend limit, trial questions left and recent
+      charges. It never returns provider cost, markup or margin.
+    - **Platform view.** Provider cost, markup and margin go through a separate
+      `is_platform_admin()`-gated function, the same pattern as
+      `platform_list_companies()`. It is never `is_admin_user()`, which any
+      company admin passes.
+    - **Negative tests:** direct SELECT on each table as authenticated and as
+      anon; a probe passing another company's id; and a non-platform user asking
+      for provider-cost fields. All must fail or return nothing.
+14. Customer:
+    - A usage-and-balance panel on Billing, fed only by `ai_usage_summary()`.
     - **Credit-pack purchase.** Checkout in `mode: 'payment'`. The webhook already
       routes `checkout.session.completed` as a subscription checkout, so it must
       branch on `mode`. Key each credit on a **UNIQUE `payment_intent` id**.
       `stripe_webhook_events` dedupes by event and deliberately re-runs errored
       rows (`20260919120000:958-960`), so it can't be the only guard.
     - **Auto-recharge** opt-in, never exceeding the company's spend limit. It needs one in-flight flag
-      per company and a Stripe idempotency key per (company, period, count),
+      per company and a Stripe idempotency key per (company, recharge sequence number),
       because two concurrent reservations can both trigger it.
     - A clear 402/429 message in chat.
-14. Admin (Silo Admin): per-company provider cost vs. charge vs. margin, markup
+15. Admin (Silo Admin), through the platform view in step 13: per-company provider
+    cost vs. charge vs. margin, markup
     override, manual credit/adjustment entry (as a ledger row, never an in-place
     edit), and a platform-wide daily provider-cost alarm.
-15. Replace `PRODUCT_CONCEPT_TESTERS` with a per-company feature flag.
+16. Replace `PRODUCT_CONCEPT_TESTERS` with a per-company feature flag.
 
 ---
 
@@ -277,6 +308,7 @@ when `thinking` is omitted, so output includes thinking tokens.
 | Light | 3 | 5k | 1k | **$0.12** |
 | Typical | 6 | 8k | 1.5k | **$0.26** |
 | Heavy (hits the 20-round cap) | 20 | 40k | 1.5k | **$2.00** |
+| **Ceiling**: 20 rounds + forced final + max-tokens continuation (`index.ts:1841`, `:2490-2555`) | 22 | 40k | 1.5k | **$2.22** |
 
 Assumed mix: 60% light / 35% typical / 5% heavy → **≈ $0.26 per question**. The first call of each request
 is priced as a cache write (the schema slice and notes differ by question). Web search
@@ -286,7 +318,7 @@ is not included; one search per question adds ~$0.01.
 |---|---|---|
 | Provider cost / day (mix) | ≈ $520 | ≈ $1,300 |
 | Provider cost / 30 days | ≈ $15,600 | ≈ $39,000 |
-| Bounds / day (all light … all heavy) | $240 … $4,000 | $600 … $10,000 |
+| Bounds / day (all light … all at the 22-call ceiling) | $240 … $4,440 | $600 … $11,100 |
 | Customer charge at the 22% markup (30 days, mix) | ≈ $19,000 | ≈ $47,600 |
 
 What this means:
@@ -329,8 +361,11 @@ What this means:
      that ran, with aborted calls marked `unconfirmed` and not treated as zero.
    - None charges the customer, and none produces two rows for one `request_id`.
    - Repeating failures until the internal failure budget is spent gets refused.
-6. **Client can't write the ledger.** Calling reserve/settle as `authenticated` and
-   as anon is permission-denied.
+6. **Client can't write or directly read the ledger.** Calling reserve/settle as
+   `authenticated` and as anon is permission-denied. So is a direct SELECT on the
+   ledger or balance tables. `ai_usage_summary()` returns only the caller's
+   company's customer-dollar fields. Provider cost is visible only to a platform
+   admin.
 7. **Two-tenant walkthrough.** Tenants A and B each ask the same question, save a
    report, add it to a dashboard and publish. There's no row overlap. B can't see A's
    report or dashboard ids. `dashboard_widgets_v.query_sql` is null across tenants.
