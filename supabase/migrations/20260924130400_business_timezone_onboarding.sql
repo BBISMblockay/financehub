@@ -3,6 +3,54 @@
 -- the US mainland timezones. See 20260924130000's header for the whole sweep
 -- and why Alaska and Hawaii are not in this list.
 
+-- ── 0. Refuse to unlock onto an unfinished sweep ───────────────────────────
+-- Every site 130000-130300 fixed, by name. A site that EXISTS and still names
+-- Pacific means one of those files did not take (drift, a partial apply, a
+-- deparser surprise), and widening the allowlist on top of it would store
+-- timezones that site ignores -- the exact state 20260918120000 refused to
+-- create. Named rather than "any function", because an unrelated object may
+-- legitimately mention the zone; verify_v2_schema.sql's broad check covers
+-- anything added later. A site that does not exist is not a failure: it has
+-- nothing to get wrong.
+do $$
+declare
+  v_bad text;
+begin
+  select string_agg(p.proname, ', ' order by p.proname) into v_bad
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname in ('silo_business_timezone', 'check_publication_after_baselines',
+                       'check_seo_measurement_window', 'seo_baseline_conflicts',
+                       'seo_follow_up_window', 'forecast_candidate_cycles',
+                       'record_forecast_candidate_run', 'record_forecast_method_run',
+                       'refresh_sales_verification_store_comp_summary')
+     and p.prosrc like '%America/Los_Angeles%';
+  if v_bad is null then
+    select string_agg(c.relname, ', ' order by c.relname) into v_bad
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public'
+       and c.relname in ('calendar_events_v', 'forecast_candidate_ledger_v')
+       and pg_get_viewdef(c.oid) like '%America/Los_Angeles%';
+  end if;
+  if v_bad is null
+     and to_regclass('public.forecast_candidate_ledger') is not null
+     and not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'forecast_candidate_ledger'
+                        and column_name = 'business_timezone') then
+    v_bad := 'forecast_candidate_ledger (no business_timezone column)';
+  end if;
+  if v_bad is null
+     and to_regclass('public.seo_task_publications') is not null
+     and not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'seo_task_publications'
+                        and column_name = 'business_timezone') then
+    v_bad := 'seo_task_publications (no business_timezone column)';
+  end if;
+  if v_bad is not null then
+    raise exception 'not unlocking new business timezones: % still anchor(s) the day to Pacific. Apply 20260924130000-130300 first.', v_bad;
+  end if;
+end $$;
+
 -- ── 1. Timezones now honoured end to end ───────────────────────────────────
 insert into public.supported_business_timezones (tz_name, label, is_supported, note)
 values

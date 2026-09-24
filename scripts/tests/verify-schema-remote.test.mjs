@@ -96,7 +96,11 @@ test('splits supabase/verify_v2_schema.sql into the number of terminators it has
   // convention is one statement per terminating ';' at end of line. If the
   // splitter and this count ever disagree, one of them is wrong about the
   // file, and that is worth a look either way.
-  const terminators = (REAL.match(/;\s*$/gm) || []).length;
+  // Comment lines are skipped: a prose comment that happens to end in ';' is
+  // not a statement, and counting it made the tolerance absorb comments rather
+  // than disagreements (PR #773's first CI run failed on exactly that).
+  const terminators = REAL.split('\n')
+    .filter((line) => !/^\s*--/.test(line) && /;\s*$/.test(line)).length;
   // Some statements end ';' mid-line after a closing paren; allow the split
   // count to be >= the end-of-line count but never less.
   ok(real.length >= terminators - 5 && real.length <= terminators + 5,

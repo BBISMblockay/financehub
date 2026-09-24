@@ -937,6 +937,24 @@ await test('the verify checks FAIL when the thing they guard is broken', async (
   if (!mutation) { await db.exec(core); await db.exec(unlock); }
 }
 
+await test('sweep: the unlock REFUSES to run while a fixed site still names Pacific', async () => {
+  // A stand-in for a site 130000-130300 should have rewritten but did not
+  // (drift, a partial apply). Widening the allowlist on top of it is exactly
+  // what the unlock must refuse -- and it must leave the allowlist unwidened.
+  const unlockSql = await readFile(new URL('supabase/migrations/20260924130400_business_timezone_onboarding.sql', root), 'utf8');
+  await db.exec(`create function public.seo_follow_up_window(p uuid, d integer) returns date language sql
+                   as $f$ select (now() at time zone 'America/Los_Angeles')::date $f$`);
+  await db.exec(`delete from public.supported_business_timezones where tz_name = 'America/Chicago'`);
+  try {
+    await assert.rejects(() => db.exec(unlockSql), /not unlocking new business timezones: seo_follow_up_window/);
+    assert.equal((await q(`select 1 from public.supported_business_timezones where tz_name='America/Chicago'`)).length, 0,
+      'a refused unlock adds nothing');
+  } finally {
+    await db.exec('drop function public.seo_follow_up_window(uuid, integer)');
+    await db.exec(unlockSql);   // the real sites are clean here, so it now applies
+  }
+});
+
 await test('sweep: the four US mainland timezones are offered, Alaska and Hawaii are not', async () => {
   const rows = (await q(`select tz_name from public.supported_business_timezones where is_supported order by tz_name`))
     .map(r => r.tz_name);

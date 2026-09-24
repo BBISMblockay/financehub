@@ -15,7 +15,8 @@
 //   SEO_DB_MUTATION=direct-insert-open (insert policy no longer refuses captured sources)
 //   SEO_DB_MUTATION=stale-write-allowed (the newest-run-wins triggers removed)
 //   SEO_DB_MUTATION=baseline-session-timezone (seo_baseline_conflicts back to p_published::date)
-//   SEO_DB_MUTATION=triggers-pacific-only (both triggers pass Pacific instead of the row's company timezone)
+//   SEO_DB_MUTATION=triggers-pacific-only (publications are stamped Pacific instead of the company's timezone)
+//   SEO_DB_MUTATION=publication-tz-follows-settings (the triggers re-read the company's CURRENT timezone)
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -44,7 +45,7 @@ const dependencies = [
   '20260910210000_search_console_overview_rpcs.sql',
 ];
 const mutation = process.env.SEO_DB_MUTATION || '';
-assert.ok(['', 'no-approval-guard', 'follow-up-unordered', 'publication-after-follow-up', 'direct-insert-open', 'stale-write-allowed', 'baseline-session-timezone', 'triggers-pacific-only'].includes(mutation), 'Unknown SEO database mutation');
+assert.ok(['', 'no-approval-guard', 'follow-up-unordered', 'publication-after-follow-up', 'direct-insert-open', 'stale-write-allowed', 'baseline-session-timezone', 'triggers-pacific-only', 'publication-tz-follows-settings'].includes(mutation), 'Unknown SEO database mutation');
 
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const first = async (sql, params = []) => (await q(sql, params))[0];
@@ -172,11 +173,18 @@ try {
       await db.exec(def.replace('(p_published at time zone p_tz)::date', 'p_published::date'));
     }
     if (mutation === 'triggers-pacific-only') {
-      for (const fn of ['check_publication_after_baselines', 'check_seo_measurement_window']) {
-        const def = await scalar(`select pg_get_functiondef('public.${fn}()'::regprocedure)`);
-        assert.ok(def.includes('v_tz := public.silo_company_timezone(new.company_entity_id);'), `${fn}: mutation must find the lookup`);
-        await db.exec(def.replace('v_tz := public.silo_company_timezone(new.company_entity_id);', "v_tz := 'America/Los_Angeles';"));
-      }
+      const def = await scalar("select pg_get_functiondef('public.seo_publication_stamp_business_timezone()'::regprocedure)");
+      const anchor = 'new.business_timezone := public.silo_company_timezone(new.company_entity_id);';
+      assert.ok(def.includes(anchor), 'mutation must find the stamp');
+      await db.exec(def.replace(anchor, "new.business_timezone := 'America/Los_Angeles';"));
+    }
+    if (mutation === 'publication-tz-follows-settings') {
+      // What the first version did: judge a stored publication in the company's
+      // CURRENT timezone rather than the one it was recorded in.
+      const m = await scalar("select pg_get_functiondef('public.check_seo_measurement_window()'::regprocedure)");
+      assert.ok(m.includes('public.seo_baseline_conflicts(new.period_end, v_first, v_first_tz)'), 'mutation must find the recorded-timezone read');
+      await db.exec(m.replace('public.seo_baseline_conflicts(new.period_end, v_first, v_first_tz)',
+        'public.seo_baseline_conflicts(new.period_end, v_first, public.silo_company_timezone(new.company_entity_id))'));
     }
     if (mutation === 'direct-insert-open') {
       await db.exec(`drop policy seo_measurements_insert on public.seo_measurements;
@@ -503,6 +511,31 @@ try {
       assert.ok(ok.rows_written > 0, 'the Eastern previous day is captured even though it is the Pacific publication day');
       const w = await asMember(() => first('select * from seo_follow_up_window($1, 7)', [t2]));
       assert.equal(iso(new Date(w.published_on)), '2026-09-02', 'the follow-up window counts from the Eastern publication date');
+    } finally {
+      await q('delete from company_settings where company_entity_id=$1', [co]);
+    }
+  });
+
+  await test('a publication keeps the business day it was recorded on when the company later changes timezone', async () => {
+    // Recorded while the company is Eastern: 04:30Z Sep 2 is Sep 2 there, so a
+    // baseline ending Sep 1 is admissible. The company then switches to
+    // Pacific, where that instant is Sep 1 -- and the SAME baseline must still
+    // be admissible, because the publication did not move.
+    await q("insert into company_settings(company_entity_id, business_timezone) values ($1, 'America/New_York')", [co]);
+    try {
+      const t = await task(proj);
+      await approve(t);
+      await publish(t, '2026-09-02T04:30:00Z');
+      assert.equal(await scalar('select business_timezone from seo_task_publications where task_id=$1', [t]), 'America/New_York',
+        "the publication carries the company's timezone at the time");
+      await q("update company_settings set business_timezone='America/Los_Angeles' where company_entity_id=$1", [co]);
+      const ok = await capture(t, 'baseline', '2026-08-26', '2026-09-01');
+      assert.ok(ok.rows_written > 0, 'the baseline admissible when the publication was recorded is still admissible');
+      const w = await asMember(() => first('select * from seo_follow_up_window($1, 7)', [t]));
+      assert.equal(iso(new Date(w.published_on)), '2026-09-02', 'the follow-up window still counts from the recorded day');
+      // ...and the stamp cannot be rewritten afterwards, even by the service role.
+      await asRole('service_role', '', () => q("update seo_task_publications set business_timezone='UTC' where task_id=$1", [t]));
+      assert.equal(await scalar('select business_timezone from seo_task_publications where task_id=$1', [t]), 'America/New_York');
     } finally {
       await q('delete from company_settings where company_entity_id=$1', [co]);
     }

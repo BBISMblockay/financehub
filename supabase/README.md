@@ -2212,10 +2212,12 @@ onboarded. Five files, split by area so each database suite loads its part:
 
 - `130000_business_timezone_core` — `silo_company_timezone(company)`, the ONE
   place the Pacific fallback is written; `silo_business_timezone()` delegates to it.
-- `130100_business_timezone_seo` — the SEO ordering triggers judge the
-  publication day in the row's company timezone; `seo_baseline_conflicts` takes
-  the timezone as an argument (still IMMUTABLE) and the Pacific-only two-argument
-  form is dropped.
+- `130100_business_timezone_seo` — `seo_task_publications.business_timezone`
+  is stamped at insert and frozen, and the ordering triggers and
+  `seo_follow_up_window` judge each publication's day in the timezone it was
+  RECORDED in, so a later timezone change cannot reclassify it.
+  `seo_baseline_conflicts` takes the timezone as an argument (still IMMUTABLE)
+  and the Pacific-only two-argument form is dropped.
 - `130200_business_timezone_forecast` — `forecast_candidate_ledger.business_timezone`,
   stamped at insert by trigger; the frozen-before-outcome CHECK and the
   `frozen_days_into_horizon` generated column read it (neither can look anything
@@ -2223,7 +2225,9 @@ onboarded. Five files, split by area so each database suite loads its part:
 - `130300_business_timezone_reporting` — the store comp summary anchors on each
   company's own last completed day (same single sequential scan: 4.7s measured
   against 4.8s before); Org Calendar live-session slots use the company's clock.
-- `130400_business_timezone_onboarding` — LAST on purpose: adds Mountain,
+- `130400_business_timezone_onboarding` — LAST on purpose, and it REFUSES to
+  run if any site 130000-130300 fixed still names Pacific (130300 likewise fails
+  if the calendar rewrite did not take). Adds Mountain,
   Arizona, Central and Eastern to `supported_business_timezones` and rewrites the
   refusal message.
 

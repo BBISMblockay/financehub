@@ -20,6 +20,22 @@ begin
   end if;
 end $$;
 
+-- Fail CLOSED. If the deparser ever renders the literal differently, or the
+-- live view has drifted, the replace above matches nothing and the view keeps
+-- anchoring live slots to Pacific. Succeeding quietly would let 130400 unlock
+-- the new timezones on top of that, so check the RESULT, not the attempt.
+do $$
+declare
+  v_def text := pg_get_viewdef('public.calendar_events_v'::regclass, true);
+begin
+  if v_def like '%America/Los_Angeles%' then
+    raise exception 'calendar_events_v still names Pacific after the rewrite; its live definition does not match what 20260924130300 expects -- fix the view by hand before applying 130400';
+  end if;
+  if v_def not like '%silo_company_timezone(ls.company_entity_id)%' then
+    raise exception 'calendar_events_v does not anchor live-session slots on silo_company_timezone(ls.company_entity_id) -- fix the view by hand before applying 130400';
+  end if;
+end $$;
+
 -- ── 2. Store comp summary: each company's own completed day ───────────────
 
 create or replace function public.refresh_sales_verification_store_comp_summary()
