@@ -93,7 +93,7 @@ found. **Assumption** = can't be settled from code; needs a live measurement.
 - `chat_run_readonly_query` still has `prosecdef = false`, and anon has no EXECUTE.
 - Anthropic org rate limits (RPM / input TPM / output TPM) and the current 429 rate.
 - Supabase compute size, pooler size, and Edge Function concurrency and CPU limits.
-- Real per-question token profile and p50/p95 duration. `diagnostics` stores timing
+- Real per-question token profile, and mean and p95 duration. `diagnostics` stores timing
   but not tokens.
 
 ---
@@ -140,24 +140,36 @@ admins spend, and a company-set running-total spend limit of $100–$1,000.
    - **Auto-recharge.** Enabled flag and amount. It never recharges past the spend
      limit.
 4. **Reserve → record → settle.**
-   - **Reserve.** Before the first model call, `ai_reserve(request_id, company,
-     user, estimate)` locks the balance row. It refuses with **402** when neither the trial
-     nor the prepaid balance covers the estimate, or when the running total would
-     pass the company's spend limit. It also refuses a **null company**,
-     which today reaches the loop (`index.ts:1445-1447` only rejects a *mismatch*).
-     Because it runs as service role, it re-checks that the user is an active member
-     of that company.
+   - **Reserve before every model call, atomically.** A request-level estimate is
+     not enough, because a question's cost isn't known until its rounds have run.
+     - **At entry**, `ai_open_request(request_id, company, user)` refuses a **null
+       company** (today one reaches the loop; `index.ts:1445-1447` only rejects a
+       *mismatch*) and re-checks active membership, since it runs as service role.
+       It then reserves the worst-case cost of the first call **plus one
+       final-answer call**.
+     - **Before each later call**, `ai_reserve_call` reserves that call's worst case:
+       the input tokens about to be sent × the input price, plus `max_tokens` × the
+       output price. This is a single conditional `UPDATE … SET reserved = reserved
+       + x WHERE available - reserved >= x` (with the spend-limit check in the same
+       statement), so balance and limit can **never** be overdrawn, even by
+       concurrent requests.
+     - **If a reservation fails**, the loop makes no further tool calls and answers
+       with the final-answer allowance it already holds, or stops with 402 if it
+       holds none. No model call is ever made without budget reserved for it.
+     - **After each call**, its actual cost replaces the reservation.
    - **Record.** Record usage **inside `callAnthropic`** (not at each call site),
-     writing the running total to the ledger row after every call. Mark calls that
-     aborted on `ModelCallDeadlineError` as possibly billed with unknown usage.
-   - **Enforce the reservation.** When running cost nears the reserved amount, force
-     the final answer, so the estimate is also the per-question ceiling.
+     writing the running total to the ledger row after every call.
+   - **Uncertain provider charges.** A call that aborted
+     (`ModelCallDeadlineError`), timed out, or returned no usage block may still be
+     billed by Anthropic. Its full reservation is kept as provider cost with
+     `usage_status = 'unconfirmed'`, **never assumed zero**, and reconciled against
+     Anthropic's usage report.
    - **Settle** in a `finally` covering every exit: success, the 503/409 early
      returns in `finishWithAnswer` (`index.ts:1689-1706`) and the outer catch.
    - **Sweep.** A scheduled sweep closes rows still `reserved` after the gateway
      limit (~150 s, not minutes, or an orphaned hold blocks the per-company cap). It
-     settles provider cost **from the last recorded usage**, with customer charge 0
-     (nothing was delivered; see §5).
+     settles provider cost **from the last recorded usage plus any unconfirmed call
+     reservations**, with customer charge 0 (nothing was delivered; see §5).
    - **One winner.** Settle and sweep both use `UPDATE … WHERE status = 'reserved'`,
      so only one of them wins.
 5. **Only the service role writes the ledger.** The reserve/record/settle RPCs must
@@ -178,7 +190,14 @@ admins spend, and a company-set running-total spend limit of $100–$1,000.
    same gate covers buying top-ups and changing the cap. Today `stripe-billing` is
    owner-admin only, so this is a deliberate widening for credit purchases, not for
    subscriptions.
-7. **Failed-request UX.** No customer charge when no answer was saved. The chat says
+7. **Failed requests are free to the customer, not to SILO.** Their provider cost
+   counts against an **internal failure budget**: per company per day, plus a
+   platform-wide daily limit. A company past its budget is refused (with a message
+   to contact support) until the next day or until someone reviews it. That way,
+   repeated failures, accidental or deliberate, can't turn into unlimited free model
+   spend.
+
+   **Failed-request UX.** No customer charge when no answer was saved. The chat says
    the question failed and suggests a reworded version. Default: a fixed hint chosen
    by failure reason (timeout → narrow the date range; query error → name the metric
    or table; round cap → split the question). A model-written rewrite costs an extra
@@ -186,11 +205,21 @@ admins spend, and a company-set running-total spend limit of $100–$1,000.
 
 ### Phase B — reliable processing
 
-8. **Admission table** keyed by the existing `request_id`. The insert at entry
-   **dedupes** (409 if the request is already in flight) and enforces a **per-company
-   in-flight cap** (e.g. 2) plus a **global cap**, returning 429 + `Retry-After`. That
-   gives fairness across companies with no new infrastructure. It can be the ledger
-   reservation row itself.
+8. **Admission control, then a fair queue.** Rejecting excess load and scheduling it
+   fairly are different mechanisms:
+   - **Rejection (minimum for the pilot).** An admission row keyed by `request_id`
+     dedupes (409 if the request is already in flight) and enforces a
+     **per-company in-flight cap** plus a **global cap**, returning 429 +
+     `Retry-After`. It protects capacity. It is **not fair**: the clients that retry
+     fastest win the freed slots, and one busy company can keep most of the global
+     cap by retrying.
+   - **Fair queueing (required once the global cap is reached regularly).**
+     Requests are accepted into a queue instead of refused, and a dispatcher picks
+     the next one **round-robin across companies**, choosing the company served
+     longest ago. This needs asynchronous processing (step 12), because a queued
+     request cannot hold an HTTP connection open against the 150 s gateway.
+   - **When to switch.** Launch with rejection only, and watch how often the cap is
+     hit. Move to the queue before 429s become routine.
 9. **Anthropic retry.** 2–3 jittered retries on 429/529/5xx, bounded by the time
    budget that's left.
 10. **Cache the growing transcript.** Add a second `cache_control` breakpoint on the
@@ -201,9 +230,10 @@ admins spend, and a company-set running-total spend limit of $100–$1,000.
     Consider a read replica for chat and dashboards together: dashboards fire one
     `chat_run_readonly_query` per widget via `Promise.all`
     (`v3/js/dashboard-renderer.js:744`, `:864`) on the same role.
-12. **Later, if p95 nears 150 s:** process asynchronously (return `request_id`, run
-    the loop in a worker, client polls). The recovery poll the client already has is
-    the read side.
+12. **Asynchronous processing.** Return the `request_id` at once, run the loop in a
+    worker, and let the client poll. The client's existing recovery poll is the read
+    side. This is required for the fair queue in step 8, and also once p95 duration
+    nears the 150 s gateway limit.
 
 ### Phase C — customer and admin controls
 
@@ -227,7 +257,11 @@ admins spend, and a company-set running-total spend limit of $100–$1,000.
 
 ## 3. Illustrative costs
 
-**Every number here is an assumption until Phase A step 2 records real usage.**
+**Every number here is an assumption until Phase A step 2 records real usage. Do not
+set customer prices from this section.** Before pricing, verify current Anthropic
+pricing for the model in use, load it into `ai_price_book`, and check it against
+measured usage. Customer charges then follow as provider cost × (1 + markup), from
+the price book, never from this table.
 Prices are Anthropic first-party list prices for `claude-sonnet-5` (the default
 `CHAT_MODEL`, `index.ts:135`), taken from a price table cached 2026-06-24: input
 $2 / MTok, output $10, cache write ~$2.50 (1.25×), cache read ~$0.20 (0.1×). Web
@@ -257,15 +291,21 @@ is not included; one search per question adds ~$0.01.
 
 What this means:
 - The **heavy tail sets the budget.** Five percent of questions carry about 40% of
-  the cost. Step 10 (transcript caching) and a per-question cost ceiling inside
-  `ai_reserve` limit it.
+  the cost. Step 10 (transcript caching) and the per-call reservations in step 4
+  limit it.
 - Averaged across 2,000 companies, 5,000/day is only ~75 questions per company per
   month. Priced at 22%, a typical question costs the customer about $0.32
   ($0.26 × 1.22).
-- Capacity (assumption): 80% of 5,000 in a 10-hour day at a ~45 s p50 is about 5
-  requests in flight on average, and ~15–25 at a 3× spike. That's modest for the
-  database. The number that must be checked is **Anthropic input TPM**. Because the
-  transcript isn't cached, a spike could approach ~2–3M input tokens per minute.
+- **Capacity is not established by this audit.** Average concurrency =
+  arrival rate × **mean** request duration (Little's law); a median can't give it.
+  Mean duration comes from `silo_chat_audit_log` (`diagnostics.elapsed_ms`), and the
+  arrival rate at peak from the audit log's timestamps. Neither was measured here.
+  Nor were:
+  - the database load from chat and dashboard queries together
+    (`pg_stat_statements`), and
+  - Anthropic's input and output TPM limits for the account.
+
+  Size the caps in step 8 from those measurements, not from this document.
 
 ---
 
@@ -277,15 +317,18 @@ What this means:
    Customer charge = provider cost × (1 + stored bps/10000).
 2. **Trial holds.** A 4th trial question gets 402. A deliberately heavy trial
    question stops at the $0.50 ceiling with an answer.
-3. **Caps hold under concurrency.** One company fires 20 parallel questions with
-   balance for 3. At most the cap runs, the rest get 402/429, and the balance never
-   goes negative beyond one reservation estimate.
+3. **Spend limits hold strictly under concurrency.** One company fires 20 parallel
+   questions with budget for about 3. Reserved plus spent never exceeds the balance
+   or the spend limit at any moment, including mid-request. Requests that can't
+   reserve get 402/429, or stop at their final-answer allowance.
 4. **Auto-recharge stops at its cap.** Drain the balance repeatedly. Recharges stop
    at the spend limit, and a duplicated webhook delivery credits once.
-5. **Failures are recorded.** Inject a 429, a 5xx and a forced 150 s timeout. Each
-   one leaves a settled or swept row whose provider cost reflects the calls that
-   actually ran. None charges the customer, and none produces two rows for one
-   `request_id`.
+5. **Failures are recorded and bounded.** Inject a 429, a 5xx and a forced 150 s
+   timeout.
+   - Each one leaves a settled or swept row whose provider cost covers the calls
+     that ran, with aborted calls marked `unconfirmed` and not treated as zero.
+   - None charges the customer, and none produces two rows for one `request_id`.
+   - Repeating failures until the internal failure budget is spent gets refused.
 6. **Client can't write the ledger.** Calling reserve/settle as `authenticated` and
    as anon is permission-denied.
 7. **Two-tenant walkthrough.** Tenants A and B each ask the same question, save a
@@ -314,14 +357,16 @@ What this means:
 | Markup | **22%** on provider cost (`markup_bps = 2200`) |
 | Spending limit | **Company-set running total, $100–$1,000**, not reset monthly. It covers all charges including auto-recharge, and Ask SILO stops at it until an admin raises it |
 | Who may spend | **Admins** (ask questions, buy top-ups, set the cap) |
-| Failed requests | **No charge.** If no answer is saved, say it failed and suggest a reworded question. Provider cost is still recorded |
+| Failed requests | **No charge to the customer.** If no answer is saved, say it failed and suggest a reworded question. Provider cost is still recorded and counts against an internal failure budget |
 | Data terms | **Standard Anthropic retention; `web_search` stays on** |
 
 ### Still open
 
-1. **Auto-recharge amount**: fixed packs, or chosen by the company within its cap?
-2. **Concurrency limits**: per-company in-flight cap and global cap. These need the
-   Anthropic tier figure first.
-3. **Platform alarm**: daily provider-cost threshold.
-4. **Plan copy**: `docs/ops/stripe.md` must stop saying Ask SILO is included in
+1. **Internal failure budget**: per-company daily and platform daily provider-cost
+   limits for failed requests.
+2. **Auto-recharge amount**: fixed packs, or chosen by the company within its cap?
+3. **Concurrency limits**: per-company in-flight cap and global cap. These need
+   measured mean duration, peak arrival rate and the Anthropic TPM limits first.
+4. **Platform alarm**: daily provider-cost threshold.
+5. **Plan copy**: `docs/ops/stripe.md` must stop saying Ask SILO is included in
    Growth.
