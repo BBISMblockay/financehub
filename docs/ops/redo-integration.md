@@ -102,3 +102,38 @@ developers.redo.com before building the backfill script.
   via SQL/Supabase only. A view joining `redo_returns` against `sales_by_day`
   to actually surface the BI variance fix is the natural next step.
 - No historical backfill script — see above.
+
+## Marketing reporting (campaigns + automations)
+
+Added 2026-09-24. Redo's marketing numbers are NOT on the v2.2 REST API the
+returns flow uses; they come from its GraphQL reporting API,
+`POST https://api.getredo.com/v3/account/{redo_store_id}/graphql`, with the
+SAME token (`redo_connections.api_secret`) once it carries the READ scopes
+Campaigns, Marketing automations, Campaign analytics, Marketing automation
+analytics and Marketing templates. Baseballism's does.
+
+- **Nightly**: `redo-marketing-sync.yml` (10:45 + 16:45 UTC) runs
+  `scripts/redo-marketing-sync.mjs` for every active connection, re-pulling a
+  trailing 60 days ending yesterday (business timezone) and overwriting.
+- **Backfill**: dispatch the same workflow with `start_date` (e.g.
+  `2025-01-01`); it chunks to Redo's 400-day limit, newest first.
+- **Probe**: `redo-marketing-probe.yml` (read-only) prints counts, top
+  campaigns/automations, API cost and any error code.
+- **A token without the scopes** records `sync_jobs.status = 'skipped'` with
+  the reason and does not fail the run.
+- Every run is a `sync_jobs` row with `job_type = 'redo_marketing'` and the
+  per-chunk counts in `result`.
+
+What was measured on the live account before building it (2026-09-24):
+
+| Fact | Consequence |
+| --- | --- |
+| Every rate is a count ÷ `delivered` | only counts are stored; rates are pooled per window |
+| Per-channel daily rows sum to Redo's window totals exactly | daily grain loses nothing |
+| Paused automations still send/attribute | no `enabled` filter |
+| Campaigns sent as early as 2026-07-14 attributed 42 orders ($4,309) in 08-24..09-22 | no send-date filter; 60-day nightly window, not 5 |
+| Cost ~3,000 of a 10,000 budget for a 30-day pull of 111 campaigns + 42 automations | comfortable nightly |
+
+Not built yet: a SILO page for it (the data is readable today through
+`redo_marketing_daily_v` and Ask SILO), and a freshness alarm in
+`sales-freshness-check.yml`.

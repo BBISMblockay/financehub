@@ -4689,6 +4689,53 @@ select 'Legacy Slack delivery is paused' as check_name,
   ) then 'CRITICAL — a legacy Slack trigger or cron is still active'
   else 'ok' end as status;
 
+-- ── Redo marketing reporting (20260924120000) ───────────────────────────────
+-- Campaign + automation counts per message/channel/day, written by
+-- scripts/redo-marketing-sync.mjs. What keeps the tables honest: service-role
+-- writes only, the newest-run-wins trigger (the nightly and a backfill can
+-- overlap), a view that carries the caller's RLS, the job_type the sync
+-- records, and the catalog caveat that revenue is ATTRIBUTED.
+select
+  case
+    when (select count(*) from information_schema.tables
+          where table_schema = 'public'
+            and table_name in ('redo_marketing_messages', 'redo_marketing_daily')) < 2
+      then 'MISSING — run 20260924120000_redo_marketing_reporting.sql'
+    when (select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'public' and c.relrowsecurity
+            and c.relname in ('redo_marketing_messages', 'redo_marketing_daily')) < 2
+      then 'CRITICAL — a redo_marketing_* table has RLS disabled'
+    when exists (select 1 from pg_policies
+                 where schemaname = 'public'
+                   and tablename in ('redo_marketing_messages', 'redo_marketing_daily')
+                   and cmd <> 'SELECT')
+      then 'CRITICAL — a redo_marketing_* table has a client write policy; writes are the sync''s alone'
+    when has_table_privilege('anon', 'public.redo_marketing_daily', 'select')
+      then 'CRITICAL — anon can read redo_marketing_daily'
+    when (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid
+          where t.tgname = 'trg_redo_marketing_newest_run_wins' and not t.tgisinternal
+            and c.relname in ('redo_marketing_messages', 'redo_marketing_daily')) < 2
+      then 'MISSING — a redo_marketing_* table lost its newest-run-wins trigger'
+    when (select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid
+          where t.tgname = 'stamp_company_entity_id' and not t.tgisinternal
+            and c.relname in ('redo_marketing_messages', 'redo_marketing_daily')) < 2
+      then 'MISSING — a redo_marketing_* table has no stamp_company_entity_id trigger; run attach_stamp_company_entity_id_triggers()'
+    when not exists (select 1 from pg_class
+                     where relname = 'redo_marketing_daily_v'
+                       and 'security_invoker=true' = any (coalesce(reloptions, '{}')))
+      then 'CRITICAL — redo_marketing_daily_v is missing or not security_invoker'
+    when not exists (select 1 from pg_constraint
+                     where conname = 'sync_jobs_job_type_check'
+                       and pg_get_constraintdef(oid) like '%''redo_marketing''%')
+      then 'MISSING — sync_jobs rejects job_type=redo_marketing; the nightly cannot record a run'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname = 'redo_marketing_daily_v'
+                       and description like '%REDO EMAIL/SMS MARKETING%'
+                       and description like '%NOT incremental%')
+      then 'MISSING — redo_marketing_daily_v lost its attributed-revenue caveat'
+    else 'ok'
+  end as redo_marketing_reporting;
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further
