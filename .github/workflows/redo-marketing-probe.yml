@@ -1,19 +1,15 @@
 name: Redo Marketing Probe
 
-# Read-only diagnostic of Redo's GraphQL marketing reporting API, not a real sync -- see scripts/redo-marketing-probe.mjs.
-# Manual trigger only.
+# Read-only diagnostic of Redo's GraphQL marketing reporting API, not a real
+# sync -- see scripts/redo-marketing-probe.mjs. Manual trigger only. Uses the
+# token already stored on redo_connections for the named company.
 on:
   workflow_dispatch:
     inputs:
       # Required, no default: the probe reads one company's Redo credentials.
       company_entity_id:
-        description: "Company UUID -- only used when the REDO_MARKETING_API_TOKEN secret is unset (falls back to the stored returns token)"
-        required: false
-        type: string
-      store_id:
-        description: "Redo store id (required with the REDO_MARKETING_API_TOKEN secret)"
-        required: false
-        default: "67bd00083e2ee87ca8a052df"
+        description: "Company UUID (required -- whose Redo connection to probe)"
+        required: true
         type: string
       start:
         description: "Window start YYYY-MM-DD (default: 31 days ago)"
@@ -45,8 +41,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           REDO_COMPANY_ENTITY_ID: ${{ inputs.company_entity_id }}
-          REDO_MARKETING_API_TOKEN: ${{ secrets.REDO_MARKETING_API_TOKEN }}
-          REDO_STORE_ID: ${{ inputs.store_id }}
           PROBE_START: ${{ inputs.start }}
           PROBE_END: ${{ inputs.end }}
         run: node scripts/redo-marketing-probe.mjs

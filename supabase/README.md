@@ -2176,3 +2176,31 @@ Report page needs no change.
   pinning `created_by`; SILO deactivates people rather than deleting profiles.
   The same migration refreshes the Ask SILO / report-builder catalog.
 - Test: `scripts/tests/incoming-shipment-audit-database.test.mjs`.
+
+## Redo marketing reporting — `20260924120000_redo_marketing_reporting.sql`
+
+`redo_marketing_messages` (one row per Redo campaign or automation) and
+`redo_marketing_daily` (counts per message × channel × day), written by
+`scripts/redo-marketing-sync.mjs` (`redo-marketing-sync.yml`, nightly + manual
+backfill) from Redo's GraphQL reporting API with the token already on
+`redo_connections.api_secret`. Read through `redo_marketing_daily_v`
+(`security_invoker`).
+
+- **Counts only, no rates.** Every Redo rate is a count over `delivered`
+  (measured), and a per-day rate is not well-formed (clicks and orders land
+  after the send day; one day measured 303%). Pool counts over a window, then
+  divide.
+- **Revenue is Redo-attributed**, never incremental; `spend` is Redo's per-message
+  sending cost in USD, not an ad budget.
+- **Nothing filtered.** Campaigns are fetched with no send-date cutoff and
+  automations with no `enabled` filter: both were measured dropping real
+  attributed orders (campaigns sent six weeks before a window still attribute).
+  With neither filter, window sums equal Redo's own totals to the cent.
+- **Newest run wins**: a BEFORE UPDATE trigger drops an upsert older than the
+  stored row, so an overlapping nightly and backfill cannot regress each other.
+  The sync's sweep retires only rows inside its window older than itself, and
+  runs only after both lists are fully fetched.
+- Service-role writes only; company-scoped select; anon revoked. Appends
+  `redo_marketing` to the live `sync_jobs.job_type` list.
+- Tests: `scripts/tests/redo-marketing-sync.test.mjs`,
+  `scripts/tests/redo-marketing-database.test.mjs`.

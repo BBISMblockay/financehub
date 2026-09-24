@@ -19100,6 +19100,12 @@ $c$select (select count(*) from v_po_header_summary
 -- Follow-up: profile keys on the four audit columns + catalog refresh.
 \i migrations/20260923170000_incoming_shipment_audit_fks.sql
 
+-- ── Redo marketing reporting (2026-09-24) ─────────────────────────────────
+-- Campaign + automation counts per message/channel/day from Redo's GraphQL
+-- reporting API, service-role writes, newest run wins. Appends 'redo_marketing'
+-- to the live sync_jobs job_type list. Additive; re-runnable.
+\i migrations/20260924120000_redo_marketing_reporting.sql
+
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above
 -- upsert the catalog, so re-running this file without it re-creates the four

@@ -46,6 +46,11 @@ on:
       - 'supabase/migrations/*card_coding_evidence_and_rules.sql'
       - '.github/workflows/redo-backfill.yml'
       - '.github/workflows/redo-marketing-probe.yml'
+      # Redo marketing reporting: the sync driver, its workflow and the
+      # migration the database suite executes.
+      - 'scripts/redo-marketing-sync.mjs'
+      - '.github/workflows/redo-marketing-sync.yml'
+      - 'supabase/migrations/*redo_marketing_reporting.sql'
       - '.github/workflows/mailroom-backfill.yml'
       - 'supabase/functions/shopify-oauth-start/**'
       - 'supabase/migrations/*company_onboarding.sql'
@@ -319,6 +324,15 @@ jobs:
       # later one fails.
       - name: Search Console sync
         run: node scripts/tests/search-console-sync.test.mjs
+
+      # Redo marketing. The properties that matter are ordering ones: nothing
+      # is written until BOTH lists are fully paged, so a failure on page 2
+      # can never reach the sweep that retires rows a run did not return; and
+      # neither list is filtered (no send-date cutoff, no `enabled`), because
+      # both filters were measured on 2026-09-24 to drop real attributed
+      # revenue.
+      - name: Redo marketing sync
+        run: node scripts/tests/redo-marketing-sync.test.mjs
 
       # Meta ad destinations. The assertion that earns its place is the
       # DOWNGRADE: these reads go through the Graph batch API, where a field
@@ -778,6 +792,13 @@ jobs:
       # future rebuild of wow_creatives cannot silently delete them again.
       - name: Execute Meta creative destination regressions
         run: node scripts/tests/meta-creative-links-database.test.mjs
+
+      # Redo marketing tables: re-appliable migration, the newest run winning
+      # over an overlapping older one, tenant-scoped reads through the
+      # security_invoker view, no client writes, and the job_type appended to
+      # the LIVE list rather than retyped.
+      - name: Execute Redo marketing table regressions
+        run: node scripts/tests/redo-marketing-database.test.mjs
 
       # The SEO workflow's approval RLS, publication guard, window ordering and
       # the deterministic capture, executed as authenticated users against the

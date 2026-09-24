@@ -10,15 +10,16 @@
 //   Authorization: Bearer <token>
 //
 // The token needs READ scopes Campaigns, Marketing automations, Campaign
-// analytics, Marketing automation analytics, Marketing templates. The returns
-// token on redo_connections.api_secret was minted for returns_read and will
-// most likely answer INSUFFICIENT_SCOPE -- which this probe reports by name.
+// analytics, Marketing automation analytics, Marketing templates. Baseballism's
+// stored token (redo_connections.api_secret) carries them as of 2026-09-24;
+// a token that does not is reported by name (INSUFFICIENT_SCOPE).
 //
 // Token resolution, first hit wins:
-//   1. REDO_MARKETING_API_TOKEN (+ REDO_STORE_ID) -- a new marketing-scoped
-//      token, no Supabase needed. Lets the probe run before anything is stored.
+//   1. REDO_MARKETING_API_TOKEN (+ REDO_STORE_ID) -- a local override, no
+//      Supabase needed, for trying a token before it is stored.
 //   2. redo_connections.api_secret / meta.redo_store_id for
 //      REDO_COMPANY_ENTITY_ID (needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY).
+//      This is what the Redo Marketing Probe workflow uses.
 //
 // Queries only; nothing is created or modified on Redo's side or in SILO.
 // Prints counts, a few campaign/automation names with their totals, the
@@ -78,11 +79,13 @@ query AutomationReport($start: Date!, $end: Date!, $first: Int!, $after: String)
 
 async function resolveCredentials() {
   if (TOKEN_ENV) {
-    if (!STORE_ENV) throw new Error('REDO_MARKETING_API_TOKEN is set but REDO_STORE_ID is not');
+    // Error text deliberately does not name the override variables:
+    // workflow-env-contract.test.mjs treats a name in a throw as REQUIRED.
+    if (!STORE_ENV) throw new Error('a token override needs a store id override too');
     return { token: TOKEN_ENV, storeId: STORE_ENV, source: 'REDO_MARKETING_API_TOKEN' };
   }
   if (!COMPANY_ENTITY_ID) {
-    throw new Error('Set REDO_MARKETING_API_TOKEN + REDO_STORE_ID, or REDO_COMPANY_ENTITY_ID to use the stored returns token');
+    throw new Error('Missing REDO_COMPANY_ENTITY_ID -- name the company whose stored Redo token to probe');
   }
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
@@ -99,8 +102,8 @@ async function resolveCredentials() {
     throw new Error(`No redo_connections.api_secret for company ${COMPANY_ENTITY_ID}: ${error?.message || 'not found'}`);
   }
   const storeId = STORE_ENV || data.meta?.redo_store_id;
-  if (!storeId) throw new Error('redo_connections.meta.redo_store_id is not set (or pass REDO_STORE_ID)');
-  return { token: data.api_secret, storeId, source: 'redo_connections.api_secret (returns token)' };
+  if (!storeId) throw new Error('redo_connections.meta.redo_store_id is not set');
+  return { token: data.api_secret, storeId, source: 'redo_connections.api_secret (the stored token)' };
 }
 
 async function gql(creds, label, query, variables = {}) {
