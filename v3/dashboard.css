@@ -442,8 +442,20 @@
   color: var(--bcn-ink-3); padding: 10px 9px 4px;
 }
 
-.rb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.rb-panes { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; background: var(--bcn-sunken); display: flex; flex-direction: column; gap: 14px; }
+/* .rb-main owns the ONE scrollbar for everything to its right of the rail
+   -- Build/SQL, the stale bar, Parameters and Preview all flow as one
+   continuous column. It used to split that scroll: .rb-panes had its own
+   flex:1/overflow-y so the chip bar stayed put while Build/SQL scrolled
+   underneath, but that put .rb-panes (flex-basis 0%) in a shrink contest
+   against Params and Preview (both sized by their own content) -- the
+   moment Preview held a real chart+table, flexbox's shrink algorithm
+   handed Preview and Params their full content height and left .rb-panes
+   a ~110px sliver, showing one random cut-off fragment of whichever editor
+   the scroll happened to be sitting on. One scroll owner removes the
+   contest entirely: every section renders at its natural height, in order,
+   and nothing is ever squeezed to near-nothing to make room for a sibling. */
+.rb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.rb-panes { padding: 14px; background: var(--bcn-sunken); display: flex; flex-direction: column; gap: 14px; }
 .rb-pane[hidden] { display: none !important; }
 
 .rb-section { display: flex; flex-direction: column; gap: 8px; }
@@ -525,7 +537,11 @@
    settle to their compact resting size (42% was sized for the old always-
    open Build form, which left far less room to hand over). */
 .rb-preview {
-  flex-shrink: 0; max-height: 62%; display: flex; flex-direction: column;
+  /* No percentage cap any more -- .rb-main scrolls as a whole now, so
+     Preview does not need to fit inside a fraction of a fixed-height
+     sibling. It renders at its natural (chart + table) height, same as
+     Build and Params above it. */
+  display: flex; flex-direction: column;
   background: var(--bcn-sunken); padding: 0 14px 14px;
 }
 .rb-preview-head {
@@ -541,7 +557,12 @@
    stacked rather than one continuous preview; spacing (rb-preview-chart's
    own margin-bottom) is what separates them instead. */
 .rb-preview-body {
-  flex: 1; min-height: 120px; overflow: auto; padding: 4px 4px 14px;
+  /* max-height, not flex:1 -- .rb-preview no longer has a bounded height for
+     flex:1 to divide up, so an unbounded table would just grow the whole
+     page to fit every row instead of scrolling in place. A capped height
+     keeps a long result set's own scrollbar without reviving the squeeze
+     .rb-main's single scroll was built to remove. */
+  max-height: 420px; min-height: 120px; overflow: auto; padding: 4px 4px 14px;
   background: var(--bcn-surface); border-radius: 10px;
 }
 .rb-preview-more { display: flex; align-items: center; gap: 10px; padding: 10px 0 2px; }
@@ -1001,6 +1022,24 @@
   .rb-chipbar { padding: 8px 12px; }
   .rb-toolbar { padding: 8px 12px; flex-wrap: wrap; }
   .rb-cmd { max-width: none; order: 1; flex-basis: 100%; }
+
+  /* .rb-rail keeps flex-shrink: 0 at every width (a source list that shrinks
+     to nothing is worse than one that takes its full height) -- on desktop
+     that is a non-issue since .rb-rail sits beside .rb-main in a ROW, but
+     stacked in a COLUMN here, the rail's ~570px (source list + field
+     browser, each capped at 260px) is taller than .rb-layout's own budget
+     at a phone's viewport height. .rb-layout and .rb-main both carry
+     min-height: 0 from the desktop rules specifically so they CAN shrink to
+     fit a fixed-height row layout -- at this breakpoint that lets flexbox
+     crush .rb-main to 0px instead of ever asking its ancestor to scroll:
+     confirmed by measuring it directly (0×0, with every Build control
+     rendered outside its own clipped box and unreachable). Restoring the
+     automatic (content-based) minimum here means .rb-layout can't be
+     squeezed smaller than the rail genuinely needs, so the resulting
+     overflow reaches .silo-main -- which already scrolls the whole page
+     (v2/beacon.css's own overflow-y: auto) -- instead of a zero-height
+     scrollport nothing can ever be scrolled into. */
+  .rb-layout, .rb-main { min-height: auto; }
 }
 
 /* ── Query picker badges ──────────────────────────────────────────────

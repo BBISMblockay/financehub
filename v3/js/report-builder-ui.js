@@ -313,12 +313,22 @@
           </div>
         </details>
       </div>`;
-    // toggle does not reliably bubble, so each <details> gets its own
-    // listener rather than one delegated on #buildBody -- there are at
-    // most six of these, so the cost of re-attaching every render is nothing.
+    // A real click on <summary> -- not the 'toggle' event -- is what marks a
+    // section manually opened. Chromium fires a synthetic 'toggle' the
+    // instant a freshly-parsed <details open> is inserted (confirmed via a
+    // page-level listener: picking a source alone fired two of them, one per
+    // <details> rendered open because it started empty). A 'toggle' listener
+    // read that as the user opening it and never let secOpen's emptyCondition
+    // close it again -- secDate, secFilters and secMeasures all got stuck
+    // open forever after their first empty render, stacking into one long,
+    // disorienting panel. A click listener on <summary> only fires on actual
+    // user interaction, and runs before the browser's default action applies
+    // the new open state, so `!d.open` here is reliably the state BEFORE
+    // this click takes effect.
     el('buildBody').querySelectorAll('details.rb-editor[id]').forEach((d) => {
-      d.addEventListener('toggle', () => {
-        if (d.open) secManualOpen.add(d.id); else secManualOpen.delete(d.id);
+      const summary = d.querySelector(':scope > summary');
+      summary?.addEventListener('click', () => {
+        if (!d.open) secManualOpen.add(d.id); else secManualOpen.delete(d.id);
       });
     });
     renderChipBar();
