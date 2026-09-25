@@ -188,6 +188,7 @@
           <div class="bcn-card-header">
             <h2><svg class="mo-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#0467DF" d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/></svg>Meta ads — creative performance</h2>
             <div class="mo-filter-row">
+              <span id="creativeFocus" hidden style="font-size:11px;color:var(--bcn-ink-3)">Showing linked creative <button class="bcn-btn bcn-btn--ghost" id="clearCreativeFocus" type="button" style="padding:2px 6px;font-size:10px">Show all</button></span>
               <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--bcn-ink-3);cursor:pointer">
                 <input type="checkbox" id="activeOnly" /> Active only
               </label>
@@ -197,14 +198,28 @@
             <table class="mo-tbl">
               <thead><tr>
                 <th>Ad</th><th>Status</th><th>Spend</th><th>CTR</th>
-                <th>Purchases</th><th>CPA</th><th>ROAS</th><th>Flag</th>
+                <th>Purchases</th><th>CPA</th><th>ROAS</th><th>Flag</th><th>Launch</th>
               </tr></thead>
-              <tbody id="creativeBody"><tr><td class="mo-empty" colspan="8"><span class="mo-spinner"></span>Loading…</td></tr></tbody>
+              <tbody id="creativeBody"><tr><td class="mo-empty" colspan="9"><span class="mo-spinner"></span>Loading…</td></tr></tbody>
             </table>
           </div>
           <div class="mo-note">Flags: <b>review</b> = active, ≥$500 spend in window, ROAS &lt; 1 (may be intentional for upper-funnel campaigns) · <b>scale?</b> = ROAS ≥ 5 on ≥$1k spend. Thumbnails refresh nightly from Meta.</div>
         </div>
       </div>
+
+      <dialog id="creativeLaunchDialog" style="border:1px solid var(--bcn-border);border-radius:12px;padding:20px;max-width:min(440px,calc(100vw - 32px));width:100%;background:var(--bcn-surface);color:var(--bcn-ink);box-shadow:0 16px 48px #0004">
+        <form id="creativeLaunchForm">
+          <h2 style="margin:0 0 6px;font-size:17px">Link creative to launch</h2>
+          <p id="creativeLaunchName" style="margin:0 0 16px;color:var(--bcn-ink-3);font-size:12px"></p>
+          <label for="creativeLaunchSelect" style="display:block;font-size:11px;margin-bottom:6px">Launch</label>
+          <select id="creativeLaunchSelect" required style="width:100%;padding:10px;border:1px solid var(--bcn-border);border-radius:7px;background:var(--bcn-surface);color:var(--bcn-ink)"></select>
+          <p id="creativeLaunchError" role="alert" style="min-height:18px;color:#b42318;font-size:12px"></p>
+          <div style="display:flex;justify-content:flex-end;gap:8px">
+            <button type="button" class="bcn-btn" id="creativeLaunchCancel">Cancel</button>
+            <button type="submit" class="bcn-btn bcn-btn--primary" id="creativeLaunchSave">Link creative</button>
+          </div>
+        </form>
+      </dialog>
 
       <!-- ── Funnel ───────────────────────────────────────────────── -->
       <div data-panel="funnel" hidden>
@@ -329,7 +344,7 @@
   const numFmt = v => Math.round(Number(v||0)).toLocaleString();
   const pctFmt = v => (v==null || !isFinite(v)) ? '—' : `${(v*100).toFixed(2)}%`;
   const ratioFmt = v => (v==null || !isFinite(v)) ? '—' : `${v.toFixed(2)}x`;
-  const esc = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+  const esc = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
 
   const el = id => document.getElementById(id);
   function setStatus(t){ el('statusText').textContent = t; }
@@ -608,11 +623,79 @@
   }
 
   // ── Creatives tab ──────────────────────────────────────────────
-  let _adPerf = [], _creatives = [];
+  let _adPerf = [], _creatives = [], _launches = [], _creativeLinks = [], _linkable = true;
+  let focusedAd = new URLSearchParams(location.search).get('ad');
+  const CREATIVE_REF = 'meta_ad_creatives';
+  async function loadLaunchLinks(){
+    try {
+      const [launches, links] = await Promise.all([
+        loadPaged(() => scopeQ(sb.from('launch_calendar').select('id,title,launch_date')
+          .order('launch_date',{ascending:false}).order('id',{ascending:true}))),
+        loadPaged(() => scopeQ(sb.from('launch_system_links')
+          .select('id,launch_id,ref_id').eq('link_type','campaign').eq('ref_table',CREATIVE_REF)
+          .order('id',{ascending:true}))),
+      ]);
+      _launches = launches; _creativeLinks = links;
+      _linkable = true;
+    } catch(e){
+      console.warn('Launch links unavailable', e);
+      _launches = []; _creativeLinks = []; _linkable = false;
+    }
+  }
+  let selectedCreative = null;
+  function openCreativeLaunch(adId){
+    const ad = _adPerf.find(a => String(a.ad_id) === String(adId));
+    if (!ad || !_linkable) return;
+    selectedCreative = { id:String(adId), name:ad.ad_name || String(adId) };
+    el('creativeLaunchName').textContent = selectedCreative.name;
+    el('creativeLaunchError').textContent = '';
+    const linked = new Set(_creativeLinks.filter(l => String(l.ref_id) === selectedCreative.id).map(l => String(l.launch_id)));
+    const choices = _launches.filter(l => !linked.has(String(l.id)));
+    const select = el('creativeLaunchSelect');
+    select.replaceChildren();
+    for (const launch of choices){
+      const option = document.createElement('option');
+      option.value = launch.id;
+      option.textContent = `${launch.title || 'Untitled launch'} · ${launch.launch_date || 'no date'}`;
+      select.append(option);
+    }
+    el('creativeLaunchSave').disabled = !choices.length;
+    if (!choices.length) el('creativeLaunchError').textContent = 'This creative is already linked to every available launch.';
+    el('creativeLaunchDialog').showModal();
+  }
+  el('creativeLaunchCancel').onclick = () => el('creativeLaunchDialog').close();
+  el('clearCreativeFocus').onclick = () => {
+    focusedAd = null;
+    const url = new URL(location.href); url.searchParams.delete('ad');
+    history.replaceState(null,'',url);
+    renderCreatives();
+  };
+  el('creativeBody').addEventListener('click', e => {
+    const button = e.target.closest('[data-link-ad]');
+    if (button) openCreativeLaunch(button.dataset.linkAd);
+  });
+  el('creativeLaunchForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!selectedCreative || !_co?.id) return;
+    const launchId = el('creativeLaunchSelect').value;
+    if (!_launches.some(l => String(l.id) === launchId)) return;
+    const save = el('creativeLaunchSave');
+    save.disabled = true;
+    el('creativeLaunchError').textContent = '';
+    const {error} = await sb.from('launch_system_links').insert({
+      company_entity_id:_co.id, launch_id:launchId, link_type:'campaign',
+      ref_table:CREATIVE_REF, ref_id:selectedCreative.id, ref_label:selectedCreative.name,
+    });
+    if (error){ el('creativeLaunchError').textContent = error.message; save.disabled = false; return; }
+    _creativeLinks.push({ launch_id:launchId, ref_id:selectedCreative.id });
+    el('creativeLaunchDialog').close();
+    renderCreatives();
+  });
   function renderCreatives(){
+    el('creativeFocus').hidden = !focusedAd;
     const activeOnly = el('activeOnly').checked;
     if (!_adPerf.length){
-      el('creativeBody').innerHTML = `<tr><td class="mo-empty" colspan="8">No ad-level data in this window.</td></tr>`;
+      el('creativeBody').innerHTML = `<tr><td class="mo-empty" colspan="9">No ad-level data in this window.</td></tr>`;
       return;
     }
     const cMap = new Map(_creatives.map(c => [String(c.ad_id), c]));
@@ -626,9 +709,10 @@
       a.value += Number(r.conversion_value||0);
     }
     let list = [...byAd.values()].sort((a,b)=>b.spend-a.spend);
-    if (activeOnly) list = list.filter(a => (cMap.get(a.adId)?.effective_status || '') === 'ACTIVE');
+    if (focusedAd) list = list.filter(a => a.adId === focusedAd);
+    if (activeOnly && !focusedAd) list = list.filter(a => (cMap.get(a.adId)?.effective_status || '') === 'ACTIVE');
     if (!list.length){
-      el('creativeBody').innerHTML = `<tr><td class="mo-empty" colspan="8">No ads match the filter.</td></tr>`;
+      el('creativeBody').innerHTML = `<tr><td class="mo-empty" colspan="9">${focusedAd ? 'This linked creative has no data in this date window. Try 90d or show all.' : 'No ads match the filter.'}</td></tr>`;
       return;
     }
 
@@ -649,9 +733,12 @@
       const fmtLabel = esc((c?.object_type || 'AD').slice(0, 6));
       const fallback = `<div class="mo-thumb" style="display:flex;align-items:center;justify-content:center;font-family:var(--bcn-mono);font-size:8px;color:var(--bcn-ink-4)">${fmtLabel}</div>`;
       const thumb = c?.thumbnail_url
-        ? `<img class="mo-thumb" loading="lazy" src="${esc(c.thumbnail_url)}" alt=""
-             onerror="this.outerHTML='${fallback.replaceAll("'", "&#39;")}'" />`
+        ? `<img class="mo-thumb" loading="lazy" src="${esc(c.thumbnail_url)}" alt="" data-fmt="${fmtLabel}" />`
         : fallback;
+      const linked = _creativeLinks.filter(l => String(l.ref_id) === a.adId)
+        .map(l => _launches.find(x => String(x.id) === String(l.launch_id))).filter(Boolean);
+      const launchCell = linked.map(l => `<a href="/v2/launch-calendar.html?launch=${encodeURIComponent(l.id)}" class="bcn-pill mo-platform-pill" style="display:inline-block;margin:2px;color:var(--bcn-accent)" title="Open launch">${esc(l.title || 'Launch')} ↗</a>`).join('')
+        + (_linkable ? `<button type="button" class="bcn-btn bcn-btn--ghost" data-link-ad="${esc(a.adId)}" style="padding:3px 6px;font-size:10px">+ Link</button>` : '—');
       return `<tr>
         <td><div class="mo-ad-cell">${thumb}<div><div class="mo-ad-name">${safeHref(c?.preview_shareable_link)
           ? `<a class="mo-ad-name" href="${esc(safeHref(c.preview_shareable_link))}" target="_blank" rel="noopener noreferrer" title="Open Meta's preview of this ad">${esc(a.name||a.adId)} ↗</a>`
@@ -663,8 +750,19 @@
         <td>${a.conv ? money(a.spend/a.conv) : '—'}</td>
         <td>${ratioFmt(roas)}</td>
         <td>${flag}</td>
+        <td style="text-align:left;max-width:250px;white-space:normal">${launchCell}</td>
       </tr>`;
     }).join('');
+    el('creativeBody').querySelectorAll('img.mo-thumb').forEach(img => {
+      img.addEventListener('error', () => {
+        const tile = document.createElement('div');
+        tile.className = 'mo-thumb';
+        tile.style.cssText = 'display:flex;align-items:center;justify-content:center;font:8px var(--bcn-mono);color:var(--bcn-ink-4)';
+        tile.textContent = img.dataset.fmt || 'AD';
+        img.replaceWith(tile);
+      }, {once:true});
+      if (img.complete && !img.naturalWidth) img.dispatchEvent(new Event('error'));
+    });
   }
 
   // ── Funnel tab ─────────────────────────────────────────────────
@@ -866,7 +964,7 @@
     el('btnRefresh').disabled = true;
     try {
       const [rows, merRows, adPerf, creatives, organic, pageDays] = await Promise.all([
-        loadRows(), loadMer(), loadAdPerf(), loadCreatives(), loadOrganic(), loadPageInsights(),
+        loadRows(), loadMer(), loadAdPerf(), loadCreatives(), loadOrganic(), loadPageInsights(), loadLaunchLinks(),
       ]);
       _adPerf = adPerf; _creatives = creatives;
       const hasAny = rows.length > 0 || (merRows||[]).some(m => Number(m.online_net_sales||0) > 0);
@@ -923,6 +1021,9 @@
         crumbs:['Reports','Marketing Performance'],
         supabaseClient:sb,
       });
+    }
+    if (focusedAd){
+      document.querySelector('.bcn-tab[data-tab="creatives"]').click();
     }
     await runLoad();
   }
