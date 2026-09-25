@@ -20,7 +20,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260922r" />
+  <link rel="stylesheet" href="dashboard.css?v=20260925a" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -51,6 +51,8 @@
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnSettings" hidden
                 aria-expanded="false" aria-controls="metaBar"
                 title="Name, description and who can see this dashboard">Settings</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnCopy" hidden
+                title="Save this dashboard as your own board, which you can then change">Save a copy</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnEdit" hidden>Edit</button>
         <button type="button" class="bcn-btn bcn-btn--primary" id="btnSave" hidden>Save</button>
       </div>
@@ -194,20 +196,22 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260922r"></script>
-<script src="js/field-semantics.js?v=20260922r"></script>
-<script src="js/metrics.js?v=20260922r"></script>
-<script src="js/chart-adapter.js?v=20260922r"></script>
-<script src="js/filter-bar.js?v=20260922r"></script>
-<script src="js/report-catalog.js?v=20260922r"></script>
+<script src="js/report-params.js?v=20260925a"></script>
+<script src="js/field-semantics.js?v=20260925a"></script>
+<script src="js/metrics.js?v=20260925a"></script>
+<script src="js/chart-adapter.js?v=20260925a"></script>
+<script src="js/filter-bar.js?v=20260925a"></script>
+<script src="js/report-catalog.js?v=20260925a"></script>
 <!-- The dashboard page does not compose SQL, but it does have to READ a
      saved answer: which of its queries is the answer and which is the
      model looking up column names. isSchemaProbe/defaultQueryIndex live
      in report-builder.js because that is where "what does this SQL mean"
      belongs; duplicating them here is how the two would drift. -->
-<script src="js/report-builder.js?v=20260922r"></script>
-<script src="js/dashboard-renderer.js?v=20260922r"></script>
-<script src="js/dashboard-builder.js?v=20260922r"></script>
+<script src="js/report-builder.js?v=20260925a"></script>
+<script src="js/dashboard-renderer.js?v=20260925a"></script>
+<script src="js/dashboard-builder.js?v=20260925a"></script>
+<script src="js/report-library.js?v=20260925a"></script>
+<script src="js/dashboard-copy.js?v=20260925a"></script>
 <script>
 (function () {
   'use strict';
@@ -559,15 +563,22 @@
     }
     dashboard = dash;
 
+    // A SILO board is one global definition every company reads with its own
+    // data. It is never edited in place -- not even by an exec/owner, and RLS
+    // refuses the write either way -- so the reader is offered a copy.
+    const isSilo = window.SiloReportLibrary.isSiloDashboard(dash);
     document.title = `SILO · ${dash.name}`;
     el('headerName').textContent = dash.name;
-    el('headerScope').textContent = dash.visibility === 'private' ? 'Only you' : 'Company';
+    el('headerScope').textContent = isSilo ? 'SILO' : (dash.visibility === 'private' ? 'Only you' : 'Company');
     el('headerScope').hidden = false;
-    el('headerScope').classList.toggle('bcn-pill--accent', dash.visibility !== 'private');
+    el('headerScope').classList.toggle('bcn-pill--accent', isSilo || dash.visibility !== 'private');
     el('headerDesc').textContent = dash.description || 'No description.';
-    el('headerMeta').textContent = `${dash.visibility === 'private' ? 'Visible to you only' : 'Visible to everyone at your company'}`
+    el('headerMeta').textContent = (isSilo
+        ? 'Maintained by SILO for every company, each seeing its own data'
+        : (dash.visibility === 'private' ? 'Visible to you only' : 'Visible to everyone at your company'))
       + ` · created by ${dash.created_by_name || 'Unknown'}`
       + (dash.updated_at ? ` · updated ${new Date(dash.updated_at).toLocaleString()}` : '');
+    el('btnCopy').hidden = !isSilo;
     el('btnInfo').hidden = false;
     el('dashName').value = dash.name;
     el('dashDescription').value = dash.description || '';
@@ -575,7 +586,7 @@
 
     // Mirrors the RLS update policy. Nav/UI gating is UX only -- a user who
     // forces edit mode still cannot write, the policy rejects it.
-    canEdit = isExecOrOwner || dash.created_by === user.id;
+    canEdit = !isSilo && (isExecOrOwner || dash.created_by === user.id);
     el('btnEdit').hidden = !canEdit;
 
     const { data: widgets, error: wErr } = await sb
@@ -688,6 +699,24 @@
     const open = el('headerInfo').hidden;
     el('headerInfo').hidden = !open;
     el('btnInfo').setAttribute('aria-expanded', String(open));
+  });
+
+  el('btnCopy').addEventListener('click', async () => {
+    if (!runtime || !dashboard) return;
+    el('btnCopy').disabled = true;
+    setStatus('Saving a copy…', 'info');
+    try {
+      const { data: widgets, error } = await sb.from('dashboard_widgets')
+        .select(window.SiloDashboardCopy.WIDGET_COLUMNS.join(', '))
+        .eq('dashboard_id', dashboard.id).order('sort_order');
+      if (error) throw new Error(error.message);
+      const copyId = await window.SiloDashboardCopy.saveCopy(sb, dashboard, widgets || []);
+      // Straight into edit mode: changing it is the reason for the copy.
+      window.location.href = `/v3/dashboard.html?id=${encodeURIComponent(copyId)}&edit=1`;
+    } catch (e) {
+      el('btnCopy').disabled = false;
+      setStatus('Could not save a copy: ' + (e.message || e), 'neg', 8000);
+    }
   });
 
   el('btnDensity').addEventListener('click', () => {

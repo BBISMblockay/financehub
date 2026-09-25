@@ -318,15 +318,22 @@
       if (op === 'insert') {
         // Saved reports get an R id so a new one is not mistaken for a
         // dashboard; dashboards keep D<n>, which suites assert on by URL.
-        const newId = base(table) === 'silo_chat_saved_reports'
+        // Widgets get W<n>. The client may insert an ARRAY (Save a copy
+        // writes every widget in one call), as the real client allows.
+        const nextId = () => (base(table) === 'silo_chat_saved_reports'
           ? 'R' + (db.silo_chat_saved_reports.length + 100)
-          : 'D' + (db.dashboards.length + 1);
-        const row = { id: newId, created_by: 'U1', created_by_name: 'Blake',
-          company_entity_id: 'C1', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-          description: null, visibility: 'company', ...payload };
-        db[base(table)].push(row);
+          : base(table) === 'dashboard_widgets'
+            ? 'W' + (db.dashboard_widgets.length + 1)
+            : 'D' + (db.dashboards.length + 1));
+        const made = (Array.isArray(payload) ? payload : [payload]).map((p) => {
+          const row = { id: nextId(), created_by: 'U1', created_by_name: 'Blake',
+            company_entity_id: 'C1', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+            description: null, visibility: 'company', ...p };
+          db[base(table)].push(row);
+          return row;
+        });
         persist();
-        return { data: single ? row : [row], error: null };
+        return { data: single ? made[0] : made, error: null };
       }
       if (op === 'update') {
         let out = db[base(table)];

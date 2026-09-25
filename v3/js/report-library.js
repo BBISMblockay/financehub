@@ -13,7 +13,10 @@
                    decided what this person may read, and hiding a
                    colleague's shared report here would make it unreachable
                    from the library while still visible on a dashboard.
-     Dashboards    every dashboard the caller can read.
+     Dashboards    every dashboard the caller can read. SILO dashboards
+                   (source = 'system', company_entity_id IS NULL) come first
+                   and are labelled SILO: one global board every company
+                   reads with its own data, never editable in place.
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -29,6 +32,15 @@
   const LEGACY_TABS = Object.freeze({ reports: 'mine' });
 
   const isSiloReport = (r) => !!r && r.source === 'system' && r.company_entity_id == null;
+  // Same two fields, same rule, for a board. Both must hold: the table's CHECK
+  // ties them together, and a row with only one of them is not SILO's.
+  const isSiloDashboard = (d) => !!d && d.source === 'system' && d.company_entity_id == null;
+
+  /** SILO boards first (in their own order), then everything else as given. */
+  function orderDashboards(rows) {
+    const list = rows || [];
+    return list.filter(isSiloDashboard).concat(list.filter((d) => !isSiloDashboard(d)));
+  }
 
   function splitReports(rows) {
     const silo = [];
@@ -99,6 +111,11 @@
     return row && row.visibility === 'private' ? 'Only me' : 'Company';
   }
 
+  /** The badge a dashboard card shows: SILO for a SILO board, else visibility. */
+  function dashboardScopeLabel(d) {
+    return isSiloDashboard(d) ? 'SILO' : visibilityLabel(d);
+  }
+
   const byTitle = (a, b) => clean(a.title).localeCompare(clean(b.title), undefined, { sensitivity: 'base' });
 
   global.SiloReportLibrary = {
@@ -113,6 +130,9 @@
     filterReports,
     filterDashboards,
     visibilityLabel,
+    isSiloDashboard,
+    orderDashboards,
+    dashboardScopeLabel,
     byTitle,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

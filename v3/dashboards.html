@@ -16,7 +16,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260922r" />
+  <link rel="stylesheet" href="dashboard.css?v=20260925a" />
   <style>
     /* ── Reports library ───────────────────────────────────────────────
        Page-specific, so it lives here rather than in dashboard.css (which
@@ -204,12 +204,12 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260922r"></script>
-<script src="js/field-semantics.js?v=20260922r"></script>
-<script src="js/metrics.js?v=20260922r"></script>
-<script src="js/chart-adapter.js?v=20260922r"></script>
-<script src="js/report-catalog.js?v=20260922r"></script>
-<script src="js/report-library.js?v=20260922r"></script>
+<script src="js/report-params.js?v=20260925a"></script>
+<script src="js/field-semantics.js?v=20260925a"></script>
+<script src="js/metrics.js?v=20260925a"></script>
+<script src="js/chart-adapter.js?v=20260925a"></script>
+<script src="js/report-catalog.js?v=20260925a"></script>
+<script src="js/report-library.js?v=20260925a"></script>
 <script>
 (function () {
   'use strict';
@@ -321,7 +321,7 @@
       kind: 'dashboards', id: d.id, title: d.name || 'Untitled dashboard',
       href: `/v3/dashboard.html?id=${encodeURIComponent(d.id)}`,
       summary: L.summaryOf(full),
-      foot: `<span class="bcn-pill${d.visibility === 'private' ? '' : ' bcn-pill--accent'}">${L.visibilityLabel(d)}</span>
+      foot: `<span class="bcn-pill${d.visibility === 'private' && !L.isSiloDashboard(d) ? '' : ' bcn-pill--accent'}">${esc(L.dashboardScopeLabel(d))}</span>
         <span class="lib-meta">${n} widget${n === 1 ? '' : 's'} · updated ${esc(fmtDate(d.updated_at))}</span>`,
       details: L.hasMore(full) || d.created_by_name
         ? `${L.hasMore(full) ? `<p>${esc(full)}</p>` : ''}<dl>${d.created_by_name ? `<dt>Created by</dt><dd>${esc(d.created_by_name)}</dd>` : ''}<dt>Widgets</dt><dd>${n}</dd></dl>`
@@ -457,7 +457,7 @@
   // ── Data ────────────────────────────────────────────────────────────
   async function loadDashboards() {
     const { data: rows, error } = await sb.from('dashboards_v').select('*').order('updated_at', { ascending: false });
-    data.dashboards = error ? new Error(error.message) : (rows || []);
+    data.dashboards = error ? new Error(error.message) : L.orderDashboards(rows || []);
   }
   async function loadReports() {
     // The same security_invoker view the Add-insight picker reads, so RLS
