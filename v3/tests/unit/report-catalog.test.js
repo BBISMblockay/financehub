@@ -104,5 +104,15 @@ test('Email & SMS reports file under Marketing, whatever their caveats mention',
     'Credited revenue is not incremental sales. It lands on the order day and keeps arriving for weeks.')), 'marketing');
 });
 
+test('Creative Performance files under Marketing', () => {
+  eq(C.categoryFor(system('c3000000-0000-4000-a000-00000000000a', 'Creative Performance',
+    'Revenue is credited by the platform and is not incremental sales. Inventory of creatives.')), 'marketing');
+});
+
+test('SEO Performance files under Marketing, not Sales', () => {
+  eq(C.categoryFor(system('c3000000-0000-4000-a000-00000000000b', 'SEO Performance',
+    'Google Search Console clicks by page and search query; the pages and products behind sales.')), 'marketing');
+});
+
 const result = R.summary();
 process.exit(result.fail ? 1 : 0);

@@ -2252,3 +2252,44 @@ prunes tiles dropped from the definition. Customising means "Save a copy" on
 the page. Applied before the catalog cleanup, which stays last. Verify check:
 "SILO dashboards are global and read-only". Test:
 `scripts/tests/silo-dashboards-database.test.mjs`.
+
+## Marketing and inventory reports — `20260925150000_marketing_inventory_reports.sql`
+
+Report definitions only (no table, view, policy or grant). Every query reads a
+`security_invoker` view or an RLS table, so each global definition scopes
+itself to the caller's company.
+
+- **Attribution vs Sales** (`c3..05`): q0 is now one row per ad platform --
+  spend, revenue the platform credits itself, claimed ROAS, share of all
+  claims, and each claim as a % of ALL online net sales (a comparison, never an
+  allocation). q1 keeps the combined comparison; "real online ROAS" is now
+  `online_sales_per_ad_dollar` (blended MER). Online sales use
+  `silo_channel_location_tags('online')`.
+- **Creative Performance** (`c3..0a`, new): by platform, campaign, ad/creative
+  and day. Meta is ad-level with its thumbnail (withheld when the signed URL's
+  `oe` expiry has passed) and Meta's preview link; Google is campaign-level
+  only and says so in `grain`.
+- **Inventory Summary** (`c1..01`): q0 keeps its columns (five boards' KPI
+  tiles read them) and adds measured-only cover with the excluded stock; q1
+  explains every unmeasured type; q2 is the product/SKU drilldown with image
+  (inventory, else `products_master`).
+- **Overstock** (`c1..07`): every type at or above `min_weeks` (default 52) of
+  on-hand cover, with a trend column and `trend = declining` filter.
+
+Replaces the four reports' tie-outs (the md5 guards change with the SQL). The
+catalog cleanup `20260922170000` now re-asserts only the TITLE of the three
+edited reports, since it replays after this file. Test:
+`scripts/tests/marketing-inventory-reports-database.test.mjs`.
+
+## SEO Performance — `20260925160000_seo_silo_report.sql`
+
+A SILO report (`c3..0b`, Marketing) over the three Search Console tables:
+site total against the previous equal-length period, daily trend, pages and
+search queries. Default window ends `today-2d` (final data). Follows the
+tables' rules: not-returned is blank never 0, position pooled by impressions,
+a comparison is blank unless both periods are fully ingested, the
+unattributed query share sits beside the totals, and page / query / site
+figures are never added together. Grouped by property. Date bounds are
+inline -- a joined window CTE is not index-pushable and timed out on 1.3M
+page rows. Tie-outs reconcile page and query rows to the site table's
+attributed clicks. Test: `scripts/tests/seo-silo-report-database.test.mjs`.

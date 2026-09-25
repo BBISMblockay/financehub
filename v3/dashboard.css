@@ -1081,6 +1081,22 @@
   background: var(--bcn-surface-2, rgba(0, 0, 0, 0.04));
 }
 .dw-cell-img { padding: 4px 8px; }
+/* No photo, or one that failed to load (Meta's signed thumbnail links
+   expire): the same footprint as a thumbnail, so rows stay aligned and the
+   gap reads as "no image", not as a broken table. */
+.dw-thumb--none {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  font-size: 9px;
+  line-height: 1.1;
+  text-align: center;
+  color: var(--bcn-ink-3);
+  border: 1px dashed var(--bcn-border-strong);
+  background: transparent;
+}
 .dw-cell-link a,
 .dw-cell-img a { color: var(--bcn-accent); text-decoration: none; }
 .dw-cell-link a:hover { text-decoration: underline; }

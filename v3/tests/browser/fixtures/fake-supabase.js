@@ -443,7 +443,17 @@
             return { data: [{ n: 2 }], error: null };
           }
 
-          const rows = QUERY_ROWS[args.query];
+          // A suite can seed rows for SQL it does not want to spell out in
+          // full: sessionStorage '__FAKE_QUERY_PREFIXES__' is a list of
+          // { prefix, rows }, matched on the start of the resolved SQL (the
+          // text before the first parameter literal never changes).
+          let seeded = null;
+          try {
+            const list = JSON.parse(sessionStorage.getItem('__FAKE_QUERY_PREFIXES__') || '[]');
+            const hit = list.find((e) => String(args.query || '').startsWith(e.prefix));
+            if (hit) seeded = hit.rows;
+          } catch { /* ignore */ }
+          const rows = seeded || QUERY_ROWS[args.query];
           if (rows) {
             // Mirrors chat_run_readonly_query's real pagination (20260904320000):
             // a 1000-row page per call, offset by p_offset. Every fixture but

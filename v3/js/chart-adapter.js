@@ -1476,12 +1476,22 @@
    * not editing, and it must not mark a dashboard dirty or be written back
    * as everyone's saved position.
    */
+  /** The stand-in for a photo that is absent or failed to load. */
+  function imagePlaceholderHtml() {
+    return '<span class="dw-thumb dw-thumb--none" role="img" aria-label="No image available">No image</span>';
+  }
+
   function tableHtml(rows, config, semantics, ui) {
     if (!Array.isArray(rows) || !rows.length) return '<div class="dw-empty">0 rows</div>';
     const prof = profileColumns(rows);
     const cfg = config || {};
     const state = ui || {};
     const { shown, matched, truncated, sortField, sortDir } = tableRows(rows, cfg, state);
+    // A report's own column label (columns_metadata[col].label) wins over
+    // the name-derived one. Handed in by the renderer, because `semantics`
+    // here is a flat name -> semantic map.
+    const labelOf = (name) => (state.labels && state.labels[name]) || columnLabel(name, semantics);
+    const imageLinks = state.imageLinks || {};
 
     const cols = visibleColumns(prof, cfg);
     const head = cols.map((c) => {
@@ -1491,7 +1501,7 @@
       return `<th class="${c.type === 'number' ? 'dw-num' : ''}${active ? ' is-sorted' : ''}"
                   aria-sort="${ariaSort}" title="${esc(c.name)}">
           <button type="button" class="dw-th-btn" data-sort-col="${esc(c.name)}" data-sort-dir="${next}">
-            <span class="dw-th-label">${esc(columnLabel(c.name, semantics))}</span><span
+            <span class="dw-th-label">${esc(labelOf(c.name))}</span><span
               class="dw-th-arrow" aria-hidden="true">${active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}</span>
           </button>
         </th>`;
@@ -1507,9 +1517,22 @@
       // and renders as ordinary escaped text -- never as a broken link.
       if (sem === 'image' || sem === 'link') {
         const url = safeUrl(raw);
+        // An image column with no usable URL still gets a cell the size of
+        // a thumbnail, so a missing photo reads as missing rather than as
+        // a row that failed to draw. A LOADED image that then fails (an
+        // expired signed URL) is swapped for the same placeholder by the
+        // renderer's error listener.
+        if (sem === 'image' && !url) {
+          return `<td class="dw-cell-img" data-col="${esc(c.name)}">${imagePlaceholderHtml()}</td>`;
+        }
         if (url) {
           if (sem === 'image') {
-            return `<td class="dw-cell-img" data-col="${esc(c.name)}"><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">`
+            // A report can point a thumbnail at a bigger view of the same
+            // thing (columns_metadata[col].link_column), e.g. Meta's own ad
+            // preview. Falls back to the image itself.
+            const target = (imageLinks[c.name] && safeUrl(r[imageLinks[c.name]])) || url;
+            return `<td class="dw-cell-img" data-col="${esc(c.name)}"><a href="${esc(target)}" target="_blank" rel="noopener noreferrer"`
+              + `${target !== url ? ' title="Open the full preview"' : ''}>`
               + `<img class="dw-thumb" src="${esc(url)}" alt="" loading="lazy" /></a></td>`;
           }
           return `<td class="dw-cell-link" data-col="${esc(c.name)}"><a href="${esc(url)}" target="_blank" rel="noopener noreferrer"`
@@ -1517,9 +1540,13 @@
         }
       }
 
-      let numClass = c.type === 'number' ? 'dw-num' : '';
-      let cell = cellText(raw, c, sem);
-      if (c.type === 'number') numClass += signClass(raw, sem);
+      // A report that declares a column a CATEGORY means it: a Meta ad id
+      // like "120238471650190610" is an identifier, and formatting it as
+      // 120,238,471,650,190,610 is wrong however numeric it looks.
+      const idText = sem === 'category' && c.type === 'number' && typeof raw === 'string';
+      let numClass = c.type === 'number' && !idText ? 'dw-num' : '';
+      let cell = idText ? raw : cellText(raw, c, sem);
+      if (c.type === 'number' && !idText) numClass += signClass(raw, sem);
       numClass += ruleTone(cfg.rules, c.name, raw);
       const full = cell;
       if (cell.length > 160) cell = cell.slice(0, 157) + '…';
@@ -1527,7 +1554,7 @@
       // read. They carry the RAW value, not the formatted one: a filter on
       // "$36,393,571" matches nothing.
       return `<td class="${numClass}" data-col="${esc(c.name)}"`
-        + (c.type !== 'number' && raw !== null && typeof raw !== 'object' ? ` data-value="${esc(raw)}"` : '')
+        + ((c.type !== 'number' || idText) && raw !== null && typeof raw !== 'object' ? ` data-value="${esc(raw)}"` : '')
         + (c.type === 'json' ? ` title="${esc(full)}"` : '') + `>${esc(cell)}</td>`;
     }).join('')}</tr>`).join('');
 
@@ -1548,7 +1575,7 @@
           ? global.SiloMetrics.aggregate(shown, c.name, sem, { aggregate: 'sum' })
           : { value: TOTALLABLE.has(sem) ? shown.map((r) => toNumber(r[c.name])).filter((n) => n !== null).reduce((a, b) => a + b, 0) : null };
         if (res.value === null || res.value === undefined) {
-          if (res.refused) refusals.push(`${columnLabel(c.name, semantics)}: ${res.note}`);
+          if (res.refused) refusals.push(`${labelOf(c.name)}: ${res.note}`);
           return '<td></td>';
         }
         const title = res.method && res.method !== 'sum' ? ` title="${esc(res.method)}"` : '';
@@ -1592,7 +1619,7 @@
       const cards = shown.map((r) => `<article class="dw-summary-card">
           <h3>${esc(text(r, heading))}</h3>
           <dl>${cols.filter((c) => c !== heading).map((c) => `<div>
-            <dt>${esc(columnLabel(c.name, semantics))}</dt>
+            <dt>${esc(labelOf(c.name))}</dt>
             <dd>${esc(text(r, c))}</dd></div>`).join('')}</dl>
         </article>`).join('');
       return tools + `<div class="dw-summary-list">${cards || '<div class="dw-empty">No matching rows</div>'}</div>`
@@ -1865,7 +1892,7 @@
     profileColumns, dimensionsOf, measuresOf,
     recommend, shape, optionFor, validateVisual,
     grid2dOf, heatmapOption, waterfallOption,
-    tableHtml, tableRows, tableCsv, matrixHtml, kpiHtml, kpiField, answerHtml, columnLabel,
+    tableHtml, tableRows, tableCsv, matrixHtml, imagePlaceholderHtml, kpiHtml, kpiField, answerHtml, columnLabel,
     AGGREGATES, defaultAggregate, semanticOf, visibleColumns, ruleTone,
     formatValue, compact, inferFormat, theme, isDark, esc,
   };

@@ -58,12 +58,12 @@
    * recommendation means the shape is ambiguous -- drawing a second table
    * would only repeat the first. A KPI stays small, as it does on a board.
    */
-  function chartWidget(table, recommendation) {
+  function chartWidget(table, recommendation, id) {
     const rec = recommendation || {};
     if (!rec.visual_type || rec.visual_type === 'table') return null;
     const kpi = rec.visual_type === 'kpi';
     return Object.assign({}, table, {
-      id: CHART_ID,
+      id: id || CHART_ID,
       visual_type: rec.visual_type,
       visual_config: JSON.parse(JSON.stringify(rec.visual_config || {})),
       layout: { x: 0, y: 0, w: kpi ? 4 : 12, h: kpi ? 2 : 5 },
@@ -115,5 +115,83 @@
     return Object.assign({}, rec, { visual_type: type, visual_config: cfg });
   }
 
-  global.SiloReportPreview = { TABLE_ID, CHART_ID, previewBoard, tableWidget, chartWidget, arrange, preferPrimary };
+  /**
+   * A report whose queries are PARTS of one answer -- a total, then by
+   * type, then by SKU -- says so in columns_metadata._queries:
+   *   [{ index, title, chart }]
+   * Opening it then draws every declared query, titled, in that order.
+   * Without the declaration a report's queries_run is treated as the
+   * transcript it usually is (an Ask SILO answer), and only the last
+   * non-probe query is drawn. Malformed entries are dropped rather than
+   * guessed at: an index that names no query, a repeat, a non-integer.
+   */
+  function declaredQueries(report) {
+    const meta = report && report.columns_metadata;
+    const list = meta && Array.isArray(meta._queries) ? meta._queries : null;
+    const count = report && Array.isArray(report.queries_run) ? report.queries_run.length : 0;
+    if (!list) return null;
+    const out = [];
+    const seen = new Set();
+    for (const e of list) {
+      const i = Number(e && e.index);
+      if (!Number.isInteger(i) || i < 0 || i >= count || seen.has(i)) continue;
+      seen.add(i);
+      out.push({
+        index: i,
+        title: String((e && e.title) || '').trim() || `Query ${i + 1}`,
+        chart: !(e && e.chart === false),
+      });
+    }
+    return out.length ? out : null;
+  }
+
+  function queryTableId(index) { return `preview-q${index}-table`; }
+  function queryChartId(index) { return `preview-q${index}-chart`; }
+
+  /** One declared query's table, titled "Report · Part". */
+  function queryTable(report, entry, reportFields) {
+    return Object.assign(tableWidget(report, entry.index, reportFields), {
+      id: queryTableId(entry.index),
+      title: entry.title,
+    });
+  }
+
+  /** A table only as tall as its rows need: a one-row total is a strip,
+      a long list gets the room to scroll. */
+  function tableHeight(rowCount) {
+    if (rowCount <= 2) return 3;
+    if (rowCount <= 10) return 6;
+    return 9;
+  }
+
+  /**
+   * Stack parts top to bottom in declared order: each part's chart (when
+   * it has one) directly above its own table. Returns new objects; the
+   * inputs are not moved.
+   */
+  function stack(parts) {
+    const out = [];
+    let y = 0;
+    for (const part of parts || []) {
+      if (part.chart) {
+        out.push(Object.assign({}, part.chart, {
+          layout: Object.assign({}, part.chart.layout, { x: 0, y }),
+          sort_order: out.length,
+        }));
+        y += part.chart.layout.h;
+      }
+      const h = tableHeight(part.rowCount || 0);
+      out.push(Object.assign({}, part.table, {
+        layout: Object.assign({}, part.table.layout, { x: 0, y, w: 12, h }),
+        sort_order: out.length,
+      }));
+      y += h;
+    }
+    return out;
+  }
+
+  global.SiloReportPreview = {
+    TABLE_ID, CHART_ID, previewBoard, tableWidget, chartWidget, arrange, preferPrimary,
+    declaredQueries, queryTable, queryTableId, queryChartId, tableHeight, stack,
+  };
 })(typeof window !== 'undefined' ? window : globalThis);

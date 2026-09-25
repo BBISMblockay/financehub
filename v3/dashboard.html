@@ -20,7 +20,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260925f" />
+  <link rel="stylesheet" href="dashboard.css?v=20260925h" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -199,23 +199,23 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260925f"></script>
-<script src="js/field-semantics.js?v=20260925f"></script>
-<script src="js/metrics.js?v=20260925f"></script>
-<script src="js/chart-adapter.js?v=20260925f"></script>
-<script src="js/filter-bar.js?v=20260925f"></script>
-<script src="js/report-catalog.js?v=20260925f"></script>
+<script src="js/report-params.js?v=20260925h"></script>
+<script src="js/field-semantics.js?v=20260925h"></script>
+<script src="js/metrics.js?v=20260925h"></script>
+<script src="js/chart-adapter.js?v=20260925h"></script>
+<script src="js/filter-bar.js?v=20260925h"></script>
+<script src="js/report-catalog.js?v=20260925h"></script>
 <!-- The dashboard page does not compose SQL, but it does have to READ a
      saved answer: which of its queries is the answer and which is the
      model looking up column names. isSchemaProbe/defaultQueryIndex live
      in report-builder.js because that is where "what does this SQL mean"
      belongs; duplicating them here is how the two would drift. -->
-<script src="js/report-builder.js?v=20260925f"></script>
-<script src="js/dashboard-renderer.js?v=20260925f"></script>
-<script src="js/dashboard-builder.js?v=20260925f"></script>
-<script src="js/report-library.js?v=20260925f"></script>
-<script src="js/dashboard-copy.js?v=20260925f"></script>
-<script src="js/report-preview.js?v=20260925f"></script>
+<script src="js/report-builder.js?v=20260925h"></script>
+<script src="js/dashboard-renderer.js?v=20260925h"></script>
+<script src="js/dashboard-builder.js?v=20260925h"></script>
+<script src="js/report-library.js?v=20260925h"></script>
+<script src="js/dashboard-copy.js?v=20260925h"></script>
+<script src="js/report-preview.js?v=20260925h"></script>
 <script>
 (function () {
   'use strict';
@@ -725,10 +725,16 @@
     builderLink.textContent = isSiloReport ? 'Customize a copy' : 'Open in report builder';
     builderLink.hidden = false;
 
+    // A report that declares its queries as parts of one answer draws every
+    // part; anything else draws the one query a transcript ends on.
+    const parts = P.declaredQueries(report);
     const qi = window.SiloReportBuilder.defaultQueryIndex(queries);
     const table = P.tableWidget(report, qi, window.SiloDashboardBuilder.reportFieldsFor(report, qi));
+    const partTables = parts
+      ? parts.map((p) => P.queryTable(report, p, window.SiloDashboardBuilder.reportFieldsFor(report, p.index)))
+      : null;
     const startValues = window.SiloReportParams.defaultsFor(
-      window.SiloReportParams.mergeDeclarations([table]), {});
+      window.SiloReportParams.mergeDeclarations(partTables || [table]), {});
     runtime = window.SiloDashboardRenderer.createRuntime({
       sb, gridEl: el('grid'), editable: false, paramValues: startValues,
       density: readDensity(), onLayoutChange: () => {}, onPointClick,
@@ -746,6 +752,26 @@
 
     // Table first: its rows are what the chart is chosen from, the same
     // deterministic recommendation "Add insight" makes. No model call.
+    if (partTables) {
+      await runtime.setWidgets(P.stack(partTables.map((t) => ({ table: t, rowCount: 9 }))));
+      const built = parts.map((p, i) => {
+        const t = partTables[i];
+        const rows = runtime.rowsFor(t.id) || [];
+        let chart = null;
+        if (p.chart && rows.length) {
+          const rec = P.preferPrimary(window.SiloChart.recommend(rows, runtime.semanticsFor(t, rows)),
+            report.columns_metadata, rows);
+          chart = P.chartWidget(t, rec, P.queryChartId(p.index));
+          if (chart) chart.title = p.title;
+        }
+        return { table: t, chart, rowCount: rows.length };
+      });
+      await runtime.setWidgets(P.stack(built));
+      syncBlankState();
+      renderSlicers();
+      await loadPreviewTargets(report.id, user, isExecOrOwner);
+      return;
+    }
     await runtime.setWidgets([table]);
     const rows = runtime.rowsFor(P.TABLE_ID);
     if (rows && rows.length) {
