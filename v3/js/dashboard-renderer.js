@@ -457,9 +457,11 @@
           .map((k) => `${k} = ${paramValues[k]}`);
         body.innerHTML = `<div class="dw-empty">
             <strong>No rows matched.</strong>
-            <span class="dw-empty-hint">${applied.length
-              ? `The query ran fine with ${esc(applied.join(', '))}. Widening a filter is the usual fix.`
-              : 'The query ran fine and returned nothing — this report has no data for its own window.'}</span>
+            <span class="dw-empty-hint">${typeof cfg.empty_message === 'string' && cfg.empty_message.trim()
+              ? esc(cfg.empty_message.trim())
+              : applied.length
+                ? `The query ran fine with ${esc(applied.join(', '))}. Widening a filter is the usual fix.`
+                : 'The query ran fine and returned nothing — this report has no data for its own window.'}</span>
           </div>`;
         return;
       }
