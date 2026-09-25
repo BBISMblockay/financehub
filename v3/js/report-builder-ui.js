@@ -53,10 +53,14 @@
   };
 
   // ── Source rail ──────────────────────────────────────────────────────
+  // A friendly first line, the real identifier underneath it -- so someone
+  // can search "current inventory" OR "inventory_on_hand_current_v" and land
+  // on the same result, and the technical name is never hidden, just not
+  // the first thing read.
   function renderSourceList() {
     const q = (el('srcSearch').value || '').trim().toLowerCase();
-    const match = (r) => !q || r.relname.toLowerCase().includes(q)
-      || String(r.description || '').toLowerCase().includes(q);
+    const match = (r) => !q
+      || RB.fuzzyScore(q, [RB.friendlyRelName(r.relname), r.relname, r.description || '']) > 0;
     const visible = catalog.filter(match);
     if (!visible.length) {
       el('srcList').innerHTML = `<div class="v3-empty">Nothing matches “${esc(q)}”.</div>`;
@@ -64,10 +68,11 @@
     }
     const card = (r) => `
         <button type="button" class="rb-src${source && source.relname === r.relname ? ' is-active' : ''}"
-                data-rel="${esc(r.relname)}">
+                data-rel="${esc(r.relname)}" title="${esc(r.description || '')}">
+          <span class="rb-src-friendly">${esc(RB.friendlyRelName(r.relname))}</span>
           <span class="rb-src-name">${esc(r.relname)}</span>
           ${r.description ? `<span class="rb-src-desc">${esc(r.description)}</span>` : ''}
-          <span class="rb-src-kind">${esc(r.relkind)} · ${window.SiloReportBuilder.businessColumns(r.columns).length} cols</span>
+          <span class="rb-src-kind">${esc(r.relkind)} · ${RB.businessColumns(r.columns).length} cols</span>
         </button>`;
     const section = (label, rows) => rows.length
       ? `<div class="rb-group-label">${label} · ${rows.length}</div>` + rows.map(card).join('')
@@ -75,16 +80,16 @@
 
     // "Start here" first. Eight sales rollups alphabetised together is a
     // choice nobody can make; these are the ones whose own descriptions say
-    // to prefer them. Everything else is still listed below and searchable.
+    // to prefer them. Everything else is grouped by business area below it,
+    // still fully listed and still searchable by name or description.
     const starred = visible.filter((r) => r.report_priority === 1);
     const rest = visible.filter((r) => r.report_priority !== 1);
-    const byKind = (kind) => rest.filter((r) => r.relkind === kind);
+    const areaOrder = [...RB.BUSINESS_AREAS, { id: 'other', label: 'More' }];
+    const byArea = (id) => rest.filter((r) => RB.businessArea(r.relname).id === id);
 
     el('srcList').innerHTML =
       section('Start here', starred)
-      + section('More views', byKind('view'))
-      + section('Tables', byKind('table'))
-      + section('Materialized', byKind('matview'))
+      + areaOrder.map((a) => section(a.label, byArea(a.id))).join('')
       + `<div class="rb-rail-foot">Sales, product, inventory, marketing, launches and purchasing.
            Finance and HR tables are deliberately not offered here.</div>`;
   }
@@ -94,11 +99,19 @@
     cfg.columns = []; cfg.dimensions = []; cfg.measures = [];
     cfg.dateColumn = ''; cfg.dateRange = ''; cfg.filters = [];
     cfg.sortColumn = ''; cfg.summarise = false;
-    const dateCol = usableCols().find((c) => RB.DATEISH_PG.test(c.type));
-    if (dateCol) { cfg.dateColumn = dateCol.name; cfg.dateRange = '30'; }
+    // No automatic date column or window. A source's date-typed columns are
+    // not interchangeable -- sales_by_product_title_daily_v's day_date is
+    // when a sale happened, but inventory_on_hand_current_v's first dateish
+    // column is est_oos_date, a FORECAST, and the next is a sync timestamp.
+    // Silently filtering "last 30 days" on a projected stock-out date (or
+    // pinning a single-snapshot view to a rolling window at all) produced a
+    // wrong report before anyone touched the Date range control. The catalog
+    // carries no per-source signal for "this is the event date" -- so rather
+    // than guess, this is left unset until someone picks a column on purpose.
     // Pre-select the business columns rather than emitting `select *`: the
     // point of hiding plumbing is that the PREVIEW stops being full of ids.
     cfg.columns = RB.businessColumns(source.columns).map((c) => c.name);
+    showChart = true;
     renderSourceList();
     renderBuild();
     if (tab === 'sql') el('sqlText').value = RB.buildSql(source, cfg) || '';
@@ -128,16 +141,20 @@
     const cols = usableCols();
     const aliasList = cfg.measures.map(RB.measureAlias).filter(Boolean);
 
+    // A friendly label reads better in the field cloud, but data-col/data-dim
+    // always carry the real column name -- that is what every other reader
+    // (buildSql, the chip bar, the tests) keys on.
+    const flabel = (n) => esc(window.SiloChart.columnLabel(n));
     const colChips = cols.map((c) => `
       <label class="rb-col${cfg.columns.includes(c.name) ? ' is-on' : ''}">
         <input type="checkbox" data-col="${esc(c.name)}" ${cfg.columns.includes(c.name) ? 'checked' : ''} />
-        ${esc(c.name)}<span class="rb-col-type">${esc(c.type)}</span>
+        ${flabel(c.name)}<span class="rb-col-type">${esc(c.type)}</span>
       </label>`).join('');
 
     const dimChips = cols.map((c) => `
       <label class="rb-col${cfg.dimensions.includes(c.name) ? ' is-on' : ''}">
         <input type="checkbox" data-dim="${esc(c.name)}" ${cfg.dimensions.includes(c.name) ? 'checked' : ''} />
-        ${esc(c.name)}<span class="rb-col-type">${esc(c.type)}</span>
+        ${flabel(c.name)}<span class="rb-col-type">${esc(c.type)}</span>
       </label>`).join('');
 
     // A plain total is [agg] of [column]. A calculation is the same twice
@@ -190,8 +207,13 @@
     el('buildBody').innerHTML = `
       ${mvNote}
       <div class="rb-section">
-        <span class="rb-section-title">${esc(source.relname)}${source.description ? '' : ''}</span>
-        ${source.description ? `<p class="rb-note">${esc(source.description)}</p>` : ''}
+        <span class="rb-section-title">${esc(RB.friendlyRelName(source.relname))}</span>
+        ${source.description ? `
+          <details class="rb-details">
+            <summary>${esc(source.description.split(/(?<=[.!?])\s+/)[0])}${/[.!?]\s+\S/.test(source.description) ? ' — details' : ''}</summary>
+            <p class="rb-note">${esc(source.description)}</p>
+          </details>` : ''}
+        <span class="rb-note rb-mono-hint">${esc(source.relname)} · ${esc(source.relkind)}</span>
       </div>
 
       <div class="rb-section">
@@ -202,11 +224,11 @@
       </div>
 
       ${cfg.summarise ? `
-      <div class="rb-section">
+      <div class="rb-section" id="secDims">
         <span class="rb-section-title">Group by</span>
         <div class="rb-cols">${dimChips}</div>
       </div>
-      <div class="rb-section">
+      <div class="rb-section" id="secMeasures">
         <span class="rb-section-title">Totals</span>
         ${measureRows || '<p class="rb-note">No totals yet — add one.</p>'}
         <div class="rb-row">
@@ -216,7 +238,7 @@
         <p class="rb-note">A calculation is one total over another — ROAS is sales ÷ spend, and no column holds it.
           Division is guarded, so a zero denominator leaves the cell empty rather than failing the query.</p>
       </div>` : `
-      <div class="rb-section">
+      <div class="rb-section" id="secDims">
         <span class="rb-section-title">Columns · ${cfg.columns.length ? cfg.columns.length + ' selected' : 'all'}</span>
         <div class="rb-cols">${colChips}</div>
         ${hiddenCount() ? `<button type="button" class="rb-linkbtn" id="btnToggleCols">
@@ -227,7 +249,7 @@
       </div>`}
 
       ${dateCols().length ? `
-      <div class="rb-section">
+      <div class="rb-section" id="secDate">
         <span class="rb-section-title">Date range</span>
         <div class="rb-row">
           <div class="bcn-field-group">
@@ -241,15 +263,16 @@
             </select>
           </div>
         </div>
+        ${!cfg.dateColumn ? '<p class="rb-note">No date window yet — pick a column and a range on purpose. Nothing is filtered by default.</p>' : ''}
       </div>` : ''}
 
-      <div class="rb-section">
+      <div class="rb-section" id="secFilters">
         <span class="rb-section-title">Filters</span>
         ${filterRows || '<p class="rb-note">No filters.</p>'}
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddFilter" style="align-self:flex-start">+ Add a filter</button>
       </div>
 
-      <div class="rb-section">
+      <div class="rb-section" id="secSort">
         <span class="rb-section-title">Sort and limit</span>
         <div class="rb-row">
           <div class="bcn-field-group">
@@ -276,45 +299,332 @@
         <span class="rb-section-title">Generated SQL</span>
         <pre class="rb-generated" id="genSql">${esc(RB.buildSql(source, cfg) || '-- choose at least one total to summarise')}</pre>
       </div>`;
+    renderChipBar();
+    renderFieldBrowser();
+    markStale();
   }
+
+  // ── Compact chip summary ────────────────────────────────────────────
+  // The always-open field cloud above still IS the editor -- these are a
+  // compact READOUT of what it currently holds, with click-to-remove and
+  // click-to-reorder, so the current shape of the report is legible without
+  // scrolling a long form. Clicking a chip's label (not its buttons) just
+  // scrolls the real control into view; nothing here is a second source of
+  // truth for cfg.
+  const AGG_LABELS = { sum: 'Sum', avg: 'Average', min: 'Min', max: 'Max', count: 'Count' };
+  const colLabel = (n) => window.SiloChart.columnLabel(n);
+
+  function measureChipLabel(m) {
+    const calc = RB.calcFor(m);
+    if (calc) return `${colLabel(m.column)} ${calc.symbol} ${colLabel(m.column2)}`;
+    return `${AGG_LABELS[m.agg] || m.agg} of ${colLabel(m.column)}`;
+  }
+
+  function filterChipLabel(f) {
+    const op = RB.OPERATORS.find((o) => o.id === f.op) || RB.OPERATORS[0];
+    const val = op.noValue ? '' : ` ${String(f.value || '').slice(0, 22)}${String(f.value || '').length > 22 ? '…' : ''}`;
+    return `${colLabel(f.column || '…')} ${op.label}${val}`;
+  }
+
+  function dateRangeChipLabel() {
+    const range = RB.DATE_RANGES.find((r) => r.id === cfg.dateRange);
+    return `${(range && range.label) || cfg.dateRange} · ${colLabel(cfg.dateColumn)}`;
+  }
+
+  /** One removable, and sometimes reorderable, pill. `move` is omitted for
+      groups where order carries no meaning (filters, parameters). */
+  function chip(label, { zone, index, move } = {}) {
+    return `<span class="rb-chip" data-chip-jump="${esc(zone)}">
+        ${move ? `<button type="button" class="rb-chip-move" data-chip-move="${zone}:${index}" data-dir="-1"
+            ${index === 0 ? 'disabled' : ''} aria-label="Move ${esc(label)} earlier">‹</button>` : ''}
+        <span class="rb-chip-label">${esc(label)}</span>
+        ${move ? `<button type="button" class="rb-chip-move" data-chip-move="${zone}:${index}" data-dir="1"
+            ${index === move - 1 ? 'disabled' : ''} aria-label="Move ${esc(label)} later">›</button>` : ''}
+        <button type="button" class="rb-chip-x" data-chip-x="${zone}:${index}" aria-label="Remove ${esc(label)}">✕</button>
+      </span>`;
+  }
+
+  function chipGroup(label, chips, { zone, addLabel }) {
+    return `<div class="rb-chipgroup" data-drop-zone="${esc(zone)}">
+        <span class="rb-chipgroup-label">${esc(label)}</span>
+        <div class="rb-chips">${chips.join('') || '<span class="rb-chip-empty">Drop a field here, or click +</span>'}</div>
+        <button type="button" class="rb-chip-add" data-chip-add="${zone}" title="${esc(addLabel)}" aria-label="${esc(addLabel)}">+</button>
+      </div>`;
+  }
+
+  function renderChipBar() {
+    const bar = el('chipBar');
+    if (!bar) return;
+    const groups = [];
+
+    // Rows/Values/Filters need a picked catalog source -- they read cfg
+    // against its column list. A hand-written or unrestorable SQL report
+    // (no `source`) still gets its Parameters chips, though: a parameter
+    // declaration is orthogonal to how the query was authored, and a
+    // "Customize a copy" of a system report is exactly the case where
+    // there is no source AND the parameters are the one thing worth
+    // reaching without diving into the SQL dock.
+    if (source) {
+      const rowsChips = cfg.summarise
+        ? cfg.dimensions.map((d, i) => chip(colLabel(d), { zone: 'dims', index: i, move: cfg.dimensions.length }))
+        : cfg.columns.map((c, i) => chip(colLabel(c), { zone: 'cols', index: i }));
+      groups.push(chipGroup(cfg.summarise ? 'Rows' : 'Columns', rowsChips, {
+        zone: cfg.summarise ? 'dims' : 'cols',
+        addLabel: cfg.summarise ? 'Choose a group-by column' : 'Choose which columns to show',
+      }));
+      if (cfg.summarise) {
+        const valueChips = cfg.measures.map((m, i) => chip(measureChipLabel(m), { zone: 'measures', index: i, move: cfg.measures.length }));
+        groups.push(chipGroup('Values', valueChips, { zone: 'measures', addLabel: 'Add a total' }));
+      }
+      const filterChips = cfg.filters.map((f, i) => chip(filterChipLabel(f), { zone: 'filters', index: i }));
+      if (cfg.dateColumn && cfg.dateRange) filterChips.unshift(chip(dateRangeChipLabel(), { zone: 'daterange' }));
+      groups.push(chipGroup('Filters', filterChips, { zone: 'filters', addLabel: 'Add a filter' }));
+    }
+
+    if (cfg.parameters.length) {
+      const paramChips = cfg.parameters.map((p, i) => chip(p.label || p.key || 'Untitled', { zone: 'params', index: i }));
+      groups.push(chipGroup('Parameters', paramChips, { zone: 'params', addLabel: 'Add a parameter' }));
+    }
+    bar.hidden = !groups.length;
+    bar.innerHTML = groups.join('');
+  }
+
+  function moveItem(arr, from, dir) {
+    const to = from + dir;
+    if (to < 0 || to >= arr.length) return;
+    const [item] = arr.splice(from, 1);
+    arr.splice(to, 0, item);
+  }
+
+  const SECTION_FOR_ZONE = { dims: 'secDims', cols: 'secDims', measures: 'secMeasures',
+    filters: 'secFilters', daterange: 'secDate', params: 'paramsSection' };
+  // Parameters live outside the Build/SQL tabs (they apply to a report
+  // however it was authored), so jumping to one must not force the tab.
+  const ZONE_NEEDS_BUILD_TAB = new Set(['dims', 'cols', 'measures', 'filters', 'daterange']);
+
+  el('chipBar')?.addEventListener('click', (e) => {
+    const moveBtn = e.target.closest('[data-chip-move]');
+    if (moveBtn) {
+      const [zone, idx] = moveBtn.dataset.chipMove.split(':');
+      const arr = zone === 'dims' ? cfg.dimensions : zone === 'measures' ? cfg.measures : null;
+      if (arr) { moveItem(arr, Number(idx), Number(moveBtn.dataset.dir)); renderBuild(); }
+      return;
+    }
+    const xBtn = e.target.closest('[data-chip-x]');
+    if (xBtn) {
+      const [zone, idx] = xBtn.dataset.chipX.split(':');
+      const i = Number(idx);
+      if (zone === 'dims') cfg.dimensions.splice(i, 1);
+      else if (zone === 'cols') cfg.columns.splice(i, 1);
+      else if (zone === 'measures') cfg.measures.splice(i, 1);
+      else if (zone === 'filters') cfg.filters.splice(i, 1);
+      else if (zone === 'daterange') { cfg.dateColumn = ''; cfg.dateRange = ''; }
+      else if (zone === 'params') { cfg.parameters.splice(i, 1); renderParams(); return; }
+      renderBuild();
+      return;
+    }
+    const addBtn = e.target.closest('[data-chip-add]');
+    if (addBtn) {
+      const zone = addBtn.dataset.chipAdd;
+      if (zone === 'measures') { addMeasure(); return; }
+      if (zone === 'filters') { addFilter(); return; }
+      if (zone === 'params') { addParam(); return; }
+      // Rows/Columns has no "blank" item to add -- a dimension is picked
+      // from what already exists, not created. Jump to where it is picked.
+      if (ZONE_NEEDS_BUILD_TAB.has(zone)) document.querySelector('[data-tab="build"]').click();
+      const target = document.getElementById(SECTION_FOR_ZONE[zone]);
+      if (target) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return;
+    }
+    const jump = e.target.closest('[data-chip-jump]');
+    if (jump && !e.target.closest('button')) {
+      const zone = jump.dataset.chipJump;
+      const secId = SECTION_FOR_ZONE[zone];
+      if (!secId) return;
+      if (ZONE_NEEDS_BUILD_TAB.has(zone)) document.querySelector('[data-tab="build"]').click();
+      const target = document.getElementById(secId);
+      if (target) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  });
+
+  // ── Field browser (rail) ─────────────────────────────────────────────
+  // A second, always-available way to add a field: browse instead of
+  // search. Click is the primary interaction (works with a keyboard or a
+  // finger); dragging a row onto a chip group performs the exact same add,
+  // it is not a second definition of what "add" means.
+  function fieldInUse(name, kind) {
+    if (kind === 'dim') return cfg.dimensions.includes(name);
+    if (kind === 'measure') return cfg.measures.some((m) => !RB.calcFor(m) && m.column === name && m.agg === 'sum');
+    return cfg.columns.includes(name);
+  }
+
+  function toggleField(name, kind, { addOnly } = {}) {
+    if (kind === 'dim') {
+      const on = cfg.dimensions.includes(name);
+      if (on && !addOnly) cfg.dimensions = cfg.dimensions.filter((d) => d !== name);
+      else if (!on) cfg.dimensions = cfg.dimensions.concat(name);
+    } else if (kind === 'measure') {
+      const idx = cfg.measures.findIndex((m) => !RB.calcFor(m) && m.column === name && m.agg === 'sum');
+      if (idx >= 0 && !addOnly) cfg.measures.splice(idx, 1);
+      else if (idx < 0) cfg.measures.push({ column: name, agg: 'sum', alias: '' });
+    } else {
+      const on = cfg.columns.includes(name);
+      if (on && !addOnly) cfg.columns = cfg.columns.filter((x) => x !== name);
+      else if (!on) cfg.columns = cfg.columns.concat(name);
+    }
+    renderBuild();
+  }
+
+  function fieldIcon(type) {
+    if (RB.DATEISH_PG.test(type)) return '\u{1F4C5}';
+    if (RB.NUMERIC_PG.test(type)) return '#';
+    return 'Aa';
+  }
+
+  function fieldRow(c, kind) {
+    const on = fieldInUse(c.name, kind);
+    return `<button type="button" class="rb-field-row${on ? ' is-on' : ''}" draggable="true"
+              data-field="${esc(c.name)}" data-field-kind="${kind}" title="${esc(c.name)}">
+        <span class="rb-field-icon">${fieldIcon(c.type)}</span>
+        <span class="rb-field-name">${esc(colLabel(c.name))}</span>
+        ${on ? '<span class="rb-field-on" aria-hidden="true">✓</span>' : ''}
+      </button>`;
+  }
+
+  function renderFieldBrowser() {
+    const wrap = el('fieldBrowser');
+    if (!wrap) return;
+    if (!source) { wrap.hidden = true; return; }
+    wrap.hidden = false;
+    const q = (el('fieldSearch') && el('fieldSearch').value || '').trim().toLowerCase();
+    const cols = usableCols().filter((c) => !q || RB.fuzzyScore(q, [colLabel(c.name), c.name]) > 0);
+    const section = (label, rows, kind) => rows.length
+      ? `<div class="rb-group-label">${esc(label)}</div>${rows.map((c) => fieldRow(c, kind)).join('')}`
+      : '';
+    el('fieldBrowserList').innerHTML = cfg.summarise
+      ? section('Group by', cols, 'dim') + section('Measures', cols.filter((c) => RB.NUMERIC_PG.test(c.type)), 'measure')
+      : section('Columns', cols, 'col');
+  }
+
+  el('fieldSearch')?.addEventListener('input', renderFieldBrowser);
+  el('fieldBrowserList')?.addEventListener('click', (e) => {
+    const row = e.target.closest('[data-field]');
+    if (row) toggleField(row.dataset.field, row.dataset.fieldKind);
+  });
+  el('fieldBrowserList')?.addEventListener('dragstart', (e) => {
+    const row = e.target.closest('[data-field]');
+    if (!row) return;
+    e.dataTransfer.setData('text/plain', JSON.stringify({ name: row.dataset.field, kind: row.dataset.fieldKind }));
+    e.dataTransfer.effectAllowed = 'copy';
+  });
+  // The zone a field's kind may land in. A measure dropped on Rows, or a
+  // dimension dropped on Values, is silently ignored rather than coerced --
+  // guessing which list the person meant would be worse than nothing.
+  const DROP_ACCEPTS = { dim: new Set(['dims', 'cols']), measure: new Set(['measures']), col: new Set(['cols']) };
+  el('chipBar')?.addEventListener('dragover', (e) => {
+    const zone = e.target.closest('[data-drop-zone]');
+    if (zone) e.preventDefault();
+  });
+  el('chipBar')?.addEventListener('dragenter', (e) => {
+    const zone = e.target.closest('[data-drop-zone]');
+    if (zone) zone.classList.add('is-drop-target');
+  });
+  el('chipBar')?.addEventListener('dragleave', (e) => {
+    const zone = e.target.closest('[data-drop-zone]');
+    if (zone && !zone.contains(e.relatedTarget)) zone.classList.remove('is-drop-target');
+  });
+  el('chipBar')?.addEventListener('drop', (e) => {
+    const zoneEl = e.target.closest('[data-drop-zone]');
+    if (!zoneEl) return;
+    e.preventDefault();
+    zoneEl.classList.remove('is-drop-target');
+    let payload;
+    try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (err) { return; }
+    if (!payload || !payload.name) return;
+    const zone = zoneEl.dataset.dropZone;
+    if (!(DROP_ACCEPTS[payload.kind] || new Set()).has(zone)) return;
+    toggleField(payload.name, payload.kind, { addOnly: true });
+  });
 
   // ── Parameters ───────────────────────────────────────────────────────
   const P = window.SiloReportParams;
 
+  // The dashboard's own date slicer control -- same presets, same "resolves
+  // to" hint -- so a date parameter looks familiar the moment someone meets
+  // it here, rather than as a bare text field expecting a relative token
+  // nobody would guess. window.SiloFilterBar is loaded by every v3 page.
+  const FB = window.SiloFilterBar;
+  function paramDateHint(p) {
+    const iso = P.resolveDateExpr(p.default);
+    if (!iso) return '';
+    if (p.date_basis === 'company') return 'Company calendar';
+    return iso;
+  }
+  function paramFriendlyControl(p, i) {
+    if (p.type !== 'date' || !FB) return '';
+    const isPreset = FB.DATE_PRESETS.some((x) => x.value === p.default);
+    const iso = P.resolveDateExpr(p.default);
+    const isCustom = !isPreset && !!iso;
+    return `<div class="rb-param-date">
+        <select class="bcn-field" data-param-preset="${i}">
+          ${FB.DATE_PRESETS.map((x) => `<option value="${x.value}"${x.value === p.default ? ' selected' : ''}>${esc(x.label)}</option>`).join('')}
+          <option value="__custom"${isCustom ? ' selected' : ''}>Specific date…</option>
+        </select>
+        <input class="bcn-field" type="date" data-param-date="${i}" value="${isCustom ? esc(iso) : ''}" ${isCustom ? '' : 'hidden'} />
+        ${!isCustom && iso ? `<span class="rb-note bcn-mono">${esc(paramDateHint(p))}</span>` : ''}
+      </div>`;
+  }
+
   function renderParams() {
     const rows = cfg.parameters.map((p, i) => {
       const isEnum = p.type === 'enum';
+      const friendly = paramFriendlyControl(p, i);
+      // A freshly added parameter (no key yet) opens straight to the
+      // advanced editor -- addParam() below focuses the key field, which
+      // cannot receive focus while collapsed. Anything already configured
+      // stays closed: the friendly control above it is the normal way to
+      // read or change a date parameter day to day.
       return `<div class="rb-param" data-param-row="${i}">
-          <div class="bcn-field-group">
-            <label class="bcn-label">Key</label>
-            <input class="bcn-field bcn-field--mono" data-p="key" data-i="${i}"
-                   value="${esc(p.key || '')}" placeholder="date_from" />
+          <div class="rb-param-summary">
+            <span class="rb-param-name">${esc(p.label || p.key || 'Untitled parameter')}</span>
+            ${friendly}
+            ${!friendly && p.default ? `<span class="rb-note bcn-mono">default ${esc(p.default)}</span>` : ''}
+            <button type="button" class="dw-icon-btn" data-remove-param="${i}"
+                    title="Remove this parameter" aria-label="Remove this parameter">✕</button>
           </div>
-          <div class="bcn-field-group">
-            <label class="bcn-label">Label</label>
-            <input class="bcn-field" data-p="label" data-i="${i}"
-                   value="${esc(p.label || '')}" placeholder="From" />
-          </div>
-          <div class="bcn-field-group">
-            <label class="bcn-label">Type</label>
-            <select class="bcn-field" data-p="type" data-i="${i}">
-              ${P.TYPES.map((t) => `<option value="${t}"${t === p.type ? ' selected' : ''}>${t}</option>`).join('')}
-            </select>
-          </div>
-          ${isEnum ? `<div class="bcn-field-group bcn-field-group--wide">
-            <label class="bcn-label">Choices (comma separated)</label>
-            <input class="bcn-field bcn-field--mono" data-p="options" data-i="${i}"
-                   value="${esc((p.options || []).join(', '))}" placeholder="day, week, month, ytd" />
-          </div>` : ''}
-          <div class="bcn-field-group">
-            <label class="bcn-label">Default</label>
-            ${p.type === 'date' && p.date_basis === 'company' ? '<span class="bcn-hint">Relative dates follow the company calendar.</span>' : ''}
-            <input class="bcn-field bcn-field--mono" data-p="default" data-i="${i}"
-                   value="${esc(p.default || '')}"
-                   placeholder="${p.type === 'date' ? 'today-27d' : ''}" />
-          </div>
-          <button type="button" class="dw-icon-btn" data-remove-param="${i}"
-                  title="Remove this parameter" aria-label="Remove this parameter">✕</button>
+          <details class="rb-param-advanced"${p.key ? '' : ' open'}>
+            <summary>Key, type &amp; default</summary>
+            <div class="rb-param-fields">
+              <div class="bcn-field-group">
+                <label class="bcn-label">Key</label>
+                <input class="bcn-field bcn-field--mono" data-p="key" data-i="${i}"
+                       value="${esc(p.key || '')}" placeholder="date_from" />
+              </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label">Label</label>
+                <input class="bcn-field" data-p="label" data-i="${i}"
+                       value="${esc(p.label || '')}" placeholder="From" />
+              </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label">Type</label>
+                <select class="bcn-field" data-p="type" data-i="${i}">
+                  ${P.TYPES.map((t) => `<option value="${t}"${t === p.type ? ' selected' : ''}>${t}</option>`).join('')}
+                </select>
+              </div>
+              ${isEnum ? `<div class="bcn-field-group bcn-field-group--wide">
+                <label class="bcn-label">Choices (comma separated)</label>
+                <input class="bcn-field bcn-field--mono" data-p="options" data-i="${i}"
+                       value="${esc((p.options || []).join(', '))}" placeholder="day, week, month, ytd" />
+              </div>` : ''}
+              <div class="bcn-field-group">
+                <label class="bcn-label">Default</label>
+                ${p.type === 'date' && p.date_basis === 'company' ? '<span class="bcn-hint">Relative dates follow the company calendar.</span>' : ''}
+                <input class="bcn-field bcn-field--mono" data-p="default" data-i="${i}"
+                       value="${esc(p.default || '')}"
+                       placeholder="${p.type === 'date' ? 'today-27d' : ''}" />
+              </div>
+            </div>
+          </details>
         </div>`;
     }).join('');
 
@@ -328,6 +638,7 @@
          rolling — a fixed date freezes it on the day you saved it.</p>`);
     }
     checkParams();
+    renderChipBar();
   }
 
   function checkParams() {
@@ -392,6 +703,70 @@
     return null;
   }
 
+  // ── Chart preview ────────────────────────────────────────────────────
+  // The same primitives dashboard-renderer.js draws a tile with -- recommend
+  // a shape, validate it can actually be drawn, shape the rows, hand ECharts
+  // the option -- without pulling in GridStack or the widget/dashboard
+  // object model a single report preview has no use for. Table stays the
+  // one thing that always renders; the chart is an addition above it, never
+  // a replacement, so "Load more" and the raw grid keep working exactly as
+  // they always have.
+  let previewChart = null;   // the live ECharts instance, disposed on every re-render
+  let showChart = true;      // the reader's own toggle, reset per fresh Preview
+
+  function disposePreviewChart() {
+    if (previewChart) { try { previewChart.dispose(); } catch (e) { /* already gone */ } previewChart = null; }
+  }
+
+  function chartRecommendation(rows, semantics) {
+    if (!window.echarts || !rows.length) return null;
+    let rec = window.SiloChart.recommend(rows, semantics);
+    if (window.SiloReportPreview) rec = window.SiloReportPreview.preferPrimary(rec, currentMetadata(rows), rows);
+    if (!rec || !rec.visual_type || rec.visual_type === 'table') return null;
+    if (rec.visual_type !== 'kpi') {
+      const valid = window.SiloChart.validateVisual(rec.visual_type, rows, rec.visual_config, semantics);
+      if (!valid.ok) return null;
+    }
+    return rec;
+  }
+
+  function renderPreviewChart(rows) {
+    disposePreviewChart();
+    const host = el('previewChart');
+    const toggle = el('btnPreviewMode');
+    if (!host || !toggle) return;
+    const semantics = mapSemantics(currentMetadata(rows));
+    const rec = chartRecommendation(rows, semantics);
+    if (!rec) { host.hidden = true; toggle.hidden = true; return; }
+    toggle.hidden = false;
+    toggle.textContent = showChart ? 'Show table only' : 'Show chart';
+    host.hidden = !showChart;
+    if (!showChart) return;
+    if (rec.visual_type === 'kpi') {
+      host.innerHTML = window.SiloChart.kpiHtml(rows, rec.visual_config, semantics);
+      return;
+    }
+    host.innerHTML = '<div class="dw-chart" data-role="chart"></div>';
+    const shaped = window.SiloChart.shape(rows, rec.visual_config, semantics);
+    if (!shaped) { host.hidden = true; toggle.hidden = true; return; }
+    previewChart = window.echarts.init(host.querySelector('[data-role="chart"]'), null, { renderer: 'canvas' });
+    previewChart.setOption(window.SiloChart.optionFor(rec.visual_type, shaped, rec.visual_config));
+  }
+
+  /**
+   * Is what is on screen still what the current configuration would run?
+   * Compact and non-blocking -- previewing on every keystroke would burn a
+   * query per character and race itself; this just says "this may be
+   * out of date" so Run/Preview stays a deliberate, visible action.
+   */
+  function markStale() {
+    const bar = el('staleBar');
+    if (!bar) return;
+    if (!lastRun) { bar.hidden = true; return; }
+    const cur = (currentSql() || '').trim();
+    bar.hidden = !cur || cur === (lastRun.sql || '').trim();
+  }
+
   /** Re-render the preview table + meta line from lastRun's accumulated rows. */
   function renderPreview(ms, opts) {
     const rows = lastRun.rows;
@@ -418,6 +793,8 @@
                </div>`
             : '')
       : '<div class="dw-empty">Ran fine — 0 rows.</div>';
+    renderPreviewChart(rows);
+    markStale();
   }
 
   /**
@@ -438,6 +815,15 @@
       + `at this size it is shaped like an export.</div>`;
   }
 
+  // Bumped on every call; a response that lands after a NEWER call has
+  // already started is dropped rather than drawn over whatever that newer
+  // call already rendered. Genuine cancellation of the in-flight fetch is
+  // not available through this client -- this is the same "ignore the stale
+  // answer" guard already used for the row count below, applied to the
+  // query itself so two rapid clicks (or Preview during a still-running
+  // Load more) cannot land out of order.
+  let previewSeq = 0;
+
   async function preview() {
     const sql = currentSql();
     if (!sql) { setStatus('Nothing to run yet — pick a source, or type some SQL.', 'neg', 4000); return; }
@@ -450,11 +836,19 @@
     const resolved = P.substitute(sql, cfg.parameters, {});
     if (resolved.error) { setStatus(resolved.error, 'neg', 6000); return; }
 
+    const seq = ++previewSeq;
     el('previewBody').innerHTML = '<div class="dw-loading">Running…</div>';
     el('previewMeta').textContent = '';
+    if (el('staleBar')) el('staleBar').hidden = true;
+    el('btnPreview').disabled = true;
+    const runBtn = el('btnRunQuery');
+    if (runBtn) runBtn.disabled = true;
     const t0 = performance.now();
     const { data, error } = await sb.rpc('chat_run_readonly_query', { query: resolved.sql, p_offset: 0 });
     const ms = Math.round(performance.now() - t0);
+    if (seq !== previewSeq) return; // superseded by a newer Preview/Run click
+    el('btnPreview').disabled = false;
+    if (runBtn) runBtn.disabled = false;
     if (error) {
       lastRun = null;
       el('previewBody').innerHTML = `<div class="dw-empty dw-empty--error"><strong>Query failed.</strong> ${esc(error.message)}</div>`
@@ -590,6 +984,8 @@
     el('saveVis').value = rep.visibility || 'company';
     el('pageTitle').textContent = canWrite ? 'Edit report' : 'Report (read-only)';
     el('pageSub').textContent = rep.title || '';
+    el('statusBadge').textContent = canWrite ? 'Editing' : 'Read-only';
+    el('statusBadge').className = canWrite ? 'bcn-pill' : 'bcn-pill bcn-pill--accent';
     // The chrome mounts before we know which report this is, so the trail
     // still reads "New report". Left alone it is the page contradicting
     // itself in two places a foot apart.
@@ -769,6 +1165,8 @@
       setStatus(`Saved. ${n ? `${n} tile${n === 1 ? '' : 's'} now draw${n === 1 ? 's' : ''} the updated report.`
         : 'No dashboard uses it yet.'}`, 'pos', 7000);
       el('btnSave').textContent = 'Saved ✓';
+      el('statusBadge').textContent = 'Saved';
+      el('statusBadge').className = 'bcn-pill bcn-pill--pos';
       setTimeout(() => { el('btnSave').textContent = 'Save changes'; }, 4000);
       window.__lastSavedReportId = editing.id;
       return;
@@ -787,6 +1185,8 @@
     el('saveBackdrop').classList.remove('open');
     setStatus(`Saved "${payload.title}". It is now available to every dashboard.`, 'pos', 6000);
     el('btnSave').textContent = 'Saved ✓';
+    el('statusBadge').textContent = 'Saved';
+    el('statusBadge').className = 'bcn-pill bcn-pill--pos';
     setTimeout(() => { el('btnSave').textContent = 'Save report'; }, 4000);
     window.__lastSavedReportId = data.id;
   }
@@ -817,10 +1217,134 @@
     el('pageTitle').textContent = 'Edit report';
     el('pageSub').textContent = payload.title;
     el('btnSave').textContent = 'Save changes';
+    el('statusBadge').textContent = 'Saved';
+    el('statusBadge').className = 'bcn-pill bcn-pill--pos';
     history.replaceState(null, '', `/v3/report-builder.html?id=${data.id}`);
     setStatus(`Saved "${payload.title}" as your own copy. The original is untouched.`, 'pos', 8000);
     window.__lastSavedReportId = data.id;
   }
+
+  // ── Command / field search ───────────────────────────────────────────
+  // Deterministic, not natural language: every candidate is a concrete
+  // action this page can already take, matched by the same word-substring
+  // scorer as the source rail (RB.fuzzyScore). Typing "revenue by creative"
+  // finds "Group by Creative" because both words land somewhere in that
+  // candidate's own text -- there is no model in this loop.
+  function commandCandidates() {
+    if (!source) return [];
+    const cols = usableCols();
+    const out = [];
+    for (const c of cols) {
+      const label = colLabel(c.name);
+      if (cfg.summarise) {
+        const has = cfg.dimensions.includes(c.name);
+        out.push({
+          text: [has ? `Remove ${label} from Group by` : `Group by ${label}`, c.name],
+          run: () => { cfg.dimensions = has ? cfg.dimensions.filter((d) => d !== c.name) : cfg.dimensions.concat(c.name); renderBuild(); },
+        });
+        if (RB.NUMERIC_PG.test(c.type)) {
+          const already = cfg.measures.some((m) => !RB.calcFor(m) && m.column === c.name && m.agg === 'sum');
+          if (!already) out.push({
+            text: [`Add total (sum) of ${label}`, c.name],
+            run: () => { cfg.measures.push({ column: c.name, agg: 'sum', alias: '' }); renderBuild(); },
+          });
+        }
+      } else {
+        const has = cfg.columns.includes(c.name);
+        out.push({
+          text: [has ? `Hide column ${label}` : `Show column ${label}`, c.name],
+          run: () => { cfg.columns = has ? cfg.columns.filter((x) => x !== c.name) : cfg.columns.concat(c.name); renderBuild(); },
+        });
+      }
+      out.push({
+        text: [`Filter by ${label}`, c.name],
+        run: () => {
+          cfg.filters.push({ column: c.name, op: 'eq', value: '' });
+          renderBuild();
+          document.querySelector('[data-tab="build"]').click();
+          const last = el('paneBuild').querySelectorAll('[data-f-val], [data-f-col]');
+          if (last.length) last[last.length - 1].focus();
+        },
+      });
+    }
+    out.push({ text: [cfg.summarise ? 'Turn off Summarise' : 'Turn on Summarise, group and total'],
+      run: () => { cfg.summarise = !cfg.summarise; renderBuild(); } });
+    out.push({ text: ['Add a calculation, one total divided by another, ROAS'], run: addCalc });
+    out.push({ text: ['Add a parameter, turn a value into a dashboard control'], run: addParam });
+    out.push({ text: ['Run the query, preview'], run: preview });
+    if (lastRun && chartRecommendation(lastRun.rows, mapSemantics(currentMetadata(lastRun.rows)))) {
+      out.push({ text: [showChart ? 'Switch to table only' : 'Switch to chart'],
+        run: () => { showChart = !showChart; renderPreviewChart(lastRun.rows); } });
+    }
+    return out;
+  }
+
+  let cmdActive = -1;
+  function renderCommandResults(query) {
+    const box = el('cmdResults');
+    if (!box) return;
+    const q = query.trim();
+    if (!q) { box.hidden = true; box.innerHTML = ''; cmdActive = -1; return; }
+    const scored = commandCandidates()
+      .map((c) => ({ c, score: RB.fuzzyScore(q, c.text) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8);
+    if (!scored.length) {
+      box.innerHTML = '<div class="rb-cmd-empty">No matching field or action.</div>';
+      box.hidden = false;
+      cmdActive = -1;
+      return;
+    }
+    box.innerHTML = scored.map((x, i) => `
+      <button type="button" class="rb-cmd-result${i === 0 ? ' is-active' : ''}" data-cmd="${i}">
+        ${esc(x.c.text[0])}
+      </button>`).join('');
+    box._commands = scored.map((x) => x.c);
+    box.hidden = false;
+    cmdActive = 0;
+  }
+
+  function runCommand(box, i) {
+    const cmds = box._commands || [];
+    const cmd = cmds[i];
+    if (!cmd) return;
+    cmd.run();
+    el('cmdSearch').value = '';
+    box.hidden = true;
+    box.innerHTML = '';
+  }
+
+  el('cmdSearch')?.addEventListener('input', (e) => renderCommandResults(e.target.value));
+  el('cmdSearch')?.addEventListener('focus', (e) => { if (e.target.value.trim()) renderCommandResults(e.target.value); });
+  el('cmdSearch')?.addEventListener('keydown', (e) => {
+    const box = el('cmdResults');
+    if (!box || box.hidden) return;
+    const items = box.querySelectorAll('[data-cmd]');
+    if (e.key === 'ArrowDown') { e.preventDefault(); cmdActive = Math.min(cmdActive + 1, items.length - 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); cmdActive = Math.max(cmdActive - 1, 0); }
+    else if (e.key === 'Enter') { e.preventDefault(); runCommand(box, cmdActive); return; }
+    else if (e.key === 'Escape') { box.hidden = true; return; }
+    else return;
+    items.forEach((n, i) => n.classList.toggle('is-active', i === cmdActive));
+  });
+  el('cmdResults')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-cmd]');
+    if (b) runCommand(el('cmdResults'), Number(b.dataset.cmd));
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.rb-cmd')) { const box = el('cmdResults'); if (box) box.hidden = true; }
+  });
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); el('cmdSearch')?.focus(); }
+  });
+
+  // ── Rail collapse ────────────────────────────────────────────────────
+  el('btnToggleRail')?.addEventListener('click', () => {
+    const rail = document.querySelector('.rb-rail');
+    const open = rail.classList.toggle('is-collapsed') === false;
+    el('btnToggleRail').setAttribute('aria-expanded', String(open));
+  });
 
   // ── Wiring ───────────────────────────────────────────────────────────
   el('srcSearch').addEventListener('input', renderSourceList);
@@ -853,6 +1377,7 @@
       el('sqlText').value = RB.buildSql(source, cfg) || '';
       checkSql();
     }
+    markStale();
   }));
 
   function checkSql() {
@@ -871,17 +1396,21 @@
     // clicking back out does not count as hand-writing.
     sqlIsHandWritten = !source || el('sqlText').value.trim() !== (RB.buildSql(source, cfg) || '').trim();
     checkSql();
+    markStale();
   });
 
   // ── Parameters wiring ────────────────────────────────────────────────
-  el('btnAddParam').addEventListener('click', () => {
+  // Named so the chip bar's own "+" button can trigger exactly this, rather
+  // than duplicating what a fresh parameter defaults to.
+  function addParam() {
     // Defaults chosen so a fresh parameter is immediately valid and
     // immediately useful: a rolling date is what nearly every report wants.
     cfg.parameters.push({ key: '', label: '', type: 'date', default: 'today', options: [] });
     renderParams();
     const inputs = el('paramList').querySelectorAll('[data-p="key"]');
     if (inputs.length) inputs[inputs.length - 1].focus();
-  });
+  }
+  el('btnAddParam').addEventListener('click', addParam);
 
   el('paramList').addEventListener('input', (e) => {
     const t = e.target;
@@ -905,6 +1434,26 @@
 
   el('paramList').addEventListener('change', (e) => {
     const t = e.target;
+    if (t.dataset.paramPreset !== undefined) {
+      // The friendly date control writes into the same `default` field the
+      // advanced editor shows -- one value, two ways to set it, never two
+      // sources of truth. "Specific date…" just reveals the date input
+      // below it rather than writing anything yet.
+      const p = cfg.parameters[Number(t.dataset.paramPreset)];
+      if (!p) return;
+      if (t.value !== '__custom') p.default = t.value;
+      renderParams();
+      if (t.value === '__custom') {
+        const input = el('paramList').querySelector(`[data-param-date="${t.dataset.paramPreset}"]`);
+        if (input) input.focus();
+      }
+      return;
+    }
+    if (t.dataset.paramDate !== undefined) {
+      const p = cfg.parameters[Number(t.dataset.paramDate)];
+      if (p && t.value) { p.default = t.value; renderParams(); }
+      return;
+    }
     if (t.dataset.p !== 'type') return;
     const p = cfg.parameters[Number(t.dataset.i)];
     if (!p) return;
@@ -930,11 +1479,13 @@
     if (t.dataset.col !== undefined) cfg.columns = toggle(cfg.columns, t.dataset.col);
     else if (t.dataset.dim !== undefined) cfg.dimensions = toggle(cfg.dimensions, t.dataset.dim);
     else if (t.id === 'chkSummarise') {
+      // No default total. The first numeric column in a table's own column
+      // order is an accident of how it was built, not a deliberate choice --
+      // it summed retail_price (a per-unit price) across every SKU row on
+      // inventory_on_hand_current_v the moment Summarise was ticked, before
+      // anyone asked for a total of anything. "+ Add a total" is one click
+      // away and already the only way to add a SECOND one.
       cfg.summarise = t.checked;
-      if (cfg.summarise && !cfg.measures.length) {
-        const n = numericCols()[0];
-        if (n) cfg.measures = [{ column: n.name, agg: 'sum', alias: '' }];
-      }
     }
     else if (t.id === 'selDateCol') cfg.dateColumn = t.value;
     else if (t.id === 'selDateRange') cfg.dateRange = t.value;
@@ -957,10 +1508,34 @@
     else if (t.dataset.mAlias !== undefined) cfg.measures[+t.dataset.mAlias].alias = t.value;
     else if (t.dataset.fVal !== undefined) cfg.filters[+t.dataset.fVal].value = t.value;
     else return;
-    // Refresh only the generated SQL: re-rendering would steal focus mid-type.
+    // Refresh only the generated SQL and the chip readout: a full re-render
+    // would steal focus mid-type, but the chips are separate elements and
+    // updating them costs nothing a typing cursor can notice.
     const gen = el('genSql');
     if (gen) gen.textContent = RB.buildSql(source, cfg) || '-- choose at least one total to summarise';
+    renderChipBar();
+    markStale();
   });
+
+  // Named for the same reason addParam is: the chip bar's "+ Add a total" /
+  // "+ Add a filter" buttons call these directly rather than re-deriving
+  // what a fresh row defaults to.
+  function addFilter() { cfg.filters.push({ column: '', op: 'eq', value: '' }); renderBuild(); }
+  function addMeasure() {
+    const n = numericCols()[0];
+    cfg.measures.push({ column: n ? n.name : '', agg: 'sum', alias: '' });
+    renderBuild();
+  }
+  function addCalc() {
+    // Seed with two DIFFERENT columns where possible: a ratio of a column
+    // to itself is always 1, which reads as a broken feature.
+    const nums = numericCols();
+    cfg.measures.push({
+      calc: 'ratio', agg: 'sum', column: nums[0] ? nums[0].name : '',
+      agg2: 'sum', column2: (nums[1] || nums[0] || {}).name || '', alias: '',
+    });
+    renderBuild();
+  }
 
   el('buildBody').addEventListener('click', (e) => {
     if (e.target.closest('#btnToggleCols')) {
@@ -973,24 +1548,9 @@
       renderBuild();
       return;
     }
-    if (e.target.closest('#btnAddFilter')) {
-      cfg.filters.push({ column: '', op: 'eq', value: '' }); renderBuild(); return;
-    }
-    if (e.target.closest('#btnAddMeasure')) {
-      const n = numericCols()[0];
-      cfg.measures.push({ column: n ? n.name : '', agg: 'sum', alias: '' }); renderBuild(); return;
-    }
-    if (e.target.closest('#btnAddCalc')) {
-      // Seed with two DIFFERENT columns where possible: a ratio of a column
-      // to itself is always 1, which reads as a broken feature.
-      const nums = numericCols();
-      cfg.measures.push({
-        calc: 'ratio', agg: 'sum', column: nums[0] ? nums[0].name : '',
-        agg2: 'sum', column2: (nums[1] || nums[0] || {}).name || '', alias: '',
-      });
-      renderBuild();
-      return;
-    }
+    if (e.target.closest('#btnAddFilter')) { addFilter(); return; }
+    if (e.target.closest('#btnAddMeasure')) { addMeasure(); return; }
+    if (e.target.closest('#btnAddCalc')) { addCalc(); return; }
     const fd = e.target.closest('[data-f-del]');
     if (fd) { cfg.filters.splice(+fd.dataset.fDel, 1); renderBuild(); return; }
     const md = e.target.closest('[data-m-del]');
@@ -998,6 +1558,15 @@
   });
 
   el('btnPreview').addEventListener('click', preview);
+  // The dock's own Run button is the same action under a different label --
+  // one engine, one button behind both, so Preview and Run can never drift
+  // into running something different from what is on screen.
+  el('btnRunQuery')?.addEventListener('click', preview);
+  el('btnPreviewMode')?.addEventListener('click', () => {
+    if (!lastRun) return;
+    showChart = !showChart;
+    renderPreviewChart(lastRun.rows);
+  });
   // Delegated: the button is injected into previewBody's innerHTML fresh on
   // every render, so a direct listener would be thrown away with it.
   el('previewBody').addEventListener('click', (e) => {

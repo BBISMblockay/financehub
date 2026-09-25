@@ -449,7 +449,18 @@
 .rb-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
 .rb-row .bcn-field-group { min-width: 150px; }
 .rb-rule { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
-.rb-rule .bcn-field { min-width: 130px; }
+/* beacon's .bcn-field is `width: 100%`, meant for a field sitting alone in
+   its own .bcn-field-group column. A measure/filter row places several
+   fields directly in one flex row instead, and with no override here a
+   flex item's own `width: 100%` becomes its flex-basis -- so every select,
+   "of"/"as" label and input claimed the row's FULL width and wrapped onto
+   its own line, one control per line, five lines for one total. That bug
+   predates this file's other rb-* rules (confirmed against the previous
+   build); it is fixed here because the chip bar now sends people into this
+   exact row on purpose, and a "compact chips, click to expand" workbench
+   is not compact if what it expands to is five stacked full-width lines. */
+.rb-rule .bcn-field { width: auto; min-width: 130px; flex: 0 1 auto; }
+.rb-rule .bcn-field--mono[data-m-alias] { flex: 1 1 150px; }
 .rb-x {
   border: 1px solid var(--bcn-border); background: var(--bcn-surface); color: var(--bcn-ink-3);
   border-radius: var(--bcn-radius-sm); cursor: pointer; width: 26px; height: 26px; line-height: 1;
@@ -708,6 +719,166 @@
   background: var(--bcn-surface-2, rgba(0, 0, 0, 0.03));
 }
 .rb-calc-op { max-width: 150px; font-weight: 600; }
+
+/* ── Report builder: toolbar, chips, dock ──────────────────────────────
+   The workbench redesign. Everything below is layered on top of the rb-*
+   classes above rather than replacing them -- the field cloud, filter rows
+   and measure rows are unchanged markup, just no longer the only way to
+   see or change the report's shape. Beacon tokens only, same as the rest
+   of this file. */
+
+.rb-toolbar {
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  padding: 8px 18px; border-bottom: 1px solid var(--bcn-border); background: var(--bcn-surface);
+}
+.rb-rail-toggle { flex-shrink: 0; }
+
+.rb-cmd { position: relative; flex: 1; min-width: 0; max-width: 560px; }
+.rb-cmd-input { width: 100%; padding-right: 34px; }
+.rb-cmd-kbd {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  font-family: var(--bcn-mono); font-size: 9.5px; color: var(--bcn-ink-4);
+  border: 1px solid var(--bcn-border); border-radius: 4px; padding: 1px 5px; pointer-events: none;
+}
+.rb-cmd-results {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0;
+  background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius);
+  box-shadow: var(--bcn-shadow); max-height: 320px; overflow-y: auto; padding: 4px;
+}
+.rb-cmd-result {
+  display: block; width: 100%; text-align: left; padding: 7px 9px; border: none; border-radius: var(--bcn-radius-sm);
+  background: transparent; font: inherit; font-size: 12.5px; color: var(--bcn-ink); cursor: pointer;
+}
+.rb-cmd-result.is-active, .rb-cmd-result:hover { background: var(--bcn-accent-soft); color: var(--bcn-accent); }
+.rb-cmd-empty { padding: 10px; font-size: 11.5px; color: var(--bcn-ink-3); }
+
+/* ── Chip summary bar ─────────────────────────────────────────────────
+   A compact READOUT of cfg -- the field cloud below is still the editor.
+   Wraps to as many lines as it needs rather than scrolling, since it is a
+   summary, not a workspace. */
+.rb-chipbar {
+  display: flex; flex-wrap: wrap; gap: 10px; padding: 10px 18px;
+  border-bottom: 1px solid var(--bcn-border); background: var(--bcn-sunken);
+}
+.rb-chipbar[hidden] { display: none; }
+.rb-chipgroup {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 8px; border-radius: var(--bcn-radius); border: 1px dashed var(--bcn-border);
+  background: var(--bcn-surface); min-height: 34px;
+}
+.rb-chipgroup-label {
+  font-family: var(--bcn-mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--bcn-ink-3); margin-right: 2px;
+}
+.rb-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.rb-chip {
+  display: inline-flex; align-items: center; gap: 3px; padding: 3px 4px 3px 9px;
+  border-radius: 999px; background: var(--bcn-accent-soft); border: 1px solid var(--bcn-accent-border);
+  color: var(--bcn-accent); font-size: 11px; cursor: default;
+}
+.rb-chip-label { cursor: pointer; }
+.rb-chip-empty { font-size: 11px; color: var(--bcn-ink-4); padding: 3px 2px; }
+.rb-chip-move, .rb-chip-x {
+  border: none; background: transparent; color: inherit; cursor: pointer; line-height: 1;
+  width: 16px; height: 16px; border-radius: 50%; font-size: 11px; opacity: .75; padding: 0;
+}
+.rb-chip-move:hover, .rb-chip-x:hover { opacity: 1; background: rgba(0, 0, 0, .08); }
+.rb-chip-move:disabled { opacity: .25; cursor: default; }
+.rb-chip-move:disabled:hover { background: transparent; }
+.rb-chip-add {
+  width: 22px; height: 22px; border-radius: 50%; border: 1px dashed var(--bcn-border-strong);
+  background: transparent; color: var(--bcn-ink-3); cursor: pointer; font-size: 13px; line-height: 1;
+}
+.rb-chip-add:hover { border-color: var(--bcn-accent-border); color: var(--bcn-accent); background: var(--bcn-accent-soft); }
+.rb-chipgroup.is-drop-target { border-color: var(--bcn-accent-border); background: var(--bcn-accent-soft); }
+
+/* ── Rail: friendly names, field browser, collapse ────────────────────── */
+.rb-src-friendly { font-size: 12px; font-weight: 700; color: var(--bcn-ink); }
+.rb-mono-hint { font-family: var(--bcn-mono); }
+.rb-details { display: flex; flex-direction: column; gap: 4px; }
+.rb-details summary {
+  cursor: pointer; font-size: 11px; color: var(--bcn-ink-3); line-height: 1.5;
+  list-style: none;
+}
+.rb-details summary::-webkit-details-marker { display: none; }
+.rb-details summary::before { content: '▸ '; }
+.rb-details[open] summary::before { content: '▾ '; }
+
+.rb-rail.is-collapsed { width: 0; border-right: none; overflow: hidden; }
+.rb-field-browser { border-top: 1px solid var(--bcn-border); display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.rb-field-browser[hidden] { display: none; }
+.rb-field-row {
+  display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+  padding: 6px 9px; border: 1px solid transparent; border-radius: var(--bcn-radius-sm);
+  background: transparent; cursor: pointer; font: inherit; font-size: 12px; color: var(--bcn-ink-2);
+}
+.rb-field-row:hover { background: var(--bcn-surface); border-color: var(--bcn-border); }
+.rb-field-row.is-on { color: var(--bcn-accent); background: var(--bcn-accent-soft); }
+.rb-field-icon {
+  font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-4); width: 16px; text-align: center; flex-shrink: 0;
+}
+.rb-field-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-field-on { color: var(--bcn-pos); font-weight: 700; }
+
+/* ── SQL dock ─────────────────────────────────────────────────────────
+   The same .rb-pane the Build tab uses, styled to read as a docked editor:
+   a header with the Run action, a resizable textarea (the browser's native
+   corner-drag on .rb-sql already provides "resizable", see above). */
+.rb-dock-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rb-dock-run { flex-shrink: 0; }
+
+/* Not .rb-warn: that class also marks the matview scoping notice, and the
+   two must stay independently countable (a page can show one, the other,
+   both or neither) rather than compete for one visual identity. */
+.rb-stale-bar {
+  margin: 0 18px; padding: 8px 11px; border-radius: var(--bcn-radius); font-size: 11.5px; line-height: 1.5;
+  background: color-mix(in oklab, var(--bcn-warn) 14%, var(--bcn-surface));
+  border: 1px solid color-mix(in oklab, var(--bcn-warn) 40%, var(--bcn-surface)); color: var(--bcn-ink);
+}
+.rb-stale-bar[hidden] { display: none; }
+
+/* ── Preview: chart above the table ───────────────────────────────────
+   Only occupies space when a shape was actually recommended; the table
+   underneath (rb-preview-body, unchanged) is always the fallback. */
+.rb-preview-mode { flex-shrink: 0; }
+.rb-preview-chart { flex-shrink: 0; height: 240px; padding: 10px 18px 0; }
+.rb-preview-chart[hidden] { display: none; }
+.rb-preview-chart .dw-kpi { height: 100%; padding: 4px 0; }
+
+/* ── Parameters: friendly control, advanced editor collapsed ─────────── */
+.rb-param { flex-direction: column; align-items: stretch; gap: 6px; }
+.rb-param-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rb-param-name { font-size: 12px; font-weight: 600; color: var(--bcn-ink); flex-shrink: 0; }
+.rb-param-summary .dw-icon-btn { margin-left: auto; }
+.rb-param-date { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rb-param-date .bcn-field { min-width: 140px; }
+.rb-param-advanced summary {
+  cursor: pointer; font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--bcn-ink-3); list-style: none;
+}
+.rb-param-advanced summary::-webkit-details-marker { display: none; }
+.rb-param-advanced summary::before { content: '▸ '; }
+.rb-param-advanced[open] summary::before { content: '▾ '; }
+.rb-param-fields { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.rb-param-fields .bcn-field-group { min-width: 120px; }
+.rb-param-fields .bcn-field-group--wide { flex: 1; min-width: 200px; }
+
+@media (max-width: 860px) {
+  /* The 190px cap a few rules up was sized for a bare source list. The rail
+     now also carries the field browser (search + Group by + Measures), and
+     with the parent's overflow left at its default `visible`, content that
+     no longer fits does not scroll -- it spills out and visually overlaps
+     whatever comes after it in the stacked column. Letting the rail take
+     the height it actually needs is the honest fix; the collapse toggle
+     (below) is what gets the space back, not a shrink that hides content
+     behind other content. */
+  .rb-rail { max-height: none; overflow: visible; }
+  .rb-rail-list, .rb-field-browser { max-height: 260px; overflow-y: auto; flex: 0 1 auto; }
+  .rb-rail.is-collapsed { width: auto; max-height: 0; border-bottom: none; }
+  .rb-chipbar { padding: 8px 12px; }
+  .rb-toolbar { padding: 8px 12px; flex-wrap: wrap; }
+  .rb-cmd { max-width: none; order: 1; flex-basis: 100%; }
+}
 
 /* ── Query picker badges ──────────────────────────────────────────────
    An agentic answer's queries_run is a transcript. A query reading
