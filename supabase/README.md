@@ -2280,3 +2280,16 @@ Replaces the four reports' tie-outs (the md5 guards change with the SQL). The
 catalog cleanup `20260922170000` now re-asserts only the TITLE of the three
 edited reports, since it replays after this file. Test:
 `scripts/tests/marketing-inventory-reports-database.test.mjs`.
+
+## SEO Performance — `20260925160000_seo_silo_report.sql`
+
+A SILO report (`c3..0b`, Marketing) over the three Search Console tables:
+site total against the previous equal-length period, daily trend, pages and
+search queries. Default window ends `today-2d` (final data). Follows the
+tables' rules: not-returned is blank never 0, position pooled by impressions,
+a comparison is blank unless both periods are fully ingested, the
+unattributed query share sits beside the totals, and page / query / site
+figures are never added together. Grouped by property. Date bounds are
+inline -- a joined window CTE is not index-pushable and timed out on 1.3M
+page rows. Tie-outs reconcile page and query rows to the site table's
+attributed clicks. Test: `scripts/tests/seo-silo-report-database.test.mjs`.

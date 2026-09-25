@@ -109,5 +109,10 @@ test('Creative Performance files under Marketing', () => {
     'Revenue is credited by the platform and is not incremental sales. Inventory of creatives.')), 'marketing');
 });
 
+test('SEO Performance files under Marketing, not Sales', () => {
+  eq(C.categoryFor(system('c3000000-0000-4000-a000-00000000000b', 'SEO Performance',
+    'Google Search Console clicks by page and search query; the pages and products behind sales.')), 'marketing');
+});
+
 const result = R.summary();
 process.exit(result.fail ? 1 : 0);

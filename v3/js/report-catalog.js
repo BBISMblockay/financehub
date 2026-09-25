@@ -66,7 +66,7 @@
   // under Sales, and Ads by Platform nowhere at all. Order matters: a stock
   // report that mentions sales is still a stock report.
   const TITLE_RULES = [
-    ['marketing', /marketing|attribution|creative|\bads?\b|ad platform|paid media|roas|launch|email|\bsms\b/],
+    ['marketing', /marketing|attribution|creative|\bseo\b|search console|\bads?\b|ad platform|paid media|roas|launch|email|\bsms\b/],
     ['inventory', /stock|inventory|cover|sell-through/],
     ['purchasing', /purchase order|\bpo\b|arriv|factory/],
     ['sales', /sales|product|location|channel/],
