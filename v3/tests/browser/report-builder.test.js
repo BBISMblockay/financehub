@@ -185,12 +185,12 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
  await p.click('#btnPreview');
  await p.waitForFunction(()=>!/Running/.test(document.getElementById('previewBody').textContent),null,{timeout:10000});
  await p.waitForTimeout(300);
- ok('a chart toggle appears above a groupable result', await p.isVisible('#btnPreviewMode'));
+ ok('a chart/table toggle appears above a groupable result', await p.isVisible('#previewModeToggle'));
  ok('...and the chart itself is drawn', await p.isVisible('#previewChart'));
- const modeLabel = await p.textContent('#btnPreviewMode');
- await p.click('#btnPreviewMode'); await p.waitForTimeout(150);
+ ok('chart is the active segment by default', await p.locator('[data-preview-mode="chart"].is-active').count()===1);
+ await p.click('[data-preview-mode="table"]'); await p.waitForTimeout(150);
  ok('the toggle switches to table-only', !(await p.isVisible('#previewChart')));
- ok('...and its own label flips', (await p.textContent('#btnPreviewMode'))!==modeLabel);
+ ok('...and the table segment becomes active', await p.locator('[data-preview-mode="table"].is-active').count()===1);
 
  // Rail collapse -- a keyboard/touch-safe alternative to always showing it.
  const wasExpanded = await p.getAttribute('#btnToggleRail','aria-expanded');

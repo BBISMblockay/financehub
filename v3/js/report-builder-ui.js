@@ -215,7 +215,7 @@
 
     el('buildBody').innerHTML = `
       ${mvNote}
-      <div class="rb-section rb-source-head">
+      <div class="rb-section rb-source-head rb-card">
         <span class="rb-section-title rb-source-title">${esc(RB.friendlyRelName(source.relname))}</span>
         <details class="rb-details">
           <summary>${source.description
@@ -224,12 +224,9 @@
           ${source.description ? `<p class="rb-note">${esc(source.description)}</p>` : ''}
           <span class="rb-note rb-mono-hint">${esc(source.relname)} · ${esc(source.relkind)}</span>
         </details>
-      </div>
-
-      <div class="rb-section">
-        <label class="rb-col" style="align-self:flex-start">
+        <label class="rb-summarise-toggle">
           <input type="checkbox" id="chkSummarise" ${cfg.summarise ? 'checked' : ''} />
-          Summarise (group and total) ${cfg.summarise ? '· on' : '· off'}
+          <span>Summarise (group and total)</span>
         </label>
       </div>
 
@@ -363,11 +360,15 @@
   /** One removable, and sometimes reorderable, pill. `move` is omitted for
       groups where order carries no meaning (filters, parameters). */
   function chip(label, { zone, index, move } = {}) {
+    // Reorder arrows earn their place only once there is more than one
+    // item to reorder -- on a single chip they are two disabled buttons
+    // doing nothing, which is clutter, not an affordance.
+    const canMove = move > 1;
     return `<span class="rb-chip" data-chip-jump="${esc(zone)}">
-        ${move ? `<button type="button" class="rb-chip-move" data-chip-move="${zone}:${index}" data-dir="-1"
+        ${canMove ? `<button type="button" class="rb-chip-move" data-chip-move="${zone}:${index}" data-dir="-1"
             ${index === 0 ? 'disabled' : ''} aria-label="Move ${esc(label)} earlier">‹</button>` : ''}
         <span class="rb-chip-label">${esc(label)}</span>
-        ${move ? `<button type="button" class="rb-chip-move" data-chip-move="${zone}:${index}" data-dir="1"
+        ${canMove ? `<button type="button" class="rb-chip-move" data-chip-move="${zone}:${index}" data-dir="1"
             ${index === move - 1 ? 'disabled' : ''} aria-label="Move ${esc(label)} later">›</button>` : ''}
         <button type="button" class="rb-chip-x" data-chip-x="${zone}:${index}" aria-label="Remove ${esc(label)}">✕</button>
       </span>`;
@@ -793,13 +794,15 @@
   function renderPreviewChart(rows) {
     disposePreviewChart();
     const host = el('previewChart');
-    const toggle = el('btnPreviewMode');
+    const toggle = el('previewModeToggle');
     if (!host || !toggle) return;
     const semantics = mapSemantics(currentMetadata(rows));
     const rec = chartRecommendation(rows, semantics);
     if (!rec) { host.hidden = true; toggle.hidden = true; return; }
     toggle.hidden = false;
-    toggle.textContent = showChart ? 'Show table only' : 'Show chart';
+    toggle.querySelectorAll('[data-preview-mode]').forEach((b) => {
+      b.classList.toggle('is-active', (b.dataset.previewMode === 'chart') === showChart);
+    });
     host.hidden = !showChart;
     if (!showChart) return;
     if (rec.visual_type === 'kpi') {
@@ -1624,9 +1627,10 @@
   // one engine, one button behind both, so Preview and Run can never drift
   // into running something different from what is on screen.
   el('btnRunQuery')?.addEventListener('click', preview);
-  el('btnPreviewMode')?.addEventListener('click', () => {
-    if (!lastRun) return;
-    showChart = !showChart;
+  el('previewModeToggle')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-preview-mode]');
+    if (!b || !lastRun) return;
+    showChart = b.dataset.previewMode === 'chart';
     renderPreviewChart(lastRun.rows);
   });
   // Delegated: the button is injected into previewBody's innerHTML fresh on
@@ -1673,7 +1677,6 @@
     catalog = (data || []).filter((r) => (r.columns || []).length);
     renderSourceList();
     renderParams();
-    setStatus(`${catalog.length} sales, product, inventory and marketing sources available.`, 'info', 5000);
 
     const params = new URLSearchParams(location.search);
 

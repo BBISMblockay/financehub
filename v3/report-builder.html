@@ -70,7 +70,7 @@
     <div class="rb-layout">
       <!-- Source browser: silo_chat_schema_catalog, which already exists to
            feed Ask SILO and works just as well as a picker. -->
-      <aside class="rb-rail" id="railPanel">
+      <aside class="rb-rail rb-card" id="railPanel">
         <div class="rb-rail-head">
           <input class="bcn-field" id="srcSearch" type="search" placeholder="Search tables and views…" />
         </div>
@@ -95,7 +95,7 @@
 
           <!-- ── SQL (the resizable dock) ────────────────────────────── -->
           <div class="rb-pane rb-dock" id="paneSql" hidden>
-            <div class="rb-section">
+            <div class="rb-section rb-card rb-dock-card">
               <div class="rb-dock-head">
                 <span class="rb-section-title">SQL</span>
                 <button type="button" class="bcn-btn bcn-btn--primary rb-dock-run" id="btnRunQuery">▷ Run query</button>
@@ -124,7 +124,7 @@
              report, not to how it was authored: a guided report and a
              hand-written one both declare them the same way, and both get
              the same slicer in a dashboard header. -->
-        <section class="rb-params" id="paramsSection">
+        <section class="rb-params rb-card" id="paramsSection">
           <div class="rb-params-head">
             <span class="rb-section-title">Parameters</span>
             <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddParam">+ Add parameter</button>
@@ -148,7 +148,10 @@
           <div class="rb-preview-head">
             <span class="rb-preview-title" id="previewTitle">Preview</span>
             <span class="rb-preview-title" id="previewMeta"></span>
-            <button type="button" class="bcn-btn bcn-btn--ghost rb-preview-mode" id="btnPreviewMode" hidden>Show table only</button>
+            <div class="rb-segmented" id="previewModeToggle" hidden role="group" aria-label="Preview as">
+              <button type="button" class="rb-segmented-btn" data-preview-mode="chart">Chart</button>
+              <button type="button" class="rb-segmented-btn" data-preview-mode="table">Table</button>
+            </div>
           </div>
           <div class="rb-preview-chart" id="previewChart" hidden></div>
           <div class="rb-preview-body" id="previewBody">

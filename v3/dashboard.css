@@ -396,20 +396,33 @@
    Shares this stylesheet with the dashboard pages because it shares their
    idiom — same modal, same card, same tokens. Beacon tokens only.
    ========================================================================== */
-.rb-layout { flex: 1; min-height: 0; display: flex; gap: 0; }
+/* ── The canvas ──────────────────────────────────────────────────────
+   Everything from here down sits on a light grey canvas (--bcn-sunken) so
+   the rail, the chip bar, each collapsed editor and the preview all read
+   as separate floating cards -- the same "10px corners, a soft two-layer
+   shadow" departure v3/README.md already documents for a dashboard tile,
+   reused verbatim (including its exact shadow formula, mixed from
+   --bcn-band so it stays theme-correct) rather than invented again here. */
+.rb-layout { flex: 1; min-height: 0; display: flex; gap: 14px; padding: 14px 14px 0; background: var(--bcn-sunken); }
+.rb-card {
+  background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 10px;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--bcn-band) 6%, transparent),
+    0 6px 18px -8px color-mix(in srgb, var(--bcn-band) 18%, transparent);
+}
 
 .rb-rail {
-  width: 288px; flex-shrink: 0; display: flex; flex-direction: column;
-  border-right: 1px solid var(--bcn-border); background: var(--bcn-sunken); min-height: 0;
+  width: 300px; flex-shrink: 0; display: flex; flex-direction: column;
+  min-height: 0; margin-bottom: 14px;
 }
-.rb-rail-head { padding: 10px 12px; border-bottom: 1px solid var(--bcn-border); flex-shrink: 0; }
-.rb-rail-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
+.rb-rail-head { padding: 12px 14px; border-bottom: 1px solid var(--bcn-border); flex-shrink: 0; }
+.rb-rail-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
 .rb-src {
   display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left;
   padding: 7px 9px; border: 1px solid transparent; border-radius: var(--bcn-radius);
   background: transparent; cursor: pointer; font: inherit;
 }
-.rb-src:hover { background: var(--bcn-surface); border-color: var(--bcn-border); }
+.rb-src:hover { background: var(--bcn-sunken); border-color: var(--bcn-border); }
 .rb-src.is-active { background: var(--bcn-accent-soft); border-color: var(--bcn-accent-border); }
 .rb-src-name { font-family: var(--bcn-mono); font-size: 11.5px; color: var(--bcn-ink); word-break: break-all; }
 .rb-src-desc {
@@ -426,7 +439,7 @@
 }
 
 .rb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.rb-panes { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+.rb-panes { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; background: var(--bcn-sunken); display: flex; flex-direction: column; gap: 14px; }
 .rb-pane[hidden] { display: none !important; }
 
 .rb-section { display: flex; flex-direction: column; gap: 8px; }
@@ -507,13 +520,25 @@
    gets most of the remaining height once the collapsed editors above it
    settle to their compact resting size (42% was sized for the old always-
    open Build form, which left far less room to hand over). */
-.rb-preview { border-top: 1px solid var(--bcn-border); flex-shrink: 0; max-height: 62%; display: flex; flex-direction: column; }
+.rb-preview {
+  flex-shrink: 0; max-height: 62%; display: flex; flex-direction: column;
+  background: var(--bcn-sunken); padding: 0 14px 14px;
+}
 .rb-preview-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 7px 18px; background: var(--bcn-sunken); border-bottom: 1px solid var(--bcn-border);
+  padding: 14px 2px 10px; flex-shrink: 0;
 }
 .rb-preview-title { font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--bcn-ink-3); }
-.rb-preview-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 18px 14px; }
+/* The table gets the same card treatment as the chart above it, rather
+   than sitting directly on the canvas -- two floating cards, not one card
+   and one plain region. */
+.rb-preview-body {
+  flex: 1; min-height: 120px; overflow: auto; padding: 10px 16px 14px;
+  background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 10px;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--bcn-band) 6%, transparent),
+    0 6px 18px -8px color-mix(in srgb, var(--bcn-band) 18%, transparent);
+}
 .rb-preview-more { display: flex; align-items: center; gap: 10px; padding: 10px 0 2px; }
 
 .dw-loadmore { display: flex; align-items: center; gap: 8px; padding: 8px 0 0; }
@@ -676,8 +701,8 @@
    contract, and a bordered box per parameter would out-weigh the SQL it
    parameterises. */
 .rb-params {
-  padding: 12px 14px;
-  border-top: 1px solid var(--bcn-line, rgba(0, 0, 0, 0.1));
+  padding: 14px 16px;
+  margin: 0 14px 14px;
 }
 .rb-params-head {
   display: flex;
@@ -737,11 +762,18 @@
    raise/lower/aggregate row is exactly the kind of dense, occasional
    control beacon's density is right for. */
 
+/* .rb-toolbar and .rb-chipbar sit ABOVE .rb-layout in the DOM (parameters
+   and the tab strip live outside the rail/main split), so the sunken
+   canvas is repeated on each rather than inherited from one ancestor --
+   the visual effect is one continuous grey canvas from here to the bottom
+   of the page either way. */
 .rb-toolbar {
   display: flex; align-items: center; gap: 12px; flex-shrink: 0;
-  padding: 14px 20px; border-bottom: 1px solid var(--bcn-border); background: var(--bcn-surface);
+  padding: 16px 14px 0; background: var(--bcn-sunken);
 }
-.rb-rail-toggle { flex-shrink: 0; }
+.rb-rail-toggle {
+  flex-shrink: 0; background: var(--bcn-surface); border-radius: 8px;
+}
 
 .rb-cmd { position: relative; flex: 1; min-width: 0; max-width: 640px; }
 .rb-cmd-input {
@@ -772,14 +804,16 @@
    as many lines as it needs rather than scrolling, since it is a summary,
    not a workspace. */
 .rb-chipbar {
-  display: flex; flex-wrap: wrap; gap: 14px; padding: 16px 20px;
-  border-bottom: 1px solid var(--bcn-border); background: var(--bcn-sunken);
+  display: flex; flex-wrap: wrap; gap: 12px; padding: 14px 14px 0; background: var(--bcn-sunken);
 }
 .rb-chipbar[hidden] { display: none; }
 .rb-chipgroup {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 8px 10px; border-radius: 10px; border: 1px dashed var(--bcn-border);
+  padding: 9px 12px; border-radius: 10px; border: 1px solid var(--bcn-border);
   background: var(--bcn-surface); min-height: 44px;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--bcn-band) 5%, transparent),
+    0 4px 12px -8px color-mix(in srgb, var(--bcn-band) 14%, transparent);
 }
 .rb-chipgroup-label {
   font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .07em;
@@ -812,15 +846,24 @@
 .rb-mono-hint { font-family: var(--bcn-mono); }
 .rb-details { display: flex; flex-direction: column; gap: 4px; }
 .rb-details summary {
-  cursor: pointer; font-size: 11px; color: var(--bcn-ink-3); line-height: 1.5;
-  list-style: none;
+  cursor: pointer; font-size: 12px; color: var(--bcn-ink-3); line-height: 1.5;
+  list-style: none; display: flex; align-items: center; gap: 6px;
 }
+.rb-details summary:hover { color: var(--bcn-ink-2); }
 .rb-details summary::-webkit-details-marker { display: none; }
-.rb-details summary::before { content: '▸ '; }
-.rb-details[open] summary::before { content: '▾ '; }
+.rb-details summary::before {
+  content: '▸'; display: inline-block; font-size: 9px; color: var(--bcn-ink-4);
+  transition: transform .12s ease; flex-shrink: 0;
+}
+.rb-details[open] summary::before { transform: rotate(90deg); }
 
-.rb-source-head { gap: 2px; }
+.rb-source-head { gap: 8px; padding: 14px 16px; }
 .rb-source-title { font-size: 15px; font-weight: 700; color: var(--bcn-ink); text-transform: none; letter-spacing: 0; }
+.rb-summarise-toggle {
+  display: flex; align-items: center; gap: 8px; align-self: flex-start; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--bcn-ink); margin-top: 2px;
+}
+.rb-summarise-toggle input { width: 16px; height: 16px; accent-color: var(--bcn-accent); cursor: pointer; }
 
 /* ── Collapsed editors (Filters, Totals, Date range, Sort, SQL) ────────
    Closed by default the moment there is a chip already saying what is in
@@ -832,13 +875,18 @@
   padding: 0; overflow: hidden;
 }
 .rb-editor summary {
-  cursor: pointer; padding: 11px 14px; font-size: 12.5px; font-weight: 600; color: var(--bcn-ink-2);
-  list-style: none; display: flex; align-items: center; gap: 6px;
+  cursor: pointer; padding: 12px 14px; font-size: 12.5px; font-weight: 600; color: var(--bcn-ink-2);
+  list-style: none; display: flex; align-items: center; gap: 8px; border-radius: 10px;
 }
+.rb-editor summary:hover { background: var(--bcn-sunken); }
+.rb-editor[open] summary:hover { background: transparent; }
 .rb-editor summary::-webkit-details-marker { display: none; }
-.rb-editor summary::before { content: '▸'; font-size: 10px; color: var(--bcn-ink-4); }
-.rb-editor[open] summary::before { content: '▾'; }
-.rb-editor[open] summary { border-bottom: 1px solid var(--bcn-border); }
+.rb-editor summary::before {
+  content: '▸'; display: inline-block; font-size: 10px; color: var(--bcn-ink-4);
+  transition: transform .12s ease; flex-shrink: 0;
+}
+.rb-editor[open] summary::before { transform: rotate(90deg); }
+.rb-editor[open] summary { border-bottom: 1px solid var(--bcn-border); border-radius: 10px 10px 0 0; }
 .rb-editor-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; }
 
 /* Nothing upstream of this ever gave #buildBody's own direct children any
@@ -848,9 +896,14 @@
    <details> supply almost none, so a plain stack of them reads as one
    cramped block with no breathing room between "sections" that are, in
    fact, unrelated controls. */
-#buildBody { display: flex; flex-direction: column; gap: 12px; }
+/* Capped rather than stretched to .rb-main's full width: an editor's
+   content (two dropdowns, a handful of rule rows) is nowhere near as wide
+   as the space next to the rail, and a full-width white card around that
+   little content read as a mostly-empty box. The rest of the canvas stays
+   visible beside it instead. */
+#buildBody { display: flex; flex-direction: column; gap: 12px; max-width: 640px; }
 
-.rb-rail.is-collapsed { width: 0; border-right: none; overflow: hidden; }
+.rb-rail.is-collapsed { width: 0; border: none; margin: 0; box-shadow: none; overflow: hidden; }
 .rb-field-browser { border-top: 1px solid var(--bcn-border); display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .rb-field-browser[hidden] { display: none; }
 .rb-field-row {
@@ -858,7 +911,7 @@
   padding: 6px 9px; border: 1px solid transparent; border-radius: var(--bcn-radius-sm);
   background: transparent; cursor: pointer; font: inherit; font-size: 12px; color: var(--bcn-ink-2);
 }
-.rb-field-row:hover { background: var(--bcn-surface); border-color: var(--bcn-border); }
+.rb-field-row:hover { background: var(--bcn-sunken); border-color: var(--bcn-border); }
 .rb-field-row.is-on { color: var(--bcn-accent); background: var(--bcn-accent-soft); }
 .rb-field-icon {
   font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-4); width: 16px; text-align: center; flex-shrink: 0;
@@ -872,12 +925,15 @@
    corner-drag on .rb-sql already provides "resizable", see above). */
 .rb-dock-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .rb-dock-run { flex-shrink: 0; }
+/* Wider than a Build-tab editor card (#buildBody's 640px) -- code wants
+   room, where a couple of dropdowns and a chip list do not. */
+.rb-dock-card { padding: 16px; max-width: 900px; }
 
 /* Not .rb-warn: that class also marks the matview scoping notice, and the
    two must stay independently countable (a page can show one, the other,
    both or neither) rather than compete for one visual identity. */
 .rb-stale-bar {
-  margin: 0 18px; padding: 8px 11px; border-radius: var(--bcn-radius); font-size: 11.5px; line-height: 1.5;
+  margin: 0 14px 14px; padding: 10px 14px; border-radius: 10px; font-size: 11.5px; line-height: 1.5;
   background: color-mix(in oklab, var(--bcn-warn) 14%, var(--bcn-surface));
   border: 1px solid color-mix(in oklab, var(--bcn-warn) 40%, var(--bcn-surface)); color: var(--bcn-ink);
 }
@@ -886,11 +942,24 @@
 /* ── Preview: chart above the table ───────────────────────────────────
    Only occupies space when a shape was actually recommended; the table
    underneath (rb-preview-body, unchanged) is always the fallback. */
-.rb-preview-mode { flex-shrink: 0; }
+.rb-segmented {
+  display: inline-flex; flex-shrink: 0; padding: 2px; gap: 2px;
+  background: var(--bcn-sunken); border: 1px solid var(--bcn-border); border-radius: 8px;
+}
+.rb-segmented[hidden] { display: none; }
+.rb-segmented-btn {
+  border: none; background: transparent; padding: 5px 12px; border-radius: 6px;
+  font: inherit; font-size: 11.5px; font-weight: 600; color: var(--bcn-ink-3); cursor: pointer;
+}
+.rb-segmented-btn:hover { color: var(--bcn-ink); }
+.rb-segmented-btn.is-active { background: var(--bcn-surface); color: var(--bcn-ink); box-shadow: var(--bcn-shadow); }
 .rb-preview-chart {
-  flex: 1 1 340px; min-height: 260px; margin: 14px 18px 0; padding: 14px 16px 10px;
+  flex: 1 1 340px; min-height: 260px; margin-bottom: 14px; padding: 14px 16px 10px;
   display: flex; flex-direction: column; gap: 8px;
   background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 10px;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--bcn-band) 6%, transparent),
+    0 6px 18px -8px color-mix(in srgb, var(--bcn-band) 18%, transparent);
 }
 .rb-preview-chart[hidden] { display: none; }
 .rb-preview-chart .dw-chart { flex: 1; min-height: 0; }
