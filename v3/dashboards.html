@@ -16,7 +16,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260925a" />
+  <link rel="stylesheet" href="dashboard.css?v=20260925b" />
   <style>
     /* ── Reports library ───────────────────────────────────────────────
        Page-specific, so it lives here rather than in dashboard.css (which
@@ -204,12 +204,12 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260925a"></script>
-<script src="js/field-semantics.js?v=20260925a"></script>
-<script src="js/metrics.js?v=20260925a"></script>
-<script src="js/chart-adapter.js?v=20260925a"></script>
-<script src="js/report-catalog.js?v=20260925a"></script>
-<script src="js/report-library.js?v=20260925a"></script>
+<script src="js/report-params.js?v=20260925b"></script>
+<script src="js/field-semantics.js?v=20260925b"></script>
+<script src="js/metrics.js?v=20260925b"></script>
+<script src="js/chart-adapter.js?v=20260925b"></script>
+<script src="js/report-catalog.js?v=20260925b"></script>
+<script src="js/report-library.js?v=20260925b"></script>
 <script>
 (function () {
   'use strict';
@@ -276,11 +276,14 @@
   // edited in place, so the builder offers the copy. Guessing here would
   // either hide a legitimate edit or promise one that is refused.
   const reportHref = (r) => `/v3/report-builder.html?id=${encodeURIComponent(r.id)}`;
+  // A SILO report opens to READ -- the viewer's data on a temporary board --
+  // not into the builder's SQL. Customising is one click away from there.
+  const siloReportHref = (r) => `/v3/dashboard.html?report=${encodeURIComponent(r.id)}`;
 
   function siloCard(r) {
     const full = String(r.description || '').trim();
     return card({
-      kind: 'silo', id: r.id, title: C.displayTitle(r) || r.title, href: reportHref(r),
+      kind: 'silo', id: r.id, title: C.displayTitle(r) || r.title, href: siloReportHref(r),
       summary: L.summaryOf(full),
       // A SILO report's card carries no badges: every one is global and
       // single-query, so "SILO report", "Global" and a query count said the

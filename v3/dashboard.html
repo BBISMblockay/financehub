@@ -20,7 +20,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260925a" />
+  <link rel="stylesheet" href="dashboard.css?v=20260925b" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -51,6 +51,9 @@
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnSettings" hidden
                 aria-expanded="false" aria-controls="metaBar"
                 title="Name, description and who can see this dashboard">Settings</button>
+        <select class="bcn-field v3-view-select" id="previewAdd" hidden
+                aria-label="Add this report to one of your dashboards"></select>
+        <a class="bcn-btn bcn-btn--ghost" id="previewBuilder" hidden>Customize a copy</a>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnCopy" hidden
                 title="Save this dashboard as your own board, which you can then change">Save a copy</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnEdit" hidden>Edit</button>
@@ -196,22 +199,23 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260925a"></script>
-<script src="js/field-semantics.js?v=20260925a"></script>
-<script src="js/metrics.js?v=20260925a"></script>
-<script src="js/chart-adapter.js?v=20260925a"></script>
-<script src="js/filter-bar.js?v=20260925a"></script>
-<script src="js/report-catalog.js?v=20260925a"></script>
+<script src="js/report-params.js?v=20260925b"></script>
+<script src="js/field-semantics.js?v=20260925b"></script>
+<script src="js/metrics.js?v=20260925b"></script>
+<script src="js/chart-adapter.js?v=20260925b"></script>
+<script src="js/filter-bar.js?v=20260925b"></script>
+<script src="js/report-catalog.js?v=20260925b"></script>
 <!-- The dashboard page does not compose SQL, but it does have to READ a
      saved answer: which of its queries is the answer and which is the
      model looking up column names. isSchemaProbe/defaultQueryIndex live
      in report-builder.js because that is where "what does this SQL mean"
      belongs; duplicating them here is how the two would drift. -->
-<script src="js/report-builder.js?v=20260925a"></script>
-<script src="js/dashboard-renderer.js?v=20260925a"></script>
-<script src="js/dashboard-builder.js?v=20260925a"></script>
-<script src="js/report-library.js?v=20260925a"></script>
-<script src="js/dashboard-copy.js?v=20260925a"></script>
+<script src="js/report-builder.js?v=20260925b"></script>
+<script src="js/dashboard-renderer.js?v=20260925b"></script>
+<script src="js/dashboard-builder.js?v=20260925b"></script>
+<script src="js/report-library.js?v=20260925b"></script>
+<script src="js/dashboard-copy.js?v=20260925b"></script>
+<script src="js/report-preview.js?v=20260925b"></script>
 <script>
 (function () {
   'use strict';
@@ -551,6 +555,10 @@
       });
     }
 
+    // ?report=<id>: one saved report on a temporary board, nothing saved.
+    const previewId = new URLSearchParams(location.search).get('report');
+    if (previewId) { await bootPreview(previewId, user, isExecOrOwner); return; }
+
     const id = new URLSearchParams(location.search).get('id');
     if (!id) { window.location.replace('/v3/dashboards.html'); return; }
 
@@ -680,6 +688,93 @@
         syncBlankState();
       }
     }
+  }
+
+  // ── A report on a temporary board (?report=<id>) ─────────────────────
+  // Reads like an expanded tile: the viewer's own data, the report's own
+  // filters, a chart where the rows have a shape and the full table under
+  // it. NOTHING is written -- no dashboard id exists, so Edit, Save and
+  // saved views stay off -- and the renderer is the one every saved board
+  // uses, so the preview is exactly the tile the report becomes once added.
+  async function bootPreview(reportId, user, isExecOrOwner) {
+    const P = window.SiloReportPreview;
+    const { data: report, error } = await sb.from('silo_chat_saved_reports_v')
+      .select(window.SiloDashboardBuilder.REPORT_FIELDS).eq('id', reportId).maybeSingle();
+    if (error) { setStatus('Could not load this report: ' + error.message, 'neg'); return; }
+    if (!report) {
+      setStatus('That report does not exist, or it is private to someone else.', 'neg');
+      return;
+    }
+    const queries = report.queries_run || [];
+    if (!queries.length) { setStatus(`"${report.title}" has no stored SQL, so there is nothing to show.`, 'neg'); return; }
+
+    const isSiloReport = report.source === 'system' && report.company_entity_id == null;
+    dashboard = P.previewBoard(report);
+    document.title = `SILO · ${dashboard.name}`;
+    el('headerName').textContent = dashboard.name;
+    el('headerScope').textContent = isSiloReport ? 'SILO report' : 'Report';
+    el('headerScope').hidden = false;
+    el('headerScope').classList.add('bcn-pill--accent');
+    el('headerDesc').textContent = report.description || report.question || 'No description.';
+    el('headerMeta').textContent = 'Showing your company\u2019s data. Not saved to any dashboard.'
+      + (report.created_by_name ? ` · created by ${report.created_by_name}` : (isSiloReport ? ' · created by SILO' : ''));
+    el('btnInfo').hidden = false;
+    // SILO's report cannot be edited in place; the builder offers the copy.
+    const builderLink = el('previewBuilder');
+    builderLink.href = `/v3/report-builder.html?id=${encodeURIComponent(report.id)}`;
+    builderLink.textContent = isSiloReport ? 'Customize a copy' : 'Open in report builder';
+    builderLink.hidden = false;
+
+    const qi = window.SiloReportBuilder.defaultQueryIndex(queries);
+    const table = P.tableWidget(report, qi, window.SiloDashboardBuilder.reportFieldsFor(report, qi));
+    const startValues = window.SiloReportParams.defaultsFor(
+      window.SiloReportParams.mergeDeclarations([table]), {});
+    runtime = window.SiloDashboardRenderer.createRuntime({
+      sb, gridEl: el('grid'), editable: false, paramValues: startValues,
+      density: readDensity(), onLayoutChange: () => {}, onPointClick,
+    });
+    filterBar = window.SiloFilterBar.create({
+      root: el('slicerFields'),
+      chipsEl: el('filterChips'),
+      getDeclarations: () => runtime.parameterDeclarations(),
+      getValues: () => runtime.getParamValues(),
+      participation: (key) => runtime.participationFor(key),
+      onApply: applyParams,
+    });
+    viewsAvailable = false;
+    window.__siloDashboard = { runtime, builder: null, dashboard, preview: true, get filterBar() { return filterBar; } };
+
+    // Table first: its rows are what the chart is chosen from, the same
+    // deterministic recommendation "Add insight" makes. No model call.
+    await runtime.setWidgets([table]);
+    const rows = runtime.rowsFor(P.TABLE_ID);
+    if (rows && rows.length) {
+      const chart = P.chartWidget(table, window.SiloChart.recommend(rows, runtime.semanticsFor(table, rows)));
+      if (chart) await runtime.setWidgets(P.arrange(table, chart));
+    }
+    syncBlankState();
+    renderSlicers();
+    await loadPreviewTargets(report.id, user, isExecOrOwner);
+  }
+
+  /** Boards this person can add a widget to -- their company's, and theirs
+      or any if exec/owner, mirroring the widget insert policy. Picking one
+      goes through the existing ?add_report hand-off, which adds and saves. */
+  async function loadPreviewTargets(reportId, user, isExecOrOwner) {
+    const sel = el('previewAdd');
+    const { data, error } = await sb.from('dashboards_v')
+      .select('id, name, created_by, company_entity_id').order('name');
+    if (error) return;
+    const boards = (data || []).filter((d) => d.company_entity_id && (isExecOrOwner || d.created_by === user.id));
+    if (!boards.length) return;
+    const esc = window.SiloChart.esc;
+    sel.innerHTML = '<option value="">Add to a dashboard…</option>'
+      + boards.map((d) => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
+    sel.hidden = false;
+    sel.addEventListener('change', () => {
+      if (!sel.value) return;
+      window.location.href = `/v3/dashboard.html?id=${encodeURIComponent(sel.value)}&add_report=${encodeURIComponent(reportId)}`;
+    });
   }
 
   // ── Header actions ────────────────────────────────────────────────────

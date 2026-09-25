@@ -1504,5 +1504,7 @@
     };
   }
 
-  global.SiloDashboardBuilder = { create };
+  // reportFieldsFor/REPORT_FIELDS are shared with the report preview
+  // (?report=<id>) so a previewed tile is shaped exactly like an added one.
+  global.SiloDashboardBuilder = { create, reportFieldsFor, REPORT_FIELDS };
 })(window);
