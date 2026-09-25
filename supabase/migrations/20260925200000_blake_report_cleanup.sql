@@ -97,8 +97,11 @@ update public.dashboards
  where id='ca069f1b-1eda-4805-a4a9-53d6c28dc2b0'
    and created_by='69bd02b7-c711-4d4d-a03b-15d3e88d1932';
 update public.dashboards
-   set filter_state=coalesce(filter_state,'{}'::jsonb)-'demand_basis',
-       description='Product sales detail, category share and monthly Total Sales and units. Shared dates, store, channel, MLB SKU rule, product type and name search. Monthly matrices require a complete returned population; broad windows may time out.',
+   set filter_state=(coalesce(filter_state,'{}'::jsonb)-'demand_basis') ||
+         '{"date_from":"today-90d","date_to":"today-1d"}'::jsonb,
+       description=replace(description,
+         'Rolling YTD through yesterday; source completeness depends on sync.',
+         'Last 90 completed days by default; widening to YTD may time out. Source completeness depends on sync.') || ' Demand-planning tiles are now on the private Demand Planner.',
        updated_at=now()
  where id='2486431f-3c55-48c1-a320-e7de86e1df79'
    and created_by='69bd02b7-c711-4d4d-a03b-15d3e88d1932';
