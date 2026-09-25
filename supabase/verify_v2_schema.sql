@@ -4799,6 +4799,38 @@ select 'Pacific is written in one place' as check_name,
    then 'MISSING: seo_task_publications.business_timezone -- run 20260924130100_business_timezone_seo.sql'
  else 'ok' end as status;
 
+-- SILO dashboards (20260925120000): a global board every company reads and
+-- no client can change. The widget write policies are the lock that matters,
+-- since a global board has no owner and exec/owner passed them before
+select 'SILO dashboards are global and read-only' as check_name,
+ case
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='dashboards' and column_name='source')
+   then 'MISSING: dashboards.source -- run 20260925120000_silo_dashboards.sql'
+ when not exists(select 1 from pg_constraint where conrelid='public.dashboards'::regclass
+   and conname='dashboards_source_matches_scope' and convalidated)
+   then 'CRITICAL: dashboards_source_matches_scope is missing; a board can be global without being SILO''s, or SILO''s while scoped'
+ when not exists(select 1 from pg_policies where schemaname='public' and tablename='dashboards'
+   and policyname='dashboards_select' and qual like '%source = ''system''%')
+   then 'MISSING: dashboards_select does not show SILO dashboards'
+ when (select count(*) from pg_policies where schemaname='public' and tablename='dashboard_widgets'
+   and policyname in ('dashboard_widgets_insert','dashboard_widgets_update','dashboard_widgets_delete')
+   and coalesce(qual,'') || coalesce(with_check,'') like '%d.company_entity_id = active_company_id()%') < 3
+   then 'CRITICAL: a dashboard_widgets write policy does not scope the parent board to the active company; an exec/owner can change the SILO board for every tenant'
+ when exists(select 1 from public.dashboard_widgets w join public.dashboards d on d.id = w.dashboard_id
+   where d.source = 'system' and w.company_entity_id is not null)
+   then 'CRITICAL: a SILO dashboard carries a company-scoped widget'
+ when exists(select 1 from public.dashboard_widgets w join public.dashboards d on d.id = w.dashboard_id
+   join public.silo_chat_saved_reports r on r.id = w.report_id
+   where d.source = 'system' and not (r.source = 'system' and r.company_entity_id is null))
+   then 'CRITICAL: a SILO dashboard names a company report; one tenant''s report on every tenant''s board'
+ when not exists(select 1 from public.dashboards where id = '5110da5b-0000-4000-a000-000000000001' and source = 'system')
+   then 'MISSING: the SILO Overview dashboard -- run 20260925120000_silo_dashboards.sql'
+ when not exists(select 1 from information_schema.columns where table_schema='public'
+   and table_name='dashboards_v' and column_name='source')
+   then 'MISSING: dashboards_v.source; the library cannot tell a SILO board from a company one'
+ else 'ok' end as status;
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further

@@ -2236,3 +2236,19 @@ Unchanged for every existing company (all Pacific). `verify_v2_schema.sql`'s
 names Pacific other than the helper. Tests: `company-onboarding-database`,
 `seo-workflow-database`, `forecast-candidate-database`,
 `business-timezone-reporting-database`, `business-timezone-westmost`.
+
+## SILO dashboards — `20260925120000_silo_dashboards.sql`
+
+One global dashboard (`source = 'system'`, `company_entity_id IS NULL`) every
+company reads with its own data -- the **Overview** board, so a new tenant's
+Dashboards tab is not empty. Adds `dashboards.source` with the
+`dashboards_source_matches_scope` CHECK, widens `dashboards_select` to global
+system boards (the saved-report policy's shape), and **tightens the three
+dashboard_widgets write policies** to require the parent board be in the
+caller's active company -- without that, an exec/owner could change SILO's
+board for every tenant. `dashboards_v` gains `source` and names SILO as the
+author. The board and its twelve tiles are upserted by fixed id and a re-run
+prunes tiles dropped from the definition. Customising means "Save a copy" on
+the page. Applied before the catalog cleanup, which stays last. Verify check:
+"SILO dashboards are global and read-only". Test:
+`scripts/tests/silo-dashboards-database.test.mjs`.

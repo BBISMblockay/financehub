@@ -28,6 +28,7 @@ on:
       - 'supabase/migrations/*ownership_reports.sql'
       - 'supabase/migrations/*ownership_dashboard.sql'
       - 'supabase/migrations/*record_report_catalog_cleanup.sql'
+      - 'supabase/migrations/*silo_dashboards.sql'
       - 'supabase/apply_all_post_merge.sql'
       - 'v3/js/report-params.js'
       - 'scripts/shopify-sync.mjs'
@@ -680,6 +681,12 @@ jobs:
       # recording migration lands the catalog where production is -- twice.
       - name: Execute report catalog cleanup regressions
         run: node scripts/tests/report-catalog-cleanup-database.test.mjs
+
+      # 20260925120000: SILO dashboards. One global board every company reads
+      # and NO client can change -- an exec/owner included -- plus any
+      # member's "save a copy". Mutation-tested: SILO_DASH_MUTATION.
+      - name: Execute SILO dashboards regressions
+        run: node scripts/tests/silo-dashboards-database.test.mjs
 
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a

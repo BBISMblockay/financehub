@@ -70,5 +70,29 @@ test('visibility badge', () => {
   eq(L.visibilityLabel({ visibility: 'company' }), 'Company');
 });
 
+test('SILO dashboard = system AND global, both required', () => {
+  truthy(L.isSiloDashboard({ source: 'system', company_entity_id: null }));
+  eq(L.isSiloDashboard({ source: 'system', company_entity_id: 'C1' }), false);
+  eq(L.isSiloDashboard({ source: 'user', company_entity_id: null }), false);
+  // A row read before the column existed has no source at all.
+  eq(L.isSiloDashboard({ company_entity_id: 'C1' }), false);
+});
+
+test('SILO dashboards list first, the rest keep their order', () => {
+  const boards = [
+    { id: 'a', source: 'user', company_entity_id: 'C1' },
+    { id: 's', source: 'system', company_entity_id: null },
+    { id: 'b', source: 'user', company_entity_id: 'C1' },
+  ];
+  eq(L.orderDashboards(boards).map((d) => d.id), ['s', 'a', 'b']);
+  eq(L.orderDashboards(null), []);
+});
+
+test('dashboard badge: SILO for a SILO board, visibility otherwise', () => {
+  eq(L.dashboardScopeLabel({ source: 'system', company_entity_id: null, visibility: 'company' }), 'SILO');
+  eq(L.dashboardScopeLabel({ source: 'user', company_entity_id: 'C1', visibility: 'private' }), 'Only me');
+  eq(L.dashboardScopeLabel({ source: 'user', company_entity_id: 'C1', visibility: 'company' }), 'Company');
+});
+
 const result = R.summary();
 process.exit(result.fail ? 1 : 0);

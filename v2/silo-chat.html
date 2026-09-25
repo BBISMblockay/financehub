@@ -1439,9 +1439,11 @@
     const sel = el('saveDialogDashboard');
     try {
       const { data, error } = await sb.from('dashboards_v')
-        .select('id, name, created_by').order('updated_at', { ascending: false });
+        .select('id, name, created_by, company_entity_id').order('updated_at', { ascending: false });
       if (error) { wrap.hidden = true; return; }
-      const mine = (data || []).filter(d => isExecOrOwner || d.created_by === session?.user?.id);
+      // A SILO board (no company) is read-only to everyone, execs included.
+      const mine = (data || []).filter(d => d.company_entity_id
+        && (isExecOrOwner || d.created_by === session?.user?.id));
       sel.innerHTML = `<option value="">Just save it — don't add to a dashboard</option>`
         + mine.map(d => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')
         + `<option value="__new__">＋ New dashboard…</option>`;

@@ -184,6 +184,36 @@ Idempotent via fixed UUIDs and `on conflict (id) do nothing` — deliberately no
 do-update would discard anyone's correction. Changing a shipped definition is
 its own migration.
 
+## SILO dashboards
+
+`20260925120000_silo_dashboards.sql` does for boards what `source = 'system'`
+does for reports: **one** dashboard SILO defines, with `company_entity_id IS
+NULL` and `source = 'system'`, that every company opens and reads with its
+own data. It exists so a new tenant's Dashboards tab is not empty on day one.
+The first is **Overview** (sales vs last year, net sales by day, channel mix,
+top products, locations, stock, low stock, open POs) -- sales-first, and only
+what a Shopify-only tenant has; marketing tiles are left off because without
+an ad platform connected they all render empty.
+
+One definition serves every tenant because a widget is CONFIGURATION: each
+tile runs its report through `chat_run_readonly_query` under the viewer's RLS.
+Every report on a SILO board must itself be a global system report
+(`verify_v2_schema.sql` goes CRITICAL otherwise), or one tenant's report would
+sit on every tenant's screen.
+
+**Read-only to every client, exec/owner included.** The widget write policies
+used to pass for "owns the parent board OR exec/owner", and a global board has
+no owner -- so they now also require the parent board to belong to the
+caller's active company. `dashboards_source_matches_scope` ties `source` to
+`company_entity_id` so neither can be forged into the other. The library
+lists SILO boards first with a **SILO** badge, and `dashboards_v` names SILO as
+the author. The page hides Edit (even with `?edit=1`) and offers **Save a
+copy** (`js/dashboard-copy.js`): a PRIVATE board the viewer owns, carrying the
+widgets and filter position, opened straight into edit mode. Changing a SILO
+board is a migration, like a system report. Tests:
+`scripts/tests/silo-dashboards-database.test.mjs` (RLS, mutation-tested),
+`tests/unit/dashboard-copy.test.js`, `tests/browser/silo-dashboard.test.js`.
+
 ## Bump the asset version when you change these files
 
 Every `v3` script and stylesheet is loaded with `?v=<version>`. The site is
@@ -211,6 +241,8 @@ change ships and nobody sees it until they hard-refresh.
 | `js/chart-adapter.js` | The only file that talks to ECharts. Profiles rows, recommends a visual, groups/sorts/limits, builds options, renders table/KPI/**answer** HTML |
 | `js/dashboard-renderer.js` | Owns the GridStack instance and draws widgets from config. Used unchanged in view **and** edit mode |
 | `js/dashboard-builder.js` | Edit mode only: report picker, inspector, buffered save |
+| `js/dashboard-copy.js` | "Save a copy" of a SILO dashboard: a private board the viewer owns. Pure `buildCopy` is unit-tested |
+| `js/report-library.js` | The Reports hub's rules: which tab a row belongs to, SILO boards first, card badges, search. Pure and unit-tested |
 | `report-builder.html`, `js/report-builder.js`, `js/report-builder-ui.js` | The workbench: build a report from a table/view or write SQL, declare parameters, preview, save. Composition and every safety rule live in `report-builder.js`, which is pure and unit-tested; the `-ui` file only turns clicks into config |
 
 Libraries are CDN-loaded and version-pinned: GridStack 10.3.1 (canvas
