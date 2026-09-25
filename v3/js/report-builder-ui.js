@@ -215,8 +215,8 @@
 
     el('buildBody').innerHTML = `
       ${mvNote}
-      <div class="rb-section rb-source-head rb-card">
-        <span class="rb-section-title rb-source-title">${esc(RB.friendlyRelName(source.relname))}</span>
+      <div class="rb-source-head">
+        <span class="rb-source-title">${esc(RB.friendlyRelName(source.relname))}</span>
         <details class="rb-details">
           <summary>${source.description
             ? esc(source.description.split(/(?<=[.!?])\s+/)[0]) + (/[.!?]\s+\S/.test(source.description) ? ' — details' : '')
@@ -224,85 +224,95 @@
           ${source.description ? `<p class="rb-note">${esc(source.description)}</p>` : ''}
           <span class="rb-note rb-mono-hint">${esc(source.relname)} · ${esc(source.relkind)}</span>
         </details>
-        <label class="rb-summarise-toggle">
-          <input type="checkbox" id="chkSummarise" ${cfg.summarise ? 'checked' : ''} />
-          <span>Summarise (group and total)</span>
-        </label>
       </div>
 
-      ${dateCols().length ? `
-      <details class="rb-editor" id="secDate"${dateOpen ? ' open' : ''}>
-        <summary>Date range${cfg.dateColumn ? ` · ${esc((RB.DATE_RANGES.find((r) => r.id === cfg.dateRange) || {}).label || 'custom')}` : ' · none'}</summary>
-        <div class="rb-editor-body">
-          <div class="rb-row">
-            <div class="bcn-field-group">
-              <label class="bcn-label" for="selDateCol">Date column</label>
-              <select class="bcn-field" id="selDateCol">${opts(dateCols(), cfg.dateColumn, 'None')}</select>
+      <!-- One bordered panel for every remaining control, rather than each
+           getting its own floating card -- Summarise is this panel's own
+           always-visible first row, and everything below it is a collapsed
+           <details> sharing the same border instead of five separate boxes
+           each announcing themselves with their own edge and shadow. -->
+      <div class="rb-editor-group rb-card">
+        <div class="rb-editor-row">
+          <label class="rb-summarise-toggle">
+            <input type="checkbox" id="chkSummarise" ${cfg.summarise ? 'checked' : ''} />
+            <span>Summarise (group and total)</span>
+          </label>
+        </div>
+
+        ${dateCols().length ? `
+        <details class="rb-editor" id="secDate"${dateOpen ? ' open' : ''}>
+          <summary>Date range${cfg.dateColumn ? ` · ${esc((RB.DATE_RANGES.find((r) => r.id === cfg.dateRange) || {}).label || 'custom')}` : ' · none'}</summary>
+          <div class="rb-editor-body">
+            <div class="rb-row">
+              <div class="bcn-field-group">
+                <label class="bcn-label" for="selDateCol">Date column</label>
+                <select class="bcn-field" id="selDateCol">${opts(dateCols(), cfg.dateColumn, 'None')}</select>
+              </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label" for="selDateRange">Range</label>
+                <select class="bcn-field" id="selDateRange">
+                  ${RB.DATE_RANGES.map((r) => `<option value="${r.id}"${r.id === cfg.dateRange ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}
+                </select>
+              </div>
             </div>
-            <div class="bcn-field-group">
-              <label class="bcn-label" for="selDateRange">Range</label>
-              <select class="bcn-field" id="selDateRange">
-                ${RB.DATE_RANGES.map((r) => `<option value="${r.id}"${r.id === cfg.dateRange ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}
-              </select>
+            ${!cfg.dateColumn ? '<p class="rb-note">No date window yet — pick a column and a range on purpose. Nothing is filtered by default.</p>' : ''}
+          </div>
+        </details>` : ''}
+
+        <details class="rb-editor" id="secFilters"${filtersOpen ? ' open' : ''}>
+          <summary>Filters${cfg.filters.length ? ` · ${cfg.filters.length}` : ''}</summary>
+          <div class="rb-editor-body">
+            ${filterRows || '<p class="rb-note">No filters.</p>'}
+            <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddFilter" style="align-self:flex-start">+ Add a filter</button>
+          </div>
+        </details>
+
+        ${cfg.summarise ? `
+        <details class="rb-editor" id="secMeasures"${measuresOpen ? ' open' : ''}>
+          <summary>Totals${cfg.measures.length ? ` · ${cfg.measures.length}` : ''}</summary>
+          <div class="rb-editor-body">
+            ${measureRows || '<p class="rb-note">No totals yet — add one.</p>'}
+            <div class="rb-row">
+              <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddMeasure">+ Add a total</button>
+              <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddCalc">+ Add a calculation</button>
+            </div>
+            <p class="rb-note">A calculation is one total over another — ROAS is sales ÷ spend, and no column holds it.
+              Division is guarded, so a zero denominator leaves the cell empty rather than failing the query.</p>
+          </div>
+        </details>` : ''}
+
+        <details class="rb-editor" id="secSort">
+          <summary>Sort and limit</summary>
+          <div class="rb-editor-body">
+            <div class="rb-row">
+              <div class="bcn-field-group">
+                <label class="bcn-label" for="selSort">Sort by</label>
+                <select class="bcn-field" id="selSort">
+                  ${opts(cfg.summarise ? cols.map((c) => c.name).concat(aliasList) : cols, cfg.sortColumn, 'Query order')}
+                </select>
+              </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label" for="selSortDir">Direction</label>
+                <select class="bcn-field" id="selSortDir">
+                  <option value="desc"${cfg.sortDir === 'desc' ? ' selected' : ''}>Highest first</option>
+                  <option value="asc"${cfg.sortDir === 'asc' ? ' selected' : ''}>Lowest first</option>
+                </select>
+              </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label" for="inpLimit">Limit</label>
+                <input class="bcn-field bcn-field--mono" id="inpLimit" type="number" min="0" max="1000" value="${Number(cfg.limit) || 0}" />
+              </div>
             </div>
           </div>
-          ${!cfg.dateColumn ? '<p class="rb-note">No date window yet — pick a column and a range on purpose. Nothing is filtered by default.</p>' : ''}
-        </div>
-      </details>` : ''}
+        </details>
 
-      <details class="rb-editor" id="secFilters"${filtersOpen ? ' open' : ''}>
-        <summary>Filters${cfg.filters.length ? ` · ${cfg.filters.length}` : ''}</summary>
-        <div class="rb-editor-body">
-          ${filterRows || '<p class="rb-note">No filters.</p>'}
-          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddFilter" style="align-self:flex-start">+ Add a filter</button>
-        </div>
-      </details>
-
-      ${cfg.summarise ? `
-      <details class="rb-editor" id="secMeasures"${measuresOpen ? ' open' : ''}>
-        <summary>Totals${cfg.measures.length ? ` · ${cfg.measures.length}` : ''}</summary>
-        <div class="rb-editor-body">
-          ${measureRows || '<p class="rb-note">No totals yet — add one.</p>'}
-          <div class="rb-row">
-            <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddMeasure">+ Add a total</button>
-            <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddCalc">+ Add a calculation</button>
+        <details class="rb-editor" id="secGenSql">
+          <summary>SQL this generates</summary>
+          <div class="rb-editor-body">
+            <pre class="rb-generated" id="genSql">${esc(RB.buildSql(source, cfg) || '-- choose at least one total to summarise')}</pre>
           </div>
-          <p class="rb-note">A calculation is one total over another — ROAS is sales ÷ spend, and no column holds it.
-            Division is guarded, so a zero denominator leaves the cell empty rather than failing the query.</p>
-        </div>
-      </details>` : ''}
-
-      <details class="rb-editor" id="secSort">
-        <summary>Sort and limit</summary>
-        <div class="rb-editor-body">
-          <div class="rb-row">
-            <div class="bcn-field-group">
-              <label class="bcn-label" for="selSort">Sort by</label>
-              <select class="bcn-field" id="selSort">
-                ${opts(cfg.summarise ? cols.map((c) => c.name).concat(aliasList) : cols, cfg.sortColumn, 'Query order')}
-              </select>
-            </div>
-            <div class="bcn-field-group">
-              <label class="bcn-label" for="selSortDir">Direction</label>
-              <select class="bcn-field" id="selSortDir">
-                <option value="desc"${cfg.sortDir === 'desc' ? ' selected' : ''}>Highest first</option>
-                <option value="asc"${cfg.sortDir === 'asc' ? ' selected' : ''}>Lowest first</option>
-              </select>
-            </div>
-            <div class="bcn-field-group">
-              <label class="bcn-label" for="inpLimit">Limit</label>
-              <input class="bcn-field bcn-field--mono" id="inpLimit" type="number" min="0" max="1000" value="${Number(cfg.limit) || 0}" />
-            </div>
-          </div>
-        </div>
-      </details>
-
-      <details class="rb-editor" id="secGenSql">
-        <summary>SQL this generates</summary>
-        <div class="rb-editor-body">
-          <pre class="rb-generated" id="genSql">${esc(RB.buildSql(source, cfg) || '-- choose at least one total to summarise')}</pre>
-        </div>
-      </details>`;
+        </details>
+      </div>`;
     // toggle does not reliably bubble, so each <details> gets its own
     // listener rather than one delegated on #buildBody -- there are at
     // most six of these, so the cost of re-attaching every render is nothing.
