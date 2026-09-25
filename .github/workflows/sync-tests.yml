@@ -688,6 +688,12 @@ jobs:
       - name: Execute SILO dashboards regressions
         run: node scripts/tests/silo-dashboards-database.test.mjs
 
+      # 20260925150000: marketing and inventory SILO reports. Runs the deployed
+      # report SQL over fixtures (grain, totals, missing days, expired Meta
+      # thumbnails, image fallbacks) and every tie-out the migration writes.
+      - name: Execute marketing and inventory report regressions
+        run: node scripts/tests/marketing-inventory-reports-database.test.mjs
+
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a
       # later edit, and a cleared flag carries no stale author or note.

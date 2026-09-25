@@ -124,6 +124,52 @@ test('markup in an ordinary cell is still escaped', () => {
   has(html, '&lt;script&gt;');
 });
 
+// ── Missing images and fallbacks ──────────────────────────────────────
+console.log('\n── image fallbacks ──');
+test('a null image draws a placeholder the size of a thumbnail, not an empty cell', () => {
+  const html = C.tableHtml([{ image: null, sku: 'A' }, { image: 'https://cdn.example.com/a.png', sku: 'B' }], {}, { image: 'image' });
+  has(html, 'dw-thumb--none');
+  has(html, 'aria-label="No image available"');
+  has(html, 'src="https://cdn.example.com/a.png"');
+});
+test('a refused image URL draws the placeholder too, never the URL', () => {
+  const html = C.tableHtml([{ image: 'javascript:alert(1)' }], {}, { image: 'image' });
+  has(html, 'dw-thumb--none');
+  not(html, 'javascript:');
+});
+test('the placeholder the renderer swaps in on a load error is the same markup', () => {
+  has(C.tableHtml([{ image: null }], {}, { image: 'image' }), C.imagePlaceholderHtml());
+});
+test('a thumbnail can open a bigger preview named by the report', () => {
+  const html = C.tableHtml([{ thumbnail: 'https://scontent.example.com/t.jpg', ad_preview: 'https://fb.me/abc' }], {},
+    { thumbnail: 'image', ad_preview: 'link' }, { imageLinks: { thumbnail: 'ad_preview' } });
+  has(html, 'href="https://fb.me/abc"');
+  has(html, 'title="Open the full preview"');
+  has(html, 'src="https://scontent.example.com/t.jpg"');
+});
+test('with no preview on the row, the thumbnail links to itself', () => {
+  const html = C.tableHtml([{ thumbnail: 'https://scontent.example.com/t.jpg', ad_preview: null }], {},
+    { thumbnail: 'image', ad_preview: 'link' }, { imageLinks: { thumbnail: 'ad_preview' } });
+  has(html, 'href="https://scontent.example.com/t.jpg"');
+});
+test('a hostile preview link is never the href', () => {
+  const html = C.tableHtml([{ thumbnail: 'https://scontent.example.com/t.jpg', ad_preview: 'javascript:alert(1)' }], {},
+    { thumbnail: 'image' }, { imageLinks: { thumbnail: 'ad_preview' } });
+  not(html, 'href="javascript');
+});
+test('a report label names the column header', () => {
+  const html = C.tableHtml([{ platform_credited_revenue: 10 }], {}, { platform_credited_revenue: 'currency' },
+    { labels: { platform_credited_revenue: 'Revenue Credited by Platform' } });
+  has(html, '>Revenue Credited by Platform<');
+});
+
+test('an id the report declares a category renders as the id, not a number', () => {
+  const html = C.tableHtml([{ ad_id: '120238471650190610', spend: 5 }, { ad_id: '120238471650190611', spend: 6 }], {},
+    { ad_id: 'category', spend: 'currency' });
+  has(html, '>120238471650190610<');
+  not(html, '120,238');
+});
+
 // ── Not a measure, not a dimension ────────────────────────────────────
 console.log('\n── chart pickers ──');
 test('a url column is never offered as a dimension or measure', () => {

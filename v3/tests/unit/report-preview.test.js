@@ -48,5 +48,37 @@ test('a report can name the column its chart is broken out by: a top-10 ranking'
   eq(P.preferPrimary({ visual_type: 'donut', visual_config: {} }, meta, rows).visual_type, 'bar',
      'a named breakout is drawn as a ranking, never a donut');
 });
+test('a report that declares its queries draws each one, titled, in order', () => {
+  const r = { id: 'r', title: 'Inventory Summary', queries_run: ['q0', 'q1', 'q2'],
+    columns_metadata: { _queries: [{ index: 0, title: 'Total', chart: false }, { index: 1, title: 'By type' }, { index: 2, title: 'By SKU', chart: false }] } };
+  eq(P.declaredQueries(r), [
+    { index: 0, title: 'Total', chart: false }, { index: 1, title: 'By type', chart: true }, { index: 2, title: 'By SKU', chart: false }]);
+  const t = P.queryTable(r, { index: 1, title: 'By type' }, { query_sql: 'q1' });
+  eq([t.id, t.title, t.query_index, t.query_sql], ['preview-q1-table', 'By type', 1, 'q1']);
+});
+test('without a declaration a report is a transcript: nothing declared', () => {
+  eq(P.declaredQueries({ queries_run: ['a', 'b'], columns_metadata: { spend: { semantic: 'currency' } } }), null);
+  eq(P.declaredQueries({ queries_run: ['a'] }), null);
+});
+test('malformed entries are dropped, never guessed at', () => {
+  const r = { queries_run: ['a', 'b'], columns_metadata: { _queries: [
+    { index: 5, title: 'x' }, { index: 1.5 }, { index: 0 }, { index: 0, title: 'dup' }, null, { index: '1', title: 'B' }] } };
+  eq(P.declaredQueries(r), [{ index: 0, title: 'Query 1', chart: true }, { index: 1, title: 'B', chart: true }]);
+  eq(P.declaredQueries({ queries_run: ['a'], columns_metadata: { _queries: [{ index: 3 }] } }), null);
+});
+test('parts stack in order, each chart directly above its own table', () => {
+  const t0 = { id: 't0', layout: { x: 0, y: 0, w: 12, h: 8 } };
+  const t1 = { id: 't1', layout: { x: 0, y: 0, w: 12, h: 8 } };
+  const c1 = { id: 'c1', layout: { x: 0, y: 0, w: 12, h: 5 } };
+  const out = P.stack([{ table: t0, rowCount: 1 }, { table: t1, chart: c1, rowCount: 40 }]);
+  eq(out.map((w) => [w.id, w.layout.y, w.layout.h]), [['t0', 0, 3], ['c1', 3, 5], ['t1', 8, 9]]);
+  eq(out.map((w) => w.sort_order), [0, 1, 2]);
+  eq(t1.layout.y, 0, 'inputs are not moved');
+});
+test('a chart for a part gets its own id', () => {
+  const t = P.queryTable({ id: 'r', title: 'X' }, { index: 2, title: 'Y' }, {});
+  eq(P.chartWidget(t, { visual_type: 'bar', visual_config: {} }, P.queryChartId(2)).id, 'preview-q2-chart');
+});
+
 const result = R.summary();
 process.exit(result.fail ? 1 : 0);
