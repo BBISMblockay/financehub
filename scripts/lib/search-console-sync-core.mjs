@@ -88,7 +88,8 @@ export const ROW_LIMIT = 25000;
 export const MAX_PAGES_PER_CUT = 400;
 
 /** The window for one sync: `daysBack + 1` days ending LAG_DAYS back in
- * Pacific time. Same start/end convention as computeWindow() in
+ * Pacific time. Pacific here is GOOGLE's, not the company's: Search Console
+ * reports every property in Pacific days, whatever the business's timezone. Same start/end convention as computeWindow() in
  * ad-platforms-sync-core (start = end - daysBack), so a days_back of 30 on
  * the connection means the same thing for every Google platform. */
 export function searchConsoleWindow(now, daysBack, lagDays = DEFAULT_LAG_DAYS) {

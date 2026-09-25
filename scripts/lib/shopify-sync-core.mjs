@@ -78,7 +78,14 @@ export function isoDateOnly(d) {
 
 /** The business day is PACIFIC. isoDateOnly() is UTC, and between 5pm and
  * midnight Pacific those two disagree about what day it is -- which is why
- * anything deciding "yesterday" must not use isoDateOnly(). */
+ * anything deciding "yesterday" must not use isoDateOnly().
+ *
+ * Pacific is also the WESTERNMOST timezone SILO supports (20260924130000; pinned by
+ * scripts/tests/business-timezone-westmost.test.mjs), so for a company in any other
+ * supported zone this boundary is conservative, never wrong: Pacific
+ * yesterday+today always contains the company's own yesterday, so the forced
+ * rebuild below still completes it. (sales_by_day.day_date itself is the
+ * SHOP's local date, sliced from Shopify's offset-carrying created_at.) */
 export function pacificDateOnly(d = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Los_Angeles',

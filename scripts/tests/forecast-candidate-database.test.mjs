@@ -31,6 +31,7 @@
 //   FC_DB_MUTATION=pooled-only-gate     per-cycle "consistently improve" gate dropped
 //   FC_DB_MUTATION=runs-need-not-be-consecutive  any 3 scorable cycles count as a run
 //   FC_DB_MUTATION=absent-baseline-passes        a missing baseline counts as beaten
+//   FC_DB_MUTATION=ledger-tz-pacific    the ledger stamps Pacific, not the company's timezone
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -55,7 +56,14 @@ const MIGRATION_2 = 'supabase/migrations/20260917180000_product_type_profile.sql
 // no-look-ahead CHECK. Loaded here too so the verify checks below run against
 // the schema production will actually have, not an intermediate one.
 const MIGRATION_3 = 'supabase/migrations/20260918000000_forecast_method_competition.sql';
+// The business-timezone sweep: the one helper, then the ledger's per-row
+// timezone and the writers/reader that use the company's calendar.
+const MIGRATION_4 = 'supabase/migrations/20260924130000_business_timezone_core.sql';
+const MIGRATION_5 = 'supabase/migrations/20260924130200_business_timezone_forecast.sql';
 const MUTATIONS = {
+  // The ledger stamps Pacific instead of the company's timezone.
+  'ledger-tz-pacific': [['new.business_timezone := public.silo_company_timezone(new.company_entity_id);',
+                         "new.business_timezone := 'America/Los_Angeles';"]],
   'no-clamp': [['least(p_clamp_high, greatest(p_clamp_low, v_raw))', 'v_raw']],
   // BOTH bounds, because the guard is deliberately two-layered: the base CTE
   // and each window's own predicate. Mutating either alone still refuses the
@@ -78,12 +86,18 @@ const MUTATIONS = {
   'runs-need-not-be-consecutive': [['(s.cutoff_date - (row_number() over (order by s.cutoff_date) * interval \'1 month\'))::date as island', "date '2000-01-01' as island"]],
   // Cycle-1 review findings. Each removes one layer of the two P1 fixes.
   'allow-expired-writes': [['if v_matured_through >= v_horizon_end - 1 then', 'if false then']],
-  'no-prospective-check': [["    check (executed_at < timezone('America/Los_Angeles', horizon_end_date::timestamp)),", '    check (true),']],
-  'score-post-hoc': [["        when r.executed_at >= timezone('America/Los_Angeles', r.horizon_end_date::timestamp) then false", '        when false then false']],
+  // Each anchor names BOTH the original text and the business-timezone sweep's
+  // (20260924130200), which rewrites these same sites; a mutation applied only
+  // to the original would be overwritten before any assertion ran.
+  'no-prospective-check': [["    check (executed_at < timezone('America/Los_Angeles', horizon_end_date::timestamp)),", '    check (true),'],
+                           ['  check (executed_at < timezone(business_timezone, horizon_end_date::timestamp));', '  check (true);']],
+  'score-post-hoc': [["        when r.executed_at >= timezone('America/Los_Angeles', r.horizon_end_date::timestamp) then false", '        when false then false'],
+                     ['        when r.executed_at >= timezone(r.business_timezone, r.horizon_end_date::timestamp) then false', '        when false then false']],
   'void-open-to-members': [['  if not public.is_exec_or_owner() then', '  if false then']],
   // Cycle-2 review findings.
   'ignore-issuance-lag': [['        when r.frozen_days_into_horizon > r.max_issuance_lag_days then false', '        when false then false']],
-  'no-wallclock-expiry': [["  if timezone('America/Los_Angeles', now())::date >= v_horizon_end then", '  if false then']],
+  'no-wallclock-expiry': [["  if timezone('America/Los_Angeles', now())::date >= v_horizon_end then", '  if false then'],
+                          ['  if timezone(public.silo_company_timezone(p_company_entity_id), now())::date >= v_horizon_end then', '  if false then']],
   'absent-baseline-passes': [['coalesce(b.n, 0) >= p_min_cycles as g_cycles', 'coalesce(b.n, 0) >= p_min_cycles as g_cycles'], ['(bc.wape is not null and bp.wape is not null and a.pooled_wape is not null\n        and a.pooled_wape < bc.wape and a.pooled_wape < bp.wape) as g_pooled', '(coalesce(a.pooled_wape < bc.wape, true) and coalesce(a.pooled_wape < bp.wape, true)) as g_pooled'], ['(bc.wape is not null and a.worst_cycle_wape is not null and a.worst_cycle_wape < bc.wape) as g_every', 'coalesce(a.worst_cycle_wape < bc.wape, true) as g_every']],
 };
 const mutation = process.env.FC_DB_MUTATION || '';
@@ -94,6 +108,19 @@ const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const first = async (sql, params = []) => (await q(sql, params))[0];
 const scalar = async (sql, params = []) => Object.values(await first(sql, params))[0];
 const num = (v) => (v === null || v === undefined ? null : Number(v));
+
+// The unlock migration's guard block (the first DO block in 130400), and the
+// verifier's business-timezone check, executed against THIS fixture.
+async function unlockGuardSql() {
+  const sql = await readFile(new URL('supabase/migrations/20260924130400_business_timezone_onboarding.sql', root), 'utf8');
+  const start = sql.indexOf('do $$');
+  const end = sql.indexOf('end $$;', start) + 'end $$;'.length;
+  return sql.slice(start, end);
+}
+async function sweepVerifySql() {
+  const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+  return splitSqlStatements(verify).find((s) => s.text.includes("'Pacific is written in one place'")).text;
+}
 
 let passed = 0;
 async function test(name, fn) {
@@ -129,7 +156,7 @@ await db.exec(await readFile(new URL('scripts/tests/forecast-db-bootstrap.sql', 
 // mutation that cannot fail is worse than no mutation, because it is counted as
 // coverage -- which is the exact claim this whole file exists to refuse.
 const migrationSources = [];
-for (const path of [MIGRATION, MIGRATION_2, MIGRATION_3]) {
+for (const path of [MIGRATION, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5]) {
   migrationSources.push([path, await readFile(new URL(path, root), 'utf8')]);
 }
 for (const [from, to] of MUTATIONS[mutation] || []) {
@@ -591,7 +618,7 @@ await test('a row frozen after its horizon is never scored, even if one exists',
              -- place, so it is tested where it is the only thing acting.
              200)`, [co]);
   await q(`alter table public.forecast_candidate_ledger add constraint forecast_ledger_frozen_before_outcome
-           check (executed_at < timezone('America/Los_Angeles', horizon_end_date::timestamp)) not valid`);
+           check (executed_at < timezone(business_timezone, horizon_end_date::timestamp)) not valid`);
 
   const c = await asRole('authenticated', reader, () => first(
     "select status_label, scorable, not_scorable_reason, cycle_wape from public.forecast_candidate_cycles($1, 'Youth')", [co]));
@@ -1323,6 +1350,69 @@ await test('a sold-out category is still merchandise; only a never-tracked one i
   assert.equal(fee.reason, 'set by a person');
 });
 
+await test("an EASTERN company's forecast is frozen and judged on Eastern days, stamped on the row", async () => {
+  // Two companies, identical rows; only the stored timezone differs.
+  // 2026-07-01T05:00Z is 01:00 Eastern on Jul 1 -- AFTER an Eastern horizon
+  // ending Jul 1 closed -- but 22:00 Pacific on Jun 30, still inside a Pacific
+  // one. And 2026-06-01T05:00Z is day 0 of the horizon in Eastern, day -1 in
+  // Pacific.
+  const east = randomUUID();
+  const west = randomUUID();
+  await makeCompany(east, 'Eastern Co', null);
+  await makeCompany(west, 'Western Co', null);
+  await q("insert into public.company_settings (company_entity_id, business_timezone) values ($1, 'America/New_York')", [east]);
+  const insert = (co, candidate, at) => asService(() => first(
+    `insert into public.forecast_candidate_ledger
+      (company_entity_id, candidate_id, cutoff_date, sku_category, horizon_days, forecast_qty,
+       horizon_start_date, horizon_end_date, recent_window_start, recent_window_end, recent_demand,
+       prior_window_start, prior_window_end, prior_demand, prior_year_target_month, prior_year_target_demand,
+       raw_ratio, clamped_ratio, ratio_clamp_low, ratio_clamp_high, ratio_was_clamped, inputs_through_date,
+       method_version, candidate_spec, source_relation, executed_at, business_timezone)
+     values ($1,$2,'2026-06-01','Youth',30,10,'2026-06-01','2026-07-01',
+             '2026-03-01','2026-06-01',1,'2025-03-01','2025-06-01',1,'2025-06-01',1,
+             1,1,0.6,1.8,false,'2026-05-31','v','{}'::jsonb,'x', $3::timestamptz, 'UTC')
+     returning business_timezone, frozen_days_into_horizon`, [co, candidate, at]));
+
+  const e = await insert(east, 'TzProbeA', '2026-06-01T05:00:00Z');
+  assert.equal(e.business_timezone, 'America/New_York', "the row carries the company's timezone, not what the writer passed");
+  assert.equal(e.frozen_days_into_horizon, 0, 'day 0 of the horizon on the Eastern calendar');
+  const w = await insert(west, 'TzProbeA', '2026-06-01T05:00:00Z');
+  assert.equal(w.business_timezone, 'America/Los_Angeles', 'no settings row: the Pacific fallback');
+  assert.equal(w.frozen_days_into_horizon, -1, 'the same instant is the day before on the Pacific calendar');
+
+  await refused(() => insert(east, 'TzProbeB', '2026-07-01T05:00:00Z'),
+    /forecast_ledger_frozen_before_outcome/, 'an Eastern horizon had closed by 01:00 Eastern');
+  assert.ok(await insert(west, 'TzProbeB', '2026-07-01T05:00:00Z'), 'a Pacific horizon had not closed at 22:00 Pacific');
+
+  // The row does not follow a later change of the company's timezone.
+  await q("update public.company_settings set business_timezone = 'America/Chicago' where company_entity_id = $1", [east]);
+  assert.equal(await scalar("select business_timezone from public.forecast_candidate_ledger where company_entity_id = $1 and candidate_id = 'TzProbeA'", [east]),
+    'America/New_York');
+  await refused(() => asService(() => q(
+    "update public.forecast_candidate_ledger set business_timezone = 'UTC' where company_entity_id = $1", [east])),
+    /append-only/, 'the stamped timezone is as frozen as the forecast');
+});
+
+await test('the unlock refuses a ledger stamp trigger that is missing, disabled or not stamping', async () => {
+  const guard = await unlockGuardSql();
+  await db.exec(guard);
+  await db.exec('alter table public.forecast_candidate_ledger disable trigger trg_forecast_ledger_business_timezone');
+  try {
+    await refused(() => db.exec(guard), /forecast_candidate_ledger \(stamp trigger missing, disabled or not stamping\)/, 'disabled ledger trigger');
+  } finally {
+    await db.exec('alter table public.forecast_candidate_ledger enable trigger trg_forecast_ledger_business_timezone');
+  }
+  const def = await scalar("select pg_get_functiondef('public.forecast_ledger_stamp_business_timezone()'::regprocedure)");
+  await db.exec(`create or replace function public.forecast_ledger_stamp_business_timezone() returns trigger
+                   language plpgsql as $f$ begin return new; end $f$`);
+  try {
+    await refused(() => db.exec(guard), /forecast_candidate_ledger \(stamp trigger/, 'hollow ledger stamp');
+  } finally {
+    await db.exec(def);
+  }
+  await db.exec(guard);
+});
+
 await test('the migration re-applies over a populated database without damage', async () => {
   const before = await first(`select
     (select count(*)::int from public.forecast_candidate_ledger) as ledger,
@@ -1339,6 +1429,8 @@ await test('the migration re-applies over a populated database without damage', 
   await db.exec(migrationSql);
   await db.exec(await readFile(new URL(MIGRATION_2, root), 'utf8'));
   await db.exec(await readFile(new URL(MIGRATION_3, root), 'utf8'));
+  await db.exec(await readFile(new URL(MIGRATION_4, root), 'utf8'));
+  await db.exec(await readFile(new URL(MIGRATION_5, root), 'utf8'));
 
   const after = await first(`select
     (select count(*)::int from public.forecast_candidate_ledger) as ledger,
@@ -1380,6 +1472,8 @@ await test('the real verify_v2_schema.sql forecast checks all pass on a migrated
     await fresh.exec(await readFile(new URL(MIGRATION, root), 'utf8'));
     await fresh.exec(await readFile(new URL(MIGRATION_2, root), 'utf8'));
     await fresh.exec(await readFile(new URL(MIGRATION_3, root), 'utf8'));
+    await fresh.exec(await readFile(new URL(MIGRATION_4, root), 'utf8'));
+    await fresh.exec(await readFile(new URL(MIGRATION_5, root), 'utf8'));
 
     const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
     // splitSqlStatements returns { text, section, line } and strips comments;

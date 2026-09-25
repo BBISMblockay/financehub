@@ -16,6 +16,12 @@ alter default privileges in schema public grant execute on functions to anon, au
 
 create table auth.users (id uuid primary key);
 create table public.entities (id uuid primary key, title text);
+-- The column silo_company_timezone() (20260924130000) reads. No row means the
+-- Pacific fallback, which is every synthetic company unless a test sets one.
+create table public.company_settings (
+  company_entity_id uuid primary key references public.entities(id),
+  business_timezone text not null
+);
 create type public.app_role as enum ('owner', 'admin', 'executive', 'user');
 create table public.profiles (
   id uuid primary key references auth.users(id), name text, email text,

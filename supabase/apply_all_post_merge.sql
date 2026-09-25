@@ -19106,6 +19106,18 @@ $c$select (select count(*) from v_po_header_summary
 -- to the live sync_jobs job_type list. Additive; re-runnable.
 \i migrations/20260924120000_redo_marketing_reporting.sql
 
+-- ── Business-timezone sweep (2026-09-24) ──────────────────────────────────
+-- Every day boundary reads the company's own timezone through the one helper
+-- silo_company_timezone(); Pacific is its fallback and written nowhere else.
+-- Unchanged for every existing company (all Pacific). The onboarding unlock
+-- (130400) is last on purpose: it widens the accepted timezones only after
+-- every site honours them. Re-runnable.
+\i migrations/20260924130000_business_timezone_core.sql
+\i migrations/20260924130100_business_timezone_seo.sql
+\i migrations/20260924130200_business_timezone_forecast.sql
+\i migrations/20260924130300_business_timezone_reporting.sql
+\i migrations/20260924130400_business_timezone_onboarding.sql
+
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above
 -- upsert the catalog, so re-running this file without it re-creates the four

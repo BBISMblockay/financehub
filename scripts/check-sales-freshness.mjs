@@ -49,6 +49,11 @@ const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // The business day boundary is Pacific, not UTC. Using UTC here would raise a
 // false alarm every day between Pacific midnight and 00:00 UTC.
+// Pacific is also the WESTERNMOST timezone SILO supports (20260924130000; pinned by
+// scripts/tests/business-timezone-westmost.test.mjs), so for a company in any other
+// supported zone this boundary is conservative, never wrong: a day is
+// called complete only after Pacific midnight, which is after every supported
+// company's own midnight.
 function pacificToday() {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Los_Angeles',

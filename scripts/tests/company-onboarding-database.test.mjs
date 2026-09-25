@@ -44,6 +44,9 @@
 //   ONBOARDING_MUTATION=declared-insert-unguarded (the guard back to UPDATE-only)
 //   ONBOARDING_MUTATION=retry-shape-drift   (the retry path drops entity_key again)
 // Added after the cycle-3 review:
+//   ONBOARDING_MUTATION=sweep-gate-open     (silo_company_timezone answers for any company)
+//   ONBOARDING_MUTATION=sweep-helper-literal (silo_business_timezone back to its own Pacific literal)
+//   ONBOARDING_MUTATION=sweep-no-new-zones  (20260924130400's allowlist rows not inserted)
 //   ONBOARDING_MUTATION=retry-validates-first (validation moved above the retry branch,
 //                                              which is what the page's recovery relies on)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
@@ -58,7 +61,8 @@ const mutation = process.env.ONBOARDING_MUTATION || '';
 assert.ok(['', 'signup-founds-org', 'retry-creates-new', 'tz-anything-goes', 'invite-any-admin',
   'founding-rewrites-global-role', 'currency-one-sided', 'helpers-definer',
   'founding-reactivates', 'currency-unlocked', 'refusal-only-removed',
-  'declared-insert-unguarded', 'retry-shape-drift', 'retry-validates-first'].includes(mutation),
+  'declared-insert-unguarded', 'retry-shape-drift', 'retry-validates-first',
+  'sweep-gate-open', 'sweep-helper-literal', 'sweep-no-new-zones'].includes(mutation),
   `Unknown onboarding mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -903,6 +907,107 @@ await test('the verify checks FAIL when the thing they guard is broken', async (
   await db.exec(`alter table public.accounting_settings enable trigger trg_accounting_currency_matches_declared`);
 
   for (let i = 0; i < 4; i++) assert.equal(await check(i), 'ok', 'all four restored to ok');
+});
+
+// ── The business-timezone sweep (20260924130000 + 130400) ───────────────────
+// Applied AFTER everything above, which is written against 20260918120000's
+// Pacific-only world (its refusal test and its "unhonoured timezone" verify
+// probe both use zones this sweep then supports).
+{
+  let core = await readFile(new URL('supabase/migrations/20260924130000_business_timezone_core.sql', root), 'utf8');
+  let unlock = await readFile(new URL('supabase/migrations/20260924130400_business_timezone_onboarding.sql', root), 'utf8');
+  if (mutation === 'sweep-gate-open') {
+    const before = core;
+    core = core.replace("raise exception 'silo_company_timezone: not a member of company %', p_company_entity_id\n        using errcode = 'insufficient_privilege';", () => 'null;');
+    assert.notEqual(core, before, 'sweep-gate-open must find the gate');
+  }
+  if (mutation === 'sweep-helper-literal') {
+    const before = core;
+    core = core.replace('select public.silo_company_timezone(public.active_company_id());',
+      () => "select 'America/Los_Angeles'::text;");
+    assert.notEqual(core, before, 'sweep-helper-literal must find the delegation');
+  }
+  if (mutation === 'sweep-no-new-zones') {
+    const before = unlock;
+    unlock = unlock.replace(/insert into public\.supported_business_timezones[\s\S]*?do nothing;\n/, () => '');
+    assert.notEqual(unlock, before, 'sweep-no-new-zones must find the insert');
+  }
+  await db.exec(core);
+  await db.exec(unlock);
+  if (!mutation) { await db.exec(core); await db.exec(unlock); }
+}
+
+await test('sweep: the unlock REFUSES to run while a fixed site still names Pacific', async () => {
+  // A stand-in for a site 130000-130300 should have rewritten but did not
+  // (drift, a partial apply). Widening the allowlist on top of it is exactly
+  // what the unlock must refuse -- and it must leave the allowlist unwidened.
+  const unlockSql = await readFile(new URL('supabase/migrations/20260924130400_business_timezone_onboarding.sql', root), 'utf8');
+  await db.exec(`create function public.seo_follow_up_window(p uuid, d integer) returns date language sql
+                   as $f$ select (now() at time zone 'America/Los_Angeles')::date $f$`);
+  await db.exec(`delete from public.supported_business_timezones where tz_name = 'America/Chicago'`);
+  try {
+    await assert.rejects(() => db.exec(unlockSql), /not unlocking new business timezones: seo_follow_up_window/);
+    assert.equal((await q(`select 1 from public.supported_business_timezones where tz_name='America/Chicago'`)).length, 0,
+      'a refused unlock adds nothing');
+  } finally {
+    await db.exec('drop function public.seo_follow_up_window(uuid, integer)');
+    await db.exec(unlockSql);   // the real sites are clean here, so it now applies
+  }
+});
+
+await test('sweep: the four US mainland timezones are offered, Alaska and Hawaii are not', async () => {
+  const rows = (await q(`select tz_name from public.supported_business_timezones where is_supported order by tz_name`))
+    .map(r => r.tz_name);
+  assert.deepEqual(rows, ['America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/New_York', 'America/Phoenix']);
+});
+
+let eastern;
+const easternFounder = randomUUID();
+await test('sweep: an Eastern company can be founded and stores Eastern', async () => {
+  const res = await as(blake, () => rpc('create_platform_invite', ['east@prospect.com', 'Eastern Co']));
+  await q(`insert into auth.users(id,email) values ($1,'east@prospect.com')`, [easternFounder]);
+  eastern = await as(easternFounder, () => rpc('redeem_platform_invite', [res.token, 'Eastern Co', 'America/New_York', 'USD']));
+  assert.equal(eastern.ok, true);
+  const cs = await one(`select business_timezone from public.company_settings where company_entity_id=$1`, [eastern.entity_id]);
+  assert.equal(cs.business_timezone, 'America/New_York');
+});
+
+await refused(
+  async () => {
+    const res = await as(blake, () => rpc('create_platform_invite', ['aloha@prospect.com', null]));
+    const uid = randomUUID();
+    await q(`insert into auth.users(id,email) values ($1,'aloha@prospect.com')`, [uid]);
+    await as(uid, () => rpc('redeem_platform_invite', [res.token, 'Aloha Co', 'Pacific/Honolulu', 'USD']));
+  },
+  /does not support Pacific\/Honolulu as a business timezone yet/,
+  'sweep: a zone west of Pacific is still refused, with a message that no longer claims the sweep is unfinished');
+
+await test("sweep: an Eastern company's day boundary is Eastern, the incumbent's stays Pacific", async () => {
+  const ny = (await one(`select (now() at time zone 'America/New_York')::date as d`)).d;
+  const la = (await one(`select (now() at time zone 'America/Los_Angeles')::date as d`)).d;
+  assert.deepEqual(await as(easternFounder, () => rpc('silo_business_timezone', [])), 'America/New_York');
+  assert.deepEqual(await as(easternFounder, () => rpc('silo_business_today', [])), ny);
+  assert.deepEqual(await as(blake, () => rpc('silo_business_today', [])), la, 'Baseballism has no settings row: Pacific');
+  assert.equal(await as(null, () => rpc('silo_company_timezone', [eastern.entity_id]), 'service_role'), 'America/New_York',
+    'a service-role sync can resolve any company');
+  assert.equal(await as(null, () => rpc('silo_company_timezone', [null]), 'service_role'), 'America/Los_Angeles',
+    'a null company falls back to Pacific, never null');
+});
+
+await refused(
+  () => as(blake, () => rpc('silo_company_timezone', [eastern.entity_id])),
+  /not a member of company/,
+  "sweep: a signed-in caller cannot ask about a company they do not belong to");
+
+await test('sweep: the Pacific literal lives in exactly one public function', async () => {
+  const rows = await q(`select p.proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                         where n.nspname='public' and p.prokind='f' and p.prosrc like '%America/Los_Angeles%'
+                         order by 1`);
+  const names = rows.map(r => r.proname);
+  assert.ok(names.includes('silo_company_timezone'));
+  for (const n of ['silo_business_timezone', 'redeem_platform_invite']) {
+    assert.ok(!names.includes(n), `${n} must not carry its own Pacific literal`);
+  }
 });
 
 console.log(`\n1..${passed}`);

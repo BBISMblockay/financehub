@@ -349,17 +349,17 @@ the whole question:
   one invite founds **two** companies. CI requires each of those three
   mutations to go red, so a lock cannot be quietly dropped later and leave a
   green suite behind.
-- **Business timezone: half done, and the half that is missing is refused
-  rather than faked.** `silo_business_today()` / `silo_business_yesterday()` now
-  read `company_settings.business_timezone` (20260918120000). Measured on
-  production 2026-09-18, **ten further functions** in the public schema and
-  **seven files** under `scripts/` and `v2/` still embed `America/Los_Angeles`
-  in their own bodies, including the Shopify sync core and the sales-freshness
-  check; `shopify-sync.yml`'s cron is pinned to a UTC hour chosen for Pacific
-  midnight. Until those are done, `supported_business_timezones` holds one row
-  and onboarding **refuses** anything else with a message naming why. A client
-  outside Pacific therefore cannot be onboarded yet — which is the honest state,
-  and is deliberately louder than storing a setting nothing honours.
+- **Business timezone: done for the US mainland (2026-09-24,
+  `20260924130000`-`130400`).** Every day boundary in the database reads the
+  company's own timezone through `silo_company_timezone()`; onboarding accepts
+  Pacific, Mountain, Arizona, Central and Eastern. The sync scripts still reason
+  in Pacific on purpose, as a westernmost bound that is conservative for every
+  supported zone (`scripts/tests/business-timezone-westmost.test.mjs`). Alaska
+  and Hawaii remain refused: the 08:30 UTC nightly is still their previous
+  evening, so they need a schedule change first. Pick the timezone the client's
+  SHOPIFY store is set to -- `sales_by_day.day_date` is the shop's local date,
+  so a company set to a different zone from its store would compare days that
+  do not line up.
 - **Ask SILO's product-concept branch** is gated by a hardcoded email allowlist
   (`PRODUCT_CONCEPT_TESTERS = ['blake@baseballism.com']`) in the edge function.
   Fine while in testing; it is per-client code and must become a grant table or

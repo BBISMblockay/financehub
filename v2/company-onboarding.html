@@ -221,6 +221,16 @@
     if (tzErr) { setStatus('Could not load timezones: ' + tzErr.message, 'neg'); return; }
 
     const supported = (zones || []).filter(z => z.is_supported);
+    // With a real choice, nothing is preselected: the list is ordered by label,
+    // so the first option is Arizona, and a founder skimming the form would
+    // otherwise file every daily report on a clock they never picked.
+    if (supported.length > 1) {
+      const pick = document.createElement('option');
+      pick.value = ''; pick.textContent = 'Choose your business timezone';
+      pick.disabled = true; pick.selected = true;
+      tzSel.appendChild(pick);
+      tzSel.required = true;
+    }
     supported.forEach(z => {
       const o = document.createElement('option');
       o.value = z.tz_name; o.textContent = z.label;
@@ -246,9 +256,8 @@
       return;
     }
 
-    // The refusal, said BEFORE the form is submitted rather than as an error
-    // afterwards. If Pacific is the only supported zone there is no choice to
-    // make, so explain why the control is not a choice.
+    // If only one zone is supported there is no choice to make, so say why the
+    // control is not a choice -- BEFORE submit, rather than as an error after.
     //
     // Built with textContent rather than innerHTML: the label is a DB value,
     // and the old version escaped `<` by hand and nothing else. That table is
@@ -262,11 +271,9 @@
       const zone = document.createElement('strong');
       zone.textContent = supported[0].label;
       warn.append(
-        'SILO anchors daily reporting to ', zone, ' only, for now. Ten database functions and seven ' +
-        'sync scripts still compute the day boundary in Pacific time, so a different timezone would be ' +
-        'stored and then ignored \u2014 every daily figure would stay anchored to Pacific while this ' +
-        'setting claimed otherwise. If your business runs on another timezone, say so before you go ' +
-        'further: this needs finishing first.');
+        'SILO anchors daily reporting to ', zone, ' only, for now. If your business runs on another ' +
+        'timezone, say so before you go further: SILO would otherwise file every daily figure on this ' +
+        'clock.');
       warn.hidden = false;
     }
 
@@ -278,6 +285,10 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (submitting) return;                 // the client half of the retry story
+      if (!tzSel.value) {
+        setStatus('Choose your business timezone. It decides what SILO calls \u201cyesterday\u201d in every daily report.', 'neg');
+        return;
+      }
       submitting = true;
       $('btnCreate').disabled = true;
       $('busyHint').hidden = false;

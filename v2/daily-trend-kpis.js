@@ -123,6 +123,12 @@
    * covers up to the previous Pacific day). `new Date()` on a UTC host is a
    * day ahead from 17:00 Pacific onward, which is exactly when someone is
    * still looking at the report.
+   *
+   * Pacific is also the WESTERNMOST timezone SILO supports (20260924130000; pinned by
+   * scripts/tests/business-timezone-westmost.test.mjs), so for a company in any other
+   * supported zone this boundary is conservative, never wrong: an
+   * eastern company's finished day can read as in progress for up to three
+   * hours, but a partial day is never shown as complete.
    */
   function pacificToday(now) {
     var d = now || new Date();
