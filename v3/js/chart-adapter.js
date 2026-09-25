@@ -1703,7 +1703,17 @@
 
     const list = rows || [];
     const nums = list.map((r) => toNumber(r[field])).filter((n) => n !== null);
-    if (!nums.length) return '<div class="dw-empty">No value</div>';
+    if (!nums.length) {
+      // A report can say WHY a measure comes back blank
+      // (columns_metadata[col].blank_reason, handed in by the renderer as
+      // config.blank_reasons). "No value" alone reads as broken; a blank
+      // that is deliberate -- cover that cannot be computed honestly --
+      // should say so rather than look like a failed tile.
+      const reason = cfg.blank_reasons && cfg.blank_reasons[field];
+      return reason
+        ? `<div class="dw-empty"><strong>Not available</strong><span class="dw-empty-hint">${esc(reason)}</span></div>`
+        : '<div class="dw-empty">No value</div>';
+    }
 
     const semantic = semanticOf(field, semantics, prof);
 
