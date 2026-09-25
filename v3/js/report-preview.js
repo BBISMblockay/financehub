@@ -81,5 +81,20 @@
     return [chart, below];
   }
 
-  global.SiloReportPreview = { TABLE_ID, CHART_ID, previewBoard, tableWidget, chartWidget, arrange };
+  /**
+   * A report may name the column its chart should plot:
+   * columns_metadata[col].chart_primary = true. The automatic recommendation
+   * ranks money above plain numbers, which is right in general and wrong for
+   * a ratio report -- Marketing Efficiency's chart plotted Ad Spend when the
+   * report is about MER. Only applied when that column came back in the rows.
+   */
+  function preferPrimary(rec, columnsMetadata, rows) {
+    if (!rec || !rec.visual_config || !rows || !rows.length) return rec;
+    const meta = columnsMetadata || {};
+    const col = Object.keys(meta).find((k) => meta[k] && meta[k].chart_primary === true);
+    if (!col || !(col in rows[0])) return rec;
+    return Object.assign({}, rec, { visual_config: Object.assign({}, rec.visual_config, { y_field: col }) });
+  }
+
+  global.SiloReportPreview = { TABLE_ID, CHART_ID, previewBoard, tableWidget, chartWidget, arrange, preferPrimary };
 })(typeof window !== 'undefined' ? window : globalThis);
