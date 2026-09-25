@@ -246,6 +246,12 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
      await p.textContent('#status'));
   ok('opening a central report preserves its company calendar',
     await p.evaluate(()=>window.__siloReportBuilder.cfg.parameters[0].date_basis==='company'));
+  // No catalog source to restore here (it is a hand-written SQL report), but
+  // its declared parameter is still worth reaching without diving into the
+  // SQL dock -- the chip bar shows Parameters even with no Rows/Values/
+  // Filters to show.
+  ok('a report with no guided source still surfaces its parameters as a chip',
+     await p.isVisible('#chipBar') && (await p.textContent('#chipBar')).includes('date_from'));
   await p.click('#btnPreview'); await p.waitForTimeout(700);
   await p.click('#btnSave'); await p.waitForTimeout(300);
   await p.click('#btnConfirmSave'); await p.waitForTimeout(600);

@@ -16,7 +16,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260925f" />
+  <link rel="stylesheet" href="dashboard.css?v=20260925h" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -27,6 +27,7 @@
     <header class="bcn-header">
       <div class="bcn-header-title">
         <h1 id="pageTitle">New report</h1>
+        <span class="bcn-pill" id="statusBadge">Draft</span>
         <span class="bcn-header-sub" id="pageSub">Build one from any table or view · In testing</span>
       </div>
       <div class="bcn-header-actions">
@@ -45,14 +46,44 @@
 
     <div class="bcn-status" id="status" hidden></div>
 
+    <!-- Toolbar: field discovery on the left, a deterministic field/action
+         search in the middle (⌘K). It stays visible on both tabs, because
+         "what is this report made of" is a question worth answering whether
+         you are looking at the chips or the raw SQL. -->
+    <section class="rb-toolbar">
+      <button type="button" class="bcn-btn bcn-btn--ghost rb-rail-toggle" id="btnToggleRail"
+              aria-expanded="true" aria-controls="railPanel" title="Show or hide field browsing">☰ Fields</button>
+      <div class="rb-cmd">
+        <input class="bcn-field rb-cmd-input" id="cmdSearch" type="search" autocomplete="off"
+               placeholder="Find a field or describe a change…" aria-label="Find a field or action" />
+        <kbd class="rb-cmd-kbd">⌘K</kbd>
+        <div class="rb-cmd-results" id="cmdResults" hidden></div>
+      </div>
+    </section>
+
+    <!-- Compact chip summary: Rows/Values/Filters/Parameters as removable,
+         reorderable pills reflecting the config below. Clicking a chip
+         scrolls to the real control; nothing here is a second source of
+         truth. Hidden until a source is picked. -->
+    <section class="rb-chipbar" id="chipBar" hidden></section>
+
     <div class="rb-layout">
       <!-- Source browser: silo_chat_schema_catalog, which already exists to
            feed Ask SILO and works just as well as a picker. -->
-      <aside class="rb-rail">
+      <aside class="rb-rail" id="railPanel">
         <div class="rb-rail-head">
           <input class="bcn-field" id="srcSearch" type="search" placeholder="Search tables and views…" />
         </div>
         <div class="rb-rail-list" id="srcList"></div>
+        <!-- Field browser: a second, always-available way to add a field --
+             browse and click (or drag) instead of searching for it. Only
+             shown once a source is picked. -->
+        <div class="rb-field-browser" id="fieldBrowser" hidden>
+          <div class="rb-rail-head">
+            <input class="bcn-field" id="fieldSearch" type="search" placeholder="Search fields…" />
+          </div>
+          <div class="rb-rail-list" id="fieldBrowserList"></div>
+        </div>
       </aside>
 
       <div class="rb-main">
@@ -62,15 +93,18 @@
             <div id="buildBody"><div class="v3-empty">Pick a table or view on the left to start.</div></div>
           </div>
 
-          <!-- ── SQL ───────────────────────────────────────────────── -->
-          <div class="rb-pane" id="paneSql" hidden>
-            <div class="rb-section">
-              <span class="rb-section-title">SQL</span>
+          <!-- ── SQL (the resizable dock) ────────────────────────────── -->
+          <div class="rb-pane rb-dock" id="paneSql" hidden>
+            <div class="rb-section rb-card rb-dock-card">
+              <div class="rb-dock-head">
+                <span class="rb-section-title">SQL</span>
+                <button type="button" class="bcn-btn bcn-btn--primary rb-dock-run" id="btnRunQuery">▷ Run query</button>
+              </div>
               <p class="rb-note">
                 One <code>SELECT</code> or <code>WITH</code>. It runs through the same read-only engine as
                 everything else — your own row-level security applies, results cap at 1,000 rows per page
                 (Preview offers <strong>Load more</strong> beyond that) and 30 seconds.
-                Click a table on the left to insert its name.
+                Click a table on the left to insert its name. Drag the corner to resize.
               </p>
               <textarea class="rb-sql" id="sqlText" spellcheck="false"
                 placeholder="select day_date, sum(net_sales) as net_sales&#10;  from sales_by_product_title_daily_v&#10; where day_date >= current_date - 30&#10; group by 1&#10; order by 1"></textarea>
@@ -79,22 +113,31 @@
           </div>
         </div>
 
+        <!-- Not a tab: SQL and results can disagree the moment anything
+             changes, and Run/Preview is the deliberate, visible act that
+             reconciles them -- nothing here re-queries on its own. -->
+        <div class="rb-stale-bar" id="staleBar" hidden>
+          Results below may be out of date with the current configuration — Preview to refresh them.
+        </div>
+
         <!-- Parameters sit OUTSIDE the two tabs because they belong to the
              report, not to how it was authored: a guided report and a
              hand-written one both declare them the same way, and both get
              the same slicer in a dashboard header. -->
-        <section class="rb-params" id="paramsSection">
+        <section class="rb-params rb-card" id="paramsSection">
           <div class="rb-params-head">
             <span class="rb-section-title">Parameters</span>
             <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddParam">+ Add parameter</button>
           </div>
-          <p class="rb-note">
-            A parameter turns a fixed value in this report into a control on the dashboard.
-            Write <code>{{key}}</code> where the value goes — in the SQL, or as a filter value on the
-            Build tab — and declare it here. Reports on the same dashboard that use the
-            <strong>same key</strong> share one control, which is how nine tiles move together.
-            Preview runs with the defaults below.
-          </p>
+          <details class="rb-details">
+            <summary>Turns a fixed value into a dashboard control</summary>
+            <p class="rb-note">
+              Write <code>{{key}}</code> where the value goes — in the SQL, or as a filter value on the
+              Build tab — and declare it here. Reports on the same dashboard that use the
+              <strong>same key</strong> share one control, which is how nine tiles move together.
+              Preview runs with the defaults below.
+            </p>
+          </details>
           <div class="rb-param-list" id="paramList"></div>
           <div id="paramWarn"></div>
         </section>
@@ -105,7 +148,12 @@
           <div class="rb-preview-head">
             <span class="rb-preview-title" id="previewTitle">Preview</span>
             <span class="rb-preview-title" id="previewMeta"></span>
+            <div class="rb-segmented" id="previewModeToggle" hidden role="group" aria-label="Preview as">
+              <button type="button" class="rb-segmented-btn" data-preview-mode="chart">Chart</button>
+              <button type="button" class="rb-segmented-btn" data-preview-mode="table">Table</button>
+            </div>
           </div>
+          <div class="rb-preview-chart" id="previewChart" hidden></div>
           <div class="rb-preview-body" id="previewBody">
             <div class="v3-empty">Nothing run yet — hit <strong>Preview</strong> to see real rows.</div>
           </div>
@@ -159,17 +207,31 @@
 
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- The preview's chart card draws through the same ECharts every dashboard
+     tile uses -- see js/chart-adapter.js's own note on why the palette is
+     explicit hex rather than a beacon token. -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260925f"></script>
-<script src="js/field-semantics.js?v=20260925f"></script>
+<script src="js/report-params.js?v=20260925h"></script>
+<script src="js/field-semantics.js?v=20260925h"></script>
 <!-- chart-adapter calls SiloMetrics for every roll-up and comparison. It
      falls back without it, which is worse than failing: the preview here
      would total a column differently from the tile the report becomes. -->
-<script src="js/metrics.js?v=20260925f"></script>
-<script src="js/chart-adapter.js?v=20260925f"></script>
-<script src="js/report-builder.js?v=20260925f"></script>
-<script src="js/report-builder-ui.js?v=20260925f"></script>
+<script src="js/metrics.js?v=20260925h"></script>
+<script src="js/chart-adapter.js?v=20260925h"></script>
+<!-- The parameter panel's date control is the dashboard's own slicer
+     control (js/filter-bar.js's DATE_PRESETS) -- a date parameter should
+     look familiar the first time someone meets it, not like a bare text
+     field expecting a token nobody would guess. -->
+<script src="js/filter-bar.js?v=20260925h"></script>
+<!-- preferPrimary() is the one piece of report-preview.js this page reuses:
+     a saved report's columns_metadata can name its own chart column/
+     dimension, and the preview should agree with what "Add insight" would
+     draw for the same rows rather than picking independently. -->
+<script src="js/report-preview.js?v=20260925h"></script>
+<script src="js/report-builder.js?v=20260925h"></script>
+<script src="js/report-builder-ui.js?v=20260925h"></script>
 </body>
 </html>

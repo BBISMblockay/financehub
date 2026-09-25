@@ -384,11 +384,102 @@
 
   const businessColumns = (cols) => (cols || []).filter((c) => !isPlumbing(c));
 
+  // ── Presentation curation ────────────────────────────────────────────
+  // Pure, deterministic labelling for the source picker. Changes no report,
+  // SQL, metric or RLS policy -- exactly the stance report-catalog.js
+  // already takes for the dashboard's "Add insight" picker. A relname is a
+  // Postgres identifier, not a name anyone chose for a person to read; a
+  // handful of the curated "Start here" sources get a hand-picked label
+  // (the same sources report-catalog.js and this rail already treat as
+  // worth a human decision), and everything else gets a mechanical
+  // humanisation rather than a guess dressed up as a title.
+  const FRIENDLY_NAMES = {
+    inventory_on_hand_current_v: 'Current inventory',
+    inventory_workboard_v: 'Inventory workboard',
+    sales_by_product_title_daily_v: 'Sales by product',
+    sales_monthly_product_type_rollup_v: 'Sales by product type (monthly)',
+    wow_sales_daily_type_v: 'Sales by day and product type',
+    demand_coverage_by_type_v: 'Demand coverage by product type',
+    launch_actuals_v: 'Launch results',
+    launch_product_actuals_v: 'Launch results by product',
+    launch_product_sales_v: 'Launch sales by product',
+    v_po_incoming_summary: 'Incoming purchase orders',
+    v_po_open_planning_lines: 'Open planning lines',
+    v_po_header_summary: 'Purchase orders',
+    meta_ad_performance_daily: 'Meta ad performance',
+    marketing_kpis_daily: 'Marketing KPIs by day',
+    search_console_site_daily: 'Search Console (site)',
+    shopify_orders_v: 'Shopify orders',
+    redo_returns: 'Returns and exchanges',
+    products_master: 'Product catalog',
+    sales_velocity_by_sku_location_mv: 'Sales velocity by SKU',
+  };
+
+  /** A relname turned into words a person would say out loud. Mechanical --
+      strip a trailing _v/_mv, replace underscores with spaces, title-case --
+      never a guess at what the object MEANS. */
+  function humanizeRelname(relname) {
+    const base = String(relname || '').replace(/_(v|mv)$/, '');
+    return base.split('_').filter(Boolean)
+      .map((w) => (/^\d/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+      .join(' ');
+  }
+
+  function friendlyRelName(relname) {
+    return FRIENDLY_NAMES[relname] || humanizeRelname(relname);
+  }
+
+  // Keyword groups for the rail's business-area sections, below "Start
+  // here". A source can only read as one area here -- this is a display
+  // grouping, not a taxonomy, so ties go to whichever area is checked
+  // first in this list.
+  const BUSINESS_AREAS = [
+    { id: 'sales', label: 'Sales', test: /^(sales_|shopify_order|shopify_payouts|wow_sales|demand_coverage)/ },
+    { id: 'marketing', label: 'Marketing', test: /^(marketing_|meta_ad|facebook_|instagram_|google_ads|tiktok_ads|search_console|ad_platform|redo_marketing|wow_)/ },
+    { id: 'inventory', label: 'Inventory', test: /^(inventory_|sales_velocity_)/ },
+    { id: 'purchasing', label: 'Purchasing', test: /^(po_|v_po_|factories)/ },
+    { id: 'launches', label: 'Launches', test: /^launch_/ },
+    { id: 'returns', label: 'Returns', test: /^redo_return/ },
+    { id: 'product', label: 'Product', test: /^(products_master|product_)/ },
+  ];
+
+  function businessArea(relname) {
+    const found = BUSINESS_AREAS.find((a) => a.test.test(String(relname || '')));
+    return found || { id: 'other', label: 'More' };
+  }
+
+  /**
+   * A small, deterministic relevance score for the command search -- no AI,
+   * just "does every word in the query appear somewhere in this candidate".
+   * Returns 0 for no match (caller drops it), otherwise higher is better.
+   * An exact prefix match on the friendly label ranks above a match buried
+   * in the technical name, so typing "spend" finds "Ad spend" before it
+   * finds a column that merely mentions spend in its description.
+   */
+  function fuzzyScore(query, haystacks) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return 0;
+    const words = q.split(/\s+/).filter(Boolean);
+    const texts = (Array.isArray(haystacks) ? haystacks : [haystacks])
+      .filter(Boolean).map((s) => String(s).toLowerCase());
+    if (!texts.length) return 0;
+    let score = 0;
+    for (const w of words) {
+      const hit = texts.some((t) => t.includes(w));
+      if (!hit) return 0; // every word must land somewhere, or this is not a match
+      if (texts[0].startsWith(w)) score += 3;
+      else if (texts[0].includes(w)) score += 2;
+      else score += 1;
+    }
+    return score;
+  }
+
   global.SiloReportBuilder = {
     isPlumbing, businessColumns, PLUMBING_NAMES, isSchemaProbe, defaultQueryIndex,
     buildSql, checkRawSqlScope, metadataFromCatalog, validateParameters,
     metadataForMeasures, semanticForColumn, measureAlias, calcFor, CALCS,
     AGGREGATES, OPERATORS, DATE_RANGES, qIdent, qLit,
     NUMERIC_PG, DATEISH_PG,
+    friendlyRelName, humanizeRelname, businessArea, BUSINESS_AREAS, fuzzyScore,
   };
 })(window);

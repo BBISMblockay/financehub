@@ -396,14 +396,31 @@
    Shares this stylesheet with the dashboard pages because it shares their
    idiom — same modal, same card, same tokens. Beacon tokens only.
    ========================================================================== */
-.rb-layout { flex: 1; min-height: 0; display: flex; gap: 0; }
+/* ── The canvas ──────────────────────────────────────────────────────
+   Everything from here down sits on a light grey canvas (--bcn-sunken) so
+   the rail, the chip bar, each collapsed editor and the preview all read
+   as separate floating cards -- the same "10px corners, a soft two-layer
+   shadow" departure v3/README.md already documents for a dashboard tile,
+   reused verbatim (including its exact shadow formula, mixed from
+   --bcn-band so it stays theme-correct) rather than invented again here. */
+.rb-layout { flex: 1; min-height: 0; display: flex; gap: 0; background: var(--bcn-sunken); }
+/* Flat by design, not by omission: the mockups this page is built from use
+   almost no shadow at all -- a 1px border and the white-card-on-light-canvas
+   contrast do the separating. The three-layer "card soup" the previous pass
+   built (rail, every collapsed editor, the table, parameters -- each its
+   own bordered box with a visible drop shadow) read as busy and uneven
+   precisely because there were so many of them, each announcing itself.
+   Only the chip boxes and the chart card keep any lift at all now, and it
+   is beacon's own hairline --bcn-shadow, not an invented one. */
+.rb-card { background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 10px; }
+.rb-card--lift { box-shadow: var(--bcn-shadow); }
 
 .rb-rail {
-  width: 288px; flex-shrink: 0; display: flex; flex-direction: column;
-  border-right: 1px solid var(--bcn-border); background: var(--bcn-sunken); min-height: 0;
+  width: 280px; flex-shrink: 0; display: flex; flex-direction: column;
+  min-height: 0; border-right: 1px solid var(--bcn-border);
 }
-.rb-rail-head { padding: 10px 12px; border-bottom: 1px solid var(--bcn-border); flex-shrink: 0; }
-.rb-rail-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
+.rb-rail-head { padding: 12px 14px; border-bottom: 1px solid var(--bcn-border); flex-shrink: 0; }
+.rb-rail-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
 .rb-src {
   display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left;
   padding: 7px 9px; border: 1px solid transparent; border-radius: var(--bcn-radius);
@@ -425,8 +442,20 @@
   color: var(--bcn-ink-3); padding: 10px 9px 4px;
 }
 
-.rb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.rb-panes { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 14px; }
+/* .rb-main owns the ONE scrollbar for everything to its right of the rail
+   -- Build/SQL, the stale bar, Parameters and Preview all flow as one
+   continuous column. It used to split that scroll: .rb-panes had its own
+   flex:1/overflow-y so the chip bar stayed put while Build/SQL scrolled
+   underneath, but that put .rb-panes (flex-basis 0%) in a shrink contest
+   against Params and Preview (both sized by their own content) -- the
+   moment Preview held a real chart+table, flexbox's shrink algorithm
+   handed Preview and Params their full content height and left .rb-panes
+   a ~110px sliver, showing one random cut-off fragment of whichever editor
+   the scroll happened to be sitting on. One scroll owner removes the
+   contest entirely: every section renders at its natural height, in order,
+   and nothing is ever squeezed to near-nothing to make room for a sibling. */
+.rb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.rb-panes { padding: 14px; background: var(--bcn-sunken); display: flex; flex-direction: column; gap: 14px; }
 .rb-pane[hidden] { display: none !important; }
 
 .rb-section { display: flex; flex-direction: column; gap: 8px; }
@@ -449,7 +478,18 @@
 .rb-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
 .rb-row .bcn-field-group { min-width: 150px; }
 .rb-rule { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
-.rb-rule .bcn-field { min-width: 130px; }
+/* beacon's .bcn-field is `width: 100%`, meant for a field sitting alone in
+   its own .bcn-field-group column. A measure/filter row places several
+   fields directly in one flex row instead, and with no override here a
+   flex item's own `width: 100%` becomes its flex-basis -- so every select,
+   "of"/"as" label and input claimed the row's FULL width and wrapped onto
+   its own line, one control per line, five lines for one total. That bug
+   predates this file's other rb-* rules (confirmed against the previous
+   build); it is fixed here because the chip bar now sends people into this
+   exact row on purpose, and a "compact chips, click to expand" workbench
+   is not compact if what it expands to is five stacked full-width lines. */
+.rb-rule .bcn-field { width: auto; min-width: 130px; flex: 0 1 auto; }
+.rb-rule .bcn-field--mono[data-m-alias] { flex: 1 1 150px; }
 .rb-x {
   border: 1px solid var(--bcn-border); background: var(--bcn-surface); color: var(--bcn-ink-3);
   border-radius: var(--bcn-radius-sm); cursor: pointer; width: 26px; height: 26px; line-height: 1;
@@ -492,13 +532,39 @@
   padding: 1px 4px; border-radius: 3px; background: var(--bcn-surface-2, rgba(0, 0, 0, .06));
 }
 
-.rb-preview { border-top: 1px solid var(--bcn-border); flex-shrink: 0; max-height: 42%; display: flex; flex-direction: column; }
+/* The preview -- chart above table -- is the reason the page exists, so it
+   gets most of the remaining height once the collapsed editors above it
+   settle to their compact resting size (42% was sized for the old always-
+   open Build form, which left far less room to hand over). */
+.rb-preview {
+  /* No percentage cap any more -- .rb-main scrolls as a whole now, so
+     Preview does not need to fit inside a fraction of a fixed-height
+     sibling. It renders at its natural (chart + table) height, same as
+     Build and Params above it. */
+  display: flex; flex-direction: column;
+  background: var(--bcn-sunken); padding: 0 14px 14px;
+}
 .rb-preview-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 7px 18px; background: var(--bcn-sunken); border-bottom: 1px solid var(--bcn-border);
+  padding: 14px 2px 10px; flex-shrink: 0;
 }
 .rb-preview-title { font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--bcn-ink-3); }
-.rb-preview-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 18px 14px; }
+/* The table gets the same card treatment as the chart above it, rather
+   than sitting directly on the canvas -- two floating cards, not one card
+   and one plain region. */
+/* Flat on purpose -- the chart above it is the one card in this section.
+   A second bordered, shadowed box immediately below it read as two tiles
+   stacked rather than one continuous preview; spacing (rb-preview-chart's
+   own margin-bottom) is what separates them instead. */
+.rb-preview-body {
+  /* max-height, not flex:1 -- .rb-preview no longer has a bounded height for
+     flex:1 to divide up, so an unbounded table would just grow the whole
+     page to fit every row instead of scrolling in place. A capped height
+     keeps a long result set's own scrollbar without reviving the squeeze
+     .rb-main's single scroll was built to remove. */
+  max-height: 420px; min-height: 120px; overflow: auto; padding: 4px 4px 14px;
+  background: var(--bcn-surface); border-radius: 10px;
+}
 .rb-preview-more { display: flex; align-items: center; gap: 10px; padding: 10px 0 2px; }
 
 .dw-loadmore { display: flex; align-items: center; gap: 8px; padding: 8px 0 0; }
@@ -661,8 +727,8 @@
    contract, and a bordered box per parameter would out-weigh the SQL it
    parameterises. */
 .rb-params {
-  padding: 12px 14px;
-  border-top: 1px solid var(--bcn-line, rgba(0, 0, 0, 0.1));
+  padding: 14px 16px;
+  margin: 0 14px 14px;
 }
 .rb-params-head {
   display: flex;
@@ -708,6 +774,273 @@
   background: var(--bcn-surface-2, rgba(0, 0, 0, 0.03));
 }
 .rb-calc-op { max-width: 150px; font-weight: 600; }
+
+/* ── Report builder: toolbar, chips, dock ──────────────────────────────
+   The workbench redesign. Beacon tokens only (colour, font, radius scale)
+   -- but the search bar, the chip bar and the chart card below are sized
+   deliberately larger than beacon's default form density, the same
+   considered departure v3/README.md already documents for the dashboard
+   tile (10px corners and a soft shadow against beacon's 4px/hairline):
+   these are the page's hero controls, read constantly and edited rarely,
+   and beacon's normal density reads as a dense analyst tool at this scale.
+   Every OTHER control on this page -- the field rows inside an editor, the
+   rail, the parameters list -- stays at beacon's ordinary size, because a
+   raise/lower/aggregate row is exactly the kind of dense, occasional
+   control beacon's density is right for. */
+
+/* .rb-toolbar and .rb-chipbar sit ABOVE .rb-layout in the DOM (parameters
+   and the tab strip live outside the rail/main split), so the sunken
+   canvas is repeated on each rather than inherited from one ancestor --
+   the visual effect is one continuous grey canvas from here to the bottom
+   of the page either way. */
+.rb-toolbar {
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  padding: 16px 14px 0; background: var(--bcn-sunken);
+}
+.rb-rail-toggle {
+  flex-shrink: 0; background: var(--bcn-surface); border-radius: 8px;
+}
+
+.rb-cmd { position: relative; flex: 1; min-width: 0; max-width: 640px; }
+.rb-cmd-input {
+  width: 100%; padding: 11px 40px 11px 14px; font-size: 14px; border-radius: 8px;
+}
+.rb-cmd-kbd {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-4);
+  border: 1px solid var(--bcn-border); border-radius: 4px; padding: 2px 6px; pointer-events: none;
+}
+.rb-cmd-results {
+  position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; right: 0;
+  background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .12); max-height: 340px; overflow-y: auto; padding: 6px;
+}
+.rb-cmd-result {
+  display: block; width: 100%; text-align: left; padding: 10px 12px; border: none; border-radius: 6px;
+  background: transparent; font: inherit; font-size: 13.5px; color: var(--bcn-ink); cursor: pointer;
+}
+.rb-cmd-result.is-active, .rb-cmd-result:hover { background: var(--bcn-accent-soft); color: var(--bcn-accent); }
+.rb-cmd-empty { padding: 12px; font-size: 12.5px; color: var(--bcn-ink-3); }
+
+/* ── Chip summary bar ─────────────────────────────────────────────────
+   THE primary view of what this report is built from -- not a readout
+   sitting on top of a form that is still open underneath it. The field
+   cloud that used to always be visible is gone; a click here, on a field
+   in the rail, or through the search bar is now the only way in. Wraps to
+   as many lines as it needs rather than scrolling, since it is a summary,
+   not a workspace. */
+.rb-chipbar {
+  display: flex; flex-wrap: wrap; gap: 12px; padding: 14px 14px 0; background: var(--bcn-sunken);
+}
+.rb-chipbar[hidden] { display: none; }
+.rb-chipgroup {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 9px 12px; border-radius: 10px; border: 1px solid var(--bcn-border);
+  background: var(--bcn-surface); min-height: 44px; box-shadow: var(--bcn-shadow);
+}
+.rb-chipgroup-label {
+  font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--bcn-ink-3); margin-right: 2px;
+}
+.rb-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rb-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 6px 6px 6px 13px;
+  border-radius: 999px; background: var(--bcn-accent-soft); border: 1px solid var(--bcn-accent-border);
+  color: var(--bcn-accent); font-size: 13px; font-weight: 600; cursor: default;
+}
+.rb-chip-label { cursor: pointer; }
+.rb-chip-empty { font-size: 12.5px; color: var(--bcn-ink-4); padding: 4px 2px; }
+.rb-chip-move, .rb-chip-x {
+  border: none; background: transparent; color: inherit; cursor: pointer; line-height: 1;
+  width: 19px; height: 19px; border-radius: 50%; font-size: 12px; opacity: .75; padding: 0;
+}
+.rb-chip-move:hover, .rb-chip-x:hover { opacity: 1; background: rgba(0, 0, 0, .08); }
+.rb-chip-move:disabled { opacity: .25; cursor: default; }
+.rb-chip-move:disabled:hover { background: transparent; }
+.rb-chip-add {
+  width: 26px; height: 26px; border-radius: 50%; border: 1px dashed var(--bcn-border-strong);
+  background: transparent; color: var(--bcn-ink-3); cursor: pointer; font-size: 15px; line-height: 1;
+}
+.rb-chip-add:hover { border-color: var(--bcn-accent-border); color: var(--bcn-accent); background: var(--bcn-accent-soft); }
+.rb-chipgroup.is-drop-target { border-color: var(--bcn-accent-border); background: var(--bcn-accent-soft); }
+
+/* ── Rail: friendly names, field browser, collapse ────────────────────── */
+.rb-src-friendly { font-size: 12px; font-weight: 700; color: var(--bcn-ink); }
+.rb-mono-hint { font-family: var(--bcn-mono); }
+.rb-details { display: flex; flex-direction: column; gap: 4px; }
+.rb-details summary {
+  cursor: pointer; font-size: 12px; color: var(--bcn-ink-3); line-height: 1.5;
+  list-style: none; display: flex; align-items: center; gap: 6px;
+}
+.rb-details summary:hover { color: var(--bcn-ink-2); }
+.rb-details summary::-webkit-details-marker { display: none; }
+.rb-details summary::before {
+  content: '▸'; display: inline-block; font-size: 9px; color: var(--bcn-ink-4);
+  transition: transform .12s ease; flex-shrink: 0;
+}
+.rb-details[open] summary::before { transform: rotate(90deg); }
+
+/* No card here -- the mockups this page follows show a plain title and an
+   expandable "Details" line, not a bordered box, for what is really just a
+   caption over the panel below it. */
+.rb-source-head { display: flex; flex-direction: column; gap: 6px; padding: 2px 2px 4px; }
+.rb-source-title { font-size: 15px; font-weight: 700; color: var(--bcn-ink); text-transform: none; letter-spacing: 0; }
+
+/* ── The one panel for everything else ─────────────────────────────────
+   Summarise, Date range, Filters, Totals, Sort/limit and the generated SQL
+   used to each be their own bordered, shadowed box -- five separate cards
+   stacked down the page, each announcing its own edge. They are one card
+   now: .rb-editor-group carries the single border/radius, and each row
+   (the always-visible Summarise toggle, then each collapsed <details>) is
+   divided from the next by a plain bottom border instead of a gap between
+   boxes. Closed by default the moment a chip already says what is inside
+   (renderBuild's secOpen()) -- the chip bar is where these are READ, this
+   is only where they are EDITED. */
+.rb-editor-group { display: flex; flex-direction: column; overflow: hidden; }
+.rb-editor-row { padding: 12px 14px; border-bottom: 1px solid var(--bcn-border); }
+.rb-editor-group > *:last-child { border-bottom: none; }
+.rb-summarise-toggle {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--bcn-ink);
+}
+.rb-summarise-toggle input { width: 16px; height: 16px; accent-color: var(--bcn-accent); cursor: pointer; }
+
+.rb-editor { border-bottom: 1px solid var(--bcn-border); }
+.rb-editor:last-child { border-bottom: none; }
+.rb-editor summary {
+  cursor: pointer; padding: 12px 14px; font-size: 12.5px; font-weight: 600; color: var(--bcn-ink-2);
+  list-style: none; display: flex; align-items: center; gap: 8px;
+}
+.rb-editor summary:hover { background: var(--bcn-sunken); }
+.rb-editor summary::-webkit-details-marker { display: none; }
+.rb-editor summary::before {
+  content: '▸'; display: inline-block; font-size: 10px; color: var(--bcn-ink-4);
+  transition: transform .12s ease; flex-shrink: 0;
+}
+.rb-editor[open] summary::before { transform: rotate(90deg); }
+.rb-editor[open] summary { border-bottom: 1px solid var(--bcn-border); }
+.rb-editor-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; }
+
+/* Capped rather than stretched to .rb-main's full width: the panel's
+   content (a toggle, a couple of dropdowns, a handful of rule rows) is
+   nowhere near as wide as the space next to the rail, and a full-width
+   white card around that little content read as a mostly-empty box. The
+   rest of the canvas stays visible beside it instead. */
+#buildBody { display: flex; flex-direction: column; gap: 16px; max-width: 640px; }
+
+.rb-rail.is-collapsed { width: 0; border: none; margin: 0; box-shadow: none; overflow: hidden; }
+.rb-field-browser { border-top: 1px solid var(--bcn-border); display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.rb-field-browser[hidden] { display: none; }
+.rb-field-row {
+  display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+  padding: 6px 9px; border: 1px solid transparent; border-radius: var(--bcn-radius-sm);
+  background: transparent; cursor: pointer; font: inherit; font-size: 12px; color: var(--bcn-ink-2);
+}
+.rb-field-row:hover { background: var(--bcn-surface); border-color: var(--bcn-border); }
+.rb-field-row.is-on { color: var(--bcn-accent); background: var(--bcn-accent-soft); }
+.rb-field-icon {
+  font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-4); width: 16px; text-align: center; flex-shrink: 0;
+}
+.rb-field-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-field-on { color: var(--bcn-pos); font-weight: 700; }
+
+/* ── SQL dock ─────────────────────────────────────────────────────────
+   The same .rb-pane the Build tab uses, styled to read as a docked editor:
+   a header with the Run action, a resizable textarea (the browser's native
+   corner-drag on .rb-sql already provides "resizable", see above). */
+.rb-dock-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rb-dock-run { flex-shrink: 0; }
+/* Wider than a Build-tab editor card (#buildBody's 640px) -- code wants
+   room, where a couple of dropdowns and a chip list do not. */
+.rb-dock-card { padding: 16px; max-width: 900px; }
+
+/* Not .rb-warn: that class also marks the matview scoping notice, and the
+   two must stay independently countable (a page can show one, the other,
+   both or neither) rather than compete for one visual identity. */
+.rb-stale-bar {
+  margin: 0 14px 14px; padding: 10px 14px; border-radius: 10px; font-size: 11.5px; line-height: 1.5;
+  background: color-mix(in oklab, var(--bcn-warn) 14%, var(--bcn-surface));
+  border: 1px solid color-mix(in oklab, var(--bcn-warn) 40%, var(--bcn-surface)); color: var(--bcn-ink);
+}
+.rb-stale-bar[hidden] { display: none; }
+
+/* ── Preview: chart above the table ───────────────────────────────────
+   Only occupies space when a shape was actually recommended; the table
+   underneath (rb-preview-body, unchanged) is always the fallback. */
+.rb-segmented {
+  display: inline-flex; flex-shrink: 0; padding: 2px; gap: 2px;
+  background: var(--bcn-sunken); border: 1px solid var(--bcn-border); border-radius: 8px;
+}
+.rb-segmented[hidden] { display: none; }
+.rb-segmented-btn {
+  border: none; background: transparent; padding: 5px 12px; border-radius: 6px;
+  font: inherit; font-size: 11.5px; font-weight: 600; color: var(--bcn-ink-3); cursor: pointer;
+}
+.rb-segmented-btn:hover { color: var(--bcn-ink); }
+.rb-segmented-btn.is-active { background: var(--bcn-surface); color: var(--bcn-ink); box-shadow: var(--bcn-shadow); }
+.rb-preview-chart {
+  flex: 1 1 340px; min-height: 260px; margin-bottom: 14px; padding: 14px 16px 10px;
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 10px;
+  box-shadow: var(--bcn-shadow);
+}
+.rb-preview-chart[hidden] { display: none; }
+.rb-preview-chart .dw-chart { flex: 1; min-height: 0; }
+.rb-preview-chart .dw-kpi { flex: 1; padding: 4px 0; }
+.rb-chart-title { font-size: 14px; font-weight: 700; color: var(--bcn-ink); flex-shrink: 0; }
+
+/* ── Parameters: friendly control, advanced editor collapsed ─────────── */
+.rb-param { flex-direction: column; align-items: stretch; gap: 6px; }
+.rb-param-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rb-param-name { font-size: 12px; font-weight: 600; color: var(--bcn-ink); flex-shrink: 0; }
+.rb-param-summary .dw-icon-btn { margin-left: auto; }
+.rb-param-date { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rb-param-date .bcn-field { min-width: 140px; }
+.rb-param-advanced summary {
+  cursor: pointer; font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--bcn-ink-3); list-style: none;
+}
+.rb-param-advanced summary::-webkit-details-marker { display: none; }
+.rb-param-advanced summary::before { content: '▸ '; }
+.rb-param-advanced[open] summary::before { content: '▾ '; }
+.rb-param-fields { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.rb-param-fields .bcn-field-group { min-width: 120px; }
+.rb-param-fields .bcn-field-group--wide { flex: 1; min-width: 200px; }
+
+@media (max-width: 860px) {
+  /* The 190px cap a few rules up was sized for a bare source list. The rail
+     now also carries the field browser (search + Group by + Measures), and
+     with the parent's overflow left at its default `visible`, content that
+     no longer fits does not scroll -- it spills out and visually overlaps
+     whatever comes after it in the stacked column. Letting the rail take
+     the height it actually needs is the honest fix; the collapse toggle
+     (below) is what gets the space back, not a shrink that hides content
+     behind other content. */
+  .rb-rail { max-height: none; overflow: visible; }
+  .rb-rail-list, .rb-field-browser { max-height: 260px; overflow-y: auto; flex: 0 1 auto; }
+  .rb-rail.is-collapsed { width: auto; max-height: 0; border-bottom: none; }
+  .rb-chipbar { padding: 8px 12px; }
+  .rb-toolbar { padding: 8px 12px; flex-wrap: wrap; }
+  .rb-cmd { max-width: none; order: 1; flex-basis: 100%; }
+
+  /* .rb-rail keeps flex-shrink: 0 at every width (a source list that shrinks
+     to nothing is worse than one that takes its full height) -- on desktop
+     that is a non-issue since .rb-rail sits beside .rb-main in a ROW, but
+     stacked in a COLUMN here, the rail's ~570px (source list + field
+     browser, each capped at 260px) is taller than .rb-layout's own budget
+     at a phone's viewport height. .rb-layout and .rb-main both carry
+     min-height: 0 from the desktop rules specifically so they CAN shrink to
+     fit a fixed-height row layout -- at this breakpoint that lets flexbox
+     crush .rb-main to 0px instead of ever asking its ancestor to scroll:
+     confirmed by measuring it directly (0×0, with every Build control
+     rendered outside its own clipped box and unreachable). Restoring the
+     automatic (content-based) minimum here means .rb-layout can't be
+     squeezed smaller than the rail genuinely needs, so the resulting
+     overflow reaches .silo-main -- which already scrolls the whole page
+     (v2/beacon.css's own overflow-y: auto) -- instead of a zero-height
+     scrollport nothing can ever be scrolled into. */
+  .rb-layout, .rb-main { min-height: auto; }
+}
 
 /* ── Query picker badges ──────────────────────────────────────────────
    An agentic answer's queries_run is a transcript. A query reading
