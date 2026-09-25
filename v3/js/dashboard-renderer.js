@@ -219,6 +219,16 @@
       }, gridEl);
 
       grid.on('change', () => { if (editable) onLayoutChange(); });
+      // A thumbnail whose URL stopped resolving (Meta's signed image links
+      // expire days after a sync) becomes the same placeholder as a row that
+      // never had one. 'error' does not bubble, hence the capture phase.
+      gridEl.addEventListener('error', (e) => {
+        const img = e.target;
+        if (!img || img.tagName !== 'IMG' || !img.classList.contains('dw-thumb')) return;
+        const holder = document.createElement('span');
+        holder.innerHTML = window.SiloChart.imagePlaceholderHtml();
+        img.replaceWith(holder.firstChild);
+      }, true);
       // Charts do not reflow on their own. A ResizeObserver on each body
       // catches every cause -- grid resize, sidebar drawer, window, the
       // browser zoom -- where listening to gridstack's resizestop alone
@@ -463,7 +473,17 @@
         // the dashboard dirty or become everyone's saved position.
         const page = pageState.get(widget.id);
         const view = tableView.get(widget.id) || {};
+        const meta = widget.report_columns_metadata || {};
+        const labels = {};
+        const imageLinks = {};
+        for (const k of Object.keys(meta)) {
+          if (!meta[k] || typeof meta[k] !== 'object') continue;
+          if (meta[k].label) labels[k] = meta[k].label;
+          if (meta[k].link_column) imageLinks[k] = meta[k].link_column;
+        }
         body.innerHTML = window.SiloChart.tableHtml(rows, cfg, semantics, {
+          labels,
+          imageLinks,
           search: view.search || '',
           sortCol: view.sortCol || null,
           sortDir: view.sortDir || 'desc',

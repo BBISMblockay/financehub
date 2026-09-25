@@ -19120,6 +19120,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260925120000_silo_dashboards.sql
 \i migrations/20260925130000_reporting_speed_and_labels.sql
 \i migrations/20260925140000_redo_silo_reports.sql
+\i migrations/20260925150000_marketing_inventory_reports.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

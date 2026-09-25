@@ -224,6 +224,27 @@ stay off and nothing is written. "Add to a dashboard" hands off to the
 existing `?add_report=` flow; "Customize a copy" opens the report builder.
 My Reports still open in the builder, since editing is their main use.
 
+**A report whose queries are parts of one answer says so** in
+`columns_metadata._queries` -- `[{index, title, chart}]` -- and then opens as
+one titled table per query, each with its own chart unless `chart: false`
+(Inventory Summary: Total, By product type, By product / SKU). Without the
+declaration, `queries_run` is read as the transcript an Ask SILO answer is,
+and only the last non-probe query is drawn. `declaredQueries()` drops any
+entry naming no real query rather than guessing. Tables are sized to their
+rows (`tableHeight()`), so a one-row total is a strip, not an empty box.
+"Add to a dashboard" still adds one tile (the last query, as before); the
+widget picker offers every query.
+
+**Table cells read the report's metadata too**: a column's `label` names the
+header (the flat semantic map `semanticsFor()` returns has no room for it,
+so the renderer hands `labels` to `tableHtml` separately), and an image
+column's `link_column` makes its thumbnail open that column's URL -- Creative
+Performance's 64px Meta thumbnail opens Meta's own full-size ad preview. An
+image cell with no usable URL renders a same-size "No image" placeholder, and
+an image that fails to LOAD (Meta's signed thumbnail links expire days after
+a sync) is swapped for the same placeholder by a capture-phase `error`
+listener on the grid. A product-type total never carries a photo.
+
 ## Bump the asset version when you change these files
 
 Every `v3` script and stylesheet is loaded with `?v=<version>`. The site is
