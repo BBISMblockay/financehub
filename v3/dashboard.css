@@ -426,7 +426,7 @@
 }
 
 .rb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.rb-panes { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 14px; }
+.rb-panes { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
 .rb-pane[hidden] { display: none !important; }
 
 .rb-section { display: flex; flex-direction: column; gap: 8px; }
@@ -503,7 +503,11 @@
   padding: 1px 4px; border-radius: 3px; background: var(--bcn-surface-2, rgba(0, 0, 0, .06));
 }
 
-.rb-preview { border-top: 1px solid var(--bcn-border); flex-shrink: 0; max-height: 42%; display: flex; flex-direction: column; }
+/* The preview -- chart above table -- is the reason the page exists, so it
+   gets most of the remaining height once the collapsed editors above it
+   settle to their compact resting size (42% was sized for the old always-
+   open Build form, which left far less room to hand over). */
+.rb-preview { border-top: 1px solid var(--bcn-border); flex-shrink: 0; max-height: 62%; display: flex; flex-direction: column; }
 .rb-preview-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 7px 18px; background: var(--bcn-sunken); border-bottom: 1px solid var(--bcn-border);
@@ -721,73 +725,84 @@
 .rb-calc-op { max-width: 150px; font-weight: 600; }
 
 /* ── Report builder: toolbar, chips, dock ──────────────────────────────
-   The workbench redesign. Everything below is layered on top of the rb-*
-   classes above rather than replacing them -- the field cloud, filter rows
-   and measure rows are unchanged markup, just no longer the only way to
-   see or change the report's shape. Beacon tokens only, same as the rest
-   of this file. */
+   The workbench redesign. Beacon tokens only (colour, font, radius scale)
+   -- but the search bar, the chip bar and the chart card below are sized
+   deliberately larger than beacon's default form density, the same
+   considered departure v3/README.md already documents for the dashboard
+   tile (10px corners and a soft shadow against beacon's 4px/hairline):
+   these are the page's hero controls, read constantly and edited rarely,
+   and beacon's normal density reads as a dense analyst tool at this scale.
+   Every OTHER control on this page -- the field rows inside an editor, the
+   rail, the parameters list -- stays at beacon's ordinary size, because a
+   raise/lower/aggregate row is exactly the kind of dense, occasional
+   control beacon's density is right for. */
 
 .rb-toolbar {
-  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
-  padding: 8px 18px; border-bottom: 1px solid var(--bcn-border); background: var(--bcn-surface);
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  padding: 14px 20px; border-bottom: 1px solid var(--bcn-border); background: var(--bcn-surface);
 }
 .rb-rail-toggle { flex-shrink: 0; }
 
-.rb-cmd { position: relative; flex: 1; min-width: 0; max-width: 560px; }
-.rb-cmd-input { width: 100%; padding-right: 34px; }
+.rb-cmd { position: relative; flex: 1; min-width: 0; max-width: 640px; }
+.rb-cmd-input {
+  width: 100%; padding: 11px 40px 11px 14px; font-size: 14px; border-radius: 8px;
+}
 .rb-cmd-kbd {
-  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
-  font-family: var(--bcn-mono); font-size: 9.5px; color: var(--bcn-ink-4);
-  border: 1px solid var(--bcn-border); border-radius: 4px; padding: 1px 5px; pointer-events: none;
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-4);
+  border: 1px solid var(--bcn-border); border-radius: 4px; padding: 2px 6px; pointer-events: none;
 }
 .rb-cmd-results {
-  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0;
-  background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius);
-  box-shadow: var(--bcn-shadow); max-height: 320px; overflow-y: auto; padding: 4px;
+  position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; right: 0;
+  background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .12); max-height: 340px; overflow-y: auto; padding: 6px;
 }
 .rb-cmd-result {
-  display: block; width: 100%; text-align: left; padding: 7px 9px; border: none; border-radius: var(--bcn-radius-sm);
-  background: transparent; font: inherit; font-size: 12.5px; color: var(--bcn-ink); cursor: pointer;
+  display: block; width: 100%; text-align: left; padding: 10px 12px; border: none; border-radius: 6px;
+  background: transparent; font: inherit; font-size: 13.5px; color: var(--bcn-ink); cursor: pointer;
 }
 .rb-cmd-result.is-active, .rb-cmd-result:hover { background: var(--bcn-accent-soft); color: var(--bcn-accent); }
-.rb-cmd-empty { padding: 10px; font-size: 11.5px; color: var(--bcn-ink-3); }
+.rb-cmd-empty { padding: 12px; font-size: 12.5px; color: var(--bcn-ink-3); }
 
 /* ── Chip summary bar ─────────────────────────────────────────────────
-   A compact READOUT of cfg -- the field cloud below is still the editor.
-   Wraps to as many lines as it needs rather than scrolling, since it is a
-   summary, not a workspace. */
+   THE primary view of what this report is built from -- not a readout
+   sitting on top of a form that is still open underneath it. The field
+   cloud that used to always be visible is gone; a click here, on a field
+   in the rail, or through the search bar is now the only way in. Wraps to
+   as many lines as it needs rather than scrolling, since it is a summary,
+   not a workspace. */
 .rb-chipbar {
-  display: flex; flex-wrap: wrap; gap: 10px; padding: 10px 18px;
+  display: flex; flex-wrap: wrap; gap: 14px; padding: 16px 20px;
   border-bottom: 1px solid var(--bcn-border); background: var(--bcn-sunken);
 }
 .rb-chipbar[hidden] { display: none; }
 .rb-chipgroup {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  padding: 6px 8px; border-radius: var(--bcn-radius); border: 1px dashed var(--bcn-border);
-  background: var(--bcn-surface); min-height: 34px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px; border-radius: 10px; border: 1px dashed var(--bcn-border);
+  background: var(--bcn-surface); min-height: 44px;
 }
 .rb-chipgroup-label {
-  font-family: var(--bcn-mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em;
+  font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .07em;
   color: var(--bcn-ink-3); margin-right: 2px;
 }
-.rb-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.rb-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .rb-chip {
-  display: inline-flex; align-items: center; gap: 3px; padding: 3px 4px 3px 9px;
+  display: inline-flex; align-items: center; gap: 4px; padding: 6px 6px 6px 13px;
   border-radius: 999px; background: var(--bcn-accent-soft); border: 1px solid var(--bcn-accent-border);
-  color: var(--bcn-accent); font-size: 11px; cursor: default;
+  color: var(--bcn-accent); font-size: 13px; font-weight: 600; cursor: default;
 }
 .rb-chip-label { cursor: pointer; }
-.rb-chip-empty { font-size: 11px; color: var(--bcn-ink-4); padding: 3px 2px; }
+.rb-chip-empty { font-size: 12.5px; color: var(--bcn-ink-4); padding: 4px 2px; }
 .rb-chip-move, .rb-chip-x {
   border: none; background: transparent; color: inherit; cursor: pointer; line-height: 1;
-  width: 16px; height: 16px; border-radius: 50%; font-size: 11px; opacity: .75; padding: 0;
+  width: 19px; height: 19px; border-radius: 50%; font-size: 12px; opacity: .75; padding: 0;
 }
 .rb-chip-move:hover, .rb-chip-x:hover { opacity: 1; background: rgba(0, 0, 0, .08); }
 .rb-chip-move:disabled { opacity: .25; cursor: default; }
 .rb-chip-move:disabled:hover { background: transparent; }
 .rb-chip-add {
-  width: 22px; height: 22px; border-radius: 50%; border: 1px dashed var(--bcn-border-strong);
-  background: transparent; color: var(--bcn-ink-3); cursor: pointer; font-size: 13px; line-height: 1;
+  width: 26px; height: 26px; border-radius: 50%; border: 1px dashed var(--bcn-border-strong);
+  background: transparent; color: var(--bcn-ink-3); cursor: pointer; font-size: 15px; line-height: 1;
 }
 .rb-chip-add:hover { border-color: var(--bcn-accent-border); color: var(--bcn-accent); background: var(--bcn-accent-soft); }
 .rb-chipgroup.is-drop-target { border-color: var(--bcn-accent-border); background: var(--bcn-accent-soft); }
@@ -803,6 +818,37 @@
 .rb-details summary::-webkit-details-marker { display: none; }
 .rb-details summary::before { content: '▸ '; }
 .rb-details[open] summary::before { content: '▾ '; }
+
+.rb-source-head { gap: 2px; }
+.rb-source-title { font-size: 15px; font-weight: 700; color: var(--bcn-ink); text-transform: none; letter-spacing: 0; }
+
+/* ── Collapsed editors (Filters, Totals, Date range, Sort, SQL) ────────
+   Closed by default the moment there is a chip already saying what is in
+   them (renderBuild's secOpen()); the chip bar is where these are READ,
+   this is only where they are EDITED. Ordinary beacon density inside --
+   these are occasional-use, not the page's hero controls. */
+.rb-editor {
+  border: 1px solid var(--bcn-border); border-radius: 8px; background: var(--bcn-surface);
+  padding: 0; overflow: hidden;
+}
+.rb-editor summary {
+  cursor: pointer; padding: 11px 14px; font-size: 12.5px; font-weight: 600; color: var(--bcn-ink-2);
+  list-style: none; display: flex; align-items: center; gap: 6px;
+}
+.rb-editor summary::-webkit-details-marker { display: none; }
+.rb-editor summary::before { content: '▸'; font-size: 10px; color: var(--bcn-ink-4); }
+.rb-editor[open] summary::before { content: '▾'; }
+.rb-editor[open] summary { border-bottom: 1px solid var(--bcn-border); }
+.rb-editor-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; }
+
+/* Nothing upstream of this ever gave #buildBody's own direct children any
+   vertical rhythm -- .rb-panes' gap is between #paneBuild and #paneSql, not
+   between what is inside #paneBuild. It went unnoticed while the field
+   cloud and always-open rows supplied their own visual bulk; collapsed
+   <details> supply almost none, so a plain stack of them reads as one
+   cramped block with no breathing room between "sections" that are, in
+   fact, unrelated controls. */
+#buildBody { display: flex; flex-direction: column; gap: 12px; }
 
 .rb-rail.is-collapsed { width: 0; border-right: none; overflow: hidden; }
 .rb-field-browser { border-top: 1px solid var(--bcn-border); display: flex; flex-direction: column; min-height: 0; flex: 1; }
@@ -841,9 +887,15 @@
    Only occupies space when a shape was actually recommended; the table
    underneath (rb-preview-body, unchanged) is always the fallback. */
 .rb-preview-mode { flex-shrink: 0; }
-.rb-preview-chart { flex-shrink: 0; height: 240px; padding: 10px 18px 0; }
+.rb-preview-chart {
+  flex: 1 1 340px; min-height: 260px; margin: 14px 18px 0; padding: 14px 16px 10px;
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 10px;
+}
 .rb-preview-chart[hidden] { display: none; }
-.rb-preview-chart .dw-kpi { height: 100%; padding: 4px 0; }
+.rb-preview-chart .dw-chart { flex: 1; min-height: 0; }
+.rb-preview-chart .dw-kpi { flex: 1; padding: 4px 0; }
+.rb-chart-title { font-size: 14px; font-weight: 700; color: var(--bcn-ink); flex-shrink: 0; }
 
 /* ── Parameters: friendly control, advanced editor collapsed ─────────── */
 .rb-param { flex-direction: column; align-items: stretch; gap: 6px; }

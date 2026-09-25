@@ -36,9 +36,11 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
  await p.fill('#srcSearch',''); await p.waitForTimeout(150);
 
  // ── plumbing columns ──
+ // The field-type grid is gone -- the rail's field browser is now the only
+ // place detail columns are picked from, so that is what this checks.
  await p.click('.rb-src[data-rel="meta_ad_performance_daily"]');
- await p.waitForSelector('#genSql');
- let chips=await p.$$eval('.rb-cols input[data-col]',n=>n.map(x=>x.dataset.col));
+ await p.waitForSelector('#genSql', { state: 'attached' });
+ let chips=await p.$$eval('#fieldBrowserList [data-field]',n=>n.map(x=>x.dataset.field));
  ok('ids and sync stamps are hidden by default: '+JSON.stringify(chips),
     !chips.includes('id') && !chips.includes('company_entity_id') && !chips.includes('row_hash') && !chips.includes('synced_at'));
  ok('real columns are shown', chips.includes('spend') && chips.includes('day_date'));
@@ -48,7 +50,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
  ok('...and never a hidden one', !/"row_hash"|"company_entity_id"/.test(gen), gen);
  ok('a toggle offers them back', (await p.locator('#btnToggleCols').count())===1);
  await p.click('#btnToggleCols'); await p.waitForTimeout(250);
- chips=await p.$$eval('.rb-cols input[data-col]',n=>n.map(x=>x.dataset.col));
+ chips=await p.$$eval('#fieldBrowserList [data-field]',n=>n.map(x=>x.dataset.field));
  ok('showing all reveals the plumbing', chips.includes('company_entity_id') && chips.includes('row_hash'));
  await p.click('#btnToggleCols'); await p.waitForTimeout(250);
  ok('and hiding them again drops them from the SQL',
@@ -56,7 +58,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
 
  // ── guided build over a VIEW ──
  await p.click('.rb-src[data-rel="sales_by_product_title_daily_v"]');
- await p.waitForSelector('#genSql');
+ await p.waitForSelector('#genSql', { state: 'attached' });
  // No source ever pre-picks a date column or window: a table's own column
  // order is an accident of how it was built, and the "first dateish column"
  // is a forecast (est_oos_date) on some sources, not an event date -- see
@@ -87,7 +89,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
  await p.click('#btnAddMeasure'); await p.waitForTimeout(200);
  ok('"+ Add a total" adds exactly one', (await p.locator('[data-m-agg="0"]').count())===1);
  await p.selectOption('[data-m-col="0"]','units_sold'); await p.waitForTimeout(150);
- await p.click('.rb-col:has([data-dim="product_title"])');
+ await p.click('[data-field="product_title"][data-field-kind="dim"]');
  await p.waitForTimeout(200);
  sql=await p.textContent('#genSql');
  ok('group by appears once a dimension is chosen', /group by 1/.test(sql), sql);
@@ -113,7 +115,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
 
  // ── the matview guard, which is the real safety story ──
  await p.click('.rb-src[data-rel="sales_velocity_by_sku_location_mv"]');
- await p.waitForSelector('#genSql');
+ await p.waitForSelector('#genSql', { state: 'attached' });
  ok('a matview shows the RLS warning', (await p.locator('.rb-warn').count())===1);
  sql=await p.textContent('#genSql');
  ok('and its SQL is force-scoped to the company',
@@ -152,7 +154,7 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
  await p.reload();
  await p.waitForSelector('.rb-src',{timeout:15000});
  await p.click('.rb-src[data-rel="sales_by_product_title_daily_v"]');
- await p.waitForSelector('#genSql');
+ await p.waitForSelector('#genSql', { state: 'attached' });
 
  // Field browser: a second, always-available way to add/remove a field.
  ok('the field browser lists this source\'s columns',

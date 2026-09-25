@@ -43,6 +43,12 @@
   // of truth: reopening a report guided when its SQL has since diverged would
   // silently regenerate a query nobody asked for.
   let sqlIsHandWritten = false;
+  // Which of the collapsed editor <details> a person opened BY HAND. A
+  // re-render replaces the DOM (and would forget the <details> element's own
+  // open/closed state along with it), so this is the thing that actually
+  // persists across renders; renderBuild()'s own "open when empty" default
+  // is layered on top of it, never instead of it.
+  const secManualOpen = new Set();
   const cfg = {
     columns: [], summarise: false, dimensions: [], measures: [],
     dateColumn: '', dateRange: '', filters: [], sortColumn: '', sortDir: 'desc', limit: 100,
@@ -112,6 +118,7 @@
     // point of hiding plumbing is that the PREVIEW stops being full of ids.
     cfg.columns = RB.businessColumns(source.columns).map((c) => c.name);
     showChart = true;
+    secManualOpen.clear();
     renderSourceList();
     renderBuild();
     if (tab === 'sql') el('sqlText').value = RB.buildSql(source, cfg) || '';
@@ -140,22 +147,6 @@
     if (!source) return;
     const cols = usableCols();
     const aliasList = cfg.measures.map(RB.measureAlias).filter(Boolean);
-
-    // A friendly label reads better in the field cloud, but data-col/data-dim
-    // always carry the real column name -- that is what every other reader
-    // (buildSql, the chip bar, the tests) keys on.
-    const flabel = (n) => esc(window.SiloChart.columnLabel(n));
-    const colChips = cols.map((c) => `
-      <label class="rb-col${cfg.columns.includes(c.name) ? ' is-on' : ''}">
-        <input type="checkbox" data-col="${esc(c.name)}" ${cfg.columns.includes(c.name) ? 'checked' : ''} />
-        ${flabel(c.name)}<span class="rb-col-type">${esc(c.type)}</span>
-      </label>`).join('');
-
-    const dimChips = cols.map((c) => `
-      <label class="rb-col${cfg.dimensions.includes(c.name) ? ' is-on' : ''}">
-        <input type="checkbox" data-dim="${esc(c.name)}" ${cfg.dimensions.includes(c.name) ? 'checked' : ''} />
-        ${flabel(c.name)}<span class="rb-col-type">${esc(c.type)}</span>
-      </label>`).join('');
 
     // A plain total is [agg] of [column]. A calculation is the same twice
     // with an operator between -- rendered as one row rather than a
@@ -204,16 +195,35 @@
              : ' This one has no company column, so it cannot be scoped — prefer a view.'}</div>`
       : '';
 
+    // Everything below the summarise toggle used to be always open -- a
+    // full field-type grid, every total's raw agg/column/alias row, every
+    // filter row, all visible whether or not there was anything in them.
+    // The chip bar reads the same config back as a compact summary and the
+    // rail's field browser adds a field with one click, so none of that
+    // needs to stay open by default any more. Each <details> below opens
+    // itself the moment it has a reason to (nothing in it yet, or you just
+    // added something to it) and otherwise stays closed; a manual toggle
+    // is tracked in secOpen and survives the next re-render.
+    const secOpen = (key, emptyCondition) => secManualOpen.has(key) || emptyCondition;
+    // Open while EITHER half is unset, not just the column: picking a
+    // column and having the range collapse out from under you before you
+    // can pick a range too is a worse bug than leaving it open one render
+    // longer than strictly necessary.
+    const dateOpen = secOpen('secDate', !cfg.dateColumn || !cfg.dateRange);
+    const measuresOpen = secOpen('secMeasures', !cfg.measures.length);
+    const filtersOpen = secOpen('secFilters', !cfg.filters.length);
+
     el('buildBody').innerHTML = `
       ${mvNote}
-      <div class="rb-section">
-        <span class="rb-section-title">${esc(RB.friendlyRelName(source.relname))}</span>
-        ${source.description ? `
-          <details class="rb-details">
-            <summary>${esc(source.description.split(/(?<=[.!?])\s+/)[0])}${/[.!?]\s+\S/.test(source.description) ? ' — details' : ''}</summary>
-            <p class="rb-note">${esc(source.description)}</p>
-          </details>` : ''}
-        <span class="rb-note rb-mono-hint">${esc(source.relname)} · ${esc(source.relkind)}</span>
+      <div class="rb-section rb-source-head">
+        <span class="rb-section-title rb-source-title">${esc(RB.friendlyRelName(source.relname))}</span>
+        <details class="rb-details">
+          <summary>${source.description
+            ? esc(source.description.split(/(?<=[.!?])\s+/)[0]) + (/[.!?]\s+\S/.test(source.description) ? ' — details' : '')
+            : 'Details'}</summary>
+          ${source.description ? `<p class="rb-note">${esc(source.description)}</p>` : ''}
+          <span class="rb-note rb-mono-hint">${esc(source.relname)} · ${esc(source.relkind)}</span>
+        </details>
       </div>
 
       <div class="rb-section">
@@ -223,82 +233,87 @@
         </label>
       </div>
 
-      ${cfg.summarise ? `
-      <div class="rb-section" id="secDims">
-        <span class="rb-section-title">Group by</span>
-        <div class="rb-cols">${dimChips}</div>
-      </div>
-      <div class="rb-section" id="secMeasures">
-        <span class="rb-section-title">Totals</span>
-        ${measureRows || '<p class="rb-note">No totals yet — add one.</p>'}
-        <div class="rb-row">
-          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddMeasure">+ Add a total</button>
-          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddCalc">+ Add a calculation</button>
-        </div>
-        <p class="rb-note">A calculation is one total over another — ROAS is sales ÷ spend, and no column holds it.
-          Division is guarded, so a zero denominator leaves the cell empty rather than failing the query.</p>
-      </div>` : `
-      <div class="rb-section" id="secDims">
-        <span class="rb-section-title">Columns · ${cfg.columns.length ? cfg.columns.length + ' selected' : 'all'}</span>
-        <div class="rb-cols">${colChips}</div>
-        ${hiddenCount() ? `<button type="button" class="rb-linkbtn" id="btnToggleCols">
-            ${showAllColumns
-              ? `Hide ${hiddenCount()} technical column${hiddenCount() === 1 ? '' : 's'}`
-              : `Show ${hiddenCount()} technical column${hiddenCount() === 1 ? '' : 's'} (ids, sync stamps)`}
-          </button>` : ''}
-      </div>`}
-
       ${dateCols().length ? `
-      <div class="rb-section" id="secDate">
-        <span class="rb-section-title">Date range</span>
-        <div class="rb-row">
-          <div class="bcn-field-group">
-            <label class="bcn-label" for="selDateCol">Date column</label>
-            <select class="bcn-field" id="selDateCol">${opts(dateCols(), cfg.dateColumn, 'None')}</select>
+      <details class="rb-editor" id="secDate"${dateOpen ? ' open' : ''}>
+        <summary>Date range${cfg.dateColumn ? ` · ${esc((RB.DATE_RANGES.find((r) => r.id === cfg.dateRange) || {}).label || 'custom')}` : ' · none'}</summary>
+        <div class="rb-editor-body">
+          <div class="rb-row">
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="selDateCol">Date column</label>
+              <select class="bcn-field" id="selDateCol">${opts(dateCols(), cfg.dateColumn, 'None')}</select>
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="selDateRange">Range</label>
+              <select class="bcn-field" id="selDateRange">
+                ${RB.DATE_RANGES.map((r) => `<option value="${r.id}"${r.id === cfg.dateRange ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}
+              </select>
+            </div>
           </div>
-          <div class="bcn-field-group">
-            <label class="bcn-label" for="selDateRange">Range</label>
-            <select class="bcn-field" id="selDateRange">
-              ${RB.DATE_RANGES.map((r) => `<option value="${r.id}"${r.id === cfg.dateRange ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}
-            </select>
+          ${!cfg.dateColumn ? '<p class="rb-note">No date window yet — pick a column and a range on purpose. Nothing is filtered by default.</p>' : ''}
+        </div>
+      </details>` : ''}
+
+      <details class="rb-editor" id="secFilters"${filtersOpen ? ' open' : ''}>
+        <summary>Filters${cfg.filters.length ? ` · ${cfg.filters.length}` : ''}</summary>
+        <div class="rb-editor-body">
+          ${filterRows || '<p class="rb-note">No filters.</p>'}
+          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddFilter" style="align-self:flex-start">+ Add a filter</button>
+        </div>
+      </details>
+
+      ${cfg.summarise ? `
+      <details class="rb-editor" id="secMeasures"${measuresOpen ? ' open' : ''}>
+        <summary>Totals${cfg.measures.length ? ` · ${cfg.measures.length}` : ''}</summary>
+        <div class="rb-editor-body">
+          ${measureRows || '<p class="rb-note">No totals yet — add one.</p>'}
+          <div class="rb-row">
+            <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddMeasure">+ Add a total</button>
+            <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddCalc">+ Add a calculation</button>
+          </div>
+          <p class="rb-note">A calculation is one total over another — ROAS is sales ÷ spend, and no column holds it.
+            Division is guarded, so a zero denominator leaves the cell empty rather than failing the query.</p>
+        </div>
+      </details>` : ''}
+
+      <details class="rb-editor" id="secSort">
+        <summary>Sort and limit</summary>
+        <div class="rb-editor-body">
+          <div class="rb-row">
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="selSort">Sort by</label>
+              <select class="bcn-field" id="selSort">
+                ${opts(cfg.summarise ? cols.map((c) => c.name).concat(aliasList) : cols, cfg.sortColumn, 'Query order')}
+              </select>
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="selSortDir">Direction</label>
+              <select class="bcn-field" id="selSortDir">
+                <option value="desc"${cfg.sortDir === 'desc' ? ' selected' : ''}>Highest first</option>
+                <option value="asc"${cfg.sortDir === 'asc' ? ' selected' : ''}>Lowest first</option>
+              </select>
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="inpLimit">Limit</label>
+              <input class="bcn-field bcn-field--mono" id="inpLimit" type="number" min="0" max="1000" value="${Number(cfg.limit) || 0}" />
+            </div>
           </div>
         </div>
-        ${!cfg.dateColumn ? '<p class="rb-note">No date window yet — pick a column and a range on purpose. Nothing is filtered by default.</p>' : ''}
-      </div>` : ''}
+      </details>
 
-      <div class="rb-section" id="secFilters">
-        <span class="rb-section-title">Filters</span>
-        ${filterRows || '<p class="rb-note">No filters.</p>'}
-        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddFilter" style="align-self:flex-start">+ Add a filter</button>
-      </div>
-
-      <div class="rb-section" id="secSort">
-        <span class="rb-section-title">Sort and limit</span>
-        <div class="rb-row">
-          <div class="bcn-field-group">
-            <label class="bcn-label" for="selSort">Sort by</label>
-            <select class="bcn-field" id="selSort">
-              ${opts(cfg.summarise ? cols.map((c) => c.name).concat(aliasList) : cols, cfg.sortColumn, 'Query order')}
-            </select>
-          </div>
-          <div class="bcn-field-group">
-            <label class="bcn-label" for="selSortDir">Direction</label>
-            <select class="bcn-field" id="selSortDir">
-              <option value="desc"${cfg.sortDir === 'desc' ? ' selected' : ''}>Highest first</option>
-              <option value="asc"${cfg.sortDir === 'asc' ? ' selected' : ''}>Lowest first</option>
-            </select>
-          </div>
-          <div class="bcn-field-group">
-            <label class="bcn-label" for="inpLimit">Limit</label>
-            <input class="bcn-field bcn-field--mono" id="inpLimit" type="number" min="0" max="1000" value="${Number(cfg.limit) || 0}" />
-          </div>
+      <details class="rb-editor" id="secGenSql">
+        <summary>SQL this generates</summary>
+        <div class="rb-editor-body">
+          <pre class="rb-generated" id="genSql">${esc(RB.buildSql(source, cfg) || '-- choose at least one total to summarise')}</pre>
         </div>
-      </div>
-
-      <div class="rb-section">
-        <span class="rb-section-title">Generated SQL</span>
-        <pre class="rb-generated" id="genSql">${esc(RB.buildSql(source, cfg) || '-- choose at least one total to summarise')}</pre>
-      </div>`;
+      </details>`;
+    // toggle does not reliably bubble, so each <details> gets its own
+    // listener rather than one delegated on #buildBody -- there are at
+    // most six of these, so the cost of re-attaching every render is nothing.
+    el('buildBody').querySelectorAll('details.rb-editor[id]').forEach((d) => {
+      d.addEventListener('toggle', () => {
+        if (d.open) secManualOpen.add(d.id); else secManualOpen.delete(d.id);
+      });
+    });
     renderChipBar();
     renderFieldBrowser();
     markStale();
@@ -317,13 +332,27 @@
   function measureChipLabel(m) {
     const calc = RB.calcFor(m);
     if (calc) return `${colLabel(m.column)} ${calc.symbol} ${colLabel(m.column2)}`;
+    // Sum is the overwhelmingly common case and the chip is read many times
+    // for every once it is edited, so it stays terse -- "Net Sales", not
+    // "Sum of Net Sales". A non-default aggregation is the one thing worth
+    // spending the extra word on, since silently reading "Net Sales" as a
+    // sum when it is actually an average would be a wrong number, not a
+    // cosmetic slip.
+    if (m.agg === 'sum') return colLabel(m.column);
     return `${AGG_LABELS[m.agg] || m.agg} of ${colLabel(m.column)}`;
   }
 
   function filterChipLabel(f) {
     const op = RB.OPERATORS.find((o) => o.id === f.op) || RB.OPERATORS[0];
-    const val = op.noValue ? '' : ` ${String(f.value || '').slice(0, 22)}${String(f.value || '').length > 22 ? '…' : ''}`;
-    return `${colLabel(f.column || '…')} ${op.label}${val}`;
+    const val = String(f.value || '').slice(0, 22) + (String(f.value || '').length > 22 ? '…' : '');
+    // "is" is the overwhelmingly common operator, so the chip reads as
+    // "Location Tag: online" rather than "Location Tag is online" -- every
+    // other operator keeps its word (greater than, contains, ...) because
+    // dropping THOSE would change what the chip claims, not just how it
+    // reads.
+    if (op.noValue) return `${colLabel(f.column || '…')} ${op.label}`;
+    if (op.id === 'eq') return `${colLabel(f.column || '…')}: ${val}`;
+    return `${colLabel(f.column || '…')} ${op.label} ${val}`;
   }
 
   function dateRangeChipLabel() {
@@ -396,11 +425,35 @@
     arr.splice(to, 0, item);
   }
 
-  const SECTION_FOR_ZONE = { dims: 'secDims', cols: 'secDims', measures: 'secMeasures',
+  // Rows/Columns have no collapsed editor of their own any more -- picking
+  // a dimension or a detail column happens in the rail's field browser, so
+  // that is where a "Rows" chip or its "+" points. Measures/Filters/Date
+  // point at their own collapsed <details>, opened on arrival rather than
+  // merely scrolled to, since a chip pointing at something still hidden
+  // would read as broken.
+  const SECTION_FOR_ZONE = { dims: 'fieldBrowser', cols: 'fieldBrowser', measures: 'secMeasures',
     filters: 'secFilters', daterange: 'secDate', params: 'paramsSection' };
-  // Parameters live outside the Build/SQL tabs (they apply to a report
-  // however it was authored), so jumping to one must not force the tab.
-  const ZONE_NEEDS_BUILD_TAB = new Set(['dims', 'cols', 'measures', 'filters', 'daterange']);
+  // Measures/Filters/Date live inside the Build tab's collapsed editors;
+  // Rows/Columns live in the always-visible rail; Parameters live outside
+  // the Build/SQL tabs entirely (they apply to a report however it was
+  // authored). Only the first group needs the tab switched to reach it.
+  const ZONE_NEEDS_BUILD_TAB = new Set(['measures', 'filters', 'daterange']);
+
+  function revealSection(zone) {
+    if (ZONE_NEEDS_BUILD_TAB.has(zone)) document.querySelector('[data-tab="build"]').click();
+    const target = document.getElementById(SECTION_FOR_ZONE[zone]);
+    if (!target) return;
+    if (target.tagName === 'DETAILS' && !target.open) {
+      target.open = true;
+      secManualOpen.add(target.id);
+    }
+    if (zone === 'dims' || zone === 'cols') {
+      const rail = document.querySelector('.rb-rail');
+      if (rail && rail.classList.contains('is-collapsed')) el('btnToggleRail')?.click();
+      el('fieldSearch')?.focus();
+    }
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
 
   el('chipBar')?.addEventListener('click', (e) => {
     const moveBtn = e.target.closest('[data-chip-move]');
@@ -431,20 +484,11 @@
       if (zone === 'params') { addParam(); return; }
       // Rows/Columns has no "blank" item to add -- a dimension is picked
       // from what already exists, not created. Jump to where it is picked.
-      if (ZONE_NEEDS_BUILD_TAB.has(zone)) document.querySelector('[data-tab="build"]').click();
-      const target = document.getElementById(SECTION_FOR_ZONE[zone]);
-      if (target) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      revealSection(zone);
       return;
     }
     const jump = e.target.closest('[data-chip-jump]');
-    if (jump && !e.target.closest('button')) {
-      const zone = jump.dataset.chipJump;
-      const secId = SECTION_FOR_ZONE[zone];
-      if (!secId) return;
-      if (ZONE_NEEDS_BUILD_TAB.has(zone)) document.querySelector('[data-tab="build"]').click();
-      const target = document.getElementById(secId);
-      if (target) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }
+    if (jump && !e.target.closest('button')) revealSection(jump.dataset.chipJump);
   });
 
   // ── Field browser (rail) ─────────────────────────────────────────────
@@ -501,13 +545,29 @@
     const section = (label, rows, kind) => rows.length
       ? `<div class="rb-group-label">${esc(label)}</div>${rows.map((c) => fieldRow(c, kind)).join('')}`
       : '';
-    el('fieldBrowserList').innerHTML = cfg.summarise
+    const toggleHtml = hiddenCount()
+      ? `<button type="button" class="rb-linkbtn" id="btnToggleCols">
+           ${showAllColumns
+             ? `Hide ${hiddenCount()} technical column${hiddenCount() === 1 ? '' : 's'}`
+             : `Show ${hiddenCount()} technical column${hiddenCount() === 1 ? '' : 's'} (ids, sync stamps)`}
+         </button>` : '';
+    el('fieldBrowserList').innerHTML = (cfg.summarise
       ? section('Group by', cols, 'dim') + section('Measures', cols.filter((c) => RB.NUMERIC_PG.test(c.type)), 'measure')
-      : section('Columns', cols, 'col');
+      : section('Columns', cols, 'col')) + toggleHtml;
   }
 
   el('fieldSearch')?.addEventListener('input', renderFieldBrowser);
   el('fieldBrowserList')?.addEventListener('click', (e) => {
+    if (e.target.closest('#btnToggleCols')) {
+      showAllColumns = !showAllColumns;
+      // Keep only selections that still exist in the visible set, so hiding
+      // plumbing cannot silently leave a hidden column in the query.
+      const allowed = new Set(usableCols().map((c) => c.name));
+      cfg.columns = cfg.columns.filter((c) => allowed.has(c));
+      if (!cfg.columns.length) cfg.columns = usableCols().map((c) => c.name);
+      renderBuild();
+      return;
+    }
     const row = e.target.closest('[data-field]');
     if (row) toggleField(row.dataset.field, row.dataset.fieldKind);
   });
@@ -746,9 +806,13 @@
       host.innerHTML = window.SiloChart.kpiHtml(rows, rec.visual_config, semantics);
       return;
     }
-    host.innerHTML = '<div class="dw-chart" data-role="chart"></div>';
     const shaped = window.SiloChart.shape(rows, rec.visual_config, semantics);
     if (!shaped) { host.hidden = true; toggle.hidden = true; return; }
+    // A caption earns the chart its place as the page's main visual, the
+    // same way a saved report's title tells you what a dashboard tile is
+    // before you read a single number off it.
+    const title = shaped.xField ? `${colLabel(shaped.yField)} by ${colLabel(shaped.xField)}` : colLabel(shaped.yField);
+    host.innerHTML = `<div class="rb-chart-title">${esc(title)}</div><div class="dw-chart" data-role="chart"></div>`;
     previewChart = window.echarts.init(host.querySelector('[data-role="chart"]'), null, { renderer: 'canvas' });
     previewChart.setOption(window.SiloChart.optionFor(rec.visual_type, shaped, rec.visual_config));
   }
@@ -1475,10 +1539,7 @@
 
   el('buildBody').addEventListener('change', (e) => {
     const t = e.target;
-    const toggle = (arr, v) => arr.includes(v) ? arr.filter((x) => x !== v) : arr.concat(v);
-    if (t.dataset.col !== undefined) cfg.columns = toggle(cfg.columns, t.dataset.col);
-    else if (t.dataset.dim !== undefined) cfg.dimensions = toggle(cfg.dimensions, t.dataset.dim);
-    else if (t.id === 'chkSummarise') {
+    if (t.id === 'chkSummarise') {
       // No default total. The first numeric column in a table's own column
       // order is an accident of how it was built, not a deliberate choice --
       // it summed retail_price (a per-unit price) across every SKU row on
@@ -1520,10 +1581,18 @@
   // Named for the same reason addParam is: the chip bar's "+ Add a total" /
   // "+ Add a filter" buttons call these directly rather than re-deriving
   // what a fresh row defaults to.
-  function addFilter() { cfg.filters.push({ column: '', op: 'eq', value: '' }); renderBuild(); }
+  function addFilter() {
+    cfg.filters.push({ column: '', op: 'eq', value: '' });
+    // Force the editor open even though the list is no longer empty --
+    // otherwise the row that was just added renders and immediately
+    // collapses out of sight, which reads as the click having done nothing.
+    secManualOpen.add('secFilters');
+    renderBuild();
+  }
   function addMeasure() {
     const n = numericCols()[0];
     cfg.measures.push({ column: n ? n.name : '', agg: 'sum', alias: '' });
+    secManualOpen.add('secMeasures');
     renderBuild();
   }
   function addCalc() {
@@ -1534,20 +1603,13 @@
       calc: 'ratio', agg: 'sum', column: nums[0] ? nums[0].name : '',
       agg2: 'sum', column2: (nums[1] || nums[0] || {}).name || '', alias: '',
     });
+    secManualOpen.add('secMeasures');
     renderBuild();
   }
 
+  // #btnToggleCols now lives in the field browser (renderFieldBrowser's own
+  // listener handles it) -- everything else here is still #buildBody's.
   el('buildBody').addEventListener('click', (e) => {
-    if (e.target.closest('#btnToggleCols')) {
-      showAllColumns = !showAllColumns;
-      // Keep only selections that still exist in the visible set, so hiding
-      // plumbing cannot silently leave a hidden column in the query.
-      const allowed = new Set(usableCols().map((c) => c.name));
-      cfg.columns = cfg.columns.filter((c) => allowed.has(c));
-      if (!cfg.columns.length) cfg.columns = usableCols().map((c) => c.name);
-      renderBuild();
-      return;
-    }
     if (e.target.closest('#btnAddFilter')) { addFilter(); return; }
     if (e.target.closest('#btnAddMeasure')) { addMeasure(); return; }
     if (e.target.closest('#btnAddCalc')) { addCalc(); return; }

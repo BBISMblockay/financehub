@@ -129,13 +129,15 @@
             <span class="rb-section-title">Parameters</span>
             <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddParam">+ Add parameter</button>
           </div>
-          <p class="rb-note">
-            A parameter turns a fixed value in this report into a control on the dashboard.
-            Write <code>{{key}}</code> where the value goes — in the SQL, or as a filter value on the
-            Build tab — and declare it here. Reports on the same dashboard that use the
-            <strong>same key</strong> share one control, which is how nine tiles move together.
-            A date parameter shows as a familiar date control; Preview runs with the defaults below.
-          </p>
+          <details class="rb-details">
+            <summary>Turns a fixed value into a dashboard control</summary>
+            <p class="rb-note">
+              Write <code>{{key}}</code> where the value goes — in the SQL, or as a filter value on the
+              Build tab — and declare it here. Reports on the same dashboard that use the
+              <strong>same key</strong> share one control, which is how nine tiles move together.
+              Preview runs with the defaults below.
+            </p>
+          </details>
           <div class="rb-param-list" id="paramList"></div>
           <div id="paramWarn"></div>
         </section>
