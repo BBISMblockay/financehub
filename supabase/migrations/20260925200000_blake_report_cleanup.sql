@@ -32,24 +32,17 @@ values
   ('bc250925-0000-4000-a000-000000000001','3bd934c9-4cdd-429b-9076-f8f6b45d4eb7',
    '69bd02b7-c711-4d4d-a03b-15d3e88d1932',
    'Top Products by Revenue — Last 30 Completed Days',
-   'Five products ranked by net sales over the last 30 completed company-calendar days. Preserves the original sales_by_day grain and excludes Redo exchange SKUs; refreshes with the company timezone.',
-   ARRAY['with bounds as materialized (
-  select (now() at time zone coalesce(business_timezone, ''America/Los_Angeles''))::date as company_today
-    from company_settings where company_entity_id = ''3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'' limit 1
-)
-select s.product_name,
-       sum(s.total_quantity_sold) as units,
-       sum(s.total_net_sales) as net_sales
-  from sales_by_day s
- cross join bounds b
- where s.company_entity_id = ''3bd934c9-4cdd-429b-9076-f8f6b45d4eb7''
-   and s.day_date >= b.company_today - 30
-   and s.day_date < b.company_today
-   and s.sku not ilike ''%x-redo%''
- group by s.product_name
+   'Five products ranked by net sales over the last 30 completed company-calendar days. Uses the pre-aggregated product-title daily view and excludes the x-redo product title; refreshes with the Baseballism calendar. The ranking uses net sales from the daily summary.',
+   ARRAY['select product_title as product_name,
+       sum(net_sales) as net_sales
+  from sales_by_product_title_daily_v
+ where day_date >= (now() at time zone ''America/Los_Angeles'')::date - 30
+   and day_date < (now() at time zone ''America/Los_Angeles'')::date
+   and product_title <> ''x-redo''
+ group by product_title
  order by net_sales desc
  limit 5']::text[],'private','manual',
-   '{"product_name":{"semantic":"text"},"units":{"semantic":"count"},"net_sales":{"semantic":"currency"}}'::jsonb)
+   '{"product_name":{"semantic":"text"},"net_sales":{"semantic":"currency"}}'::jsonb)
 on conflict (id) do update set title=excluded.title,description=excluded.description,
   queries_run=excluded.queries_run,columns_metadata=excluded.columns_metadata
   where public.silo_chat_saved_reports.created_by=excluded.created_by
