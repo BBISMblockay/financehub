@@ -39,8 +39,8 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
     silo.slice().sort().join() === db.filter((r) => r.silo).map((r) => r.id).sort().join());
   ok('SILO cards carry no SILO/Global/query-count badges',
     (await p.locator('#siloBody .lib-card .bcn-pill').count()) === 0);
-  ok('a SILO card opens the report builder (open/copy lives there)',
-    /\/v3\/report-builder\.html\?id=/.test(await p.getAttribute('#siloBody .lib-link', 'href')));
+  ok('a SILO card opens the report to READ, on a temporary board',
+    /\/v3\/dashboard\.html\?report=/.test(await p.getAttribute('#siloBody .lib-link', 'href')));
 
   await p.click('#tab-mine');
   await p.waitForSelector('#mineBody .lib-card');

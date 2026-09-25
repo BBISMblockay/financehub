@@ -214,6 +214,16 @@ board is a migration, like a system report. Tests:
 `scripts/tests/silo-dashboards-database.test.mjs` (RLS, mutation-tested),
 `tests/unit/dashboard-copy.test.js`, `tests/browser/silo-dashboard.test.js`.
 
+## Opening a report to read
+
+A SILO report card opens `/v3/dashboard.html?report=<id>`: the report on a
+temporary, unsaved board (`js/report-preview.js`) -- the viewer's own data,
+the report's own filters, a chart when `recommend()` finds a shape and the
+full table under it. It has no dashboard id, so Edit, Save and saved views
+stay off and nothing is written. "Add to a dashboard" hands off to the
+existing `?add_report=` flow; "Customize a copy" opens the report builder.
+My Reports still open in the builder, since editing is their main use.
+
 ## Bump the asset version when you change these files
 
 Every `v3` script and stylesheet is loaded with `?v=<version>`. The site is
