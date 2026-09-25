@@ -35,14 +35,15 @@ values
    'Five products ranked by net sales over the last 30 completed company-calendar days. Preserves the original sales_by_day grain and excludes Redo exchange SKUs; refreshes with the company timezone.',
    ARRAY['with bounds as materialized (
   select (now() at time zone coalesce(business_timezone, ''America/Los_Angeles''))::date as company_today
-    from company_settings limit 1
+    from company_settings where company_entity_id = ''3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'' limit 1
 )
 select s.product_name,
        sum(s.total_quantity_sold) as units,
        sum(s.total_net_sales) as net_sales
   from sales_by_day s
  cross join bounds b
- where s.day_date >= b.company_today - 30
+ where s.company_entity_id = ''3bd934c9-4cdd-429b-9076-f8f6b45d4eb7''
+   and s.day_date >= b.company_today - 30
    and s.day_date < b.company_today
    and s.sku not ilike ''%x-redo%''
  group by s.product_name
@@ -100,8 +101,8 @@ update public.dashboards
    set filter_state=(coalesce(filter_state,'{}'::jsonb)-'demand_basis') ||
          '{"date_from":"today-90d","date_to":"today-1d"}'::jsonb,
        description=replace(description,
-         'Rolling YTD through yesterday; source completeness depends on sync.',
-         'Last 90 completed days by default; widening to YTD may time out. Source completeness depends on sync.') || ' Demand-planning tiles are now on the private Demand Planner.',
+         'Current SILO data may differ from historic exports.',
+         'Current SILO data may differ from historic exports. Defaults to the last 90 completed company-calendar days; widening to YTD may time out.') || ' Demand-planning tiles are now on the private Demand Planner.',
        updated_at=now()
  where id='2486431f-3c55-48c1-a320-e7de86e1df79'
    and created_by='69bd02b7-c711-4d4d-a03b-15d3e88d1932';
