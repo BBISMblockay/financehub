@@ -80,26 +80,37 @@
         <button type="button" class="dw-icon-btn" data-act="reload" title="Refresh this widget" aria-label="Refresh this widget">↻</button>`;
   }
 
-  function tileShell(widget, editable) {
-    if (widget.visual_type === 'section') {
-      // The collapse control is view-mode only. Collapsing detaches tiles
-      // from the grid, and doing that while someone is dragging is how a
-      // layout gets saved in a shape nobody arranged -- entering edit mode
-      // expands everything first for exactly that reason.
-      const collapse = editable ? '' : `
+  /**
+   * A SECTION's head actions. Its own function because setEditable()
+   * rebuilds head actions in place when edit mode toggles, and it used to
+   * rebuild every tile -- sections included -- with headActionsHtml(), so
+   * leaving edit mode turned a section's collapse arrow into a regular
+   * tile's "Refresh this widget" button.
+   */
+  function sectionActionsHtml(widget, editable) {
+    // The collapse control is view-mode only. Collapsing detaches tiles
+    // from the grid, and doing that while someone is dragging is how a
+    // layout gets saved in a shape nobody arranged -- entering edit mode
+    // expands everything first for exactly that reason.
+    const collapse = editable ? '' : `
             <button type="button" class="dw-icon-btn dw-collapse" data-act="collapse"
                     aria-expanded="true" title="Collapse this section"
                     aria-label="Collapse ${esc(widget.title || 'section')}">▾</button>`;
-      return `
-      <div class="dw dw--section" data-widget-id="${esc(widget.id)}">
-        <header class="dw-head dw-head--section">
-          <div class="dw-head-text"><span class="dw-section-title">${esc(widget.title || '')}</span></div>
-          <div class="dw-head-actions">${collapse}${editable
+    return `${collapse}${editable
             ? `<button type="button" class="dw-type-badge dw-type-badge--btn" data-act="configure"
                        title="Edit this section">section<span class="dw-caret" aria-hidden="true">▾</span></button>
                <button type="button" class="dw-icon-btn" data-act="duplicate" aria-label="Duplicate section">⧉</button>
                <button type="button" class="dw-icon-btn" data-act="remove" aria-label="Remove section">✕</button>`
-            : ''}</div>
+            : ''}`;
+  }
+
+  function tileShell(widget, editable) {
+    if (widget.visual_type === 'section') {
+      return `
+      <div class="dw dw--section" data-widget-id="${esc(widget.id)}">
+        <header class="dw-head dw-head--section">
+          <div class="dw-head-text"><span class="dw-section-title">${esc(widget.title || '')}</span></div>
+          <div class="dw-head-actions">${sectionActionsHtml(widget, editable)}</div>
         </header>
         <div class="dw-body dw-body--section" data-role="body"></div>
         <footer class="dw-foot" data-role="foot" hidden></footer>
@@ -478,7 +489,10 @@
       } else if (widget.visual_type === 'matrix') {
         body.innerHTML = window.SiloChart.matrixHtml(rows, cfg, semantics);
       } else if (widget.visual_type === 'kpi') {
-        body.innerHTML = window.SiloChart.kpiHtml(rows, cfg, semantics);
+        const meta = widget.report_columns_metadata || {};
+        const blankReasons = {};
+        for (const k of Object.keys(meta)) if (meta[k] && meta[k].blank_reason) blankReasons[k] = meta[k].blank_reason;
+        body.innerHTML = window.SiloChart.kpiHtml(rows, Object.assign({}, cfg, { blank_reasons: blankReasons }), semantics);
       } else if (widget.visual_type === 'heatmap') {
         const grid2d = window.SiloChart.grid2dOf(rows, cfg, semantics);
         if (!grid2d) {
@@ -1111,7 +1125,8 @@
         const tile = tileEl(w.id);
         if (!tile) continue;
         const actions = tile.querySelector('.dw-head-actions');
-        if (actions) actions.innerHTML = headActionsHtml(w, editable);
+        if (actions) actions.innerHTML = w.visual_type === 'section'
+          ? sectionActionsHtml(w, editable) : headActionsHtml(w, editable);
       }
     }
 

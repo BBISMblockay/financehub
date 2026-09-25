@@ -140,5 +140,21 @@ test('...and the line references the id its own <defs> declared', () => {
   has(html, `fill="url(#${id})"`);
 });
 
+// ── A deliberate blank says why ───────────────────────────────────────
+console.log('\n── blank values ──');
+
+test('a blank with a report-supplied reason explains itself instead of "No value"', () => {
+  const rows = [{ units_on_hand: 5, weeks_of_cover: null }];
+  const html = C.kpiHtml(rows, { y_field: 'weeks_of_cover',
+    blank_reasons: { weeks_of_cover: 'No 12-month sales for some <types>.' } }, {});
+  has(html, 'Not available');
+  has(html, 'No 12-month sales for some &lt;types&gt;.');
+  not(html, 'No value');
+});
+
+test('a blank with no reason still reads "No value"', () => {
+  has(C.kpiHtml([{ weeks_of_cover: null }], { y_field: 'weeks_of_cover' }, {}), 'No value');
+});
+
 const r = R.summary();
 process.exit(r.fail ? 1 : 0);

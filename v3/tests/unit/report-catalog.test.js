@@ -94,5 +94,15 @@ test('the 17 live SILO report titles each file under the right category', () => 
   eq(wrong, []);
 });
 
+// Their DESCRIPTIONS are what misfiled them under the old rules: "not
+// incremental sales" read as Sales, and "keeps arriving for weeks" matched
+// Purchasing's "arriv". The title has to win, with the real text attached.
+test('Email & SMS reports file under Marketing, whatever their caveats mention', () => {
+  eq(C.categoryFor(system('c3000000-0000-4000-a000-000000000008', 'Email & SMS Performance',
+    'Revenue is credited by Redo to email and SMS; it may overlap other channels’ attribution and is not incremental sales.')), 'marketing');
+  eq(C.categoryFor(system('c3000000-0000-4000-a000-000000000009', 'Email & SMS Revenue Trend',
+    'Credited revenue is not incremental sales. It lands on the order day and keeps arriving for weeks.')), 'marketing');
+});
+
 const result = R.summary();
 process.exit(result.fail ? 1 : 0);
