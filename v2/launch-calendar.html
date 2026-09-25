@@ -3063,7 +3063,14 @@ function applyProductToProductForm(r){ openProductForm(null); pendingProductSour
       const section=document.createElement('section');
       section.className='dp-section';
       section.style.marginTop='12px';
-      section.innerHTML=`<div class="lc2-section-head"><strong>Linked marketing (${linkedMarketing.length})</strong></div><div class="dp-sub" style="margin-bottom:7px">Open performance in Marketing. Meta and Redo each credit orders by their own attribution rules; their claims overlap and are not additional sales.</div>${linkedMarketing.map(l=>{const source=marketingSources[l.ref_table];return `<div class="lc2-init"><span class="bcn-pill pill-ch ch-meta">${esc(source.name)}</span><a href="/v2/marketing-overview.html?${source.query}=${encodeURIComponent(l.ref_id)}" style="color:var(--bcn-accent);font-weight:600">${esc(l.ref_label||l.ref_id)} ↗</a></div>`;}).join('')}`;
+      const groups=new Map();
+      for(const l of linkedMarketing){
+        const initiative=chans.find(c=>String(c.id)===String(l.channel_item_id));
+        const key=initiative?.id||'launch-only';
+        if(!groups.has(key)) groups.set(key,{initiative,links:[]});
+        groups.get(key).links.push(l);
+      }
+      section.innerHTML=`<div class="lc2-section-head"><strong>Linked marketing (${linkedMarketing.length})</strong></div><div class="dp-sub" style="margin-bottom:7px">Meta and Redo each credit orders by their own attribution rules; their claims overlap and are not additional sales.</div>${[...groups.values()].map(({initiative,links})=>`<div class="dp-item-meta" style="margin-top:10px;font-weight:600">${initiative?`Initiative: ${esc(initiative.item_title)} · ${esc(initiative.channel)}`:'Launch only'}</div>${links.map(l=>{const source=marketingSources[l.ref_table];return `<div class="lc2-init"><span class="bcn-pill pill-ch ch-meta">${esc(source.name)}</span><a href="/v2/marketing-overview.html?${source.query}=${encodeURIComponent(l.ref_id)}" style="color:var(--bcn-accent);font-weight:600">${esc(l.ref_label||l.ref_id)} ↗</a></div>`;}).join('')}`).join('')}`;
       summary.append(section);
     }
     summary.querySelectorAll('[data-lc2-tab]').forEach(b=>b.onclick=()=>switchDrawerTab(b.dataset.lc2Tab));

@@ -223,6 +223,8 @@
           <p id="creativeLaunchName" style="margin:0 0 16px;color:var(--bcn-ink-3);font-size:12px"></p>
           <label for="creativeLaunchSelect" style="display:block;font-size:11px;margin-bottom:6px">Launch</label>
           <select id="creativeLaunchSelect" required style="width:100%;padding:10px;border:1px solid var(--bcn-border);border-radius:7px;background:var(--bcn-surface);color:var(--bcn-ink)"></select>
+          <label for="creativeInitiativeSelect" id="creativeInitiativeLabel" style="display:block;font-size:11px;margin:12px 0 6px">Initiative (optional)</label>
+          <select id="creativeInitiativeSelect" style="width:100%;padding:10px;border:1px solid var(--bcn-border);border-radius:7px;background:var(--bcn-surface);color:var(--bcn-ink)"></select>
           <p id="creativeLaunchError" role="alert" style="min-height:18px;color:#b42318;font-size:12px"></p>
           <div style="display:flex;justify-content:flex-end;gap:8px">
             <button type="button" class="bcn-btn" id="creativeLaunchCancel">Cancel</button>
@@ -643,7 +645,7 @@
   }
 
   // ── Creatives tab ──────────────────────────────────────────────
-  let _adPerf = [], _creatives = [], _redo = [], _launches = [], _creativeLinks = [], _linkable = true;
+  let _adPerf = [], _creatives = [], _redo = [], _launches = [], _initiatives = [], _creativeLinks = [], _linkable = true, _initiativeReady = false;
   let focusedAd = new URLSearchParams(location.search).get('ad');
   let focusedCampaign = new URLSearchParams(location.search).get('campaign');
   let focusedRedo = new URLSearchParams(location.search).get('redo');
@@ -652,27 +654,52 @@
   const REDO_REF = 'redo_marketing_messages';
   const launchCell = (source,id,type) => {
     const linked = _creativeLinks.filter(l=>l.ref_table===source && String(l.ref_id)===String(id))
-      .map(l=>_launches.find(x=>String(x.id)===String(l.launch_id))).filter(Boolean);
-    return linked.map(l=>`<a href="/v2/launch-calendar.html?launch=${encodeURIComponent(l.id)}" class="bcn-pill mo-platform-pill" style="display:inline-block;margin:2px;color:var(--bcn-accent)" title="Open launch">${esc(l.title||'Launch')} ↗</a>`).join('')
+      .map(l=>({launch:_launches.find(x=>String(x.id)===String(l.launch_id)),channel_item_id:l.channel_item_id})).filter(x=>x.launch);
+    return linked.map(({launch,channel_item_id})=>{const initiative=_initiatives.find(c=>String(c.id)===String(channel_item_id));return `<a href="/v2/launch-calendar.html?launch=${encodeURIComponent(launch.id)}" class="bcn-pill mo-platform-pill" style="display:inline-block;margin:2px;color:var(--bcn-accent)" title="${esc(initiative?`Initiative: ${initiative.item_title}`:'Open launch')}">${esc(launch.title||'Launch')}${initiative?` · ${esc(initiative.item_title)}`:''} ↗</a>`;}).join('')
       + (_linkable ? `<button type="button" class="bcn-btn bcn-btn--ghost" data-link-source="${esc(source)}" data-link-id="${esc(id)}" data-link-type="${esc(type)}" style="padding:3px 6px;font-size:10px">+ Link</button>` : '—');
   };
   async function loadLaunchLinks(){
     try {
-      const [launches, links] = await Promise.all([
+      const [launches, linkResult, initiatives] = await Promise.all([
         loadPaged(() => scopeQ(sb.from('launch_calendar').select('id,title,launch_date')
           .order('launch_date',{ascending:false}).order('id',{ascending:true}))),
-        loadPaged(() => scopeQ(sb.from('launch_system_links')
-          .select('id,launch_id,ref_table,ref_id').eq('link_type','campaign')
-          .order('id',{ascending:true}))),
+        (async()=>{
+          const query=cols=>loadPaged(()=>scopeQ(sb.from('launch_system_links')
+            .select(cols).eq('link_type','campaign').order('id',{ascending:true})));
+          try{return {links:await query('id,launch_id,ref_table,ref_id,channel_item_id'),ready:true};}
+          catch(e){if(e.code!=='42703') throw e;return {links:await query('id,launch_id,ref_table,ref_id'),ready:false};}
+        })(),
+        loadPaged(()=>scopeQ(sb.from('launch_channel_items')
+          .select('id,launch_id,company_entity_id,channel,item_title,scheduled_date')
+          .order('scheduled_date',{ascending:true}).order('id',{ascending:true}))),
       ]);
-      _launches = launches; _creativeLinks = links;
+      _launches = launches; _creativeLinks = linkResult.links; _initiatives = initiatives;
+      _initiativeReady = linkResult.ready;
       _linkable = true;
     } catch(e){
       console.warn('Launch links unavailable', e);
-      _launches = []; _creativeLinks = []; _linkable = false;
+      _launches = []; _initiatives = []; _creativeLinks = []; _linkable = false; _initiativeReady = false;
     }
   }
   let selectedMarketing = null;
+  function renderInitiativeChoices(){
+    const select=el('creativeInitiativeSelect');
+    select.replaceChildren();
+    const launchId=el('creativeLaunchSelect').value;
+    const empty=document.createElement('option');empty.value='';empty.textContent='Launch only';select.append(empty);
+    const channel=selectedMarketing?.source===REDO_REF
+      ? _redo.find(r=>`${r.kind}:${r.redo_id}`===selectedMarketing.id)?.channel?.toLowerCase() : 'meta';
+    const initiatives=_initiatives.filter(c=>String(c.launch_id)===launchId && String(c.company_entity_id)===String(_co?.id));
+    const matches=initiatives.filter(c=>channel && String(c.channel).toLowerCase()===channel);
+    for(const group of [matches,initiatives.filter(c=>!matches.includes(c))]){
+      for(const c of group){const option=document.createElement('option');option.value=c.id;
+        option.textContent=`${c.item_title||'Untitled'} · ${c.channel||'other'}${c.scheduled_date?` · ${c.scheduled_date}`:''}`;
+        select.append(option);
+      }
+    }
+    const enabled=_initiativeReady && initiatives.length>0;
+    el('creativeInitiativeLabel').hidden=!enabled;select.hidden=!enabled;select.disabled=!enabled;
+  }
   function openMarketingLaunch(source,id,type){
     if (!_linkable) return;
     let name;
@@ -696,11 +723,13 @@
       option.textContent = `${launch.title || 'Untitled launch'} · ${launch.launch_date || 'no date'}`;
       select.append(option);
     }
+    renderInitiativeChoices();
     el('creativeLaunchSave').disabled = !choices.length;
     if (!choices.length) el('creativeLaunchError').textContent = `This ${type} is already linked to every available launch.`;
     el('creativeLaunchDialog').showModal();
   }
   el('creativeLaunchCancel').onclick = () => el('creativeLaunchDialog').close();
+  el('creativeLaunchSelect').addEventListener('change',renderInitiativeChoices);
   el('clearCreativeFocus').onclick = () => {
     focusedAd = null;
     const url = new URL(location.href); url.searchParams.delete('ad');
@@ -717,15 +746,19 @@
     if (!selectedMarketing || !_co?.id) return;
     const launchId = el('creativeLaunchSelect').value;
     if (!_launches.some(l => String(l.id) === launchId)) return;
+    const initiativeId=_initiativeReady ? el('creativeInitiativeSelect').value : '';
+    if(initiativeId && !_initiatives.some(c=>String(c.id)===initiativeId && String(c.launch_id)===launchId && String(c.company_entity_id)===String(_co.id))) return;
     const save = el('creativeLaunchSave');
     save.disabled = true;
     el('creativeLaunchError').textContent = '';
-    const {error} = await sb.from('launch_system_links').insert({
+    const payload={
       company_entity_id:_co.id, launch_id:launchId, link_type:'campaign',
       ref_table:selectedMarketing.source, ref_id:selectedMarketing.id, ref_label:selectedMarketing.name,
-    });
+    };
+    if(initiativeId) payload.channel_item_id=initiativeId;
+    const {error} = await sb.from('launch_system_links').insert(payload);
     if (error){ el('creativeLaunchError').textContent = error.message; save.disabled = false; return; }
-    _creativeLinks.push({ launch_id:launchId, ref_table:selectedMarketing.source, ref_id:selectedMarketing.id });
+    _creativeLinks.push({ launch_id:launchId, ref_table:selectedMarketing.source, ref_id:selectedMarketing.id, channel_item_id:initiativeId||null });
     el('creativeLaunchDialog').close();
     renderCampaigns(_campaignRows);
     renderCreatives();
