@@ -36,5 +36,17 @@ test('a report can name the column its chart plots', () => {
   eq(P.preferPrimary(rec, {}, rows).visual_config.y_field, 'ad_spend', 'unflagged: recommendation stands');
   eq(P.preferPrimary(rec, { roas: { chart_primary: true } }, rows).visual_config.y_field, 'ad_spend', 'absent column ignored');
 });
+test('a report can name the column its chart is broken out by: a top-10 ranking', () => {
+  const rec = { visual_type: 'bar', visual_config: { x_field: 'kind', y_field: 'sends', sort: 'desc', limit: 10 } };
+  const rows = [{ kind: 'campaign', message: 'Fall drop', sends: 900, attributed_revenue: 1200 }];
+  const meta = { message: { chart_dimension: true }, attributed_revenue: { chart_primary: true } };
+  const out = P.preferPrimary(rec, meta, rows);
+  eq(out.visual_type, 'bar');
+  eq([out.visual_config.x_field, out.visual_config.y_field, out.visual_config.sort, out.visual_config.limit],
+     ['message', 'attributed_revenue', 'desc', 10]);
+  eq(rec.visual_config.x_field, 'kind', 'the recommendation object is not mutated');
+  eq(P.preferPrimary({ visual_type: 'donut', visual_config: {} }, meta, rows).visual_type, 'bar',
+     'a named breakout is drawn as a ranking, never a donut');
+});
 const result = R.summary();
 process.exit(result.fail ? 1 : 0);

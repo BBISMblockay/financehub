@@ -8,6 +8,9 @@
 -- security_invoker view, and so scope themselves per tenant like every other
 -- global report. Rates are percentages (x100), matching the other SILO
 -- reports' percent columns.
+-- Performance's chart ranks the top 10 messages by credited revenue
+-- (chart_dimension/chart_primary, read by v3/js/report-preview.js); without
+-- them it grouped 132 messages into two bars, campaign and automation.
 --
 -- The one thing they must not do is let Redo's revenue read as sales: it is
 -- revenue Redo CREDITS to its messages, overlaps the ad platforms' own
@@ -35,7 +38,7 @@ values
  group by kind, coalesce(name, redo_id), channel, revenue_currency, redo_id
  order by attributed_revenue desc nulls last, redo_id, channel$q$],
  '[{"key":"date_from","type":"date","label":"From","default":"today-28d","date_basis":"company"},{"key":"date_to","type":"date","label":"Through","default":"today-1d","date_basis":"company"}]'::jsonb,
- '{"kind":{"label":"Type","semantic":"category"},"message":{"label":"Campaign / automation","semantic":"category"},"channel":{"label":"Channel","semantic":"category"},"sends":{"label":"Sends","semantic":"count"},"delivered":{"label":"Delivered","semantic":"count"},"delivery_rate":{"label":"Delivery Rate","semantic":"percent"},"open_rate":{"label":"Open Rate","semantic":"percent"},"click_rate":{"label":"Click Rate","semantic":"percent"},"order_rate":{"label":"Order Rate","semantic":"percent"},"unsubscribes":{"label":"Unsubscribes","semantic":"count"},"attributed_orders":{"label":"Attributed Orders","semantic":"count"},"attributed_revenue":{"label":"Revenue Credited by Redo","semantic":"currency"},"sending_cost":{"label":"Sending Cost","semantic":"currency"},"revenue_currency":{"label":"Currency","semantic":"category"},"redo_id":{"label":"Redo ID","semantic":"category"}}'::jsonb),
+ '{"kind":{"label":"Type","semantic":"category"},"message":{"label":"Campaign / automation","semantic":"category","chart_dimension":true},"channel":{"label":"Channel","semantic":"category"},"sends":{"label":"Sends","semantic":"count"},"delivered":{"label":"Delivered","semantic":"count"},"delivery_rate":{"label":"Delivery Rate","semantic":"percent"},"open_rate":{"label":"Open Rate","semantic":"percent"},"click_rate":{"label":"Click Rate","semantic":"percent"},"order_rate":{"label":"Order Rate","semantic":"percent"},"unsubscribes":{"label":"Unsubscribes","semantic":"count"},"attributed_orders":{"label":"Attributed Orders","semantic":"count"},"attributed_revenue":{"label":"Revenue Credited by Redo","semantic":"currency","chart_primary":true},"sending_cost":{"label":"Sending Cost","semantic":"currency"},"revenue_currency":{"label":"Currency","semantic":"category"},"redo_id":{"label":"Redo ID","semantic":"category"}}'::jsonb),
 ('c3000000-0000-4000-a000-000000000009', null, 'system', 'company',
  'Email & SMS Revenue Trend',
  'Revenue and orders Redo credits to email and SMS, by company-calendar day, with sends and sending cost. Credited revenue may overlap other channels'' attribution and is not incremental sales. It lands on the order day and keeps arriving for weeks, so the latest days are still rising. A missing day is no Redo activity recorded, not verified zero.',

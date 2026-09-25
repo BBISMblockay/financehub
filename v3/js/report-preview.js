@@ -87,13 +87,32 @@
    * ranks money above plain numbers, which is right in general and wrong for
    * a ratio report -- Marketing Efficiency's chart plotted Ad Spend when the
    * report is about MER. Only applied when that column came back in the rows.
+   *
+   * chart_dimension = true names the column the chart is broken out BY. The
+   * recommendation takes the first text column, which for Email & SMS
+   * Performance is `kind` -- 132 messages drawn as two bars, campaign and
+   * automation. With the message named, a bar chart becomes a top-10 ranking
+   * of messages, sorted, whatever the recommendation's own sort and limit.
    */
   function preferPrimary(rec, columnsMetadata, rows) {
     if (!rec || !rec.visual_config || !rows || !rows.length) return rec;
     const meta = columnsMetadata || {};
-    const col = Object.keys(meta).find((k) => meta[k] && meta[k].chart_primary === true);
-    if (!col || !(col in rows[0])) return rec;
-    return Object.assign({}, rec, { visual_config: Object.assign({}, rec.visual_config, { y_field: col }) });
+    const flagged = (flag) => Object.keys(meta).find((k) => meta[k] && meta[k][flag] === true && k in rows[0]);
+    const y = flagged('chart_primary');
+    const x = flagged('chart_dimension');
+    if (!y && !x) return rec;
+    const cfg = Object.assign({}, rec.visual_config);
+    if (y) cfg.y_field = y;
+    let type = rec.visual_type;
+    if (x) {
+      cfg.x_field = x;
+      // A named breakout of many values is a ranking: a donut or line over
+      // it would be wrong, and a KPI would ignore it.
+      type = 'bar';
+      cfg.sort = 'desc';
+      cfg.limit = 10;
+    }
+    return Object.assign({}, rec, { visual_type: type, visual_config: cfg });
   }
 
   global.SiloReportPreview = { TABLE_ID, CHART_ID, previewBoard, tableWidget, chartWidget, arrange, preferPrimary };
