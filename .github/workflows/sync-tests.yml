@@ -694,6 +694,12 @@ jobs:
       - name: Execute marketing and inventory report regressions
         run: node scripts/tests/marketing-inventory-reports-database.test.mjs
 
+      # 20260925160000: SEO Performance SILO report. Search Console rules --
+      # not-returned is blank, position pooled by impressions, incomplete
+      # periods blank the comparison -- plus every tie-out. Mutation-tested.
+      - name: Execute SEO report regressions
+        run: node scripts/tests/seo-silo-report-database.test.mjs
+
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a
       # later edit, and a cleared flag carries no stale author or note.
