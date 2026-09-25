@@ -29,5 +29,12 @@ test('a chart sits above the table; a KPI stays small', () => {
   eq(P.chartWidget(table, { visual_type: 'kpi' }).layout.w, 4);
   eq(table.layout.y, 0, 'arrange does not move the original table object');
 });
+test('a report can name the column its chart plots', () => {
+  const rec = { visual_type: 'line', visual_config: { x_field: 'day_date', y_field: 'ad_spend' } };
+  const rows = [{ day_date: '2026-09-01', ad_spend: 10, mer: 3.2 }];
+  eq(P.preferPrimary(rec, { mer: { semantic: 'number', chart_primary: true } }, rows).visual_config.y_field, 'mer');
+  eq(P.preferPrimary(rec, {}, rows).visual_config.y_field, 'ad_spend', 'unflagged: recommendation stands');
+  eq(P.preferPrimary(rec, { roas: { chart_primary: true } }, rows).visual_config.y_field, 'ad_spend', 'absent column ignored');
+});
 const result = R.summary();
 process.exit(result.fail ? 1 : 0);

@@ -215,7 +215,7 @@
 <script src="js/dashboard-builder.js?v=20260925b"></script>
 <script src="js/report-library.js?v=20260925b"></script>
 <script src="js/dashboard-copy.js?v=20260925b"></script>
-<script src="js/report-preview.js?v=20260925b"></script>
+<script src="js/report-preview.js?v=20260925c"></script>
 <script>
 (function () {
   'use strict';
@@ -749,7 +749,9 @@
     await runtime.setWidgets([table]);
     const rows = runtime.rowsFor(P.TABLE_ID);
     if (rows && rows.length) {
-      const chart = P.chartWidget(table, window.SiloChart.recommend(rows, runtime.semanticsFor(table, rows)));
+      const rec = P.preferPrimary(window.SiloChart.recommend(rows, runtime.semanticsFor(table, rows)),
+        report.columns_metadata, rows);
+      const chart = P.chartWidget(table, rec);
       if (chart) await runtime.setWidgets(P.arrange(table, chart));
     }
     syncBlankState();
