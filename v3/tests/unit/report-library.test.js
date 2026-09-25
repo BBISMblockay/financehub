@@ -86,6 +86,14 @@ test('SILO dashboards list first, the rest keep their order', () => {
   ];
   eq(L.orderDashboards(boards).map((d) => d.id), ['s', 'a', 'b']);
   eq(L.orderDashboards(null), []);
+  const many = [
+    { id: 'newer', name: 'Marketing', source: 'system', company_entity_id: null },
+    { id: '5110da5b-0000-4000-a000-000000000001', name: 'Overview', source: 'system', company_entity_id: null },
+    { id: 'older', name: 'Sales', source: 'system', company_entity_id: null },
+    { id: 'company', source: 'user', company_entity_id: 'C1' },
+  ];
+  eq(L.orderDashboards(many).map((d) => d.id),
+    ['5110da5b-0000-4000-a000-000000000001', 'newer', 'older', 'company']);
 });
 
 test('dashboard badge: SILO for a SILO board, visibility otherwise', () => {

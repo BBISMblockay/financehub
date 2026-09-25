@@ -36,10 +36,13 @@
   // ties them together, and a row with only one of them is not SILO's.
   const isSiloDashboard = (d) => !!d && d.source === 'system' && d.company_entity_id == null;
 
-  /** SILO boards first (in their own order), then everything else as given. */
+  /** Pin SILO Overview, then other SILO boards, then company boards. */
   function orderDashboards(rows) {
     const list = rows || [];
-    return list.filter(isSiloDashboard).concat(list.filter((d) => !isSiloDashboard(d)));
+    const overviewId = '5110da5b-0000-4000-a000-000000000001';
+    return list.filter((d) => isSiloDashboard(d) && d.id === overviewId)
+      .concat(list.filter((d) => isSiloDashboard(d) && d.id !== overviewId),
+        list.filter((d) => !isSiloDashboard(d)));
   }
 
   function splitReports(rows) {
