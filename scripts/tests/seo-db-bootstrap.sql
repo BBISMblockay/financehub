@@ -134,3 +134,24 @@ create table public.shopify_collections (
 alter table public.shopify_collections enable row level security;
 create policy shopify_collections_select on public.shopify_collections
   for select to authenticated using (company_entity_id = public.active_company_id());
+-- The two registries seo_derive_keyword_candidates() (20260926120000) reads
+-- for its product-type and launch keyword groups. Column sets are the ones the
+-- function touches.
+create table public.products_master (
+  id uuid primary key default gen_random_uuid(),
+  company_entity_id uuid not null references public.entities(id) on delete cascade,
+  sku text not null, product_title text, product_type text,
+  shopify_status text, online_published_at timestamptz,
+  unique (company_entity_id, sku)
+);
+alter table public.products_master enable row level security;
+create policy products_master_select on public.products_master
+  for select to authenticated using (company_entity_id = public.active_company_id());
+create table public.launch_calendar (
+  id uuid primary key default gen_random_uuid(),
+  company_entity_id uuid not null references public.entities(id) on delete cascade,
+  title text not null, launch_date date, status text
+);
+alter table public.launch_calendar enable row level security;
+create policy launch_calendar_select on public.launch_calendar
+  for select to authenticated using (company_entity_id = public.active_company_id());

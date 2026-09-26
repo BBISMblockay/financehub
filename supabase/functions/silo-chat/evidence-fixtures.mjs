@@ -136,7 +136,36 @@ export const CATALOG_FIXTURE = [
       { name: 'launch_end_date', type: 'date' }, { name: 'launch_type', type: 'text' },
     ],
   },
+  {
+    relname: 'seo_serp_observations_v',
+    relkind: 'view',
+    keywords: ['seo', 'serp', 'ranking', 'position', 'competitor'],
+    description: 'Dated SERP observations: one row per keyword x date x location x device x provider x position.',
+    columns: [
+      { name: 'company_entity_id', type: 'uuid' }, { name: 'keyword_norm', type: 'text' },
+      { name: 'provider', type: 'text' }, { name: 'observed_on', type: 'date' },
+      { name: 'location_name', type: 'text' }, { name: 'device', type: 'text' },
+      { name: 'result_type', type: 'text' }, { name: 'position', type: 'integer' },
+      { name: 'domain_norm', type: 'text' }, { name: 'is_own_domain', type: 'boolean' },
+    ],
+  },
 ];
+
+/** A position pooled across desktop and mobile and across the provider and a
+ *  manual pilot: the query a first answer would run, and exactly what the
+ *  observation tables forbid reading as one number. */
+export const SERP_POOLED_SQL = `
+select keyword_norm, min(position) as best_position
+from seo_serp_observations_v
+where is_own_domain and observed_on between '2026-09-01' and '2026-09-22'
+group by keyword_norm`;
+
+export const SERP_NARROWED_SQL = `
+select keyword_norm, domain_norm, position
+from seo_serp_observations_v
+where device = 'desktop' and provider = 'dataforseo' and result_type = 'organic'
+  and observed_on = '2026-09-22'
+order by keyword_norm, position`;
 
 /** Trace 1, query 8. Weekly spend vs online sales. Reads
  *  marketing_daily_totals_v, which carries NO platform column -- the sum is

@@ -130,6 +130,25 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); passed += 1; };
   ok(/not ingested for that window/i.test(SRC), 'and the new honest fallback is named');
   ok(/Indexing status is NOT available -- there is no URL Inspection data/.test(SRC),
     'indexing remains unavailable and says why');
+  // SERP observations exist since 20260926120000. The old "no SERP source"
+  // sentences must be GONE (the catalog now describes the tables, so keeping
+  // them would hand the model two contradicting instructions), and the rules
+  // that replace them must be present: absence is never-observed, a position
+  // is one dated snapshot per device/provider/location, and an observed
+  // position is not a Search Console average.
+  ok(!/There is still no SERP or competitor-rank source/.test(SRC), 'the "no SERP source" sentence is gone');
+  ok(!/there is no SERP data source/.test(SRC), 'the hard-limit "no SERP data source" clause is gone');
+  ok(/SERP AND COMPETITOR POSITIONS EXIST ONLY AS DATED OBSERVATIONS/.test(SRC), 'positions are dated observations');
+  ok(/A KEYWORD WITH NO OBSERVATION ROW WAS NEVER OBSERVED/.test(SRC), 'absence is never-observed, not unranked');
+  ok(/results_in_latest_run 0 is "asked, nothing returned", NULL is "never asked"/.test(SRC), 'the 0-vs-NULL distinction is stated');
+  ok(/AN OBSERVED POSITION IS ONE DATED SNAPSHOT/.test(SRC), 'a position is a dated snapshot');
+  ok(/never pool desktop with mobile or a provider run with a manual one/.test(SRC), 'device and provider are never pooled');
+  ok(/search_console_avg_position_28d .* are DIFFERENT MEASURES/.test(SRC), 'observed vs average are named as different measures');
+  ok(/Never produce a competitor ranking or SERP snapshot from anything but seo_serp_\* observation rows/.test(SRC),
+    'the hard limit now names the only source');
+  ok(/never call a keyword "unranked" or a competitor "not ranking"/.test(SRC), 'the forbidden words are named');
+  ok(/1c\. Where seo_keyword_landscape_v holds a keyword/.test(SRC), 'the workflow reads the landscape as a step');
+  ok(/It is never a source for a search ranking or a SERP position/.test(SRC), 'web_search is not a ranking source');
   ok(/THE SEO WORKFLOW\./.test(SRC) && !/PRE-SEARCH-CONSOLE/.test(SRC),
     'the workflow is no longer labelled pre-Search-Console');
   ok(/seo_collection_candidates\(90\)/.test(SRC), 'which starts from the candidate function');

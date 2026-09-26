@@ -61,14 +61,15 @@ queried and nothing was written anywhere.
 
 - A writer for recommendations: no Ask SILO tool, no page, creates a
   `seo_tasks` row. Recommendations are still chat output.
-- Any SERP or competitor data source, and the observation schema for one
-  (`docs/ops/seo-competitors.md`).
+- Any SERP or competitor data SOURCE (the observation schema shipped
+  2026-09-26, `20260926120000`; the DataForSEO writer is next --
+  `docs/ops/seo-competitors.md`).
 - URL Inspection (indexing status) — a separate API, unprobed.
 
 ### Blocked (needs Blake)
 
-- Provider selection and account for competitor SERP data
-  (`docs/ops/seo-competitors.md`, cost model there).
+- ~~Provider selection~~ **DataForSEO, chosen 2026-09-26.** The account and
+  its repo secret are still to be opened (`docs/ops/seo-competitors.md`).
 - The SEO approver list: `seo_approvers` is still empty by decision; exec and
   owner pass without it.
 
@@ -110,10 +111,14 @@ queried and nothing was written anywhere.
    the RLS already refuses everyone else), record publication, capture
    baseline before and follow-up at 30/90 via the two functions, show both
    windows side by side labelled as movement. No new tables.
-4. **Keyword set and observation schema** — `seo_keyword_set`,
-   `seo_competitor_domains`, `seo_serp_observations` (date, location,
-   device, source NOT NULL; append-only), the keyword-derivation SQL from
-   `seo-competitors.md`, and a manual-pilot CSV import. Provider-independent.
+4. **Keyword set and observation schema** — **shipped 2026-09-26, taken
+   ahead of 2 and 3** (`20260926120000`): `seo_keyword_set`,
+   `seo_competitor_domains`, `seo_serp_runs`, `seo_serp_run_keywords` (which
+   keywords a run asked about -- the row that separates observed-but-absent
+   from never-observed), `seo_serp_observations` (date, location, device,
+   source NOT NULL; append-only), the derivation RPC, the manual import
+   function, two read views, and Ask SILO's prompt/scope changes.
+   Provider-independent; `scripts/tests/seo-serp-database.test.mjs`.
 5. **Provider integration** — the writer for `seo_serp_observations` for
    whichever provider Blake selects; weekly schedule; the competitor
    comparison view. Needs a secret and a cost.

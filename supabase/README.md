@@ -2293,3 +2293,37 @@ figures are never added together. Grouped by property. Date bounds are
 inline -- a joined window CTE is not index-pushable and timed out on 1.3M
 page rows. Tie-outs reconcile page and query rows to the site table's
 attributed clicks. Test: `scripts/tests/seo-silo-report-database.test.mjs`.
+
+## SEO competitor / SERP observations — `20260926120000_seo_competitor_serp_schema.sql`
+
+Step 4 of the SEO project sequence (`docs/ops/seo-project.md`), built to
+`docs/ops/seo-competitors.md`, provider-independent. Five tables:
+`seo_keyword_set` (one row per keyword per company, identified by the
+generated `keyword_norm`, which is also the join key to
+`search_console_query_daily.query`), `seo_competitor_domains` (the curated
+list, approver-only writes), `seo_serp_runs` (one fetch identity: provider ×
+date × location × language × device × engine, `completed_at` stamped LAST),
+`seo_serp_run_keywords` (which keywords a run ASKED about — `result_count 0`
+is a measured "nothing within depth", an absent row is "never asked") and
+`seo_serp_observations` (append-only: date, location, device and source are
+NOT NULL columns; no client write policy at all). Writers: the provider sync
+(service role, not yet built — needs the DataForSEO account) and
+`seo_import_manual_serp_observations()` (DEFINER, any member, attributed, one
+call per date × location × device, refuses a keyword already recorded on that
+manual run). `trg_seo_serp_newest_run_wins` on all three run tables is the
+Search Console trigger's rule again. Views (`security_invoker`):
+`seo_serp_observations_v` (adds `is_own_domain` from `shopify_shop_domains`
+and the registry relationship), `seo_keyword_landscape_v` (every keyword per
+run identity — latest top results, our observed position, the previous run's,
+movement, and BESIDE them our Search Console 28-day impression-weighted
+average as a different measure; `results_in_latest_run` 0 vs NULL is the
+asked-vs-never distinction) and `seo_competitor_share_v` (per-domain top-10 /
+top-3 counts against `keywords_observed`, the only valid denominator; no
+percentage stored). `seo_derive_keyword_candidates(p_days)` returns the
+doc's four-source candidate list for review — never an auto-insert.
+`sync_jobs.job_type` gains `seo_serp_weekly`. Ask SILO's prompt lost its three
+"no SERP source" sentences and gained the never-observed / dated-snapshot /
+different-measures rules; `evidence-scope.mjs` now treats `device`,
+`provider` and `result_type` as scope dimensions. Verify:
+`seo_competitor_serp`. Test: `scripts/tests/seo-serp-database.test.mjs`
+(three mutations in CI).

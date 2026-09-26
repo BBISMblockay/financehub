@@ -835,6 +835,25 @@ jobs:
       - name: Execute SEO workflow approval, publication and measurement regressions
         run: node scripts/tests/seo-workflow-database.test.mjs
 
+      # The SEO competitor / SERP schema: keyword set, approver-only competitor
+      # registry, append-only observations no client can write, the manual
+      # import as the one client-side writer, newest-run-wins across runs, and
+      # the landscape/share views' NULL-vs-0 distinction.
+      # Mutations: SERP_DB_MUTATION=stale-write-allowed | observations-writable | import-unscoped
+      - name: Execute SEO competitor / SERP observation regressions
+        run: node scripts/tests/seo-serp-database.test.mjs
+      - name: The SERP guards, removed, must break it
+        run: |
+          set -u
+          for m in stale-write-allowed observations-writable import-unscoped; do
+            echo "--- $m ---"
+            if SERP_DB_MUTATION="$m" node scripts/tests/seo-serp-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       # The business-timezone sweep's reporting half: the store comp summary
       # anchors on each company's OWN last completed day, and Org Calendar
       # live-session slots land on the company's clock. Uses UTC+14 / UTC-12
