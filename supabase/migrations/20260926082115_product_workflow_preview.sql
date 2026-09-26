@@ -178,7 +178,10 @@ begin
     select * into product from public.products_master where id=b.source_id and company_entity_id=p_company for share;
     if not found then raise exception 'Catalog product is missing'; end if;
     -- Lock through output creation so a concurrent catalog edit cannot race this check.
-    if product.updated_at is distinct from (b.source_snapshot->>'updated_at')::timestamptz then
+    -- Sync advances updated_at even when identity is unchanged. Compare consumed fields.
+    if row(product.product_title,product.product_type,product.variant_title,product.sku)
+       is distinct from row(b.source_snapshot->>'product_title',b.source_snapshot->>'product_type',
+         b.source_snapshot->>'variant_title',b.source_snapshot->>'sku') then
       raise exception 'Catalog source changed. Start a fresh brief and review before handoff';
     end if;
   end if;

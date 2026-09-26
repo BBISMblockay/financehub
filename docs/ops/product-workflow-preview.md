@@ -125,7 +125,7 @@ the state of production's existing modules.
 
 ### Review-bound evidence
 
-Catalog handoff locks and checks the source timestamp against the captured snapshot.
+Catalog handoff locks and checks title, product type, variant title and SKU against the captured snapshot. Routine sync timestamp changes alone do not invalidate a review.
 If the catalog changed, start a new brief and review it; retrying an existing output
 still returns that output. Restock review recomputes the company/product/horizon
 basis in the database and requires the submitted evidence to match (apart from

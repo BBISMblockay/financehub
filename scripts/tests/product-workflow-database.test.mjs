@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 let migration = await readFile(new URL('../../supabase/migrations/20260926082115_product_workflow_preview.sql', import.meta.url),'utf8');
 const mutations = {
-  'catalog-drift': ["if product.updated_at is distinct from (b.source_snapshot->>'updated_at')::timestamptz then", 'if false then'],
+  'catalog-drift': ["if row(product.product_title,product.product_type,product.variant_title,product.sku)\n       is distinct from row(b.source_snapshot->>'product_title',b.source_snapshot->>'product_type',\n         b.source_snapshot->>'variant_title',b.source_snapshot->>'sku') then", 'if false then'],
   'restock-evidence': ["if (basis - 'observed_at') is distinct from (fresh - 'observed_at') then", 'if false then'],
   'restock-note': ["and coalesce(length(btrim(p_content->>'decision_note')),0)=0 then", 'and false then'],
   'restock-review': ["if p_status='reviewed' and p_kind='restock' then", 'if false then'],
@@ -210,10 +210,20 @@ await test('direct restock review verifies evidence, warnings, quantity and exac
   assert.equal((await save(missing,0,'reviewed',{...manual,decision_note:'Stock unknown; manually verified supplier requirement'},'restock',PRODUCT)).status,'reviewed');
 
 });
+await test('routine sync timestamp changes allow both handoffs when reviewed identity is unchanged',async()=>{
+  const id='adadadad-adad-4dad-8dad-adadadadadad';
+  const saved=await save(id,0,'reviewed',content,'product',PRODUCT);
+  await db.exec('reset role');await db.query('update public.products_master set updated_at=now() where id=$1',[PRODUCT]);await user();
+  const po=await handoff(id,saved.version);
+  const launched=await handoff(id,po.version,'launch','2026-12-01');
+  assert.ok(po.po_header_id);assert.ok(launched.launch_id);
+  assert.equal((await one('select sku_snapshot from public.po_lines where po_header_id=$1',[po.po_header_id])).sku_snapshot,'SKU-1');
+  await db.exec('reset role');await db.query("update public.products_master set updated_at='2026-09-26T00:00:00Z' where id=$1",[PRODUCT]);await user();
+});
 await test('catalog changes after review block both new outputs but allow original output replay',async()=>{
   const id='abababab-abab-4bab-8bab-abababababab';
   const saved=await save(id,0,'reviewed',content,'product',PRODUCT);
-  await db.exec('reset role');await db.query("update public.products_master set sku='RENAMED',product_title='New name',updated_at=now() where id=$1",[PRODUCT]);await user();
+  await db.exec('reset role');await db.query("update public.products_master set sku='RENAMED',product_title='New name' where id=$1",[PRODUCT]);await user();
   await fail(()=>handoff(id,saved.version),/Catalog source changed/);
   await fail(()=>handoff(id,saved.version,'launch','2026-12-01'),/Catalog source changed/);
   assert.ok((await handoff(id3,1,'launch','2027-01-01')).launch_id);
