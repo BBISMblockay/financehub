@@ -99,13 +99,42 @@ export function createFakeSupabase({ beforeWrite = null } = {}) {
 
   function selectBuilder(table) {
     const filters = [];
+    const orders = [];
+    let range = null;
+    let limit = null;
+    // PostgREST ordering: ascending by default, nulls LAST when ascending
+    // unless nullsFirst says otherwise. A caller that pages with .range()
+    // depends on this being a real sort, not the insertion order.
+    const compare = (a, b) => {
+      for (const o of orders) {
+        const av = a[o.col], bv = b[o.col];
+        const an = av === null || av === undefined, bn = bv === null || bv === undefined;
+        if (an || bn) {
+          if (an && bn) continue;
+          const nullsFirst = o.nullsFirst ?? !o.ascending;
+          return (an ? -1 : 1) * (nullsFirst ? 1 : -1);
+        }
+        if (av === bv) continue;
+        const c = av < bv ? -1 : 1;
+        return o.ascending ? c : -c;
+      }
+      return 0;
+    };
     const builder = {
       eq(col, val) { filters.push({ op: 'eq', col, val }); return builder; },
       in(col, val) { filters.push({ op: 'in', col, val }); return builder; },
       gt(col, val) { filters.push({ op: 'gt', col, val }); return builder; },
       lt(col, val) { filters.push({ op: 'lt', col, val }); return builder; },
+      is(col, val) { filters.push({ op: 'is', col, val }); return builder; },
+      order(col, opts = {}) { orders.push({ col, ascending: opts.ascending ?? true, nullsFirst: opts.nullsFirst }); return builder; },
+      range(from, to) { range = [from, to]; return builder; },
+      limit(n) { limit = n; return builder; },
       then(resolve) {
-        return resolve({ data: rowsOf(table).filter((r) => matches(r, filters)).map((r) => ({ ...r })), error: null });
+        let rows = rowsOf(table).filter((r) => matches(r, filters)).map((r) => ({ ...r }));
+        if (orders.length) rows = rows.sort(compare);
+        if (range) rows = rows.slice(range[0], range[1] + 1);
+        if (limit != null) rows = rows.slice(0, limit);
+        return resolve({ data: rows, error: null });
       },
     };
     return builder;

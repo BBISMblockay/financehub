@@ -1,10 +1,14 @@
 # SEO competitor research — scope, data source, and what can be done before one is chosen
 
 Written 2026-09-14 as part of the SEO project's second phase. **Status
-2026-09-26:** the provider-independent schema below is BUILT
-(`20260926120000_seo_competitor_serp_schema.sql`, not yet applied to
-production) and **Blake chose DataForSEO**; no account, credential or
-subscription exists yet, so SILO still holds no provider-written SERP rows.
+2026-09-26 (evening):** the provider-independent schema below is BUILT and
+APPLIED (`20260926120000`), **DataForSEO is chosen, opened, verified and
+probed** (repo secrets `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` set; the
+probe's measurements are in "What the provider actually does" below), and
+**the weekly writer is built** (`20260926140000`,
+`scripts/lib/seo-serp-sync-core.mjs`, `seo-serp-sync.yml`). No company's
+`seo_serp_schedules` row is switched on yet, so SILO still holds no
+provider-written SERP row.
 The rest of this file records the scope, the provider comparison and cost
 model, the keyword-set method that needs no provider, and the boundary between
 measured, modelled and editorial.
@@ -242,26 +246,51 @@ ranking source. `evidence-scope.mjs` treats `device`, `provider` and
 mobile is reported as pooled and "desktop" in an answer over a pooled result
 is flagged.
 
-## The provider PR (next) — DataForSEO
+## What the provider actually does (measured 2026-09-26)
 
-Chosen by Blake 2026-09-26; nothing opened yet. In order:
+`.github/workflows/seo-serp-probe.yml` (`scripts/seo-serp-probe.mjs`, read-only
+against SILO) ran five times on the live account (runs 36220772020 →
+36222764424). What it found, and what each decided:
 
-1. **Confirm the prices** on DataForSEO's own pricing page (every figure above
-   is secondary-sourced) and open the account with the $50 minimum deposit.
-2. **Secret.** The key is SILO-owned, one key for every tenant, so it is a
-   GitHub repo secret (`DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`, HTTP Basic)
-   on the `GOOGLE_ADS_DEVELOPER_TOKEN` precedent — never a per-tenant row. A
-   per-company config row (`seo_serp_schedules`: active, devices, location,
-   depth, weekly keyword cap) bounds cost by construction.
-3. **Probe first.** `seo-serp-probe.yml` + `scripts/seo-serp-probe.mjs`,
-   manual dispatch, READ ONLY, writes nothing to Supabase: does `location_code`
-   / `device` do what the docs say, what the top-10 result shape is, what one
-   observation actually costs, whether `shopping` / `paa` rows come back
-   inline. Same convention as `search-console-probe.yml`.
-4. **Writer.** `scripts/lib/seo-serp-sync-core.mjs` on
-   `redo-marketing-sync-core.mjs`'s shape (injectable `fetchImpl` / `sleep`,
-   429 backoff, `sync_jobs` lifecycle, a fake-fetch test): run row → keyword
-   requests → observations → `completed_at` last. Weekly workflow with a
-   primary and a catch-up cron.
-5. **Volume**, if bought, in its own table with `source =
-   'google_ads_modelled'`, never beside Search Console clicks.
+| Measured | Consequence |
+|---|---|
+| Live endpoint takes ONE task per request (`40000 You can set only one task at a time`; 3 of 4 refused) | The sync uses the standard queue (`task_post`, up to 100 per request) and collects later |
+| Queue: 4 tasks ready in 106–139 s; $0.0012 per task at depth 20, priority normal. Live: $0.002 at depth 10, $0.004 at depth 20 | 300 keywords × 2 devices = **$0.72 per week**, $37 a year. The doc's $0.0006 figure above was depth-10 list price; depth 20 is what is bought |
+| `depth` counts ABSOLUTE SERP slots: depth 10 returned 7–8 organic ranks (AI overview, People Also Ask, images, knowledge panel, reviews take the rest); depth 20 returned 16–19 | Schedule default `depth = 20`. Observations store `rank_group` (the organic rank), never `rank_absolute` |
+| Desktop and mobile shared 1 of 9 domains on the brand term, 17 of 19 on "baseball dad hat" | Device stays a run-identity dimension, never pooled (as the schema already says) |
+| Two fetches of `baseballism` / desktop / 2840 minutes apart disagreed on whether baseballism.com was in the top 20 at all (absent in the live fetch, #1 in the queued one) | A stored position is ONE snapshot; movement between two runs is evidence of a trend only over several runs. Ask SILO's dated-snapshot rule stands |
+| `item_types` returned inline: `organic`, `ai_overview`, `people_also_ask`, `images`, `related_searches`, `knowledge_graph`, `google_reviews`, `popular_products`, `people_also_search` | Organic rows only are stored as observations; the ledger keeps `item_types` per keyword so "a shopping pack exists for this query" is answerable |
+| `location_code 2840` = United States (Country), from 62,864 US locations | Country-level runs; a city-level run would be a different identity |
+| Organic `domain` sometimes arrives with `www.`; URLs carry `srsltid` tracking params | `domain_norm` strips www.; URLs are stored verbatim |
+
+## The provider sync (built 2026-09-26)
+
+`scripts/lib/seo-serp-sync-core.mjs`, driven by `scripts/seo-serp-sync.mjs`
+from `seo-serp-sync.yml` (Mondays 09:15 UTC, catch-up 15:15 UTC). Per active
+`seo_serp_schedules` row, per device:
+
+1. the run row (`completed_at` NULL while in flight);
+2. post the keywords the ledger does not yet hold, 100 per request, tagged
+   `run|keyword`; write a `seo_serp_provider_tasks` row per accepted task
+   BEFORE any collection;
+3. poll `tasks_ready`; for each of ours: `task_get`, then the
+   `seo_serp_run_keywords` row (asked, N results), then the organic
+   observations, then the ledger's `collected` mark;
+4. once nothing is pending, `completed_at`, last.
+
+A collection deadline (20 min by default) leaves the run in flight; the
+catch-up resumes from the ledger and posts nothing. A provider error on a task
+marks the ledger `failed` and writes NO asked-row: asked-and-unanswered is
+"never observed" for that run, not `result_count 0`. Two bounds from the
+schedule row: `max_keywords_per_run` (by priority, then age) and
+`max_cost_per_run_usd` (the provider's own reported cost, checked between
+batches). `is_active` defaults to false and only an approver may change it.
+
+**To switch a company on:** insert its `seo_serp_schedules` row (defaults are
+the measured ones), review its keyword set (`seo_derive_keyword_candidates()`
+→ `seo_keyword_set`), set `is_active = true`, and dispatch `SEO SERP Sync`
+once with the company id rather than waiting for Monday.
+
+**Still to do:** volume, if bought, in its own table with `source =
+'google_ads_modelled'`, never beside Search Console clicks; the
+`/v2/seo-keywords.html` page.

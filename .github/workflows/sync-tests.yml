@@ -351,6 +351,14 @@ jobs:
       - name: Redo marketing sync
         run: node scripts/tests/redo-marketing-sync.test.mjs
 
+      # The weekly DataForSEO SERP fetch: standard-queue batches of <=100 with a
+      # run|keyword tag, a ledger row per accepted task BEFORE collection so a
+      # deadline resumes instead of re-posting, organic positions by rank_group,
+      # asked-row then observations then completed_at, both cost bounds, and
+      # every failure shape (refused post, task error, 401, 429).
+      - name: SEO SERP sync core
+        run: node scripts/tests/seo-serp-sync.test.mjs
+
       # Meta ad destinations. The assertion that earns its place is the
       # DOWNGRADE: these reads go through the Graph batch API, where a field
       # Meta does not accept returns 200 on the outer POST and fails every
@@ -846,13 +854,13 @@ jobs:
       # registry, append-only observations no client can write, the manual
       # import as the one client-side writer, newest-run-wins across runs, and
       # the landscape/share views' NULL-vs-0 distinction.
-      # Mutations: SERP_DB_MUTATION=stale-write-allowed | observations-writable | import-unscoped
+      # Mutations: SERP_DB_MUTATION=stale-write-allowed | observations-writable | import-unscoped | ledger-writable
       - name: Execute SEO competitor / SERP observation regressions
         run: node scripts/tests/seo-serp-database.test.mjs
       - name: The SERP guards, removed, must break it
         run: |
           set -u
-          for m in stale-write-allowed observations-writable import-unscoped; do
+          for m in stale-write-allowed observations-writable import-unscoped ledger-writable; do
             echo "--- $m ---"
             if SERP_DB_MUTATION="$m" node scripts/tests/seo-serp-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"

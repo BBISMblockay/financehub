@@ -61,15 +61,18 @@ queried and nothing was written anywhere.
 
 - A writer for recommendations: no Ask SILO tool, no page, creates a
   `seo_tasks` row. Recommendations are still chat output.
-- Any SERP or competitor data SOURCE (the observation schema shipped
-  2026-09-26, `20260926120000`; the DataForSEO writer is next --
+- Any SERP or competitor data ROWS (the observation schema shipped
+  2026-09-26, `20260926120000`, and the DataForSEO writer the same day,
+  `20260926140000` -- but no company's `seo_serp_schedules` row is switched
+  on yet, so SILO still holds no provider-written observation;
   `docs/ops/seo-competitors.md`).
 - URL Inspection (indexing status) — a separate API, unprobed.
 
 ### Blocked (needs Blake)
 
-- ~~Provider selection~~ **DataForSEO, chosen 2026-09-26.** The account and
-  its repo secret are still to be opened (`docs/ops/seo-competitors.md`).
+- ~~Provider selection~~ **DataForSEO, chosen, opened, verified and probed
+  2026-09-26**; the repo secrets are set and the weekly writer is built
+  (`docs/ops/seo-competitors.md`).
 - The SEO approver list: `seo_approvers` is still empty by decision; exec and
   owner pass without it.
 
@@ -119,9 +122,11 @@ queried and nothing was written anywhere.
    source NOT NULL; append-only), the derivation RPC, the manual import
    function, two read views, and Ask SILO's prompt/scope changes.
    Provider-independent; `scripts/tests/seo-serp-database.test.mjs`.
-5. **Provider integration** — the writer for `seo_serp_observations` for
-   whichever provider Blake selects; weekly schedule; the competitor
-   comparison view. Needs a secret and a cost.
+5. **Provider integration** — DONE 2026-09-26 (`20260926140000`,
+   `scripts/lib/seo-serp-sync-core.mjs`, `seo-serp-sync.yml`): the DataForSEO
+   writer, weekly with a same-day catch-up, bounded per company by
+   `seo_serp_schedules` (off by default). Measured cost $0.0012 per keyword
+   per device per week. Not yet switched on for any company.
 6. **Competitor page reads** (only if wanted) — a separately reviewed
    allowlist path; never the own-store allowlist.
 

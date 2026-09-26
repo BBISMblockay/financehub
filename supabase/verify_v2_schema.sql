@@ -3391,6 +3391,46 @@ select
     else 'ok'
   end as seo_competitor_serp;
 
+-- ── SEO SERP provider sync (20260926140000) ─────────────────────────────────
+-- The weekly DataForSEO fetch is bounded by a per-company schedule row that
+-- is OFF by default and approver-only, and resumable through a ledger no
+-- client can write. Losing either turns a $0.72/week fetch into an unbounded
+-- or double-paid one.
+select
+  case
+    when (select count(*) from information_schema.tables
+          where table_schema='public' and table_name in ('seo_serp_schedules','seo_serp_provider_tasks')) <> 2
+      then 'MISSING — seo_serp_schedules / seo_serp_provider_tasks (20260926140000)'
+    when (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace
+          where n.nspname='public' and c.relname in ('seo_serp_schedules','seo_serp_provider_tasks') and c.relrowsecurity) <> 2
+      then 'CRITICAL — RLS is off on a SERP sync table'
+    when (select column_default from information_schema.columns
+          where table_schema='public' and table_name='seo_serp_schedules' and column_name='is_active') <> 'false'
+      then 'CRITICAL — seo_serp_schedules.is_active no longer defaults to false; a new company would spend on the provider unasked'
+    when not exists (select 1 from pg_policies
+                     where schemaname='public' and tablename='seo_serp_schedules' and policyname='seo_serp_schedules_write'
+                       and qual like '%can_approve_seo_tasks%' and with_check like '%can_approve_seo_tasks%')
+      then 'CRITICAL — seo_serp_schedules_write is not approver-gated'
+    when exists (select 1 from pg_policies
+                 where schemaname='public' and tablename='seo_serp_provider_tasks' and cmd <> 'SELECT')
+      then 'CRITICAL — a client write policy exists on seo_serp_provider_tasks; the ledger is service-role only'
+    when not exists (select 1 from pg_constraint where conname='seo_serp_schedules_one_per_company')
+      then 'MISSING — seo_serp_schedules_one_per_company'
+    when not exists (select 1 from pg_constraint where conname='seo_serp_schedules_devices_valid')
+      then 'MISSING — seo_serp_schedules_devices_valid (devices must be a non-empty distinct subset of desktop/mobile)'
+    when (select count(*) from pg_constraint
+          where conname in ('seo_serp_provider_tasks_run_company_fkey','seo_serp_provider_tasks_keyword_company_fkey')) <> 2
+      then 'MISSING — a seo_serp_provider_tasks composite FK'
+    when (select count(*) from pg_trigger t join pg_class c on c.oid=t.tgrelid
+          where c.relname in ('seo_serp_schedules','seo_serp_provider_tasks')
+            and t.tgname = 'stamp_company_entity_id' and not t.tgisinternal) <> 2
+      then 'MISSING — a SERP sync table has no company stamp trigger'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_serp_provider_tasks' and is_hidden)
+      then 'MISSING — seo_serp_provider_tasks is not hidden from the Ask SILO index (it is a ledger, not a ranking source)'
+    else 'ok'
+  end as seo_serp_provider_sync;
+
 -- ── Empty collections stay visible (20260909320000, corrective) ─────────────
 -- The view LEFT-joined product->SKU but INNER-joined collection->membership,
 -- so a collection with no products vanished -- an empty collection read as a
