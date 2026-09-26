@@ -12,6 +12,13 @@
 
 ## Individual migrations (same content, split)
 
+**Product workflow preview:** `migrations/20260926082115_product_workflow_preview.sql`
+adds saved, company-scoped briefs and RPC-only reviewed handoffs into existing
+PO/launch records. It also supplies the bounded 90-day restock evidence RPC.
+Direct-link page: `/v3/product-workflow.html`; no menu promotion. Apply after
+existing concept, PO, launch-brief and company-timezone migrations. No production
+apply was performed by this PR. See [preview runbook](../docs/ops/product-workflow-preview.md).
+
 **Plaid bank feeds:** `migrations/20260912052930_plaid_bank_feed.sql` follows the Finance V1 posting controls. It adds encrypted service-only Plaid credentials, account mapping, account-scoped atomic sync, provider lifecycle exceptions, CSV authority enforcement and finance audit events. It does not connect an institution or post a journal. Deploy `plaid-finance` and the updated `card-categorize` separately; see [the rollout and recovery runbook](../docs/ops/plaid-bank-feed-v1.md). Scheduled ingestion remains off until explicitly enabled.
 
 Run in order:
