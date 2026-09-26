@@ -11,10 +11,15 @@ is the authority on what is still to do.
 ## Now (stability)
 
 - [ ] **SEO project, phase two.** Measurement engine shipped 2026-09-14
-      (`20260914120000`); next in order: the recommendation writer (Ask SILO
-      tools), the workflow page, the keyword set and SERP observation schema,
-      then the provider integration once Blake picks one
-      (`docs/ops/seo-competitors.md`). The sequence is in
+      (`20260914120000`). **Keyword set and SERP observation schema shipped
+      2026-09-26** (`20260926120000`, step 4 taken ahead of steps 2-3 because
+      it is provider-free and gives Ask SILO real ground the moment a manual
+      pilot lands). **Blake chose DataForSEO 2026-09-26; the account is not
+      yet opened.** Next in order: the provider writer (a read-only probe
+      workflow first, then `scripts/lib/seo-serp-sync-core.mjs` on the Redo
+      marketing core's shape, weekly schedule, SILO-owned key as a repo
+      secret -- `docs/ops/seo-competitors.md`), then the recommendation
+      writer (Ask SILO tools) and the workflow page. The sequence is in
       `docs/ops/seo-project.md`'s second-phase review.
 - [ ] **Period lock and bank reconciliation, in that order of decision.**
       The 2026-09-14 controls review (`docs/ops/accounting-controls-review.md`)

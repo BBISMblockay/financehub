@@ -63,6 +63,12 @@ export const SCOPE_COLUMNS = [
   'shop_domain',
   'product_type',
   'search_type',
+  // SERP observations (20260926120000): a position pooled across desktop and
+  // mobile, across a provider run and a manual one, or across result types
+  // (organic beside shopping) is not a position at all.
+  'device',
+  'provider',
+  'result_type',
 ];
 
 /** Date/time columns are handled separately from the list above: a window is
@@ -641,6 +647,11 @@ export const CLAIM_DIMENSIONS = [
     columns: ['platform'],
     label: 'ad platform',
     terms: ['meta', 'facebook', 'instagram', 'google', 'tiktok'],
+  },
+  {
+    columns: ['device'],
+    label: 'device',
+    terms: ['desktop', 'mobile'],
   },
 ];
 

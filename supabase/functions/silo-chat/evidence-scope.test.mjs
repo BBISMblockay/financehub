@@ -19,7 +19,7 @@ import {
 import {
   CATALOG_FIXTURE, COMBINED_SPEND_SQL, COMBINED_SPEND_ROWS, PER_PLATFORM_SQL,
   PER_PLATFORM_ROWS, WEEKLY_BUCKET_SQL, WEEKLY_BUCKET_ROWS, CREATIVE_MATCH_SQL,
-  SONIC_TITLE_SALES_SQL, SONIC_ANSWER_CHANNEL_CLAIM,
+  SONIC_TITLE_SALES_SQL, SONIC_ANSWER_CHANNEL_CLAIM, SERP_POOLED_SQL, SERP_NARROWED_SQL,
 } from './evidence-fixtures.mjs';
 
 let failures = 0;
@@ -348,6 +348,33 @@ test('with no provenance supplied at all, nothing is claimed either way', () => 
 console.log('\n-- SONIC: "online" on a result that pooled every channel --');
 
 const sonicSalesScope = () => [describeEvidenceScope(SONIC_TITLE_SALES_SQL, INDEX, {})];
+
+console.log('\n-- SERP observations (20260926120000) --');
+
+test('a SERP position with no device, provider or result-type predicate is reported as pooled across all three', () => {
+  const s = scopeOf(SERP_POOLED_SQL);
+  const pooled = pooledCols(s);
+  for (const col of ['device', 'provider', 'result_type', 'location_name']) {
+    assert(pooled.includes(`seo_serp_observations_v.${col}`), `${col} not reported as pooled: ${JSON.stringify(pooled)}`);
+  }
+  eq(s.date_scope.window, { from: '2026-09-01', to: '2026-09-22' }, 'the two-date window is a window');
+});
+
+test('...and a position narrowed to one device, one provider and organic results is reported with those values', () => {
+  const s = scopeOf(SERP_NARROWED_SQL);
+  const narrowed = Object.fromEntries((s.narrowed_to || []).map((n) => [n.column, n.values]));
+  eq(narrowed.device, ['desktop'], 'device');
+  eq(narrowed.provider, ['dataforseo'], 'provider');
+  eq(narrowed.result_type, ['organic'], 'result_type');
+  eq(pooledCols(s).filter((c) => /device|provider|result_type/.test(c)), [], 'nothing left pooled');
+});
+
+test('"desktop" in an answer is flagged when nothing that ran restricted the device', () => {
+  const flags = auditAnswerClaims('We sit at #3 on desktop for baseball dad hat.', [scopeOf(SERP_POOLED_SQL)]);
+  eq(flags.map((f) => f.label), ['device'], `flags: ${JSON.stringify(flags)}`);
+  eq(flags[0].terms, ['desktop'], 'terms');
+  eq(auditAnswerClaims('We sit at #3 on desktop for baseball dad hat.', [scopeOf(SERP_NARROWED_SQL)]), [], 'a narrowed result licenses the word');
+});
 
 test('the channel word is flagged when nothing resolved the channel', () => {
   const flags = auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, sonicSalesScope());

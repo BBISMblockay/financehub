@@ -3296,6 +3296,101 @@ select
     else 'ok'
   end as seo_baseline_business_timezone;
 
+-- ── SEO competitor / SERP observations (20260926120000) ─────────────────────
+-- Two facts the schema keeps distinguishable, checked structurally: an
+-- observation is append-only and provider/person-written (no client write
+-- policy on the three observation tables), and a run records what it ASKED
+-- about (seo_serp_run_keywords) so "observed, nothing returned" is a stored
+-- zero and "never observed" is an absent row. Behaviour is exercised by
+-- scripts/tests/seo-serp-database.test.mjs against a real PostgreSQL.
+select
+  case
+    when (select count(*) from information_schema.tables
+          where table_schema='public'
+            and table_name in ('seo_keyword_set','seo_competitor_domains','seo_serp_runs',
+                               'seo_serp_run_keywords','seo_serp_observations')) <> 5
+      then 'MISSING — an SEO SERP table (20260926120000)'
+    when exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                 where n.nspname='public'
+                   and c.relname in ('seo_keyword_set','seo_competitor_domains','seo_serp_runs',
+                                     'seo_serp_run_keywords','seo_serp_observations')
+                   and not c.relrowsecurity)
+      then 'CRITICAL — an SEO SERP table has RLS disabled'
+    -- Observations, runs and keyword requests are written by the provider
+    -- sync (service role) or seo_import_manual_serp_observations() ONLY. A
+    -- client write policy would let a person type a ranking.
+    when exists (select 1 from pg_policies
+                 where schemaname='public'
+                   and tablename in ('seo_serp_runs','seo_serp_run_keywords','seo_serp_observations')
+                   and cmd in ('INSERT','UPDATE','DELETE','ALL'))
+      then 'CRITICAL — a SERP observation table has a client write policy; a ranking can be typed in'
+    when (select count(*) from pg_trigger t join pg_class c on c.oid=t.tgrelid
+          where t.tgname='trg_seo_serp_newest_run_wins' and not t.tgisinternal
+            and c.relname in ('seo_serp_runs','seo_serp_run_keywords','seo_serp_observations')) <> 3
+      then 'MISSING — trg_seo_serp_newest_run_wins is not on all three SERP tables; an older run can overwrite a newer one'
+    -- Every observation names its date, location, device and source as a
+    -- NOT NULL column. Loosening one makes rows incomparable.
+    when (select count(*) from information_schema.columns
+          where table_schema='public' and table_name='seo_serp_observations'
+            and column_name in ('provider','observed_on','location_name','language_code','device','search_engine','position','domain','url')
+            and is_nullable='NO') <> 9
+      then 'CRITICAL — seo_serp_observations lost a NOT NULL on a provenance column'
+    when not exists (select 1 from pg_constraint
+                     where conname in ('seo_serp_observations_run_company_fkey','seo_serp_observations_keyword_company_fkey',
+                                       'seo_serp_run_keywords_run_company_fkey','seo_serp_run_keywords_keyword_company_fkey')
+                     having count(*) = 4)
+      then 'MISSING — a SERP composite FK (tenant identity tied to the parent row)'
+    -- An observation names a keyword the run ASKED about, or the share view's
+    -- numerator and denominator drift apart.
+    when not exists (select 1 from pg_constraint where conname='seo_serp_observations_requested_keyword_fkey')
+      then 'MISSING — seo_serp_observations_requested_keyword_fkey; a result can land in a run that never asked for its keyword'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_import_manual_serp_observations' and p.prosecdef)
+      then 'MISSING — seo_import_manual_serp_observations() (SECURITY DEFINER, the one client-side writer)'
+    when has_function_privilege('anon', 'public.seo_import_manual_serp_observations(jsonb,date,text,text,text)', 'execute')
+      then 'CRITICAL — anon can execute seo_import_manual_serp_observations()'
+    when not has_function_privilege('authenticated', 'public.seo_import_manual_serp_observations(jsonb,date,text,text,text)', 'execute')
+      then 'MISSING — authenticated cannot execute seo_import_manual_serp_observations()'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_import_manual_serp_observations'
+                       and pg_get_functiondef(p.oid) like '%k.company_entity_id = v_company%')
+      then 'CRITICAL — the manual import no longer scopes keyword lookups to the caller''s company'
+    when exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                 where n.nspname='public' and p.proname='seo_derive_keyword_candidates' and p.prosecdef)
+      then 'CRITICAL — seo_derive_keyword_candidates() became SECURITY DEFINER; it must read registries under the caller''s RLS'
+    when has_function_privilege('anon', 'public.seo_derive_keyword_candidates(integer)', 'execute')
+      then 'CRITICAL — anon can execute seo_derive_keyword_candidates()'
+    when (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace
+          where n.nspname='public'
+            and c.relname in ('seo_serp_observations_v','seo_keyword_landscape_v','seo_competitor_share_v')
+            and 'security_invoker=true' = any(c.reloptions)) <> 3
+      then 'MISSING — an SEO SERP view is absent or not security_invoker'
+    -- The landscape carries BOTH measures under different names; collapsing
+    -- them would hand an observed rank off as a Search Console average.
+    when (select count(*) from information_schema.columns
+          where table_schema='public' and table_name='seo_keyword_landscape_v'
+            and column_name in ('our_serp_position','search_console_avg_position_28d','results_in_latest_run','our_serp_movement')) <> 4
+      then 'MISSING — seo_keyword_landscape_v lost a load-bearing column'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='seo_competitor_share_v' and column_name='keywords_observed')
+      then 'MISSING — seo_competitor_share_v.keywords_observed (the only valid denominator)'
+    when not exists (select 1 from pg_constraint
+                     where conname='sync_jobs_job_type_check'
+                       and pg_get_constraintdef(oid) like '%seo_serp_weekly%')
+      then 'MISSING — sync_jobs.job_type does not allow seo_serp_weekly'
+    -- The catalog must keep telling the model that absence is not a rank.
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_serp_observations' and description like '%NEVER OBSERVED%')
+      then 'MISSING — seo_serp_observations catalog entry lost the never-observed caveat'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_keyword_landscape_v' and description like '%two different measures%')
+      then 'MISSING — seo_keyword_landscape_v catalog entry no longer separates observed rank from Search Console average'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_competitor_share_v' and description like '%keywords_observed%')
+      then 'MISSING — seo_competitor_share_v catalog entry no longer names its denominator'
+    else 'ok'
+  end as seo_competitor_serp;
+
 -- ── Empty collections stay visible (20260909320000, corrective) ─────────────
 -- The view LEFT-joined product->SKU but INNER-joined collection->membership,
 -- so a collection with no products vanished -- an empty collection read as a

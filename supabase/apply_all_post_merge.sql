@@ -19125,6 +19125,7 @@ $c$select (select count(*) from v_po_header_summary
 -- Company-specific Melio/BILL email intake. Historical Melio forwarding stays
 -- available only for Baseballism until its workspace address is entered.
 \i migrations/20260925181944_company_bill_pay_forwarding.sql
+\i migrations/20260926120000_seo_competitor_serp_schema.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

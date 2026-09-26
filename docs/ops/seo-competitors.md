@@ -1,10 +1,13 @@
 # SEO competitor research — scope, data source, and what can be done before one is chosen
 
-Written 2026-09-14 as part of the SEO project's second phase. Nothing here is
-integrated: SILO holds **no SERP data of any kind**, and no provider account,
-credential or subscription exists. This file records the scope, the provider
-comparison and cost model, the keyword-set method that needs no provider, and
-the boundary between measured, modelled and editorial.
+Written 2026-09-14 as part of the SEO project's second phase. **Status
+2026-09-26:** the provider-independent schema below is BUILT
+(`20260926120000_seo_competitor_serp_schema.sql`, not yet applied to
+production) and **Blake chose DataForSEO**; no account, credential or
+subscription exists yet, so SILO still holds no provider-written SERP rows.
+The rest of this file records the scope, the provider comparison and cost
+model, the keyword-set method that needs no provider, and the boundary between
+measured, modelled and editorial.
 
 ## Three kinds of number, never mixed
 
@@ -155,22 +158,110 @@ decision page-inspect explicitly defers. Until that exists, the sanctioned
 route to competitor content is Ask SILO's `web_search` tool, whose results
 are search-engine excerpts with a date, not captures.
 
-## Repeatable comparisons over time (the schema the next PR adds)
+## Repeatable comparisons over time — the schema (shipped 2026-09-26)
 
-- `seo_competitor_domains` — the curated list: domain, `relationship`
-  (`commercial`, `search`, `both`), note, who added it, when. Search
-  competitors are also DERIVED from observations and shown beside this list,
-  never silently merged into it.
-- `seo_keyword_set` — keyword, source (the four above), commercial note,
-  priority, active flag; one row per keyword per company.
-- `seo_serp_observations` — one row per keyword × observation date × location
-  × device × source × result position: domain, URL, title, result type
-  (organic, shopping, PAA), provider request id. **Observation date, location,
-  device and source are NOT NULL columns**, not notes. Rows are append-only.
-- A view that, for a keyword, lists domains by best position over the last N
-  observations, our own position from Search Console beside it (different
-  measure, stated as such), and the change between two observation dates
-  labelled as movement.
+`20260926120000_seo_competitor_serp_schema.sql`, verified by
+`scripts/tests/seo-serp-database.test.mjs` against a real PostgreSQL as
+authenticated users, with three mutations in CI. What it holds, and where it
+departs from the sketch that used to sit here:
 
-All of it is provider-independent except the writer, which is the provider
-integration PR.
+- `seo_keyword_set` — keyword, generated `keyword_norm` (the identity, and the
+  join key to `search_console_query_daily.query`, which is stored verbatim),
+  `source` (the four above plus `manual`), `commercial_note`, `priority`,
+  `is_active`. Any member adds; the creator or an approver edits or removes.
+- `seo_competitor_domains` — the curated list: `domain`, generated
+  `domain_norm` (lowercased, `www.` stripped -- lower FIRST; the first draft
+  stripped first and `WWW.` survived), `relationship`
+  (`commercial` / `search` / `both`), note, `added_by`. Approver-only writes.
+  Search competitors are DERIVED in `seo_competitor_share_v` and never merged
+  into this list.
+- `seo_serp_runs` — one fetch identity: `provider` (`dataforseo` / `manual`),
+  `observed_on`, `location_code` / `location_name`, `language_code`, `device`
+  (`desktop` / `mobile`), `search_engine`, `depth`, cost and counts,
+  `completed_at` stamped LAST by every writer. Unique on the identity.
+- `seo_serp_run_keywords` — **not in the sketch, and the most important
+  addition.** Which keywords a run ASKED about, with `result_count` and the
+  per-keyword `provider_request_id` / `cost_usd`. Without it, "observed and
+  we were outside the depth" and "never observed" are the same absence.
+  `result_count 0` is a measured zero; an absent row is never-asked.
+- `seo_serp_observations` — one row per keyword × `observed_on` × location ×
+  device × provider × `result_type` × `position`: `domain`, generated
+  `domain_norm`, `url`, `title`. **Observation date, location, device and
+  provider are NOT NULL columns**, denormalised from the run so the row is
+  self-describing. Append-only: a select policy and no client write policy at
+  all. Composite FKs tie both `run_id` and `keyword_id` to the same tenant,
+  and a third FK `(run_id, keyword_id) → seo_serp_run_keywords` makes a
+  result for a keyword the run never asked about unrepresentable (found in
+  the first independent review).
+- **Writers.** The provider sync (service role; the next PR) and
+  `seo_import_manual_serp_observations(rows, observed_on, location_name,
+  device, note)` — SECURITY DEFINER, any active member, attributed via
+  `recorded_by`, one call = one date × location × device, refuses a keyword
+  already recorded on that manual run (an observation is never overwritten;
+  record a new date) and refuses a position beyond the manual depth of 10 —
+  a person reads one results page, so 50 is a typo, not an observation. The
+  manual pilot described above lands through it, as
+  `provider = 'manual'`, and is never pooled with a provider run.
+- **Newest completed run wins** — `trg_seo_serp_newest_run_wins` on all
+  three run tables, the Search Console trigger's rule: an update carrying an
+  older `synced_at` is dropped, an insert into a run a newer writer already
+  completed is dropped, equal timestamps pass.
+- `seo_keyword_landscape_v` — every keyword in the set, per run identity:
+  `latest_top_results` (ordered, each flagged `is_own_domain` and with the
+  registry `relationship`), `our_serp_position`, `previous_observed_on`,
+  `our_previous_serp_position`, `our_serp_movement` (previous − current,
+  positive = up the page), and BESIDE them `search_console_avg_position_28d`
+  / `_clicks_28d` / `_impressions_28d` — Google's impression-weighted average
+  over the last 28 ingested days, a different measure under a different name.
+  `results_in_latest_run` 0 = asked, nothing returned; NULL = never asked.
+- `seo_competitor_share_v` — per domain in the latest completed run per
+  identity: `keywords_in_top_10`, `keywords_in_top_3`, `best_position`,
+  `avg_position`, `is_own_domain`, `relationship`, and `keywords_observed`
+  (what the run asked about — the only valid denominator). No percentage is
+  stored.
+- `seo_derive_keyword_candidates(p_days)` — the selection rule above as a
+  reviewable list: 60 click leaders (**position ≤ 10 or unmeasured** — a
+  position-14 query with a trickle of clicks is an opportunity, not a leader,
+  and the two groups otherwise fight over it in a small set), 30
+  opportunities at position > 10 by impressions, 40 collection / live
+  product-type head terms, 20 upcoming launches; `already_in_set` and the
+  window's unattributed share on every Search Console row. Never an
+  auto-insert.
+- `sync_jobs.job_type` gained `seo_serp_weekly` for the writer to come.
+
+Ask SILO reads all of it through `run_sql` — there is deliberately **no chat
+tool that fetches a SERP on demand**: that would spend provider credit per
+question, the tool loop has no per-call fetch timeout, and monitoring means
+the same query, location, device and depth on a schedule (above), which a
+chat turn is not. The prompt's three "no SERP source" sentences are gone,
+replaced by: absence is NEVER OBSERVED; a position is one dated snapshot per
+provider / device / location, named in the sentence; observed rank and
+Search Console average are different measures; `web_search` is never a
+ranking source. `evidence-scope.mjs` treats `device`, `provider` and
+`result_type` as scope dimensions, so a position pooled across desktop and
+mobile is reported as pooled and "desktop" in an answer over a pooled result
+is flagged.
+
+## The provider PR (next) — DataForSEO
+
+Chosen by Blake 2026-09-26; nothing opened yet. In order:
+
+1. **Confirm the prices** on DataForSEO's own pricing page (every figure above
+   is secondary-sourced) and open the account with the $50 minimum deposit.
+2. **Secret.** The key is SILO-owned, one key for every tenant, so it is a
+   GitHub repo secret (`DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`, HTTP Basic)
+   on the `GOOGLE_ADS_DEVELOPER_TOKEN` precedent — never a per-tenant row. A
+   per-company config row (`seo_serp_schedules`: active, devices, location,
+   depth, weekly keyword cap) bounds cost by construction.
+3. **Probe first.** `seo-serp-probe.yml` + `scripts/seo-serp-probe.mjs`,
+   manual dispatch, READ ONLY, writes nothing to Supabase: does `location_code`
+   / `device` do what the docs say, what the top-10 result shape is, what one
+   observation actually costs, whether `shopping` / `paa` rows come back
+   inline. Same convention as `search-console-probe.yml`.
+4. **Writer.** `scripts/lib/seo-serp-sync-core.mjs` on
+   `redo-marketing-sync-core.mjs`'s shape (injectable `fetchImpl` / `sleep`,
+   429 backoff, `sync_jobs` lifecycle, a fake-fetch test): run row → keyword
+   requests → observations → `completed_at` last. Weekly workflow with a
+   primary and a catch-up cron.
+5. **Volume**, if bought, in its own table with `source =
+   'google_ads_modelled'`, never beside Search Console clicks.
