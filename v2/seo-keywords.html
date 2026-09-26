@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SEO Keywords — SILO</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    /* The page's one rule, carried by the words in every cell: an absent
+       value is not a zero. Three absences get three strings (see
+       seo-keywords.js), and a cost is printed BEFORE the switch that spends it. */
+    .sk-content { padding:12px 18px 32px; display:grid; gap:12px; }
+    .sk-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    @media (max-width: 980px) { .sk-grid2 { grid-template-columns:1fr; } }
+    .sk-strip { margin:12px 18px 0; padding:10px 14px; display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-2); }
+    .sk-strip b { color:var(--bcn-ink); font-weight:600; }
+    .sk-strip .pos { color:var(--bcn-pos); } .sk-strip .warn { color:var(--bcn-warn); } .sk-strip .neg { color:var(--bcn-neg); }
+    .sk-empty { padding:28px; text-align:center; color:var(--bcn-ink-3); font-family:var(--bcn-mono); font-size:11.5px; }
+    .sk-foot { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); line-height:1.5; }
+    .sk-foot b { color:var(--bcn-ink-2); font-weight:600; }
+    .bcn-table td.num, .bcn-table th.num { text-align:right; font-family:var(--bcn-mono); }
+    .bcn-table td.mono { font-family:var(--bcn-mono); font-size:11px; }
+    .bcn-table td.kw { max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .bcn-table td.actions { white-space:nowrap; text-align:right; }
+    .bcn-table td.actions .bcn-btn { padding:2px 8px; font-size:11px; }
+    .sk-pane { display:none; } .sk-pane.is-active { display:grid; gap:12px; }
+    .sk-inline { display:flex; gap:8px; flex-wrap:wrap; align-items:end; }
+    .sk-inline .bcn-field-group { margin:0; }
+    .sk-own { color:var(--bcn-accent); font-weight:600; }
+    .sk-muted { color:var(--bcn-ink-3); }
+    .sk-up { color:var(--bcn-pos); } .sk-down { color:var(--bcn-neg); }
+    .sk-domains { font-family:var(--bcn-mono); font-size:11px; }
+    .sk-domains span + span::before { content:' · '; color:var(--bcn-ink-3); }
+    .sk-cost { font-family:var(--bcn-mono); font-size:12px; line-height:1.7; }
+    .sk-cost b { font-size:16px; }
+    .sk-switch { display:flex; align-items:center; gap:10px; font-weight:600; }
+    .sk-switch input { width:18px; height:18px; }
+    .sk-readonly { opacity:.85; }
+    .sk-readonly input, .sk-readonly select, .sk-readonly textarea { pointer-events:none; background:var(--bcn-surface-2, #f6f7f9); }
+    dialog.sk-dialog { border:1px solid var(--bcn-line, #e5e7eb); border-radius:10px; padding:0; width:min(760px, 94vw); max-height:88vh; }
+    dialog.sk-dialog::backdrop { background:rgba(0,0,0,.35); }
+    dialog.sk-dialog .bcn-card-body { max-height:60vh; overflow:auto; }
+    .sk-cand td.src { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); white-space:nowrap; }
+    #status { margin:12px 18px 0; }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+    <header class="bcn-header">
+      <div>
+        <div class="bcn-header-title">SEO Keywords</div>
+        <div id="subtitle" style="font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3)">Keyword set · competitors · observed rankings · weekly tracking</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <section class="bcn-card sk-strip" id="strip" aria-live="polite"><span>Loading…</span></section>
+
+    <div class="bcn-tabs" style="margin:12px 18px 0">
+      <button class="bcn-tab bcn-tab--active" data-pane="keywords">Keywords</button>
+      <button class="bcn-tab" data-pane="rankings">Rankings</button>
+      <button class="bcn-tab" data-pane="competitors">Competitors</button>
+      <button class="bcn-tab" data-pane="tracking">Tracking</button>
+    </div>
+
+    <div class="sk-content">
+      <!-- ── Keywords ─────────────────────────────────────────────────── -->
+      <div class="sk-pane is-active" data-pane="keywords">
+        <div class="bcn-card">
+          <div class="bcn-card-header">
+            <h2>Keyword set <span id="kwCount" class="sk-muted"></span></h2>
+            <div class="sk-inline">
+              <div class="bcn-field-group"><input id="kwNew" class="bcn-field" placeholder="Add a keyword" style="min-width:220px" /></div>
+              <button id="btnKwAdd" class="bcn-btn bcn-btn--ghost">Add</button>
+              <button id="btnSuggest" class="bcn-btn bcn-btn--primary">Suggest keywords</button>
+            </div>
+          </div>
+          <div class="bcn-card-body" style="padding:0">
+            <div class="bcn-matrix-scroll">
+              <table class="bcn-table">
+                <thead><tr><th>Keyword</th><th>Source</th><th class="num">Priority</th><th>Note</th><th>Status</th><th></th></tr></thead>
+                <tbody id="kwBody"><tr><td colspan="6" class="sk-empty">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="bcn-card-foot sk-foot" id="kwFoot">A keyword being here says nothing about rankings. Priority orders which keywords are asked about first when the weekly cap is smaller than the set; blank priority sorts last.</div>
+        </div>
+      </div>
+
+      <!-- ── Rankings ─────────────────────────────────────────────────── -->
+      <div class="sk-pane" data-pane="rankings">
+        <div class="bcn-card">
+          <div class="bcn-card-header">
+            <h2>Observed rankings</h2>
+            <div class="sk-inline">
+              <div class="bcn-field-group"><label class="bcn-label">Device</label>
+                <select id="rkDevice" class="bcn-field"><option value="desktop">Desktop</option><option value="mobile">Mobile</option></select></div>
+              <div class="bcn-field-group"><label class="bcn-label">Source</label>
+                <select id="rkProvider" class="bcn-field"><option value="dataforseo">Weekly fetch (DataForSEO)</option><option value="manual">Manual checks</option></select></div>
+            </div>
+          </div>
+          <div class="bcn-card-body" style="padding:0">
+            <div class="bcn-matrix-scroll">
+              <table class="bcn-table">
+                <thead><tr>
+                  <th>Keyword</th><th>Our position</th><th>Movement</th><th class="num" title="Google Search Console impression-weighted average position, last 28 ingested days. A different measure from an observed rank.">SC avg pos (28d)</th>
+                  <th class="num">SC clicks (28d)</th><th>Top of page</th><th class="num">Results</th><th>Observed</th>
+                </tr></thead>
+                <tbody id="rkBody"><tr><td colspan="8" class="sk-empty">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="bcn-card-foot sk-foot" id="rkFoot"></div>
+        </div>
+      </div>
+
+      <!-- ── Competitors ──────────────────────────────────────────────── -->
+      <div class="sk-pane" data-pane="competitors">
+        <div class="sk-grid2">
+          <div class="bcn-card">
+            <div class="bcn-card-header"><h2>Your competitor list</h2></div>
+            <div class="bcn-card-body">
+              <div class="sk-inline" id="cdForm" style="margin-bottom:10px">
+                <div class="bcn-field-group"><label class="bcn-label">Domain</label><input id="cdDomain" class="bcn-field" placeholder="rivalbrand.com" /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Relationship</label>
+                  <select id="cdRel" class="bcn-field"><option value="commercial">Commercial (sells to our customer)</option><option value="search">Search (appears on our SERPs)</option><option value="both">Both</option></select></div>
+                <div class="bcn-field-group"><label class="bcn-label">Note</label><input id="cdNote" class="bcn-field" placeholder="optional" /></div>
+                <button id="btnCdAdd" class="bcn-btn bcn-btn--ghost">Add</button>
+              </div>
+              <div class="bcn-matrix-scroll">
+                <table class="bcn-table">
+                  <thead><tr><th>Domain</th><th>Relationship</th><th>Note</th><th></th></tr></thead>
+                  <tbody id="cdBody"><tr><td colspan="4" class="sk-empty">Loading…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="bcn-card-foot sk-foot">Curated by SEO approvers. A commercial competitor sells to the same customer; a search competitor is whoever appears on your results pages, which the right-hand table derives from observations.</div>
+          </div>
+          <div class="bcn-card">
+            <div class="bcn-card-header">
+              <h2>Seen on your results pages</h2>
+              <div class="sk-inline">
+                <div class="bcn-field-group"><label class="bcn-label">Device</label>
+                  <select id="shDevice" class="bcn-field"><option value="desktop">Desktop</option><option value="mobile">Mobile</option></select></div>
+              </div>
+            </div>
+            <div class="bcn-card-body" style="padding:0">
+              <div class="bcn-matrix-scroll">
+                <table class="bcn-table">
+                  <thead><tr><th>Domain</th><th class="num" title="Keywords where this domain was in the top 10, over the keywords the latest run observed">Top 10</th><th class="num">Top 3</th><th class="num">Best</th><th>Listed as</th><th></th></tr></thead>
+                  <tbody id="shBody"><tr><td colspan="6" class="sk-empty">Loading…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="bcn-card-foot sk-foot" id="shFoot"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Tracking ─────────────────────────────────────────────────── -->
+      <div class="sk-pane" data-pane="tracking">
+        <div class="sk-grid2">
+          <div class="bcn-card">
+            <div class="bcn-card-header"><h2>Weekly tracking</h2></div>
+            <div class="bcn-card-body" id="trackForm">
+              <div id="trackSummary" class="sk-cost" style="margin-bottom:12px">Loading…</div>
+              <label class="sk-switch" style="margin-bottom:12px"><input type="checkbox" id="trActive" /> Track rankings weekly</label>
+              <div class="sk-inline" style="margin-bottom:10px">
+                <label class="sk-switch" style="font-weight:500"><input type="checkbox" id="trDesktop" checked /> Desktop</label>
+                <label class="sk-switch" style="font-weight:500"><input type="checkbox" id="trMobile" checked /> Mobile</label>
+              </div>
+              <div class="sk-inline" style="margin-bottom:10px">
+                <div class="bcn-field-group"><label class="bcn-label">Depth</label><input id="trDepth" class="bcn-field bcn-field--mono" type="number" min="10" max="100" value="20" style="width:90px" /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Max keywords / run</label><input id="trMaxKw" class="bcn-field bcn-field--mono" type="number" min="1" max="1000" value="300" style="width:110px" /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Max cost / run ($)</label><input id="trMaxCost" class="bcn-field bcn-field--mono" type="number" min="0.01" step="0.01" value="2.00" style="width:110px" /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Priority</label>
+                  <select id="trPriority" class="bcn-field"><option value="1">Normal</option><option value="2">High (about 2x price)</option></select></div>
+              </div>
+              <div class="sk-cost" id="trEstimate"></div>
+              <div class="sk-inline" style="margin-top:12px">
+                <button id="btnTrSave" class="bcn-btn bcn-btn--primary">Save</button>
+                <span id="trWho" class="sk-foot"></span>
+              </div>
+            </div>
+            <div class="bcn-card-foot sk-foot">Runs Mondays (09:15 UTC, with a catch-up at 15:15 UTC) for the United States, English, Google. Depth counts every slot on the page, so 20 yields about 16-19 organic results. Cost is what the provider charges SILO; the caps stop a run from spending more than you set.</div>
+          </div>
+          <div class="bcn-card">
+            <div class="bcn-card-header"><h2>Recent runs</h2></div>
+            <div class="bcn-card-body" style="padding:0">
+              <div class="bcn-matrix-scroll">
+                <table class="bcn-table">
+                  <thead><tr><th>Date</th><th>Device</th><th class="num">Asked</th><th class="num">Results</th><th class="num">Cost</th><th>State</th></tr></thead>
+                  <tbody id="runBody"><tr><td colspan="6" class="sk-empty">Loading…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="bcn-card-foot sk-foot" id="runFoot"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Suggested keywords -->
+<dialog class="sk-dialog" id="dlgSuggest">
+  <div class="bcn-card" style="margin:0;border:0">
+    <div class="bcn-card-header"><h2>Suggested keywords</h2><button class="bcn-btn bcn-btn--ghost" data-close>Close</button></div>
+    <div class="bcn-card-body" style="padding:0">
+      <table class="bcn-table sk-cand">
+        <thead><tr><th><input type="checkbox" id="candAll" /></th><th>Keyword</th><th class="src">Why</th><th class="num">Clicks</th><th class="num">Impr.</th><th class="num" title="Search Console average position where the term is a returned query; blank means not a returned query, never 0">SC pos</th></tr></thead>
+        <tbody id="candBody"></tbody>
+      </table>
+    </div>
+    <div class="bcn-card-foot" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <span class="sk-foot" id="candFoot"></span>
+      <button id="btnCandAdd" class="bcn-btn bcn-btn--primary">Add selected</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Edit keyword -->
+<dialog class="sk-dialog" id="dlgKw" style="width:min(460px,94vw)">
+  <div class="bcn-card" style="margin:0;border:0">
+    <div class="bcn-card-header"><h2>Edit keyword</h2><button class="bcn-btn bcn-btn--ghost" data-close>Close</button></div>
+    <div class="bcn-card-body">
+      <div class="bcn-field-group"><label class="bcn-label">Keyword</label><input id="ekKeyword" class="bcn-field" /></div>
+      <div class="bcn-field-group"><label class="bcn-label">Priority (1 = first; blank = last)</label><input id="ekPriority" class="bcn-field bcn-field--mono" type="number" min="1" /></div>
+      <div class="bcn-field-group"><label class="bcn-label">Note (stock, launch context)</label><input id="ekNote" class="bcn-field" /></div>
+      <label class="sk-switch" style="font-weight:500"><input type="checkbox" id="ekActive" /> Active (asked about in weekly runs)</label>
+    </div>
+    <div class="bcn-card-foot" style="display:flex;justify-content:flex-end;gap:8px">
+      <button id="btnEkDelete" class="bcn-btn bcn-btn--danger">Delete</button>
+      <button id="btnEkSave" class="bcn-btn bcn-btn--primary">Save</button>
+    </div>
+  </div>
+</dialog>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script src="seo-keywords.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { fetch: (url, o = {}) => fetch(url, { ...o, cache: 'no-store' }) },
+  });
+  const K = window.SiloSeoKeywords;
+
+  const el = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+  const numFmt = v => (v == null ? '—' : Math.round(Number(v)).toLocaleString('en-US'));
+  const posFmt = v => (v == null || !isFinite(Number(v)) ? '' : Number(v).toFixed(1));
+  const usd = v => (v == null ? '—' : `$${Number(v).toFixed(2)}`);
+  const dayFmt = iso => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    if (!m) return iso || '—';
+    return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  };
+  const SOURCE_LABEL = { search_console_clicks: 'Search Console: clicks', search_console_opportunity: 'Search Console: impressions, position > 10', collection: 'Collection', product_type: 'Live product type', launch: 'Upcoming launch', manual: 'Added by hand' };
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg;
+    s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+  // 42P01 = a table this page reads is not applied yet. Say which migration,
+  // rather than a bare error, since the page and the migration ship apart.
+  function explain(e) {
+    const msg = String(e?.message || e);
+    if (/42P01|does not exist/i.test(msg) && /seo_serp_(schedules|provider_tasks)/.test(msg)) return `${msg} — apply 20260926140000_seo_serp_provider_sync.sql`;
+    if (/42P01|42883|does not exist/i.test(msg) && /seo_/.test(msg)) return `${msg} — apply 20260926120000_seo_competitor_serp_schema.sql`;
+    if (/row-level security/i.test(msg)) return `${msg} — only an SEO approver (an exec, owner, or someone granted in seo_approvers) may do this`;
+    return msg;
+  }
+
+  let _co = null;
+  let CAN_APPROVE = false;
+  let USER_ID = null;
+  const S = { keywords: [], schedule: null, competitors: [], landscape: [], share: [], runs: [], ledger: [], candidates: [] };
+
+  // ── Tabs ─────────────────────────────────────────────────────────────────
+  document.querySelectorAll('.bcn-tab[data-pane]').forEach(tab => tab.addEventListener('click', () => {
+    document.querySelectorAll('.bcn-tab[data-pane]').forEach(t => t.classList.toggle('bcn-tab--active', t === tab));
+    document.querySelectorAll('.sk-pane').forEach(p => p.classList.toggle('is-active', p.dataset.pane === tab.dataset.pane));
+    history.replaceState(null, '', `#${tab.dataset.pane}`);
+  }));
+  document.querySelectorAll('dialog [data-close]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close()));
+
+  // ── Strip ────────────────────────────────────────────────────────────────
+  function renderStrip() {
+    const active = S.keywords.filter(k => k.is_active).length;
+    const t = K.trackingSummary({ schedule: S.schedule, pendingTasks: S.ledger.filter(l => l.status === 'posted').length, failedTasks: S.ledger.filter(l => l.status === 'failed').length });
+    const cls = t.state === 'off' ? 'warn' : t.state === 'on_pending' ? 'warn' : 'pos';
+    const latest = S.runs.find(r => r.completed_at);
+    el('strip').innerHTML = `<span><b>${active}</b> active keyword${active === 1 ? '' : 's'} of ${S.keywords.length}</span>`
+      + `<span class="${cls}"><b>${esc(t.text)}</b></span>`
+      + `<span>Last completed run: <b>${latest ? `${dayFmt(latest.observed_on)} (${latest.device})` : 'none'}</b></span>`
+      + `<span>${CAN_APPROVE ? 'You are an SEO approver.' : 'Only SEO approvers can change tracking or the competitor list.'}</span>`;
+  }
+
+  // ── Keywords ─────────────────────────────────────────────────────────────
+  function renderKeywords() {
+    el('kwCount').textContent = S.keywords.length ? `(${S.keywords.length})` : '';
+    if (!S.keywords.length) { el('kwBody').innerHTML = `<tr><td colspan="6" class="sk-empty">No keywords yet. Press “Suggest keywords” to build the list from Search Console, your collections and upcoming launches, or add one by hand.</td></tr>`; return; }
+    el('kwBody').innerHTML = S.keywords.map(k => `<tr data-id="${k.id}">
+      <td class="kw" title="${esc(k.keyword)}">${esc(k.keyword)}</td>
+      <td class="mono">${esc(SOURCE_LABEL[k.source] || k.source)}</td>
+      <td class="num">${k.priority == null ? '<span class="sk-muted">—</span>' : k.priority}</td>
+      <td class="mono">${esc(k.commercial_note || '')}</td>
+      <td>${k.is_active ? '<span class="bcn-pill bcn-pill--pos">active</span>' : '<span class="bcn-pill">paused</span>'}</td>
+      <td class="actions"><button class="bcn-btn bcn-btn--ghost" data-edit="${k.id}">Edit</button></td>
+    </tr>`).join('');
+  }
+  el('kwBody').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-edit]'); if (!b) return;
+    const k = S.keywords.find(x => x.id === b.dataset.edit); if (!k) return;
+    el('dlgKw').dataset.id = k.id;
+    el('ekKeyword').value = k.keyword; el('ekPriority').value = k.priority ?? ''; el('ekNote').value = k.commercial_note || ''; el('ekActive').checked = !!k.is_active;
+    const mine = k.created_by && k.created_by === USER_ID;
+    el('btnEkSave').disabled = !(mine || CAN_APPROVE); el('btnEkDelete').disabled = !(mine || CAN_APPROVE);
+    el('dlgKw').showModal();
+  });
+  el('btnEkSave').addEventListener('click', async () => {
+    const id = el('dlgKw').dataset.id;
+    const keyword = el('ekKeyword').value.trim();
+    if (!keyword) { setStatus('Keyword cannot be blank.', 'neg', 3000); return; }
+    const pr = el('ekPriority').value === '' ? null : Number(el('ekPriority').value);
+    const { data, error } = await sb.from('seo_keyword_set').update({ keyword, priority: pr, commercial_note: el('ekNote').value.trim() || null, is_active: el('ekActive').checked }).eq('id', id).select('id');
+    if (error) { setStatus(`Save failed: ${explain(error)}`, 'neg'); return; }
+    // An RLS refusal on an UPDATE is a success with zero rows, not an error.
+    if (!data?.length) { setStatus('Not saved: you can only edit keywords you added, unless you are an SEO approver.', 'neg'); return; }
+    el('dlgKw').close(); setStatus('Keyword saved.', 'pos', 2500); await loadKeywords(); renderStrip(); renderTracking();
+  });
+  el('btnEkDelete').addEventListener('click', async () => {
+    const id = el('dlgKw').dataset.id;
+    if (!confirm('Delete this keyword? Its past observations are deleted with it.')) return;
+    const { data, error } = await sb.from('seo_keyword_set').delete().eq('id', id).select('id');
+    if (error) { setStatus(`Delete failed: ${explain(error)}`, 'neg'); return; }
+    if (!data?.length) { setStatus('Not deleted: you can only delete keywords you added, unless you are an SEO approver.', 'neg'); return; }
+    el('dlgKw').close(); setStatus('Keyword deleted.', 'pos', 2500); await loadKeywords(); renderStrip(); renderTracking();
+  });
+  async function addKeywords(rows) {
+    const payload = window.__SILO_CONFIG__.withCompanyRows(rows.map(r => ({ keyword: r.keyword, source: r.source, commercial_note: r.note || null, priority: r.priority ?? null })));
+    const { error } = await sb.from('seo_keyword_set').insert(payload);
+    if (error) throw error;
+  }
+  el('btnKwAdd').addEventListener('click', async () => {
+    const keyword = el('kwNew').value.trim(); if (!keyword) return;
+    try { await addKeywords([{ keyword, source: 'manual' }]); el('kwNew').value = ''; setStatus('Keyword added.', 'pos', 2500); await loadKeywords(); renderStrip(); renderTracking(); }
+    catch (e) { setStatus(/duplicate|unique/i.test(String(e.message)) ? 'That keyword is already in the set (matching ignores case and spacing).' : `Add failed: ${explain(e)}`, 'neg'); }
+  });
+  el('kwNew').addEventListener('keydown', (e) => { if (e.key === 'Enter') el('btnKwAdd').click(); });
+
+  // Suggestions: the four-source candidate list, reviewed, never auto-inserted.
+  el('btnSuggest').addEventListener('click', async () => {
+    setStatus('Deriving candidates from the last 90 days…', 'info');
+    const { data, error } = await sb.rpc('seo_derive_keyword_candidates', { p_days: 90 });
+    if (error) { setStatus(`Could not derive candidates: ${explain(error)}`, 'neg'); return; }
+    S.candidates = K.newCandidates(data || []);
+    const inSet = (data || []).length - S.candidates.length;
+    el('candBody').innerHTML = S.candidates.length ? S.candidates.map((c, i) => `<tr>
+      <td><input type="checkbox" data-i="${i}" checked /></td>
+      <td class="kw" title="${esc(c.keyword)}">${esc(c.keyword)}</td>
+      <td class="src" title="${esc(c.coverage_note || '')}">${esc(SOURCE_LABEL[c.source] || c.source)}</td>
+      <td class="num">${c.clicks == null ? '' : numFmt(c.clicks)}</td>
+      <td class="num">${c.impressions == null ? '' : numFmt(c.impressions)}</td>
+      <td class="num">${posFmt(c.our_position)}</td>
+    </tr>`).join('') : `<tr><td colspan="6" class="sk-empty">Nothing new to suggest${inSet ? ` (${inSet} candidate${inSet === 1 ? ' is' : 's are'} already in the set)` : ''}.</td></tr>`;
+    const cov = (data || []).find(c => c.coverage_note)?.coverage_note;
+    el('candFoot').innerHTML = `${S.candidates.length} new candidate${S.candidates.length === 1 ? '' : 's'}${inSet ? `, ${inSet} already in the set` : ''}. ${cov ? esc(cov) + ' ' : ''}A blank SC position means the term is not a returned query, never position 0.`;
+    el('candAll').checked = true;
+    el('dlgSuggest').showModal();
+    setStatus(`${S.candidates.length} candidates.`, 'pos', 2500);
+  });
+  el('candAll').addEventListener('change', () => document.querySelectorAll('#candBody input[data-i]').forEach(c => { c.checked = el('candAll').checked; }));
+  el('btnCandAdd').addEventListener('click', async () => {
+    const picked = [...document.querySelectorAll('#candBody input[data-i]:checked')].map(c => S.candidates[Number(c.dataset.i)]).filter(Boolean);
+    if (!picked.length) { setStatus('Nothing selected.', 'info', 2000); return; }
+    try {
+      await addKeywords(picked.map(c => ({ keyword: c.keyword, source: c.source })));
+      el('dlgSuggest').close(); setStatus(`${picked.length} keyword${picked.length === 1 ? '' : 's'} added.`, 'pos', 3000);
+      await loadKeywords(); renderStrip(); renderTracking();
+    } catch (e) { setStatus(`Add failed: ${explain(e)}`, 'neg'); }
+  });
+
+  // ── Rankings ─────────────────────────────────────────────────────────────
+  function renderRankings() {
+    const device = el('rkDevice').value, provider = el('rkProvider').value;
+    const rows = S.landscape.filter(r => r.device === device && r.provider === provider);
+    if (!rows.length) {
+      el('rkBody').innerHTML = `<tr><td colspan="8" class="sk-empty">${S.keywords.length ? `No ${provider === 'manual' ? 'manual check' : 'weekly fetch'} has observed a ${device} results page yet. ${provider === 'manual' ? '' : 'Switch tracking on under Tracking; the first run is on Monday.'}` : 'Add keywords first.'}</td></tr>`;
+      el('rkFoot').innerHTML = ''; return;
+    }
+    el('rkBody').innerHTML = rows.map(r => {
+      const L = K.rankingLabels(r);
+      const mvCls = L.movementSign > 0 ? 'sk-up' : L.movementSign < 0 ? 'sk-down' : 'sk-muted';
+      const oursCls = L.state === 'observed' ? '' : 'sk-muted';
+      const tops = K.topDomains(r.latest_top_results, 3).map(t => `<span class="${t.own ? 'sk-own' : ''}" title="#${t.position}${t.relationship ? ' · ' + t.relationship : ''}">${esc(t.domain)}</span>`).join('');
+      return `<tr>
+        <td class="kw" title="${esc(r.keyword)}">${esc(r.keyword)}${r.is_active ? '' : ' <span class="bcn-pill">paused</span>'}</td>
+        <td class="${oursCls}">${esc(L.ours)}</td>
+        <td class="${mvCls}">${esc(L.movement)}</td>
+        <td class="num" title="Search Console impression-weighted AVERAGE, ${esc(r.search_console_window_start || '')} → ${esc(r.search_console_window_end || '')}. Not an observed rank.">${r.search_console_avg_position_28d == null ? '<span class="sk-muted">not a returned query</span>' : posFmt(r.search_console_avg_position_28d)}</td>
+        <td class="num">${r.search_console_clicks_28d == null ? '' : numFmt(r.search_console_clicks_28d)}</td>
+        <td class="sk-domains">${tops || '<span class="sk-muted">—</span>'}</td>
+        <td class="num">${r.results_in_latest_run == null ? '<span class="sk-muted">never</span>' : r.results_in_latest_run}</td>
+        <td class="mono">${r.latest_observed_on ? dayFmt(r.latest_observed_on) : '<span class="sk-muted">never</span>'}</td>
+      </tr>`;
+    }).join('');
+    const observed = rows.filter(r => r.latest_observed_on).length;
+    el('rkFoot').innerHTML = `${rows.length} keywords, ${observed} observed on ${device} by ${provider === 'manual' ? 'a manual check' : 'the weekly fetch'} (United States, English, Google). `
+      + `<b>“Never observed” means no run has looked; “not in top N observed” means we were outside the ${provider === 'manual' ? 'checked' : 'fetched'} page on that date; neither is “unranked”.</b> `
+      + `A position is one dated snapshot: two fetches minutes apart have disagreed, so read movement over several runs. The SC column is Google's impression-weighted average, a different measure, shown beside the observed rank and never merged with it.`;
+  }
+  el('rkDevice').addEventListener('change', renderRankings);
+  el('rkProvider').addEventListener('change', renderRankings);
+
+  // ── Competitors ──────────────────────────────────────────────────────────
+  function renderCompetitors() {
+    el('cdForm').classList.toggle('sk-readonly', !CAN_APPROVE);
+    el('btnCdAdd').disabled = !CAN_APPROVE;
+    el('cdBody').innerHTML = S.competitors.length ? S.competitors.map(c => `<tr>
+      <td class="mono">${esc(c.domain_norm || c.domain)}</td>
+      <td>${esc(c.relationship)}</td>
+      <td class="mono">${esc(c.note || '')}</td>
+      <td class="actions">${CAN_APPROVE ? `<button class="bcn-btn bcn-btn--ghost" data-del="${c.id}">Remove</button>` : ''}</td>
+    </tr>`).join('') : `<tr><td colspan="4" class="sk-empty">No competitors listed yet.</td></tr>`;
+    const device = el('shDevice').value;
+    const share = S.share.filter(s => s.device === device && s.provider === 'dataforseo' && !s.is_own_domain).sort((a, b) => (b.keywords_in_top_10 - a.keywords_in_top_10) || (b.keywords_in_top_3 - a.keywords_in_top_3) || (a.best_position - b.best_position)).slice(0, 40);
+    const listed = new Set(S.competitors.map(c => c.domain_norm));
+    if (!share.length) { el('shBody').innerHTML = `<tr><td colspan="6" class="sk-empty">No completed ${device} run yet.</td></tr>`; el('shFoot').innerHTML = ''; return; }
+    const denom = share[0].keywords_observed;
+    el('shBody').innerHTML = share.map(s => `<tr>
+      <td class="mono">${esc(s.domain_norm)}</td>
+      <td class="num">${s.keywords_in_top_10} / ${s.keywords_observed}</td>
+      <td class="num">${s.keywords_in_top_3}</td>
+      <td class="num">${s.best_position == null ? '' : '#' + s.best_position}</td>
+      <td>${s.relationship ? esc(s.relationship) : '<span class="sk-muted">not listed</span>'}</td>
+      <td class="actions">${CAN_APPROVE && !listed.has(s.domain_norm) ? `<button class="bcn-btn bcn-btn--ghost" data-list="${esc(s.domain_norm)}">Add as search competitor</button>` : ''}</td>
+    </tr>`).join('');
+    el('shFoot').innerHTML = `Latest completed ${device} run (${dayFmt(share[0].observed_on)}): domains counted against the <b>${denom} keywords that run observed</b>, never against the whole set. Your own storefront is excluded. A marketplace or media site here is a search competitor without being a commercial one.`;
+  }
+  el('shDevice').addEventListener('change', renderCompetitors);
+  async function addCompetitor(domain, relationship, note) {
+    const d = K.domainNorm(domain); if (!d) { setStatus('Enter a domain.', 'neg', 2500); return; }
+    const { error } = await sb.from('seo_competitor_domains').insert(window.__SILO_CONFIG__.withCompany({ domain: d, relationship, note: note || null }));
+    if (error) { setStatus(/duplicate|unique/i.test(String(error.message)) ? 'That domain is already listed.' : `Add failed: ${explain(error)}`, 'neg'); return; }
+    setStatus('Competitor added.', 'pos', 2500); await loadCompetitors(); renderCompetitors();
+  }
+  el('btnCdAdd').addEventListener('click', () => addCompetitor(el('cdDomain').value, el('cdRel').value, el('cdNote').value.trim()).then(() => { el('cdDomain').value = ''; el('cdNote').value = ''; }));
+  el('cdBody').addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-del]'); if (!b) return;
+    const { data, error } = await sb.from('seo_competitor_domains').delete().eq('id', b.dataset.del).select('id');
+    if (error || !data?.length) { setStatus(`Remove failed: ${error ? explain(error) : 'only an SEO approver may edit the list'}`, 'neg'); return; }
+    setStatus('Removed.', 'pos', 2000); await loadCompetitors(); renderCompetitors();
+  });
+  el('shBody').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-list]'); if (!b) return;
+    addCompetitor(b.dataset.list, 'search', `Seen on ${el('shDevice').value} results, ${new Date().toISOString().slice(0, 10)}`);
+  });
+
+  // ── Tracking ─────────────────────────────────────────────────────────────
+  function formSchedule() {
+    const devices = [];
+    if (el('trDesktop').checked) devices.push('desktop');
+    if (el('trMobile').checked) devices.push('mobile');
+    return { isActive: el('trActive').checked, devices, depth: Number(el('trDepth').value), maxKeywords: Number(el('trMaxKw').value), maxCostUsd: Number(el('trMaxCost').value), priority: Number(el('trPriority').value) };
+  }
+  function renderEstimate() {
+    const f = formSchedule();
+    const e = K.estimateRun({ activeKeywords: S.keywords.filter(k => k.is_active).length, devices: f.devices, maxKeywords: f.maxKeywords, maxCostUsd: f.maxCostUsd, costPerTask: f.priority === 2 ? K.MEASURED_TASK_COST_USD * 2 : K.MEASURED_TASK_COST_USD });
+    el('trEstimate').innerHTML = `Each run asks about <b>${e.keywordsAsked}</b> keyword${e.keywordsAsked === 1 ? '' : 's'} on ${e.devices} device${e.devices === 1 ? '' : 's'} = ${e.tasks} checks, about <b>${usd(e.usdPerRun)}</b> per week (${usd(e.usdPerYear)} a year at the measured ${f.priority === 2 ? 'high-priority ' : ''}price).`
+      + (e.keywordsBeyondCap ? `<br><span class="sk-down">${e.keywordsBeyondCap} active keyword${e.keywordsBeyondCap === 1 ? '' : 's'} fall outside the cap and will not be asked about (they read as never observed, not unranked).</span>` : '')
+      + (e.costCapBinds ? `<br><span class="sk-down">The cost cap (${usd(f.maxCostUsd)}) is below the estimate: posting stops mid-run and the rest of the set is never observed that week.</span>` : '');
+  }
+  ['trActive', 'trDesktop', 'trMobile', 'trDepth', 'trMaxKw', 'trMaxCost', 'trPriority'].forEach(id => el(id).addEventListener('input', renderEstimate));
+  function renderTracking() {
+    const s = S.schedule;
+    if (s) {
+      el('trActive').checked = !!s.is_active; el('trDesktop').checked = s.devices.includes('desktop'); el('trMobile').checked = s.devices.includes('mobile');
+      el('trDepth').value = s.depth; el('trMaxKw').value = s.max_keywords_per_run; el('trMaxCost').value = Number(s.max_cost_per_run_usd).toFixed(2); el('trPriority').value = String(s.priority);
+    }
+    const t = K.trackingSummary({ schedule: s, pendingTasks: S.ledger.filter(l => l.status === 'posted').length, failedTasks: S.ledger.filter(l => l.status === 'failed').length });
+    el('trackSummary').innerHTML = `<b>${esc(t.text)}</b>`;
+    el('trackForm').classList.toggle('sk-readonly', !CAN_APPROVE);
+    el('btnTrSave').disabled = !CAN_APPROVE;
+    el('trWho').textContent = CAN_APPROVE ? '' : 'Only an SEO approver (an exec, owner, or someone granted in seo_approvers) can change this.';
+    renderEstimate();
+    if (!S.runs.length) { el('runBody').innerHTML = `<tr><td colspan="6" class="sk-empty">No runs yet.</td></tr>`; el('runFoot').innerHTML = ''; return; }
+    el('runBody').innerHTML = S.runs.map(r => {
+      const pend = S.ledger.filter(l => l.run_id === r.id && l.status === 'posted').length;
+      const fail = S.ledger.filter(l => l.run_id === r.id && l.status === 'failed').length;
+      const state = r.completed_at ? `<span class="bcn-pill bcn-pill--pos">complete</span>${fail ? ` <span class="sk-muted">${fail} unanswered</span>` : ''}` : `<span class="bcn-pill bcn-pill--accent">collecting</span> <span class="sk-muted">${pend} pending</span>`;
+      return `<tr><td class="mono">${dayFmt(r.observed_on)}</td><td>${esc(r.device)}${r.provider === 'manual' ? ' (manual)' : ''}</td><td class="num">${r.keyword_count ?? ''}</td><td class="num">${r.result_count ?? ''}</td><td class="num">${r.cost_usd == null ? '' : usd(r.cost_usd)}</td><td>${state}</td></tr>`;
+    }).join('');
+    el('runFoot').innerHTML = `Latest ${S.runs.length} runs. “Unanswered” keywords are ones the provider could not return a page for; they have no observation for that run rather than a zero.`;
+  }
+  el('btnTrSave').addEventListener('click', async () => {
+    const f = formSchedule();
+    const v = K.validateSchedule(f);
+    if (!v.ok) { setStatus(v.errors.join(' '), 'neg'); return; }
+    const patch = { is_active: f.isActive, devices: f.devices, depth: f.depth, max_keywords_per_run: f.maxKeywords, max_cost_per_run_usd: f.maxCostUsd, priority: f.priority };
+    let res;
+    if (S.schedule) res = await sb.from('seo_serp_schedules').update(patch).eq('id', S.schedule.id).select('id');
+    else res = await sb.from('seo_serp_schedules').insert(window.__SILO_CONFIG__.withCompany(patch)).select('id');
+    if (res.error) { setStatus(`Save failed: ${explain(res.error)}`, 'neg'); return; }
+    if (!res.data?.length) { setStatus('Not saved: only an SEO approver may change tracking.', 'neg'); return; }
+    const active = S.keywords.filter(k => k.is_active).length;
+    setStatus(f.isActive ? (active ? 'Tracking is on. The first run is on Monday; results appear under Rankings once it completes.' : 'Tracking is on, but the keyword set has no active keywords, so the run will have nothing to ask about.') : 'Tracking is off.', f.isActive && !active ? 'info' : 'pos', 6000);
+    await loadTracking(); renderStrip(); renderTracking();
+  });
+
+  // ── Loads ────────────────────────────────────────────────────────────────
+  const scoped = (q) => (_co?.id ? q.eq('company_entity_id', _co.id) : q);
+  async function loadKeywords() {
+    const { data, error } = await scoped(sb.from('seo_keyword_set').select('*')).order('priority', { ascending: true, nullsFirst: false }).order('created_at').limit(1000);
+    if (error) throw error;
+    S.keywords = data || []; renderKeywords();
+  }
+  async function loadLandscape() {
+    const { data, error } = await scoped(sb.from('seo_keyword_landscape_v').select('*')).limit(4000);
+    if (error) throw error;
+    S.landscape = data || []; renderRankings();
+  }
+  async function loadCompetitors() {
+    const [c, s] = await Promise.all([
+      scoped(sb.from('seo_competitor_domains').select('*')).order('domain_norm'),
+      scoped(sb.from('seo_competitor_share_v').select('*')).limit(2000),
+    ]);
+    if (c.error) throw c.error; if (s.error) throw s.error;
+    S.competitors = c.data || []; S.share = s.data || [];
+  }
+  async function loadTracking() {
+    const sched = await scoped(sb.from('seo_serp_schedules').select('*')).limit(1);
+    if (sched.error) throw sched.error;
+    S.schedule = sched.data?.[0] || null;
+    const runs = await scoped(sb.from('seo_serp_runs').select('*')).order('observed_on', { ascending: false }).order('device').limit(12);
+    if (runs.error) throw runs.error;
+    S.runs = runs.data || [];
+    if (S.runs.length) {
+      const led = await sb.from('seo_serp_provider_tasks').select('run_id, status').in('run_id', S.runs.map(r => r.id)).limit(5000);
+      if (led.error) throw led.error;
+      S.ledger = led.data || [];
+    } else S.ledger = [];
+  }
+  let loadId = 0;
+  async function runLoad() {
+    const id = ++loadId;
+    setStatus('Loading…', 'info'); el('btnRefresh').disabled = true;
+    try {
+      await loadKeywords();
+      await Promise.all([loadLandscape(), loadCompetitors(), loadTracking()]);
+      if (id !== loadId) return;
+      renderCompetitors(); renderTracking(); renderStrip();
+      setStatus('Loaded.', 'pos', 1500);
+    } catch (e) {
+      if (id !== loadId) return;
+      setStatus(`Load failed: ${explain(e)}`, 'neg');
+      el('strip').innerHTML = `<span class="neg"><b>Could not load.</b></span><span>${esc(explain(e))}</span>`;
+    } finally { if (id === loadId) el('btnRefresh').disabled = false; }
+  }
+  el('btnRefresh').addEventListener('click', runLoad);
+
+  async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) { window.location.href = '/pages/login.html'; return; }
+    const user = sess.data.session.user;
+    USER_ID = user?.id || null;
+    _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({ appEl: '#silo-app', active: 'reports/seo-keywords', user: { email: user?.email || '', role: 'admin' }, crumbs: ['Marketing', 'SEO Keywords'], supabaseClient: sb });
+    }
+    // Who may switch tracking on or curate competitors. The RPC is the same
+    // gate RLS applies; the answer only decides which controls to show.
+    const ap = await sb.rpc('can_approve_seo_tasks');
+    CAN_APPROVE = ap.data === true;
+    const want = (location.hash || '').slice(1);
+    const tab = document.querySelector(`.bcn-tab[data-pane="${want}"]`);
+    if (tab) tab.click();
+    await runLoad();
+  }
+  boot();
+</script>
+</body>
+</html>

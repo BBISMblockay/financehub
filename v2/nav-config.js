@@ -261,6 +261,11 @@
     // for the same reason (who sees it first, not who may read it; RLS is
     // the boundary). Widen `roles` (or drop it) once the overview is trusted.
     { roles: EXEC_ROLES, id: 'reports/seo-overview', section: 'Marketing', label: 'SEO', href: '/v2/seo-overview.html', profiles: ['grandfathered', 'standard'] },
+    // Keyword set, competitor list, observed rankings and the weekly-tracking
+    // switch (2026-09-26). Same soft-launch gate as SEO, OR a seo_approvers
+    // grant: the page's write controls are approver-gated by RLS, and the
+    // person who may switch tracking on should be able to find the switch.
+    { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo-keywords', section: 'Marketing', label: 'SEO Keywords', href: '/v2/seo-keywords.html', profiles: ['grandfathered', 'standard'] },
 
     // Standard workspaces get a small Insights surface: curated dashboards
     // plus Ask SILO. Baseballism keeps the established Reports label. Access
