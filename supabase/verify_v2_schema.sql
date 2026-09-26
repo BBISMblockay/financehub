@@ -3431,6 +3431,42 @@ select
     else 'ok'
   end as seo_serp_provider_sync;
 
+-- ── Keyword-candidate rollup (20260926150000) ────────────────────────────────
+-- seo_derive_keyword_candidates() read 405k Search Console rows at click time
+-- and took 27.9 s against the browser role's 8 s statement_timeout. It now
+-- reads a nightly rollup through a tenant-filtered wrapper; the same four
+-- things as the wow rollup have to stay true.
+select
+  case
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='search_console_query_rollup_mv' and c.relkind='m')
+      then 'MISSING — run 20260926150000_seo_candidates_within_timeout.sql'
+    when not exists (select 1 from pg_indexes where schemaname='public'
+                       and tablename='search_console_query_rollup_mv'
+                       and indexdef like '%UNIQUE%')
+      then 'MISSING — search_console_query_rollup_mv has no unique index; CONCURRENTLY refresh is impossible'
+    when coalesce((select option_value from pg_class c
+                     join pg_namespace n on n.oid=c.relnamespace,
+                   lateral pg_options_to_table(c.reloptions)
+                   where n.nspname='public' and c.relname='search_console_query_rollup_v'
+                     and option_name='security_invoker'), 'true') <> 'false'
+      then 'MISSING — search_console_query_rollup_v is not security_invoker=false; it reads a matview that has no RLS'
+    when (select count(*) from information_schema.role_table_grants
+          where table_schema='public' and table_name='search_console_query_rollup_mv'
+            and grantee in ('anon','authenticated')) > 0
+      then 'CRITICAL — search_console_query_rollup_mv is granted to anon/authenticated; it carries no company filter'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='refresh_search_console_query_rollup_mv' and p.prosecdef)
+      then 'MISSING — refresh_search_console_query_rollup_mv() absent or not SECURITY DEFINER'
+    when has_function_privilege('authenticated', 'public.refresh_search_console_query_rollup_mv()', 'execute')
+      then 'CRITICAL — authenticated can refresh search_console_query_rollup_mv (a 300s definer statement from the browser)'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_derive_keyword_candidates'
+                       and pg_get_functiondef(p.oid) like '%search_console_query_rollup_v%')
+      then 'CRITICAL — seo_derive_keyword_candidates() is back on search_console_query_daily at click time; Suggest keywords will time out'
+    else 'ok'
+  end as search_console_query_rollup;
+
 -- ── Empty collections stay visible (20260909320000, corrective) ─────────────
 -- The view LEFT-joined product->SKU but INNER-joined collection->membership,
 -- so a collection with no products vanished -- an empty collection read as a

@@ -265,6 +265,20 @@ async function main() {
     }
   }
 
+  // The keyword-candidate rollup (search_console_query_rollup_mv,
+  // 20260926150000) is what /v2/seo-keywords.html reads instead of the
+  // 405k-row query table at click time. Refresh it once after every run that
+  // touched a Search Console connection -- including a failed one, since the
+  // rows that did land are what the rollup should describe. A refresh failure
+  // is logged and does not fail the sync: the ingestion is the deliverable,
+  // and a stale rollup names its own window.
+  const touchedSearchConsole = connections.some((c) => c.platform === 'search_console') && !SKIP_SEARCH_CONSOLE;
+  if (touchedSearchConsole) {
+    const { error: rollupError } = await supabase.rpc('refresh_search_console_query_rollup_mv');
+    if (rollupError) console.error(`[ad-platforms-sync] search_console_query_rollup_mv refresh failed: ${rollupError.message}`);
+    else console.log('[ad-platforms-sync] search_console_query_rollup_mv refreshed');
+  }
+
   console.log('[ad-platforms-sync] done', JSON.stringify(allResults, null, 2));
   if (hadError) process.exit(1);
 }

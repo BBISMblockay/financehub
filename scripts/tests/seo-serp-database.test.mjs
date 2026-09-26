@@ -37,6 +37,8 @@ const root = new URL('../../', import.meta.url);
 const MIGRATION = '20260926120000_seo_competitor_serp_schema.sql';
 // Applied after MIGRATION: the provider sync's schedule row and task ledger.
 const SYNC_MIGRATION = '20260926140000_seo_serp_provider_sync.sql';
+// Applied after both: the candidate function restructured to answer inside 8 s.
+const CANDIDATES_MIGRATION = '20260926150000_seo_candidates_within_timeout.sql';
 const dependencies = [
   '20260616060000_stamp_company_entity_id_on_insert.sql',
   '20260909220000_page_inspection.sql',
@@ -186,6 +188,13 @@ try {
     const sql = await readFile(new URL(`supabase/migrations/${MIGRATION}`, root), 'utf8');
     await db.exec(sql);
     await db.exec(sql);
+    // The candidate function's faster body, applied twice like the rest, so
+    // the candidates test further down exercises what production runs.
+    const fast = await readFile(new URL(`supabase/migrations/${CANDIDATES_MIGRATION}`, root), 'utf8');
+    await db.exec(fast);
+    await db.exec(fast);
+    assert.match(await scalar("select pg_get_functiondef('public.seo_derive_keyword_candidates(integer)'::regprocedure)"), /search_console_query_rollup_v/, 'the candidates read the rollup, never the 405k-row table at click time');
+    assert.equal(await scalar("select count(*)::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='search_console_query_rollup_mv' and c.relkind='m'"), 1, 'the rollup matview exists');
     assert.equal(await scalar("select count(*)::int from information_schema.tables where table_schema='public' and table_name in ('seo_keyword_set','seo_competitor_domains','seo_serp_runs','seo_serp_run_keywords','seo_serp_observations')"), 5);
     assert.equal(await scalar("select count(*)::int from pg_trigger where tgname='trg_seo_serp_newest_run_wins' and not tgisinternal"), 3, 'runs, run keywords and observations all carry the trigger');
     assert.match(await scalar("select pg_get_constraintdef(oid) from pg_constraint where conname='sync_jobs_job_type_check'"), /seo_serp_weekly/, 'the job type is appended to the live list');
@@ -532,8 +541,8 @@ try {
 
   await test('the committed verification checks for this schema return ok on the migrated database', async () => {
     const verifySql = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
-    const checks = splitSqlStatements(verifySql).filter((s) => /as seo_competitor_serp\b|as seo_serp_provider_sync\b/.test(s.text));
-    assert.equal(checks.length, 2, 'the seo_competitor_serp and seo_serp_provider_sync checks must be committed');
+    const checks = splitSqlStatements(verifySql).filter((s) => /as seo_competitor_serp\b|as seo_serp_provider_sync\b|as search_console_query_rollup\b/.test(s.text));
+    assert.equal(checks.length, 3, 'the seo_competitor_serp, seo_serp_provider_sync and search_console_query_rollup checks must be committed');
     for (const sql of checks) {
       const rows = await q(sql.text);
       assert.ok(rows.length > 0, 'a verification check must return evidence');

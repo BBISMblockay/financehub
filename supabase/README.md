@@ -2366,3 +2366,23 @@ UTC + 15:15 UTC catch-up, which resumes from the ledger). Verify:
 `seo_serp_provider_sync`. Tests: `scripts/tests/seo-serp-sync.test.mjs` (fake
 provider + fake Supabase) and two more cases in
 `seo-serp-database.test.mjs` with a fourth mutation (`ledger-writable`).
+
+## Keyword candidates inside the browser timeout — `20260926150000_seo_candidates_within_timeout.sql`
+
+Found the moment `/v2/seo-keywords.html`'s "Suggest keywords" was pressed on
+production: `seo_derive_keyword_candidates(90)` took 27.9 s against the
+authenticated role's 8 s `statement_timeout`. Restructuring the aggregation
+did not help (27.0 s): reading Baseballism's 405,057 Search Console query rows
+for the window is 3.7 s of heap fetches by itself, under a 5 MB `work_mem`
+that spills every step. So the rows are not read at click time:
+`search_console_query_rollup_mv` holds per company × normalised keyword the
+trailing 90 days ending on the newest ingested day (clicks, impressions, the
+weighted-position numerator, distinct days), refreshed by
+`refresh_search_console_query_rollup_mv()` (DEFINER, service role only, 300 s)
+from `ad-platforms-sync.mjs` after any Search Console connection and from
+`search-console-backfill.mjs`. Read through `search_console_query_rollup_v`
+(`security_invoker = false` + `active_company_id()` filter — the wrapper is
+the tenant boundary; no grant on the matview). The function now reads the
+wrapper, so the Search Console groups are always the rollup's 90 days and
+`p_days` bounds the collection candidates only. The migration populates the
+rollup at the end. Verify: `search_console_query_rollup`.

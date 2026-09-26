@@ -299,7 +299,10 @@ absences in words ("never observed" / "nothing returned" / "not in top N
 observed"); Competitors tab holds the curated list and, beside it, the domains
 derived from the latest run (`seo_competitor_share_v`) with a one-click "add
 as search competitor". Page logic that decides those words and the cost is in
-`v2/seo-keywords.js`, pinned by `v2/tests/unit/seo-keywords.test.js`.
+`v2/seo-keywords.js`, pinned by `v2/tests/unit/seo-keywords.test.js`. The
+suggestions come from `search_console_query_rollup_v` (a nightly 90-day
+rollup, `20260926150000`), not the raw query table: on the first real press
+the click-time query took 27.9 s against the browser's 8 s limit.
 
 **Still to do:** volume, if bought, in its own table with `source =
 'google_ads_modelled'`, never beside Search Console clicks; a manual-check
