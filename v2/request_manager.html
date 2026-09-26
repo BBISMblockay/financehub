@@ -206,7 +206,7 @@
                     <input id="bulkConfirmationFileInput" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx" />
                   </div>
                   <button id="bulkMarkPaidBtn" class="btn btn-primary btn-xs" type="button">Mark selected paid</button>
-                  <button id="bulkForwardMelioBtn" class="btn btn-soft btn-xs" type="button">Forward to Melio</button>
+                  <button id="bulkForwardMelioBtn" class="btn btn-soft btn-xs" type="button">Forward to bill pay</button>
                 </div>
                 <div id="bulkActionStatus" class="rm-upload-status"></div>
               </div>
@@ -429,7 +429,7 @@
             <div class="rm-doc-actions">
               <button id="openFileBtn" class="btn btn-soft btn-xs" type="button">Open first submitted</button>
               <button id="openLegacyBtn" class="btn btn-soft btn-xs" type="button" hidden>Legacy record</button>
-              <button id="forwardMelioBtn" class="btn btn-soft btn-xs" type="button">Forward to Melio</button>
+              <button id="forwardMelioBtn" class="btn btn-soft btn-xs" type="button">Forward to bill pay</button>
             </div>
             <div id="forwardMelioStatus" class="rm-upload-status"></div>
             <div class="rm-upload-zone">
@@ -897,6 +897,8 @@
         file_removed: "File removed",
         amount_changed: "Amount changed",
         notification_sent: "Requester notified",
+        forwarded_to_melio: "Forwarded to Melio",
+        forwarded_to_bill_pay: "Forwarded to bill pay",
         imported: "Imported",
         updated: "Updated"
       };
@@ -1380,9 +1382,13 @@
     }
 
     function renderForwardMelioRow(row) {
-      els.forwardMelioStatus.textContent = row?.melio_forwarded_at
-        ? `Forwarded to Melio ${formatDateTime(row.melio_forwarded_at)}`
-        : "Not yet forwarded to Melio.";
+      const latest = state.activityRows.find(a => a.payment_request_id === row?.id &&
+        (a.activity_type === 'forwarded_to_bill_pay' || a.activity_type === 'forwarded_to_melio'));
+      els.forwardMelioStatus.textContent = latest
+        ? `${activityMessage(latest)} · ${formatDateTime(latest.created_at)}`
+        : row?.melio_forwarded_at
+          ? `Forwarded to Melio ${formatDateTime(row.melio_forwarded_at)}`
+          : 'Not yet forwarded to bill pay.';
     }
 
     async function forwardToMelio(requestId, { silent = false } = {}) {
@@ -1397,7 +1403,7 @@
         const { data, error } = await supabaseClient.functions.invoke("payment-request-forward-melio", {
           body: { payment_request_id: requestId }
         });
-        if (error) throw new Error(await functionErrorMessage(error, "Forward to Melio failed"));
+        if (error) throw new Error(await functionErrorMessage(error, "Forward to bill pay failed"));
         if (data?.error) throw new Error(data.error);
 
         state.rows = await fetchRows();
@@ -1410,13 +1416,13 @@
         }
         if (!silent) {
           refreshAll();
-          showToast("Forwarded to Melio.");
+          showToast(`Forwarded to ${data?.provider || 'bill pay'}.`);
         }
       } catch (err) {
         console.error(err);
         if (!silent) {
           els.forwardMelioStatus.textContent = "";
-          showToast(`Forward to Melio failed: ${err.message || "Unknown error"}`, true);
+          showToast(`Forward to bill pay failed: ${err.message || "Unknown error"}`, true);
         }
         throw err;
       } finally {
@@ -1944,7 +1950,7 @@
       try {
         for (let i = 0; i < ids.length; i++) {
           const id = ids[i];
-          els.bulkActionStatus.textContent = `Forwarding to Melio ${i + 1}/${ids.length}…`;
+          els.bulkActionStatus.textContent = `Forwarding to bill pay ${i + 1}/${ids.length}…`;
           try {
             await forwardToMelio(id, { silent: true });
             succeeded += 1;
@@ -1960,7 +1966,7 @@
         if (failures.length) {
           showToast(`Forwarded ${succeeded}/${ids.length}. Failed: ${failures.slice(0, 3).join("; ")}`, true);
         } else {
-          showToast(`Forwarded ${succeeded} request${succeeded === 1 ? "" : "s"} to Melio.`);
+          showToast(`Forwarded ${succeeded} request${succeeded === 1 ? "" : "s"} to bill pay.`);
         }
       } finally {
         els.bulkForwardMelioBtn.disabled = false;

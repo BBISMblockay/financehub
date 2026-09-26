@@ -2293,6 +2293,20 @@ figures are never added together. Grouped by property. Date bounds are
 inline -- a joined window CTE is not index-pushable and timed out on 1.3M
 page rows. Tie-outs reconcile page and query rows to the site table's
 attributed clicks. Test: `scripts/tests/seo-silo-report-database.test.mjs`.
+## Bill pay email forwarding — `20260925181944_company_bill_pay_forwarding.sql`
+
+Workspace Settings → Company stores a provider (`melio` or `bill`) and its
+company-specific bill intake email. An owner-admin sets both together. The
+setter creates a missing `company_settings` row for legacy companies, using
+the active company's timezone and accounting currency when available.
+
+Request Manager sends the submitted document to that inbox and records a
+`forwarded_to_bill_pay` activity with the actual provider and address. It does
+not create a bill, schedule a payment, or mark a request paid. The old
+`payment-request-forward-melio` function URL is kept for existing callers.
+`MELIO_FORWARD_EMAIL` is a temporary fallback only for Baseballism while its
+workspace address is being entered. Deploy this migration before redeploying
+the function, because the new activity type is database-constrained.
 
 ## SEO competitor / SERP observations — `20260926120000_seo_competitor_serp_schema.sql`
 

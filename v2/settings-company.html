@@ -126,6 +126,34 @@
         </div>
 
         <div class="ws-card">
+          <div class="ws-card-head">
+            <div class="ws-title">Bill pay forwarding</div>
+            <div class="ws-sub">Send a payment request's invoice to your bill intake inbox</div>
+          </div>
+          <div class="ws-body">
+            <div class="ws-grid">
+              <label class="ws-field">
+                <span class="ws-label">Provider</span>
+                <select id="billPayProvider" class="bcn-field">
+                  <option value="">Not configured</option>
+                  <option value="melio">Melio</option>
+                  <option value="bill">BILL</option>
+                </select>
+              </label>
+              <label class="ws-field">
+                <span class="ws-label">Bill intake email</span>
+                <input id="billPayEmail" class="bcn-field" type="email" maxlength="254" autocomplete="off" placeholder="Your provider's inbox address" />
+              </label>
+            </div>
+            <p class="ws-note" style="margin-top:14px;">Use the inbox address shown in your Melio or BILL account. Forwarding sends submitted documents for review there; it does not schedule or make a payment.</p>
+            <div class="ws-actions" style="margin-top:14px;">
+              <button class="bcn-btn bcn-btn--primary" id="btnSaveBillPay" disabled>Save forwarding</button>
+              <span class="ws-you" id="billPayHint"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ws-card">
           <div class="ws-card-head"><div class="ws-title">Workspace</div></div>
           <div class="ws-body">
             <dl class="ws-grid">
@@ -152,6 +180,7 @@
   const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const el = (id) => document.getElementById(id);
   let _co = null, _canEdit = false, _loaded = null, _docsAvailable = true;
+  let _billPayAvailable = true, _billPayLoaded = { provider: '', email: '' };
   // Document identity columns on company_settings (20260922130000): what the
   // PO Builder's vendor PDF prints. One input per column, keyed by data-col.
   const DOC_COLS = ['legal_name', 'address_line1', 'address_line2', 'city', 'region', 'postal_code', 'country', 'phone', 'purchasing_contact_name', 'purchasing_contact_phone', 'purchasing_contact_email'];
@@ -181,6 +210,12 @@
     for (const n of docInputs()) n.disabled = !_canEdit || !_docsAvailable;
     el('btnSave').disabled = true;
     el('btnSaveDocs').disabled = true;
+    el('billPayProvider').disabled = !_canEdit || !_billPayAvailable;
+    el('billPayEmail').disabled = !_canEdit || !_billPayAvailable;
+    el('btnSaveBillPay').disabled = true;
+    el('billPayHint').textContent = !_billPayAvailable
+      ? 'Available after the bill pay forwarding migration is applied.'
+      : _canEdit ? '' : 'Only a workspace owner can change this destination.';
     el('docsHint').textContent = !_docsAvailable
       ? 'Not available yet: the company document identity migration has not been applied to this database.'
       : _canEdit ? '' : 'Only a workspace owner can change these settings.';
@@ -194,6 +229,11 @@
       || el('fldTimezone').value !== _loaded.business_timezone
       || el('fldCurrency').value.trim().toUpperCase() !== _loaded.default_currency
       || (_docsAvailable && DOC_COLS.some((c) => (docValues()[c] || null) !== (_loaded.docs[c] || null)));
+  }
+
+  function billPayDirty() {
+    return el('billPayProvider').value !== _billPayLoaded.provider
+      || el('billPayEmail').value.trim() !== _billPayLoaded.email;
   }
 
   async function load() {
@@ -248,6 +288,42 @@
     }
     sel.value = _loaded.business_timezone;
     if (!settings) setStatus('This workspace has no settings row yet.', 'info');
+
+    const billPayRead = await db.from('company_settings')
+      .select('bill_pay_provider, bill_pay_forward_email')
+      .eq('company_entity_id', _co.id).maybeSingle();
+    _billPayAvailable = billPayRead.error?.code !== '42703';
+    if (billPayRead.error && _billPayAvailable) throw billPayRead.error;
+    _billPayLoaded = {
+      provider: billPayRead.data?.bill_pay_provider || '',
+      email: billPayRead.data?.bill_pay_forward_email || '',
+    };
+    el('billPayProvider').value = _billPayLoaded.provider;
+    el('billPayEmail').value = _billPayLoaded.email;
+  }
+
+  async function saveBillPay() {
+    const provider = el('billPayProvider').value;
+    const email = el('billPayEmail').value.trim();
+    if (Boolean(provider) !== Boolean(email) ||
+        (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+      setStatus('Choose a provider and enter its bill intake email, or clear both.', 'neg', 8000);
+      return;
+    }
+    el('btnSaveBillPay').disabled = true;
+    try {
+      const { error } = await db.rpc('set_bill_pay_forwarding', {
+        p_provider: provider || null, p_email: email || null,
+      });
+      if (error) throw error;
+      _billPayLoaded = { provider, email };
+      await load();
+      setStatus('Bill pay forwarding saved.', 'pos', 5000);
+    } catch (e) {
+      setStatus(e?.message || String(e), 'neg', 15000);
+    } finally {
+      el('btnSaveBillPay').disabled = !_canEdit || !billPayDirty();
+    }
   }
 
   async function save() {
@@ -337,6 +413,11 @@
     }
     el('btnSave').addEventListener('click', save);
     el('btnSaveDocs').addEventListener('click', save);
+    for (const id of ['billPayProvider', 'billPayEmail']) {
+      el(id).addEventListener('input', () => { el('btnSaveBillPay').disabled = !_canEdit || !billPayDirty(); });
+      el(id).addEventListener('change', () => { el('btnSaveBillPay').disabled = !_canEdit || !billPayDirty(); });
+    }
+    el('btnSaveBillPay').addEventListener('click', saveBillPay);
   })().catch((e) => {
     console.error(e);
     setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
