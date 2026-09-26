@@ -122,3 +122,14 @@ The local database serializes calls; real overlapping PostgreSQL connections
 remain a test-company release check. SQL row/advisory locks provide the
 concurrency boundary. These tests do not prove live provider freshness or
 the state of production's existing modules.
+
+### Review-bound evidence
+
+Catalog handoff locks and checks the source timestamp against the captured snapshot.
+If the catalog changed, start a new brief and review it; retrying an existing output
+still returns that output. Restock review recomputes the company/product/horizon
+basis in the database and requires the submitted evidence to match (apart from
+its observation timestamp). Refresh missing or changed evidence first. Missing
+sales/stock, stale evidence, ambiguous incoming stock and quantity overrides
+require a decision note. A note never authorizes forged evidence. Exact save
+retries remain valid even when inventory changes after the successful review.

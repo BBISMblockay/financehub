@@ -38,6 +38,8 @@ create or replace function public.save_product_workflow_brief(
   p_content jsonb, p_status text default 'draft'
 ) returns jsonb language plpgsql security definer set search_path = '' as $$
 declare b public.product_workflow_briefs; snapshot jsonb := '{}';
+  r jsonb; basis jsonb; fresh jsonb; lead_days integer; cover_days integer;
+  safety integer; suggested numeric; needs_note boolean; field text;
 begin
   if auth.uid() is null or p_company is null
      or p_company is distinct from public.active_company_id()
@@ -91,6 +93,50 @@ begin
     -- New records get version 1 below, not 2.
     b.version := 0;
   end if;
+  -- The review boundary verifies client evidence against company-scoped facts.
+  -- Keep p_content unchanged so an exact lost-response retry stays idempotent.
+  if p_status='reviewed' and p_kind='restock' then
+    r := p_content->'restock';
+    foreach field in array array['lead_days','cover_days','safety_units'] loop
+      if coalesce(r->>field,'') !~ '^[0-9]{1,7}$' then
+        raise exception 'Enter whole restock lead days, cover days and safety units';
+      end if;
+    end loop;
+    lead_days := (r->>'lead_days')::integer;
+    cover_days := (r->>'cover_days')::integer;
+    safety := (r->>'safety_units')::integer;
+    if lead_days+cover_days > 730 or safety > 1000000 then raise exception 'Invalid restock horizon or safety units'; end if;
+    basis := r->'basis';
+    if jsonb_typeof(basis) is distinct from 'object' then
+      raise exception 'Restock evidence is missing. Refresh the basis before review';
+    end if;
+    fresh := public.product_workflow_restock_basis(p_company,p_source_id,lead_days+cover_days);
+    if (basis - 'observed_at') is distinct from (fresh - 'observed_at') then
+      raise exception 'Restock evidence changed or is missing. Refresh the basis before review';
+    end if;
+    if jsonb_typeof(p_content->'lines') is distinct from 'array' then raise exception 'Use one restock purchase line'; end if;
+    if jsonb_array_length(p_content->'lines') <> 1 then raise exception 'Use one restock purchase line'; end if;
+    if coalesce(p_content#>>'{lines,0,qty}','') !~ '^[0-9]{1,7}$'
+       or (p_content#>>'{lines,0,qty}')::numeric not between 1 and 1000000 then
+      raise exception 'Restock quantity must be 1–1,000,000 whole units';
+    end if;
+    needs_note := (fresh->>'units_90d') is null or (fresh->>'on_hand') is null
+      or (fresh->>'units_90d')::numeric < 0 or (fresh->>'on_hand')::numeric < 0
+      or (fresh->>'incoming_units')::numeric < 0
+      or (fresh->>'sales_names')::integer > 1 or (fresh->>'uncertain_po_lines')::integer > 0
+      or (fresh->>'stock_as_of') is null or (fresh->>'stock_as_of')::timestamptz < now()-interval '48 hours'
+      or (basis->>'observed_at') is null or (basis->>'observed_at')::timestamptz < now()-interval '24 hours'
+      or (basis->>'observed_at')::timestamptz > now();
+    if (fresh->>'units_90d')::numeric >= 0 and (fresh->>'on_hand')::numeric >= 0
+       and (fresh->>'incoming_units')::numeric >= 0 then
+      suggested := greatest(0,ceil((fresh->>'units_90d')::numeric / 90 * (lead_days+cover_days)
+        + safety - (fresh->>'on_hand')::numeric - (fresh->>'incoming_units')::numeric));
+    end if;
+    if (coalesce(needs_note,true) or suggested is null or suggested <> (p_content#>>'{lines,0,qty}')::numeric)
+       and coalesce(length(btrim(p_content->>'decision_note')),0)=0 then
+      raise exception 'Explain the restock override or evidence warnings in the decision note';
+    end if;
+  end if;
   update public.product_workflow_briefs set content=p_content,status=p_status,version=b.version+1,
     reviewed_by=case when p_status='reviewed' then auth.uid() end,
     reviewed_at=case when p_status='reviewed' then now() end,updated_at=now()
@@ -129,8 +175,12 @@ begin
     select * into concept from public.product_concepts where id=b.source_id and company_entity_id=p_company and status <> 'archived';
     if not found then raise exception 'Concept is missing or archived'; end if;
   elsif b.source_kind in ('product','restock') then
-    select * into product from public.products_master where id=b.source_id and company_entity_id=p_company;
+    select * into product from public.products_master where id=b.source_id and company_entity_id=p_company for share;
     if not found then raise exception 'Catalog product is missing'; end if;
+    -- Lock through output creation so a concurrent catalog edit cannot race this check.
+    if product.updated_at is distinct from (b.source_snapshot->>'updated_at')::timestamptz then
+      raise exception 'Catalog source changed. Start a fresh brief and review before handoff';
+    end if;
   end if;
   if b.po_header_id is not null and not exists(select 1 from public.po_headers where id=b.po_header_id and company_entity_id=p_company) then
     raise exception 'The linked PO is missing';

@@ -605,7 +605,7 @@ jobs:
         run: node scripts/tests/product-workflow-database.test.mjs
       - name: Prove product workflow tests reject broken safeguards
         run: |
-          for mutation in source-scope gate retry freeze read-scope; do
+          for mutation in source-scope gate retry freeze read-scope catalog-drift restock-review restock-evidence restock-note; do
             if MUTATE="$mutation" node scripts/tests/product-workflow-database.test.mjs; then
               echo "::error::$mutation did not fail the suite"
               exit 1

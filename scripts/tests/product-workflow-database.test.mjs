@@ -4,6 +4,10 @@ import { readFile } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 let migration = await readFile(new URL('../../supabase/migrations/20260926082115_product_workflow_preview.sql', import.meta.url),'utf8');
 const mutations = {
+  'catalog-drift': ["if product.updated_at is distinct from (b.source_snapshot->>'updated_at')::timestamptz then", 'if false then'],
+  'restock-evidence': ["if (basis - 'observed_at') is distinct from (fresh - 'observed_at') then", 'if false then'],
+  'restock-note': ["and coalesce(length(btrim(p_content->>'decision_note')),0)=0 then", 'and false then'],
+  'restock-review': ["if p_status='reviewed' and p_kind='restock' then", 'if false then'],
   'source-scope': ["c.id=p_source_id and c.company_entity_id=p_company", 'c.id=p_source_id'],
   'gate': ['or not coalesce(public.po_builder_can_write(), false)', 'or false'],
   'retry': ['if output_id is not null then', 'if false then'],
@@ -77,7 +81,7 @@ await test('migration applies twice; anonymous cannot call any writer and direct
   }
   await fail(()=>db.query("insert into public.product_workflow_briefs(id) values($1)",[ID]),/permission denied/);
   const verifier=await readFile(new URL('../../supabase/verify_v2_schema.sql',import.meta.url),'utf8');
-  const checks=verifier.slice(verifier.indexOf('-- Direct-link product workflow preview.'),verifier.indexOf('-- Plaid ingestion:'));
+  const checks=verifier.slice(verifier.indexOf('-- Direct-link product workflow preview.'),verifier.indexOf('-- End product workflow preview checks.'));
   for(const sql of checks.split(';').filter(s=>s.trim())) for(const row of (await db.query(sql)).rows) assert.equal(row.status,'ok');
 });
 await test('viewer cannot save; wrong active company and foreign concept cannot become a source',async()=>{
@@ -169,11 +173,51 @@ await test('restock basis is exactly 90 company days, scoped, and excludes uncer
 });
 await test('a restock PO keeps the catalog identity and is not a new-product PO',async()=>{
   const id='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-  const saved=await save(id,0,'reviewed',{...content,title:'Restock label'},'restock',PRODUCT);
+  const saved=await save(id,0,'reviewed',{...content,title:'Restock label',decision_note:'Partial receipt checked; ordering 90 units deliberately',restock:{lead_days:0,cover_days:90,safety_units:0,basis:(await one('select public.product_workflow_restock_basis($1,$2,90) b',[A,PRODUCT])).b}},'restock',PRODUCT);
   const out=await handoff(id,saved.version);
   assert.equal((await one('select is_new_product_po from public.po_headers where id=$1',[out.po_header_id])).is_new_product_po,false);
   const line=await one('select * from public.po_lines where po_header_id=$1',[out.po_header_id]);
   assert.equal(line.product_master_id,PRODUCT);assert.equal(line.sku_snapshot,'SKU-1');assert.equal(line.title_snapshot,'Product');
+});
+await test('direct restock review verifies evidence, warnings, quantity and exact retry',async()=>{
+  const id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  const basis=(await one('select public.product_workflow_restock_basis($1,$2,90) b',[A,PRODUCT])).b;
+  const body={...content,restock:{lead_days:0,cover_days:90,safety_units:0,basis}};
+  await fail(()=>save(id,0,'reviewed',content,'restock',PRODUCT),/restock/);
+  await fail(()=>save(id,0,'reviewed',{...body,restock:{...body.restock,basis:null},decision_note:'Override'},'restock',PRODUCT),/evidence/);
+  for(const change of [{product_id:FOREIGN},{horizon_days:30},{units_90d:9000}]) {
+    await fail(()=>save(id,0,'reviewed',{...body,restock:{...body.restock,basis:{...basis,...change}}},'restock',PRODUCT),/evidence/);
+  }
+  await fail(()=>save(id,0,'reviewed',body,'restock',PRODUCT),/decision note/);
+  const reviewed={...body,decision_note:'Reviewed excluded partial PO; deliberately buying 90'};
+  const saved=await save(id,0,'reviewed',reviewed,'restock',PRODUCT);
+  await db.exec('reset role');await db.exec("update public.inventory_on_hand_current_v set total_available_quantity=101");await user();
+  assert.deepEqual(await save(id,0,'reviewed',reviewed,'restock',PRODUCT),saved);
+  const next='ffffffff-ffff-4fff-8fff-ffffffffffff';
+  await fail(()=>save(next,0,'reviewed',reviewed,'restock',PRODUCT),/evidence/);
+  await db.exec('reset role');
+  await db.exec("update public.po_headers set status='Received' where po_name='Partial'; update public.inventory_on_hand_current_v set total_available_quantity=100");await user();
+  const clean=(await one('select public.product_workflow_restock_basis($1,$2,90) b',[A,PRODUCT])).b;
+  const exact={...body,lines:[{qty:840}],restock:{...body.restock,basis:clean}};
+  await fail(()=>save(next,0,'reviewed',{...exact,lines:[{qty:839}]},'restock',PRODUCT),/decision note/);
+  await fail(()=>save(next,0,'reviewed',{...exact,restock:{...exact.restock,basis:{...clean,observed_at:'2020-01-01T00:00:00Z'}}},'restock',PRODUCT),/decision note/);
+  assert.equal((await save(next,0,'reviewed',exact,'restock',PRODUCT)).status,'reviewed');
+  const missing='acacacac-acac-4cac-8cac-acacacacacac';
+  await db.exec('reset role');await db.exec('delete from public.inventory_on_hand_current_v');await user();
+  const noStock=(await one('select public.product_workflow_restock_basis($1,$2,90) b',[A,PRODUCT])).b;
+  const manual={...exact,restock:{...exact.restock,basis:noStock}};
+  await fail(()=>save(missing,0,'reviewed',manual,'restock',PRODUCT),/decision note/);
+  assert.equal((await save(missing,0,'reviewed',{...manual,decision_note:'Stock unknown; manually verified supplier requirement'},'restock',PRODUCT)).status,'reviewed');
+
+});
+await test('catalog changes after review block both new outputs but allow original output replay',async()=>{
+  const id='abababab-abab-4bab-8bab-abababababab';
+  const saved=await save(id,0,'reviewed',content,'product',PRODUCT);
+  await db.exec('reset role');await db.query("update public.products_master set sku='RENAMED',product_title='New name',updated_at=now() where id=$1",[PRODUCT]);await user();
+  await fail(()=>handoff(id,saved.version),/Catalog source changed/);
+  await fail(()=>handoff(id,saved.version,'launch','2026-12-01'),/Catalog source changed/);
+  assert.ok((await handoff(id3,1,'launch','2027-01-01')).launch_id);
+  assert.equal((await one('select po_header_id,launch_id from public.product_workflow_briefs where id=$1',[id])).po_header_id,null);
 });
 await test('a collection cannot be purchased as though it were a child product',async()=>{
   const id='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
