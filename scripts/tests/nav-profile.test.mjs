@@ -85,11 +85,16 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
     'reports/silo-chat',
     'reports/dashboards',
   ]);
+  // SEO Keywords (2026-09-26) is the page a client uses to switch weekly
+  // rank tracking on for THEIR company, so it belongs on the standard
+  // profile; its writes are approver-gated by RLS, and the row carries the
+  // same soft-launch role gate as SEO plus a seo_approvers grant unlock.
   assert.deepEqual(marketing.items.map((item) => item.id), [
     'reports/wow-report',
     'reports/marketing-overview',
     'reports/marketing-explorer',
     'reports/seo-overview',
+    'reports/seo-keywords',
   ]);
   assert.ok(!sections.some((section) => section.section === 'Reports'));
   assert.ok(!sections.some((section) => section.section === 'Sales'));
