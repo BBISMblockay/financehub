@@ -269,7 +269,15 @@ create table if not exists public.seo_serp_observations (
   constraint seo_serp_observations_run_company_fkey
     foreign key (run_id, company_entity_id) references public.seo_serp_runs(id, company_entity_id) on delete cascade,
   constraint seo_serp_observations_keyword_company_fkey
-    foreign key (keyword_id, company_entity_id) references public.seo_keyword_set(id, company_entity_id) on delete cascade
+    foreign key (keyword_id, company_entity_id) references public.seo_keyword_set(id, company_entity_id) on delete cascade,
+  -- An observation must belong to a keyword the run ASKED about. Without this
+  -- a provider-writer bug or a partial retry could land a result for keyword
+  -- B in a run that only recorded keyword A, and seo_competitor_share_v would
+  -- count B's domain against a denominator that excludes B. Structural, so
+  -- the writer's ordering (run, requests, observations) is enforced, not
+  -- merely described.
+  constraint seo_serp_observations_requested_keyword_fkey
+    foreign key (run_id, keyword_id) references public.seo_serp_run_keywords(run_id, keyword_id) on delete cascade
 );
 
 create index if not exists seo_serp_observations_keyword_day
@@ -362,6 +370,10 @@ security definer
 set search_path to 'public'
 as $$
 declare
+  -- A manual check records the top 10 and nothing deeper: that is what a
+  -- person can read off one results page, and the run is stored with this
+  -- depth, so a position beyond it is a typo, never an observation.
+  c_depth     constant integer := 10;
   v_company   uuid := public.active_company_id();
   v_user      uuid := auth.uid();
   v_run       uuid;
@@ -420,6 +432,10 @@ begin
     if v_position is null or v_position < 1 then
       raise exception 'position must be a positive integer (keyword %)', v_row ->> 'keyword' using errcode = 'check_violation';
     end if;
+    if v_position > c_depth then
+      raise exception 'position % is beyond this manual run''s depth of % -- a manual check records the top % only (keyword %)',
+        v_position, c_depth, c_depth, coalesce(v_row ->> 'keyword', v_row ->> 'keyword_id') using errcode = 'check_violation';
+    end if;
     if nullif(btrim(coalesce(v_row ->> 'domain', '')), '') is null then
       raise exception 'domain is required on every row (keyword %, position %)', coalesce(v_row ->> 'keyword', v_row ->> 'keyword_id'), v_position using errcode = 'check_violation';
     end if;
@@ -436,7 +452,7 @@ begin
 
   insert into public.seo_serp_runs (company_entity_id, provider, observed_on, location_name, language_code, device, search_engine, depth,
                                     requested_at, synced_at, recorded_by, note)
-  values (v_company, 'manual', p_observed_on, btrim(p_location_name), 'en', p_device, 'google', 10, now(), now(), v_user, p_note)
+  values (v_company, 'manual', p_observed_on, btrim(p_location_name), 'en', p_device, 'google', c_depth, now(), now(), v_user, p_note)
   on conflict (company_entity_id, provider, observed_on, location_name, language_code, device, search_engine)
   do update set synced_at = now(),
                 note      = coalesce(public.seo_serp_runs.note, excluded.note)

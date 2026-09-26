@@ -281,6 +281,13 @@ try {
       insert into seo_serp_observations (company_entity_id, run_id, keyword_id, provider, observed_on, location_name, language_code, device, search_engine, result_type, position, domain, url)
       values ($1, $2, $3, 'dataforseo', '2026-09-01', 'United States', 'en', 'tablet', 'google', 'organic', 3, 'x.example', 'https://x.example/')`, [co, runId, kDadHat])),
     /check constraint|violates/i, 'an unknown device');
+    // Even the provider cannot record a result for a keyword the run never
+    // asked about (cycle-1 review finding): the run above requested dadhat only.
+    await refused(() => asRole('service_role', '', () => q(`
+      insert into seo_serp_observations (company_entity_id, run_id, keyword_id, provider, observed_on, location_name, language_code, device, search_engine, result_type, position, domain, url)
+      values ($1, $2, $3, 'dataforseo', '2026-09-01', 'United States', 'en', 'desktop', 'google', 'organic', 1, 'x.example', 'https://x.example/')`, [co, runId, kHoodie])),
+    /seo_serp_observations_requested_keyword_fkey|foreign key/i, 'an observation for a keyword the run did not request');
+    assert.equal(await scalar('select count(*)::int from seo_serp_observations where run_id=$1 and keyword_id=$2', [runId, kHoodie]), 0);
     assert.equal((await asMember(() => q('select id from seo_serp_observations where run_id=$1', [runId]))).length, 1, 'a member reads the provider rows');
     assert.equal((await asOutsider(() => q('select id from seo_serp_observations where run_id=$1', [runId]))).length, 0, 'another company does not');
     assert.equal((await asMember(() => q("delete from seo_serp_observations where run_id=$1 returning id", [runId]))).length, 0, 'append-only: no delete');
@@ -318,6 +325,8 @@ try {
     await bad([], /no rows/i, 'empty payload');
     await bad([{ keyword: 'not in the set', position: 1, domain: 'a.b', url: 'https://a.b/' }], /not in this company's keyword set/i, 'unknown keyword');
     await bad([{ keyword_id: kDadHat, position: 0, domain: 'a.b', url: 'https://a.b/' }], /position/i, 'position 0');
+    await bad([{ keyword_id: kDadHat, position: 11, domain: 'a.b', url: 'https://a.b/' }], /depth of 10/i, 'position beyond the manual depth (cycle-1 finding)');
+    await bad([{ keyword_id: kDadHat, position: 50, domain: 'a.b', url: 'https://a.b/' }], /depth of 10/i, 'a typo position');
     await bad([{ keyword_id: kDadHat, position: 7, url: 'https://a.b/' }], /domain/i, 'missing domain');
     await bad([{ keyword_id: kDadHat, position: 7, domain: 'a.b', url: 'https://a.b/', result_type: 'ad' }], /result_type/i, 'unknown result type');
     await bad([{ keyword_id: kDadHat, position: 7, domain: 'a.b', url: 'https://a.b/' }], /device/i, 'unknown device', '2026-09-08', 'tablet');

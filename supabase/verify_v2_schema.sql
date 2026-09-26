@@ -3340,6 +3340,10 @@ select
                                        'seo_serp_run_keywords_run_company_fkey','seo_serp_run_keywords_keyword_company_fkey')
                      having count(*) = 4)
       then 'MISSING — a SERP composite FK (tenant identity tied to the parent row)'
+    -- An observation names a keyword the run ASKED about, or the share view's
+    -- numerator and denominator drift apart.
+    when not exists (select 1 from pg_constraint where conname='seo_serp_observations_requested_keyword_fkey')
+      then 'MISSING — seo_serp_observations_requested_keyword_fkey; a result can land in a run that never asked for its keyword'
     when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
                      where n.nspname='public' and p.proname='seo_import_manual_serp_observations' and p.prosecdef)
       then 'MISSING — seo_import_manual_serp_observations() (SECURITY DEFINER, the one client-side writer)'

@@ -189,13 +189,18 @@ departs from the sketch that used to sit here:
   `domain_norm`, `url`, `title`. **Observation date, location, device and
   provider are NOT NULL columns**, denormalised from the run so the row is
   self-describing. Append-only: a select policy and no client write policy at
-  all. Composite FKs tie both `run_id` and `keyword_id` to the same tenant.
+  all. Composite FKs tie both `run_id` and `keyword_id` to the same tenant,
+  and a third FK `(run_id, keyword_id) → seo_serp_run_keywords` makes a
+  result for a keyword the run never asked about unrepresentable (found in
+  the first independent review).
 - **Writers.** The provider sync (service role; the next PR) and
   `seo_import_manual_serp_observations(rows, observed_on, location_name,
   device, note)` — SECURITY DEFINER, any active member, attributed via
   `recorded_by`, one call = one date × location × device, refuses a keyword
   already recorded on that manual run (an observation is never overwritten;
-  record a new date). The manual pilot described above lands through it, as
+  record a new date) and refuses a position beyond the manual depth of 10 —
+  a person reads one results page, so 50 is a typo, not an observation. The
+  manual pilot described above lands through it, as
   `provider = 'manual'`, and is never pooled with a provider run.
 - **Newest completed run wins** — `trg_seo_serp_newest_run_wins` on all
   three run tables, the Search Console trigger's rule: an update carrying an
