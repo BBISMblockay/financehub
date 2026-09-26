@@ -1,0 +1,58 @@
+name: SEO SERP Probe
+
+# Measures DataForSEO before the weekly SERP sync is written: auth and
+# balance, whether location_code / device behave as documented, the live
+# result shape (which item types come inline, how many organic ranks a
+# depth of 10 yields), and what ONE observation costs -- see
+# scripts/seo-serp-probe.mjs.
+#
+# READ ONLY against SILO: no Supabase secrets, nothing written. It does spend
+# a few cents at the provider unless `spend` is false. Manual only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      keywords:
+        description: "Comma-separated keywords to fetch (each costs one task per device)"
+        required: false
+        default: "baseballism,baseball dad hat"
+        type: string
+      our_domain:
+        description: "Domain to look for in the results"
+        required: false
+        default: "baseballism.com"
+        type: string
+      location_code:
+        description: "DataForSEO location_code (2840 = United States)"
+        required: false
+        default: "2840"
+        type: string
+      spend:
+        description: "false = free endpoints only (account + locations), no SERP tasks"
+        required: false
+        default: "true"
+        type: string
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # No npm install: the probe has no dependencies (global fetch).
+      - name: Probe DataForSEO
+        env:
+          DATAFORSEO_LOGIN: ${{ secrets.DATAFORSEO_LOGIN }}
+          DATAFORSEO_PASSWORD: ${{ secrets.DATAFORSEO_PASSWORD }}
+          SERP_PROBE_KEYWORDS: ${{ inputs.keywords }}
+          SERP_PROBE_OUR_DOMAIN: ${{ inputs.our_domain }}
+          SERP_PROBE_LOCATION_CODE: ${{ inputs.location_code }}
+          SERP_PROBE_SPEND: ${{ inputs.spend }}
+        run: node scripts/seo-serp-probe.mjs
