@@ -76,9 +76,14 @@ async function probeAccount() {
   log('\n== 1. Account (GET /v3/appendix/user_data) ==');
   const j = await call('GET', '/v3/appendix/user_data');
   const r = j.tasks?.[0]?.result?.[0] || {};
-  log(`  login ok; balance ${money(r.money?.balance)}; total spent ${money(r.money?.total)}`);
-  log(`  limits: ${r.rates?.limits?.minute ?? '?'}/min, ${r.rates?.limits?.day ?? '?'}/day; stats today ${r.rates?.statistics?.day?.current ?? '?'} calls`);
-  const serpPrice = r.price?.serp?.google?.organic?.live?.advanced ?? r.price?.serp?.google?.organic?.live?.advanced?.priority_normal;
+  log(`  login ok; balance ${money(r.money?.balance)}; money.total ${money(r.money?.total)}`);
+  // The account record minus the (very long) price list: whatever the
+  // provider says about verification, limits and rates is printed verbatim,
+  // because a 40104 "verify your account" refusal after the panel's banner
+  // has gone is not diagnosable from the refusal alone.
+  const { price, ...rest } = r;
+  log(`  account record (price list omitted): ${JSON.stringify(rest)}`);
+  const serpPrice = price?.serp?.google?.organic?.live?.advanced;
   if (serpPrice != null) log(`  listed price serp/google/organic/live/advanced: ${JSON.stringify(serpPrice)}`);
   return r;
 }
