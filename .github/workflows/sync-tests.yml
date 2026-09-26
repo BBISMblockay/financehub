@@ -268,6 +268,13 @@ jobs:
       - name: Workspace settings navigation and platform separation
         run: node --test scripts/tests/workspace-settings.test.mjs
 
+      # Company-specific Melio/BILL intake (#785): the forwarding destination
+      # resolves from the workspace's own setting, with the Baseballism secret
+      # as a temporary fallback. The suite landed without this step and
+      # workflow-env-contract turned main red on the merge.
+      - name: Bill-pay forwarding destination resolution
+        run: node --test scripts/tests/bill-pay-forwarding.test.mjs
+
       # The PO Builder vendor PDF names the company from company_settings.
       # It printed Baseballism's name, address and buyer for every tenant
       # until 2026-09-22; this pins the fallbacks and that no literal returns.
