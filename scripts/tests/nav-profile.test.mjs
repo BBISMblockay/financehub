@@ -96,3 +96,16 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
   assert.ok(!ids.includes('reports/library'));
   assert.ok(!ids.includes('reports/builder'));
 });
+
+test('Reports replaces the sales menu for all existing viewers without widening standard discovery', () => {
+  for (const role of ['owner', 'owner_admin', 'executive', 'admin', 'member', 'viewer', 'user']) {
+    const sections = navSectionsForProfile('grandfathered', 'retail', role, new Set());
+    const ids = sections.flatMap((s) => s.items.map((i) => i.id));
+    assert.ok(ids.includes('reports/dashboards'), `${role} can still find the sales reports`);
+    assert.ok(!sections.some((s) => s.section === 'Sales'));
+    assert.ok(!globalStub.SiloNav.SALES_REPORT_PAGES.some((p) => ids.includes(p.id)));
+    const standard = navSectionsForProfile('standard', 'retail', role, new Set())
+      .flatMap((s) => s.items.map((i) => i.id));
+    assert.equal(standard.includes('reports/dashboards'), ['owner', 'owner_admin', 'executive'].includes(role));
+  }
+});

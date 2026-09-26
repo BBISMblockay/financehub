@@ -23,6 +23,7 @@
        every canvas loads). Beacon tokens only; no new variables. */
     .v3-list-content { padding: 14px 18px 30px; display: flex; flex-direction: column; gap: 14px; }
     .lib-tabs { padding: 0 18px; flex-shrink: 0; }
+    .lib-tabs[hidden] { display: none; }
     /* The tabs are <button>s (real tab semantics), so the UA's button box
        has to go or each one draws as a bordered button. */
     .lib-tabs .bcn-tab {
@@ -154,7 +155,7 @@
       </div>
 
       <section class="lib-pane" id="pane-silo" role="tabpanel" aria-labelledby="tab-silo" hidden>
-        <p class="lib-intro">Standard reports SILO maintains for every company. Open one to see it with your data; changes are saved as your own copy.</p>
+        <p class="lib-intro">Sales reports and reusable insights in one place. Open a report to explore your company’s data.</p>
         <div class="lib-body" id="siloBody"><div class="lib-empty">Loading…</div></div>
       </section>
       <section class="lib-pane" id="pane-mine" role="tabpanel" aria-labelledby="tab-mine" hidden>
@@ -239,6 +240,7 @@
   let allowedTabs = L.TABS.map((t) => t.id);
   let activeTab = L.DEFAULT_TAB;
   let query = '';
+  let reportPages = []; // Page links belong only to this library, never the widget picker.
   // null = not loaded yet; an Error = the load failed. Kept apart from []
   // so "nothing here" and "could not ask" never render the same message.
   const data = { silo: null, mine: null, dashboards: null };
@@ -283,11 +285,10 @@
   function siloCard(r) {
     const full = String(r.description || '').trim();
     return card({
-      kind: 'silo', id: r.id, title: C.displayTitle(r) || r.title, href: siloReportHref(r),
+      kind: 'silo', id: r.id, title: C.displayTitle(r) || r.title, href: r.href || siloReportHref(r),
       summary: L.summaryOf(full),
-      // A SILO report's card carries no badges: every one is global and
-      // single-query, so "SILO report", "Global" and a query count said the
-      // same thing seventeen times. The definition itself is the detail.
+      // Keep the same clean card for page links and reusable definitions.
+      // The description explains what each report offers.
       details: L.hasMore(full) ? `<p>${esc(full)}</p>` : '',
     });
   }
@@ -350,30 +351,31 @@
   // ── Render ──────────────────────────────────────────────────────────
   function render() {
     for (const t of L.TABS) {
-      const rows = data[t.id];
+      const loaded = data[t.id];
+      const rows = t.id === 'silo' ? [...reportPages, ...(Array.isArray(loaded) ? loaded : [])] : loaded;
       const c = document.querySelector(`[data-count="${t.id}"]`);
       if (c) c.textContent = Array.isArray(rows) ? String(rows.length) : '';
     }
     const body = { silo: el('siloBody'), mine: el('mineBody'), dashboards: el('listBody') }[activeTab];
-    const rows = data[activeTab];
+    const loaded = data[activeTab];
+    const pages = activeTab === 'silo' ? reportPages : [];
+    const rows = [...pages, ...(Array.isArray(loaded) ? loaded : [])];
+    const notice = loaded === null ? '<div class="lib-empty">Loading…</div>'
+      : loaded instanceof Error ? loadError(activeTab === 'dashboards' ? 'dashboards' : 'reports', loaded) : '';
     const countEl = el('libCount');
-    if (rows === null) { body.innerHTML = '<div class="lib-empty">Loading…</div>'; countEl.textContent = ''; return; }
-    if (rows instanceof Error) {
-      body.innerHTML = loadError(activeTab === 'dashboards' ? 'dashboards' : 'reports', rows);
-      countEl.textContent = '';
-      return;
-    }
+    // Static page links remain reachable even when saved reports fail to load.
+    if (notice && !pages.length) { body.innerHTML = notice; countEl.textContent = ''; return; }
     const visible = activeTab === 'dashboards' ? L.filterDashboards(rows, query) : L.filterReports(rows, query);
     countEl.textContent = query.trim() ? `${visible.length} of ${rows.length}` : '';
     if (!rows.length) { body.innerHTML = emptyState(activeTab); return; }
-    if (!visible.length) { body.innerHTML = noResults(activeTab); return; }
+    if (!visible.length) { body.innerHTML = notice || noResults(activeTab); return; }
 
     if (activeTab === 'silo') {
       // Grouped by the same business areas the dashboard's Add-insight
       // picker uses, so a report is filed in one place across the product.
       const by = new Map(GROUPS.map(([k]) => [k, []]));
-      for (const r of visible) (by.get(C.categoryFor(r)) || by.get('saved')).push(r);
-      body.innerHTML = GROUPS.filter(([k]) => by.get(k).length).map(([k, label]) => `
+      for (const r of visible) (by.get(r.href ? 'sales' : C.categoryFor(r)) || by.get('saved')).push(r);
+      body.innerHTML = notice + GROUPS.filter(([k]) => by.get(k).length).map(([k, label]) => `
         <section class="lib-group" aria-label="${esc(label)}">
           <h2 class="lib-group-head">${esc(label)}</h2>
           <div class="lib-grid">${by.get(k).slice().sort(L.byTitle).map(siloCard).join('')}</div>
@@ -515,6 +517,7 @@
     const userId = sessRes.data.session.user.id;
     const company = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
     navProfile = window.SiloNav?.resolveNavProfile?.(company) || 'standard';
+    reportPages = navProfile === 'grandfathered' ? (window.SiloNav?.SALES_REPORT_PAGES || []) : [];
 
     if (navProfile === 'standard') {
       // Standard workspaces keep their Insights → Dashboards surface: report
