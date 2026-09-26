@@ -589,6 +589,10 @@
                       <label class="bcn-label" for="shop-domain">Shop domain</label>
                       <input class="bcn-field bcn-field--mono" id="shop-domain" type="text"
                         placeholder="yourstore.myshopify.com" autocomplete="off" spellcheck="false" />
+                      <div class="int-muted">This is the store's actual <code>*.myshopify.com</code> handle, which does not
+                        always match the store's display name (Shopify assigns a random handle when the name is taken
+                        or the store was created as a dev store). Find the real one in the store's own Shopify admin —
+                        it's in the browser address bar, e.g. <code>admin.shopify.com/store/&lt;handle&gt;/...</code>.</div>
                     </div>
                     <div class="form-row">
                       <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-add">Cancel</button>
@@ -1303,6 +1307,21 @@
       } catch (err) {
         resultEl.className = 'test-result err';
         resultEl.textContent = 'Error: ' + err.message;
+        btn.disabled = false;
+        btn.textContent = 'Connect with Shopify →';
+      }
+    });
+
+    // The button above is left disabled/"Redirecting…" right before navigating
+    // to Shopify. If that navigation fails (bad domain, Shopify grant expired,
+    // etc.) and the user hits Back instead of reloading, bfcache restores this
+    // page frozen in exactly that state — button still disabled, no click ever
+    // reaches this handler again, and it looks permanently stuck with nothing
+    // in any log. `pageshow` with `event.persisted` is exactly this restore.
+    window.addEventListener('pageshow', (event) => {
+      if (!event.persisted) return;
+      const btn = document.getElementById('btn-connect-shopify');
+      if (btn && btn.disabled) {
         btn.disabled = false;
         btn.textContent = 'Connect with Shopify →';
       }
