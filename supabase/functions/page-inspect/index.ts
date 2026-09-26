@@ -8,6 +8,20 @@
 // hosts are in scope; a caller cannot inspect another tenant's storefront by
 // passing an id.
 //
+// A SECOND, equally narrow door (2026-09-26): { observation_id } instead of
+// { url } fetches the page a RESULTS PAGE returned for a keyword this company
+// tracks -- a competitor's ranking page. The URL is read from
+// seo_serp_observations under the caller's RLS (never from the body), and the
+// allowlist is exactly that URL's host plus its www./bare twin
+// (competitorAllowlist in the lib, which also refuses IP literals and
+// single-label or reserved names). The same DNS, public-address, pinned-TLS
+// and per-hop redirect checks then run. The capture lands in
+// seo_competitor_page_inspections, never page_inspections, because the latter
+// is cited by the SEO task workflow as evidence about OUR pages. An
+// observation whose host is one of our own storefront hosts takes the own
+// path and lands in page_inspections, so the compare view has both sides.
+// Bounded to COMPETITOR_DAILY_CAP competitor fetches per company per day.
+//
 // Redirects are followed MANUALLY and every hop is re-admitted against that
 // same allowlist. Letting fetch() follow redirects would hand an attacker who
 // controls any response the ability to bounce us to an internal address,
@@ -23,7 +37,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
-  admitUrl, admitRedirect, extractPageFacts, allAddressesPublic,
+  admitUrl, admitRedirect, competitorAllowlist, extractPageFacts, allAddressesPublic,
   findHeaderEnd, parseResponseHead, decodeChunkedBody, buildRequest, raceAbort,
 } from './inspect-lib.mjs';
 
@@ -41,6 +55,9 @@ const MAX_HOPS = 5;
 const MAX_BYTES = 2 * 1024 * 1024;   // 2 MiB of HTML is far past any real page
 const TIMEOUT_MS = 15_000;
 const USER_AGENT = 'SILO-PageInspect/1.0 (+https://silo-baseballism.com)';
+// Competitor fetches per company per rolling day. A person compares a handful
+// of pages; a loop that fetches every observation is not that.
+const COMPETITOR_DAILY_CAP = 60;
 
 async function sha256Hex(text: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
@@ -274,8 +291,10 @@ Deno.serve(async (req) => {
 
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ error: 'invalid_json' }, 400); }
-  const requestedUrl = String(body?.url ?? '');
-  if (!requestedUrl) return json({ error: 'url required' }, 400);
+  const requestedUrl = String(body?.url ?? '').trim();
+  const observationId = String(body?.observation_id ?? '').trim();
+  if (!requestedUrl && !observationId) return json({ error: 'url or observation_id required' }, 400);
+  if (requestedUrl && observationId) return json({ error: 'pass url or observation_id, not both' }, 400);
 
   // The allowlist is read through the CALLER's JWT. shopify_shop_domains'
   // select policy is company_entity_id = active_company_id(), so this returns
@@ -290,20 +309,73 @@ Deno.serve(async (req) => {
     .from('shopify_shop_domains')
     .select('company_entity_id, host');
   if (domErr) return json({ error: `allowlist_read_failed: ${domErr.message}` }, 500);
-  if (!domainRows?.length) {
-    return json({
-      error: 'no_allowlisted_hosts',
-      detail: 'No storefront domains are recorded for your active company yet. '
-        + 'They are learned from Shopify by the nightly sync.',
-    }, 409);
+  const ownHosts = new Set((domainRows ?? []).map((r) => String(r.host)));
+
+  let allowed: Set<string>;
+  let admitted: { url?: string; host?: string; error?: string };
+  let companyEntityId: string;
+  let target: 'own' | 'competitor';
+  let observation: { id: string; keyword_id: string; domain_norm: string } | null = null;
+
+  if (observationId) {
+    // The URL comes from the observation row, read under the caller's RLS:
+    // an id from another tenant is simply not found, and nothing in the body
+    // names a host.
+    const { data: obs, error: obsErr } = await rls
+      .from('seo_serp_observations')
+      .select('id, company_entity_id, keyword_id, url, domain_norm')
+      .eq('id', observationId)
+      .maybeSingle();
+    if (obsErr) return json({ error: `observation_read_failed: ${obsErr.message}` }, 500);
+    if (!obs) {
+      return json({
+        error: 'observation_not_found',
+        detail: 'No observed result with that id is visible to your active company.',
+      }, 404);
+    }
+    const gate = competitorAllowlist(String(obs.url));
+    if (gate.error) return json({ error: gate.error, detail: 'The observed URL is not one this function will fetch.' }, 400);
+    companyEntityId = String(obs.company_entity_id);
+    if (ownHosts.has(gate.host as string)) {
+      // Our own storefront ranked here: same page, same table as a {url} call.
+      target = 'own';
+      allowed = ownHosts;
+      admitted = admitUrl(gate.url as string, allowed);
+      if (admitted.error) return json({ error: admitted.error, allowed_hosts: [...allowed] }, 400);
+    } else {
+      target = 'competitor';
+      allowed = gate.allowed as Set<string>;
+      admitted = { url: gate.url, host: gate.host };
+      observation = { id: String(obs.id), keyword_id: String(obs.keyword_id), domain_norm: String(obs.domain_norm) };
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { count, error: capErr } = await service
+        .from('seo_competitor_page_inspections')
+        .select('id', { count: 'exact', head: true })
+        .eq('company_entity_id', companyEntityId)
+        .gte('fetched_at', since);
+      if (capErr) return json({ error: `cap_read_failed: ${capErr.message}` }, 500);
+      if ((count ?? 0) >= COMPETITOR_DAILY_CAP) {
+        return json({
+          error: 'daily_cap_reached',
+          detail: `${COMPETITOR_DAILY_CAP} competitor pages have been fetched for your company in the last 24 hours. Existing captures are still readable; try again later.`,
+        }, 429);
+      }
+    }
+  } else {
+    if (!domainRows?.length) {
+      return json({
+        error: 'no_allowlisted_hosts',
+        detail: 'No storefront domains are recorded for your active company yet. '
+          + 'They are learned from Shopify by the nightly sync.',
+      }, 409);
+    }
+    target = 'own';
+    allowed = ownHosts;
+    admitted = admitUrl(requestedUrl, allowed);
+    if (admitted.error) return json({ error: admitted.error, allowed_hosts: [...allowed] }, 400);
+    companyEntityId = String(domainRows.find((r) => String(r.host) === admitted.host)?.company_entity_id
+      ?? domainRows[0].company_entity_id);
   }
-
-  const allowed = new Set(domainRows.map((r) => String(r.host)));
-  const admitted = admitUrl(requestedUrl, allowed);
-  if (admitted.error) return json({ error: admitted.error, allowed_hosts: [...allowed] }, 400);
-
-  const companyEntityId = domainRows.find((r) => String(r.host) === admitted.host)?.company_entity_id
-    ?? domainRows[0].company_entity_id;
 
   // ── fetch, following redirects ourselves ─────────────────────────────────
   const startedAt = Date.now();
@@ -405,7 +477,7 @@ Deno.serve(async (req) => {
 
   const row = {
     company_entity_id: companyEntityId,
-    requested_url: requestedUrl,
+    requested_url: requestedUrl || (admitted.url as string),
     host: admitted.host,
     final_url: response ? currentUrl : null,
     redirect_chain: redirectChain,
@@ -424,9 +496,13 @@ Deno.serve(async (req) => {
   // attempt is a real observation ("we could not read this page at this
   // time") and losing it would leave a gap indistinguishable from never
   // having looked.
+  const table = target === 'competitor' ? 'seo_competitor_page_inspections' : 'page_inspections';
+  const stored = target === 'competitor' && observation
+    ? { ...row, observation_id: observation.id, keyword_id: observation.keyword_id, domain_norm: observation.domain_norm }
+    : row;
   const { data: inserted, error: insErr } = await service
-    .from('page_inspections')
-    .insert(row)
+    .from(table)
+    .insert(stored)
     .select('id')
     .single();
 
@@ -440,13 +516,15 @@ Deno.serve(async (req) => {
       ok: false,
       error: `capture_not_stored: ${insErr?.message ?? 'insert returned no row'}`,
       inspection_id: null,
-      ...row,
+      target,
+      ...stored,
     }, 500);
   }
 
   return json({
     ok: !fetchError && !!response,
     inspection_id: inserted.id,
-    ...row,
+    target,
+    ...stored,
   }, 200);
 });

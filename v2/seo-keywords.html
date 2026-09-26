@@ -31,6 +31,26 @@
     .sk-muted { color:var(--bcn-ink-3); }
     .sk-up { color:var(--bcn-pos); } .sk-down { color:var(--bcn-neg); }
     .sk-domains { font-family:var(--bcn-mono); font-size:11px; }
+    .sk-chips { display:flex; flex-wrap:wrap; gap:4px; }
+    .sk-chip { font-family:var(--bcn-mono); font-size:10px; padding:1px 6px; border:1px solid var(--bcn-line, #e5e7eb); border-radius:999px; color:var(--bcn-ink-2); white-space:nowrap; }
+    .sk-chip--lead { border-color:var(--bcn-accent); color:var(--bcn-accent); }
+    tr.sk-kwrow .kw { cursor:pointer; }
+    tr.sk-kwrow .kw::before { content:'▸ '; color:var(--bcn-ink-3); }
+    tr.sk-kwrow.is-open .kw::before { content:'▾ '; }
+    tr.sk-detail td { background:var(--bcn-surface-2, #fafafa); padding:12px 16px; }
+    .sk-detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    @media (max-width: 900px) { .sk-detail-grid { grid-template-columns:1fr; } }
+    .sk-detail h4 { margin:0 0 6px; font-size:12px; }
+    .sk-results { list-style:none; margin:0; padding:0; font-family:var(--bcn-mono); font-size:11px; }
+    .sk-results li { display:flex; gap:8px; align-items:baseline; padding:3px 0; border-bottom:1px dashed var(--bcn-line, #eee); }
+    .sk-results .pos { width:28px; color:var(--bcn-ink-3); }
+    .sk-results .dom { min-width:140px; }
+    .sk-results .path { color:var(--bcn-ink-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+    .sk-results .bcn-btn { padding:1px 8px; font-size:10px; }
+    .sk-qs { margin:0; padding-left:18px; font-size:12px; }
+    .sk-compare td:first-child { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); white-space:nowrap; }
+    .sk-compare td { vertical-align:top; font-size:12px; }
+    .sk-yes { color:var(--bcn-pos); font-weight:600; } .sk-no { color:var(--bcn-neg); font-weight:600; }
     .sk-domains span + span::before { content:' · '; color:var(--bcn-ink-3); }
     .sk-cost { font-family:var(--bcn-mono); font-size:12px; line-height:1.7; }
     .sk-cost b { font-size:16px; }
@@ -113,9 +133,9 @@
               <table class="bcn-table">
                 <thead><tr>
                   <th>Keyword</th><th>Our position</th><th>Movement</th><th class="num" title="Google Search Console impression-weighted average position, last 28 ingested days. A different measure from an observed rank.">SC avg pos (28d)</th>
-                  <th class="num">SC clicks (28d)</th><th>Top of page</th><th class="num">Results</th><th>Observed</th>
+                  <th class="num">SC clicks (28d)</th><th>Top of page</th><th title="Blocks Google placed on the page besides the organic results: People Also Ask, AI overview, product packs, videos. Click the keyword to read them.">On the page</th><th class="num">Results</th><th>Observed</th>
                 </tr></thead>
-                <tbody id="rkBody"><tr><td colspan="8" class="sk-empty">Loading…</td></tr></tbody>
+                <tbody id="rkBody"><tr><td colspan="9" class="sk-empty">Loading…</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -156,8 +176,8 @@
             <div class="bcn-card-body" style="padding:0">
               <div class="bcn-matrix-scroll">
                 <table class="bcn-table">
-                  <thead><tr><th>Domain</th><th class="num" title="Keywords where this domain was in the top 10, over the keywords the latest run observed">Top 10</th><th class="num">Top 3</th><th class="num">Best</th><th>Listed as</th><th></th></tr></thead>
-                  <tbody id="shBody"><tr><td colspan="6" class="sk-empty">Loading…</td></tr></tbody>
+                  <thead><tr><th>Domain</th><th class="num" title="Keywords where this domain was in the top 10, over the keywords the latest run observed">Top 10</th><th class="num">Top 3</th><th class="num">Best</th><th title="Which kind of page held those top-10 results, classified from the URL: collection (category page), product, article (blog/news/forum), home, page, video. A domain winning on articles is running content; one winning on collections has category pages titled for the term.">Ranks with</th><th>Listed as</th><th></th></tr></thead>
+                  <tbody id="shBody"><tr><td colspan="7" class="sk-empty">Loading…</td></tr></tbody>
                 </table>
               </div>
             </div>
@@ -296,7 +316,7 @@
   let _co = null;
   let CAN_APPROVE = false;
   let USER_ID = null;
-  const S = { keywords: [], schedule: null, competitors: [], landscape: [], share: [], runs: [], ledger: [], candidates: [] };
+  const S = { keywords: [], schedule: null, competitors: [], landscape: [], share: [], pageTypes: [], features: [], obsRows: {}, captures: {}, ownCaptures: {}, open: null, compareObs: null, runs: [], ledger: [], candidates: [] };
 
   // ── Tabs ─────────────────────────────────────────────────────────────────
   document.querySelectorAll('.bcn-tab[data-pane]').forEach(tab => tab.addEventListener('click', () => {
@@ -408,7 +428,7 @@
     const device = el('rkDevice').value, provider = el('rkProvider').value;
     const rows = S.landscape.filter(r => r.device === device && r.provider === provider);
     if (!rows.length) {
-      el('rkBody').innerHTML = `<tr><td colspan="8" class="sk-empty">${S.keywords.length ? `No ${provider === 'manual' ? 'manual check' : 'weekly fetch'} has observed a ${device} results page yet. ${provider === 'manual' ? '' : 'Switch tracking on under Tracking; the first run is on Monday.'}` : 'Add keywords first.'}</td></tr>`;
+      el('rkBody').innerHTML = `<tr><td colspan="9" class="sk-empty">${S.keywords.length ? `No ${provider === 'manual' ? 'manual check' : 'weekly fetch'} has observed a ${device} results page yet. ${provider === 'manual' ? '' : 'Switch tracking on under Tracking; the first run is on Monday.'}` : 'Add keywords first.'}</td></tr>`;
       el('rkFoot').innerHTML = ''; return;
     }
     el('rkBody').innerHTML = rows.map(r => {
@@ -416,16 +436,21 @@
       const mvCls = L.movementSign > 0 ? 'sk-up' : L.movementSign < 0 ? 'sk-down' : 'sk-muted';
       const oursCls = L.state === 'observed' ? '' : 'sk-muted';
       const tops = K.topDomains(r.latest_top_results, 3).map(t => `<span class="${t.own ? 'sk-own' : ''}" title="#${t.position}${t.relationship ? ' · ' + t.relationship : ''}">${esc(t.domain)}</span>`).join('');
-      return `<tr>
+      const chips = K.featureChips(featuresFor(r));
+      const chipHtml = chips.map(c => `<span class="sk-chip ${c.position != null && c.position <= 3 ? 'sk-chip--lead' : ''}" title="${esc(c.label)} at slot ${c.position == null ? '?' : c.position}${c.count == null ? '' : ', ' + c.count + ' item' + (c.count === 1 ? '' : 's')}">${esc(c.label)}${c.count == null || c.type === 'images' ? '' : ' ' + c.count}</span>`).join('');
+      const rowKey = `${r.keyword_id || r.id}|${r.latest_run_id || ''}`;
+      const open = S.open === rowKey;
+      return `<tr class="sk-kwrow ${open ? 'is-open' : ''}" data-key="${esc(rowKey)}">
         <td class="kw" title="${esc(r.keyword)}">${esc(r.keyword)}${r.is_active ? '' : ' <span class="bcn-pill">paused</span>'}</td>
         <td class="${oursCls}">${esc(L.ours)}</td>
         <td class="${mvCls}">${esc(L.movement)}</td>
         <td class="num" title="Search Console impression-weighted AVERAGE, ${esc(r.search_console_window_start || '')} → ${esc(r.search_console_window_end || '')}. Not an observed rank.">${r.search_console_avg_position_28d == null ? '<span class="sk-muted">not a returned query</span>' : posFmt(r.search_console_avg_position_28d)}</td>
         <td class="num">${r.search_console_clicks_28d == null ? '' : numFmt(r.search_console_clicks_28d)}</td>
         <td class="sk-domains">${tops || '<span class="sk-muted">—</span>'}</td>
+        <td><div class="sk-chips">${chipHtml || (r.latest_run_id ? '<span class="sk-muted">organic only</span>' : '<span class="sk-muted">—</span>')}</div></td>
         <td class="num">${r.results_in_latest_run == null ? '<span class="sk-muted">never</span>' : r.results_in_latest_run}</td>
         <td class="mono">${r.latest_observed_on ? dayFmt(r.latest_observed_on) : '<span class="sk-muted">never</span>'}</td>
-      </tr>`;
+      </tr>${open ? `<tr class="sk-detail"><td colspan="9">${renderDetail(r)}</td></tr>` : ''}`;
     }).join('');
     const observed = rows.filter(r => r.latest_observed_on).length;
     el('rkFoot').innerHTML = `${rows.length} keywords, ${observed} observed on ${device} by ${provider === 'manual' ? 'a manual check' : 'the weekly fetch'} (United States, English, Google). `
@@ -434,6 +459,137 @@
   }
   el('rkDevice').addEventListener('change', renderRankings);
   el('rkProvider').addEventListener('change', renderRankings);
+
+  function featuresFor(r) {
+    if (!r.latest_run_id) return [];
+    return S.features.filter(f => f.run_id === r.latest_run_id && f.keyword_id === (r.keyword_id || r.id));
+  }
+  function latestCapture(map, obsId) { return map[obsId] || null; }
+
+  /** The expanded row: what else was on the page, every observed result with
+   * an Inspect button, and the side-by-side of a captured page against ours. */
+  const rowKeyOf = (r) => `${r.keyword_id || r.id}|${r.latest_run_id || ''}`;
+  function renderDetail(r) {
+    // The observation rows themselves (with ids), read on expand: the
+    // landscape's latest_top_results carries no ids, and an id is what the
+    // inspector takes so that nothing here names a host.
+    const results = (S.obsRows[rowKeyOf(r)] || []).slice().sort((a, b) => a.position - b.position);
+    const chips = K.featureChips(featuresFor(r));
+    const blocks = chips.filter(c => c.entries.length).map(c => {
+      const items = c.entries.slice(0, 10).map(e => {
+        const bits = [];
+        if (e.title) bits.push(esc(e.title));
+        if (e.source) bits.push(`<span class="sk-muted">${esc(e.source)}</span>`);
+        if (e.price != null) bits.push(`<span class="mono">${esc(String(e.price))}${e.currency ? ' ' + esc(e.currency) : ''}</span>`);
+        if (e.domain) bits.push(`<span class="sk-muted mono">${esc(e.domain)}</span>`);
+        return `<li>${bits.join(' · ')}</li>`;
+      }).join('');
+      return `<h4>${esc(c.label)} <span class="sk-muted">slot ${c.position == null ? '?' : c.position}</span></h4><ul class="sk-qs">${items}</ul>`;
+    }).join('');
+    const ours = results.find(x => x.is_own_domain) || null;
+    const ourCap = ours ? latestCapture(S.ownCaptures, ours.id) : null;
+    const list = results.map(x => {
+      const cap = x.is_own_domain ? latestCapture(S.ownCaptures, x.id) : latestCapture(S.captures, x.id);
+      const chosen = S.compareObs === x.id;
+      return `<li>
+        <span class="pos">#${x.position}</span>
+        <span class="dom ${x.is_own_domain ? 'sk-own' : ''}">${esc(x.domain)}</span>
+        <span class="path" title="${esc(x.url || '')}">${esc(K.pagePath(x.url))}</span>
+        ${cap ? `<span class="sk-muted" title="captured ${esc(String(cap.fetched_at || '').slice(0, 16).replace('T', ' '))}">${cap.fetch_error ? 'fetch failed' : (cap.word_count == null ? 'captured' : cap.word_count + ' words')}</span>` : ''}
+        <button class="bcn-btn bcn-btn--ghost" data-inspect="${esc(x.id)}" title="Fetch this page and record what it says about itself (title, description, H1s, word count).">${cap ? 'Re-inspect' : 'Inspect'}</button>
+        ${!x.is_own_domain && cap ? `<button class="bcn-btn bcn-btn--ghost ${chosen ? 'bcn-btn--dark' : ''}" data-compare="${esc(x.id)}">Compare</button>` : ''}
+      </li>`;
+    }).join('');
+    const theirsObs = results.find(x => x.id === S.compareObs) || results.find(x => !x.is_own_domain && S.captures[x.id]) || null;
+    const theirCap = theirsObs ? S.captures[theirsObs.id] : null;
+    let compare = '';
+    if (theirCap || ourCap) {
+      const rows = K.compareFacts(r.keyword, ourCap, theirCap);
+      const cell = v => v === 'yes' ? '<span class="sk-yes">yes</span>' : v === 'no' ? '<span class="sk-no">no</span>' : esc(v);
+      compare = `<h4>Their page vs ours <span class="sk-muted">${theirsObs ? esc(theirsObs.domain) + ' #' + theirsObs.position : 'pick a competitor'} · ${ours ? 'ours #' + ours.position : 'we were not on this page'}</span></h4>
+        <table class="bcn-table sk-compare"><thead><tr><th></th><th>${theirsObs ? esc(theirsObs.domain) : 'theirs'}</th><th>ours</th></tr></thead><tbody>
+        ${rows.map(x => `<tr><td>${esc(x.label)}</td><td>${cell(x.theirs)}</td><td>${cell(x.ours)}</td></tr>`).join('')}
+        </tbody></table>
+        <div class="sk-foot">What each page SAYS about itself at capture time. Not evidence of why it ranks; a difference is a hypothesis to test with an SEO task.</div>`;
+    } else if (!ours) {
+      compare = `<h4>Their page vs ours</h4><div class="sk-foot">We were not in the observed results for this keyword, so there is no page of ours to compare. Inspect a competitor's result to read what their page says.</div>`;
+    } else {
+      compare = `<h4>Their page vs ours</h4><div class="sk-foot">Inspect our result and a competitor's result above, then Compare.</div>`;
+    }
+    return `<div class="sk-detail-grid">
+      <div><h4>Observed results <span class="sk-muted">${esc(r.latest_observed_on || '')}, ${esc(r.device)}</span></h4><ul class="sk-results">${list || '<li class="sk-muted">nothing returned</li>'}</ul>
+        ${blocks ? `<div style="margin-top:12px">${blocks}</div>` : '<div class="sk-foot" style="margin-top:8px">No People Also Ask, AI overview or product block was returned for this fetch.</div>'}</div>
+      <div>${compare}</div>
+    </div>`;
+  }
+
+  el('rkBody').addEventListener('click', async (ev) => {
+    const ins = ev.target.closest('button[data-inspect]');
+    if (ins) { ev.stopPropagation(); await inspectObservation(ins.dataset.inspect, ins); return; }
+    const cmp = ev.target.closest('button[data-compare]');
+    if (cmp) { ev.stopPropagation(); S.compareObs = cmp.dataset.compare; renderRankings(); return; }
+    const kw = ev.target.closest('td.kw');
+    if (!kw) return;
+    const tr = kw.closest('tr.sk-kwrow'); if (!tr) return;
+    const key = tr.dataset.key;
+    S.open = S.open === key ? null : key;
+    S.compareObs = null;
+    if (S.open) {
+      const r = S.landscape.find(x => `${x.keyword_id || x.id}|${x.latest_run_id || ''}` === key);
+      if (r) await loadCaptures(r);
+    }
+    renderRankings();
+  });
+
+  async function loadCaptures(r) {
+    const key = rowKeyOf(r);
+    if (!r.latest_run_id) { S.obsRows[key] = []; return; }
+    const o = await sb.from('seo_serp_observations_v').select('id, position, domain, url, title, result_type, is_own_domain, relationship').eq('run_id', r.latest_run_id).eq('keyword_id', r.keyword_id || r.id).eq('result_type', 'organic').order('position').limit(100);
+    if (o.error) { setStatus(`Results: ${explain(o.error)}`, 'neg', 4000); S.obsRows[key] = []; return; }
+    S.obsRows[key] = o.data || [];
+    const results = S.obsRows[key];
+    const ids = results.map(x => x.id).filter(Boolean);
+    if (!ids.length) return;
+    const theirs = await sb.from('seo_competitor_page_inspections').select('id, observation_id, title, title_length, meta_description, meta_description_length, h1, h1_count, h2_count, word_count, image_count, images_missing_alt, jsonld_types, canonical_url, fetched_at, fetch_error').in('observation_id', ids).order('fetched_at', { ascending: false }).limit(200);
+    if (theirs.error) { if (!/42P01/.test(String(theirs.error.code))) setStatus(`Captures: ${explain(theirs.error)}`, 'neg', 4000); }
+    else for (const row of theirs.data || []) if (!S.captures[row.observation_id]) S.captures[row.observation_id] = row;
+    const own = results.filter(x => x.is_own_domain && x.url);
+    if (own.length) {
+      const mine = await scoped(sb.from('page_inspections').select('id, requested_url, title, title_length, meta_description, meta_description_length, h1, h1_count, h2_count, word_count, image_count, images_missing_alt, jsonld_types, canonical_url, fetched_at, fetch_error')).in('requested_url', own.map(x => x.url)).order('fetched_at', { ascending: false }).limit(50);
+      if (mine.error) setStatus(`Our captures: ${explain(mine.error)}`, 'neg', 4000);
+      else for (const x of own) { const row = (mine.data || []).find(m => m.requested_url === x.url); if (row) S.ownCaptures[x.id] = row; }
+    }
+  }
+
+  /** Fetch one observed result's page through page-inspect. The function
+   * reads the URL from the observation under our RLS; nothing here names a
+   * host. Our own result lands in page_inspections, theirs in
+   * seo_competitor_page_inspections. */
+  async function inspectObservation(obsId, btn) {
+    btn.disabled = true; const label = btn.textContent; btn.textContent = 'Fetching…';
+    try {
+      const { data, error } = await sb.functions.invoke('page-inspect', { body: { observation_id: obsId } });
+      let payload = data;
+      if (error) {
+        // supabase-js wraps a non-2xx as FunctionsHttpError with the response.
+        try { payload = await error.context?.json?.(); } catch { payload = null; }
+        if (!payload) throw error;
+      }
+      if (payload?.error && !payload?.inspection_id) {
+        const why = payload.error === 'daily_cap_reached' ? payload.detail
+          : payload.error === 'observation_not_found' ? 'That result is no longer visible to your company.'
+          : `${payload.error}${payload.detail ? ': ' + payload.detail : ''}`;
+        setStatus(`Inspect refused: ${why}`, 'neg', 6000); return;
+      }
+      const row = payload;
+      if (row.target === 'competitor') S.captures[obsId] = row; else S.ownCaptures[obsId] = row;
+      if (row.target === 'competitor') S.compareObs = obsId;
+      setStatus(row.fetch_error ? `Fetched, but the page could not be read: ${row.fetch_error}` : `Captured ${row.host}: ${row.word_count == null ? '' : row.word_count + ' words, '}title “${row.title || ''}”.`, row.fetch_error ? 'neg' : 'pos', 5000);
+      renderRankings();
+    } catch (e) {
+      setStatus(`Inspect failed: ${explain(e)}`, 'neg', 6000);
+    } finally { btn.disabled = false; btn.textContent = label; }
+  }
 
   // ── Competitors ──────────────────────────────────────────────────────────
   function renderCompetitors() {
@@ -448,17 +604,26 @@
     const device = el('shDevice').value;
     const share = S.share.filter(s => s.device === device && s.provider === 'dataforseo' && !s.is_own_domain).sort((a, b) => (b.keywords_in_top_10 - a.keywords_in_top_10) || (b.keywords_in_top_3 - a.keywords_in_top_3) || (a.best_position - b.best_position)).slice(0, 40);
     const listed = new Set(S.competitors.map(c => c.domain_norm));
-    if (!share.length) { el('shBody').innerHTML = `<tr><td colspan="6" class="sk-empty">No completed ${device} run yet.</td></tr>`; el('shFoot').innerHTML = ''; return; }
+    if (!share.length) { el('shBody').innerHTML = `<tr><td colspan="7" class="sk-empty">No completed ${device} run yet.</td></tr>`; el('shFoot').innerHTML = ''; return; }
     const denom = share[0].keywords_observed;
+    const runId = share[0].run_id;
+    const typesFor = (domain) => K.pageTypeSummary(S.pageTypes.filter(t => t.run_id === runId && t.domain_norm === domain));
+    const typesHtml = (domain) => {
+      const t = typesFor(domain);
+      return t.length ? `<div class="sk-chips">${t.map(x => `<span class="sk-chip" title="${esc(x.page_type)}: ${x.keywords} keyword${x.keywords === 1 ? '' : 's'} in the top 10 across ${x.pages} page${x.pages === 1 ? '' : 's'}; best #${x.best == null ? '?' : x.best}${x.example_path ? ' — e.g. ' + esc(x.example_path) + ' for “' + esc(x.example_keyword || '') + '”' : ''}">${esc(x.page_type)} ${x.keywords}</span>`).join('')}</div>` : '<span class="sk-muted">—</span>';
+    };
     el('shBody').innerHTML = share.map(s => `<tr>
       <td class="mono">${esc(s.domain_norm)}</td>
       <td class="num">${s.keywords_in_top_10} / ${s.keywords_observed}</td>
       <td class="num">${s.keywords_in_top_3}</td>
       <td class="num">${s.best_position == null ? '' : '#' + s.best_position}</td>
+      <td>${typesHtml(s.domain_norm)}</td>
       <td>${s.relationship ? esc(s.relationship) : '<span class="sk-muted">not listed</span>'}</td>
       <td class="actions">${CAN_APPROVE && !listed.has(s.domain_norm) ? `<button class="bcn-btn bcn-btn--ghost" data-list="${esc(s.domain_norm)}">Add as search competitor</button>` : ''}</td>
     </tr>`).join('');
-    el('shFoot').innerHTML = `Latest completed ${device} run (${dayFmt(share[0].observed_on)}): domains counted against the <b>${denom} keywords that run observed</b>, never against the whole set. Your own storefront is excluded. A marketplace or media site here is a search competitor without being a commercial one.`;
+    const ownTypes = K.pageTypeSummary(S.pageTypes.filter(t => t.run_id === runId && t.is_own_domain));
+    const ownLine = ownTypes.length ? `<b>Your own top-10 results by page type:</b> ${ownTypes.map(x => `${esc(x.page_type)} ${x.keywords}`).join(' · ')}. ` : '';
+    el('shFoot').innerHTML = `Latest completed ${device} run (${dayFmt(share[0].observed_on)}): domains counted against the <b>${denom} keywords that run observed</b>, never against the whole set. Your own storefront is excluded from the table. ${ownLine}“Ranks with” classifies the ranking URL (collection, product, article, home, page, video), not the page's content; hover a chip for an example. A marketplace or media site here is a search competitor without being a commercial one.`;
   }
   el('shDevice').addEventListener('change', renderCompetitors);
   async function addCompetitor(domain, relationship, note) {
@@ -540,13 +705,29 @@
   async function loadLandscape() {
     const { data, error } = await scoped(sb.from('seo_keyword_landscape_v').select('*')).limit(4000);
     if (error) throw error;
-    S.landscape = data || []; renderRankings();
+    S.landscape = data || [];
+    await loadFeatures();
+    renderRankings();
+  }
+  /** The non-organic blocks for the latest run each landscape row points at.
+   * A missing table (page shipped before the migration) leaves the column
+   * blank rather than failing the load. */
+  async function loadFeatures() {
+    const runIds = [...new Set(S.landscape.map(r => r.latest_run_id).filter(Boolean))];
+    S.features = [];
+    if (!runIds.length) return;
+    const { data, error } = await sb.from('seo_serp_features_v').select('run_id, keyword_id, feature_type, position, item_count, details').in('run_id', runIds).limit(20000);
+    if (error) { if (!/42P01/.test(String(error.code))) setStatus(`Page features: ${explain(error)}`, 'neg', 4000); return; }
+    S.features = data || [];
   }
   async function loadCompetitors() {
-    const [c, s] = await Promise.all([
+    const [c, s, t] = await Promise.all([
       scoped(sb.from('seo_competitor_domains').select('*')).order('domain_norm'),
       scoped(sb.from('seo_competitor_share_v').select('*')).limit(2000),
+      scoped(sb.from('seo_competitor_page_types_v').select('*')).limit(4000),
     ]);
+    if (t.error) { if (!/42P01/.test(String(t.error.code))) setStatus(`Page types: ${explain(t.error)}`, 'neg', 4000); S.pageTypes = []; }
+    else S.pageTypes = t.data || [];
     if (c.error) throw c.error; if (s.error) throw s.error;
     S.competitors = c.data || []; S.share = s.data || [];
   }

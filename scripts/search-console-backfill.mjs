@@ -119,6 +119,11 @@ async function main() {
         + `${result.page_rows_upserted} page rows, ${result.query_rows_upserted} query rows`);
     }
   }
+  // The rows that landed are what the keyword-candidate rollup should
+  // describe, whether or not every chunk did (20260926150000).
+  const { error: rollupError } = await supabase.rpc('refresh_search_console_query_rollup_mv');
+  if (rollupError) console.error(`[search-console-backfill] search_console_query_rollup_mv refresh failed: ${rollupError.message}`);
+  else console.log('[search-console-backfill] search_console_query_rollup_mv refreshed');
   if (hadError) process.exit(1);
 }
 
