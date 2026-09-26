@@ -2399,3 +2399,36 @@ reads `company_settings`) per row, twice. `win as materialized` makes the
 window a value the scan joins to. Same signature and semantics; broke every
 Ask SILO call of the function since 2026-09-09 too. Guarded by the
 `search_console_query_rollup` verify check.
+
+## SEO tactics: page types, SERP features, competitor captures — `20260926170000_seo_serp_tactics.sql`
+
+Three readers of what the weekly SERP fetch already returns, built after the
+first real run (151 keywords × two devices) showed the same collection page
+on both sides of "baseball backpacks" — theirs titled for the term at #1,
+ours not at #3 — and a competitor article beating our homepage on "baseball
+gifts for boys". (1) `seo_serp_page_path(url)` strips the host and the
+`srsltid` / click-id parameters (IMMUTABLE; the stored url is never altered)
+and `seo_serp_page_type(url)` classifies the path as home / collection /
+product / article / video / page / other; `seo_competitor_page_types_v` groups
+the latest completed run's top-10 organic results by domain and page type
+(keywords won, distinct pages, best position, an example). (2)
+`seo_serp_features`: one row per NON-organic block per run and keyword —
+`feature_type` is the provider's verbatim name with no CHECK (a block Google
+adds later is recorded, not dropped), `position` is the block's ABSOLUTE
+slot, `details` is a bounded extract (PAA questions, product titles and
+sellers, video titles, AI-overview references; 20 entries, 300 chars). Its
+own table because a block has no domain and no organic rank, so
+`seo_serp_observations` stays "a domain at a rank" and the landscape's counts
+stay organic. Composite FKs to the run, the keyword and the run-keyword row;
+`trg_seo_serp_newest_run_wins` (the guard function is re-declared naming the
+fourth table); select-only RLS. (3) `seo_competitor_page_inspections`: what a
+competitor's ranking page said about itself when fetched — the same columns
+as `page_inspections`, a SEPARATE table because `page_inspections` is cited
+by `seo_task_publications` as evidence about OUR pages — keyed by
+`observation_id` to the observation that returned the URL (a new
+`unique (id, company_entity_id)` on observations backs the composite FK).
+Written only by `page-inspect` (`{observation_id}` body, service-role
+insert); no client write policy. Verify: `seo_serp_tactics`. Tests:
+`scripts/tests/seo-serp-database.test.mjs` (mutations `features-writable`,
+`captures-unkeyed`), `page-inspect.test.mjs` (`competitorAllowlist`),
+`seo-serp-sync.test.mjs` (`mapSerpFeatures`).

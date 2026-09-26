@@ -165,6 +165,66 @@ export function mapObservations(taskResult) {
   return { rows, itemTypes: Array.isArray(taskResult?.item_types) ? taskResult.item_types.map(String) : null };
 }
 
+const FEATURE_ENTRY_CAP = 20;
+const FEATURE_TEXT_CAP = 300;
+
+/** One bounded entry from an element of a SERP block: a question, a product,
+ * a video, a reference. Strings (related searches) become a title. Never the
+ * element's full payload -- a PAA element carries the whole expanded answer. */
+function featureEntry(e) {
+  if (typeof e === 'string') return e.trim() ? { title: e.trim().slice(0, FEATURE_TEXT_CAP) } : null;
+  if (!e || typeof e !== 'object') return null;
+  const out = {};
+  if (e.title) out.title = String(e.title).slice(0, FEATURE_TEXT_CAP);
+  // A People Also Ask element names its answer's page in expanded_element.
+  const src = (e.domain || e.url) ? e : (Array.isArray(e.expanded_element) ? e.expanded_element[0] : null);
+  const domain = bareDomain(src?.domain);
+  if (domain) out.domain = domain;
+  if (src?.url) out.url = String(src.url).slice(0, 500);
+  const source = e.seller ?? e.source ?? e.merchant;
+  if (source) out.source = String(source).slice(0, 120);
+  if (e.price != null && e.price !== '') out.price = typeof e.price === 'object' ? e.price?.current ?? null : e.price;
+  if (e.currency) out.currency = String(e.currency).slice(0, 8);
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * The NON-organic blocks in one task_get result: People Also Ask, AI
+ * overview, product packs, videos, images, snippets -- whatever the provider
+ * named. position is the block's ABSOLUTE slot (rank_absolute), never an
+ * organic rank; details is a bounded extract (entries capped at 20, text at
+ * 300 chars), never the payload. The type name is kept verbatim so a block
+ * Google introduces later is recorded under its own name rather than dropped.
+ */
+export function mapSerpFeatures(taskResult) {
+  const items = taskResult?.items || [];
+  const seen = new Set();
+  const rows = [];
+  for (const it of items) {
+    const type = String(it?.type || '').trim();
+    if (!type || type === 'organic' || type === 'paid') continue;
+    const position = Number(it.rank_absolute ?? it.rank_group);
+    if (!Number.isInteger(position) || position < 1) continue;
+    const key = `${type}:${position}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const elements = [
+      ...(Array.isArray(it.items) ? it.items : []),
+      ...(Array.isArray(it.references) ? it.references : []),
+    ];
+    const entries = elements.map(featureEntry).filter(Boolean).slice(0, FEATURE_ENTRY_CAP);
+    const details = {};
+    if (it.title) details.title = String(it.title).slice(0, FEATURE_TEXT_CAP);
+    const self = featureEntry({ domain: it.domain, url: it.url });
+    if (self) Object.assign(details, self);
+    if (entries.length) details.entries = entries;
+    if (it.asynchronous_ai_overview === true) details.asynchronous = true;
+    const itemCount = Array.isArray(it.items) ? it.items.length : (Array.isArray(it.references) ? it.references.length : null);
+    rows.push({ feature_type: type, position, item_count: itemCount, details });
+  }
+  return rows;
+}
+
 // ── database helpers ───────────────────────────────────────────────────────
 
 async function one(query, label) {
@@ -326,6 +386,28 @@ async function collectOne({ supabase, api, schedule, run, ledgerRow, nowIso, bat
       synced_at: nowIso,
       sync_batch_id: batchId,
     })), { onConflict: 'run_id,keyword_id,result_type,position' }), 'seo_serp_observations upsert');
+  }
+  // 2b. what else was on the page: PAA, AI overview, product packs, videos.
+  //     Their own table -- a block has no organic rank and often no domain.
+  const features = mapSerpFeatures(result);
+  if (features.length) {
+    await one(supabase.from('seo_serp_features').upsert(features.map((f) => ({
+      company_entity_id: schedule.company_entity_id,
+      run_id: run.id,
+      keyword_id: ledgerRow.keyword_id,
+      provider: PROVIDER,
+      observed_on: run.observed_on,
+      location_name: run.location_name,
+      language_code: run.language_code,
+      device: run.device,
+      search_engine: run.search_engine,
+      feature_type: f.feature_type,
+      position: f.position,
+      item_count: f.item_count,
+      details: f.details,
+      synced_at: nowIso,
+      sync_batch_id: batchId,
+    })), { onConflict: 'run_id,keyword_id,feature_type,position' }), 'seo_serp_features upsert');
   }
   // 3. the ledger says collected, last.
   await one(supabase.from('seo_serp_provider_tasks').update({

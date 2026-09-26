@@ -3474,6 +3474,69 @@ select
     else 'ok'
   end as search_console_query_rollup;
 
+-- ── SEO tactics: page types, SERP features, competitor captures (20260926170000)
+-- Three readers of what the SERP fetch already returns. The features table
+-- and the competitor-capture table are service-role written and keyed to
+-- the run/observation that produced them; the page-type classifier and the
+-- path stripper are IMMUTABLE functions the view groups by, so a wrong
+-- answer from either misfiles every domain at once.
+select
+  case
+    when (select count(*) from information_schema.tables
+          where table_schema='public' and table_name in ('seo_serp_features','seo_competitor_page_inspections')) <> 2
+      then 'MISSING — seo_serp_features / seo_competitor_page_inspections (20260926170000)'
+    when (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace
+          where n.nspname='public' and c.relname in ('seo_serp_features','seo_competitor_page_inspections') and c.relrowsecurity) <> 2
+      then 'CRITICAL — RLS is off on an SEO tactics table'
+    when exists (select 1 from pg_policies
+                 where schemaname='public' and tablename in ('seo_serp_features','seo_competitor_page_inspections') and cmd <> 'SELECT')
+      then 'CRITICAL — a client write policy exists on seo_serp_features or seo_competitor_page_inspections; both are service-role written'
+    when (select count(*) from pg_constraint
+          where conname in ('seo_serp_features_run_company_fkey','seo_serp_features_keyword_company_fkey','seo_serp_features_requested_keyword_fkey',
+                            'seo_competitor_page_inspections_observation_company_fkey','seo_competitor_page_inspections_keyword_company_fkey',
+                            'seo_serp_observations_id_company_key')) <> 6
+      then 'MISSING — an SEO tactics composite FK (a feature or capture must belong to the run/observation and company that produced it)'
+    when not exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid
+                     where c.relname='seo_serp_features' and t.tgname='trg_seo_serp_newest_run_wins' and not t.tgisinternal)
+      then 'MISSING — trg_seo_serp_newest_run_wins is not on seo_serp_features; an older run can overwrite a newer one'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_serp_reject_stale_write'
+                       and pg_get_functiondef(p.oid) like '%seo_serp_features%')
+      then 'CRITICAL — seo_serp_reject_stale_write() no longer names seo_serp_features; feature inserts into a completed run are not refused'
+    when (select count(*) from pg_trigger t join pg_class c on c.oid=t.tgrelid
+          where c.relname in ('seo_serp_features','seo_competitor_page_inspections')
+            and t.tgname = 'stamp_company_entity_id' and not t.tgisinternal) <> 2
+      then 'MISSING — an SEO tactics table has no company stamp trigger'
+    when (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+          where n.nspname='public' and p.proname in ('seo_serp_page_path','seo_serp_page_type') and p.provolatile='i') <> 2
+      then 'MISSING — seo_serp_page_path() / seo_serp_page_type() (IMMUTABLE)'
+    when public.seo_serp_page_path('https://www.baseballism.com/?srsltid=AU7gw4U5') <> '/'
+      or public.seo_serp_page_path('https://bl101.com/collections/backpacks?srsltid=abc&utm_source=x#top') <> '/collections/backpacks'
+      or public.seo_serp_page_path('https://www.amazon.com/s?k=baseball+backpack&srsltid=zz') <> '/s?k=baseball+backpack'
+      then 'CRITICAL — seo_serp_page_path() no longer strips the srsltid/click parameters, so one page groups as many'
+    when public.seo_serp_page_type('https://bl101.com/collections/backpacks?srsltid=abc') <> 'collection'
+      or public.seo_serp_page_type('https://www.amazon.com/Under-Armour/dp/B0C1/ref=sr_1_1') <> 'product'
+      or public.seo_serp_page_type('https://bl101.com/blogs/the-bullpen/best-baseball-gifts') <> 'article'
+      or public.seo_serp_page_type('https://www.baseballism.com/?srsltid=x') <> 'home'
+      or public.seo_serp_page_type('https://www.youtube.com/watch?v=abc') <> 'video'
+      then 'CRITICAL — seo_serp_page_type() misclassifies a known URL shape'
+    when (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace
+          where n.nspname='public'
+            and c.relname in ('seo_competitor_page_types_v','seo_serp_features_v')
+            and 'security_invoker=true' = any(c.reloptions)) <> 2
+      then 'MISSING — an SEO tactics view is absent or not security_invoker'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='seo_competitor_page_types_v' and column_name='keywords_in_top_10')
+      then 'MISSING — seo_competitor_page_types_v.keywords_in_top_10'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_serp_features' and description like '%ABSOLUTE slot%')
+      then 'MISSING — seo_serp_features catalog entry no longer says position is an absolute slot, not an organic rank'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_competitor_page_inspections' and description like '%Nothing here is evidence about indexing%')
+      then 'MISSING — seo_competitor_page_inspections catalog entry lost its not-evidence-about-search caveat'
+    else 'ok'
+  end as seo_serp_tactics;
+
 -- ── Empty collections stay visible (20260909320000, corrective) ─────────────
 -- The view LEFT-joined product->SKU but INNER-joined collection->membership,
 -- so a collection with no products vanished -- an empty collection read as a

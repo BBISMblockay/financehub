@@ -31,7 +31,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakeSupabase } from './lib/fake-supabase.mjs';
-import { DIRECT_FETCH_AFTER_MS, DataForSeoError, dataForSeoRequest, mapObservations, selectKeywords, syncSerpSchedule } from '../lib/seo-serp-sync-core.mjs';
+import { DIRECT_FETCH_AFTER_MS, DataForSeoError, dataForSeoRequest, mapObservations, mapSerpFeatures, selectKeywords, syncSerpSchedule } from '../lib/seo-serp-sync-core.mjs';
 
 const CO = 'company-a';
 const noSleep = async () => {};
@@ -123,6 +123,15 @@ test('posts the keyword set to the queue in batches with the schedule bounds and
   const o = obs(sb).find((r) => r.keyword_id === 'kw-1' && r.device === 'desktop' && r.position === 2);
   assert.equal(o.domain, 'baseballism.com', 'www. stripped, organic rank not absolute slot');
   assert.equal(o.observed_on, '2026-09-28'); assert.equal(o.location_name, 'United States'); assert.equal(o.provider, 'dataforseo'); assert.equal(o.result_type, 'organic');
+  // What else was on the page lands in its own table, one row per block per
+  // keyword and device, keyed on the ABSOLUTE slot, never mixed into
+  // observations or counted in result_count.
+  const feats = sb.rows('seo_serp_features');
+  assert.equal(feats.length, 300, 'one ai_overview block per keyword per device');
+  const f = feats.find((r) => r.keyword_id === 'kw-1' && r.device === 'desktop');
+  assert.equal(f.feature_type, 'ai_overview'); assert.equal(f.position, 1); assert.equal(f.run_id, runs(sb)[0].id);
+  assert.equal(f.observed_on, '2026-09-28'); assert.equal(f.provider, 'dataforseo');
+  assert.ok(!obs(sb).some((r) => r.result_type !== 'organic'), 'observations stay organic ranks only');
   assert.equal(jobs(sb)[0].status, 'success');
   assert.equal(jobs(sb)[0].result.devices[0].collected, 150);
   assert.equal(sb.rows('seo_serp_schedules')[0].last_run_on, '2026-09-28');
@@ -266,6 +275,44 @@ test('mapObservations keeps organic only, by rank_group, first of a duplicated r
   });
   assert.deepEqual(rows.map((r) => [r.position, r.domain]), [[1, 'a.com'], [2, 'b.com'], [4, 'c.com']]);
   assert.deepEqual(itemTypes, ['organic', 'popular_products']);
+});
+
+test('mapSerpFeatures records every non-organic block by absolute slot with a bounded extract, verbatim type names', () => {
+  const rows = mapSerpFeatures({
+    items: [
+      { type: 'organic', rank_group: 1, rank_absolute: 1, domain: 'a.com', url: 'https://a.com/' },
+      { type: 'paid', rank_absolute: 0 },
+      { type: 'people_also_ask', rank_group: 1, rank_absolute: 2, items: [
+        { type: 'people_also_ask_element', title: 'What is a baseball backpack?', expanded_element: [{ type: 'people_also_ask_expanded_element', domain: 'www.bl101.com', url: 'https://www.bl101.com/blogs/x', title: 'Guide' }] },
+        { type: 'people_also_ask_element', title: 'Are baseball backpacks waterproof?' },
+      ] },
+      { type: 'ai_overview', rank_absolute: 1, asynchronous_ai_overview: true, items: null, references: [{ type: 'ai_overview_reference', domain: 'www.mlbshop.com', url: 'https://www.mlbshop.com/p', title: 'MLB Shop' }] },
+      { type: 'popular_products', rank_absolute: 3, items: [{ type: 'popular_products_element', title: 'Catcher Pack', seller: 'Amazon.com', price: 59.99, currency: 'USD' }] },
+      { type: 'related_searches', rank_absolute: 9, items: ['baseball bat bag', 'youth baseball backpack'] },
+      { type: 'images', rank_absolute: 4, items: Array.from({ length: 30 }, (_, i) => ({ type: 'images_element', alt: `img ${i}`, url: `https://img/${i}` })) },
+      { type: 'featured_snippet', rank_absolute: 1, domain: 'en.wikipedia.org', url: 'https://en.wikipedia.org/wiki/Baseball', title: 'Baseball' },
+      { type: 'video', rank_absolute: 4, items: [{ type: 'video_element', source: 'YouTube', title: 'Best bags', url: 'https://www.youtube.com/watch?v=1', domain: 'www.youtube.com' }] },
+      { type: 'video', rank_absolute: 4, items: [] },
+      { type: 'knowledge_graph', rank_absolute: null, title: 'x' },
+    ],
+  });
+  assert.deepEqual(rows.map((r) => `${r.feature_type}@${r.position}`), [
+    'people_also_ask@2', 'ai_overview@1', 'popular_products@3', 'related_searches@9', 'images@4', 'featured_snippet@1', 'video@4',
+  ], 'organic and paid dropped, a duplicate (type, slot) keeps the first, a block with no slot is dropped');
+  const paa = rows[0];
+  assert.equal(paa.item_count, 2);
+  assert.deepEqual(paa.details.entries[0], { title: 'What is a baseball backpack?', domain: 'bl101.com', url: 'https://www.bl101.com/blogs/x' }, 'a PAA question names its answer page');
+  assert.deepEqual(paa.details.entries[1], { title: 'Are baseball backpacks waterproof?' });
+  const ai = rows[1];
+  assert.equal(ai.details.asynchronous, true);
+  assert.deepEqual(ai.details.entries, [{ title: 'MLB Shop', domain: 'mlbshop.com', url: 'https://www.mlbshop.com/p' }], 'AI overview references are the entries');
+  assert.deepEqual(rows[2].details.entries, [{ title: 'Catcher Pack', source: 'Amazon.com', price: 59.99, currency: 'USD' }]);
+  assert.deepEqual(rows[3].details.entries.map((e) => e.title), ['baseball bat bag', 'youth baseball backpack'], 'string items become titles');
+  assert.equal(rows[4].item_count, 30); assert.equal(rows[4].details.entries.length, 20, 'entries are capped at 20; item_count keeps the true count');
+  assert.deepEqual(rows[5].details, { title: 'Baseball', domain: 'en.wikipedia.org', url: 'https://en.wikipedia.org/wiki/Baseball' }, 'a block that cites one page carries it at the top level');
+  assert.equal(rows[6].details.entries[0].source, 'YouTube');
+  assert.deepEqual(mapSerpFeatures({ items: [] }), []);
+  assert.deepEqual(mapSerpFeatures(null), []);
 });
 
 test('selectKeywords: priority first (nulls last), then age, capped, inactive dropped', () => {
