@@ -286,11 +286,22 @@ schedule row: `max_keywords_per_run` (by priority, then age) and
 `max_cost_per_run_usd` (the provider's own reported cost, checked between
 batches). `is_active` defaults to false and only an approver may change it.
 
-**To switch a company on:** insert its `seo_serp_schedules` row (defaults are
-the measured ones), review its keyword set (`seo_derive_keyword_candidates()`
-→ `seo_keyword_set`), set `is_active = true`, and dispatch `SEO SERP Sync`
-once with the company id rather than waiting for Monday.
+**To switch a company on:** `/v2/seo-keywords.html` (Marketing → SEO
+Keywords, visible to execs/owners and anyone in `seo_approvers`). Keywords tab:
+"Suggest keywords" runs `seo_derive_keyword_candidates()` and the person picks
+which to add (never an auto-insert); Tracking tab: the "Track rankings weekly"
+switch with the estimated cost printed beside it, plus the device, depth,
+keyword-cap and cost-cap bounds. Only an SEO approver can save it (RLS on
+`seo_serp_schedules`); everyone else sees it read-only and is told so. The
+first run is the following Monday, or an admin dispatches `SEO SERP Sync` with
+the company id. Rankings tab reads `seo_keyword_landscape_v` with the three
+absences in words ("never observed" / "nothing returned" / "not in top N
+observed"); Competitors tab holds the curated list and, beside it, the domains
+derived from the latest run (`seo_competitor_share_v`) with a one-click "add
+as search competitor". Page logic that decides those words and the cost is in
+`v2/seo-keywords.js`, pinned by `v2/tests/unit/seo-keywords.test.js`.
 
 **Still to do:** volume, if bought, in its own table with `source =
-'google_ads_modelled'`, never beside Search Console clicks; the
-`/v2/seo-keywords.html` page.
+'google_ads_modelled'`, never beside Search Console clicks; a manual-check
+entry form on the page (the `seo_import_manual_serp_observations()` RPC
+exists; nothing on the page calls it yet).

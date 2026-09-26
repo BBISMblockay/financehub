@@ -19,11 +19,11 @@ is the authority on what is still to do.
       writer shipped the same day** (`20260926140000`,
       `scripts/lib/seo-serp-sync-core.mjs`, `seo-serp-sync.yml` -- off until a
       company's `seo_serp_schedules` row is switched on by an approver). Next
-      in order: switch Baseballism on with a reviewed keyword set (the
-      candidates come from `seo_derive_keyword_candidates()`), then the
-      `/v2/seo-keywords.html` page (keyword set review, competitor list,
-      manual-check entry, the landscape table), then the recommendation
-      writer (Ask SILO tools). The sequence is in `docs/ops/seo-project.md`'s
+      in order: Blake switches Baseballism on from `/v2/seo-keywords.html`
+      (shipped 2026-09-26: keyword suggestions, competitor list, rankings
+      table, the tracking switch with its cost), then the recommendation
+      writer (Ask SILO tools); a manual-check entry form on the page is
+      still open. The sequence is in `docs/ops/seo-project.md`'s
       second-phase review.
 - [ ] **Period lock and bank reconciliation, in that order of decision.**
       The 2026-09-14 controls review (`docs/ops/accounting-controls-review.md`)
