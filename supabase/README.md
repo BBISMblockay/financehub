@@ -2341,3 +2341,28 @@ different-measures rules; `evidence-scope.mjs` now treats `device`,
 `provider` and `result_type` as scope dimensions. Verify:
 `seo_competitor_serp`. Test: `scripts/tests/seo-serp-database.test.mjs`
 (three mutations in CI).
+
+## SEO SERP provider sync — `20260926140000_seo_serp_provider_sync.sql`
+
+The DataForSEO writer's two tables, built to what
+`.github/workflows/seo-serp-probe.yml` MEASURED on 2026-09-26: the live
+endpoint takes one task per request, the standard queue takes a batch and
+answered in 106–139 s at $0.0012 per task (depth 20), and depth counts
+absolute SERP slots (depth 10 yielded 7–8 organic ranks, depth 20 16–19).
+`seo_serp_schedules` is ONE row per company — `is_active` (default FALSE:
+switching it on spends SILO's key on a tenant's behalf), `devices`
+(non-empty distinct subset of desktop/mobile, a plain-expression CHECK since
+a CHECK may not hold a subquery), location/language/depth (default 20),
+`max_keywords_per_run` (300) and `max_cost_per_run_usd` (2.00) — approver-only
+writes. `seo_serp_provider_tasks` is the LEDGER of what was posted: one row
+per (run, keyword) with the provider's task id, written when the post is
+accepted and before any collection, so a timed-out or crashed collection
+resumes instead of re-posting (paying twice, and a second observation of one
+identity). `failed` = asked, provider could not answer: no
+`seo_serp_run_keywords` row is written, so the keyword reads as never observed
+in that run. Select for members; no client write policy. Writer:
+`scripts/lib/seo-serp-sync-core.mjs` from `seo-serp-sync.yml` (Mondays 09:15
+UTC + 15:15 UTC catch-up, which resumes from the ledger). Verify:
+`seo_serp_provider_sync`. Tests: `scripts/tests/seo-serp-sync.test.mjs` (fake
+provider + fake Supabase) and two more cases in
+`seo-serp-database.test.mjs` with a fourth mutation (`ledger-writable`).

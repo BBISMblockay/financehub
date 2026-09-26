@@ -24,6 +24,7 @@
 //   SERP_DB_MUTATION=stale-write-allowed    (the newest-run-wins triggers removed)
 //   SERP_DB_MUTATION=observations-writable  (a client insert policy on observations)
 //   SERP_DB_MUTATION=import-unscoped        (the manual import resolves keywords across companies)
+//   SERP_DB_MUTATION=ledger-writable        (a client write policy on seo_serp_provider_tasks)
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -34,6 +35,8 @@ import { splitSqlStatements } from '../lib/sql-statements.mjs';
 const db = new PGlite({ extensions: { pgcrypto } });
 const root = new URL('../../', import.meta.url);
 const MIGRATION = '20260926120000_seo_competitor_serp_schema.sql';
+// Applied after MIGRATION: the provider sync's schedule row and task ledger.
+const SYNC_MIGRATION = '20260926140000_seo_serp_provider_sync.sql';
 const dependencies = [
   '20260616060000_stamp_company_entity_id_on_insert.sql',
   '20260909220000_page_inspection.sql',
@@ -54,7 +57,7 @@ const dependencies = [
   '20260924130100_business_timezone_seo.sql',
 ];
 const mutation = process.env.SERP_DB_MUTATION || '';
-assert.ok(['', 'stale-write-allowed', 'observations-writable', 'import-unscoped'].includes(mutation), 'Unknown SERP database mutation');
+assert.ok(['', 'stale-write-allowed', 'observations-writable', 'import-unscoped', 'ledger-writable'].includes(mutation), 'Unknown SERP database mutation');
 
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const first = async (sql, params = []) => (await q(sql, params))[0];
@@ -487,10 +490,50 @@ try {
     assert.ok(!theirs.some((r) => r.keyword_norm === 'dad hat'));
   });
 
+  await test('the provider-sync migration applies twice: a schedule row OFF by default, approver-only; a ledger no client writes', async () => {
+    const sql = await readFile(new URL(`supabase/migrations/${SYNC_MIGRATION}`, root), 'utf8');
+    await db.exec(sql);
+    await db.exec(sql);
+    if (mutation === 'ledger-writable') {
+      await db.exec(`create policy seo_serp_provider_tasks_insert on public.seo_serp_provider_tasks for insert to authenticated
+        with check (company_entity_id = public.active_company_id())`);
+    }
+    assert.equal(await scalar("select count(*)::int from information_schema.tables where table_schema='public' and table_name in ('seo_serp_schedules','seo_serp_provider_tasks')"), 2);
+    // A member reads, cannot write; an approver switches it on; the defaults
+    // are the measured ones (depth 20) and OFF.
+    await refused(() => asMember(() => q('insert into seo_serp_schedules(company_entity_id) values ($1)', [co])), /row-level security/, 'member cannot create a schedule');
+    const sched = await asApprover(() => first('insert into seo_serp_schedules(company_entity_id) values ($1) returning *', [co]));
+    assert.equal(sched.is_active, false); assert.equal(sched.depth, 20); assert.deepEqual(sched.devices, ['desktop', 'mobile']);
+    assert.equal(sched.max_keywords_per_run, 300); assert.equal(sched.location_code, 2840);
+    assert.equal(await asMember(() => scalar('select count(*)::int from seo_serp_schedules')), 1, 'a member reads it');
+    assert.equal(await asOutsider(() => scalar('select count(*)::int from seo_serp_schedules')), 0, 'another company does not');
+    await refused(() => asApprover(() => q('insert into seo_serp_schedules(company_entity_id) values ($1)', [co])), /one_per_company|duplicate key/, 'one row per company');
+    await refused(() => asApprover(() => q("update seo_serp_schedules set devices = array['desktop','tablet'] where id=$1", [sched.id])), /devices_valid/, 'only desktop/mobile');
+    await refused(() => asApprover(() => q("update seo_serp_schedules set devices = array['desktop','desktop'] where id=$1", [sched.id])), /devices_valid/, 'no duplicate device');
+    await refused(() => asApprover(() => q("update seo_serp_schedules set devices = '{}' where id=$1", [sched.id])), /devices_valid/, 'at least one device');
+    await asApprover(() => q('update seo_serp_schedules set is_active = true where id=$1', [sched.id]));
+    // The ledger: service role writes, a member reads, nobody else writes.
+    const kw = await asMember(() => scalar("insert into seo_keyword_set(company_entity_id, keyword, source) values ($1, 'ledger keyword', 'manual') returning id", [co]));
+    const runId = await providerRun({ observedOn: '2026-09-28', syncedAt: '2026-09-28T09:00:00Z', batch: 'ledger', rows: [], asked: [kw], complete: false });
+    await asRole('service_role', '', () => q(`insert into seo_serp_provider_tasks(company_entity_id, run_id, keyword_id, provider_task_id, post_cost_usd)
+      values ($1, $2, $3, 'task-1', 0.0012)`, [co, runId, kw]));
+    assert.equal(await asMember(() => scalar('select count(*)::int from seo_serp_provider_tasks')), 1, 'a member reads the ledger');
+    await refused(() => asApprover(() => q(`insert into seo_serp_provider_tasks(company_entity_id, run_id, keyword_id, provider_task_id) values ($1,$2,$3,'task-2')`, [co, runId, kw])), /row-level security/, 'no client insert');
+    await asApprover(async () => {
+      await q("update seo_serp_provider_tasks set status='collected', collected_at=now() where provider_task_id='task-1'");
+      assert.equal(await scalar("select status from seo_serp_provider_tasks where provider_task_id='task-1'"), 'posted', 'no client update');
+    });
+    await refused(() => asRole('service_role', '', () => q("update seo_serp_provider_tasks set status='collected' where provider_task_id='task-1'")), /collected_consistent/, 'collected needs a collected_at');
+    await refused(() => asRole('service_role', '', () => q(`insert into seo_serp_provider_tasks(company_entity_id, run_id, keyword_id, provider_task_id) values ($1,$2,$3,'task-3')`, [otherCo, runId, kw])), /foreign key|violates/, 'a ledger row cannot cross tenants');
+    assert.equal(await scalar("select count(*)::int from pg_trigger t join pg_class c on c.oid=t.tgrelid where c.relname in ('seo_serp_schedules','seo_serp_provider_tasks') and t.tgname = 'stamp_company_entity_id' and not t.tgisinternal"), 2, 'both carry the stamp trigger');
+    assert.equal(await scalar("select is_hidden from silo_chat_schema_catalog where relname='seo_serp_provider_tasks'"), true, 'the ledger is hidden from the Ask SILO index');
+    assert.equal(await scalar("select is_hidden from silo_chat_schema_catalog where relname='seo_serp_schedules'"), false);
+  });
+
   await test('the committed verification checks for this schema return ok on the migrated database', async () => {
     const verifySql = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
-    const checks = splitSqlStatements(verifySql).filter((s) => /as seo_competitor_serp\b/.test(s.text));
-    assert.equal(checks.length, 1, 'the seo_competitor_serp check must be committed');
+    const checks = splitSqlStatements(verifySql).filter((s) => /as seo_competitor_serp\b|as seo_serp_provider_sync\b/.test(s.text));
+    assert.equal(checks.length, 2, 'the seo_competitor_serp and seo_serp_provider_sync checks must be committed');
     for (const sql of checks) {
       const rows = await q(sql.text);
       assert.ok(rows.length > 0, 'a verification check must return evidence');

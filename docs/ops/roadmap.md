@@ -14,13 +14,17 @@ is the authority on what is still to do.
       (`20260914120000`). **Keyword set and SERP observation schema shipped
       2026-09-26** (`20260926120000`, step 4 taken ahead of steps 2-3 because
       it is provider-free and gives Ask SILO real ground the moment a manual
-      pilot lands). **Blake chose DataForSEO 2026-09-26; the account is not
-      yet opened.** Next in order: the provider writer (a read-only probe
-      workflow first, then `scripts/lib/seo-serp-sync-core.mjs` on the Redo
-      marketing core's shape, weekly schedule, SILO-owned key as a repo
-      secret -- `docs/ops/seo-competitors.md`), then the recommendation
-      writer (Ask SILO tools) and the workflow page. The sequence is in
-      `docs/ops/seo-project.md`'s second-phase review.
+      pilot lands). **DataForSEO account opened, verified and probed
+      2026-09-26** (`seo-serp-probe.yml`; secrets set), and **the weekly
+      writer shipped the same day** (`20260926140000`,
+      `scripts/lib/seo-serp-sync-core.mjs`, `seo-serp-sync.yml` -- off until a
+      company's `seo_serp_schedules` row is switched on by an approver). Next
+      in order: switch Baseballism on with a reviewed keyword set (the
+      candidates come from `seo_derive_keyword_candidates()`), then the
+      `/v2/seo-keywords.html` page (keyword set review, competitor list,
+      manual-check entry, the landscape table), then the recommendation
+      writer (Ask SILO tools). The sequence is in `docs/ops/seo-project.md`'s
+      second-phase review.
 - [ ] **Period lock and bank reconciliation, in that order of decision.**
       The 2026-09-14 controls review (`docs/ops/accounting-controls-review.md`)
       executed the committed SQL and found the approval → posting → recovery

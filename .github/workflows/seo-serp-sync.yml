@@ -1,0 +1,59 @@
+name: SEO SERP Sync
+
+# Weekly DataForSEO fetch of each company's SEO keyword set into the
+# seo_serp_* tables, for every seo_serp_schedules row with is_active = true
+# (OFF by default per company). See scripts/seo-serp-sync.mjs and
+# scripts/lib/seo-serp-sync-core.mjs.
+#
+# Two crons on the same day: the second is a catch-up. GitHub drops scheduled
+# runs silently (see shopify-sync.yml), and a run whose collection hits the
+# deadline leaves tasks pending at the provider; the catch-up RESUMES from the
+# seo_serp_provider_tasks ledger and posts nothing new, and no-ops on a day
+# whose runs are complete. No `concurrency` group, for the reason recorded in
+# shopify-sync.yml.
+#
+# Cost: measured $0.0012 per task (depth 20). 300 keywords x 2 devices is
+# $0.72 per week. Bounded per company by max_keywords_per_run and
+# max_cost_per_run_usd on the schedule row.
+on:
+  workflow_dispatch:
+    inputs:
+      company_entity_id:
+        description: Optional company UUID (default every active schedule)
+        required: false
+      collect_wait_minutes:
+        description: How long to wait for the provider before leaving tasks for the catch-up (default 20)
+        required: false
+        default: "20"
+  schedule:
+    # Monday 09:15 UTC: after the nightly syncs, before US business hours.
+    - cron: "15 9 * * 1"
+    # Monday 15:15 UTC catch-up: resumes pending collections, no-ops otherwise.
+    - cron: "15 15 * * 1"
+
+jobs:
+  seo-serp-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Fetch SERP observations
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATAFORSEO_LOGIN: ${{ secrets.DATAFORSEO_LOGIN }}
+          DATAFORSEO_PASSWORD: ${{ secrets.DATAFORSEO_PASSWORD }}
+          SEO_SERP_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
+          SEO_SERP_COLLECT_WAIT_MINUTES: ${{ github.event.inputs.collect_wait_minutes || '20' }}
+        run: node scripts/seo-serp-sync.mjs
