@@ -10,7 +10,7 @@
  *   node scripts/tests/page-inspect.test.mjs
  */
 import {
-  admitUrl, admitRedirect, isHostAllowed, normalizeHost, extractPageFacts, decodeEntities,
+  admitUrl, admitRedirect, isHostAllowed, normalizeHost, extractPageFacts, decodeEntities, competitorAllowlist,
   isPublicAddress, allAddressesPublic,
   findHeaderEnd, parseResponseHead, decodeChunkedBody, buildRequest, raceAbort,
 } from '../../supabase/functions/page-inspect/inspect-lib.mjs';
@@ -588,6 +588,54 @@ await test('a failed shop fetch retires NOTHING', async () => {
   ok(res.skipped, 'reported as skipped');
   eq(supabase.calls.deletes.length, 1, 'no second delete ran');
   eq(supabase.rows('shopify_shop_domains').length, before, 'allowlist untouched');
+});
+
+console.log('\n-- competitor allowlist: the NAME gate for a URL a results page returned --');
+
+test('a competitor URL admits exactly its host and the www./bare twin', () => {
+  const a = competitorAllowlist('https://www.bl101.com/collections/backpacks?srsltid=x');
+  ok(!a.error, `admitted: ${JSON.stringify(a)}`);
+  eq(a.host, 'www.bl101.com', 'host');
+  deepEq([...a.allowed].sort(), ['bl101.com', 'www.bl101.com'], 'host plus its bare twin');
+  const b = competitorAllowlist('https://bl101.com/');
+  deepEq([...b.allowed].sort(), ['bl101.com', 'www.bl101.com'], 'bare host plus its www twin');
+  ok(admitRedirect('https://www.bl101.com/collections/backpacks', 'https://bl101.com/', b.allowed).url, 'the bare->www redirect stays on-host');
+});
+
+test('a subdomain host admits itself and its www. form only, never the parent or a sibling', () => {
+  const a = competitorAllowlist('https://shop.bl101.com/x');
+  deepEq([...a.allowed].sort(), ['shop.bl101.com', 'www.shop.bl101.com'], 'allowlist');
+  ok(admitRedirect('https://bl101.com/', 'https://shop.bl101.com/x', a.allowed).error, 'the parent is not admitted');
+  ok(admitRedirect('https://admin.bl101.com/', 'https://shop.bl101.com/x', a.allowed).error, 'a sibling is not admitted');
+});
+
+for (const [label, raw] of [
+  ['an http:// URL', 'http://bl101.com/'],
+  ['a URL with credentials', 'https://user:pw@bl101.com/'],
+  ['a URL on another port', 'https://bl101.com:8443/'],
+  ['a dotted IPv4 literal', 'https://10.0.0.1/admin'],
+  ['a public IPv4 literal', 'https://1.1.1.1/'],
+  ['a decimal IPv4 literal', 'https://2130706433/'],
+  ['an IPv6 literal', 'https://[::1]/'],
+  ['a bracketed IPv4-mapped IPv6 literal', 'https://[::ffff:169.254.169.254]/'],
+  ['localhost', 'https://localhost/'],
+  ['a single-label host', 'https://metadata/computeMetadata/v1/'],
+  ['a .internal host', 'https://metadata.google.internal/computeMetadata/v1/'],
+  ['a .local host', 'https://printer.local/'],
+  ['a javascript: URL', 'javascript:alert(1)'],
+  ['an empty string', ''],
+]) {
+  test(`${label} never yields a competitor allowlist`, () => {
+    const r = competitorAllowlist(raw);
+    ok(r.error, `expected an error for ${raw}, got ${JSON.stringify(r)}`);
+    ok(!r.allowed, 'no allowlist on refusal');
+  });
+}
+
+test('the allowlist is built from the NORMALISED host, so case and a root dot cannot widen it', () => {
+  const a = competitorAllowlist('https://WWW.BL101.com./x');
+  eq(a.host, 'www.bl101.com', 'normalised');
+  deepEq([...a.allowed].sort(), ['bl101.com', 'www.bl101.com'], 'allowlist');
 });
 
 console.log(`\n${count - failures}/${count} passed`);

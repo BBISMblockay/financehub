@@ -2366,3 +2366,69 @@ UTC + 15:15 UTC catch-up, which resumes from the ledger). Verify:
 `seo_serp_provider_sync`. Tests: `scripts/tests/seo-serp-sync.test.mjs` (fake
 provider + fake Supabase) and two more cases in
 `seo-serp-database.test.mjs` with a fourth mutation (`ledger-writable`).
+
+## Keyword candidates inside the browser timeout — `20260926150000_seo_candidates_within_timeout.sql`
+
+Found the moment `/v2/seo-keywords.html`'s "Suggest keywords" was pressed on
+production: `seo_derive_keyword_candidates(90)` took 27.9 s against the
+authenticated role's 8 s `statement_timeout`. Restructuring the aggregation
+did not help (27.0 s): reading Baseballism's 405,057 Search Console query rows
+for the window is 3.7 s of heap fetches by itself, under a 5 MB `work_mem`
+that spills every step. So the rows are not read at click time:
+`search_console_query_rollup_mv` holds per company × normalised keyword the
+trailing 90 days ending on the newest ingested day (clicks, impressions, the
+weighted-position numerator, distinct days), refreshed by
+`refresh_search_console_query_rollup_mv()` (DEFINER, service role only, 300 s)
+from `ad-platforms-sync.mjs` after any Search Console connection and from
+`search-console-backfill.mjs`. Read through `search_console_query_rollup_v`
+(`security_invoker = false` + `active_company_id()` filter — the wrapper is
+the tenant boundary; no grant on the matview). The function now reads the
+wrapper, so the Search Console groups are always the rollup's 90 days and
+`p_days` bounds the collection candidates only. The migration populates the
+rollup at the end. Verify: `search_console_query_rollup`.
+
+## Collection candidates inside the browser timeout — `20260926160000_seo_collection_candidates_within_timeout.sql`
+
+The second half of the same finding. With the rollup in place the candidate
+list still measured 25.8 s, and the plan's one opaque node was
+`seo_collection_candidates(90)`: 25.6 s on its own, 100 ms when its body is
+run inline. With `p_days` a parameter the generic plan cannot fold
+`today - days` into an index condition, scans the 186,802-row landing-page
+table with a filter, and a filter evaluates `silo_business_today()` (STABLE,
+reads `company_settings`) per row, twice. `win as materialized` makes the
+window a value the scan joins to. Same signature and semantics; broke every
+Ask SILO call of the function since 2026-09-09 too. Guarded by the
+`search_console_query_rollup` verify check.
+
+## SEO tactics: page types, SERP features, competitor captures — `20260926170000_seo_serp_tactics.sql`
+
+Three readers of what the weekly SERP fetch already returns, built after the
+first real run (151 keywords × two devices) showed the same collection page
+on both sides of "baseball backpacks" — theirs titled for the term at #1,
+ours not at #3 — and a competitor article beating our homepage on "baseball
+gifts for boys". (1) `seo_serp_page_path(url)` strips the host and the
+`srsltid` / click-id parameters (IMMUTABLE; the stored url is never altered)
+and `seo_serp_page_type(url)` classifies the path as home / collection /
+product / article / video / page / other; `seo_competitor_page_types_v` groups
+the latest completed run's top-10 organic results by domain and page type
+(keywords won, distinct pages, best position, an example). (2)
+`seo_serp_features`: one row per NON-organic block per run and keyword —
+`feature_type` is the provider's verbatim name with no CHECK (a block Google
+adds later is recorded, not dropped), `position` is the block's ABSOLUTE
+slot, `details` is a bounded extract (PAA questions, product titles and
+sellers, video titles, AI-overview references; 20 entries, 300 chars). Its
+own table because a block has no domain and no organic rank, so
+`seo_serp_observations` stays "a domain at a rank" and the landscape's counts
+stay organic. Composite FKs to the run, the keyword and the run-keyword row;
+`trg_seo_serp_newest_run_wins` (the guard function is re-declared naming the
+fourth table); select-only RLS. (3) `seo_competitor_page_inspections`: what a
+competitor's ranking page said about itself when fetched — the same columns
+as `page_inspections`, a SEPARATE table because `page_inspections` is cited
+by `seo_task_publications` as evidence about OUR pages — keyed by
+`observation_id` to the observation that returned the URL (a new
+`unique (id, company_entity_id)` on observations backs the composite FK).
+Written only by `page-inspect` (`{observation_id}` body, service-role
+insert); no client write policy. Verify: `seo_serp_tactics`. Tests:
+`scripts/tests/seo-serp-database.test.mjs` (mutations `features-writable`,
+`captures-unkeyed`), `page-inspect.test.mjs` (`competitorAllowlist`),
+`seo-serp-sync.test.mjs` (`mapSerpFeatures`).

@@ -391,6 +391,33 @@ export function admitUrl(raw, allowedHosts) {
   return { url: parsed.toString(), host };
 }
 
+/**
+ * The allowlist for fetching a COMPETITOR page: exactly the host of the URL a
+ * results page returned, plus its www./bare twin (a site that redirects
+ * bl101.com -> www.bl101.com must not read as a redirect off-host). Nothing
+ * else -- not a subdomain, not a sibling. Refuses what admitUrl would refuse
+ * (scheme, credentials, port) BEFORE any allowlist exists, and additionally
+ * refuses an IP literal and a single-label host: a results page never names
+ * `10.0.0.1` or `localhost`, and an allowlist built from a URL would otherwise
+ * admit whatever the URL named. The DNS and address checks in the edge
+ * function still run on top of this; this is the NAME gate, they are the
+ * ADDRESS gate.
+ */
+export function competitorAllowlist(raw) {
+  const probe = admitUrl(raw, [normalizeHost(safeHostOf(raw))]);
+  if (probe.error) return { error: probe.error };
+  const host = probe.host;
+  if (parseIpv4(host) || parseIpv6(host.replace(/^\[|\]$/g, ''))) return { error: 'ip_literal_host' };
+  if (!host.includes('.') || host === 'localhost' || host.endsWith('.localhost')) return { error: 'single_label_host' };
+  if (host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.arpa')) return { error: 'reserved_host_suffix' };
+  const twin = host.startsWith('www.') ? host.slice(4) : `www.${host}`;
+  return { url: probe.url, host, allowed: new Set([host, twin]) };
+}
+
+function safeHostOf(raw) {
+  try { return new URL(String(raw).trim()).hostname; } catch { return ''; }
+}
+
 /** Resolve a Location header against the current URL and re-admit it.
  * A redirect is a brand-new request to a brand-new host, so it gets the SAME
  * admission check as the original -- this is the only path by which a

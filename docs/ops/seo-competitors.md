@@ -299,9 +299,69 @@ absences in words ("never observed" / "nothing returned" / "not in top N
 observed"); Competitors tab holds the curated list and, beside it, the domains
 derived from the latest run (`seo_competitor_share_v`) with a one-click "add
 as search competitor". Page logic that decides those words and the cost is in
-`v2/seo-keywords.js`, pinned by `v2/tests/unit/seo-keywords.test.js`.
+`v2/seo-keywords.js`, pinned by `v2/tests/unit/seo-keywords.test.js`. The
+suggestions come from `search_console_query_rollup_v` (a nightly 90-day
+rollup, `20260926150000`), not the raw query table: on the first real press
+the click-time query took 27.9 s against the browser's 8 s limit.
 
 **Still to do:** volume, if bought, in its own table with `source =
 'google_ads_modelled'`, never beside Search Console clicks; a manual-check
 entry form on the page (the `seo_import_manual_serp_observations()` RPC
 exists; nothing on the page calls it yet).
+
+## Tactics, not just rankings (2026-09-26)
+
+The first real run (151 keywords, desktop and mobile, $0.36) answered "where
+are we" and immediately raised "why are they ahead". Two examples from the
+observations as stored, no fetch needed:
+
+| Keyword | BL101 | Baseballism |
+|---|---|---|
+| baseball backpacks (#1 vs #3) | `/collections/backpacks`, "Baseball Backpacks & Bags \| BL101" | `/collections/backpacks`, "Backpacks \| Baseballism Online" |
+| baseball gifts for boys (#4 vs #12) | a blog post, "Best Baseball Gifts for Kids: A Parent's Guide by Age and Budget" | the homepage |
+
+Three additions read that as tactics (`20260926170000`):
+
+1. **Which page type a domain ranks with** — `seo_competitor_page_types_v`,
+   from the URL path: collection, product, article, home, page, video,
+   other. Marketplace and media shapes are covered (Amazon `/dp/`, `/s`;
+   eBay `/itm/`, `/sch/`; Walmart `/ip/`; Dick's `/f/`; Reddit `/r/`;
+   YouTube `/watch`). `seo_serp_page_path()` strips the `srsltid` Google
+   Merchant Center click id that made every ranking URL unique. A
+   classification of the URL, never of the content. On the Competitors tab
+   as "Ranks with"; the foot line gives our own split.
+2. **What else was on the page** — `seo_serp_features`. The provider
+   returns People Also Ask, AI overviews, product packs, videos and images in
+   the response the sync already pays for; until now only their type names
+   were kept on the ledger. Now one row per block with the block's ABSOLUTE
+   slot and a bounded extract: PAA questions (a content brief for free), the
+   pages an AI overview cites, product titles and sellers. Their own table:
+   a block has no domain and no organic rank, and `seo_serp_observations`
+   must stay "a domain at a rank" or the landscape's result counts and the
+   share view's denominators drift. Chips on the Rankings tab; the expanded
+   row lists the questions.
+3. **What their ranking page says about itself** —
+   `seo_competitor_page_inspections`, through the existing inspector's new
+   `{observation_id}` door. The inspector was deliberately fenced to our own
+   verified storefront hosts (an open fetcher is a server-side request
+   forgery hole); the second door is as narrow: the URL is read from the
+   observation under the caller's RLS, never from the body; the allowlist is
+   exactly that host plus its www./bare twin (`competitorAllowlist` refuses
+   IP literals, single-label and reserved names before the DNS,
+   public-address, pinned-TLS and per-hop redirect checks run); 60 fetches
+   per company per day. A separate table from `page_inspections`, which the
+   SEO task workflow cites as evidence about OUR pages. The expanded keyword
+   row shows every observed result with Inspect, and a side-by-side of a
+   captured competitor page against ours: title and whether it names the
+   term, meta description, H1 and whether it names the term, heading count,
+   words, images and missing alt, structured-data types, canonical, capture
+   time. A missing side reads "not captured" on every row, never blank.
+
+What this does not do: it does not say WHY a page ranks. A difference in
+the side-by-side is a hypothesis to test with an SEO task (baseline, publish,
+follow-up window), which is the workflow that already exists. Backlinks and
+search volume are separate provider products and are deliberately not here.
+
+`page-inspect` must be redeployed for the Inspect button to work. Until it
+is, the deployed handler answers `url required` to an `{observation_id}`
+body, and the page reports that as an inspect failure rather than a capture.

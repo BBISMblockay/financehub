@@ -96,5 +96,59 @@ r.test('domainNorm strips scheme, path and www.', () => {
   r.eq(K.domainNorm('https://WWW.Fanatics.com/baseballism'), 'fanatics.com');
 });
 
+console.log('\n── tactics: page paths, feature chips, page types, compare ──');
+r.test('pagePath strips the host, the hash and click/tracking params, never the real query', () => {
+  r.eq(K.pagePath('https://www.baseballism.com/?srsltid=AU7gw4U5'), '/');
+  r.eq(K.pagePath('https://bl101.com/collections/backpacks?srsltid=abc&utm_source=x#top'), '/collections/backpacks');
+  r.eq(K.pagePath('https://www.amazon.com/s?k=baseball+backpack&srsltid=zz'), '/s?k=baseball+backpack');
+  r.eq(K.pagePath('https://baseballism.com/products/tee?variant=1'), '/products/tee?variant=1');
+  r.eq(K.pagePath(''), '/');
+});
+r.test('feature chips are one per type in page order, counts summed, trailing blocks last, unknown types labelled from their name', () => {
+  const chips = K.featureChips([
+    { feature_type: 'related_searches', position: 9, item_count: 8, details: { entries: [{ title: 'x' }] } },
+    { feature_type: 'people_also_ask', position: 3, item_count: 4, details: { entries: [{ title: 'q1' }] } },
+    { feature_type: 'ai_overview', position: 1, item_count: 2, details: { entries: [] } },
+    { feature_type: 'people_also_ask', position: 12, item_count: 3, details: { entries: [{ title: 'q2' }] } },
+    { feature_type: 'things_to_know', position: 5, item_count: null, details: {} },
+  ]);
+  r.eq(chips.map((c) => c.type).join(','), 'ai_overview,people_also_ask,things_to_know,related_searches');
+  r.eq(chips[1].count, 7); r.eq(chips[1].position, 3); r.eq(chips[1].entries.length, 2);
+  r.eq(chips[0].label, 'AI overview'); r.eq(chips[2].label, 'Things to know'); r.eq(chips[2].count, null);
+  r.eq(K.featureChips(null).length, 0);
+});
+r.test('page-type summary orders by keywords won, with a fixed order for ties', () => {
+  const s = K.pageTypeSummary([
+    { page_type: 'home', keywords_in_top_10: 3, distinct_pages: 1 },
+    { page_type: 'collection', keywords_in_top_10: 7, distinct_pages: 4, best_position: 1, example_path: '/collections/backpacks', example_keyword: 'baseball backpacks' },
+    { page_type: 'article', keywords_in_top_10: 3, distinct_pages: 2 },
+  ]);
+  r.eq(s.map((x) => x.page_type).join(','), 'collection,article,home');
+  r.eq(s[0].keywords, 7); r.eq(s[0].pages, 4); r.eq(s[0].best, 1); r.eq(s[0].example_path, '/collections/backpacks');
+});
+r.test('namesTerm needs every word of the keyword, whole words, plural-tolerant, order-free', () => {
+  r.eq(K.namesTerm('baseball backpack', 'Baseball Backpacks & Bags | BL101'), true);
+  r.eq(K.namesTerm('baseball backpack', 'Backpacks | Baseballism Online'), false, 'baseballism is not baseball');
+  r.eq(K.namesTerm('baseball backpacks', 'Backpack for baseball players'), true);
+  r.eq(K.namesTerm('mlb hat', 'MLB Hats & Caps'), true);
+  r.eq(K.namesTerm('', 'anything'), false); r.eq(K.namesTerm('x', null), false);
+});
+r.test('compareFacts: a missing side reads "not captured" on every row, a failed fetch says so, and the term check is on both sides', () => {
+  const ours = { title: 'Backpacks | Baseballism Online', title_length: 30, h1: ['Backpacks'], h2_count: 2, word_count: 140, image_count: 24, images_missing_alt: 3, jsonld_types: ['BreadcrumbList'], fetched_at: '2026-09-26T08:00:00Z' };
+  const theirs = { title: 'Baseball Backpacks & Bags | BL101', title_length: 33, h1: ['Baseball Backpacks'], h2_count: 6, word_count: 610, image_count: 30, images_missing_alt: 0, jsonld_types: ['CollectionPage', 'Product'], fetched_at: '2026-09-26T08:01:00Z' };
+  const rows = K.compareFacts('baseball backpacks', ours, theirs);
+  const by = Object.fromEntries(rows.map((x) => [x.key, x]));
+  r.eq(by.title_names_term.ours, 'no'); r.eq(by.title_names_term.theirs, 'yes');
+  r.eq(by.h1_names_term.ours, 'no'); r.eq(by.h1_names_term.theirs, 'yes');
+  r.eq(by.word_count.ours, '140'); r.eq(by.word_count.theirs, '610');
+  r.eq(by.images.ours, '24 (3)'); r.eq(by.images.theirs, '30 (0)');
+  r.eq(by.jsonld.theirs, 'CollectionPage, Product');
+  const none = K.compareFacts('x', null, theirs);
+  r.truthy(none.every((x) => x.ours === 'not captured'), 'missing side named on every row');
+  r.truthy(!none.some((x) => /\b0\b/.test(x.ours)), 'never a zero for a missing capture');
+  const failed = K.compareFacts('x', { fetch_error: 'timeout_after_15000ms' }, theirs);
+  r.eq(failed[0].ours, 'fetch failed: timeout_after_15000ms');
+});
+
 const out = r.summary();
 process.exit(out.fail ? 1 : 0);

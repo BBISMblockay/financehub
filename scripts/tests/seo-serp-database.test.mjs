@@ -37,6 +37,11 @@ const root = new URL('../../', import.meta.url);
 const MIGRATION = '20260926120000_seo_competitor_serp_schema.sql';
 // Applied after MIGRATION: the provider sync's schedule row and task ledger.
 const SYNC_MIGRATION = '20260926140000_seo_serp_provider_sync.sql';
+// Applied after both: the candidate function restructured to answer inside 8 s.
+const CANDIDATES_MIGRATION = '20260926150000_seo_candidates_within_timeout.sql';
+// And the collection-candidates function it calls, with its window CTE materialised.
+const COLLECTION_MIGRATION = '20260926160000_seo_collection_candidates_within_timeout.sql';
+const TACTICS_MIGRATION = '20260926170000_seo_serp_tactics.sql';
 const dependencies = [
   '20260616060000_stamp_company_entity_id_on_insert.sql',
   '20260909220000_page_inspection.sql',
@@ -57,7 +62,7 @@ const dependencies = [
   '20260924130100_business_timezone_seo.sql',
 ];
 const mutation = process.env.SERP_DB_MUTATION || '';
-assert.ok(['', 'stale-write-allowed', 'observations-writable', 'import-unscoped', 'ledger-writable'].includes(mutation), 'Unknown SERP database mutation');
+assert.ok(['', 'stale-write-allowed', 'observations-writable', 'import-unscoped', 'ledger-writable', 'features-writable', 'captures-unkeyed'].includes(mutation), 'Unknown SERP database mutation');
 
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const first = async (sql, params = []) => (await q(sql, params))[0];
@@ -141,6 +146,7 @@ async function providerRun({ observedOn, device = 'desktop', syncedAt, batch, ro
 }
 
 const START = '2026-08-01';
+const SEEDED_AT = '2026-09-24T09:00:00Z';
 
 try {
   await db.exec(await readFile(new URL('./seo-db-bootstrap.sql', import.meta.url), 'utf8'));
@@ -162,13 +168,17 @@ try {
   // position ~14, "mlb tee" is small. Another company's query never surfaces.
   for (let i = 0; i < 41; i++) {
     const day = addDays(START, i);
+    // One synced_at per run, shared by a day's site row and its query rows,
+    // exactly as scripts/lib/search-console-sync-core.mjs writes them (query
+    // rows first, site row last, one timestamp). The rollup counts a query
+    // row only under a site row written at or after it.
     await q(`insert into search_console_site_daily(company_entity_id,site_url,day_date,clicks,impressions,ctr,position,
-      page_rows,page_attributed_clicks,page_attributed_impressions,query_rows,query_attributed_clicks,query_attributed_impressions)
-      values ($1,$2,$3,100,1000,0.1,8.5,50,100,1200,40,60,700)`, [co, SITE, day]);
-    await q(`insert into search_console_query_daily(company_entity_id,site_url,day_date,query,clicks,impressions,ctr,position) values
-      ($1,$2,$3,'baseball dad hat',40,400,0.1,4.0),
-      ($1,$2,$3,'baseball hoodie',2,900,0.002,14.0),
-      ($1,$2,$3,'mlb tee',5,50,0.1,7.0)`, [co, SITE, day]);
+      page_rows,page_attributed_clicks,page_attributed_impressions,query_rows,query_attributed_clicks,query_attributed_impressions,synced_at)
+      values ($1,$2,$3,100,1000,0.1,8.5,50,100,1200,40,60,700,$4)`, [co, SITE, day, SEEDED_AT]);
+    await q(`insert into search_console_query_daily(company_entity_id,site_url,day_date,query,clicks,impressions,ctr,position,synced_at) values
+      ($1,$2,$3,'baseball dad hat',40,400,0.1,4.0,$4),
+      ($1,$2,$3,'baseball hoodie',2,900,0.002,14.0,$4),
+      ($1,$2,$3,'mlb tee',5,50,0.1,7.0,$4)`, [co, SITE, day, SEEDED_AT]);
   }
   await q(`insert into search_console_site_daily(company_entity_id,site_url,day_date,clicks,impressions) values ($1,'https://other.example/','2026-08-05',999,9999)`, [otherCo]);
   await q(`insert into search_console_query_daily(company_entity_id,site_url,day_date,query,clicks,impressions) values ($1,'https://other.example/','2026-08-05','other company query',999,9999)`, [otherCo]);
@@ -186,8 +196,29 @@ try {
     const sql = await readFile(new URL(`supabase/migrations/${MIGRATION}`, root), 'utf8');
     await db.exec(sql);
     await db.exec(sql);
+    // The candidate function's faster body, applied twice like the rest, so
+    // the candidates test further down exercises what production runs.
+    const fast = await readFile(new URL(`supabase/migrations/${CANDIDATES_MIGRATION}`, root), 'utf8');
+    await db.exec(fast);
+    await db.exec(fast);
+    const coll = await readFile(new URL(`supabase/migrations/${COLLECTION_MIGRATION}`, root), 'utf8');
+    await db.exec(coll);
+    await db.exec(coll);
+    const tactics = await readFile(new URL(`supabase/migrations/${TACTICS_MIGRATION}`, root), 'utf8');
+    await db.exec(tactics);
+    await db.exec(tactics);
+    if (mutation === 'features-writable') {
+      await db.exec(`create policy seo_serp_features_insert on public.seo_serp_features for insert to authenticated
+        with check (company_entity_id = public.active_company_id())`);
+    }
+    if (mutation === 'captures-unkeyed') {
+      await db.exec('alter table public.seo_competitor_page_inspections drop constraint seo_competitor_page_inspections_observation_company_fkey');
+    }
+    assert.match(await scalar("select pg_get_functiondef('public.seo_collection_candidates(integer,text)'::regprocedure)"), /win as materialized/i, 'the window CTE stays materialised (a filter would call silo_business_today() per row)');
+    assert.match(await scalar("select pg_get_functiondef('public.seo_derive_keyword_candidates(integer)'::regprocedure)"), /search_console_query_rollup_v/, 'the candidates read the rollup, never the 405k-row table at click time');
+    assert.equal(await scalar("select count(*)::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='search_console_query_rollup_mv' and c.relkind='m'"), 1, 'the rollup matview exists');
     assert.equal(await scalar("select count(*)::int from information_schema.tables where table_schema='public' and table_name in ('seo_keyword_set','seo_competitor_domains','seo_serp_runs','seo_serp_run_keywords','seo_serp_observations')"), 5);
-    assert.equal(await scalar("select count(*)::int from pg_trigger where tgname='trg_seo_serp_newest_run_wins' and not tgisinternal"), 3, 'runs, run keywords and observations all carry the trigger');
+    assert.equal(await scalar("select count(*)::int from pg_trigger where tgname='trg_seo_serp_newest_run_wins' and not tgisinternal"), 4, 'runs, run keywords, observations and features all carry the trigger');
     assert.match(await scalar("select pg_get_constraintdef(oid) from pg_constraint where conname='sync_jobs_job_type_check'"), /seo_serp_weekly/, 'the job type is appended to the live list');
     assert.match(await scalar("select pg_get_constraintdef(oid) from pg_constraint where conname='sync_jobs_job_type_check'"), /shopify_sales/, '...without retyping it');
     assert.ok(!sql.includes('America/Los_Angeles'), 'Pacific is written in one place (silo_company_timezone), never here');
@@ -482,6 +513,21 @@ try {
     const raglan = bySource.product_type.find((r) => r.keyword_norm === 'raglan');
     assert.equal(raglan.already_in_set, false);
     assert.equal(raglan.our_position, null, 'not a Search Console query: no position, never 0');
+    // Cycle-1 finding: a query row is evidence only under a COMPLETED site
+    // snapshot. Two partial-run shapes, both loud enough to top the list if
+    // counted: a day with no site row at all, and a day whose query row was
+    // re-stamped by a run that died before rewriting the site row.
+    const orphanDay = addDays(START, 60);
+    await q(`insert into search_console_query_daily(company_entity_id,site_url,day_date,query,clicks,impressions,ctr,position) values
+      ($1,$2,$3,'orphan day query',9999,99999,0.1,1.0)`, [co, SITE, orphanDay]);
+    await q(`insert into search_console_query_daily(company_entity_id,site_url,day_date,query,clicks,impressions,ctr,position,synced_at) values
+      ($1,$2,$3,'partial rerun query',9999,99999,0.1,1.0, now() + interval '1 hour')`, [co, SITE, START]);
+    await asRole('service_role', '', () => q('select refresh_search_console_query_rollup_mv()'));
+    const after = await asMember(() => q('select * from seo_derive_keyword_candidates(90)'));
+    assert.ok(!after.some((r) => r.keyword_norm === 'orphan day query'), 'a query row for a day with no site row is not evidence');
+    assert.ok(!after.some((r) => r.keyword_norm === 'partial rerun query'), 'a query row newer than its day\'s site row is not evidence');
+    assert.equal(await asMember(() => scalar('select max(window_end)::text from search_console_query_rollup_v')), addDays(START, 40), 'the window ends on the newest SITE day, not the newest query row');
+    assert.ok(after.some((r) => r.keyword_norm === 'baseball dad hat'), 'complete days still count');
     assert.ok(rows.every((r) => r.company_entity_id === co));
     assert.ok((bySource.search_console_clicks || []).length <= 60 && (bySource.search_console_opportunity || []).length <= 30, 'group caps');
     const theirs = await asOutsider(() => q('select * from seo_derive_keyword_candidates(90)'));
@@ -530,10 +576,76 @@ try {
     assert.equal(await scalar("select is_hidden from silo_chat_schema_catalog where relname='seo_serp_schedules'"), false);
   });
 
+  await test('tactics: the page type is read off the URL, features live beside observations, a competitor capture is keyed to the observation that named its URL', async () => {
+    // Classifier and path stripper, on the shapes the first real run returned.
+    assert.equal(await scalar("select seo_serp_page_path('https://bl101.com/collections/backpacks?srsltid=abc&utm_source=x#top')"), '/collections/backpacks');
+    assert.equal(await scalar("select seo_serp_page_path('https://www.baseballism.com/?srsltid=AU7gw4U5')"), '/');
+    assert.equal(await scalar("select seo_serp_page_path('https://www.amazon.com/s?k=baseball+backpack&srsltid=zz')"), '/s?k=baseball+backpack', 'a real query survives; only click ids go');
+    for (const [url, type] of [
+      ['https://bl101.com/collections/backpacks?srsltid=abc', 'collection'],
+      ['https://www.dickssportinggoods.com/f/baseball-backpacks', 'collection'],
+      ['https://www.amazon.com/Under-Armour/dp/B0C1/ref=sr_1_1', 'product'],
+      ['https://baseballism.com/products/doubles-tee?variant=1', 'product'],
+      ['https://bl101.com/blogs/the-bullpen/best-baseball-gifts', 'article'],
+      ['https://www.reddit.com/r/baseball/comments/x/', 'article'],
+      ['https://www.baseballism.com/?srsltid=x', 'home'],
+      ['https://www.youtube.com/watch?v=abc', 'video'],
+      ['https://baseballism.com/pages/about-the-brand', 'page'],
+      ['https://www.facebook.com/baseballism/', 'other'],
+    ]) assert.equal(await scalar('select seo_serp_page_type($1)', [url]), type, url);
+
+    // A completed run where bl101 wins backpacks with a collection page and
+    // gifts with an article, and we hold the homepage on both.
+    const kwBack = await asMember(() => scalar("insert into seo_keyword_set(company_entity_id, keyword, source) values ($1, 'baseball backpacks', 'manual') returning id", [co]));
+    const kwGift = await asMember(() => scalar("insert into seo_keyword_set(company_entity_id, keyword, source) values ($1, 'baseball gifts for boys', 'manual') returning id", [co]));
+    const runId = await providerRun({ observedOn: '2026-10-05', syncedAt: '2026-10-05T09:00:00Z', batch: 'tactics', asked: [kwBack, kwGift], rows: [
+      { keywordId: kwBack, position: 1, domain: 'bl101.com', url: 'https://bl101.com/collections/backpacks?srsltid=one', title: 'Baseball Backpacks & Bags | BL101' },
+      { keywordId: kwBack, position: 2, domain: 'www.amazon.com', url: 'https://www.amazon.com/s?k=baseball+backpack' },
+      { keywordId: kwBack, position: 3, domain: 'www.baseballism.com', url: 'https://www.baseballism.com/collections/backpacks?srsltid=two', title: 'Backpacks | Baseballism Online' },
+      { keywordId: kwGift, position: 4, domain: 'bl101.com', url: 'https://bl101.com/blogs/the-bullpen/best-gifts?srsltid=three' },
+      { keywordId: kwGift, position: 12, domain: 'www.baseballism.com', url: 'https://www.baseballism.com/?srsltid=four' },
+      { keywordId: kwGift, position: 5, domain: 'bl101.com', url: 'https://bl101.com/collections/gifts' },
+    ] });
+    const types = await asMember(() => q("select domain_norm, page_type, keywords_in_top_10::int as k, distinct_pages::int as p, best_position, example_path, is_own_domain from seo_competitor_page_types_v where run_id=$1 order by domain_norm, page_type", [runId]));
+    assert.deepEqual(types.map((t) => [t.domain_norm, t.page_type, t.k, t.p]), [
+      ['amazon.com', 'collection', 1, 1],
+      ['baseballism.com', 'collection', 1, 1],
+      ['bl101.com', 'article', 1, 1],
+      ['bl101.com', 'collection', 2, 2],
+    ], 'top-10 only (our #12 homepage is not counted), grouped by page type, srsltid stripped so one page is one page');
+    assert.equal(types.find((t) => t.domain_norm === 'bl101.com' && t.page_type === 'collection').example_path, '/collections/backpacks');
+    assert.equal(types.find((t) => t.domain_norm === 'baseballism.com').is_own_domain, true);
+    assert.equal(await asOutsider(() => scalar('select count(*)::int from seo_competitor_page_types_v')), 0, 'another company sees none of it');
+
+    // Features: service role writes, members read, no client writes, and the
+    // newest-run-wins rule applies to them as it does to observations.
+    const feat = (syncedAt, position = 2) => q(`insert into seo_serp_features(company_entity_id, run_id, keyword_id, provider, observed_on, location_name, language_code, device, search_engine, feature_type, position, item_count, details, synced_at)
+      values ($1, $2, $3, 'dataforseo', '2026-10-05', 'United States', 'en', 'desktop', 'google', 'people_also_ask', $5, 2, '{"entries":[{"title":"What size baseball backpack?"}]}', $4)`, [co, runId, kwBack, syncedAt, position]);
+    await asRole('service_role', '', () => feat('2026-10-05T09:00:00Z'));
+    assert.equal(await asMember(() => scalar("select details->'entries'->0->>'title' from seo_serp_features_v where keyword=$1", ['baseball backpacks'])), 'What size baseball backpack?');
+    assert.equal(await asOutsider(() => scalar('select count(*)::int from seo_serp_features_v')), 0);
+    await refused(() => asApprover(() => feat('2026-10-05T09:00:00Z', 3)), /row-level security/, 'no client insert on features');
+    await asRole('service_role', '', () => feat('2026-10-04T09:00:00Z', 7));
+    assert.equal(await asMember(() => scalar('select count(*)::int from seo_serp_features where run_id=$1', [runId])), 1, 'a feature from an OLDER writer into a completed run is dropped');
+    await refused(() => asRole('service_role', '', () => q(`insert into seo_serp_features(company_entity_id, run_id, keyword_id, provider, observed_on, location_name, language_code, device, search_engine, feature_type, position, synced_at)
+      values ($1, $2, $3, 'dataforseo', '2026-10-05', 'United States', 'en', 'desktop', 'google', 'ai_overview', 1, '2026-10-05T09:00:00Z')`, [otherCo, runId, kwBack])), /foreign key|violates/, 'a feature cannot cross tenants');
+
+    // Competitor captures: keyed to the observation, service-role written.
+    const obsId = await asMember(() => scalar("select id from seo_serp_observations where run_id=$1 and domain='bl101.com' and position=1", [runId]));
+    const cap = (company, obs) => q(`insert into seo_competitor_page_inspections(company_entity_id, observation_id, keyword_id, domain_norm, requested_url, host, title, word_count)
+      values ($1, $2, $3, 'bl101.com', 'https://bl101.com/collections/backpacks', 'bl101.com', 'Baseball Backpacks & Bags | BL101', 610)`, [company, obs, kwBack]);
+    await asRole('service_role', '', () => cap(co, obsId));
+    assert.equal(await asMember(() => scalar('select word_count from seo_competitor_page_inspections where observation_id=$1', [obsId])), 610, 'a member reads the capture');
+    assert.equal(await asOutsider(() => scalar('select count(*)::int from seo_competitor_page_inspections')), 0);
+    await refused(() => asApprover(() => cap(co, obsId)), /row-level security/, 'no client insert on captures');
+    await refused(() => asRole('service_role', '', () => cap(otherCo, obsId)), /foreign key|violates/, 'a capture cannot name another company\'s observation');
+    await refused(() => asRole('service_role', '', () => cap(co, randomUUID())), /foreign key|violates/, 'a capture must name a real observation');
+  });
+
   await test('the committed verification checks for this schema return ok on the migrated database', async () => {
     const verifySql = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
-    const checks = splitSqlStatements(verifySql).filter((s) => /as seo_competitor_serp\b|as seo_serp_provider_sync\b/.test(s.text));
-    assert.equal(checks.length, 2, 'the seo_competitor_serp and seo_serp_provider_sync checks must be committed');
+    const checks = splitSqlStatements(verifySql).filter((s) => /as seo_competitor_serp\b|as seo_serp_provider_sync\b|as search_console_query_rollup\b|as seo_serp_tactics\b/.test(s.text));
+    assert.equal(checks.length, 4, 'the seo_competitor_serp, seo_serp_provider_sync, search_console_query_rollup and seo_serp_tactics checks must be committed');
     for (const sql of checks) {
       const rows = await q(sql.text);
       assert.ok(rows.length > 0, 'a verification check must return evidence');
