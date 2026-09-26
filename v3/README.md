@@ -1178,9 +1178,19 @@ with no database change at all, because both live in `visual_config`.
 
 ## Reports discovery
 
+The six existing sales pages are also searchable cards in **SILO Reports**
+for grandfathered workspaces: Sales Performance Overview, Daily Sales Trend,
+Top Sellers, Product Type Performance, Product Search and Sales Report.
+Their URLs and reporting behavior are unchanged; their sidebar entries are
+replaced by the shared Reports entry, which is available to everyone who
+previously saw Sales. These are navigation links from
+`SiloNav.SALES_REPORT_PAGES`, not saved-query definitions or widget sources.
+They remain available if saved reports fail to load. Standard workspaces
+retain their exec-only Dashboards navigation and dashboard-only library.
+
 `/v3/dashboards.html` is the **Reports library** (2026-09-22): one sidebar row
-labelled Reports (plus Report builder) under the soft-launch gate the hidden
-row already carried, and three tabs over what RLS already lets the viewer read:
+labelled Reports (plus the exec-gated Report builder), and three tabs over
+what RLS already lets the viewer read:
 
 | Tab | Rows | Contextual action |
 |---|---|---|

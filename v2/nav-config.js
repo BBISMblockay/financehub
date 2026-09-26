@@ -86,6 +86,47 @@
   // caveat as EXEC_ROLES: the real boundary is RLS, not this list.
   const ADMIN_ROLES = ['owner', 'owner_admin', 'admin', 'executive'];
 
+  // Existing sales pages now live in SILO Reports. The library only offers
+  // these to grandfathered workspaces, matching their former sidebar scope.
+  const SALES_REPORT_PAGES = [
+    {
+      id: 'reports/sales-overview',
+      title: 'Sales Performance Overview',
+      href: '/v2/bi-sales-overview.html',
+      description: 'Compare sales performance across locations and periods.'
+    },
+    {
+      id: 'reports/daily-trend',
+      title: 'Daily Sales Trend',
+      href: '/v2/bi-daily-trend.html',
+      description: 'Explore daily sales with prior-year comparisons and a seven-day average.'
+    },
+    {
+      id: 'reports/top-sellers',
+      title: 'Top Sellers',
+      href: '/v2/bi-top-sellers.html',
+      description: 'Rank products by sales alongside stock, velocity and days of cover.'
+    },
+    {
+      id: 'reports/product-types',
+      title: 'Product Type Performance',
+      href: '/v2/bi-product-types.html',
+      description: 'Compare product categories by month, then drill into their products.'
+    },
+    {
+      id: 'reports/product-search',
+      title: 'Product Search',
+      href: '/v2/bi-product-search.html',
+      description: 'Find sales by product name or SKU, with store and month breakdowns.'
+    },
+    {
+      id: 'reports/sales-report',
+      title: 'Sales Report',
+      href: '/v2/sales-verification.html',
+      description: 'Inspect sales records and filter exceptions such as blank SKUs or negative net sales.'
+    }
+  ];
+
   /**
    * profiles: which nav profiles include this link
    * departments: user departments that see this link (absent = everyone;
@@ -110,6 +151,7 @@
    *             outside the workspace's own scope (platform_admins).
    * sectionStandard: optional section label for standard profile
    * labelStandard: optional link label for standard profile
+   * rolesStandard: optional role gate for standard profile, overriding roles
    */
   const NAV_ITEMS = [
     { id: 'finance/menu', section: 'Start', label: 'Home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
@@ -193,18 +235,6 @@
     { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory Manager', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'] },
     { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Products', href: '/v2/products.html', profiles: ['grandfathered', 'standard'] },
 
-    // 'Reports' was one flat drawer of 10 links and was the section every new
-    // BI page landed in. Split into Sales and Marketing so each stays
-    // readable in the accordion; the `id` prefixes stay `reports/` because
-    // they are the `active` keys every page passes to SiloChrome.mount() and
-    // renaming them would silently un-highlight the sidebar on all 9 pages.
-    { id: 'reports/sales-overview', section: 'Sales', label: 'Sales Performance Overview', href: '/v2/bi-sales-overview.html', profiles: ['grandfathered'] },
-    { id: 'reports/daily-trend', section: 'Sales', label: 'Daily Sales Trend', href: '/v2/bi-daily-trend.html', profiles: ['grandfathered'] },
-    { id: 'reports/top-sellers', section: 'Sales', label: 'Top Sellers', href: '/v2/bi-top-sellers.html', profiles: ['grandfathered'] },
-    { id: 'reports/product-types', section: 'Sales', label: 'Product Type Performance', href: '/v2/bi-product-types.html', profiles: ['grandfathered'] },
-    { id: 'reports/product-search', section: 'Sales', label: 'Product Search', href: '/v2/bi-product-search.html', profiles: ['grandfathered'] },
-    { id: 'reports/sales-report', section: 'Sales', label: 'Sales Report', href: '/v2/sales-verification.html', profiles: ['grandfathered'] },
-
     // Three Marketing entries, ordered by how they are used rather than
     // alphabetically: the report you produce, the dashboard you watch, the
     // tool you dig with.
@@ -234,13 +264,12 @@
 
     // Standard workspaces get a small Insights surface: curated dashboards
     // plus Ask SILO. Baseballism keeps the established Reports label. Access
-    // remains exec/owner or an explicit Ask SILO grant; nav is discovery only.
+    // to Ask SILO remains exec/owner or an explicit grant; nav is discovery only.
     { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Reports', sectionStandard: 'Insights', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
-    // The v3 reporting workspace: dashboards, the saved-report library, and
-    // the report builder. Three rows rather than one because they are three
-    // different intents -- open a board, find a definition, build a new one
-    // -- and burying two of them inside the third is what made them
-    // undiscoverable while this was URL-only.
+    // Reports is the shared library; the builder retains its own exec gate.
+    // Grandfathered users all see Reports now: it replaces six ungated sales
+    // links. Standard workspaces keep their existing exec-only Dashboards
+    // discovery. This changes menu visibility, never data permissions.
     //
     // Only Dashboards moves into standard Insights. Saved reports and the
     // builder remain under Reports, which standard navigation deliberately
@@ -258,7 +287,7 @@
     // a heading that said Dashboards. The id stays `reports/dashboards` so
     // every page that marks it active (the canvas included) keeps working.
     // Standard workspaces still see only Dashboards, under Insights.
-    { roles: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', sectionStandard: 'Insights', label: 'Reports', labelStandard: 'Dashboards', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
+    { rolesStandard: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', sectionStandard: 'Insights', label: 'Reports', labelStandard: 'Dashboards', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
     { roles: EXEC_ROLES, id: 'reports/builder', section: 'Reports', label: 'Report builder', href: '/v3/report-builder.html', profiles: ['grandfathered', 'standard'] },
     // Hidden from nav for now -- redo_returns only covers a small, recent
     // slice of Shopify's actual refund volume (Redo doesn't see all refunds,
@@ -314,11 +343,12 @@
     const dept = department ? String(department).toLowerCase() : null;
     const userRole = role ? String(role).toLowerCase() : null;
     const hasGrant = (id) => !!(grantIds && grantIds.has && grantIds.has(id));
+    const rolesFor = (item) => profile === 'standard' && item.rolesStandard ? item.rolesStandard : item.roles;
     const visible = NAV_ITEMS.filter((item) =>
       item.profiles.includes(profile)
       && (!item.requiresGrant || hasGrant(item.id))
       && (!item.departments || !dept || item.departments.includes(dept))
-      && (!item.roles || !userRole || item.roles.includes(userRole)
+      && (!rolesFor(item) || !userRole || rolesFor(item).includes(userRole)
           || hasGrant(item.id)));
     const bySection = new Map();
 
@@ -358,6 +388,7 @@
   }
 
   global.SiloNav = {
+    SALES_REPORT_PAGES,
     ACCOUNTING_PAGES,
     WORKSPACE_SETTINGS_PAGES,
     resolveNavProfile,

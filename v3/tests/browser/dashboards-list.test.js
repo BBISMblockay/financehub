@@ -35,12 +35,13 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   const db = await p.evaluate(() => window.__FAKE_DB__.silo_chat_saved_reports
     .map((r) => ({ id: r.id, silo: r.source === 'system' && r.company_entity_id == null })));
   const silo = await ids('#siloBody .lib-card');
-  ok('SILO Reports holds exactly the global system reports',
-    silo.slice().sort().join() === db.filter((r) => r.silo).map((r) => r.id).sort().join());
+  ok('SILO Reports keeps every global system report alongside the sales page links',
+    silo.filter((id) => !id.startsWith('reports/')).sort().join() === db.filter((r) => r.silo).map((r) => r.id).sort().join());
+  ok('the six existing sales reports are in the library', silo.filter((id) => id.startsWith('reports/')).length === 6);
   ok('SILO cards carry no SILO/Global/query-count badges',
     (await p.locator('#siloBody .lib-card .bcn-pill').count()) === 0);
   ok('a SILO card opens the report to READ, on a temporary board',
-    /\/v3\/dashboard\.html\?report=/.test(await p.getAttribute('#siloBody .lib-link', 'href')));
+    /\/v3\/dashboard\.html\?report=/.test(await p.getAttribute('#siloBody .lib-card[data-id="R12"] .lib-link', 'href')));
 
   await p.click('#tab-mine');
   await p.waitForSelector('#mineBody .lib-card');
