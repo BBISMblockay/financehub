@@ -19122,6 +19122,9 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260925140000_redo_silo_reports.sql
 \i migrations/20260925150000_marketing_inventory_reports.sql
 \i migrations/20260925160000_seo_silo_report.sql
+-- Company-specific Melio/BILL email intake. Historical Melio forwarding stays
+-- available only for Baseballism until its workspace address is entered.
+\i migrations/20260925181944_company_bill_pay_forwarding.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

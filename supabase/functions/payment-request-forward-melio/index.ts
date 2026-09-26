@@ -1,17 +1,17 @@
-// payment-request-forward-melio — emails a payment request's submitted
-// invoice/document to the company's Melio bill-pay forwarding inbox so
-// Melio's AI can auto-draft the bill. Auth: caller must pass
+// payment-request-forward-melio — existing endpoint name retained for callers.
+// Emails a submitted invoice to the active company's Melio or BILL inbox.
+// Auth: caller must pass
 // current_user_can_manage_payment_requests() (same gate as
 // payment-request-notify). Idempotent to call repeatedly — each call
-// re-sends and logs a fresh forwarded_to_melio activity row, so AP can
-// re-forward if Melio's draft needs to be redone.
+// re-sends and logs a fresh forwarded_to_bill_pay activity row.
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { resolveBillPayDestination } from './destination.mjs';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
-const MELIO_FORWARD_EMAIL = Deno.env.get('MELIO_FORWARD_EMAIL') || '';
+const LEGACY_MELIO_FORWARD_EMAIL = Deno.env.get('MELIO_FORWARD_EMAIL') || '';
 // The sender address is configuration, not a constant. A second tenant's
 // invite, review or payment email arriving from a Baseballism address reads
 // as either a mistake or a leak of who else uses SILO. SILO_MAIL_FROM is an
@@ -211,10 +211,6 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'Not authenticated' }), { status: 401, headers: CORS });
     }
 
-    if (!MELIO_FORWARD_EMAIL) {
-      return new Response(JSON.stringify({ error: 'MELIO_FORWARD_EMAIL not configured' }), { status: 500, headers: CORS });
-    }
-
     const { payment_request_id } = await req.json();
     if (!payment_request_id) {
       return new Response(JSON.stringify({ error: 'payment_request_id required' }), { status: 400, headers: CORS });
@@ -231,7 +227,10 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'Not authorized to forward payment requests' }), { status: 403, headers: CORS });
     }
 
-    const { data: pr, error: prErr } = await db
+    // The service key is needed for attachments and logging, but must never
+    // select an arbitrary request ID after only a company-wide permission
+    // check. The caller's RLS scopes this lookup to their active company.
+    const { data: pr, error: prErr } = await callerClient
       .from('payment_requests')
       .select('*')
       .eq('id', payment_request_id)
@@ -239,6 +238,19 @@ Deno.serve(async (req: Request) => {
     if (prErr || !pr) {
       return new Response(JSON.stringify({ error: 'Payment request not found' }), { status: 404, headers: CORS });
     }
+
+    const { data: settings, error: settingsErr } = await db.from('company_settings')
+      .select('bill_pay_provider, bill_pay_forward_email')
+      .eq('company_entity_id', pr.company_entity_id).maybeSingle();
+    if (settingsErr && settingsErr.code !== '42703') throw settingsErr;
+    const { data: entity, error: entityErr } = await db.from('entities')
+      .select('entity_key').eq('id', pr.company_entity_id).single();
+    if (entityErr) throw entityErr;
+    const destination = resolveBillPayDestination(settings, entity.entity_key, LEGACY_MELIO_FORWARD_EMAIL);
+    if (!destination) {
+      return new Response(JSON.stringify({ error: 'Set the bill pay provider and inbox email in Workspace Settings → Company.' }), { status: 400, headers: CORS });
+    }
+    const providerName = destination.provider === 'bill' ? 'BILL' : 'Melio';
 
     const vendorName = pr.vendor_name_manual || pr.vendor_name || 'Vendor';
     const { attachments, externalLinks } = await fetchSubmittedAttachments(payment_request_id, pr);
@@ -249,7 +261,7 @@ Deno.serve(async (req: Request) => {
 
     const sender = await resolveSender(pr.company_entity_id, 'finance_ap', null);
     const emailSent = await sendEmail(sender, 
-      MELIO_FORWARD_EMAIL,
+      destination.email,
       `${vendorName}${pr.invoice_number ? ` — Invoice ${pr.invoice_number}` : ''} — ${money(pr.amount_due)}`,
       emailHtml({
         vendorName,
@@ -272,19 +284,24 @@ Deno.serve(async (req: Request) => {
     }
 
     const now = new Date().toISOString();
-    await db.from('payment_requests')
-      .update({ melio_forwarded_at: now, melio_forwarded_by: userData.user.id })
-      .eq('id', payment_request_id);
-
-    await db.from('payment_request_activity').insert({
+    // Preserve the historical Melio timestamp for existing reports and
+    // clients. BILL sends are represented only by provider-neutral activity.
+    if (destination.provider === 'melio') {
+      const { error: legacyErr } = await db.from('payment_requests')
+        .update({ melio_forwarded_at: now, melio_forwarded_by: userData.user.id })
+        .eq('id', payment_request_id).eq('company_entity_id', pr.company_entity_id);
+      if (legacyErr) console.error('[payment-request-forward-melio] legacy timestamp', legacyErr);
+    }
+    const { error: activityErr } = await db.from('payment_request_activity').insert({
       payment_request_id,
-      activity_type: 'forwarded_to_melio',
-      message: `Forwarded to Melio (${MELIO_FORWARD_EMAIL}) with ${attachments.length} attachment${attachments.length === 1 ? '' : 's'}${externalLinks.length ? ` and ${externalLinks.length} external link${externalLinks.length === 1 ? '' : 's'}` : ''}`,
+      activity_type: 'forwarded_to_bill_pay',
+      message: `Forwarded to ${providerName} (${destination.email}) with ${attachments.length} attachment${attachments.length === 1 ? '' : 's'}${externalLinks.length ? ` and ${externalLinks.length} external link${externalLinks.length === 1 ? '' : 's'}` : ''}`,
       created_by: userData.user.id,
       company_entity_id: pr.company_entity_id,
     });
+    if (activityErr) throw activityErr;
 
-    return new Response(JSON.stringify({ ok: true, email_sent: true, sent_at: now, attachment_count: attachments.length }), { headers: CORS });
+    return new Response(JSON.stringify({ ok: true, email_sent: true, sent_at: now, provider: providerName, attachment_count: attachments.length }), { headers: CORS });
   } catch (err) {
     console.error('[payment-request-forward-melio]', err);
     return new Response(JSON.stringify({ error: String((err as Error)?.message || err) }), { status: 500, headers: CORS });
