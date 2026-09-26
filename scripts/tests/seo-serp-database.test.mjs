@@ -39,6 +39,8 @@ const MIGRATION = '20260926120000_seo_competitor_serp_schema.sql';
 const SYNC_MIGRATION = '20260926140000_seo_serp_provider_sync.sql';
 // Applied after both: the candidate function restructured to answer inside 8 s.
 const CANDIDATES_MIGRATION = '20260926150000_seo_candidates_within_timeout.sql';
+// And the collection-candidates function it calls, with its window CTE materialised.
+const COLLECTION_MIGRATION = '20260926160000_seo_collection_candidates_within_timeout.sql';
 const dependencies = [
   '20260616060000_stamp_company_entity_id_on_insert.sql',
   '20260909220000_page_inspection.sql',
@@ -193,6 +195,10 @@ try {
     const fast = await readFile(new URL(`supabase/migrations/${CANDIDATES_MIGRATION}`, root), 'utf8');
     await db.exec(fast);
     await db.exec(fast);
+    const coll = await readFile(new URL(`supabase/migrations/${COLLECTION_MIGRATION}`, root), 'utf8');
+    await db.exec(coll);
+    await db.exec(coll);
+    assert.match(await scalar("select pg_get_functiondef('public.seo_collection_candidates(integer,text)'::regprocedure)"), /win as materialized/i, 'the window CTE stays materialised (a filter would call silo_business_today() per row)');
     assert.match(await scalar("select pg_get_functiondef('public.seo_derive_keyword_candidates(integer)'::regprocedure)"), /search_console_query_rollup_v/, 'the candidates read the rollup, never the 405k-row table at click time');
     assert.equal(await scalar("select count(*)::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='search_console_query_rollup_mv' and c.relkind='m'"), 1, 'the rollup matview exists');
     assert.equal(await scalar("select count(*)::int from information_schema.tables where table_schema='public' and table_name in ('seo_keyword_set','seo_competitor_domains','seo_serp_runs','seo_serp_run_keywords','seo_serp_observations')"), 5);

@@ -2386,3 +2386,16 @@ the tenant boundary; no grant on the matview). The function now reads the
 wrapper, so the Search Console groups are always the rollup's 90 days and
 `p_days` bounds the collection candidates only. The migration populates the
 rollup at the end. Verify: `search_console_query_rollup`.
+
+## Collection candidates inside the browser timeout — `20260926160000_seo_collection_candidates_within_timeout.sql`
+
+The second half of the same finding. With the rollup in place the candidate
+list still measured 25.8 s, and the plan's one opaque node was
+`seo_collection_candidates(90)`: 25.6 s on its own, 100 ms when its body is
+run inline. With `p_days` a parameter the generic plan cannot fold
+`today - days` into an index condition, scans the 186,802-row landing-page
+table with a filter, and a filter evaluates `silo_business_today()` (STABLE,
+reads `company_settings`) per row, twice. `win as materialized` makes the
+window a value the scan joins to. Same signature and semantics; broke every
+Ask SILO call of the function since 2026-09-09 too. Guarded by the
+`search_console_query_rollup` verify check.

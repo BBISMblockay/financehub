@@ -3464,6 +3464,13 @@ select
                      where n.nspname='public' and p.proname='seo_derive_keyword_candidates'
                        and pg_get_functiondef(p.oid) like '%search_console_query_rollup_v%')
       then 'CRITICAL — seo_derive_keyword_candidates() is back on search_console_query_daily at click time; Suggest keywords will time out'
+    -- seo_collection_candidates() measured 25.6 s with a plain `win` CTE:
+    -- the generic plan filters 186k rows calling silo_business_today() per
+    -- row. MATERIALIZED makes it a value (20260926160000).
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_collection_candidates'
+                       and pg_get_functiondef(p.oid) ilike '%win as materialized%')
+      then 'CRITICAL — seo_collection_candidates() lost its MATERIALIZED window CTE; it will time out for every signed-in caller'
     else 'ok'
   end as search_console_query_rollup;
 
