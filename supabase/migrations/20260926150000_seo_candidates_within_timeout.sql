@@ -37,12 +37,27 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── The rollup ──────────────────────────────────────────────────────────────
-create materialized view if not exists public.search_console_query_rollup_mv as
+-- Anchored on the SITE table and joined to it, not read from the query table
+-- alone (cycle-1 review, 2026-09-26). The sync writes a day's query rows
+-- BEFORE its site row, with one synced_at per run, and the site row is the
+-- statement that the day's snapshot completed: a run that dies between the
+-- two leaves query rows with no site row (or with a site row from an OLDER
+-- run), and a rollup read straight off the query table would publish that
+-- partial day as keyword evidence and could anchor a low-volume company's
+-- window on a day no completed snapshot covers. So the window ends on the
+-- newest SITE day, and a query row counts only where a site row for the same
+-- company, property and day was written at or after it (synced_at) -- the
+-- same run, or a newer completed one that the stale sweep left it under.
+-- Dropped and recreated rather than `if not exists`, so a re-run of
+-- apply_all_post_merge.sql carries this definition and not the first one.
+drop view if exists public.search_console_query_rollup_v;
+drop materialized view if exists public.search_console_query_rollup_mv;
+create materialized view public.search_console_query_rollup_mv as
 with w as (
   select company_entity_id,
          max(day_date) as window_end,
          max(day_date) - 89 as window_start
-  from public.search_console_query_daily
+  from public.search_console_site_daily
   group by company_entity_id
 )
 select
@@ -57,6 +72,11 @@ select
   max(w.window_end)                                       as window_end
 from public.search_console_query_daily q
 join w on w.company_entity_id = q.company_entity_id
+join public.search_console_site_daily s
+  on  s.company_entity_id = q.company_entity_id
+  and s.site_url          = q.site_url
+  and s.day_date          = q.day_date
+  and s.synced_at        >= q.synced_at
 where q.day_date between w.window_start and w.window_end
 group by q.company_entity_id, lower(btrim(regexp_replace(q.query, '\s+', ' ', 'g')));
 
@@ -82,10 +102,12 @@ grant select on public.search_console_query_rollup_v to authenticated;
 
 comment on materialized view public.search_console_query_rollup_mv is
   'Per company and normalised keyword, the trailing 90 days of Search Console '
-  'query rows ending on the company''s newest ingested day: clicks, impressions, '
-  'the impression-weighted position numerator, distinct days present. Refreshed '
-  'by refresh_search_console_query_rollup_mv() after every Search Console sync. '
-  'No RLS and no grant to authenticated: read search_console_query_rollup_v.';
+  'query rows ending on the company''s newest ingested SITE day, counting a query '
+  'row only under a site row written at or after it (a completed snapshot): '
+  'clicks, impressions, the impression-weighted position numerator, distinct '
+  'days present. Refreshed by refresh_search_console_query_rollup_mv() after '
+  'every Search Console sync. No RLS and no grant to authenticated: read '
+  'search_console_query_rollup_v.';
 comment on view public.search_console_query_rollup_v is
   'search_console_query_rollup_mv filtered to the caller''s active company. '
   'security_invoker = false on purpose: the filter IS the tenant boundary. '

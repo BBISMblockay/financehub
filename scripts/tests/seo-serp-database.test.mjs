@@ -145,6 +145,7 @@ async function providerRun({ observedOn, device = 'desktop', syncedAt, batch, ro
 }
 
 const START = '2026-08-01';
+const SEEDED_AT = '2026-09-24T09:00:00Z';
 
 try {
   await db.exec(await readFile(new URL('./seo-db-bootstrap.sql', import.meta.url), 'utf8'));
@@ -166,13 +167,17 @@ try {
   // position ~14, "mlb tee" is small. Another company's query never surfaces.
   for (let i = 0; i < 41; i++) {
     const day = addDays(START, i);
+    // One synced_at per run, shared by a day's site row and its query rows,
+    // exactly as scripts/lib/search-console-sync-core.mjs writes them (query
+    // rows first, site row last, one timestamp). The rollup counts a query
+    // row only under a site row written at or after it.
     await q(`insert into search_console_site_daily(company_entity_id,site_url,day_date,clicks,impressions,ctr,position,
-      page_rows,page_attributed_clicks,page_attributed_impressions,query_rows,query_attributed_clicks,query_attributed_impressions)
-      values ($1,$2,$3,100,1000,0.1,8.5,50,100,1200,40,60,700)`, [co, SITE, day]);
-    await q(`insert into search_console_query_daily(company_entity_id,site_url,day_date,query,clicks,impressions,ctr,position) values
-      ($1,$2,$3,'baseball dad hat',40,400,0.1,4.0),
-      ($1,$2,$3,'baseball hoodie',2,900,0.002,14.0),
-      ($1,$2,$3,'mlb tee',5,50,0.1,7.0)`, [co, SITE, day]);
+      page_rows,page_attributed_clicks,page_attributed_impressions,query_rows,query_attributed_clicks,query_attributed_impressions,synced_at)
+      values ($1,$2,$3,100,1000,0.1,8.5,50,100,1200,40,60,700,$4)`, [co, SITE, day, SEEDED_AT]);
+    await q(`insert into search_console_query_daily(company_entity_id,site_url,day_date,query,clicks,impressions,ctr,position,synced_at) values
+      ($1,$2,$3,'baseball dad hat',40,400,0.1,4.0,$4),
+      ($1,$2,$3,'baseball hoodie',2,900,0.002,14.0,$4),
+      ($1,$2,$3,'mlb tee',5,50,0.1,7.0,$4)`, [co, SITE, day, SEEDED_AT]);
   }
   await q(`insert into search_console_site_daily(company_entity_id,site_url,day_date,clicks,impressions) values ($1,'https://other.example/','2026-08-05',999,9999)`, [otherCo]);
   await q(`insert into search_console_query_daily(company_entity_id,site_url,day_date,query,clicks,impressions) values ($1,'https://other.example/','2026-08-05','other company query',999,9999)`, [otherCo]);
@@ -497,6 +502,21 @@ try {
     const raglan = bySource.product_type.find((r) => r.keyword_norm === 'raglan');
     assert.equal(raglan.already_in_set, false);
     assert.equal(raglan.our_position, null, 'not a Search Console query: no position, never 0');
+    // Cycle-1 finding: a query row is evidence only under a COMPLETED site
+    // snapshot. Two partial-run shapes, both loud enough to top the list if
+    // counted: a day with no site row at all, and a day whose query row was
+    // re-stamped by a run that died before rewriting the site row.
+    const orphanDay = addDays(START, 60);
+    await q(`insert into search_console_query_daily(company_entity_id,site_url,day_date,query,clicks,impressions,ctr,position) values
+      ($1,$2,$3,'orphan day query',9999,99999,0.1,1.0)`, [co, SITE, orphanDay]);
+    await q(`insert into search_console_query_daily(company_entity_id,site_url,day_date,query,clicks,impressions,ctr,position,synced_at) values
+      ($1,$2,$3,'partial rerun query',9999,99999,0.1,1.0, now() + interval '1 hour')`, [co, SITE, START]);
+    await asRole('service_role', '', () => q('select refresh_search_console_query_rollup_mv()'));
+    const after = await asMember(() => q('select * from seo_derive_keyword_candidates(90)'));
+    assert.ok(!after.some((r) => r.keyword_norm === 'orphan day query'), 'a query row for a day with no site row is not evidence');
+    assert.ok(!after.some((r) => r.keyword_norm === 'partial rerun query'), 'a query row newer than its day\'s site row is not evidence');
+    assert.equal(await asMember(() => scalar('select max(window_end)::text from search_console_query_rollup_v')), addDays(START, 40), 'the window ends on the newest SITE day, not the newest query row');
+    assert.ok(after.some((r) => r.keyword_norm === 'baseball dad hat'), 'complete days still count');
     assert.ok(rows.every((r) => r.company_entity_id === co));
     assert.ok((bySource.search_console_clicks || []).length <= 60 && (bySource.search_console_opportunity || []).length <= 30, 'group caps');
     const theirs = await asOutsider(() => q('select * from seo_derive_keyword_candidates(90)'));
