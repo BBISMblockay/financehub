@@ -602,6 +602,28 @@
                       <button class="bcn-btn bcn-btn--primary int-brand-btn int-brand-btn--shopify" id="btn-connect-shopify">Connect with Shopify →</button>
                     </div>
                     <div class="test-result" id="test-result"></div>
+
+                    <!-- Additive fallback: "Connect with Shopify" above only works for stores
+                         Shopify will let this app install on. Until the SILO app is publicly
+                         distributed, that's Baseballism's own organization only -- a genuinely
+                         separate business's store gets Shopify's own "app may not be available
+                         for this store" refusal, no matter how correctly the domain is typed.
+                         This path needs no Shopify Partners involvement at all: the store's own
+                         admin issues its own token. Remove once the app is public and this
+                         table's is_active/has_token distribution shows nothing using it. -->
+                    <div class="int-muted" style="margin:14px 0 10px;">— or, if "Connect with Shopify" refuses this store, connect with a token from the store's own admin instead —</div>
+                    <div class="bcn-field-group">
+                      <label class="bcn-label" for="shop-access-token">Admin API access token</label>
+                      <input class="bcn-field bcn-field--mono" id="shop-access-token" type="password"
+                        placeholder="shpat_…" autocomplete="off" spellcheck="false" />
+                      <div class="int-muted">From the store's own Shopify admin: Settings → Apps and sales channels →
+                        Develop apps → Create an app → Configure Admin API scopes (grant at least
+                        <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>,
+                        <code>read_locations</code>) → Install app → reveal the Admin API access token.</div>
+                    </div>
+                    <div class="form-row">
+                      <button class="bcn-btn bcn-btn--primary" id="btn-save-shopify-token">Save connection</button>
+                    </div>
                   </div>
                 </td>
               </tr>
@@ -1266,6 +1288,7 @@
       document.getElementById('shopify-add-form').classList.remove('open');
       document.getElementById('btn-add-shopify').style.display = '';
       document.getElementById('shop-domain').value = '';
+      document.getElementById('shop-access-token').value = '';
       document.getElementById('test-result').className = 'test-result';
     }
 
@@ -1327,6 +1350,55 @@
       if (btn && btn.disabled) {
         btn.disabled = false;
         btn.textContent = 'Connect with Shopify →';
+      }
+    });
+
+    // ── Save a manually-issued Admin API token (additive fallback) ─────
+    // Stopgap for a store the SILO OAuth app cannot install on -- see the
+    // markup comment above the "Save connection" button. Same insert-then-
+    // test shape as the Meta Ads manual token below: land the row, then the
+    // existing per-row Test button (retest()) validates it and reports
+    // scopes, same as an OAuth connection would.
+    document.getElementById('btn-save-shopify-token').addEventListener('click', async () => {
+      const domain = document.getElementById('shop-domain').value.trim();
+      const token = document.getElementById('shop-access-token').value.trim();
+      const resultEl = document.getElementById('test-result');
+      const btn = document.getElementById('btn-save-shopify-token');
+
+      if (!domain) { resultEl.className = 'test-result err'; resultEl.textContent = 'Enter the shop domain first.'; return; }
+      if (!token) { resultEl.className = 'test-result err'; resultEl.textContent = 'Paste the Admin API access token first.'; return; }
+      if (!_co?.id) { resultEl.className = 'test-result err'; resultEl.textContent = 'No active company — refresh and try again.'; return; }
+
+      const shop = domain.includes('.') ? domain : `${domain}.myshopify.com`;
+      const clash = (_summaryState.shopify || []).find((r) => r.shop_domain === shop);
+      if (clash) {
+        resultEl.className = 'test-result err';
+        resultEl.textContent = `${shop} is already connected. Use Replace token on that row instead.`;
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      resultEl.className = 'test-result';
+
+      try {
+        const { error } = await db.from('shopify_connections').insert({
+          company_entity_id: _co.id,
+          shop_domain: shop,
+          access_token: token,
+          is_active: true,
+          sync_enabled: false,
+        });
+        if (error) throw error;
+        closeAddForm();
+        setStatus('✓ Shopify connection saved — run Test, then enable sync.', 'pos', 8000);
+        loadConnections();
+      } catch (err) {
+        resultEl.className = 'test-result err';
+        resultEl.textContent = 'Save failed: ' + err.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save connection';
       }
     });
 
