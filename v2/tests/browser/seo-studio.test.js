@@ -65,11 +65,15 @@ const tables = {
   shopify_collection_products: [
     { company_entity_id: CO, shopify_collection_id: BP_COL, shopify_product_id: 'p1', position: 1, missing_since: null },
     { company_entity_id: CO, shopify_collection_id: BP_COL, shopify_product_id: 'p2', position: 2, missing_since: null },
+    { company_entity_id: CO, shopify_collection_id: BP_COL, shopify_product_id: 'p4', position: 3, missing_since: null },
     { company_entity_id: CO, shopify_collection_id: CAPS_COL, shopify_product_id: 'p3', position: 1, missing_since: null },
   ],
   products_master: [
-    { company_entity_id: CO, shopify_product_id: 'p1', product_title: 'Ronin Backpack - Angler Camo', image_url: 'https://cdn.shopify.com/ronin-camo.jpg' },
-    { company_entity_id: CO, shopify_product_id: 'p2', product_title: 'Ronin Backpack - Bat Bros', image_url: 'https://cdn.shopify.com/ronin-batbros.jpg' },
+    // p2 is the newest LIVE release, so it leads although Shopify sorts it
+    // second; p4 is newer still but a draft, so it is not on the website.
+    { company_entity_id: CO, shopify_product_id: 'p1', product_title: 'Ronin Backpack - Angler Camo', image_url: 'https://cdn.shopify.com/ronin-camo.jpg', shopify_status: 'active', online_published_at: '2025-04-01T00:00:00Z' },
+    { company_entity_id: CO, shopify_product_id: 'p2', product_title: 'Ronin Backpack - Bat Bros', image_url: 'https://cdn.shopify.com/ronin-batbros.jpg', shopify_status: 'active', online_published_at: '2026-09-10T00:00:00Z' },
+    { company_entity_id: CO, shopify_product_id: 'p4', product_title: 'Ronin Backpack - Unreleased', image_url: 'https://cdn.shopify.com/ronin-draft.jpg', shopify_status: 'draft', online_published_at: '2026-09-20T00:00:00Z' },
     { company_entity_id: CO, shopify_product_id: 'p3', product_title: 'Cactus Rope Cap', image_url: 'javascript:alert(1)' },
   ],
 };
@@ -88,7 +92,10 @@ const tables = {
     R.has(first, '#3–4 on 2 tracked keywords');
     R.has(first, 'Strong evidence');
     R.eq(await cards.nth(0).getAttribute('aria-current'), 'true', 'the top page opens by default');
-    R.eq(await cards.nth(0).locator('img').first().getAttribute('src'), 'https://cdn.shopify.com/ronin-camo.jpg', 'the collection\'s own first product photo');
+    R.eq(await cards.nth(0).locator('img').first().getAttribute('src'), 'https://cdn.shopify.com/ronin-batbros.jpg', 'the collection\'s newest live release leads');
+    R.eq(await page.locator('#queue img[src$="ronin-draft.jpg"]').count(), 0, 'a draft product is not shown as the collection');
+    const tabs = await page.evaluate(() => [...document.querySelectorAll('[data-seo-suite] a')].map(a => [a.getAttribute('href'), a.getAttribute('aria-current')]));
+    R.eq(JSON.stringify(tabs), JSON.stringify([['/v2/seo-studio.html', 'page'], ['/v2/seo-overview.html', null], ['/v2/seo-keywords.html', null]]), 'the SEO suite strip renders with Studio current');
     R.has(queue, 'Needs a page');
     R.ok('a needs-a-page entry shows a labelled blank, never another page\'s photo', /no page yet/i.test(queue));
     R.eq(await page.locator('#queue img[src^="javascript"]').count(), 0, 'a non-https image URL is never rendered');

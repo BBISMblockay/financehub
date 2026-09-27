@@ -177,5 +177,36 @@ r.test('a rejected task never advances the page, but is named', () => {
   r.eq(s.step, 'review'); r.eq(s.label, 'A previous task was rejected');
 });
 
+console.log('\n── Collection photos: newest live first ──');
+const pm = (id, o) => Object.assign({ shopify_product_id: id, product_title: 'P' + id, image_url: 'https://cdn/' + id + '.jpg', shopify_status: 'active', online_published_at: null }, o);
+r.test('live products come first, newest publication first', () => {
+  const out = S.pickCollectionPhotos(['1', '2', '3', '4'], [
+    pm('1', { online_published_at: '2025-03-01T00:00:00Z' }),
+    pm('2', { shopify_status: 'draft', online_published_at: '2026-09-20T00:00:00Z' }),
+    pm('3', { online_published_at: '2026-09-01T00:00:00Z' }),
+    pm('4', { online_published_at: null }),
+  ]);
+  r.eq(out.map(x => x.shopify_product_id).join(','), '3,1', 'a draft and an unpublished product are not live');
+  r.eq(out[0].published_at, '2026-09-01T00:00:00Z');
+});
+r.test('only products in the collection, one photo per product, https only', () => {
+  const out = S.pickCollectionPhotos(['1', '2'], [
+    pm('1', { online_published_at: '2026-01-01T00:00:00Z' }),
+    pm('1', { online_published_at: '2026-01-01T00:00:00Z', image_url: 'https://cdn/1b.jpg' }),
+    pm('2', { online_published_at: '2026-02-01T00:00:00Z', image_url: 'http://cdn/2.jpg' }),
+    pm('9', { online_published_at: '2026-09-01T00:00:00Z' }),
+  ]);
+  r.eq(out.length, 1); r.eq(out[0].shopify_product_id, '1');
+});
+r.test('nothing live: collection position order stands in, capped at n', () => {
+  const out = S.pickCollectionPhotos(['3', '1', '2'], [pm('1', { shopify_status: 'archived' }), pm('2'), pm('3')], 2);
+  r.eq(out.map(x => x.shopify_product_id).join(','), '3,1');
+  r.eq(out[0].published_at, null);
+});
+r.test('empty inputs give no photos', () => {
+  r.eq(S.pickCollectionPhotos([], []).length, 0);
+  r.eq(S.pickCollectionPhotos(null, null).length, 0);
+});
+
 const out = r.summary();
 process.exit(out.fail ? 1 : 0);

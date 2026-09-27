@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SEO Studio — SILO</title>
+  <title>Studio · SEO — SILO</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <style>
@@ -117,6 +117,7 @@
     dialog.ss-dialog::backdrop { background:rgba(0,0,0,.35); }
     #status { margin:12px 20px 0; }
   </style>
+  <link rel="stylesheet" href="seo-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -126,11 +127,10 @@
   <main class="silo-main">
     <header class="bcn-header">
       <div>
-        <div class="bcn-header-title">SEO Studio</div>
+        <div class="bcn-header-title">Studio</div>
         <div id="subtitle" class="ss-fresh">Loading…</div>
       </div>
       <div class="bcn-header-actions">
-        <a class="bcn-btn bcn-btn--ghost" href="/v2/seo-keywords.html">SEO Keywords</a>
         <button id="btnRefresh" class="bcn-btn bcn-btn--ghost" type="button">Refresh</button>
       </div>
     </header>
@@ -186,6 +186,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
+<script src="seo-suite.js"></script>
 <script src="silo-chrome.js"></script>
 <script src="seo-keywords.js"></script>
 <script src="seo-studio.js"></script>
@@ -273,11 +274,30 @@
     await loadMedia(S.queue.slice(0, 24));
   }
 
-  /** Photos and Shopify settings for the queue, in three batched reads:
-   * collections by handle, their first products, and those products'
-   * images. A page whose photos cannot be found shows a labelled blank tile,
-   * never another page's photo. */
-  async function loadMedia(groups) {
+  const ID_CHUNK = 150, PAGE = 1000, MAX_PAGES = 20;
+  /** Every row a paged query returns; null when a page fails, so a partial
+   * read is never presented as the whole. */
+  async function readAll(pageAt) {
+    const out = [];
+    for (let p = 0; p < MAX_PAGES; p++) {
+      const r = await pageAt(p * PAGE, p * PAGE + PAGE - 1);
+      if (r.error) return null;
+      out.push(...(r.data || []));
+      if ((r.data || []).length < PAGE) break;
+    }
+    return out;
+  }
+
+  /** Photos and Shopify settings for the queue: collections by handle, their
+   * members, and those members' photos and live state. A collection shows its
+   * NEWEST LIVE products (active and published on the website, latest
+   * publication first -- pickCollectionPhotos). A page whose photos cannot be
+   * found shows a labelled blank tile, never another page's photo. */
+  async function loadMedia(all) {
+    // Load more passes the whole shown list; a page already drawn keeps its
+    // photos and is not read again.
+    const groups = all.filter(g => !(g.key in S.media));
+    if (!groups.length) return;
     const colHandles = [...new Set(groups.map(g => ST.collectionHandle(g.path)).filter(Boolean))].filter(h => !(h in S.collections));
     const prodHandles = [...new Set(groups.map(g => ST.productHandle(g.path)).filter(Boolean))];
     if (colHandles.length) {
@@ -288,18 +308,24 @@
       colHandles.forEach(h => { if (!(h in S.collections)) S.collections[h] = null; });
     }
     const colIds = colHandles.map(h => S.collections[h]?.shopify_collection_id).filter(Boolean);
-    let productIdsByCol = {};
+    // The collection's WHOLE membership, so the newest release is found even
+    // when Shopify sorts it last; paged, because a large collection alone can
+    // pass one page.
+    const productIdsByCol = {};
     if (colIds.length) {
-      const cp = await scoped(sb.from('shopify_collection_products').select('shopify_collection_id, shopify_product_id, position')
-        .in('shopify_collection_id', colIds).is('missing_since', null)).order('position').limit(colIds.length * 12);
-      if (!cp.error) for (const row of cp.data || []) (productIdsByCol[row.shopify_collection_id] ||= []).push(String(row.shopify_product_id));
+      const rows = await readAll((from, to) => scoped(sb.from('shopify_collection_products').select('shopify_collection_id, shopify_product_id, position')
+        .in('shopify_collection_id', colIds).is('missing_since', null)).order('shopify_collection_id').order('position').order('shopify_product_id').range(from, to));
+      for (const row of rows || []) (productIdsByCol[row.shopify_collection_id] ||= []).push(String(row.shopify_product_id));
     }
+    // Their photos and live state, in id chunks (a long .in() list outgrows
+    // the request URL). One row per SKU, so each chunk is paged too.
     const allIds = [...new Set(Object.values(productIdsByCol).flat())];
-    const imgById = {};
-    if (allIds.length) {
-      const pm = await scoped(sb.from('products_master').select('shopify_product_id, product_title, image_url')
-        .in('shopify_product_id', allIds).not('image_url', 'is', null)).limit(allIds.length * 4);
-      if (!pm.error) for (const row of pm.data || []) if (!imgById[row.shopify_product_id]) imgById[String(row.shopify_product_id)] = row;
+    const productRows = [];
+    for (let i = 0; i < allIds.length; i += ID_CHUNK) {
+      const chunk = allIds.slice(i, i + ID_CHUNK);
+      const rows = await readAll((from, to) => scoped(sb.from('products_master').select('shopify_product_id, product_title, image_url, shopify_status, online_published_at')
+        .in('shopify_product_id', chunk).not('image_url', 'is', null)).order('shopify_product_id').order('sku').range(from, to));
+      if (rows) productRows.push(...rows);
     }
     const imgByHandle = {};
     if (prodHandles.length) {
@@ -311,7 +337,7 @@
       const ch = ST.collectionHandle(g.path), ph = ST.productHandle(g.path);
       let imgs = [];
       if (ch && S.collections[ch]) {
-        imgs = (productIdsByCol[S.collections[ch].shopify_collection_id] || []).map(id => imgById[id]).filter(Boolean).slice(0, 3);
+        imgs = ST.pickCollectionPhotos(productIdsByCol[S.collections[ch].shopify_collection_id] || [], productRows, 3);
         if (S.collections[ch].title) g.title = S.collections[ch].title;
       } else if (ph && imgByHandle[ph]) {
         imgs = [imgByHandle[ph]];
@@ -401,7 +427,7 @@
     const list = S.queue.slice(0, S.shown);
     el('queueCount').textContent = S.queue.length ? `${S.queue.length} page${S.queue.length === 1 ? '' : 's'} with opportunities` : '';
     if (!S.queue.length) {
-      el('queue').innerHTML = `<div class="ss-empty"><b>Nothing to work on yet.</b>This needs a completed rank check (SEO Keywords → Tracking) and some Search Console history.</div>`;
+      el('queue').innerHTML = `<div class="ss-empty"><b>Nothing to work on yet.</b>This needs a completed rank check (Keywords tab → Tracking) and some Search Console history.</div>`;
       return;
     }
     el('queue').innerHTML = list.map((g, i) => {
@@ -672,7 +698,7 @@
     const user = sess.data.session.user;
     _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
     if (window.SiloChrome) {
-      window.SiloChrome.mount({ appEl: '#silo-app', active: 'reports/seo-studio', user: { email: user?.email || '', role: 'admin' }, crumbs: ['Marketing', 'SEO Studio'], supabaseClient: sb });
+      window.SiloChrome.mount({ appEl: '#silo-app', active: 'seo/studio', user: { email: user?.email || '', role: 'admin' }, crumbs: ['Marketing', 'SEO', 'Studio'], supabaseClient: sb });
     }
     await runLoad();
   }

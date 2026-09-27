@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SEO Keywords — SILO</title>
+  <title>Keywords · SEO — SILO</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <style>
@@ -72,6 +72,7 @@
     .sk-evidence--moderate { background:var(--bcn-warn); color:#fff; }
     .sk-evidence--early { background:var(--bcn-surface-2, #eee); color:var(--bcn-ink-2); }
   </style>
+  <link rel="stylesheet" href="seo-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -81,7 +82,7 @@
   <main class="silo-main">
     <header class="bcn-header">
       <div>
-        <div class="bcn-header-title">SEO Keywords</div>
+        <div class="bcn-header-title">Keywords</div>
         <div id="subtitle" style="font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3)">Keyword set · competitors · observed rankings · weekly tracking · recommendations</div>
       </div>
       <div class="bcn-header-actions">
@@ -318,6 +319,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
+<script src="seo-suite.js"></script>
 <script src="silo-chrome.js"></script>
 <script src="seo-keywords.js"></script>
 <script src="seo-task-draft.js"></script>
@@ -927,7 +929,7 @@
     USER_ID = user?.id || null;
     _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
     if (window.SiloChrome) {
-      window.SiloChrome.mount({ appEl: '#silo-app', active: 'reports/seo-keywords', user: { email: user?.email || '', role: 'admin' }, crumbs: ['Marketing', 'SEO Keywords'], supabaseClient: sb });
+      window.SiloChrome.mount({ appEl: '#silo-app', active: 'seo/keywords', user: { email: user?.email || '', role: 'admin' }, crumbs: ['Marketing', 'SEO', 'Keywords'], supabaseClient: sb });
     }
     // Who may switch tracking on or curate competitors. The RPC is the same
     // gate RLS applies; the answer only decides which controls to show.

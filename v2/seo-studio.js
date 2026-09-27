@@ -329,6 +329,41 @@
     return { step: 'review', task: null, label: rejected ? 'A previous task was rejected' : 'Not started' };
   }
 
+  /** Which product photos stand for a collection: the NEWEST LIVE products
+   * first. Live on the website is shopify_status 'active' AND a non-null
+   * online_published_at (products_master's is_active says nothing), and the
+   * newest publication is the most recent release -- what the collection
+   * looks like now. `productIds` is the collection's own membership in
+   * position order; rows are products_master rows (one or more per product,
+   * one per SKU). When nothing in the collection is live, position order
+   * stands in rather than a blank tile. https images only; one photo per
+   * product. */
+  function pickCollectionPhotos(productIds, rows, n) {
+    var limit = n == null ? 3 : n;
+    var order = {};
+    (Array.isArray(productIds) ? productIds : []).forEach(function (id, i) {
+      var k = String(id); if (!(k in order)) order[k] = i;
+    });
+    var best = {};
+    (Array.isArray(rows) ? rows : []).forEach(function (r) {
+      if (!r || !/^https:\/\//.test(r.image_url || '')) return;
+      var id = String(r.shopify_product_id);
+      if (!(id in order)) return;
+      var live = r.shopify_status === 'active' && !!r.online_published_at;
+      var t = live ? Date.parse(r.online_published_at) : NaN;
+      var cand = { id: id, product_title: r.product_title || null, image_url: r.image_url, live: live && isFinite(t), published_at: live && isFinite(t) ? r.online_published_at : null, t: isFinite(t) ? t : null };
+      var cur = best[id];
+      if (!cur || (cand.live && (!cur.live || cand.t > cur.t))) best[id] = cand;
+    });
+    var all = Object.keys(best).map(function (k) { return best[k]; });
+    var live = all.filter(function (x) { return x.live; })
+      .sort(function (a, b) { return b.t - a.t || order[a.id] - order[b.id]; });
+    var pool = live.length ? live : all.sort(function (a, b) { return order[a.id] - order[b.id]; });
+    return pool.slice(0, limit).map(function (x) {
+      return { shopify_product_id: x.id, product_title: x.product_title, image_url: x.image_url, published_at: x.published_at };
+    });
+  }
+
   var API = {
     STEPS: STEPS,
     stepFor: stepFor,
@@ -350,6 +385,7 @@
     findings: findings,
     headline: headline,
     askSiloPrompt: askSiloPrompt,
+    pickCollectionPhotos: pickCollectionPhotos,
   };
   if (typeof window !== 'undefined') window.SiloSeoStudio = API;
   if (typeof module !== 'undefined' && module.exports) module.exports = API;

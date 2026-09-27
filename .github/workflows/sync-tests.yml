@@ -139,6 +139,11 @@ on:
       - 'supabase/migrations/*seo_landscape_28d_rollup.sql'
       - 'v2/seo-keywords.html'
       - 'v2/seo-keywords.js'
+      # SEO suite: one sidebar row, three tabs (seo-suite.test.mjs).
+      - 'v2/seo-suite.*'
+      - 'v2/seo-studio.html'
+      - 'v2/seo-overview.html'
+      - 'scripts/tests/seo-suite.test.mjs'
       - 'v2/card-coding.html'
       - 'v2/transactions.html'
       - 'v2/transactions-tiles.js'
@@ -277,6 +282,11 @@ jobs:
       # platform link that a company owner can never see.
       - name: Workspace settings navigation and platform separation
         run: node --test scripts/tests/workspace-settings.test.mjs
+
+      # One SEO row in the sidebar; Studio, Search performance and Keywords
+      # are tabs across their existing pages.
+      - name: SEO suite navigation
+        run: node --test scripts/tests/seo-suite.test.mjs
 
       # Company-specific Melio/BILL intake (#785): the forwarding destination
       # resolves from the workspace's own setting, with the Baseballism secret
