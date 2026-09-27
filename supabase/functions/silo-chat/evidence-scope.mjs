@@ -209,7 +209,13 @@ function mentions(text, col) {
  *     forward attributed `campaign_name = 'Subscribers'` to the `platform`
  *     filter sitting two tokens earlier.
  */
-function columnRestriction(text, literals, col) {
+function columnRestriction(rawText, literals, col) {
+  // `lower(btrim(location_tag)) = 'online'` restricts location_tag exactly as
+  // `location_tag = 'online'` does. Unwrapped only for this column, and only
+  // for case/whitespace normalisers, whose result is still one value of it.
+  // Measured live 2026-09-27 (audit 03:20:22): every sales query in the request
+  // used this form, and every one was reported as covering every channel.
+  const text = unwrapNormalisers(maskConditionalExpressions(rawText), col);
   const included = [];
   const excluded = [];
   let restricted = false;
@@ -254,6 +260,70 @@ function columnRestriction(text, literals, col) {
   if (excluded.length) return { kind: 'excluded', values: excluded.slice(0, MAX_VALUES_REPORTED) };
   if (restricted) return { kind: 'restricted', values: [] };
   return { kind: null, values: [] };
+}
+
+/** Blank out predicates that restrict ONE OUTPUT EXPRESSION rather than the
+ *  rows returned: an aggregate's `filter (where ...)` and a `case ... end`.
+ *  `sum(x) filter (where location_tag = 'online') as online, sum(x) as total`
+ *  returns an online subtotal AND an every-channel total; reading its
+ *  predicate as a row filter reported the whole result as online-only, which
+ *  would let the pooled total be labelled "online" (cycle-1 review of #804 --
+ *  and the bare-column form was already wrong before the normaliser change).
+ *  Masked text keeps its length, so nothing else's positions move; a masked
+ *  predicate simply is not seen, which leaves the column pooled -- the safe
+ *  reading. */
+export function maskConditionalExpressions(text) {
+  // Keywords and parentheses are read from a SCAN copy in which double-quoted
+  // identifiers are blanked (same length), so an alias like `as "case"` or
+  // `"filter(x)"` cannot open or close a span (cycle-2 review of #804: one
+  // quoted "case" left the real CASE unmasked). Single-quoted literals were
+  // already replaced by denoise(). Masks are applied to the real text.
+  const scan = text.replace(/"(?:[^"]|"")*"/g, (q) => ' '.repeat(q.length));
+  const spans = [];
+  // filter ( ... ) with balanced parentheses.
+  const filterRe = /\bfilter\s*\(/g;
+  let m;
+  while ((m = filterRe.exec(scan))) {
+    const open = m.index + m[0].length - 1;
+    let depth = 0;
+    let i = open;
+    for (; i < scan.length; i++) {
+      if (scan[i] === '(') depth++;
+      else if (scan[i] === ')' && --depth === 0) break;
+    }
+    spans.push([open + 1, i]);
+  }
+  // case ... end, nesting-aware on the two keywords.
+  const tokenRe = /\b(case|end)\b/g;
+  const stack = [];
+  while ((m = tokenRe.exec(scan))) {
+    if (m[1] === 'case') stack.push(m.index + 4);
+    else if (stack.length) {
+      const from = stack.pop();
+      if (!stack.length) spans.push([from, m.index]);
+    }
+  }
+  // An unclosed CASE (truncated or unusual SQL) masks to the end: reporting the
+  // column pooled is the safe reading when the structure cannot be paired.
+  if (stack.length) spans.push([stack[0], scan.length]);
+  let out = text;
+  for (const [from, to] of spans) {
+    if (to > from) out = out.slice(0, from) + ' '.repeat(to - from) + out.slice(to);
+  }
+  return out;
+}
+
+const NORMALISERS = '(?:lower|upper|btrim|trim|ltrim|rtrim)';
+
+/** Strip case/whitespace normaliser calls wrapped directly around `col`
+ *  (optionally table-qualified), innermost first, so the predicate matchers
+ *  below see the bare column. Anything else inside the call is left alone. */
+export function unwrapNormalisers(text, col) {
+  const re = new RegExp(`(?<![a-z0-9_])${NORMALISERS}\\s*\\(\\s*((?:[a-z_][a-z0-9_]*\\.)?${col})\\s*\\)`, 'g');
+  let prev;
+  let out = text;
+  do { prev = out; out = out.replace(re, '$1'); } while (out !== prev);
+  return out;
 }
 
 function groupedOn(text, col) {
