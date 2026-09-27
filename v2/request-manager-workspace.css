@@ -1,0 +1,108 @@
+/* Request review workspace: local overrides, shared Beacon tokens and shell. */
+.rm-review-page [hidden] { display: none !important; }
+.rm-review-page .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+.rm-review-page .pr-page--workbench { max-width:none; padding:16px; }
+.rm-review-page .rm-page-head { padding:0 0 12px; background:transparent; align-items:center; }
+.rm-review-page .rm-page-head h1 { margin:0; }
+.rm-review-page .rm-page-head p { margin:6px 0 0; font-size:12px; }
+.rm-review-page #requestTabs { justify-content:flex-start; border:0; border-bottom:1px solid var(--bcn-border); background:transparent; padding:0; gap:4px; }
+.rm-review-page #requestTabs button { padding:10px 16px; border-radius:0; background:transparent; color:var(--bcn-ink-2); border:0; border-bottom:2px solid transparent; }
+.rm-review-page #requestTabs button.active { color:var(--bcn-accent); border-bottom-color:var(--bcn-accent); }
+.rm-review-page .rm-search-toolbar { display:flex; align-items:center; gap:10px; margin:12px 0 4px; flex-wrap:wrap; }
+.rm-review-page .rm-search { width:min(420px,100%); }
+.rm-review-page .rm-search .input { width:100%; }
+.rm-review-page .rm-status-line { min-height:18px; margin:4px 0 8px; font-size:11px; }
+.rm-review-page .rm-queue-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+.rm-review-page .rm-queue-tabs .queue-card { display:flex; align-items:center; gap:7px; padding:6px 9px; width:auto; min-width:0; color:var(--bcn-ink-2); background:var(--bcn-surface); border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); cursor:pointer; }
+.rm-review-page .rm-queue-tabs .queue-card.active { border-color:var(--bcn-accent); color:var(--bcn-accent); background:var(--bcn-accent-soft); }
+.rm-review-page .rm-queue-tabs .label { font:inherit; color:inherit; }
+.rm-review-page .rm-queue-tabs .value { font-size:12px; margin:0; }
+.rm-review-page .rm-queue-tabs .queue-sub { display:none; }
+.rm-review-page .rm-review-layout { display:grid; grid-template-columns:minmax(250px,.8fr) minmax(300px,.9fr) minmax(340px,1.3fr); gap:12px; align-items:start; }
+.rm-review-page .rm-review-layout > * { min-width:0; }
+.rm-review-page .rm-queue-pane > .card { padding:0; overflow:hidden; }
+.rm-review-page .rm-queue-pane .rm-card-head { padding:10px 12px; }
+.rm-review-page .rm-queue-pane .rm-table-scroll { max-height:calc(100dvh - 310px); min-height:280px; border:0; border-radius:0; }
+.rm-review-page .rm-queue-pane table { min-width:0; width:100%; table-layout:fixed; }
+.rm-review-page .rm-queue-pane th { padding:8px; }
+.rm-review-page .rm-queue-pane td { padding:0; vertical-align:middle; }
+.rm-review-page .rm-queue-pane .rm-row-select-col { width:32px; padding:8px; }
+.rm-review-page .rm-queue-pane input[type=checkbox] { width:16px; height:16px; accent-color:var(--bcn-accent); }
+.rm-review-page .rm-request-open { display:block; width:100%; border:0; text-align:left; padding:10px 10px 10px 0; cursor:pointer; background:transparent; color:var(--bcn-ink); font:inherit; }
+.rm-review-page .rm-request-top { display:flex; gap:8px; align-items:baseline; justify-content:space-between; }
+.rm-review-page .rm-request-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.rm-review-page .rm-request-amount { white-space:nowrap; font-size:12px; }
+.rm-review-page .rm-request-meta { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; color:var(--bcn-ink-3); margin-top:4px; }
+.rm-review-page .rm-request-due { color:var(--bcn-ink-2); }
+.rm-review-page tr.is-current td { background:var(--bcn-accent-soft); }
+.rm-review-page tr.is-current .rm-request-open { box-shadow:inset 3px 0 var(--bcn-accent); padding-left:8px; }
+.rm-review-page tr.is-selected:not(.is-current) td { background:var(--bcn-bg); }
+.rm-review-page .rm-bulk-bar { margin:0; padding:10px; border:0; border-top:1px solid var(--bcn-border); border-bottom:1px solid var(--bcn-border); border-radius:0; gap:7px; background:var(--bcn-bg); }
+.rm-review-page .rm-bulk-bar-row { gap:6px; }
+.rm-review-page .rm-bulk-bar-group { flex-wrap:wrap; width:100%; min-width:0; }
+.rm-review-page .rm-bulk-bar-group .bcn-label { width:100%; }
+.rm-review-page .rm-bulk-bar-group select { flex:1; min-width:0; }
+.rm-review-page .rm-bulk-bar input[type=file] { width:100%; }
+.rm-review-page summary { cursor:pointer; font-size:12px; font-weight:600; padding:8px 0; }
+.rm-review-page .rm-review-empty { grid-column:span 2; padding:40px 24px; text-align:center; color:var(--bcn-ink-2); }
+.rm-review-page .rm-review-empty h2 { font-size:18px; }
+.rm-review-page #drawerBackdrop { display:none; }
+.rm-review-page #workbenchDrawer { position:static; transform:none; transition:none; width:auto; height:calc(100dvh - 285px); min-height:540px; z-index:auto; box-shadow:none; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); overflow:hidden; }
+.rm-review-page #workbenchDrawer .drawer-head { background:var(--bcn-surface); color:var(--bcn-ink); padding:14px; }
+.rm-review-page #workbenchDrawer .drawer-head-kicker { color:var(--bcn-ink-3); }
+.rm-review-page #workbenchDrawer .drawer-title { color:var(--bcn-ink); font-size:20px; }
+.rm-review-page #workbenchDrawer #drawerSub { color:var(--bcn-ink-3) !important; font-size:11px; }
+.rm-review-page #workbenchDrawer .drawer-amount-badge { background:transparent; border:0; color:var(--bcn-ink); padding:0; font-size:18px; }
+.rm-review-page #workbenchDrawer .drawer-body { background:var(--bcn-surface); padding:12px; }
+.rm-review-page #workbenchDrawer .rm-drawer-panel { border:0; padding:0; background:transparent; box-shadow:none; }
+.rm-review-page #workbenchDrawer .rm-drawer-panel-head .bcn-pill { display:none; }
+.rm-review-page #workbenchDrawer .drawer-foot { position:static; box-shadow:none; padding:10px 12px; }
+.rm-review-page #workbenchDrawer .drawer-foot .btn { min-width:0; }
+.rm-review-page #workbenchDrawer .drawer-foot > .pr-btn-row:last-child { margin-left:auto; }
+.rm-review-page .rm-detail-tabs { display:flex; gap:6px; padding:8px 12px; border-bottom:1px solid var(--bcn-border); }
+.rm-review-page .rm-detail-tabs [aria-pressed=true] { border-color:var(--bcn-accent); color:var(--bcn-accent); }
+.rm-review-page .rm-document-pane { max-height:calc(100dvh - 285px); min-height:540px; overflow:auto; padding:14px; }
+.rm-review-page .rm-document-pane .rm-drawer-panel-head .bcn-pill { display:none; }
+.rm-review-page .rm-preview-controls { display:grid; gap:8px; margin:12px 0; }
+.rm-review-page .rm-preview-controls .select { width:100%; min-width:0; }
+.rm-review-page .rm-document-preview { display:flex; align-items:center; justify-content:center; min-height:340px; height:48dvh; background:var(--bcn-bg); border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); overflow:auto; }
+.rm-review-page .rm-document-preview iframe { width:100%; height:100%; border:0; background:var(--bcn-surface); }
+.rm-review-page .rm-document-preview img { width:100%; height:100%; object-fit:contain; }
+.rm-review-page .rm-preview-message { padding:24px; text-align:center; color:var(--bcn-ink-3); font-size:12px; }
+.rm-review-page .rm-document-tools { margin-top:10px; }
+.rm-review-page .rm-document-tools .rm-file-card { flex-wrap:wrap; }
+.rm-review-page .rm-document-tools .rm-file-card-body { flex-basis:65%; }
+.rm-review-page #viewReporting .rm-kpi-band { margin-bottom:16px; }
+.rm-review-page button:focus-visible, .rm-review-page input:focus-visible, .rm-review-page summary:focus-visible { outline:2px solid var(--bcn-accent); outline-offset:2px; }
+@media (min-width:901px) and (max-width:1250px) {
+  .rm-review-page .rm-review-layout { grid-template-columns:minmax(240px,.8fr) minmax(330px,1.2fr); }
+  .rm-review-page .rm-document-pane { grid-column:2; max-height:none; }
+  .rm-review-page .rm-queue-pane { grid-row:1 / span 2; }
+  .rm-review-page .rm-review-empty { grid-column:2; }
+}
+@media (max-width:900px) {
+  .rm-review-page .pr-page--workbench { padding:10px; }
+  .rm-review-page .rm-review-layout { display:flex; flex-direction:column; }
+  .rm-review-page .rm-review-layout > * { width:100%; }
+  .rm-review-page .rm-queue-pane .rm-table-scroll { min-height:0; max-height:340px; }
+  .rm-review-page #workbenchDrawer { height:auto; min-height:0; max-height:none; }
+  .rm-review-page #workbenchDrawer .drawer-body { overflow:visible; }
+  .rm-review-page .rm-document-pane { max-height:none; min-height:0; }
+  .rm-review-page .rm-page-head { flex-wrap:wrap; gap:12px; }
+  .rm-review-page .rm-search { flex:1; min-width:180px; }
+  .rm-review-page .drawer .field-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+
+/* Readable source details; only fields the reviewer can change look editable. */
+.rm-review-page .rm-detail-value { color:var(--bcn-ink); font-size:13px; line-height:1.5; overflow-wrap:anywhere; padding:3px 0 10px; }
+.rm-review-page .rm-detail-notes { white-space:pre-wrap; border-top:1px solid var(--bcn-border); padding-top:10px; }
+.rm-review-page .rm-drawer-readonly .bcn-label { font-size:10px; color:var(--bcn-ink-3); font-weight:500; }
+.rm-review-page .rm-queue-tabs .queue-card { border-color:transparent; background:transparent; }
+.rm-review-page .rm-queue-tabs .queue-card.active { border-color:var(--bcn-accent-border); background:var(--bcn-accent-soft); }
+.rm-review-page .rm-queue-more { position:relative; }
+.rm-review-page .rm-queue-more > summary { padding:7px 10px; color:var(--bcn-ink-2); font-weight:500; }
+.rm-review-page .rm-queue-options { position:absolute; top:100%; left:0; z-index:5; min-width:160px; padding:6px; border:1px solid var(--bcn-border); background:var(--bcn-surface); border-radius:4px; box-shadow:var(--bcn-shadow); }
+.rm-review-page .rm-queue-options .queue-card { width:100%; justify-content:space-between; }
+.rm-review-page #markPaidBtn { background:transparent; border-color:transparent; color:var(--bcn-ink-2); }
+/* Shared chrome classifies payment actions as primary; this workspace has one primary Save. */
+.rm-review-page #workbenchDrawer #markPaidBtn { background:transparent !important; border:1px solid var(--bcn-border) !important; color:var(--bcn-ink-2) !important; }

@@ -3,13 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Silo v2 · Payment requests workbench</title>
+  <title>SILO · Request Manager</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="purchasing-page-content.css" />
+  <link rel="stylesheet" href="request-manager-workspace.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -31,19 +32,30 @@
     .rm-row-select-col { width: 32px; text-align: center; }
   </style>
 </head>
-<body>
+<body class="rm-review-page">
 <div id="silo-app" class="silo-app">
   <main class="silo-main">
   <div class="shell pr-page pr-page--wide pr-page--workbench">
     <div class="pr-stack">
 
-      <div class="pr-btn-row" style="margin-bottom:10px">
-        <a class="btn btn-soft" href="./purchase_request2.html">New request</a>
-        <a class="btn btn-soft" href="/pages/request-manager.html">Classic</a>
-        <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
+      <header class="bcn-header rm-page-head">
+        <div><h1 class="bcn-header-title">Request Manager</h1><p class="rm-muted">Review requests with their documents close at hand.</p></div>
+        <div class="bcn-header-actions">
+          <button id="refreshBtn" class="btn btn-soft" type="button">Refresh</button>
+          <a class="btn btn-primary" href="./purchase_request2.html">New request</a>
+        </div>
+      </header>
+      <div id="requestTabs" class="rm-tabs" aria-label="Request Manager views">
+        <button id="tabRequestsBtn" type="button" class="active" aria-pressed="true">Requests</button>
+        <button id="tabReportingBtn" type="button" aria-pressed="false">Reports</button>
+        <button id="tabActivityBtn" type="button" aria-pressed="false">Activity</button>
       </div>
-
-      <div class="card rm-filter-card">
+      <div class="rm-search-toolbar">
+        <label class="rm-search"><span class="sr-only">Search requests</span><input id="searchInput" class="input" placeholder="Find vendor, requester, PO or invoice…" /></label>
+        <button id="toggleFiltersBtn" class="btn btn-soft" type="button" aria-expanded="false" aria-controls="requestFilters">Filters</button>
+        <span id="filterSummary" class="rm-muted" aria-live="polite"></span>
+      </div>
+      <div id="requestFilters" class="card rm-filter-card" hidden>
         <div class="rm-filter-grid">
           <div class="rm-f-span-2">
             <label class="bcn-label">Status</label>
@@ -113,11 +125,6 @@
             </select>
           </div>
 
-          <div class="rm-f-span-4">
-            <label class="bcn-label">Search</label>
-            <input id="searchInput" class="input" placeholder="Vendor, requester, PO, invoice, notes..." />
-          </div>
-
           <div class="rm-f-span-2">
             <label class="bcn-label">Submitted after</label>
             <input id="startDate" type="date" class="input" />
@@ -132,39 +139,15 @@
             <button id="clearFiltersBtn" class="btn btn-soft" type="button" style="width:100%;">Clear filters</button>
           </div>
 
-          <div id="statusText" class="rm-f-span-12 rm-status-line">
-            Loading queue data.
-          </div>
         </div>
       </div>
 
-      <div class="rm-kpi-band">
-        <div class="rm-kpi"><div class="rm-kpi-label">Requests</div><div id="kpiRequests" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Filtered rows</div></div>
-        <div class="rm-kpi"><div class="rm-kpi-label">Submitted amount</div><div id="kpiSubmittedAmount" class="rm-kpi-value mono">$0.00</div><div class="rm-kpi-sub">All filtered requests</div></div>
-        <div class="rm-kpi"><div class="rm-kpi-label">Open amount</div><div id="kpiOpenAmount" class="rm-kpi-value mono">$0.00</div><div class="rm-kpi-sub">Not completed</div></div>
-        <div class="rm-kpi"><div class="rm-kpi-label">Completed amount</div><div id="kpiCompletedAmount" class="rm-kpi-value mono">$0.00</div><div class="rm-kpi-sub">Marked paid</div></div>
-        <div class="rm-kpi"><div class="rm-kpi-label">Overdue</div><div id="kpiOverdue" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Past due date</div></div>
-        <div class="rm-kpi"><div class="rm-kpi-label">Due 7 days</div><div id="kpiDue7" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Open and upcoming</div></div>
-        <div class="rm-kpi"><div class="rm-kpi-label">Unassigned</div><div id="kpiUnassigned" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Needs owner</div></div>
-        <div class="rm-kpi"><div class="rm-kpi-label">Avg days open</div><div id="kpiAvgDaysOpen" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Open requests only</div></div>
-      </div>
-
-      <div class="card rm-tabs-card">
-        <div class="rm-tabs-wrap rm-tabs-wrap--inline">
-          <div>
-            <div class="rm-section-h">Views</div>
-          </div>
-          <div class="rm-tabs">
-            <button id="tabRequestsBtn" type="button" class="active">Requests</button>
-            <button id="tabReportingBtn" type="button">Reporting</button>
-            <button id="tabActivityBtn" type="button">Activity</button>
-          </div>
-        </div>
-      </div>
+      <div id="statusText" class="rm-status-line" role="status">Loading requests…</div>
 
       <div id="viewRequests" class="view-panel active">
-        <div class="rm-layout-12">
-          <div>
+        <div id="summaryCards" class="rm-queue-tabs" aria-label="Working queues"></div>
+        <div class="rm-review-layout">
+          <section class="rm-queue-pane" aria-label="Request queue">
             <div class="card">
               <div class="rm-card-head">
                 <div>
@@ -176,8 +159,10 @@
               <div id="bulkActionBar" class="card rm-bulk-bar" hidden>
                 <div class="rm-bulk-bar-row">
                   <div class="rm-bulk-bar-count"><span id="bulkSelectedCount">0</span> selected</div>
+                  <button id="bulkForwardMelioBtn" class="btn btn-primary btn-xs" type="button">Forward selected</button>
                   <button id="bulkClearBtn" class="btn btn-soft btn-xs" type="button">Clear selection</button>
                 </div>
+                <details class="rm-bulk-more"><summary>Assign, status &amp; payment confirmation</summary>
                 <div class="rm-bulk-bar-row">
                   <div class="rm-bulk-bar-group">
                     <label class="bcn-label">Assign to</label>
@@ -206,8 +191,9 @@
                     <input id="bulkConfirmationFileInput" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx" />
                   </div>
                   <button id="bulkMarkPaidBtn" class="btn btn-primary btn-xs" type="button">Mark selected paid</button>
-                  <button id="bulkForwardMelioBtn" class="btn btn-soft btn-xs" type="button">Forward to bill pay</button>
+
                 </div>
+                </details>
                 <div id="bulkActionStatus" class="rm-upload-status"></div>
               </div>
 
@@ -218,23 +204,294 @@
                 </table>
               </div>
             </div>
-          </div>
+          </section>
 
-          <div class="rm-side-stack">
-            <div class="card">
-              <div class="section-title">Working queues</div>
-              <div class="mini-grid rm-mt-sm" id="summaryCards"></div>
+          <div id="reviewEmpty" class="card rm-review-empty"><h2>Select a request</h2><p>Details, documents and processing history appear here.</p><p class="rm-muted">Use checkboxes to select requests for bulk actions.</p></div>
+          <!-- The existing editor and documents live here; no second write path. -->
+            <aside id="workbenchDrawer" class="drawer rm-drawer" aria-hidden="true" hidden aria-label="Request details">
+    <div class="drawer-head">
+      <div class="drawer-head-toolbar">
+        <div class="drawer-head-main">
+          <div class="drawer-head-kicker">Payment request</div>
+          <div class="drawer-head-title-row">
+            <h2 tabindex="-1" id="drawerTitle" class="drawer-title">Request</h2>
+            <span id="drawerAmountBadge" class="drawer-amount-badge mono">$0.00</span>
+          </div>
+          <p id="drawerSub" class="drawer-sub">Review source details, documents, internal processing, and activity history.</p>
+          <div id="drawerStatusRow" class="drawer-status-row"></div>
+        </div>
+        <button id="closeDrawerBtn" class="btn btn-soft btn-xs" type="button">Close</button>
+      </div>
+    </div>
+
+    <div class="rm-detail-tabs" aria-label="Request detail views">
+      <button type="button" class="btn btn-soft btn-xs" data-detail-tab="source" aria-pressed="true">Details</button>
+      <button type="button" class="btn btn-soft btn-xs" data-detail-tab="processing" aria-pressed="false">Processing</button>
+      <button type="button" class="btn btn-soft btn-xs" data-detail-tab="history" aria-pressed="false">History</button>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-stack">
+        <section class="rm-drawer-panel rm-drawer-panel--snapshot" hidden>
+          <div id="drawerSnapshot" class="drawer-snapshot-grid"></div>
+        </section>
+
+        <section class="rm-drawer-panel" data-detail-panel="source">
+          <header class="rm-drawer-panel-head">
+            <span class="bcn-pill">SOURCE</span>
+            <div>
+              <h3 class="rm-drawer-panel-title">Submitted details</h3>
+              <p class="rm-drawer-panel-sub">Invoice references and submission details.</p>
+            </div>
+          </header>
+          <div class="field-grid rm-drawer-readonly">
+            <div class="full">
+              <label class="bcn-label">Vendor</label>
+              <div id="fEffectiveVendor" class="rm-detail-value">—</div>
             </div>
 
-            <div class="card">
-              <div class="section-title">Recent</div>
-              <div id="recentRequests" class="rm-mt-sm"></div>
+            <div>
+              <label class="bcn-label">Requester email</label>
+              <div id="fRequesterEmail" class="rm-detail-value">—</div>
+            </div>
+
+            <div>
+              <label class="bcn-label">Location</label>
+              <div id="fLocationName" class="rm-detail-value">—</div>
+            </div>
+
+            <div>
+              <label class="bcn-label">Request type</label>
+              <div id="fRequestTypeDisplay" class="rm-detail-value">—</div>
+            </div>
+
+            <div>
+              <label class="bcn-label">Invoice #</label>
+              <div id="fInvoiceNumber" class="rm-detail-value">—</div>
+            </div>
+
+            <div>
+              <label class="bcn-label">Flex ID #</label>
+              <div id="fFlexId" class="rm-detail-value">—</div>
+            </div>
+
+            <div>
+              <label class="bcn-label">Internal PO #</label>
+              <div id="fPoNumber" class="rm-detail-value">—</div>
+            </div>
+
+            <div>
+              <label class="bcn-label">Amount due</label>
+              <input id="fAmountDue" class="input mono rm-field-editable" type="number" step="0.01" min="0" />
+              <div class="rm-upload-hint">Editable — corrections are logged to activity.</div>
+            </div>
+
+            <div>
+              <label class="bcn-label">Due date</label>
+              <div id="fDueDate" class="rm-detail-value">—</div>
+            </div>
+
+            <div class="full">
+              <label class="bcn-label">Submitted notes</label>
+              <div id="fSubmittedNotes" class="rm-detail-value rm-detail-notes">—</div>
             </div>
           </div>
+        </section>
+
+        <section class="rm-drawer-panel" data-detail-panel="processing" hidden>
+          <header class="rm-drawer-panel-head">
+            <span class="bcn-pill bcn-pill--dark">AP</span>
+            <div>
+              <h3 class="rm-drawer-panel-title">Internal processing</h3>
+              <p class="rm-drawer-panel-sub">Assignment, payment method, and completion.</p>
+            </div>
+          </header>
+          <div class="field-grid">
+            <div>
+              <label class="bcn-label">Workflow status</label>
+              <select id="fWorkflowStatus" class="select">
+                <option value="new">New</option>
+                <option value="in_review">In review</option>
+                <option value="needs_info">Needs info</option>
+                <option value="approved">Approved</option>
+                <option value="processing">Processing</option>
+                <option value="paid">Paid</option>
+                <option value="rejected">Rejected</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="bcn-label">Assigned to</label>
+              <select id="fAssignedTo" class="select">
+                <option value="">Unassigned</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="bcn-label">Priority</label>
+              <select id="fPriority" class="select">
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="bcn-label">Payment type</label>
+              <select id="fPaymentType" class="select">
+                <option value="">Select payment type</option>
+                <option value="check">Check</option>
+                <option value="wire">Wire</option>
+                <option value="flexfin">FlexFin</option>
+                <option value="credit_card">Credit card</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="bcn-label">Completed</label>
+              <select id="fCompleted" class="select">
+                <option value="false">Open</option>
+                <option value="true">Completed</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="bcn-label">Date completed</label>
+              <input id="fDateCompleted" type="date" class="input" />
+            </div>
+
+            <div class="full">
+              <label class="bcn-label">Payment detail</label>
+              <input id="fPaymentDetail" class="input" placeholder="Check #, wire detail, reimbursed via..., etc." />
+            </div>
+
+            <div class="full">
+              <label class="bcn-label">Internal notes</label>
+              <textarea id="fInternalNotes" class="textarea" placeholder="Approval notes, follow-up, resolution details..."></textarea>
+            </div>
+          </div>
+        </section>
+
+        <section class="rm-drawer-panel" data-detail-panel="history" hidden>
+          <header class="rm-drawer-panel-head">
+            <span class="bcn-pill">HISTORY</span>
+            <div>
+              <h3 class="rm-drawer-panel-title">Activity</h3>
+              <p class="rm-drawer-panel-sub">Workflow changes, notes, and document events.</p>
+            </div>
+          </header>
+          <div id="drawerActivity" class="rm-activity-list"></div>
+        </section>
+      </div>
+    </div>
+
+    <div class="drawer-foot">
+      <div class="pr-btn-row" id="notifyRequesterRow" hidden>
+        <button id="notifyRequesterBtn" class="btn btn-soft btn-xs" type="button">Resend notification</button>
+        <span id="notifyRequesterStatus" class="rm-upload-status"></span>
+      </div>
+      <div class="pr-btn-row">
+        <button id="markPaidBtn" class="btn btn-soft" type="button">Mark paid</button>
+      </div>
+      <div class="pr-btn-row">
+        <button id="saveDrawerBtn" class="btn btn-primary" type="button">Save changes</button>
+      </div>
+    </div>
+  </aside>
+        <aside id="documentPane" class="rm-document-pane card" hidden aria-label="Request documents">
+          <header class="rm-drawer-panel-head">
+            <span class="bcn-pill bcn-pill--accent">DOCS</span>
+            <div>
+              <h3 class="rm-drawer-panel-title">Documents</h3>
+              <p class="rm-drawer-panel-sub">Invoices, attachments and payment confirmations.</p>
+            </div>
+          </header>
+
+          <div class="rm-preview-controls">
+            <label for="previewFileSelect" class="bcn-label">Preview attachment</label>
+            <select id="previewFileSelect" class="select"></select>
+            <div class="pr-btn-row"><button id="previewOpenBtn" class="btn btn-soft btn-xs" type="button" disabled>Open original</button><button id="previewRetryBtn" class="btn btn-soft btn-xs" type="button">Reload preview</button></div>
+          </div>
+          <div id="documentPreview" class="rm-document-preview" aria-live="polite"></div>
+          <p class="rm-upload-hint">If your browser cannot display this document, use Open original. Preview links expire after 10 minutes; reload to renew.</p>
+          <details class="rm-document-tools"><summary>Documents, forwarding &amp; payment proof</summary>
+          <div id="legacyDocNote" class="rm-drawer-note" hidden>
+            Imported legacy request — original attachments open on jotform.com. You can still add confirmation documents below.
+          </div>
+
+          <div class="rm-doc-group">
+            <div class="rm-doc-group-head">
+              <h4>Submitted with request</h4>
+              <span id="submittedFileCount" class="rm-doc-count mono">0</span>
+            </div>
+            <div id="submittedFilesList" class="rm-file-list"></div>
+            <div class="rm-doc-actions">
+              <button id="openFileBtn" class="btn btn-soft btn-xs" type="button">Open first submitted</button>
+              <button id="openLegacyBtn" class="btn btn-soft btn-xs" type="button" hidden>Legacy record</button>
+              <button id="forwardMelioBtn" class="btn btn-soft btn-xs" type="button">Forward to bill pay</button>
+            </div>
+            <div id="forwardMelioStatus" class="rm-upload-status"></div>
+            <div class="rm-upload-zone">
+              <label class="rm-upload-label" for="submittedFileInput">
+                <span class="rm-upload-title">Add submitted document</span>
+                <span class="rm-upload-hint">Additional invoice pages, PO backup, or anything else that belongs with the original submission.</span>
+              </label>
+              <input
+                id="submittedFileInput"
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
+                multiple
+              />
+              <div class="rm-upload-actions">
+                <button id="uploadSubmittedBtn" class="btn btn-primary btn-xs" type="button" disabled>Upload to request</button>
+                <span id="submittedUploadStatus" class="rm-upload-status"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="rm-doc-group">
+            <div class="rm-doc-group-head">
+              <h4>Confirmation &amp; payment proof</h4>
+              <span id="confirmationFileCount" class="rm-doc-count mono">0</span>
+            </div>
+            <div id="confirmationFilesList" class="rm-file-list"></div>
+            <div class="rm-upload-zone">
+              <label class="rm-upload-label" for="confirmationFileInput">
+                <span class="rm-upload-title">Add confirmation document</span>
+                <span class="rm-upload-hint">Check copies, wire confirmations, card receipts or reimbursement proof.</span>
+              </label>
+              <input
+                id="confirmationFileInput"
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
+                multiple
+              />
+              <div class="rm-upload-actions">
+                <button id="uploadConfirmationBtn" class="btn btn-primary btn-xs" type="button" disabled>Upload to request</button>
+                <span id="confirmationUploadStatus" class="rm-upload-status"></span>
+              </div>
+            </div>
+          </div>
+                  </details>
+        </aside>
+          <div id="recentRequests" hidden></div>
         </div>
       </div>
 
       <div id="viewReporting" class="view-panel">
+      <div class="rm-kpi-band">
+        <div class="rm-kpi"><div class="rm-kpi-label">Requests</div><div id="kpiRequests" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Filtered rows</div></div>
+        <div class="rm-kpi"><div class="rm-kpi-label">Submitted amount</div><div id="kpiSubmittedAmount" class="rm-kpi-value mono">$0.00</div><div class="rm-kpi-sub">All filtered requests</div></div>
+        <div class="rm-kpi"><div class="rm-kpi-label">Open amount</div><div id="kpiOpenAmount" class="rm-kpi-value mono">$0.00</div><div class="rm-kpi-sub">Not completed</div></div>
+        <div class="rm-kpi"><div class="rm-kpi-label">Completed amount</div><div id="kpiCompletedAmount" class="rm-kpi-value mono">$0.00</div><div class="rm-kpi-sub">Marked paid</div></div>
+        <div class="rm-kpi"><div class="rm-kpi-label">Overdue</div><div id="kpiOverdue" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Past due date</div></div>
+        <div class="rm-kpi"><div class="rm-kpi-label">Due 7 days</div><div id="kpiDue7" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Open and upcoming</div></div>
+        <div class="rm-kpi"><div class="rm-kpi-label">Unassigned</div><div id="kpiUnassigned" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Needs owner</div></div>
+        <div class="rm-kpi"><div class="rm-kpi-label">Avg days open</div><div id="kpiAvgDaysOpen" class="rm-kpi-value mono">0</div><div class="rm-kpi-sub">Open requests only</div></div>
+      </div>
+
         <div class="rm-reporting-grid">
           <div class="rm-side-stack">
             <div class="card">
@@ -322,262 +579,6 @@
 </div>
 
   <div id="drawerBackdrop" class="drawer-backdrop"></div>
-
-  <aside id="workbenchDrawer" class="drawer rm-drawer" aria-hidden="true">
-    <div class="drawer-head">
-      <div class="drawer-head-toolbar">
-        <div class="drawer-head-main">
-          <div class="drawer-head-kicker">Payment request</div>
-          <div class="drawer-head-title-row">
-            <h2 id="drawerTitle" class="drawer-title">Request</h2>
-            <span id="drawerAmountBadge" class="drawer-amount-badge mono">$0.00</span>
-          </div>
-          <p id="drawerSub" class="drawer-sub">Review source details, documents, internal processing, and activity history.</p>
-          <div id="drawerStatusRow" class="drawer-status-row"></div>
-        </div>
-        <button id="closeDrawerBtn" class="btn btn-soft btn-xs" type="button">Close</button>
-      </div>
-    </div>
-
-    <div class="drawer-body">
-      <div class="drawer-stack">
-        <section class="rm-drawer-panel rm-drawer-panel--snapshot">
-          <div id="drawerSnapshot" class="drawer-snapshot-grid"></div>
-        </section>
-
-        <section class="rm-drawer-panel">
-          <header class="rm-drawer-panel-head">
-            <span class="bcn-pill">SOURCE</span>
-            <div>
-              <h3 class="rm-drawer-panel-title">Submitted details</h3>
-              <p class="rm-drawer-panel-sub">What the requester sent — read only.</p>
-            </div>
-          </header>
-          <div class="field-grid rm-drawer-readonly">
-            <div class="full">
-              <label class="bcn-label">Effective vendor</label>
-              <input id="fEffectiveVendor" class="input" disabled />
-            </div>
-
-            <div>
-              <label class="bcn-label">Requester email</label>
-              <input id="fRequesterEmail" class="input" disabled />
-            </div>
-
-            <div>
-              <label class="bcn-label">Location</label>
-              <input id="fLocationName" class="input" disabled />
-            </div>
-
-            <div>
-              <label class="bcn-label">Request type</label>
-              <input id="fRequestTypeDisplay" class="input" disabled />
-            </div>
-
-            <div>
-              <label class="bcn-label">Invoice #</label>
-              <input id="fInvoiceNumber" class="input" disabled />
-            </div>
-
-            <div>
-              <label class="bcn-label">Flex ID #</label>
-              <input id="fFlexId" class="input" disabled />
-            </div>
-
-            <div>
-              <label class="bcn-label">Internal PO #</label>
-              <input id="fPoNumber" class="input" disabled />
-            </div>
-
-            <div>
-              <label class="bcn-label">Amount due</label>
-              <input id="fAmountDue" class="input mono rm-field-editable" type="number" step="0.01" min="0" />
-              <div class="rm-upload-hint">Editable — corrections are logged to activity.</div>
-            </div>
-
-            <div>
-              <label class="bcn-label">Due date</label>
-              <input id="fDueDate" class="input" disabled />
-            </div>
-
-            <div class="full">
-              <label class="bcn-label">Submitted notes</label>
-              <textarea id="fSubmittedNotes" class="textarea" disabled></textarea>
-            </div>
-          </div>
-        </section>
-
-        <section class="rm-drawer-panel">
-          <header class="rm-drawer-panel-head">
-            <span class="bcn-pill bcn-pill--accent">DOCS</span>
-            <div>
-              <h3 class="rm-drawer-panel-title">Documents</h3>
-              <p class="rm-drawer-panel-sub">Submitted attachments and AP confirmation files in Silo storage.</p>
-            </div>
-          </header>
-
-          <div id="legacyDocNote" class="rm-drawer-note" hidden>
-            Imported legacy request — original attachments open on jotform.com. You can still add confirmation documents below.
-          </div>
-
-          <div class="rm-doc-group">
-            <div class="rm-doc-group-head">
-              <h4>Submitted with request</h4>
-              <span id="submittedFileCount" class="rm-doc-count mono">0</span>
-            </div>
-            <div id="submittedFilesList" class="rm-file-list"></div>
-            <div class="rm-doc-actions">
-              <button id="openFileBtn" class="btn btn-soft btn-xs" type="button">Open first submitted</button>
-              <button id="openLegacyBtn" class="btn btn-soft btn-xs" type="button" hidden>Legacy record</button>
-              <button id="forwardMelioBtn" class="btn btn-soft btn-xs" type="button">Forward to bill pay</button>
-            </div>
-            <div id="forwardMelioStatus" class="rm-upload-status"></div>
-            <div class="rm-upload-zone">
-              <label class="rm-upload-label" for="submittedFileInput">
-                <span class="rm-upload-title">Add submitted document</span>
-                <span class="rm-upload-hint">Additional invoice pages, PO backup, or anything else that belongs with the original submission.</span>
-              </label>
-              <input
-                id="submittedFileInput"
-                type="file"
-                accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
-                multiple
-              />
-              <div class="rm-upload-actions">
-                <button id="uploadSubmittedBtn" class="btn btn-primary btn-xs" type="button" disabled>Upload to request</button>
-                <span id="submittedUploadStatus" class="rm-upload-status"></span>
-              </div>
-            </div>
-          </div>
-
-          <div class="rm-doc-group">
-            <div class="rm-doc-group-head">
-              <h4>Confirmation &amp; payment proof</h4>
-              <span id="confirmationFileCount" class="rm-doc-count mono">0</span>
-            </div>
-            <div id="confirmationFilesList" class="rm-file-list"></div>
-            <div class="rm-upload-zone">
-              <label class="rm-upload-label" for="confirmationFileInput">
-                <span class="rm-upload-title">Add confirmation document</span>
-                <span class="rm-upload-hint">Check copies, wire confirmations, card receipts, or reimbursement proof — stored in the same bucket as intake uploads.</span>
-              </label>
-              <input
-                id="confirmationFileInput"
-                type="file"
-                accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
-                multiple
-              />
-              <div class="rm-upload-actions">
-                <button id="uploadConfirmationBtn" class="btn btn-primary btn-xs" type="button" disabled>Upload to request</button>
-                <span id="confirmationUploadStatus" class="rm-upload-status"></span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="rm-drawer-panel">
-          <header class="rm-drawer-panel-head">
-            <span class="bcn-pill bcn-pill--dark">AP</span>
-            <div>
-              <h3 class="rm-drawer-panel-title">Internal processing</h3>
-              <p class="rm-drawer-panel-sub">Assignment, payment method, and completion.</p>
-            </div>
-          </header>
-          <div class="field-grid">
-            <div>
-              <label class="bcn-label">Workflow status</label>
-              <select id="fWorkflowStatus" class="select">
-                <option value="new">New</option>
-                <option value="in_review">In review</option>
-                <option value="needs_info">Needs info</option>
-                <option value="approved">Approved</option>
-                <option value="processing">Processing</option>
-                <option value="paid">Paid</option>
-                <option value="rejected">Rejected</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="bcn-label">Assigned to</label>
-              <select id="fAssignedTo" class="select">
-                <option value="">Unassigned</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="bcn-label">Priority</label>
-              <select id="fPriority" class="select">
-                <option value="low">Low</option>
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="bcn-label">Payment type</label>
-              <select id="fPaymentType" class="select">
-                <option value="">Select payment type</option>
-                <option value="check">Check</option>
-                <option value="wire">Wire</option>
-                <option value="flexfin">FlexFin</option>
-                <option value="credit_card">Credit card</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="bcn-label">Completed</label>
-              <select id="fCompleted" class="select">
-                <option value="false">Open</option>
-                <option value="true">Completed</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="bcn-label">Date completed</label>
-              <input id="fDateCompleted" type="date" class="input" />
-            </div>
-
-            <div class="full">
-              <label class="bcn-label">Payment detail</label>
-              <input id="fPaymentDetail" class="input" placeholder="Check #, wire detail, reimbursed via..., etc." />
-            </div>
-
-            <div class="full">
-              <label class="bcn-label">Internal notes</label>
-              <textarea id="fInternalNotes" class="textarea" placeholder="Approval notes, follow-up, resolution details..."></textarea>
-            </div>
-          </div>
-        </section>
-
-        <section class="rm-drawer-panel">
-          <header class="rm-drawer-panel-head">
-            <span class="bcn-pill">HISTORY</span>
-            <div>
-              <h3 class="rm-drawer-panel-title">Activity</h3>
-              <p class="rm-drawer-panel-sub">Workflow changes, notes, and document events.</p>
-            </div>
-          </header>
-          <div id="drawerActivity" class="rm-activity-list"></div>
-        </section>
-      </div>
-    </div>
-
-    <div class="drawer-foot">
-      <div class="pr-btn-row" id="notifyRequesterRow" hidden>
-        <button id="notifyRequesterBtn" class="btn btn-soft btn-xs" type="button">Resend notification</button>
-        <span id="notifyRequesterStatus" class="rm-upload-status"></span>
-      </div>
-      <div class="pr-btn-row">
-        <button id="markPaidBtn" class="btn btn-soft" type="button">Quick mark paid</button>
-      </div>
-      <div class="pr-btn-row">
-        <button id="saveDrawerBtn" class="btn btn-primary" type="button">Save changes</button>
-      </div>
-    </div>
-  </aside>
 
   <div id="toastWrap" class="toast-wrap"></div>
 
@@ -1146,12 +1147,12 @@
 
       document.querySelectorAll(".remove-drawer-file-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
-          await removeRequestFile({
+          await runDocumentOperation(() => removeRequestFile({
             id: btn.getAttribute("data-file-id") || null,
             file_path: btn.getAttribute("data-path") || null,
             file_url: btn.getAttribute("data-url") || null,
             file_name: btn.getAttribute("data-name") || "attached document"
-          }, row);
+          }, row));
         });
       });
     }
@@ -1194,7 +1195,11 @@
         });
 
         await loadData();
-        await openDrawer(row.id);
+        if (state.currentRow?.id === row.id) {
+          state.currentRow = state.rows.find(r => r.id === row.id) || row;
+          renderDrawerDocuments(state.currentRow);
+          renderDrawerActivity(state.currentRow);
+        }
         showToast(`Removed "${label}".`);
       } catch (err) {
         console.error(err);
@@ -1232,6 +1237,7 @@
         : (isLegacyRequest ? "Open Jotform file" : "Open first submitted");
 
       bindDrawerFileButtons(row);
+      renderPreviewOptions(row);
     }
 
     async function uploadRequestFiles(fileList, requestId, kind = "confirmation") {
@@ -1493,6 +1499,7 @@
     }
 
     function renderAssignedOptions() {
+      const values = [els.assignedFilter.value, els.fAssignedTo.value, els.bulkAssignSelect.value];
       els.assignedFilter.innerHTML = ['<option value="">All</option>']
         .concat(
           state.profiles.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.email)}</option>`)
@@ -1510,6 +1517,7 @@
           state.profiles.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.email)}</option>`)
         )
         .join("");
+      [els.assignedFilter, els.fAssignedTo, els.bulkAssignSelect].forEach((el, i) => { el.value = values[i]; });
     }
 
     function assignedName(id) {
@@ -1544,10 +1552,12 @@
         state.rows = (rows || []).map(row => ({ ...row, ...(legacyMeta.get(row.id) || {}) }));
         state.activityRows = activityRows || [];
         state.files = files || [];
+        const liveIds = new Set(state.rows.map(r => r.id));
+        for (const id of state.selectedIds) if (!liveIds.has(id)) state.selectedIds.delete(id);
 
         renderAssignedOptions();
         refreshAll();
-        setStatus(`Loaded ${formatNumber(state.rows.length)} payment requests and ${formatNumber(state.files.length)} file attachment rows.`);
+        setStatus(`${formatNumber(state.rows.length)} requests available. Select a request to review.`);
       } catch (err) {
         console.error(err);
         setStatus(`Load failed: ${err.message || "Unknown error"}`, true);
@@ -1620,10 +1630,13 @@
 
       renderKpis();
       renderSummaryCards();
-      renderRecentRequests();
+
       renderTable();
       renderReporting();
       renderActivity();
+      renderBulkBar();
+      const activeFilters = [status, priority, completed, assigned, type, due, els.startDate.value, els.endDate.value].filter(Boolean).length;
+      document.getElementById("filterSummary").textContent = `${formatNumber(state.filteredRows.length)} requests${activeFilters ? ` · ${activeFilters} filters` : ""}`;
     }
 
     function renderKpis() {
@@ -1664,13 +1677,18 @@
         ["all", "All", state.rows.length, "Every request"]
       ];
 
-      els.summaryCards.innerHTML = queues.map(([key, label, value, sub]) => `
-        <button type="button" class="mini-card queue-card ${state.queueFilter === key ? "active" : ""}" data-queue="${escapeHtml(key)}">
+      const queueButton = ([key, label, value, sub]) => `
+        <button type="button" class="mini-card queue-card ${state.queueFilter === key ? "active" : ""}" data-queue="${escapeHtml(key)}" aria-pressed="${state.queueFilter === key}">
           <div class="label">${escapeHtml(label)}</div>
           <div class="value mono">${escapeHtml(formatNumber(value))}</div>
           <div class="queue-sub">${escapeHtml(sub)}</div>
         </button>
-      `).join("");
+      `;
+      const primary = new Set(["open", "overdue", "unassigned"]);
+      const secondary = queues.filter(q => !primary.has(q[0]));
+      const activeSecondary = secondary.find(q => q[0] === state.queueFilter);
+      els.summaryCards.innerHTML = queues.filter(q => primary.has(q[0])).map(queueButton).join("") +
+        `<details class="rm-queue-more"><summary>${activeSecondary ? escapeHtml(activeSecondary[1]) + " · " + formatNumber(activeSecondary[2]) : "More"}</summary><div class="rm-queue-options">${secondary.map(queueButton).join("")}</div></details>`;
 
       document.querySelectorAll(".queue-card").forEach(btn => {
         btn.addEventListener("click", () => {
@@ -1704,75 +1722,26 @@
         state.filteredRows.every(r => state.selectedIds.has(r.id));
 
       els.mainHead.innerHTML = `<tr>
-        <th class="rm-row-select-col"><input type="checkbox" id="selectAllCheckbox" ${allFilteredSelected ? "checked" : ""}></th>
-        <th>Vendor / requester</th>
-        <th>Refs</th>
-        <th class="right">Amount</th>
-        <th>Due</th>
-        <th>Status</th>
-        <th>Owner</th>
-        <th>Actions</th>
+        <th class="rm-row-select-col"><input type="checkbox" id="selectAllCheckbox" aria-label="Select all filtered requests" ${allFilteredSelected ? "checked" : ""}></th>
+        <th>Select all filtered requests</th>
       </tr>`;
-
       els.mainBody.innerHTML = state.filteredRows.map(r => `
-        <tr>
-          <td class="rm-row-select-col"><input type="checkbox" class="row-select-checkbox" data-id="${escapeHtml(r.id)}" ${state.selectedIds.has(r.id) ? "checked" : ""}></td>
-          <td>
-            <div class="rm-cell-primary truncate-220">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</div>
-            <div class="rm-cell-meta rm-cell-meta--truncate">${escapeHtml(r.requester_email || "—")}${r.location_name ? ` · ${escapeHtml(r.location_name)}` : ""}</div>
-          </td>
-          <td>
-            <div class="rm-cell-primary truncate-220">${escapeHtml(requestTypeLabel(r.request_type))}</div>
-            <div class="rm-cell-meta rm-cell-meta--truncate">Inv ${escapeHtml(r.invoice_number || "—")} · PO ${escapeHtml(r.internal_po_number || "—")} · ${escapeHtml(formatDateTime(r.submitted_at))}</div>
-          </td>
-          <td class="right mono rm-cell-primary">${formatMoney(r.amount_due)}</td>
-          <td>
-            <div class="rm-cell-primary">${escapeHtml(formatDate(r.due_date))}</div>
-            <div class="rm-badge-row">${dueBucketBadge(dueBucket(r))}</div>
-          </td>
-          <td>
-            <div class="rm-badge-row">
-              ${badgeHtmlStatus(r.workflow_status)}
-              ${badgeHtmlPriority(r.priority)}
-              ${badgeHtmlCompleted(r.completed)}
-            </div>
-          </td>
-          <td>
-            <div class="rm-cell-primary truncate-160" style="display:flex;align-items:center;gap:6px;">
-              ${assignedAvatarHtml(r.assigned_to, "xs")}
-              <span>${escapeHtml(assignedName(r.assigned_to))}</span>
-            </div>
-          </td>
-          <td>
-            <div class="rm-action-row">
-              <button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(r.id)}">Edit</button>
-              ${filesForRequest(r).length
-                ? `<button class="btn btn-soft btn-xs open-file-btn" data-id="${escapeHtml(r.id)}">${escapeHtml(fileButtonLabel(r))}</button>`
-                : ``}
-              ${r.completed ? `<button class="btn btn-soft btn-xs" disabled>Paid</button>` : `<button class="btn btn-soft btn-xs quick-paid-btn" data-id="${escapeHtml(r.id)}">Paid</button>`}
-            </div>
-          </td>
+        <tr class="${state.currentRow?.id === r.id ? "is-current" : ""} ${state.selectedIds.has(r.id) ? "is-selected" : ""}" data-request-id="${escapeHtml(r.id)}">
+          <td class="rm-row-select-col"><input type="checkbox" class="row-select-checkbox" aria-label="Select ${escapeHtml(r.effective_vendor_name || "request")}" data-id="${escapeHtml(r.id)}" ${state.selectedIds.has(r.id) ? "checked" : ""}></td>
+          <td><button class="rm-request-open" type="button" data-id="${escapeHtml(r.id)}" aria-label="Review ${escapeHtml(r.effective_vendor_name || "request")}" ${state.currentRow?.id === r.id ? 'aria-current="true"' : ''}>
+            <span class="rm-request-top"><span class="rm-request-name">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</span><span class="rm-request-amount mono">${formatMoney(r.amount_due)}</span></span>
+            <span class="rm-request-meta">${escapeHtml(requestTypeLabel(r.request_type))}${r.invoice_number ? ` · ${escapeHtml(r.invoice_number)}` : ""}${r.internal_po_number ? ` · PO ${escapeHtml(r.internal_po_number)}` : ""}</span>
+            <span class="rm-request-meta rm-request-due">${escapeHtml(String(r.workflow_status || "new").replaceAll("_", " "))} · ${r.due_date ? `Due ${escapeHtml(formatDate(r.due_date))}` : "No due date"}${filesForRequest(r).length ? ` · ${filesForRequest(r).length} file(s)` : ""}</span>
+          </button></td>
         </tr>
-      `).join("") || `<tr><td colspan="8" class="rm-empty-cell">No payment requests match the current filters.</td></tr>`;
-
-      document.querySelectorAll(".open-drawer-btn").forEach(btn => {
-        btn.addEventListener("click", () => openDrawer(btn.getAttribute("data-id")));
-      });
-
-      document.querySelectorAll(".quick-paid-btn").forEach(btn => {
-        btn.addEventListener("click", async () => {
-          await quickMarkPaid(btn.getAttribute("data-id"));
-        });
-      });
-
-      document.querySelectorAll(".open-file-btn").forEach(btn => {
-        btn.addEventListener("click", async () => {
-          await openFileForRow(btn.getAttribute("data-id"));
-        });
+      `).join("") || `<tr><td colspan="2" class="rm-empty-cell">No requests match these filters.</td></tr>`;
+      els.mainBody.querySelectorAll(".rm-request-open").forEach(btn => {
+        btn.addEventListener("click", () => openDrawer(btn.dataset.id));
       });
 
       const selectAllCheckbox = document.getElementById("selectAllCheckbox");
       if (selectAllCheckbox) {
+        selectAllCheckbox.indeterminate = !allFilteredSelected && state.filteredRows.some(r => state.selectedIds.has(r.id));
         selectAllCheckbox.addEventListener("change", () => {
           if (selectAllCheckbox.checked) {
             state.filteredRows.forEach(r => state.selectedIds.add(r.id));
@@ -1789,6 +1758,10 @@
           const id = cb.getAttribute("data-id");
           if (cb.checked) state.selectedIds.add(id);
           else state.selectedIds.delete(id);
+          cb.closest("tr").classList.toggle("is-selected", cb.checked);
+          const all = document.getElementById("selectAllCheckbox");
+          all.checked = state.filteredRows.length > 0 && state.filteredRows.every(r => state.selectedIds.has(r.id));
+          all.indeterminate = !all.checked && state.filteredRows.some(r => state.selectedIds.has(r.id));
           renderBulkBar();
         });
       });
@@ -1797,7 +1770,9 @@
     function renderBulkBar() {
       const count = state.selectedIds.size;
       els.bulkActionBar.hidden = count === 0;
-      els.bulkSelectedCount.textContent = formatNumber(count);
+      const hiddenCount = [...state.selectedIds].filter(id => !state.filteredRows.some(r => r.id === id)).length;
+      els.bulkSelectedCount.textContent = `${formatNumber(count)}${hiddenCount ? ` (${hiddenCount} outside filter)` : ""}`;
+      els.bulkForwardMelioBtn.textContent = `Forward selected (${count})`;
       if (count === 0) els.bulkActionStatus.textContent = "";
     }
 
@@ -2273,26 +2248,113 @@
       await openFile(files[0], row.id, shouldLog, row);
     }
 
-    async function openDrawer(id) {
+    let documentOperationCount = 0;
+    const runDocumentOperation = async action => {
+      if (requestBusy()) { showToast("Wait for the current action to finish."); return; }
+      documentOperationCount++;
+      try { return await action(); } finally { documentOperationCount--; }
+    };
+    const runBulkEdit = async action => {
+      // Close a selected editor before a bulk write so its old values cannot
+      // overwrite the new bulk status/assignment on a subsequent Save.
+      if (state.currentRow && state.selectedIds.has(state.currentRow.id)) {
+        if (!closeDrawer()) return;
+      }
+      return runDocumentOperation(action);
+    };
+    let previewGeneration = 0;
+    let savedFormState = "";
+
+    function requestFormState() {
+      return JSON.stringify([...document.querySelectorAll("#workbenchDrawer input:not(:disabled), #workbenchDrawer select, #workbenchDrawer textarea:not(:disabled), #documentPane input[type=file]")].map(el =>
+        el.type === "file" ? [...(el.files || [])].map(file => [file.name, file.size, file.lastModified]) : el.value));
+    }
+
+    function requestBusy() {
+      return els.saveDrawerBtn.disabled || els.markPaidBtn.disabled || documentOperationCount > 0;
+    }
+
+    function canLeaveRequest() {
+      if (requestBusy()) { showToast("Wait for the current action to finish."); return false; }
+      if (!state.currentRow) return true;
+      return requestFormState() === savedFormState || window.confirm("Discard unsaved changes to this request?");
+    }
+
+    function setDetailTab(name) {
+      document.querySelectorAll("[data-detail-tab]").forEach(btn => btn.setAttribute("aria-pressed", String(btn.dataset.detailTab === name)));
+      document.querySelectorAll("[data-detail-panel]").forEach(panel => { panel.hidden = panel.dataset.detailPanel !== name; });
+    }
+
+    function renderPreviewOptions(row) {
+      const select = document.getElementById("previewFileSelect");
+      const files = filesForRequest(row);
+      select.innerHTML = files.map((file, index) => `<option value="${index}">${escapeHtml(file.file_name || `Attachment ${index + 1}`)}${isConfirmationFile(file) ? " · Payment proof" : ""}</option>`).join("");
+      select.disabled = !files.length;
+      document.getElementById("previewOpenBtn").disabled = !files.length;
+      document.getElementById("previewRetryBtn").disabled = !files.length;
+      previewSelectedFile();
+    }
+
+    async function previewSelectedFile() {
+      const generation = ++previewGeneration;
+      const row = state.currentRow;
+      const file = row && filesForRequest(row)[Number(document.getElementById("previewFileSelect").value)];
+      const host = document.getElementById("documentPreview");
+      host.replaceChildren();
+      const message = text => {
+        const el = document.createElement("p"); el.className = "rm-preview-message"; el.textContent = text; host.replaceChildren(el);
+      };
+      if (!file) { message("No attachment. Add a document below to keep it with this request."); return; }
+      // Only private storage PDFs and raster images are embedded. Legacy/external URLs and
+      // active formats (HTML/SVG) stay on the existing explicit Open original path.
+      const mime = String(file.mime_type || "").toLowerCase();
+      const pdf = mime === "application/pdf";
+      const image = ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(mime);
+      if (resolveExternalFileUrl(file) || !file.file_path || (!pdf && !image)) {
+        message("Preview unavailable for this attachment. Use Open original to view or download it."); return;
+      }
+      message("Loading document…");
+      try {
+        const url = await createSignedUrl(file.file_path);
+        if (generation !== previewGeneration || state.currentRow?.id !== row.id) return;
+        if (!url || new URL(url).protocol !== "https:") throw new Error("No secure document URL returned");
+        const media = document.createElement(pdf ? "iframe" : "img");
+        if (pdf) { media.title = `Document preview: ${file.file_name || "Invoice"}`; media.setAttribute("sandbox", "allow-scripts allow-same-origin"); }
+        else media.alt = file.file_name || "Request attachment";
+        media.referrerPolicy = "no-referrer";
+        media.addEventListener("error", () => {
+          if (generation === previewGeneration) message("Could not display this file. Reload preview or use Open original.");
+        });
+        media.src = url;
+        host.replaceChildren(media);
+      } catch (error) {
+        if (generation === previewGeneration) message("Preview could not load. Reload preview or use Open original.");
+      }
+    }
+
+    async function openDrawer(id, { force = false } = {}) {
+      if (!force && state.currentRow?.id === id) { setActiveTab("requests"); return; }
+      if (!force && !canLeaveRequest()) return;
       const row = state.rows.find(r => r.id === id);
       if (!row) return;
 
       state.currentRow = row;
+      document.querySelector(".rm-document-tools").open = false;
       els.drawerTitle.textContent = row.effective_vendor_name || "Unknown vendor";
       els.drawerSub.textContent = `${requestTypeLabel(row.request_type)} · submitted ${formatDateTime(row.submitted_at)}`;
       els.drawerAmountBadge.textContent = formatMoney(row.amount_due);
       els.drawerStatusRow.innerHTML = `${badgeHtmlStatus(row.workflow_status)} ${badgeHtmlCompleted(row.completed)} ${dueBucketBadge(dueBucket(row))}`;
 
-      els.fEffectiveVendor.value = row.effective_vendor_name || "";
-      els.fRequesterEmail.value = row.requester_email || "";
-      els.fLocationName.value = row.location_name || "";
-      els.fRequestTypeDisplay.value = requestTypeLabel(row.request_type);
-      els.fInvoiceNumber.value = row.invoice_number || "";
-      els.fFlexId.value = row.flex_id || "";
-      els.fPoNumber.value = row.internal_po_number || "";
+      els.fEffectiveVendor.textContent = row.effective_vendor_name || "—";
+      els.fRequesterEmail.textContent = row.requester_email || "—";
+      els.fLocationName.textContent = row.location_name || "—";
+      els.fRequestTypeDisplay.textContent = requestTypeLabel(row.request_type);
+      els.fInvoiceNumber.textContent = row.invoice_number || "—";
+      els.fFlexId.textContent = row.flex_id || "—";
+      els.fPoNumber.textContent = row.internal_po_number || "—";
       els.fAmountDue.value = row.amount_due != null ? Number(row.amount_due).toFixed(2) : "";
-      els.fDueDate.value = formatDate(row.due_date);
-      els.fSubmittedNotes.value = row.notes_comments || "";
+      els.fDueDate.textContent = formatDate(row.due_date);
+      els.fSubmittedNotes.textContent = row.notes_comments || "—";
 
       els.fWorkflowStatus.value = row.workflow_status || "new";
       els.fAssignedTo.value = row.assigned_to || "";
@@ -2316,16 +2378,37 @@
       renderNotifyRequesterRow(row);
       renderForwardMelioRow(row);
 
-      els.drawerBackdrop.classList.add("open");
+      setActiveTab("requests");
+      document.getElementById("reviewEmpty").hidden = true;
+      document.getElementById("documentPane").hidden = false;
+      els.workbenchDrawer.hidden = false;
       els.workbenchDrawer.classList.add("open");
       els.workbenchDrawer.setAttribute("aria-hidden", "false");
+      setDetailTab("source");
+      els.workbenchDrawer.querySelector(".drawer-body").scrollTop = 0;
+      document.getElementById("documentPane").scrollTop = 0;
+      savedFormState = requestFormState();
+      renderTable();
+      els.drawerTitle.focus({ preventScroll: true });
+      if (window.matchMedia("(max-width:900px)").matches) els.workbenchDrawer.scrollIntoView({ block: "start" });
     }
 
-    function closeDrawer() {
+    function closeDrawer({ force = false } = {}) {
+      if (!force && !canLeaveRequest()) return false;
+      const previousId = state.currentRow?.id;
+      previewGeneration++;
+      document.getElementById("documentPreview").replaceChildren();
+      document.getElementById("documentPane").hidden = true;
+      document.getElementById("reviewEmpty").hidden = false;
+      els.workbenchDrawer.hidden = true;
       els.drawerBackdrop.classList.remove("open");
       els.workbenchDrawer.classList.remove("open");
       els.workbenchDrawer.setAttribute("aria-hidden", "true");
       state.currentRow = null;
+      savedFormState = "";
+      renderTable();
+      [...els.mainBody.querySelectorAll(".rm-request-open")].find(el => el.dataset.id === previousId)?.focus();
+      return true;
     }
 
     async function updatePaymentRequestOrThrow(id, payload) {
@@ -2346,6 +2429,7 @@
 
     async function saveRow({ markPaid = false } = {}) {
       if (!state.currentRow) return;
+      if (requestBusy()) { showToast("Wait for the current action to finish."); return; }
 
       els.saveDrawerBtn.disabled = true;
       els.markPaidBtn.disabled = true;
@@ -2509,7 +2593,7 @@
         const justCompleted = !oldRow.completed && payload.completed;
 
         await loadData();
-        await openDrawer(oldRow.id);
+        await openDrawer(oldRow.id, { force: true });
         showToast(markPaid ? "Request marked paid." : "Request updated.");
 
         if (justCompleted) {
@@ -2573,7 +2657,7 @@
       els.endDate.value = "";
       state.queueFilter = "open";
       refreshAll();
-      setStatus(`Loaded ${formatNumber(state.rows.length)} payment requests and ${formatNumber(state.files.length)} file attachment rows.`);
+      setStatus(`${formatNumber(state.rows.length)} requests available. Select a request to review.`);
     }
 
     function setActiveTab(tab) {
@@ -2585,12 +2669,40 @@
       };
       Object.entries(map).forEach(([key, [btn, panel]]) => {
         btn.classList.toggle("active", key === tab);
+        btn.setAttribute("aria-pressed", String(key === tab));
         panel.classList.toggle("active", key === tab);
       });
     }
 
     function wireEvents() {
-      els.refreshBtn.addEventListener("click", loadData);
+      els.refreshBtn.addEventListener("click", async () => {
+        if (!canLeaveRequest()) return;
+        const id = state.currentRow?.id;
+        closeDrawer({ force: true });
+        await loadData();
+        if (id) await openDrawer(id);
+      });
+      document.getElementById("toggleFiltersBtn").addEventListener("click", event => {
+        const panel = document.getElementById("requestFilters");
+        panel.hidden = !panel.hidden;
+        event.currentTarget.setAttribute("aria-expanded", String(!panel.hidden));
+      });
+      document.querySelectorAll("[data-detail-tab]").forEach(btn => btn.addEventListener("click", () => setDetailTab(btn.dataset.detailTab)));
+      document.getElementById("previewFileSelect").addEventListener("change", previewSelectedFile);
+      document.getElementById("previewRetryBtn").addEventListener("click", previewSelectedFile);
+      document.getElementById("previewOpenBtn").addEventListener("click", () => {
+        const row = state.currentRow;
+        const file = row && filesForRequest(row)[Number(document.getElementById("previewFileSelect").value)];
+        if (file) openFile(file, row.id, true, row);
+      });
+      window.addEventListener("beforeunload", event => {
+        if (state.currentRow && (requestFormState() !== savedFormState || requestBusy())) {
+          event.preventDefault(); event.returnValue = "";
+        }
+      });
+      document.addEventListener("keydown", event => {
+        if (event.key === "Escape" && state.currentRow && state.activeTab === "requests") closeDrawer();
+      });
       els.clearFiltersBtn.addEventListener("click", clearFilters);
 
       els.tabRequestsBtn.addEventListener("click", () => setActiveTab("requests"));
@@ -2639,26 +2751,26 @@
           els.confirmationUploadStatus.textContent = "";
         }
       });
-      els.uploadConfirmationBtn.addEventListener("click", () => handleDocumentUpload("confirmation"));
+      els.uploadConfirmationBtn.addEventListener("click", () => runDocumentOperation(() => handleDocumentUpload("confirmation")));
       els.submittedFileInput.addEventListener("change", () => {
         els.uploadSubmittedBtn.disabled = !els.submittedFileInput.files?.length;
         if (!els.submittedFileInput.files?.length) {
           els.submittedUploadStatus.textContent = "";
         }
       });
-      els.uploadSubmittedBtn.addEventListener("click", () => handleDocumentUpload("submitted"));
+      els.uploadSubmittedBtn.addEventListener("click", () => runDocumentOperation(() => handleDocumentUpload("submitted")));
       els.notifyRequesterBtn.addEventListener("click", () => {
         if (state.currentRow?.id) notifyRequester(state.currentRow.id);
       });
       els.forwardMelioBtn.addEventListener("click", () => {
-        if (state.currentRow?.id) forwardToMelio(state.currentRow.id);
+        if (state.currentRow?.id) runDocumentOperation(() => forwardToMelio(state.currentRow.id)).catch(() => {});
       });
 
       els.bulkClearBtn.addEventListener("click", clearSelection);
-      els.bulkApplyStatusBtn.addEventListener("click", bulkApplyStatus);
-      els.bulkApplyAssignBtn.addEventListener("click", bulkApplyAssign);
-      els.bulkMarkPaidBtn.addEventListener("click", bulkMarkPaid);
-      els.bulkForwardMelioBtn.addEventListener("click", bulkForwardMelio);
+      els.bulkApplyStatusBtn.addEventListener("click", () => runBulkEdit(bulkApplyStatus));
+      els.bulkApplyAssignBtn.addEventListener("click", () => runBulkEdit(bulkApplyAssign));
+      els.bulkMarkPaidBtn.addEventListener("click", () => runBulkEdit(bulkMarkPaid));
+      els.bulkForwardMelioBtn.addEventListener("click", () => runDocumentOperation(bulkForwardMelio));
     }
 
     // Mount chrome synchronously — sidebar visible before any network call
