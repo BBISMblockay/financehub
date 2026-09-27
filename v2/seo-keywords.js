@@ -321,6 +321,44 @@
     return segments.length ? segments[segments.length - 1] : null;
   }
 
+  // Same tracking-key vocabulary as pagePath()/seo_serp_page_path() -- one
+  // list, checked against the exact key of each "&"-delimited query segment
+  // rather than a regex over the raw string. Removing a match by SPLITTING
+  // and FILTERING can never leave a stray leading "&" or "?" the way
+  // deleting substrings out of "?a=1&srsltid=x&b=2" in place can (a tracking
+  // key in the middle of the string is the case that bites: this module
+  // deliberately avoids the URL API too, so it needs no global that a
+  // sandboxed test runner -- or a very old browser -- might not expose,
+  // exactly like pagePath() beside it).
+  function isTrackingParamKey(key) {
+    return /^(srsltid|gclid|fbclid|msclkid|utm_[a-z]+|ref|ref_)$/.test(key);
+  }
+
+  /** A clean destination for a task's target_url: the absolute URL with only
+   * its TRACKING parameters and fragment removed -- every other query
+   * parameter is kept. rec.our_url is a SERP OBSERVATION -- Google's own
+   * result, which can (and for a homepage often does) carry a srsltid
+   * click-tracking parameter -- so it is right as evidence but wrong as "the
+   * page to go work on" verbatim. But a ranked URL can also be a SEARCH or
+   * FILTERED result (e.g. "/search?q=baseball+gifts&srsltid=..."), where the
+   * query string IS the destination, not noise -- stripping the whole thing
+   * would send a person to the wrong (or an empty) page. The observed URL,
+   * srsltid included, stays visible in the evidence panel/suggested_action;
+   * only the prefilled target_url is canonicalised, and only of tracking
+   * noise, wherever in the query string it sits. */
+  function canonicalTargetUrl(url) {
+    var trimmed = String(url || '').trim();
+    if (!trimmed) return null;
+    var noHash = trimmed.split('#')[0];
+    var qIdx = noHash.indexOf('?');
+    if (qIdx < 0) return noHash || null;
+    var base = noHash.slice(0, qIdx);
+    var kept = noHash.slice(qIdx + 1).split('&').filter(function (part) {
+      return part && !isTrackingParamKey(part.split('=')[0]);
+    });
+    return kept.length ? (base + '?' + kept.join('&')) : (base || null);
+  }
+
   var RECOMMENDATION_TITLE_TEMPLATES = {
     defend: 'Protect ranking for "%s"',
     page_one_not_top3: 'Improve ranking for "%s"',
@@ -354,7 +392,7 @@
     var titleSubject = (Array.isArray(rec.keyword_cluster) && rec.keyword_cluster.length) ? rec.keyword_cluster.join(', ') : (rec.keyword || '');
     return {
       target_type: targetType,
-      target_url: rec.our_url || null,
+      target_url: canonicalTargetUrl(rec.our_url),
       target_handle: urlHandle(rec.our_url),
       rationale: rationale,
       proposed_title: titleTemplate.replace('%s', titleSubject),
@@ -384,6 +422,7 @@
     groupRecommendations: groupRecommendations,
     mapPageTypeToTargetType: mapPageTypeToTargetType,
     urlHandle: urlHandle,
+    canonicalTargetUrl: canonicalTargetUrl,
     taskPrefill: taskPrefill,
   };
   if (typeof window !== 'undefined') window.SiloSeoKeywords = API;

@@ -194,6 +194,33 @@ r.test('urlHandle takes the last path segment and is null, never empty, with not
   r.eq(K.urlHandle(''), null);
   r.eq(K.urlHandle(null), null);
 });
+r.test('canonicalTargetUrl strips only TRACKING params and the fragment -- other query params are the destination, not noise', () => {
+  // Found in the 2026-09-27 UI audit: a homepage ranked in a SERP carries
+  // Google's srsltid click-tracking parameter, and the "Create SEO task"
+  // dialog was prefilling that exact URL as the page to go work on.
+  r.eq(K.canonicalTargetUrl('https://www.baseballism.com/?srsltid=AfmBOoo123abc'), 'https://www.baseballism.com/');
+  r.eq(K.canonicalTargetUrl('https://www.baseballism.com/collections/hats?srsltid=xyz&utm_source=google'), 'https://www.baseballism.com/collections/hats');
+  r.eq(K.canonicalTargetUrl('https://www.baseballism.com/collections/hats#reviews'), 'https://www.baseballism.com/collections/hats');
+  r.eq(K.canonicalTargetUrl('https://www.baseballism.com/collections/hats'), 'https://www.baseballism.com/collections/hats', 'already clean -- unchanged');
+  // Cycle-1 review finding (PR #800): stripping the WHOLE query string turns a
+  // search or filtered-collection result into a different (or empty) page.
+  // Only the named tracking keys are removed; every other param survives,
+  // regardless of where the tracking key sits in the query string.
+  r.eq(K.canonicalTargetUrl('https://www.baseballism.com/search?q=baseball+gifts&srsltid=AfmBOoo123abc'), 'https://www.baseballism.com/search?q=baseball+gifts', 'the search term is the destination, not noise -- kept');
+  r.eq(K.canonicalTargetUrl('https://www.baseballism.com/collections/hats?color=navy&srsltid=xyz&size=L'), 'https://www.baseballism.com/collections/hats?color=navy&size=L', 'a tracking param in the MIDDLE does not corrupt its neighbours');
+  r.eq(K.canonicalTargetUrl('https://www.baseballism.com/collections/hats?srsltid=xyz'), 'https://www.baseballism.com/collections/hats', 'the ONLY param is tracking -- the "?" itself goes too, no dangling separator');
+  r.eq(K.canonicalTargetUrl(null), null);
+  r.eq(K.canonicalTargetUrl(''), null);
+});
+r.test('taskPrefill: target_url is canonicalised, never the raw tracking-laden SERP observation', () => {
+  const pf = K.taskPrefill({
+    opportunity_class: 'defend', keyword: 'baseballism',
+    our_url: 'https://www.baseballism.com/?srsltid=AfmBOoo123abc',
+    suggested_action: 'evidence.',
+  });
+  r.eq(pf.target_url, 'https://www.baseballism.com/', 'srsltid stripped from the prefilled destination');
+  r.eq(pf.target_handle, null, 'the homepage has no segment -- unaffected by the query string either way');
+});
 r.test('taskPrefill: target fields come from OUR page type/URL, rationale starts from suggested_action, title matches the class', () => {
   const rec = {
     opportunity_class: 'page_one_not_top3',

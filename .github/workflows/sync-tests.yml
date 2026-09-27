@@ -891,15 +891,17 @@ jobs:
       # seo_recommendations_v: one evidenced, ranked opportunity list over the
       # SERP/Search Console/competitor-capture data above. Mutations remove the
       # single-run score discount, collapse an absent position to 0, swap
-      # evidence_strength for a numeric confidence, and (20260927120000) drop
-      # defend's decline requirement -- each must break the suite.
-      # Mutations: RECS_DB_MUTATION=score-not-halved | absence-as-zero | numeric-confidence | defend-not-filtered
+      # evidence_strength for a numeric confidence, (20260927120000) drop
+      # defend's decline requirement, and (20260927140000) collapse a
+      # never-queried SC figure or a never-observed PAA block back to a
+      # fabricated 0 -- each must break the suite.
+      # Mutations: RECS_DB_MUTATION=score-not-halved | absence-as-zero | numeric-confidence | defend-not-filtered | content-brief-sc-zero | content-brief-paa-zero
       - name: Execute SEO recommendations view regressions
         run: node scripts/tests/seo-recommendations-database.test.mjs
       - name: The recommendations guards, removed, must break it
         run: |
           set -u
-          for m in score-not-halved absence-as-zero numeric-confidence defend-not-filtered; do
+          for m in score-not-halved absence-as-zero numeric-confidence defend-not-filtered content-brief-sc-zero content-brief-paa-zero; do
             echo "--- $m ---"
             if RECS_DB_MUTATION="$m" node scripts/tests/seo-recommendations-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"

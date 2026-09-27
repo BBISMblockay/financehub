@@ -3583,6 +3583,15 @@ select
       then 'MISSING — seo_recommendations_v catalog entry lost the defend-requires-a-measured-decline caveat '
         || '(20260927120000); a stable or single-run top-3 keyword must not resurface as a "recommendation" -- '
         || 'production showed 91 of 91 defend rows stable before this fix, 74 at rank #1'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_recommendations_v' and description like '%never returned that query, distinct from a measured zero%')
+      then 'MISSING — seo_recommendations_v catalog entry lost the never-queried-vs-measured-zero caveat '
+        || '(20260927140000); content_brief has no demand filter, so a keyword Search Console never returned must '
+        || 'read NULL, never a fabricated 0 identical to an actual measured zero'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_recommendations_v' and description like '%never an empty array meaning zero questions%')
+      then 'MISSING — seo_recommendations_v catalog entry lost the no-PAA-block-observed caveat (20260927140000); '
+        || 'paa_questions must be NULL when no block was observed, never [] standing in for "zero questions"'
     else 'ok'
   end as seo_recommendations;
 

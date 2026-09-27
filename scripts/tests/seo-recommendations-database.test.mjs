@@ -7,10 +7,12 @@
 //
 // Run:  node scripts/tests/seo-recommendations-database.test.mjs
 // Mutations (each must fail at least one assertion):
-//   RECS_DB_MUTATION=score-not-halved     (single-run discount removed)
-//   RECS_DB_MUTATION=absence-as-zero      (an absent SC figure coalesced away)
-//   RECS_DB_MUTATION=numeric-confidence   (evidence_strength carries a number)
-//   RECS_DB_MUTATION=defend-not-filtered  (defend drops the decline requirement, per 20260927120000)
+//   RECS_DB_MUTATION=score-not-halved       (single-run discount removed)
+//   RECS_DB_MUTATION=absence-as-zero        (an absent SC figure coalesced away)
+//   RECS_DB_MUTATION=numeric-confidence     (evidence_strength carries a number)
+//   RECS_DB_MUTATION=defend-not-filtered    (defend drops the decline requirement, per 20260927120000)
+//   RECS_DB_MUTATION=content-brief-sc-zero  (a never-queried SC figure coalesced to 0, per 20260927140000)
+//   RECS_DB_MUTATION=content-brief-paa-zero (no-PAA-observed collapsed to "0 questions", per 20260927140000)
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -22,6 +24,7 @@ const db = new PGlite({ extensions: { pgcrypto } });
 const root = new URL('../../', import.meta.url);
 const MIGRATION = '20260926180000_seo_recommendations.sql';
 const FOLLOWUP_MIGRATION = '20260927120000_seo_recommendations_defend_requires_decline.sql';
+const FOLLOWUP2_MIGRATION = '20260927140000_seo_recommendations_absence_fixes.sql';
 // The full chain this migration builds on, same list seo-serp-database.test.mjs
 // verifies against, plus the SERP/tactics/rollup migrations it reads.
 const dependencies = [
@@ -49,7 +52,8 @@ const dependencies = [
   '20260926170000_seo_serp_tactics.sql',
 ];
 const mutation = process.env.RECS_DB_MUTATION || '';
-assert.ok(['', 'score-not-halved', 'absence-as-zero', 'numeric-confidence', 'defend-not-filtered'].includes(mutation), 'Unknown recommendations mutation');
+assert.ok(['', 'score-not-halved', 'absence-as-zero', 'numeric-confidence', 'defend-not-filtered',
+  'content-brief-sc-zero', 'content-brief-paa-zero'].includes(mutation), 'Unknown recommendations mutation');
 
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const first = async (sql, params = []) => (await q(sql, params))[0];
@@ -190,6 +194,34 @@ try {
         .replaceAll('true as is_at_risk,', '(coalesce(b.our_serp_movement, 0) < 0) as is_at_risk,')
         .replaceAll('    and coalesce(b.our_serp_movement, 0) < 0\n\n  union all', '\n\n  union all');
     }
+    if (mutation === 'content-brief-sc-zero') {
+      // Reverts 20260927140000: a never-queried keyword's SC figures coalesce
+      // back to a fabricated 0, indistinguishable from a measured zero. A
+      // no-op against 20260926180000/20260927120000's own text (the pattern
+      // only exists after the absence-fixes migration).
+      effective = effective.replaceAll(
+        'l.search_console_clicks_28d::bigint      as sc_clicks_28d,\n    l.search_console_impressions_28d::bigint as sc_impressions_28d,',
+        'coalesce(l.search_console_clicks_28d, 0)::bigint      as sc_clicks_28d,\n    coalesce(l.search_console_impressions_28d, 0)::bigint as sc_impressions_28d,'
+      );
+    }
+    if (mutation === 'content-brief-paa-zero') {
+      // Reverts 20260927140000: "no PAA block observed" collapses back to
+      // "0 questions ... would be the outline", identical wording to a
+      // genuinely empty outline (which this CTE can never actually produce).
+      effective = effective
+        .replaceAll('paa.questions as paa_questions,', "coalesce(paa.questions, '[]'::jsonb) as paa_questions,")
+        .replaceAll(
+          `      case
+        when paa.questions is null then ' No "People also ask" block was observed for this keyword -- there is no outline to start from yet.'
+        when jsonb_array_length(paa.questions) = 1 then ' 1 question from "People also ask" is the outline.'
+        else format(' %s questions from "People also ask" are the outline.', jsonb_array_length(paa.questions))
+      end`,
+          `      format(' %s question%s from "People also ask" %s the outline.',
+        coalesce(jsonb_array_length(paa.questions), 0),
+        case when coalesce(jsonb_array_length(paa.questions), 0) = 1 then '' else 's' end,
+        case when coalesce(jsonb_array_length(paa.questions), 0) = 0 then 'would be' else 'are' end)`
+        );
+    }
     return effective;
   }
 
@@ -211,6 +243,14 @@ try {
     assert.equal(await scalar("select count(*)::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='seo_recommendations_v' and c.relkind='v'"), 1);
   });
 
+  await test('the absence-fixes follow-up migration (20260927140000) applies twice, cleanly', async () => {
+    const sql = await readFile(new URL(`supabase/migrations/${FOLLOWUP2_MIGRATION}`, root), 'utf8');
+    const effective = applyMutation(sql);
+    await db.exec(effective);
+    await db.exec(effective);
+    assert.equal(await scalar("select count(*)::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='seo_recommendations_v' and c.relkind='v'"), 1);
+  });
+
   await test('seo_recommendations_keyword_stem: first 1-2 significant words, stopwords dropped, trailing s stripped', async () => {
     assert.equal(await scalar("select public.seo_recommendations_keyword_stem('Baseball  Backpacks')"), 'baseball backpack');
     assert.equal(await scalar("select public.seo_recommendations_keyword_stem('gifts for boys')"), 'gift boy', 'stopword "for" dropped, first two significant words kept');
@@ -218,7 +258,7 @@ try {
     assert.equal(await scalar("select public.seo_recommendations_keyword_stem('   ')"), '', 'blank in, blank out');
   });
 
-  let kBackpacks, kGifts, kHat, kRaglanTee, kRaglanSleeve, kTote, kGlove;
+  let kBackpacks, kGifts, kHat, kRaglanTee, kRaglanSleeve, kTote, kGlove, kAmericana;
   await test('seed the keyword set: one keyword per opportunity class, plus a two-keyword cluster for missing_category', async () => {
     kBackpacks = await asMember(() => scalar("insert into seo_keyword_set (company_entity_id, keyword, source, is_active) values ($1, 'baseball backpacks', 'manual', true) returning id", [co]));
     kGifts = await asMember(() => scalar("insert into seo_keyword_set (company_entity_id, keyword, source, is_active) values ($1, 'baseball gifts for boys', 'manual', true) returning id", [co]));
@@ -227,6 +267,10 @@ try {
     kRaglanSleeve = await asMember(() => scalar("insert into seo_keyword_set (company_entity_id, keyword, source, is_active) values ($1, 'baseball raglan sleeve', 'manual', true) returning id", [co]));
     kTote = await asMember(() => scalar("insert into seo_keyword_set (company_entity_id, keyword, source, is_active) values ($1, 'baseball tote bag', 'manual', true) returning id", [co]));
     kGlove = await asMember(() => scalar("insert into seo_keyword_set (company_entity_id, keyword, source, is_active) values ($1, 'baseball glove', 'manual', true) returning id", [co]));
+    // No matching search_console_query_daily row and no PAA feature seeded --
+    // the "never queried, never observed" case #2 in the 2026-09-27 UI audit
+    // found rendering as a fabricated 0, same as a real measured zero.
+    kAmericana = await asMember(() => scalar("insert into seo_keyword_set (company_entity_id, keyword, source, is_active) values ($1, 'baseball americana', 'manual', true) returning id", [co]));
     assert.equal(await scalar('select public.seo_recommendations_keyword_stem(keyword) from seo_keyword_set where id=$1', [kRaglanTee]),
       await scalar('select public.seo_recommendations_keyword_stem(keyword) from seo_keyword_set where id=$1', [kRaglanSleeve]),
       'the two raglan keywords share a stem -- the cluster this test exercises');
@@ -329,6 +373,29 @@ try {
     assert.equal(r.paa_questions.length, 2);
     assert.match(r.suggested_action, /2 questions/);
     assert.match(r.suggested_action, /hypothesis to test/i, 'the page-type difference is named as a hypothesis, never a cause');
+    // 'baseball gifts for boys' has a REAL seeded Search Console row with
+    // clicks=0 -- a MEASURED zero, which must render as 0, not NULL. The next
+    // test is the contrast case: a keyword Search Console never returned at
+    // all, which must render NULL, never this same 0.
+    assert.equal(Number(r.sc_clicks_28d), 0, 'a measured zero click count is a real 0, not an absence');
+    assert.equal(Number(r.sc_impressions_28d), 80, 'and a real, nonzero impression count');
+  });
+
+  await test('content_brief: a keyword Search Console never returned, and no PAA block observed -- NULL throughout, never a fabricated 0 (the 20260927140000 fix)', async () => {
+    await providerRun({ observedOn: '2026-09-15', syncedAt: '2026-09-15T06:15:00Z', batch: 'ram', rows: [
+      { keywordId: kAmericana, position: 2, domain: 'bl101.com', url: 'https://bl101.com/blogs/the-bullpen/americana-gear', title: 'Americana Baseball Gear Guide' },
+    ] });
+    const r = await asMember(() => first("select * from seo_recommendations_v where keyword_id=$1 and opportunity_class='content_brief'", [kAmericana]));
+    assert.ok(r, 'competitor is an article, we never appear -- qualifies for content_brief');
+    // Under RECS_DB_MUTATION=content-brief-sc-zero these next two must FAIL
+    // (they would read 0 instead of null).
+    assert.equal(r.sc_clicks_28d, null, 'never queried by Search Console -- NULL, not the same 0 a measured zero would show');
+    assert.equal(r.sc_impressions_28d, null, 'same: never queried, not measured at zero');
+    // Under RECS_DB_MUTATION=content-brief-paa-zero this must FAIL (it would
+    // read [] instead of null, and the sentence would say "0 questions").
+    assert.equal(r.paa_questions, null, 'no "People also ask" block was observed for this keyword -- never an empty array standing in for zero questions');
+    assert.match(r.suggested_action, /No "People also ask" block was observed/, 'says so explicitly rather than computing a phantom zero');
+    assert.doesNotMatch(r.suggested_action, /0 question/i, 'never phrases an unobserved outline as "0 questions"');
   });
 
   await test('missing_category: two active keywords share a stem, have demand, and neither has ever ranked', async () => {
