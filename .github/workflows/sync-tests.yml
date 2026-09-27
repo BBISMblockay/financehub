@@ -129,6 +129,14 @@ on:
       - 'supabase/migrations/*search_console_daily.sql'
       - 'supabase/migrations/*search_console_newest_run_wins.sql'
       - 'supabase/migrations/*search_console_overview_rpcs.sql'
+      - 'supabase/migrations/*seo_competitor_serp_schema.sql'
+      - 'supabase/migrations/*seo_serp_provider_sync.sql'
+      - 'supabase/migrations/*seo_candidates_within_timeout.sql'
+      - 'supabase/migrations/*seo_collection_candidates_within_timeout.sql'
+      - 'supabase/migrations/*seo_serp_tactics.sql'
+      - 'supabase/migrations/*seo_recommendations.sql'
+      - 'v2/seo-keywords.html'
+      - 'v2/seo-keywords.js'
       - 'v2/card-coding.html'
       - 'v2/transactions.html'
       - 'v2/transactions-tiles.js'
@@ -863,6 +871,25 @@ jobs:
           for m in stale-write-allowed observations-writable import-unscoped ledger-writable; do
             echo "--- $m ---"
             if SERP_DB_MUTATION="$m" node scripts/tests/seo-serp-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # seo_recommendations_v: one evidenced, ranked opportunity list over the
+      # SERP/Search Console/competitor-capture data above. Mutations remove the
+      # single-run score discount, collapse an absent position to 0, and swap
+      # evidence_strength for a numeric confidence -- each must break the suite.
+      # Mutations: RECS_DB_MUTATION=score-not-halved | absence-as-zero | numeric-confidence
+      - name: Execute SEO recommendations view regressions
+        run: node scripts/tests/seo-recommendations-database.test.mjs
+      - name: The recommendations guards, removed, must break it
+        run: |
+          set -u
+          for m in score-not-halved absence-as-zero numeric-confidence; do
+            echo "--- $m ---"
+            if RECS_DB_MUTATION="$m" node scripts/tests/seo-recommendations-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

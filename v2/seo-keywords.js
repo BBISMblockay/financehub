@@ -253,6 +253,114 @@
     return rows;
   }
 
+  // ── Recommendations tab: seo_recommendations_v is the single definition of
+  // an opportunity (score, class, evidence_strength). Everything below is
+  // display grouping and the "Create SEO task" pre-fill -- it never computes
+  // a score or an evidence label of its own; that would be a second
+  // definition of the same number, which this codebase's own convention
+  // (search_console_query_rollup_v, silo_business_today(), etc.) argues
+  // against. evidence_strength is read from the row and validated, never
+  // invented client-side.
+
+  var RECOMMENDATION_CLASS_LABELS = {
+    page_one_not_top3: 'Page one, not top 3',
+    absent_with_demand: 'Absent with demand',
+    page_two: 'Page two, one push from page one',
+    missing_category: 'Missing category',
+    content_brief: 'Content brief',
+    defend: 'Defend',
+  };
+  // Roughly urgency-first: what is slipping, what is close, what is missing.
+  var RECOMMENDATION_CLASS_ORDER = ['defend', 'page_one_not_top3', 'content_brief', 'page_two', 'absent_with_demand', 'missing_category'];
+  var EVIDENCE_STRENGTH_VALUES = ['strong', 'moderate', 'early'];
+
+  /** Never trust a value the view didn't return as one of the three words --
+   * fail toward the WEAKER claim, never a stronger one, if something upstream
+   * ever sends something else. */
+  function evidenceStrengthLabel(s) {
+    return EVIDENCE_STRENGTH_VALUES.indexOf(s) >= 0 ? s : 'early';
+  }
+
+  /** Group recommendation rows by class, in a fixed display order, each
+   * group's rows kept in the score order the view already returned (falls
+   * back to a defensive re-sort if rows arrive unsorted). A class absent from
+   * the data is simply absent from the result -- never rendered as an empty
+   * section. */
+  function groupRecommendations(rows) {
+    var byClass = {};
+    (Array.isArray(rows) ? rows : []).forEach(function (r) {
+      var c = r && r.opportunity_class;
+      if (!c) return;
+      if (!byClass[c]) byClass[c] = [];
+      byClass[c].push(r);
+    });
+    var order = RECOMMENDATION_CLASS_ORDER.concat(Object.keys(byClass).filter(function (c) { return RECOMMENDATION_CLASS_ORDER.indexOf(c) < 0; }));
+    return order.filter(function (c) { return byClass[c] && byClass[c].length; }).map(function (c) {
+      var group = byClass[c].slice().sort(function (a, b) { return (num(b.score) || 0) - (num(a.score) || 0); });
+      return { opportunity_class: c, label: RECOMMENDATION_CLASS_LABELS[c] || c, rows: group };
+    });
+  }
+
+  // seo_serp_page_type() vocabulary -> seo_tasks.target_type's CHECK
+  // (product/collection/page/blog/site/other). A page type is a
+  // classification of the URL, never of the content -- this mapping inherits
+  // that limit and is only ever a STARTING GUESS the person reviews.
+  var PAGE_TYPE_TO_TARGET_TYPE = { home: 'site', collection: 'collection', product: 'product', article: 'blog', video: 'other', page: 'page', other: 'other' };
+  function mapPageTypeToTargetType(pageType) {
+    if (!pageType) return null;
+    return PAGE_TYPE_TO_TARGET_TYPE[pageType] || 'other';
+  }
+
+  /** The last non-empty path segment of a URL, for a starting target_handle
+   * guess. Null for anything with no path (including no URL at all) -- never
+   * an empty string standing in for "unknown". */
+  function urlHandle(url) {
+    if (!url) return null;
+    var path = pagePath(url).replace(/\?.*$/, '');
+    var segments = path.split('/').filter(Boolean);
+    return segments.length ? segments[segments.length - 1] : null;
+  }
+
+  var RECOMMENDATION_TITLE_TEMPLATES = {
+    defend: 'Protect ranking for "%s"',
+    page_one_not_top3: 'Improve ranking for "%s"',
+    page_two: 'Push "%s" onto page one',
+    absent_with_demand: 'Get a page ranking for "%s"',
+    content_brief: 'Write a page targeting "%s"',
+    missing_category: 'Cover the "%s" category',
+  };
+
+  /**
+   * What the "Create SEO task" button pre-fills, from the row's evidence
+   * alone -- never inserted until a person reviews and confirms. rationale
+   * starts from the view's own suggested_action sentence (the one place that
+   * sentence is written) and, only when both sides were actually captured,
+   * appends the title/H1 hypothesis using the same namesTerm() word-match the
+   * Rankings tab's compare panel uses -- worded as a hypothesis, never a
+   * cause, per this module's own rule about page types and content.
+   */
+  function taskPrefill(rec) {
+    rec = rec || {};
+    var targetType = mapPageTypeToTargetType(rec.our_page_type) || mapPageTypeToTargetType(rec.competitor_page_type) || 'other';
+    var rationale = String(rec.suggested_action || '').trim();
+    if (rec.competitor_captured_title && rec.our_captured_title) {
+      var theirsNames = namesTerm(rec.keyword, rec.competitor_captured_title);
+      var oursNames = namesTerm(rec.keyword, rec.our_captured_title);
+      if (theirsNames && !oursNames) {
+        rationale += ' Hypothesis, not a cause: their title names the term ("' + rec.competitor_captured_title + '") and ours does not ("' + rec.our_captured_title + '").';
+      }
+    }
+    var titleTemplate = RECOMMENDATION_TITLE_TEMPLATES[rec.opportunity_class] || 'SEO: %s';
+    var titleSubject = (Array.isArray(rec.keyword_cluster) && rec.keyword_cluster.length) ? rec.keyword_cluster.join(', ') : (rec.keyword || '');
+    return {
+      target_type: targetType,
+      target_url: rec.our_url || null,
+      target_handle: urlHandle(rec.our_url),
+      rationale: rationale,
+      proposed_title: titleTemplate.replace('%s', titleSubject),
+    };
+  }
+
   var API = {
     MEASURED_TASK_COST_USD: MEASURED_TASK_COST_USD,
     pagePath: pagePath,
@@ -269,6 +377,14 @@
     newCandidates: newCandidates,
     domainNorm: domainNorm,
     trackingSummary: trackingSummary,
+    RECOMMENDATION_CLASS_LABELS: RECOMMENDATION_CLASS_LABELS,
+    RECOMMENDATION_CLASS_ORDER: RECOMMENDATION_CLASS_ORDER,
+    EVIDENCE_STRENGTH_VALUES: EVIDENCE_STRENGTH_VALUES,
+    evidenceStrengthLabel: evidenceStrengthLabel,
+    groupRecommendations: groupRecommendations,
+    mapPageTypeToTargetType: mapPageTypeToTargetType,
+    urlHandle: urlHandle,
+    taskPrefill: taskPrefill,
   };
   if (typeof window !== 'undefined') window.SiloSeoKeywords = API;
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
