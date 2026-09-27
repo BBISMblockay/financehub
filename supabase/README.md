@@ -12,6 +12,8 @@
 
 ## Individual migrations (same content, split)
 
+**Product Studio SKU spread:** `migrations/20260927074820_product_studio_variant_spread.sql` adds store-mapped product search, per-SKU restock evidence and atomic multi-line PO handoffs. Existing single-SKU briefs remain supported. Apply after the original preview migration; no menu promotion or edge deploy.
+
 **Product workflow preview:** `migrations/20260926082115_product_workflow_preview.sql`
 adds saved, company-scoped briefs and RPC-only reviewed handoffs into existing
 PO/launch records. It also supplies the bounded 90-day restock evidence RPC.

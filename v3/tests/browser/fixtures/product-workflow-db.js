@@ -7,11 +7,16 @@
     products_master:[{id:'P1',company_entity_id:'C1',product_title:'Catalog tee',sku:'TEE-M',variant_title:'M',lead_time_days:30,target_stock_days:60}],
     product_workflow_briefs:[],po_headers:[],po_lines:[],product_tracker:[],launch_product_readiness:[],entity_memberships:[],
   };
+  tables.products_master.push({id:'P2',company_entity_id:'C1',product_title:'Catalog tee',sku:'TEE-S',variant_title:'S',lead_time_days:30,target_stock_days:60});
+  const group={shop_domain:'test.myshopify.com',shopify_product_id:'123'};
+  const catalog=()=>({...tables.products_master[0],catalog_group:group,variants:structuredClone(tables.products_master)});
+  const basis=args=>tables.products_master.map((p,i)=>({product_id:p.id,sku:p.sku,units_90d:i?90:900,on_hand:i?1000:100,incoming_units:i?0:50,lookback_days:90,horizon_days:args.p_horizon,window_start:'2026-06-28',window_end:'2026-09-25',incoming_cutoff:'2026-12-25',sales_names:1,stock_as_of:new Date().toISOString(),observed_at:new Date().toISOString()}));
   tables.product_concepts.push({id:'FOREIGN',company_entity_id:'C2',title:'Other company concept',status:'draft'});
   const state=window.__pw={tables,calls:[],canWrite:!window.__pwViewer,failSave:false,failPipeline:false};
   function from(table) {
     let filters=[],range=[0,999],single=false,write=null;
-    const q={select(){return q;},eq(k,v){filters.push(r=>r[k]===v);return q;},neq(k,v){filters.push(r=>r[k]!==v);return q;},
+    const value=(r,k)=>k==='content->>catalog_scope'?r.content?.catalog_scope:k==='content->catalog_group'?JSON.stringify(r.content?.catalog_group):r[k];
+    const q={select(){return q;},eq(k,v){filters.push(r=>value(r,k)===v);return q;},is(k,v){filters.push(r=>value(r,k)===v);return q;},neq(k,v){filters.push(r=>r[k]!==v);return q;},
       in(k,v){filters.push(r=>v.includes(r[k]));return q;},order(){return q;},limit(n){range=[0,n-1];return q;},range(a,b){range=[a,b];return q;},
       ilike(k,v){filters.push(r=>String(r[k]||'').toLowerCase().includes(v.replace(/%/g,'').toLowerCase()));return q;},
       single(){single=true;return q;},maybeSingle(){single=true;return q;},insert(row){write={kind:'insert',row};return q;},update(row){write={kind:'update',row};return q;},
@@ -31,16 +36,19 @@
     async rpc(name,args){
       state.calls.push({name,args:structuredClone(args)});
       if(name==='po_builder_can_write')return {data:state.canWrite,error:null};
+      if(name==='product_workflow_catalog_search')return {data:[{...tables.products_master[0],catalog_group:group,variant_count:2}],error:null};
+      if(name==='product_workflow_catalog_source')return {data:catalog(),error:null};
+      if(name==='product_workflow_product_basis')return {data:basis(args),error:null};
       if(name==='save_product_workflow_brief'){
         let b=tables.product_workflow_briefs.find(x=>x.id===args.p_id);
-        if(!b){b={id:args.p_id,version:0,company_entity_id:args.p_company,source_kind:args.p_kind,source_id:args.p_source_id,source_snapshot:tables.product_concepts.find(x=>x.id===args.p_source_id)||tables.products_master.find(x=>x.id===args.p_source_id)||{}};tables.product_workflow_briefs.push(b);}
+        if(!b){b={id:args.p_id,version:0,company_entity_id:args.p_company,source_kind:args.p_kind,source_id:args.p_source_id,source_snapshot:tables.product_concepts.find(x=>x.id===args.p_source_id)||(args.p_content.catalog_scope==='product'?catalog():tables.products_master.find(x=>x.id===args.p_source_id))||{}};tables.product_workflow_briefs.push(b);}
         if(b.version===args.p_version){b.content=structuredClone(args.p_content);b.status=args.p_status;b.version++;}
         if(state.failSave){state.failSave=false;return {data:null,error:{message:'Response lost. Retry save.'}};}
         return {data:structuredClone(b),error:null};
       }
       if(name==='handoff_product_workflow_brief'){
         const b=tables.product_workflow_briefs.find(x=>x.id===args.p_id);
-        if(args.p_target==='po'&&!b.po_header_id){b.po_header_id='PO1';tables.po_headers.push({id:'PO1',company_entity_id:'C1',po_name:'TEST-1',is_new_product_po:true,factory_id:'F1'});tables.po_lines.push(...b.content.lines.map((l,i)=>({id:'LINE'+i,company_entity_id:'C1',po_header_id:'PO1',title_snapshot:b.content.title,qty:l.qty})));b.version++;}
+        if(args.p_target==='po'&&!b.po_header_id){b.po_header_id='PO1';tables.po_headers.push({id:'PO1',company_entity_id:'C1',po_name:'TEST-1',is_new_product_po:true,factory_id:'F1'});tables.po_lines.push(...b.content.lines.filter(l=>l.qty>0).map((l,i)=>({id:'LINE'+i,company_entity_id:'C1',po_header_id:'PO1',title_snapshot:b.content.title,product_master_id:l.product_master_id,qty:l.qty})));b.version++;}
         if(args.p_target==='launch'&&!b.launch_id){b.launch_id='LAUNCH1';b.version++;}
         return {data:structuredClone(b),error:null};
       }

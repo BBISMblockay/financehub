@@ -8,7 +8,9 @@
       ? Object.entries(row.suggested_size_breakdown).filter(([, qty]) => Number.isInteger(Number(qty)) && Number(qty) > 0) : [];
     const cost = number(concept ? row.economics?.unit_cost : row.unit_cost);
     const retail = number(concept ? row.economics?.msrp : row.msrp);
+    const spread = ['product','restock'].includes(kind) && Array.isArray(row.variants);
     return {
+      ...(spread ? { catalog_scope: 'product', catalog_group: row.catalog_group || null, source_variant_identity: identity(row), source_variant_versions: row.variants.map(v=>({id:v.id,updated_at:v.updated_at ?? null})).sort((a,b)=>a.id.localeCompare(b.id)) } : {}),
       source_updated_at: row.updated_at || null,
       title: row.title || row.product_title || '',
       design_intent: concept ? row.concept_summary || row.creative_story || '' : row.notes || '',
@@ -19,10 +21,16 @@
       draft_copy: row.suggested_marketing_copy || '',
       creative_dos: row.visual_direction || '', creative_donts: '', copy_dos: '', copy_donts: '',
       launch_date: row.suggested_launch_date || '', factory_id: row.suggested_factory_id || '', decision_note: '',
-      lines: (sizes.length ? sizes : [[row.variant_title || '', concept ? row.suggested_qty ?? '' : '']])
+      lines: spread ? row.variants.map(v => ({product_master_id:v.id,sku:v.sku,size:v.mapped_variant_title || v.variant_title || '',qty:null,unit_cost:number(v.unit_cost),retail_price:number(v.msrp)})) : (sizes.length ? sizes : [[row.variant_title || '', concept ? row.suggested_qty ?? '' : '']])
         .map(([size, qty]) => ({ size, qty, unit_cost: cost, retail_price: retail })),
-      restock: kind === 'restock' ? { lead_days: row.lead_time_days ?? '', cover_days: row.target_stock_days ?? 90, safety_units: 0, basis: null } : null,
+      restock: kind === 'restock' ? { lead_days: row.lead_time_days ?? '', cover_days: row.target_stock_days ?? 90, safety_units: 0, basis: null, ...(spread ? {bases:[]} : {}) } : null,
     };
+  }
+  function identity(row) {
+    return row.variants.map(v => Object.fromEntries(['id','sku','product_title','product_type','variant_title','mapped_variant_title','mapped_product_title','shopify_variant_id'].map(k => [k,v[k] ?? null]))).sort((a,b) => a.id.localeCompare(b.id));
+  }
+  function spreadRestock(content) {
+    return content.lines.map(line => ({...restock({...content.restock,basis:content.restock?.bases?.find(b => b.product_id === line.product_master_id)}),line}));
   }
   function restock(r, now = Date.now()) {
     const warnings = [];
@@ -51,12 +59,19 @@
   function validate(content, kind, reviewed = false) {
     if (!content.title?.trim()) throw new Error('Enter a brief title.');
     if (reviewed && !content.design_intent?.trim()) throw new Error('Add the product intent before review.');
+    if(reviewed && content.catalog_scope==='product' && content.lines.some(l=>l.qty===null || l.qty==='' || !Number.isInteger(Number(l.qty)) || Number(l.qty)<0)) throw new Error('Choose units for every SKU; use zero to exclude a size.');
     if (reviewed && kind === 'restock') {
+      if (content.catalog_scope === 'product') {
+        if (content.lines.some(l => l.qty === null || l.qty === '' || !Number.isInteger(Number(l.qty)) || Number(l.qty)<0)) throw new Error('Choose units for every SKU; use zero to exclude a size.');
+        const results = spreadRestock(content);
+        if (results.some(r => r.warnings.length || r.qty === null || Number(r.line.qty)!==r.qty) && !content.decision_note?.trim()) throw new Error('Explain the restock override or evidence warnings in the decision note.');
+        return content;
+      }
       const result = restock(content.restock);
       if ((result.warnings.length || result.qty === null || Number(content.lines[0]?.qty) !== result.qty)
           && !content.decision_note?.trim()) throw new Error('Explain the restock override or evidence warnings in the decision note.');
     }
     return content;
   }
-  root.SiloProductWorkflow = { preset, restock, validate };
+  root.SiloProductWorkflow = { preset, restock, spreadRestock, identity, validate };
 })(typeof window !== 'undefined' ? window : module.exports);

@@ -5217,6 +5217,28 @@ select signature as product_workflow_rpc,
 
 -- End product workflow preview checks.
 
+-- Product Studio variant spread checks.
+with expected(signature,client) as (values
+ ('public.product_workflow_catalog_source(uuid,uuid,jsonb)',true),
+ ('public.product_workflow_catalog_search(uuid,text)',true),
+ ('public.product_workflow_product_basis(uuid,uuid,jsonb,integer)',true),
+ ('public.product_workflow_variant_identity(jsonb)',false),
+ ('public.product_workflow_check_spread(jsonb,jsonb)',false),
+ ('public.product_workflow_check_restock_spread(uuid,jsonb,jsonb)',false))
+select signature as product_studio_spread_rpc,
+ case when to_regprocedure(signature) is null then 'MISSING: apply 20260927074820_product_studio_variant_spread.sql'
+ when has_function_privilege('anon',to_regprocedure(signature),'EXECUTE') then 'CRITICAL: anonymous spread RPC'
+ when has_function_privilege('authenticated',to_regprocedure(signature),'EXECUTE') is distinct from client then 'CRITICAL: incorrect spread RPC grant'
+ else 'ok' end as status from expected;
+select 'Product Studio writer spread guards' as check_name,
+ case when not exists(select 1 from pg_proc where oid=to_regprocedure('public.save_product_workflow_brief(uuid,uuid,integer,text,uuid,jsonb,text)')
+   and prosrc like '%product_workflow_check_spread%' and prosrc like '%product_workflow_check_restock_spread%')
+ or not exists(select 1 from pg_proc where oid=to_regprocedure('public.handoff_product_workflow_brief(uuid,uuid,integer,text,date)')
+   and prosrc like '%product_workflow_check_spread%' and prosrc like '%product_workflow_variant_identity%')
+ then 'MISSING: product-level save or handoff guard' else 'ok' end as status;
+-- End Product Studio variant spread checks.
+
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further
