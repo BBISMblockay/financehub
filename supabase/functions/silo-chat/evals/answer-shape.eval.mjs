@@ -114,6 +114,48 @@ const CASES = [
       ['does not recite a remembered history length', !/7 weeks|seven weeks/i.test(a)],
     ],
   },
+  {
+    key: 'suggestions-compact',
+    why: 'The live 30-day review ran ~700 words before recommending, and recommended a reorder it had not checked.',
+    history: [{ role: 'user', content: 'Look at past 30 days of business suggest improvements' }],
+    rounds: () => [
+      ...sqlRound('R1',
+        "select case when day_date >= '2026-08-28' then 'last_30' else 'prior_30' end period, sum(total_net_sales) net_sales, sum(total_orders) orders from sales_by_day where location_tag = 'online' and day_date between '2026-07-29' and '2026-09-26' group by 1",
+        [{ period: 'last_30', net_sales: 1066995, orders: 46797 }, { period: 'prior_30', net_sales: 1404679, orders: 65639 }]),
+      ...sqlRound('R2',
+        "select case when day_date >= '2026-08-28' then 'last_30' else 'prior_30' end period, platform, sum(spend) spend, sum(conversion_value) conversion_value from marketing_kpis_daily where day_date between '2026-07-29' and '2026-09-26' group by 1, 2",
+        [{ period: 'last_30', platform: 'meta_ads', spend: 312675, conversion_value: 807534 }, { period: 'prior_30', platform: 'meta_ads', spend: 414619, conversion_value: 1077572 },
+         { period: 'last_30', platform: 'google_ads', spend: 18099, conversion_value: 44649 }, { period: 'prior_30', platform: 'google_ads', spend: 35554, conversion_value: 208799 }]),
+      ...sqlRound('R3',
+        "select product_title, sum(total_available_quantity) on_hand, sum(qty_sold_30d) sold_30d from inventory_workboard_v where velocity_matched group by 1 order by sold_30d desc limit 5",
+        [{ product_title: 'Sonic The Hedgehog Team Sonic Youth T-Shirt', on_hand: 62, sold_30d: 1292 }, { product_title: 'Sonic The Hedgehog Slugger Youth Hoodie', on_hand: -2, sold_30d: 469 }]),
+    ],
+    grade: (a) => {
+      const actions = a.split('\n').filter((l) => /^\s*(\d+[.)]|[-*])\s+\S/.test(l) && /\b(reorder|restock|pause|scale|cut|test|check|investigate|shift|move|raise|lower|review)\b/i.test(l));
+      return [
+        ['at most three ranked actions', actions.length >= 1 && actions.length <= 3],
+        ['compact', words(a) <= 320],
+        ['the unchecked incoming stock becomes "check first", not a buy order', /check first|incoming|on order|open (purchase )?orders?|\bPOs?\b/i.test(a)],
+        ['no generic advice', !/optimi[sz]e (your )?(marketing|campaigns)|consider improving/i.test(a)],
+        ['no generic follow-up offer', !GENERIC_OFFER.test(a)],
+      ];
+    },
+  },
+  {
+    key: 'scope-note-in-history',
+    why: 'The automatic scope note rides back into history; a follow-up must fix the label, not copy the note.',
+    history: [
+      { role: 'user', content: 'What did we sell over the last 90 days?' },
+      { role: 'assistant', content: 'Online sales were $8,844,752 on 387,018 units from 29 June to 26 September.\n\n---\n**Scope check (automatic):** "online" appears above, but every figure behind this answer covers all sales channel values together -- the figures are real, the label on them was not established by anything that ran. _Word check only; it can be wrong in both directions._' },
+      { role: 'user', content: 'simplify that' },
+    ],
+    rounds: () => [],
+    grade: (a) => [
+      ['the note is not copied', !/scope check/i.test(a)],
+      ['the label is corrected to the real scope', /(all|every) (sales )?(channels|stores|locations)|combined|online (and|plus|\+) retail/i.test(a)],
+      ['the figure is not relabelled as online-only', !/online sales (were|totaled|of)/i.test(a)],
+    ],
+  },
 ];
 
 function systemFor(history) {

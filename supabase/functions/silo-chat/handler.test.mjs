@@ -1693,6 +1693,23 @@ await test('a request that narrowed the channel may say it', async () => {
   assert(!/Scope check/.test(json.answer), `a narrowed request was flagged: ${json.answer}`);
 });
 
+await test('an online-filtered sales_by_day request may say "online" (live 2026-09-27 false flag)', async () => {
+  // sales_by_day carries location_tag AND location_name; filtering the tag
+  // leaves the name ungrouped, which the note used to read as "nothing
+  // restricted sales channel" on every correctly labelled online figure.
+  const online = "SELECT day_date, SUM(total_net_sales) FROM sales_by_day WHERE location_tag = 'online' AND day_date >= '2026-08-28' AND day_date <= '2026-09-26' GROUP BY 1";
+  installModel([sqlRound(online), say('Online net sales were $1,066,995 over the last 30 complete days.')]);
+  const { json } = await ask(BASIC, { rpcResults: [{ day_date: '2026-09-26', sum: 35000 }] });
+  assert(!/Scope check/.test(json.answer), `a correctly labelled online figure was flagged: ${json.answer}`);
+});
+
+await test('an answer that names the combination is not flagged (live 02:52 answer)', async () => {
+  const all = "SELECT SUM(total_net_sales) FROM sales_by_day WHERE day_date >= '2026-06-29' AND day_date <= '2026-09-26'";
+  installModel([sqlRound(all), say('Across all store locations (online plus retail), net sales totaled $8,844,752.')]);
+  const { json } = await ask(BASIC, { rpcResults: [{ sum: 8844752 }] });
+  assert(!/Scope check/.test(json.answer), `a combined label was flagged: ${json.answer}`);
+});
+
 console.log('\n-- a period boundary is traced to where it came from --');
 
 await test('a date from an earlier result is sourced; an invented one is not', async () => {

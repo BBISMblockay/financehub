@@ -825,6 +825,32 @@ test('...without pulling it into ordinary sales, stock or restock questions', ()
   ]) eq(pick([user(q)]), [], q);
 });
 
+console.log('\n-- suggestions, and the scope note in history --');
+
+// The live "past 30 days of business, suggest improvements" answer ran ~700
+// words of narrative before its recommendations, and recommended a reorder it
+// had not checked.
+test('suggestions are at most three ranked, specific actions', () => {
+  everywhere('SUGGESTIONS ARE A SHORT, RANKED LIST OF ACTIONS');
+  everywhere('at most three actions ranked by expected impact (more only when asked)');
+  everywhere('a verb and the specific thing');
+  everywhere('never "optimize marketing"');
+});
+test('...each qualified in its own sentence, and an unrun check is "Check first", not advice', () => {
+  everywhere('the figure that supports it with its window and scope in the same sentence');
+  everywhere('what would change the call');
+  everywhere('is written as "Check first: <the check>", not as a recommendation');
+  everywhere('put what is still unchecked in one closing line');
+});
+// The note is appended to the answer text, so it rides back into history on
+// the next turn -- "simplify that" was working from an answer ending in it.
+test('an earlier answer\'s automatic scope note is not copied, it is acted on', () => {
+  everywhere('A LINE HEADED "Scope check (automatic)" under an earlier answer was added by SILO\'s word check');
+  everywhere('Never copy it into a new answer');
+  everywhere('correct the label in the new answer');
+  everywhere('rather than repeating the warning or dropping the qualifier');
+});
+
 console.log('\n-- size (reported, and bounded so it cannot silently regrow) --');
 
 const words = (s) => s.split(/\s+/).filter(Boolean).length;

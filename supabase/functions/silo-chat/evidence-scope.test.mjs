@@ -433,7 +433,7 @@ test('...and the mixed note does not then close by contradicting itself (cycle-2
   const note = formatClaimNote(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, mixed));
   assert(!/was not established by anything that ran/.test(note),
     `the mixed note still claims nothing established the label: ${note}`);
-  assert(/At least one query did restrict it/.test(note), `the mixed closing is missing: ${note}`);
+  assert(/at least one query did restrict it/i.test(note), `the mixed closing is missing: ${note}`);
   assert(/cannot tell which result/.test(note), `the mixed closing does not say what it cannot do: ${note}`);
 });
 
@@ -443,7 +443,7 @@ test('a wholly pooled scope KEEPS the nothing-established closing', () => {
   const note = formatClaimNote(auditAnswerClaims(SONIC_ANSWER_CHANNEL_CLAIM, sonicSalesScope()));
   assert(/was not established by anything that ran/.test(note),
     `the pooled note lost its accurate closing: ${note}`);
-  assert(!/At least one query did restrict it/.test(note),
+  assert(!/at least one query did restrict it/i.test(note),
     `the pooled note used the mixed closing: ${note}`);
 });
 
@@ -514,6 +514,55 @@ test('unresolvedDimensions is the whole basis, and excludes count as resolved', 
   // POOLED there -- the column is narrowed, so it never enters the pooled set.
   assert(!unresolvedDimensions(excl).has('location_tag'), 'an exclusion left the dimension pooled');
   assert(CLAIM_DIMENSIONS.some((d) => d.columns.includes('location_tag')), 'channel is not a claim dimension');
+});
+
+console.log('\n-- first live use (2026-09-27): the channel dimension, and naming a combination --');
+
+// silo_chat_audit_log 03:02:55: every sales query filtered location_tag =
+// 'online', and the appended note said nothing restricted sales channel --
+// because location_name (the dimension's other column) is necessarily left
+// ungrouped by that filter and was counted as pooled.
+const ONLINE_SALES_SQL = "SELECT day_date, SUM(total_net_sales) FROM sales_by_day WHERE location_tag = 'online' AND day_date >= '2026-08-28' AND day_date <= '2026-09-26' GROUP BY 1";
+const ALL_SALES_SQL = "SELECT SUM(total_net_sales) FROM sales_by_day WHERE day_date >= '2026-08-28' AND day_date <= '2026-09-26'";
+
+test('a location_tag filter resolves the channel even though location_name spans it', () => {
+  const s = describeEvidenceScope(ONLINE_SALES_SQL, INDEX, {});
+  assert(pooledCols(s).includes('sales_by_day.location_name'), 'fixture no longer reproduces the live shape');
+  eq(auditAnswerClaims('Online net sales were $1,066,995.', [s]), [], 'a correctly labelled online figure was flagged');
+  assert(!unresolvedDimensions([s]).has('location_name'), 'location_name still counted as pooled');
+});
+test('...and against a pooled result as well it is MIXED, never "nothing restricted it"', () => {
+  const flags = auditAnswerClaims('Online sales were $1.07M.', [
+    describeEvidenceScope(ONLINE_SALES_SQL, INDEX, {}), describeEvidenceScope(ALL_SALES_SQL, INDEX, {}),
+  ]);
+  eq(flags.map((f) => f.mixed), [true], `flags: ${JSON.stringify(flags)}`);
+  assert(!/was not established by anything that ran/.test(formatClaimNote(flags)), 'mixed note says nothing restricted it');
+});
+test('a pooled result is still flagged when an unqualified channel word labels it', () => {
+  eq(auditAnswerClaims('Online sales were $1.07M.', [describeEvidenceScope(ALL_SALES_SQL, INDEX, {})]).length, 1,
+    'the original failure is no longer caught');
+});
+test('naming the combination is not a single-channel claim (live 02:52 / 03:01 answers)', () => {
+  const all = [describeEvidenceScope(ALL_SALES_SQL, INDEX, {})];
+  for (const a of [
+    'Across all store locations (online plus retail), net sales totaled $8,844,752.',
+    'Top 5 by net revenue (both online and retail sales combined):',
+    'Net sales were $8.8M across all stores, online plus retail.',
+    'Net sales were $8.8M, online + retail.',
+  ]) eq(auditAnswerClaims(a, all), [], a);
+});
+test('...but only in the clause that names it: a pooling word beside ANOTHER figure does not exempt', () => {
+  const all = [describeEvidenceScope(ALL_SALES_SQL, INDEX, {})];
+  for (const a of [
+    'Online sales were $1.07M; the combined total was $8.8M.',
+    'Online sales were $1.07M. Retail and online combined reached $8.8M.',
+  ]) eq(auditAnswerClaims(a, all).length, 1, a);
+});
+test('the note is one short line per flag, not a standing footer', () => {
+  const note = formatClaimNote(auditAnswerClaims('Online sales were $1.07M.', [describeEvidenceScope(ALL_SALES_SQL, INDEX, {})]));
+  const words = note.split(/\s+/).filter(Boolean).length;
+  assert(words <= 50, `note is ${words} words`);
+  assert(/can be wrong in both directions/.test(note), 'the check no longer admits its fallibility');
 });
 
 console.log('\n-- the derivation does not overclaim --');

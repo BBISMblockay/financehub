@@ -687,23 +687,85 @@ export function unresolvedDimensions(scopes) {
   const pooled = new Set();
   for (const s of scopes || []) {
     if (!s) continue;
-    for (const p of s.pooled_across || []) pooled.add(p.column);
+    const resolvedHere = resolvedInScope(s);
+    for (const p of s.pooled_across || []) {
+      // A column is only pooled FOR A CLAIM when nothing else in its claim
+      // dimension was resolved on the same relation in the same result. Sales
+      // channel is read off two columns, location_tag and location_name, and a
+      // query that filters `location_tag = 'online'` necessarily leaves
+      // location_name ungrouped -- it spans every online location, which IS the
+      // online channel. Treating that as "channel pooled" flagged every
+      // correctly labelled online figure as "nothing restricted sales channel"
+      // (measured live, 2026-09-27, silo_chat_audit_log 03:02:55: every sales
+      // query in the request carried the filter, and the note said none did).
+      if (siblingsOf(p.column).some((c) => resolvedHere.has(`${p.relation}.${c}`))) continue;
+      pooled.add(p.column);
+    }
   }
   return pooled;
+}
+
+/** `relation.column` for every column a result narrowed, broke out or excluded. */
+function resolvedInScope(scope) {
+  const out = new Set();
+  for (const key of ['narrowed_to', 'broken_out_per_value', 'excludes']) {
+    for (const r of scope[key] || []) out.add(`${r.relation}.${r.column}`);
+  }
+  return out;
+}
+
+/** The other columns of the claim dimension a column belongs to. */
+function siblingsOf(column) {
+  const dim = CLAIM_DIMENSIONS.find((d) => d.columns.includes(column));
+  return dim ? dim.columns.filter((c) => c !== column) : [];
+}
+
+/** Every column some result in the request narrowed, broke out or excluded. */
+function resolvedAnywhere(scopes) {
+  const resolved = new Set();
+  for (const s of scopes || []) {
+    if (!s) continue;
+    for (const key of ['narrowed_to', 'broken_out_per_value', 'excludes']) {
+      for (const r of s[key] || []) resolved.add(r.column);
+    }
+  }
+  return resolved;
 }
 
 /** Dimensions some result pooled AND another resolved -- the mixed-basis case,
  *  where the figures above are not all on the same footing. */
 export function mixedDimensions(scopes) {
   const pooled = unresolvedDimensions(scopes);
-  const resolved = new Set();
-  for (const s of scopes || []) {
-    if (!s) continue;
-    for (const n of s.narrowed_to || []) resolved.add(n.column);
-    for (const b of s.broken_out_per_value || []) resolved.add(b.column);
-    for (const e of s.excludes || []) resolved.add(e.column);
-  }
+  const resolved = resolvedAnywhere(scopes);
   return new Set([...pooled].filter((c) => resolved.has(c)));
+}
+
+// A channel word used to NAME the combination is not a claim that the figure is
+// one channel. "Net sales across all stores (online plus retail)" was flagged as
+// asserting "online" over a pooled result -- the opposite of what it says.
+// Exempted per OCCURRENCE and only within its own CLAUSE, so "online sales were
+// $X; the combined total was $Y" still flags the first word: the pooling word
+// belongs to the other figure.
+const CLAUSE_BREAKS = ['; ', '. ', '.\n', '\n', ': ', ' — ', ' -- ', '? ', '! '];
+const POOLING_WORDS = /\b(combined|together|all (?:sales )?channels|every (?:sales )?channel|all (?:store )?locations|all stores|every (?:store|location)|across (?:all|every|both))\b/i;
+
+function clauseAround(text, index, length) {
+  let start = 0;
+  let end = text.length;
+  for (const br of CLAUSE_BREAKS) {
+    const before = text.lastIndexOf(br, index);
+    if (before !== -1 && before + br.length > start) start = before + br.length;
+    const after = text.indexOf(br, index + length);
+    if (after !== -1 && after < end) end = after;
+  }
+  return text.slice(start, end).toLowerCase();
+}
+
+function namesTheCombination(text, index, length, terms) {
+  const clause = clauseAround(text, index, length);
+  if (POOLING_WORDS.test(clause)) return true;
+  const alt = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  return new RegExp(`(?<![a-z0-9])(?:${alt})\\s*(?:and|plus|\\+|&|/|or)\\s*(?:${alt})(?![a-z0-9])`, 'i').test(clause);
 }
 
 /** Terms the answer asserts for a dimension nothing in the request resolved. */
@@ -711,7 +773,7 @@ export function auditAnswerClaims(answerText, scopes) {
   const text = String(answerText || '');
   if (!text.trim()) return [];
   const unresolved = unresolvedDimensions(scopes);
-  const mixed = mixedDimensions(scopes);
+  const resolved = resolvedAnywhere(scopes);
   const flags = [];
   for (const dim of CLAIM_DIMENSIONS) {
     if (!dim.columns.some((c) => unresolved.has(c))) continue;
@@ -720,11 +782,17 @@ export function auditAnswerClaims(answerText, scopes) {
       // `meta` does not match "metadata" -- a lookaround rather than \b
       // because several terms contain a space or a hyphen.
       const esc = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      return new RegExp(`(?<![a-z0-9])${esc}(?![a-z0-9])`, 'i').test(text);
+      const re = new RegExp(`(?<![a-z0-9])${esc}(?![a-z0-9])`, 'gi');
+      for (const m of text.matchAll(re)) {
+        if (!namesTheCombination(text, m.index, m[0].length, dim.terms)) return true;
+      }
+      return false;
     });
     if (found.length) {
       const columns = dim.columns.filter((c) => unresolved.has(c));
-      flags.push({ label: dim.label, columns, terms: found, mixed: columns.some((c) => mixed.has(c)) });
+      // Mixed at DIMENSION level: a result that narrowed location_tag resolved
+      // the channel even though the pooled column is location_name.
+      flags.push({ label: dim.label, columns, terms: found, mixed: dim.columns.some((c) => resolved.has(c)) });
     }
   }
   return flags;
@@ -735,28 +803,18 @@ export function auditAnswerClaims(answerText, scopes) {
  *  reader is the person who asked the question, not an engineer. */
 export function formatClaimNote(flags) {
   if (!flags || !flags.length) return '';
+  // One short sentence per flag. It used to be ~70 words of hedging appended to
+  // every flagged answer, including correct ones -- the standing footer the
+  // prompt itself tells the model not to write.
   const parts = flags.map((f) => {
     const words = f.terms.map((t) => `"${t}"`).join(', ');
-    // The mixed case is the more dangerous one and reads differently: some
-    // figure above IS on that basis and some is not, so the reader needs to
-    // know which, not to be told nothing restricted it.
+    // The mixed case reads differently: some figure above IS on that basis and
+    // some is not, so the reader needs to know which -- never that nothing
+    // restricted it, which would contradict the query that did.
     return f.mixed
-      ? `it uses ${words}, and the results behind this answer are NOT all on the same ${f.label} -- some restricted it and at least one did not, so a figure taken from the unrestricted one covers every value`
-      : `it uses ${words}, but nothing that was queried restricted ${f.label} -- every figure above covers all of its values together`;
+      ? `${words} appears above, but the results are NOT all on the same ${f.label}: at least one query did restrict it and at least one covers every value, and this check cannot tell which result a given figure came from`
+      : `${words} appears above, but every figure behind this answer covers all ${f.label} values together -- the figures are real, the label on them was not established by anything that ran`;
   });
-  // The closing sentence has to branch for the same reason the clause above
-  // does. "Nothing that ran established the label" is true of a wholly pooled
-  // scope and FALSE as soon as one query restricted the dimension: an answer
-  // that correctly quotes the online-only figure as online would be told, in
-  // consecutive sentences, that the results are mixed and that no executed
-  // query established the label. The second sentence is the one a reader acts
-  // on, and it was the wrong one -- what the checker actually cannot do in the
-  // mixed case is tie the label to the particular figure it sits on.
-  const anyMixed = flags.some((f) => f.mixed);
-  const closing = anyMixed
-    ? 'At least one query did restrict it, so the wording is not unsupported -- but this check cannot tell which result a given figure came from. Confirm which one backs the number before relying on the label.'
-    : 'Read that wording as unverified: the figures are real, the label on them was not established by anything that ran.';
   return `\n\n---\n**Scope check (automatic):** ${parts.join('; ')}. `
-    + closing + ' '
-    + 'This is a word check over the text above, so it can be wrong in both directions.';
+    + '_Word check only; it can be wrong in both directions._';
 }
