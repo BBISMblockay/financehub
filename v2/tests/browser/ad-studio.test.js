@@ -30,12 +30,15 @@ const ADS = [
   ad({ ad_id: '101', ad_name: 'Gus Hoodie LS', conversion_value: 60000, image_path: `${CO}/${'a'.repeat(64)}.jpg`, image_shared_by: 0 }),
   // Around baseline.
   ad({ ad_id: '102', ad_name: 'New Releases', object_type: 'SHARE', conversion_value: 30000,
-    image_path: `${CO}/${'b'.repeat(64)}.png`, image_shared_by: 4, body: null, preview_shareable_link: 'javascript:alert(1)' }),
+    image_path: `${CO}/${'b'.repeat(64)}.png`, image_shared_by: 4, body: '{{product.brand}} {{product.name}}', preview_shareable_link: 'javascript:alert(1)' }),
   // A great-looking ROAS on 3 purchases: early, never ranked first.
   ad({ ad_id: '103', ad_name: XSS, spend: 300, conversions: 3, conversion_value: 6000, impressions: 20000, clicks: 300, last_day: '2026-07-01', recent_spend: null }),
   // A video buy, judged on cost per ThruPlay.
   ad({ ad_id: '201', ad_name: 'Griffey Aiden', campaign_name: 'Upper Funnel Thruplay', objective: 'thruplay', object_type: 'VIDEO',
     spend: 3000, thruplays: 400000, conversions: 1, conversion_value: 50 }),
+  // A second video buy that costs MORE per ThruPlay than the baseline.
+  ad({ ad_id: '202', ad_name: 'Pricey Video', campaign_name: 'Upper Funnel Thruplay', objective: 'thruplay', object_type: 'VIDEO',
+    spend: 3000, thruplays: 100000, conversions: 0, conversion_value: 0, first_day: '2026-09-20' }),
 ];
 const IDEAS = [
   { id: 'idea-live', company_entity_id: CO, title: 'Hoodie weather, v2', hook: 'Cold mornings.', status: 'live',
@@ -72,6 +75,7 @@ const IDEAS = [
     R.ok('the hostile ad name is text, not HTML', (await page.evaluate(() => window.__PWNED__)) === undefined);
     const grid = await page.locator('#grid').innerText();
     R.ok('an early ad says so', /early/i.test(grid));
+    R.has(await page.locator('#grid .as-card').first().innerText(), 'Strong evidence', 'every card shows its evidence, not only the detail');
     R.ok('the shared catalog image is labelled a template', /template/i.test(grid));
     R.eq(await page.locator('#grid .as-card').first().locator('img').getAttribute('src'),
       `https://fixture.local/signed/${CO}/${'a'.repeat(64)}.jpg`, 'the archived image is drawn through a signed link');
@@ -94,7 +98,10 @@ const IDEAS = [
     await page.waitForFunction(() => /New Releases/.test(document.querySelector('#detail .as-title')?.textContent || ''));
     d = await detail();
     R.has(d, 'Same image as 4 other ads');
-    R.has(d, 'No copy synced');
+    R.has(d, 'Copy uses catalog placeholders');
+    R.eq(await page.locator('#detail .as-copy .as-token').count(), 2, 'placeholders are drawn as fields, not copy');
+    const ask102 = decodeURIComponent(await page.locator('#detail a[href*="silo-chat.html?q="]').getAttribute('href'));
+    R.not(ask102, '{{', 'no placeholder reaches the Ask SILO prompt');
     R.eq(await page.locator('#detail a:has-text("Preview on Meta")').count(), 0, 'a non-web preview link is never a link');
 
     // ── Idea from one ad ─────────────────────────────────────────────────
@@ -103,7 +110,10 @@ const IDEAS = [
     await page.click('#btnIdeaFromAd');
     R.ok('the idea dialog opens pre-filled', await page.evaluate(() => document.getElementById('dlgIdea').open
       && /Gus Hoodie/.test(document.getElementById('iTitle').value) && document.getElementById('iHook').value === 'Hoodie weather is here.'));
-    R.has(await page.locator('#iBaselines').innerText(), 'Bar to beat');
+    const barText = await page.locator('#iBar').innerText();
+    R.has(barText, 'Match the ad you picked: ROAS 6.00×');
+    R.has(barText, 'Beat the typical purchase ad: ROAS 4.73×', 'the objective baseline is offered beside the picked ads’ result');
+    R.eq(await page.locator('#iLiveWrap').isHidden(), true, 'a new idea does not ask for live ads');
     R.eq(await page.evaluate(() => window.__QUERIES__.filter((q) => q._op === 'insert').length), 0, 'opening the dialog writes nothing');
     await page.click('#btnIdeaSave');
     await page.waitForFunction(() => !document.getElementById('dlgIdea').open);
@@ -114,6 +124,9 @@ const IDEAS = [
     R.eq(JSON.stringify(ins[0].rows.baseline_ad_ids), '["101"]');
     R.eq(ins[0].rows.baseline_snapshot.metric, 'roas');
     R.eq(ins[0].rows.baseline_snapshot.value, 6, 'the bar is the baseline ad’s own pooled ROAS');
+    R.eq(ins[0].rows.baseline_snapshot.basis, 'selected');
+    R.eq(ins[0].rows.baseline_snapshot.objective_baseline.value, 4.7291, 'the objective baseline is recorded beside it');
+    R.eq(JSON.stringify(ins[0].rows.live_ad_ids), '[]');
     R.eq(ins[0].rows.destination_url, 'https://www.baseballism.com/collections/hoodies');
     R.ok('the client never sets who created or approved it', !('created_by' in ins[0].rows) && !('approved_by' in ins[0].rows));
 
@@ -121,6 +134,17 @@ const IDEAS = [
     await page.check('#grid [data-pick="101"]');
     await page.check('#grid [data-pick="102"]');
     R.has(await page.locator('#selCount').innerText(), '2 selected');
+    R.has(await page.locator('#selCount').innerText(), 'together ROAS 4.50× vs 4.73× baseline', 'the picked ads’ own result sits beside the baseline');
+    await page.click('#btnIdeaFromSel');
+    await page.check('#iBar input[value="objective"]');
+    await page.click('#btnIdeaSave');
+    await page.waitForFunction(() => !document.getElementById('dlgIdea').open);
+    const ins2 = await page.evaluate(() => window.__QUERIES__.filter((q) => q._op === 'insert').map((q) => q.rows));
+    R.eq(ins2[1].baseline_snapshot.basis, 'objective', 'choosing the typical ad saves that bar');
+    R.eq(ins2[1].baseline_snapshot.value, 4.7291);
+    R.eq(JSON.stringify(ins2[1].baseline_ad_ids), '["101","102"]');
+    await page.check('#grid [data-pick="101"]');
+    await page.check('#grid [data-pick="102"]');
     await page.click('#btnClearSel');
     R.eq(await page.locator('#selCount').innerText(), '', 'Clear empties the selection');
     R.eq(await page.locator('#grid [data-pick="101"]').isChecked(), false);
@@ -130,6 +154,10 @@ const IDEAS = [
     R.eq(await page.locator('#selCount').innerText(), '', 'leaving an objective drops its hidden selection');
     await page.check('#grid [data-pick="201"]');
     R.eq(await page.locator('#grid [data-pick="201"]').isChecked(), true, 'so the new objective can be picked at once');
+    const tpGrid = await page.locator('#grid').innerText();
+    R.has(tpGrid, 'Higher cost · +$', 'a costlier ad reads as higher cost');
+    R.has(tpGrid, 'Lower cost · −$');
+    R.not(tpGrid, 'below baseline');
     R.has(await page.locator('#selCount').innerText(), '1 selected');
     await page.click('#btnIdeaFromSel');
     R.has(await page.locator('#iBaselines').innerText(), 'Griffey Aiden', 'the idea is built from what is visibly selected');
@@ -151,10 +179,21 @@ const IDEAS = [
     // Moving an idea to live without its ads asks for them first.
     await page.selectOption('[data-move="idea-draft"]', 'live');
     R.ok('going live without ads opens the dialog', await page.evaluate(() => document.getElementById('dlgIdea').open));
+    R.eq(await page.locator('#iLiveWrap').isVisible(), true, 'a live idea shows the ad picker');
     await page.click('#btnIdeaSave');
     R.has(await page.locator('#iError').innerText(), 'live idea needs the ads');
     const upd = await page.evaluate(() => window.__QUERIES__.filter((q) => q._op === 'update').length);
     R.eq(upd, 0, 'nothing written while the live idea names no ads');
+    await page.fill('#iLiveSearch', 'pricey');
+    R.eq(await page.locator('#iLiveList [data-live]').count(), 1, 'the picker searches by name');
+    await page.check('#iLiveList [data-live="202"]');
+    await page.fill('#iLiveSearch', 'zzz-no-match');
+    R.eq(await page.locator('#iLiveList [data-live="202"]').isChecked(), true, 'a ticked ad stays listed whatever the search');
+    await page.click('#btnIdeaSave');
+    await page.waitForFunction(() => !document.getElementById('dlgIdea').open);
+    const up = await page.evaluate(() => window.__QUERIES__.filter((q) => q._op === 'update').map((q) => q.patch || q.rows));
+    R.eq(JSON.stringify(up[0].live_ad_ids), '["202"]', 'the ticked ad is what is saved');
+    R.eq(up[0].status, 'live');
   } finally {
     await suite.close();
     if (R.summary().fail) process.exitCode = 1;

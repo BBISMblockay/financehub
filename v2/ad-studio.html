@@ -107,6 +107,19 @@
     dialog.as-dialog::backdrop { background:rgba(0,0,0,.35); }
     .as-row { display:flex; gap:8px; flex-wrap:wrap; }
     .as-row > .bcn-field-group { flex:1 1 160px; }
+    .as-token { font-family:var(--bcn-mono); font-size:11px; font-style:normal; padding:1px 5px; border-radius:4px; background:var(--bcn-surface); border:1px dashed var(--bcn-border); color:var(--bcn-ink-3); }
+    .as-basis { display:flex; flex-direction:column; gap:8px; }
+    .as-basis label { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px solid var(--bcn-border); border-radius:8px; cursor:pointer; font-size:13px; color:var(--bcn-ink); }
+    .as-basis label:has(input:checked) { border-color:var(--bcn-ink); background:var(--bcn-bg); }
+    .as-basis input { margin-top:3px; }
+    .as-basis b { font-family:var(--bcn-mono); }
+    .as-basis small { display:block; color:var(--bcn-ink-2); font-size:12px; margin-top:2px; }
+    .as-basis-locked { padding:10px 12px; border-radius:8px; background:var(--bcn-bg); font-size:13px; color:var(--bcn-ink); }
+    .as-picklist { max-height:220px; overflow:auto; border:1px solid var(--bcn-border); border-radius:6px; margin-top:6px; }
+    .as-picklist label { display:flex; gap:8px; align-items:center; padding:6px 10px; font-size:12.5px; color:var(--bcn-ink); border-bottom:1px solid var(--bcn-border); cursor:pointer; }
+    .as-picklist label:last-child { border-bottom:0; }
+    .as-picklist .as-sub { margin-left:auto; white-space:nowrap; }
+    .as-picklist img, .as-picklist .as-pick-blank { width:28px; height:28px; border-radius:4px; object-fit:cover; background:var(--bcn-bg); flex-shrink:0; }
     #status { margin:12px 20px 0; }
     [hidden] { display:none !important; }
   </style>
@@ -189,6 +202,7 @@
   <div class="bcn-card" style="margin:0;border:0">
     <div class="bcn-card-header"><h2 id="ideaHead">New idea</h2><button class="bcn-btn bcn-btn--ghost" type="button" data-close>Close</button></div>
     <div class="bcn-card-body">
+      <div class="bcn-field-group" id="iBarWrap"><span class="bcn-label">Bar to beat</span><div id="iBar"></div></div>
       <div class="bcn-field-group"><label class="bcn-label" for="iTitle">Title</label><input id="iTitle" class="bcn-field" maxlength="200" /></div>
       <div class="bcn-field-group"><label class="bcn-label" for="iHook">Hook (first line)</label><input id="iHook" class="bcn-field" maxlength="500" /></div>
       <div class="bcn-field-group"><label class="bcn-label" for="iAngle">Angle (what changes from the baseline, and why)</label><textarea id="iAngle" class="bcn-field" rows="3" maxlength="2000"></textarea></div>
@@ -200,9 +214,10 @@
         <div class="bcn-field-group"><label class="bcn-label" for="iStatus">Status</label><select id="iStatus" class="bcn-field"></select></div>
       </div>
       <div class="bcn-field-group"><label class="bcn-label" for="iDest">Destination</label><input id="iDest" class="bcn-field" placeholder="https://…" /></div>
-      <div class="bcn-field-group" id="iLiveWrap"><label class="bcn-label" for="iLive">Ads carrying this idea (for live ideas)</label>
-        <select id="iLive" class="bcn-field" multiple size="5"></select>
-        <span class="as-note">Ads that started in this window, newest first. Pick the ones made from this idea.</span></div>
+      <div class="bcn-field-group" id="iLiveWrap" hidden><label class="bcn-label" for="iLiveSearch">Ads carrying this idea</label>
+        <input id="iLiveSearch" class="bcn-field" type="search" placeholder="Search ad name, campaign or id" autocomplete="off" />
+        <div class="as-picklist" id="iLiveList" role="group" aria-label="Ads carrying this idea"></div>
+        <span class="as-note" id="iLiveNote">Tick the Meta ads made from this idea. A new ad shows up here the morning after it launches, once the nightly sync has run.</span></div>
       <div class="bcn-field-group"><label class="bcn-label" for="iNotes">Notes</label><textarea id="iNotes" class="bcn-field" rows="2" maxlength="5000"></textarea></div>
       <div id="iBaselines" class="as-note"></div>
       <div class="bcn-status bcn-status--neg" id="iError" role="alert" hidden></div>
@@ -241,7 +256,8 @@
     if (!m) return '—';
     return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
   };
-  const EVIDENCE_WORD = { strong: 'Strong evidence', moderate: 'Moderate evidence', early: 'Early' };
+  const EVIDENCE_WORD = { strong: 'Strong evidence', moderate: 'Moderate evidence', early: 'Early — not compared' };
+  const EVIDENCE_TITLE = { strong: 'Enough volume to rely on this number', moderate: 'Enough volume to compare, not yet to rely on', early: 'Too little volume to compare with the baseline yet' };
   const FORMAT_WORD = { image: 'Image', video: 'Video', catalog: 'Catalog', carousel: 'Carousel', ugc: 'UGC', other: 'Post' };
   const PAGE = 24;
 
@@ -264,6 +280,7 @@
     ads: [], scored: [], byId: {}, bases: {}, totals: {}, window: null,
     objective: null, sort: 'best', running: false, shown: PAGE, selected: null, picked: new Set(),
     signed: {}, ideas: [], view: 'baselines', editing: null, draft: null,
+    draftAds: null, barChoices: null, basis: 'selected', liveChosen: new Set(),
   };
 
   // ── Loads ────────────────────────────────────────────────────────────────
@@ -348,8 +365,8 @@
     const o = A.objective(a.objective);
     const im = A.imageFor(a, S.signed);
     const fmt = A.formatOf(a);
-    const idx = A.fmtIndex(a.index);
-    const tone = a.index == null ? '' : a.index >= 1.05 ? 'as-pill--pos' : a.index <= 0.95 ? 'as-pill--neg' : '';
+    const cmp = a.index == null ? null : A.compare(a.value, S.bases[o.key]?.value, o.primary);
+    const tone = cmp ? ({ pos: 'as-pill--pos', neg: 'as-pill--neg' }[cmp.tone] || '') : '';
     return `<article class="as-card" aria-current="${S.selected === String(a.ad_id)}">
       <button type="button" class="as-card-open" data-ad="${esc(a.ad_id)}" aria-label="Open ${esc(a.ad_name || a.ad_id)}">
         ${imgHtml(a, 'as-img')}
@@ -357,7 +374,8 @@
           <div class="as-name">${esc(a.ad_name || a.ad_id)}</div>
           <div class="as-metric">${esc(A.fmtMetric(a.value, o.primary))} <span class="as-sub">${esc(A.METRICS[o.primary].short)}</span></div>
           <div class="as-pills">
-            ${idx ? `<span class="as-pill ${tone}">${esc(idx)}</span>` : `<span class="as-pill">${a.evidence === 'early' ? 'Early' : 'Not compared'}</span>`}
+            ${cmp ? `<span class="as-pill ${tone}">${esc(cmp.short)}</span>` : ''}
+            <span class="as-pill" title="${esc(EVIDENCE_TITLE[a.evidence] || 'Not measured on this metric')}">${esc(EVIDENCE_WORD[a.evidence] || 'Not measured')}</span>
             ${A.isRunning(a) ? '<span class="as-pill as-pill--live">Running</span>' : ''}
           </div>
           <div class="as-sub">${esc(A.fmtMoney(a.spend))} · ${esc(a.days_with_spend || 0)}d · ${esc(dayFmt(a.last_day))}</div>
@@ -380,7 +398,15 @@
   }
   function renderSelection() {
     const n = S.picked.size;
-    el('selCount').textContent = n ? `${n} selected` : '';
+    const selAds = [...S.picked].map(id => S.byId[id]).filter(Boolean);
+    let selText = n ? `${n} selected` : '';
+    if (selAds.length) {
+      const o = A.objective(selAds[0].objective);
+      const v = A.metric(A.pool(selAds), o.primary);
+      const b = S.bases[o.key];
+      if (v != null && b?.value != null) selText += ` · together ${A.METRICS[o.primary].short} ${A.fmtMetric(v, o.primary)} vs ${A.fmtMetric(b.value, o.primary)} baseline`;
+    }
+    el('selCount').textContent = selText;
     el('btnClearSel').hidden = !n;
     el('btnIdeaFromSel').disabled = !n;
     const ads = [...S.picked].map(id => S.byId[id]).filter(Boolean);
@@ -420,7 +446,7 @@
         <div><div class="as-k" style="margin-bottom:8px">What the numbers show</div>
           <ul class="as-findings">${f.map(x => `<li><span class="as-mark as-mark--${x.tone}"></span><div>${esc(x.title)}<small>${esc(x.detail)}</small></div></li>`).join('')}</ul></div>
         <div><div class="as-k" style="margin-bottom:8px">Copy</div>
-          <div class="as-copy ${copy ? '' : 'is-absent'}">${copy ? esc(copy) : 'No copy synced for this ad (catalog and dynamic ads often keep it in their feed).'}</div></div>
+          <div class="as-copy ${copy ? '' : 'is-absent'}">${copy ? copyHtml(copy) : 'No copy synced for this ad (catalog and dynamic ads often keep it in their feed).'}</div></div>
         ${dest ? `<div><div class="as-k" style="margin-bottom:4px">Destination</div><a class="as-link" href="${esc(dest)}" target="_blank" rel="noopener">${esc(dest.replace(/^https?:\/\//, ''))}</a></div>` : ''}
         <div class="as-acts">
           <button type="button" class="as-btn-dark" id="btnIdeaFromAd">Add to idea bank</button>
@@ -429,9 +455,25 @@
         </div>
       </div>`;
   }
+  // Catalog placeholders are drawn as fields, not as words someone wrote.
+  function copyHtml(text) {
+    return esc(text).replace(/\{\{[^{}]*\}\}/g, t => `<i class="as-token" title="Filled per product by Meta">${t}</i>`);
+  }
   function renderBaselines() { renderObjectives(); renderBand(); renderGrid(); renderSelection(); renderDetail(); }
 
   // ── Idea bank ────────────────────────────────────────────────────────────
+  /** "Bar: ROAS 17.07× (the 2 ads it came from; objective baseline 3.59×)". */
+  function barFrom(snap) {
+    const ob = snap.objective_baseline;
+    const n = (snap.ad_ids || []).length;
+    return snap.basis === 'objective'
+      ? `the ${A.objective(snap.objective).label.toLowerCase()} baseline`
+      : `the ${n === 1 ? 'ad' : n + ' ads'} it came from${ob?.value != null ? `; objective baseline ${A.fmtMetric(ob.value, snap.metric)}` : ''}`;
+  }
+  function barLine(snap) {
+    const short = A.METRICS[snap.metric]?.short || snap.metric;
+    return `Bar: ${short} ${A.fmtMetric(snap.value, snap.metric)} (${barFrom(snap)})${snap.data_through ? ` · set ${dayFmt(snap.data_through)}` : ''}`;
+  }
   function ideaCard(i) {
     const thumbs = (i.baseline_ad_ids || []).slice(0, 4).map(id => {
       const a = S.byId[String(id)];
@@ -439,7 +481,7 @@
       return im.src ? `<img src="${esc(im.src)}" alt="${esc(a.ad_name || id)}" title="${esc(a.ad_name || id)}">` : `<span title="ad ${esc(id)}"></span>`;
     }).join('');
     const snap = i.baseline_snapshot;
-    const bar = snap && snap.metric ? `Bar: ${A.METRICS[snap.metric]?.short || snap.metric} ${A.fmtMetric(snap.value, snap.metric)}${snap.data_through ? ` · set ${dayFmt(snap.data_through)}` : ''}` : 'No bar set';
+    const bar = snap && snap.metric ? barLine(snap) : 'No bar set';
     const m = i.status === 'live' ? A.measureIdea(i, S.byId) : null;
     const opts = A.IDEA_STATUSES.map(s => `<option value="${s.key}" ${s.key === i.status ? 'selected' : ''}>${esc(s.label)}</option>`).join('');
     return `<div class="as-idea" data-idea="${esc(i.id)}">
@@ -480,13 +522,64 @@
     el('iObjective').innerHTML = '<option value="">—</option>' + A.OBJECTIVES.map(o => `<option value="${o.key}">${esc(o.label)}</option>`).join('');
     el('iStatus').innerHTML = A.IDEA_STATUSES.map(s => `<option value="${s.key}">${esc(s.label)}</option>`).join('');
   }
+  // Linked ads: a search over every ad in the window, newest first. Ticked
+  // ads always stay listed at the top -- including one that has left the
+  // window -- so saving never drops a link nobody chose to remove.
+  const LIVE_SHOWN = 40;
+  function renderLive() {
+    const q = el('iLiveSearch').value.trim().toLowerCase();
+    const chosen = S.liveChosen;
+    const row = (id, a) => {
+      const im = a ? A.imageFor(a, S.signed) : { src: null };
+      return `<label><input type="checkbox" data-live="${esc(id)}" ${chosen.has(id) ? 'checked' : ''}>
+        ${im.src ? `<img src="${esc(im.src)}" alt="">` : '<span class="as-pick-blank"></span>'}
+        <span>${esc(a ? (a.ad_name || id) : `ad ${id}`)}</span>
+        <span class="as-sub">${a ? esc(dayFmt(a.first_day)) : 'outside this window'}</span></label>`;
+    };
+    const top = [...chosen].map(id => row(id, S.byId[id]));
+    const matches = S.scored
+      .filter(a => !chosen.has(String(a.ad_id)))
+      .filter(a => !q || `${a.ad_name || ''} ${a.campaign_name || ''} ${a.ad_id}`.toLowerCase().includes(q))
+      .sort((a, b) => String(b.first_day).localeCompare(String(a.first_day)));
+    const rest = matches.slice(0, LIVE_SHOWN).map(a => row(String(a.ad_id), a));
+    el('iLiveList').innerHTML = top.concat(rest).join('')
+      || `<div class="as-note" style="padding:10px">${q ? 'No ad in this window matches.' : 'No ads in this window.'}</div>`;
+    el('iLiveNote').textContent = (matches.length > LIVE_SHOWN ? `Showing the ${LIVE_SHOWN} newest of ${matches.length} — search to narrow. ` : '')
+      + 'A new ad shows up here the morning after it launches, once the nightly sync has run.';
+  }
+  function syncLiveVisibility() {
+    const st = el('iStatus').value;
+    el('iLiveWrap').hidden = !(st === 'live' || st === 'retired' || S.liveChosen.size);
+  }
   function fillLive(selectedIds) {
-    const recent = S.scored.slice().sort((a, b) => String(b.first_day).localeCompare(String(a.first_day))).slice(0, 150);
-    const chosen = new Set((selectedIds || []).map(String));
-    // A linked ad that has since left the window stays listed, so saving never drops it.
-    const extra = [...chosen].filter(id => !recent.some(a => String(a.ad_id) === id));
-    el('iLive').innerHTML = recent.map(a => `<option value="${esc(a.ad_id)}" ${chosen.has(String(a.ad_id)) ? 'selected' : ''}>${esc(a.ad_name || a.ad_id)} · ${esc(dayFmt(a.first_day))}</option>`).join('')
-      + extra.map(id => `<option value="${esc(id)}" selected>ad ${esc(id)} (outside this window)</option>`).join('');
+    S.liveChosen = new Set((selectedIds || []).map(String));
+    el('iLiveSearch').value = '';
+    renderLive();
+    syncLiveVisibility();
+  }
+  /** The bar block: a choice for a new idea built from ads, a locked line otherwise. */
+  function renderBar(idea) {
+    const snap = idea?.baseline_snapshot;
+    if (!snap?.metric) { el('iBarWrap').hidden = true; return; }
+    el('iBarWrap').hidden = false;
+    const m = A.METRICS[snap.metric];
+    const n = (snap.ad_ids || []).length;
+    if (S.editing || !S.barChoices) {
+      el('iBar').innerHTML = `<div class="as-basis-locked"><b>${esc(m.short)} ${esc(A.fmtMetric(snap.value, snap.metric))}</b> — ${esc(barFrom(snap))}. Locked when the idea was made.</div>`;
+      return;
+    }
+    const { selected, objective } = S.barChoices;
+    const o = A.objective(snap.objective);
+    const ob = objective?.objective_baseline;
+    el('iBar').innerHTML = `<div class="as-basis">
+      <label><input type="radio" name="iBasis" value="selected" ${S.basis === 'selected' ? 'checked' : ''}>
+        <span>Match the ${n === 1 ? 'ad' : n + ' ads'} you picked: <b>${esc(m.short)} ${esc(A.fmtMetric(selected.value, snap.metric))}</b>
+        <small>Their result pooled together. A new take on a winner has to do as well as that winner.</small></span></label>
+      ${objective ? `<label><input type="radio" name="iBasis" value="objective" ${S.basis === 'objective' ? 'checked' : ''}>
+        <span>Beat the typical ${esc(o.label.toLowerCase())} ad: <b>${esc(m.short)} ${esc(A.fmtMetric(objective.value, snap.metric))}</b>
+        <small>The ${esc(o.label.toLowerCase())} baseline across ${esc(ob?.ads ?? '')} ads with at least $${esc(ob?.min_spend ?? 100)} spend in this window.</small></span></label>` : ''}
+      <span class="as-note">${m.better === 'lower' ? 'Lower is better for this metric. ' : ''}Locked when you save, so a result is never judged against a bar that moved.</span>
+    </div>`;
   }
   function openIdea(idea) {
     S.editing = idea?.id ? idea : null;
@@ -502,10 +595,19 @@
     el('iDest').value = idea?.destination_url || '';
     el('iNotes').value = idea?.notes || '';
     fillLive(idea?.live_ad_ids);
+    // A new idea from ads offers two bars; an existing one shows its locked bar.
+    S.barChoices = null;
+    S.basis = 'selected';
+    if (!S.editing && idea?.baseline_snapshot && S.draftAds?.length) {
+      const b = S.bases[A.objective(S.draftAds[0].objective).key];
+      const selected = A.snapshot(S.draftAds, S.window, { objectiveBaseline: b });
+      const objective = b?.value != null ? A.snapshot(S.draftAds, S.window, { objectiveBaseline: b, basis: 'objective' }) : null;
+      S.barChoices = { selected, objective };
+    }
+    renderBar(idea);
     const base = (idea?.baseline_ad_ids || []).map(id => S.byId[String(id)]?.ad_name || `ad ${id}`);
-    const snap = idea?.baseline_snapshot;
     el('iBaselines').innerHTML = base.length
-      ? `Built from: ${esc(base.join(', '))}.${snap?.metric ? ` Bar to beat: ${esc(A.METRICS[snap.metric]?.label || snap.metric)} ${esc(A.fmtMetric(snap.value, snap.metric))}, frozen ${esc(dayFmt(snap.data_through))}.` : ''}`
+      ? `Built from: ${esc(base.join(', '))}.`
       : 'No baseline ads: this idea has no bar to beat. Start one from the Baselines tab to set one.';
     el('iError').hidden = true;
     el('dlgIdea').showModal();
@@ -521,7 +623,7 @@
       status: el('iStatus').value,
       destination_url: el('iDest').value.trim() || null,
       notes: el('iNotes').value.trim() || null,
-      live_ad_ids: [...el('iLive').selectedOptions].map(o => o.value),
+      live_ad_ids: [...S.liveChosen],
     };
     const errs = A.validateIdea(fields);
     if (errs.length) { el('iError').textContent = errs.join(' '); el('iError').hidden = false; return; }
@@ -533,7 +635,8 @@
         if (error) throw error;
       } else {
         const row = { ...fields, company_entity_id: _co?.id,
-          baseline_ad_ids: S.draft?.baseline_ad_ids || [], baseline_snapshot: S.draft?.baseline_snapshot || null,
+          baseline_ad_ids: S.draft?.baseline_ad_ids || [],
+          baseline_snapshot: (S.barChoices && S.barChoices[S.basis]) || S.draft?.baseline_snapshot || null,
           source: S.draft?.source || 'manual' };
         const { error } = await sb.from('ad_ideas').insert(row).select('id').single();
         if (error) throw error;
@@ -593,18 +696,30 @@
   el('detail').addEventListener('click', (e) => {
     if (!e.target.closest('#btnIdeaFromAd')) return;
     const a = S.byId[S.selected];
-    if (a) openIdea(A.ideaFromAds([a], S.window));
+    if (a) { S.draftAds = [a]; openIdea(A.ideaFromAds([a], S.window, S.bases[a.objective])); }
   });
   el('btnIdeaFromSel').addEventListener('click', () => {
     const ads = [...S.picked].map(id => S.byId[id]).filter(Boolean);
-    if (ads.length) openIdea(A.ideaFromAds(ads, S.window));
+    if (ads.length) { S.draftAds = ads; openIdea(A.ideaFromAds(ads, S.window, S.bases[ads[0].objective])); }
   });
-  el('btnNewIdea').addEventListener('click', () => openIdea({ status: 'idea', source: 'manual' }));
+  el('btnNewIdea').addEventListener('click', () => { S.draftAds = null; openIdea({ status: 'idea', source: 'manual' }); });
+  el('iStatus').addEventListener('change', syncLiveVisibility);
+  el('iLiveSearch').addEventListener('input', renderLive);
+  el('iLiveList').addEventListener('change', (e) => {
+    const c = e.target.closest('[data-live]');
+    if (!c) return;
+    if (c.checked) S.liveChosen.add(c.dataset.live); else S.liveChosen.delete(c.dataset.live);
+    renderLive();
+  });
+  el('iBar').addEventListener('change', (e) => {
+    const r = e.target.closest('input[name="iBasis"]');
+    if (r) S.basis = r.value;
+  });
   el('dlgIdea').addEventListener('click', (e) => { if (e.target.closest('[data-close]')) el('dlgIdea').close(); });
   el('btnIdeaSave').addEventListener('click', saveIdea);
   el('board').addEventListener('click', async (e) => {
     const ed = e.target.closest('[data-edit]');
-    if (ed) { const i = S.ideas.find(x => x.id === ed.dataset.edit); if (i) openIdea(i); return; }
+    if (ed) { const i = S.ideas.find(x => x.id === ed.dataset.edit); if (i) { S.draftAds = null; openIdea(i); } return; }
     const del = e.target.closest('[data-del]');
     if (del) {
       const i = S.ideas.find(x => x.id === del.dataset.del);
@@ -624,7 +739,7 @@
     if (!i) return;
     const status = mv.value;
     // Going live needs the ads carrying it: the dialog asks for them.
-    if (status === 'live' && !(i.live_ad_ids || []).length) { mv.value = i.status; openIdea({ ...i, status: 'live' }); return; }
+    if (status === 'live' && !(i.live_ad_ids || []).length) { mv.value = i.status; S.draftAds = null; openIdea({ ...i, status: 'live' }); return; }
     const { error } = await sb.from('ad_ideas').update({ status }).eq('id', i.id).select('id').single();
     if (error) { mv.value = i.status; setStatus(`Could not move it: ${explain(error)}`, 'neg', 6000); return; }
     i.status = status;

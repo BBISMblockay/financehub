@@ -17,6 +17,10 @@
  *     volume reaches the same evidence floor.
  *   - Findings are observations from the numbers, worded as such, never a
  *     claim about why an ad worked.
+ *   - A cost is compared as a cost: "Higher cost · +$0.14", never "21% below
+ *     baseline" beside a bigger number.
+ *   - Catalog placeholders ({{product.brand}}) are Meta's per-product fields,
+ *     not copy: they never reach a hook or an Ask SILO prompt.
  */
 (function () {
   'use strict';
@@ -158,6 +162,30 @@
     if (Math.abs(v) >= 1e4) return '$' + Math.round(v / 1000) + 'K';
     return '$' + Math.round(v).toLocaleString('en-US');
   }
+  /** A value against a reference, in words that match the metric's direction.
+   *  Rates and ROAS read as multiples / shortfalls; costs read as higher or
+   *  lower cost with the actual difference, because "21% below baseline"
+   *  beside a larger dollar figure reads backwards. `ref` names the reference
+   *  ("baseline", "bar"). tone: pos (better) / neg (worse) / info (about even). */
+  function compare(value, base, key, ref) {
+    var m = METRICS[key];
+    ref = ref || 'baseline';
+    if (!m || value == null || base == null || value <= 0 || base <= 0) return null;
+    var ix = indexVs(value, base, key);
+    if (ix > 0.95 && ix < 1.05) return { tone: 'info', index: ix, short: 'About the ' + ref, long: fmtMetric(value, key) + ', about the same as the ' + fmtMetric(base, key) + ' ' + ref + '.' };
+    if (m.better === 'lower') {
+      var diff = value - base;
+      var pct = Math.round(Math.abs(value / base - 1) * 100);
+      var d = fmtMetric(Math.abs(diff), key);
+      return diff > 0
+        ? { tone: 'neg', index: ix, short: 'Higher cost · +' + d, long: 'Costs ' + pct + '% more than the ' + fmtMetric(base, key) + ' ' + ref + ' (+' + d + ').' }
+        : { tone: 'pos', index: ix, short: 'Lower cost · −' + d, long: 'Costs ' + pct + '% less than the ' + fmtMetric(base, key) + ' ' + ref + ' (−' + d + ').' };
+    }
+    var r = value / base;
+    return r > 1
+      ? { tone: 'pos', index: ix, short: r.toFixed(1) + '× the ' + ref, long: r.toFixed(1) + '× the ' + ref + ' (' + fmtMetric(base, key) + ').' }
+      : { tone: 'neg', index: ix, short: Math.round((1 - r) * 100) + '% under the ' + ref, long: Math.round((1 - r) * 100) + '% under the ' + ref + ' (' + fmtMetric(base, key) + ').' };
+  }
   function fmtIndex(ix) {
     if (ix == null) return null;
     if (ix >= 1.05) return ix.toFixed(1) + '× baseline';
@@ -198,11 +226,32 @@
     if (!a || !b) return null;
     return Math.round((Date.parse(str(b).slice(0, 10) + 'T00:00:00Z') - Date.parse(str(a).slice(0, 10) + 'T00:00:00Z')) / 86400000);
   }
+  // Meta dynamic / catalog ads carry per-product fields in their copy.
+  var TEMPLATE_TOKEN = /\{\{[^{}]*\}\}/g;
+  /** The placeholders a piece of copy carries, e.g. ['{{product.brand}}']. */
+  function templateFields(text) {
+    var seen = {}, out = [];
+    (str(text).match(TEMPLATE_TOKEN) || []).forEach(function (t) { if (!seen[t]) { seen[t] = 1; out.push(t); } });
+    return out;
+  }
+  /** Copy with its placeholders removed and the gaps they leave tidied. */
+  function cleanCopy(text) {
+    return str(text).replace(TEMPLATE_TOKEN, ' ')
+      .replace(/[ \t]+([,.!?;:])/g, '$1')
+      .replace(/\(\s*\)|\[\s*\]/g, '')
+      .replace(/^[ \t]*[-–—|:,.]+[ \t]*/gm, '')
+      .replace(/[ \t]*[-–—|:,]+[ \t]*$/gm, '')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/^[ \t]+|[ \t]+$/gm, '')
+      .trim();
+  }
   function firstLine(text) {
-    var t = str(text).trim();
+    var t = cleanCopy(text);
     if (!t) return '';
     var line = t.split(/\n+/)[0].trim();
     var sentence = line.split(/(?<=[.!?])\s/)[0];
+    // What is left of a line that was mostly placeholders is not a hook.
+    if ((sentence.match(/[A-Za-z]/g) || []).length < 4) return '';
     return (sentence.length <= 140 ? sentence : sentence.slice(0, 137) + '…');
   }
   function isRunning(ad) {
@@ -233,11 +282,11 @@
       var need = evidenceNeed(sums, o.primary);
       out.push({ tone: 'info', title: m.short + ' ' + fmtMetric(v, o.primary) + ' is early', detail: 'Based on ' + Math.round(need.have).toLocaleString('en-US') + ' ' + need.unit + '; ' + need.need + ' are needed before it is compared with the baseline.' });
     } else {
-      var ix = indexVs(v, base && base.value, o.primary);
-      if (ix != null) {
-        out.push({ tone: ix >= 1.05 ? 'pos' : ix <= 0.95 ? 'neg' : 'info',
+      var c = compare(v, base && base.value, o.primary);
+      if (c) {
+        out.push({ tone: c.tone,
           title: m.short + ' ' + fmtMetric(v, o.primary) + ' vs ' + fmtMetric(base.value, o.primary) + ' baseline',
-          detail: (fmtIndex(ix) || '') + ' across ' + base.ads + ' ' + o.label.toLowerCase() + ' ads with at least $' + base.minSpend + ' spend. ' + (ev === 'strong' ? 'Strong' : 'Moderate') + ' evidence.' });
+          detail: c.long + ' Baseline pooled across ' + base.ads + ' ' + o.label.toLowerCase() + ' ads with at least $' + base.minSpend + ' spend. ' + (ev === 'strong' ? 'Strong' : 'Moderate') + ' evidence.' });
       }
     }
     if (o.primary !== 'ctr') {
@@ -260,6 +309,11 @@
         detail: (share != null ? Math.round(share * 1000) / 10 + '% of ' + o.label.toLowerCase() + ' spend in this window. ' : '')
           + (isRunning(ad) ? 'Still running.' : ad.last_day ? 'Last spent ' + str(ad.last_day).slice(0, 10) + '.' : '') });
     }
+    var fields = templateFields(ad.body || ad.title);
+    if (fields.length) {
+      out.push({ tone: 'info', title: 'Copy uses catalog placeholders',
+        detail: fields.join(', ') + ' — Meta fills these per product. They are left out of hooks and Ask SILO drafts.' });
+    }
     if (num(ad.image_shared_by) >= 2) {
       out.push({ tone: 'info', title: 'Same image as ' + ad.image_shared_by + ' other ads',
         detail: 'Usually a catalog ad’s template: shoppers saw products from the feed, not this picture.' });
@@ -276,17 +330,29 @@
     { key: 'retired', label: 'Retired' },
   ];
   /** The bar an idea must beat, frozen now: its baselines' pooled metric. */
-  function snapshot(baselineAds, window) {
+  // basis 'selected' = the pooled result of the ads the idea was built from
+  // (a new take has to match its winners); 'objective' = the objective's
+  // baseline over every ad with enough spend (beat the typical ad). Two picked
+  // outliers can put the first several times above the second, so the page
+  // shows both and the person chooses. The objective's baseline is recorded on
+  // the snapshot either way, so a card can say what its bar sits next to.
+  function snapshot(baselineAds, window, opts) {
     var ads = (baselineAds || []).filter(Boolean);
     if (!ads.length) return null;
     var objKey = objective(ads[0].objective).key;
     var o = objective(objKey);
-    var sums = pool(ads);
+    var ob = opts && opts.objectiveBaseline;
+    if (ob && ob.objective && ob.objective !== objKey) ob = null;
+    var basis = opts && opts.basis === 'objective' && ob && ob.value != null ? 'objective' : 'selected';
+    var sums = basis === 'objective' ? ob.sums : pool(ads);
     var value = metric(sums, o.primary);
+    var round = function (v) { return v == null ? null : Math.round(v * 10000) / 10000; };
     return {
       objective: objKey, metric: o.primary, metric_label: METRICS[o.primary].label, better: METRICS[o.primary].better,
-      value: value == null ? null : Math.round(value * 10000) / 10000,
+      basis: basis,
+      value: round(value),
       evidence: evidence(sums, o.primary),
+      objective_baseline: ob && ob.value != null ? { value: round(ob.value), ads: ob.ads, min_spend: ob.minSpend } : null,
       sums: sums, ad_ids: ads.map(function (a) { return String(a.ad_id); }),
       window_start: window && window.start || null, data_through: window && window.through || null,
       captured_at: new Date().toISOString(),
@@ -308,8 +374,10 @@
       return { state: 'early', value: value, note: Math.round(need.have) + ' of ' + need.need + ' ' + need.unit + ' so far — too early to call.' };
     }
     var ix = indexVs(value, snap.value, snap.metric);
+    var c = compare(value, snap.value, snap.metric, 'bar');
     return { state: ix == null ? 'no_data' : ix >= 1 ? 'beating' : 'behind', value: value, index: ix, evidence: ev,
-      note: fmtMetric(value, snap.metric) + ' vs ' + fmtMetric(snap.value, snap.metric) + ' bar' };
+      note: METRICS[snap.metric].short + ' ' + fmtMetric(value, snap.metric) + ' vs ' + fmtMetric(snap.value, snap.metric) + ' bar'
+        + (c && c.tone !== 'info' ? ' · ' + c.short : '') };
   }
   /** Client-side mirror of ad_ideas' CHECKs, so the dialog says why first. */
   function validateIdea(f) {
@@ -334,7 +402,7 @@
   }
 
   /** The idea a person starts from one or more ads. */
-  function ideaFromAds(ads, window) {
+  function ideaFromAds(ads, window, objectiveBaseline) {
     var list = (ads || []).filter(Boolean);
     var lead = list[0] || {};
     var dest = destinationOf(lead) || '';
@@ -345,7 +413,7 @@
       format: formatOf(lead),
       destination_url: dest,
       baseline_ad_ids: list.map(function (a) { return String(a.ad_id); }),
-      baseline_snapshot: snapshot(list, window),
+      baseline_snapshot: snapshot(list, window, { objectiveBaseline: objectiveBaseline }),
       source: 'from_ad',
       status: 'idea',
     };
@@ -362,7 +430,8 @@
       var s = pool([a]);
       lines.push((i + 1) + '. "' + str(a.ad_name) + '" (ad ' + a.ad_id + ', ' + formatOf(a) + ', ' + str(a.first_day).slice(0, 10) + ' to ' + str(a.last_day).slice(0, 10)
         + ', ' + fmtMoney(a.spend) + ' spend, ' + METRICS[o.primary].short + ' ' + fmtMetric(metric(s, o.primary), o.primary) + ')'
-        + (firstLine(a.body || a.title) ? ' hook: "' + firstLine(a.body || a.title) + '"' : ''));
+        + (firstLine(a.body || a.title) ? ' hook: "' + firstLine(a.body || a.title) + '"' : '')
+        + (templateFields(a.body || a.title).length ? ' (catalog ad: its copy is filled per product from the feed)' : ''));
     });
     lines.push('For each concept give: the hook (first line), primary text, the visual or video direction, the destination, and which baseline it builds on and what it changes. Check each baseline’s numbers in meta_ad_performance_daily before relying on them. Do not predict results.');
     return lines.join('\n');
@@ -372,7 +441,8 @@
     METRICS: METRICS, OBJECTIVES: OBJECTIVES, IDEA_STATUSES: IDEA_STATUSES,
     objective: objective, pool: pool, metric: metric, evidence: evidence, evidenceNeed: evidenceNeed,
     indexVs: indexVs, baseline: baseline, score: score, rank: rank,
-    fmtMetric: fmtMetric, fmtMoney: fmtMoney, fmtIndex: fmtIndex,
+    fmtMetric: fmtMetric, fmtMoney: fmtMoney, fmtIndex: fmtIndex, compare: compare,
+    templateFields: templateFields, cleanCopy: cleanCopy,
     urlExpiry: urlExpiry, imageFor: imageFor, formatOf: formatOf,
     firstLine: firstLine, isRunning: isRunning, fatigue: fatigue, findings: findings,
     snapshot: snapshot, measureIdea: measureIdea, validateIdea: validateIdea, ideaFromAds: ideaFromAds,
