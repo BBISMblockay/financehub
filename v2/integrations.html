@@ -597,21 +597,24 @@
                         or the store was created as a dev store). Find the real one in the store's own Shopify admin —
                         it's in the browser address bar, e.g. <code>admin.shopify.com/store/&lt;handle&gt;/...</code>.</div>
                     </div>
+                    <!-- "Connect with Shopify" only works for stores the SILO Shopify app is
+                         allowed to install on -- confirmed against production that every store
+                         that has ever connected this way is a baseballism*.myshopify.com domain.
+                         The app is Custom-distributed to Baseballism's own Shopify organization;
+                         a genuinely separate business gets Shopify's own "app may not be
+                         available for this store" refusal, no matter how correctly the domain is
+                         typed (reproduced live, 2026-09-27, onboarding Bat Nutz). Hidden rather
+                         than removed so reinstating it is deleting this one `hidden` attribute --
+                         do so once the app is approved for public distribution in Shopify
+                         Partners, not before. The manual token path below stays either way; it
+                         needs no Partners involvement and this hides nothing about it. -->
                     <div class="form-row">
                       <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-add">Cancel</button>
-                      <button class="bcn-btn bcn-btn--primary int-brand-btn int-brand-btn--shopify" id="btn-connect-shopify">Connect with Shopify →</button>
+                      <button class="bcn-btn bcn-btn--primary int-brand-btn int-brand-btn--shopify" id="btn-connect-shopify" hidden>Connect with Shopify →</button>
                     </div>
                     <div class="test-result" id="test-result"></div>
 
-                    <!-- Additive fallback: "Connect with Shopify" above only works for stores
-                         Shopify will let this app install on. Until the SILO app is publicly
-                         distributed, that's Baseballism's own organization only -- a genuinely
-                         separate business's store gets Shopify's own "app may not be available
-                         for this store" refusal, no matter how correctly the domain is typed.
-                         This path needs no Shopify Partners involvement at all: the store's own
-                         admin issues its own token. Remove once the app is public and this
-                         table's is_active/has_token distribution shows nothing using it. -->
-                    <div class="int-muted" style="margin:14px 0 10px;">— or, if "Connect with Shopify" refuses this store, connect with a token from the store's own admin instead —</div>
+                    <div class="int-muted" style="margin:14px 0 10px;">Connect with a token from the store's own admin:</div>
                     <div class="bcn-field-group">
                       <label class="bcn-label" for="shop-access-token">Admin API access token</label>
                       <input class="bcn-field bcn-field--mono" id="shop-access-token" type="password"
