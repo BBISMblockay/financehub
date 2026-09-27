@@ -1,0 +1,69 @@
+name: Meta Creative Images
+
+# Archives every stored Meta creative's image into the private
+# ad-creative-images bucket (20260927190000). Manual only: the nightly already
+# archives the ads it syncs; this reaches the older ones Ad Studio shows as
+# baselines, whose thumbnail_url expired about four days after it was fetched.
+# Resumable -- an ad whose image is stored for its current creative is skipped.
+# See scripts/meta-creative-images.mjs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Cap ads per connection (0 = no cap). Use a small number for a first run"
+        required: false
+        default: "0"
+      chunk:
+        description: "Ads per chunk (default 200)"
+        required: false
+        default: "200"
+      concurrency:
+        description: "Parallel downloads (1-8, default 4)"
+        required: false
+        default: "4"
+      retry_failed:
+        description: "Retry ads that failed in the last 20 hours"
+        required: false
+        type: choice
+        options: ["false", "true"]
+        default: "false"
+      connection_id:
+        description: Optional ad_platform_connections.id
+        required: false
+      company_entity_id:
+        description: Optional company UUID
+        required: false
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    # ~4,000 creatives x (one Graph read + one download + one upload) at 4 in
+    # parallel is minutes; Meta's rate-limit backoff (30s/90s/180s) is why the
+    # ceiling is generous.
+    timeout-minutes: 120
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      META_IMAGES_LIMIT: ${{ inputs.limit }}
+      META_IMAGES_CHUNK: ${{ inputs.chunk }}
+      META_IMAGES_CONCURRENCY: ${{ inputs.concurrency }}
+      META_IMAGES_RETRY_FAILED: ${{ inputs.retry_failed }}
+      META_CONNECTION_ID: ${{ inputs.connection_id }}
+      META_COMPANY_ID: ${{ inputs.company_entity_id }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Archive Meta creative images
+        run: node scripts/meta-creative-images.mjs

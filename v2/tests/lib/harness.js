@@ -270,7 +270,18 @@ window.__QUERIES__ = [];
         } };
       },
       upsert: function (r) { q._op = 'upsert'; q.rows = r; window.__QUERIES__.push(q); return Promise.resolve({ data: r, error: null }); },
-      delete: function () { q._op = 'delete'; window.__QUERIES__.push(q); return { eq: function () { return Promise.resolve({ data: [], error: null }); } }; },
+      // .delete().eq(...) resolves; .delete().eq(...).select() resolves with
+      // the deleted row, as PostgREST does, so a page can tell an RLS refusal
+      // (zero rows) from a delete.
+      delete: function () {
+        q._op = 'delete'; window.__QUERIES__.push(q);
+        return { eq: function (c, v) {
+          q.filters.push({ op: 'eq', col: c, val: v });
+          var p = Promise.resolve({ data: [], error: null });
+          p.select = function () { return Promise.resolve({ data: [{ id: v }], error: null }); };
+          return p;
+        } };
+      },
       // A single-row read. Pages use both, and a missing method is a
       // TypeError that reads exactly like a page bug.
       single: function () {
@@ -350,7 +361,13 @@ window.__QUERIES__ = [];
               list: function () { return Promise.resolve({ data: [], error: null }); },
               upload: function () { return Promise.resolve({ data: null, error: null }); },
               remove: function () { return Promise.resolve({ data: null, error: null }); },
-              getPublicUrl: function (p) { return { data: { publicUrl: 'about:blank#' + p } }; }
+              getPublicUrl: function (p) { return { data: { publicUrl: 'about:blank#' + p } }; },
+              // Deterministic signed links, so a suite can assert WHICH object
+              // a page asked to draw. ad-studio.html signs archived creatives.
+              createSignedUrls: function (paths) {
+                (window.__SIGNED__ = window.__SIGNED__ || []).push(paths.slice());
+                return Promise.resolve({ data: paths.map(function (p) { return { path: p, signedUrl: 'https://fixture.local/signed/' + p, error: null }; }), error: null });
+              }
             };
           }
         },

@@ -3630,6 +3630,36 @@ select
     else 'ok'
   end as search_console_query_rollup_28d;
 
+-- ── Ad Studio (20260927190000) ──────────────────────────────────────────────
+-- The image archive's bucket must stay private with the parent-row policy as
+-- its only client access; ad_ideas must keep its frozen bar and its company
+-- scope; ad_studio_ads must not be callable anonymously.
+select
+  case
+    when not exists (select 1 from information_schema.columns where table_schema='public'
+                       and table_name='meta_ad_creatives' and column_name='image_path')
+      then 'MISSING — run 20260927190000_ad_studio.sql'
+    when not exists (select 1 from storage.buckets where id='ad-creative-images')
+      then 'MISSING — the ad-creative-images bucket'
+    when (select public from storage.buckets where id='ad-creative-images')
+      then 'CRITICAL — ad-creative-images is public; archived ads are readable by anyone with the path'
+    when exists (select 1 from pg_policies where schemaname='storage' and tablename='objects'
+                   and coalesce(qual,'') || coalesce(with_check,'') like '%ad-creative-images%'
+                   and cmd <> 'SELECT')
+      then 'CRITICAL — a client write policy exists on ad-creative-images; only the sync writes it'
+    when not exists (select 1 from pg_policies where schemaname='storage' and tablename='objects'
+                       and qual like '%ad-creative-images%' and qual like '%meta_ad_creatives%')
+      then 'CRITICAL — the ad-creative-images read policy lost its parent-row EXISTS'
+    when not exists (select 1 from pg_class where relname='ad_ideas' and relrowsecurity)
+      then 'CRITICAL — ad_ideas has RLS off'
+    when not exists (select 1 from pg_proc where proname='ad_ideas_guard'
+                       and prosrc like '%baseline_snapshot is frozen%')
+      then 'CRITICAL — ad_ideas no longer freezes baseline_snapshot; a launched idea could be re-measured against a moved bar'
+    when has_function_privilege('anon', 'public.ad_studio_ads(integer)', 'execute')
+      then 'CRITICAL — anon can execute ad_studio_ads()'
+    else 'ok'
+  end as ad_studio;
+
 -- ── Empty collections stay visible (20260909320000, corrective) ─────────────
 -- The view LEFT-joined product->SKU but INNER-joined collection->membership,
 -- so a collection with no products vanished -- an empty collection read as a

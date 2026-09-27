@@ -2493,3 +2493,31 @@ the same layering as the 90-day `search_console_query_rollup_mv`.
 `seo-serp-database.test.mjs` runs the whole landscape suite through the
 rollup. `verify_v2_schema.sql` has the `search_console_query_rollup_28d`
 check.
+
+## Ad Studio — `20260927190000_ad_studio.sql`
+
+Backs `/v2/ad-studio.html`: past Meta ads as baselines, and an idea bank
+measured against them.
+
+- **Image archive.** `meta_ad_creatives.thumbnail_url` is Meta's 64x64
+  default on a signed URL that expires about four days after it is fetched;
+  on 2026-09-27, 686 of the 811 ads with $100+ spend carried an expired one.
+  The sync now asks for a 1080px image and stores it in the PRIVATE
+  `ad-creative-images` bucket (`image_path`, content-addressed as
+  `<company>/<sha256>.<ext>`). The only client policy is a SELECT whose
+  `EXISTS` names `meta_ad_creatives`, so an object is readable exactly when
+  the caller can read a creative that names it. `image_creative_id` marks
+  which creative the image belongs to; an edited ad's stale image is not
+  returned. `image_sha256` exposes shared templates: every catalog ad the
+  probe sampled returned the identical file.
+- **`ad_studio_ads(p_days)`** returns per-ad SUMS over the newest `p_days` of
+  ingested data, never a ratio. `v2/ad-studio.js` pools every rate from its
+  parts. `conversion_value` is Meta-reported revenue.
+- **`ad_ideas`.** An idea names its baseline ads and freezes the bar it must
+  beat (`baseline_snapshot`) at creation; a trigger refuses any later change.
+  A live idea must name the ads carrying it. Approval is stamped by the
+  database. Company-scoped RLS; delete is creator-or-admin.
+
+`scripts/tests/ad-studio-database.test.mjs` runs the migration twice against
+PGlite and covers each of those, with four mutations.
+`verify_v2_schema.sql` has the `ad_studio` check.

@@ -12,7 +12,8 @@
 // dev-portal setup is finished; Meta/TikTok connections sync regardless.
 
 import { createClient } from '@supabase/supabase-js';
-import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync } from './lib/ad-platforms-sync-core.mjs';
+import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync, fetchMetaJsonOrThrow, META_API_VERSION } from './lib/ad-platforms-sync-core.mjs';
+import { archiveCreativeImages, scrubError } from './lib/creative-image-archive.mjs';
 import { runSearchConsoleSync, SEARCH_CONSOLE_JOB_TYPE } from './lib/search-console-sync-core.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -189,6 +190,25 @@ async function syncConnection(connection) {
         });
         result.ad_level = adResult;
         console.log(`[ok] ${label}: ad-level ${adResult.ad_rows_upserted} rows, ${adResult.creatives_upserted} creatives`);
+        // Keep a copy of each image: thumbnail_url expires about four days
+        // after it is fetched. Its own try, so a storage failure never marks
+        // the ad-level rows above as failed.
+        let im;
+        try {
+          im = await archiveCreativeImages(supabase, connection, {
+            adIds: adResult.creative_ad_ids || [],
+            apiVersion: META_API_VERSION,
+            graphGet: (url, lbl) => fetchMetaJsonOrThrow(url, {}, lbl),
+          });
+        } catch (err) {
+          im = { error: scrubError(err) };
+        }
+        adResult.images = im;
+        delete adResult.creative_ad_ids;
+        console.log(im.error
+          ? `[warn] ${label}: creative images not archived: ${im.error}`
+          : `[ok] ${label}: creative images archived ${im.archived ?? 0}, failed ${im.failed ?? 0}, already stored ${im.already ?? 0}, backing off ${im.skipped ?? 0}`
+            + (im.errors?.length ? ` -- first error: ${im.errors[0].error}` : ''));
       } catch (err) {
         result.ad_level = { error: String(err?.message || err) };
         console.error(`[warn] ${label}: ad-level sync failed: ${result.ad_level.error}`);
