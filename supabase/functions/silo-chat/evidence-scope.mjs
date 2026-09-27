@@ -215,7 +215,7 @@ function columnRestriction(rawText, literals, col) {
   // for case/whitespace normalisers, whose result is still one value of it.
   // Measured live 2026-09-27 (audit 03:20:22): every sales query in the request
   // used this form, and every one was reported as covering every channel.
-  const text = unwrapNormalisers(rawText, col);
+  const text = unwrapNormalisers(maskConditionalExpressions(rawText), col);
   const included = [];
   const excluded = [];
   let restricted = false;
@@ -260,6 +260,47 @@ function columnRestriction(rawText, literals, col) {
   if (excluded.length) return { kind: 'excluded', values: excluded.slice(0, MAX_VALUES_REPORTED) };
   if (restricted) return { kind: 'restricted', values: [] };
   return { kind: null, values: [] };
+}
+
+/** Blank out predicates that restrict ONE OUTPUT EXPRESSION rather than the
+ *  rows returned: an aggregate's `filter (where ...)` and a `case ... end`.
+ *  `sum(x) filter (where location_tag = 'online') as online, sum(x) as total`
+ *  returns an online subtotal AND an every-channel total; reading its
+ *  predicate as a row filter reported the whole result as online-only, which
+ *  would let the pooled total be labelled "online" (cycle-1 review of #804 --
+ *  and the bare-column form was already wrong before the normaliser change).
+ *  Masked text keeps its length, so nothing else's positions move; a masked
+ *  predicate simply is not seen, which leaves the column pooled -- the safe
+ *  reading. */
+export function maskConditionalExpressions(text) {
+  let out = text;
+  // filter ( ... ) with balanced parentheses.
+  const filterRe = /\bfilter\s*\(/g;
+  let m;
+  while ((m = filterRe.exec(out))) {
+    const open = m.index + m[0].length - 1;
+    let depth = 0;
+    let i = open;
+    for (; i < out.length; i++) {
+      if (out[i] === '(') depth++;
+      else if (out[i] === ')' && --depth === 0) break;
+    }
+    out = out.slice(0, open + 1) + ' '.repeat(Math.max(0, i - open - 1)) + out.slice(i);
+    filterRe.lastIndex = open + 1;
+  }
+  // case ... end, nesting-aware on the two keywords.
+  const tokenRe = /\b(case|end)\b/g;
+  const stack = [];
+  const spans = [];
+  while ((m = tokenRe.exec(out))) {
+    if (m[1] === 'case') stack.push(m.index + 4);
+    else if (stack.length) {
+      const from = stack.pop();
+      if (!stack.length) spans.push([from, m.index]);
+    }
+  }
+  for (const [from, to] of spans) out = out.slice(0, from) + ' '.repeat(to - from) + out.slice(to);
+  return out;
 }
 
 const NORMALISERS = '(?:lower|upper|btrim|trim|ltrim|rtrim)';

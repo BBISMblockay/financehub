@@ -14,7 +14,7 @@
 import {
   SCOPE_COLUMNS, QUERY_ROW_CAP, denoise, cteNames, relationsInStatement,
   dateLiteralsIn, buildCatalogIndex, describeEvidenceScope, renderQueryResult,
-  auditAnswerClaims, unresolvedDimensions, formatClaimNote, CLAIM_DIMENSIONS, unwrapNormalisers,
+  auditAnswerClaims, unresolvedDimensions, formatClaimNote, CLAIM_DIMENSIONS, unwrapNormalisers, maskConditionalExpressions,
 } from './evidence-scope.mjs';
 import {
   CATALOG_FIXTURE, COMBINED_SPEND_SQL, COMBINED_SPEND_ROWS, PER_PLATFORM_SQL,
@@ -585,6 +585,38 @@ test('...but only the named column is unwrapped, and only normalisers', () => {
   eq(unwrapNormalisers("lower(btrim(location_tag)) = '@0'", 'location_tag'), "location_tag = '@0'", 'nested unwrap');
   eq(unwrapNormalisers("lower(location_name) = '@0'", 'location_tag'), "lower(location_name) = '@0'", 'another column touched');
   eq(unwrapNormalisers("substr(location_tag, 1, 3) = '@0'", 'location_tag'), "substr(location_tag, 1, 3) = '@0'", 'a non-normaliser unwrapped');
+});
+
+// Cycle-1 review of #804 (P1): a conditional subtotal next to an unrestricted
+// total. Reading the FILTER/CASE predicate as a row filter reported the whole
+// result as online-only, so the pooled total could be called "online".
+test('a FILTER (WHERE ...) subtotal beside an all-channel total is NOT a row filter (review P1)', () => {
+  const s = describeEvidenceScope(
+    "SELECT sum(total_net_sales) FILTER (WHERE lower(btrim(location_tag))='online') AS online_sales, sum(total_net_sales) AS all_sales FROM sales_by_day",
+    INDEX, {});
+  eq(s.narrowed_to || [], [], `narrowed_to: ${JSON.stringify(s.narrowed_to)}`);
+  assert(pooledCols(s).includes('sales_by_day.location_tag'), 'location_tag not reported pooled');
+  eq(auditAnswerClaims('Online sales were $1.07M.', [s]).length, 1, 'the pooled total could be called online');
+});
+test('...nor is the bare-column FILTER or a CASE WHEN (the same flaw predated normalisers)', () => {
+  for (const q of [
+    "SELECT sum(total_net_sales) FILTER (WHERE location_tag='online') AS online, sum(total_net_sales) AS total FROM sales_by_day",
+    "SELECT sum(CASE WHEN location_tag='online' THEN total_net_sales END) AS online, sum(total_net_sales) AS total FROM sales_by_day",
+    "SELECT sum(CASE WHEN lower(location_tag)='online' THEN total_net_sales ELSE 0 END) AS online FROM sales_by_day",
+  ]) eq(describeEvidenceScope(q, INDEX, {}).narrowed_to || [], [], q);
+});
+test('...while a WHERE filter still narrows, even with a CASE in the select list', () => {
+  const s = describeEvidenceScope(
+    "SELECT sum(CASE WHEN total_net_sales > 0 THEN 1 ELSE 0 END) AS days FROM sales_by_day WHERE lower(location_tag) = 'online'",
+    INDEX, {});
+  eq((s.narrowed_to || []).map((n) => [n.column, n.values]), [['location_tag', ['online']]], 'WHERE filter lost');
+});
+test('masking keeps the text length and handles nesting', () => {
+  const t = "select sum(x) filter (where f(a) = '@0' and (b)) , case when a = '@1' then case when b then 1 end end from t where c = '@2'";
+  const masked = maskConditionalExpressions(t);
+  eq(masked.length, t.length, 'length');
+  assert(!/a = '@1'|f\(a\)/.test(masked), `conditional predicates survived: ${masked}`);
+  assert(/where c = '@2'/.test(masked), 'the row filter was masked');
 });
 
 console.log('\n-- the derivation does not overclaim --');
