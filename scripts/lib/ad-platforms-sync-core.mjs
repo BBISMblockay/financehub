@@ -149,7 +149,7 @@ function isMetaTransientError(bodyText) {
   }
 }
 
-async function fetchMetaJsonOrThrow(url, opts, label) {
+export async function fetchMetaJsonOrThrow(url, opts, label) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetchWithRetry(url, opts);
     const text = await res.text();
@@ -1167,6 +1167,9 @@ export async function runMetaAdLevelSync(supabase, connection, {
     ad_rows_upserted: perfUpserted,
     creatives_upserted: creativesUpserted,
     previews_upserted: previewsUpserted,
+    // Which ads' creatives were fetched this run: the orchestrator archives
+    // their images (creative-image-archive.mjs) after this returns.
+    creative_ad_ids: creatives.map((c) => String(c.adId)),
     synced_at: syncedAt,
   };
 }

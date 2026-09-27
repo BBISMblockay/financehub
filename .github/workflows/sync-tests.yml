@@ -37,6 +37,9 @@ on:
       - 'scripts/ad-platforms-sync.mjs'
       - 'scripts/search-console-backfill.mjs'
       - 'scripts/meta-creative-backfill.mjs'
+      - 'scripts/meta-creative-images.mjs'
+      - 'scripts/lib/creative-image-archive.mjs'
+      - '.github/workflows/meta-creative-images.yml'
       - 'scripts/qbo-sandbox-validation.mjs'
       - 'supabase/functions/plaid-scheduled-sync/**'
       - 'scripts/plaid-sync.mjs'
@@ -408,6 +411,31 @@ jobs:
       # candidate selection, PostgREST paging and sync_jobs bookkeeping.
       - name: Meta creative backfill driver
         run: node scripts/tests/meta-creative-backfill-driver.test.mjs
+
+      # Ad Studio's image archive: stored content-addressed with the type read
+      # from the bytes, the row update tied to the creative it was fetched for,
+      # failures recorded without the token, Meta's CDN only, backoff. Then the
+      # history driver, run for real: paged past 1,000 rows, and a run that
+      # archived nothing and failed everything exits non-zero.
+      # Mutations: ARCHIVE_MUTATION=no-creative-guard | trust-header | token-in-error | no-backoff | any-host
+      #            META_IMG_DRV_MUTATION=unpaged | green-empty
+      - name: Creative image archive
+        run: node scripts/tests/creative-image-archive.test.mjs
+      - name: Creative image archive driver
+        run: node scripts/tests/meta-creative-images-driver.test.mjs
+      - name: The image archive guards, removed, must break it
+        run: |
+          set -u
+          for m in no-creative-guard trust-header token-in-error no-backoff any-host; do
+            if ARCHIVE_MUTATION="$m" node scripts/tests/creative-image-archive.test.mjs; then
+              echo "::error::mutation $m did not fail the suite"; exit 1
+            fi
+          done
+          for m in unpaged green-empty; do
+            if META_IMG_DRV_MUTATION="$m" node scripts/tests/meta-creative-images-driver.test.mjs; then
+              echo "::error::mutation $m did not fail the suite"; exit 1
+            fi
+          done
 
       # products_master is one row per (company, sku), so its shopify_product_id
       # is decided by nightly sync ORDER for the 26.9% of sold SKUs that exist
