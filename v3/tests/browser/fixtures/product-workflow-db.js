@@ -7,6 +7,7 @@
     products_master:[{id:'P1',company_entity_id:'C1',product_title:'Catalog tee',sku:'TEE-M',variant_title:'M',lead_time_days:30,target_stock_days:60}],
     product_workflow_briefs:[],po_headers:[],po_lines:[],product_tracker:[],launch_product_readiness:[],entity_memberships:[],
   };
+  tables.product_concepts.push({id:'FOREIGN',company_entity_id:'C2',title:'Other company concept',status:'draft'});
   const state=window.__pw={tables,calls:[],canWrite:!window.__pwViewer,failSave:false,failPipeline:false};
   function from(table) {
     let filters=[],range=[0,999],single=false,write=null;

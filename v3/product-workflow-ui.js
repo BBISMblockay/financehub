@@ -4,6 +4,7 @@
   const M = window.SiloProductWorkflow;
   const cfg = window.__SILO_CONFIG__ || {};
   let db, company, canWrite = false, current = null, dirty = false, busy = false;
+  let activePanel = 'overview';
   let queue = [], factories = [], sourceRows = [], hasMore = false;
   const fields = [
     ['title', 'Brief title', 'text'], ['product_type', 'Product type', 'text'],
@@ -34,7 +35,7 @@
   function leave() { return !dirty || window.confirm('Discard the unsaved changes to this brief?'); }
   function applyAccess() {
     $('brief-fields').disabled = !canWrite || current?.status !== 'draft';
-    ['save','review','dismiss','reopen','create-po','create-launch','sync-pipeline'].forEach(id => { $(id).disabled = !canWrite; });
+    ['save','review','dismiss','reopen','create-po','create-launch','sync-pipeline','another-brief'].forEach(id => { $(id).disabled = !canWrite; });
     if (current?.source_kind === 'restock') drawRestock();
   }
   async function rpc(name, args) {
@@ -50,7 +51,7 @@
     $('queue-count').textContent = queue.length + ' loaded';
     visible.forEach(b => {
       const n = button('', async () => { if (leave()) await openBrief(b.id); });
-      n.append(node('strong', b.content.title), node('small', `${sourceLabel(b)} · ${b.status}${b.po_header_id ? ' · PO created' : ''}${b.launch_id ? ' · launch created' : ''}`));
+      appendSourceRow(n, b.source_kind, b.source_snapshot || {}, b.content.title, `${sourceLabel(b)} · ${b.status}${b.po_header_id ? ' · PO created' : ''}${b.launch_id ? ' · launch created' : ''}`);
       n.setAttribute('aria-current', String(current?.id === b.id)); $('queue').append(n);
     });
     if (!visible.length) $('queue').append(node('p', 'No briefs in this view.', 'pw-muted'));
@@ -75,11 +76,11 @@
     if (error) throw error;
     remember(data); message('Loaded saved brief. Source values are a snapshot from its first save.');
   }
-  async function searchSources() {
+  async function searchSources(browse = false) {
     const kind = $('source-kind').value;
     if (kind === 'idea') { if (leave()) start(kind, {}); return; }
     const term = $('source-term').value.trim();
-    if (!term) { message('Enter part of a title or SKU to find a source.'); return; }
+    if (!term && !(browse && kind === 'concept')) { message('Enter part of a title or SKU to find a source.'); return; }
     const table = kind === 'concept' ? 'product_concepts' : 'products_master';
     // Escape PostgREST LIKE wildcards; search each field without raw or() syntax.
     const pattern = '%' + term.replace(/[\\%_]/g, '\\$&') + '%';
@@ -94,13 +95,26 @@
     }
     sourceRows = data; $('source-results').replaceChildren();
     sourceRows.forEach(row => {
-      const n = button('', () => { if (leave()) start(kind, row); });
-      n.append(node('strong', row.title || row.product_title || row.sku), node('small', kind === 'concept' ? `${row.status} · ${row.parent_concept_id ? 'child product · ' : ''}${row.phase || 'concept'}` : `${row.sku} · ${row.variant_title || 'variant'}`));
+      const n = button('', async () => { if (leave()) await openSource(kind, row); });
+      appendSourceRow(n, kind, row, row.title || row.product_title || row.sku, kind === 'concept' ? `${row.status} · ${row.parent_concept_id ? 'child product · ' : ''}${row.phase === 'full_brief' ? 'full brief' : 'core draft'}` : `${row.sku} · ${row.variant_title || 'variant'}`);
       $('source-results').append(n);
     });
     $('source-results').append(node('p', data.length === 30 ? 'First 30 matches. Refine your search.' : `${data.length} matches.`, 'pw-muted'));
   }
+  async function openSource(kind, row) {
+    // Search the entire saved set, not just the queue's first page.
+    const { data, error } = await db.from('product_workflow_briefs').select('*')
+      .eq('company_entity_id', company.id).eq('source_kind', kind).eq('source_id', row.id)
+      .neq('status', 'dismissed').order('updated_at', { ascending: false }).limit(1);
+    if (error) throw error;
+    activePanel = kind === 'restock' ? 'buy' : 'overview';
+    const existing = data[0];
+    const completedBuy = kind !== 'concept' && (existing?.po_header_id || existing?.launch_id);
+    if (existing && !completedBuy) { remember(existing); message('Continued the saved brief for this source.'); }
+    else start(kind, row);
+  }
   function start(kind, row) {
+    activePanel = kind === 'restock' ? 'buy' : 'overview';
     current = { id: crypto.randomUUID(), version: 0, status: 'draft', source_kind: kind, source_id: row.id || null,
       source_snapshot: row, content: M.preset(kind, row) };
     dirty = true; history.replaceState(null, '', location.pathname); render(); renderQueue();
@@ -123,7 +137,10 @@
     wrap.append(l, input); parent.append(wrap); return input;
   }
   function render() {
-    $('editor').hidden = !current; $('empty').hidden = !!current;
+    document.querySelector('.pw-content').classList.toggle('pw-has-brief', !!current);
+    document.querySelector('.pw-content').classList.remove('pw-browsing');
+    $('browse-toggle').setAttribute('aria-expanded','false');
+    $('editor').hidden = !current; $('empty').hidden = !!current; $('decision-rail').hidden = !current;
     if (!current) return;
     const c = current.content;
     $('editor-heading').textContent = c.title || 'New product brief';
@@ -142,8 +159,12 @@
     unknowns.forEach(u=>list.append(node('li',['Unknown',u.field?.replace(/_/g,' '),u.why].filter(Boolean).join(' · '))));
     if(list.childNodes.length) $('source-snapshot').append(list);
     $('source-snapshot').append(node('p',current.version ? 'Captured when this brief was first saved. Later source edits do not replace these assumptions.' : 'These source values will be captured when you first save.', 'pw-muted'));
-    $('text-fields').replaceChildren();
-    fields.forEach(([key, label, type]) => field(key, label, type, c[key], $('text-fields')));
+    ['text-fields','creative-fields','buy-fields','launch-fields'].forEach(id => $(id).replaceChildren());
+    const creativeKeys = ['marketing_angle','product_callouts','special_callouts','draft_copy','copy_dos','copy_donts','creative_dos','creative_donts'];
+    fields.forEach(([key, label, type]) => {
+      const parent = creativeKeys.includes(key) ? 'creative-fields' : ['factory_id','decision_note'].includes(key) ? 'buy-fields' : key === 'launch_date' ? 'launch-fields' : 'text-fields';
+      field(key, label, type, c[key], $(parent));
+    });
     $('lines').replaceChildren();
     (c.lines || []).forEach(line => renderLine(line));
     $('add-size').hidden = ['product','restock'].includes(current.source_kind);
@@ -165,6 +186,8 @@
     if (current.po_header_id) outputLink('Open draft / current PO in PO Builder', '../v2/po-builder.html?po_id=' + encodeURIComponent(current.po_header_id));
     if (current.launch_id) outputLink('Open launch and its Brief tab', '../v2/launch-calendar.html?launch=' + encodeURIComponent(current.launch_id));
     $('sync-pipeline').hidden = !current.po_header_id || !['concept','idea'].includes(current.source_kind);
+    renderStudio();
+    showPanel(activePanel);
     applyAccess();
   }
   function outputLink(label, href) { const a = node('a', label, 'bcn-btn bcn-btn--ghost'); a.href = href; $('outputs').append(a); }
@@ -243,7 +266,7 @@
     company = await cfg.ensureActiveCompany(db);
     if (!company?.id) throw new Error('Choose an active company before opening the preview.');
     const { data: profile } = await db.from('profiles').select('email,role').eq('id',data.session.user.id).single();
-    window.SiloChrome?.mount({ appEl:'#silo-app', active:'', user:{email:profile?.email || data.session.user.email,role:profile?.role}, crumbs:['V3 preview','Product workflow'],supabaseClient:db });
+    window.SiloChrome?.mount({ appEl:'#silo-app', active:'', user:{email:profile?.email || data.session.user.email,role:profile?.role}, crumbs:['V3 preview','Product Studio'],supabaseClient:db });
     canWrite = !!(await rpc('po_builder_can_write',{}));
     // Complete supplier list: no invisible factory past a response cap.
     for (let offset=0;;offset+=500) {
@@ -252,17 +275,149 @@
       factories.push(...rows); if(rows.length<500) break;
     }
     await loadQueue();
-    const id = new URLSearchParams(location.search).get('brief'); if (id) await openBrief(id);
+    const params = new URLSearchParams(location.search);
+    const id = params.get('brief'), concept = params.get('concept');
+    if (id) await openBrief(id);
+    else if (concept) {
+      const { data: row, error: sourceError } = await db.from('product_concepts').select('*').eq('company_entity_id', company.id).eq('id', concept).single();
+      if (sourceError) throw sourceError;
+      if (!row || row.status === 'archived') throw new Error('This concept is unavailable in the active company.');
+      await openSource('concept', row);
+    }
+    await searchSources(true);
     message(canWrite ? 'Choose a source or reopen a saved brief.' : 'Read-only access. Purchasing permission is required to save, review or hand off.');
     applyAccess();
   }
+  function showPanel(name, focus = false) {
+    activePanel = name;
+    document.querySelectorAll('[data-panel]').forEach(tab => {
+      const selected = tab.dataset.panel === name;
+      tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1;
+      $('panel-' + tab.dataset.panel).hidden = !selected;
+      if (selected && focus) tab.focus();
+    });
+  }
+  function sourceImages(kind, source) {
+    const urls = kind === 'concept' ? source.reference_image_urls : [source.image_url];
+    return [...new Set((Array.isArray(urls) ? urls : []).filter(url => {
+      try { return typeof url === 'string' && new URL(url).protocol === 'https:'; } catch { return false; }
+    }))];
+  }
+  function appendSourceRow(target, kind, source, title, subtitle) {
+    const row = node('span', undefined, 'pw-source-row');
+    const url = sourceImages(kind, source)[0];
+    if (url) {
+      const img = node('img', undefined, 'pw-thumb'); img.src = url; img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+      img.onerror = () => img.remove(); row.append(img);
+    }
+    const text = node('span'); text.append(node('strong', title), node('small', subtitle)); row.append(text); target.append(row);
+  }
+  function renderStudio() {
+    const source = current.source_snapshot || {};
+    $('overview-edit').open = !current.content.design_intent;
+    const art = $('artwork'); art.replaceChildren();
+    const urls = sourceImages(current.source_kind, source);
+    if (urls.length) {
+      const figure = node('figure'), img = node('img', undefined, 'pw-hero');
+      img.src = urls[0]; img.alt = current.content.title || 'Product reference'; img.referrerPolicy = 'no-referrer';
+      const caption = node('figcaption', current.source_kind === 'concept' ? 'Concept reference · from the source brief' : 'Catalog product photo');
+      img.onerror = () => { img.hidden = true; caption.textContent = 'Reference image could not load. Open the source to review artwork.'; };
+      figure.append(img, caption); art.append(figure);
+      const links = node('div', undefined, 'pw-artwork-links');
+      urls.forEach((url, index) => {
+        const a = node('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.setAttribute('aria-label', 'Open reference image ' + (index + 1));
+        const thumb = node('img'); thumb.src = url; thumb.alt = 'Reference ' + (index + 1); thumb.loading = 'lazy'; thumb.referrerPolicy = 'no-referrer';
+        thumb.onerror = () => { a.textContent = 'Open reference ' + (index + 1); }; a.append(thumb); links.append(a);
+      });
+      art.append(links);
+    } else {
+      const empty = node('div', undefined, 'pw-art-empty');
+      empty.append(node('span','CREATIVE DIRECTION','pw-eyebrow'), node('strong','A product starts with an idea.'),
+        node('p', current.source_kind === 'concept' ? 'No reference artwork in this source snapshot. Add images to the concept to develop the visual direction.' : 'No product photo available. Capture the intent and creative direction in this brief.'));
+      art.append(empty);
+    }
+    if (current.source_kind === 'concept' && current.source_id) {
+      const a = node('a','Open source concept in Ask SILO →','pw-muted');
+      a.href = '../v2/silo-chat.html?concept=' + encodeURIComponent(current.source_id); art.append(a);
+      if (current.version) art.append(node('p','Artwork uses the saved source snapshot; later concept changes do not replace it.','pw-muted'));
+    }
+    const stages = [['Concept', current.source_kind === 'concept'], ['Brief', !!current.version], ['Review', current.status === 'reviewed'], ['Draft PO', !!current.po_header_id], ['Launch', !!current.launch_id]];
+    $('workflow-stages').replaceChildren();
+    const currentStage = current.launch_id ? 4 : current.po_header_id ? 3 : current.status === 'reviewed' ? 2 : 1;
+    stages.forEach(([label, done], index) => { const li = node('li', label); li.dataset.done = String(done); if (index === currentStage) li.setAttribute('aria-current','step'); $('workflow-stages').append(li); });
+    const summary = $('evidence-summary'); summary.replaceChildren();
+    if (source.evidence_strength) summary.append(node('span', source.evidence_strength + ' evidence', 'bcn-pill'));
+    const evidence = Array.isArray(source.historical_evidence) ? source.historical_evidence : [];
+    evidence.slice(0, 3).forEach(e => { const p = node('p'); p.append(node('strong', e.label || e.metric || 'Prior evidence'), node('span', e.value == null ? '' : ' · ' + e.value)); summary.append(p); });
+    if (!evidence.length) summary.append(node('p', current.source_kind === 'restock' ? 'Use the buy plan to review recorded demand, on-hand stock and incoming POs.' : 'Review the original reasoning and assumptions below. No verified performance metric has been added here.'));
+    summary.append(node('p','Source evidence is context, not a forecast.','pw-muted'));
+    updateSummary();
+  }
+  function updateSummary() {
+    if (!current) return;
+    const c = collect(), lines = c.lines || [];
+    $('brief-story').replaceChildren(node('h3','The idea'),node('p',c.design_intent || 'Describe the product and what makes it worth making.'),node('span',c.audience ? 'For ' + c.audience : 'Audience not set','pw-muted'));
+    const units = lines.reduce((sum, l) => sum + (Number.isFinite(l.qty) ? l.qty : 0), 0);
+    $('brief-summary').replaceChildren();
+    [['PROPOSED BUY',[...$('lines').querySelectorAll('[data-key=qty]')].some(input => input.value !== '') ? units.toLocaleString() + ' units' : 'Not set'],['TARGET LAUNCH',c.launch_date || 'Not set']].forEach(([label,value]) => {
+      const d = node('div'); d.append(node('span',label,'pw-eyebrow'),node('strong',value)); $('brief-summary').append(d);
+    });
+    $('save-state').textContent = dirty ? 'Unsaved changes' : 'Draft saved';
+    const checks = [];
+    if (!c.design_intent) checks.push('Add the product intent');
+    if (!c.factory_id) checks.push('Choose a factory in Buy plan');
+    if (!lines.length) checks.push('No purchase units proposed — review the buy decision');
+    if (!lines.length || lines.some(l => l.unit_cost == null || l.retail_price == null)) checks.push('Confirm unit cost and retail price');
+    if (current.source_kind === 'restock') checks.push(...M.restock(c.restock).warnings);
+    else checks.push('Check stock and incoming POs before buying');
+    if (!c.launch_date) checks.push('Choose a target launch date');
+    $('review-checklist').replaceChildren(...checks.map(text => node('li',text)));
+    $('next-step').textContent = current.status === 'dismissed' ? 'This brief is dismissed. Reopen it to continue.' : current.status === 'reviewed' ? 'Brief reviewed. Continue with the PO or planned launch below the brief.' : 'Complete the buy plan and review the source evidence, then save as reviewed.';
+    $('next-action').textContent = current.status === 'dismissed' ? 'View reopen action' : current.status === 'reviewed' ? 'View handoffs' : 'Open buy plan';
+  }
+  document.querySelectorAll('[data-panel]').forEach(tab => {
+    tab.onclick = () => showPanel(tab.dataset.panel);
+    tab.onkeydown = event => {
+      const tabs = [...document.querySelectorAll('[data-panel]')];
+      let index = tabs.indexOf(tab);
+      if (event.key === 'ArrowRight') index = (index + 1) % tabs.length;
+      else if (event.key === 'ArrowLeft') index = (index + tabs.length - 1) % tabs.length;
+      else if (event.key === 'Home') index = 0;
+      else if (event.key === 'End') index = tabs.length - 1;
+      else return;
+      event.preventDefault(); showPanel(tabs[index].dataset.panel, true);
+    };
+  });
+  $('browse-toggle').onclick = () => {
+    const expanded = document.querySelector('.pw-content').classList.toggle('pw-browsing');
+    $('browse-toggle').setAttribute('aria-expanded',String(expanded));
+  };
+  $('another-brief').onclick = () => run(async () => {
+    if (!canWrite || !current || !leave()) return;
+    const kind = current.source_kind;
+    if (kind === 'idea') { start(kind, {}); return; }
+    const table = kind === 'concept' ? 'product_concepts' : 'products_master';
+    const { data: row, error } = await db.from(table).select('*').eq('company_entity_id',company.id).eq('id',current.source_id).single();
+    if (error) throw error;
+    if (!row || (kind === 'concept' && row.status === 'archived')) throw new Error('This source is unavailable in the active company.');
+    start(kind, row);
+  });
+  $('next-action').onclick = () => {
+    if (current?.status !== 'draft') $('reviewed-actions').scrollIntoView({block:'center',behavior:'smooth'});
+    else showPanel('buy',true);
+  };
   $('source-search').onsubmit = e => { e.preventDefault(); run(searchSources); };
   $('source-kind').onchange = () => { $('source-results').replaceChildren(); $('source-term').placeholder = $('source-kind').value === 'concept' ? 'Concept title' : 'Product title or exact SKU'; };
   $('queue-filter').onchange = renderQueue;
   $('load-more').onclick = () => run(() => loadQueue(true));
   $('reload').onclick = () => run(async () => { if (!leave()) return; await loadQueue(); if (current?.version) await openBrief(current.id); });
   $('brief-form').onsubmit = e => { e.preventDefault(); run(() => save('draft')); };
-  $('brief-form').oninput = () => { dirty = true; };
+  $('brief-form').addEventListener('invalid', e => {
+    const panel = e.target.closest('[role="tabpanel"]');
+    if (panel) showPanel(panel.id.replace('panel-', ''));
+    if (e.target.closest('#overview-edit')) $('overview-edit').open = true;
+  }, true);
+  $('brief-form').oninput = () => { dirty = true; updateSummary(); };
   $('review').onclick = () => run(() => save('reviewed'));
   $('dismiss').onclick = () => run(() => save('dismissed'));
   $('reopen').onclick = () => run(() => save('draft'));

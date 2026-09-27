@@ -133,3 +133,31 @@ its observation timestamp). Refresh missing or changed evidence first. Missing
 sales/stock, stale evidence, ambiguous incoming stock and quantity overrides
 require a decision note. A note never authorizes forged evidence. Exact save
 retries remain valid even when inventory changes after the successful review.
+
+## Product Studio UI (2026-09-27)
+
+The same direct-link route now presents Product Studio: compact source and saved
+brief queues, Overview / Creative / Buy plan / Launch tabs, a visual brief, and
+an evidence/checklist rail. On narrow screens the selected brief leads; a Browse
+button reveals the queues. No V2 entry button or navigation promotion is added.
+
+Recent concepts load into the source queue without requiring a search. Selecting
+a source resumes its most recently updated non-dismissed brief (company-scoped,
+not limited to the loaded queue). Completed catalog/restock buys start a fresh
+cycle. The explicit “Start another brief from this source” action always reads
+the current source before filling an unsaved preset; it preserves intentional
+repeat buys and updated-concept revisions. `?concept=<id>` is also supported for
+direct links, with an active-company filter. Nothing saves by selecting a source.
+
+Concept reference images and catalog `image_url` are taken from the brief's source
+snapshot. Only HTTPS image URLs render. Missing/failed artwork has an explicit
+fallback; no generated artwork, invented metrics, or new image-generation service
+is included. Source evidence remains separately expandable. Review checklist
+items are advisory and do not change server review or handoff rules.
+
+Validation: all 22 V3 unit suites; the real-page browser fixture covers tabs and
+unsaved edits, source resume, no implicit saves, keyboard navigation, reference
+images/unsafe-URL rejection, foreign-company concept denial, viewer and missing
+migration states, save-response retry, review freeze, PO/Pipeline retry, launch,
+restock recalculation and phone overflow/browse behavior. Screenshots in
+`screenshots/product-studio/` are fixture-based (not production records).
