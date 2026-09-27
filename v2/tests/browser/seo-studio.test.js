@@ -209,6 +209,12 @@ const tables = {
     await page.waitForFunction(() => /ronin-new\.jpg$/.test(document.querySelector('#queue [data-key] img')?.getAttribute('src') || ''), null, { timeout: 5000 });
     R.ok('photos are re-read on refresh, and the new release leads', true);
 
+    // A failed product read shows labelled blanks, never a partial set.
+    const noProducts = await suite.open('/v2/seo-studio.html', tables, { ready, broken: ['products_master'] });
+    R.eq(await noProducts.locator('#queue [data-key] img').count(), 0, 'an unreadable product table draws no photos');
+    R.ok('the tile says what it is instead', /collection/i.test(await noProducts.locator('#queue [data-key]').first().innerText()));
+    await noProducts.close();
+
     // Empty state.
     const empty = await suite.open('/v2/seo-studio.html', Object.assign({}, tables, { seo_recommendations_v: [] }), { ready: () => !!document.querySelector('#queue .ss-empty') });
     R.has(await empty.locator('#queue').innerText(), 'Nothing to work on yet.');

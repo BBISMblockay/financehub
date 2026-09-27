@@ -227,6 +227,12 @@ r.test('nothing live: collection position order stands in, capped at n', () => {
   r.eq(out.map(x => x.shopify_product_id).join(','), '3,1');
   r.eq(out[0].published_at, null);
 });
+r.test('a failed read of any member means no photos, never older ones passed off as newest', () => {
+  const rows = [pm('1', { online_published_at: '2025-01-01T00:00:00Z' }), pm('2', { online_published_at: '2025-02-01T00:00:00Z' })];
+  // Two chunks: '1','2' read fine; '3' (the newest release) was in the chunk that failed.
+  r.eq(S.pickCollectionPhotos(['1', '2', '3'], rows, 3, new Set(['3'])).length, 0);
+  r.eq(S.pickCollectionPhotos(['1', '2'], rows, 3, new Set(['3'])).length, 2, 'a collection not touching the failed chunk is unaffected');
+});
 r.test('empty inputs give no photos', () => {
   r.eq(S.pickCollectionPhotos([], []).length, 0);
   r.eq(S.pickCollectionPhotos(null, null).length, 0);

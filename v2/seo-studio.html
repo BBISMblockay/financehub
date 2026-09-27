@@ -327,11 +327,13 @@
     // the request URL). One row per SKU, so each chunk is paged too.
     const allIds = [...new Set(Object.values(productIdsByCol).flat())];
     const productRows = [];
+    const unreadIds = new Set();
     for (let i = 0; i < allIds.length; i += ID_CHUNK) {
       const chunk = allIds.slice(i, i + ID_CHUNK);
       const rows = await readAll((from, to) => scoped(sb.from('products_master').select('shopify_product_id, product_title, image_url, shopify_status, online_published_at')
         .in('shopify_product_id', chunk).not('image_url', 'is', null)).order('shopify_product_id').order('sku').range(from, to));
       if (rows) productRows.push(...rows);
+      else chunk.forEach(id => unreadIds.add(id)); // a collection touching these shows no photos, never a partial set
     }
     const imgByHandle = {};
     if (prodHandles.length) {
@@ -343,7 +345,7 @@
       const ch = ST.collectionHandle(g.path), ph = ST.productHandle(g.path);
       let imgs = [];
       if (ch && S.collections[ch]) {
-        imgs = ST.pickCollectionPhotos(productIdsByCol[S.collections[ch].shopify_collection_id] || [], productRows, 3);
+        imgs = ST.pickCollectionPhotos(productIdsByCol[S.collections[ch].shopify_collection_id] || [], productRows, 3, unreadIds);
         if (S.collections[ch].title) g.title = S.collections[ch].title;
       } else if (ph && imgByHandle[ph]) {
         imgs = [imgByHandle[ph]];

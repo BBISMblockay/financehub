@@ -358,9 +358,13 @@
    * position order; rows are products_master rows (one or more per product,
    * one per SKU). When nothing in the collection is live, position order
    * stands in rather than a blank tile. https images only; one photo per
-   * product. */
-  function pickCollectionPhotos(productIds, rows, n) {
+   * product. `unreadIds` are members whose product read FAILED: if any of
+   * the collection's members is among them the candidate set is partial,
+   * so nothing is shown -- older photos must never pass as the newest. */
+  function pickCollectionPhotos(productIds, rows, n, unreadIds) {
     var limit = n == null ? 3 : n;
+    var unread = new Set(unreadIds && typeof unreadIds.forEach === 'function' ? Array.from(unreadIds, String) : []);
+    if (unread.size && (Array.isArray(productIds) ? productIds : []).some(function (id) { return unread.has(String(id)); })) return [];
     var order = {};
     (Array.isArray(productIds) ? productIds : []).forEach(function (id, i) {
       var k = String(id); if (!(k in order)) order[k] = i;
