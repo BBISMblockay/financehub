@@ -613,6 +613,18 @@ test('SEO questions select SEO', () => {
     'Which landing pages get the most sessions?',
   ]) eq(pick([user(q)]), ['seo'], q);
 });
+test('meta-description requests are SEO, not Meta advertising, whatever the separator (review cycle 1)', () => {
+  for (const q of [
+    'audit the homepage meta-description',
+    'Rewrite the meta description for the hats page',
+    'fix our metadescription and meta_title tags',
+    'Which pages have a missing meta-title?',
+    'check the meta robots tag on the home page',
+  ]) eq(pick([user(q)]), ['seo'], q);
+  // ...while Meta the ad platform still reads as marketing.
+  eq(pick([user('How did Meta do last week?')]), ['marketing'], 'Meta ads');
+  eq(pick([user('Compare Meta and TikTok spend')]), ['marketing'], 'Meta spend');
+});
 test('marketing and launch questions select marketing', () => {
   for (const q of [
     'What was our ROAS on Meta last week?',

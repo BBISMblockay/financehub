@@ -1780,6 +1780,15 @@ await test('an SEO question carries the SEO guidance and records it', async () =
   eq(auditRow(client).diagnostics.context.guidance_modules, ['seo'], 'recorded guidance modules');
 });
 
+await test('a hyphenated meta-description request carries SEO, not marketing (review cycle 1)', async () => {
+  const model = installModel([say('ok')]);
+  const { client } = await ask(convo('audit the homepage meta-description'));
+  const sys = systemOf(model.sent);
+  assert(sys.includes(SEO_HEAD), 'SEO guidance missing');
+  assert(!sys.includes(MARKETING_HEAD), 'meta-description read as Meta advertising');
+  eq(auditRow(client).diagnostics.context.guidance_modules, ['seo'], 'recorded guidance modules');
+});
+
 await test('a launch/ads comparison carries the marketing guidance', async () => {
   const model = installModel([say('ok')]);
   await ask(convo('Compare Meta spend and sales for the Back To School launch vs Labor Day'));
