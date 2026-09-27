@@ -2439,3 +2439,19 @@ insert); no client write policy. Verify: `seo_serp_tactics`. Tests:
 `scripts/tests/seo-serp-database.test.mjs` (mutations `features-writable`,
 `captures-unkeyed`), `page-inspect.test.mjs` (`competitorAllowlist`),
 `seo-serp-sync.test.mjs` (`mapSerpFeatures`).
+
+## Ask SILO channel scope — `20260927160000_sales_by_day_card_channel_mapping.sql`
+
+Data-only; no schema change. The `sales_by_day` card in
+`silo_chat_schema_catalog`, which every tenant's Ask SILO reads, said
+"online-store questions mean lower(btrim(location_tag))='online'; other
+location_tags are retail". That is Baseballism's naming presented as a rule,
+and it is wrong for any company without a location called "online". The
+sentence was edited on production and exists in no earlier migration. This
+migration replaces it where present and adds the new sentence where absent. It
+is a no-op once the card mentions `silo_channel_location_tags`.
+
+The new sentence points at the existing per-company mapping
+(`silo_channel_location_tags()` from `20260920170000`), where empty means not
+configured, never zero sales. It matches the Ask SILO core prompt's "WHICH
+STORES AND CHANNELS A QUESTION MEANS" rule.

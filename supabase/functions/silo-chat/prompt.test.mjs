@@ -860,6 +860,42 @@ test('same-window returns over same-window sales is not a return rate', () => {
   everywhere('call the rate unchecked');
 });
 
+console.log('\n-- which stores and channels a question means (2026-09-27) --');
+
+test('a business review defaults to the whole company across every store and channel', () => {
+  everywhere('WHICH STORES AND CHANNELS A QUESTION MEANS');
+  everywhere('covers the WHOLE company: every connected store and channel');
+  everywhere('narrow it only when the user names a channel or store');
+});
+test('a channel comes from the company\'s configured mapping, never a literal or a store name', () => {
+  everywhere("location_tag = any(silo_channel_location_tags('online'))");
+  everywhere("never a literal such as location_tag = 'online'");
+  everywhere('never a guess from store or location names');
+  everywhere('possibly several stores');
+});
+test('a missing mapping is uncertainty, stated -- never zero sales and never a guess', () => {
+  everywhere('An empty mapping means the channel is NOT CONFIGURED, never zero sales');
+  everywhere("wow_channel_status('online')");
+  everywhere('say that the channel figure is uncertain and why, rather than guessing');
+});
+test('"the store" is an explicit selection or a taught preference, otherwise a clarifying question', () => {
+  everywhere('a store the user named or selected in this conversation, or a preference this company has taught');
+  everywhere('ask which one -- one short question, before any analysis');
+});
+test('a taught preference is scoped to its own kind of question and never beats an explicit request', () => {
+  everywhere("A taught note is this company's own preference");
+  everywhere('apply it only to the kind of question it describes');
+  everywhere('never over an explicit request');
+  everywhere('"the whole company" or "all stores" means every store');
+});
+test('no company-specific channel or store name is hardcoded into the shared prompt', () => {
+  for (const [k, p] of Object.entries(ASSEMBLED)) {
+    for (const s of ['Baseballism', 'Field of Dreams', 'Sugar Hill', "lower(btrim(location_tag))='online'"]) lacks(p, s, `${k} prompt`);
+    assert(!/location_tag\s*=\s*'online'(?! --|,)/.test(p.replace("never a literal such as location_tag = 'online'", '')),
+      `${k} prompt carries a literal online filter as guidance`);
+  }
+});
+
 console.log('\n-- size (reported, and bounded so it cannot silently regrow) --');
 
 const words = (s) => s.split(/\s+/).filter(Boolean).length;
@@ -868,10 +904,17 @@ test('prompt sizes', () => {
   console.log(`       words: ${JSON.stringify(sizes)}`);
   // Before this split (main @ e83443d): every question carried 6,844 words of
   // base prompt, and concept mode 11,866. Ceilings, not targets.
-  assert(sizes.ORDINARY < 4200, `ordinary prompt regrew to ${sizes.ORDINARY} words`);
-  assert(sizes.MARKETING < 4800, `marketing prompt regrew to ${sizes.MARKETING} words`);
-  assert(sizes.SEO < 6844, `SEO prompt (${sizes.SEO}) is no smaller than the old base`);
-  assert(sizes.CONCEPT < 8600, `concept prompt regrew to ${sizes.CONCEPT} words`);
+  // Raised 4,200 -> 4,500 on 2026-09-27 for the store/channel scope rules
+  // (company-wide reviews, configured channel mapping, "the store"). A
+  // deliberate, reviewed addition to every question -- the ceiling exists to
+  // catch SILENT regrowth, so raise it only with a reason written here.
+  assert(sizes.ORDINARY < 4500, `ordinary prompt regrew to ${sizes.ORDINARY} words`);
+  assert(sizes.MARKETING < 5100, `marketing prompt regrew to ${sizes.MARKETING} words`);
+  // SEO carries the full core plus its own module; after the store/channel
+  // rules it sits ~2% above the pre-split base (6,844). SEO is the one request
+  // type the split was never expected to shrink much.
+  assert(sizes.SEO < 7200, `SEO prompt regrew to ${sizes.SEO} words`);
+  assert(sizes.CONCEPT < 8800, `concept prompt regrew to ${sizes.CONCEPT} words`);
 });
 
 console.log(`\n${run - failures}/${run} passed`);

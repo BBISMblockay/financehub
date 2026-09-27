@@ -236,6 +236,22 @@ function columnRestriction(rawText, literals, col) {
   let m;
   while ((m = inList.exec(text))) add(m[1] ? excluded : included, m[2]);
 
+  // `col = any(silo_channel_location_tags('online'))` is the ONE sanctioned way
+  // to scope sales to a channel (each company's own mapping, possibly several
+  // stores). It narrows the column to that channel; `<> all(...)` excludes it.
+  // Reported as `channel:<name>` because the actual tags are resolved at run
+  // time and are not in the statement.
+  const channelRe = new RegExp(
+    `(?<![a-z0-9_])${col}\\s*(=\\s*any|<>\\s*all|!=\\s*all)\\s*\\(\\s*(?:public\\.)?silo_channel_location_tags\\s*\\(\\s*'@(\\d+)'\\s*\\)\\s*\\)`, 'g',
+  );
+  while ((m = channelRe.exec(text))) {
+    const v = literals[Number(m[2])];
+    if (v == null) continue;
+    const into = /^=/.test(m[1]) ? included : excluded;
+    const label = `channel:${String(v).toLowerCase()}`;
+    if (!into.includes(label)) into.push(label);
+  }
+
   // = vs <> / != . Same fix: the operator decides which list the value joins.
   const equality = new RegExp(
     `(?<![a-z0-9_])${col}\\s*(=|<>|!=)\\s*('@\\d+'|-?\\d+(?:\\.\\d+)?)`, 'g',
