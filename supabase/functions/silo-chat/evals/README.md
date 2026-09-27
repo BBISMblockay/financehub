@@ -53,6 +53,23 @@ and anything about the deployed function. `--baseline` is the closest thing to
 a causal claim available here: same model, same transcript, envelope and scope
 rules removed.
 
+## `answer-shape.eval.mjs`
+
+Added with the 2026-09-27 prompt split (`prompt-lib.mjs`: a shared core plus
+marketing / SEO / concept guidance selected per request). Four cases, same
+cost model as above (3 runs each by default, each carrying the assembled
+prompt for its question): a number question leads with the figure and ends
+without a generic offer; a restock decision opens with the recommendation; a
+"simplify that" keeps the window its claim rests on; and a launch that predates
+a source's measured coverage is reported from the rows, not from a remembered
+history length. `--dry-run` builds every prompt and transcript and sends
+nothing; CI runs only that.
+
+```
+ANTHROPIC_API_KEY=... node supabase/functions/silo-chat/evals/answer-shape.eval.mjs
+ANTHROPIC_API_KEY=... node supabase/functions/silo-chat/evals/answer-shape.eval.mjs --case decision-restock --runs 5 --json
+```
+
 ## Grading
 
 Every case is graded by deterministic checks over the answer text — a required
