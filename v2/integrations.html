@@ -592,10 +592,9 @@
                       <label class="bcn-label" for="shop-domain">Shop domain</label>
                       <input class="bcn-field bcn-field--mono" id="shop-domain" type="text"
                         placeholder="yourstore.myshopify.com" autocomplete="off" spellcheck="false" />
-                      <div class="int-muted">This is the store's actual <code>*.myshopify.com</code> handle, which does not
-                        always match the store's display name (Shopify assigns a random handle when the name is taken
-                        or the store was created as a dev store). Find the real one in the store's own Shopify admin —
-                        it's in the browser address bar, e.g. <code>admin.shopify.com/store/&lt;handle&gt;/...</code>.</div>
+                      <div class="int-muted">This is the store's real Shopify web address — it doesn't always
+                        match the store's name. You'll find it in the store's own Shopify admin, in the browser's
+                        address bar, e.g. <code>admin.shopify.com/store/&lt;this-part&gt;/...</code>.</div>
                     </div>
                     <!-- "Connect with Shopify" only works for stores the SILO Shopify app is
                          allowed to install on -- confirmed against production that every store
@@ -608,23 +607,22 @@
                          do so once the app is approved for public distribution in Shopify
                          Partners, not before. The manual token path below stays either way; it
                          needs no Partners involvement and this hides nothing about it. -->
-                    <div class="form-row">
-                      <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-add">Cancel</button>
-                      <button class="bcn-btn bcn-btn--primary int-brand-btn int-brand-btn--shopify" id="btn-connect-shopify" hidden>Connect with Shopify →</button>
-                    </div>
+                    <button class="bcn-btn bcn-btn--primary int-brand-btn int-brand-btn--shopify" id="btn-connect-shopify" hidden>Connect with Shopify →</button>
                     <div class="test-result" id="test-result"></div>
 
                     <div class="int-muted" style="margin:14px 0 10px;">Connect with a token from the store's own admin:</div>
                     <div class="bcn-field-group">
-                      <label class="bcn-label" for="shop-access-token">Admin API access token</label>
+                      <label class="bcn-label" for="shop-access-token">Access token</label>
                       <input class="bcn-field bcn-field--mono" id="shop-access-token" type="password"
                         placeholder="shpat_…" autocomplete="off" spellcheck="false" />
-                      <div class="int-muted">From the store's own Shopify admin: Settings → Apps and sales channels →
-                        Develop apps → Create an app → Configure Admin API scopes (grant at least
+                      <div class="int-muted">In the store's own Shopify admin: go to Settings, then Apps and sales
+                        channels, then Develop apps. Create an app, and turn on these permissions:
                         <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>,
-                        <code>read_locations</code>) → Install app → reveal the Admin API access token.</div>
+                        <code>read_locations</code>. Then click Install app — it will show you an access token to
+                        copy here.</div>
                     </div>
                     <div class="form-row">
+                      <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-add">Cancel</button>
                       <button class="bcn-btn bcn-btn--primary" id="btn-save-shopify-token">Save connection</button>
                     </div>
                   </div>
