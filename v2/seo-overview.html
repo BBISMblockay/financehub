@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SEO Overview — SILO</title>
+  <title>Search performance · SEO — SILO</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <style>
@@ -42,6 +42,7 @@
     .seo-window-btns .is-active { background:var(--bcn-band); color:#fff; }
     #status { margin:12px 18px 0; }
   </style>
+  <link rel="stylesheet" href="seo-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -51,7 +52,7 @@
   <main class="silo-main">
     <header class="bcn-header">
       <div>
-        <div class="bcn-header-title">SEO Overview</div>
+        <div class="bcn-header-title">Search performance</div>
         <div id="subtitle" style="font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3)">Google Search Console · final data · —</div>
       </div>
       <div class="bcn-header-actions">
@@ -135,6 +136,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
+<script src="seo-suite.js"></script>
 <script src="silo-chrome.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
@@ -423,9 +425,9 @@
     _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
     if (window.SiloChrome) {
       window.SiloChrome.mount({
-        appEl: '#silo-app', active: 'reports/seo-overview',
+        appEl: '#silo-app', active: 'seo/performance',
         user: { email: user?.email || '', role: 'admin' },
-        crumbs: ['Marketing', 'SEO Overview'],
+        crumbs: ['Marketing', 'SEO', 'Search performance'],
         supabaseClient: sb,
       });
     }

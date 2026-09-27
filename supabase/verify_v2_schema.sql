@@ -3595,6 +3595,41 @@ select
     else 'ok'
   end as seo_recommendations;
 
+-- ── Landscape's 28-day Search Console rollup (20260927170000) ──────────────
+-- seo_recommendations_v measured 6.29 s of the browser role's 8 s budget
+-- because seo_keyword_landscape_v re-aggregated 116k raw query rows on every
+-- read, twice per load. The landscape now reads a nightly rollup through a
+-- tenant-filtered wrapper; the same things as the 90-day rollup must stay true.
+select
+  case
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='search_console_query_rollup_28d_mv' and c.relkind='m')
+      then 'MISSING — run 20260927170000_seo_landscape_28d_rollup.sql'
+    when not exists (select 1 from pg_indexes where schemaname='public'
+                       and tablename='search_console_query_rollup_28d_mv'
+                       and indexdef like '%UNIQUE%')
+      then 'MISSING — search_console_query_rollup_28d_mv has no unique index; CONCURRENTLY refresh is impossible'
+    when coalesce((select option_value from pg_class c
+                     join pg_namespace n on n.oid=c.relnamespace,
+                   lateral pg_options_to_table(c.reloptions)
+                   where n.nspname='public' and c.relname='search_console_query_rollup_28d_v'
+                     and option_name='security_invoker'), 'true') <> 'false'
+      then 'MISSING — search_console_query_rollup_28d_v is not security_invoker=false; it reads a matview that has no RLS'
+    when pg_get_viewdef('public.search_console_query_rollup_28d_v'::regclass) not like '%active_company_id()%'
+      then 'CRITICAL — search_console_query_rollup_28d_v lost its active_company_id() filter; every company would read every company''s search queries'
+    when (select count(*) from information_schema.role_table_grants
+          where table_schema='public' and table_name='search_console_query_rollup_28d_mv'
+            and grantee in ('anon','authenticated')) > 0
+      then 'CRITICAL — search_console_query_rollup_28d_mv is granted to anon/authenticated; it carries no company filter'
+    when pg_get_viewdef('public.seo_keyword_landscape_v'::regclass) like '%search_console_query_daily%'
+      then 'CRITICAL — seo_keyword_landscape_v is back on search_console_query_daily; seo_recommendations_v will approach the 8 s timeout'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='refresh_search_console_query_rollup_mv'
+                       and pg_get_functiondef(p.oid) like '%search_console_query_rollup_28d_mv%')
+      then 'CRITICAL — refresh_search_console_query_rollup_mv() no longer refreshes the 28-day rollup; the landscape would freeze on its last refresh'
+    else 'ok'
+  end as search_console_query_rollup_28d;
+
 -- ── Empty collections stay visible (20260909320000, corrective) ─────────────
 -- The view LEFT-joined product->SKU but INNER-joined collection->membership,
 -- so a collection with no products vanished -- an empty collection read as a

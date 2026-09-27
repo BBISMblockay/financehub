@@ -2005,6 +2005,25 @@
     }
 
     restoreHistoryFromSession();
+
+    // Arrived from another page with a question ready (SEO Studio's "Draft
+    // improvements with Ask SILO"): put it in the composer and STOP. Nothing
+    // is sent until the person reads it and presses send -- a link must never
+    // be able to spend a question, or ask one, on someone's behalf. The
+    // parameter is removed from the address bar so a reload does not refill it.
+    const wantQuestion = new URLSearchParams(location.search).get('q');
+    if (wantQuestion && !el('input').value.trim()) {
+      el('input').value = wantQuestion.slice(0, 4000);
+      el('input').dispatchEvent(new Event('input', { bubbles: true }));
+      setStatus('Question ready from the page you came from. Read it, edit it if you like, then send.', 'info', 6000);
+      // window.history, explicitly: this page's own `history` is the chat
+      // transcript array, which shadows the browser's.
+      try {
+        const u = new URL(location.href);
+        u.searchParams.delete('q');
+        window.history.replaceState(null, '', u.pathname + u.search + u.hash);
+      } catch {}
+    }
     el('input').focus();
   }
 

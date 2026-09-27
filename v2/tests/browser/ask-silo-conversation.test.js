@@ -97,6 +97,20 @@ const r = createReporter('ask-silo-conversation');
   r.test('the abandoned question\'s retry button is disabled once it is abandoned',
     () => r.eq(liveRetries, 0));
 
+  // ── 4. a question arriving by link (SEO Studio) is placed, never sent ──
+  const before = sent.length;
+  const linked = await suite.open('/v2/silo-chat.html?q=' + encodeURIComponent('Draft SEO improvements for /collections/backpacks'), {}, {
+    ready: () => !!document.getElementById('input') && document.getElementById('input').value.length > 0,
+  });
+  await linked.waitForTimeout(600);
+  const linkedValue = await linked.inputValue('#input');
+  r.test('the linked question fills the composer', () =>
+    r.eq(linkedValue, 'Draft SEO improvements for /collections/backpacks'));
+  r.ok('nothing is sent until the person presses send', sent.length === before);
+  r.ok('the question is taken out of the address bar, so a reload does not refill it',
+    !(await linked.evaluate(() => location.search)).includes('q='));
+  await linked.close();
+
   await suite.close();
   const out = r.summary();
   process.exit(out.fail ? 1 : 0);

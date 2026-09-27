@@ -136,8 +136,14 @@ on:
       - 'supabase/migrations/*seo_collection_candidates_within_timeout.sql'
       - 'supabase/migrations/*seo_serp_tactics.sql'
       - 'supabase/migrations/*seo_recommendations.sql'
+      - 'supabase/migrations/*seo_landscape_28d_rollup.sql'
       - 'v2/seo-keywords.html'
       - 'v2/seo-keywords.js'
+      # SEO suite: one sidebar row, three tabs (seo-suite.test.mjs).
+      - 'v2/seo-suite.*'
+      - 'v2/seo-studio.html'
+      - 'v2/seo-overview.html'
+      - 'scripts/tests/seo-suite.test.mjs'
       - 'v2/card-coding.html'
       - 'v2/transactions.html'
       - 'v2/transactions-tiles.js'
@@ -276,6 +282,11 @@ jobs:
       # platform link that a company owner can never see.
       - name: Workspace settings navigation and platform separation
         run: node --test scripts/tests/workspace-settings.test.mjs
+
+      # One SEO row in the sidebar; Studio, Search performance and Keywords
+      # are tabs across their existing pages.
+      - name: SEO suite navigation
+        run: node --test scripts/tests/seo-suite.test.mjs
 
       # Company-specific Melio/BILL intake (#785): the forwarding destination
       # resolves from the workspace's own setting, with the Baseballism secret
@@ -895,13 +906,13 @@ jobs:
       # defend's decline requirement, and (20260927140000) collapse a
       # never-queried SC figure or a never-observed PAA block back to a
       # fabricated 0 -- each must break the suite.
-      # Mutations: RECS_DB_MUTATION=score-not-halved | absence-as-zero | numeric-confidence | defend-not-filtered | content-brief-sc-zero | content-brief-paa-zero
+      # Mutations: RECS_DB_MUTATION=score-not-halved | absence-as-zero | numeric-confidence | defend-not-filtered | content-brief-sc-zero | content-brief-paa-zero | rollup-unscoped
       - name: Execute SEO recommendations view regressions
         run: node scripts/tests/seo-recommendations-database.test.mjs
       - name: The recommendations guards, removed, must break it
         run: |
           set -u
-          for m in score-not-halved absence-as-zero numeric-confidence defend-not-filtered content-brief-sc-zero content-brief-paa-zero; do
+          for m in score-not-halved absence-as-zero numeric-confidence defend-not-filtered content-brief-sc-zero content-brief-paa-zero rollup-unscoped; do
             echo "--- $m ---"
             if RECS_DB_MUTATION="$m" node scripts/tests/seo-recommendations-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
