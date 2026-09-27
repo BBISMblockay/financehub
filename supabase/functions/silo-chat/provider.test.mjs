@@ -6,7 +6,7 @@
  * Run: node supabase/functions/silo-chat/provider.test.mjs
  */
 import {
-  retryDecision, parseRetryAfter, pickUsage, sumUsage,
+  retryDecision, parseRetryAfter, pickUsage, sumUsage, providerErrorCode, isSpendLimit,
   RETRYABLE_STATUSES, BUSY_STATUSES, MAX_PROVIDER_RETRIES, MAX_RETRY_WAIT_MS, RETRY_HEADROOM_MS,
 } from './provider-lib.mjs';
 
@@ -73,6 +73,26 @@ test('a retry that would land past the cap is refused', () => {
 });
 test('no cap means no time limit on the decision', () => {
   eq(retryDecision({ status: 429, attempt: 0, now: NOW, capAt: 0, jitter: noJitter }).retry, true, 'uncapped');
+});
+
+console.log('\n-- a spend cap is not "busy" --');
+
+const SPEND_BODY = '{"type":"error","error":{"type":"rate_limit_error","message":"x","details":{"error_code":"enforced_spend_limit_reached"}}}';
+test('the error code is read from details first, then the error type', () => {
+  eq(providerErrorCode(SPEND_BODY), 'enforced_spend_limit_reached', 'details.error_code');
+  eq(providerErrorCode('{"type":"error","error":{"type":"overloaded_error"}}'), 'overloaded_error', 'type');
+  eq(providerErrorCode('not json'), null, 'non-JSON');
+  eq(providerErrorCode(''), null, 'empty');
+});
+test('a spend-capped 429 is never retried, even with time and attempts left', () => {
+  const code = providerErrorCode(SPEND_BODY);
+  eq(isSpendLimit(code), true, 'recognised');
+  const d = retryDecision({ status: 429, errorCode: code, attempt: 0, now: NOW, capAt: 0, jitter: noJitter });
+  eq(d.retry, false, 'retried');
+  eq(d.reason, 'spend_limit', 'reason');
+});
+test('an ordinary rate-limit 429 still retries', () => {
+  eq(retryDecision({ status: 429, errorCode: 'rate_limit_error', attempt: 0, now: NOW, jitter: noJitter }).retry, true, 'rate limit');
 });
 
 console.log('\n-- usage is recorded as measured, never estimated --');

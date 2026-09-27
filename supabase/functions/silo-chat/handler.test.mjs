@@ -1997,6 +1997,44 @@ await test('a busy provider on the forced final answer is reported as busy, not 
   eq(json.provider_busy, true, 'provider_busy');
 });
 
+await test('a spend-cap 429 is not retried and is not reported as busy', async () => {
+  const model = installScriptedModel([
+    toolRound(1),
+    { status: 429, body: '{"type":"error","error":{"type":"rate_limit_error","message":"cap","details":{"error_code":"enforced_spend_limit_reached"}}}' },
+  ]);
+  const { res, json, client } = await ask(BASIC, { rpcResults: [{ a: 1 }] });
+  eq(res.status, 503, `status (${json.error})`);
+  eq(json.provider_spend_limit, true, 'provider_spend_limit');
+  eq(json.retryable, false, 'retryable');
+  eq(json.provider_busy, undefined, 'must not claim busy');
+  assert(!/about a minute/i.test(json.error), `told to retry shortly: ${json.error}`);
+  assert(!/Anthropic API|enforced_spend/.test(json.error), `raw provider error leaked: ${json.error}`);
+  eq(model.sent.length, 2, 'the spend-cap call was retried');
+  eq(auditRow(client).error_message, 'provider_spend_limit: 429', 'audit error_message');
+  // tool_rounds counts rounds entered, the refused one included -- the same
+  // count every other error path records.
+  eq(auditRow(client).tool_rounds, 2, 'rounds already used are kept');
+});
+
+await test('a busy failure after real rounds keeps their rounds, usage and retries in the audit row', async () => {
+  installScriptedModel([
+    withUsage(toolRound(1), { input_tokens: 900, output_tokens: 40, cache_read_input_tokens: 6100, cache_creation_input_tokens: 3000 }),
+    withUsage(toolRound(2), { input_tokens: 500, output_tokens: 30, cache_read_input_tokens: 9100, cache_creation_input_tokens: 0 }),
+    { status: 429, retryAfter: '0' },
+    { status: 429, retryAfter: '0' },
+    { status: 429, retryAfter: '0' },
+  ]);
+  const { res, client } = await ask(BASIC, { rpcResults: [{ a: 1 }] });
+  eq(res.status, 503, 'status');
+  const row = auditRow(client);
+  eq(row.error_message, 'provider_busy: 429', 'audit error_message');
+  eq(row.tool_rounds, 3, 'tool_rounds (two completed, the refused third entered)');
+  const ctx = row.diagnostics.context;
+  eq(ctx.model_usage_total, { input: 1400, output: 70, cache_read: 15200, cache_write: 3000 }, 'usage of the calls that succeeded');
+  eq(ctx.provider_retries, [{ status: 429, wait_ms: 0 }, { status: 429, wait_ms: 0 }], 'retries');
+  assert(Array.isArray(row.diagnostics.queries) && row.diagnostics.queries.length === 2, 'query outcomes kept');
+});
+
 await test('a 400 is not retried', async () => {
   const model = installScriptedModel([{ status: 400, body: 'bad request' }]);
   const { res } = await ask(BASIC);

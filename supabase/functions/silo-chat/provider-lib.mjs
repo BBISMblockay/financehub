@@ -34,6 +34,31 @@ export const MAX_RETRY_WAIT_MS = 15_000;
 export const RETRY_HEADROOM_MS = 10_000;
 const BACKOFF_MS = [1_000, 3_000];
 
+/** Error codes that arrive on a transient-looking status but will not clear by
+ *  waiting. Anthropic returns a 429 with `enforced_spend_limit_reached` once
+ *  the organisation's spend cap is hit: access stays paused until the cap
+ *  resets or is raised, so retrying it burns time and telling the person "try
+ *  again in a minute" is false (review of #806, cycle 1). */
+export const SPEND_LIMIT_CODES = new Set(['enforced_spend_limit_reached']);
+
+/** The provider's machine-readable error code from a response body, or null.
+ *  Reads `error.details.error_code` first (where the spend cap is reported),
+ *  then `error.type`. Never throws: a body that is not JSON has no code. */
+export function providerErrorCode(bodyText) {
+  if (!bodyText) return null;
+  try {
+    const e = JSON.parse(bodyText)?.error;
+    const code = e?.details?.error_code ?? e?.type ?? null;
+    return typeof code === 'string' ? code : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isSpendLimit(code) {
+  return code != null && SPEND_LIMIT_CODES.has(code);
+}
+
 /** `retry-after` is seconds (an integer) or an HTTP date. Returns ms or null. */
 export function parseRetryAfter(value, now = Date.now()) {
   if (value == null || value === '') return null;
@@ -44,13 +69,14 @@ export function parseRetryAfter(value, now = Date.now()) {
 }
 
 /**
- * @param {{ status: number, retryAfter?: string|null, attempt: number,
+ * @param {{ status: number, retryAfter?: string|null, errorCode?: string|null, attempt: number,
  *           now?: number, capAt?: number, jitter?: () => number }} input
  *   attempt: retries already made for this call (0 on the first failure).
  *   capAt: epoch ms the retried call must be able to finish before; 0 = none.
  * @returns {{ retry: boolean, waitMs: number, reason: string }}
  */
-export function retryDecision({ status, retryAfter = null, attempt, now = Date.now(), capAt = 0, jitter = () => Math.floor(Math.random() * 250) }) {
+export function retryDecision({ status, retryAfter = null, errorCode = null, attempt, now = Date.now(), capAt = 0, jitter = () => Math.floor(Math.random() * 250) }) {
+  if (isSpendLimit(errorCode)) return { retry: false, waitMs: 0, reason: 'spend_limit' };
   if (!RETRYABLE_STATUSES.has(status)) return { retry: false, waitMs: 0, reason: 'not_retryable' };
   if (attempt >= MAX_PROVIDER_RETRIES) return { retry: false, waitMs: 0, reason: 'retries_exhausted' };
   const asked = parseRetryAfter(retryAfter, now);

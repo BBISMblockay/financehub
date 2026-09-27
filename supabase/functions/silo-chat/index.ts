@@ -175,7 +175,9 @@ import {
 import { buildSystemBlocks, selectGuidance } from './prompt-lib.mjs';
 import {
   BUSY_STATUSES,
+  isSpendLimit,
   parseRetryAfter,
+  providerErrorCode,
   pickUsage,
   retryDecision,
   sumUsage,
@@ -646,6 +648,18 @@ class ProviderBusyError extends Error {
   }
 }
 
+/** The organisation's model-API spend cap is reached. Waiting will not clear it
+ *  -- access resumes only when the cap resets or someone raises it -- so it is
+ *  neither retried nor reported as "busy, try again". */
+class ProviderSpendLimitError extends Error {
+  status: number;
+  constructor(status: number, body: string) {
+    super(`Anthropic API ${status} (spend limit): ${body.slice(0, 300)}`);
+    this.name = 'ProviderSpendLimitError';
+    this.status = status;
+  }
+}
+
 async function callAnthropic(
   messages: unknown[],
   systemPrompt: string | Array<Record<string, unknown>>,
@@ -732,7 +746,10 @@ async function callAnthropic(
     }
     if (res.ok) return res.json();
     const bodyText = await res.text();
-    const d = retryDecision({ status: res.status, retryAfter: res.headers.get('retry-after'), attempt, capAt });
+    // The body is read before the retry decision: a 429 is not always "busy".
+    const errorCode = providerErrorCode(bodyText);
+    if (isSpendLimit(errorCode)) throw new ProviderSpendLimitError(res.status, bodyText);
+    const d = retryDecision({ status: res.status, retryAfter: res.headers.get('retry-after'), errorCode, attempt, capAt });
     if (d.retry) {
       opts.onRetry?.(res.status, d.waitMs);
       await new Promise((r) => setTimeout(r, d.waitMs));
@@ -1101,6 +1118,13 @@ Deno.serve(async (req: Request) => {
   let requestId: string | null = null;
   let history: { role: string; content: string; imageUrls?: string[]; conceptId?: string }[] = [];
   let queriesRun: string[] = [];
+  // What the request had done when a provider refusal ended it: rounds used and
+  // the diagnostics (per-call usage, retries, query outcomes) gathered so far.
+  // Set once the loop's state exists, read by the outer catch -- without it a
+  // request that spent three rounds and then hit a 429 was audited as zero
+  // rounds with no usage, undercounting exactly the requests the capacity
+  // queries exist to diagnose (review of #806, cycle 1).
+  let auditSoFar: (() => { toolRounds: number; diagnostics: Record<string, unknown> | null }) | null = null;
   // Crawl guard. "One URL per call" is the tool's signature; this is what stops
   // a turn becoming a crawl by calling it repeatedly. Enforced here rather than
   // asked for in the prompt, because a limit a model is merely told about is
@@ -1596,6 +1620,7 @@ Deno.serve(async (req: Request) => {
     // "is the provider pushing back" -- none of which the audit row could say.
     const modelUsage: Array<ReturnType<typeof pickUsage>> = [];
     const providerRetries: Array<{ status: number; wait_ms: number }> = [];
+    auditSoFar = () => ({ toolRounds: roundsUsed, diagnostics: buildDiagnostics(queryLog, contextLog()) });
     const timedCallAnthropic = async (...args: Parameters<typeof callAnthropic>) => {
       const startedCallAt = Date.now();
       const opts = args[3] || {};
@@ -2370,7 +2395,7 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
     } catch (err) {
       // A busy provider is not "couldn't land on an answer": the question is
       // fine and asking again shortly will work. Let the outer handler say so.
-      if (err instanceof ProviderBusyError) throw err;
+      if (err instanceof ProviderBusyError || err instanceof ProviderSpendLimitError) throw err;
       console.error('[silo-chat] forced final answer failed', err);
       // A deadline closing on the forced final is a NEW way to reach here, and
       // it must not throw away prose the model had already written. answerSoFar
@@ -2412,6 +2437,30 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
     return reply({ error: message, queries_run: queriesRun, retryable: true }, 500);
   } catch (err) {
     console.error('[silo-chat]', err);
+    // Never let a failure to summarise the work mask the refusal being reported.
+    const soFar = (() => {
+      try { return auditSoFar?.() ?? { toolRounds: 0, diagnostics: null }; } catch { return { toolRounds: 0, diagnostics: null }; }
+    })();
+    if (err instanceof ProviderSpendLimitError) {
+      // Not busy and not the question's fault: the AI account's spend cap is
+      // reached. Retrying will fail the same way until an admin raises it, so
+      // the page is told not to offer Try again.
+      const spendMessage = "Ask SILO has reached its AI usage limit, so it can't answer questions right now. This is an account setting, not a problem with your question -- an admin needs to raise the limit (or wait for it to reset). Trying again before then will not work.";
+      if (callerClient && question) {
+        await logAudit(callerClient, {
+          requestId,
+          question,
+          historySnapshot: history,
+          answer: null,
+          queriesRun,
+          toolRounds: soFar.toolRounds,
+          status: 'error',
+          errorMessage: `provider_spend_limit: ${err.status}`,
+          diagnostics: soFar.diagnostics,
+        });
+      }
+      return reply({ error: spendMessage, retryable: false, provider_spend_limit: true }, 503);
+    }
     if (err instanceof ProviderBusyError) {
       // Retried inside the budget and still refused. The person sees a plain
       // "busy, ask again shortly" -- never the raw API body -- and the audit
@@ -2426,9 +2475,10 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
           historySnapshot: history,
           answer: null,
           queriesRun,
-          toolRounds: 0,
+          toolRounds: soFar.toolRounds,
           status: 'error',
           errorMessage: `provider_busy: ${err.status}`,
+          diagnostics: soFar.diagnostics,
         });
       }
       return reply({ error: busyMessage, retryable: true, provider_busy: true, retry_after_s: waitS }, 503);
