@@ -851,6 +851,15 @@ test('an earlier answer\'s automatic scope note is not copied, it is acted on', 
   everywhere('rather than repeating the warning or dropping the qualifier');
 });
 
+// Live 2026-09-27 03:20: "about 2.4% of net sales vs 4.3% ... nothing here
+// points to a quality or fulfillment problem", from same-window returns over
+// same-window sales, with the lag rule already in the prompt.
+test('same-window returns over same-window sales is not a return rate', () => {
+  everywhere('returns logged in a window divided by sales in the same window is NOT a return rate');
+  everywhere('do not conclude that quality or fulfilment is fine from it');
+  everywhere('call the rate unchecked');
+});
+
 console.log('\n-- size (reported, and bounded so it cannot silently regrow) --');
 
 const words = (s) => s.split(/\s+/).filter(Boolean).length;

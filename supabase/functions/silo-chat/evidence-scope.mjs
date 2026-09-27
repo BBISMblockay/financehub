@@ -209,7 +209,13 @@ function mentions(text, col) {
  *     forward attributed `campaign_name = 'Subscribers'` to the `platform`
  *     filter sitting two tokens earlier.
  */
-function columnRestriction(text, literals, col) {
+function columnRestriction(rawText, literals, col) {
+  // `lower(btrim(location_tag)) = 'online'` restricts location_tag exactly as
+  // `location_tag = 'online'` does. Unwrapped only for this column, and only
+  // for case/whitespace normalisers, whose result is still one value of it.
+  // Measured live 2026-09-27 (audit 03:20:22): every sales query in the request
+  // used this form, and every one was reported as covering every channel.
+  const text = unwrapNormalisers(rawText, col);
   const included = [];
   const excluded = [];
   let restricted = false;
@@ -254,6 +260,19 @@ function columnRestriction(text, literals, col) {
   if (excluded.length) return { kind: 'excluded', values: excluded.slice(0, MAX_VALUES_REPORTED) };
   if (restricted) return { kind: 'restricted', values: [] };
   return { kind: null, values: [] };
+}
+
+const NORMALISERS = '(?:lower|upper|btrim|trim|ltrim|rtrim)';
+
+/** Strip case/whitespace normaliser calls wrapped directly around `col`
+ *  (optionally table-qualified), innermost first, so the predicate matchers
+ *  below see the bare column. Anything else inside the call is left alone. */
+export function unwrapNormalisers(text, col) {
+  const re = new RegExp(`(?<![a-z0-9_])${NORMALISERS}\\s*\\(\\s*((?:[a-z_][a-z0-9_]*\\.)?${col})\\s*\\)`, 'g');
+  let prev;
+  let out = text;
+  do { prev = out; out = out.replace(re, '$1'); } while (out !== prev);
+  return out;
 }
 
 function groupedOn(text, col) {

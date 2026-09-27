@@ -14,7 +14,7 @@
 import {
   SCOPE_COLUMNS, QUERY_ROW_CAP, denoise, cteNames, relationsInStatement,
   dateLiteralsIn, buildCatalogIndex, describeEvidenceScope, renderQueryResult,
-  auditAnswerClaims, unresolvedDimensions, formatClaimNote, CLAIM_DIMENSIONS,
+  auditAnswerClaims, unresolvedDimensions, formatClaimNote, CLAIM_DIMENSIONS, unwrapNormalisers,
 } from './evidence-scope.mjs';
 import {
   CATALOG_FIXTURE, COMBINED_SPEND_SQL, COMBINED_SPEND_ROWS, PER_PLATFORM_SQL,
@@ -563,6 +563,28 @@ test('the note is one short line per flag, not a standing footer', () => {
   const words = note.split(/\s+/).filter(Boolean).length;
   assert(words <= 50, `note is ${words} words`);
   assert(/can be wrong in both directions/.test(note), 'the check no longer admits its fallibility');
+});
+
+// Live 2026-09-27 03:20:22: every sales query filtered
+// lower(btrim(location_tag)) = 'online' and was reported as covering every
+// channel -- in the envelope the model reads, and in the appended note.
+test('a case/trim-normalised filter narrows the column like a bare one', () => {
+  const s = describeEvidenceScope(
+    "SELECT sum(total_net_sales) FROM sales_by_day WHERE lower(btrim(location_tag))='online' AND day_date BETWEEN '2026-08-27' AND '2026-09-25'",
+    INDEX, {});
+  eq((s.narrowed_to || []).map((n) => [n.column, n.values]), [['location_tag', ['online']]], 'narrowed_to');
+  assert(!pooledCols(s).includes('sales_by_day.location_tag'), 'location_tag still reported pooled');
+  eq(auditAnswerClaims('Online net sales came to $1.07M.', [s]), [], 'the live answer was still flagged');
+});
+test('...table-qualified and upper-cased, and an exclusion stays an exclusion', () => {
+  const s = describeEvidenceScope("SELECT sum(total_net_sales) FROM sales_by_day s WHERE upper( s.location_tag ) <> 'ONLINE'", INDEX, {});
+  eq((s.excludes || []).map((n) => n.column), ['location_tag'], `excludes: ${JSON.stringify(s)}`);
+  eq(s.narrowed_to || [], [], 'an exclusion became a narrowing');
+});
+test('...but only the named column is unwrapped, and only normalisers', () => {
+  eq(unwrapNormalisers("lower(btrim(location_tag)) = '@0'", 'location_tag'), "location_tag = '@0'", 'nested unwrap');
+  eq(unwrapNormalisers("lower(location_name) = '@0'", 'location_tag'), "lower(location_name) = '@0'", 'another column touched');
+  eq(unwrapNormalisers("substr(location_tag, 1, 3) = '@0'", 'location_tag'), "substr(location_tag, 1, 3) = '@0'", 'a non-normaliser unwrapped');
 });
 
 console.log('\n-- the derivation does not overclaim --');
