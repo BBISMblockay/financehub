@@ -1,5 +1,12 @@
 <!doctype html>
-<html lang="en">
+<!-- beacon.css defines every --bcn-* token under :root[data-theme="light"]
+     and :root[data-theme="dark"], and under no bare :root. A page that sets
+     neither resolves NONE of them, so every var() without a fallback is
+     invalid at computed-value time -- .bcn-btn--primary's background and
+     border both come out unset, leaving white text on a transparent/white
+     card: a real, clickable button that's simply invisible. Same bug found
+     and fixed in v2/customer-onboarding.html; this page never got it. -->
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
