@@ -226,5 +226,19 @@ r.test('a live idea’s note says the result in the metric’s own terms', () =>
   r.has(m.note, 'Higher cost · +$0.10');
 });
 
+console.log('\n── cache ──');
+r.test('the page loads the CURRENT ad-studio.js, never a cached older copy', () => {
+  // The page and its script deploy together but cache apart: a new page with
+  // yesterday's script threw "A.compare is not a function" on first load
+  // (2026-09-27). The ?v= stamp is the file's own hash, so it changes exactly
+  // when the script does.
+  const fs = require('fs');
+  const path = require('path');
+  const crypto = require('crypto');
+  const dir = path.join(__dirname, '..', '..');
+  const hash = crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, 'ad-studio.js'))).digest('hex').slice(0, 12);
+  r.has(fs.readFileSync(path.join(dir, 'ad-studio.html'), 'utf8'), `ad-studio.js?v=${hash}`);
+});
+
 const out = r.summary();
 process.exit(out.fail ? 1 : 0);
