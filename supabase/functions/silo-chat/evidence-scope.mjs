@@ -273,33 +273,43 @@ function columnRestriction(rawText, literals, col) {
  *  predicate simply is not seen, which leaves the column pooled -- the safe
  *  reading. */
 export function maskConditionalExpressions(text) {
-  let out = text;
+  // Keywords and parentheses are read from a SCAN copy in which double-quoted
+  // identifiers are blanked (same length), so an alias like `as "case"` or
+  // `"filter(x)"` cannot open or close a span (cycle-2 review of #804: one
+  // quoted "case" left the real CASE unmasked). Single-quoted literals were
+  // already replaced by denoise(). Masks are applied to the real text.
+  const scan = text.replace(/"(?:[^"]|"")*"/g, (q) => ' '.repeat(q.length));
+  const spans = [];
   // filter ( ... ) with balanced parentheses.
   const filterRe = /\bfilter\s*\(/g;
   let m;
-  while ((m = filterRe.exec(out))) {
+  while ((m = filterRe.exec(scan))) {
     const open = m.index + m[0].length - 1;
     let depth = 0;
     let i = open;
-    for (; i < out.length; i++) {
-      if (out[i] === '(') depth++;
-      else if (out[i] === ')' && --depth === 0) break;
+    for (; i < scan.length; i++) {
+      if (scan[i] === '(') depth++;
+      else if (scan[i] === ')' && --depth === 0) break;
     }
-    out = out.slice(0, open + 1) + ' '.repeat(Math.max(0, i - open - 1)) + out.slice(i);
-    filterRe.lastIndex = open + 1;
+    spans.push([open + 1, i]);
   }
   // case ... end, nesting-aware on the two keywords.
   const tokenRe = /\b(case|end)\b/g;
   const stack = [];
-  const spans = [];
-  while ((m = tokenRe.exec(out))) {
+  while ((m = tokenRe.exec(scan))) {
     if (m[1] === 'case') stack.push(m.index + 4);
     else if (stack.length) {
       const from = stack.pop();
       if (!stack.length) spans.push([from, m.index]);
     }
   }
-  for (const [from, to] of spans) out = out.slice(0, from) + ' '.repeat(to - from) + out.slice(to);
+  // An unclosed CASE (truncated or unusual SQL) masks to the end: reporting the
+  // column pooled is the safe reading when the structure cannot be paired.
+  if (stack.length) spans.push([stack[0], scan.length]);
+  let out = text;
+  for (const [from, to] of spans) {
+    if (to > from) out = out.slice(0, from) + ' '.repeat(to - from) + out.slice(to);
+  }
   return out;
 }
 

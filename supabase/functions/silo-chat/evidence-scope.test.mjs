@@ -611,6 +611,22 @@ test('...while a WHERE filter still narrows, even with a CASE in the select list
     INDEX, {});
   eq((s.narrowed_to || []).map((n) => [n.column, n.values]), [['location_tag', ['online']]], 'WHERE filter lost');
 });
+test('a double-quoted "case" alias does not unpair the real CASE (review cycle 2)', () => {
+  const s = describeEvidenceScope(
+    `SELECT 1 AS "case", sum(CASE WHEN location_tag='online' THEN total_net_sales END) AS online_sales, sum(total_net_sales) AS all_sales FROM sales_by_day`,
+    INDEX, {});
+  eq(s.narrowed_to || [], [], `narrowed_to: ${JSON.stringify(s.narrowed_to)}`);
+  eq(auditAnswerClaims('Online sales were $1.07M.', [s]).length, 1, 'the pooled total could be called online');
+  // ...and a quoted "end" or "filter(" cannot open or close a span either.
+  const t = `select 1 as "end", 2 as "filter(", sum(x) filter (where location_tag = '@0') from t where c = '@1'`;
+  const masked = maskConditionalExpressions(t);
+  assert(!/location_tag = '@0'/.test(masked), `FILTER predicate survived: ${masked}`);
+  assert(/where c = '@1'/.test(masked), 'the row filter was masked');
+});
+test('an unclosed CASE masks to the end rather than reporting a narrowing', () => {
+  const masked = maskConditionalExpressions("select case when location_tag = '@0' then 1 from t");
+  assert(!/location_tag = '@0'/.test(masked), `unclosed CASE predicate survived: ${masked}`);
+});
 test('masking keeps the text length and handles nesting', () => {
   const t = "select sum(x) filter (where f(a) = '@0' and (b)) , case when a = '@1' then case when b then 1 end end from t where c = '@2'";
   const masked = maskConditionalExpressions(t);
