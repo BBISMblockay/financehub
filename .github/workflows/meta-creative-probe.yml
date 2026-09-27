@@ -35,6 +35,10 @@ on:
       company_entity_id:
         description: Optional company UUID
         required: false
+      mode:
+        description: "destinations (default) or images -- images measures which image fields Meta serves, at what size, and when they expire"
+        required: false
+        default: "destinations"
 
 jobs:
   probe:
@@ -48,6 +52,7 @@ jobs:
       META_PROBE_LIMIT: ${{ inputs.limit }}
       META_PROBE_CONNECTION_ID: ${{ inputs.connection_id }}
       META_PROBE_COMPANY_ID: ${{ inputs.company_entity_id }}
+      META_PROBE_MODE: ${{ inputs.mode }}
 
     steps:
       - name: Checkout repo

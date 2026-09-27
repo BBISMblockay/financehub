@@ -45,6 +45,8 @@ const EXPLICIT_IDS = (process.env.META_PROBE_AD_IDS || '').split(',').map((s) =>
 const LIMIT = Number(process.env.META_PROBE_LIMIT || 25);
 const ONLY_COMPANY_ID = process.env.META_PROBE_COMPANY_ID || '';
 const ONLY_CONNECTION_ID = process.env.META_PROBE_CONNECTION_ID || '';
+// 'images' answers a different question -- see imagesMode() below.
+const MODE = (process.env.META_PROBE_MODE || 'destinations').trim().toLowerCase();
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -110,6 +112,121 @@ function urlsWithPaths(node, path = '', out = []) {
   return out;
 }
 
+/* ── Images mode ─────────────────────────────────────────────────────────────
+ * WHY. Ad Studio shows past ads as baselines, and meta_ad_creatives only holds
+ * `thumbnail_url`: Meta's DEFAULT 64x64 thumbnail on a signed fbcdn URL that
+ * expires (its `oe=` parameter) about four days after it was fetched.
+ * Measured 2026-09-27: 686 of the 811 ads with $100+ spend already carried an
+ * expired URL. Before the sync is changed to archive images, this measures,
+ * per ad and without writing anything:
+ *   - which image-bearing fields Meta serves (image_url, image_hash,
+ *     video_id, the story spec's picture / image_url), and which it refuses;
+ *   - whether thumbnail_width/height on the creative GET returns a LARGER
+ *     image than the default -- by downloading it and reading its pixel size
+ *     from the JPEG/PNG header, not by trusting the URL;
+ *   - for a video, what the video node's `picture` / `thumbnails` give;
+ *   - whether an OLD ad (ended months ago) still returns a fetchable image,
+ *     which decides whether a backfill can recover history at all;
+ *   - each URL's own expiry (`oe=`), so "permanent" is measured, not assumed.
+ */
+function imageSize(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] === 0x89 && b[1] === 0x50) {                       // PNG: IHDR width/height
+    const v = new DataView(buf);
+    return { type: 'png', w: v.getUint32(16), h: v.getUint32(20) };
+  }
+  if (b[0] === 0xff && b[1] === 0xd8) {                       // JPEG: scan to a SOFn marker
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) { i += 1; continue; }
+      const m = b[i + 1];
+      const len = (b[i + 2] << 8) | b[i + 3];
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+        return { type: 'jpeg', h: (b[i + 5] << 8) | b[i + 6], w: (b[i + 7] << 8) | b[i + 8] };
+      }
+      i += 2 + len;
+    }
+    return { type: 'jpeg', w: null, h: null };
+  }
+  if (b[0] === 0x52 && b[1] === 0x49 && b[8] === 0x57) return { type: 'webp', w: null, h: null };
+  return { type: 'unknown', w: null, h: null };
+}
+function urlExpiry(u) {
+  const m = /[?&]oe=([0-9A-Fa-f]+)/.exec(String(u || ''));
+  return m ? new Date(parseInt(m[1], 16) * 1000).toISOString().slice(0, 10) : 'none';
+}
+async function describeImage(label, u) {
+  if (!u) { console.log(`    ${label.padEnd(26)} (absent)`); return null; }
+  try {
+    const res = await fetch(u);
+    const buf = await res.arrayBuffer();
+    const sz = res.ok ? imageSize(buf) : { type: '-', w: null, h: null };
+    console.log(`    ${label.padEnd(26)} ${res.status} ${sz.type} ${sz.w ?? '?'}x${sz.h ?? '?'} ${buf.byteLength}B expires=${urlExpiry(u)} host=${new URL(u).host}`);
+    return { ok: res.ok, w: sz.w, h: sz.h, bytes: buf.byteLength, expires: urlExpiry(u) };
+  } catch (e) {
+    console.log(`    ${label.padEnd(26)} FETCH FAILED ${e.message}`);
+    return null;
+  }
+}
+async function imagesMode(token, adIds) {
+  const tally = { ads: 0, default_ok: 0, sized_larger: 0, image_url_ok: 0, video_picture_ok: 0, story_picture_ok: 0, any_large: 0 };
+  const refusals = new Map();
+  for (const adId of adIds) {
+    tally.ads += 1;
+    const ad = await getWithNegotiation(adId, ['id', 'name', 'creative{id,object_type}'], token, `ad ${adId}`);
+    if (ad.error) { console.log(`--- ad ${adId}\n    READ FAILED: ${ad.error}`); continue; }
+    const cid = ad.data?.creative?.id;
+    console.log(`--- ad ${adId}  ${String(ad.data?.name || '').slice(0, 44)}  creative=${cid}  ${ad.data?.creative?.object_type || '?'}`);
+    if (!cid) continue;
+    const fields = ['thumbnail_url', 'image_url', 'image_hash', 'video_id', 'object_story_spec', 'effective_object_story_id'];
+    const c = await getWithNegotiation(cid, fields, token, `creative ${cid}`);
+    if (c.error) { console.log(`    creative READ FAILED: ${c.error}`); continue; }
+    for (const d of c.dropped) refusals.set(d, (refusals.get(d) || 0) + 1);
+    const cr = c.data || {};
+    const def = await describeImage('thumbnail_url (default)', cr.thumbnail_url);
+    if (def?.ok) tally.default_ok += 1;
+    // The same creative with a requested size: Graph accepts thumbnail_width /
+    // thumbnail_height as query parameters on the creative node.
+    const sizedUrl = `https://graph.facebook.com/${META_API_VERSION}/${cid}?fields=thumbnail_url`
+      + `&thumbnail_width=1080&thumbnail_height=1080&access_token=${encodeURIComponent(token)}`;
+    let sized = null;
+    try {
+      const r = await fetch(sizedUrl); const j = await r.json();
+      sized = await describeImage('thumbnail_url (1080 asked)', j?.thumbnail_url);
+      if (!r.ok) console.log(`    sized GET ${r.status}: ${JSON.stringify(j).slice(0, 160)}`);
+    } catch (e) { console.log(`    sized GET failed ${e.message}`); }
+    if (sized?.ok && def?.w && sized.w > def.w) tally.sized_larger += 1;
+    const iu = await describeImage('image_url', cr.image_url);
+    if (iu?.ok) tally.image_url_ok += 1;
+    console.log(`    image_hash=${cr.image_hash || '-'}  video_id=${cr.video_id || cr.object_story_spec?.video_data?.video_id || '-'}`);
+    const vd = cr.object_story_spec?.video_data;
+    const ld = cr.object_story_spec?.link_data;
+    let sp = await describeImage('story_spec.video.image_url', vd?.image_url);
+    if (!sp) sp = await describeImage('story_spec.link.picture', ld?.picture);
+    if (sp?.ok) tally.story_picture_ok += 1;
+    const vid = cr.video_id || vd?.video_id;
+    let vp = null;
+    if (vid) {
+      const v = await getWithNegotiation(vid, ['picture', 'thumbnails{uri,width,height,is_preferred}'], token, `video ${vid}`);
+      if (v.error) console.log(`    video READ FAILED: ${v.error}`);
+      else {
+        const thumbs = v.data?.thumbnails?.data || [];
+        const pref = thumbs.find((t) => t.is_preferred) || thumbs.sort((a, b) => (b.width || 0) - (a.width || 0))[0];
+        console.log(`    video thumbnails: ${thumbs.length} (${thumbs.map((t) => `${t.width}x${t.height}${t.is_preferred ? '*' : ''}`).join(', ')})`);
+        vp = await describeImage('video preferred thumbnail', pref?.uri);
+        await describeImage('video picture', v.data?.picture);
+        if (vp?.ok) tally.video_picture_ok += 1;
+      }
+    }
+    if ([sized, iu, sp, vp].some((x) => x?.ok && (x.w || 0) >= 400)) tally.any_large += 1;
+    console.log('');
+  }
+  console.log('=== images summary ===');
+  console.log(JSON.stringify(tally, null, 2));
+  console.log('\nfields this account REFUSED (field -> ads):');
+  console.log([...refusals.entries()].map(([f, n]) => `  ${n.toString().padStart(4)}  ${f}`).join('\n') || '  (none)');
+}
+
 async function main() {
   let q = supabase.from('ad_platform_connections').select('*')
     .eq('platform', 'meta_ads').eq('is_active', true);
@@ -140,7 +257,8 @@ async function main() {
     adIds = (data || []).map((r) => String(r.ad_id));
   }
   adIds = [...new Set(adIds)].slice(0, LIMIT);
-  console.log(`[probe] READ ONLY. ${adIds.length} ad(s), api ${META_API_VERSION}\n`);
+  console.log(`[probe] READ ONLY. mode=${MODE}. ${adIds.length} ad(s), api ${META_API_VERSION}\n`);
+  if (MODE === 'images') { await imagesMode(token, adIds); return; }
 
   const tally = {
     ads: 0, creative_read_failed: 0,
