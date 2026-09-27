@@ -635,6 +635,26 @@ test('masking keeps the text length and handles nesting', () => {
   assert(/where c = '@2'/.test(masked), 'the row filter was masked');
 });
 
+// The prompt now sends channel questions through each company's own mapping.
+// The envelope must read that as a narrowing, or every correct "online" answer
+// would be flagged "nothing restricted sales channel" again.
+test('location_tag = any(silo_channel_location_tags(...)) narrows the channel', () => {
+  const s = describeEvidenceScope(
+    "SELECT sum(total_net_sales) FROM sales_by_day WHERE location_tag = any(silo_channel_location_tags('online')) AND day_date BETWEEN '2026-09-14' AND '2026-09-20'",
+    INDEX, {});
+  eq((s.narrowed_to || []).map((n) => [n.column, n.values]), [['location_tag', ['channel:online']]], 'narrowed_to');
+  eq(auditAnswerClaims('Online sales were $153,155.', [s]), [], 'a mapped online figure was flagged');
+});
+test('...<> all(...) is an exclusion, and qualification/case do not matter', () => {
+  const s = describeEvidenceScope("SELECT sum(total_net_sales) FROM sales_by_day s WHERE s.location_tag <> ALL (public.silo_channel_location_tags('Retail'))", INDEX, {});
+  eq((s.excludes || []).map((n) => [n.column, n.values]), [['location_tag', ['channel:retail']]], 'excludes');
+  eq(s.narrowed_to || [], [], 'an exclusion became a narrowing');
+});
+test('...but not inside a FILTER beside an all-channel total', () => {
+  const s = describeEvidenceScope("SELECT sum(total_net_sales) FILTER (WHERE location_tag = any(silo_channel_location_tags('online'))) o, sum(total_net_sales) t FROM sales_by_day", INDEX, {});
+  eq(s.narrowed_to || [], [], 'a conditional channel subtotal narrowed the whole result');
+});
+
 console.log('\n-- the derivation does not overclaim --');
 
 test('a column that is merely mentioned is reported as pooled, not as narrowed', () => {

@@ -1710,6 +1710,13 @@ await test('an answer that names the combination is not flagged (live 02:52 answ
   assert(!/Scope check/.test(json.answer), `a combined label was flagged: ${json.answer}`);
 });
 
+await test('an answer over the configured online mapping may say "online"', async () => {
+  const mapped = "SELECT sum(total_net_sales) FROM sales_by_day WHERE location_tag = any(silo_channel_location_tags('online')) AND day_date BETWEEN '2026-09-14' AND '2026-09-20'";
+  installModel([sqlRound(mapped), say('Online sales last week were $153,155.')]);
+  const { json } = await ask(BASIC, { rpcResults: [{ sum: 153155 }] });
+  assert(!/Scope check/.test(json.answer), `a mapped online figure was flagged: ${json.answer}`);
+});
+
 console.log('\n-- a period boundary is traced to where it came from --');
 
 await test('a date from an earlier result is sourced; an invented one is not', async () => {
