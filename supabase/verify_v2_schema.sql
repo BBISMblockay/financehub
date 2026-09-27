@@ -5072,6 +5072,28 @@ select 'SILO dashboards are global and read-only' as check_name,
    then 'MISSING: dashboards_v.source; the library cannot tell a SILO board from a company one'
  else 'ok' end as status;
 
+-- Direct-link product workflow preview. RPC-only writes, tenant-scoped reads.
+select 'Product workflow brief storage' as check_name,
+ case when to_regclass('public.product_workflow_briefs') is null then 'MISSING: product_workflow_briefs'
+ when not (select relrowsecurity from pg_class where oid=to_regclass('public.product_workflow_briefs')) then 'CRITICAL: brief RLS disabled'
+ when has_table_privilege('authenticated',to_regclass('public.product_workflow_briefs'),'INSERT,UPDATE,DELETE,TRUNCATE')
+   or has_table_privilege('anon',to_regclass('public.product_workflow_briefs'),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+ then 'CRITICAL: direct brief writes or anonymous reads enabled'
+ when not exists(select 1 from pg_policies where schemaname='public' and tablename='product_workflow_briefs'
+   and policyname='product_workflow_briefs_read' and qual like '%active_company_id()%') then 'MISSING: company read policy'
+ else 'ok' end as status;
+with expected(signature) as (values
+ ('public.save_product_workflow_brief(uuid,uuid,integer,text,uuid,jsonb,text)'),
+ ('public.handoff_product_workflow_brief(uuid,uuid,integer,text,date)'),
+ ('public.product_workflow_restock_basis(uuid,uuid,integer)'))
+select signature as product_workflow_rpc,
+ case when to_regprocedure(signature) is null then 'MISSING: product workflow RPC'
+ when has_function_privilege('anon',to_regprocedure(signature),'EXECUTE') then 'CRITICAL: anonymous workflow RPC'
+ when not has_function_privilege('authenticated',to_regprocedure(signature),'EXECUTE') then 'MISSING: authenticated workflow RPC grant'
+ else 'ok' end as status from expected;
+
+-- End product workflow preview checks.
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further

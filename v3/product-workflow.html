@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SILO · Product workflow preview</title>
+  <link rel="stylesheet" href="../v2/beacon.css">
+  <link rel="stylesheet" href="../v2/silo-brand.css">
+  <link rel="stylesheet" href="product-workflow.css?v=20260926a">
+  <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css">
+  <link rel="stylesheet" href="../v2/v2-mobile.css">
+  <script src="../v2/v2-shell.js" defer></script>
+  <script src="../v2/nav-config.js"></script>
+  <script src="../v2/avatar.js"></script>
+  <script src="../v2/silo-chrome.js"></script>
+  <script src="../pages/config.js"></script>
+  <script src="../v2/lib/supabase-js.min.js"></script>
+  <script src="../v2/po-pipeline-sync.js?v=20260923190000"></script>
+  <script src="product-workflow-model.js?v=20260926a"></script>
+  <script src="product-workflow-ui.js?v=20260926a" defer></script>
+</head>
+<body>
+<div class="silo-app" id="silo-app"><main class="silo-main">
+  <header class="bcn-header">
+    <div><span class="bcn-pill bcn-pill--accent">V3 · Direct-link preview</span><h1 class="bcn-header-title">Product workflow</h1><p>Carry the idea, the evidence and the decision into the next step.</p></div>
+    <button type="button" class="bcn-btn bcn-btn--ghost" id="reload">Refresh queue</button>
+  </header>
+  <div class="pw-content">
+    <div id="status" class="bcn-status bcn-status--info" role="status" aria-live="polite">Loading workspace…</div>
+    <p class="pw-muted">Preview scope: brief presets, restock review, draft POs and planned launches. Background suggestions and the reporting-to-accounting feedback loop are not connected yet.</p>
+    <div class="pw-layout">
+      <aside class="pw-rail" aria-label="Review queue">
+        <section class="bcn-card"><div class="bcn-card-header"><h2>Start from a source</h2></div><div class="bcn-card-body">
+          <label class="bcn-label" for="source-kind">Brief preset</label>
+          <select id="source-kind" class="bcn-field"><option value="concept">Product concept</option><option value="product">Catalog product</option><option value="restock">Restock · 90-day basis</option><option value="idea">Manual idea</option></select>
+          <form id="source-search"><label class="bcn-label" for="source-term">Find a source</label><input id="source-term" class="bcn-field" placeholder="Title or SKU"><button class="bcn-btn" type="submit">Search</button></form>
+          <div id="source-results" class="pw-list"></div>
+        </div></section>
+        <section class="bcn-card"><div class="bcn-card-header"><h2>Review queue</h2><span id="queue-count" class="bcn-mono"></span></div><div class="bcn-card-body">
+          <label class="bcn-label" for="queue-filter">Show</label><select id="queue-filter" class="bcn-field"><option value="all">All briefs</option><option value="draft">Needs review</option><option value="reviewed">Reviewed / handed off</option><option value="dismissed">Dismissed</option></select>
+          <div id="queue" class="pw-list"></div><button class="bcn-btn" id="load-more" hidden>Load more briefs</button>
+        </div></section>
+      </aside>
+      <section class="bcn-card pw-editor" aria-label="Brief editor">
+        <div class="bcn-card-header"><h2 id="editor-heading">Build a brief before the launch</h2><span id="brief-status" class="bcn-pill"></span></div>
+        <div class="bcn-card-body">
+          <p id="empty">Choose a concept or catalog product, or start with an idea. Presets fill a draft you can edit and review.</p>
+          <div id="editor" hidden>
+            <p id="provenance" class="pw-muted"></p>
+            <details><summary>Source evidence and assumptions</summary><div id="source-snapshot" class="pw-evidence"></div></details>
+            <form id="brief-form">
+              <fieldset id="brief-fields">
+                <div class="pw-grid" id="text-fields"></div>
+                <section id="restock-section" hidden>
+                  <h3>Restock worksheet</h3><p class="pw-muted">All company locations · 90 calendar days through company yesterday. Recorded sales are not adjusted for stockouts or seasonality. No sales rows means unknown demand.</p>
+                  <div class="pw-grid" id="restock-inputs"></div>
+                  <button type="button" class="bcn-btn" id="refresh-basis">Refresh restock basis</button>
+                  <div id="restock-basis" class="pw-evidence"></div>
+                  <button type="button" class="bcn-btn" id="use-suggestion">Use suggested quantity</button>
+                </section>
+                <h3>Purchase quantities</h3><p class="pw-muted">Review each size and quantity. Blank cost stays unestimated; PO Builder can fill catalog defaults. A draft PO is still subject to purchasing approval.</p>
+                <div class="bcn-matrix-scroll" tabindex="0" role="region" aria-label="Purchase quantities"><table class="bcn-table"><thead><tr><th>Size / variant</th><th>Units</th><th>Unit cost</th><th>Retail price</th></tr></thead><tbody id="lines"></tbody></table></div>
+                <button type="button" class="bcn-btn bcn-btn--ghost" id="add-size">Add size</button>
+                <p class="pw-muted">Use a new brief for another catalog variant. Remove an unwanted concept size by clearing its quantity.</p>
+              </fieldset>
+              <div class="pw-actions" id="draft-actions"><button type="submit" class="bcn-btn" id="save">Save draft</button><button type="button" class="bcn-btn bcn-btn--primary" id="review">Save as reviewed</button><button type="button" class="bcn-btn bcn-btn--ghost" id="dismiss">Dismiss</button></div>
+            </form>
+            <div id="reviewed-actions" class="pw-actions" hidden><button class="bcn-btn" id="reopen">Reopen brief</button><button class="bcn-btn bcn-btn--primary" id="create-po">Create draft PO</button><div id="launch-handoff"><label for="handoff-date" class="bcn-label">Planned launch date</label><input id="handoff-date" type="date" class="bcn-field"><button class="bcn-btn" id="create-launch">Create planned launch</button></div></div>
+            <div id="outputs" class="pw-evidence"></div>
+            <button id="sync-pipeline" class="bcn-btn" hidden>Sync PO to Pipeline</button>
+            <p class="pw-muted">After handoff, edit the PO and launch in their existing modules. Suggested copy is never marked approved. Launch dates appear on the calendar as planned.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</main></div>
+</body></html>

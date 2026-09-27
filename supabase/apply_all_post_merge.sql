@@ -19127,6 +19127,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260925181944_company_bill_pay_forwarding.sql
 \i migrations/20260926120000_seo_competitor_serp_schema.sql
 \i migrations/20260926140000_seo_serp_provider_sync.sql
+\i migrations/20260926082115_product_workflow_preview.sql
 \i migrations/20260926150000_seo_candidates_within_timeout.sql
 \i migrations/20260926160000_seo_collection_candidates_within_timeout.sql
 \i migrations/20260926170000_seo_serp_tactics.sql

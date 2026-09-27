@@ -1,5 +1,13 @@
 # `/v3/` — the dashboard runtime
 
+**Explicit preview exception (Blake, 2026-09-26):**
+`/v3/product-workflow.html` is an additive product workflow experiment, direct
+link only until promoted. It does not add menu entries or replace a v2 module.
+Its own `product-workflow-{model,ui}.js` and CSS use a separate version suffix;
+they are not dashboard runtime assets. See
+[`docs/ops/product-workflow-preview.md`](../docs/ops/product-workflow-preview.md)
+for boundaries, review rules, migration and release checks.
+
 This folder is not a rewrite of SILO and not a second app. It is one feature
 that needed its own directory: a **visualization runtime** that renders saved
 configuration. Pages here load the v2 Beacon shell (`../v2/beacon.css`,

@@ -19,6 +19,7 @@ on:
     paths: &sync_paths
       - 'scripts/lib/**'
       - 'scripts/tests/**'
+      - 'supabase/migrations/*product_workflow_preview.sql'
       - 'supabase/migrations/*canned_report_accuracy.sql'
       # The SILO report catalog seeds and the migration that re-asserts the
       # 2026-09-22 cleanup after them (report-catalog-cleanup-database.test.mjs).
@@ -600,6 +601,16 @@ jobs:
           node-version: '22'
       - name: Install isolated PostgreSQL test dependency
         run: npm ci --prefix scripts/tests/finance-db --ignore-scripts
+      - name: Execute product workflow draft and handoff regressions
+        run: node scripts/tests/product-workflow-database.test.mjs
+      - name: Prove product workflow tests reject broken safeguards
+        run: |
+          for mutation in source-scope gate retry freeze read-scope catalog-drift restock-review restock-evidence restock-note; do
+            if MUTATE="$mutation" node scripts/tests/product-workflow-database.test.mjs; then
+              echo "::error::$mutation did not fail the suite"
+              exit 1
+            fi
+          done
       - name: Execute canned report accuracy and drift regressions
         run: node scripts/tests/canned-reports-database.test.mjs
       - name: Execute finance migration, approval and void regressions
