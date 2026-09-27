@@ -172,7 +172,14 @@ import {
   relationsInStatement,
   renderQueryResult,
 } from './evidence-scope.mjs';
-import { buildSystemPrompt, selectGuidance } from './prompt-lib.mjs';
+import { buildSystemBlocks, selectGuidance } from './prompt-lib.mjs';
+import {
+  BUSY_STATUSES,
+  parseRetryAfter,
+  pickUsage,
+  retryDecision,
+  sumUsage,
+} from './provider-lib.mjs';
 
 const TOOLS = [
   {
@@ -625,73 +632,117 @@ class ModelCallDeadlineError extends Error {
   }
 }
 
+/** The model API is rate limiting or overloaded and retries within the budget
+ *  did not get through. Distinct because the person is told something
+ *  different: nothing is wrong with the question, ask again in a minute. */
+class ProviderBusyError extends Error {
+  status: number;
+  retryAfterMs: number | null;
+  constructor(status: number, retryAfterMs: number | null, body: string) {
+    super(`Anthropic API ${status} (busy): ${body.slice(0, 300)}`);
+    this.name = 'ProviderBusyError';
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
 async function callAnthropic(
   messages: unknown[],
-  systemPrompt: string,
+  systemPrompt: string | Array<Record<string, unknown>>,
   tools: unknown[],
   // timeoutMs bounds THIS call against the absolute gateway deadline. Without
   // it the fetch runs unbounded, which is what let a grant admitted on cheap
   // samples overshoot 150s and lose both the answer and the audit row. 0 or
   // undefined leaves the call unbounded, as it was.
-  opts: { forceAnswer?: boolean; forceTool?: string; timeoutMs?: number } = {},
+  //
+  // retryUntil (epoch ms) caps provider retries on a call that has no
+  // timeoutMs of its own: a 429/529/5xx is retried only if the wait plus a
+  // working margin still lands before it. onRetry reports each retry so the
+  // audit row can say the provider pushed back.
+  opts: {
+    forceAnswer?: boolean; forceTool?: string; timeoutMs?: number;
+    retryUntil?: number; onRetry?: (status: number, waitMs: number) => void;
+  } = {},
 ) {
-  let res: Response;
-  try {
-    res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        // Was 4096. A live holiday-collection draft (full launch-plan brief in
-        // prose after hitting query errors) got cut off mid-word at the old
-        // cap -- stop_reason was "max_tokens" but the code only checked "is
-        // there text?", so it shipped the truncated fragment as a finished
-        // answer. Raised as a mitigation; the real fix is the stop_reason
-        // check below, which now refuses to treat a max_tokens cutoff as done
-        // regardless of the cap.
-        max_tokens: 8192,
-        // Cached as one block -- render order is tools -> system -> messages,
-        // so this breakpoint covers TOOLS too. System prompt is long enough to
-        // clear Sonnet 5's 1024-token minimum cacheable prefix. Content is
-        // identical across every tool-round of a single request (notes are
-        // fetched once, up front), so every round after the first hits the
-        // cache instead of repaying full input-token price for it. Different
-        // requests only miss the cache when the notes list itself changed.
-        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-        // forceAnswer: tools stay declared (the transcript contains tool_use /
-        // tool_result blocks that must resolve against them) but tool_choice
-        // 'none' forbids any further calls, so the model can only answer.
-        // forceTool: same idea, but forces the NEXT round to call one specific
-        // tool -- used to make the phase-1 draft nudge below an actual
-        // enforcement instead of a request the model can (and, live, did)
-        // answer past with a prose apology instead.
-        tools,
-        ...(opts.forceAnswer
-          ? { tool_choice: { type: 'none' } }
-          : opts.forceTool
-          ? { tool_choice: { type: 'tool', name: opts.forceTool } }
-          : {}),
-        messages,
-      }),
-    });
-  } catch (err) {
-    // An aborted fetch surfaces as TimeoutError/AbortError depending on
-    // runtime. Named separately so the caller can tell "the deadline closed"
-    // apart from "the network failed" -- the first still has reserved time to
-    // write an answer with, the second does not.
-    const name = (err as { name?: string } | null)?.name;
-    if (opts.timeoutMs && (name === 'TimeoutError' || name === 'AbortError')) {
-      throw new ModelCallDeadlineError(opts.timeoutMs);
+  const deadlineAt = opts.timeoutMs ? Date.now() + opts.timeoutMs : 0;
+  const capAt = deadlineAt || opts.retryUntil || 0;
+  for (let attempt = 0; ; attempt++) {
+    let res: Response;
+    const remaining = deadlineAt ? deadlineAt - Date.now() : 0;
+    if (deadlineAt && remaining <= 0) throw new ModelCallDeadlineError(opts.timeoutMs!);
+    try {
+      res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        ...(deadlineAt ? { signal: AbortSignal.timeout(remaining) } : {}),
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          // Was 4096. A live holiday-collection draft (full launch-plan brief in
+          // prose after hitting query errors) got cut off mid-word at the old
+          // cap -- stop_reason was "max_tokens" but the code only checked "is
+          // there text?", so it shipped the truncated fragment as a finished
+          // answer. Raised as a mitigation; the real fix is the stop_reason
+          // check below, which now refuses to treat a max_tokens cutoff as done
+          // regardless of the cap.
+          max_tokens: 8192,
+          // Render order is tools -> system -> messages, so the first breakpoint
+          // covers the tools too. The handler sends two blocks (buildSystemBlocks
+          // in prompt-lib.mjs): the static core, cached for an hour and read by
+          // every request from every user, then this request's part (schema
+          // slice, date, notes, guidance), whose five-minute entry serves the
+          // request's later rounds -- everything in it is fixed before the loop
+          // starts. A plain string is still accepted as one cached block.
+          system: typeof systemPrompt === 'string'
+            ? [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }]
+            : systemPrompt,
+          // forceAnswer: tools stay declared (the transcript contains tool_use /
+          // tool_result blocks that must resolve against them) but tool_choice
+          // 'none' forbids any further calls, so the model can only answer.
+          // forceTool: same idea, but forces the NEXT round to call one specific
+          // tool -- used to make the phase-1 draft nudge below an actual
+          // enforcement instead of a request the model can (and, live, did)
+          // answer past with a prose apology instead.
+          tools,
+          ...(opts.forceAnswer
+            ? { tool_choice: { type: 'none' } }
+            : opts.forceTool
+            ? { tool_choice: { type: 'tool', name: opts.forceTool } }
+            : {}),
+          messages,
+        }),
+      });
+    } catch (err) {
+      // An aborted fetch surfaces as TimeoutError/AbortError depending on
+      // runtime. Named separately so the caller can tell "the deadline closed"
+      // apart from "the network failed" -- the first still has reserved time to
+      // write an answer with, the second does not.
+      const name = (err as { name?: string } | null)?.name;
+      if (opts.timeoutMs && (name === 'TimeoutError' || name === 'AbortError')) {
+        throw new ModelCallDeadlineError(opts.timeoutMs);
+      }
+      const d = retryDecision({ status: 0, attempt, capAt });
+      if (!d.retry) throw err;
+      opts.onRetry?.(0, d.waitMs);
+      await new Promise((r) => setTimeout(r, d.waitMs));
+      continue;
     }
-    throw err;
+    if (res.ok) return res.json();
+    const bodyText = await res.text();
+    const d = retryDecision({ status: res.status, retryAfter: res.headers.get('retry-after'), attempt, capAt });
+    if (d.retry) {
+      opts.onRetry?.(res.status, d.waitMs);
+      await new Promise((r) => setTimeout(r, d.waitMs));
+      continue;
+    }
+    if (BUSY_STATUSES.has(res.status)) {
+      throw new ProviderBusyError(res.status, parseRetryAfter(res.headers.get('retry-after')), bodyText);
+    }
+    throw new Error(`Anthropic API ${res.status}: ${bodyText}`);
   }
-  if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
-  return res.json();
 }
 
 // Was 8, then 12. With the trigram indexes (20260820130000/140000) making
@@ -1299,7 +1350,7 @@ Deno.serve(async (req: Request) => {
     // list on the next line is decided by conceptsEnabled (authorization) and
     // nothing else, so no wording of a question can make a write available.
     const guidance = selectGuidance({ history, conceptsEnabled });
-    const systemPrompt = buildSystemPrompt({
+    const systemPrompt = buildSystemBlocks({
       notes: (notes ?? []) as Note[],
       schemaSection: schemaSlice.text,
       guidance,
@@ -1392,6 +1443,9 @@ Deno.serve(async (req: Request) => {
       // Which prompt guidance modules this request carried (see prompt-lib.mjs),
       // so an answer can be traced to the instructions it was written under.
       guidance_modules: guidance,
+      model_usage: modelUsage,
+      model_usage_total: sumUsage(modelUsage),
+      provider_retries: providerRetries,
       elapsed_ms: elapsedMs(),
       investigation_checkpoint_sent: investigationCheckpointSent,
     });
@@ -1536,11 +1590,26 @@ Deno.serve(async (req: Request) => {
     // one that is generous look identical from the outside once the request
     // succeeds, and the whole point of this is the case that does not succeed.
     const modelCallDeadlineMs: number[] = [];
+    // Per-call token usage, straight from the API's own usage block, and every
+    // provider retry. At 10-15 users the questions to answer are "what does a
+    // question cost", "is the shared core actually being read from cache" and
+    // "is the provider pushing back" -- none of which the audit row could say.
+    const modelUsage: Array<ReturnType<typeof pickUsage>> = [];
+    const providerRetries: Array<{ status: number; wait_ms: number }> = [];
     const timedCallAnthropic = async (...args: Parameters<typeof callAnthropic>) => {
       const startedCallAt = Date.now();
-      modelCallDeadlineMs.push(args[3]?.timeoutMs || 0);
+      const opts = args[3] || {};
+      modelCallDeadlineMs.push(opts.timeoutMs || 0);
       try {
-        return await callAnthropic(...args);
+        const data = await callAnthropic(args[0], args[1], args[2], {
+          ...opts,
+          // A call with no deadline of its own may retry only while the
+          // request is still inside the budget that starts new work.
+          retryUntil: opts.retryUntil ?? startedAt + WALL_CLOCK_BUDGET_MS,
+          onRetry: (status, waitMs) => providerRetries.push({ status, wait_ms: waitMs }),
+        });
+        modelUsage.push(pickUsage(data?.usage));
+        return data;
       } finally {
         modelCallMs.push(Date.now() - startedCallAt);
       }
@@ -2299,6 +2368,9 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
         });
       }
     } catch (err) {
+      // A busy provider is not "couldn't land on an answer": the question is
+      // fine and asking again shortly will work. Let the outer handler say so.
+      if (err instanceof ProviderBusyError) throw err;
       console.error('[silo-chat] forced final answer failed', err);
       // A deadline closing on the forced final is a NEW way to reach here, and
       // it must not throw away prose the model had already written. answerSoFar
@@ -2340,6 +2412,27 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
     return reply({ error: message, queries_run: queriesRun, retryable: true }, 500);
   } catch (err) {
     console.error('[silo-chat]', err);
+    if (err instanceof ProviderBusyError) {
+      // Retried inside the budget and still refused. The person sees a plain
+      // "busy, ask again shortly" -- never the raw API body -- and the audit
+      // row keeps the status, so a cluster of these is visible in the log and
+      // distinguishable from a broken question.
+      const waitS = err.retryAfterMs != null ? Math.max(1, Math.ceil(err.retryAfterMs / 1000)) : 60;
+      const busyMessage = "Ask SILO is handling a lot of questions right now and the AI service asked it to slow down. Nothing is wrong with your question -- try it again in about a minute.";
+      if (callerClient && question) {
+        await logAudit(callerClient, {
+          requestId,
+          question,
+          historySnapshot: history,
+          answer: null,
+          queriesRun,
+          toolRounds: 0,
+          status: 'error',
+          errorMessage: `provider_busy: ${err.status}`,
+        });
+      }
+      return reply({ error: busyMessage, retryable: true, provider_busy: true, retry_after_s: waitS }, 503);
+    }
     const errorMessage = String((err as Error)?.message || err);
     // Only attributable if we got far enough to have a real caller client
     // and a parsed question -- an early auth/validation failure has neither.

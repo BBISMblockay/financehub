@@ -24,7 +24,7 @@ import { dirname, join } from 'node:path';
 import {
   CORE_BEFORE_SCHEMA, CORE_AFTER_SCHEMA, MARKETING_GUIDANCE, SEO_GUIDANCE,
   PRODUCT_CONCEPT_GUIDANCE, CONCEPT_MODE_HINT, GUIDANCE_ORDER, RECENT_USER_TURNS,
-  buildSystemPrompt, selectGuidance, recentConversationText,
+  buildSystemPrompt, buildSystemBlocks, CORE_PROMPT, selectGuidance, recentConversationText,
 } from './prompt-lib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -518,11 +518,52 @@ test('the core controls reach ordinary, SEO, marketing and concept prompts alike
     'ONE read-only Postgres SELECT/WITH statement',
   ]) everywhere(head);
 });
-test('the core is assembled once, in order, with the schema slice between its halves', () => {
+test('the core comes first, once, and the schema slice follows it', () => {
   for (const p of Object.values(ASSEMBLED)) {
-    assert(p.startsWith(CORE_BEFORE_SCHEMA + SCHEMA + '\n\n' + CORE_AFTER_SCHEMA), 'core/schema/core order broken');
+    assert(p.startsWith(CORE_PROMPT + '\n\n'), 'the static core is not the prefix');
+    assert(p.indexOf('Database map (fixture)') > CORE_PROMPT.length, 'the schema slice is inside the core');
     eq(p.split('WHAT YOU CANNOT DO').length - 1, 1, 'core rule rendered more than once');
   }
+});
+
+console.log('\n-- the static core is one cacheable block shared by every request --');
+
+// Cross-user caching only works if the first block is byte-identical for every
+// request. Anything per-request that leaks into it silently turns every
+// request's first call back into a full-price, rate-limit-counted read.
+const blocksFor = (history, opts = {}) => buildSystemBlocks({
+  notes: opts.notes || [], schemaSection: opts.schema || SCHEMA,
+  guidance: selectGuidance({ history, conceptsEnabled: !!opts.concepts }),
+  conceptsEnabled: !!opts.concepts, showConceptHint: !!opts.hint, now: opts.now || NOW,
+});
+test('the first block is identical across questions, guidance, concept mode, notes, schema and dates', () => {
+  const variants = [
+    blocksFor([user('What did we sell last week?')]),
+    blocksFor([user('Which collection pages should we improve for Google search?')], { notes: [{ category: 'brand', note: 'Playful.' }] }),
+    blocksFor([user('How did the launch do on Meta?')], { schema: '\n\nDatabase map (other slice)', now: new Date('2027-01-01T00:00:00Z') }),
+    blocksFor([user('Something for summer')], { concepts: true }),
+    blocksFor([user('Draft me a concept')], { hint: true }),
+  ];
+  for (const b of variants) eq(b[0].text, variants[0][0].text, 'first block differs between requests');
+  eq(variants[0][0].text, CORE_PROMPT, 'first block is not the core');
+});
+test('nothing per-request is in the first block', () => {
+  const [core, rest] = blocksFor([user('Which collection pages should we improve for search?')],
+    { concepts: true, notes: [{ category: 'general', note: 'NOTE-MARKER' }] });
+  for (const marker of ['Database map (fixture)', "Today's date is", 'NOTE-MARKER', 'SEO, SEARCH AND SITE TRAFFIC', 'MARKETING, ADVERTISING AND LAUNCHES', 'PRODUCT CONCEPTS (in testing']) {
+    lacks(core.text, marker, 'core block');
+    has(rest.text, marker, 'request block');
+  }
+});
+test('the core is cached for an hour and the request block for the default five minutes, in that order', () => {
+  const [core, rest] = blocksFor([user('What did we sell last week?')]);
+  eq(core.cache_control, { type: 'ephemeral', ttl: '1h' }, 'core cache_control');
+  eq(rest.cache_control, { type: 'ephemeral' }, 'request cache_control');
+});
+test('the one-string form is exactly the two blocks joined', () => {
+  const h = [user('How did the Sonic launch do on Meta ads?')];
+  const [core, rest] = blocksFor(h);
+  eq(assemble(h).text, core.text + '\n\n' + rest.text, 'buildSystemPrompt and buildSystemBlocks disagree');
 });
 
 console.log('\n-- stale data assertions are gone, and nothing replaced them with new ones --');

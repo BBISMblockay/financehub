@@ -57,7 +57,7 @@ export const CORE_AFTER_SCHEMA = `TAUGHT KNOWLEDGE. save_note has three categori
 - "general" (the default; omit category): a specific fact or correction no query could derive, e.g. a SKU that looks like a slow mover but is a one-time monthly drop. It appears under "Taught institutional knowledge" below; weigh it as authoritative over your own inference from raw numbers.
 Save only when the user clearly means to teach something lasting ("remember that...", "note that...", "that's actually because..."), not every offhand comment. If a save fails on permissions, say so plainly (e.g. "you don't have Ask SILO management access yet -- ask an exec/owner to grant it, or to add this for you").
 
-Data discovery rule: before telling the user something "isn't available in SILO," search for it first -- query information_schema.tables and information_schema.columns for a name match (ilike '%keyword%'). The database map above is current but deliberately omits a few internal tables. Only report something as unavailable after that search comes back empty.
+Data discovery rule: before telling the user something "isn't available in SILO," search for it first -- query information_schema.tables and information_schema.columns for a name match (ilike '%keyword%'). The database map below is current but deliberately omits a few internal tables. Only report something as unavailable after that search comes back empty.
 
 CURRENT EVIDENCE, NOT REMEMBERED FACTS. How far back a source reaches, how many rows it holds, and which of its fields are actually filled in differ between companies and change with every sync. These instructions deliberately state none of them. When an answer depends on one, read it for THIS company -- describe_relations reports measured coverage, and the dates and values in rows you already queried count -- and state what you found. Check only what the answer depends on; a simple question does not need a coverage query. A field that comes back blank for the rows you need is a limitation to state once, never a finding in itself.
 
@@ -342,10 +342,11 @@ const MODULE_TEXT = { marketing: MARKETING_GUIDANCE, seo: SEO_GUIDANCE };
 
 // ── assembly ───────────────────────────────────────────────────────────────
 
-/** The whole system prompt for one request.
+/** The two parts of one request's system prompt.
  *
- *  core(before) + schema slice + core(after) + today + brand + strategy +
- *  taught notes + selected guidance + (concept block | tester hint).
+ *  core: the static rules (CORE_PROMPT), byte-identical for every request.
+ *  request: schema slice + today + brand + strategy + taught notes + selected
+ *  guidance + (concept block | tester hint).
  *
  *  Guidance sits after the taught context so the SEO voice rule's "Brand
  *  context section above" is literally true. Every input is fixed before the
@@ -357,8 +358,8 @@ const MODULE_TEXT = { marketing: MARKETING_GUIDANCE, seo: SEO_GUIDANCE };
  *    schemaSection?: string, guidance?: string[], conceptsEnabled?: boolean,
  *    showConceptHint?: boolean, now?: Date,
  *  }} [opts]
- *  @returns {string} */
-export function buildSystemPrompt({
+ *  @returns {{ core: string, request: string }} */
+function buildSystemParts({
   notes = [],
   schemaSection = '',
   guidance = [],
@@ -405,7 +406,44 @@ export function buildSystemPrompt({
     ? `\n\n${PRODUCT_CONCEPT_GUIDANCE}`
     : showConceptHint ? `\n\n${CONCEPT_MODE_HINT}` : '';
 
-  return CORE_BEFORE_SCHEMA + schemaSection + '\n\n' + CORE_AFTER_SCHEMA
-    + dateBlock + brandBlock + strategyBlock + notesBlock
-    + guidanceBlock + conceptBlock;
+  return {
+    core: CORE_PROMPT,
+    request: (schemaSection + dateBlock + brandBlock + strategyBlock + notesBlock
+      + guidanceBlock + conceptBlock).replace(/^\n+/, ''),
+  };
+}
+
+/** The static core: identical bytes for every request, every user and every
+ *  company, so it can be cached once and read by all of them (see
+ *  buildSystemBlocks). Nothing per-request may ever be added to it. */
+export const CORE_PROMPT = CORE_BEFORE_SCHEMA + '\n\n' + CORE_AFTER_SCHEMA;
+
+/** One string, for the evals and anything else that wants the whole prompt. */
+export function buildSystemPrompt(opts = {}) {
+  const { core, request } = buildSystemParts(opts);
+  return core + '\n\n' + request;
+}
+
+/** CROSS-USER CACHING (2026-09-27, sized for 10-15 users). The system prompt
+ *  used to be ONE cached block with the per-question schema slice in the
+ *  middle of it, so no two questions shared a cacheable prefix beyond the tool
+ *  list: every request's first model call paid full price, and full rate-limit
+ *  weight, for ~6k tokens of rules that never change. Now the static core is
+ *  its own block with a one-hour cache marker, and this request's part (schema
+ *  slice, date, taught notes, guidance, concept block) follows with the default
+ *  five-minute marker that serves the later rounds of the same request.
+ *
+ *  Why the hour: at the target volume questions arrive minutes apart during
+ *  the working day, often more than five, so a five-minute entry would mostly
+ *  expire between them. Cache reads also do not count toward the API's
+ *  input-token-per-minute limit, which is the limit concurrent investigations
+ *  hit first -- so this is a capacity change as much as a cost one. Longer TTLs
+ *  must come before shorter ones, which this order satisfies. Measure it in
+ *  diagnostics.context.model_usage (cache_read on a request's FIRST call). */
+export function buildSystemBlocks(opts = {}) {
+  const { core, request } = buildSystemParts(opts);
+  return [
+    { type: 'text', text: core, cache_control: { type: 'ephemeral', ttl: '1h' } },
+    { type: 'text', text: request, cache_control: { type: 'ephemeral' } },
+  ];
 }
