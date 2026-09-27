@@ -29,7 +29,7 @@ So a request is model-bound, not database-bound. The first things to break at 3â
    - The system prompt is two blocks: the rules every request shares, cached for an hour, then this request's part (schema slice, date, taught notes, guidance).
    - Before, the per-question schema slice sat inside the only cached block, so no two questions shared a cache entry.
    - Cache reads cost ~0.1Ã— and **do not count toward the input-token rate limit**. That makes this a capacity change as well as a cost one.
-   - **A spend-cap 429 is not "busy".** Anthropic also answers 429 with `error.details.error_code = "enforced_spend_limit_reached"` when the organisation's spend cap is hit. That is never retried: the person is told an admin needs to raise the limit, with no Try again, and the row records `provider_spend_limit: 429`.
+   - **A spend limit is not "busy".** Anthropic answers 429 with `error.details.error_code = "enforced_spend_limit_reached"` at the usage-tier cap, and 400 `invalid_request_error` "You have reached your specified [workspace] API usage limits" at a limit someone configured. Both are handled the same way. That is never retried: the person is told an admin needs to raise the limit, with no Try again, and the row records `provider_spend_limit: 429`.
    - A refused request still records the rounds it used and the usage, retries and query outcomes gathered before the refusal.
 3. **Every model call's usage is recorded**: `diagnostics.context.model_usage` (per call), `model_usage_total` and `provider_retries`.
 

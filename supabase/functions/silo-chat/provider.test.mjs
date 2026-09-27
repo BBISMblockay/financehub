@@ -6,7 +6,7 @@
  * Run: node supabase/functions/silo-chat/provider.test.mjs
  */
 import {
-  retryDecision, parseRetryAfter, pickUsage, sumUsage, providerErrorCode, isSpendLimit,
+  retryDecision, parseRetryAfter, pickUsage, sumUsage, providerErrorCode, isSpendLimit, isSpendLimitResponse,
   RETRYABLE_STATUSES, BUSY_STATUSES, MAX_PROVIDER_RETRIES, MAX_RETRY_WAIT_MS, RETRY_HEADROOM_MS,
 } from './provider-lib.mjs';
 
@@ -90,6 +90,19 @@ test('a spend-capped 429 is never retried, even with time and attempts left', ()
   const d = retryDecision({ status: 429, errorCode: code, attempt: 0, now: NOW, capAt: 0, jitter: noJitter });
   eq(d.retry, false, 'retried');
   eq(d.reason, 'spend_limit', 'reason');
+});
+const ORG_LIMIT = '{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified API usage limits. You will regain access on 2026-10-01 at 00:00 UTC."}}';
+const WS_LIMIT = '{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified workspace API usage limits. You will regain access on 2026-10-01 at 00:00 UTC."}}';
+test('a configured organisation or workspace spend limit (400) is a spend limit', () => {
+  eq(isSpendLimitResponse(400, ORG_LIMIT), true, 'organisation limit');
+  eq(isSpendLimitResponse(400, WS_LIMIT), true, 'workspace limit');
+  eq(isSpendLimitResponse(429, SPEND_BODY), true, 'usage-tier cap');
+});
+test('an ordinary 400 or rate limit is not a spend limit', () => {
+  eq(isSpendLimitResponse(400, '{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: too large"}}'), false, 'bad request');
+  eq(isSpendLimitResponse(400, 'bad request'), false, 'non-JSON 400');
+  eq(isSpendLimitResponse(429, '{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}'), false, 'rate limit');
+  eq(isSpendLimitResponse(500, ORG_LIMIT), false, 'the prefix only counts on a 400');
 });
 test('an ordinary rate-limit 429 still retries', () => {
   eq(retryDecision({ status: 429, errorCode: 'rate_limit_error', attempt: 0, now: NOW, jitter: noJitter }).retry, true, 'rate limit');

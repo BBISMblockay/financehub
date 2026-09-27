@@ -59,6 +59,28 @@ export function isSpendLimit(code) {
   return code != null && SPEND_LIMIT_CODES.has(code);
 }
 
+/** A spend limit someone SET (organisation or workspace) arrives differently
+ *  from the usage-tier cap: HTTP 400, `invalid_request_error`, and a message
+ *  beginning "You have reached your specified [workspace] API usage limits"
+ *  (review of #806, cycle 2). Same meaning -- nothing clears it but an admin --
+ *  so it is recognised by that documented prefix. */
+const CONFIGURED_LIMIT_MESSAGE = /^You have reached your specified (?:workspace )?API usage limits/i;
+
+/** True when a failed response means "the account may not spend more", in
+ *  either documented shape. Never throws. */
+export function isSpendLimitResponse(status, bodyText) {
+  if (isSpendLimit(providerErrorCode(bodyText))) return true;
+  if (status !== 400 || !bodyText) return false;
+  try {
+    const e = JSON.parse(bodyText)?.error;
+    return e?.type === 'invalid_request_error'
+      && typeof e?.message === 'string'
+      && CONFIGURED_LIMIT_MESSAGE.test(e.message.trim());
+  } catch {
+    return false;
+  }
+}
+
 /** `retry-after` is seconds (an integer) or an HTTP date. Returns ms or null. */
 export function parseRetryAfter(value, now = Date.now()) {
   if (value == null || value === '') return null;

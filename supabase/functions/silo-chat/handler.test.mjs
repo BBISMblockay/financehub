@@ -2016,6 +2016,19 @@ await test('a spend-cap 429 is not retried and is not reported as busy', async (
   eq(auditRow(client).tool_rounds, 2, 'rounds already used are kept');
 });
 
+await test('a configured workspace spend limit (400) is reported as a spend limit, not a raw error', async () => {
+  const model = installScriptedModel([
+    { status: 400, body: '{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified workspace API usage limits. You will regain access on 2026-10-01 at 00:00 UTC."}}' },
+  ]);
+  const { res, json, client } = await ask(BASIC);
+  eq(res.status, 503, `status (${json.error})`);
+  eq(json.provider_spend_limit, true, 'provider_spend_limit');
+  eq(json.retryable, false, 'retryable');
+  assert(!/Anthropic API|usage limits/.test(json.error), `raw provider error leaked: ${json.error}`);
+  eq(model.sent.length, 1, 'retried');
+  eq(auditRow(client).error_message, 'provider_spend_limit: 400', 'audit error_message');
+});
+
 await test('a busy failure after real rounds keeps their rounds, usage and retries in the audit row', async () => {
   installScriptedModel([
     withUsage(toolRound(1), { input_tokens: 900, output_tokens: 40, cache_read_input_tokens: 6100, cache_creation_input_tokens: 3000 }),

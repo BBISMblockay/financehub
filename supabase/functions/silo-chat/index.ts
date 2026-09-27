@@ -175,7 +175,7 @@ import {
 import { buildSystemBlocks, selectGuidance } from './prompt-lib.mjs';
 import {
   BUSY_STATUSES,
-  isSpendLimit,
+  isSpendLimitResponse,
   parseRetryAfter,
   providerErrorCode,
   pickUsage,
@@ -748,7 +748,7 @@ async function callAnthropic(
     const bodyText = await res.text();
     // The body is read before the retry decision: a 429 is not always "busy".
     const errorCode = providerErrorCode(bodyText);
-    if (isSpendLimit(errorCode)) throw new ProviderSpendLimitError(res.status, bodyText);
+    if (isSpendLimitResponse(res.status, bodyText)) throw new ProviderSpendLimitError(res.status, bodyText);
     const d = retryDecision({ status: res.status, retryAfter: res.headers.get('retry-after'), errorCode, attempt, capAt });
     if (d.retry) {
       opts.onRetry?.(res.status, d.waitMs);
