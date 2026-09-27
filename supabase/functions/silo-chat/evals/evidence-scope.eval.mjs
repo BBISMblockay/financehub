@@ -4,7 +4,7 @@
  * needs ANTHROPIC_API_KEY. It is not run by CI and must never be added to it.
  *
  * It replays the two answers traced on 2026-09-16 at the step that went wrong:
- * the model is given the REAL system prompt built from index.ts and a SCRIPTED
+ * the model is given the REAL system prompt built by prompt-lib.mjs and a SCRIPTED
  * transcript whose tool results are rendered by the REAL renderQueryResult over
  * frozen fixtures, and then writes the answer. Repeatable because nothing is
  * queried; narrow because nothing is queried.
@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { renderQueryResult, buildCatalogIndex } from '../evidence-scope.mjs';
+import { buildSystemPrompt, selectGuidance } from '../prompt-lib.mjs';
 import {
   CATALOG_FIXTURE, COMBINED_SPEND_SQL, COMBINED_SPEND_ROWS, PER_PLATFORM_SQL,
   PER_PLATFORM_ROWS, WEEKLY_BUCKET_SQL, WEEKLY_BUCKET_ROWS, DAILY_STRADDLE_ROWS,
@@ -44,33 +45,17 @@ const AS_JSON = argv.includes('--json');
 // crash halfway through a paid run.
 const DRY = argv.includes('--dry-run');
 
-/** Same scraper the prompt suite uses -- index.ts is Deno and cannot be
- *  imported here, but its prompts are plain template literals. */
-function constant(name) {
-  const start = SRC.indexOf(`const ${name} = \``);
-  if (start === -1) throw new Error(`prompt constant ${name} not found`);
-  const from = SRC.indexOf('`', start) + 1;
-  let i = from;
-  for (; i < SRC.length; i++) {
-    if (SRC[i] === '\\') { i++; continue; }
-    if (SRC[i] === '`') break;
-  }
-  return SRC.slice(from, i);
-}
-
-const BEFORE = constant('BASE_PROMPT_BEFORE_SCHEMA');
-const AFTER = constant('BASE_PROMPT_AFTER_SCHEMA');
 const SCOPE_SECTION_HEAD = 'EVERY FIGURE KEEPS THE POPULATION IT CAME FROM.';
 const EVIDENCE_HEAD = 'EVIDENCE DISCIPLINE --';
 
-/** The control arm: the prompt exactly as it was before this change, i.e. the
- *  scope section excised. Cut by its own headings rather than by a stored copy
- *  so it cannot drift out of date the moment the section is edited. */
-function withoutScopeRules(after) {
-  const a = after.indexOf(SCOPE_SECTION_HEAD);
-  const b = after.indexOf(EVIDENCE_HEAD);
+/** The control arm: the prompt exactly as it was before the scope rules, i.e.
+ *  the scope section excised. Cut by its own headings rather than by a stored
+ *  copy so it cannot drift out of date the moment the section is edited. */
+function withoutScopeRules(prompt) {
+  const a = prompt.indexOf(SCOPE_SECTION_HEAD);
+  const b = prompt.indexOf(EVIDENCE_HEAD);
   if (a === -1 || b === -1 || b < a) throw new Error('could not locate the scope section to remove');
-  return after.slice(0, a) + after.slice(b);
+  return prompt.slice(0, a) + prompt.slice(b);
 }
 
 const INDEX = buildCatalogIndex(CATALOG_FIXTURE);
@@ -80,9 +65,14 @@ const schemaSection = `\n\nDatabase map (auto-generated from the live schema -- 
   ).join('\n\n')
 }`;
 
-function systemPrompt({ scopeRules }) {
-  const today = 'Today\'s date is Wednesday, September 16, 2026 (2026-09-16, UTC).';
-  return `${BEFORE}${schemaSection}\n\n${scopeRules ? AFTER : withoutScopeRules(AFTER)}\n\n${today}`;
+/** The REAL assembly path (prompt-lib.mjs): core, the guidance modules the
+ *  handler would select for this question, and a fixed date. */
+function systemPrompt({ scopeRules, question = '' }) {
+  const guidance = selectGuidance({ history: [{ role: 'user', content: question }] });
+  const full = buildSystemPrompt({
+    schemaSection, guidance, now: new Date('2026-09-16T12:00:00Z'),
+  });
+  return scopeRules ? full : withoutScopeRules(full);
 }
 
 /** A scripted tool round. `enveloped` chooses between the new result shape and
@@ -295,7 +285,7 @@ async function runCase(c, { enveloped, scopeRules }) {
       ? c.finalNudge()
       : 'Answer the question now from the results above. Do not run anything else.',
   });
-  const answer = await callModel(systemPrompt({ scopeRules }), messages);
+  const answer = await callModel(systemPrompt({ scopeRules, question: c.question }), messages);
   const checks = c.grade(answer);
   return { answer, checks, passed: checks.every(([, ok]) => ok) };
 }
@@ -320,9 +310,11 @@ const arms = BASELINE
 if (DRY) {
   for (const arm of [{ name: 'with-controls', enveloped: true, scopeRules: true },
                      { name: 'baseline', enveloped: false, scopeRules: false }]) {
-    const sys = systemPrompt(arm);
-    console.log(`${arm.name}: system prompt ${sys.length} chars, scope section ${sys.includes(SCOPE_SECTION_HEAD) ? 'present' : 'absent'}`);
+    console.log(`${arm.name}:`);
     for (const c of selected) {
+      const sys = systemPrompt({ ...arm, question: c.question });
+      const mods = selectGuidance({ history: [{ role: 'user', content: c.question }] });
+      console.log(`  ${c.key}: system prompt ${sys.length} chars, guidance [${mods.join(', ')}], scope section ${sys.includes(SCOPE_SECTION_HEAD) ? 'present' : 'absent'}`);
       const rounds = c.rounds(arm.enveloped);
       const enveloped = rounds.some((r) => r.user[0].content.includes('evidence_scope'));
       const nudge = c.finalNudge ? `${c.finalNudge().length} chars scraped` : 'default';

@@ -42,6 +42,7 @@ const INDEX = join(HERE, 'index.ts');
 const SEO_LIB_URL = pathToFileURL(join(HERE, 'seo-lib.mjs')).href;
 const EVIDENCE_LIB_URL = pathToFileURL(join(HERE, 'evidence-scope.mjs')).href;
 const BUDGET_LIB_URL = pathToFileURL(join(HERE, 'budget-lib.mjs')).href;
+const PROMPT_LIB_URL = pathToFileURL(join(HERE, 'prompt-lib.mjs')).href;
 
 let failures = 0;
 let run = 0;
@@ -92,10 +93,11 @@ const harnessPath = join(tmpdir(), `silo-chat-harness-${process.pid}.ts`);
     )
     .replace("from './seo-lib.mjs';", `from ${JSON.stringify(SEO_LIB_URL)};`)
     .replace("from './evidence-scope.mjs';", `from ${JSON.stringify(EVIDENCE_LIB_URL)};`)
-    .replace("from './budget-lib.mjs';", `from ${JSON.stringify(BUDGET_LIB_URL)};`);
+    .replace("from './budget-lib.mjs';", `from ${JSON.stringify(BUDGET_LIB_URL)};`)
+    .replace("from './prompt-lib.mjs';", `from ${JSON.stringify(PROMPT_LIB_URL)};`);
   // A silently-unapplied rewrite would load a file that still imports npm:,
   // which fails with a confusing resolver error 40 lines away from the cause.
-  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, 'Buffer.from(bytes)']) {
+  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, 'Buffer.from(bytes)']) {
     if (!rewritten.includes(marker)) {
       throw new Error(`harness rewrite failed: index.ts no longer matches the expected import for ${marker}`);
     }
@@ -1736,6 +1738,115 @@ await test('a date the person asked about counts as supplied', async () => {
   const p = JSON.parse(toolResultsSeen(model.sent)[0]).evidence_scope.date_scope.boundary_provenance;
   assert(!p.unsourced, `dates the person gave were called invented: ${JSON.stringify(p)}`);
   eq(p.from_question.sort(), ['2026-08-01', '2026-09-15'], 'question-supplied dates');
+});
+
+
+// ── prompt guidance is selected per request, and never grants a tool ───────
+//
+// These run the real handler and read the system prompt and tool list it
+// actually SENT, so they cover the wiring between selectGuidance(),
+// buildSystemPrompt() and the authorization decision -- the part a
+// prompt-lib unit test cannot see.
+
+const SEO_HEAD = 'SEO, SEARCH AND SITE TRAFFIC --';
+const MARKETING_HEAD = 'MARKETING, ADVERTISING AND LAUNCHES --';
+const CONCEPT_HEAD = 'PRODUCT CONCEPTS (in testing';
+const CONCEPT_HINT_HEAD = 'Product Concepts: you have access to a structured product-concept workflow';
+const CONCEPT_TOOL_NAMES = ['create_product_concept', 'update_product_concept', 'approve_product_concept'];
+const systemOf = (sent) => sent[0].system.map((b) => b.text).join('');
+const toolNamesOf = (sent) => sent[0].tools.map((t) => t.name).filter(Boolean);
+const convo = (...turns) => ({
+  history: turns.map((content, i) => ({ role: i % 2 ? 'assistant' : 'user', content })),
+  request_id: REQUEST_ID,
+});
+
+await test('an ordinary sales question carries the core only, and no concept tools', async () => {
+  const model = installModel([say('Sales were $10.')]);
+  const { client } = await ask(BASIC);
+  const sys = systemOf(model.sent);
+  for (const head of [SEO_HEAD, MARKETING_HEAD, CONCEPT_HEAD, CONCEPT_HINT_HEAD]) {
+    assert(!sys.includes(head), `ordinary question carried: ${head}`);
+  }
+  assert(sys.includes('EVERY FIGURE KEEPS THE POPULATION IT CAME FROM'), 'core scope rules missing');
+  assert(sys.includes('WHEN YOU SIMPLIFY, THE QUALIFIERS ARE PART OF THE ANSWER'), 'core simplify rule missing');
+  for (const t of CONCEPT_TOOL_NAMES) assert(!toolNamesOf(model.sent).includes(t), `${t} was sent`);
+  eq(auditRow(client).diagnostics.context.guidance_modules, [], 'recorded guidance modules');
+});
+
+await test('an SEO question carries the SEO guidance and records it', async () => {
+  const model = installModel([say('ok')]);
+  const { client } = await ask(convo('Which collection pages should we rewrite meta descriptions for?'));
+  assert(systemOf(model.sent).includes(SEO_HEAD), 'SEO guidance missing');
+  eq(auditRow(client).diagnostics.context.guidance_modules, ['seo'], 'recorded guidance modules');
+});
+
+await test('a launch/ads comparison carries the marketing guidance', async () => {
+  const model = installModel([say('ok')]);
+  await ask(convo('Compare Meta spend and sales for the Back To School launch vs Labor Day'));
+  const sys = systemOf(model.sent);
+  assert(sys.includes(MARKETING_HEAD), 'marketing guidance missing');
+  assert(!sys.includes(SEO_HEAD), 'SEO guidance loaded for a paid-media question');
+});
+
+await test('"simplify that" keeps the guidance the previous turn needed', async () => {
+  const model = installModel([say('ok')]);
+  await ask(convo(
+    'How are our collection pages doing in Google search?',
+    'Search clicks to collection pages were 4,210 over the 28 days of data we hold...',
+    'simplify that',
+  ));
+  assert(systemOf(model.sent).includes(SEO_HEAD), 'follow-up lost the SEO guidance');
+});
+
+await test('the system prompt and tools are identical on every round of one request', async () => {
+  const model = installModel([toolRound(1), toolRound(2), say('done')]);
+  await ask(convo('How did the Sonic launch do on TikTok ads?'));
+  assert(model.sent.length === 3, `expected 3 model calls, got ${model.sent.length}`);
+  for (const later of model.sent.slice(1)) {
+    eq(later.system, model.sent[0].system, 'system prompt changed between rounds');
+    eq(later.tools, model.sent[0].tools, 'tools changed between rounds');
+  }
+});
+
+await test('concept wording from a non-tester never adds concept guidance or tools', async () => {
+  const model = installModel([say('ok')]);
+  await ask({ ...convo('Draft a new product concept for a youth hoodie collection'), workflow: 'product_concept' });
+  const sys = systemOf(model.sent);
+  assert(!sys.includes(CONCEPT_HEAD) && !sys.includes(CONCEPT_HINT_HEAD), 'non-tester saw concept text');
+  for (const t of CONCEPT_TOOL_NAMES) assert(!toolNamesOf(model.sent).includes(t), `${t} was sent to a non-tester`);
+});
+
+await test('a tester asking an analytical question without the workflow gets the hint, not the tools', async () => {
+  const model = installModel([say('ok')]);
+  await ask(convo('Draft a demand plan for our launch collection by product type'), undefined, CONCEPT_TESTER);
+  const sys = systemOf(model.sent);
+  assert(sys.includes(CONCEPT_HINT_HEAD), 'tester was not told the workflow exists');
+  assert(!sys.includes(CONCEPT_HEAD), 'concept block loaded without the workflow');
+  for (const t of CONCEPT_TOOL_NAMES) assert(!toolNamesOf(model.sent).includes(t), `${t} was sent without the workflow`);
+});
+
+await test('explicit concept mode for a tester carries the concept block, launch guidance and tools', async () => {
+  const model = installModel([say('ok')]);
+  const { client } = await ask(
+    { ...convo('Something for summer, a new cap idea'), workflow: 'product_concept' }, undefined, CONCEPT_TESTER,
+  );
+  const sys = systemOf(model.sent);
+  assert(sys.includes(CONCEPT_HEAD), 'concept block missing');
+  assert(sys.includes(MARKETING_HEAD), 'launch guidance concept grounding relies on is missing');
+  assert(!sys.includes(CONCEPT_HINT_HEAD), 'hint shown alongside the active workflow');
+  for (const t of CONCEPT_TOOL_NAMES) assert(toolNamesOf(model.sent).includes(t), `${t} missing in concept mode`);
+  eq(auditRow(client).diagnostics.context.guidance_modules, ['marketing'], 'recorded guidance modules');
+});
+
+await test('a concept card action (conceptId) turns concept mode on for a tester only', async () => {
+  const withId = { history: [{ role: 'user', content: 'Cut the buy 25%', conceptId: 'c-1' }], request_id: REQUEST_ID };
+  let model = installModel([say('ok')]);
+  await ask(withId, undefined, CONCEPT_TESTER);
+  assert(systemOf(model.sent).includes(CONCEPT_HEAD), 'tester card action lost the concept block');
+  model = installModel([say('ok')]);
+  await ask(withId);
+  assert(!systemOf(model.sent).includes(CONCEPT_HEAD), 'non-tester card action loaded the concept block');
+  for (const t of CONCEPT_TOOL_NAMES) assert(!toolNamesOf(model.sent).includes(t), `${t} sent to a non-tester card action`);
 });
 
 console.log(`\n${run - failures}/${run} passed`);

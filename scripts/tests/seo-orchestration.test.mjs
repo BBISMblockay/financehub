@@ -17,7 +17,12 @@ import {
   REQUIRED_SEO_QUALIFIERS,
 } from '../../supabase/functions/silo-chat/seo-lib.mjs';
 
-const SRC = readFileSync(new URL('../../supabase/functions/silo-chat/index.ts', import.meta.url), 'utf8');
+// The handler (tool descriptions, the inspection budget) and the prompt text
+// (prompt-lib.mjs, where the SEO guidance module lives since 2026-09-27) are
+// read together: a rule counts wherever the model is actually shown it. That
+// the SEO module is SELECTED for SEO questions is prompt.test.mjs's job.
+const SRC = readFileSync(new URL('../../supabase/functions/silo-chat/index.ts', import.meta.url), 'utf8')
+  + readFileSync(new URL('../../supabase/functions/silo-chat/prompt-lib.mjs', import.meta.url), 'utf8');
 
 let passed = 0;
 const ok = (c, m) => { assert.ok(c, m); passed += 1; };

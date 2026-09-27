@@ -115,11 +115,12 @@ names its own numerator and denominator from the same result; a period
 spanning an event is on both sides of it; a name is not an objective and
 current metadata is not historical fact; before/after is not cause and a
 lead-gen campaign is not cut on purchase ROAS without the linkage; queried is
-not reconciled. These are **prompt-only**. They are in `BASE_PROMPT_AFTER_SCHEMA`
-so ordinary questions see them (a rule in `PRODUCT_CONCEPT_SYSTEM_BLOCK` reaches
-concept-mode testers only — that is what `prompt.test.mjs` exists for), and
-`prompt.test.mjs` asserts *which block* they land in, never merely that the text
-exists.
+not reconciled. These are **prompt-only**. They are in the prompt CORE
+(`CORE_AFTER_SCHEMA` in `prompt-lib.mjs`, since 2026-09-27; formerly
+`BASE_PROMPT_AFTER_SCHEMA`) so every question sees them, whichever guidance
+modules it selects (a rule in the concept block reaches concept-mode testers
+only — that is what `prompt.test.mjs` exists for), and `prompt.test.mjs`
+asserts they reach every *assembled* prompt, never merely that the text exists.
 
 ## What the diagnostics column does and does not store
 

@@ -11,6 +11,12 @@ name: Ask SILO tests
 # block does not error, does not warn, and reads perfectly in review. Only an
 # assertion about WHICH block it lands in catches that.
 #
+# Since 2026-09-27 the prompt is a shared core plus guidance modules selected
+# per request (prompt-lib.mjs), which adds a second way to be unreachable: a
+# rule in a module the question never selects. prompt.test.mjs therefore
+# asserts on ASSEMBLED prompts for representative questions, and
+# handler.test.mjs reads the system prompt and tools the real handler sends.
+#
 # Scope note, so nobody reads more into a green check than it earns: these
 # tests prove the instructions reach the prompt an ordinary question is built
 # from. They do NOT prove the model obeys them. That question needs eval runs
@@ -23,7 +29,7 @@ name: Ask SILO tests
 # and database, which is the only way to assert things like "the answer
 # returned is the whole answer".
 #
-# Needs NO secrets and no install -- both read index.ts off the checkout, so
+# Needs NO secrets and no install -- both read index.ts / prompt-lib.mjs off the checkout, so
 # they are safe to run on pull requests.
 
 on:
@@ -83,3 +89,8 @@ jobs:
       # a paid run that somebody had already started.
       - name: Check the model evaluation still assembles (no API calls)
         run: node supabase/functions/silo-chat/evals/evidence-scope.eval.mjs --dry-run
+
+      # Same stance for the answer-shape evaluation added with the prompt split:
+      # its dry run builds every assembled prompt and transcript, calls nothing.
+      - name: Check the answer-shape evaluation still assembles (no API calls)
+        run: node supabase/functions/silo-chat/evals/answer-shape.eval.mjs --dry-run
