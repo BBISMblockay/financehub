@@ -43,6 +43,7 @@ const SEO_LIB_URL = pathToFileURL(join(HERE, 'seo-lib.mjs')).href;
 const EVIDENCE_LIB_URL = pathToFileURL(join(HERE, 'evidence-scope.mjs')).href;
 const BUDGET_LIB_URL = pathToFileURL(join(HERE, 'budget-lib.mjs')).href;
 const PROMPT_LIB_URL = pathToFileURL(join(HERE, 'prompt-lib.mjs')).href;
+const PROVIDER_LIB_URL = pathToFileURL(join(HERE, 'provider-lib.mjs')).href;
 
 let failures = 0;
 let run = 0;
@@ -94,10 +95,11 @@ const harnessPath = join(tmpdir(), `silo-chat-harness-${process.pid}.ts`);
     .replace("from './seo-lib.mjs';", `from ${JSON.stringify(SEO_LIB_URL)};`)
     .replace("from './evidence-scope.mjs';", `from ${JSON.stringify(EVIDENCE_LIB_URL)};`)
     .replace("from './budget-lib.mjs';", `from ${JSON.stringify(BUDGET_LIB_URL)};`)
-    .replace("from './prompt-lib.mjs';", `from ${JSON.stringify(PROMPT_LIB_URL)};`);
+    .replace("from './prompt-lib.mjs';", `from ${JSON.stringify(PROMPT_LIB_URL)};`)
+    .replace("from './provider-lib.mjs';", `from ${JSON.stringify(PROVIDER_LIB_URL)};`);
   // A silently-unapplied rewrite would load a file that still imports npm:,
   // which fails with a confusing resolver error 40 lines away from the cause.
-  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, 'Buffer.from(bytes)']) {
+  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, 'Buffer.from(bytes)']) {
     if (!rewritten.includes(marker)) {
       throw new Error(`harness rewrite failed: index.ts no longer matches the expected import for ${marker}`);
     }
@@ -1887,6 +1889,194 @@ await test('a concept card action (conceptId) turns concept mode on for a tester
   await ask(withId);
   assert(!systemOf(model.sent).includes(CONCEPT_HEAD), 'non-tester card action loaded the concept block');
   for (const t of CONCEPT_TOOL_NAMES) assert(!toolNamesOf(model.sent).includes(t), `${t} sent to a non-tester card action`);
+});
+
+
+// ── volume: provider pushback, the shared cached core, usage, concurrency ───
+//
+// Sized for 10-15 users (2026-09-27). Until now a 429/529 surfaced as a raw
+// "Anthropic API 429" error with an instant retry button, the per-question
+// schema slice sat in the middle of the only cached block (so no two
+// questions shared a cache entry), and no call's token usage was recorded.
+
+/** Scripted model responses that may be HTTP failures. Each entry is either a
+ *  model body (200) or { status, retryAfter, body }. */
+function installScriptedModel(steps) {
+  const queue = steps.slice();
+  const sent = [];
+  globalThis.fetch = async (url, init) => {
+    if (!String(url).includes('api.anthropic.com')) throw new Error(`unexpected outbound fetch in test: ${url}`);
+    sent.push(JSON.parse(init.body));
+    if (!queue.length) throw new Error('model called more times than the test scripted');
+    const step = queue.shift();
+    if (step && typeof step.status === 'number') {
+      return {
+        ok: false, status: step.status,
+        headers: { get: (h) => (h.toLowerCase() === 'retry-after' ? (step.retryAfter ?? null) : null) },
+        text: async () => step.body || '{"type":"error"}',
+        json: async () => ({}),
+      };
+    }
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => step, text: async () => JSON.stringify(step) };
+  };
+  return { sent, remaining: () => queue.length };
+}
+const withUsage = (body, usage) => ({ ...body, usage });
+
+await test('the system prompt is sent as two blocks: the shared core (1h) then this request (5m)', async () => {
+  const model = installScriptedModel([say('ok')]);
+  await ask(BASIC);
+  const sys = model.sent[0].system;
+  eq(sys.length, 2, 'block count');
+  eq(sys[0].cache_control, { type: 'ephemeral', ttl: '1h' }, 'core cache_control');
+  eq(sys[1].cache_control, { type: 'ephemeral' }, 'request cache_control');
+  assert(sys[0].text.startsWith('You are the SILO data assistant'), 'core is not first');
+  assert(!sys[0].text.includes("Today's date is"), 'the date leaked into the shared core');
+});
+
+await test('two different requests send a byte-identical first block', async () => {
+  let model = installScriptedModel([say('ok')]);
+  await ask(convo('What did we sell last week?'));
+  const a = model.sent[0].system[0].text;
+  model = installScriptedModel([say('ok')]);
+  await ask({ ...convo('Which collection pages should we improve for Google search?'), workflow: 'product_concept' }, undefined, CONCEPT_TESTER);
+  eq(model.sent[0].system[0].text === a, true, 'the shared core differs between requests');
+  assert(model.sent[0].system[1].text !== a, 'sanity: request blocks should differ');
+});
+
+await test('per-call token usage and its totals land in the audit row', async () => {
+  installScriptedModel([
+    withUsage(toolRound(1), { input_tokens: 900, output_tokens: 40, cache_read_input_tokens: 6100, cache_creation_input_tokens: 3000 }),
+    withUsage(say('Sales were $10.'), { input_tokens: 300, output_tokens: 20, cache_read_input_tokens: 9100, cache_creation_input_tokens: 0 }),
+  ]);
+  const { client } = await ask(BASIC);
+  const ctx = auditRow(client).diagnostics.context;
+  eq(ctx.model_usage, [
+    { input: 900, output: 40, cache_read: 6100, cache_write: 3000 },
+    { input: 300, output: 20, cache_read: 9100, cache_write: 0 },
+  ], 'model_usage');
+  eq(ctx.model_usage_total, { input: 1200, output: 60, cache_read: 15200, cache_write: 3000 }, 'model_usage_total');
+  eq(ctx.provider_retries, [], 'no retries');
+});
+
+await test('a 429 is retried and the question is still answered, with the retry recorded', async () => {
+  const model = installScriptedModel([{ status: 429, retryAfter: '0' }, say('Sales were $10.')]);
+  const { json, client } = await ask(BASIC);
+  eq(json.answer, 'Sales were $10.', 'answer after a retry');
+  eq(model.sent.length, 2, 'model calls');
+  eq(auditRow(client).diagnostics.context.provider_retries, [{ status: 429, wait_ms: 0 }], 'retry recorded');
+});
+
+await test('an overloaded 529 is retried too', async () => {
+  installScriptedModel([{ status: 529, retryAfter: '0' }, { status: 529, retryAfter: '0' }, say('ok')]);
+  const { json } = await ask(BASIC);
+  eq(json.answer, 'ok', 'answered on the third attempt');
+});
+
+await test('a persistent 429 becomes a plain busy message, not the raw API error', async () => {
+  const model = installScriptedModel([
+    { status: 429, retryAfter: '0', body: '{"type":"error","error":{"type":"rate_limit_error","message":"secret-ish detail"}}' },
+    { status: 429, retryAfter: '0' },
+    { status: 429, retryAfter: '0' },
+  ]);
+  const { res, json, client } = await ask(BASIC);
+  eq(res.status, 503, 'status');
+  eq(json.provider_busy, true, 'provider_busy flag');
+  eq(json.retryable, true, 'retryable');
+  assert(/try it again in about a minute/i.test(json.error), `message: ${json.error}`);
+  assert(!/Anthropic API|rate_limit_error|secret-ish/.test(json.error), `raw provider error leaked: ${json.error}`);
+  eq(model.sent.length, 3, 'one call plus two retries, then stop');
+  eq(auditRow(client).error_message, 'provider_busy: 429', 'audit error_message');
+  eq(auditRow(client).status, 'error', 'audit status');
+});
+
+await test('a busy provider on the forced final answer is reported as busy, not as "couldn\'t land"', async () => {
+  installScriptedModel([...exhaustRounds(), { status: 529, retryAfter: '0' }, { status: 529, retryAfter: '0' }, { status: 529, retryAfter: '0' }]);
+  const { res, json } = await ask(BASIC, { rpcResults: [{ a: 1 }] });
+  eq(res.status, 503, `status (${json.error})`);
+  eq(json.provider_busy, true, 'provider_busy');
+});
+
+await test('a spend-cap 429 is not retried and is not reported as busy', async () => {
+  const model = installScriptedModel([
+    toolRound(1),
+    { status: 429, body: '{"type":"error","error":{"type":"rate_limit_error","message":"cap","details":{"error_code":"enforced_spend_limit_reached"}}}' },
+  ]);
+  const { res, json, client } = await ask(BASIC, { rpcResults: [{ a: 1 }] });
+  eq(res.status, 503, `status (${json.error})`);
+  eq(json.provider_spend_limit, true, 'provider_spend_limit');
+  eq(json.retryable, false, 'retryable');
+  eq(json.provider_busy, undefined, 'must not claim busy');
+  assert(!/about a minute/i.test(json.error), `told to retry shortly: ${json.error}`);
+  assert(!/Anthropic API|enforced_spend/.test(json.error), `raw provider error leaked: ${json.error}`);
+  eq(model.sent.length, 2, 'the spend-cap call was retried');
+  eq(auditRow(client).error_message, 'provider_spend_limit: 429', 'audit error_message');
+  // tool_rounds counts rounds entered, the refused one included -- the same
+  // count every other error path records.
+  eq(auditRow(client).tool_rounds, 2, 'rounds already used are kept');
+});
+
+await test('a configured workspace spend limit (400) is reported as a spend limit, not a raw error', async () => {
+  const model = installScriptedModel([
+    { status: 400, body: '{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified workspace API usage limits. You will regain access on 2026-10-01 at 00:00 UTC."}}' },
+  ]);
+  const { res, json, client } = await ask(BASIC);
+  eq(res.status, 503, `status (${json.error})`);
+  eq(json.provider_spend_limit, true, 'provider_spend_limit');
+  eq(json.retryable, false, 'retryable');
+  assert(!/Anthropic API|usage limits/.test(json.error), `raw provider error leaked: ${json.error}`);
+  eq(model.sent.length, 1, 'retried');
+  eq(auditRow(client).error_message, 'provider_spend_limit: 400', 'audit error_message');
+});
+
+await test('a busy failure after real rounds keeps their rounds, usage and retries in the audit row', async () => {
+  installScriptedModel([
+    withUsage(toolRound(1), { input_tokens: 900, output_tokens: 40, cache_read_input_tokens: 6100, cache_creation_input_tokens: 3000 }),
+    withUsage(toolRound(2), { input_tokens: 500, output_tokens: 30, cache_read_input_tokens: 9100, cache_creation_input_tokens: 0 }),
+    { status: 429, retryAfter: '0' },
+    { status: 429, retryAfter: '0' },
+    { status: 429, retryAfter: '0' },
+  ]);
+  const { res, client } = await ask(BASIC, { rpcResults: [{ a: 1 }] });
+  eq(res.status, 503, 'status');
+  const row = auditRow(client);
+  eq(row.error_message, 'provider_busy: 429', 'audit error_message');
+  eq(row.tool_rounds, 3, 'tool_rounds (two completed, the refused third entered)');
+  const ctx = row.diagnostics.context;
+  eq(ctx.model_usage_total, { input: 1400, output: 70, cache_read: 15200, cache_write: 3000 }, 'usage of the calls that succeeded');
+  eq(ctx.provider_retries, [{ status: 429, wait_ms: 0 }, { status: 429, wait_ms: 0 }], 'retries');
+  assert(Array.isArray(row.diagnostics.queries) && row.diagnostics.queries.length === 2, 'query outcomes kept');
+});
+
+await test('a 400 is not retried', async () => {
+  const model = installScriptedModel([{ status: 400, body: 'bad request' }]);
+  const { res } = await ask(BASIC);
+  eq(model.sent.length, 1, 'a rejected request was retried');
+  eq(res.status, 500, 'status');
+});
+
+await test('concurrent requests do not bleed into each other', async () => {
+  // One shared database stub, eight questions in flight at once. The model
+  // echoes each request's own question, so any cross-request state -- a
+  // shared transcript, query log or company -- shows up as a mismatch.
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    const lastUser = [...body.messages].reverse().find((m) => m.role === 'user');
+    const q = typeof lastUser.content === 'string' ? lastUser.content : '';
+    await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 20)));
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => say(`answer to: ${q}`), text: async () => '' };
+  };
+  const client = makeClient();
+  currentClientFactory = () => client;
+  const questions = Array.from({ length: 8 }, (_, i) => `What did store ${i} sell last week?`);
+  const results = await Promise.all(questions.map(async (q) => {
+    const res = await capturedHandler(request({ history: [{ role: 'user', content: q }], request_id: null }));
+    return res.json();
+  }));
+  results.forEach((j, i) => eq(j.answer, `answer to: ${questions[i]}`, `request ${i}`));
+  const rows = wrote(client, 'silo_chat_audit_log').map((r) => r.payload);
+  eq(rows.length, questions.length, 'audit rows');
+  for (const r of rows) eq(r.answer, `answer to: ${r.question}`, 'an audit row paired one question with another\'s answer');
 });
 
 console.log(`\n${run - failures}/${run} passed`);

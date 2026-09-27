@@ -1192,6 +1192,24 @@
           });
           return;
         }
+        // The AI service was rate limiting and the server's own retries did
+        // not get through. Nothing was answered, so there is nothing in the
+        // audit log to recover -- show it now with Try again, rather than
+        // polling for twenty seconds first.
+        // The AI account's spend cap is reached. Nothing was answered and
+        // asking again cannot work until an admin raises the limit, so show
+        // it now and offer no Try again.
+        if (res.status === 503 && data.provider_spend_limit) {
+          unansweredEntry = askedEntry;
+          renderMessage({ role: 'assistant', content: data.error, isError: true, retryable: false });
+          return;
+        }
+        if (res.status === 503 && data.provider_busy) {
+          lastFailedRequestId = requestId;
+          unansweredEntry = askedEntry;
+          renderMessage({ role: 'assistant', content: data.error, isError: true, retryable: true });
+          return;
+        }
         // A slow request can come back as a non-2xx gateway/platform
         // response (e.g. a timeout) rather than throwing -- that resolves
         // here, not in the catch below, but the edge function may well have
