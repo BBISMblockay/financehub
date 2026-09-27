@@ -3537,6 +3537,50 @@ select
     else 'ok'
   end as seo_serp_tactics;
 
+-- ── SEO recommendations, one evidenced view (20260926180000) ────────────────
+select
+  case
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='seo_recommendations_v' and c.relkind='v')
+      then 'MISSING — seo_recommendations_v'
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='seo_recommendations_v'
+                       and 'security_invoker=true' = any(c.reloptions))
+      then 'MISSING — seo_recommendations_v is not security_invoker'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='seo_recommendations_keyword_stem' and p.provolatile='i')
+      then 'MISSING — seo_recommendations_keyword_stem() (IMMUTABLE)'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='seo_recommendations_v' and column_name='evidence_strength')
+      then 'MISSING — seo_recommendations_v.evidence_strength'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='seo_recommendations_v' and column_name='opportunity_class')
+      then 'MISSING — seo_recommendations_v.opportunity_class'
+    when exists (select 1 from information_schema.columns
+                 where table_schema='public' and table_name='seo_recommendations_v'
+                   and column_name in ('confidence_pct','confidence_score','confidence_percent'))
+      then 'CRITICAL — seo_recommendations_v grew a numeric confidence column; evidence_strength must stay strong/moderate/early only'
+    when public.seo_recommendations_keyword_stem('Baseball  Backpacks') <> 'baseball backpack'
+      or public.seo_recommendations_keyword_stem('gifts for boys') <> 'gift boy'
+      then 'CRITICAL — seo_recommendations_keyword_stem() no longer strips stopwords / trailing s the documented way'
+    when not exists (select 1 from public.silo_chat_schema_catalog where relname='seo_recommendations_v')
+      then 'MISSING — seo_recommendations_v catalog entry'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_recommendations_v' and description like '%THREE ABSENCES STAY THREE STRINGS%')
+      then 'MISSING — seo_recommendations_v catalog entry lost the absence-is-not-zero caveat'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_recommendations_v' and description like '%EXACTLY strong%')
+      then 'MISSING — seo_recommendations_v catalog entry lost the evidence_strength vocabulary caveat'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_recommendations_v' and description like '%REVIEWABLE LIST%')
+      then 'MISSING — seo_recommendations_v catalog entry lost the never-auto-inserts caveat'
+    when not exists (select 1 from pg_indexes
+                     where schemaname='public' and tablename='seo_projects'
+                       and indexname='seo_projects_recommendations_singleton')
+      then 'MISSING — seo_projects_recommendations_singleton; two tabs confirming the first Recommendations task at once can create two "SEO Recommendations" projects'
+    else 'ok'
+  end as seo_recommendations;
+
 -- ── Empty collections stay visible (20260909320000, corrective) ─────────────
 -- The view LEFT-joined product->SKU but INNER-joined collection->membership,
 -- so a collection with no products vanished -- an empty collection read as a

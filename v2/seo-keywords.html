@@ -63,6 +63,14 @@
     dialog.sk-dialog .bcn-card-body { max-height:60vh; overflow:auto; }
     .sk-cand td.src { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); white-space:nowrap; }
     #status { margin:12px 18px 0; }
+    .sk-rec-group { border-top:1px solid var(--bcn-line, #eee); }
+    .sk-rec-group:first-child { border-top:0; }
+    .sk-rec-group-head { padding:10px 16px 4px; font-weight:700; font-size:12.5px; }
+    .sk-rec-group-head .sk-muted { font-weight:400; }
+    .bcn-table td.action-col { max-width:340px; }
+    .sk-evidence--strong { background:var(--bcn-pos); color:#fff; }
+    .sk-evidence--moderate { background:var(--bcn-warn); color:#fff; }
+    .sk-evidence--early { background:var(--bcn-surface-2, #eee); color:var(--bcn-ink-2); }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -74,7 +82,7 @@
     <header class="bcn-header">
       <div>
         <div class="bcn-header-title">SEO Keywords</div>
-        <div id="subtitle" style="font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3)">Keyword set · competitors · observed rankings · weekly tracking</div>
+        <div id="subtitle" style="font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3)">Keyword set · competitors · observed rankings · weekly tracking · recommendations</div>
       </div>
       <div class="bcn-header-actions">
         <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
@@ -90,6 +98,7 @@
       <button class="bcn-tab" data-pane="rankings">Rankings</button>
       <button class="bcn-tab" data-pane="competitors">Competitors</button>
       <button class="bcn-tab" data-pane="tracking">Tracking</button>
+      <button class="bcn-tab" data-pane="recommendations">Recommendations</button>
     </div>
 
     <div class="sk-content">
@@ -227,6 +236,20 @@
           </div>
         </div>
       </div>
+
+      <!-- ── Recommendations ──────────────────────────────────────────── -->
+      <div class="sk-pane" data-pane="recommendations">
+        <div class="bcn-card">
+          <div class="bcn-card-header">
+            <h2>Recommendations</h2>
+            <div class="sk-inline">
+              <button id="btnRecRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+            </div>
+          </div>
+          <div class="bcn-card-body" id="recBody" style="padding:0">Loading…</div>
+          <div class="bcn-card-foot sk-foot" id="recFoot"></div>
+        </div>
+      </div>
     </div>
   </main>
 </div>
@@ -261,6 +284,33 @@
     <div class="bcn-card-foot" style="display:flex;justify-content:flex-end;gap:8px">
       <button id="btnEkDelete" class="bcn-btn bcn-btn--danger">Delete</button>
       <button id="btnEkSave" class="bcn-btn bcn-btn--primary">Save</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Create SEO task, pre-filled from a recommendation's evidence -->
+<dialog class="sk-dialog" id="dlgRecTask" style="width:min(620px,94vw)">
+  <div class="bcn-card" style="margin:0;border:0">
+    <div class="bcn-card-header"><h2>Create SEO task</h2><button class="bcn-btn bcn-btn--ghost" data-close>Close</button></div>
+    <div class="bcn-card-body">
+      <div id="rtEvidence" class="sk-foot" style="margin-bottom:10px"></div>
+      <div class="bcn-field-group"><label class="bcn-label">Title</label><input id="rtTitle" class="bcn-field" /></div>
+      <div class="sk-inline" style="margin-bottom:0">
+        <div class="bcn-field-group"><label class="bcn-label">Target type</label>
+          <select id="rtTargetType" class="bcn-field">
+            <option value="product">Product</option><option value="collection">Collection</option>
+            <option value="page">Page</option><option value="blog">Blog</option>
+            <option value="site">Site</option><option value="other">Other</option>
+          </select></div>
+        <div class="bcn-field-group"><label class="bcn-label">Target handle</label><input id="rtHandle" class="bcn-field" /></div>
+      </div>
+      <div class="bcn-field-group"><label class="bcn-label">Target URL</label><input id="rtUrl" class="bcn-field" placeholder="leave blank if the page doesn't exist yet" /></div>
+      <div class="bcn-field-group"><label class="bcn-label">Rationale (the evidence, in your own words if you want to edit it)</label>
+        <textarea id="rtRationale" class="bcn-field" rows="5" style="font-family:var(--bcn-mono);font-size:11px"></textarea></div>
+    </div>
+    <div class="bcn-card-foot" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <span class="sk-foot">Saves as a draft in Projects → SEO Recommendations. Nothing is approved or published from here.</span>
+      <button id="btnRtConfirm" class="bcn-btn bcn-btn--primary">Create draft task</button>
     </div>
   </div>
 </dialog>
@@ -307,6 +357,7 @@
   // rather than a bare error, since the page and the migration ship apart.
   function explain(e) {
     const msg = String(e?.message || e);
+    if (/42P01|42883|does not exist/i.test(msg) && /seo_recommendations_v|seo_recommendations_keyword_stem/.test(msg)) return `${msg} — apply 20260926180000_seo_recommendations.sql`;
     if (/42P01|does not exist/i.test(msg) && /seo_serp_(schedules|provider_tasks)/.test(msg)) return `${msg} — apply 20260926140000_seo_serp_provider_sync.sql`;
     if (/42P01|42883|does not exist/i.test(msg) && /seo_/.test(msg)) return `${msg} — apply 20260926120000_seo_competitor_serp_schema.sql`;
     if (/row-level security/i.test(msg)) return `${msg} — only an SEO approver (an exec, owner, or someone granted in seo_approvers) may do this`;
@@ -316,7 +367,7 @@
   let _co = null;
   let CAN_APPROVE = false;
   let USER_ID = null;
-  const S = { keywords: [], schedule: null, competitors: [], landscape: [], share: [], pageTypes: [], features: [], obsRows: {}, captures: {}, ownCaptures: {}, open: null, compareObs: null, runs: [], ledger: [], candidates: [] };
+  const S = { keywords: [], schedule: null, competitors: [], landscape: [], share: [], pageTypes: [], features: [], obsRows: {}, captures: {}, ownCaptures: {}, open: null, compareObs: null, runs: [], ledger: [], candidates: [], recommendations: [], seoProjectId: null };
 
   // ── Tabs ─────────────────────────────────────────────────────────────────
   document.querySelectorAll('.bcn-tab[data-pane]').forEach(tab => tab.addEventListener('click', () => {
@@ -695,6 +746,122 @@
     await loadTracking(); renderStrip(); renderTracking();
   });
 
+  // ── Recommendations ──────────────────────────────────────────────────────
+  // seo_recommendations_v is the single definition of an opportunity (class,
+  // score, evidence_strength); this page only groups and renders what it
+  // returns. "Create SEO task" opens a pre-filled review panel -- nothing is
+  // inserted into seo_tasks until a person edits it and presses confirm.
+  const EVIDENCE_PILL_CLASS = { strong: 'sk-evidence--strong', moderate: 'sk-evidence--moderate', early: 'sk-evidence--early' };
+  function recRow(r) {
+    const idx = S.recommendations.indexOf(r);
+    const isCluster = r.opportunity_class === 'missing_category';
+    const kw = isCluster ? (r.keyword_cluster || []).join(', ') : r.keyword;
+    const rank = r.our_position == null ? '<span class="sk-muted">not in observed results</span>' : ('#' + r.our_position);
+    const comp = r.competitor_domain
+      ? `${r.competitor_url ? `<a href="${esc(r.competitor_url)}" target="_blank" rel="noopener" class="mono">${esc(r.competitor_domain)}</a>` : `<span class="mono">${esc(r.competitor_domain)}</span>`}`
+        + (r.competitor_position != null ? ` #${r.competitor_position}` : '') + (r.competitor_page_type ? ` <span class="sk-muted">${esc(r.competitor_page_type)}</span>` : '')
+      : '<span class="sk-muted">none captured</span>';
+    const ev = K.evidenceStrengthLabel(r.evidence_strength);
+    return `<tr>
+      <td class="kw" title="${esc(kw)}">${esc(kw)}${r.is_at_risk ? ' <span class="bcn-pill bcn-pill--neg">at risk</span>' : ''}</td>
+      <td class="mono">${esc(r.device || '—')}</td>
+      <td>${rank}</td>
+      <td class="num">${r.sc_clicks_28d == null ? '' : numFmt(r.sc_clicks_28d)}</td>
+      <td class="num">${r.sc_impressions_28d == null ? '' : numFmt(r.sc_impressions_28d)}</td>
+      <td>${comp}</td>
+      <td><span class="bcn-pill ${EVIDENCE_PILL_CLASS[ev] || ''}">${esc(ev)}</span></td>
+      <td class="action-col">${esc(r.suggested_action || '')}</td>
+      <td class="actions"><button class="bcn-btn bcn-btn--primary" data-rec-task="${idx}">Create SEO task</button></td>
+    </tr>`;
+  }
+  function renderRecommendations() {
+    const groups = K.groupRecommendations(S.recommendations);
+    if (!groups.length) {
+      el('recBody').innerHTML = `<div class="sk-empty">No opportunities yet. This needs at least one completed SERP run (see Tracking) and some Search Console history.</div>`;
+      el('recFoot').innerHTML = '';
+      return;
+    }
+    el('recBody').innerHTML = groups.map(g => `<div class="sk-rec-group">
+      <div class="sk-rec-group-head">${esc(g.label)} <span class="sk-muted">(${g.rows.length})</span></div>
+      <div class="bcn-matrix-scroll">
+        <table class="bcn-table">
+          <thead><tr><th>Keyword</th><th>Device</th><th>Our rank</th><th class="num">SC clicks (28d)</th><th class="num">SC impr. (28d)</th><th>Competitor</th><th>Evidence</th><th>Suggested action</th><th></th></tr></thead>
+          <tbody>${g.rows.map(recRow).join('')}</tbody>
+        </table>
+      </div>
+    </div>`).join('');
+    el('recFoot').innerHTML = `<b>Score</b> = Search Console impressions (28d — or the cluster's combined 90-day total for Missing category) × rank-gap-to-target `
+      + `(target #3 for Page one/Defend-style gap, #10 for Page two and a Content brief keyword ranked past #10; Defend's gap is 4 − our position, since defending #1 protects more click volume than defending #3), `
+      + `halved when the opportunity rests on a single SERP run (observation_runs &lt; 2). Absent with demand and Missing category have no current rank and score on impressions alone. `
+      + `<b>Evidence</b> is exactly strong / moderate / early — never a percentage or a numeric confidence: early means a single run, or (for Missing category) no clicks yet; strong means 2+ runs and nonzero clicks; everything else is moderate. `
+      + `A page type classifies the ranking URL, never the content — a title/H1 difference shown in a task's rationale is a hypothesis to test, not a stated cause. `
+      + `Defend's “at risk” reflects the transition between the two most recent runs only, never a trend.`;
+  }
+  el('btnRecRefresh').addEventListener('click', async () => { setStatus('Loading…', 'info'); await loadRecommendations(); setStatus('Loaded.', 'pos', 1500); });
+  el('recBody').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-rec-task]'); if (!b) return;
+    const rec = S.recommendations[Number(b.dataset.recTask)]; if (!rec) return;
+    const pf = K.taskPrefill(rec);
+    el('dlgRecTask').dataset.idx = b.dataset.recTask;
+    el('rtEvidence').textContent = rec.suggested_action || '';
+    el('rtTitle').value = pf.proposed_title || '';
+    el('rtTargetType').value = pf.target_type || 'other';
+    el('rtHandle').value = pf.target_handle || '';
+    el('rtUrl').value = pf.target_url || '';
+    el('rtRationale').value = pf.rationale || '';
+    el('dlgRecTask').showModal();
+  });
+  /** One "SEO Recommendations" project per company, created the first time
+   * someone confirms a task from this tab -- never blocking on a project
+   * picker the rest of the UI doesn't have yet. A duplicate insert (two tabs
+   * racing) is resolved by re-reading rather than failing: seo_projects has
+   * no uniqueness constraint on name, so the loser of the race just adopts
+   * whichever row a fresh read finds, rather than minting a second project. */
+  async function findOrCreateSeoProject() {
+    if (S.seoProjectId) return S.seoProjectId;
+    const existing = await scoped(sb.from('seo_projects').select('id').eq('name', 'SEO Recommendations')).order('created_at').limit(1);
+    if (existing.error) throw existing.error;
+    if (existing.data?.length) { S.seoProjectId = existing.data[0].id; return S.seoProjectId; }
+    const created = await sb.from('seo_projects').insert(window.__SILO_CONFIG__.withCompany({
+      name: 'SEO Recommendations', status: 'active',
+      evidence_note: 'Auto-created from the Recommendations tab (SERP observations + Search Console + competitor captures) the first time a task was drafted from it.',
+    })).select('id');
+    if (created.error || !created.data?.length) {
+      const retry = await scoped(sb.from('seo_projects').select('id').eq('name', 'SEO Recommendations')).order('created_at').limit(1);
+      if (retry.data?.length) { S.seoProjectId = retry.data[0].id; return S.seoProjectId; }
+      throw created.error || new Error('Could not create the SEO Recommendations project.');
+    }
+    S.seoProjectId = created.data[0].id;
+    return S.seoProjectId;
+  }
+  el('btnRtConfirm').addEventListener('click', async () => {
+    const idx = Number(el('dlgRecTask').dataset.idx);
+    const rec = S.recommendations[idx];
+    const title = el('rtTitle').value.trim();
+    if (!title) { setStatus('Title cannot be blank.', 'neg', 3000); return; }
+    el('btnRtConfirm').disabled = true;
+    try {
+      const projectId = await findOrCreateSeoProject();
+      const payload = window.__SILO_CONFIG__.withCompany({
+        project_id: projectId,
+        title,
+        target_type: el('rtTargetType').value || null,
+        target_url: el('rtUrl').value.trim() || null,
+        target_handle: el('rtHandle').value.trim() || null,
+        rationale: el('rtRationale').value.trim() || null,
+        approval_status: 'draft',
+      });
+      const { error } = await sb.from('seo_tasks').insert(payload);
+      if (error) throw error;
+      el('dlgRecTask').close();
+      setStatus(`Draft SEO task created${rec ? ` for “${rec.opportunity_class === 'missing_category' ? (rec.keyword_cluster || []).join(', ') : rec.keyword}”` : ''}.`, 'pos', 4000);
+    } catch (e) {
+      setStatus(`Could not create the task: ${explain(e)}`, 'neg');
+    } finally {
+      el('btnRtConfirm').disabled = false;
+    }
+  });
+
   // ── Loads ────────────────────────────────────────────────────────────────
   const scoped = (q) => (_co?.id ? q.eq('company_entity_id', _co.id) : q);
   async function loadKeywords() {
@@ -744,13 +911,22 @@
       S.ledger = led.data || [];
     } else S.ledger = [];
   }
+  /** seo_recommendations_v is company-scoped by its own RLS-invoking sources,
+   * so no ordering is required here beyond what the view already returns;
+   * grouping/sorting for display happens in K.groupRecommendations(). */
+  async function loadRecommendations() {
+    const { data, error } = await scoped(sb.from('seo_recommendations_v').select('*')).limit(2000);
+    if (error) { if (!/42P01|42883/.test(String(error.code))) setStatus(`Recommendations: ${explain(error)}`, 'neg', 5000); S.recommendations = []; renderRecommendations(); return; }
+    S.recommendations = data || [];
+    renderRecommendations();
+  }
   let loadId = 0;
   async function runLoad() {
     const id = ++loadId;
     setStatus('Loading…', 'info'); el('btnRefresh').disabled = true;
     try {
       await loadKeywords();
-      await Promise.all([loadLandscape(), loadCompetitors(), loadTracking()]);
+      await Promise.all([loadLandscape(), loadCompetitors(), loadTracking(), loadRecommendations()]);
       if (id !== loadId) return;
       renderCompetitors(); renderTracking(); renderStrip();
       setStatus('Loaded.', 'pos', 1500);

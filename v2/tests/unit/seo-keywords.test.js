@@ -150,5 +150,101 @@ r.test('compareFacts: a missing side reads "not captured" on every row, a failed
   r.eq(failed[0].ours, 'fetch failed: timeout_after_15000ms');
 });
 
+console.log('\n── recommendations tab: grouping, evidence vocabulary, task pre-fill ──');
+r.test('evidenceStrengthLabel only ever returns the three words, defaulting toward the weaker claim', () => {
+  r.eq(K.evidenceStrengthLabel('strong'), 'strong');
+  r.eq(K.evidenceStrengthLabel('moderate'), 'moderate');
+  r.eq(K.evidenceStrengthLabel('early'), 'early');
+  r.eq(K.evidenceStrengthLabel('90'), 'early', 'an unexpected value falls back to the weakest claim, never the strongest');
+  r.eq(K.evidenceStrengthLabel(null), 'early');
+});
+r.test('groupRecommendations: fixed class order, each group sorted by score descending, absent classes omitted', () => {
+  const groups = K.groupRecommendations([
+    { opportunity_class: 'page_two', score: 10 },
+    { opportunity_class: 'defend', score: 5 },
+    { opportunity_class: 'defend', score: 50 },
+    { opportunity_class: 'missing_category', score: 1 },
+  ]);
+  r.eq(groups.map((g) => g.opportunity_class).join(','), 'defend,page_two,missing_category', 'defend before page_two before missing_category, per RECOMMENDATION_CLASS_ORDER, and content_brief/absent_with_demand/page_one_not_top3 are simply absent');
+  r.eq(groups[0].rows.map((x) => x.score).join(','), '50,5', 'within a class, highest score first');
+  r.eq(groups[0].label, 'Defend');
+  r.eq(K.groupRecommendations([]).length, 0);
+  r.eq(K.groupRecommendations(null).length, 0);
+});
+r.test('groupRecommendations keeps an unrecognised class rather than dropping it', () => {
+  const groups = K.groupRecommendations([{ opportunity_class: 'something_new', score: 1 }]);
+  r.eq(groups.length, 1);
+  r.eq(groups[0].label, 'something_new', 'no label mapping -- falls back to the raw class name, never blank');
+});
+r.test('mapPageTypeToTargetType maps the SERP page-type vocabulary onto seo_tasks.target_type\'s CHECK', () => {
+  r.eq(K.mapPageTypeToTargetType('home'), 'site');
+  r.eq(K.mapPageTypeToTargetType('collection'), 'collection');
+  r.eq(K.mapPageTypeToTargetType('product'), 'product');
+  r.eq(K.mapPageTypeToTargetType('article'), 'blog');
+  r.eq(K.mapPageTypeToTargetType('video'), 'other');
+  r.eq(K.mapPageTypeToTargetType('page'), 'page');
+  r.eq(K.mapPageTypeToTargetType('other'), 'other');
+  r.eq(K.mapPageTypeToTargetType('a-future-type'), 'other', 'an unknown type falls to other, never throws');
+  r.eq(K.mapPageTypeToTargetType(null), null, 'no page type -- no guess, never a default target_type');
+});
+r.test('urlHandle takes the last path segment and is null, never empty, with nothing to take it from', () => {
+  r.eq(K.urlHandle('https://www.baseballism.com/collections/backpacks'), 'backpacks');
+  r.eq(K.urlHandle('https://www.baseballism.com/collections/backpacks?ref=x'), 'backpacks');
+  r.eq(K.urlHandle('https://www.baseballism.com/'), null, 'the homepage has no segment to hand back');
+  r.eq(K.urlHandle(''), null);
+  r.eq(K.urlHandle(null), null);
+});
+r.test('taskPrefill: target fields come from OUR page type/URL, rationale starts from suggested_action, title matches the class', () => {
+  const rec = {
+    opportunity_class: 'page_one_not_top3',
+    keyword: 'baseball backpacks',
+    our_page_type: 'collection',
+    our_url: 'https://www.baseballism.com/collections/backpacks',
+    suggested_action: 'We rank #6 on desktop for "baseball backpacks" (150 Search Console impressions, 28d). bl101.com ranks #1 with a collection page.',
+  };
+  const pf = K.taskPrefill(rec);
+  r.eq(pf.target_type, 'collection');
+  r.eq(pf.target_url, 'https://www.baseballism.com/collections/backpacks');
+  r.eq(pf.target_handle, 'backpacks');
+  r.eq(pf.rationale, rec.suggested_action, 'no captures on either side -- rationale is exactly the evidence sentence, nothing invented');
+  r.eq(pf.proposed_title, 'Improve ranking for "baseball backpacks"');
+});
+r.test('taskPrefill appends the title-hypothesis sentence only when BOTH sides were captured and the words actually differ, worded as a hypothesis', () => {
+  const withBoth = K.taskPrefill({
+    opportunity_class: 'page_one_not_top3', keyword: 'baseball backpacks',
+    our_captured_title: 'Backpacks | Baseballism Online', competitor_captured_title: 'Baseball Backpacks & Bags | BL101',
+    suggested_action: 'evidence sentence.',
+  });
+  r.truthy(withBoth.rationale.includes('Hypothesis, not a cause'), 'the hypothesis sentence is added');
+  r.truthy(withBoth.rationale.includes('their title names the term'), 'names which side names the term');
+  const onlyOneCaptured = K.taskPrefill({
+    opportunity_class: 'page_one_not_top3', keyword: 'x', our_captured_title: null,
+    competitor_captured_title: 'X Guide', suggested_action: 'evidence sentence.',
+  });
+  r.eq(onlyOneCaptured.rationale, 'evidence sentence.', 'one side not captured -- no hypothesis is stated, per "not captured" never being treated as a fact');
+  const bothNameIt = K.taskPrefill({
+    opportunity_class: 'page_one_not_top3', keyword: 'baseball backpacks',
+    our_captured_title: 'Baseball Backpacks | Baseballism', competitor_captured_title: 'Baseball Backpacks & Bags | BL101',
+    suggested_action: 'evidence sentence.',
+  });
+  r.eq(bothNameIt.rationale, 'evidence sentence.', 'both titles already name the term -- nothing to hypothesise, so nothing is appended');
+});
+r.test('taskPrefill for missing_category: no single keyword, no page to target, title lists the cluster', () => {
+  const pf = K.taskPrefill({
+    opportunity_class: 'missing_category', keyword: 'baseball raglan',
+    keyword_cluster: ['baseball raglan tee', 'baseball raglan sleeve'],
+    suggested_action: '2 active keywords (baseball raglan sleeve, baseball raglan tee) share the opening phrase "baseball raglan" -- 100 combined Search Console impressions and 0 clicks (90d) -- and none has ever ranked in an observed SERP.',
+  });
+  r.eq(pf.target_url, null);
+  r.eq(pf.target_handle, null);
+  r.eq(pf.target_type, 'other', 'no page type on either side of a never-ranking cluster');
+  r.eq(pf.proposed_title, 'Cover the "baseball raglan tee, baseball raglan sleeve" category');
+});
+r.test('taskPrefill falls back to the competitor page type when we have none of our own (we are absent)', () => {
+  const pf = K.taskPrefill({ opportunity_class: 'absent_with_demand', keyword: 'x', competitor_page_type: 'article', suggested_action: 'evidence.' });
+  r.eq(pf.target_type, 'blog');
+  r.eq(pf.target_url, null, 'we have no page, so no target_url is guessed');
+});
+
 const out = r.summary();
 process.exit(out.fail ? 1 : 0);
