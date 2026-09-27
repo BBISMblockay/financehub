@@ -81,31 +81,44 @@
     if (kind === 'idea') { if (leave()) start(kind, {}); return; }
     const term = $('source-term').value.trim();
     if (!term && !(browse && kind === 'concept')) { message('Enter part of a title or SKU to find a source.'); return; }
-    const table = kind === 'concept' ? 'product_concepts' : 'products_master';
-    // Escape PostgREST LIKE wildcards; search each field without raw or() syntax.
-    const pattern = '%' + term.replace(/[\\%_]/g, '\\$&') + '%';
-    let query = db.from(table).select('*').eq('company_entity_id', company.id).order('updated_at', { ascending: false }).limit(30);
-    if (kind === 'concept') query = query.neq('status', 'archived').ilike('title', pattern);
-    else query = query.ilike('product_title', pattern);
-    let { data, error } = await query;
-    if (error) throw error;
-    if (kind !== 'concept' && !data.length) {
-      ({ data, error } = await db.from(table).select('*').eq('company_entity_id', company.id).ilike('sku', pattern).order('sku').limit(30));
-      if (error) throw error;
-    }
+    let data;
+    if (kind === 'concept') {
+      const pattern = '%' + term.replace(/[\\%_]/g, '\\$&') + '%';
+      const result = await db.from('product_concepts').select('*').eq('company_entity_id',company.id).neq('status','archived')
+        .ilike('title',pattern).order('updated_at',{ascending:false}).limit(30);
+      if (result.error) throw result.error;
+      data = result.data;
+    } else data = await rpc('product_workflow_catalog_search',{p_company:company.id,p_term:term});
     sourceRows = data; $('source-results').replaceChildren();
     sourceRows.forEach(row => {
       const n = button('', async () => { if (leave()) await openSource(kind, row); });
-      appendSourceRow(n, kind, row, row.title || row.product_title || row.sku, kind === 'concept' ? `${row.status} · ${row.parent_concept_id ? 'child product · ' : ''}${row.phase === 'full_brief' ? 'full brief' : 'core draft'}` : `${row.sku} · ${row.variant_title || 'variant'}`);
+      appendSourceRow(n, kind, row, row.title || row.product_title || row.sku, kind === 'concept' ? `${row.status} · ${row.parent_concept_id ? 'child product · ' : ''}${row.phase === 'full_brief' ? 'full brief' : 'core draft'}` : `${row.variant_count} mapped SKU${row.variant_count === 1 ? '' : 's'} · ${row.catalog_group?.shop_domain || 'Unmapped single SKU'}`);
       $('source-results').append(n);
     });
     $('source-results').append(node('p', data.length === 30 ? 'First 30 matches. Refine your search.' : `${data.length} matches.`, 'pw-muted'));
   }
   async function openSource(kind, row) {
+    if (kind === 'concept') {
+      const {data: children,error} = await db.from('product_concepts').select('*').eq('company_entity_id',company.id).eq('parent_concept_id',row.id).neq('status','archived').order('title').limit(100);
+      if (error) throw error;
+      if (children.length) {
+        $('source-results').replaceChildren(node('p', 'Choose a product in “' + row.title + '”. Each product gets its own size/color spread.', 'pw-muted'));
+        children.forEach(child => { const n=button('',async()=>{if(leave()) await openSource('concept',child);}); appendSourceRow(n,'concept',child,child.title,'Child product'); $('source-results').append(n); });
+        message(children.length===100 ? 'First 100 child products shown. Search by product title for more.' : 'Collection opened. Choose a child product to create its brief.');
+        return;
+      }
+    } else if (kind !== 'idea') {
+      if (!row.id) throw new Error('This product has no mapped catalog SKUs. Resolve the mapping before buying.');
+      row=await rpc('product_workflow_catalog_source',{p_company:company.id,p_product:row.id,p_group:row.catalog_group || null});
+    }
     // Search the entire saved set, not just the queue's first page.
-    const { data, error } = await db.from('product_workflow_briefs').select('*')
-      .eq('company_entity_id', company.id).eq('source_kind', kind).eq('source_id', row.id)
-      .neq('status', 'dismissed').order('updated_at', { ascending: false }).limit(1);
+    let query=db.from('product_workflow_briefs').select('*')
+      .eq('company_entity_id',company.id).eq('source_kind',kind).eq('source_id',row.id).neq('status','dismissed');
+    if (row.variants) {
+      query=query.eq('content->>catalog_scope','product');
+      query=row.catalog_group ? query.eq('content->catalog_group',JSON.stringify(row.catalog_group)) : query.eq('content->catalog_group','null');
+    }
+    const {data,error}=await query.order('updated_at',{ascending:false}).limit(1);
     if (error) throw error;
     activePanel = kind === 'restock' ? 'buy' : 'overview';
     const existing = data[0];
@@ -171,7 +184,7 @@
     $('restock-section').hidden = current.source_kind !== 'restock';
     if (current.source_kind === 'restock') {
       $('restock-inputs').replaceChildren();
-      [['lead_days','Lead time · days'],['cover_days','Desired cover after arrival · days'],['safety_units','Safety stock · units']]
+      [['lead_days','Lead time · days'],['cover_days','Desired cover after arrival · days'],['safety_units',c.catalog_scope === 'product' ? 'Safety stock · units per SKU' : 'Safety stock · units']]
         .forEach(([key,label]) => { const input = field(key, label, 'number', c.restock?.[key], $('restock-inputs')); input.oninput = drawRestock; });
       drawRestock();
     }
@@ -193,22 +206,24 @@
   function outputLink(label, href) { const a = node('a', label, 'bcn-btn bcn-btn--ghost'); a.href = href; $('outputs').append(a); }
   function renderLine(line) {
     const tr = node('tr');
+    if (line.product_master_id) { tr.dataset.productId=line.product_master_id; tr.dataset.sku=line.sku || ''; }
     ['size','qty','unit_cost','retail_price'].forEach((key, index) => {
       const td = node('td'), input = node('input', undefined, 'bcn-field');
       input.dataset.key = key; input.type = index ? 'number' : 'text'; input.value = line[key] ?? '';
       input.setAttribute('aria-label', `${key.replace(/_/g,' ')} for line ${$('lines').children.length + 1}`);
       if (index) { input.min = '0'; input.step = index === 1 ? '1' : '0.0001'; }
       if (!index && ['product','restock'].includes(current.source_kind)) input.readOnly = true;
-      td.append(input); tr.append(td);
+      td.append(input); if (!index && line.sku) td.append(node('small',line.sku,'pw-muted')); tr.append(td);
     });
     $('lines').append(tr);
   }
   function collect() {
     const c = structuredClone(current.content);
     fields.forEach(([key]) => { c[key] = $('f-' + key).value.trim(); });
-    c.lines = [...$('lines').children].map(tr => Object.fromEntries([...tr.querySelectorAll('input')].map(input =>
-      [input.dataset.key, input.dataset.key === 'size' ? input.value.trim() : input.value === '' ? null : Number(input.value)])))
-      .filter(line => line.qty !== null && line.qty !== 0);
+    c.lines = [...$('lines').children].map(tr => ({
+      ...(tr.dataset.productId ? {product_master_id:tr.dataset.productId,sku:tr.dataset.sku} : {}),
+      ...Object.fromEntries([...tr.querySelectorAll('input')].map(input => [input.dataset.key,input.dataset.key==='size' ? input.value.trim() : input.value==='' ? null : Number(input.value)]))
+    })).filter(line => c.catalog_scope==='product' || (line.qty!==null && line.qty!==0));
     if (current.source_kind === 'restock') {
       c.restock = { ...c.restock };
       ['lead_days','cover_days','safety_units'].forEach(key => { c.restock[key] = $('f-' + key).value; });
@@ -217,7 +232,9 @@
   }
   function drawRestock() {
     if (!current || current.source_kind !== 'restock') return;
-    const r = collect().restock, b = r.basis, result = M.restock(r);
+    const content=collect();
+    if(content.catalog_scope==='product') { drawSpread(content); return; }
+    const r = content.restock, b = r.basis, result = M.restock(r);
     $('restock-basis').replaceChildren();
     if (b) {
       const dl = node('dl');
@@ -229,11 +246,29 @@
     result.warnings.forEach(w => $('restock-basis').append(node('p',w,'bcn-status bcn-status--info')));
     $('use-suggestion').disabled = !canWrite || result.qty === null;
   }
+  function drawSpread(content) {
+    const results=M.spreadRestock(content), host=$('restock-basis'); host.replaceChildren();
+    host.append(node('p','Company-wide demand and stock · 90 calendar days through the last complete company day. Incoming includes eligible open POs within lead time + cover. Safety units apply to each SKU.','pw-muted'));
+    const wrap=node('div',undefined,'bcn-matrix-scroll'); wrap.tabIndex=0; wrap.setAttribute('role','region'); wrap.setAttribute('aria-label','Restock evidence by SKU');
+    const table=node('table',undefined,'bcn-table'), head=node('thead'), hr=node('tr');
+    ['SKU / variant','Sold · 90d','On hand','Incoming','Cover · days','Suggest'].forEach(t=>hr.append(node('th',t))); head.append(hr); table.append(head);
+    const body=node('tbody');
+    results.forEach(result=>{
+      const b=content.restock.bases?.find(x=>x.product_id===result.line.product_master_id), tr=node('tr');
+      [result.line.sku+' · '+result.line.size,b?.units_90d,b?.on_hand,b?.incoming_units,result.cover?.toFixed(1),result.qty].forEach(value=>tr.append(node('td',value ?? 'Unknown'))); body.append(tr);
+      if(result.warnings.length) { const row=node('tr'),td=node('td',result.line.sku+': '+result.warnings.join(' '),'pw-muted');td.colSpan=6;row.append(td);body.append(row); }
+    });
+    table.append(body);wrap.append(table);host.append(wrap);
+    const bases=content.restock.bases || [], first=bases[0];
+    if(first) host.append(node('p',`Sales ${first.window_start} → ${first.window_end} · incoming through ${first.incoming_cutoff}. Overdue, undated and partially received POs are excluded; review warnings before buying.`,'pw-muted'));
+    $('use-suggestion').disabled=!canWrite || current.status!=='draft' || !results.some(r=>r.qty!==null);
+  }
   async function refreshBasis() {
     const c = collect(), r = c.restock;
     const lead = Number(r.lead_days), cover = Number(r.cover_days);
     if (r.lead_days === '' || r.cover_days === '' || !Number.isInteger(lead) || !Number.isInteger(cover) || lead < 0 || cover < 0 || lead + cover > 730) throw new Error('Enter lead time and cover (whole days, total at most 730).');
-    r.basis = await rpc('product_workflow_restock_basis', { p_company: company.id, p_product: current.source_id, p_horizon: lead + cover });
+    if(c.catalog_scope==='product') r.bases=await rpc('product_workflow_product_basis',{p_company:company.id,p_product:current.source_id,p_group:c.catalog_group,p_horizon:lead+cover});
+    else r.basis=await rpc('product_workflow_restock_basis',{p_company:company.id,p_product:current.source_id,p_horizon:lead+cover});
     current.content = c; dirty = true; render(); message('Basis refreshed. Review the evidence and choose the purchase quantity.');
   }
   async function save(status) {
@@ -284,7 +319,7 @@
       if (!row || row.status === 'archived') throw new Error('This concept is unavailable in the active company.');
       await openSource('concept', row);
     }
-    await searchSources(true);
+    if (!concept) await searchSources(true);
     message(canWrite ? 'Choose a source or reopen a saved brief.' : 'Read-only access. Purchasing permission is required to save, review or hand off.');
     applyAccess();
   }
@@ -346,6 +381,11 @@
     const currentStage = current.launch_id ? 4 : current.po_header_id ? 3 : current.status === 'reviewed' ? 2 : 1;
     stages.forEach(([label, done], index) => { const li = node('li', label); li.dataset.done = String(done); if (index === currentStage) li.setAttribute('aria-current','step'); $('workflow-stages').append(li); });
     const summary = $('evidence-summary'); summary.replaceChildren();
+    if(current.content.catalog_scope==='product') {
+      summary.append(node('p',`${source.variants.length} mapped SKUs · ${source.catalog_group?.shop_domain || 'Unmapped single SKU'}`));
+      const observed=source.variants.map(v=>v.mapping_last_seen_at).filter(Boolean).sort()[0];
+      summary.append(node('p',source.catalog_group ? `Mapping last observed ${observed ? new Date(observed).toLocaleDateString() : 'at an unknown time'}. Confirm the spread against the catalog; deleted variants may remain in the mapping.` : 'No store product mapping exists for this SKU. No other variants have been inferred.','pw-muted'));
+    }
     if (source.evidence_strength) summary.append(node('span', source.evidence_strength + ' evidence', 'bcn-pill'));
     const evidence = Array.isArray(source.historical_evidence) ? source.historical_evidence : [];
     evidence.slice(0, 3).forEach(e => { const p = node('p'); p.append(node('strong', e.label || e.metric || 'Prior evidence'), node('span', e.value == null ? '' : ' · ' + e.value)); summary.append(p); });
@@ -366,9 +406,9 @@
     const checks = [];
     if (!c.design_intent) checks.push('Add the product intent');
     if (!c.factory_id) checks.push('Choose a factory in Buy plan');
-    if (!lines.length) checks.push('No purchase units proposed — review the buy decision');
+    if (!lines.some(l=>Number(l.qty)>0)) checks.push('No purchase units proposed — review the buy decision');
     if (!lines.length || lines.some(l => l.unit_cost == null || l.retail_price == null)) checks.push('Confirm unit cost and retail price');
-    if (current.source_kind === 'restock') checks.push(...M.restock(c.restock).warnings);
+    if (current.source_kind === 'restock') checks.push(...(c.catalog_scope==='product' ? [...new Set(M.spreadRestock(c).flatMap(r=>r.warnings))] : M.restock(c.restock).warnings));
     else checks.push('Check stock and incoming POs before buying');
     if (!c.launch_date) checks.push('Choose a target launch date');
     $('review-checklist').replaceChildren(...checks.map(text => node('li',text)));
@@ -396,7 +436,11 @@
     if (!canWrite || !current || !leave()) return;
     const kind = current.source_kind;
     if (kind === 'idea') { start(kind, {}); return; }
-    const table = kind === 'concept' ? 'product_concepts' : 'products_master';
+    if (kind==='product' || kind==='restock') {
+      const row=await rpc('product_workflow_catalog_source',{p_company:company.id,p_product:current.source_id,p_group:current.content.catalog_group || null});
+      start(kind,row); return;
+    }
+    const table = 'product_concepts';
     const { data: row, error } = await db.from(table).select('*').eq('company_entity_id',company.id).eq('id',current.source_id).single();
     if (error) throw error;
     if (!row || (kind === 'concept' && row.status === 'archived')) throw new Error('This source is unavailable in the active company.');
@@ -426,7 +470,12 @@
   $('sync-pipeline').onclick = () => run(syncPipeline);
   $('refresh-basis').onclick = () => run(refreshBasis);
   $('use-suggestion').onclick = () => {
-    const c=collect(), result=M.restock(c.restock);
+    const c=collect();
+    if(c.catalog_scope==='product') {
+      M.spreadRestock(c).forEach(result=>{if(result.qty!==null) result.line.qty=result.qty;});
+      current.content=c; dirty=true; render(); message('Known SKU suggestions applied. Unknown demand still needs a manual quantity and decision note.'); return;
+    }
+    const result=M.restock(c.restock);
     if(result.qty===null) return;
     if (!c.lines.length) c.lines=[{size:current.source_snapshot.variant_title || '',unit_cost:current.source_snapshot.unit_cost ?? null,retail_price:current.source_snapshot.msrp ?? null}];
     c.lines[0].qty=result.qty; current.content=c; dirty=true; render();

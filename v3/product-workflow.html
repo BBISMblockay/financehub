@@ -5,7 +5,7 @@
   <title>SILO · Product Studio preview</title>
   <link rel="stylesheet" href="../v2/beacon.css">
   <link rel="stylesheet" href="../v2/silo-brand.css">
-  <link rel="stylesheet" href="product-workflow.css?v=20260927studio">
+  <link rel="stylesheet" href="product-workflow.css?v=20260927spread">
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css">
   <link rel="stylesheet" href="../v2/v2-mobile.css">
   <script src="../v2/v2-shell.js" defer></script>
@@ -15,8 +15,8 @@
   <script src="../pages/config.js"></script>
   <script src="../v2/lib/supabase-js.min.js"></script>
   <script src="../v2/po-pipeline-sync.js?v=20260923190000"></script>
-  <script src="product-workflow-model.js?v=20260927studio"></script>
-  <script src="product-workflow-ui.js?v=20260927studio" defer></script>
+  <script src="product-workflow-model.js?v=20260927spread"></script>
+  <script src="product-workflow-ui.js?v=20260927spread" defer></script>
 </head>
 <body>
 <div class="silo-app" id="silo-app"><main class="silo-main">
@@ -73,12 +73,12 @@
                   <div class="pw-grid" id="restock-inputs"></div>
                   <button type="button" class="bcn-btn" id="refresh-basis">Refresh restock basis</button>
                   <div id="restock-basis" class="pw-evidence"></div>
-                  <button type="button" class="bcn-btn" id="use-suggestion">Use suggested quantity</button>
+                  <button type="button" class="bcn-btn" id="use-suggestion">Use suggested quantities</button>
                 </section>
                 <h3>Purchase quantities</h3><p class="pw-muted">Review each size and quantity. Blank cost stays unestimated; PO Builder can fill catalog defaults. A draft PO is still subject to purchasing approval.</p>
-                <div class="bcn-matrix-scroll" tabindex="0" role="region" aria-label="Purchase quantities"><table class="bcn-table"><thead><tr><th>Size / variant</th><th>Units</th><th>Unit cost</th><th>Retail price</th></tr></thead><tbody id="lines"></tbody></table></div>
-                <button type="button" class="bcn-btn bcn-btn--ghost" id="add-size">Add size</button>
-                <p class="pw-muted">Use a new brief for another catalog variant. Remove an unwanted concept size by clearing its quantity.</p>
+                <div class="bcn-matrix-scroll" tabindex="0" role="region" aria-label="Purchase quantities"><table class="bcn-table"><thead><tr><th>Size / color</th><th>Units</th><th>Unit cost</th><th>Retail price</th></tr></thead><tbody id="lines"></tbody></table></div>
+                <button type="button" class="bcn-btn bcn-btn--ghost" id="add-size">Add size / color</button>
+                <p class="pw-muted">Keep the full product spread together. Use zero units for catalog sizes you are not buying. Remove an unwanted concept size by clearing its quantity.</p>
               </section>
                 <section id="panel-launch" role="tabpanel" aria-labelledby="tab-launch" tabindex="0" hidden>
                   <h3>Plan the handoff</h3><p class="pw-muted">Review this brief first, then create a planned launch below. Manage scheduling and launch measurement in the existing Launch Workbench.</p>

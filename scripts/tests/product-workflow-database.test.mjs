@@ -19,6 +19,10 @@ if(process.env.MUTATE) {
   assert.ok(before && migration.includes(before),'known mutation');
   migration=migration.replace(before,after);
 }
+if(process.env.WITH_SPREAD) migration += `
+create table if not exists public.shopify_product_skus(company_entity_id uuid,shop_domain text,shopify_product_id text,shopify_variant_id text,sku text,product_title text,variant_title text,last_seen_at timestamptz);
+grant select on public.shopify_product_skus to authenticated;
+` + await readFile(new URL('../../supabase/migrations/20260927074820_product_studio_variant_spread.sql',import.meta.url),'utf8');
 const db = new PGlite();
 const A='11111111-1111-4111-8111-111111111111', B='22222222-2222-4222-8222-222222222222';
 const ADMIN='33333333-3333-4333-8333-333333333333', VIEWER='44444444-4444-4444-8444-444444444444';
