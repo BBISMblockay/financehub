@@ -167,5 +167,64 @@ r.test('the Ask SILO prompt names each baseline with its numbers and asks for no
   r.has(p, 'Do not predict results.');
 });
 
+console.log('\n── wording and copy ──');
+r.test('a cost is compared as a cost: higher cost with the difference, never "% below baseline"', () => {
+  const worse = A.compare(0.62, 0.51, 'cpa');
+  r.eq(worse.tone, 'neg');
+  r.eq(worse.short, 'Higher cost · +$0.11');
+  r.has(worse.long, 'Costs 22% more than the $0.51 baseline');
+  r.truthy(!/below/.test(worse.short + worse.long), 'no "below" beside a higher cost');
+  const better = A.compare(0.40, 0.51, 'cpc');
+  r.eq(better.tone, 'pos');
+  r.eq(better.short, 'Lower cost · −$0.11');
+  r.eq(A.compare(0.50, 0.51, 'cpc').tone, 'info');
+});
+r.test('a rate or ROAS reads as a multiple or a shortfall', () => {
+  r.eq(A.compare(6, 4.73, 'roas').short, '1.3× the baseline');
+  r.eq(A.compare(3, 4.73, 'roas').short, '37% under the baseline');
+  r.eq(A.compare(3, 4.73, 'roas', 'bar').short, '37% under the bar');
+  r.eq(A.compare(null, 4.73, 'roas'), null);
+});
+r.test('a cost-per-purchase finding says higher cost, not "below baseline"', () => {
+  const base = A.baseline([ad({ ad_id: 'b', spend: 1000, conversions: 100 })], 'purchase');
+  base.value = 0.5; // judged on cost per purchase for this check
+  const f = A.findings(ad({ objective: 'subscribers', spend: 600, leads: 1000 }), { value: 0.5, ads: 3, minSpend: 100, sums: base.sums }, {});
+  r.has(f[0].detail, 'Costs 20% more than the $0.50 baseline');
+});
+r.test('catalog placeholders never reach a hook or the Ask SILO prompt', () => {
+  const body = 'Shop {{product.brand}} gear. {{product.name}} ships free.';
+  r.eq(A.templateFields(body), ['{{product.brand}}', '{{product.name}}']);
+  r.eq(A.firstLine(body), 'Shop gear.');
+  r.eq(A.firstLine('{{product.brand}} {{product.name}}'), '', 'a line that was only placeholders is no hook');
+  r.eq(A.firstLine('{{product.brand}} | Hoodie weather is here.'), 'Hoodie weather is here.');
+  const i = A.ideaFromAds([ad({ ad_id: '7', body: '{{product.brand}} — Hoodie weather is here.' })], {});
+  r.eq(i.hook, 'Hoodie weather is here.');
+  const p = A.askSiloPrompt([ad({ ad_id: '7', body: '{{product.brand}} {{product.price}}' })], null);
+  r.truthy(!p.includes('{{'), 'no placeholder in the prompt');
+  r.has(p, 'catalog ad');
+  r.truthy(A.findings(ad({ body: body }), null, {}).some((x) => /catalog placeholders/.test(x.title)));
+});
+r.test('the bar can be the picked ads or the objective baseline, and records both', () => {
+  const winners = [ad({ ad_id: '1', spend: 100, conversions: 60, conversion_value: 1700 }), ad({ ad_id: '2', spend: 100, conversions: 60, conversion_value: 1714 })];
+  const all = winners.concat([ad({ ad_id: '3', spend: 10000, conversion_value: 32000 })]);
+  const b = A.baseline(all, 'purchase');
+  const sel = A.snapshot(winners, {}, { objectiveBaseline: b });
+  r.eq(sel.basis, 'selected');
+  r.eq(sel.value, 17.07);
+  r.eq(sel.objective_baseline.value, Math.round(b.value * 10000) / 10000);
+  const obj = A.snapshot(winners, {}, { objectiveBaseline: b, basis: 'objective' });
+  r.eq(obj.basis, 'objective');
+  r.eq(obj.value, sel.objective_baseline.value);
+  r.eq(obj.ad_ids, ['1', '2'], 'the ideas it came from are kept whichever bar is chosen');
+  const other = A.snapshot(winners, {}, { objectiveBaseline: A.baseline(all, 'traffic'), basis: 'objective' });
+  r.eq(other.basis, 'selected', 'another objective’s baseline is never used as the bar');
+});
+r.test('a live idea’s note says the result in the metric’s own terms', () => {
+  const idea = { live_ad_ids: ['L'], baseline_snapshot: { metric: 'cost_per_lead', value: 0.5 } };
+  const m = A.measureIdea(idea, { L: ad({ ad_id: 'L', objective: 'subscribers', spend: 600, leads: 1000 }) });
+  r.eq(m.state, 'behind');
+  r.has(m.note, 'Higher cost · +$0.10');
+});
+
 const out = r.summary();
 process.exit(out.fail ? 1 : 0);
