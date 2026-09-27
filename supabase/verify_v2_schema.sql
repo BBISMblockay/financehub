@@ -3578,6 +3578,11 @@ select
                      where schemaname='public' and tablename='seo_projects'
                        and indexname='seo_projects_recommendations_singleton')
       then 'MISSING — seo_projects_recommendations_singleton; two tabs confirming the first Recommendations task at once can create two "SEO Recommendations" projects'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                     where relname='seo_recommendations_v' and description like '%ACTUALLY DECLINING%')
+      then 'MISSING — seo_recommendations_v catalog entry lost the defend-requires-a-measured-decline caveat '
+        || '(20260927120000); a stable or single-run top-3 keyword must not resurface as a "recommendation" -- '
+        || 'production showed 91 of 91 defend rows stable before this fix, 74 at rank #1'
     else 'ok'
   end as seo_recommendations;
 

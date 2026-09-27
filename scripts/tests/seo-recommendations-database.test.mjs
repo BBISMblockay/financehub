@@ -10,6 +10,7 @@
 //   RECS_DB_MUTATION=score-not-halved     (single-run discount removed)
 //   RECS_DB_MUTATION=absence-as-zero      (an absent SC figure coalesced away)
 //   RECS_DB_MUTATION=numeric-confidence   (evidence_strength carries a number)
+//   RECS_DB_MUTATION=defend-not-filtered  (defend drops the decline requirement, per 20260927120000)
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -20,6 +21,7 @@ import { splitSqlStatements } from '../lib/sql-statements.mjs';
 const db = new PGlite({ extensions: { pgcrypto } });
 const root = new URL('../../', import.meta.url);
 const MIGRATION = '20260926180000_seo_recommendations.sql';
+const FOLLOWUP_MIGRATION = '20260927120000_seo_recommendations_defend_requires_decline.sql';
 // The full chain this migration builds on, same list seo-serp-database.test.mjs
 // verifies against, plus the SERP/tactics/rollup migrations it reads.
 const dependencies = [
@@ -47,7 +49,7 @@ const dependencies = [
   '20260926170000_seo_serp_tactics.sql',
 ];
 const mutation = process.env.RECS_DB_MUTATION || '';
-assert.ok(['', 'score-not-halved', 'absence-as-zero', 'numeric-confidence'].includes(mutation), 'Unknown recommendations mutation');
+assert.ok(['', 'score-not-halved', 'absence-as-zero', 'numeric-confidence', 'defend-not-filtered'].includes(mutation), 'Unknown recommendations mutation');
 
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const first = async (sql, params = []) => (await q(sql, params))[0];
@@ -151,11 +153,18 @@ try {
     ($1,$2,$3,'baseball dad hat',12,120,2.0,'2026-09-19T09:00:00Z'),
     ($1,$2,$3,'baseball raglan tee',0,60,0.0,'2026-09-19T09:00:00Z'),
     ($1,$2,$3,'baseball raglan sleeve',0,40,0.0,'2026-09-19T09:00:00Z'),
-    ($1,$2,$3,'baseball tote bag',0,20,15.0,'2026-09-19T09:00:00Z')`, [co, SITE, SC_DAY]);
+    ($1,$2,$3,'baseball tote bag',0,20,15.0,'2026-09-19T09:00:00Z'),
+    ($1,$2,$3,'baseball glove',8,90,2.0,'2026-09-19T09:00:00Z')`, [co, SITE, SC_DAY]);
   await db.exec('refresh materialized view search_console_query_rollup_mv');
 
-  await test('the recommendations migration applies twice, cleanly, on top of the committed SEO migrations', async () => {
-    const sql = await readFile(new URL(`supabase/migrations/${MIGRATION}`, root), 'utf8');
+  // Applied to BOTH migration files' text: 20260927120000 create-or-replaces
+  // the same view, carrying every other class's formula and evidence_strength
+  // block forward verbatim, so a mutation targeting those must survive into
+  // the follow-up migration's text too -- otherwise the follow-up's clean
+  // CREATE OR REPLACE would silently un-mutate the view right after the base
+  // migration's test applied the broken version, and the three original
+  // mutations would falsely appear to pass once 20260927120000 existed.
+  function applyMutation(sql) {
     let effective = sql;
     if (mutation === 'score-not-halved') {
       effective = effective.replaceAll("case when b.observation_runs is not null and b.observation_runs < 2 then 0.5 else 1 end", '1');
@@ -172,11 +181,34 @@ try {
       effective = effective.replaceAll("when b.sc_clicks_28d > 0 then 'strong'\n      else 'moderate'\n    end as evidence_strength,",
         "when b.sc_clicks_28d > 0 then '90'\n      else '50'\n    end as evidence_strength,");
     }
+    if (mutation === 'defend-not-filtered') {
+      // Reverts to the original 20260926180000 behaviour: every top-3-with-clicks
+      // keyword qualifies for 'defend', is_at_risk reported as an attribute
+      // rather than gating admission. This is the exact bug 20260927120000 fixes.
+      // A no-op against 20260926180000's own text (neither pattern occurs there).
+      effective = effective
+        .replaceAll('true as is_at_risk,', '(coalesce(b.our_serp_movement, 0) < 0) as is_at_risk,')
+        .replaceAll('    and coalesce(b.our_serp_movement, 0) < 0\n\n  union all', '\n\n  union all');
+    }
+    return effective;
+  }
+
+  await test('the recommendations migration applies twice, cleanly, on top of the committed SEO migrations', async () => {
+    const sql = await readFile(new URL(`supabase/migrations/${MIGRATION}`, root), 'utf8');
+    const effective = applyMutation(sql);
     await db.exec(effective);
     await db.exec(effective);
     assert.equal(await scalar("select count(*)::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='seo_recommendations_v' and c.relkind='v'"), 1);
     assert.equal(await scalar("select 'security_invoker=true' = any(reloptions) from pg_class where relname='seo_recommendations_v'"), true, 'security_invoker');
     assert.equal(await scalar("select provolatile from pg_proc where proname='seo_recommendations_keyword_stem'"), 'i', 'the stem function is IMMUTABLE');
+  });
+
+  await test('the defend-requires-decline follow-up migration (20260927120000) applies twice, cleanly', async () => {
+    const sql = await readFile(new URL(`supabase/migrations/${FOLLOWUP_MIGRATION}`, root), 'utf8');
+    const effective = applyMutation(sql);
+    await db.exec(effective);
+    await db.exec(effective);
+    assert.equal(await scalar("select count(*)::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='seo_recommendations_v' and c.relkind='v'"), 1);
   });
 
   await test('seo_recommendations_keyword_stem: first 1-2 significant words, stopwords dropped, trailing s stripped', async () => {
@@ -186,7 +218,7 @@ try {
     assert.equal(await scalar("select public.seo_recommendations_keyword_stem('   ')"), '', 'blank in, blank out');
   });
 
-  let kBackpacks, kGifts, kHat, kRaglanTee, kRaglanSleeve, kTote;
+  let kBackpacks, kGifts, kHat, kRaglanTee, kRaglanSleeve, kTote, kGlove;
   await test('seed the keyword set: one keyword per opportunity class, plus a two-keyword cluster for missing_category', async () => {
     kBackpacks = await asMember(() => scalar("insert into seo_keyword_set (company_entity_id, keyword, source, is_active) values ($1, 'baseball backpacks', 'manual', true) returning id", [co]));
     kGifts = await asMember(() => scalar("insert into seo_keyword_set (company_entity_id, keyword, source, is_active) values ($1, 'baseball gifts for boys', 'manual', true) returning id", [co]));
@@ -194,6 +226,7 @@ try {
     kRaglanTee = await asMember(() => scalar("insert into seo_keyword_set (company_entity_id, keyword, source, is_active) values ($1, 'baseball raglan tee', 'manual', true) returning id", [co]));
     kRaglanSleeve = await asMember(() => scalar("insert into seo_keyword_set (company_entity_id, keyword, source, is_active) values ($1, 'baseball raglan sleeve', 'manual', true) returning id", [co]));
     kTote = await asMember(() => scalar("insert into seo_keyword_set (company_entity_id, keyword, source, is_active) values ($1, 'baseball tote bag', 'manual', true) returning id", [co]));
+    kGlove = await asMember(() => scalar("insert into seo_keyword_set (company_entity_id, keyword, source, is_active) values ($1, 'baseball glove', 'manual', true) returning id", [co]));
     assert.equal(await scalar('select public.seo_recommendations_keyword_stem(keyword) from seo_keyword_set where id=$1', [kRaglanTee]),
       await scalar('select public.seo_recommendations_keyword_stem(keyword) from seo_keyword_set where id=$1', [kRaglanSleeve]),
       'the two raglan keywords share a stem -- the cluster this test exercises');
@@ -250,6 +283,26 @@ try {
     assert.match(r.suggested_action, /two most recent runs/, 'names the transition, not a trend');
     assert.match(r.suggested_action, /not a trend/i, 'explicitly disclaims a trend, per the class rule');
     assert.equal(Number(r.score), 120, 'gap = 4 - position = 1 -- score is impressions(120) with no discount (2 runs)');
+  });
+
+  await test('defend: a STABLE top-3 keyword (no decline, real clicks) is NOT surfaced at all -- the 20260927120000 fix', async () => {
+    // Two runs, same position both times: exactly the shape production showed
+    // 91 times over (74 of them at rank #1) before this migration -- a
+    // "recommendation" that is really "nothing to do here".
+    await providerRun({ observedOn: '2026-09-29', syncedAt: '2026-09-29T06:05:00Z', batch: 'rglove1', rows: [
+      { keywordId: kGlove, position: 1, domain: 'rival.example', url: 'https://rival.example/gloves' },
+      { keywordId: kGlove, position: 2, domain: 'www.baseballism.com', url: 'https://www.baseballism.com/collections/gloves' },
+    ] });
+    await providerRun({ observedOn: '2026-10-06', syncedAt: '2026-10-06T06:05:00Z', batch: 'rglove2', rows: [
+      { keywordId: kGlove, position: 1, domain: 'rival.example', url: 'https://rival.example/gloves' },
+      { keywordId: kGlove, position: 2, domain: 'www.baseballism.com', url: 'https://www.baseballism.com/collections/gloves' },
+    ] });
+    const rows = await asMember(() => q("select * from seo_recommendations_v where keyword_id=$1", [kGlove]));
+    // Under RECS_DB_MUTATION=defend-not-filtered this must FAIL: the row comes
+    // back as opportunity_class='defend' with is_at_risk=false, the exact
+    // pre-fix shape measured in production.
+    assert.equal(rows.length, 0,
+      `a stable rank-#2 keyword with clicks must not appear in ANY class (defend included); got: ${JSON.stringify(rows.map((r) => r.opportunity_class))}`);
   });
 
   await test('absent_with_demand: a run happened, we are not in it, Search Console shows demand -- "check, one snapshot" at one run', async () => {
