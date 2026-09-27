@@ -137,6 +137,8 @@ on:
       - 'supabase/migrations/*seo_serp_tactics.sql'
       - 'supabase/migrations/*seo_recommendations.sql'
       - 'supabase/migrations/*seo_landscape_28d_rollup.sql'
+      - 'supabase/migrations/*ad_studio.sql'
+      - 'scripts/tests/ad-studio-database.test.mjs'
       - 'v2/seo-keywords.html'
       - 'v2/seo-keywords.js'
       # SEO suite: one sidebar row, three tabs (seo-suite.test.mjs).
@@ -915,6 +917,23 @@ jobs:
           for m in score-not-halved absence-as-zero numeric-confidence defend-not-filtered content-brief-sc-zero content-brief-paa-zero rollup-unscoped; do
             echo "--- $m ---"
             if RECS_DB_MUTATION="$m" node scripts/tests/seo-recommendations-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Ad Studio (20260927190000): the private image bucket's parent-row
+      # policy, ad_studio_ads' sums and window, and the idea bank's frozen bar.
+      # Mutations: AD_STUDIO_DB_MUTATION=policy-bucket-only | snapshot-thaws | stale-image-shown | approval-from-client
+      - name: Execute Ad Studio database regressions
+        run: node scripts/tests/ad-studio-database.test.mjs
+      - name: The Ad Studio guards, removed, must break it
+        run: |
+          set -u
+          for m in policy-bucket-only snapshot-thaws stale-image-shown approval-from-client; do
+            echo "--- $m ---"
+            if AD_STUDIO_DB_MUTATION="$m" node scripts/tests/ad-studio-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi
