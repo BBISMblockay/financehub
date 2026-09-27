@@ -9,6 +9,9 @@
  *      token never reaches that stored message.
  *   4. Only https URLs on Meta's CDN are downloaded; a file that is not an
  *      image is refused whatever its Content-Type says.
+ *   6. A connection's token is used only for its OWN ad account: another
+ *      account's ad is not asked, and so cannot be put into backoff; an ad
+ *      with no account id only when the company has one Meta connection.
  *   5. Already archived -> not asked; failed recently -> backs off; the limit
  *      holds; two ads sharing an image share one object.
  *
@@ -18,6 +21,7 @@
  *   ARCHIVE_MUTATION=token-in-error     (the scrub is removed)
  *   ARCHIVE_MUTATION=no-backoff         (a recent failure is retried immediately)
  *   ARCHIVE_MUTATION=any-host           (the CDN allowlist is removed)
+ *   ARCHIVE_MUTATION=any-account        (another account's ads are asked with this token)
  *
  * No network, no database. Run: node scripts/tests/creative-image-archive.test.mjs
  */
@@ -30,7 +34,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const mutation = process.env.ARCHIVE_MUTATION || '';
-assert.ok(['', 'no-creative-guard', 'trust-header', 'token-in-error', 'no-backoff', 'any-host'].includes(mutation),
+assert.ok(['', 'no-creative-guard', 'trust-header', 'token-in-error', 'no-backoff', 'any-host', 'any-account'].includes(mutation),
   `Unknown mutation ${mutation}`);
 let src = readFileSync(join(ROOT, 'scripts/lib/creative-image-archive.mjs'), 'utf8');
 const swap = (from, to) => { assert.ok(src.includes(from), `mutation anchor missing: ${from}`); src = src.replace(from, to); };
@@ -44,6 +48,7 @@ if (mutation === 'token-in-error') {
 }
 if (mutation === 'no-backoff') swap('now - Date.parse(row.image_attempted_at) < retryAfterHours * 3600_000', 'false');
 if (mutation === 'any-host') swap('if (!ALLOWED_HOST.test(host))', 'if (false)');
+if (mutation === 'any-account') swap('if (!ownedByConnection(r, connection, { soleConnection }))', 'if (false)');
 const dir = mkdtempSync(join(tmpdir(), 'img-archive-'));
 process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
 const file = join(dir, 'archive.mjs');
@@ -138,8 +143,8 @@ function deps(images, { graph = {} } = {}) {
     },
   };
 }
-const conn = { company_entity_id: CO, access_token: TOKEN };
-const row = (ad, cr, extra = {}) => ({ company_entity_id: CO, ad_id: ad, creative_id: cr, image_path: null,
+const conn = { company_entity_id: CO, access_token: TOKEN, meta_ad_account_id: 'act_51281951' };
+const row = (ad, cr, extra = {}) => ({ company_entity_id: CO, ad_id: ad, account_id: 'act_51281951', creative_id: cr, image_path: null,
   image_creative_id: null, image_attempted_at: null, image_error: null, ...extra });
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -234,6 +239,24 @@ await test('a storage failure is a recorded failure, not an exception', async ()
   assert.equal(r.failed, 1);
   assert.match(sb.state.rows[0].image_error, /Bucket not found/);
   assert.equal(sb.state.rows[0].image_path, null);
+});
+
+await test('only the connection\'s own ad account is asked; another account\'s ad is untouched', async () => {
+  const sb = fakeSupabase([row('P', 'crP'), row('Q', 'crQ', { account_id: '999' }), row('R', 'crR', { account_id: null })]);
+  const d = deps({ crP: jpeg(4, 4), crQ: jpeg(4, 4), crR: jpeg(4, 4) });
+  const r = await A.archiveCreativeImages(sb, conn, { adIds: ['P', 'Q', 'R'], ...d });
+  assert.deepEqual(d.asked, ['crP'], 'act_ and bare ids compare equal; no account id is not claimed by default');
+  assert.equal(r.other_account, 2);
+  const q = sb.state.rows.find((x) => x.ad_id === 'Q');
+  assert.equal(q.image_attempted_at, null, 'and is not put into backoff for the connection that can read it');
+  assert.equal(q.image_error, null);
+});
+
+await test('an ad with no account id is claimed only by a company\'s sole Meta connection', async () => {
+  assert.equal(A.ownedByConnection({ account_id: null }, conn, { soleConnection: true }), true);
+  assert.equal(A.ownedByConnection({ account_id: null }, conn, { soleConnection: false }), false);
+  assert.equal(A.ownedByConnection({ account_id: '51281951' }, conn), true);
+  assert.equal(A.ownedByConnection({ account_id: 'act_1' }, { meta_ad_account_id: null }), false, 'a connection with no account claims nothing named');
 });
 
 await test('no token or no Graph client: disabled, nothing asked', async () => {

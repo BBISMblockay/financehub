@@ -417,7 +417,7 @@ jobs:
       # failures recorded without the token, Meta's CDN only, backoff. Then the
       # history driver, run for real: paged past 1,000 rows, and a run that
       # archived nothing and failed everything exits non-zero.
-      # Mutations: ARCHIVE_MUTATION=no-creative-guard | trust-header | token-in-error | no-backoff | any-host
+      # Mutations: ARCHIVE_MUTATION=no-creative-guard | trust-header | token-in-error | no-backoff | any-host | any-account
       #            META_IMG_DRV_MUTATION=unpaged | green-empty
       - name: Creative image archive
         run: node scripts/tests/creative-image-archive.test.mjs
@@ -426,7 +426,7 @@ jobs:
       - name: The image archive guards, removed, must break it
         run: |
           set -u
-          for m in no-creative-guard trust-header token-in-error no-backoff any-host; do
+          for m in no-creative-guard trust-header token-in-error no-backoff any-host any-account; do
             if ARCHIVE_MUTATION="$m" node scripts/tests/creative-image-archive.test.mjs; then
               echo "::error::mutation $m did not fail the suite"; exit 1
             fi

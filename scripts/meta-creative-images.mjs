@@ -22,7 +22,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { META_API_VERSION, fetchMetaJsonOrThrow } from './lib/ad-platforms-sync-core.mjs';
-import { archiveCreativeImages, needsArchive, scrubError } from './lib/creative-image-archive.mjs';
+import { archiveCreativeImages, needsArchive, ownedByConnection, scrubError } from './lib/creative-image-archive.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -46,33 +46,51 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-/** Every stored creative for the company, paged past PostgREST's row cap,
- *  newest-synced first so a run that stops early covered the recent end. */
-async function loadCandidates(companyId) {
+/** The stored creatives THIS connection may archive, paged past PostgREST's
+ *  row cap, newest-synced first so a run that stops early covered the recent
+ *  end. Only the connection's own ad account: a company can hold several Meta
+ *  accounts with separately scoped tokens, and asking with the wrong one would
+ *  fail and put the ad in backoff for the connection that can read it. */
+async function loadCandidates(connection, soleConnection) {
   const out = [];
-  let stored = 0;
+  let stored = 0, otherAccount = 0;
   const PAGE = 1000;
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase.from('meta_ad_creatives')
-      .select('ad_id, creative_id, image_path, image_creative_id, image_attempted_at, image_error, synced_at')
-      .eq('company_entity_id', companyId)
+      .select('ad_id, account_id, creative_id, image_path, image_creative_id, image_attempted_at, image_error, synced_at')
+      .eq('company_entity_id', connection.company_entity_id)
       .order('synced_at', { ascending: false, nullsFirst: false })
       .order('ad_id', { ascending: false })
       .range(from, from + PAGE - 1);
     if (error) throw new Error(`meta_ad_creatives load failed: ${error.message}`);
     if (!data?.length) break;
     stored += data.length;
-    for (const r of data) if (needsArchive(r, { retryAfterHours: RETRY_FAILED ? 0 : 20 })) out.push(String(r.ad_id));
+    for (const r of data) {
+      if (!ownedByConnection(r, connection, { soleConnection })) { otherAccount += 1; continue; }
+      if (needsArchive(r, { retryAfterHours: RETRY_FAILED ? 0 : 20 })) out.push(String(r.ad_id));
+    }
     if (data.length < PAGE) break;
   }
-  return { candidates: out, stored };
+  return { candidates: out, stored, otherAccount };
+}
+
+/** Is this the company's only active Meta connection? Asked of the database,
+ *  not of this run's list, which META_CONNECTION_ID may have narrowed. */
+async function isSoleConnection(connection) {
+  const { data, error } = await supabase.from('ad_platform_connections').select('id')
+    .eq('platform', 'meta_ads').eq('is_active', true)
+    .eq('company_entity_id', connection.company_entity_id);
+  if (error) throw new Error(`connection count failed: ${error.message}`);
+  return (data || []).length === 1;
 }
 
 async function runConnection(connection) {
   const label = `${connection.display_name || connection.id}`;
-  const { candidates: all, stored } = await loadCandidates(connection.company_entity_id);
+  const soleConnection = await isSoleConnection(connection);
+  const { candidates: all, stored, otherAccount } = await loadCandidates(connection, soleConnection);
   const candidates = LIMIT ? all.slice(0, LIMIT) : all;
-  console.log(`[meta-creative-images] ${label}: ${candidates.length} to archive (stored creatives ${stored}, needing an image ${all.length})`);
+  console.log(`[meta-creative-images] ${label}: ${candidates.length} to archive (stored creatives ${stored}, `
+    + `another account's ${otherAccount}, needing an image ${all.length})`);
   if (!candidates.length) return { skipped: true };
 
   const { data: job, error: jobErr } = await supabase.from('sync_jobs').insert({
@@ -83,13 +101,13 @@ async function runConnection(connection) {
   }).select('id').single();
   if (jobErr) throw new Error(`sync_jobs insert failed: ${jobErr.message}`);
 
-  const total = { mode: 'images', asked: 0, archived: 0, failed: 0, skipped: 0, already: 0, bytes: 0,
+  const total = { mode: 'images', account_id: connection.meta_ad_account_id ?? null, asked: 0, archived: 0, failed: 0, skipped: 0, already: 0, bytes: 0,
     chunks_planned: Math.ceil(candidates.length / CHUNK), chunks_completed: 0, errors: [], aborted: null };
   for (let i = 0; i < candidates.length; i += CHUNK) {
     const chunk = candidates.slice(i, i + CHUNK);
     try {
       const r = await archiveCreativeImages(supabase, connection, {
-        adIds: chunk, limit: chunk.length, concurrency: CONCURRENCY, retryAfterHours: RETRY_FAILED ? 0 : 20,
+        adIds: chunk, limit: chunk.length, concurrency: CONCURRENCY, retryAfterHours: RETRY_FAILED ? 0 : 20, soleConnection,
         apiVersion: META_API_VERSION,
         graphGet: (url, lbl) => fetchMetaJsonOrThrow(url, {}, lbl),
       });

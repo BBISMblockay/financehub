@@ -14,6 +14,9 @@
  *   3. A run in which nothing archived and something failed (a missing bucket)
  *      is an ERROR and exits non-zero -- not a green run with 0 images.
  *   4. The access token never appears in the log.
+ *   5. Two Meta accounts in one company: each connection's token is used only
+ *      for its own account's ads, and an ad with no account id is claimed by
+ *      neither (it is attributable only when the company has one connection).
  *
  * Mutations (each must make this file FAIL):
  *   META_IMG_DRV_MUTATION=unpaged      (reads one page of creatives)
@@ -91,11 +94,12 @@ function jpeg() {
     0xff, 0xc0, 0x00, 0x11, 0x08, 0x04, 0x38, 0x04, 0x38, 3, ...Array(9).fill(0), 0xff, 0xd9]);
 }
 
-async function run({ creatives, failUpload = false }) {
+async function run({ creatives, failUpload = false, connections = null }) {
   Object.assign(state, {
-    creatives, failUpload, uploads: [], jobs: [], pages: [],
-    connections: [{ id: 'conn-1', company_entity_id: CO, display_name: 'Meta', access_token: TOKEN, platform: 'meta_ads' }],
+    creatives, failUpload, uploads: [], jobs: [], pages: [], byToken: [],
+    connections: connections || [{ id: 'conn-1', company_entity_id: CO, display_name: 'Meta', access_token: TOKEN, platform: 'meta_ads', meta_ad_account_id: 'act_1' }],
   });
+  state.expectJobs = (connections || [1]).length;
   globalThis.__IMG_STATE__ = state;
   const asked = [];
   globalThis.fetch = async (url) => {
@@ -103,6 +107,7 @@ async function run({ creatives, failUpload = false }) {
     if (u.startsWith('https://graph.facebook.com/')) {
       const id = decodeURIComponent(u.split('/').pop().split('?')[0]);
       asked.push(id);
+      (state.byToken ||= []).push([new URL(u).searchParams.get('access_token'), id]);
       return { ok: true, status: 200, text: async () => JSON.stringify({ thumbnail_url: `https://scontent.xx.fbcdn.net/${id}.jpg` }) };
     }
     const b = jpeg();
@@ -125,7 +130,8 @@ async function run({ creatives, failUpload = false }) {
     // end (or exits), never on a fixed sleep a slower machine outruns.
     for (let i = 0; i < 400; i += 1) {
       const job = state.jobs[state.jobs.length - 1];
-      if ((job && job.status !== 'running' && job.finished_at) || exitCode) break;
+      const done = state.jobs.filter((j) => j.finished_at).length;
+      if ((done && done >= state.expectJobs) || exitCode) break;
       await new Promise((r) => setTimeout(r, 25));
     }
     await new Promise((r) => setTimeout(r, 25));
@@ -165,6 +171,22 @@ await test('nothing archived and everything failed is an error run that exits no
   assert.match(state.jobs[0].error, /Bucket not found/);
   assert.equal(exitCode, 1);
   assert.ok(!logs.join('\n').includes(TOKEN), 'the token never reaches the log');
+});
+
+await test('two accounts: each token asks only for its own account; an unattributed ad is claimed by neither', async () => {
+  const TOKEN_B = 'EAAsecondtokenABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const { exitCode } = await run({
+    connections: [
+      { id: 'conn-a', company_entity_id: CO, display_name: 'A', access_token: TOKEN, platform: 'meta_ads', meta_ad_account_id: 'act_1' },
+      { id: 'conn-b', company_entity_id: CO, display_name: 'B', access_token: TOKEN_B, platform: 'meta_ads', meta_ad_account_id: '2' },
+    ],
+    creatives: [creative('a1', { account_id: 'act_1' }), creative('b1', { account_id: 'act_2' }), creative('n1', { account_id: null })],
+  });
+  assert.equal(exitCode, 0);
+  const pairs = state.byToken.map(([t, id]) => `${t === TOKEN ? 'A' : t === TOKEN_B ? 'B' : '?'}:${id}`).sort();
+  assert.deepEqual(pairs, ['A:cra1', 'B:crb1'], 'A never asks for B\'s ad, nor B for A\'s, and nobody claims n1');
+  const b1 = state.creatives.find((r) => r.ad_id === 'adb1');
+  assert.ok(b1.image_path && !b1.image_error, 'B\'s ad was archived by B, never backed off by A');
 });
 
 console.log(`\n${passed} passed`);

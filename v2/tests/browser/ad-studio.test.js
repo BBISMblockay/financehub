@@ -117,13 +117,28 @@ const IDEAS = [
     R.eq(ins[0].rows.destination_url, 'https://www.baseballism.com/collections/hoodies');
     R.ok('the client never sets who created or approved it', !('created_by' in ins[0].rows) && !('approved_by' in ins[0].rows));
 
-    // ── Baselines of one idea share an objective ─────────────────────────
+    // ── A selection belongs to one objective ─────────────────────────────
+    await page.check('#grid [data-pick="101"]');
+    await page.check('#grid [data-pick="102"]');
+    R.has(await page.locator('#selCount').innerText(), '2 selected');
+    await page.click('#btnClearSel');
+    R.eq(await page.locator('#selCount').innerText(), '', 'Clear empties the selection');
+    R.eq(await page.locator('#grid [data-pick="101"]').isChecked(), false);
     await page.check('#grid [data-pick="101"]');
     await page.click('#objs [data-obj="thruplay"]');
     await page.waitForFunction(() => !!document.querySelector('#grid [data-pick="201"]'));
-    await page.check('#grid [data-pick="201"]').catch(() => {});
-    R.eq(await page.locator('#grid [data-pick="201"]').isChecked(), false, 'a second objective cannot join the selection');
-    R.has(await page.locator('#status').innerText(), 'share one objective');
+    R.eq(await page.locator('#selCount').innerText(), '', 'leaving an objective drops its hidden selection');
+    await page.check('#grid [data-pick="201"]');
+    R.eq(await page.locator('#grid [data-pick="201"]').isChecked(), true, 'so the new objective can be picked at once');
+    R.has(await page.locator('#selCount').innerText(), '1 selected');
+    await page.click('#btnIdeaFromSel');
+    R.has(await page.locator('#iBaselines').innerText(), 'Griffey Aiden', 'the idea is built from what is visibly selected');
+    R.not(await page.locator('#iBaselines').innerText(), 'Gus Hoodie');
+    await page.click('#dlgIdea [data-close]');
+    await page.selectOption('#selWindow', '90');
+    await page.waitForFunction(() => !document.getElementById('btnRefresh').disabled && !!document.querySelector('#grid .as-card'));
+    R.eq(await page.locator('#selCount').innerText(), '', 'a new window starts the selection over');
+    R.eq(await page.locator('#btnIdeaFromSel').isDisabled(), true);
 
     // ── Idea bank ────────────────────────────────────────────────────────
     await page.click('[data-view="ideas"]');

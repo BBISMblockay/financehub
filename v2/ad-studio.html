@@ -162,6 +162,7 @@
             <label style="font-size:12.5px;color:var(--bcn-ink-2)"><input type="checkbox" id="chkRunning" /> Running now</label>
             <div class="as-sel">
               <span id="selCount"></span>
+              <button type="button" class="bcn-btn bcn-btn--ghost" id="btnClearSel" hidden>Clear</button>
               <button type="button" class="bcn-btn" id="btnIdeaFromSel" disabled>New idea from selected</button>
               <a class="bcn-btn bcn-btn--ghost" id="lnkAskSel" href="#" hidden>Draft with Ask SILO</a>
             </div>
@@ -380,6 +381,7 @@
   function renderSelection() {
     const n = S.picked.size;
     el('selCount').textContent = n ? `${n} selected` : '';
+    el('btnClearSel').hidden = !n;
     el('btnIdeaFromSel').disabled = !n;
     const ads = [...S.picked].map(id => S.byId[id]).filter(Boolean);
     const p = A.askSiloPrompt(ads, S.bases[ads[0]?.objective]);
@@ -556,6 +558,9 @@
   el('objs').addEventListener('click', (e) => {
     const b = e.target.closest('[data-obj]');
     if (!b) return;
+    // A selection is one objective's baselines; it never survives leaving
+    // that objective, where its cards (and checkboxes) are no longer shown.
+    if (b.dataset.obj !== S.objective) S.picked.clear();
     S.objective = b.dataset.obj; S.shown = PAGE;
     const first = visibleAds()[0];
     S.selected = first ? String(first.ad_id) : null;
@@ -636,6 +641,8 @@
       if (id !== loadId) return;
       S.ads = ads;
       prepare();
+      // Never carry a selected id the current data no longer has.
+      for (const pid of [...S.picked]) if (!S.byId[pid]) S.picked.delete(pid);
       await signImages(S.ads);
       if (id !== loadId) return;
       const through = S.window?.through;
@@ -661,7 +668,9 @@
     } finally { if (id === loadId) el('btnRefresh').disabled = false; }
   }
   el('btnRefresh').addEventListener('click', () => { S.signed = {}; runLoad(); });
-  el('selWindow').addEventListener('change', () => { S.shown = PAGE; runLoad(); });
+  // A new window can drop selected ads from the grid; start the selection over.
+  el('selWindow').addEventListener('change', () => { S.shown = PAGE; S.picked.clear(); renderSelection(); runLoad(); });
+  el('btnClearSel').addEventListener('click', () => { S.picked.clear(); renderSelection(); renderGrid(); });
 
   async function boot() {
     const sess = await sb.auth.getSession();

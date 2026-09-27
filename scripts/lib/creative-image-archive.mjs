@@ -77,6 +77,27 @@ export function scrubError(err) {
     .slice(0, 300);
 }
 
+/** Meta ad account ids arrive both as `act_123` and `123`. */
+export function normalizeAccountId(v) {
+  const s = String(v ?? '').trim();
+  return s ? s.replace(/^act_/i, '') : '';
+}
+
+/**
+ * May this connection's token be used for this creative? Only for its OWN ad
+ * account: a company can hold several Meta accounts, each with its own token,
+ * and asking with the wrong one fails -- and that failure would put the ad in
+ * backoff for the connection that CAN read it. A row with no account id is
+ * attributable only when the company has exactly one Meta connection
+ * (`soleConnection`); otherwise nobody claims it.
+ */
+export function ownedByConnection(row, connection, { soleConnection = false } = {}) {
+  const mine = normalizeAccountId(connection?.meta_ad_account_id);
+  const theirs = normalizeAccountId(row?.account_id);
+  if (!theirs) return Boolean(soleConnection);
+  return Boolean(mine) && mine === theirs;
+}
+
 /** Does this ad need its image (re)archived? */
 export function needsArchive(row, { now = Date.now(), retryAfterHours = 20 } = {}) {
   if (!row?.creative_id) return false;
@@ -109,10 +130,11 @@ export async function archiveCreativeImages(supabase, connection, {
   fetchImpl = fetch,
   now = Date.now(),
   onAd = null,
+  soleConnection = false,
 } = {}) {
   const company = connection.company_entity_id;
   const token = connection.access_token;
-  const result = { asked: 0, archived: 0, failed: 0, skipped: 0, already: 0, bytes: 0, errors: [] };
+  const result = { asked: 0, archived: 0, failed: 0, skipped: 0, already: 0, other_account: 0, bytes: 0, errors: [] };
   if (!token || !company || !graphGet || !apiVersion) return { ...result, disabled: true };
   const ids = [...new Set((adIds || []).map(String))];
   if (!ids.length) return result;
@@ -121,7 +143,7 @@ export async function archiveCreativeImages(supabase, connection, {
   const rows = [];
   for (let i = 0; i < ids.length; i += 200) {
     const { data, error } = await supabase.from('meta_ad_creatives')
-      .select('ad_id, creative_id, image_path, image_creative_id, image_attempted_at, image_error')
+      .select('ad_id, account_id, creative_id, image_path, image_creative_id, image_attempted_at, image_error')
       .eq('company_entity_id', company)
       .in('ad_id', ids.slice(i, i + 200));
     if (error) throw new Error(`meta_ad_creatives read failed: ${error.message}`);
@@ -132,6 +154,8 @@ export async function archiveCreativeImages(supabase, connection, {
   for (const id of ids) {
     const r = byId.get(id);
     if (!r) continue;
+    // Never with another account's token -- see ownedByConnection().
+    if (!ownedByConnection(r, connection, { soleConnection })) { result.other_account += 1; continue; }
     if (r.image_path && String(r.image_creative_id) === String(r.creative_id)) { result.already += 1; continue; }
     if (!needsArchive(r, { now, retryAfterHours })) { result.skipped += 1; continue; }
     todo.push(r);
