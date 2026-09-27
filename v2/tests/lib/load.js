@@ -39,6 +39,8 @@ function loadV2(files) {
   g.Intl = Intl;
   g.setTimeout = setTimeout;
   g.clearTimeout = clearTimeout;
+  // ad-studio.js reads a destination's host.
+  g.URL = URL;
 
   vm.createContext(g);
   for (const f of files) {

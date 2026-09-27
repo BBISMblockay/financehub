@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ad Studio — SILO</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    /* Ad Studio: past Meta ads as baselines, each objective judged on what it
+       was bought on (ad-studio.js), and an idea bank held to a bar frozen when
+       the idea is made. Every rate is pooled from sums; an absent measure is
+       never drawn as zero; ROAS is Meta-reported and says so. */
+    .as-wrap { display:grid; grid-template-columns:minmax(0, 1fr) minmax(340px, 420px); gap:20px; padding:18px 20px 32px; align-items:start; }
+    @media (max-width: 1200px) { .as-wrap { grid-template-columns:1fr; } }
+    .as-hero { padding:18px 20px 0; display:flex; justify-content:space-between; align-items:flex-end; gap:16px; flex-wrap:wrap; }
+    .as-hero h1 { margin:0; font-size:28px; font-weight:800; letter-spacing:-0.02em; color:var(--bcn-ink); }
+    .as-hero p { margin:4px 0 0; font-size:13.5px; color:var(--bcn-ink-2); max-width:680px; }
+    .as-fresh { font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.04em; color:var(--bcn-ink-3); text-transform:uppercase; }
+    .as-views { display:flex; gap:26px; border-bottom:1px solid var(--bcn-border); margin:14px 20px 0; }
+    .as-view { all:unset; cursor:pointer; padding:0 0 10px; font-size:14px; color:var(--bcn-ink-2); border-bottom:2px solid transparent; }
+    .as-view[aria-selected="true"] { color:var(--bcn-ink); font-weight:700; border-bottom-color:var(--bcn-ink); }
+    .as-view:focus-visible { outline:2px solid var(--bcn-accent); outline-offset:3px; }
+    .as-count { font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-3); margin-left:4px; }
+
+    .as-objs { display:flex; flex-wrap:wrap; gap:8px; }
+    .as-obj { all:unset; cursor:pointer; padding:6px 12px; border-radius:999px; border:1px solid var(--bcn-border); font-size:13px; color:var(--bcn-ink-2); background:var(--bcn-surface); }
+    .as-obj[aria-pressed="true"] { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); font-weight:600; }
+    .as-obj:focus-visible { outline:2px solid var(--bcn-accent); outline-offset:2px; }
+    .as-obj .as-count { color:inherit; opacity:.7; }
+
+    .as-band { display:flex; gap:22px; flex-wrap:wrap; align-items:flex-end; padding:16px 18px; border-radius:10px; background:var(--bcn-surface); border:1px solid var(--bcn-border); margin:14px 0; }
+    .as-band-main { display:flex; flex-direction:column; gap:2px; }
+    .as-k { font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.04em; color:var(--bcn-ink-3); text-transform:uppercase; }
+    .as-big { font-family:var(--bcn-mono); font-size:34px; font-weight:600; line-height:1.05; color:var(--bcn-ink); }
+    .as-mid { font-family:var(--bcn-mono); font-size:18px; font-weight:600; color:var(--bcn-ink); }
+    .as-note { font-size:12px; color:var(--bcn-ink-3); }
+    .as-band .as-note { flex-basis:100%; }
+
+    .as-controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+    .as-controls .bcn-field { width:auto; }
+    .as-sel { margin-left:auto; display:flex; gap:8px; align-items:center; font-size:12.5px; color:var(--bcn-ink-2); }
+
+    .as-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:14px; }
+    .as-card { position:relative; display:flex; flex-direction:column; background:var(--bcn-surface); border:1px solid var(--bcn-border); border-radius:10px; overflow:hidden; }
+    .as-card[aria-current="true"] { border:2px solid var(--bcn-pos); }
+    .as-card-open { all:unset; cursor:pointer; display:flex; flex-direction:column; }
+    .as-card-open:focus-visible { outline:2px solid var(--bcn-accent); outline-offset:-2px; }
+    .as-img { aspect-ratio:1 / 1; width:100%; object-fit:cover; background:var(--bcn-sunken, var(--bcn-bg)); display:block; }
+    .as-img--blank { display:flex; align-items:center; justify-content:center; text-align:center; padding:12px; box-sizing:border-box; font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.05em; color:var(--bcn-ink-3); text-transform:uppercase; }
+    .as-badges { position:absolute; top:8px; left:8px; display:flex; gap:6px; }
+    .as-badge { font-size:10.5px; font-weight:600; padding:2px 7px; border-radius:999px; background:rgba(0,0,0,.62); color:#fff; }
+    .as-pick { position:absolute; top:8px; right:8px; width:18px; height:18px; accent-color:var(--bcn-pos); }
+    .as-card-body { padding:10px 12px 12px; display:flex; flex-direction:column; gap:4px; min-width:0; }
+    .as-name { font-size:13.5px; font-weight:700; color:var(--bcn-ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .as-metric { font-family:var(--bcn-mono); font-size:16px; font-weight:600; color:var(--bcn-ink); }
+    .as-sub { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); }
+    .as-pills { display:flex; flex-wrap:wrap; gap:6px; }
+    .as-pill { font-size:11px; padding:2px 8px; border-radius:999px; background:var(--bcn-sunken, var(--bcn-bg)); color:var(--bcn-ink-2); white-space:nowrap; }
+    .as-pill--pos { background:var(--bcn-pos-soft); color:color-mix(in oklch, var(--bcn-pos) 70%, var(--bcn-ink)); font-weight:600; }
+    .as-pill--neg { background:color-mix(in oklch, var(--bcn-neg) 12%, var(--bcn-surface)); color:color-mix(in oklch, var(--bcn-neg) 70%, var(--bcn-ink)); font-weight:600; }
+    .as-pill--live { background:var(--bcn-accent-soft); color:var(--bcn-accent); font-weight:600; }
+    .as-more { all:unset; cursor:pointer; display:block; margin:14px auto 0; font-size:12.5px; font-weight:600; color:var(--bcn-accent); }
+
+    .as-detail { position:sticky; top:12px; background:var(--bcn-surface); border:1px solid var(--bcn-border); border-radius:10px; overflow:hidden; display:flex; flex-direction:column; min-width:0; }
+    .as-detail-img { width:100%; max-height:420px; object-fit:contain; background:var(--bcn-sunken, var(--bcn-bg)); display:block; }
+    .as-detail-body { padding:18px 20px; display:flex; flex-direction:column; gap:14px; }
+    .as-crumb { font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.06em; color:var(--bcn-ink-3); text-transform:uppercase; }
+    .as-title { font-size:21px; font-weight:800; letter-spacing:-0.01em; color:var(--bcn-ink); margin:2px 0 0; }
+    .as-tiles { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
+    .as-tile { padding:12px; border-radius:8px; background:var(--bcn-bg); display:flex; flex-direction:column; gap:3px; }
+    .as-tile--lead { background:var(--bcn-pos-soft); }
+    .as-findings { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:9px; }
+    .as-findings li { display:flex; gap:10px; font-size:13px; color:var(--bcn-ink); }
+    .as-findings small { display:block; color:var(--bcn-ink-2); font-size:12px; margin-top:2px; }
+    .as-mark { flex-shrink:0; width:9px; height:9px; margin-top:5px; border-radius:50%; box-sizing:border-box; }
+    .as-mark--neg { background:var(--bcn-neg); } .as-mark--pos { background:var(--bcn-pos); } .as-mark--info { border:2px solid var(--bcn-ink-4); }
+    .as-copy { white-space:pre-wrap; font-size:13px; line-height:1.5; color:var(--bcn-ink); background:var(--bcn-bg); border-radius:8px; padding:12px; max-height:180px; overflow:auto; }
+    .as-copy.is-absent { font-style:italic; color:var(--bcn-ink-3); }
+    .as-acts { display:flex; flex-wrap:wrap; gap:8px; }
+    .as-btn-dark { display:inline-flex; align-items:center; padding:9px 14px; border-radius:4px; background:var(--bcn-band); color:var(--bcn-band-ink); font-size:13.5px; font-weight:700; text-decoration:none; border:0; cursor:pointer; }
+    .as-btn-dark:hover { background:var(--bcn-band-hi); color:var(--bcn-band-ink); }
+    .as-btn-dark:focus-visible { outline:2px solid var(--bcn-accent); outline-offset:2px; }
+    .as-link { font-size:13px; color:var(--bcn-ink-2); word-break:break-all; }
+
+    .as-board { display:grid; grid-template-columns:repeat(5, minmax(220px, 1fr)); gap:14px; padding:18px 20px 32px; overflow-x:auto; }
+    .as-col { background:var(--bcn-bg); border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:10px; min-height:160px; }
+    .as-col h3 { margin:0; font-size:13px; font-weight:700; color:var(--bcn-ink); display:flex; justify-content:space-between; }
+    .as-idea { background:var(--bcn-surface); border:1px solid var(--bcn-border); border-radius:8px; padding:12px; display:flex; flex-direction:column; gap:8px; }
+    .as-idea h4 { margin:0; font-size:14px; font-weight:700; color:var(--bcn-ink); }
+    .as-idea q { font-size:12.5px; color:var(--bcn-ink-2); font-style:italic; }
+    .as-idea-thumbs { display:flex; gap:6px; }
+    .as-idea-thumbs img, .as-idea-thumbs span { width:44px; height:44px; border-radius:6px; object-fit:cover; background:var(--bcn-sunken, var(--bcn-bg)); display:block; }
+    .as-bar { font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-2); }
+    .as-result { font-size:12px; font-weight:600; }
+    .as-result--beating { color:color-mix(in oklch, var(--bcn-pos) 70%, var(--bcn-ink)); }
+    .as-result--behind { color:color-mix(in oklch, var(--bcn-neg) 70%, var(--bcn-ink)); }
+    .as-result--early, .as-result--no_data, .as-result--not_live, .as-result--no_bar { color:var(--bcn-ink-3); font-weight:500; }
+    .as-idea-acts { display:flex; gap:6px; align-items:center; }
+    .as-idea-acts select { flex:1; font-size:12px; padding:3px 6px; }
+    .as-idea-acts .bcn-btn { padding:3px 10px; font-size:12px; }
+
+    .as-empty { padding:40px 20px; text-align:center; color:var(--bcn-ink-3); font-size:13.5px; }
+    .as-empty b { display:block; color:var(--bcn-ink); font-size:15px; margin-bottom:6px; }
+    .as-skel { background:var(--bcn-bg); border-radius:10px; min-height:220px; }
+    dialog.as-dialog { border:1px solid var(--bcn-border); border-radius:10px; padding:0; width:min(680px, 94vw); max-height:90vh; }
+    dialog.as-dialog::backdrop { background:rgba(0,0,0,.35); }
+    .as-row { display:flex; gap:8px; flex-wrap:wrap; }
+    .as-row > .bcn-field-group { flex:1 1 160px; }
+    #status { margin:12px 20px 0; }
+    [hidden] { display:none !important; }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+    <header class="bcn-header">
+      <div>
+        <div class="bcn-header-title">Ad Studio</div>
+        <div id="subtitle" class="as-fresh">Loading…</div>
+      </div>
+      <div class="bcn-header-actions">
+        <label class="bcn-label" for="selWindow" style="margin:0">Window</label>
+        <select id="selWindow" class="bcn-field" style="width:auto">
+          <option value="90">Last 90 days</option>
+          <option value="180">Last 180 days</option>
+          <option value="365" selected>Last 12 months</option>
+          <option value="730">Last 2 years</option>
+        </select>
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="as-hero">
+      <div>
+        <h1>Ad Studio</h1>
+        <p>What worked, and what to make next. Every ad is judged on what its campaign was bought on, against the other ads bought the same way.</p>
+      </div>
+    </div>
+    <div class="as-views" role="tablist">
+      <button type="button" role="tab" class="as-view" data-view="baselines" aria-selected="true">Baselines</button>
+      <button type="button" role="tab" class="as-view" data-view="ideas" aria-selected="false">Idea bank <span class="as-count" id="ideaCount"></span></button>
+    </div>
+
+    <section id="viewBaselines">
+      <div class="as-wrap">
+        <div>
+          <div class="as-objs" id="objs"></div>
+          <div class="as-band" id="band"><div class="as-skel" style="min-height:60px;flex:1"></div></div>
+          <div class="as-controls">
+            <label class="bcn-label" for="selSort" style="margin:0">Sort</label>
+            <select id="selSort" class="bcn-field">
+              <option value="best">Best against baseline</option>
+              <option value="spend">Biggest spend</option>
+              <option value="recent">Most recent</option>
+            </select>
+            <label style="font-size:12.5px;color:var(--bcn-ink-2)"><input type="checkbox" id="chkRunning" /> Running now</label>
+            <div class="as-sel">
+              <span id="selCount"></span>
+              <button type="button" class="bcn-btn" id="btnIdeaFromSel" disabled>New idea from selected</button>
+              <a class="bcn-btn bcn-btn--ghost" id="lnkAskSel" href="#" hidden>Draft with Ask SILO</a>
+            </div>
+          </div>
+          <div class="as-grid" id="grid"><div class="as-skel"></div><div class="as-skel"></div><div class="as-skel"></div></div>
+          <button type="button" class="as-more" id="btnMore" hidden>Show more</button>
+        </div>
+        <aside class="as-detail" id="detail" aria-live="polite"><div class="as-skel" style="min-height:420px;border-radius:0"></div></aside>
+      </div>
+    </section>
+
+    <section id="viewIdeas" hidden>
+      <div class="as-hero" style="padding-top:14px">
+        <p>Ideas start from ads that worked. Each one keeps the bar it has to beat from the day it was made, and once it is live SILO measures its ads against that bar.</p>
+        <button type="button" class="bcn-btn bcn-btn--primary" id="btnNewIdea">New idea</button>
+      </div>
+      <div class="as-board" id="board"></div>
+    </section>
+  </main>
+</div>
+
+<!-- Add / edit an idea -->
+<dialog class="as-dialog" id="dlgIdea">
+  <div class="bcn-card" style="margin:0;border:0">
+    <div class="bcn-card-header"><h2 id="ideaHead">New idea</h2><button class="bcn-btn bcn-btn--ghost" type="button" data-close>Close</button></div>
+    <div class="bcn-card-body">
+      <div class="bcn-field-group"><label class="bcn-label" for="iTitle">Title</label><input id="iTitle" class="bcn-field" maxlength="200" /></div>
+      <div class="bcn-field-group"><label class="bcn-label" for="iHook">Hook (first line)</label><input id="iHook" class="bcn-field" maxlength="500" /></div>
+      <div class="bcn-field-group"><label class="bcn-label" for="iAngle">Angle (what changes from the baseline, and why)</label><textarea id="iAngle" class="bcn-field" rows="3" maxlength="2000"></textarea></div>
+      <div class="bcn-field-group"><label class="bcn-label" for="iBody">Draft copy</label><textarea id="iBody" class="bcn-field" rows="3" maxlength="5000"></textarea></div>
+      <div class="as-row">
+        <div class="bcn-field-group"><label class="bcn-label" for="iFormat">Format</label>
+          <select id="iFormat" class="bcn-field"><option value="">—</option><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option><option value="ugc">UGC</option><option value="catalog">Catalog</option><option value="other">Other</option></select></div>
+        <div class="bcn-field-group"><label class="bcn-label" for="iObjective">Objective</label><select id="iObjective" class="bcn-field"></select></div>
+        <div class="bcn-field-group"><label class="bcn-label" for="iStatus">Status</label><select id="iStatus" class="bcn-field"></select></div>
+      </div>
+      <div class="bcn-field-group"><label class="bcn-label" for="iDest">Destination</label><input id="iDest" class="bcn-field" placeholder="https://…" /></div>
+      <div class="bcn-field-group" id="iLiveWrap"><label class="bcn-label" for="iLive">Ads carrying this idea (for live ideas)</label>
+        <select id="iLive" class="bcn-field" multiple size="5"></select>
+        <span class="as-note">Ads that started in this window, newest first. Pick the ones made from this idea.</span></div>
+      <div class="bcn-field-group"><label class="bcn-label" for="iNotes">Notes</label><textarea id="iNotes" class="bcn-field" rows="2" maxlength="5000"></textarea></div>
+      <div id="iBaselines" class="as-note"></div>
+      <div class="bcn-status bcn-status--neg" id="iError" role="alert" hidden></div>
+    </div>
+    <div class="bcn-card-foot" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <span class="as-note">Saved to your company's idea bank. Nothing is sent to Meta.</span>
+      <button id="btnIdeaSave" class="bcn-btn bcn-btn--primary" type="button">Save idea</button>
+    </div>
+  </div>
+</dialog>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script src="ad-studio.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { fetch: (url, o = {}) => fetch(url, { ...o, cache: 'no-store' }) },
+  });
+  const A = window.SiloAdStudio;
+
+  const el = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+  const safeHref = u => (/^https?:\/\/[^\s]+$/i.test(String(u || '')) ? String(u) : null);
+  const dayFmt = iso => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+    if (!m) return '—';
+    return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  };
+  const EVIDENCE_WORD = { strong: 'Strong evidence', moderate: 'Moderate evidence', early: 'Early' };
+  const FORMAT_WORD = { image: 'Image', video: 'Video', catalog: 'Catalog', carousel: 'Carousel', ugc: 'UGC', other: 'Post' };
+  const PAGE = 24;
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg;
+    s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+  function explain(e) {
+    const msg = String(e?.message || e);
+    if (/42883|42P01|does not exist|Could not find the function/i.test(msg) && /ad_studio_ads|ad_ideas/.test(msg)) return `${msg} — apply 20260927190000_ad_studio.sql`;
+    return msg;
+  }
+
+  let _co = null;
+  let _user = null;
+  const S = {
+    ads: [], scored: [], byId: {}, bases: {}, totals: {}, window: null,
+    objective: null, sort: 'best', running: false, shown: PAGE, selected: null, picked: new Set(),
+    signed: {}, ideas: [], view: 'baselines', editing: null, draft: null,
+  };
+
+  // ── Loads ────────────────────────────────────────────────────────────────
+  async function loadAds(days) {
+    // PostgREST caps a page at 1,000 rows; the RPC orders by spend then ad id,
+    // so the pages are stable.
+    const rows = [];
+    for (let from = 0; from < 10000; from += 1000) {
+      const { data, error } = await sb.rpc('ad_studio_ads', { p_days: days }).range(from, from + 999);
+      if (error) throw error;
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    return rows;
+  }
+  async function signImages(ads) {
+    const want = [...new Set(ads.map(a => a.image_path).filter(p => p && !(p in S.signed)))];
+    for (let i = 0; i < want.length; i += 200) {
+      const chunk = want.slice(i, i + 200);
+      const { data, error } = await sb.storage.from('ad-creative-images').createSignedUrls(chunk, 3600);
+      if (error) { chunk.forEach(p => { S.signed[p] = null; }); continue; }
+      for (const r of data || []) S.signed[r.path] = r.error ? null : r.signedUrl;
+    }
+  }
+  async function loadIdeas() {
+    let q = sb.from('ad_ideas').select('*').order('updated_at', { ascending: false }).limit(500);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) { S.ideas = []; S.ideasError = explain(error); return; }
+    S.ideasError = null;
+    S.ideas = data || [];
+  }
+
+  function prepare() {
+    S.scored = A.score(S.ads);
+    S.byId = {};
+    S.scored.forEach(a => { S.byId[String(a.ad_id)] = a; });
+    S.bases = {};
+    S.totals = {};
+    A.OBJECTIVES.forEach(o => { S.bases[o.key] = A.baseline(S.ads, o.key); });
+    S.scored.forEach(a => { S.totals[a.objective] = (S.totals[a.objective] || 0) + (Number(a.spend) || 0); });
+    const first = S.ads[0];
+    S.window = first ? { start: String(first.window_start).slice(0, 10), through: String(first.data_through).slice(0, 10) } : null;
+    // Default to the objective carrying the most spend.
+    if (!S.objective || !S.totals[S.objective]) {
+      S.objective = Object.keys(S.totals).sort((a, b) => S.totals[b] - S.totals[a])[0] || 'purchase';
+    }
+  }
+
+  // ── Baselines ────────────────────────────────────────────────────────────
+  function visibleAds() {
+    let rows = S.scored.filter(a => a.objective === S.objective);
+    if (S.running) rows = rows.filter(a => A.isRunning(a));
+    return A.rank(rows, S.sort);
+  }
+  function renderObjectives() {
+    el('objs').innerHTML = A.OBJECTIVES.filter(o => S.totals[o.key]).map(o => {
+      const n = S.scored.filter(a => a.objective === o.key).length;
+      return `<button type="button" class="as-obj" data-obj="${o.key}" aria-pressed="${S.objective === o.key}">${esc(o.label)} <span class="as-count">${n}</span></button>`;
+    }).join('');
+  }
+  function renderBand() {
+    const o = A.objective(S.objective);
+    const b = S.bases[o.key];
+    if (!b) { el('band').innerHTML = ''; return; }
+    const m = A.METRICS[o.primary];
+    const sec = o.secondary.map(k => `<div class="as-band-main"><span class="as-k">${esc(A.METRICS[k].short)}</span><span class="as-mid">${esc(A.fmtMetric(A.metric(b.sums, k), k))}</span></div>`).join('');
+    el('band').innerHTML = `
+      <div class="as-band-main"><span class="as-k">${esc(o.label)} baseline · ${esc(m.label)}</span>
+        <span class="as-big">${esc(A.fmtMetric(b.value, o.primary))}</span></div>
+      ${sec}
+      <div class="as-band-main"><span class="as-k">Spend</span><span class="as-mid">${esc(A.fmtMoney(b.sums.spend))}</span></div>
+      <div class="as-band-main"><span class="as-k">Ads</span><span class="as-mid">${b.ads}</span></div>
+      <p class="as-note">Pooled across ${o.label.toLowerCase()} ads with at least $${b.minSpend} spend in the window${S.window ? ` (${dayFmt(S.window.start)} – ${dayFmt(S.window.through)})` : ''}. ${o.primary === 'roas' || o.secondary.includes('roas') ? 'ROAS is Meta-reported revenue over spend, not Shopify sales. ' : ''}${esc(o.note || '')}</p>`;
+  }
+  function imgHtml(a, cls) {
+    const im = A.imageFor(a, S.signed);
+    if (im.src) return `<img class="${cls}" src="${esc(im.src)}" alt="${esc(a.ad_name || 'Ad image')}" loading="lazy">`;
+    return `<div class="${cls} as-img--blank">${a.image_path ? 'Image unavailable' : 'Image not archived yet'}</div>`;
+  }
+  function cardHtml(a) {
+    const o = A.objective(a.objective);
+    const im = A.imageFor(a, S.signed);
+    const fmt = A.formatOf(a);
+    const idx = A.fmtIndex(a.index);
+    const tone = a.index == null ? '' : a.index >= 1.05 ? 'as-pill--pos' : a.index <= 0.95 ? 'as-pill--neg' : '';
+    return `<article class="as-card" aria-current="${S.selected === String(a.ad_id)}">
+      <button type="button" class="as-card-open" data-ad="${esc(a.ad_id)}" aria-label="Open ${esc(a.ad_name || a.ad_id)}">
+        ${imgHtml(a, 'as-img')}
+        <div class="as-card-body">
+          <div class="as-name">${esc(a.ad_name || a.ad_id)}</div>
+          <div class="as-metric">${esc(A.fmtMetric(a.value, o.primary))} <span class="as-sub">${esc(A.METRICS[o.primary].short)}</span></div>
+          <div class="as-pills">
+            ${idx ? `<span class="as-pill ${tone}">${esc(idx)}</span>` : `<span class="as-pill">${a.evidence === 'early' ? 'Early' : 'Not compared'}</span>`}
+            ${A.isRunning(a) ? '<span class="as-pill as-pill--live">Running</span>' : ''}
+          </div>
+          <div class="as-sub">${esc(A.fmtMoney(a.spend))} · ${esc(a.days_with_spend || 0)}d · ${esc(dayFmt(a.last_day))}</div>
+        </div>
+      </button>
+      <div class="as-badges"><span class="as-badge">${esc(FORMAT_WORD[fmt] || 'Post')}</span>${im.template ? '<span class="as-badge">Template</span>' : ''}</div>
+      <input type="checkbox" class="as-pick" data-pick="${esc(a.ad_id)}" aria-label="Select ${esc(a.ad_name || a.ad_id)} as a baseline" ${S.picked.has(String(a.ad_id)) ? 'checked' : ''}>
+    </article>`;
+  }
+  function renderGrid() {
+    const rows = visibleAds();
+    if (!rows.length) {
+      el('grid').innerHTML = `<div class="as-empty" style="grid-column:1/-1"><b>No ads here.</b>${S.running ? 'None of these ads is running now.' : 'No ad with this objective spent in the window.'}</div>`;
+      el('btnMore').hidden = true;
+      return;
+    }
+    el('grid').innerHTML = rows.slice(0, S.shown).map(cardHtml).join('');
+    el('btnMore').hidden = rows.length <= S.shown;
+    el('btnMore').textContent = `Show ${Math.min(PAGE, rows.length - S.shown)} more of ${rows.length - S.shown}`;
+  }
+  function renderSelection() {
+    const n = S.picked.size;
+    el('selCount').textContent = n ? `${n} selected` : '';
+    el('btnIdeaFromSel').disabled = !n;
+    const ads = [...S.picked].map(id => S.byId[id]).filter(Boolean);
+    const p = A.askSiloPrompt(ads, S.bases[ads[0]?.objective]);
+    el('lnkAskSel').hidden = !p;
+    if (p) el('lnkAskSel').href = '/v2/silo-chat.html?q=' + encodeURIComponent(p);
+  }
+  function renderDetail() {
+    const a = S.byId[S.selected];
+    if (!a) { el('detail').innerHTML = `<div class="as-empty"><b>Pick an ad</b>Choose one from the grid to see how it did and start an idea from it.</div>`; return; }
+    const o = A.objective(a.objective);
+    const b = S.bases[o.key];
+    const f = A.findings(a, b, S.totals);
+    const s = A.pool([a]);
+    const dest = A.destinationOf(a);
+    const preview = safeHref(a.preview_shareable_link);
+    const copy = String(a.body || a.title || '').trim();
+    const im = A.imageFor(a, S.signed);
+    const ask = A.askSiloPrompt([a], b);
+    el('detail').innerHTML = `
+      ${im.src ? `<img class="as-detail-img" src="${esc(im.src)}" alt="${esc(a.ad_name || 'Ad image')}">` : `<div class="as-img as-img--blank" style="aspect-ratio:auto;height:180px">${a.image_path ? 'Image unavailable' : 'Image not archived yet — the next sync or the image backfill stores it'}</div>`}
+      <div class="as-detail-body">
+        <div>
+          <div class="as-crumb">${esc(o.label)} · ${esc(FORMAT_WORD[A.formatOf(a)] || 'Post')} · ad ${esc(a.ad_id)}</div>
+          <div class="as-title">${esc(a.ad_name || a.ad_id)}</div>
+          <div class="as-note">${esc(a.campaign_name || '')}${a.adset_name ? ' › ' + esc(a.adset_name) : ''}</div>
+        </div>
+        <div class="as-tiles">
+          <div class="as-tile as-tile--lead"><span class="as-k">${esc(A.METRICS[o.primary].short)}</span><span class="as-big" style="font-size:26px">${esc(A.fmtMetric(a.value, o.primary))}</span>
+            <span class="as-note">Baseline ${esc(A.fmtMetric(b?.value, o.primary))}${a.evidence ? ' · ' + esc(EVIDENCE_WORD[a.evidence]) : ''}</span></div>
+          <div class="as-tile"><span class="as-k">Click-through</span><span class="as-big" style="font-size:26px">${esc(A.fmtMetric(A.metric(s, 'ctr'), 'ctr'))}</span>
+            <span class="as-note">Baseline ${esc(A.fmtMetric(b ? A.metric(b.sums, 'ctr') : null, 'ctr'))}</span></div>
+          <div class="as-tile"><span class="as-k">Spend</span><span class="as-mid">${esc(A.fmtMoney(a.spend))}</span><span class="as-note">${esc(a.days_with_spend || 0)} days · ${esc(dayFmt(a.first_day))} – ${esc(dayFmt(a.last_day))}</span></div>
+          <div class="as-tile"><span class="as-k">${o.key === 'purchase' ? 'Purchases' : 'Clicks'}</span><span class="as-mid">${esc(o.key === 'purchase' ? (s.conversions == null ? '—' : Math.round(s.conversions).toLocaleString('en-US')) : (s.clicks ?? 0).toLocaleString('en-US'))}</span>
+            <span class="as-note">${o.key === 'purchase' ? 'Meta-reported' : 'Link clicks'}</span></div>
+        </div>
+        <div><div class="as-k" style="margin-bottom:8px">What the numbers show</div>
+          <ul class="as-findings">${f.map(x => `<li><span class="as-mark as-mark--${x.tone}"></span><div>${esc(x.title)}<small>${esc(x.detail)}</small></div></li>`).join('')}</ul></div>
+        <div><div class="as-k" style="margin-bottom:8px">Copy</div>
+          <div class="as-copy ${copy ? '' : 'is-absent'}">${copy ? esc(copy) : 'No copy synced for this ad (catalog and dynamic ads often keep it in their feed).'}</div></div>
+        ${dest ? `<div><div class="as-k" style="margin-bottom:4px">Destination</div><a class="as-link" href="${esc(dest)}" target="_blank" rel="noopener">${esc(dest.replace(/^https?:\/\//, ''))}</a></div>` : ''}
+        <div class="as-acts">
+          <button type="button" class="as-btn-dark" id="btnIdeaFromAd">Add to idea bank</button>
+          ${ask ? `<a class="bcn-btn" href="${esc('/v2/silo-chat.html?q=' + encodeURIComponent(ask))}">Draft variations with Ask SILO</a>` : ''}
+          ${preview ? `<a class="bcn-btn bcn-btn--ghost" href="${esc(preview)}" target="_blank" rel="noopener">Preview on Meta</a>` : ''}
+        </div>
+      </div>`;
+  }
+  function renderBaselines() { renderObjectives(); renderBand(); renderGrid(); renderSelection(); renderDetail(); }
+
+  // ── Idea bank ────────────────────────────────────────────────────────────
+  function ideaCard(i) {
+    const thumbs = (i.baseline_ad_ids || []).slice(0, 4).map(id => {
+      const a = S.byId[String(id)];
+      const im = a ? A.imageFor(a, S.signed) : { src: null };
+      return im.src ? `<img src="${esc(im.src)}" alt="${esc(a.ad_name || id)}" title="${esc(a.ad_name || id)}">` : `<span title="ad ${esc(id)}"></span>`;
+    }).join('');
+    const snap = i.baseline_snapshot;
+    const bar = snap && snap.metric ? `Bar: ${A.METRICS[snap.metric]?.short || snap.metric} ${A.fmtMetric(snap.value, snap.metric)}${snap.data_through ? ` · set ${dayFmt(snap.data_through)}` : ''}` : 'No bar set';
+    const m = i.status === 'live' ? A.measureIdea(i, S.byId) : null;
+    const opts = A.IDEA_STATUSES.map(s => `<option value="${s.key}" ${s.key === i.status ? 'selected' : ''}>${esc(s.label)}</option>`).join('');
+    return `<div class="as-idea" data-idea="${esc(i.id)}">
+      <h4>${esc(i.title)}</h4>
+      ${i.hook ? `<q>${esc(i.hook)}</q>` : ''}
+      ${thumbs ? `<div class="as-idea-thumbs">${thumbs}</div>` : ''}
+      <div class="as-bar">${esc(bar)}</div>
+      ${m ? `<div class="as-result as-result--${m.state}">${esc(m.state === 'beating' ? 'Beating the bar — ' : m.state === 'behind' ? 'Behind the bar — ' : '')}${esc(m.note)}</div>` : ''}
+      <div class="as-idea-acts">
+        <select data-move="${esc(i.id)}" aria-label="Move ${esc(i.title)}">${opts}</select>
+        <button type="button" class="bcn-btn bcn-btn--ghost" data-edit="${esc(i.id)}">Edit</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" data-del="${esc(i.id)}" aria-label="Delete ${esc(i.title)}">✕</button>
+      </div>
+    </div>`;
+  }
+  function renderIdeas() {
+    el('ideaCount').textContent = S.ideas.length ? String(S.ideas.length) : '';
+    if (S.ideasError) { el('board').innerHTML = `<div class="as-empty" style="grid-column:1/-1"><b>Could not load ideas.</b>${esc(S.ideasError)}</div>`; return; }
+    el('board').innerHTML = A.IDEA_STATUSES.map(s => {
+      const list = S.ideas.filter(i => i.status === s.key);
+      return `<div class="as-col"><h3>${esc(s.label)} <span class="as-count">${list.length}</span></h3>
+        ${list.map(ideaCard).join('') || '<div class="as-note">Nothing here yet.</div>'}</div>`;
+    }).join('');
+  }
+  function setView(v) {
+    S.view = v;
+    document.querySelectorAll('.as-view').forEach(b => b.setAttribute('aria-selected', String(b.dataset.view === v)));
+    el('viewBaselines').hidden = v !== 'baselines';
+    el('viewIdeas').hidden = v !== 'ideas';
+    const url = new URL(location.href);
+    if (v === 'ideas') url.searchParams.set('view', 'ideas'); else url.searchParams.delete('view');
+    window.history.replaceState(null, '', url);
+    if (v === 'ideas') renderIdeas();
+  }
+
+  // ── Idea dialog ──────────────────────────────────────────────────────────
+  function fillSelects() {
+    el('iObjective').innerHTML = '<option value="">—</option>' + A.OBJECTIVES.map(o => `<option value="${o.key}">${esc(o.label)}</option>`).join('');
+    el('iStatus').innerHTML = A.IDEA_STATUSES.map(s => `<option value="${s.key}">${esc(s.label)}</option>`).join('');
+  }
+  function fillLive(selectedIds) {
+    const recent = S.scored.slice().sort((a, b) => String(b.first_day).localeCompare(String(a.first_day))).slice(0, 150);
+    const chosen = new Set((selectedIds || []).map(String));
+    // A linked ad that has since left the window stays listed, so saving never drops it.
+    const extra = [...chosen].filter(id => !recent.some(a => String(a.ad_id) === id));
+    el('iLive').innerHTML = recent.map(a => `<option value="${esc(a.ad_id)}" ${chosen.has(String(a.ad_id)) ? 'selected' : ''}>${esc(a.ad_name || a.ad_id)} · ${esc(dayFmt(a.first_day))}</option>`).join('')
+      + extra.map(id => `<option value="${esc(id)}" selected>ad ${esc(id)} (outside this window)</option>`).join('');
+  }
+  function openIdea(idea) {
+    S.editing = idea?.id ? idea : null;
+    S.draft = idea || {};
+    el('ideaHead').textContent = S.editing ? 'Edit idea' : 'New idea';
+    el('iTitle').value = idea?.title || '';
+    el('iHook').value = idea?.hook || '';
+    el('iAngle').value = idea?.angle || '';
+    el('iBody').value = idea?.body_draft || '';
+    el('iFormat').value = idea?.format || '';
+    el('iObjective').value = idea?.objective || '';
+    el('iStatus').value = idea?.status || 'idea';
+    el('iDest').value = idea?.destination_url || '';
+    el('iNotes').value = idea?.notes || '';
+    fillLive(idea?.live_ad_ids);
+    const base = (idea?.baseline_ad_ids || []).map(id => S.byId[String(id)]?.ad_name || `ad ${id}`);
+    const snap = idea?.baseline_snapshot;
+    el('iBaselines').innerHTML = base.length
+      ? `Built from: ${esc(base.join(', '))}.${snap?.metric ? ` Bar to beat: ${esc(A.METRICS[snap.metric]?.label || snap.metric)} ${esc(A.fmtMetric(snap.value, snap.metric))}, frozen ${esc(dayFmt(snap.data_through))}.` : ''}`
+      : 'No baseline ads: this idea has no bar to beat. Start one from the Baselines tab to set one.';
+    el('iError').hidden = true;
+    el('dlgIdea').showModal();
+  }
+  async function saveIdea() {
+    const fields = {
+      title: el('iTitle').value.trim(),
+      hook: el('iHook').value.trim() || null,
+      angle: el('iAngle').value.trim() || null,
+      body_draft: el('iBody').value.trim() || null,
+      format: el('iFormat').value || null,
+      objective: el('iObjective').value || null,
+      status: el('iStatus').value,
+      destination_url: el('iDest').value.trim() || null,
+      notes: el('iNotes').value.trim() || null,
+      live_ad_ids: [...el('iLive').selectedOptions].map(o => o.value),
+    };
+    const errs = A.validateIdea(fields);
+    if (errs.length) { el('iError').textContent = errs.join(' '); el('iError').hidden = false; return; }
+    el('btnIdeaSave').disabled = true;
+    try {
+      if (S.editing) {
+        // The bar and the baselines are fixed once set; they are never sent back.
+        const { error } = await sb.from('ad_ideas').update(fields).eq('id', S.editing.id).select('id').single();
+        if (error) throw error;
+      } else {
+        const row = { ...fields, company_entity_id: _co?.id,
+          baseline_ad_ids: S.draft?.baseline_ad_ids || [], baseline_snapshot: S.draft?.baseline_snapshot || null,
+          source: S.draft?.source || 'manual' };
+        const { error } = await sb.from('ad_ideas').insert(row).select('id').single();
+        if (error) throw error;
+      }
+      el('dlgIdea').close();
+      setStatus(S.editing ? 'Idea saved.' : 'Idea added to the idea bank.', 'pos', 3000);
+      S.picked.clear();
+      await loadIdeas();
+      renderSelection();
+      renderIdeas();
+      if (S.view === 'baselines') renderGrid();
+    } catch (e) {
+      el('iError').textContent = /PGRST116|0 rows/i.test(String(e?.message || e))
+        ? 'That idea could not be changed — it may belong to another company, or have been deleted.'
+        : `Could not save: ${explain(e)}`;
+      el('iError').hidden = false;
+    } finally { el('btnIdeaSave').disabled = false; }
+  }
+
+  // ── Events ───────────────────────────────────────────────────────────────
+  document.querySelectorAll('.as-view').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+  el('objs').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-obj]');
+    if (!b) return;
+    S.objective = b.dataset.obj; S.shown = PAGE;
+    const first = visibleAds()[0];
+    S.selected = first ? String(first.ad_id) : null;
+    renderBaselines();
+  });
+  el('selSort').addEventListener('change', () => { S.sort = el('selSort').value; S.shown = PAGE; renderGrid(); });
+  el('chkRunning').addEventListener('change', () => { S.running = el('chkRunning').checked; S.shown = PAGE; renderGrid(); });
+  el('btnMore').addEventListener('click', () => { S.shown += PAGE; renderGrid(); });
+  el('grid').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-ad]');
+    if (!b) return;
+    S.selected = String(b.dataset.ad);
+    const url = new URL(location.href); url.searchParams.set('ad', S.selected); window.history.replaceState(null, '', url);
+    renderGrid(); renderDetail();
+    if (window.matchMedia('(max-width: 1200px)').matches) el('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  el('grid').addEventListener('change', (e) => {
+    const c = e.target.closest('[data-pick]');
+    if (!c) return;
+    const id = String(c.dataset.pick);
+    // Baselines of one idea share an objective, or the bar mixes two measures.
+    if (c.checked && S.picked.size && S.byId[[...S.picked][0]]?.objective !== S.byId[id]?.objective) {
+      c.checked = false;
+      setStatus('An idea’s baselines share one objective, so its bar is one measure. Clear the selection to pick from another objective.', 'info', 5000);
+      return;
+    }
+    if (c.checked) S.picked.add(id); else S.picked.delete(id);
+    renderSelection();
+  });
+  el('detail').addEventListener('click', (e) => {
+    if (!e.target.closest('#btnIdeaFromAd')) return;
+    const a = S.byId[S.selected];
+    if (a) openIdea(A.ideaFromAds([a], S.window));
+  });
+  el('btnIdeaFromSel').addEventListener('click', () => {
+    const ads = [...S.picked].map(id => S.byId[id]).filter(Boolean);
+    if (ads.length) openIdea(A.ideaFromAds(ads, S.window));
+  });
+  el('btnNewIdea').addEventListener('click', () => openIdea({ status: 'idea', source: 'manual' }));
+  el('dlgIdea').addEventListener('click', (e) => { if (e.target.closest('[data-close]')) el('dlgIdea').close(); });
+  el('btnIdeaSave').addEventListener('click', saveIdea);
+  el('board').addEventListener('click', async (e) => {
+    const ed = e.target.closest('[data-edit]');
+    if (ed) { const i = S.ideas.find(x => x.id === ed.dataset.edit); if (i) openIdea(i); return; }
+    const del = e.target.closest('[data-del]');
+    if (del) {
+      const i = S.ideas.find(x => x.id === del.dataset.del);
+      if (!i || !window.confirm(`Delete “${i.title}”? This cannot be undone.`)) return;
+      const { data, error } = await sb.from('ad_ideas').delete().eq('id', i.id).select();
+      if (error) { setStatus(`Could not delete: ${explain(error)}`, 'neg', 6000); return; }
+      if (!data?.length) { setStatus('Only the person who added this idea, or an admin, can delete it.', 'info', 5000); return; }
+      S.ideas = S.ideas.filter(x => x.id !== i.id);
+      renderIdeas();
+      setStatus('Idea deleted.', 'pos', 2500);
+    }
+  });
+  el('board').addEventListener('change', async (e) => {
+    const mv = e.target.closest('[data-move]');
+    if (!mv) return;
+    const i = S.ideas.find(x => x.id === mv.dataset.move);
+    if (!i) return;
+    const status = mv.value;
+    // Going live needs the ads carrying it: the dialog asks for them.
+    if (status === 'live' && !(i.live_ad_ids || []).length) { mv.value = i.status; openIdea({ ...i, status: 'live' }); return; }
+    const { error } = await sb.from('ad_ideas').update({ status }).eq('id', i.id).select('id').single();
+    if (error) { mv.value = i.status; setStatus(`Could not move it: ${explain(error)}`, 'neg', 6000); return; }
+    i.status = status;
+    renderIdeas();
+  });
+
+  let loadId = 0;
+  async function runLoad() {
+    const id = ++loadId;
+    el('btnRefresh').disabled = true;
+    try {
+      const days = Number(el('selWindow').value) || 365;
+      const [ads] = await Promise.all([loadAds(days), loadIdeas()]);
+      if (id !== loadId) return;
+      S.ads = ads;
+      prepare();
+      await signImages(S.ads);
+      if (id !== loadId) return;
+      const through = S.window?.through;
+      el('subtitle').textContent = S.ads.length
+        ? `${S.ads.length} ads · Meta data to ${dayFmt(through)}`
+        : 'No Meta ad data';
+      const want = new URLSearchParams(location.search).get('ad');
+      if (want && S.byId[want]) { S.selected = want; S.objective = S.byId[want].objective; }
+      else if (!S.byId[S.selected]) { const first = visibleAds()[0]; S.selected = first ? String(first.ad_id) : null; }
+      if (!S.ads.length) {
+        el('grid').innerHTML = `<div class="as-empty" style="grid-column:1/-1"><b>No Meta ads yet.</b>Connect Meta Ads in Integrations; ads appear here after the nightly sync.</div>`;
+        el('band').innerHTML = ''; el('objs').innerHTML = ''; el('detail').innerHTML = '';
+      } else {
+        renderBaselines();
+      }
+      renderIdeas();
+      if (new URLSearchParams(location.search).get('view') === 'ideas') setView('ideas');
+    } catch (e) {
+      if (id !== loadId) return;
+      setStatus(`Load failed: ${explain(e)}`, 'neg');
+      el('grid').innerHTML = `<div class="as-empty" style="grid-column:1/-1"><b>Could not load.</b>${esc(explain(e))}</div>`;
+      el('detail').innerHTML = '';
+    } finally { if (id === loadId) el('btnRefresh').disabled = false; }
+  }
+  el('btnRefresh').addEventListener('click', () => { S.signed = {}; runLoad(); });
+  el('selWindow').addEventListener('change', () => { S.shown = PAGE; runLoad(); });
+
+  async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) { window.location.href = '/pages/login.html'; return; }
+    _user = sess.data.session.user;
+    _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({ appEl: '#silo-app', active: 'reports/ad-studio', user: { email: _user?.email || '', role: 'admin' }, crumbs: ['Marketing', 'Ad Studio'], supabaseClient: sb });
+    }
+    fillSelects();
+    await runLoad();
+  }
+  boot();
+</script>
+</body>
+</html>

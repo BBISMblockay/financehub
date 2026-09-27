@@ -94,6 +94,8 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
     'reports/wow-report',
     'reports/marketing-overview',
     'reports/marketing-explorer',
+    // Ad Studio (2026-09-27): same exec soft-launch gate.
+    'reports/ad-studio',
     'reports/seo',
   ]);
   assert.ok(!sections.some((section) => section.section === 'Reports'));

@@ -266,6 +266,8 @@ await test('the outsider cannot see or touch it', async () => {
 await test('the bar is frozen once set', async () => {
   await refused(() => asUser(admin, () => q("update ad_ideas set baseline_snapshot = $2 where id=$1", [ideaId, { ...snapshot, value: 1 }])),
     /frozen/, 'rewriting the bar');
+  await refused(() => asUser(admin, () => q("update ad_ideas set baseline_ad_ids = array['B'] where id=$1", [ideaId])),
+    /frozen with the bar/, 'swapping the baselines under the bar');
 });
 
 await test('approval is stamped by the database, not taken from the client', async () => {

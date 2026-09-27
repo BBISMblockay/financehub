@@ -265,6 +265,10 @@
     { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered', 'standard'] },
     { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered', 'standard'] },
     { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered', 'standard'] },
+    // Past Meta ads as baselines and an idea bank measured against them
+    // (2026-09-27). Soft launch behind the same exec gate the SEO row started
+    // with -- who sees it first, not who may read it; RLS is the boundary.
+    { roles: EXEC_ROLES, id: 'reports/ad-studio', section: 'Marketing', label: 'Ad Studio', href: '/v2/ad-studio.html', profiles: ['grandfathered', 'standard'] },
     // ONE SEO destination (2026-09-27), not a row per page: Studio, Search
     // performance and Keywords are TABS of it (SEO_SUITE_PAGES above), the
     // same collapse as Accounting and Workspace settings. silo-chrome.js maps

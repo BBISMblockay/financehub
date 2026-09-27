@@ -233,7 +233,7 @@ left join early e on e.ad_id = a.ad_id
 left join public.meta_ad_creatives c
        on c.company_entity_id = public.active_company_id() and c.ad_id = a.ad_id
 left join shared s on s.image_sha256 = c.image_sha256
-order by a.spend desc;
+order by a.spend desc, a.ad_id;
 $fn$;
 
 revoke all on function public.ad_studio_ads(integer) from public, anon;
@@ -299,6 +299,10 @@ begin
     -- of what the original was measured against survives.
     if old.baseline_snapshot is not null and new.baseline_snapshot is distinct from old.baseline_snapshot then
       raise exception 'ad_ideas: baseline_snapshot is frozen once set -- start a new idea to change the bar';
+    end if;
+    -- The ads the bar was taken from are part of the bar.
+    if old.baseline_snapshot is not null and new.baseline_ad_ids is distinct from old.baseline_ad_ids then
+      raise exception 'ad_ideas: baseline_ad_ids is frozen with the bar -- start a new idea to change the baselines';
     end if;
   end if;
   -- approved_by / approved_at are stamped here, never taken from the client:
