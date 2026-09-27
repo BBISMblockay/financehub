@@ -194,6 +194,26 @@ r.test('urlHandle takes the last path segment and is null, never empty, with not
   r.eq(K.urlHandle(''), null);
   r.eq(K.urlHandle(null), null);
 });
+r.test('canonicalTargetUrl strips the query string and fragment -- a SERP observation is evidence, not a destination', () => {
+  // Found in the 2026-09-27 UI audit: a homepage ranked in a SERP carries
+  // Google's srsltid click-tracking parameter, and the "Create SEO task"
+  // dialog was prefilling that exact URL as the page to go work on.
+  r.eq(K.canonicalTargetUrl('https://www.baseballism.com/?srsltid=AfmBOoo123abc'), 'https://www.baseballism.com/');
+  r.eq(K.canonicalTargetUrl('https://www.baseballism.com/collections/hats?srsltid=xyz&utm_source=google'), 'https://www.baseballism.com/collections/hats');
+  r.eq(K.canonicalTargetUrl('https://www.baseballism.com/collections/hats#reviews'), 'https://www.baseballism.com/collections/hats');
+  r.eq(K.canonicalTargetUrl('https://www.baseballism.com/collections/hats'), 'https://www.baseballism.com/collections/hats', 'already clean -- unchanged');
+  r.eq(K.canonicalTargetUrl(null), null);
+  r.eq(K.canonicalTargetUrl(''), null);
+});
+r.test('taskPrefill: target_url is canonicalised, never the raw tracking-laden SERP observation', () => {
+  const pf = K.taskPrefill({
+    opportunity_class: 'defend', keyword: 'baseballism',
+    our_url: 'https://www.baseballism.com/?srsltid=AfmBOoo123abc',
+    suggested_action: 'evidence.',
+  });
+  r.eq(pf.target_url, 'https://www.baseballism.com/', 'srsltid stripped from the prefilled destination');
+  r.eq(pf.target_handle, null, 'the homepage has no segment -- unaffected by the query string either way');
+});
 r.test('taskPrefill: target fields come from OUR page type/URL, rationale starts from suggested_action, title matches the class', () => {
   const rec = {
     opportunity_class: 'page_one_not_top3',

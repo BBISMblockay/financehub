@@ -321,6 +321,19 @@
     return segments.length ? segments[segments.length - 1] : null;
   }
 
+  /** A clean destination for a task's target_url: the absolute URL with its
+   * query string and fragment dropped entirely. rec.our_url is a SERP
+   * OBSERVATION -- Google's own result, which can (and for a homepage often
+   * does) carry a srsltid click-tracking parameter -- so it is right as
+   * evidence but wrong as "the page to go work on". The observed URL,
+   * srsltid included, stays visible in the evidence panel/suggested_action;
+   * only the prefilled target_url is canonicalised. */
+  function canonicalTargetUrl(url) {
+    if (!url) return null;
+    var clean = String(url).trim().replace(/[?#].*$/, '');
+    return clean || null;
+  }
+
   var RECOMMENDATION_TITLE_TEMPLATES = {
     defend: 'Protect ranking for "%s"',
     page_one_not_top3: 'Improve ranking for "%s"',
@@ -354,7 +367,7 @@
     var titleSubject = (Array.isArray(rec.keyword_cluster) && rec.keyword_cluster.length) ? rec.keyword_cluster.join(', ') : (rec.keyword || '');
     return {
       target_type: targetType,
-      target_url: rec.our_url || null,
+      target_url: canonicalTargetUrl(rec.our_url),
       target_handle: urlHandle(rec.our_url),
       rationale: rationale,
       proposed_title: titleTemplate.replace('%s', titleSubject),
@@ -384,6 +397,7 @@
     groupRecommendations: groupRecommendations,
     mapPageTypeToTargetType: mapPageTypeToTargetType,
     urlHandle: urlHandle,
+    canonicalTargetUrl: canonicalTargetUrl,
     taskPrefill: taskPrefill,
   };
   if (typeof window !== 'undefined') window.SiloSeoKeywords = API;

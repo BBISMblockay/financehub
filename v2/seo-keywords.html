@@ -762,12 +762,18 @@
         + (r.competitor_position != null ? ` #${r.competitor_position}` : '') + (r.competitor_page_type ? ` <span class="sk-muted">${esc(r.competitor_page_type)}</span>` : '')
       : '<span class="sk-muted">none captured</span>';
     const ev = K.evidenceStrengthLabel(r.evidence_strength);
+    // Missing category scores on the cluster's 90-day Search Console total
+    // (there is no SERP run to anchor a 28-day figure to); every other class
+    // uses the 28-day window. One shared column can't carry two periods, so
+    // the period rides with the number itself rather than the header.
+    const period = isCluster ? '90d' : '28d';
+    const scCell = (v) => v == null ? '' : `${numFmt(v)} <span class="sk-muted">(${period})</span>`;
     return `<tr>
       <td class="kw" title="${esc(kw)}">${esc(kw)}${r.is_at_risk ? ' <span class="bcn-pill bcn-pill--neg">at risk</span>' : ''}</td>
       <td class="mono">${esc(r.device || '—')}</td>
       <td>${rank}</td>
-      <td class="num">${r.sc_clicks_28d == null ? '' : numFmt(r.sc_clicks_28d)}</td>
-      <td class="num">${r.sc_impressions_28d == null ? '' : numFmt(r.sc_impressions_28d)}</td>
+      <td class="num">${scCell(r.sc_clicks_28d)}</td>
+      <td class="num">${scCell(r.sc_impressions_28d)}</td>
       <td>${comp}</td>
       <td><span class="bcn-pill ${EVIDENCE_PILL_CLASS[ev] || ''}">${esc(ev)}</span></td>
       <td class="action-col">${esc(r.suggested_action || '')}</td>
@@ -785,12 +791,13 @@
       <div class="sk-rec-group-head">${esc(g.label)} <span class="sk-muted">(${g.rows.length})</span></div>
       <div class="bcn-matrix-scroll">
         <table class="bcn-table">
-          <thead><tr><th>Keyword</th><th>Device</th><th>Our rank</th><th class="num">SC clicks (28d)</th><th class="num">SC impr. (28d)</th><th>Competitor</th><th>Evidence</th><th>Suggested action</th><th></th></tr></thead>
+          <thead><tr><th>Keyword</th><th>Device</th><th>Our rank</th><th class="num">SC clicks</th><th class="num">SC impr.</th><th>Competitor</th><th>Evidence</th><th>Suggested action</th><th></th></tr></thead>
           <tbody>${g.rows.map(recRow).join('')}</tbody>
         </table>
       </div>
     </div>`).join('');
-    el('recFoot').innerHTML = `<b>Score</b> = Search Console impressions (28d — or the cluster's combined 90-day total for Missing category) × rank-gap-to-target `
+    el('recFoot').innerHTML = `Each row's SC clicks/impressions carries its own window — (28d) for every class except Missing category, which has no SERP run to anchor a 28-day figure to and shows the cluster's combined 90-day total instead, marked (90d). `
+      + `<b>Score</b> = Search Console impressions (28d, or that 90-day total for Missing category) × rank-gap-to-target `
       + `(target #3 for Page one/Defend-style gap, #10 for Page two and a Content brief keyword ranked past #10; Defend's gap is 4 − our position, since defending #1 protects more click volume than defending #3), `
       + `halved when the opportunity rests on a single SERP run (observation_runs &lt; 2). Absent with demand and Missing category have no current rank and score on impressions alone. `
       + `<b>Evidence</b> is exactly strong / moderate / early — never a percentage or a numeric confidence: early means a single run, or (for Missing category) no clicks yet; strong means 2+ runs and nonzero clicks; everything else is moderate. `
