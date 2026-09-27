@@ -784,6 +784,47 @@ test('guidance modules add rules, they do not relax core ones', () => {
   has(MARKETING_GUIDANCE, 'It adds to every rule above and relaxes none of them');
 });
 
+console.log('\n-- first live use (2026-09-27): partial days, incoming stock, broad reviews --');
+
+// "Look at past 30 days of business" ran at 03:01 UTC, when 26 Sep was still
+// trading in Pacific, and its window ended on 26 Sep -- a partial day inside a
+// "last 30 days" figure compared against a complete prior 30.
+test('rolling windows end on the last complete business day, in every prompt', () => {
+  everywhere('TODAY IS NOT A COMPLETE DAY');
+  everywhere('ends on the last complete business day -- silo_business_yesterday()');
+  everywhere('never on current_date, which is UTC');
+  everywhere('say in the same sentence that the day is still in progress');
+  everywhere('make them equal length and both complete');
+});
+// The same run told the business to reorder the Sonic line "now" having
+// checked on-hand stock but not what was already on order.
+test('a reorder call needs incoming purchase orders, or is unchecked', () => {
+  everywhere('A REORDER or "about to stock out" call also needs what is already on order');
+  everywhere('v_po_incoming_summary');
+  everywhere('the reorder call is unchecked');
+  everywhere('state the low stock as a finding rather than a recommendation to buy');
+});
+// ...and it analysed ad spend and ROAS in depth under no marketing guidance,
+// because nothing in "past 30 days of business" named a marketing topic.
+test('open-ended business reviews load the marketing guidance', () => {
+  for (const q of [
+    'Look at past 30 days of business suggest improvements',
+    'How is the business doing?',
+    'how are we doing this month',
+    'How did we do last week?',
+    'Give me a business review',
+    'What should we change?',
+  ]) eq(pick([user(q)]), ['marketing'], q);
+});
+test('...without pulling it into ordinary sales, stock or restock questions', () => {
+  for (const q of [
+    'What did we sell last week?',
+    'How many hoodies do we have on hand?',
+    'Should we restock the Bubbles and Doubles Hoodie?',
+    'Which products are low on stock at Sugar Hill?',
+  ]) eq(pick([user(q)]), [], q);
+});
+
 console.log('\n-- size (reported, and bounded so it cannot silently regrow) --');
 
 const words = (s) => s.split(/\s+/).filter(Boolean).length;

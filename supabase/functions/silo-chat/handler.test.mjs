@@ -1789,6 +1789,13 @@ await test('a hyphenated meta-description request carries SEO, not marketing (re
   eq(auditRow(client).diagnostics.context.guidance_modules, ['seo'], 'recorded guidance modules');
 });
 
+await test('an open-ended business review carries the marketing guidance (2026-09-27 live run)', async () => {
+  const model = installModel([say('ok')]);
+  const { client } = await ask(convo('Look at past 30 days of business suggest improvements'));
+  assert(systemOf(model.sent).includes(MARKETING_HEAD), 'business review ran without marketing guidance');
+  eq(auditRow(client).diagnostics.context.guidance_modules, ['marketing'], 'recorded guidance modules');
+});
+
 await test('a launch/ads comparison carries the marketing guidance', async () => {
   const model = installModel([say('ok')]);
   await ask(convo('Compare Meta spend and sales for the Back To School launch vs Labor Day'));
