@@ -542,9 +542,17 @@
       });
     }
 
-    // Use the role for this workspace, not a page's first-paint placeholder
-    // or the legacy global profile role. The database value still controls
-    // authorization; this keeps the shared chrome consistent and human-readable.
+    // Use the role for this workspace, not a page's first-paint placeholder.
+    // Membership role is per-company and is what the database value uses to
+    // control authorization here -- but profile-level owner/executive
+    // OUTRANKS membership everywhere else in SILO (is_admin_user(),
+    // is_exec_or_owner(), every EXEC_ROLES-equivalent DB gate: see CLAUDE.md's
+    // role system section), and this nav refresh was the one place that rule
+    // wasn't applied -- it discarded profile role outright. A Baseballism
+    // executive who is merely membership 'admin' there (28 of 29 profiles
+    // are) got a sidebar that could never show an EXEC_ROLES-only link like
+    // SEO, no matter how the page mounted, because this correction always
+    // ran and always won.
     if (opts.supabaseClient) {
       Promise.resolve(window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient))
         .then(async (company) => {
@@ -552,14 +560,20 @@
           const sess = await opts.supabaseClient.auth.getSession();
           const uid = sess?.data?.session?.user?.id;
           if (!uid) return;
-          const { data } = await opts.supabaseClient.from('entity_memberships')
-            .select('role').eq('entity_id', company.id).eq('user_id', uid).maybeSingle();
-          if (!data?.role) return;
-          effectiveRole = data.role;
+          const [{ data: membership }, { data: profile }] = await Promise.all([
+            opts.supabaseClient.from('entity_memberships')
+              .select('role').eq('entity_id', company.id).eq('user_id', uid).maybeSingle(),
+            opts.supabaseClient.from('profiles').select('role').eq('id', uid).maybeSingle(),
+          ]);
+          const profileRole = String(profile?.role || '').toLowerCase();
+          const outranks = profileRole === 'owner' || profileRole === 'executive';
+          const resolvedRole = outranks ? profileRole : membership?.role;
+          if (!resolvedRole) return;
+          effectiveRole = resolvedRole;
           paletteRole = effectiveRole;
 
           appEl.querySelectorAll('[data-silo-role]').forEach((node) => {
-            node.textContent = roleLabel(data.role);
+            node.textContent = roleLabel(resolvedRole);
           });
           const navEl = sidebar.querySelector('#siloSbNav');
           if (navEl) navEl.innerHTML = renderNavSections(
