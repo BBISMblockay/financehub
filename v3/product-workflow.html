@@ -2,10 +2,10 @@
 <html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SILO · Product workflow preview</title>
+  <title>SILO · Product Studio preview</title>
   <link rel="stylesheet" href="../v2/beacon.css">
   <link rel="stylesheet" href="../v2/silo-brand.css">
-  <link rel="stylesheet" href="product-workflow.css?v=20260926a">
+  <link rel="stylesheet" href="product-workflow.css?v=20260927studio">
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css">
   <link rel="stylesheet" href="../v2/v2-mobile.css">
   <script src="../v2/v2-shell.js" defer></script>
@@ -15,41 +15,59 @@
   <script src="../pages/config.js"></script>
   <script src="../v2/lib/supabase-js.min.js"></script>
   <script src="../v2/po-pipeline-sync.js?v=20260923190000"></script>
-  <script src="product-workflow-model.js?v=20260926a"></script>
-  <script src="product-workflow-ui.js?v=20260926a" defer></script>
+  <script src="product-workflow-model.js?v=20260927studio"></script>
+  <script src="product-workflow-ui.js?v=20260927studio" defer></script>
 </head>
 <body>
 <div class="silo-app" id="silo-app"><main class="silo-main">
   <header class="bcn-header">
-    <div><span class="bcn-pill bcn-pill--accent">V3 · Direct-link preview</span><h1 class="bcn-header-title">Product workflow</h1><p>Carry the idea, the evidence and the decision into the next step.</p></div>
+    <div><span class="bcn-pill bcn-pill--accent">V3 · Direct-link preview</span><h1 class="bcn-header-title">Product Studio</h1><p>Shape the product. Review the buy. Carry the brief into launch.</p></div>
     <button type="button" class="bcn-btn bcn-btn--ghost" id="reload">Refresh queue</button>
   </header>
   <div class="pw-content">
     <div id="status" class="bcn-status bcn-status--info" role="status" aria-live="polite">Loading workspace…</div>
-    <p class="pw-muted">Preview scope: brief presets, restock review, draft POs and planned launches. Background suggestions and the reporting-to-accounting feedback loop are not connected yet.</p>
+    <details class="pw-preview-note"><summary>About this preview</summary><p>Brief presets, restock review, draft POs and planned launches are connected. Background suggestions and the reporting-to-accounting feedback loop are not connected yet.</p></details>
+    <button type="button" id="browse-toggle" class="bcn-btn pw-browse-toggle" aria-expanded="false" aria-controls="source-rail">Browse sources and briefs</button>
     <div class="pw-layout">
-      <aside class="pw-rail" aria-label="Review queue">
-        <section class="bcn-card"><div class="bcn-card-header"><h2>Start from a source</h2></div><div class="bcn-card-body">
+      <aside class="pw-rail" id="source-rail" aria-label="Review queue">
+        <section class="bcn-card"><div class="bcn-card-header"><h2>Start a product</h2></div><div class="bcn-card-body">
           <label class="bcn-label" for="source-kind">Brief preset</label>
           <select id="source-kind" class="bcn-field"><option value="concept">Product concept</option><option value="product">Catalog product</option><option value="restock">Restock · 90-day basis</option><option value="idea">Manual idea</option></select>
           <form id="source-search"><label class="bcn-label" for="source-term">Find a source</label><input id="source-term" class="bcn-field" placeholder="Title or SKU"><button class="bcn-btn" type="submit">Search</button></form>
           <div id="source-results" class="pw-list"></div>
         </div></section>
-        <section class="bcn-card"><div class="bcn-card-header"><h2>Review queue</h2><span id="queue-count" class="bcn-mono"></span></div><div class="bcn-card-body">
+        <section class="bcn-card"><div class="bcn-card-header"><h2>Your briefs</h2><span id="queue-count" class="bcn-mono"></span></div><div class="bcn-card-body">
           <label class="bcn-label" for="queue-filter">Show</label><select id="queue-filter" class="bcn-field"><option value="all">All briefs</option><option value="draft">Needs review</option><option value="reviewed">Reviewed / handed off</option><option value="dismissed">Dismissed</option></select>
           <div id="queue" class="pw-list"></div><button class="bcn-btn" id="load-more" hidden>Load more briefs</button>
         </div></section>
       </aside>
       <section class="bcn-card pw-editor" aria-label="Brief editor">
-        <div class="bcn-card-header"><h2 id="editor-heading">Build a brief before the launch</h2><span id="brief-status" class="bcn-pill"></span></div>
+        <div class="bcn-card-header pw-editor-head"><div><span class="pw-eyebrow">PRODUCT BRIEF</span><h2 id="editor-heading">Your next product starts here</h2></div><span id="brief-status" class="bcn-pill"></span></div>
         <div class="bcn-card-body">
           <p id="empty">Choose a concept or catalog product, or start with an idea. Presets fill a draft you can edit and review.</p>
           <div id="editor" hidden>
             <p id="provenance" class="pw-muted"></p>
-            <details><summary>Source evidence and assumptions</summary><div id="source-snapshot" class="pw-evidence"></div></details>
+            <ol id="workflow-stages" class="pw-stages" aria-label="Workflow progress"></ol>
+            <div class="pw-tabs" role="tablist" aria-label="Brief sections">
+              <button type="button" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" data-panel="overview">Overview</button>
+              <button type="button" role="tab" id="tab-creative" aria-controls="panel-creative" aria-selected="false" tabindex="-1" data-panel="creative">Creative</button>
+              <button type="button" role="tab" id="tab-buy" aria-controls="panel-buy" aria-selected="false" tabindex="-1" data-panel="buy">Buy plan</button>
+              <button type="button" role="tab" id="tab-launch" aria-controls="panel-launch" aria-selected="false" tabindex="-1" data-panel="launch">Launch</button>
+            </div>
             <form id="brief-form">
               <fieldset id="brief-fields">
-                <div class="pw-grid" id="text-fields"></div>
+                <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+                  <div id="artwork" class="pw-artwork"></div>
+                  <div id="brief-story" class="pw-story"></div>
+                  <div id="brief-summary" class="pw-summary"></div>
+                  <details id="overview-edit" class="pw-overview-edit"><summary>Edit overview</summary><div class="pw-grid" id="text-fields"></div></details>
+                </section>
+                <section id="panel-creative" role="tabpanel" aria-labelledby="tab-creative" tabindex="0" hidden>
+                  <h3>Creative direction</h3><p class="pw-muted">Keep the product intent, visual direction and suggested copy together. Copy remains unapproved.</p>
+                  <div class="pw-grid" id="creative-fields"></div>
+                </section>
+                <section id="panel-buy" role="tabpanel" aria-labelledby="tab-buy" tabindex="0" hidden>
+                <div class="pw-grid" id="buy-fields"></div>
                 <section id="restock-section" hidden>
                   <h3>Restock worksheet</h3><p class="pw-muted">All company locations · 90 calendar days through company yesterday. Recorded sales are not adjusted for stockouts or seasonality. No sales rows means unknown demand.</p>
                   <div class="pw-grid" id="restock-inputs"></div>
@@ -61,16 +79,30 @@
                 <div class="bcn-matrix-scroll" tabindex="0" role="region" aria-label="Purchase quantities"><table class="bcn-table"><thead><tr><th>Size / variant</th><th>Units</th><th>Unit cost</th><th>Retail price</th></tr></thead><tbody id="lines"></tbody></table></div>
                 <button type="button" class="bcn-btn bcn-btn--ghost" id="add-size">Add size</button>
                 <p class="pw-muted">Use a new brief for another catalog variant. Remove an unwanted concept size by clearing its quantity.</p>
+              </section>
+                <section id="panel-launch" role="tabpanel" aria-labelledby="tab-launch" tabindex="0" hidden>
+                  <h3>Plan the handoff</h3><p class="pw-muted">Review this brief first, then create a planned launch below. Manage scheduling and launch measurement in the existing Launch Workbench.</p>
+                  <div class="pw-grid" id="launch-fields"></div>
+                </section>
               </fieldset>
-              <div class="pw-actions" id="draft-actions"><button type="submit" class="bcn-btn" id="save">Save draft</button><button type="button" class="bcn-btn bcn-btn--primary" id="review">Save as reviewed</button><button type="button" class="bcn-btn bcn-btn--ghost" id="dismiss">Dismiss</button></div>
+              <div class="pw-actions pw-savebar" id="draft-actions"><span id="save-state" class="pw-muted">Unsaved draft</span><button type="submit" class="bcn-btn" id="save">Save draft</button><button type="button" class="bcn-btn bcn-btn--primary" id="review">Save as reviewed</button><button type="button" class="bcn-btn bcn-btn--ghost" id="dismiss">Dismiss</button></div>
             </form>
             <div id="reviewed-actions" class="pw-actions" hidden><button class="bcn-btn" id="reopen">Reopen brief</button><button class="bcn-btn bcn-btn--primary" id="create-po">Create draft PO</button><div id="launch-handoff"><label for="handoff-date" class="bcn-label">Planned launch date</label><input id="handoff-date" type="date" class="bcn-field"><button class="bcn-btn" id="create-launch">Create planned launch</button></div></div>
             <div id="outputs" class="pw-evidence"></div>
+            <button type="button" id="another-brief" class="bcn-btn bcn-btn--ghost">Start another brief from this source</button>
             <button id="sync-pipeline" class="bcn-btn" hidden>Sync PO to Pipeline</button>
             <p class="pw-muted">After handoff, edit the PO and launch in their existing modules. Suggested copy is never marked approved. Launch dates appear on the calendar as planned.</p>
           </div>
         </div>
       </section>
+      <aside id="decision-rail" class="pw-decisions" aria-label="Evidence and next steps" hidden>
+        <section class="bcn-card"><div class="bcn-card-header"><h2>Why this product</h2></div><div class="bcn-card-body">
+          <div id="evidence-summary"></div>
+          <details><summary>Source evidence and assumptions</summary><div id="source-snapshot" class="pw-evidence"></div></details>
+        </div></section>
+        <section class="bcn-card"><div class="bcn-card-header"><h2>Review checklist</h2></div><div class="bcn-card-body"><ul id="review-checklist" class="pw-checklist"></ul><p class="pw-muted">Prompts for review, not an approval or a margin estimate.</p></div></section>
+        <section class="pw-next"><span class="pw-eyebrow">NEXT STEP</span><p id="next-step"></p><button type="button" id="next-action" class="bcn-btn">Open buy plan</button></section>
+      </aside>
     </div>
   </div>
 </main></div>
