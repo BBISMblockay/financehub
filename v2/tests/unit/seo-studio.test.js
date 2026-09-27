@@ -41,14 +41,14 @@ r.test('a page\'s score is the SUM of its rows\' view scores, and the queue is o
 r.test('a page\'s evidence is the best of its rows\', never an average', () => { r.eq(q[0].evidence, 'strong'); r.eq(q[1].evidence, 'early'); });
 r.test('the best rank carries its keyword and device', () => { r.eq(q[0].bestRank.position, 3); r.eq(q[0].bestRank.keyword, 'baseball backpacks'); r.eq(q[0].bestRank.device, 'desktop'); });
 r.test('an opportunity with no ranking page is "needs a page", never attached to another page', () => {
-  const needs = q.filter((g) => g.kind === 'needs_page');
+  const needs = q.filter((g) => g.kind === 'not_ranking');
   r.eq(needs.length, 2);
   r.truthy(needs.every((g) => g.path === null && g.bestRank === null), 'a needs-page entry claimed a page or a rank');
   r.eq(needs.find((g) => g.classes[0] === 'missing_category').keywords.join('|'), 'raglan tee|raglan sleeve');
 });
 r.test('rank range reads "#3–4", a single rank "#4", no rank null', () => {
   r.eq(S.rankRange(q[0]), '#3–4'); r.eq(S.rankRange(q[1]), '#4');
-  r.eq(S.rankRange(q.find((g) => g.kind === 'needs_page')), null);
+  r.eq(S.rankRange(q.find((g) => g.kind === 'not_ranking')), null);
 });
 r.test('empty or junk input yields an empty queue', () => { r.eq(S.groupByPage(null).length, 0); r.eq(S.groupByPage([null]).length, 0); });
 
@@ -171,6 +171,30 @@ r.test('approved is Approve; a publication moves it to Measure', () => {
   const t = [{ id: 'a', approval_status: 'approved', created_at: '2026-09-01' }];
   r.eq(S.stepFor(t, []).step, 'approve');
   r.eq(S.stepFor(t, [{ task_id: 'a' }]).step, 'measure');
+});
+r.test('an older publication never hides a newer draft', () => {
+  const t = [{ id: 'old', approval_status: 'approved', created_at: '2026-08-01' }, { id: 'new', approval_status: 'draft', created_at: '2026-09-20' }];
+  const s = S.stepFor(t, [{ task_id: 'old' }]);
+  r.eq(s.step, 'draft'); r.eq(s.task.id, 'new');
+});
+r.test('the newest task, published, is Measure', () => {
+  const t = [{ id: 'old', approval_status: 'draft', created_at: '2026-08-01' }, { id: 'new', approval_status: 'approved', created_at: '2026-09-20' }];
+  r.eq(S.stepFor(t, [{ task_id: 'new' }]).step, 'measure');
+});
+
+console.log('\n── Not ranking is not "no page" ──');
+r.test('a task for a not-ranking opportunity needs existing-or-new', () => {
+  r.eq(S.targetDecision('not_ranking', null, '').ok, false);
+  r.eq(S.targetDecision('not_ranking', 'existing', '').ok, false);
+  r.eq(S.targetDecision('not_ranking', 'existing', 'javascript:x').ok, false);
+  const e = S.targetDecision('not_ranking', 'existing', 'https://www.baseballism.com/collections/bags');
+  r.eq(e.ok, true); r.has(e.note, 'existing page');
+  const n = S.targetDecision('not_ranking', 'new', '');
+  r.eq(n.ok, true); r.has(n.note, 'new page');
+  r.eq(S.targetDecision('page', null, '').ok, true, 'a ranking page needs no decision');
+});
+r.test('the Ask SILO prompt for a not-ranking opportunity says check for an existing page', () => {
+  r.has(S.askSiloPrompt({ kind: 'not_ranking', title: 'bags', keywords: ['bags'] }, {}), 'existing page');
 });
 r.test('a rejected task never advances the page, but is named', () => {
   const s = S.stepFor([{ id: 'a', approval_status: 'rejected', created_at: '2026-09-01' }], [{ task_id: 'a' }]);

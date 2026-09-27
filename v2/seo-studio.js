@@ -82,9 +82,12 @@
 
   /**
    * The Up next queue. One entry per page of ours that has at least one
-   * recommendation, plus one entry per opportunity that has NO page yet
-   * (absent_with_demand, missing_category): those are "needs a page", never
-   * attributed to whichever page happens to be nearest.
+   * recommendation, plus one entry per opportunity where NO PAGE OF OURS WAS
+   * OBSERVED RANKING (absent_with_demand, missing_category): kind
+   * 'not_ranking', never attributed to whichever page happens to be nearest.
+   * That is a ranking absence, NOT proof no page exists -- a collection can
+   * exist and sit below the run depth -- so nothing here says "needs a page";
+   * the person picks an existing page or confirms a new one (targetDecision).
    */
   function groupByPage(recs) {
     var byKey = {};
@@ -97,7 +100,7 @@
       else {
         var subject = (Array.isArray(r.keyword_cluster) && r.keyword_cluster.length) ? r.keyword_cluster.join(', ') : str(r.keyword);
         key = 'needs:' + r.opportunity_class + ':' + subject.toLowerCase();
-        kind = 'needs_page';
+        kind = 'not_ranking';
       }
       var g = byKey[key];
       if (!g) {
@@ -300,7 +303,7 @@
   function askSiloPrompt(group, facts) {
     var g = group || {}, f = facts || {};
     var lines = [];
-    lines.push('Draft SEO improvements for our page ' + (g.path || g.title) + (g.kind === 'needs_page' ? ' (no page ranks yet)' : '') + '.');
+    lines.push('Draft SEO improvements for our page ' + (g.path || g.title) + (g.kind === 'not_ranking' ? ' (none of our pages was observed ranking; first check whether an existing page should target this)' : '') + '.');
     if (g.keywords && g.keywords.length) lines.push('Tracked keywords: ' + g.keywords.slice(0, 8).join(', ') + '.');
     if (g.bestRank) lines.push('Latest rank check: #' + g.bestRank.position + ' for "' + g.bestRank.keyword + '"' + (g.bestRank.device ? ' (' + g.bestRank.device + ')' : '') + '.');
     if (f.serpTitle) lines.push('Google shows our title as "' + f.serpTitle + '".');
@@ -316,17 +319,35 @@
    */
   var STEPS = ['review', 'draft', 'approve', 'measure'];
   function stepFor(tasks, publications) {
-    var live = (Array.isArray(tasks) ? tasks : []).filter(function (t) { return t && t.approval_status !== 'rejected'; })
-      .sort(function (a, b) { return str(b.created_at).localeCompare(str(a.created_at)); });
+    // The NEWEST non-rejected task is the current one; its own state decides
+    // the step. An older published task never hides newer work.
+    var current = (Array.isArray(tasks) ? tasks : []).filter(function (t) { return t && t.approval_status !== 'rejected'; })
+      .sort(function (a, b) { return str(b.created_at).localeCompare(str(a.created_at)); })[0];
     var pubs = Array.isArray(publications) ? publications : [];
-    var published = live.filter(function (t) { return pubs.some(function (p) { return p && p.task_id === t.id; }); })[0];
-    if (published) return { step: 'measure', task: published, label: 'Published — measuring' };
-    var approved = live.filter(function (t) { return t.approval_status === 'approved'; })[0];
-    if (approved) return { step: 'approve', task: approved, label: 'Approved — not published yet' };
-    var draft = live[0];
-    if (draft) return { step: 'draft', task: draft, label: draft.approval_status === 'proposed' ? 'Proposed — waiting for approval' : 'Draft task open' };
+    if (current) {
+      if (pubs.some(function (p) { return p && p.task_id === current.id; })) return { step: 'measure', task: current, label: 'Published — measuring' };
+      if (current.approval_status === 'approved') return { step: 'approve', task: current, label: 'Approved — not published yet' };
+      return { step: 'draft', task: current, label: current.approval_status === 'proposed' ? 'Proposed — waiting for approval' : 'Draft task open' };
+    }
     var rejected = (Array.isArray(tasks) ? tasks : []).some(function (t) { return t && t.approval_status === 'rejected'; });
     return { step: 'review', task: null, label: rejected ? 'A previous task was rejected' : 'Not started' };
+  }
+
+  /**
+   * Before a task is drafted for an opportunity where none of our pages was
+   * observed ranking, the person says which: improve an EXISTING page (and
+   * names it), or a new page is needed. SILO cannot tell from a rank check
+   * whether a page exists, so it never assumes either. Returns
+   * { ok, error, note } -- note is the line recorded in the rationale.
+   */
+  function targetDecision(kind, choice, url) {
+    if (kind !== 'not_ranking') return { ok: true, error: null, note: null };
+    if (choice === 'existing') {
+      if (!/^https?:\/\/\S+$/i.test(str(url).trim())) return { ok: false, error: 'Enter the URL of the existing page this task should improve.', note: null };
+      return { ok: true, error: null, note: 'Target: an existing page chosen by the reviewer (none was observed ranking for these searches).' };
+    }
+    if (choice === 'new') return { ok: true, error: null, note: 'Target: a new page — the reviewer confirmed no existing page fits.' };
+    return { ok: false, error: 'None of our pages was observed ranking for this. Choose whether to improve an existing page or create a new one.', note: null };
   }
 
   /** Which product photos stand for a collection: the NEWEST LIVE products
@@ -367,6 +388,7 @@
   var API = {
     STEPS: STEPS,
     stepFor: stepFor,
+    targetDecision: targetDecision,
     DESCRIPTION_SHOWN_CHARS: DESCRIPTION_SHOWN_CHARS,
     pageKey: pageKey,
     pathKind: pathKind,

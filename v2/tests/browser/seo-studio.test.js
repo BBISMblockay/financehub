@@ -96,8 +96,10 @@ const tables = {
     R.eq(await page.locator('#queue img[src$="ronin-draft.jpg"]').count(), 0, 'a draft product is not shown as the collection');
     const tabs = await page.evaluate(() => [...document.querySelectorAll('[data-seo-suite] a')].map(a => [a.getAttribute('href'), a.getAttribute('aria-current')]));
     R.eq(JSON.stringify(tabs), JSON.stringify([['/v2/seo-studio.html', 'page'], ['/v2/seo-overview.html', null], ['/v2/seo-keywords.html', null]]), 'the SEO suite strip renders with Studio current');
-    R.has(queue, 'Needs a page');
-    R.ok('a needs-a-page entry shows a labelled blank, never another page\'s photo', /no page yet/i.test(queue));
+    // A ranking absence is never presented as "we have no page".
+    R.ok('a not-ranking entry is labelled as such', /no page ranking/i.test(queue));
+    R.ok('and never claims a page is missing', !/needs a page|no page yet/i.test(queue));
+    R.ok('a not-ranking entry shows a labelled blank, never another page\'s photo', /not ranking/i.test(queue));
     R.eq(await page.locator('#queue img[src^="javascript"]').count(), 0, 'a non-https image URL is never rendered');
 
     const detail = () => page.locator('#detail').innerText();
@@ -160,14 +162,33 @@ const tables = {
     R.eq(await page.locator('#detail a[href^="javascript"]').count(), 0, 'but never as a link');
     R.ok('the selection is kept in the address bar', (await page.evaluate(() => location.search)).includes('page=page%3A%2Fcollections%2Fcaps'));
 
-    // Needs a page: demand, who ranks, and no invented page facts.
+    // Not ranking: demand, who ranks, and no invented page facts.
     await cards.nth(2).click();
-    await page.waitForFunction(() => /Opportunity without a page/.test(document.querySelector('#detail .ss-crumb')?.textContent || '') && !!document.querySelector('#detail .ss-rec'));
+    await page.waitForFunction(() => /No page of ours ranking/.test(document.querySelector('#detail .ss-crumb')?.textContent || '') && !!document.querySelector('#detail .ss-rec'));
     d = await detail();
     R.has(d, 'The demand');
     R.has(d, '900');
     R.not(d, 'How the page shows in Google');
     R.has(d, 'Demand exists and no page of ours ranks.');
+    R.has(d, 'That is not proof we have no page');
+
+    // Drafting a task for it needs the person to say existing page or new.
+    const inserts = () => page.evaluate(() => window.__QUERIES__.filter(x => x._op === 'insert').length);
+    const before = await inserts();
+    await page.click('#btnTask');
+    R.ok('the existing-or-new choice is shown', await page.evaluate(() => !document.getElementById('tTarget').hidden));
+    await page.click('#btnTaskConfirm');
+    R.ok('no choice: refused, dialog stays open', await page.evaluate(() => document.getElementById('dlgTask').open && !document.getElementById('tError').hidden));
+    await page.check('input[name="tTarget"][value="existing"]');
+    await page.fill('#tUrl', '');
+    await page.click('#btnTaskConfirm');
+    R.ok('existing with no URL: refused', await page.evaluate(() => document.getElementById('dlgTask').open));
+    R.eq(await inserts(), before, 'nothing written while undecided');
+    await page.check('input[name="tTarget"][value="new"]');
+    await page.click('#btnTaskConfirm');
+    await page.waitForFunction(() => !document.getElementById('dlgTask').open);
+    const nt = await page.evaluate(() => window.__QUERIES__.filter(x => x._op === 'insert' && x.table === 'seo_tasks').pop().rows);
+    R.has(nt.rationale, 'the reviewer confirmed no existing page fits', 'the decision is recorded on the task');
 
     // Keywords tab: absences read as absences.
     await cards.nth(0).click();
@@ -177,6 +198,16 @@ const tables = {
     d = await detail();
     R.has(d, 'baseball backpack');
     R.has(d, 'mobile');
+
+    // Refresh re-reads Shopify rather than keeping cached collections and
+    // photos: a newer live release published since the first load leads.
+    await page.evaluate(() => {
+      window.__FIXTURE_TABLES__.shopify_collection_products.push({ company_entity_id: 'test-company', shopify_collection_id: window.__FIXTURE_TABLES__.shopify_collections[0].shopify_collection_id, shopify_product_id: 'p5', position: 9, missing_since: null });
+      window.__FIXTURE_TABLES__.products_master.push({ company_entity_id: 'test-company', shopify_product_id: 'p5', product_title: 'Ronin Backpack - New Drop', image_url: 'https://cdn.shopify.com/ronin-new.jpg', shopify_status: 'active', online_published_at: '2026-09-26T00:00:00Z' });
+    });
+    await page.click('#btnRefresh');
+    await page.waitForFunction(() => /ronin-new\.jpg$/.test(document.querySelector('#queue [data-key] img')?.getAttribute('src') || ''), null, { timeout: 5000 });
+    R.ok('photos are re-read on refresh, and the new release leads', true);
 
     // Empty state.
     const empty = await suite.open('/v2/seo-studio.html', Object.assign({}, tables, { seo_recommendations_v: [] }), { ready: () => !!document.querySelector('#queue .ss-empty') });

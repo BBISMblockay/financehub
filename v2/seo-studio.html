@@ -172,7 +172,13 @@
           </select></div>
         <div class="bcn-field-group" style="flex:1"><label class="bcn-label" for="tHandle">Target handle</label><input id="tHandle" class="bcn-field" /></div>
       </div>
-      <div class="bcn-field-group"><label class="bcn-label" for="tUrl">Target URL</label><input id="tUrl" class="bcn-field" placeholder="leave blank if the page doesn't exist yet" /></div>
+      <fieldset class="bcn-field-group" id="tTarget" hidden style="border:0;padding:0;margin:0 0 10px">
+        <legend class="bcn-label">None of our pages was observed ranking for this. What should the task change?</legend>
+        <label style="display:block;font-size:13px"><input type="radio" name="tTarget" value="existing" /> Improve an existing page (enter its URL below)</label>
+        <label style="display:block;font-size:13px"><input type="radio" name="tTarget" value="new" /> No existing page fits — a new page is needed</label>
+      </fieldset>
+      <div class="bcn-field-group"><label class="bcn-label" for="tUrl">Target URL</label><input id="tUrl" class="bcn-field" /></div>
+      <div class="bcn-status bcn-status--neg" id="tError" role="alert" hidden></div>
       <div class="bcn-field-group"><label class="bcn-label" for="tRationale">Rationale (the evidence; edit it if you want)</label>
         <textarea id="tRationale" class="bcn-field" rows="6" style="font-family:var(--bcn-mono);font-size:11px"></textarea></div>
     </div>
@@ -403,14 +409,14 @@
       return `<div class="ss-thumbs">${imgs.slice(0, 2).map(i => `<img src="${esc(i.image_url)}" alt="${esc(i.product_title || '')}" loading="lazy">`).join('')}</div>`;
     }
     if (imgs[0]) return `<img class="ss-thumb" src="${esc(imgs[0].image_url)}" alt="${esc(imgs[0].product_title || '')}" loading="lazy">`;
-    return `<div class="ss-thumb ss-thumb--blank" aria-hidden="true">${esc(g.kind === 'needs_page' ? 'No page yet' : (KIND_LABEL[g.pageType] || 'Page'))}</div>`;
+    return `<div class="ss-thumb ss-thumb--blank" aria-hidden="true">${esc(g.kind === 'not_ranking' ? 'Not ranking' : (KIND_LABEL[g.pageType] || 'Page'))}</div>`;
   }
   function pills(g) {
-    const kind = g.kind === 'needs_page' ? '<span class="ss-pill ss-pill--needs">Needs a page</span>' : `<span class="ss-pill">${esc(KIND_LABEL[g.pageType] || 'Page')}</span>`;
+    const kind = g.kind === 'not_ranking' ? '<span class="ss-pill ss-pill--needs">No page ranking</span>' : `<span class="ss-pill">${esc(KIND_LABEL[g.pageType] || 'Page')}</span>`;
     return `<div class="ss-pills">${kind}${g.evidence ? `<span class="ss-pill ss-pill--${esc(g.evidence)}">${esc(EVIDENCE_WORD[g.evidence])}</span>` : ''}</div>`;
   }
   function cardLine(g) {
-    if (g.kind === 'needs_page') {
+    if (g.kind === 'not_ranking') {
       const row = g.rows[0];
       return row.sc_impressions_28d != null ? `${shortNum(row.sc_impressions_28d)} impressions with no ranking page` : 'Demand with no ranking page';
     }
@@ -475,7 +481,7 @@
   }
 
   function overviewHtml(g, f) {
-    if (g.kind === 'needs_page') return needsPageHtml(g, f);
+    if (g.kind === 'not_ranking') return notRankingHtml(g, f);
     const host = (() => { try { return new URL(g.url).host.replace(/^www\./, ''); } catch { return ''; } })();
     const crumbs = [host, ...String(g.path).split('/').filter(Boolean)].join(' › ');
     const d = ST.descriptionFacts(f.col);
@@ -520,7 +526,7 @@
     </div>${recHtml(g, f)}`;
   }
 
-  function needsPageHtml(g, f) {
+  function notRankingHtml(g, f) {
     const row = g.rows[0];
     const above = f.above.map(a => `<tr><td class="num">#${a.position}</td><td><strong>${esc(a.domain)}</strong></td><td>${linkOrText(a.url, a.title || a.url)}</td></tr>`).join('');
     return `<div class="ss-grid">
@@ -529,7 +535,7 @@
           <div class="ss-stat"><b>${numFmt(row.sc_impressions_28d)}</b><span>impressions${g.classes[0] === 'missing_category' ? ' (90 days)' : ' (28 days)'}</span></div>
           <div class="ss-stat"><b>${numFmt(row.sc_clicks_28d)}</b><span>clicks</span></div>
           <div class="ss-stat"><b>${row.search_console_avg_position_28d == null ? '—' : Number(row.search_console_avg_position_28d).toFixed(1)}</b><span>Google average position</span></div></div>
-        <div class="ss-note">No page of ours was in the observed results for ${g.keywords.length > 1 ? 'these searches' : 'this search'}. The demand shown is what Google returned; it hides some queries, so this is a floor.</div></section>
+        <div class="ss-note">No page of ours was in the observed results for ${g.keywords.length > 1 ? 'these searches' : 'this search'}. That is not proof we have no page: one may exist and rank below what the check reads. Look for an existing collection or product page before creating a new one. The demand shown is what Google returned; it hides some queries, so this is a floor.</div></section>
       <section class="ss-box"><div class="ss-box-head"><h3>Who ranks for “${esc(f.lead)}”</h3><span class="ss-src">${esc(dayFmt(f.land?.latest_observed_on))}</span></div>
         ${above ? `<table class="ss-table"><tbody>${above}</tbody></table>` : '<div class="ss-note">No rank check has observed this keyword yet.</div>'}</section>
     </div>${recHtml(g, f)}`;
@@ -584,7 +590,7 @@
     if (!g) { el('detail').innerHTML = `<div class="ss-empty"><b>Pick a page</b>Choose one from Up next.</div>`; return; }
     const idx = S.queue.indexOf(g);
     const col = S.collections[ST.collectionHandle(g.path)];
-    const kind = g.kind === 'needs_page' ? 'Opportunity without a page' : (KIND_LABEL[g.pageType] || 'Page');
+    const kind = g.kind === 'not_ranking' ? 'No page of ours ranking' : (KIND_LABEL[g.pageType] || 'Page');
     const header = `<div class="ss-top"><div>
         <div class="ss-crumb">${esc(kind)} / Opportunity ${String(idx + 1).padStart(2, '0')}${col?.products_count != null ? ` · ${numFmt(col.products_count)} products` : ''}</div>
         <div class="ss-title">${esc(g.title)}</div>
@@ -648,15 +654,23 @@
     el('tHandle').value = pf.target_handle || '';
     el('tUrl').value = pf.target_url || '';
     el('tRationale').value = lines.join('\n');
+    el('tTarget').hidden = g.kind !== 'not_ranking';
+    el('tError').hidden = true;
+    document.querySelectorAll('input[name="tTarget"]').forEach(r => { r.checked = false; });
     el('dlgTask').showModal();
   }
   el('dlgTask').addEventListener('click', (e) => { if (e.target.closest('[data-close]')) el('dlgTask').close(); });
   el('btnTaskConfirm').addEventListener('click', async () => {
+    const g = S.current?.g;
+    const choice = document.querySelector('input[name="tTarget"]:checked')?.value || null;
+    const decision = ST.targetDecision(g?.kind, choice, el('tUrl').value);
+    if (!decision.ok) { el('tError').textContent = decision.error; el('tError').hidden = false; return; }
+    el('tError').hidden = true;
     el('btnTaskConfirm').disabled = true;
     try {
       await window.SiloSeoTaskDraft.createDraft(sb, _co, {
         title: el('tTitle').value, target_type: el('tType').value, target_url: el('tUrl').value,
-        target_handle: el('tHandle').value, rationale: el('tRationale').value,
+        target_handle: el('tHandle').value, rationale: [el('tRationale').value, decision.note].filter(Boolean).join('\n'),
       }, 'Auto-created the first time an SEO task was drafted from SEO Studio (SERP observations + Search Console + Shopify settings).');
       el('dlgTask').close();
       setStatus('Draft SEO task created.', 'pos', 4000);
@@ -673,7 +687,10 @@
     const id = ++loadId;
     el('btnRefresh').disabled = true;
     try {
-      S.pages = {};
+      // A refresh re-reads everything: cached collections and photos would
+      // otherwise stand in for Shopify's current state (and, before this,
+      // an already-cached collection read back as having no products).
+      S.pages = {}; S.collections = {}; S.media = {};
       await loadAll();
       if (id !== loadId) return;
       el('subtitle').textContent = [S.runDay ? `Rank check ${dayFmt(S.runDay)}` : 'No rank check yet', S.scEnd ? `Google data to ${dayFmt(S.scEnd)}` : 'No Google data'].join(' · ');
