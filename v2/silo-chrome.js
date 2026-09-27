@@ -469,6 +469,7 @@
     let navActive = opts.active;
     if (window.SiloAccounting?.contains(navActive)) navActive = 'finance/accounting';
     else if (window.SiloWorkspaceSettings?.contains(navActive)) navActive = 'settings/workspace';
+    else if (window.SiloSeoSuite?.contains(navActive)) navActive = 'reports/seo';
     const sidebar = el(renderSidebar({ ...opts, active: navActive }));
     const backdrop = el('<div class="silo-nav-backdrop" data-silo-nav-backdrop hidden></div>');
     appEl.prepend(sidebar);
@@ -481,6 +482,7 @@
       updateThemeIcon();
       window.SiloAccounting?.mount(mainEl, opts.active);
       window.SiloWorkspaceSettings?.mount(mainEl, opts.active);
+      window.SiloSeoSuite?.mount(mainEl, opts.active);
     }
 
     // First render of a session may predate the department fetch — re-render

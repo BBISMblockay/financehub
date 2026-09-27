@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SEO Keywords — SILO</title>
+  <title>Keywords · SEO — SILO</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <style>
@@ -72,6 +72,7 @@
     .sk-evidence--moderate { background:var(--bcn-warn); color:#fff; }
     .sk-evidence--early { background:var(--bcn-surface-2, #eee); color:var(--bcn-ink-2); }
   </style>
+  <link rel="stylesheet" href="seo-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -81,7 +82,7 @@
   <main class="silo-main">
     <header class="bcn-header">
       <div>
-        <div class="bcn-header-title">SEO Keywords</div>
+        <div class="bcn-header-title">Keywords</div>
         <div id="subtitle" style="font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3)">Keyword set · competitors · observed rankings · weekly tracking · recommendations</div>
       </div>
       <div class="bcn-header-actions">
@@ -318,8 +319,10 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
+<script src="seo-suite.js"></script>
 <script src="silo-chrome.js"></script>
 <script src="seo-keywords.js"></script>
+<script src="seo-task-draft.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
   const SUPABASE_URL = cfg.SUPABASE_URL || '';
@@ -367,7 +370,7 @@
   let _co = null;
   let CAN_APPROVE = false;
   let USER_ID = null;
-  const S = { keywords: [], schedule: null, competitors: [], landscape: [], share: [], pageTypes: [], features: [], obsRows: {}, captures: {}, ownCaptures: {}, open: null, compareObs: null, runs: [], ledger: [], candidates: [], recommendations: [], seoProjectId: null };
+  const S = { keywords: [], schedule: null, competitors: [], landscape: [], share: [], pageTypes: [], features: [], obsRows: {}, captures: {}, ownCaptures: {}, open: null, compareObs: null, runs: [], ledger: [], candidates: [], recommendations: [] };
 
   // ── Tabs ─────────────────────────────────────────────────────────────────
   document.querySelectorAll('.bcn-tab[data-pane]').forEach(tab => tab.addEventListener('click', () => {
@@ -818,29 +821,8 @@
     el('rtRationale').value = pf.rationale || '';
     el('dlgRecTask').showModal();
   });
-  /** One "SEO Recommendations" project per company, created the first time
-   * someone confirms a task from this tab -- never blocking on a project
-   * picker the rest of the UI doesn't have yet. A duplicate insert (two tabs
-   * racing) is resolved by re-reading rather than failing: seo_projects has
-   * no uniqueness constraint on name, so the loser of the race just adopts
-   * whichever row a fresh read finds, rather than minting a second project. */
-  async function findOrCreateSeoProject() {
-    if (S.seoProjectId) return S.seoProjectId;
-    const existing = await scoped(sb.from('seo_projects').select('id').eq('name', 'SEO Recommendations')).order('created_at').limit(1);
-    if (existing.error) throw existing.error;
-    if (existing.data?.length) { S.seoProjectId = existing.data[0].id; return S.seoProjectId; }
-    const created = await sb.from('seo_projects').insert(window.__SILO_CONFIG__.withCompany({
-      name: 'SEO Recommendations', status: 'active',
-      evidence_note: 'Auto-created from the Recommendations tab (SERP observations + Search Console + competitor captures) the first time a task was drafted from it.',
-    })).select('id');
-    if (created.error || !created.data?.length) {
-      const retry = await scoped(sb.from('seo_projects').select('id').eq('name', 'SEO Recommendations')).order('created_at').limit(1);
-      if (retry.data?.length) { S.seoProjectId = retry.data[0].id; return S.seoProjectId; }
-      throw created.error || new Error('Could not create the SEO Recommendations project.');
-    }
-    S.seoProjectId = created.data[0].id;
-    return S.seoProjectId;
-  }
+  // Drafting lives in seo-task-draft.js, shared with /v2/seo-studio.html, so
+  // both pages create the same draft under the same one project.
   el('btnRtConfirm').addEventListener('click', async () => {
     const idx = Number(el('dlgRecTask').dataset.idx);
     const rec = S.recommendations[idx];
@@ -848,18 +830,13 @@
     if (!title) { setStatus('Title cannot be blank.', 'neg', 3000); return; }
     el('btnRtConfirm').disabled = true;
     try {
-      const projectId = await findOrCreateSeoProject();
-      const payload = window.__SILO_CONFIG__.withCompany({
-        project_id: projectId,
+      await window.SiloSeoTaskDraft.createDraft(sb, _co, {
         title,
         target_type: el('rtTargetType').value || null,
-        target_url: el('rtUrl').value.trim() || null,
-        target_handle: el('rtHandle').value.trim() || null,
-        rationale: el('rtRationale').value.trim() || null,
-        approval_status: 'draft',
-      });
-      const { error } = await sb.from('seo_tasks').insert(payload);
-      if (error) throw error;
+        target_url: el('rtUrl').value,
+        target_handle: el('rtHandle').value,
+        rationale: el('rtRationale').value,
+      }, 'Auto-created from the Recommendations tab (SERP observations + Search Console + competitor captures) the first time a task was drafted from it.');
       el('dlgRecTask').close();
       setStatus(`Draft SEO task created${rec ? ` for “${rec.opportunity_class === 'missing_category' ? (rec.keyword_cluster || []).join(', ') : rec.keyword}”` : ''}.`, 'pos', 4000);
     } catch (e) {
@@ -952,7 +929,7 @@
     USER_ID = user?.id || null;
     _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
     if (window.SiloChrome) {
-      window.SiloChrome.mount({ appEl: '#silo-app', active: 'reports/seo-keywords', user: { email: user?.email || '', role: 'admin' }, crumbs: ['Marketing', 'SEO Keywords'], supabaseClient: sb });
+      window.SiloChrome.mount({ appEl: '#silo-app', active: 'seo/keywords', user: { email: user?.email || '', role: 'admin' }, crumbs: ['Marketing', 'SEO', 'Keywords'], supabaseClient: sb });
     }
     // Who may switch tracking on or curate competitors. The RPC is the same
     // gate RLS applies; the answer only decides which controls to show.

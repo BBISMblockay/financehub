@@ -42,6 +42,9 @@ const CANDIDATES_MIGRATION = '20260926150000_seo_candidates_within_timeout.sql';
 // And the collection-candidates function it calls, with its window CTE materialised.
 const COLLECTION_MIGRATION = '20260926160000_seo_collection_candidates_within_timeout.sql';
 const TACTICS_MIGRATION = '20260926170000_seo_serp_tactics.sql';
+// The landscape's 28-day Search Console figures from a nightly rollup
+// (20260927170000): every landscape assertion below reads through it.
+const LANDSCAPE_ROLLUP_MIGRATION = '20260927170000_seo_landscape_28d_rollup.sql';
 const dependencies = [
   '20260616060000_stamp_company_entity_id_on_insert.sql',
   '20260909220000_page_inspection.sql',
@@ -207,6 +210,9 @@ try {
     const tactics = await readFile(new URL(`supabase/migrations/${TACTICS_MIGRATION}`, root), 'utf8');
     await db.exec(tactics);
     await db.exec(tactics);
+    const rollup = await readFile(new URL(`supabase/migrations/${LANDSCAPE_ROLLUP_MIGRATION}`, root), 'utf8');
+    await db.exec(rollup);
+    await db.exec(rollup);
     if (mutation === 'features-writable') {
       await db.exec(`create policy seo_serp_features_insert on public.seo_serp_features for insert to authenticated
         with check (company_entity_id = public.active_company_id())`);

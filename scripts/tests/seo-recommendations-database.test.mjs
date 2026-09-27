@@ -13,6 +13,7 @@
 //   RECS_DB_MUTATION=defend-not-filtered    (defend drops the decline requirement, per 20260927120000)
 //   RECS_DB_MUTATION=content-brief-sc-zero  (a never-queried SC figure coalesced to 0, per 20260927140000)
 //   RECS_DB_MUTATION=content-brief-paa-zero (no-PAA-observed collapsed to "0 questions", per 20260927140000)
+//   RECS_DB_MUTATION=rollup-unscoped        (the 28-day rollup wrapper loses its active_company_id() filter, 20260927170000)
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -25,6 +26,7 @@ const root = new URL('../../', import.meta.url);
 const MIGRATION = '20260926180000_seo_recommendations.sql';
 const FOLLOWUP_MIGRATION = '20260927120000_seo_recommendations_defend_requires_decline.sql';
 const FOLLOWUP2_MIGRATION = '20260927140000_seo_recommendations_absence_fixes.sql';
+const ROLLUP_MIGRATION = '20260927170000_seo_landscape_28d_rollup.sql';
 // The full chain this migration builds on, same list seo-serp-database.test.mjs
 // verifies against, plus the SERP/tactics/rollup migrations it reads.
 const dependencies = [
@@ -53,7 +55,7 @@ const dependencies = [
 ];
 const mutation = process.env.RECS_DB_MUTATION || '';
 assert.ok(['', 'score-not-halved', 'absence-as-zero', 'numeric-confidence', 'defend-not-filtered',
-  'content-brief-sc-zero', 'content-brief-paa-zero'].includes(mutation), 'Unknown recommendations mutation');
+  'content-brief-sc-zero', 'content-brief-paa-zero', 'rollup-unscoped'].includes(mutation), 'Unknown recommendations mutation');
 
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const first = async (sql, params = []) => (await q(sql, params))[0];
@@ -222,6 +224,10 @@ try {
         case when coalesce(jsonb_array_length(paa.questions), 0) = 0 then 'would be' else 'are' end)`
         );
     }
+    if (mutation === 'rollup-unscoped') {
+      effective = effective.replaceAll('from public.search_console_query_rollup_28d_mv\nwhere company_entity_id = public.active_company_id();',
+        'from public.search_console_query_rollup_28d_mv;');
+    }
     return effective;
   }
 
@@ -249,6 +255,54 @@ try {
     await db.exec(effective);
     await db.exec(effective);
     assert.equal(await scalar("select count(*)::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='seo_recommendations_v' and c.relkind='v'"), 1);
+  });
+
+  // The 28-day rollup (20260927170000). Applied after the recommendation
+  // migrations, the same order production applied them in, so every assertion
+  // below this point reads the landscape THROUGH the rollup.
+  // The other company gets query rows too, so isolation is tested against
+  // data that exists rather than an empty table.
+  await q(`insert into search_console_site_daily(company_entity_id,site_url,day_date,clicks,impressions,synced_at)
+    values ($1,'https://other.example/','2026-09-18',50,500,'2026-09-19T09:00:00Z')`, [otherCo]);
+  await q(`insert into search_console_query_daily(company_entity_id,site_url,day_date,query,clicks,impressions,position,synced_at)
+    values ($1,'https://other.example/','2026-09-18','baseball backpacks',40,400,1.5,'2026-09-19T09:00:00Z')`, [otherCo]);
+
+  await test('the 28-day rollup migration (20260927170000) applies twice, cleanly, and the landscape reads the rollup', async () => {
+    const sql = await readFile(new URL(`supabase/migrations/${ROLLUP_MIGRATION}`, root), 'utf8');
+    const effective = applyMutation(sql);
+    await db.exec(effective);
+    await db.exec(effective);
+    const def = await scalar("select pg_get_viewdef('public.seo_keyword_landscape_v'::regclass, true)");
+    assert.ok(def.includes('search_console_query_rollup_28d_v'), 'the landscape reads the rollup wrapper');
+    assert.ok(!def.includes('search_console_query_daily'), 'the landscape no longer aggregates raw query rows on every read');
+    assert.equal(await scalar("select count(*)::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='seo_recommendations_v' and c.relkind='v'"), 1, 'the recommendations view survived the replacement');
+  });
+
+  await test('the rollup holds exactly what the landscape used to compute, row for row', async () => {
+    // The landscape's pre-20260927170000 gsc CTE, verbatim, over every company.
+    const old = await q(`
+      with gsc_window as (
+        select s.company_entity_id, max(s.day_date) as window_end, max(s.day_date) - 27 as window_start
+        from search_console_site_daily s group by s.company_entity_id)
+      select q.company_entity_id, lower(btrim(regexp_replace(q.query, '\\s+', ' ', 'g'))) as keyword_norm,
+             sum(q.clicks) as clicks, sum(q.impressions) as impressions,
+             case when sum(q.impressions) > 0 then round(sum(q.position * q.impressions)::numeric / sum(q.impressions), 2) end as position,
+             min(w.window_start) as window_start, min(w.window_end) as window_end
+      from search_console_query_daily q join gsc_window w on w.company_entity_id = q.company_entity_id
+      where q.day_date between w.window_start and w.window_end
+      group by 1, 2 order by 1, 2`);
+    const now = await q('select company_entity_id, keyword_norm, clicks, impressions, position, window_start, window_end from search_console_query_rollup_28d_mv order by 1, 2');
+    assert.ok(old.length >= 8, `seeded rows to compare (${old.length})`);
+    assert.deepEqual(now, old);
+  });
+
+  await test('the raw rollup is readable by nobody in the browser; the wrapper shows only the caller\'s company', async () => {
+    await refused(() => asMember(() => q('select * from search_console_query_rollup_28d_mv')), /permission denied/, 'authenticated reading the matview');
+    await refused(() => asRole('anon', '', () => q('select * from search_console_query_rollup_28d_v')), /permission denied/, 'anon reading the wrapper');
+    const mine = await asMember(() => q('select distinct company_entity_id from search_console_query_rollup_28d_v'));
+    assert.deepEqual(mine.map((r) => r.company_entity_id), [co], 'a member sees only their own company');
+    const theirs = await asRole('authenticated', outsider, () => q("select clicks from search_console_query_rollup_28d_v where keyword_norm = 'baseball backpacks'"));
+    assert.deepEqual(theirs.map((r) => Number(r.clicks)), [40], 'the other company sees its own figure, not ours');
   });
 
   await test('seo_recommendations_keyword_stem: first 1-2 significant words, stopwords dropped, trailing s stripped', async () => {
@@ -451,8 +505,8 @@ try {
 
   await test('the committed verify_v2_schema.sql check for seo_recommendations_v returns ok', async () => {
     const verifySql = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
-    const checks = splitSqlStatements(verifySql).filter((s) => /as seo_recommendations\b/.test(s.text));
-    assert.equal(checks.length, 1, 'the seo_recommendations check must be committed');
+    const checks = splitSqlStatements(verifySql).filter((s) => /as (seo_recommendations|search_console_query_rollup_28d)\b/.test(s.text));
+    assert.equal(checks.length, 2, 'the seo_recommendations and search_console_query_rollup_28d checks must be committed');
     for (const sql of checks) {
       const rows = await q(sql.text);
       assert.ok(rows.length > 0, 'a verification check must return evidence');

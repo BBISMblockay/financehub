@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Studio · SEO — SILO</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    /* SEO Studio: seo_recommendations_v read one PAGE at a time. The page
+       adds no score of its own (seo-studio.js sums the view's), and every
+       finding names its source, so an absent value never reads as fine. */
+    .ss-wrap { display:grid; grid-template-columns:minmax(300px, 380px) minmax(0, 1fr); gap:20px; padding:18px 20px 32px; align-items:start; }
+    @media (max-width: 1100px) { .ss-wrap { grid-template-columns:1fr; } }
+    .ss-hero h1 { margin:0; font-size:28px; font-weight:800; letter-spacing:-0.02em; color:var(--bcn-ink); }
+    .ss-hero p { margin:4px 0 0; font-size:13.5px; color:var(--bcn-ink-2); }
+    .ss-fresh { font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.04em; color:var(--bcn-ink-3); text-transform:uppercase; }
+    .ss-queue { display:flex; flex-direction:column; gap:12px; }
+    .ss-queue-head { display:flex; justify-content:space-between; align-items:baseline; margin-top:6px; }
+    .ss-queue-head h2 { margin:0; font-size:15px; font-weight:700; }
+    .ss-card { all:unset; box-sizing:border-box; cursor:pointer; display:flex; gap:12px; padding:12px; background:var(--bcn-surface); border:1px solid var(--bcn-border); border-radius:8px; }
+    .ss-card:hover { border-color:var(--bcn-border-strong); }
+    .ss-card:focus-visible { outline:2px solid var(--bcn-accent); outline-offset:2px; }
+    .ss-card[aria-current="true"] { border:2px solid var(--bcn-pos); padding:11px; }
+    .ss-card--lead { flex-direction:column; padding:0; overflow:hidden; gap:0; }
+    .ss-card--lead[aria-current="true"] { padding:0; }
+    .ss-card--lead .ss-card-body { padding:14px 16px; }
+    .ss-thumbs { display:flex; height:132px; background:var(--bcn-sunken, var(--bcn-bg)); }
+    .ss-thumbs img { flex:1 1 0; min-width:0; height:132px; object-fit:cover; }
+    .ss-thumb { width:88px; height:104px; flex-shrink:0; border-radius:6px; object-fit:cover; background:var(--bcn-sunken, var(--bcn-bg)); }
+    .ss-thumb--blank { display:flex; align-items:center; justify-content:center; font-family:var(--bcn-mono); font-size:10px; color:var(--bcn-ink-3); text-transform:uppercase; letter-spacing:.06em; text-align:center; padding:6px; box-sizing:border-box; }
+    .ss-card-body { display:flex; flex-direction:column; gap:5px; min-width:0; }
+    .ss-card-title { display:flex; justify-content:space-between; gap:8px; font-size:16px; font-weight:700; color:var(--bcn-ink); }
+    .ss-card-title .ss-n { font-family:var(--bcn-mono); font-size:11px; font-weight:500; color:var(--bcn-ink-3); }
+    .ss-path { font-family:var(--bcn-mono); font-size:11.5px; color:var(--bcn-ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .ss-pills { display:flex; flex-wrap:wrap; gap:6px; }
+    .ss-pill { font-size:11.5px; padding:2px 9px; border-radius:999px; background:var(--bcn-sunken, var(--bcn-bg)); color:var(--bcn-ink-2); white-space:nowrap; }
+    .ss-pill--strong { background:var(--bcn-pos-soft); color:color-mix(in oklch, var(--bcn-pos) 70%, var(--bcn-ink)); font-weight:600; }
+    .ss-pill--moderate { background:color-mix(in oklch, var(--bcn-warn) 16%, var(--bcn-surface)); color:color-mix(in oklch, var(--bcn-warn) 55%, var(--bcn-ink)); font-weight:600; }
+    .ss-pill--early { background:var(--bcn-sunken, var(--bcn-bg)); color:var(--bcn-ink-3); font-weight:600; }
+    .ss-pill--needs { background:var(--bcn-accent-soft); color:var(--bcn-accent); font-weight:600; }
+    .ss-card-line { font-size:14px; font-weight:700; color:var(--bcn-ink); }
+    .ss-card-sub { font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-3); }
+    .ss-go { display:flex; justify-content:space-between; align-items:center; margin-top:4px; padding:8px 12px; border-radius:4px; background:var(--bcn-pos-soft); color:color-mix(in oklch, var(--bcn-pos) 70%, var(--bcn-ink)); font-size:13px; font-weight:600; }
+    .ss-more { all:unset; cursor:pointer; text-align:center; font-size:12.5px; font-weight:600; color:var(--bcn-accent); padding:6px; }
+
+    .ss-detail { background:var(--bcn-surface); border:1px solid var(--bcn-border); border-radius:10px; padding:22px 26px; display:flex; flex-direction:column; gap:16px; min-width:0; }
+    .ss-top { display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+    .ss-crumb { font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.08em; color:var(--bcn-ink-3); text-transform:uppercase; }
+    .ss-title { font-size:30px; font-weight:800; letter-spacing:-0.02em; color:var(--bcn-ink); margin:2px 0; }
+    .ss-url { font-family:var(--bcn-mono); font-size:12.5px; color:var(--bcn-ink-2); }
+    .ss-url a { color:inherit; }
+    .ss-steps { display:flex; align-items:flex-start; padding-top:8px; }
+    .ss-step { display:flex; flex-direction:column; align-items:center; gap:6px; width:84px; font-size:12px; color:var(--bcn-ink-3); }
+    .ss-dot { width:12px; height:12px; border-radius:50%; border:2px solid var(--bcn-border-strong); box-sizing:border-box; }
+    .ss-step.is-done .ss-dot, .ss-step.is-current .ss-dot { background:var(--bcn-pos); border-color:var(--bcn-pos); }
+    .ss-step.is-current { color:var(--bcn-ink); font-weight:700; }
+    .ss-line { width:36px; height:2px; background:var(--bcn-border); margin-top:6px; }
+    .ss-line.is-done { background:var(--bcn-pos); }
+    .ss-steplabel { font-size:11.5px; color:var(--bcn-ink-3); text-align:right; margin-top:4px; }
+    .ss-tabs { display:flex; gap:26px; border-bottom:1px solid var(--bcn-border); }
+    .ss-tab { all:unset; cursor:pointer; padding:0 0 10px; font-size:14px; color:var(--bcn-ink-2); border-bottom:2px solid transparent; }
+    .ss-tab[aria-selected="true"] { color:var(--bcn-ink); font-weight:700; border-bottom-color:var(--bcn-ink); }
+    .ss-tab:focus-visible { outline:2px solid var(--bcn-accent); outline-offset:3px; }
+    .ss-pane[hidden] { display:none; }
+    .ss-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; }
+    @media (max-width: 1300px) { .ss-grid { grid-template-columns:1fr; } }
+    .ss-box { border:1px solid var(--bcn-border); border-radius:8px; padding:18px; display:flex; flex-direction:column; gap:12px; min-width:0; }
+    .ss-box--wide { grid-column:1 / -1; }
+    .ss-box-head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
+    .ss-box-head h3 { margin:0; font-size:15px; font-weight:700; color:var(--bcn-ink); }
+    .ss-src { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; }
+    .ss-serp { border:1px solid var(--bcn-border); border-radius:8px; padding:14px 16px; display:flex; flex-direction:column; gap:4px; background:var(--bcn-bg); }
+    .ss-serp-url { font-size:12px; color:var(--bcn-ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .ss-serp-title { font-size:18px; color:var(--bcn-accent); }
+    .ss-serp-desc { font-size:13px; line-height:1.45; color:var(--bcn-ink-2); }
+    .ss-serp-desc.is-absent { font-style:italic; color:var(--bcn-ink-3); }
+    .ss-findings { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:9px; }
+    .ss-findings li { display:flex; gap:10px; align-items:flex-start; font-size:13px; color:var(--bcn-ink); }
+    .ss-findings .ss-mark { flex-shrink:0; width:9px; height:9px; margin-top:4px; border-radius:50%; box-sizing:border-box; }
+    .ss-mark--neg { background:var(--bcn-neg); } .ss-mark--pos { background:var(--bcn-pos); } .ss-mark--info { border:2px solid var(--bcn-ink-4); }
+    .ss-findings .ss-fsrc { font-family:var(--bcn-mono); font-size:10px; color:var(--bcn-ink-3); margin-left:4px; }
+    .ss-findings .bcn-btn { margin-left:auto; padding:3px 10px; font-size:12px; flex-shrink:0; }
+    .ss-tiles { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; }
+    .ss-tile { padding:14px; border-radius:8px; background:var(--bcn-bg); display:flex; flex-direction:column; gap:4px; }
+    .ss-tile--rank { background:var(--bcn-accent-soft); }
+    .ss-tile-k { font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.04em; color:var(--bcn-ink-3); text-transform:uppercase; }
+    .ss-tile--rank .ss-tile-k { color:var(--bcn-accent); }
+    .ss-big { font-family:var(--bcn-mono); font-size:38px; font-weight:600; line-height:1.05; color:var(--bcn-ink); }
+    .ss-big.is-absent { font-size:15px; font-weight:500; color:var(--bcn-ink-3); padding:10px 0; }
+    .ss-tile-s { font-size:12px; color:var(--bcn-ink-2); }
+    .ss-stats { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; padding-top:10px; border-top:1px solid var(--bcn-border); }
+    .ss-stat b { display:block; font-family:var(--bcn-mono); font-size:20px; font-weight:600; color:var(--bcn-ink); }
+    .ss-stat span { font-size:12px; color:var(--bcn-ink-2); }
+    .ss-note { font-size:12px; color:var(--bcn-ink-3); }
+    .ss-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .ss-table th { text-align:left; font-family:var(--bcn-mono); font-size:10.5px; font-weight:500; letter-spacing:.04em; color:var(--bcn-ink-3); text-transform:uppercase; padding:6px 8px 6px 0; }
+    .ss-table td { padding:9px 8px 9px 0; border-top:1px solid var(--bcn-border); vertical-align:top; color:var(--bcn-ink); }
+    .ss-table td.num { font-family:var(--bcn-mono); font-weight:600; white-space:nowrap; }
+    .ss-table tr.is-own td { background:var(--bcn-pos-soft); }
+    .ss-table a { color:var(--bcn-ink); }
+    .ss-rec { display:flex; gap:18px; align-items:center; flex-wrap:wrap; padding:18px 20px; border-radius:8px; background:var(--bcn-pos-soft); border:1px solid var(--bcn-pos-border); }
+    .ss-rec-main { flex:1 1 380px; display:flex; flex-direction:column; gap:6px; min-width:0; }
+    .ss-rec-main h3 { margin:0; font-size:17px; font-weight:700; color:var(--bcn-ink); }
+    .ss-rec-main p { margin:0; font-size:13px; color:var(--bcn-ink-2); }
+    .ss-chips { display:flex; flex-wrap:wrap; gap:8px; }
+    .ss-chip { font-size:12px; padding:3px 10px; border-radius:4px; background:var(--bcn-surface); border:1px solid var(--bcn-pos-border); color:var(--bcn-ink); }
+    .ss-rec-act { display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
+    .ss-rec-act .ss-btns { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+    .ss-btn-dark { display:inline-flex; align-items:center; padding:10px 16px; border-radius:4px; background:var(--bcn-band); color:var(--bcn-band-ink); font-size:14px; font-weight:700; text-decoration:none; border:0; cursor:pointer; }
+    .ss-btn-dark:hover { background:var(--bcn-band-hi); color:var(--bcn-band-ink); }
+    .ss-btn-dark:focus-visible { outline:2px solid var(--bcn-accent); outline-offset:2px; }
+    .ss-empty { padding:40px 20px; text-align:center; color:var(--bcn-ink-3); font-size:13.5px; }
+    .ss-empty b { display:block; color:var(--bcn-ink); font-size:15px; margin-bottom:6px; }
+    .ss-skel { background:var(--bcn-bg); border-radius:8px; min-height:120px; }
+    dialog.ss-dialog { border:1px solid var(--bcn-border); border-radius:10px; padding:0; width:min(620px, 94vw); max-height:88vh; }
+    dialog.ss-dialog::backdrop { background:rgba(0,0,0,.35); }
+    #status { margin:12px 20px 0; }
+  </style>
+  <link rel="stylesheet" href="seo-suite.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+    <header class="bcn-header">
+      <div>
+        <div class="bcn-header-title">Studio</div>
+        <div id="subtitle" class="ss-fresh">Loading…</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="ss-wrap">
+      <aside class="ss-queue" aria-label="Pages to work on">
+        <div class="ss-hero">
+          <h1>SEO Studio</h1>
+          <p>One page at a time: where it ranks, what Google shows, and what to change.</p>
+        </div>
+        <div class="ss-queue-head">
+          <h2>Up next</h2>
+          <span class="ss-fresh" id="queueCount"></span>
+        </div>
+        <div id="queue" class="ss-queue"><div class="ss-skel"></div><div class="ss-skel"></div></div>
+      </aside>
+
+      <section class="ss-detail" id="detail" aria-live="polite">
+        <div class="ss-skel" style="min-height:420px"></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<!-- Create an SEO task, pre-filled from the page's evidence -->
+<dialog class="ss-dialog" id="dlgTask">
+  <div class="bcn-card" style="margin:0;border:0">
+    <div class="bcn-card-header"><h2>Create SEO task</h2><button class="bcn-btn bcn-btn--ghost" type="button" data-close>Close</button></div>
+    <div class="bcn-card-body">
+      <div class="bcn-field-group"><label class="bcn-label" for="tTitle">Title</label><input id="tTitle" class="bcn-field" /></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div class="bcn-field-group" style="flex:1"><label class="bcn-label" for="tType">Target type</label>
+          <select id="tType" class="bcn-field">
+            <option value="product">Product</option><option value="collection">Collection</option>
+            <option value="page">Page</option><option value="blog">Blog</option>
+            <option value="site">Site</option><option value="other">Other</option>
+          </select></div>
+        <div class="bcn-field-group" style="flex:1"><label class="bcn-label" for="tHandle">Target handle</label><input id="tHandle" class="bcn-field" /></div>
+      </div>
+      <fieldset class="bcn-field-group" id="tTarget" hidden style="border:0;padding:0;margin:0 0 10px">
+        <legend class="bcn-label">None of our pages was observed ranking for this. What should the task change?</legend>
+        <label style="display:block;font-size:13px"><input type="radio" name="tTarget" value="existing" /> Improve an existing page (enter its URL below)</label>
+        <label style="display:block;font-size:13px"><input type="radio" name="tTarget" value="new" /> No existing page fits — a new page is needed</label>
+      </fieldset>
+      <div class="bcn-field-group"><label class="bcn-label" for="tUrl">Target URL</label><input id="tUrl" class="bcn-field" /></div>
+      <div class="bcn-status bcn-status--neg" id="tError" role="alert" hidden></div>
+      <div class="bcn-field-group"><label class="bcn-label" for="tRationale">Rationale (the evidence; edit it if you want)</label>
+        <textarea id="tRationale" class="bcn-field" rows="6" style="font-family:var(--bcn-mono);font-size:11px"></textarea></div>
+    </div>
+    <div class="bcn-card-foot" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <span class="ss-note">Saves as a draft in Projects → SEO Recommendations. Nothing is approved or published from here.</span>
+      <button id="btnTaskConfirm" class="bcn-btn bcn-btn--primary" type="button">Create draft task</button>
+    </div>
+  </div>
+</dialog>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="seo-suite.js"></script>
+<script src="silo-chrome.js"></script>
+<script src="seo-keywords.js"></script>
+<script src="seo-studio.js"></script>
+<script src="seo-task-draft.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { fetch: (url, o = {}) => fetch(url, { ...o, cache: 'no-store' }) },
+  });
+  const K = window.SiloSeoKeywords;
+  const ST = window.SiloSeoStudio;
+
+  const el = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+  const numFmt = v => (v == null ? '—' : Math.round(Number(v)).toLocaleString('en-US'));
+  const shortNum = v => {
+    if (v == null) return '—';
+    const n = Number(v);
+    return n >= 10000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K' : n.toLocaleString('en-US');
+  };
+  const dayFmt = iso => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+    if (!m) return iso || '—';
+    return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  };
+  // Every link on this page comes from observed search results or Shopify:
+  // only http(s) may become a clickable href; anything else renders as text.
+  const safeHref = u => (/^https?:\/\/[^\s]+$/i.test(String(u || '')) ? String(u) : null);
+  const linkOrText = (url, text) => { const h = safeHref(url); return h ? `<a href="${esc(h)}" target="_blank" rel="noopener">${esc(text || h)}</a>` : esc(text || ''); };
+  const addDays = (iso, n) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  const KIND_LABEL = { collection: 'Collection', product: 'Product', article: 'Article', home: 'Home page', page: 'Page', video: 'Video', other: 'Page' };
+  const EVIDENCE_WORD = { strong: 'Strong evidence', moderate: 'Moderate evidence', early: 'Early evidence' };
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg;
+    s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+  function explain(e) {
+    const msg = String(e?.message || e);
+    if (/42P01|42883|does not exist/i.test(msg) && /seo_recommendations_v/.test(msg)) return `${msg} — apply 20260926180000_seo_recommendations.sql`;
+    if (/42P01|does not exist/i.test(msg) && /rollup_28d/.test(msg)) return `${msg} — apply 20260927170000_seo_landscape_28d_rollup.sql`;
+    if (/57014|statement timeout/i.test(msg)) return `${msg} — the recommendations took longer than the 8 s limit; apply 20260927170000_seo_landscape_28d_rollup.sql`;
+    return msg;
+  }
+
+  let _co = null;
+  const S = {
+    recs: [], landscape: [], queue: [], selected: null, tab: 'overview', shown: 6,
+    scEnd: null, runDay: null, tasks: [], pubs: [], media: {}, collections: {}, pages: {},
+  };
+
+  // ── Loads ────────────────────────────────────────────────────────────────
+  const scoped = (q) => (_co?.id ? q.eq('company_entity_id', _co.id) : q);
+
+  async function loadAll() {
+    const [recs, land, sc, tasks] = await Promise.all([
+      scoped(sb.from('seo_recommendations_v').select('*')).limit(2000),
+      scoped(sb.from('seo_keyword_landscape_v').select('keyword_id, keyword, device, provider, latest_observed_on, latest_top_results, our_serp_position')).limit(4000),
+      scoped(sb.from('search_console_site_daily').select('day_date')).order('day_date', { ascending: false }).limit(1),
+      scoped(sb.from('seo_tasks').select('id, title, approval_status, target_url, target_handle, created_at')).order('created_at', { ascending: false }).limit(500),
+    ]);
+    if (recs.error) throw recs.error;
+    if (land.error) throw land.error;
+    S.recs = recs.data || [];
+    S.landscape = land.data || [];
+    S.scEnd = sc.error ? null : (sc.data?.[0]?.day_date || null);
+    S.tasks = tasks.error ? [] : (tasks.data || []);
+    S.pubs = [];
+    if (S.tasks.length) {
+      const pubs = await sb.from('seo_task_publications').select('task_id, published_at').in('task_id', S.tasks.map(t => t.id)).limit(1000);
+      if (!pubs.error) S.pubs = pubs.data || [];
+    }
+    S.runDay = S.landscape.reduce((m, r) => (r.latest_observed_on && (!m || r.latest_observed_on > m) ? r.latest_observed_on : m), null);
+    S.queue = ST.groupByPage(S.recs);
+    await loadMedia(S.queue.slice(0, 24));
+  }
+
+  const ID_CHUNK = 150, PAGE = 1000, MAX_PAGES = 20;
+  /** Every row a paged query returns; null when a page fails, so a partial
+   * read is never presented as the whole. */
+  async function readAll(pageAt) {
+    const out = [];
+    for (let p = 0; p < MAX_PAGES; p++) {
+      const r = await pageAt(p * PAGE, p * PAGE + PAGE - 1);
+      if (r.error) return null;
+      out.push(...(r.data || []));
+      if ((r.data || []).length < PAGE) break;
+    }
+    return out;
+  }
+
+  /** Photos and Shopify settings for the queue: collections by handle, their
+   * members, and those members' photos and live state. A collection shows its
+   * NEWEST LIVE products (active and published on the website, latest
+   * publication first -- pickCollectionPhotos). A page whose photos cannot be
+   * found shows a labelled blank tile, never another page's photo. */
+  async function loadMedia(all) {
+    // Load more passes the whole shown list; a page already drawn keeps its
+    // photos and is not read again.
+    const groups = all.filter(g => !(g.key in S.media));
+    if (!groups.length) return;
+    const colHandles = [...new Set(groups.map(g => ST.collectionHandle(g.path)).filter(Boolean))].filter(h => !(h in S.collections));
+    const prodHandles = [...new Set(groups.map(g => ST.productHandle(g.path)).filter(Boolean))];
+    if (colHandles.length) {
+      const c = await scoped(sb.from('shopify_collections')
+        .select('shopify_collection_id, handle, title, description, seo_title_override, seo_description_override, products_count, updated_at')
+        .in('handle', colHandles).is('missing_since', null)).order('updated_at', { ascending: false }).limit(500);
+      if (!c.error) for (const row of c.data || []) if (!S.collections[row.handle]) S.collections[row.handle] = row;
+      colHandles.forEach(h => { if (!(h in S.collections)) S.collections[h] = null; });
+    }
+    const colIds = colHandles.map(h => S.collections[h]?.shopify_collection_id).filter(Boolean);
+    // The collection's WHOLE membership, so the newest release is found even
+    // when Shopify sorts it last; paged, because a large collection alone can
+    // pass one page.
+    const productIdsByCol = {};
+    if (colIds.length) {
+      const rows = await readAll((from, to) => scoped(sb.from('shopify_collection_products').select('shopify_collection_id, shopify_product_id, position')
+        .in('shopify_collection_id', colIds).is('missing_since', null)).order('shopify_collection_id').order('position').order('shopify_product_id').range(from, to));
+      for (const row of rows || []) (productIdsByCol[row.shopify_collection_id] ||= []).push(String(row.shopify_product_id));
+    }
+    // Their photos and live state, in id chunks (a long .in() list outgrows
+    // the request URL). One row per SKU, so each chunk is paged too.
+    const allIds = [...new Set(Object.values(productIdsByCol).flat())];
+    const productRows = [];
+    const unreadIds = new Set();
+    for (let i = 0; i < allIds.length; i += ID_CHUNK) {
+      const chunk = allIds.slice(i, i + ID_CHUNK);
+      const rows = await readAll((from, to) => scoped(sb.from('products_master').select('shopify_product_id, product_title, image_url, shopify_status, online_published_at')
+        .in('shopify_product_id', chunk).not('image_url', 'is', null)).order('shopify_product_id').order('sku').range(from, to));
+      if (rows) productRows.push(...rows);
+      else chunk.forEach(id => unreadIds.add(id)); // a collection touching these shows no photos, never a partial set
+    }
+    const imgByHandle = {};
+    if (prodHandles.length) {
+      const pm = await scoped(sb.from('products_master').select('shopify_handle, product_title, image_url')
+        .in('shopify_handle', prodHandles).not('image_url', 'is', null)).limit(prodHandles.length * 4);
+      if (!pm.error) for (const row of pm.data || []) if (!imgByHandle[row.shopify_handle]) imgByHandle[row.shopify_handle] = row;
+    }
+    for (const g of groups) {
+      const ch = ST.collectionHandle(g.path), ph = ST.productHandle(g.path);
+      let imgs = [];
+      if (ch && S.collections[ch]) {
+        imgs = ST.pickCollectionPhotos(productIdsByCol[S.collections[ch].shopify_collection_id] || [], productRows, 3, unreadIds);
+        if (S.collections[ch].title) g.title = S.collections[ch].title;
+      } else if (ph && imgByHandle[ph]) {
+        imgs = [imgByHandle[ph]];
+        g.title = imgByHandle[ph].product_title || g.title;
+      }
+      S.media[g.key] = imgs.filter(x => /^https:\/\//.test(x.image_url || ''));
+    }
+  }
+
+  /** The page's own facts, fetched when it is opened: Google's 28 days for
+   * this path, and its latest inspection. Cached per page. */
+  async function loadPage(g) {
+    if (S.pages[g.key]) return S.pages[g.key];
+    const out = { scRows: null, inspection: null };
+    if (g.path && S.scEnd) {
+      const r = await scoped(sb.from('search_console_page_daily').select('day_date, clicks, impressions, position')
+        .eq('page_path', g.path).gte('day_date', addDays(S.scEnd, -27)).lte('day_date', S.scEnd)).limit(200);
+      out.scRows = r.error ? null : (r.data || []);
+    }
+    if (g.path) {
+      // A broad match (the path's last segment) narrowed exactly in JS by
+      // pageKey(), so no page path is ever spliced into a filter expression.
+      const seg = String(g.path.split('/').filter(Boolean).pop() || '').replace(/[^a-z0-9-]/gi, '');
+      const q = sb.from('page_inspections')
+        .select('requested_url, final_url, http_status, fetch_error, title, meta_description, h1, h1_count, images_missing_alt, image_count, word_count, fetched_at');
+      const r = await scoped(seg ? q.ilike('requested_url', `%${seg}%`) : q).order('fetched_at', { ascending: false }).limit(50);
+      if (!r.error) out.inspection = (r.data || []).find(x => ST.pageKey(x.final_url || x.requested_url) === g.path || ST.pageKey(x.requested_url) === g.path) || null;
+    }
+    S.pages[g.key] = out;
+    return out;
+  }
+
+  // ── The page's facts, assembled once per render ─────────────────────────
+  function brandWords() {
+    return String(_co?.title || '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2);
+  }
+  function landscapeFor(g) {
+    const lead = ST.leadKeyword(g);
+    const dev = g.bestRank?.device || null;
+    const rows = S.landscape.filter(l => l.keyword === lead);
+    return rows.find(l => l.device === dev) || rows.find(l => l.device === 'desktop') || rows[0] || null;
+  }
+  function facts(g, page) {
+    const lead = ST.leadKeyword(g);
+    const land = landscapeFor(g);
+    const results = land?.latest_top_results || [];
+    const above = ST.aboveUs(results, land?.our_serp_position ?? null, 3);
+    const serpTitle = g.kind === 'page' ? ST.ourObservedTitle(results) : null;
+    const col = S.collections[ST.collectionHandle(g.path)] ?? null;
+    const found = g.kind === 'page' ? ST.findings({
+      keyword: lead, brandWords: brandWords(), serpTitle,
+      competitorTitle: above[0]?.title || null, competitorPosition: above[0]?.position ?? null,
+      isCollection: !!ST.collectionHandle(g.path), collection: col, inspection: page.inspection,
+    }) : [];
+    return { lead, land, results, above, serpTitle, col, found, stats: ST.pageStats(page.scRows) };
+  }
+
+  // ── Rendering ────────────────────────────────────────────────────────────
+  function thumb(g, big) {
+    const imgs = S.media[g.key] || [];
+    if (big) {
+      if (!imgs.length) return '';
+      return `<div class="ss-thumbs">${imgs.slice(0, 2).map(i => `<img src="${esc(i.image_url)}" alt="${esc(i.product_title || '')}" loading="lazy">`).join('')}</div>`;
+    }
+    if (imgs[0]) return `<img class="ss-thumb" src="${esc(imgs[0].image_url)}" alt="${esc(imgs[0].product_title || '')}" loading="lazy">`;
+    return `<div class="ss-thumb ss-thumb--blank" aria-hidden="true">${esc(g.kind === 'not_ranking' ? 'Not ranking' : (KIND_LABEL[g.pageType] || 'Page'))}</div>`;
+  }
+  function pills(g) {
+    const kind = g.kind === 'not_ranking' ? '<span class="ss-pill ss-pill--needs">No page ranking</span>' : `<span class="ss-pill">${esc(KIND_LABEL[g.pageType] || 'Page')}</span>`;
+    return `<div class="ss-pills">${kind}${g.evidence ? `<span class="ss-pill ss-pill--${esc(g.evidence)}">${esc(EVIDENCE_WORD[g.evidence])}</span>` : ''}</div>`;
+  }
+  function cardLine(g) {
+    if (g.kind === 'not_ranking') {
+      const row = g.rows[0];
+      return row.sc_impressions_28d != null ? `${shortNum(row.sc_impressions_28d)} impressions with no ranking page` : 'Demand with no ranking page';
+    }
+    const range = ST.rankRange(g);
+    const n = g.keywords.length;
+    return range ? `${range} on ${n} tracked keyword${n === 1 ? '' : 's'}` : `${n} tracked keyword${n === 1 ? '' : 's'}`;
+  }
+  function cardSub(g) {
+    const top = g.rows.slice().sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))[0];
+    const lbl = K.RECOMMENDATION_CLASS_LABELS[top.opportunity_class] || top.opportunity_class;
+    return g.bestRank ? `${lbl} · “${g.bestRank.keyword}”` : lbl;
+  }
+  function renderQueue() {
+    const list = S.queue.slice(0, S.shown);
+    el('queueCount').textContent = S.queue.length ? `${S.queue.length} page${S.queue.length === 1 ? '' : 's'} with opportunities` : '';
+    if (!S.queue.length) {
+      el('queue').innerHTML = `<div class="ss-empty"><b>Nothing to work on yet.</b>This needs a completed rank check (Keywords tab → Tracking) and some Search Console history.</div>`;
+      return;
+    }
+    el('queue').innerHTML = list.map((g, i) => {
+      const current = S.selected === g.key ? 'true' : 'false';
+      if (i === 0) {
+        return `<button type="button" class="ss-card ss-card--lead" data-key="${esc(g.key)}" aria-current="${current}">
+          ${thumb(g, true)}
+          <div class="ss-card-body">
+            <div class="ss-card-title"><span>${esc(g.title)}</span><span class="ss-n">01</span></div>
+            <div class="ss-path">${esc(g.path || (g.keywords.join(', ')))}</div>
+            ${pills(g)}
+            <div class="ss-card-line">${esc(cardLine(g))}</div>
+            <div class="ss-card-sub">${esc(cardSub(g))}</div>
+            <div class="ss-go">Top opportunity<span aria-hidden="true">→</span></div>
+          </div></button>`;
+      }
+      return `<button type="button" class="ss-card" data-key="${esc(g.key)}" aria-current="${current}">
+        ${thumb(g, false)}
+        <div class="ss-card-body">
+          <div class="ss-card-title"><span>${esc(g.title)}</span><span class="ss-n">${String(i + 1).padStart(2, '0')}</span></div>
+          <div class="ss-path">${esc(g.path || g.keywords.join(', '))}</div>
+          ${pills(g)}
+          <div class="ss-card-line">${esc(cardLine(g))}</div>
+          <div class="ss-card-sub">${esc(cardSub(g))}</div>
+        </div></button>`;
+    }).join('') + (S.queue.length > S.shown ? `<button type="button" class="ss-more" id="btnMore">Show ${Math.min(6, S.queue.length - S.shown)} more</button>` : '');
+  }
+
+  /** Tasks aimed at this page: by URL, or by handle on a task with no URL. */
+  function tasksFor(g) {
+    if (!g.path) return [];
+    const handle = ST.collectionHandle(g.path) || ST.productHandle(g.path);
+    return S.tasks.filter(t => (t.target_url ? ST.pageKey(t.target_url) === g.path : (handle && String(t.target_handle || '').toLowerCase() === handle)));
+  }
+  function stepsHtml(g) {
+    const tasks = tasksFor(g);
+    const s = ST.stepFor(tasks, S.pubs);
+    const idx = ST.STEPS.indexOf(s.step);
+    const names = ['Review', 'Draft', 'Approve', 'Measure'];
+    const parts = names.map((n, i) => {
+      const cls = i < idx ? 'is-done' : (i === idx ? 'is-current' : '');
+      return `${i ? `<div class="ss-line ${i <= idx ? 'is-done' : ''}"></div>` : ''}<div class="ss-step ${cls}" ${i === idx ? 'aria-current="step"' : ''}><span class="ss-dot"></span><span>${n}</span></div>`;
+    }).join('');
+    return `<div><div class="ss-steps" aria-label="Progress">${parts}</div><div class="ss-steplabel">${esc(s.label)}</div></div>`;
+  }
+
+  function overviewHtml(g, f) {
+    if (g.kind === 'not_ranking') return notRankingHtml(g, f);
+    const host = (() => { try { return new URL(g.url).host.replace(/^www\./, ''); } catch { return ''; } })();
+    const crumbs = [host, ...String(g.path).split('/').filter(Boolean)].join(' › ');
+    const d = ST.descriptionFacts(f.col);
+    const desc = d.state === 'too_long' || d.state === 'ok'
+      ? `<div class="ss-serp-desc">${esc(d.shown)}</div>`
+      : `<div class="ss-serp-desc is-absent">${d.state === 'none' ? 'No description set — Google writes its own from the page.' : 'Description not known for this page type.'}</div>`;
+    const findingsHtml = f.found.length ? `<ul class="ss-findings">${f.found.map(x => `<li><span class="ss-mark ss-mark--${x.tone}" aria-hidden="true"></span>
+        <span><strong>${esc(x.title)}</strong>${x.detail ? ' ' + esc(x.detail) : ''}<span class="ss-fsrc">${esc(x.source)}</span></span>
+        ${x.action === 'inspect' ? `<button type="button" class="bcn-btn bcn-btn--ghost" id="btnInspect">Inspect page</button>` : ''}</li>`).join('')}</ul>` : '';
+    const rankTile = g.bestRank
+      ? `<div class="ss-tile ss-tile--rank"><div class="ss-tile-k">Rank check · ${esc(dayFmt(f.land?.latest_observed_on || S.runDay))}</div>
+           <div class="ss-big">#${g.bestRank.position}</div><div style="font-size:13px">“${esc(g.bestRank.keyword)}”</div>
+           <div class="ss-tile-s">${esc(g.bestRank.device ? g.bestRank.device[0].toUpperCase() + g.bestRank.device.slice(1) : '')}, one snapshot.</div></div>`
+      : `<div class="ss-tile ss-tile--rank"><div class="ss-tile-k">Rank check</div><div class="ss-big is-absent">Not in the observed results</div></div>`;
+    const st = f.stats;
+    const avgTile = `<div class="ss-tile"><div class="ss-tile-k">Google average · 28 days</div>
+        ${st && st.avgPosition != null ? `<div class="ss-big">${st.avgPosition}</div>` : `<div class="ss-big is-absent">Not returned by Google</div>`}
+        <div style="font-size:13px">Every search this page showed for</div>
+        <div class="ss-tile-s">Weighted by impressions${S.scEnd ? `. To ${esc(dayFmt(S.scEnd))}` : ''}.</div></div>`;
+    const statsHtml = st ? `<div class="ss-stats">
+        <div class="ss-stat"><b>${numFmt(st.impressions)}</b><span>impressions</span></div>
+        <div class="ss-stat"><b>${numFmt(st.clicks)}</b><span>clicks</span></div>
+        <div class="ss-stat"><b>${st.ctr == null ? '—' : (st.ctr * 100).toFixed(1) + '%'}</b><span>click rate</span></div></div>`
+      : `<div class="ss-note">Google returned no rows for this page in the window. That is not the same as no traffic.</div>`;
+    const lead = f.lead;
+    const ownPos = f.land?.our_serp_position ?? null;
+    const aboveRows = f.above.map(a => `<tr><td class="num">#${a.position}</td><td><strong>${esc(a.domain)}</strong></td><td>${linkOrText(a.url, a.title || a.url)}</td></tr>`).join('');
+    const ownRow = ownPos != null ? `<tr class="is-own"><td class="num">#${ownPos}</td><td><strong>${esc(host)} (you)</strong></td><td>${esc(f.serpTitle || '')}</td></tr>` : '';
+    const aboveHtml = f.land ? `<table class="ss-table"><thead><tr><th scope="col" style="width:60px">Rank</th><th scope="col" style="width:200px">Site</th><th scope="col">Page title</th></tr></thead>
+        <tbody>${aboveRows}${ownRow}</tbody></table>${!f.above.length && ownPos === 1 ? '<div class="ss-note">You rank first.</div>' : ''}`
+      : '<div class="ss-note">No rank check has observed this keyword yet.</div>';
+    return `<div class="ss-grid">
+      <section class="ss-box"><div class="ss-box-head"><h3>How the page shows in Google</h3><span class="ss-src">Rank check · Shopify</span></div>
+        <div class="ss-serp"><div class="ss-serp-url">${esc(crumbs)}</div>
+          <div class="ss-serp-title">${esc(f.serpTitle || g.title)}</div>${desc}</div>
+        ${findingsHtml}</section>
+      <section class="ss-box"><div class="ss-box-head"><h3>Where it ranks</h3></div>
+        <div class="ss-tiles">${rankTile}${avgTile}</div>${statsHtml}
+        <div class="ss-note">A rank check and Google's average are different measures. Both are shown, never merged.</div></section>
+      <section class="ss-box ss-box--wide"><div class="ss-box-head"><h3>Who ranks above you for “${esc(lead)}”</h3>
+        <span class="ss-src">${esc([f.land?.device, dayFmt(f.land?.latest_observed_on)].filter(Boolean).join(' · '))}</span></div>${aboveHtml}</section>
+    </div>${recHtml(g, f)}`;
+  }
+
+  function notRankingHtml(g, f) {
+    const row = g.rows[0];
+    const above = f.above.map(a => `<tr><td class="num">#${a.position}</td><td><strong>${esc(a.domain)}</strong></td><td>${linkOrText(a.url, a.title || a.url)}</td></tr>`).join('');
+    return `<div class="ss-grid">
+      <section class="ss-box"><div class="ss-box-head"><h3>The demand</h3><span class="ss-src">Search Console</span></div>
+        <div class="ss-stats" style="border-top:0;padding-top:0">
+          <div class="ss-stat"><b>${numFmt(row.sc_impressions_28d)}</b><span>impressions${g.classes[0] === 'missing_category' ? ' (90 days)' : ' (28 days)'}</span></div>
+          <div class="ss-stat"><b>${numFmt(row.sc_clicks_28d)}</b><span>clicks</span></div>
+          <div class="ss-stat"><b>${row.search_console_avg_position_28d == null ? '—' : Number(row.search_console_avg_position_28d).toFixed(1)}</b><span>Google average position</span></div></div>
+        <div class="ss-note">No page of ours was in the observed results for ${g.keywords.length > 1 ? 'these searches' : 'this search'}. That is not proof we have no page: one may exist and rank below what the check reads. Look for an existing collection or product page before creating a new one. The demand shown is what Google returned; it hides some queries, so this is a floor.</div></section>
+      <section class="ss-box"><div class="ss-box-head"><h3>Who ranks for “${esc(f.lead)}”</h3><span class="ss-src">${esc(dayFmt(f.land?.latest_observed_on))}</span></div>
+        ${above ? `<table class="ss-table"><tbody>${above}</tbody></table>` : '<div class="ss-note">No rank check has observed this keyword yet.</div>'}</section>
+    </div>${recHtml(g, f)}`;
+  }
+
+  function recHtml(g, f) {
+    const top = g.rows.slice().sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))[0];
+    const head = ST.headline(f.found, f.lead, brandWords());
+    const competitors = new Set(g.rows.map(r => r.competitor_domain).filter(Boolean)).size;
+    const ask = '/v2/silo-chat.html?q=' + encodeURIComponent(ST.askSiloPrompt(g, { serpTitle: f.serpTitle, found: f.found }));
+    return `<section class="ss-rec" aria-label="Recommendation">
+      <div class="ss-rec-main">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3>${esc(head || top.suggested_action || 'Review this opportunity')}</h3>
+          ${g.evidence ? `<span class="ss-pill ss-pill--${esc(g.evidence)}" style="background:var(--bcn-surface)">${esc(EVIDENCE_WORD[g.evidence])}</span>` : ''}</div>
+        ${head && top.suggested_action ? `<p>${esc(top.suggested_action)}</p>` : ''}
+        <div class="ss-chips"><span class="ss-chip">${g.keywords.length} tracked keyword${g.keywords.length === 1 ? '' : 's'}</span>
+          ${competitors ? `<span class="ss-chip">${competitors} competitor page${competitors === 1 ? '' : 's'}</span>` : ''}
+          <span class="ss-chip">Before/after measured over 30 and 90 days</span></div>
+      </div>
+      <div class="ss-rec-act">
+        <div class="ss-btns"><a class="ss-btn-dark" href="${esc(ask)}">Draft improvements with Ask SILO</a>
+          <button type="button" class="bcn-btn" id="btnTask">Create draft task</button></div>
+        <div class="ss-note" style="color:var(--bcn-ink-2)">You approve every edit. SILO never publishes.</div>
+      </div></section>`;
+  }
+
+  function keywordsHtml(g) {
+    const rows = g.rows.slice().sort((a, b) => (a.our_position ?? 999) - (b.our_position ?? 999));
+    return `<table class="ss-table"><thead><tr><th scope="col">Keyword</th><th scope="col">Device</th><th scope="col">Rank check</th><th scope="col">Google avg</th><th scope="col">Clicks (28d)</th><th scope="col">Opportunity</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>${esc(r.keyword || (r.keyword_cluster || []).join(', '))}</td><td>${esc(r.device || '—')}</td>
+        <td class="num">${r.our_position == null ? '<span class="ss-note">not in observed results</span>' : '#' + r.our_position}</td>
+        <td class="num">${r.search_console_avg_position_28d == null ? '<span class="ss-note">not returned</span>' : Number(r.search_console_avg_position_28d).toFixed(1)}</td>
+        <td class="num">${r.sc_clicks_28d == null ? '<span class="ss-note">not returned</span>' : numFmt(r.sc_clicks_28d)}</td>
+        <td>${esc(K.RECOMMENDATION_CLASS_LABELS[r.opportunity_class] || r.opportunity_class)}</td></tr>`).join('')}
+      </tbody></table>`;
+  }
+
+  function competitorsHtml(g) {
+    const kws = [...new Set(g.rows.map(r => r.keyword).filter(Boolean))];
+    return kws.map(kw => {
+      const lands = S.landscape.filter(l => l.keyword === kw);
+      return lands.map(l => {
+        const above = ST.aboveUs(l.latest_top_results || [], l.our_serp_position, 5);
+        return `<section class="ss-box"><div class="ss-box-head"><h3>“${esc(kw)}”</h3><span class="ss-src">${esc([l.device, dayFmt(l.latest_observed_on), l.our_serp_position ? 'you #' + l.our_serp_position : 'you: not in results'].filter(Boolean).join(' · '))}</span></div>
+          ${above.length ? `<table class="ss-table"><tbody>${above.map(a => `<tr><td class="num" style="width:50px">#${a.position}</td><td style="width:200px"><strong>${esc(a.domain)}</strong></td><td>${linkOrText(a.url, a.title || a.url)}</td></tr>`).join('')}</tbody></table>` : '<div class="ss-note">Nobody ranks above you.</div>'}</section>`;
+      }).join('');
+    }).join('') || '<div class="ss-note">No rank check has observed these keywords yet.</div>';
+  }
+
+  async function renderDetail() {
+    const g = S.queue.find(x => x.key === S.selected);
+    if (!g) { el('detail').innerHTML = `<div class="ss-empty"><b>Pick a page</b>Choose one from Up next.</div>`; return; }
+    const idx = S.queue.indexOf(g);
+    const col = S.collections[ST.collectionHandle(g.path)];
+    const kind = g.kind === 'not_ranking' ? 'No page of ours ranking' : (KIND_LABEL[g.pageType] || 'Page');
+    const header = `<div class="ss-top"><div>
+        <div class="ss-crumb">${esc(kind)} / Opportunity ${String(idx + 1).padStart(2, '0')}${col?.products_count != null ? ` · ${numFmt(col.products_count)} products` : ''}</div>
+        <div class="ss-title">${esc(g.title)}</div>
+        <div class="ss-url">${g.url ? linkOrText(K.canonicalTargetUrl(g.url), String(K.canonicalTargetUrl(g.url) || '').replace(/^https?:\/\//, '')) : esc(g.keywords.join(', '))}</div>
+      </div>${stepsHtml(g)}</div>
+      <div class="ss-tabs" role="tablist">
+        ${[['overview', 'Overview'], ['keywords', `Keywords (${g.keywords.length})`], ['competitors', 'Competitors']].map(([k, n]) =>
+          `<button type="button" role="tab" class="ss-tab" data-tab="${k}" aria-selected="${S.tab === k}">${esc(n)}</button>`).join('')}
+      </div>`;
+    el('detail').innerHTML = header + `<div class="ss-skel" style="min-height:360px"></div>`;
+    const page = await loadPage(g);
+    if (S.queue.find(x => x.key === S.selected) !== g) return; // another page was picked meanwhile
+    const f = facts(g, page);
+    S.current = { g, f };
+    const body = S.tab === 'keywords' ? keywordsHtml(g) : S.tab === 'competitors' ? `<div class="ss-grid">${competitorsHtml(g)}</div>` : overviewHtml(g, f);
+    el('detail').innerHTML = header + `<div class="ss-pane">${body}</div>`;
+  }
+
+  function select(key) {
+    S.selected = key;
+    try { const u = new URL(location.href); u.searchParams.set('page', key); history.replaceState(null, '', u.pathname + u.search); } catch {}
+    renderQueue();
+    renderDetail();
+  }
+
+  // ── Events ───────────────────────────────────────────────────────────────
+  el('queue').addEventListener('click', async (e) => {
+    if (e.target.closest('#btnMore')) { S.shown += 6; await loadMedia(S.queue.slice(0, S.shown)); renderQueue(); return; }
+    const card = e.target.closest('[data-key]');
+    if (card) { S.tab = 'overview'; select(card.dataset.key); el('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  });
+  el('detail').addEventListener('click', async (e) => {
+    const tab = e.target.closest('[data-tab]');
+    if (tab) { S.tab = tab.dataset.tab; renderDetail(); return; }
+    if (e.target.closest('#btnInspect')) {
+      const g = S.current?.g; if (!g?.url) return;
+      const btn = e.target.closest('#btnInspect'); btn.disabled = true; btn.textContent = 'Inspecting…';
+      const { data, error } = await sb.functions.invoke('page-inspect', { body: { url: K.canonicalTargetUrl(g.url) } });
+      if (error || data?.error) {
+        setStatus(`Could not inspect the page: ${explain(error || data.error)}`, 'neg', 6000);
+        btn.disabled = false; btn.textContent = 'Inspect page';
+        return;
+      }
+      delete S.pages[g.key];
+      setStatus('Page inspected.', 'pos', 2500);
+      renderDetail();
+      return;
+    }
+    if (e.target.closest('#btnTask')) openTask();
+  });
+
+  function openTask() {
+    const { g, f } = S.current || {};
+    if (!g) return;
+    const top = g.rows.slice().sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))[0];
+    const pf = K.taskPrefill(top);
+    const head = ST.headline(f.found, f.lead, brandWords());
+    const lines = [head ? head + '.' : null, pf.rationale || null, ...f.found.filter(x => x.tone === 'neg').map(x => `- ${x.title}${x.detail ? ' ' + x.detail : ''} (${x.source})`)].filter(Boolean);
+    el('tTitle').value = head ? `${g.title}: ${head.charAt(0).toLowerCase()}${head.slice(1)}` : (pf.proposed_title || '');
+    el('tType').value = pf.target_type || 'other';
+    el('tHandle').value = pf.target_handle || '';
+    el('tUrl').value = pf.target_url || '';
+    el('tRationale').value = lines.join('\n');
+    el('tTarget').hidden = g.kind !== 'not_ranking';
+    el('tError').hidden = true;
+    document.querySelectorAll('input[name="tTarget"]').forEach(r => { r.checked = false; });
+    el('dlgTask').showModal();
+  }
+  el('dlgTask').addEventListener('click', (e) => { if (e.target.closest('[data-close]')) el('dlgTask').close(); });
+  el('btnTaskConfirm').addEventListener('click', async () => {
+    const g = S.current?.g;
+    const choice = document.querySelector('input[name="tTarget"]:checked')?.value || null;
+    const decision = ST.targetDecision(g?.kind, choice, el('tUrl').value);
+    if (!decision.ok) { el('tError').textContent = decision.error; el('tError').hidden = false; return; }
+    el('tError').hidden = true;
+    el('btnTaskConfirm').disabled = true;
+    try {
+      await window.SiloSeoTaskDraft.createDraft(sb, _co, {
+        title: el('tTitle').value, target_type: el('tType').value, target_url: el('tUrl').value,
+        target_handle: el('tHandle').value, rationale: [el('tRationale').value, decision.note].filter(Boolean).join('\n'),
+      }, 'Auto-created the first time an SEO task was drafted from SEO Studio (SERP observations + Search Console + Shopify settings).');
+      el('dlgTask').close();
+      setStatus('Draft SEO task created.', 'pos', 4000);
+      const t = await scoped(sb.from('seo_tasks').select('id, title, approval_status, target_url, target_handle, created_at')).order('created_at', { ascending: false }).limit(500);
+      if (!t.error) S.tasks = t.data || [];
+      renderDetail();
+    } catch (err) {
+      setStatus(`Could not create the task: ${explain(err)}`, 'neg');
+    } finally { el('btnTaskConfirm').disabled = false; }
+  });
+
+  let loadId = 0;
+  async function runLoad() {
+    const id = ++loadId;
+    el('btnRefresh').disabled = true;
+    try {
+      // A refresh re-reads everything: cached collections and photos would
+      // otherwise stand in for Shopify's current state (and, before this,
+      // an already-cached collection read back as having no products).
+      S.pages = {}; S.collections = {}; S.media = {};
+      await loadAll();
+      if (id !== loadId) return;
+      el('subtitle').textContent = [S.runDay ? `Rank check ${dayFmt(S.runDay)}` : 'No rank check yet', S.scEnd ? `Google data to ${dayFmt(S.scEnd)}` : 'No Google data'].join(' · ');
+      const want = new URLSearchParams(location.search).get('page');
+      S.selected = S.queue.find(g => g.key === want)?.key || S.queue[0]?.key || null;
+      const at = S.queue.findIndex(g => g.key === S.selected);
+      if (at >= S.shown) { S.shown = at + 1; await loadMedia(S.queue.slice(0, S.shown)); }
+      renderQueue();
+      await renderDetail();
+    } catch (e) {
+      if (id !== loadId) return;
+      setStatus(`Load failed: ${explain(e)}`, 'neg');
+      el('queue').innerHTML = `<div class="ss-empty"><b>Could not load.</b>${esc(explain(e))}</div>`;
+      el('detail').innerHTML = '';
+    } finally { if (id === loadId) el('btnRefresh').disabled = false; }
+  }
+  el('btnRefresh').addEventListener('click', runLoad);
+
+  async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) { window.location.href = '/pages/login.html'; return; }
+    const user = sess.data.session.user;
+    _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({ appEl: '#silo-app', active: 'seo/studio', user: { email: user?.email || '', role: 'admin' }, crumbs: ['Marketing', 'SEO', 'Studio'], supabaseClient: sb });
+    }
+    await runLoad();
+  }
+  boot();
+</script>
+</body>
+</html>

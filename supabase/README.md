@@ -2455,3 +2455,41 @@ The new sentence points at the existing per-company mapping
 (`silo_channel_location_tags()` from `20260920170000`), where empty means not
 configured, never zero sales. It matches the Ask SILO core prompt's "WHICH
 STORES AND CHANNELS A QUESTION MEANS" rule.
+
+## SEO landscape reads a 28-day rollup — `20260927170000_seo_landscape_28d_rollup.sql`
+
+`seo_recommendations_v` measured 6.29 s cold and 2.28 s warm against the
+browser role's 8 s `statement_timeout` for Baseballism (118 rows, as a
+signed-in user). The biggest single cost was `seo_keyword_landscape_v`'s
+Search Console step, which normalised and summed 116,504 raw query rows on
+every read. The recommendations view reads the landscape twice, so that ran
+twice per load, and it grows with every day of history. Applied inside a
+rolled-back transaction on production, the same read took 1.23 s warm and
+returned the identical 118 rows (same md5 across every column).
+
+The step now reads `search_console_query_rollup_28d_mv`, the same rows
+computed nightly, through `search_console_query_rollup_28d_v`. That wrapper
+is `security_invoker = false` with an explicit `active_company_id()` filter,
+the same layering as the 90-day `search_console_query_rollup_mv`.
+
+- **Separate from the 90-day rollup.** That one also requires the site row to
+  be at least as new as the query row. Merging the two would change one of
+  their numbers.
+- **Same column types.** `create or replace view` refuses a type change, which
+  is the guard that the swap is shape-identical.
+- **Refresh.** `refresh_search_console_query_rollup_mv()` now refreshes both
+  rollups. The Search Console sync and backfill already call it.
+- **What changes for readers.** The landscape's Search Console columns are as
+  of the last sync rather than live. A service-role reader gets NULLs there.
+  Nothing reads the landscape as service role today.
+
+`seo-recommendations-database.test.mjs` checks four things:
+
+- The rollup equals the old calculation, row for row.
+- The matview is unreadable from the browser.
+- Each company sees only its own rows.
+- The `rollup-unscoped` mutation fails the suite.
+
+`seo-serp-database.test.mjs` runs the whole landscape suite through the
+rollup. `verify_v2_schema.sql` has the `search_console_query_rollup_28d`
+check.

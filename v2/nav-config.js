@@ -71,6 +71,16 @@
     ['settings/notifications','Notifications','settings-notifications.html'],
   ];
 
+  // The SEO suite, drawn as one tab strip by seo-suite.js exactly as the
+  // settings and accounting strips are: REAL pages at their own URLs. Studio
+  // first -- it is where the work happens; Search performance and Keywords are
+  // the reports behind it. One 'SEO' sidebar row replaces a row per page.
+  const SEO_SUITE_PAGES = [
+    ['seo/studio','Studio','seo-studio.html'],
+    ['seo/performance','Search performance','seo-overview.html'],
+    ['seo/keywords','Keywords','seo-keywords.html'],
+  ];
+
   const FINANCE_DEPTS = ['exec', 'finance'];
 
   // profiles.role values that see exec-only links (e.g. Ask SILO during its
@@ -255,17 +265,14 @@
     { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered', 'standard'] },
     { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered', 'standard'] },
     { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered', 'standard'] },
-    // SEO overview over the search_console_*_daily tables (2026-09-10). Soft
-    // launch: exec-only in the sidebar while the first reports are reviewed
-    // -- the same EXEC_ROLES gate Ask SILO and the v3 workspace carry, and
-    // for the same reason (who sees it first, not who may read it; RLS is
-    // the boundary). Widen `roles` (or drop it) once the overview is trusted.
-    { roles: EXEC_ROLES, id: 'reports/seo-overview', section: 'Marketing', label: 'SEO', href: '/v2/seo-overview.html', profiles: ['grandfathered', 'standard'] },
-    // Keyword set, competitor list, observed rankings and the weekly-tracking
-    // switch (2026-09-26). Same soft-launch gate as SEO, OR a seo_approvers
-    // grant: the page's write controls are approver-gated by RLS, and the
-    // person who may switch tracking on should be able to find the switch.
-    { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo-keywords', section: 'Marketing', label: 'SEO Keywords', href: '/v2/seo-keywords.html', profiles: ['grandfathered', 'standard'] },
+    // ONE SEO destination (2026-09-27), not a row per page: Studio, Search
+    // performance and Keywords are TABS of it (SEO_SUITE_PAGES above), the
+    // same collapse as Accounting and Workspace settings. silo-chrome.js maps
+    // any SEO_SUITE_PAGES id onto this row. The gate is the union of the two
+    // rows it replaces -- the exec soft-launch gate, OR a seo_approvers grant
+    // (the person who may switch tracking on must be able to find it). Nav is
+    // discovery only; every read is RLS, every approver write re-checked.
+    { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo', section: 'Marketing', label: 'SEO', href: '/v2/seo-studio.html', profiles: ['grandfathered', 'standard'] },
 
     // Standard workspaces get a small Insights surface: curated dashboards
     // plus Ask SILO. Baseballism keeps the established Reports label. Access
@@ -396,6 +403,7 @@
     SALES_REPORT_PAGES,
     ACCOUNTING_PAGES,
     WORKSPACE_SETTINGS_PAGES,
+    SEO_SUITE_PAGES,
     resolveNavProfile,
     navSectionsForProfile,
     navSectionsForCompany,
