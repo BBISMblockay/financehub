@@ -19132,6 +19132,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260926160000_seo_collection_candidates_within_timeout.sql
 \i migrations/20260926170000_seo_serp_tactics.sql
 \i migrations/20260926180000_seo_recommendations.sql
+\i migrations/20260927120000_seo_recommendations_defend_requires_decline.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above
