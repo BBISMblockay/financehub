@@ -18,6 +18,7 @@ const { startSuite, fakeSupabaseScript } = require('../lib/harness');
     { id: 'file-b', payment_request_id: 'request-1', file_path: 'request-1/submitted/photo.png', file_name: 'Receipt.png', mime_type: 'image/png' },
     { id: 'file-c', payment_request_id: 'request-0', file_path: 'request-0/submitted/sheet.xlsx', file_name: 'Costs.xlsx', mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
     { id: 'file-d', payment_request_id: 'request-3', file_url: 'https://external.example.test/invoice.pdf', file_name: 'Legacy.pdf', mime_type: 'application/pdf', legacy: true },
+    { id: 'file-preview', payment_request_id: 'request-0', file_path: 'request-0/submitted/sample.png', file_name: 'Sample invoice.png', mime_type: 'image/png', sort_order: 10000 },
   ];
   const fixture = {
     profiles: [{ id: 'test-user', name: 'Test Owner', email: 'owner@example.test', role: 'owner', department: 'exec', is_active: true }],
@@ -25,6 +26,7 @@ const { startSuite, fakeSupabaseScript } = require('../lib/harness');
     payment_request_activity_v: [{ id:'activity-1', payment_request_id:'request-0', activity_type:'submitted', message:'Request submitted', created_at:'2026-09-25T12:00:00Z' }],
   };
   try {
+    await suite.context.route('https://files.example.test/**/sample.png', route => route.fulfill({contentType:'image/png',path:require('node:path').join(__dirname,'../fixtures/request-invoice.png')}));
     // Signed URLs are fixture-only. A controllable promise exercises the actual
     // integrated renderer's late-success/late-error path; no private data fetched.
     await suite.context.route('**/cdn.jsdelivr.net/**supabase**', route => route.fulfill({ contentType:'text/javascript', body: fakeSupabaseScript().replace(
@@ -175,6 +177,19 @@ const { startSuite, fakeSupabaseScript } = require('../lib/harness');
         }
       });
     }
+    await check('secondary queues remain reachable and disclose the active queue', async () => {
+      await page.locator('.rm-queue-more summary').click();
+      await page.locator('[data-queue=all]').click();
+      assert.match(await page.locator('.rm-queue-more summary').textContent(),/All/);
+      await page.locator('[data-queue=open]').click();
+      assert.equal(await page.locator('#fEffectiveVendor').evaluate(el=>el.tagName),'DIV');
+      assert.equal(await page.locator('#fEffectiveVendor').textContent(),'Northline Supply');
+      assert.notEqual(await page.locator('#markPaidBtn').evaluate(el=>getComputedStyle(el).backgroundColor),await page.locator('#saveDrawerBtn').evaluate(el=>getComputedStyle(el).backgroundColor));
+    });
+    await check('real sample invoice image renders inside the document pane', async () => {
+      await page.locator('#previewFileSelect').selectOption({label:'Sample invoice.png'});
+      await page.waitForFunction(()=>document.querySelector('#documentPreview img')?.naturalWidth===800);
+    });
     await page.setViewportSize({width:1600,height:1000});
     await page.evaluate(()=>document.documentElement.setAttribute('data-theme','light'));
     await page.locator('.rm-document-tools').evaluate(el=>{el.open=false;});

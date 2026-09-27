@@ -18,7 +18,7 @@
 .rm-review-page .rm-queue-tabs .label { font:inherit; color:inherit; }
 .rm-review-page .rm-queue-tabs .value { font-size:12px; margin:0; }
 .rm-review-page .rm-queue-tabs .queue-sub { display:none; }
-.rm-review-page .rm-review-layout { display:grid; grid-template-columns:minmax(260px,.85fr) minmax(340px,1.15fr) minmax(290px,1fr); gap:12px; align-items:start; }
+.rm-review-page .rm-review-layout { display:grid; grid-template-columns:minmax(250px,.8fr) minmax(300px,.9fr) minmax(340px,1.3fr); gap:12px; align-items:start; }
 .rm-review-page .rm-review-layout > * { min-width:0; }
 .rm-review-page .rm-queue-pane > .card { padding:0; overflow:hidden; }
 .rm-review-page .rm-queue-pane .rm-card-head { padding:10px 12px; }
@@ -92,3 +92,17 @@
   .rm-review-page .rm-search { flex:1; min-width:180px; }
   .rm-review-page .drawer .field-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
+
+/* Readable source details; only fields the reviewer can change look editable. */
+.rm-review-page .rm-detail-value { color:var(--bcn-ink); font-size:13px; line-height:1.5; overflow-wrap:anywhere; padding:3px 0 10px; }
+.rm-review-page .rm-detail-notes { white-space:pre-wrap; border-top:1px solid var(--bcn-border); padding-top:10px; }
+.rm-review-page .rm-drawer-readonly .bcn-label { font-size:10px; color:var(--bcn-ink-3); font-weight:500; }
+.rm-review-page .rm-queue-tabs .queue-card { border-color:transparent; background:transparent; }
+.rm-review-page .rm-queue-tabs .queue-card.active { border-color:var(--bcn-accent-border); background:var(--bcn-accent-soft); }
+.rm-review-page .rm-queue-more { position:relative; }
+.rm-review-page .rm-queue-more > summary { padding:7px 10px; color:var(--bcn-ink-2); font-weight:500; }
+.rm-review-page .rm-queue-options { position:absolute; top:100%; left:0; z-index:5; min-width:160px; padding:6px; border:1px solid var(--bcn-border); background:var(--bcn-surface); border-radius:4px; box-shadow:var(--bcn-shadow); }
+.rm-review-page .rm-queue-options .queue-card { width:100%; justify-content:space-between; }
+.rm-review-page #markPaidBtn { background:transparent; border-color:transparent; color:var(--bcn-ink-2); }
+/* Shared chrome classifies payment actions as primary; this workspace has one primary Save. */
+.rm-review-page #workbenchDrawer #markPaidBtn { background:transparent !important; border:1px solid var(--bcn-border) !important; color:var(--bcn-ink-2) !important; }
