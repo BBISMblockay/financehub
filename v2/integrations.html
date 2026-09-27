@@ -107,7 +107,10 @@
     .int-card-icon--redo    { background: #ef4444; }
     .int-card-icon--qbo     { background: #2ca01c; }
     .int-card-icon--stripe  { background: #635bff; }
-    .int-muted { font-size: 11px; color: var(--bcn-ink-3); margin-top: 1px; }
+    /* white-space: normal is required, not cosmetic -- .int-table td sets
+       nowrap, which is inherited, and every existing .int-muted use was a
+       single short label that never revealed it was wrapping-less. */
+    .int-muted { font-size: 11px; color: var(--bcn-ink-3); margin-top: 1px; white-space: normal; }
     .int-card-header-text { min-width: 0; flex: 1; }
     .int-card-header-text h2 {
       margin: 0;
