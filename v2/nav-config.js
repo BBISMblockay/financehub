@@ -266,6 +266,10 @@
     // grant: the page's write controls are approver-gated by RLS, and the
     // person who may switch tracking on should be able to find the switch.
     { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo-keywords', section: 'Marketing', label: 'SEO Keywords', href: '/v2/seo-keywords.html', profiles: ['grandfathered', 'standard'] },
+    // One page at a time over the same recommendations (2026-09-27): where
+    // it ranks, what Google shows, what to change, a draft task. Same gate
+    // as SEO Keywords, which it sits beside and reads the same view as.
+    { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo-studio', section: 'Marketing', label: 'SEO Studio', href: '/v2/seo-studio.html', profiles: ['grandfathered', 'standard'] },
 
     // Standard workspaces get a small Insights surface: curated dashboards
     // plus Ask SILO. Baseballism keeps the established Reports label. Access

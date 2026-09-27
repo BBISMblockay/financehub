@@ -95,6 +95,9 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
     'reports/marketing-explorer',
     'reports/seo-overview',
     'reports/seo-keywords',
+    // SEO Studio (2026-09-27): the same recommendations one page at a time,
+    // same gate as SEO Keywords.
+    'reports/seo-studio',
   ]);
   assert.ok(!sections.some((section) => section.section === 'Reports'));
   assert.ok(!sections.some((section) => section.section === 'Sales'));
