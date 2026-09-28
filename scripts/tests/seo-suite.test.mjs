@@ -51,13 +51,14 @@ const PAGES = {
   'seo/studio': 'seo-studio.html',
   'seo/performance': 'seo-overview.html',
   'seo/keywords': 'seo-keywords.html',
+  'seo/tasks': 'seo-tasks.html',
 };
 
-test('three tabs, Studio first, each on its existing page, the current one identified', () => {
+test('four tabs, Studio first, each on its existing page, the current one identified', () => {
   assert.deepEqual(nav.SEO_SUITE_PAGES.map(([id, , path]) => [id, path]), Object.entries(PAGES));
   for (const active of Object.keys(PAGES)) {
     const m = mountStrip(active);
-    assert.equal(m.links.length, 3);
+    assert.equal(m.links.length, 4);
     const current = m.links.filter((l) => l.attributes['aria-current'] === 'page');
     assert.equal(current.length, 1);
     assert.equal(current[0].href, '/v2/' + PAGES[active]);

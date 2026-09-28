@@ -95,7 +95,7 @@ const tables = {
     R.eq(await cards.nth(0).locator('img').first().getAttribute('src'), 'https://cdn.shopify.com/ronin-batbros.jpg', 'the collection\'s newest live release leads');
     R.eq(await page.locator('#queue img[src$="ronin-draft.jpg"]').count(), 0, 'a draft product is not shown as the collection');
     const tabs = await page.evaluate(() => [...document.querySelectorAll('[data-seo-suite] a')].map(a => [a.getAttribute('href'), a.getAttribute('aria-current')]));
-    R.eq(JSON.stringify(tabs), JSON.stringify([['/v2/seo-studio.html', 'page'], ['/v2/seo-overview.html', null], ['/v2/seo-keywords.html', null]]), 'the SEO suite strip renders with Studio current');
+    R.eq(JSON.stringify(tabs), JSON.stringify([['/v2/seo-studio.html', 'page'], ['/v2/seo-overview.html', null], ['/v2/seo-keywords.html', null], ['/v2/seo-tasks.html', null]]), 'the SEO suite strip renders with Studio current');
     // A ranking absence is never presented as "we have no page".
     R.ok('a not-ranking entry is labelled as such', /no page ranking/i.test(queue));
     R.ok('and never claims a page is missing', !/needs a page|no page yet/i.test(queue));
