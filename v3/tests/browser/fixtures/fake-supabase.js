@@ -409,6 +409,12 @@
         auth: { getSession: async () => ({ data: { session: { user: { id: 'U1', email: 'blake@baseballism.com' } } } }) },
         from: (t) => builder(t),
         rpc: async (name, args) => {
+          // The sidebar's own call (silo-chrome.js), not the page's: kept out
+          // of rpcCalls, which the suites read as the page's queries.
+          if (name === 'nav_badge_counts') {
+            (window.__FAKE_DB__.chromeRpcCalls = window.__FAKE_DB__.chromeRpcCalls || []).push({ name, args });
+            return { data: [], error: null };
+          }
           window.__FAKE_DB__.rpcCalls.push({ name, args });
           if (name === 'saved_report_usage') {
             const ws = db.dashboard_widgets.filter((w) => w.report_id === args.p_report_id);
