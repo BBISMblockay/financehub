@@ -173,6 +173,7 @@ import {
   renderQueryResult,
 } from './evidence-scope.mjs';
 import { buildSystemBlocks, selectGuidance } from './prompt-lib.mjs';
+import { rewriteSlowShapes } from './query-shape-lib.mjs';
 import {
   BUSY_STATUSES,
   isSpendLimitResponse,
@@ -2222,12 +2223,17 @@ Deno.serve(async (req: Request) => {
             });
           }
         } else {
+          // `query` is what the model wrote and is what its evidence scope is
+          // derived from; `executed` is the value-identical fast shape (see
+          // query-shape-lib.mjs) and is what runs AND what is stored, so a
+          // saved report or dashboard re-running it gets the fast shape too.
           const query = String(use.input?.query || '');
-          queriesRun.push(query);
+          const { sql: executed, rewrites } = rewriteSlowShapes(query);
+          queriesRun.push(executed);
           const resultId = `R${queriesRun.length}`;
           const startedQueryAt = Date.now();
           try {
-            const { data: rows, error } = await callerClient.rpc('chat_run_readonly_query', { query });
+            const { data: rows, error } = await callerClient.rpc('chat_run_readonly_query', { query: executed });
             if (error) throw new Error(error.message);
             // The rows no longer travel alone. What they are -- and are not --
             // restricted to is derived here and returned WITH them, because by
@@ -2244,6 +2250,7 @@ Deno.serve(async (req: Request) => {
               result_id: resultId,
               round: roundsUsed,
               sql: query,
+              ...(rewrites.length ? { executed_sql: executed, rewrites } : {}),
               ok: true,
               row_count: Array.isArray(rows) ? rows.length : (rows == null ? 0 : 1),
               ms: Date.now() - startedQueryAt,
@@ -2269,6 +2276,7 @@ Deno.serve(async (req: Request) => {
               // the failed spend query shared a round with a successful one.
               round: roundsUsed,
               sql: query,
+              ...(rewrites.length ? { executed_sql: executed, rewrites } : {}),
               ok: false,
               ms: Date.now() - startedQueryAt,
               error: rawMessage,

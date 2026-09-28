@@ -65,6 +65,25 @@ probably inert for the same reason — untested. The honest minimum is to stop
 declaring 30s and correct CLAUDE.md, so nothing downstream keeps reasoning
 against a number that has never held.
 
+**Update 2026-09-28 — the timeouts people actually hit were statement SHAPE, not
+the 8s ceiling.** Loomis's executive-summary request lost four of eighteen
+queries to the timeout. Measured as `authenticated` under his RLS, every one was
+fast once rewritten: `current_date - interval '90 days'` is a timestamp, the
+date-vs-timestamp comparison is not leakproof, so RLS keeps it out of the index
+and the scan reads all history (8,170 ms → 388 ms as `current_date - 90`); and
+`silo_channel_location_tags()` re-runs once PER ROW unless hoisted into a
+scalar sub-select (180-day channel split > 60 s → 278 ms; 90 days of online
+sales with the documented filter alone, 28.9 s). `query-shape-lib.mjs` now
+rewrites both value-identically before Ask SILO runs a statement. Raising the
+ceiling was deliberately NOT done: it would have rescued none of the channel
+queries, and `budget-lib.mjs`'s correction-round arithmetic stops admitting a
+round once a query may exceed ~13s.
+
+**Follow-up, not yet measured:** the bare `= any(public.silo_channel_location_tags(...))`
+form is also inside the eight `wow_*` RPCs (`20260920180000`) and the system
+report in `20260925150000`. Those read smaller relations, but the per-row cost is
+the same (~0.2 ms × rows scanned); hoist it there if the Marketing Report is slow.
+
 **What it does NOT block:** the Sonic acceptance tests. Those assert column
 correction, date provenance, channel labelling and partial-answer structure —
 none depends on how long a query may run. It changes how often the budget path

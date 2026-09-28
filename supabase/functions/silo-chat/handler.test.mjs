@@ -44,6 +44,7 @@ const EVIDENCE_LIB_URL = pathToFileURL(join(HERE, 'evidence-scope.mjs')).href;
 const BUDGET_LIB_URL = pathToFileURL(join(HERE, 'budget-lib.mjs')).href;
 const PROMPT_LIB_URL = pathToFileURL(join(HERE, 'prompt-lib.mjs')).href;
 const PROVIDER_LIB_URL = pathToFileURL(join(HERE, 'provider-lib.mjs')).href;
+const QUERY_SHAPE_LIB_URL = pathToFileURL(join(HERE, 'query-shape-lib.mjs')).href;
 
 let failures = 0;
 let run = 0;
@@ -96,10 +97,11 @@ const harnessPath = join(tmpdir(), `silo-chat-harness-${process.pid}.ts`);
     .replace("from './evidence-scope.mjs';", `from ${JSON.stringify(EVIDENCE_LIB_URL)};`)
     .replace("from './budget-lib.mjs';", `from ${JSON.stringify(BUDGET_LIB_URL)};`)
     .replace("from './prompt-lib.mjs';", `from ${JSON.stringify(PROMPT_LIB_URL)};`)
-    .replace("from './provider-lib.mjs';", `from ${JSON.stringify(PROVIDER_LIB_URL)};`);
+    .replace("from './provider-lib.mjs';", `from ${JSON.stringify(PROVIDER_LIB_URL)};`)
+    .replace("from './query-shape-lib.mjs';", `from ${JSON.stringify(QUERY_SHAPE_LIB_URL)};`);
   // A silently-unapplied rewrite would load a file that still imports npm:,
   // which fails with a confusing resolver error 40 lines away from the cause.
-  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, 'Buffer.from(bytes)']) {
+  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, QUERY_SHAPE_LIB_URL, 'Buffer.from(bytes)']) {
     if (!rewritten.includes(marker)) {
       throw new Error(`harness rewrite failed: index.ts no longer matches the expected import for ${marker}`);
     }
@@ -930,6 +932,33 @@ await test('each query records its outcome and its derived scope', async () => {
   eq(d.queries[0].ok, true, 'ok flag');
   eq(d.queries[0].row_count, 1, 'row count');
   assert(d.queries[0].scope.totals_only, 'the derived scope was not kept with the outcome');
+});
+
+// query-shape-lib.mjs, through the real call path: the DATABASE receives the
+// fast shape, Save report / the query panel store the fast shape (so a re-run
+// is fast too), and the log keeps what the model wrote beside what ran.
+await test('slow statement shapes are rewritten before they reach the database', async () => {
+  const written = "SELECT sum(total_net_sales) FROM sales_by_day WHERE location_tag = any(silo_channel_location_tags('online')) AND day_date >= current_date - interval '90 days'";
+  const ran = "SELECT sum(total_net_sales) FROM sales_by_day WHERE location_tag = any((select silo_channel_location_tags('online'))::text[]) AND day_date >= (current_date - 90)";
+  installModel([sqlRound(written), say('done')]);
+  const { client, json } = await ask(BASIC, { rpcResults: [{ sum: 1 }] });
+  const sent = client.__state.rpcCalls.filter((c) => c.name === 'chat_run_readonly_query').map((c) => c.args.query);
+  eq(sent, [ran], 'statement sent to the database');
+  eq(json.queries_run, [ran], 'queries_run (Save report re-runs this)');
+  const q = auditRow(client).diagnostics.queries[0];
+  eq(q.sql, written, 'the log keeps what the model wrote');
+  eq(q.executed_sql, ran, 'the log names what actually ran');
+  eq(q.rewrites.slice().sort(), ['channel_tags_hoist', 'date_interval'], 'rewrites named');
+  eq((q.scope.narrowed_to || []).map((n) => n.values), [['channel:online']], 'scope still reads the channel');
+});
+
+await test('a statement needing no rewrite runs verbatim and logs no rewrite', async () => {
+  const sql = "select sum(total_net_sales) from sales_by_day where day_date between '2026-09-01' and '2026-09-27'";
+  installModel([sqlRound(sql), say('done')]);
+  const { client } = await ask(BASIC, { rpcResults: [{ sum: 1 }] });
+  eq(client.__state.rpcCalls.filter((c) => c.name === 'chat_run_readonly_query').map((c) => c.args.query), [sql], 'sent');
+  const q = auditRow(client).diagnostics.queries[0];
+  assert(!('executed_sql' in q) && !('rewrites' in q), `rewrite fields on an unrewritten query: ${JSON.stringify(q)}`);
 });
 
 await test('a query that errored records WHY, which is the half that was missing', async () => {

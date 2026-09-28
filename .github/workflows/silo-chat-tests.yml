@@ -78,6 +78,11 @@ jobs:
       - name: Run evidence-scope assertions
         run: node supabase/functions/silo-chat/evidence-scope.test.mjs
 
+      # The value-identical rewrites of the two statement shapes that RLS turns
+      # into full-history scans (query-shape-lib.mjs). Pure, no database.
+      - name: Run query-shape assertions
+        run: node supabase/functions/silo-chat/query-shape.test.mjs
+
       # Provider pushback: which model-API failures are retried, how long a
       # retry may wait, and what usage is recorded. Pure, no network.
       - name: Run provider-retry assertions
