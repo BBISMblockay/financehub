@@ -51,3 +51,22 @@ export function acceptReturnOrigin(value, allowed) {
 export function returnUrl(origin) {
   return `${origin}${RETURN_PATH}`;
 }
+
+/**
+ * May this caller connect Google accounts for this company? The function runs
+ * with the service-role key, so this IS the authorization.
+ *   - A disabled account never may: deactivation keeps memberships on
+ *     purpose (CLAUDE.md), so the active flag is checked FIRST, and a
+ *     disabled former admin with a still-valid session is refused.
+ *   - Then the membership role for that company (owner_admin / admin), or,
+ *     with no membership row, the legacy profile role for the active company
+ *     -- the is_admin_user() precedence quickbooks-oauth-start follows.
+ *   - Any lookup error refuses: an unknown answer is not a yes.
+ */
+export function mayConnect({ profile, profileError, membership, membershipError, companyId }) {
+  if (profileError || membershipError) return false;
+  if (!profile || profile.is_active !== true) return false;
+  if (membership) return ['owner_admin', 'admin'].includes(String(membership.role));
+  return profile.active_company_id === companyId
+    && ['owner', 'admin', 'executive'].includes(String(profile.role));
+}

@@ -56,9 +56,25 @@ test('start: redirect_uri comes from the lib or the legacy URL, and admin access
   assert.match(s, /redirect_uri: redirectUri,/);
   assert.doesNotMatch(s, /redirect_uri: CALLBACK_URL/);
   assert.match(s, /parseOrigins\(Deno\.env\.get\('GOOGLE_OAUTH_REDIRECT_ORIGINS'\)\)/);
-  assert.match(s, /from\('entity_memberships'\)/);
-  assert.match(s, /\['owner_admin', 'admin'\]\.includes\(membership\.role\)/);
+  assert.match(s, /select\('role, active_company_id, is_active'\)/);
+  assert.match(s, /if \(!mayConnect\(\{ profile, profileError, membership, membershipError, companyId: company_entity_id \}\)\)/);
   assert.match(s, /Admin access required for this company/);
+});
+test('mayConnect: an active admin may; a disabled one, a non-admin or an unknown answer may not', () => {
+  const CO = 'co-1';
+  const active = { is_active: true, role: 'user', active_company_id: CO };
+  assert.equal(lib.mayConnect({ profile: active, membership: { role: 'admin' }, companyId: CO }), true);
+  assert.equal(lib.mayConnect({ profile: active, membership: { role: 'owner_admin' }, companyId: CO }), true);
+  assert.equal(lib.mayConnect({ profile: { ...active, is_active: false }, membership: { role: 'owner_admin' }, companyId: CO }), false,
+    'deactivation keeps memberships; a disabled former admin is refused');
+  assert.equal(lib.mayConnect({ profile: { ...active, is_active: null }, membership: { role: 'admin' }, companyId: CO }), false);
+  assert.equal(lib.mayConnect({ profile: null, membership: { role: 'admin' }, companyId: CO }), false);
+  assert.equal(lib.mayConnect({ profile: active, membership: { role: 'member' }, companyId: CO }), false);
+  assert.equal(lib.mayConnect({ profile: { ...active, role: 'admin' }, membership: null, companyId: CO }), true, 'legacy profile fallback');
+  assert.equal(lib.mayConnect({ profile: { ...active, role: 'admin' }, membership: null, companyId: 'other' }), false);
+  assert.equal(lib.mayConnect({ profile: { ...active, role: 'admin', is_active: false }, membership: null, companyId: CO }), false);
+  assert.equal(lib.mayConnect({ profile: active, profileError: { message: 'x' }, membership: { role: 'admin' }, companyId: CO }), false, 'fails closed');
+  assert.equal(lib.mayConnect({ profile: active, membershipError: { message: 'x' }, membership: null, companyId: CO }), false, 'fails closed');
 });
 test('callback: exchanges with the same redirect_uri and returns to the same site', () => {
   const s = read('supabase/functions/google-oauth-callback/index.ts');

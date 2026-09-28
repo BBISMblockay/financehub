@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { parseOrigins, pickOrigin, returnUrl } from './google-oauth-lib.mjs';
+import { mayConnect, parseOrigins, pickOrigin, returnUrl } from './google-oauth-lib.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -70,25 +70,19 @@ Deno.serve(async (req) => {
 
   // Verify the caller administers the company they named rather than trusting
   // the id the browser sent: this function runs with the service-role key, so
-  // RLS is not doing it. Same rule as quickbooks-oauth-start.
-  const { data: membership } = await supabase
+  // RLS is not doing it. The rule, active account first, is mayConnect().
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('role, active_company_id, is_active')
+    .eq('id', user.id)
+    .maybeSingle();
+  const { data: membership, error: membershipError } = await supabase
     .from('entity_memberships')
     .select('role')
     .eq('entity_id', company_entity_id)
     .eq('user_id', user.id)
     .maybeSingle();
-  let allowed = membership ? ['owner_admin', 'admin'].includes(membership.role) : false;
-  if (!membership) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role, active_company_id')
-      .eq('id', user.id)
-      .maybeSingle();
-    allowed = !!profile
-      && profile.active_company_id === company_entity_id
-      && ['owner', 'admin', 'executive'].includes(String(profile.role));
-  }
-  if (!allowed) {
+  if (!mayConnect({ profile, profileError, membership, membershipError, companyId: company_entity_id })) {
     return new Response(JSON.stringify({ error: 'Admin access required for this company' }), {
       status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
