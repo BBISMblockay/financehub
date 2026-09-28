@@ -240,7 +240,13 @@ Deno.serve(async (req) => {
   );
   if (authErr || !user) return json({ error: 'Unauthorized' }, 401);
 
-  const { connection_id } = await req.json();
+  // list_accounts: return what this authorization can reach (the pickable
+  // properties / accounts / sites) whatever the row has configured, so
+  // Integrations can offer a picker right after connecting and a Change on a
+  // configured row. It is not a test of the configured account, so the
+  // row's last-test result is left as it was.
+  const { connection_id, list_accounts } = await req.json();
+  const listMode = list_accounts === true;
   if (!connection_id) return json({ error: 'connection_id required' }, 400);
 
   // RLS-scoped read via the caller's JWT proves the caller can see this
@@ -265,6 +271,13 @@ Deno.serve(async (req) => {
     .single();
   if (connErr || !conn) return json({ error: 'Connection not found' }, 404);
 
+  // Each tester lists when its account field is empty; list mode empties it.
+  const ACCOUNT_FIELD: Record<string, string> = {
+    google_ads: 'google_customer_id', ga4: 'ga4_property_id', search_console: 'search_console_site_url',
+    meta_ads: 'meta_ad_account_id', tiktok_ads: 'tiktok_advertiser_id',
+  };
+  const probe = listMode && ACCOUNT_FIELD[conn.platform] ? { ...conn, [ACCOUNT_FIELD[conn.platform]]: null } : conn;
+
   let result: Record<string, unknown> = {};
   let ok = true;
   let errMsg: string | null = null;
@@ -278,13 +291,13 @@ Deno.serve(async (req) => {
         token_expires_at: fresh.expires_at,
         updated_at: new Date().toISOString(),
       }).eq('id', conn.id);
-      if (conn.platform === 'google_ads') result = await testGoogleAds(conn, fresh.access_token);
-      else if (conn.platform === 'ga4') result = await testGa4(conn, fresh.access_token);
-      else result = await testSearchConsole(conn, fresh.access_token);
+      if (conn.platform === 'google_ads') result = await testGoogleAds(probe, fresh.access_token);
+      else if (conn.platform === 'ga4') result = await testGa4(probe, fresh.access_token);
+      else result = await testSearchConsole(probe, fresh.access_token);
     } else if (conn.platform === 'meta_ads') {
-      result = await testMetaAds(conn);
+      result = await testMetaAds(probe);
     } else if (conn.platform === 'tiktok_ads') {
-      result = await testTiktokAds(conn);
+      result = await testTiktokAds(probe);
     } else {
       throw new Error(`Unknown platform: ${conn.platform}`);
     }
@@ -293,7 +306,7 @@ Deno.serve(async (req) => {
     errMsg = String((err as Error)?.message ?? err).slice(0, 500);
   }
 
-  await service.from('ad_platform_connections').update({
+  if (!listMode) await service.from('ad_platform_connections').update({
     last_tested_at: new Date().toISOString(),
     last_test_status: ok ? 'ok' : 'error',
     last_test_success: ok,

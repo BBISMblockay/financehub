@@ -2575,3 +2575,15 @@ company read at the start of the request explicitly, so a mid-request switch
 has the insert refused rather than filed under the new company.
 
 `verify_v2_schema.sql` has the `chat_deferred_responses` check.
+
+## Ad-platform reconnect — `20260928160000_ad_platform_oauth_reconnect.sql`
+
+`ad_platform_oauth_states.connection_id` (nullable, cascade): when set, the
+Google OAuth callback writes the fresh tokens onto THAT connection instead of
+inserting a new one. It is what Integrations' **Reconnect** button uses, and
+what a switch of Google OAuth client requires (a refresh token only refreshes
+with the client that issued it). Apply before deploying `google-oauth-start` /
+`google-oauth-callback`; until then a Reconnect click reports the missing
+column and a plain Connect is unaffected.
+
+`verify_v2_schema.sql` has the `ad_platform_oauth_reconnect` check.

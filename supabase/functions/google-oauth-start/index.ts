@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { mayConnect, parseOrigins, pickOrigin, returnUrl } from './google-oauth-lib.mjs';
+import { mayConnect, mayReconnect, parseOrigins, pickOrigin, returnUrl } from './google-oauth-lib.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { company_entity_id, platform } = await req.json();
+  const { company_entity_id, platform, connection_id } = await req.json();
   if (!company_entity_id || !platform) {
     return new Response(JSON.stringify({ error: 'company_entity_id and platform required' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -88,6 +88,21 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Reconnect: renew THIS connection's tokens rather than add a second one.
+  // Only a row in the company just authorised above, on the same platform.
+  if (connection_id) {
+    const { data: conn, error: connErr } = await supabase
+      .from('ad_platform_connections')
+      .select('id, company_entity_id, platform')
+      .eq('id', connection_id)
+      .maybeSingle();
+    if (connErr || !mayReconnect({ connection_id, company_entity_id, platform }, conn)) {
+      return new Response(JSON.stringify({ error: 'Connection not found for this company and platform' }), {
+        status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
   // Google must send the person back to an address the client lists. With
   // REDIRECT_ORIGINS set, that is the return page on the site they clicked
   // Connect on; otherwise the legacy callback URL.
@@ -101,6 +116,7 @@ Deno.serve(async (req) => {
     company_entity_id,
     user_id: user.id,
     platform,
+    ...(connection_id ? { connection_id } : {}),
   });
 
   if (stateErr) {

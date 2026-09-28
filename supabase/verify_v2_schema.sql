@@ -3734,6 +3734,19 @@ select
     else 'ok'
   end as shopify_client_credentials;
 
+-- ── Ad-platform reconnect in place (20260928160000) ──────────────────────────
+-- Without the column the start function cannot record which connection a
+-- Reconnect renews, and Integrations' Reconnect button fails.
+select
+  case
+    when not exists (select 1 from information_schema.columns where table_schema='public'
+                       and table_name='ad_platform_oauth_states' and column_name='connection_id')
+      then 'MISSING — run 20260928160000_ad_platform_oauth_reconnect.sql'
+    when exists (select 1 from pg_policy where polrelid='public.ad_platform_oauth_states'::regclass)
+      then 'CRITICAL — a policy exists on ad_platform_oauth_states; OAuth nonces are service-role only'
+    else 'ok'
+  end as ad_platform_oauth_reconnect;
+
 -- ── Empty collections stay visible (20260909320000, corrective) ─────────────
 -- The view LEFT-joined product->SKU but INNER-joined collection->membership,
 -- so a collection with no products vanished -- an empty collection read as a

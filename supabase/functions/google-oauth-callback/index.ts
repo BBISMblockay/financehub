@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { acceptReturnOrigin, parseOrigins, returnUrl } from './google-oauth-lib.mjs';
+import { acceptReturnOrigin, mayReconnect, parseOrigins, returnUrl } from './google-oauth-lib.mjs';
 
 const CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') ?? '';
 const CLIENT_SECRET = Deno.env.get('GOOGLE_CLIENT_SECRET') ?? '';
@@ -83,7 +83,43 @@ Deno.serve(async (req) => {
     search_console: 'Search Console property',
   };
 
-  const { error: insertErr } = await supabase.from('ad_platform_connections').insert({
+  const done = (connectionId: string, reconnected: boolean) => Response.redirect(
+    `${appUrl}/v2/integrations.html?oauth_connected=1&platform=${stateRow.platform}`
+      + `&connection_id=${connectionId}${reconnected ? '&reconnected=1' : ''}`,
+    302,
+  );
+
+  // Reconnect: new tokens onto the row the flow was started for, re-checked
+  // here (the state names it by id, and ten minutes have passed). The old
+  // test result is cleared: it vouched for the previous token.
+  if (stateRow.connection_id) {
+    const { data: conn } = await supabase
+      .from('ad_platform_connections')
+      .select('id, company_entity_id, platform')
+      .eq('id', stateRow.connection_id)
+      .maybeSingle();
+    if (!mayReconnect(stateRow, conn)) return errorRedirect('reconnect_target_missing');
+    const { data: updated, error: updErr } = await supabase.from('ad_platform_connections')
+      .update({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        token_expires_at: expiresAt,
+        is_active: true,
+        last_tested_at: null,
+        last_test_status: null,
+        last_test_success: null,
+        last_test_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', conn!.id)
+      .eq('company_entity_id', stateRow.company_entity_id)
+      .select('id');
+    if (updErr) return errorRedirect(`save_failed: ${updErr.message}`);
+    if (!updated?.length) return errorRedirect('reconnect_target_missing');
+    return done(conn!.id, true);
+  }
+
+  const { data: inserted, error: insertErr } = await supabase.from('ad_platform_connections').insert({
     company_entity_id: stateRow.company_entity_id,
     platform: stateRow.platform,
     display_name: DISPLAY_NAMES[stateRow.platform] ?? stateRow.platform,
@@ -93,12 +129,9 @@ Deno.serve(async (req) => {
     is_active: true,
     sync_enabled: false,
     created_by: stateRow.user_id,
-  });
+  }).select('id').single();
 
-  if (insertErr) return errorRedirect(`save_failed: ${insertErr.message}`);
+  if (insertErr || !inserted) return errorRedirect(`save_failed: ${insertErr?.message ?? 'no row returned'}`);
 
-  return Response.redirect(
-    `${appUrl}/v2/integrations.html?oauth_connected=1&platform=${stateRow.platform}`,
-    302,
-  );
+  return done(inserted.id, false);
 });

@@ -16,6 +16,7 @@
   <script src="workspace-settings.js"></script>
   <script src="silo-chrome.js"></script>
   <script src="shopify-scopes.js"></script>
+  <script src="ad-account-picker.js"></script>
   <style>
     /* ── Page layout (scrollable within silo-main shell) ── */
     #silo-app .silo-main {
@@ -516,6 +517,19 @@
     .int-store-head-actions { display: none; }
     .int-action-group { display: none; }
     .int-last-sync { display: none; }
+    /* Account picker: after Connect, and on Choose, the reachable
+       properties / accounts / sites as buttons instead of a list to copy. */
+    dialog.int-picker { border:1px solid var(--bcn-border); border-radius:10px; padding:0; width:min(560px, 94vw); max-height:85vh; }
+    dialog.int-picker::backdrop { background:rgba(0,0,0,.35); }
+    .int-picker-body { padding:16px 18px; display:flex; flex-direction:column; gap:10px; }
+    .int-picker-list { display:flex; flex-direction:column; gap:6px; max-height:52vh; overflow:auto; }
+    .int-picker-opt { display:flex; flex-direction:column; align-items:flex-start; gap:2px; text-align:left; padding:10px 12px;
+      border:1px solid var(--bcn-border); border-radius:8px; background:#fff; cursor:pointer; font:inherit; color:var(--bcn-ink); }
+    .int-picker-opt:hover:not(:disabled) { border-color:var(--bcn-accent); background:#eff6ff; }
+    .int-picker-opt:disabled { opacity:.55; cursor:not-allowed; }
+    .int-picker-opt small { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); }
+    .int-picker-note { font-size:12px; color:var(--bcn-ink-3); }
+    .int-acct { display:flex; align-items:center; gap:6px; }
   </style>
 </head>
 <body>
@@ -946,9 +960,14 @@
       const urlParams = new URLSearchParams(window.location.search);
       const oauthPlatform = urlParams.get('platform');
       if (urlParams.get('oauth_connected')) {
-        setStatus(oauthPlatform
-          ? `✓ ${AD_PLATFORM_LABELS[oauthPlatform] || oauthPlatform} connected — set the account ID, test, then enable sync.`
-          : '✓ Shopify store connected — enable sync when ready.', 'pos', 8000);
+        if (oauthPlatform) {
+          // Straight into the choice, rather than a banner saying to go and
+          // find an ID: a new connection opens the picker; a reconnected one
+          // is tested, since its property was already chosen.
+          afterAdOauth(oauthPlatform, urlParams.get('connection_id'), urlParams.get('reconnected') === '1');
+        } else {
+          setStatus('✓ Shopify store connected — enable sync when ready.', 'pos', 8000);
+        }
         history.replaceState({}, '', window.location.pathname);
       } else if (urlParams.get('qbo_connected')) {
         setStatus('✓ QuickBooks connected — click “Pull accounts” to mirror the chart of accounts.', 'pos', 10000);
@@ -2135,12 +2154,14 @@
       search_console: 'https://www.baseballism.com/ or sc-domain:baseballism.com',
     };
 
+    let _adRows = [];
     async function loadAdConnections() {
       const { data, error } = await db
         .from('ad_platform_connections')
         .select('id, platform, display_name, is_active, sync_enabled, last_tested_at, last_test_success, last_test_error, google_customer_id, meta_ad_account_id, tiktok_advertiser_id, ga4_property_id, search_console_site_url, facebook_page_id, instagram_business_account_id')
         .order('platform').order('created_at');
       if (error) { setStatus('Failed to load ad connections: ' + error.message, 'neg'); return; }
+      _adRows = data || [];
       renderAdConnections(data || []);
       _summaryState.ad = data || [];
       updateSummaryBand();
@@ -2169,9 +2190,12 @@
           <td><span class="int-platform-label">${AD_PLATFORM_ICON[row.platform] || ''}${AD_PLATFORM_LABELS[row.platform] || row.platform}</span></td>
           <td><input class="bcn-field" style="min-width:140px;" value="${escAttr(row.display_name)}"
             onchange="updateAdConnection('${row.id}', { display_name: this.value })" /></td>
-          <td><input class="bcn-field bcn-field--mono" style="min-width:150px;" value="${escAttr(acctVal)}"
-            placeholder="${AD_ACCOUNT_PLACEHOLDER[row.platform]}"
-            onchange="updateAdConnection('${row.id}', { ${acctField}: this.value.trim() || null })" /></td>
+          <td><div class="int-acct">
+            <input class="bcn-field bcn-field--mono" style="min-width:150px;" value="${escAttr(acctVal)}"
+              placeholder="${AD_ACCOUNT_PLACEHOLDER[row.platform]}"
+              onchange="updateAdConnection('${row.id}', { ${acctField}: this.value.trim() || null })" />
+            <button class="int-btn ${acctVal ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openAccountPicker('${row.id}')">${acctVal ? 'Change' : 'Choose…'}</button>
+          </div></td>
           <td><label style="display:flex;align-items:center;gap:6px;cursor:pointer;"
               ${row.platform === 'search_console'
                 // Since 2026-09-10 the nightly ad-platforms sync ingests
@@ -2186,6 +2210,7 @@
           <td>${test}</td>
           <td style="white-space:nowrap;">
             <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
+            ${GOOGLE_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection('${row.id}', '${row.platform}', this)" title="Sign in to Google again and renew THIS connection's authorization — keeps its property, sync setting and history">Reconnect</button>` : ''}
             ${row.platform === 'meta_ads' ? `<button class="int-btn int-btn--warn" onclick="toggleMetaTokenForm('${row.id}')">Replace token</button>` : ''}
             <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
           </td>
@@ -2289,6 +2314,18 @@
           body: JSON.stringify({ connection_id: id }),
         });
         const data = await res.json();
+        const row = _adRows.find((r) => r.id === id);
+        if (data.ok && row && window.SiloAdPicker) {
+          // No account chosen yet: the test came back with the list, so offer
+          // it as buttons instead of a banner to copy from.
+          const opts = SiloAdPicker.options(row.platform, data);
+          if (!row[AD_ACCOUNT_FIELD[row.platform]] && opts.length) {
+            document.getElementById('status').hidden = true;
+            showAccountPicker(row, opts, false);
+            loadAdConnections();
+            return;
+          }
+        }
         if (data.ok) {
           // With no account id configured the test returns the pickable list.
           const list = data.accessible_customers || data.properties || data.ad_accounts
@@ -2322,12 +2359,113 @@
           setStatus(parts.length ? '✓ Auth OK — ' + parts.join(' — ') : '✓ Connection OK',
             parts.length ? 'info' : 'pos', parts.length ? 25000 : 5000);
         } else {
-          setStatus('✗ Test failed: ' + (data.error || ''), 'neg', 10000);
+          // Stays up until dismissed: the reason is what someone has to act on.
+          setStatus('✗ Test failed: ' + adTestAdvice(data.error || ''), 'neg');
         }
       } catch (err) {
         setStatus('✗ Test failed: ' + err.message, 'neg', 8000);
       }
       loadAdConnections();
+    }
+
+    const GOOGLE_PLATFORMS = ['google_ads', 'ga4', 'search_console'];
+
+    // A failed test says what to DO where the answer is known.
+    function adTestAdvice(err) {
+      if (/unauthorized_client|invalid_grant/.test(err)) {
+        return err + ' — this authorization was issued by a different Google app or was revoked. Click Reconnect on this row.';
+      }
+      return err;
+    }
+
+    function reconnectAdConnection(id, platform, btn) {
+      if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
+      startAdOauth('google-oauth-start', { company_entity_id: _co.id, platform, connection_id: id }, btn);
+    }
+
+    async function afterAdOauth(platform, connectionId, reconnected) {
+      const label = AD_PLATFORM_LABELS[platform] || platform;
+      await loadAdConnections();
+      // Older callbacks (TikTok) do not return the id: the newest row of that
+      // platform is the one just made.
+      const row = _adRows.find((r) => r.id === connectionId)
+        || [..._adRows].reverse().find((r) => r.platform === platform);
+      if (!row) { setStatus(`✓ ${label} connected.`, 'pos', 8000); return; }
+      if (reconnected) {
+        setStatus(`✓ ${label} reconnected — testing…`, 'info');
+        return testAdConnection(row.id);
+      }
+      if (row[AD_ACCOUNT_FIELD[row.platform]]) {
+        setStatus(`✓ ${label} connected — testing…`, 'info');
+        return testAdConnection(row.id);
+      }
+      openAccountPicker(row.id, { afterConnect: true });
+    }
+
+    // The dialog sits after this script in the page, so it is wired on first use.
+    function pickerEl() {
+      const el = document.getElementById('acct-picker');
+      if (!el.dataset.wired) {
+        el.dataset.wired = '1';
+        document.getElementById('acct-picker-close').addEventListener('click', () => el.close());
+      }
+      return el;
+    }
+
+    async function openAccountPicker(id, { afterConnect = false } = {}) {
+      const row = _adRows.find((r) => r.id === id);
+      if (!row || !window.SiloAdPicker) return;
+      const noun = SiloAdPicker.NOUN[row.platform] || 'account';
+      document.getElementById('acct-picker-title').textContent = `Choose the ${noun} to sync`;
+      document.getElementById('acct-picker-note').textContent = `Asking ${AD_PLATFORM_LABELS[row.platform] || row.platform} what this sign-in can reach…`;
+      document.getElementById('acct-picker-list').innerHTML = '';
+      if (!pickerEl().open) pickerEl().showModal();
+      let data;
+      try {
+        const res = await fetch(`${FUNCTIONS_URL}/test-ad-platform-connection`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${_session.access_token}` },
+          body: JSON.stringify({ connection_id: id, list_accounts: true }),
+        });
+        data = await res.json();
+      } catch (err) { data = { ok: false, error: err.message }; }
+      if (!data.ok) {
+        document.getElementById('acct-picker-note').textContent = '✗ ' + adTestAdvice(data.error || 'Could not list accounts');
+        return;
+      }
+      const opts = SiloAdPicker.options(row.platform, data);
+      const only = afterConnect ? SiloAdPicker.autoPick(opts) : null;
+      if (only) { pickerEl().close(); return chooseAccount(row, only); }
+      showAccountPicker(row, opts, afterConnect);
+    }
+
+    function showAccountPicker(row, opts, afterConnect) {
+      const noun = SiloAdPicker.NOUN[row.platform] || 'account';
+      document.getElementById('acct-picker-title').textContent = `Choose the ${noun} to sync`;
+      const note = document.getElementById('acct-picker-note');
+      const list = document.getElementById('acct-picker-list');
+      const who = GOOGLE_PLATFORMS.includes(row.platform) ? 'This Google sign-in' : 'This connection';
+      note.textContent = opts.length
+        ? `${afterConnect ? 'Connected. ' : ''}${who} can reach ${opts.length}. Click the one this company's data comes from — SILO saves it and switches the nightly sync on.`
+        : `${who} can reach no ${noun}. ${GOOGLE_PLATFORMS.includes(row.platform) ? 'Reconnect with a Google account that has access to one.' : ''}`;
+      list.innerHTML = opts.map((o, i) => `<button class="int-picker-opt" data-i="${i}" ${o.disabled ? 'disabled' : ''}>
+          <span>${escAttr(o.label)}</span>${o.sub ? `<small>${escAttr(o.sub)}</small>` : ''}</button>`).join('');
+      list.querySelectorAll('.int-picker-opt').forEach((b) => b.addEventListener('click', () => {
+        pickerEl().close();
+        chooseAccount(row, opts[Number(b.dataset.i)]);
+      }));
+      if (!pickerEl().open) pickerEl().showModal();
+    }
+
+    async function chooseAccount(row, option) {
+      const patch = SiloAdPicker.patchFor(row.platform, option);
+      if (!patch) return;
+      const { error } = await db.from('ad_platform_connections')
+        .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', row.id);
+      if (error) { setStatus('Could not save the choice: ' + error.message, 'neg'); return; }
+      setStatus(`✓ ${option.label} selected, nightly sync on — testing…`, 'info');
+      await loadAdConnections();
+      testAdConnection(row.id);
     }
 
     async function startAdOauth(fn, body, btn) {
@@ -2751,5 +2889,13 @@
     document.getElementById('btn-connect-qbo')
       .addEventListener('click', () => connectQbo());
   </script>
+<dialog class="int-picker" id="acct-picker" aria-labelledby="acct-picker-title">
+  <header class="bcn-card-header"><strong id="acct-picker-title">Choose what to sync</strong></header>
+  <div class="int-picker-body">
+    <div class="int-picker-note" id="acct-picker-note">Loading…</div>
+    <div class="int-picker-list" id="acct-picker-list"></div>
+    <div style="display:flex;justify-content:flex-end;"><button class="int-btn int-btn--ghost" id="acct-picker-close">Close</button></div>
+  </div>
+</dialog>
 </body>
 </html>
