@@ -84,5 +84,107 @@ await test('finalBody wraps a non-JSON body instead of breaking the page', async
   eq(JSON.parse(finalBody('[1,2]', 200)).http_status, 200, 'array body');
 });
 
+// ---- deferred delivery (the mode the page asks for) ----
+const RID = '11111111-2222-4333-8444-555555555555';
+const asyncReq = (extra = {}) => new Request('https://x.test/', {
+  method: 'POST', body: JSON.stringify({ request_id: RID, async: true, ...extra }),
+});
+function recorder() {
+  const stored = [];
+  let resolveStored;
+  const done = new Promise((r) => { resolveStored = r; });
+  return {
+    stored, done,
+    store: async (req, id, status, body) => { stored.push({ id, status, body }); resolveStored(); },
+  };
+}
+
+await test('a slow deferred request answers 202 pending, then stores the finished response', async () => {
+  const rec = recorder();
+  const h = withKeepAlive(async (req) => { await req.json(); await sleep(40); return json({ answer: 'full', queries_run: [] }); },
+    { firstByteMs: 10, storeResponse: rec.store });
+  const res = await h(asyncReq());
+  eq(res.status, 202, 'status');
+  const body = await res.json();
+  eq(body.pending, true, 'pending');
+  eq(body.request_id, RID, 'request id echoed');
+  await rec.done;
+  eq(rec.stored.length, 1, 'stored once');
+  eq(rec.stored[0].id, RID, 'stored under the request id');
+  eq(rec.stored[0].status, 200, 'stored status');
+  eq(rec.stored[0].body.answer, 'full', 'stored body');
+});
+
+await test('...and a stored error keeps its real status and flags', async () => {
+  const rec = recorder();
+  const h = withKeepAlive(async () => { await sleep(30); return json({ error: 'busy', provider_busy: true }, 503); },
+    { firstByteMs: 5, storeResponse: rec.store });
+  eq((await h(asyncReq())).status, 202, 'deferred');
+  await rec.done;
+  eq(rec.stored[0].status, 503, 'status');
+  eq(rec.stored[0].body.provider_busy, true, 'flags kept');
+});
+
+await test('...and work that throws late is stored as a 500 the page can show', async () => {
+  const rec = recorder();
+  const h = withKeepAlive(async () => { await sleep(30); throw new Error('kaboom'); }, { firstByteMs: 5, storeResponse: rec.store });
+  eq((await h(asyncReq())).status, 202, 'deferred');
+  await rec.done;
+  eq(rec.stored[0].status, 500, 'status');
+  assert(rec.stored[0].body.error, 'no error message');
+});
+
+await test('a FAST deferred request is answered directly and NOT stored again', async () => {
+  const rec = recorder();
+  const h = withKeepAlive(async () => json({ error: 'switched', company_changed: true }, 409),
+    { firstByteMs: 50, storeResponse: rec.store });
+  const res = await h(asyncReq());
+  eq(res.status, 409, 'direct status');
+  await sleep(30);
+  eq(rec.stored.length, 0, 'a directly-returned answer was stored too');
+});
+
+await test('the store is what is handed to waitUntil, so the worker outlives the delivery', async () => {
+  const rec = recorder();
+  const seen = [];
+  const h = withKeepAlive(async () => { await sleep(30); return json({ answer: 'x' }); },
+    { firstByteMs: 5, storeResponse: rec.store, waitUntil: (p) => seen.push(p) });
+  await h(asyncReq());
+  eq(seen.length, 1, 'waitUntil calls');
+  await seen[0];
+  eq(rec.stored.length, 1, 'awaiting the waitUntil promise did not include the store');
+});
+
+await test('no async flag, or no valid request id: the older heartbeat stream, nothing stored', async () => {
+  for (const req of [
+    new Request('https://x.test/', { method: 'POST', body: JSON.stringify({ request_id: RID }) }),
+    asyncReq({ request_id: 'not-a-uuid' }),
+  ]) {
+    const rec = recorder();
+    const h = withKeepAlive(async () => { await sleep(30); return json({ answer: 'y' }); },
+      { firstByteMs: 5, heartbeatMs: 5, storeResponse: rec.store });
+    const res = await h(req);
+    eq(res.status, 200, 'streamed');
+    eq(JSON.parse(await res.text()).answer, 'y', 'answer');
+    eq(rec.stored.length, 0, 'stored without being asked to defer');
+  }
+});
+
+await test('a store that fails does not break anything', async () => {
+  const h = withKeepAlive(async () => { await sleep(20); return json({ answer: 'z' }); },
+    { firstByteMs: 5, storeResponse: async () => { throw new Error('insert refused'); } });
+  eq((await h(asyncReq())).status, 202, 'deferred');
+  await sleep(40);
+});
+
+await test('the handler still reads the body the deferral check peeked at', async () => {
+  const rec = recorder();
+  const h = withKeepAlive(async (req) => { const b = await req.json(); await sleep(20); return json({ answer: b.request_id }); },
+    { firstByteMs: 5, storeResponse: rec.store });
+  await h(asyncReq());
+  await rec.done;
+  eq(rec.stored[0].body.answer, RID, 'body was consumed by the check');
+});
+
 console.log(`keepalive: ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

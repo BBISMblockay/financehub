@@ -1122,6 +1122,26 @@ function collectSources(
 // gateway limit and keeps it open with heartbeats -- see keepalive-lib.mjs.
 // The worker may then run to the budget below instead of the gateway's.
 const edgeRuntime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+
+// Delivery for a deferred answer (keepalive-lib.mjs): the finished response,
+// written AS THE ASKER with their own token, so RLS makes it theirs and nobody
+// else's. A failure here is logged, not fatal -- the audit row still carries
+// the answer, and the page falls back to it.
+async function storeFinishedResponse(req: Request, requestId: string, status: number, body: unknown) {
+  const auth = req.headers.get('Authorization') || '';
+  if (!/^Bearer\s+\S+/i.test(auth)) return;
+  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { headers: { Authorization: auth } } });
+  const { error } = await client.from('silo_chat_responses').insert({
+    request_id: requestId,
+    http_status: status,
+    response: body,
+  });
+  if (error) {
+    console.error('[silo-chat] could not store the finished response', {
+      request_id: requestId, code: (error as { code?: string }).code ?? null, message: error.message,
+    });
+  }
+}
 Deno.serve(withKeepAlive(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return reply({ error: 'POST only' }, 405);
@@ -2528,4 +2548,8 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
     }
     return reply({ error: errorMessage, retryable: true }, 500);
   }
-}, { headers: CORS, waitUntil: edgeRuntime?.waitUntil ? (p: Promise<unknown>) => edgeRuntime.waitUntil!(p) : null }));
+}, {
+  headers: CORS,
+  waitUntil: edgeRuntime?.waitUntil ? (p: Promise<unknown>) => edgeRuntime.waitUntil!(p) : null,
+  storeResponse: storeFinishedResponse,
+}));

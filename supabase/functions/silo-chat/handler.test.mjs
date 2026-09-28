@@ -963,6 +963,35 @@ await test('slow statement shapes are rewritten before they reach the database',
   eq((q.scope.narrowed_to || []).map((n) => n.values), [['channel:online']], 'scope still reads the channel');
 });
 
+// Deferred delivery through the REAL handler and wiring (keepalive-lib.mjs +
+// storeFinishedResponse): a request that asks for it and runs past the
+// 5-second threshold gets 202 pending, and its finished response lands in
+// silo_chat_responses under the request id. Takes ~5s of real time on purpose:
+// the threshold is a real timer, and faking it would test the helper again
+// rather than the wiring.
+await test('a slow request asking for deferred delivery gets 202, then its answer is stored for the page', async () => {
+  const RID = '99999999-9999-4999-8999-999999999999';
+  installModel([say('Deep answer.')]);
+  const modelFetch = globalThis.fetch;
+  globalThis.fetch = async (...args) => { await new Promise((r) => setTimeout(r, 5_300)); return modelFetch(...args); };
+  try {
+    const { res, json, client } = await ask({ ...BASIC, request_id: RID, async: true });
+    eq(res.status, 202, 'status');
+    eq(json.pending, true, 'pending');
+    let rows = [];
+    for (let i = 0; i < 40 && !rows.length; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      rows = wrote(client, 'silo_chat_responses');
+    }
+    eq(rows.length, 1, 'finished response stored');
+    eq(rows[0].payload.request_id, RID, 'under the request id');
+    eq(rows[0].payload.http_status, 200, 'status stored');
+    eq(rows[0].payload.response.answer, 'Deep answer.', 'the full response body is stored');
+  } finally {
+    globalThis.fetch = modelFetch;
+  }
+});
+
 await test('a statement needing no rewrite runs verbatim and logs no rewrite', async () => {
   const sql = "select sum(total_net_sales) from sales_by_day where day_date between '2026-09-01' and '2026-09-27'";
   installModel([sqlRound(sql), say('done')]);

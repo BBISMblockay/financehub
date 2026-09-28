@@ -24,18 +24,33 @@ const { startSuite } = require('../lib/harness');
 const r = createReporter('ask-silo-conversation');
 
 (async () => {
-  const suite = await startSuite({ viewport: { width: 1280, height: 900 } });
+  // Secure context: the page mints request ids with crypto.randomUUID, which
+  // plain http withholds, and deferred delivery is matched by that id.
+  const suite = await startSuite({ viewport: { width: 1280, height: 900 }, secureContext: true });
 
   // Every POST to the chat function, in order, as the page sent it.
   const sent = [];
   // Scripted replies, one per call: 'unverified' = the 503 the server returns
   // when it cannot confirm which company the question belongs to.
   let script = [];
+  // Deferred answers the route has promised; the test delivers them.
+  const pendingDeliveries = [];
 
   await suite.context.route('**/functions/v1/silo-chat', async (route) => {
     const body = JSON.parse(route.request().postData() || '{}');
     sent.push(body);
     const next = script.shift() || { answer: 'OK.' };
+    // Deferred delivery (what the page asks for now): 202 pending, and the
+    // finished response is dropped into silo_chat_responses a moment later by
+    // the test itself, playing the server.
+    if (next && next.deferred) {
+      pendingDeliveries.push({ request_id: body.request_id, ...next.deferred });
+      return route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({ pending: true, request_id: body.request_id }),
+      });
+    }
     // A long answer as keepalive-lib.mjs sends it: status committed at 200,
     // heartbeat whitespace first, the REAL status inside the body.
     if (next && next.streamed) {
@@ -129,6 +144,37 @@ const r = createReporter('ask-silo-conversation');
   await page.click('#log .ac-retry-btn:not([disabled])');
   await page.waitForTimeout(900);
   r.ok('the retry answers it', /Returns were 4%/.test(await page.textContent('#log')));
+
+  // ── 3c. a deferred answer: "pending" now, collected from the table later ──
+  const deliver = async () => {
+    const d = pendingDeliveries.shift();
+    await page.evaluate((row) => {
+      const t = window.__FIXTURE_TABLES__;
+      (t.silo_chat_responses = t.silo_chat_responses || []).push(row);
+    }, { request_id: d.request_id, http_status: d.http_status, response: d.response });
+  };
+  script = [{ deferred: { http_status: 200, response: { answer: 'Deferred: online $6.1M, retail $2.6M.', queries_run: [] } } }];
+  await ask('full executive summary?');
+  r.ok('the page asked for deferred delivery', sent[sent.length - 1].async === true);
+  r.ok('nothing is shown while the answer is pending',
+    !/Deferred: online/.test(await page.textContent('#log')));
+  await deliver();
+  await page.waitForTimeout(2600);
+  r.ok('the collected answer is rendered', /Deferred: online \$6\.1M/.test(await page.textContent('#log')));
+
+  script = [{ deferred: { http_status: 503, response: {
+    error: "Couldn't confirm which company this question belongs to, so it wasn't run.",
+    company_unverified: true,
+  } } }];
+  const retriesBeforeDeferred = await page.locator('#log .ac-retry-btn:not([disabled])').count();
+  await ask('and inventory?');
+  await deliver();
+  await page.waitForTimeout(2600);
+  r.test('a collected 503 is handled by its stored status: Try again is offered', async () =>
+    r.eq(await page.locator('#log .ac-retry-btn:not([disabled])').count(), retriesBeforeDeferred + 1));
+  script = [{ answer: 'Inventory is fine.' }];
+  await page.click('#log .ac-retry-btn:not([disabled])');
+  await page.waitForTimeout(900);
 
   // ── 4. a question arriving by link (SEO Studio) is placed, never sent ──
   const before = sent.length;

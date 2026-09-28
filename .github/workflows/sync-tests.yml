@@ -158,6 +158,8 @@ on:
       - 'supabase/migrations/*seo_landscape_28d_rollup.sql'
       - 'supabase/migrations/*ad_studio.sql'
       - 'scripts/tests/ad-studio-database.test.mjs'
+      - 'supabase/migrations/*silo_chat_responses.sql'
+      - 'scripts/tests/silo-chat-responses-database.test.mjs'
       - 'v2/seo-keywords.html'
       - 'v2/seo-keywords.js'
       # SEO suite: one sidebar row, three tabs (seo-suite.test.mjs).
@@ -1011,6 +1013,22 @@ jobs:
           for m in policy-bucket-only snapshot-thaws stale-image-shown approval-from-client; do
             echo "--- $m ---"
             if AD_STUDIO_DB_MUTATION="$m" node scripts/tests/ad-studio-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Ask SILO deferred replies (20260928140000): readable and writable by the
+      # asker only. Mutations: SILO_RESPONSES_DB_MUTATION=exec-reads | insert-anyone
+      - name: Execute Ask SILO deferred-reply database regressions
+        run: node scripts/tests/silo-chat-responses-database.test.mjs
+      - name: The deferred-reply policies, widened, must break it
+        run: |
+          set -u
+          for m in exec-reads insert-anyone; do
+            echo "--- $m ---"
+            if SILO_RESPONSES_DB_MUTATION="$m" node scripts/tests/silo-chat-responses-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi
