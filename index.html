@@ -154,10 +154,12 @@
       line-height: 1.45;
       display: none;
     }
-    html[data-mode="router"] body { display: grid; place-items: center; }
-    /* A crawler that runs no script gets the public page, not a spinner. */
-    html:not([data-mode="router"]) #router { display: none; }
-    html[data-mode="router"] #landing { display: none; }
+    /* The router is the default: without the mode script (script disabled)
+       no page can tell get-silo.com from silo-baseballism.com, so both keep
+       the page they had before. Only a positive landing decision shows it. */
+    html:not([data-mode="landing"]) body { display: grid; place-items: center; }
+    html:not([data-mode="landing"]) #landing { display: none; }
+    html[data-mode="landing"] #router { display: none; }
 
     /* ── Public landing (get-silo.com): the login page's brand panel, alone ── */
     #landing {
@@ -205,7 +207,6 @@
       <span>&copy; <span id="lpYear">2026</span> SILO</span>
       <nav aria-label="Legal">
         <a href="/legal/privacy.html">Privacy</a>
-        <a href="/legal/eula.html">Terms</a>
         <a href="mailto:support@get-silo.com">Contact</a>
       </nav>
     </footer>
