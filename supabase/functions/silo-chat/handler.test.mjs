@@ -30,7 +30,7 @@
 import { CATALOG_FIXTURE, COMBINED_SPEND_SQL, COMBINED_SPEND_ROWS, PER_PLATFORM_SQL, PER_PLATFORM_ROWS } from './evidence-fixtures.mjs';
 import {
   correctionRoundFits, modelCallTimeoutMs,
-  GATEWAY_SAFE_MS, MODEL_CALL_FLOOR_MS, QUERY_CEILING_MS, MIN_FINAL_CALL_MS,
+  GATEWAY_SAFE_MS, MODEL_CALL_FLOOR_MS, QUERY_CEILING_MS, MIN_FINAL_CALL_MS, WORKER_WALL_CLOCK_MS,
 } from './budget-lib.mjs';
 import { readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -45,6 +45,7 @@ const BUDGET_LIB_URL = pathToFileURL(join(HERE, 'budget-lib.mjs')).href;
 const PROMPT_LIB_URL = pathToFileURL(join(HERE, 'prompt-lib.mjs')).href;
 const PROVIDER_LIB_URL = pathToFileURL(join(HERE, 'provider-lib.mjs')).href;
 const QUERY_SHAPE_LIB_URL = pathToFileURL(join(HERE, 'query-shape-lib.mjs')).href;
+const KEEPALIVE_LIB_URL = pathToFileURL(join(HERE, 'keepalive-lib.mjs')).href;
 
 let failures = 0;
 let run = 0;
@@ -98,10 +99,11 @@ const harnessPath = join(tmpdir(), `silo-chat-harness-${process.pid}.ts`);
     .replace("from './budget-lib.mjs';", `from ${JSON.stringify(BUDGET_LIB_URL)};`)
     .replace("from './prompt-lib.mjs';", `from ${JSON.stringify(PROMPT_LIB_URL)};`)
     .replace("from './provider-lib.mjs';", `from ${JSON.stringify(PROVIDER_LIB_URL)};`)
-    .replace("from './query-shape-lib.mjs';", `from ${JSON.stringify(QUERY_SHAPE_LIB_URL)};`);
+    .replace("from './query-shape-lib.mjs';", `from ${JSON.stringify(QUERY_SHAPE_LIB_URL)};`)
+    .replace("from './keepalive-lib.mjs';", `from ${JSON.stringify(KEEPALIVE_LIB_URL)};`);
   // A silently-unapplied rewrite would load a file that still imports npm:,
   // which fails with a confusing resolver error 40 lines away from the cause.
-  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, QUERY_SHAPE_LIB_URL, 'Buffer.from(bytes)']) {
+  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, QUERY_SHAPE_LIB_URL, KEEPALIVE_LIB_URL, 'Buffer.from(bytes)']) {
     if (!rewritten.includes(marker)) {
       throw new Error(`harness rewrite failed: index.ts no longer matches the expected import for ${marker}`);
     }
@@ -214,7 +216,7 @@ function makeClient({
 
   return {
     __state: state,
-    auth: { getUser: async () => ({ data: { user: currentUser }, error: null }) },
+    auth: { getUser: async () => { globalThis.__silo_test_onRequestStart?.(); return { data: { user: currentUser }, error: null }; } },
     from: (table) => builder(table),
     rpc: async (name, args) => {
       state.rpcCalls.push({ name, args });
@@ -260,13 +262,22 @@ function installModel(rounds, onCall = () => {}) {
  *  is also the honest shape -- the 2026-09-16 Sonic request spent 18.3s of its
  *  138s in the database and the rest waiting on the model.
  */
+// The time budget moved from 95s/140s to 215s/260s on 2026-09-28 (the
+// response now starts early and heartbeats past the 150s gateway). Every
+// window moved by the same amount, so rather than re-derive each hand-tuned
+// scenario below, the fake clock jumps by that amount the moment a request
+// starts: 8 x 12s calls still reach the round-start budget on the 8th call,
+// and so on. Model-call timings are untouched, which is what keeps the
+// correction arithmetic's inputs identical.
+const BUDGET_SHIFT_MS = 120_000;
 function installClock() {
   const realNow = Date.now;
   let offset = 0;
   Date.now = () => realNow.call(Date) + offset;
+  globalThis.__silo_test_onRequestStart = () => { offset += BUDGET_SHIFT_MS; globalThis.__silo_test_onRequestStart = null; };
   return {
     advance: (ms) => { offset += ms; },
-    restore: () => { Date.now = realNow; },
+    restore: () => { Date.now = realNow; globalThis.__silo_test_onRequestStart = null; },
   };
 }
 
@@ -1059,8 +1070,9 @@ async function withClock(fn) {
   const realNow = Date.now;
   let now = realNow();
   Date.now = () => now;
+  globalThis.__silo_test_onRequestStart = () => { now += BUDGET_SHIFT_MS; globalThis.__silo_test_onRequestStart = null; };
   try { return await fn((ms) => { now += ms; }); }
-  finally { Date.now = realNow; }
+  finally { Date.now = realNow; globalThis.__silo_test_onRequestStart = null; }
 }
 const checkpointMessages = (body) => body.messages.filter((m) =>
   typeof m.content === 'string' && m.content.startsWith('Investigation checkpoint:'));
@@ -1088,7 +1100,7 @@ await test('eight slow rounds get one early checkpoint, then a visibly partial p
     const row = auditRow(client);
     eq(row.answer, json.answer, 'recovery and saved text must keep the label');
     eq(row.tool_rounds, 8, 'actual rounds');
-    eq(row.error_message, 'forced final answer at wall-clock budget (123s, 8 rounds)', 'stop reason');
+    eq(row.error_message, 'forced final answer at wall-clock budget (243s, 8 rounds)', 'stop reason');
     eq(row.diagnostics.context.partial, true, 'persisted partial status');
     eq(row.diagnostics.context.partial_reason, json.partial_reason, 'persisted reason');
     eq(row.diagnostics.context.investigation_checkpoint_sent, true, 'checkpoint audit');
@@ -1182,6 +1194,29 @@ await test('an unknown column is answered with the relation\'s real columns', as
   assert(/day_date/.test(r), 'day_date -- the actual column -- was not named');
 });
 
+// Live re-run 2026-09-28 15:32: this view timed out, was retried with a
+// narrower filter, and timed out again -- filtering cannot help it.
+await test('a timeout on a whole-history rollup names the pre-computed alternative', async () => {
+  const sql = "SELECT month_start, location, net FROM sales_monthly_location_rollup_v WHERE month_start >= '2026-07-01'";
+  const model = installModel([sqlRound(sql), say('done')]);
+  await ask(BASIC, { rpcError: { message: 'canceling statement due to statement timeout' } });
+  const r = toolResultsSeen(model.sent)[0];
+  assert(/statement timeout/.test(r), `the original error was lost: ${r}`);
+  assert(/For COMPLETED months use sales_monthly_product_type_rollup_v instead/.test(r), `no alternative named: ${r}`);
+  // Review finding (PR #820, cycle 1): the alternative is a matview refreshed at
+  // the end of the sync, so the hint must keep current-period questions on the
+  // live table rather than silently reporting an older snapshot as current.
+  assert(/as of the last completed sync/.test(r) && /CURRENT month or any period ending today/.test(r)
+    && /query sales_by_day directly with a day_date range/.test(r), `freshness caveat missing: ${r}`);
+});
+
+await test('...and an ordinary timeout gets no invented hint', async () => {
+  const model = installModel([sqlRound("select sum(total_net_sales) from sales_by_day"), say('done')]);
+  await ask(BASIC, { rpcError: { message: 'canceling statement due to statement timeout' } });
+  const r = toolResultsSeen(model.sent)[0];
+  assert(!/Hint:/.test(r), `a hint was attached to an ordinary timeout: ${r}`);
+});
+
 await test('...with the near-miss called out ahead of the full list', async () => {
   const model = installModel([sqlRound(AD_SQL), say('done')]);
   await ask(BASIC, { rpcError: colErr('date') });
@@ -1241,7 +1276,7 @@ await test('the hand-written traps still fire', async () => {
 
 console.log('\n-- one round is held back to use the correction --');
 
-const WALL_CLOCK_BUDGET_MS = 95_000;
+const WALL_CLOCK_BUDGET_MS = 215_000;
 
 /**
  * Runs a scripted request where each model call costs a DIFFERENT amount of
@@ -1310,6 +1345,9 @@ async function askWithClock(rounds, perCall, clientOpts) {
 
 console.log('\n-- the correction reservation, as exact arithmetic --');
 
+// Figures in the comments below were written against the 95s/140s budget;
+// since 2026-09-28 every elapsed value carries +120s (see BUDGET_SHIFT_MS).
+
 // The handler tests below prove the WIRING: that a grant and a refusal both
 // happen and that the request lands inside the gateway. They cannot pin the
 // formula, because driving real elapsed time lands within a millisecond or two
@@ -1319,7 +1357,7 @@ console.log('\n-- the correction reservation, as exact arithmetic --');
 test('the floor is applied even when the observed calls are cheaper', () => {
   // 104s elapsed with 13s calls: trusting the observation fits (140s exactly),
   // the 15s floor does not (144s). Lower the floor away and this goes green.
-  const at = { elapsedMs: 104_000, modelCallMs: [13_000, 13_000] };
+  const at = { elapsedMs: 224_000, modelCallMs: [13_000, 13_000] };
   eq(correctionRoundFits(at), false, 'the floor stopped being applied');
   eq(correctionRoundFits({ ...at, floorMs: 1_000 }), true, 'the case does not actually discriminate');
 });
@@ -1327,7 +1365,7 @@ test('the floor is applied even when the observed calls are cheaper', () => {
 test('the MEASURED latency is read, not just the floor', () => {
   // 100s elapsed with 25s calls: the floor alone would fit (140s exactly), the
   // real timings do not (160s).
-  const at = { elapsedMs: 100_000, modelCallMs: [25_000, 24_000] };
+  const at = { elapsedMs: 220_000, modelCallMs: [25_000, 24_000] };
   eq(correctionRoundFits(at), false, 'measured latency stopped being read');
   eq(correctionRoundFits({ ...at, modelCallMs: [] }), true, 'the case does not actually discriminate');
 });
@@ -1336,7 +1374,7 @@ test('BOTH model calls are reserved -- the correction and the forced final', () 
   // 100s elapsed, 20s calls. One call reserved fits (130s); two do not (150s).
   // Dropping the final answer's own call is the mistake that produced a 157s
   // worst case against a 150s gateway.
-  const at = { elapsedMs: 100_000, modelCallMs: [20_000] };
+  const at = { elapsedMs: 220_000, modelCallMs: [20_000] };
   eq(correctionRoundFits(at), false, 'the forced final answer stopped being reserved for');
   const oneCall = at.elapsedMs + 20_000 + QUERY_CEILING_MS <= GATEWAY_SAFE_MS;
   eq(oneCall, true, 'the case does not actually discriminate');
@@ -1345,14 +1383,14 @@ test('BOTH model calls are reserved -- the correction and the forced final', () 
 test('the query ceiling is reserved too', () => {
   // 105s + two 15s calls = 135s, which fits; the 10s query pushes it to 145s,
   // which does not. 100s would have fitted either way and proven nothing.
-  const at = { elapsedMs: 105_000, modelCallMs: [15_000] };
+  const at = { elapsedMs: 225_000, modelCallMs: [15_000] };
   eq(correctionRoundFits(at), false, 'query time stopped being reserved');
   eq(correctionRoundFits({ ...at, queryCeilingMs: 0 }), true, 'the case does not actually discriminate');
 });
 
 test('a cheap request at the budget boundary still fits', () => {
   // The window this exists to keep open: reached 95s through many quick rounds.
-  eq(correctionRoundFits({ elapsedMs: 96_000, modelCallMs: [12_000, 11_000] }), true, 'the window is shut');
+  eq(correctionRoundFits({ elapsedMs: 216_000, modelCallMs: [12_000, 11_000] }), true, 'the window is shut');
 });
 
 test('the Sonic request would NOT have been granted one', () => {
@@ -1360,7 +1398,7 @@ test('the Sonic request would NOT have been granted one', () => {
   // because the first version of this feature was written for that request and
   // would not have fired on it either -- F1's catalog hint is the half that
   // works regardless of budget.
-  eq(correctionRoundFits({ elapsedMs: 120_893, modelCallMs: [17_094, 17_094] }), false, 'Sonic would have been granted a round');
+  eq(correctionRoundFits({ elapsedMs: 240_893, modelCallMs: [17_094, 17_094] }), false, 'Sonic would have been granted a round');
 });
 
 // --- the deadline that the estimate above is NOT ---
@@ -1374,29 +1412,29 @@ test('the Sonic request would NOT have been granted one', () => {
 test('a correction round reserves its query AND the forced final', () => {
   // 96s in, 44s of margin left. The correction call may have 22s of it; the
   // other 22s belongs to the query it will run and the answer that reports it.
-  eq(modelCallTimeoutMs({ elapsedMs: 96_000, reserveMs: QUERY_CEILING_MS + MIN_FINAL_CALL_MS }), 22_000,
+  eq(modelCallTimeoutMs({ elapsedMs: 216_000, reserveMs: QUERY_CEILING_MS + MIN_FINAL_CALL_MS }), 22_000,
     'the correction deadline stopped reserving what has to follow it');
-  eq(modelCallTimeoutMs({ elapsedMs: 96_000 }), 44_000,
+  eq(modelCallTimeoutMs({ elapsedMs: 216_000 }), 44_000,
     'the case does not actually discriminate');
 });
 
 test('the forced final may use the whole remaining margin', () => {
   // Nothing is reserved past it, so reserving anything would shorten the one
   // call that has to produce the answer.
-  eq(modelCallTimeoutMs({ elapsedMs: 118_000 }), 22_000, 'the final answer lost margin it was owed');
+  eq(modelCallTimeoutMs({ elapsedMs: 238_000 }), 22_000, 'the final answer lost margin it was owed');
 });
 
 test('a deadline already passed is 0, never negative', () => {
   // A negative would be handed to AbortSignal.timeout as a duration, which
   // rounds it to an immediate abort at best; 0 is what callers read as "do not
   // start this call".
-  eq(modelCallTimeoutMs({ elapsedMs: 145_000 }), 0, 'an expired deadline came back negative');
-  eq(modelCallTimeoutMs({ elapsedMs: 139_999 }), 1, 'the case does not actually discriminate');
+  eq(modelCallTimeoutMs({ elapsedMs: 265_000 }), 0, 'an expired deadline came back negative');
+  eq(modelCallTimeoutMs({ elapsedMs: 259_999 }), 1, 'the case does not actually discriminate');
 });
 
 test('the deadline is measured from the gateway-safe line, not the 150s gateway', () => {
   eq(modelCallTimeoutMs({ elapsedMs: 0 }), GATEWAY_SAFE_MS, 'the hard deadline moved off the safe line');
-  assert(GATEWAY_SAFE_MS < 150_000, 'a call could be admitted right up to the gateway itself');
+  assert(GATEWAY_SAFE_MS < WORKER_WALL_CLOCK_MS, 'a call could be admitted right up to the worker wall clock itself');
 });
 
 test('every admissible grant leaves the correction call real time to run in', () => {
@@ -1404,7 +1442,7 @@ test('every admissible grant leaves the correction call real time to run in', ()
   // dead code, so it is asserted where a change to either constant fails it.
   // Scanned rather than argued: any elapsed/latency pair the estimator admits
   // must leave the correction call more than nothing.
-  for (let elapsedMs = 95_000; elapsedMs <= 140_000; elapsedMs += 250) {
+  for (let elapsedMs = 215_000; elapsedMs <= 260_000; elapsedMs += 250) {
     for (const call of [0, 12_000, 15_000, 17_100, 25_000]) {
       const modelCallMs = call ? [call] : [];
       if (!correctionRoundFits({ elapsedMs, modelCallMs })) continue;
@@ -1415,9 +1453,11 @@ test('every admissible grant leaves the correction call real time to run in', ()
 });
 
 test('the gateway margin is real', () => {
-  assert(GATEWAY_SAFE_MS < 150_000, 'no margin below the 150s gateway');
-  assert(MODEL_CALL_FLOOR_MS * 2 + QUERY_CEILING_MS < 45_000,
-    'the floor leaves no window at all above the 95s round-start budget');
+  // A worker can already have been running when a request lands on it, so the
+  // safe line keeps a wide margin under the wall clock, not a 10s one.
+  assert(GATEWAY_SAFE_MS <= WORKER_WALL_CLOCK_MS - 100_000, 'too little margin below the worker wall clock');
+  assert(MODEL_CALL_FLOOR_MS * 2 + QUERY_CEILING_MS < GATEWAY_SAFE_MS - WALL_CLOCK_BUDGET_MS,
+    'the floor leaves no window at all above the round-start budget');
 });
 
 // Latencies are chosen against the real arithmetic, not for convenience: a
@@ -1425,7 +1465,8 @@ test('the gateway margin is real', () => {
 // only reachable when rounds have been cheap. 12s x 8 calls lands at 96s with a
 // 15s floor -> 96 + 30 + 10 = 136s, inside the reservation.
 const CHEAP_CALL_MS = 12_000;
-const GATEWAY_MS = 150_000;
+// The old 150s gateway sat 10s past the old safe line; keep that tightness.
+const GATEWAY_MS = GATEWAY_SAFE_MS + 10_000;
 const failingRounds = (n) => Array.from({ length: n }, () => sqlRound(AD_SQL));
 
 await test('a correctable failure buys one more round when the time still fits', async () => {

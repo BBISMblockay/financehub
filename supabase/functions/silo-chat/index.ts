@@ -173,7 +173,8 @@ import {
   renderQueryResult,
 } from './evidence-scope.mjs';
 import { buildSystemBlocks, selectGuidance } from './prompt-lib.mjs';
-import { rewriteSlowShapes } from './query-shape-lib.mjs';
+import { rewriteSlowShapes, timeoutHint } from './query-shape-lib.mjs';
+import { withKeepAlive } from './keepalive-lib.mjs';
 import {
   BUSY_STATUSES,
   isSpendLimitResponse,
@@ -514,6 +515,10 @@ function annotateColumnError(
         + ' and do not drop the measure this query was for.',
       );
     }
+  }
+  if (sql) {
+    const slow = timeoutHint(message, relationsInStatement(sql));
+    if (slow) hints.push(slow);
   }
   return hints.length ? `${message} Hint: ${hints.join(' ')}` : message;
 }
@@ -857,9 +862,20 @@ const WRONG_COMPANY_ROW =
 // A deadline stop is not an error -- it takes the same forced-answer path as
 // the round cap, so the user gets the analysis gathered so far instead of a
 // 504, and the audit row records which limit stopped it.
-const WALL_CLOCK_BUDGET_MS = 95_000;
+// RAISED 2026-09-28 from 95s. Loomis's broad questions ("an executive summary
+// of the business") needed more investigation than fitted under the 150s
+// gateway, so they came back partial. withKeepAlive (keepalive-lib.mjs) now
+// starts the response early, so the gateway no longer bounds the request --
+// the worker's wall clock does: 400s on this project's Pro plan. The safe line
+// (GATEWAY_SAFE_MS, budget-lib.mjs) sits well under that, because a request
+// can land on a worker that has already been running, and a worker killed
+// mid-request writes no answer and no audit row. Every window below moved by
+// the same 120s, so the 45s between this budget and the safe line -- which the
+// correction-round arithmetic is tuned against -- is unchanged. Scale back here
+// if the model bill needs it.
+const WALL_CLOCK_BUDGET_MS = 215_000;
 // One checkpoint while tools remain available, not a larger gateway budget.
-const INVESTIGATION_CHECKPOINT_MS = 45_000;
+const INVESTIGATION_CHECKPOINT_MS = 165_000;
 
 // ONE ROUND HELD BACK FOR A CORRECTION, and why it is worth a hard-coded
 // exception to the wall-clock guard.
@@ -912,7 +928,7 @@ const INVESTIGATION_CHECKPOINT_MS = 45_000;
 const CORRECTABLE_QUERY_ERROR = /does not exist|no such (?:column|table|function)|could not identify|is ambiguous/i;
 // Past this, skip the max_tokens continuation in the forced-answer path and
 // ship what we have -- a slightly short answer beats a 504 with nothing.
-const FINAL_CONTINUATION_CUTOFF_MS = 125_000;
+const FINAL_CONTINUATION_CUTOFF_MS = 245_000;
 
 // DIAGNOSTIC EVIDENCE, bounded.
 //
@@ -1102,12 +1118,16 @@ function collectSources(
   }
 }
 
-Deno.serve(async (req: Request) => {
+// Wrapped so a long request starts its response before Supabase's 150s
+// gateway limit and keeps it open with heartbeats -- see keepalive-lib.mjs.
+// The worker may then run to the budget below instead of the gateway's.
+const edgeRuntime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+Deno.serve(withKeepAlive(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return reply({ error: 'POST only' }, 405);
 
   // Measured from handler entry, not from the loop -- auth, the notes fetch
-  // and the schema slice all spend against the same 150s gateway budget.
+  // and the schema slice all spend against the same budget.
   const startedAt = Date.now();
   const elapsedMs = () => Date.now() - startedAt;
 
@@ -2508,4 +2528,4 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
     }
     return reply({ error: errorMessage, retryable: true }, 500);
   }
-});
+}, { headers: CORS, waitUntil: edgeRuntime?.waitUntil ? (p: Promise<unknown>) => edgeRuntime.waitUntil!(p) : null }));

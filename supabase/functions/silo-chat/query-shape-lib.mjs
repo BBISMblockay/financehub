@@ -129,15 +129,21 @@ export function rewriteSlowShapes(sql) {
   };
   const rewrites = [];
 
-  // --- 1. current_date ± interval --------------------------------------------
+  // --- 1. <date> ± interval --------------------------------------------------
+  // The base must be an expression of type DATE, or the rewrite changes the
+  // value: current_date, and silo_business_today()/_yesterday(), which return
+  // date and are what the prompt tells the model to anchor business days on.
+  // Missing those two was the gap found on the first live re-run (2026-09-28
+  // 15:32): `silo_business_today() - INTERVAL '13 months'` timed out twice.
+  const BASE = '(current_date|(?:public\\s*\\.\\s*)?silo_business_(?:today|yesterday)\\s*\\(\\s*\\))';
   const intervalForms = [
     // current_date - interval '90 days'
-    new RegExp(`\\bcurrent_date\\s*([-+])\\s*interval\\s*${LIT}`, 'gi'),
+    new RegExp(`\\b${BASE}\\s*([-+])\\s*interval\\s*${LIT}`, 'gi'),
     // current_date - '90 days'::interval
-    new RegExp(`\\bcurrent_date\\s*([-+])\\s*${LIT}\\s*::\\s*interval\\b`, 'gi'),
+    new RegExp(`\\b${BASE}\\s*([-+])\\s*${LIT}\\s*::\\s*interval\\b`, 'gi'),
   ];
   for (const re of intervalForms) {
-    joined = joined.replace(re, (whole, op, k) => {
+    joined = joined.replace(re, (whole, base, op, k) => {
       const body = litBody(k);
       const m = body && /^\s*(\d+)\s+([a-z]+)\s*$/i.exec(body);
       if (!m) return whole;
@@ -145,11 +151,12 @@ export function rewriteSlowShapes(sql) {
       const unit = m[2].toLowerCase();
       if (DAY_UNITS[unit]) {
         rewrites.push('date_interval');
-        return `(current_date ${op} ${n * DAY_UNITS[unit]})`;
+        return `(${base} ${op} ${n * DAY_UNITS[unit]})`;
       }
       if (CALENDAR_UNITS.has(unit)) {
         rewrites.push('date_interval');
-        return `(current_date ${op} ${whole.slice(whole.search(/interval|\u0000/i))})::date`;
+        const rhs = whole.slice(whole.indexOf(op) + 1).trim();
+        return `(${base} ${op} ${rhs})::date`;
       }
       return whole;
     });
@@ -169,4 +176,35 @@ export function rewriteSlowShapes(sql) {
   if (!rewrites.length) return { sql: input, rewrites };
   const out = joined.replace(/\u0000(\d+)\u0000/g, (_, k) => lit(k));
   return { sql: out, rewrites: [...new Set(rewrites)] };
+}
+
+// A relation that is slow whatever the statement looks like, because it
+// aggregates ALL history before any filter applies -- so a timed-out query on
+// it retried with a narrower date filter times out again. Seen on the same
+// live re-run: `sales_monthly_location_rollup_v` timed out twice in a row,
+// the second time with `month_start >= '2026-07-01'`. No rewrite can fix a
+// view's shape, so the timeout itself names the pre-computed alternative.
+// Measured 2026-09-28 as authenticated: the alternative below answers 13
+// months by location in 2.2 s, and its Jul-Aug net by location matched the
+// slow view exactly.
+const SLOW_RELATION_HINTS = {
+  sales_monthly_location_rollup_v:
+    'sales_monthly_location_rollup_v adds up every day of sales history before any filter applies, so a date filter does not make it faster -- do not retry it. '
+    + 'For COMPLETED months use sales_monthly_product_type_rollup_v instead (same month_start, location, units, net, gross, total_sales columns): '
+    + 'SUM(net) ... GROUP BY month_start, location. Do not sum its unique_skus across product types. '
+    + 'It is pre-computed as of the last completed sync, so it can lag sales_by_day: for the CURRENT month or any period ending today, '
+    + 'query sales_by_day directly with a day_date range instead (e.g. day_date >= date_trunc(\'month\', current_date)::date).',
+  sales_sku_location_rollup_v:
+    'sales_sku_location_rollup_v adds up every day of sales history per SKU and location before any filter applies -- do not retry it unfiltered. '
+    + 'Filter it by sku, or use sales_velocity_by_sku_location_v for recent movement -- pre-computed as of the last completed sync, '
+    + 'so for today\'s or this week\'s movement query sales_by_day with a day_date range instead.',
+};
+
+/** Hint for a statement timeout, naming the pre-computed path when the
+ *  statement read a relation that cannot be made fast by filtering. Returns
+ *  null when there is nothing specific to say. */
+export function timeoutHint(message, relations = []) {
+  if (!/statement timeout/i.test(String(message || ''))) return null;
+  const hints = [...new Set(relations)].map((r) => SLOW_RELATION_HINTS[r]).filter(Boolean);
+  return hints.length ? hints.join(' ') : null;
 }

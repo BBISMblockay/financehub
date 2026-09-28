@@ -1066,25 +1066,38 @@
   // had already failed and a single immediate check came up empty. This
   // bridges that narrow gap without making a hard failure (bad auth, no
   // request ever sent) wait too long before showing the error.
-  async function recoverOrShowError(requestId, fallbackContent, retryable, recoverable = true) {
+  // `untilMs` extends the wait for a connection that DROPPED mid-answer: since
+  // 2026-09-28 SILO may keep working for up to ~4.5 minutes on a broad
+  // question, and the server finishes and logs the answer even if the
+  // connection is lost, so giving up after twenty seconds would throw away an
+  // answer that is still coming. An explicit error from the server keeps the
+  // short wait. `isCurrent` stops the wait if the person starts a new chat.
+  async function recoverOrShowError(requestId, fallbackContent, retryable, recoverable = true,
+    { untilMs = 0, isCurrent = () => true } = {}) {
     // An answer whose audit row was rejected is not in the log, so there is
     // nothing to poll for -- show the error immediately instead of making the
     // user watch four five-second "still working" ticks for a row that will
     // never appear.
-    const POLL_ATTEMPTS = recoverable && requestId ? 4 : 0;
+    const canPoll = recoverable && requestId;
+    const POLL_ATTEMPTS = canPoll ? 4 : 0;
     const POLL_DELAY_MS = 5000;
-    for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+    for (let attempt = 0; canPoll && (attempt < POLL_ATTEMPTS || Date.now() < untilMs); attempt++) {
+      if (!isCurrent()) return;
       const recovered = await tryRecoverAnswer(requestId);
+      if (!isCurrent()) return;
       if (recovered) {
         renderRecovered(recovered);
         setStatus('Recovered your answer after a connection drop.', 'pos', 4000);
         return;
       }
-      if (attempt < POLL_ATTEMPTS - 1) {
+      if (attempt < POLL_ATTEMPTS - 1 || Date.now() + POLL_DELAY_MS < untilMs) {
         setStatus('Still working -- checking whether that finished...', 'info');
         await sleep(POLL_DELAY_MS);
+      } else {
+        break;
       }
     }
+    if (!isCurrent()) return;
     el('status').hidden = true;
     renderMessage({ role: 'assistant', content: fallbackContent, isError: true, retryable });
   }
@@ -1109,6 +1122,7 @@
   //     that no longer exists is dropped, not appended to whatever replaced it.
   async function askSilo() {
     const requestId = newRequestId();
+    const askedAt = Date.now();
     const controller = new AbortController();
     const turn = { requestId, generation: conversationGeneration, controller };
     activeTurn = turn;
@@ -1161,7 +1175,13 @@
       const data = await res.json();
       if (!isCurrent()) return;
       removeTyping();
-      if (!res.ok || data.error) {
+      // A long answer is streamed: the server commits a 200 early to keep the
+      // connection open past the 150s gateway, and puts the REAL status in the
+      // body as http_status (supabase/functions/silo-chat/keepalive-lib.mjs).
+      // A fast response has no such field and its own status is used.
+      const status = Number(data?.http_status) || res.status;
+      const ok = status >= 200 && status < 300;
+      if (!ok || data.error) {
         // Two company refusals, and they want opposite things from the user.
         //
         // A switch in another tab (409): nothing was answered, and asking again
@@ -1177,7 +1197,7 @@
         // retry button is offered. Neither polls the audit log -- there is no
         // answer to recover in either case, and polling would sit on four
         // five-second "still working" ticks for a row that will never appear.
-        if ((res.status === 409 && data.company_changed) || (res.status === 503 && data.company_unverified)) {
+        if ((status === 409 && data.company_changed) || (status === 503 && data.company_unverified)) {
           if (data.company_changed && history[history.length - 1]?.role === 'user') history.pop();
           saveHistoryToSession();
           lastFailedRequestId = null;
@@ -1199,12 +1219,12 @@
         // The AI account's spend cap is reached. Nothing was answered and
         // asking again cannot work until an admin raises the limit, so show
         // it now and offer no Try again.
-        if (res.status === 503 && data.provider_spend_limit) {
+        if (status === 503 && data.provider_spend_limit) {
           unansweredEntry = askedEntry;
           renderMessage({ role: 'assistant', content: data.error, isError: true, retryable: false });
           return;
         }
-        if (res.status === 503 && data.provider_busy) {
+        if (status === 503 && data.provider_busy) {
           lastFailedRequestId = requestId;
           unansweredEntry = askedEntry;
           renderMessage({ role: 'assistant', content: data.error, isError: true, retryable: true });
@@ -1219,7 +1239,11 @@
         // network exception.
         lastFailedRequestId = requestId;
         unansweredEntry = askedEntry;
-        await recoverOrShowError(requestId, data.error || 'Something went wrong.', data.retryable);
+        // A body with no `error` of our own is the PLATFORM talking (a
+        // gateway or worker error page), so the function may still be
+        // working -- wait out its window. An error SILO wrote itself is final.
+        await recoverOrShowError(requestId, data.error || 'Something went wrong.', data.retryable, true,
+          data.error ? { isCurrent } : { untilMs: askedAt + 290_000, isCurrent });
         return;
       }
       const historyEntry = { role: 'assistant', content: data.answer };
@@ -1261,7 +1285,10 @@
       // full re-ask.
       lastFailedRequestId = sent ? requestId : null;
       unansweredEntry = askedEntry;
-      await recoverOrShowError(sent ? requestId : null, 'Request failed: ' + err.message, true, sent);
+      // Wait out the server's whole working window (its safe line is 260s),
+      // not twenty seconds: the answer may still be on its way.
+      await recoverOrShowError(sent ? requestId : null, 'Request failed: ' + err.message, true, sent,
+        { untilMs: askedAt + 290_000, isCurrent });
     } finally {
       if (activeTurn === turn) activeTurn = null;
       if (turn.generation === conversationGeneration) {
