@@ -564,6 +564,7 @@ jobs:
         run: |
           set -u
           node scripts/tests/ad-account-picker.test.mjs
+          node scripts/tests/google-ads-errors.test.mjs
           if AD_PICKER_MUTATION=no-recheck node scripts/tests/ad-account-picker.test.mjs >/dev/null 2>&1; then
             echo "::error::the suite passes when the callback trusts the state's connection id"; exit 1
           fi

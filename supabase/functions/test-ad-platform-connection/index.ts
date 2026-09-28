@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { describeGoogleAdsError } from './google-ads-errors.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -53,7 +54,7 @@ async function testGoogleAds(conn: Record<string, unknown>, accessToken: string)
       `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers:listAccessibleCustomers`,
       { headers },
     );
-    if (!res.ok) throw new Error(`listAccessibleCustomers ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    if (!res.ok) throw new Error(describeGoogleAdsError('listAccessibleCustomers', res.status, await res.text()));
     const data = await res.json();
     return { accessible_customers: data.resourceNames ?? [] };
   }
@@ -66,7 +67,7 @@ async function testGoogleAds(conn: Record<string, unknown>, accessToken: string)
       body: JSON.stringify({ query: 'SELECT customer.id, customer.descriptive_name FROM customer LIMIT 1' }),
     },
   );
-  if (!res.ok) throw new Error(`Google Ads search ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(describeGoogleAdsError('Google Ads search', res.status, await res.text()));
   const data = await res.json();
   const customer = data.results?.[0]?.customer ?? {};
   return { customer_id: customer.id, customer_name: customer.descriptiveName };
