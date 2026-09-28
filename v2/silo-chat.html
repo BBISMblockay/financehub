@@ -1048,6 +1048,45 @@
 
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+  // Collects a deferred answer: the server said "pending" and will write its
+  // finished response to silo_chat_responses (readable only by the asker).
+  // Polls until it appears, `untilMs` passes, or the person moves on. If that
+  // table is not there yet (migration not applied), falls back to the audit
+  // log, which carries the answer text and SQL but not concept cards or web
+  // sources. Returns { http_status, response } or null.
+  async function collectDeferredResponse(requestId, untilMs, isCurrent) {
+    // No id, nothing that could be matched to THIS question -- never guess.
+    if (!requestId) return null;
+    let tableMissing = false;
+    let polls = 0;
+    while (isCurrent() && Date.now() < untilMs) {
+      await sleep(polls < 10 ? 2000 : 4000);
+      polls += 1;
+      if (!isCurrent()) return null;
+      if (polls === 20) setStatus('Still working on this one -- big questions can take a few minutes.', 'info');
+      if (!tableMissing) {
+        const { data, error } = await sb.from('silo_chat_responses')
+          .select('http_status, response')
+          .eq('request_id', requestId)
+          .maybeSingle();
+        if (error) {
+          tableMissing = /42P01|PGRST205|silo_chat_responses/i.test(`${error.code || ''} ${error.message || ''}`);
+        } else if (data?.response) {
+          el('status').hidden = true;
+          return { http_status: Number(data.http_status) || 200, response: data.response };
+        }
+      }
+      if (tableMissing) {
+        const recovered = await tryRecoverAnswer(requestId);
+        if (recovered) {
+          el('status').hidden = true;
+          return { http_status: 200, response: { answer: recovered.answer, queries_run: recovered.queries_run || [] } };
+        }
+      }
+    }
+    return null;
+  }
+
   function renderRecovered(recovered) {
     lastFailedRequestId = null;
     unansweredEntry = null;
@@ -1153,6 +1192,16 @@
         return;
       }
       session = fresh.session;
+      // A long answer is saved for this page WITH THIS TOKEN when it finishes,
+      // up to ~4.5 minutes from now. A token that would expire before then
+      // would have that save refused, and the answer would never arrive --
+      // so refresh one that is close to expiring before sending.
+      if (session.expires_at && session.expires_at * 1000 - Date.now() < 10 * 60 * 1000) {
+        try {
+          const { data: refreshed } = await sb.auth.refreshSession();
+          if (refreshed?.session?.access_token) session = refreshed.session;
+        } catch { /* keep the current token; the audit log remains the fallback */ }
+      }
 
       sent = true;
       const res = await fetch(`${FUNCTIONS_URL}/silo-chat`, {
@@ -1166,20 +1215,41 @@
           history,
           workflow: activeWorkflow,
           request_id: requestId,
+          // Ask for deferred delivery: a long answer comes back as 202
+          // "pending" and is collected from silo_chat_responses below, rather
+          // than over a connection that something between here and the server
+          // closes at ~2 minutes (measured 2026-09-28).
+          async: true,
           // Which company this tab believes it is asking from. The server reads
           // the authoritative value itself and uses this only to REFUSE a
           // disagreement -- it can never widen what the asker may see.
           company_entity_id: identity.companyId,
         }),
       });
-      const data = await res.json();
+      let data = await res.json();
+      // A long answer arrives one of two ways. Deferred (this page asks for it):
+      // 202 { pending } now, the finished response collected by request id.
+      // Streamed (an older server): a 200 committed early with the REAL status
+      // in the body as http_status. A fast response has neither and its own
+      // status is used. See supabase/functions/silo-chat/keepalive-lib.mjs.
+      let status = Number(data?.http_status) || res.status;
+      if (res.status === 202 && data?.pending && requestId) {
+        const collected = await collectDeferredResponse(requestId, askedAt + 300_000, isCurrent);
+        if (!isCurrent()) return;
+        if (!collected) {
+          removeTyping();
+          lastFailedRequestId = requestId;
+          unansweredEntry = askedEntry;
+          await recoverOrShowError(requestId,
+            "This one is taking longer than expected and the answer hasn't arrived. It may still finish -- ask again in a minute and I'll check for it first.",
+            true, true, { isCurrent });
+          return;
+        }
+        data = collected.response;
+        status = collected.http_status;
+      }
       if (!isCurrent()) return;
       removeTyping();
-      // A long answer is streamed: the server commits a 200 early to keep the
-      // connection open past the 150s gateway, and puts the REAL status in the
-      // body as http_status (supabase/functions/silo-chat/keepalive-lib.mjs).
-      // A fast response has no such field and its own status is used.
-      const status = Number(data?.http_status) || res.status;
       const ok = status >= 200 && status < 300;
       if (!ok || data.error) {
         // Two company refusals, and they want opposite things from the user.

@@ -1547,6 +1547,27 @@ select
     else 'ok'
   end as chat_audit_request_id;
 
+-- ── Ask SILO deferred replies (20260928140000) ────────────────────────
+-- A long answer is delivered by the page polling this table by request id.
+-- Readable by the ASKER only: an exec-read or a select-everything policy here
+-- would hand one person's answers (concept cards, web sources) to another.
+select
+  case
+    when to_regclass('public.silo_chat_responses') is null
+      then 'MISSING — run 20260928140000_silo_chat_responses.sql (long Ask SILO answers fall back to the audit log)'
+    when not (select relrowsecurity from pg_class where oid = 'public.silo_chat_responses'::regclass)
+      then 'CRITICAL — silo_chat_responses has RLS disabled'
+    when exists (select 1 from pg_policy where polrelid = 'public.silo_chat_responses'::regclass
+                   and polcmd in ('r','*') and pg_get_expr(polqual, polrelid) not ilike '%created_by = auth.uid()%')
+      then 'CRITICAL — a silo_chat_responses read policy is wider than the asker'
+    when has_table_privilege('anon', 'public.silo_chat_responses', 'select')
+      then 'CRITICAL — anon can read silo_chat_responses'
+    when has_table_privilege('authenticated', 'public.silo_chat_responses', 'update')
+      or has_table_privilege('authenticated', 'public.silo_chat_responses', 'delete')
+      then 'CRITICAL — a client can edit or delete a delivered reply'
+    else 'ok'
+  end as chat_deferred_responses;
+
 -- ── Top Sellers variance RPC (20260826120000) ─────────────────────────
 select
   case

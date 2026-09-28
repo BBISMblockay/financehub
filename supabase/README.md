@@ -2548,3 +2548,20 @@ SILO mints a 24-hour token from that app's client id and secret
   SILO did about it. Service role only; it can hold customer emails.
 
 `verify_v2_schema.sql` has the `shopify_client_credentials` check.
+
+## Ask SILO deferred replies — `20260928140000_silo_chat_responses.sql`
+
+Delivers long Ask SILO answers without holding a connection open. Live on
+2026-09-28 the connection was closed at ~126 s while the function went on to
+finish a complete 227 s answer that never reached the screen.
+
+- **`silo_chat_responses`**: one row per request id holding the FINISHED
+  response body and its HTTP status — exactly what the page would have been
+  sent. Written by `silo-chat` with the asker's own token after it has answered
+  `202 pending`; the page polls it by request id. Select and insert are the
+  asker only (`created_by = auth.uid()`); no update, no delete, no anon.
+- Deploy order is safe either way: without the table the function's insert
+  fails (logged) and the page falls back to the audit log, which carries the
+  answer text and SQL but not concept cards or web sources.
+
+`verify_v2_schema.sql` has the `chat_deferred_responses` check.
