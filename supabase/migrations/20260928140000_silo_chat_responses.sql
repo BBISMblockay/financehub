@@ -19,10 +19,7 @@
 -- holds an internal code ("provider_busy: 529") rather than the message the
 -- person should read. It is also exec-readable by design; a reply is not.
 --
--- Access: the ASKER only, both ways, and only while the asker is in the
--- company the question was asked in -- the same active-company boundary as
--- every other operational table (20260616020000). A reply asked in company A is
--- not readable after switching to B. No exec read (the audit log is the
+-- Access: the ASKER only, both ways. No exec read (the audit log is the
 -- oversight surface), no update, no delete from a client.
 
 create table if not exists public.silo_chat_responses (
@@ -41,19 +38,13 @@ alter table public.silo_chat_responses enable row level security;
 
 drop policy if exists silo_chat_responses_select on public.silo_chat_responses;
 create policy silo_chat_responses_select on public.silo_chat_responses
-  for select to authenticated
-  using (created_by = auth.uid() and company_entity_id = public.active_company_id());
+  for select using (created_by = auth.uid());
 
 -- Written by the edge function WITH THE CALLER'S OWN TOKEN, so the row is the
--- asker's by construction; a client cannot write one for somebody else, nor
--- file one under a company other than their active one. The function sends the
--- company it read at the START of the request explicitly (the stamp trigger
--- only fills a NULL), so if the asker switched company mid-request this insert
--- is refused rather than filing company A's answer under company B.
+-- asker's by construction; a client cannot write one for somebody else.
 drop policy if exists silo_chat_responses_insert on public.silo_chat_responses;
 create policy silo_chat_responses_insert on public.silo_chat_responses
-  for insert to authenticated
-  with check (created_by = auth.uid() and company_entity_id = public.active_company_id());
+  for insert with check (created_by = auth.uid());
 
 drop trigger if exists stamp_created_by on public.silo_chat_responses;
 create trigger stamp_created_by before insert on public.silo_chat_responses

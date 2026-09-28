@@ -19140,6 +19140,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260927190000_ad_studio.sql
 \i migrations/20260928120000_shopify_client_credentials.sql
 \i migrations/20260928140000_silo_chat_responses.sql
+\i migrations/20260928150000_silo_chat_responses_company_scope.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

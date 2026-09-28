@@ -2560,8 +2560,18 @@ finish a complete 227 s answer that never reached the screen.
   sent. Written by `silo-chat` with the asker's own token after it has answered
   `202 pending`; the page polls it by request id. Select and insert are the
   asker only (`created_by = auth.uid()`); no update, no delete, no anon.
-- Deploy order is safe either way: without the table the function's insert
-  fails (logged) and the page falls back to the audit log, which carries the
-  answer text and SQL but not concept cards or web sources.
+- **Apply the migrations BEFORE deploying `silo-chat`.** Without the table
+  the function's insert fails (logged) and the page falls back to the audit
+  log, which recovers only a successful answer: a slow question that ends in
+  an error waits out the page's five-minute poll before showing a generic
+  timeout.
+
+### `20260928150000_silo_chat_responses_company_scope.sql`
+
+Both policies also require `company_entity_id = active_company_id()`, so a
+reply asked in company A is not readable after switching to B, and cannot be
+filed under a company other than the caller's active one. `silo-chat` sends the
+company read at the start of the request explicitly, so a mid-request switch
+has the insert refused rather than filed under the new company.
 
 `verify_v2_schema.sql` has the `chat_deferred_responses` check.
