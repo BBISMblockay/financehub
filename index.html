@@ -4,8 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SILO</title>
+  <meta name="description" content="SILO is an operations workspace for consumer brands: sales, inventory, purchasing, finance and marketing reporting in one place." />
+  <script>
+    // Decided before first paint. On get-silo.com a signed-out visitor sees
+    // the small public page: Google's OAuth verification needs a home page
+    // that says what the app is, links the privacy policy, and is not a
+    // redirect to a login form. Everywhere else, and for an invite /
+    // recovery link on any host, this page stays the auth router. A
+    // signed-in visitor to get-silo.com is switched to the router by the
+    // module below and sent into the app as before.
+    (function () {
+      var publicHost = /(^|\.)get-silo\.com$/i.test(location.hostname);
+      var authHash = /access_token=|refresh_token=|type=(invite|recovery|magiclink|signup)/i.test(location.hash || '');
+      document.documentElement.setAttribute('data-mode', publicHost && !authHash ? 'landing' : 'router');
+    })();
+  </script>
 
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;700;800&display=swap" rel="stylesheet" />
 
   <style>
     :root {
@@ -25,8 +40,6 @@
     body {
       margin: 0;
       min-height: 100vh;
-      display: grid;
-      place-items: center;
       background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--text);
@@ -141,10 +154,65 @@
       line-height: 1.45;
       display: none;
     }
+    html[data-mode="router"] body { display: grid; place-items: center; }
+    /* A crawler that runs no script gets the public page, not a spinner. */
+    html:not([data-mode="router"]) #router { display: none; }
+    html[data-mode="router"] #landing { display: none; }
+
+    /* ── Public landing (get-silo.com): the login page's brand panel, alone ── */
+    #landing {
+      --band: oklch(0.13 0.01 240); --band-hi: oklch(0.19 0.012 240);
+      position: relative; min-height: 100vh; overflow: hidden; color: #fff;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background:
+        radial-gradient(circle at 85% 8%, oklch(0.30 0.09 245 / .55) 0%, transparent 45%),
+        radial-gradient(circle at 10% 95%, oklch(0.34 0.10 200 / .35) 0%, transparent 50%),
+        linear-gradient(160deg, var(--band-hi) 0%, var(--band) 65%);
+      display: flex; flex-direction: column; justify-content: space-between;
+      padding: 40px 24px; box-sizing: border-box;
+    }
+    #landing .lp-art { position: absolute; right: -110px; bottom: -110px; width: 420px; height: 420px; opacity: .08; pointer-events: none; }
+    #landing .lp-top, #landing .lp-mid, #landing .lp-foot { position: relative; max-width: 560px; width: 100%; margin: 0 auto; }
+    #landing .lp-top { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 16px; }
+    #landing .lp-mark { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-weight: 700;
+      background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); }
+    #landing h1 { font-size: clamp(34px, 6vw, 44px); font-weight: 800; line-height: 1.1; letter-spacing: -0.02em; margin: 0 0 16px; color: #fff; }
+    #landing .lp-mid p { color: rgba(255,255,255,.62); font-size: 15px; line-height: 1.65; margin: 0 0 12px; }
+    #landing .lp-signin { display: inline-block; margin-top: 16px; padding: 11px 22px; border-radius: 12px; background: #fff;
+      color: oklch(0.15 0.012 240); font-weight: 700; font-size: 14px; text-decoration: none; }
+    #landing .lp-signin:hover { background: rgba(255,255,255,.88); }
+    #landing a:focus-visible { outline: 2px solid oklch(0.70 0.15 245); outline-offset: 3px; }
+    #landing .lp-foot { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; font-size: 12.5px; color: rgba(255,255,255,.4); }
+    #landing .lp-foot nav { display: flex; gap: 18px; flex-wrap: wrap; }
+    #landing .lp-foot a { color: rgba(255,255,255,.7); text-decoration: none; }
+    #landing .lp-foot a:hover { color: #fff; text-decoration: underline; }
   </style>
 </head>
 <body>
-  <div class="card">
+  <div id="landing">
+    <svg class="lp-art" viewBox="0 0 200 200" fill="none" aria-hidden="true">
+      <circle cx="100" cy="100" r="96" stroke="white" stroke-width="1.4" />
+      <path d="M42 16 Q104 100 42 184" stroke="white" stroke-width="1.4" stroke-dasharray="3 6" fill="none" />
+      <path d="M158 16 Q96 100 158 184" stroke="white" stroke-width="1.4" stroke-dasharray="3 6" fill="none" />
+    </svg>
+    <div class="lp-top"><span class="lp-mark">S</span>SILO</div>
+    <main class="lp-mid">
+      <h1>Welcome to Silo.</h1>
+      <p>SILO is an operations workspace for consumer brands: sales, inventory, purchasing, finance and marketing reporting in one place.</p>
+      <p>Companies connect their own Shopify, QuickBooks Online and Google (Analytics, Search Console and Ads) accounts so SILO can report on their business. Access is by invitation.</p>
+      <a class="lp-signin" href="/pages/login.html">Sign in</a>
+    </main>
+    <footer class="lp-foot">
+      <span>&copy; <span id="lpYear">2026</span> Baseballism &middot; SILO</span>
+      <nav aria-label="Legal">
+        <a href="/legal/privacy.html">Privacy</a>
+        <a href="/legal/eula.html">Terms</a>
+        <a href="mailto:support@get-silo.com">Contact</a>
+      </nav>
+    </footer>
+  </div>
+
+  <div class="card" id="router">
     <div class="brand">
       <div class="logo">S</div>
       <div>
@@ -267,6 +335,13 @@
       return routeForProfile(data || {});
     }
 
+    // Landing mode: a signed-out visitor to get-silo.com stays on the public
+    // page and nothing below may redirect them. A signed-in one is switched
+    // to the router and routed exactly as before.
+    const LANDING = document.documentElement.getAttribute("data-mode") === "landing";
+    const year = document.getElementById("lpYear");
+    if (year) year.textContent = String(new Date().getFullYear());
+
     async function init() {
       const hash = window.location.hash || "";
 
@@ -283,6 +358,7 @@
 
       // 2. Missing config should fail visibly instead of bouncing forever.
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        if (LANDING) return;
         setError(
           "SILO config is missing.",
           "The page could not load /pages/config.js or the Supabase keys are unavailable.",
@@ -304,6 +380,7 @@
 
         // 3. Signed-in users go to app landing, not login and not department-access.
         if (data?.session?.user) {
+          if (LANDING) document.documentElement.setAttribute("data-mode", "router");
           let target = DEFAULT_APP_PAGE;
 
           try {
@@ -327,13 +404,15 @@
           return;
         }
 
-        // 4. No session -> login.
+        // 4. No session -> login (on the public host: stay on the page).
+        if (LANDING) return;
         statusText.textContent = "No active session found. Sending you to login.";
         subText.textContent = "Use your SILO email login to continue.";
         showManualLink("Go to login", LOGIN_PAGE);
         go(LOGIN_PAGE);
       } catch (err) {
         console.error("SILO auth router failed:", err);
+        if (LANDING) return;
         setError(
           "Could not verify your session.",
           "This usually means the auth config or Supabase session check failed. Try login directly.",
