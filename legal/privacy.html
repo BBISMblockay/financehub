@@ -26,18 +26,17 @@
 </head>
 <body>
   <h1>SILO — Privacy Policy</h1>
-  <p class="meta">Last updated 26 August 2026</p>
+  <p class="meta">Last updated 28 September 2026</p>
 
-  <p>SILO is an internal operations platform owned and operated by Baseballism
-  (&ldquo;we&rdquo;, &ldquo;us&rdquo;). It is used only by our own authorized personnel.
-  <strong>SILO has no public sign-up, no consumer users, and is not offered as a product to
-  anyone outside our company.</strong> This policy explains what data SILO holds, why, and how
-  it is protected.</p>
+  <p>SILO is an operations workspace operated by Baseballism (&ldquo;we&rdquo;, &ldquo;us&rdquo;).
+  Companies use SILO to bring their sales, inventory, purchasing, finance and marketing data into
+  one place. This policy explains what data SILO holds, why, and how it is protected.</p>
 
   <h2>Who this policy covers</h2>
-  <p>People who use SILO are our employees, contractors, and agents. We do not collect data
-  from members of the public through SILO, and SILO does not display advertising, set
-  advertising cookies, or track users across other websites.</p>
+  <p>SILO is used by the employees, contractors and agents of companies that use SILO
+  (&ldquo;customer companies&rdquo;). Access is by invitation from a customer company&rsquo;s
+  administrator; there is no public sign-up and no consumer use. SILO does not display
+  advertising, set advertising cookies, or track users across other websites.</p>
 
   <h2>What we collect</h2>
   <table>
@@ -50,20 +49,54 @@
     <tr>
       <td>Business operations data</td>
       <td>Purchase orders, suppliers, inventory, product records, tasks, internal requests</td>
-      <td>Running the business</td>
+      <td>Running the customer company&rsquo;s operations</td>
     </tr>
     <tr>
       <td>Personnel data</td>
       <td>Performance review content, compensation requests</td>
-      <td>Internal HR processes, visible only to the specific managers and approvers involved</td>
+      <td>The customer company&rsquo;s HR processes, visible only to the specific managers and approvers involved</td>
     </tr>
     <tr>
       <td>Connected-service data</td>
       <td>Sales, inventory, payouts and orders from Shopify; accounting records from
-          QuickBooks Online; campaign metrics from advertising platforms</td>
+          QuickBooks Online; website, search and advertising metrics from Google and other
+          advertising platforms</td>
       <td>Reporting, reconciliation, and preparing accounting entries</td>
     </tr>
   </table>
+  <p>Each customer company&rsquo;s data is kept separate. A user can see only the data of the
+  company they belong to.</p>
+
+  <h2>Google user data</h2>
+  <p>A customer company&rsquo;s administrator can choose to connect the company&rsquo;s own Google
+  accounts. SILO requests only these permissions, and uses them only to show that company its own
+  reporting inside SILO:</p>
+  <ul>
+    <li><strong>Google Analytics</strong> (<code>analytics.readonly</code>) &mdash; read-only access
+        to website sessions and conversions for the company&rsquo;s properties.</li>
+    <li><strong>Google Search Console</strong> (<code>webmasters.readonly</code>) &mdash; read-only
+        access to search clicks, impressions and positions for the company&rsquo;s websites.</li>
+    <li><strong>Google Ads</strong> (<code>adwords</code>) &mdash; campaign spend and results for the
+        company&rsquo;s ad accounts. SILO only reads reporting data; it does not create, change or
+        delete campaigns, ads or budgets.</li>
+  </ul>
+  <p>How this data is handled:</p>
+  <ul>
+    <li>It is stored in SILO&rsquo;s database, encrypted in transit and at rest, and is visible
+        only to users of the company that connected it.</li>
+    <li>OAuth tokens are readable only by SILO&rsquo;s server-side functions and by
+        administrators of the connected company. Removing the connection in SILO&rsquo;s
+        Integrations page deletes the stored tokens. Access can also be revoked at any time from
+        the Google account&rsquo;s security settings.</li>
+    <li><strong>We do not sell Google user data, do not use it for advertising, and do not use
+        it to build profiles.</strong> We do not transfer it to others except as described under
+        &ldquo;Sharing&rdquo; below, to provide SILO&rsquo;s features to the company that
+        connected it, or where required by law.</li>
+    <li>SILO&rsquo;s use and transfer of information received from Google APIs to any other app
+        will adhere to the
+        <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API
+        Services User Data Policy</a>, including the Limited Use requirements.</li>
+  </ul>
 
   <h2>Intuit and QuickBooks Online data</h2>
   <p>Where a QuickBooks Online company is connected to SILO, we access it under OAuth using
@@ -71,8 +104,8 @@
   company. Specifically:</p>
   <ul>
     <li>We read accounting records &mdash; chart of accounts, locations, reports, and
-        transactions &mdash; to display them inside SILO and to reconcile them against our
-        own operational data.</li>
+        transactions &mdash; to display them inside SILO and to reconcile them against that
+        company&rsquo;s own operational data.</li>
     <li>Where SILO writes to QuickBooks, it writes journal entries only, and only after a
         person has reviewed and explicitly confirmed each entry. Nothing is posted
         automatically.</li>
@@ -81,7 +114,7 @@
         administrators of the connected company.</li>
     <li><strong>We do not sell, rent, or share QuickBooks data with any third party</strong>,
         and we do not use it for advertising, profiling, or any purpose other than the
-        internal accounting and reporting described here.</li>
+        accounting and reporting described here.</li>
     <li>Disconnecting the integration in SILO deletes the stored tokens and the mirrored
         QuickBooks reference data.</li>
   </ul>
@@ -96,26 +129,33 @@
     <li>Credentials for connected services are restricted to administrators and to
         server-side functions.</li>
     <li>Authentication is by email and password with sessions managed by our auth provider.
-        Access is granted by invitation and revoked when an engagement ends.</li>
+        Access is granted by invitation and can be revoked by the customer company.</li>
   </ul>
 
   <h2>Sharing</h2>
-  <p>We do not sell personal information. We share data only with the infrastructure and
-  service providers required to operate SILO &mdash; our database and authentication host,
-  our transactional email provider, and the connected services listed above &mdash; and only
-  to the extent needed to provide those services. We may disclose data where required by
-  law.</p>
+  <p>We do not sell personal information. We share data only with the service providers
+  required to operate SILO, and only to the extent needed to provide their service:</p>
+  <ul>
+    <li>our database, hosting and authentication provider (Supabase, on Amazon Web Services);</li>
+    <li>our transactional email provider, for invitations and notifications;</li>
+    <li>our AI provider (Anthropic), when a user asks SILO&rsquo;s assistant a question: the
+        relevant results of that company&rsquo;s own data are sent to answer it. Anthropic does
+        not use this data to train its models under its commercial terms;</li>
+    <li>the connected services listed above, when SILO reads from or writes to them on the
+        customer company&rsquo;s instruction.</li>
+  </ul>
+  <p>We may disclose data where required by law.</p>
 
   <h2>Retention</h2>
-  <p>Business records are retained for as long as needed for operational, accounting, and
-  legal purposes. Account records are retained while a person has access and for a period
-  afterwards for audit and attribution. Connected-service tokens are deleted when the
-  integration is disconnected.</p>
+  <p>Business records are retained while the customer company uses SILO and as needed for
+  operational, accounting and legal purposes. Account records are retained while a person has
+  access and for a period afterwards for audit and attribution. Connected-service tokens are
+  deleted when the integration is disconnected.</p>
 
   <h2>Your choices</h2>
-  <p>Because SILO is an internal tool, people who use it can ask us to review, correct, or
-  delete their account information, subject to our record-keeping and legal obligations.
-  Contact us using the address below.</p>
+  <p>People who use SILO can ask to review, correct, or delete their account information,
+  subject to the customer company&rsquo;s and our record-keeping and legal obligations. Contact
+  us using the address below.</p>
 
   <h2>Children</h2>
   <p>SILO is a workplace tool and is not directed to, or usable by, anyone under 16.</p>
@@ -125,7 +165,7 @@
   the current version.</p>
 
   <h2>Contact</h2>
-  <p><a href="mailto:privacy@baseballism.com">privacy@baseballism.com</a></p>
+  <p><a href="mailto:support@get-silo.com">support@get-silo.com</a></p>
 
   <footer>
     See also our <a href="/legal/eula.html">End-User License Agreement</a>.
