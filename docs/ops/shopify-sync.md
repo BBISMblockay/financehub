@@ -84,7 +84,10 @@ rather than letting a store look fully backfilled.
 
 The client secret is stored in `shopify_client_credentials`, which no browser can read (RLS on, no
 policy, no grant) -- `shopify_connections` is readable by every company member, so the secret is not
-on it. Deleting the connection deletes the secret.
+on it. Deleting the connection deletes the secret. The Admin API token itself stays on `shopify_connections`, but its
+`access_token` column is not granted to members (column privilege), so only the service role reads it.
+A store's token and its app credentials are saved in one transaction, so a failed save never leaves a
+token from one app beside another app's secret.
 
 Then:
 

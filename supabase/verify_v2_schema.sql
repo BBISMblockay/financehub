@@ -3689,6 +3689,23 @@ select
     when not exists (select 1 from information_schema.columns where table_schema='public'
                        and table_name='shopify_oauth_states' and column_name='oauth_app')
       then 'MISSING — shopify_oauth_states.oauth_app'
+    -- The Admin API token: withheld from members by COLUMN privilege, since
+    -- the row's SELECT policy admits the whole company.
+    when has_column_privilege('authenticated', 'public.shopify_connections', 'access_token', 'select')
+      or has_column_privilege('anon', 'public.shopify_connections', 'access_token', 'select')
+      then 'CRITICAL — shopify_connections.access_token (a live Admin API token) is client-readable'
+    when exists (select 1 from information_schema.columns c where c.table_schema='public'
+                   and c.table_name='shopify_connections' and c.column_name <> 'access_token'
+                   and not has_column_privilege('authenticated', 'public.shopify_connections', c.column_name, 'select'))
+      then 'STALE — a shopify_connections column is not granted to authenticated (Integrations names it and fails); re-run the grant block in 20260928120000'
+    when to_regprocedure('public.shopify_save_client_credentials_connection(uuid,text,text,text,text,timestamptz,uuid)') is null
+      or to_regprocedure('public.shopify_close_connections(uuid[])') is null
+      then 'MISSING — shopify_save_client_credentials_connection / shopify_close_connections'
+    when has_function_privilege('authenticated', 'public.shopify_save_client_credentials_connection(uuid,text,text,text,text,timestamptz,uuid)', 'execute')
+      or has_function_privilege('anon', 'public.shopify_save_client_credentials_connection(uuid,text,text,text,text,timestamptz,uuid)', 'execute')
+      or has_function_privilege('authenticated', 'public.shopify_close_connections(uuid[])', 'execute')
+      or has_function_privilege('anon', 'public.shopify_close_connections(uuid[])', 'execute')
+      then 'CRITICAL — a client role can EXECUTE a Shopify credential function (service role only)'
     else 'ok'
   end as shopify_client_credentials;
 

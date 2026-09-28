@@ -68,17 +68,26 @@ Deno.serve(async (req) => {
     // what mints a fresh one for a client-credentials store, whose client
     // secret the browser can never read. The browser never handles the token.
     if (connectionId) {
-      const { data: conn, error: connErr } = await supabase
+      // The caller's read proves the row is in their company; access_token
+      // is not a column members may select, so the token itself comes from
+      // the service-role read that follows, by that same id.
+      const { data: visible, error: visErr } = await supabase
         .from('shopify_connections')
-        .select('id, shop_domain, access_token, auth_method, token_expires_at')
+        .select('id')
         .eq('id', connectionId)
         .maybeSingle();
+      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+      const { data: conn, error: connErr } = visible && !visErr
+        ? await admin.from('shopify_connections')
+            .select('id, shop_domain, access_token, auth_method, token_expires_at')
+            .eq('id', visible.id)
+            .maybeSingle()
+        : { data: null, error: visErr };
       if (connErr || !conn) {
         return new Response(JSON.stringify({ ok: false, error: 'Connection not found' }), {
           status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
       try {
         access_token = await ensureShopifyAccessToken(admin, conn) ?? '';
       } catch (err) {

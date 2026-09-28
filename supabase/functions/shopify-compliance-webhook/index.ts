@@ -46,17 +46,20 @@ Deno.serve(async (req) => {
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const plan = planCompliance(topic, payload);
 
-  const { data: conns } = plan.shop
+  const errors: string[] = [];
+  const { data: conns, error: connErr } = plan.shop
     ? await admin.from('shopify_connections')
         .select('id, company_entity_id, auth_method, oauth_app, is_active, access_token')
         .eq('shop_domain', plan.shop)
-    : { data: [] };
+    : { data: [], error: null };
+  // Without the connections SILO cannot tell what it holds for this store, so
+  // it acts on nothing and asks Shopify to send the webhook again.
+  if (connErr) errors.push(`shopify_connections lookup: ${connErr.message}`);
   const companyId = conns?.[0]?.company_entity_id ?? null;
 
   let status = 'recorded';
   let rows = 0;
   let note: string | null = plan.reason ?? null;
-  const errors: string[] = [];
 
   const blank = async (table: string, filter: (q: any) => any) => {
     const { data, error } = await filter(admin.from(table).update(REDACTED_CUSTOMER_FIELDS)).select('id');
@@ -67,6 +70,8 @@ Deno.serve(async (req) => {
   if (plan.action === 'record_only') {
     status = 'needs_response';
     note = note ?? `Signed by the ${app} app. A person must send the merchant what SILO holds for this customer: name, email and Shopify id on their orders.`;
+  } else if (connErr) {
+    status = 'error';
   } else if (plan.action === 'redact_customer') {
     if (plan.customerId) {
       await blank('shopify_orders', (q) => q.eq('shop_domain', plan.shop).eq('customer_id', plan.customerId));
@@ -79,11 +84,10 @@ Deno.serve(async (req) => {
   } else if (plan.action === 'redact_shop') {
     const decision = planShopRedact(conns ?? [], app);
     if (decision.closeConnectionIds.length) {
-      await admin.from('shopify_client_credentials').delete().in('connection_id', decision.closeConnectionIds);
-      const { error } = await admin.from('shopify_connections')
-        .update({ access_token: null, is_active: false, sync_enabled: false, token_expires_at: null })
-        .in('id', decision.closeConnectionIds);
-      if (error) errors.push(`shopify_connections: ${error.message}`);
+      // Credentials and token go together (one transaction), or a partial
+      // failure leaves a closed connection that can still mint tokens.
+      const { error } = await admin.rpc('shopify_close_connections', { p_ids: decision.closeConnectionIds });
+      if (error) errors.push(`shopify_close_connections: ${error.message}`);
     }
     if (decision.redactOrders) {
       await blank('shopify_orders', (q) => q.eq('shop_domain', plan.shop));
@@ -97,7 +101,10 @@ Deno.serve(async (req) => {
     status = 'ignored';
   }
 
-  await admin.from('shopify_compliance_requests').insert({
+  // The log row is the only record that a data request needs a person's
+  // answer, so a failed insert is a failure: Shopify retries, and every
+  // action above is safe to repeat.
+  const { error: logErr } = await admin.from('shopify_compliance_requests').insert({
     topic: topic || '(none)',
     shop_domain: plan.shop ?? null,
     company_entity_id: companyId,
@@ -109,6 +116,8 @@ Deno.serve(async (req) => {
     handled_at: status === 'needs_response' ? null : new Date().toISOString(),
   });
 
-  // A failed redaction answers 500 so Shopify retries it; everything else 200.
+  if (logErr) errors.push(`shopify_compliance_requests: ${logErr.message}`);
+
+  // Anything that did not land answers 500 so Shopify sends it again.
   return new Response(errors.length ? 'Error' : 'OK', { status: errors.length ? 500 : 200 });
 });

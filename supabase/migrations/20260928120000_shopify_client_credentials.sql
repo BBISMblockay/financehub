@@ -82,4 +82,93 @@ comment on table public.shopify_compliance_requests is
 create index if not exists shopify_compliance_requests_received_idx
   on public.shopify_compliance_requests (received_at desc);
 
+-- ── The Admin API token is not readable by members ─────────────────────────
+-- shopify_connections' SELECT policy admits every member of the company, and
+-- the row carries access_token, a live Admin API token (and now one SILO
+-- renews itself every 24 hours). RLS cannot hide a column, so this is done
+-- with COLUMN privileges, the customer_accounts precedent: SELECT is revoked
+-- from the table and re-granted on every column EXCEPT access_token. The
+-- token stays writable (the pasted-token form inserts it, it never reads it)
+-- and every server reader uses the service role. The column list is computed
+-- at apply time, so re-running after a new column is added grants that one
+-- too; verify_v2_schema.sql fails if a column is left ungranted or the token
+-- becomes readable. anon gets nothing: it has no company to read.
+do $$
+declare cols text;
+begin
+  select string_agg(quote_ident(column_name), ', ' order by ordinal_position) into cols
+  from information_schema.columns
+  where table_schema = 'public' and table_name = 'shopify_connections' and column_name <> 'access_token';
+  execute 'revoke select on public.shopify_connections from anon, authenticated';
+  execute format('grant select (%s) on public.shopify_connections to authenticated', cols);
+end $$;
+
+-- ── Writes that must land together ──────────────────────────────────────────
+-- Saving a store's own app: the connection's token and the credentials that
+-- renew it are ONE fact. Written as two statements, a failure between them
+-- left a token from the new app beside the old app's secret -- working until
+-- the next refresh, then failing. One transaction; service role only.
+create or replace function public.shopify_save_client_credentials_connection(
+  p_company uuid, p_shop text, p_client_id text, p_client_secret text,
+  p_access_token text, p_expires_at timestamptz, p_user uuid
+) returns table (connection_id uuid, created boolean)
+language plpgsql security definer set search_path = public as $$
+declare v_id uuid; v_method text;
+begin
+  select c.id, c.auth_method into v_id, v_method
+  from public.shopify_connections c
+  where c.company_entity_id = p_company and c.shop_domain = p_shop
+  for update;
+
+  if v_id is not null and coalesce(v_method, '') <> 'client_credentials' then
+    raise exception 'not_client_credentials' using errcode = 'P0001';
+  end if;
+
+  if v_id is null then
+    insert into public.shopify_connections
+      (company_entity_id, shop_domain, access_token, token_expires_at, auth_method, is_active, sync_enabled, created_by)
+    values (p_company, p_shop, p_access_token, p_expires_at, 'client_credentials', true, false, p_user)
+    returning id into v_id;
+    created := true;
+  else
+    update public.shopify_connections
+       set access_token = p_access_token, token_expires_at = p_expires_at, is_active = true, updated_by = p_user
+     where id = v_id;
+    created := false;
+  end if;
+
+  insert into public.shopify_client_credentials (connection_id, company_entity_id, client_id, client_secret, created_by)
+  values (v_id, p_company, p_client_id, p_client_secret, p_user)
+  on conflict on constraint shopify_client_credentials_pkey do update
+    set client_id = excluded.client_id, client_secret = excluded.client_secret,
+        company_entity_id = excluded.company_entity_id, created_by = excluded.created_by, created_at = now();
+
+  connection_id := v_id;
+  return next;
+end $$;
+
+-- Closing the connections an uninstalled app issued: deleting the renewable
+-- credentials and clearing the token are ONE act, or a partial failure leaves
+-- a deactivated connection that can still mint tokens. Returns how many
+-- connections were closed.
+create or replace function public.shopify_close_connections(p_ids uuid[])
+returns integer
+language plpgsql security definer set search_path = public as $$
+declare n integer;
+begin
+  delete from public.shopify_client_credentials where connection_id = any (p_ids);
+  update public.shopify_connections
+     set access_token = null, token_expires_at = null, is_active = false, sync_enabled = false
+   where id = any (p_ids);
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+-- Supabase's default privileges grant EXECUTE on new public functions to
+-- anon and authenticated; the revoke is the boundary (20260904330000).
+revoke all on function public.shopify_save_client_credentials_connection(uuid, text, text, text, text, timestamptz, uuid) from public, anon, authenticated;
+revoke all on function public.shopify_close_connections(uuid[]) from public, anon, authenticated;
+grant execute on function public.shopify_save_client_credentials_connection(uuid, text, text, text, text, timestamptz, uuid) to service_role;
+grant execute on function public.shopify_close_connections(uuid[]) to service_role;
+
 select public.attach_stamp_company_entity_id_triggers();

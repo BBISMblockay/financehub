@@ -232,14 +232,18 @@ await test('wiring: every function and entry point uses the rules in the right o
   const dev = read('supabase/functions/shopify-connect-dev-app/index.ts');
   const iAuth = dev.indexOf('if (!mayConnect(');
   const iMint = dev.indexOf('await mintClientCredentialsToken(');
-  const iInsert = dev.indexOf(".from('shopify_connections').insert(");
-  assert.ok(iAuth > 0 && iAuth < iMint && iMint < iInsert, 'connect: authorize, then let Shopify accept the pair, then save');
-  assert.match(dev, /await admin\.from\('shopify_connections'\)\.delete\(\)\.eq\('id', connectionId\);/, 'no connection left without its credentials');
-  assert.doesNotMatch(dev, /client_secret:[^,]*,\s*\n?\s*auth_method/, 'the secret never goes onto shopify_connections');
+  const iSave = dev.indexOf("admin.rpc('shopify_save_client_credentials_connection'");
+  assert.ok(iAuth > 0 && iAuth < iMint && iMint < iSave, 'connect: authorize, then let Shopify accept the pair, then save');
+  assert.doesNotMatch(dev, /from\('shopify_(connections|client_credentials)'\)\s*\.(insert|update|upsert|delete)/,
+    'token and secret are saved together by one RPC, never by separate writes');
 
   const hook = read('supabase/functions/shopify-compliance-webhook/index.ts');
   assert.ok(hook.indexOf("return new Response('Unauthorized', { status: 401 })") < hook.indexOf('createClient('),
     'the webhook checks the signature before touching the database');
+  assert.match(hook, /admin\.rpc\('shopify_close_connections'/, 'credentials and token are closed in one transaction');
+  assert.match(hook, /if \(connErr\) errors\.push/, 'a failed connection lookup is a failure');
+  assert.match(hook, /if \(logErr\) errors\.push/, 'a failed log insert is a failure (Shopify retries)');
+  assert.match(hook, /status: errors\.length \? 500 : 200/);
 
   const t = read('supabase/functions/test-shopify-connection/index.ts');
   assert.match(t, /access_token = await ensureShopifyAccessToken\(admin, conn\)/);
@@ -251,7 +255,14 @@ await test('wiring: every function and entry point uses the rules in the right o
   const run = read('supabase/functions/shopify-sync-run/index.ts');
   assert.equal((run.match(/await ensureShopifyAccessToken\(admin, connection\);/g) || []).length, 2, 'both sync-run paths refresh the token');
 
+  // access_token is withheld from members by column privilege: no reader
+  // acting as the caller may name it or ask for '*'.
+  assert.doesNotMatch(t, /supabase\s*\.from\('shopify_connections'\)\s*\.select\('[^']*access_token/, 'test fn reads the token only as service role');
+  assert.doesNotMatch(run, /userClient\s*\.from\('shopify_connections'\)\s*\.select\('\*'\)/, 'sync-run reads the full row only as service role');
+
   const page = read('v2/integrations.html');
+  assert.doesNotMatch(page, /from\('shopify_connections'\)\.select\('\*'\)/, "select('*') on shopify_connections is refused for members");
+  assert.doesNotMatch(page, /SHOPIFY_CONNECTION_COLUMNS = \[[^\]]*'access_token'/, 'the page never names the token column');
   assert.match(page, /body: JSON\.stringify\(\{ connection_id: conn\.id \}\)/, 'the Test button sends an id, never a token');
   assert.doesNotMatch(page, /\.select\('shop_domain, access_token'\)/, 'the page no longer reads a Shopify token to test it');
 

@@ -1017,16 +1017,21 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
-      # Shopify client secrets (20260928120000): service role only, even with
-      # Supabase's default grants. Mutation: SHOPIFY_CRED_DB_MUTATION=grant-back
+      # Shopify client secrets and tokens (20260928120000): service role only,
+      # even with Supabase's default grants. Mutations:
+      # SHOPIFY_CRED_DB_MUTATION=grant-back | token-readable | exec-granted
       - name: Execute Shopify credential-store database regressions
         run: node scripts/tests/shopify-credentials-database.test.mjs
-      - name: The credential-store revoke, removed, must break it
+      - name: The credential-store revokes, removed, must break it
         run: |
-          if SHOPIFY_CRED_DB_MUTATION=grant-back node scripts/tests/shopify-credentials-database.test.mjs; then
-            echo "::error::grant-back did not fail the suite"
-            exit 1
-          fi
+          set -u
+          for m in grant-back token-readable exec-granted; do
+            if SHOPIFY_CRED_DB_MUTATION="$m" node scripts/tests/shopify-credentials-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
 
       # The business-timezone sweep's reporting half: the store comp summary
       # anchors on each company's OWN last completed day, and Org Calendar

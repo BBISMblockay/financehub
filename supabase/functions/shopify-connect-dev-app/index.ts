@@ -65,50 +65,29 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: e.message ?? String(err), same_org_refusal: Boolean(e.sameOrgRefusal) }, 400);
   }
 
-  const { data: existing, error: exErr } = await admin
-    .from('shopify_connections').select('id, auth_method')
-    .eq('company_entity_id', companyId).eq('shop_domain', shop).maybeSingle();
-  if (exErr) return json({ ok: false, error: `Could not check existing connections: ${exErr.message}` }, 500);
-
-  if (existing && existing.auth_method !== 'client_credentials') {
+  // The token and the credentials that renew it are written in ONE
+  // transaction (shopify_save_client_credentials_connection): a token from a
+  // new app beside an old app's secret works until the next refresh and then
+  // fails, so they can never be saved apart. The function refuses a store
+  // already connected another way.
+  const { data: saved, error: saveErr } = await admin.rpc('shopify_save_client_credentials_connection', {
+    p_company: companyId,
+    p_shop: shop,
+    p_client_id: clientId,
+    p_client_secret: clientSecret,
+    p_access_token: minted.accessToken,
+    p_expires_at: minted.expiresAt,
+    p_user: user.id,
+  });
+  if (saveErr && /not_client_credentials/.test(saveErr.message ?? '')) {
     return json({
       ok: false,
       error: `${shop} is already connected another way. Remove that connection first if you want to switch it to this app.`,
     }, 409);
   }
-
-  let connectionId = existing?.id ?? null;
-  if (connectionId) {
-    // Same store, new app credentials (a rotated secret): replace both.
-    const { error: upErr } = await admin.from('shopify_connections')
-      .update({ access_token: minted.accessToken, token_expires_at: minted.expiresAt, is_active: true, updated_by: user.id })
-      .eq('id', connectionId);
-    if (upErr) return json({ ok: false, error: `Save failed: ${upErr.message}` }, 500);
-    const { error: credErr } = await admin.from('shopify_client_credentials')
-      .upsert({ connection_id: connectionId, company_entity_id: companyId, client_id: clientId, client_secret: clientSecret, created_by: user.id },
-        { onConflict: 'connection_id' });
-    if (credErr) return json({ ok: false, error: `Save failed: ${credErr.message}` }, 500);
-  } else {
-    const { data: inserted, error: insErr } = await admin.from('shopify_connections').insert({
-      company_entity_id: companyId,
-      shop_domain: shop,
-      access_token: minted.accessToken,
-      token_expires_at: minted.expiresAt,
-      auth_method: 'client_credentials',
-      is_active: true,
-      sync_enabled: false,
-      created_by: user.id,
-    }).select('id').single();
-    if (insErr || !inserted) return json({ ok: false, error: `Save failed: ${insErr?.message ?? 'no row'}` }, 500);
-    connectionId = inserted.id;
-    const { error: credErr } = await admin.from('shopify_client_credentials').insert({
-      connection_id: connectionId, company_entity_id: companyId, client_id: clientId, client_secret: clientSecret, created_by: user.id,
-    });
-    if (credErr) {
-      // Never leave a connection that cannot renew its token.
-      await admin.from('shopify_connections').delete().eq('id', connectionId);
-      return json({ ok: false, error: `Save failed: ${credErr.message}` }, 500);
-    }
+  const connectionId = Array.isArray(saved) ? saved[0]?.connection_id : saved?.connection_id;
+  if (saveErr || !connectionId) {
+    return json({ ok: false, error: `Save failed: ${saveErr?.message ?? 'no row'}` }, 500);
   }
 
   return json({ ok: true, connection_id: connectionId, shop_domain: shop, scopes: minted.scopes });

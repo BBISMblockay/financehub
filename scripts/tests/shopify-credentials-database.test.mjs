@@ -10,11 +10,20 @@
 //   4. The CHECKs refuse an unknown auth_method / oauth_app.
 //   5. Deleting a connection deletes its credentials.
 //   6. The migration applies twice.
+//   7. The connection's Admin API token (access_token) is withheld from
+//      members by column privilege, every other column stays readable, and
+//      select('*') is refused rather than quietly returning the token.
+//   8. Saving a store's app and closing an uninstalled app's connections are
+//      each ONE transaction (a failure part-way leaves nothing changed), and
+//      neither function is callable by a client.
+//   9. The migration's own verify_v2_schema.sql block reads 'ok'.
 //
 // Run:  node scripts/tests/shopify-credentials-database.test.mjs
 // Needs: npm ci --prefix scripts/tests/finance-db
-// Mutation (must fail an assertion):
-//   SHOPIFY_CRED_DB_MUTATION=grant-back   (the migration forgets its revoke)
+// Mutations (each must fail an assertion):
+//   SHOPIFY_CRED_DB_MUTATION=grant-back      (the migration forgets its revoke)
+//   SHOPIFY_CRED_DB_MUTATION=token-readable  (the column revoke is dropped)
+//   SHOPIFY_CRED_DB_MUTATION=exec-granted    (the function revokes are dropped)
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -22,7 +31,7 @@ import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/inde
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
 const mutation = process.env.SHOPIFY_CRED_DB_MUTATION || '';
-assert.ok(['', 'grant-back'].includes(mutation), `Unknown mutation ${mutation}`);
+assert.ok(['', 'grant-back', 'token-readable', 'exec-granted'].includes(mutation), `Unknown mutation ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
 const root = new URL('../../', import.meta.url);
@@ -56,6 +65,7 @@ await db.exec(`
     id uuid primary key default gen_random_uuid(),
     company_entity_id uuid not null references public.entities(id),
     shop_domain text not null, access_token text, is_active boolean default true,
+    sync_enabled boolean default false, created_by uuid, updated_by uuid, created_at timestamptz default now(),
     unique (company_entity_id, shop_domain));
   alter table public.shopify_connections enable row level security;
   create policy shopify_connections_select on public.shopify_connections for select to authenticated
@@ -69,6 +79,12 @@ await q("insert into public.profiles (id, is_active, active_company_id) values (
 
 let migration = await read('supabase/migrations/20260928120000_shopify_client_credentials.sql');
 if (mutation === 'grant-back') migration = migration.replace('revoke all on public.shopify_client_credentials from anon, authenticated;', '');
+const cut = (from) => { assert.ok(migration.includes(from), `mutation anchor missing: ${from}`); migration = migration.replace(from, ''); };
+if (mutation === 'token-readable') cut("execute 'revoke select on public.shopify_connections from anon, authenticated';");
+if (mutation === 'exec-granted') {
+  cut('revoke all on function public.shopify_save_client_credentials_connection(uuid, text, text, text, text, timestamptz, uuid) from public, anon, authenticated;');
+  cut('revoke all on function public.shopify_close_connections(uuid[]) from public, anon, authenticated;');
+}
 await db.exec(migration);
 await db.exec(migration);
 
@@ -114,6 +130,61 @@ await test('the service role reads both', async () => {
 await test('unknown auth_method / oauth_app are refused', async () => {
   await refused(() => q("update public.shopify_connections set auth_method = 'password'"), /auth_method_check/, 'auth_method');
   await refused(() => q("update public.shopify_connections set oauth_app = 'mine'"), /oauth_app_check/, 'oauth_app');
+});
+
+await test('a member reads the connection but never its Admin API token', async () => {
+  await as('authenticated', member, async () => {
+    const [row] = await q('select id, shop_domain, auth_method, token_expires_at from public.shopify_connections');
+    assert.equal(row.shop_domain, 'bat-nutz.myshopify.com', 'every other column stays readable');
+    await refused(() => q('select access_token from public.shopify_connections'), /permission denied/, 'select token');
+    await refused(() => q('select * from public.shopify_connections'), /permission denied/, "select('*') must refuse, not leak");
+  });
+});
+
+await test('saving a store app is one transaction, and a refused save changes nothing', async () => {
+  const save = (secret, token) => q(`select * from public.shopify_save_client_credentials_connection($1, 'bat-nutz.myshopify.com', 'cid2', $2, $3, now() + interval '1 day', $4)`,
+    [co, secret, token, member]);
+  const [r] = await save('SECRET2', 'tok2');
+  assert.equal(r.connection_id, connId);
+  assert.equal(r.created, false);
+  // Failure injection: the credential write fails (NOT NULL) AFTER the token
+  // update in the same function; the token must not have moved.
+  await refused(() => save(null, 'tok3'), /null value/, 'secret write fails');
+  const [after] = await q('select c.access_token, k.client_secret from public.shopify_connections c join public.shopify_client_credentials k on k.connection_id = c.id where c.id = $1', [connId]);
+  assert.deepEqual([after.access_token, after.client_secret], ['tok2', 'SECRET2'], 'token and secret stay a matched pair');
+  const [fresh] = await q(`select * from public.shopify_save_client_credentials_connection($1, 'new-store.myshopify.com', 'c', 's', 't', now(), $2)`, [co, member]);
+  assert.equal(fresh.created, true);
+  await q(`insert into public.shopify_connections (company_entity_id, shop_domain, access_token, auth_method) values ($1, 'oauth-store.myshopify.com', 'o', 'oauth')`, [co]);
+  await refused(() => q(`select * from public.shopify_save_client_credentials_connection($1, 'oauth-store.myshopify.com', 'c', 's', 't', now(), $2)`, [co, member]),
+    /not_client_credentials/, 'converting an OAuth connection');
+});
+
+await test('closing connections removes credentials and token together', async () => {
+  const [{ id }] = await q("select id from public.shopify_connections where shop_domain = 'new-store.myshopify.com'");
+  const [{ n }] = await q('select public.shopify_close_connections($1::uuid[]) as n', [[id]]);
+  assert.equal(n, 1);
+  const [c] = await q('select access_token, is_active from public.shopify_connections where id = $1', [id]);
+  assert.deepEqual([c.access_token, c.is_active], [null, false]);
+  assert.equal((await q('select count(*)::int n from public.shopify_client_credentials where connection_id = $1', [id]))[0].n, 0);
+});
+
+await test('no client can call either credential function', async () => {
+  for (const role of ['authenticated', 'anon']) {
+    await as(role, role === 'authenticated' ? member : null, async () => {
+      await refused(() => q('select public.shopify_close_connections($1::uuid[])', [[connId]]), /permission denied/, `${role} close`);
+      await refused(() => q(`select * from public.shopify_save_client_credentials_connection($1, 'x.myshopify.com', 'c', 's', 't', now(), null)`, [co]),
+        /permission denied/, `${role} save`);
+    });
+  }
+});
+
+await test("the migration's verify_v2_schema.sql check reads ok", async () => {
+  const verify = await read('supabase/verify_v2_schema.sql');
+  const start = verify.indexOf('-- ── Shopify client credentials + compliance log (20260928120000)');
+  const end = verify.indexOf('as shopify_client_credentials;', start);
+  assert.ok(start > 0 && end > start, 'verify block not found');
+  const [row] = await q(verify.slice(start, end + 'as shopify_client_credentials'.length));
+  assert.equal(row.shopify_client_credentials, 'ok');
 });
 
 await test('deleting a connection deletes its credentials', async () => {
