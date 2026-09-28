@@ -2587,3 +2587,14 @@ with the client that issued it). Apply before deploying `google-oauth-start` /
 column and a plain Connect is unaffected.
 
 `verify_v2_schema.sql` has the `ad_platform_oauth_reconnect` check.
+
+## Sidebar badge counts — `20260928170000_nav_badge_counts.sql`
+
+`nav_badge_counts()` returns `(nav_id, badge_count)` rows, one per sidebar row
+with something waiting on the caller, and only when above zero. The first is
+`reports/seo`: SEO tasks sent for approval and not yet published, in the active
+company, counted only for someone who can approve them. SECURITY INVOKER, anon
+revoked. `silo-chrome.js` calls it once per page load and only draws the
+numbers; a new badge is a new row in this function, not sidebar code.
+
+`verify_v2_schema.sql` has the `nav_badge_counts` check.

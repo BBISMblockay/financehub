@@ -27,7 +27,7 @@ const tables = {
     t({ id: 'live', title: 'Tees: new title', approval_status: 'approved', created_by: 'sammie', created_at: '2026-09-01T10:00:00Z', approved_by: 'test-user', approved_at: '2026-09-02T12:00:00Z', target_url: `${SITE}/collections/tees` }),
   ],
   seo_task_publications: [{ id: 'p1', company_entity_id: CO, task_id: 'live', published_at: '2026-09-03T18:00:00Z', published_by: 'sammie', method: 'manual_confirmation', note: 'Shopify admin' }],
-  profiles: [{ id: 'test-user', name: 'Blake Evetts' }, { id: 'sammie', name: 'Sammie Petitt' }],
+  profiles: [{ id: 'test-user', name: 'Blake Evetts', role: 'owner' }, { id: 'sammie', name: 'Sammie Petitt' }],
 };
 
 const ready = () => !!document.querySelector('#list .st-task, #list .st-empty b');
@@ -37,7 +37,10 @@ const writes = (page, op) => page.evaluate((o) => window.__QUERIES__.filter((x) 
   const suite = await startSuite();
   try {
     // ── An approver ──────────────────────────────────────────────────────
-    let page = await suite.open('/v2/seo-tasks.html', tables, { ready, rpc: { can_approve_seo_tasks: true } });
+    let page = await suite.open('/v2/seo-tasks.html', tables, { ready, rpc: { can_approve_seo_tasks: true, nav_badge_counts: () => [{ nav_id: 'reports/seo', badge_count: 2 }] } });
+    // The sidebar counts what is waiting, from nav_badge_counts().
+    await page.waitForFunction(() => !!document.querySelector('[data-nav-id="reports/seo"] .silo-sb-badge'));
+    R.eq(await page.locator('[data-nav-id="reports/seo"] .silo-sb-badge').innerText(), '2', 'the SEO row shows how many tasks wait for approval');
     const tabs = await page.evaluate(() => [...document.querySelectorAll('[data-seo-suite] a')].map((a) => [a.getAttribute('href'), a.getAttribute('aria-current')]));
     R.eq(JSON.stringify(tabs.pop()), JSON.stringify(['/v2/seo-tasks.html', 'page']), 'Tasks is the current SEO tab');
 
@@ -111,6 +114,7 @@ const writes = (page, op) => page.evaluate((o) => window.__QUERIES__.filter((x) 
 
     // ── A drafter who cannot approve ─────────────────────────────────────
     page = await suite.open('/v2/seo-tasks.html', tables, { ready, rpc: { can_approve_seo_tasks: false } });
+    R.eq(await page.locator('.silo-sb-badge').count(), 0, 'no badge when nothing is counted for this person');
     R.eq(await page.locator('[data-act="approve"], [data-act="reject"]').count(), 0, 'no approval buttons for a non-approver');
     R.eq(await page.locator('[data-task="waiting"] [data-act]').count(), 0, 'someone else\'s task offers nothing to edit');
     R.eq(await page.locator('[data-task="draft-mine"] [data-act="submit"]').count(), 1, 'their own draft can be sent for approval');

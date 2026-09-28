@@ -28,7 +28,9 @@ const db = new PGlite({ extensions: { pgcrypto } });
 const root = new URL('../../', import.meta.url);
 const migrations = ['20260914120000_seo_measurement_capture.sql', '20260914130000_search_console_newest_run_wins.sql',
   // The business-timezone sweep: the one helper, then the SEO triggers that use it.
-  '20260924130000_business_timezone_core.sql', '20260924130100_business_timezone_seo.sql'];
+  '20260924130000_business_timezone_core.sql', '20260924130100_business_timezone_seo.sql',
+  // Sidebar badge: SEO tasks waiting for approval.
+  '20260928170000_nav_badge_counts.sql'];
 const dependencies = [
   '20260616060000_stamp_company_entity_id_on_insert.sql',
   '20260909220000_page_inspection.sql',
@@ -580,6 +582,22 @@ try {
       await db.exec(def);
     }
     await db.exec(guard);
+  });
+
+  await test('the SEO sidebar badge counts tasks waiting for approval, for approvers only, in their own company', async () => {
+    const waiting = await task(proj);
+    await asMember(() => q("update seo_tasks set approval_status='proposed' where id=$1", [waiting]));
+    const badge = (fn) => fn(() => q('select nav_id, badge_count from public.nav_badge_counts()'));
+    const expected = await scalar(`select count(*)::int from seo_tasks t where t.company_entity_id=$1 and t.approval_status='proposed'
+      and not exists (select 1 from seo_task_publications p where p.task_id=t.id)`, [co]);
+    assert.ok(expected >= 1);
+    assert.deepEqual(await badge(asApprover), [{ nav_id: 'reports/seo', badge_count: expected }]);
+    assert.deepEqual(await badge(asMember), [], 'a member who cannot approve gets no badge');
+    assert.deepEqual(await badge(asOutsider), [], 'another company never counts this one');
+    await approve(waiting);
+    const after = await badge(asApprover);
+    assert.equal(after.length ? after[0].badge_count : 0, expected - 1, 'an approved task leaves the count');
+    await refused(() => asRole('anon', null, () => q('select * from public.nav_badge_counts()')), /permission denied/, 'anon');
   });
 
   await test('the committed SEO workflow verification checks return ok on the migrated database', async () => {

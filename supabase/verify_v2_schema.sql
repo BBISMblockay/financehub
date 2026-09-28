@@ -3734,6 +3734,20 @@ select
     else 'ok'
   end as shopify_client_credentials;
 
+-- ── Sidebar badge counts (20260928170000) ──────────────────────────────────
+-- The sidebar calls nav_badge_counts() on every page; without it the SEO row
+-- never shows tasks waiting for approval. INVOKER, and never anon.
+select
+  case
+    when to_regprocedure('public.nav_badge_counts()') is null
+      then 'MISSING — run 20260928170000_nav_badge_counts.sql'
+    when (select prosecdef from pg_proc where oid = 'public.nav_badge_counts()'::regprocedure)
+      then 'CRITICAL — nav_badge_counts() is SECURITY DEFINER; its counts must be scoped by the caller''s RLS'
+    when has_function_privilege('anon', 'public.nav_badge_counts()', 'execute')
+      then 'CRITICAL — anon can execute nav_badge_counts()'
+    else 'ok'
+  end as nav_badge_counts;
+
 -- ── Ad-platform reconnect in place (20260928160000) ──────────────────────────
 -- Without the column the start function cannot record which connection a
 -- Reconnect renews, and Integrations' Reconnect button fails.

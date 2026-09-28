@@ -141,6 +141,29 @@
     }
   }
 
+  // Sidebar badges: how many things wait on the caller, per nav id, from ONE
+  // nav_badge_counts() call. The counting rules live in that database
+  // function; this only draws the numbers. Cached per company for the first
+  // paint, then refreshed on every page load, since the counts move.
+  function badgeCacheKey() { return 'silo:nav:badges:' + (getActiveCompany()?.id || ''); }
+  function getCachedBadges() {
+    try { return JSON.parse(sessionStorage.getItem(badgeCacheKey()) || '{}') || {}; } catch { return {}; }
+  }
+  let navBadges = {};
+  async function resolveBadges(sb) {
+    try {
+      const { data, error } = await sb.rpc('nav_badge_counts');
+      if (error) return null;
+      const out = {};
+      (data || []).forEach((r) => { if (r && r.nav_id && r.badge_count > 0) out[r.nav_id] = r.badge_count; });
+      try { sessionStorage.setItem(badgeCacheKey(), JSON.stringify(out)); } catch {}
+      return out;
+    } catch { return null; }
+  }
+  function badgeHtml(n, label) {
+    return n > 0 ? `<span class="silo-sb-badge" aria-label="${n} ${escHtml(label)}">${n > 99 ? '99+' : n}</span>` : '';
+  }
+
   // Sidebar user avatar — same session-cache-then-resolve pattern as
   // department above, so the first paint (initials) never blocks on a
   // network round trip and only re-renders once the real photo is known.
@@ -177,12 +200,16 @@
         return `<a class="silo-sb-link${isActive ? ' silo-sb-link--active' : ''}" href="${escHtml(item.href)}" data-nav-id="${escHtml(item.id)}"${ext}>
             <span class="silo-sb-link-label">${escHtml(item.label)}</span>
             ${item.external ? '<span class="silo-sb-link-ext" aria-hidden="true">EXT</span>' : ''}
+            ${badgeHtml(navBadges[item.id], 'waiting')}
           </a>`;
       }).join('');
+      // A closed section still says something inside it is waiting.
+      const sectionCount = sec.items.reduce((n, i) => n + (navBadges[i.id] || 0), 0);
       return `
         <div class="silo-sb-section${isOpen ? ' silo-sb-section--open' : ''}" data-section="${escHtml(sec.section)}">
           <button class="silo-sb-section-label" type="button" data-silo-action="section-toggle" data-section="${escHtml(sec.section)}" aria-expanded="${isOpen}">
             <span>${escHtml(sec.section)}</span>
+            ${badgeHtml(sectionCount, 'waiting')}
             <svg class="silo-sb-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="silo-sb-links">${links}</div>
@@ -454,6 +481,7 @@
     // replaced by the active workspace membership as soon as it resolves.
     let effectiveRole = (opts.user && opts.user.role) || null;
     paletteRole = effectiveRole;
+    navBadges = getCachedBadges();
 
     // restore collapsed state
     const collapsed = localStorage.getItem(LS_COLLAPSED) === '1';
@@ -525,6 +553,17 @@
         // navActive, not opts.active: a suite page's own id is not a sidebar
         // id, so repainting with it left no row highlighted at all.
         if (navEl) navEl.innerHTML = renderNavSections(navActive, getCachedDepartment(), effectiveRole, grantIds);
+      });
+    }
+
+    // Badges: paint from the session cache, then refresh (they move). Only
+    // repaint when the numbers changed, so a quiet page does not flicker.
+    if (opts.supabaseClient) {
+      resolveBadges(opts.supabaseClient).then((fresh) => {
+        if (!fresh || JSON.stringify(fresh) === JSON.stringify(navBadges)) return;
+        navBadges = fresh;
+        const navEl = sidebar.querySelector('#siloSbNav');
+        if (navEl) navEl.innerHTML = renderNavSections(navActive, getCachedDepartment(), effectiveRole, getCachedGrantIds());
       });
     }
 

@@ -141,6 +141,7 @@ on:
       - 'supabase/migrations/*profiles_active_company_scope.sql'
       - 'supabase/migrations/*chat_readonly_query_read_only_txn.sql'
       - 'supabase/migrations/*seo_measurement_capture.sql'
+      - 'supabase/migrations/*nav_badge_counts.sql'
       - 'supabase/migrations/*seo_project_workflow.sql'
       - 'supabase/migrations/*seo_workflow_integrity.sql'
       - 'supabase/migrations/*seo_baseline_business_timezone.sql'
