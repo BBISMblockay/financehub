@@ -259,12 +259,16 @@ window.__QUERIES__ = [];
         // same resolved shape, so 'await ...update(p).eq(...)' is unchanged.
         return { eq: function () {
           var one = Object.assign({ id: 'fixture-updated-id' }, patch || {});
+          // .select() makes the update return the row it wrote, as PostgREST
+          // does -- a page that treats zero rows as an RLS refusal (the real
+          // shape of one) must see its successful update as a row.
+          var returning = false;
           var upd = {
             eq: function () { return upd; },
-            select: function () { return upd; },
+            select: function () { returning = true; return upd; },
             single: function () { return Promise.resolve(uErr ? { data: null, error: uErr } : { data: one, error: null }); },
             maybeSingle: function () { return Promise.resolve(uErr ? { data: null, error: uErr } : { data: one, error: null }); },
-            then: function (res, rej) { return Promise.resolve({ data: uErr ? null : [], error: uErr }).then(res, rej); }
+            then: function (res, rej) { return Promise.resolve({ data: uErr ? null : (returning ? [one] : []), error: uErr }).then(res, rej); }
           };
           return upd;
         } };

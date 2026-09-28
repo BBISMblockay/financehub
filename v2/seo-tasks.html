@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tasks · SEO — SILO</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    /* SEO Tasks: every seo_tasks row in one list, with the decision each one
+       is waiting on. Rules in seo-tasks.js; the boundary is RLS. */
+    .st-wrap { padding:18px 20px 32px; display:flex; flex-direction:column; gap:14px; max-width:1100px; }
+    .st-filters { display:flex; gap:8px; flex-wrap:wrap; }
+    .st-chip { all:unset; cursor:pointer; font-size:12.5px; padding:5px 12px; border-radius:999px; border:1px solid var(--bcn-border); background:var(--bcn-surface); color:var(--bcn-ink-2); }
+    .st-chip[aria-pressed="true"] { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+    .st-chip:focus-visible { outline:2px solid var(--bcn-accent); outline-offset:2px; }
+    .st-chip b { font-family:var(--bcn-mono); font-weight:600; margin-left:4px; }
+    .st-list { display:flex; flex-direction:column; gap:10px; }
+    .st-task { background:var(--bcn-surface); border:1px solid var(--bcn-border); border-radius:8px; padding:14px 16px; display:flex; flex-direction:column; gap:8px; }
+    .st-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; }
+    .st-title { font-size:15px; font-weight:700; color:var(--bcn-ink); margin:0; }
+    .st-meta { font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-3); display:flex; gap:12px; flex-wrap:wrap; }
+    .st-meta a { color:var(--bcn-ink-2); }
+    .st-pill { font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.04em; text-transform:uppercase; padding:3px 9px; border-radius:999px; white-space:nowrap; background:var(--bcn-bg); color:var(--bcn-ink-2); }
+    .st-pill--proposed { background:color-mix(in oklch, var(--bcn-warn) 16%, var(--bcn-surface)); color:color-mix(in oklch, var(--bcn-warn) 55%, var(--bcn-ink)); }
+    .st-pill--approved { background:var(--bcn-accent-soft); color:var(--bcn-accent); }
+    .st-pill--published { background:var(--bcn-pos-soft); color:color-mix(in oklch, var(--bcn-pos) 70%, var(--bcn-ink)); }
+    .st-pill--rejected { background:color-mix(in oklch, var(--bcn-neg) 12%, var(--bcn-surface)); color:var(--bcn-neg); }
+    .st-proposal { display:grid; grid-template-columns:150px 1fr; gap:4px 12px; font-size:13px; }
+    .st-proposal dt { font-family:var(--bcn-mono); font-size:10.5px; letter-spacing:.04em; text-transform:uppercase; color:var(--bcn-ink-3); padding-top:2px; }
+    .st-proposal dd { margin:0; color:var(--bcn-ink); white-space:pre-wrap; word-break:break-word; }
+    .st-proposal dd.is-empty { color:var(--bcn-ink-3); font-style:italic; }
+    .st-note { font-size:12.5px; color:var(--bcn-ink-2); }
+    .st-reject { font-size:12.5px; color:var(--bcn-neg); }
+    .st-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .st-rationale summary { cursor:pointer; font-size:12px; color:var(--bcn-ink-3); }
+    .st-rationale pre { margin:6px 0 0; font-family:var(--bcn-mono); font-size:11px; white-space:pre-wrap; color:var(--bcn-ink-2); }
+    .st-empty { padding:40px 20px; text-align:center; color:var(--bcn-ink-3); font-size:13.5px; }
+    .st-empty b { display:block; color:var(--bcn-ink); font-size:15px; margin-bottom:6px; }
+    dialog.st-dialog { border:1px solid var(--bcn-border); border-radius:10px; padding:0; width:min(620px, 94vw); max-height:88vh; }
+    dialog.st-dialog::backdrop { background:rgba(0,0,0,.35); }
+    #status { margin:12px 20px 0; }
+  </style>
+  <link rel="stylesheet" href="seo-suite.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+    <header class="bcn-header">
+      <div>
+        <div class="bcn-header-title">Tasks</div>
+        <div id="subtitle" class="st-meta">Loading…</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="st-wrap">
+      <p class="st-note" style="margin:0">Every SEO task: draft it in Studio, approve it here, make the change in Shopify, then record when it went live so SILO can measure before and after. Approving never changes the website.</p>
+      <div class="st-filters" id="filters" role="group" aria-label="Filter tasks"></div>
+      <div class="st-list" id="list"><div class="st-empty">Loading…</div></div>
+    </div>
+  </main>
+</div>
+
+<!-- Edit the proposal -->
+<dialog class="st-dialog" id="dlgEdit">
+  <div class="bcn-card" style="margin:0;border:0">
+    <div class="bcn-card-header"><h2>Edit task</h2><button class="bcn-btn bcn-btn--ghost" type="button" data-close>Close</button></div>
+    <div class="bcn-card-body">
+      <div class="bcn-field-group"><label class="bcn-label" for="eTitle">Task</label><input id="eTitle" class="bcn-field" /></div>
+      <div class="bcn-field-group"><label class="bcn-label" for="eUrl">Page (URL)</label><input id="eUrl" class="bcn-field bcn-field--mono" /></div>
+      <div class="bcn-field-group"><label class="bcn-label" for="eSeoTitle">New page title (what Google shows as the headline)</label><input id="eSeoTitle" class="bcn-field" /></div>
+      <div class="bcn-field-group"><label class="bcn-label" for="eSeoDesc">New search description <span id="eSeoDescCount" class="st-meta"></span></label><textarea id="eSeoDesc" class="bcn-field" rows="3"></textarea></div>
+      <div class="bcn-field-group"><label class="bcn-label" for="eBody">New page copy (introduction / heading)</label><textarea id="eBody" class="bcn-field" rows="5"></textarea></div>
+      <div class="bcn-field-group"><label class="bcn-label" for="eRationale">Why (evidence)</label><textarea id="eRationale" class="bcn-field bcn-field--mono" rows="4" style="font-size:11px"></textarea></div>
+      <div class="bcn-status bcn-status--neg" id="eError" role="alert" hidden></div>
+    </div>
+    <div class="bcn-card-foot" style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="bcn-btn bcn-btn--ghost" type="button" data-close>Cancel</button>
+      <button id="btnEditSave" class="bcn-btn bcn-btn--primary" type="button">Save</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Reject -->
+<dialog class="st-dialog" id="dlgReject">
+  <div class="bcn-card" style="margin:0;border:0">
+    <div class="bcn-card-header"><h2>Reject task</h2><button class="bcn-btn bcn-btn--ghost" type="button" data-close>Close</button></div>
+    <div class="bcn-card-body">
+      <div class="bcn-field-group"><label class="bcn-label" for="rReason">Why? The person who drafted it sees this.</label><textarea id="rReason" class="bcn-field" rows="3"></textarea></div>
+      <div class="bcn-status bcn-status--neg" id="rError" role="alert" hidden></div>
+    </div>
+    <div class="bcn-card-foot" style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="bcn-btn bcn-btn--ghost" type="button" data-close>Cancel</button>
+      <button id="btnRejectSave" class="bcn-btn bcn-btn--danger" type="button">Reject</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Record the publication -->
+<dialog class="st-dialog" id="dlgPublish">
+  <div class="bcn-card" style="margin:0;border:0">
+    <div class="bcn-card-header"><h2>Mark as published</h2><button class="bcn-btn bcn-btn--ghost" type="button" data-close>Close</button></div>
+    <div class="bcn-card-body">
+      <p class="st-note" style="margin-top:0">Record this only once the change is live on the website. SILO measures the page's search results from this date, so it should be when the change went live, not when you record it.</p>
+      <div class="bcn-field-group"><label class="bcn-label" for="pWhen">Went live</label><input id="pWhen" type="datetime-local" class="bcn-field" /></div>
+      <div class="bcn-field-group"><label class="bcn-label" for="pNote">Note (optional)</label><input id="pNote" class="bcn-field" placeholder="e.g. changed in Shopify admin, collection SEO settings" /></div>
+      <div class="bcn-status bcn-status--neg" id="pError" role="alert" hidden></div>
+    </div>
+    <div class="bcn-card-foot" style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="bcn-btn bcn-btn--ghost" type="button" data-close>Cancel</button>
+      <button id="btnPublishSave" class="bcn-btn bcn-btn--primary" type="button">Mark published</button>
+    </div>
+  </div>
+</dialog>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="seo-suite.js"></script>
+<script src="silo-chrome.js"></script>
+<script src="seo-keywords.js"></script>
+<script src="seo-studio.js"></script>
+<script src="seo-tasks.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { fetch: (url, o = {}) => fetch(url, { ...o, cache: 'no-store' }) },
+  });
+  const T = window.SiloSeoTasks;
+  const ST = window.SiloSeoStudio;
+
+  const el = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+  const safeHref = u => (/^https?:\/\/[^\s]+$/i.test(String(u || '')) ? String(u) : null);
+  const dayFmt = iso => { const t = Date.parse(iso || ''); return isNaN(t) ? '—' : new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
+  const dateOnlyFmt = d => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d || ''); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '—'; };
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg;
+    s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+  // PostgREST refuses an RLS-blocked UPDATE with zero rows, not an error.
+  const refusedMsg = 'Not saved: you do not have permission to change this task.';
+
+  let _co = null, _user = null;
+  const S = { tasks: [], pubs: [], names: {}, canApprove: false, filter: 'open', current: null };
+  const scoped = q => (_co?.id ? q.eq('company_entity_id', _co.id) : q);
+
+  const FILTERS = [
+    ['open', 'Open', c => c.draft + c.proposed + c.approved],
+    ['proposed', 'Waiting for approval', c => c.proposed],
+    ['approved', 'Approved', c => c.approved],
+    ['draft', 'Drafts', c => c.draft],
+    ['published', 'Published', c => c.published],
+    ['rejected', 'Rejected', c => c.rejected],
+    ['all', 'All', c => c.all],
+  ];
+  const inFilter = s => S.filter === 'all' || (S.filter === 'open' ? ['draft', 'proposed', 'approved'].includes(s) : s === S.filter);
+
+  async function load() {
+    const [tasks, ap] = await Promise.all([
+      scoped(sb.from('seo_tasks').select('id, title, approval_status, target_type, target_url, target_handle, rationale, proposed_title, proposed_meta_description, proposed_body, rejection_reason, approved_by, approved_at, created_by, created_at, updated_at, current_revision_number')).order('created_at', { ascending: false }).limit(1000),
+      sb.rpc('can_approve_seo_tasks'),
+    ]);
+    if (tasks.error) throw tasks.error;
+    S.tasks = tasks.data || [];
+    S.canApprove = !ap.error && ap.data === true;
+    S.pubs = [];
+    if (S.tasks.length) {
+      const p = await scoped(sb.from('seo_task_publications').select('id, task_id, published_at, published_by, method, note')).in('task_id', S.tasks.map(t => t.id)).limit(2000);
+      if (p.error) throw p.error;
+      S.pubs = p.data || [];
+    }
+    const ids = [...new Set([...S.tasks.map(t => t.created_by), ...S.tasks.map(t => t.approved_by), ...S.pubs.map(p => p.published_by)].filter(Boolean))];
+    S.names = {};
+    if (ids.length) {
+      const n = await sb.from('profiles').select('id, name, email').in('id', ids);
+      (n.data || []).forEach(r => { S.names[r.id] = r.name || r.email || 'a teammate'; });
+    }
+  }
+  const who = id => (id ? (S.names[id] || 'a teammate') : '—');
+
+  function renderFilters() {
+    const c = T.counts(S.tasks, S.pubs);
+    el('filters').innerHTML = FILTERS.map(([k, label, n]) =>
+      `<button type="button" class="st-chip" data-filter="${k}" aria-pressed="${S.filter === k}">${esc(label)}<b>${n(c)}</b></button>`).join('');
+  }
+
+  const ACTION_BTN = {
+    approve: ['Approve', 'bcn-btn--primary'],
+    submit: ['Send for approval', 'bcn-btn--primary'],
+    publish: ['Mark published', 'bcn-btn--primary'],
+    edit: ['Edit', 'bcn-btn--ghost'],
+    withdraw: ['Withdraw', 'bcn-btn--ghost'],
+    unapprove: ['Withdraw approval', 'bcn-btn--ghost'],
+    reopen: ['Reopen', 'bcn-btn--ghost'],
+    reject: ['Reject', 'bcn-btn--ghost'],
+    delete: ['Delete', 'bcn-btn--danger'],
+  };
+
+  function proposalHtml(t) {
+    const row = (label, v) => `<dt>${esc(label)}</dt><dd class="${v ? '' : 'is-empty'}">${v ? esc(v) : 'Not written yet'}</dd>`;
+    return `<dl class="st-proposal">${row('Page title', t.proposed_title)}${row('Search description', t.proposed_meta_description)}${row('Page copy', t.proposed_body)}</dl>`;
+  }
+
+  function taskHtml(t) {
+    const s = T.stage(t, S.pubs);
+    const pubs = T.publicationsFor(t, S.pubs);
+    const last = pubs[pubs.length - 1];
+    const page = safeHref(t.target_url);
+    const studio = T.studioHref(t.target_url, ST);
+    const meta = [
+      page ? `<a href="${esc(page)}" target="_blank" rel="noopener">${esc(t.target_url.replace(/^https?:\/\/[^/]+/, '') || t.target_url)}</a>` : (t.target_url ? esc(t.target_url) : 'No page named'),
+      studio ? `<a href="${esc(studio)}">Open in Studio</a>` : null,
+      `Drafted by ${esc(who(t.created_by))} · ${esc(dayFmt(t.created_at))}`,
+      t.approved_at && s !== 'rejected' ? `Approved by ${esc(who(t.approved_by))} · ${esc(dayFmt(t.approved_at))}` : null,
+    ].filter(Boolean).map(x => `<span>${x}</span>`).join('');
+    const published = last
+      ? `<div class="st-note">Live since <b>${esc(dayFmt(last.published_at))}</b> (recorded by ${esc(who(last.published_by))}${last.note ? ` — ${esc(last.note)}` : ''}). Follow-up measurements: ${T.followUps(last.published_at).map(f => `${f.days} days on ${esc(dateOnlyFmt(f.on))}`).join(', ')}.</div>`
+      : '';
+    const rejected = s === 'rejected' && t.rejection_reason ? `<div class="st-reject">Rejected: ${esc(t.rejection_reason)}</div>` : '';
+    const acts = T.actions(t, S.pubs, { userId: _user?.id, canApprove: S.canApprove })
+      .map(a => `<button type="button" class="bcn-btn ${ACTION_BTN[a][1]}" data-act="${a}" data-id="${esc(t.id)}">${esc(ACTION_BTN[a][0])}</button>`).join('');
+    return `<article class="st-task" data-task="${esc(t.id)}">
+      <div class="st-head"><h3 class="st-title">${esc(t.title)}</h3><span class="st-pill st-pill--${s}">${esc(T.STAGE_LABEL[s])}</span></div>
+      <div class="st-meta">${meta}</div>
+      ${proposalHtml(t)}
+      ${rejected}${published}
+      ${t.rationale ? `<details class="st-rationale"><summary>Why (evidence)</summary><pre>${esc(t.rationale)}</pre></details>` : ''}
+      ${acts ? `<div class="st-actions">${acts}</div>` : ''}
+    </article>`;
+  }
+
+  function render() {
+    renderFilters();
+    const rows = T.sort(S.tasks, S.pubs).filter(t => inFilter(T.stage(t, S.pubs)));
+    el('list').innerHTML = rows.length ? rows.map(taskHtml).join('') : (S.tasks.length
+      ? `<div class="st-empty"><b>Nothing here.</b>No task is in this state.</div>`
+      : `<div class="st-empty"><b>No SEO tasks yet.</b>Open a page in <a href="/v2/seo-studio.html">Studio</a> and choose “Create draft task”.</div>`);
+    const c = T.counts(S.tasks, S.pubs);
+    el('subtitle').textContent = `${c.proposed} waiting for approval · ${c.approved} approved, not published · ${S.canApprove ? 'you can approve' : 'you can draft and edit your own tasks'}`;
+  }
+
+  async function update(id, patch) {
+    const { data, error } = await sb.from('seo_tasks').update(patch).eq('id', id).select('id');
+    if (error) throw error;
+    if (!data || !data.length) throw new Error(refusedMsg);
+  }
+
+  async function refresh(msg) {
+    await load();
+    render();
+    if (msg) setStatus(msg, 'pos', 3500);
+  }
+
+  const find = id => S.tasks.find(t => t.id === id);
+
+  async function run(action, id, opts) {
+    const r = T.patchFor(action, Object.assign({ userId: _user?.id }, opts || {}));
+    if (!r.ok) throw new Error(r.error);
+    await update(id, r.patch);
+  }
+
+  el('filters').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-filter]');
+    if (!b) return;
+    S.filter = b.dataset.filter;
+    render();
+  });
+
+  el('list').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const t = find(b.dataset.id);
+    if (!t) return;
+    S.current = t;
+    const act = b.dataset.act;
+    if (act === 'edit') return openEdit(t);
+    if (act === 'reject') { el('rReason').value = ''; el('rError').hidden = true; el('dlgReject').showModal(); return; }
+    if (act === 'publish') {
+      const d = new Date(); d.setSeconds(0, 0);
+      el('pWhen').value = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      el('pNote').value = ''; el('pError').hidden = true; el('dlgPublish').showModal(); return;
+    }
+    if (act === 'delete') {
+      if (!confirm('Delete this task? Its edit history goes with it.')) return;
+      b.disabled = true;
+      try {
+        const { data, error } = await sb.from('seo_tasks').delete().eq('id', t.id).select('id');
+        if (error) throw error;
+        if (!data || !data.length) throw new Error('Not deleted: you do not have permission to delete this task.');
+        await refresh('Task deleted.');
+      } catch (err) { setStatus(String(err.message || err), 'neg'); b.disabled = false; }
+      return;
+    }
+    b.disabled = true;
+    try {
+      await run(act, t.id);
+      await refresh({ approve: 'Approved. Make the change in Shopify, then mark it published.', submit: 'Sent for approval.', withdraw: 'Moved back to draft.', unapprove: 'Approval withdrawn.', reopen: 'Reopened as a draft.' }[act]);
+    } catch (err) { setStatus(String(err.message || err), 'neg'); b.disabled = false; }
+  });
+
+  function openEdit(t) {
+    el('eTitle').value = t.title || '';
+    el('eUrl').value = t.target_url || '';
+    el('eSeoTitle').value = t.proposed_title || '';
+    el('eSeoDesc').value = t.proposed_meta_description || '';
+    el('eBody').value = t.proposed_body || '';
+    el('eRationale').value = t.rationale || '';
+    el('eError').hidden = true;
+    countDesc();
+    el('dlgEdit').showModal();
+  }
+  function countDesc() {
+    const n = el('eSeoDesc').value.trim().length;
+    el('eSeoDescCount').textContent = n ? `${n} characters · Google shows about 155` : '';
+  }
+  el('eSeoDesc').addEventListener('input', countDesc);
+
+  document.querySelectorAll('dialog').forEach(d => d.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) d.close(); }));
+
+  el('btnEditSave').addEventListener('click', async () => {
+    const t = S.current; if (!t) return;
+    const btn = el('btnEditSave'); btn.disabled = true;
+    try {
+      await run('edit', t.id, { fields: {
+        title: el('eTitle').value, target_url: el('eUrl').value, rationale: el('eRationale').value,
+        proposed_title: el('eSeoTitle').value, proposed_meta_description: el('eSeoDesc').value, proposed_body: el('eBody').value,
+      } });
+      el('dlgEdit').close();
+      await refresh('Saved.');
+    } catch (err) { el('eError').textContent = String(err.message || err); el('eError').hidden = false; }
+    finally { btn.disabled = false; }
+  });
+
+  el('btnRejectSave').addEventListener('click', async () => {
+    const t = S.current; if (!t) return;
+    const btn = el('btnRejectSave'); btn.disabled = true;
+    try {
+      await run('reject', t.id, { reason: el('rReason').value });
+      el('dlgReject').close();
+      await refresh('Rejected.');
+    } catch (err) { el('rError').textContent = String(err.message || err); el('rError').hidden = false; }
+    finally { btn.disabled = false; }
+  });
+
+  el('btnPublishSave').addEventListener('click', async () => {
+    const t = S.current; if (!t) return;
+    const when = T.publishedAt(el('pWhen').value);
+    if (!when.ok) { el('pError').textContent = when.error; el('pError').hidden = false; return; }
+    const btn = el('btnPublishSave'); btn.disabled = true;
+    try {
+      const { error } = await sb.from('seo_task_publications').insert(window.__SILO_CONFIG__.withCompany({
+        task_id: t.id, published_at: when.iso, published_by: _user?.id || null,
+        method: 'manual_confirmation', note: el('pNote').value.trim() || null,
+      }));
+      if (error) throw error;
+      el('dlgPublish').close();
+      await refresh('Recorded as published. SILO will measure the page from this date.');
+    } catch (err) { el('pError').textContent = String(err.message || err); el('pError').hidden = false; }
+    finally { btn.disabled = false; }
+  });
+
+  el('btnRefresh').addEventListener('click', async () => {
+    el('btnRefresh').disabled = true;
+    try { await refresh(); } catch (err) { setStatus(`Load failed: ${err.message || err}`, 'neg'); }
+    finally { el('btnRefresh').disabled = false; }
+  });
+
+  async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) { window.location.href = '/pages/login.html'; return; }
+    _user = sess.data.session.user;
+    _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({ appEl: '#silo-app', active: 'seo/tasks', user: { email: _user?.email || '', role: 'admin' }, crumbs: ['Marketing', 'SEO', 'Tasks'], supabaseClient: sb });
+    }
+    const want = new URLSearchParams(location.search).get('filter');
+    if (FILTERS.some(([k]) => k === want)) S.filter = want;
+    try { await load(); render(); }
+    catch (err) {
+      setStatus(`Load failed: ${err.message || err}`, 'neg');
+      el('list').innerHTML = `<div class="st-empty"><b>Could not load tasks.</b>${esc(err.message || err)}</div>`;
+    }
+  }
+  boot();
+</script>
+</body>
+</html>

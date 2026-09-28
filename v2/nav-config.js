@@ -79,6 +79,7 @@
     ['seo/studio','Studio','seo-studio.html'],
     ['seo/performance','Search performance','seo-overview.html'],
     ['seo/keywords','Keywords','seo-keywords.html'],
+    ['seo/tasks','Tasks','seo-tasks.html'],
   ];
 
   const FINANCE_DEPTS = ['exec', 'finance'];

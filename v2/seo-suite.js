@@ -1,4 +1,4 @@
-/* SEO suite navigation only: Studio, Search performance and Keywords as one
+/* SEO suite navigation only: Studio, Search performance, Keywords and Tasks as one
    tab strip across their own pages. Same shape as workspace-settings.js and
    accounting-suite.js -- a strip of REAL links across REAL pages, so every
    existing URL and bookmark keeps working and no page is implemented twice. */
@@ -17,6 +17,8 @@
     'seo/performance': '<polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/>',
     // A magnifier: the searches tracked.
     'seo/keywords': '<circle cx="11" cy="11" r="6"/><line x1="20" y1="20" x2="15.5" y2="15.5"/>',
+    // A checklist: the changes waiting on a decision.
+    'seo/tasks': '<polyline points="4 7 6 9 9 5"/><line x1="12" y1="7" x2="20" y2="7"/><polyline points="4 15 6 17 9 13"/><line x1="12" y1="15" x2="20" y2="15"/>',
   };
   const FALLBACK = '<path d="M14 3H6v18h12V7z"/><polyline points="14 3 14 7 18 7"/>';
   const svg = (id) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"'
