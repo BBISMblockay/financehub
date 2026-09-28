@@ -5,6 +5,7 @@ import {
   missingForSync,
   normalizeGranted,
 } from './shopify-scopes.ts';
+import { ensureShopifyAccessToken, hasFullOrderHistory, ShopifyTokenError } from './shopify-auth-lib.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -59,7 +60,35 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { shop_domain, access_token } = body as { shop_domain: string; access_token: string };
+    let { shop_domain, access_token } = body as { shop_domain: string; access_token: string };
+    const connectionId = String((body as { connection_id?: string }).connection_id ?? '').trim();
+
+    // By connection id: read the row as the CALLER (RLS scopes it to their
+    // active company), then get its token with the service role -- which is
+    // what mints a fresh one for a client-credentials store, whose client
+    // secret the browser can never read. The browser never handles the token.
+    if (connectionId) {
+      const { data: conn, error: connErr } = await supabase
+        .from('shopify_connections')
+        .select('id, shop_domain, access_token, auth_method, token_expires_at')
+        .eq('id', connectionId)
+        .maybeSingle();
+      if (connErr || !conn) {
+        return new Response(JSON.stringify({ ok: false, error: 'Connection not found' }), {
+          status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+      try {
+        access_token = await ensureShopifyAccessToken(admin, conn) ?? '';
+      } catch (err) {
+        const message = err instanceof ShopifyTokenError ? err.message : String(err);
+        return new Response(JSON.stringify({ ok: false, error: message }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      shop_domain = conn.shop_domain;
+    }
 
     if (!shop_domain || !access_token) {
       return new Response(JSON.stringify({ error: 'shop_domain and access_token are required' }), {
@@ -118,6 +147,10 @@ Deno.serve(async (req) => {
         missing_by_job: missingByJob,
         scopes_error: scopesError,
         scopes_checked_at: checkedAt,
+        // Without read_all_orders Shopify returns only the last 60 days of
+        // orders, with no error -- a history import would silently start
+        // two months ago. The page says so rather than showing an empty past.
+        full_order_history: hasFullOrderHistory(scopesGranted),
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );

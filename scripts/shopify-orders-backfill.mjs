@@ -16,6 +16,7 @@
 // range is idempotent and overlapping the nightly sync is safe.
 
 import { createClient } from '@supabase/supabase-js';
+import { ensureShopifyAccessToken } from './lib/shopify-auth-lib.mjs';
 import { connectionReadyForSync } from './lib/shopify-scopes.mjs';
 import {
   DEFAULT_API_VERSION,
@@ -106,6 +107,10 @@ async function loadConnections() {
 }
 
 async function backfillConnection(connection) {
+  // A client-credentials connection (the store's own Dev Dashboard app) holds a
+  // 24-hour token: mint a fresh one before any request. A no-op for every
+  // other connection. A refusal fails THIS store only -- the caller catches it.
+  await ensureShopifyAccessToken(supabase, connection);
   let rangeStart;
   let rangeEnd;
   if (BACKFILL_START) {

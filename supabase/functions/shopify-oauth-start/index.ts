@@ -1,14 +1,26 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { chooseOAuthApp, mayConnect, normalizeShopDomain, PUBLIC_SCOPES } from './shopify-auth-lib.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const CLIENT_ID = Deno.env.get('SHOPIFY_CLIENT_ID') ?? '';
+// Which of SILO's two Shopify apps starts the flow: the public app once its
+// keys are set, the legacy custom app until then (shopify-auth-lib.mjs).
+const APP = chooseOAuthApp({
+  SHOPIFY_PUBLIC_CLIENT_ID: Deno.env.get('SHOPIFY_PUBLIC_CLIENT_ID'),
+  SHOPIFY_PUBLIC_CLIENT_SECRET: Deno.env.get('SHOPIFY_PUBLIC_CLIENT_SECRET'),
+  SHOPIFY_CLIENT_ID: Deno.env.get('SHOPIFY_CLIENT_ID'),
+  SHOPIFY_CLIENT_SECRET: Deno.env.get('SHOPIFY_CLIENT_SECRET'),
+});
 const CALLBACK_URL = 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/shopify-oauth-callback';
 
-const SCOPES = [
+// The LEGACY app's scopes, unchanged: Baseballism's stores were installed
+// with these (read_all_orders included) and a reconnect must not quietly lose
+// any. The public app asks for PUBLIC_SCOPES -- what the sync reads, since
+// Shopify's review rejects unused scopes.
+const LEGACY_SCOPES = [
   'read_all_orders','read_analytics','read_app_proxy','read_apps',
   'read_assigned_fulfillment_orders','read_audit_events','read_customer_events',
   'read_cart_transforms','read_all_cart_transforms','read_validations',
@@ -37,8 +49,8 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
-  if (!CLIENT_ID) {
-    return new Response(JSON.stringify({ error: 'SHOPIFY_CLIENT_ID not configured' }), {
+  if (!APP) {
+    return new Response(JSON.stringify({ error: 'Shopify app keys not configured' }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
@@ -65,7 +77,26 @@ Deno.serve(async (req) => {
     });
   }
 
-  const shop = shop_domain.includes('.') ? shop_domain : `${shop_domain}.myshopify.com`;
+  const shop = normalizeShopDomain(shop_domain);
+  if (!shop) {
+    return new Response(JSON.stringify({ error: 'Enter the store\'s myshopify.com address' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // The caller must administer the company they name, with an active
+  // account. This function runs with the service role, so RLS is not doing it;
+  // before 2026-09-28 any signed-in user could start a flow for any company.
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles').select('role, active_company_id, is_active').eq('id', user.id).maybeSingle();
+  const { data: membership, error: membershipError } = await supabase
+    .from('entity_memberships').select('role').eq('entity_id', company_entity_id).eq('user_id', user.id).maybeSingle();
+  if (!mayConnect({ profile, profileError, membership, membershipError, companyId: company_entity_id })) {
+    return new Response(JSON.stringify({ error: 'Admin access required for this company' }), {
+      status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
   const nonce = crypto.randomUUID();
 
   const { error: stateErr } = await supabase.from('shopify_oauth_states').insert({
@@ -73,6 +104,7 @@ Deno.serve(async (req) => {
     company_entity_id,
     user_id: user.id,
     shop_domain: shop,
+    oauth_app: APP.app,
   });
 
   if (stateErr) {
@@ -82,8 +114,8 @@ Deno.serve(async (req) => {
   }
 
   const authorizeUrl = `https://${shop}/admin/oauth/authorize?` + new URLSearchParams({
-    client_id: CLIENT_ID,
-    scope: SCOPES,
+    client_id: APP.clientId,
+    scope: APP.app === 'public' ? PUBLIC_SCOPES.join(',') : LEGACY_SCOPES,
     redirect_uri: CALLBACK_URL,
     state: nonce,
   }).toString();

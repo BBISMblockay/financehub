@@ -12,6 +12,7 @@ import {
   serializeSkuMetaCache,
 } from './lib/shopify-sync-core.mjs';
 import { connectionReadyForSync } from './lib/shopify-scopes.mjs';
+import { ensureShopifyAccessToken } from './lib/shopify-auth-lib.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -401,11 +402,15 @@ Deno.serve(async (req) => {
 
     if (action === 'list_shopify_locations') {
       const connection = await assertAdminConnection(userClient, user.id, connectionId);
+      await ensureShopifyAccessToken(admin, connection);
       const locations = await fetchShopifyLocations(connection);
       return json({ ok: true, locations });
     }
 
     const connection = await assertAdminWithConnection(userClient, user.id, connectionId);
+    // A client-credentials store's token lasts 24 hours: mint a fresh one with
+    // the service role (the only reader of the client secret). No-op otherwise.
+    await ensureShopifyAccessToken(admin, connection);
 
     switch (action) {
       case 'start_history_backfill': {
