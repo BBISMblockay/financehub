@@ -1560,6 +1560,10 @@ select
     when exists (select 1 from pg_policy where polrelid = 'public.silo_chat_responses'::regclass
                    and polcmd in ('r','*') and pg_get_expr(polqual, polrelid) not ilike '%created_by = auth.uid()%')
       then 'CRITICAL — a silo_chat_responses read policy is wider than the asker'
+    when exists (select 1 from pg_policy where polrelid = 'public.silo_chat_responses'::regclass
+                   and ((polcmd in ('r','*') and pg_get_expr(polqual, polrelid) not ilike '%active_company_id()%')
+                     or (polcmd in ('a','*') and coalesce(pg_get_expr(polwithcheck, polrelid), '') not ilike '%active_company_id()%')))
+      then 'MISSING — run 20260928150000_silo_chat_responses_company_scope.sql (a reply asked in one company is readable from another)'
     when has_table_privilege('anon', 'public.silo_chat_responses', 'select')
       then 'CRITICAL — anon can read silo_chat_responses'
     when has_table_privilege('authenticated', 'public.silo_chat_responses', 'update')

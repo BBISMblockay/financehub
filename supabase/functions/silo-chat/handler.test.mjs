@@ -985,6 +985,9 @@ await test('a slow request asking for deferred delivery gets 202, then its answe
     }
     eq(rows.length, 1, 'finished response stored');
     eq(rows[0].payload.request_id, RID, 'under the request id');
+    // The company read at the START of the request, sent explicitly -- left to
+    // the stamp trigger it would be whatever is active when the answer lands.
+    eq(rows[0].payload.company_entity_id, COMPANY_A, 'filed under the company the question was asked in');
     eq(rows[0].payload.http_status, 200, 'status stored');
     eq(rows[0].payload.response.answer, 'Deep answer.', 'the full response body is stored');
   } finally {

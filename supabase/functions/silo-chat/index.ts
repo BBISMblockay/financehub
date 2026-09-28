@@ -1127,12 +1127,27 @@ const edgeRuntime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unk
 // written AS THE ASKER with their own token, so RLS makes it theirs and nobody
 // else's. A failure here is logged, not fatal -- the audit row still carries
 // the answer, and the page falls back to it.
+//
+// The row names the company read at the START of the request, explicitly --
+// the same guarantee as every other write here. Left to the stamp trigger it
+// would take whatever company is active when the answer FINISHES, so an asker
+// who switched mid-request would find company A's answer filed under B. Sent
+// explicitly, the insert policy (company = active_company_id()) refuses it
+// instead. Keyed by the Request object, which the wrapper passes to both the
+// handler and this function, so nothing outlives the request.
+const COMPANY_AT_START = new WeakMap<Request, string>();
 async function storeFinishedResponse(req: Request, requestId: string, status: number, body: unknown) {
   const auth = req.headers.get('Authorization') || '';
   if (!/^Bearer\s+\S+/i.test(auth)) return;
+  const company = COMPANY_AT_START.get(req) ?? null;
+  // No company resolved means the request ended before the company check --
+  // an auth or input refusal -- or the asker has none. Nothing to file it
+  // under, and the page falls back to its own error path.
+  if (!company) return;
   const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { headers: { Authorization: auth } } });
   const { error } = await client.from('silo_chat_responses').insert({
     request_id: requestId,
+    company_entity_id: company,
     http_status: status,
     response: body,
   });
@@ -1271,6 +1286,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
 
     const companyAtStart = await readActiveCompany();
     if (!companyAtStart.ok) return reply(UNVERIFIED, 503);
+    if (companyAtStart.companyId) COMPANY_AT_START.set(req, companyAtStart.companyId);
     if (declaredCompany && companyAtStart.companyId && declaredCompany !== companyAtStart.companyId) {
       return reply({
         error: "This tab is set to a different company than your account is currently active in -- so this question wasn't run, rather than being answered against the wrong company's numbers. Reload the page and ask again.",
