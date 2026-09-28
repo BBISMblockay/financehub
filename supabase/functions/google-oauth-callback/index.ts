@@ -1,9 +1,12 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { acceptReturnOrigin, parseOrigins, returnUrl } from './google-oauth-lib.mjs';
 
 const CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') ?? '';
 const CLIENT_SECRET = Deno.env.get('GOOGLE_CLIENT_SECRET') ?? '';
 const CALLBACK_URL = 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/google-oauth-callback';
 const SILO_APP_URL = Deno.env.get('SILO_APP_URL') ?? 'https://bbismblockay.github.io/financehub';
+// Set together with the SILO Google client's keys; see google-oauth-lib.mjs.
+const REDIRECT_ORIGINS = parseOrigins(Deno.env.get('GOOGLE_OAUTH_REDIRECT_ORIGINS'));
 
 Deno.serve(async (req) => {
   const url = new URL(req.url);
@@ -13,10 +16,23 @@ Deno.serve(async (req) => {
   const state = params.get('state');
   const oauthError = params.get('error');
 
+  // Return-page mode: the page reports which site it is on. Only an allowed
+  // origin is honoured -- and the token exchange below repeats it as
+  // redirect_uri, which Google checks against the authorization request, so a
+  // forged value fails there too. The person is sent back to that same site.
+  let redirectUri = CALLBACK_URL;
+  let appUrl = SILO_APP_URL;
+  let badOrigin = false;
+  if (REDIRECT_ORIGINS.length) {
+    const origin = acceptReturnOrigin(params.get('return_origin'), REDIRECT_ORIGINS);
+    if (origin) { redirectUri = returnUrl(origin); appUrl = origin; } else { appUrl = REDIRECT_ORIGINS[0]; badOrigin = true; }
+  }
+
   const errorRedirect = (msg: string) =>
-    Response.redirect(`${SILO_APP_URL}/v2/integrations.html?oauth_error=${encodeURIComponent(msg)}`, 302);
+    Response.redirect(`${appUrl}/v2/integrations.html?oauth_error=${encodeURIComponent(msg)}`, 302);
 
   if (oauthError) return errorRedirect(oauthError);
+  if (badOrigin) return errorRedirect('invalid_return_origin');
   if (!code || !state) return errorRedirect('missing_params');
   if (!CLIENT_ID || !CLIENT_SECRET) return errorRedirect('server_misconfigured');
 
@@ -43,7 +59,7 @@ Deno.serve(async (req) => {
       client_secret: CLIENT_SECRET,
       code,
       grant_type: 'authorization_code',
-      redirect_uri: CALLBACK_URL,
+      redirect_uri: redirectUri,
     }).toString(),
   });
 
@@ -82,7 +98,7 @@ Deno.serve(async (req) => {
   if (insertErr) return errorRedirect(`save_failed: ${insertErr.message}`);
 
   return Response.redirect(
-    `${SILO_APP_URL}/v2/integrations.html?oauth_connected=1&platform=${stateRow.platform}`,
+    `${appUrl}/v2/integrations.html?oauth_connected=1&platform=${stateRow.platform}`,
     302,
   );
 });

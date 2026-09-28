@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- The address bar holds Google's one-time code: never send it on as a referrer. -->
+<meta name="referrer" content="no-referrer" />
+<meta name="robots" content="noindex" />
+<title>Connecting to Google — SILO</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: oklch(0.13 0.01 240); color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; padding: 24px; box-sizing: border-box; }
+  p { color: rgba(255,255,255,.7); font-size: 15px; margin: 0; text-align: center; }
+  a { color: #fff; }
+</style>
+</head>
+<body>
+  <!-- Where Google sends a person back after they approve SILO (the SILO
+       Google client lists <origin>/oauth/google.html as its redirect URIs).
+       It only forwards: the code, the state and which site this is go to the
+       google-oauth-callback function, which checks the state, exchanges the
+       code with the secret it holds, saves the connection and returns the
+       person to Integrations on this same site. See
+       supabase/functions/google-oauth-start/google-oauth-lib.mjs. Public on
+       purpose: it loads no session and holds no secret. -->
+  <p id="msg">Finishing your Google connection…</p>
+  <script src="/pages/config.js"></script>
+  <script>
+    (function () {
+      var base = String((window.__SILO_CONFIG__ || {}).SUPABASE_URL || '').replace(/\/$/, '');
+      var q = window.location.search || '';
+      if (!base || !q) {
+        document.getElementById('msg').innerHTML = 'This page finishes a Google connection started from SILO. <a href="/v2/integrations.html">Back to Integrations</a>';
+        return;
+      }
+      var target = base + '/functions/v1/google-oauth-callback' + q + '&return_origin=' + encodeURIComponent(window.location.origin);
+      // replace(): the code never stays in this tab's history.
+      window.location.replace(target);
+    })();
+  </script>
+</body>
+</html>
