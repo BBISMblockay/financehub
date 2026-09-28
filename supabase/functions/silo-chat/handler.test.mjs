@@ -1182,6 +1182,24 @@ await test('an unknown column is answered with the relation\'s real columns', as
   assert(/day_date/.test(r), 'day_date -- the actual column -- was not named');
 });
 
+// Live re-run 2026-09-28 15:32: this view timed out, was retried with a
+// narrower filter, and timed out again -- filtering cannot help it.
+await test('a timeout on a whole-history rollup names the pre-computed alternative', async () => {
+  const sql = "SELECT month_start, location, net FROM sales_monthly_location_rollup_v WHERE month_start >= '2026-07-01'";
+  const model = installModel([sqlRound(sql), say('done')]);
+  await ask(BASIC, { rpcError: { message: 'canceling statement due to statement timeout' } });
+  const r = toolResultsSeen(model.sent)[0];
+  assert(/statement timeout/.test(r), `the original error was lost: ${r}`);
+  assert(/Use sales_monthly_product_type_rollup_v instead/.test(r), `no alternative named: ${r}`);
+});
+
+await test('...and an ordinary timeout gets no invented hint', async () => {
+  const model = installModel([sqlRound("select sum(total_net_sales) from sales_by_day"), say('done')]);
+  await ask(BASIC, { rpcError: { message: 'canceling statement due to statement timeout' } });
+  const r = toolResultsSeen(model.sent)[0];
+  assert(!/Hint:/.test(r), `a hint was attached to an ordinary timeout: ${r}`);
+});
+
 await test('...with the near-miss called out ahead of the full list', async () => {
   const model = installModel([sqlRound(AD_SQL), say('done')]);
   await ask(BASIC, { rpcError: colErr('date') });

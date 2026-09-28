@@ -6,13 +6,14 @@
  *
  * Run: node supabase/functions/silo-chat/query-shape.test.mjs
  */
-import { rewriteSlowShapes } from './query-shape-lib.mjs';
+import { rewriteSlowShapes, timeoutHint } from './query-shape-lib.mjs';
 
 let failed = 0;
 let passed = 0;
 function test(name, fn) {
   try { fn(); passed++; } catch (err) { failed++; console.error(`FAIL ${name}\n  ${err.message}`); }
 }
+function assert(c, m) { if (!c) throw new Error(m); }
 function eq(actual, expected, what = 'value') {
   if (actual !== expected) throw new Error(`${what}:\n    expected ${JSON.stringify(expected)}\n    actual   ${JSON.stringify(actual)}`);
 }
@@ -48,7 +49,7 @@ FROM sales_by_day WHERE day_date >= (current_date - 180) AND day_date < current_
 
 test('weeks convert to days, plus and uppercase handled', () => {
   eq(rewriteSlowShapes("select 1 from t where d >= CURRENT_DATE - INTERVAL '2 weeks' and d < current_date + interval '1 day'").sql,
-    "select 1 from t where d >= (current_date - 14) and d < (current_date + 1)");
+    "select 1 from t where d >= (CURRENT_DATE - 14) and d < (current_date + 1)");
 });
 
 test("'N days'::interval form", () => {
@@ -80,6 +81,22 @@ test('compound or unparseable intervals are left alone', () => {
 
 test('date_trunc and other bases are not touched (outside the proven shape)', () => {
   same("select 1 from t where d >= date_trunc('month', current_date) - interval '13 months'");
+});
+
+test('silo_business_today()/_yesterday() are date bases too (live re-run 2026-09-28 15:32)', () => {
+  // The exact statement that timed out twice on the first live re-run.
+  const sql = "SELECT date_trunc('month', day_date)::date AS month, SUM(total_net_sales) AS net_sales\nFROM sales_by_day\nWHERE day_date >= (silo_business_today() - INTERVAL '13 months')\nGROUP BY 1";
+  const r = rewriteSlowShapes(sql);
+  eq(r.sql, "SELECT date_trunc('month', day_date)::date AS month, SUM(total_net_sales) AS net_sales\nFROM sales_by_day\nWHERE day_date >= ((silo_business_today() - INTERVAL '13 months')::date)\nGROUP BY 1");
+  eq(rewriteSlowShapes("select 1 from t where d >= silo_business_today() - interval '90 days'").sql,
+    "select 1 from t where d >= (silo_business_today() - 90)");
+  eq(rewriteSlowShapes("select 1 from t where d > public.silo_business_yesterday() - '1 week'::interval").sql,
+    "select 1 from t where d > (public.silo_business_yesterday() - 7)");
+});
+
+test('a function that is not known to return date is not a base', () => {
+  same("select 1 from t where d >= silo_business_timezone() - interval '1 day'");
+  same("select 1 from t where d >= my_today() - interval '1 day'");
 });
 
 // ---- channel tags -----------------------------------------------------------
@@ -120,6 +137,17 @@ test('literals elsewhere in a rewritten statement survive byte-for-byte', () => 
 test('unchanged input returns the identical string and no rewrites', () => {
   same("select sum(total_net_sales) from sales_by_day where day_date between '2026-09-01' and '2026-09-27'");
   same('');
+});
+
+// ---- timeout hints ----------------------------------------------------------
+
+test('timeoutHint names the alternative only for a timeout on a known slow relation', () => {
+  const t = 'canceling statement due to statement timeout';
+  assert(/sales_monthly_product_type_rollup_v/.test(timeoutHint(t, ['sales_monthly_location_rollup_v'])), 'location rollup');
+  assert(/sales_velocity_by_sku_location_v/.test(timeoutHint(t, ['sales_sku_location_rollup_v'])), 'sku rollup');
+  eq(timeoutHint(t, ['sales_by_day']), null, 'ordinary relation');
+  eq(timeoutHint('column "x" does not exist', ['sales_monthly_location_rollup_v']), null, 'not a timeout');
+  eq(timeoutHint(t, []), null, 'no relations');
 });
 
 console.log(`query-shape: ${passed} passed, ${failed} failed`);

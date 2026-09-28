@@ -173,7 +173,7 @@ import {
   renderQueryResult,
 } from './evidence-scope.mjs';
 import { buildSystemBlocks, selectGuidance } from './prompt-lib.mjs';
-import { rewriteSlowShapes } from './query-shape-lib.mjs';
+import { rewriteSlowShapes, timeoutHint } from './query-shape-lib.mjs';
 import {
   BUSY_STATUSES,
   isSpendLimitResponse,
@@ -514,6 +514,10 @@ function annotateColumnError(
         + ' and do not drop the measure this query was for.',
       );
     }
+  }
+  if (sql) {
+    const slow = timeoutHint(message, relationsInStatement(sql));
+    if (slow) hints.push(slow);
   }
   return hints.length ? `${message} Hint: ${hints.join(' ')}` : message;
 }
