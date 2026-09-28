@@ -78,8 +78,12 @@ Deno.serve(async (req) => {
         .maybeSingle();
       const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
       const { data: conn, error: connErr } = visible && !visErr
+        // '*' rather than named columns so this works before AND after
+        // 20260928120000 adds auth_method / token_expires_at (the rollout
+        // deploys this function first); ensureShopifyAccessToken treats a
+        // missing auth_method as a stored token.
         ? await admin.from('shopify_connections')
-            .select('id, shop_domain, access_token, auth_method, token_expires_at')
+            .select('*')
             .eq('id', visible.id)
             .maybeSingle()
         : { data: null, error: visErr };

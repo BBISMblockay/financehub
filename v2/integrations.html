@@ -964,18 +964,27 @@
 
     // Every column the page reads, named: access_token is not a column a
     // member may select (20260928120000), so select('*') is refused outright.
-    const SHOPIFY_CONNECTION_COLUMNS = [
+    const SHOPIFY_BASE_COLUMNS = [
       'id', 'company_entity_id', 'shop_domain', 'display_name', 'location_tag_prefix', 'credential_ref',
       'api_version', 'sync_enabled', 'history_days_default', 'meta', 'created_at', 'updated_at', 'created_by',
       'location_id', 'last_tested_at', 'last_test_success', 'last_test_error', 'last_test_status', 'shop_name',
       'shop_currency', 'is_active', 'updated_by', 'scopes_granted', 'scopes_missing', 'scopes_checked_at',
-      'default_location_code', 'auth_method', 'token_expires_at', 'oauth_app',
-    ].join(',');
+      'default_location_code',
+    ];
+    const SHOPIFY_CONNECTION_COLUMNS = [...SHOPIFY_BASE_COLUMNS, 'auth_method', 'token_expires_at', 'oauth_app'].join(',');
+    // The page can go live before the migration that adds those three columns
+    // (the rollout deploys readers first): an unknown column is 42703 on a
+    // select and PGRST204 on an insert, and either means "not yet migrated".
+    const isPreMigration = (e) => !!e && (e.code === '42703' || e.code === 'PGRST204');
 
     async function loadConnections() {
-      let q = db.from('shopify_connections').select(SHOPIFY_CONNECTION_COLUMNS).order('created_at');
-      if (_co?.id) q = q.eq('company_entity_id', _co.id);
-      const { data, error } = await q;
+      const query = (cols) => {
+        let q = db.from('shopify_connections').select(cols).order('created_at');
+        if (_co?.id) q = q.eq('company_entity_id', _co.id);
+        return q;
+      };
+      let { data, error } = await query(SHOPIFY_CONNECTION_COLUMNS);
+      if (isPreMigration(error)) ({ data, error } = await query(SHOPIFY_BASE_COLUMNS.join(',')));
       if (error) { setStatus('Failed to load connections: ' + error.message, 'neg'); return; }
       renderConnections(data || []);
       syncBackfillPolling(data || []);
@@ -1422,14 +1431,21 @@
       resultEl.className = 'test-result';
 
       try {
-        const { error } = await db.from('shopify_connections').insert({
+        const row = {
           company_entity_id: _co.id,
           shop_domain: shop,
           access_token: token,
           auth_method: 'manual_token',
           is_active: true,
           sync_enabled: false,
-        });
+        };
+        let { error } = await db.from('shopify_connections').insert(row);
+        if (isPreMigration(error)) {
+          // Before 20260928120000 there is no auth_method column; the row is
+          // the same pasted token either way (NULL reads as a stored token).
+          const { auth_method, ...legacyRow } = row;
+          ({ error } = await db.from('shopify_connections').insert(legacyRow));
+        }
         if (error) throw error;
         closeAddForm();
         setStatus('✓ Shopify connection saved — run Test, then enable sync.', 'pos', 8000);

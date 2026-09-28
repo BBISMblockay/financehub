@@ -95,6 +95,27 @@ Then:
 2. Open **Settings → Integrations** (`/v2/integrations.html`) and connect by one of the routes above
 3. Confirm **all sync scopes granted** (green + no scope warning)
 
+#### Rolling out 20260928120000 (order matters)
+
+The migration withholds `access_token` from members, so anything still reading it as the caller
+breaks the moment it applies. Do it in three phases; nothing here is atomic, and each phase is
+safe to stop after:
+
+1. **Merge, and deploy `test-shopify-connection` + `shopify-sync-run`.** Both read the token only as
+   the service role and work on either side of the migration; the Integrations page falls back to
+   the pre-migration columns (`42703` / `PGRST204`) until it runs.
+2. **Apply the migration**, then run `verify_v2_schema.sql` (the `shopify_client_credentials` row
+   must read `ok`).
+3. **Deploy `shopify-oauth-start`, `shopify-oauth-callback`, `shopify-connect-dev-app`,
+   `shopify-compliance-webhook`.** These write the new columns or call the new functions, so they
+   need phase 2. Until then "Connect with your store's own app" returns an error; nothing else
+   changes.
+
+`deploy-edge-function.yml` deploys `shopify-compliance-webhook` with `--no-verify-jwt` on every
+path, `all` included: the plain `all` deploy is followed by a public redeploy of each function in
+`NO_JWT_FUNCTIONS`. Shopify presents no Supabase JWT, so a JWT-verified deploy would reject every
+privacy webhook before the handler ran.
+
 #### Privacy (GDPR) webhooks
 
 A public app must answer three mandatory webhooks. Point all three at

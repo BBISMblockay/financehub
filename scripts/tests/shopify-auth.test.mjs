@@ -32,6 +32,7 @@
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -266,8 +267,48 @@ await test('wiring: every function and entry point uses the rules in the right o
   assert.match(page, /body: JSON\.stringify\(\{ connection_id: conn\.id \}\)/, 'the Test button sends an id, never a token');
   assert.doesNotMatch(page, /\.select\('shop_domain, access_token'\)/, 'the page no longer reads a Shopify token to test it');
 
-  const deploy = read('.github/workflows/deploy-edge-function.yml');
-  assert.match(deploy, /"shopify-compliance-webhook" \]; then[\s\S]*?--no-verify-jwt/, 'Shopify has no Supabase JWT to present');
+});
+
+await test('deploy workflow: the public webhook stays public on EVERY path, "all" included', () => {
+  // Runs the workflow's own Deploy script with a fake `supabase` on PATH and
+  // records each call, so this tests what the shell does, not what it says.
+  const wf = read('.github/workflows/deploy-edge-function.yml');
+  const m = /- name: Deploy\n[\s\S]*?run: \|\n([\s\S]*?)\n\n      - name:/.exec(wf);
+  assert.ok(m, 'Deploy step not found');
+  const script = m[1].split('\n').map((l) => l.replace(/^ {10}/, '')).join('\n');
+  const bin = mkdtempSync(join(tmpdir(), 'fake-supabase-'));
+  const log = join(bin, 'calls.log');
+  writeFileSync(join(bin, 'supabase'), `#!/bin/sh\necho "$*" >> "${log}"\n`, { mode: 0o755 });
+  const run = (fn) => {
+    writeFileSync(log, '');
+    const body = script.replaceAll('${{ inputs.function_name }}', fn).replaceAll('${{ inputs.project_ref }}', 'ref');
+    execFileSync('bash', ['-c', body], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, SUPABASE_ACCESS_TOKEN: 't' } });
+    return readFileSync(log, 'utf8').trim().split('\n');
+  };
+  try {
+    const all = run('all');
+    assert.ok(all.includes('functions deploy shopify-compliance-webhook --no-verify-jwt --project-ref ref'),
+      `"all" must redeploy the compliance webhook without JWT verification; calls were:\n${all.join('\n')}`);
+    assert.ok(all.indexOf('functions deploy --project-ref ref') < all.indexOf('functions deploy shopify-compliance-webhook --no-verify-jwt --project-ref ref'),
+      'the public redeploy must come AFTER the plain deploy, or the plain deploy re-enables JWT');
+    assert.deepEqual(run('shopify-compliance-webhook'), ['functions deploy shopify-compliance-webhook --no-verify-jwt --project-ref ref']);
+    assert.deepEqual(run('shopify-connect-dev-app'), ['functions deploy shopify-connect-dev-app --project-ref ref'], 'a JWT function keeps JWT');
+  } finally { rmSync(bin, { recursive: true, force: true }); }
+});
+
+await test('rollout order: the page and the token readers work before AND after the migration', () => {
+  const page = read('v2/integrations.html');
+  assert.match(page, /const isPreMigration = \(e\) => !!e && \(e\.code === '42703' \|\| e\.code === 'PGRST204'\)/);
+  assert.match(page, /if \(isPreMigration\(error\)\) \(\{ data, error \} = await query\(SHOPIFY_BASE_COLUMNS\.join\(','\)\)\)/,
+    'the connection list falls back to the pre-migration columns');
+  assert.match(page, /if \(isPreMigration\(error\)\) \{\s*\/\/[^\n]*\n[^\n]*\n\s*const \{ auth_method, \.\.\.legacyRow \} = row;/,
+    'the pasted-token insert retries without auth_method before the migration');
+  const base = /const SHOPIFY_BASE_COLUMNS = \[([^\]]*)\]/.exec(page)[1];
+  for (const col of ['auth_method', 'token_expires_at', 'oauth_app', 'access_token']) {
+    assert.ok(!base.includes(`'${col}'`), `${col} must not be a pre-migration base column`);
+  }
+  const t = read('supabase/functions/test-shopify-connection/index.ts');
+  assert.match(t, /await admin\.from\('shopify_connections'\)\s*\.select\('\*'\)/, 'test fn names no post-migration column');
 });
 
 console.log(`\n${n} passed`);

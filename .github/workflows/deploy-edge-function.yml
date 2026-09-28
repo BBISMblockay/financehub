@@ -69,16 +69,23 @@ jobs:
             echo "::error::SUPABASE_ACCESS_TOKEN secret is not set. Create a token at https://supabase.com/dashboard/account/tokens and add it under the repository's Settings -> Secrets and variables -> Actions."
             exit 1
           fi
+          # Functions whose caller has no Supabase JWT to present, so they must
+          # be deployed with --no-verify-jwt on EVERY path, "all" included:
+          #   shopify-compliance-webhook -- Shopify signs with X-Shopify-Hmac-Sha256,
+          #     checked against SILO's app secrets; that is its only auth.
+          #   plaid-scheduled-sync, card-coding-prepare-scheduled -- validate a
+          #     GitHub RS256 identity (OIDC, pinned to their workflows on main)
+          #     before any DB access.
+          NO_JWT_FUNCTIONS="shopify-compliance-webhook plaid-scheduled-sync card-coding-prepare-scheduled"
           if [ "${{ inputs.function_name }}" = "all" ]; then
             supabase functions deploy --project-ref "${{ inputs.project_ref }}"
-          elif [ "${{ inputs.function_name }}" = "shopify-compliance-webhook" ]; then
-            # Shopify calls it with no Supabase JWT; the X-Shopify-Hmac-Sha256
-            # signature, checked against SILO's app secrets, is its only auth.
-            supabase functions deploy "${{ inputs.function_name }}" --no-verify-jwt --project-ref "${{ inputs.project_ref }}"
-          elif [ "${{ inputs.function_name }}" = "plaid-scheduled-sync" ] || [ "${{ inputs.function_name }}" = "card-coding-prepare-scheduled" ]; then
-            # Both scheduler endpoints validate a GitHub RS256 identity (OIDC,
-            # pinned to their workflows on main) before any DB access; the
-            # caller has no Supabase JWT to present.
+            # A plain deploy applies the default verify_jwt, which would leave
+            # these rejecting their callers before the handler runs. Redeploy
+            # each one public, from the same checkout.
+            for fn in $NO_JWT_FUNCTIONS; do
+              supabase functions deploy "$fn" --no-verify-jwt --project-ref "${{ inputs.project_ref }}"
+            done
+          elif [[ " $NO_JWT_FUNCTIONS " == *" ${{ inputs.function_name }} "* ]]; then
             supabase functions deploy "${{ inputs.function_name }}" --no-verify-jwt --project-ref "${{ inputs.project_ref }}"
           else
             supabase functions deploy "${{ inputs.function_name }}" --project-ref "${{ inputs.project_ref }}"
