@@ -70,3 +70,19 @@ export function mayConnect({ profile, profileError, membership, membershipError,
   return profile.active_company_id === companyId
     && ['owner', 'admin', 'executive'].includes(String(profile.role));
 }
+
+/**
+ * May this OAuth flow write its tokens onto `conn`? Asked twice: by the start
+ * function before it records the connection on the state, and by the callback
+ * before it updates the row, because the state names a row by id and a row
+ * can move or vanish in the ten minutes between. The row must be the one the
+ * state names, in the company the flow was authorised for, on the platform
+ * the scope was requested for -- a GA4 grant written onto an Ads row would
+ * test fine and then fail every nightly.
+ */
+export function mayReconnect(state, conn) {
+  if (!state?.connection_id || !conn) return false;
+  return conn.id === state.connection_id
+    && conn.company_entity_id === state.company_entity_id
+    && conn.platform === state.platform;
+}
