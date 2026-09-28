@@ -645,6 +645,16 @@ test('location_tag = any(silo_channel_location_tags(...)) narrows the channel', 
   eq((s.narrowed_to || []).map((n) => [n.column, n.values]), [['location_tag', ['channel:online']]], 'narrowed_to');
   eq(auditAnswerClaims('Online sales were $153,155.', [s]), [], 'a mapped online figure was flagged');
 });
+// query-shape-lib.mjs hoists the call into a scalar sub-select (it runs once per
+// statement instead of once per row); that form must read exactly the same.
+test('the hoisted any((select silo_channel_location_tags(...))::text[]) form narrows identically', () => {
+  const s = describeEvidenceScope(
+    "SELECT sum(total_net_sales) FROM sales_by_day WHERE location_tag = any((select silo_channel_location_tags('online'))::text[]) AND day_date BETWEEN '2026-09-14' AND '2026-09-20'",
+    INDEX, {});
+  eq((s.narrowed_to || []).map((n) => [n.column, n.values]), [['location_tag', ['channel:online']]], 'narrowed_to');
+  const x = describeEvidenceScope("SELECT sum(total_net_sales) FROM sales_by_day WHERE location_tag <> all((SELECT public.silo_channel_location_tags('Retail'))::text[])", INDEX, {});
+  eq((x.excludes || []).map((n) => [n.column, n.values]), [['location_tag', ['channel:retail']]], 'excludes');
+});
 test('...<> all(...) is an exclusion, and qualification/case do not matter', () => {
   const s = describeEvidenceScope("SELECT sum(total_net_sales) FROM sales_by_day s WHERE s.location_tag <> ALL (public.silo_channel_location_tags('Retail'))", INDEX, {});
   eq((s.excludes || []).map((n) => [n.column, n.values]), [['location_tag', ['channel:retail']]], 'excludes');

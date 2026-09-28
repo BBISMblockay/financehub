@@ -240,12 +240,14 @@ function columnRestriction(rawText, literals, col) {
   // to scope sales to a channel (each company's own mapping, possibly several
   // stores). It narrows the column to that channel; `<> all(...)` excludes it.
   // Reported as `channel:<name>` because the actual tags are resolved at run
-  // time and are not in the statement.
+  // time and are not in the statement. The hoisted form
+  // `any((select silo_channel_location_tags('online'))::text[])` means the same
+  // thing and is what query-shape-lib.mjs rewrites to, so it is read the same.
   const channelRe = new RegExp(
-    `(?<![a-z0-9_])${col}\\s*(=\\s*any|<>\\s*all|!=\\s*all)\\s*\\(\\s*(?:public\\.)?silo_channel_location_tags\\s*\\(\\s*'@(\\d+)'\\s*\\)\\s*\\)`, 'g',
+    `(?<![a-z0-9_])${col}\\s*(=\\s*any|<>\\s*all|!=\\s*all)\\s*\\(\\s*(\\(\\s*select\\s+)?(?:public\\.)?silo_channel_location_tags\\s*\\(\\s*'@(\\d+)'\\s*\\)(?:\\s*\\)\\s*::\\s*text\\s*\\[\\s*\\])?\\s*\\)`, 'g',
   );
   while ((m = channelRe.exec(text))) {
-    const v = literals[Number(m[2])];
+    const v = literals[Number(m[3])];
     if (v == null) continue;
     const into = /^=/.test(m[1]) ? included : excluded;
     const label = `channel:${String(v).toLowerCase()}`;
