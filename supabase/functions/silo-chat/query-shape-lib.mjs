@@ -190,11 +190,14 @@ export function rewriteSlowShapes(sql) {
 const SLOW_RELATION_HINTS = {
   sales_monthly_location_rollup_v:
     'sales_monthly_location_rollup_v adds up every day of sales history before any filter applies, so a date filter does not make it faster -- do not retry it. '
-    + 'Use sales_monthly_product_type_rollup_v instead (pre-computed; same month_start, location, units, net, gross, total_sales columns): '
-    + 'SUM(net) ... GROUP BY month_start, location. Do not sum its unique_skus across product types.',
+    + 'For COMPLETED months use sales_monthly_product_type_rollup_v instead (same month_start, location, units, net, gross, total_sales columns): '
+    + 'SUM(net) ... GROUP BY month_start, location. Do not sum its unique_skus across product types. '
+    + 'It is pre-computed as of the last completed sync, so it can lag sales_by_day: for the CURRENT month or any period ending today, '
+    + 'query sales_by_day directly with a day_date range instead (e.g. day_date >= date_trunc(\'month\', current_date)::date).',
   sales_sku_location_rollup_v:
     'sales_sku_location_rollup_v adds up every day of sales history per SKU and location before any filter applies -- do not retry it unfiltered. '
-    + 'Filter it by sku, or use sales_velocity_by_sku_location_v (pre-computed) for recent movement.',
+    + 'Filter it by sku, or use sales_velocity_by_sku_location_v for recent movement -- pre-computed as of the last completed sync, '
+    + 'so for today\'s or this week\'s movement query sales_by_day with a day_date range instead.',
 };
 
 /** Hint for a statement timeout, naming the pre-computed path when the

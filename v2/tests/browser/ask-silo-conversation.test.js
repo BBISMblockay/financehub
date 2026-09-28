@@ -36,6 +36,15 @@ const r = createReporter('ask-silo-conversation');
     const body = JSON.parse(route.request().postData() || '{}');
     sent.push(body);
     const next = script.shift() || { answer: 'OK.' };
+    // A long answer as keepalive-lib.mjs sends it: status committed at 200,
+    // heartbeat whitespace first, the REAL status inside the body.
+    if (next && next.streamed) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '     ' + JSON.stringify({ ...next.streamed }),
+      });
+    }
     if (next === 'unverified') {
       return route.fulfill({
         status: 503,
@@ -96,6 +105,30 @@ const r = createReporter('ask-silo-conversation');
   const liveRetries = await page.locator('#log .ac-retry-btn:not([disabled])').count();
   r.test('the abandoned question\'s retry button is disabled once it is abandoned',
     () => r.eq(liveRetries, 0));
+
+  // ── 3b. a long answer streamed past the gateway (keepalive-lib.mjs) ──
+  script = [{ streamed: { answer: 'Channel split: online $6.1M.', http_status: 200 } }];
+  await ask('executive summary of the business?');
+  r.ok('a streamed answer (leading heartbeat whitespace) is rendered',
+    /Channel split: online \$6\.1M/.test(await page.textContent('#log')));
+
+  // The real status must be read from the BODY. A 503 "couldn't confirm which
+  // company" offers Try again because of its STATUS (the page keys the retry
+  // on it); the body deliberately carries no `retryable` flag here, so if the
+  // status were read from the 200 the stream committed, no retry would show.
+  script = [{ streamed: {
+    error: "Couldn't confirm which company this question belongs to, so it wasn't run.",
+    company_unverified: true, http_status: 503,
+  } }];
+  const retriesBefore = await page.locator('#log .ac-retry-btn:not([disabled])').count();
+  await ask('and returns?');
+  r.ok('a streamed 503 is shown', /couldn.t confirm which company/i.test(await page.textContent('#log')));
+  r.test('...and handled as a 503 from its body: Try again is offered', async () =>
+    r.eq(await page.locator('#log .ac-retry-btn:not([disabled])').count(), retriesBefore + 1));
+  script = [{ answer: 'Returns were 4%.' }];
+  await page.click('#log .ac-retry-btn:not([disabled])');
+  await page.waitForTimeout(900);
+  r.ok('the retry answers it', /Returns were 4%/.test(await page.textContent('#log')));
 
   // ── 4. a question arriving by link (SEO Studio) is placed, never sent ──
   const before = sent.length;

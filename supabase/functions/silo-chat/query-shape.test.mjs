@@ -144,6 +144,8 @@ test('unchanged input returns the identical string and no rewrites', () => {
 test('timeoutHint names the alternative only for a timeout on a known slow relation', () => {
   const t = 'canceling statement due to statement timeout';
   assert(/sales_monthly_product_type_rollup_v/.test(timeoutHint(t, ['sales_monthly_location_rollup_v'])), 'location rollup');
+  assert(/CURRENT month or any period ending today/.test(timeoutHint(t, ['sales_monthly_location_rollup_v'])), 'freshness caveat');
+  assert(/as of the last completed sync/.test(timeoutHint(t, ['sales_sku_location_rollup_v'])), 'sku freshness caveat');
   assert(/sales_velocity_by_sku_location_v/.test(timeoutHint(t, ['sales_sku_location_rollup_v'])), 'sku rollup');
   eq(timeoutHint(t, ['sales_by_day']), null, 'ordinary relation');
   eq(timeoutHint('column "x" does not exist', ['sales_monthly_location_rollup_v']), null, 'not a timeout');

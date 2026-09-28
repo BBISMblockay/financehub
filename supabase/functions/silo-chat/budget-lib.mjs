@@ -11,17 +11,25 @@
 // time can only reach the boundary to within a millisecond or two of drift --
 // which is exactly where these mistakes live. Here the numbers are inputs.
 
-/** Supabase's edge gateway kills a request at 150s and returns a bare 504 that
- *  writes no audit row, so the failure is invisible. 140s leaves 10s of margin
- *  for everything this arithmetic does not model. */
-export const GATEWAY_SAFE_MS = 140_000;
+/** The line no request may cross. It was 140s under Supabase's 150s gateway
+ *  (a bare 504, no audit row). Since 2026-09-28 the response starts early and
+ *  heartbeats (keepalive-lib.mjs), so the bound is the worker's own wall clock
+ *  -- 400s on this project's Pro plan -- and 260s leaves a wide margin because
+ *  a request may land on a worker that has already been running. Moved by the
+ *  same 120s as index.ts's WALL_CLOCK_BUDGET_MS, so the 45s window the
+ *  correction arithmetic below is tuned against is unchanged. */
+export const GATEWAY_SAFE_MS = 260_000;
+
+/** The hard ceiling GATEWAY_SAFE_MS must stay under: the edge worker's wall
+ *  clock on a paid plan. */
+export const WORKER_WALL_CLOCK_MS = 400_000;
 
 /** A floor on the per-call estimate, applied EVEN WHEN real samples exist, so a
  *  request that has been cheap so far is still held to a pessimistic figure.
  *
  *  The value is load-bearing rather than round. A grant only happens at or past
- *  the 95s round-start budget, so one is possible only while
- *  95 + 2*worstCall + 10 <= 140, i.e. worstCall <= 17.5s. Setting this to 20s
+ *  the 215s round-start budget, so one is possible only while
+ *  215 + 2*worstCall + 10 <= 260, i.e. worstCall <= 17.5s. Setting this to 20s
  *  made a grant impossible; the window it leaves is genuinely narrow, and that
  *  is the shape of the constraint rather than a conservatism to tune away. */
 export const MODEL_CALL_FLOOR_MS = 15_000;
