@@ -610,20 +610,43 @@
                     <button class="bcn-btn bcn-btn--primary int-brand-btn int-brand-btn--shopify" id="btn-connect-shopify" hidden>Connect with Shopify →</button>
                     <div class="test-result" id="test-result"></div>
 
-                    <div class="int-muted" style="margin:14px 0 10px;">Connect with a token from the store's own admin:</div>
+                    <!-- The store's OWN Dev Dashboard app (client-credentials grant). The route
+                         for any store outside Baseballism's Shopify organization: SILO's app cannot
+                         install there until Shopify approves the public app, and "Develop apps"
+                         custom apps (the pasted shpat_ token below) can no longer be created since
+                         2026-01-01. shopify-connect-dev-app mints a token BEFORE saving anything,
+                         and the client secret goes to a table no browser can read. -->
+                    <div class="int-muted" style="margin:14px 0 10px;"><strong>Connect with your store's own app</strong> (works for any store):</div>
+                    <ol class="int-muted" style="margin:0 0 10px;padding-left:18px;">
+                      <li>Signed in as the store owner, open <a href="https://dev.shopify.com/dashboard" target="_blank" rel="noopener">Shopify's Dev Dashboard</a> and create an app (any name, e.g. "SILO").</li>
+                      <li>In a new version, turn on these access scopes: <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>, <code>read_locations</code>, <code>read_shopify_payments_payouts</code>, <code>read_draft_orders</code>, <code>read_reports</code>, <code>read_publications</code>. Release the version.</li>
+                      <li>Install the app on this store, then copy its <strong>Client ID</strong> and <strong>Client secret</strong> from the app's settings into the fields below.</li>
+                    </ol>
                     <div class="bcn-field-group">
-                      <label class="bcn-label" for="shop-access-token">Access token</label>
-                      <input class="bcn-field bcn-field--mono" id="shop-access-token" type="password"
-                        placeholder="shpat_…" autocomplete="off" spellcheck="false" />
-                      <div class="int-muted">In the store's own Shopify admin: go to Settings, then Apps and sales
-                        channels, then Develop apps. Create an app, and turn on these permissions:
-                        <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>,
-                        <code>read_locations</code>. Then click Install app — it will show you an access token to
-                        copy here.</div>
+                      <label class="bcn-label" for="shop-client-id">Client ID</label>
+                      <input class="bcn-field bcn-field--mono" id="shop-client-id" type="text" autocomplete="off" spellcheck="false" />
                     </div>
+                    <div class="bcn-field-group">
+                      <label class="bcn-label" for="shop-client-secret">Client secret</label>
+                      <input class="bcn-field bcn-field--mono" id="shop-client-secret" type="password" autocomplete="off" spellcheck="false" />
+                      <div class="int-muted">SILO checks these with Shopify before saving, and stores the secret where only SILO's servers can read it.</div>
+                    </div>
+                    <div class="form-row" style="margin-bottom:14px;">
+                      <button class="bcn-btn bcn-btn--primary" id="btn-save-shopify-devapp">Connect store</button>
+                    </div>
+
+                    <details class="int-muted" style="margin:6px 0 10px;">
+                      <summary>Already have an Admin API token (<code>shpat_…</code>)?</summary>
+                      <div style="margin-top:8px;">Stores that created a custom app in their admin before 2026 can paste its token. Shopify no longer lets stores create new ones.</div>
+                      <div class="bcn-field-group" style="margin-top:8px;">
+                        <label class="bcn-label" for="shop-access-token">Access token</label>
+                        <input class="bcn-field bcn-field--mono" id="shop-access-token" type="password"
+                          placeholder="shpat_…" autocomplete="off" spellcheck="false" />
+                      </div>
+                      <button class="bcn-btn bcn-btn--ghost" id="btn-save-shopify-token">Save token</button>
+                    </details>
                     <div class="form-row">
                       <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-add">Cancel</button>
-                      <button class="bcn-btn bcn-btn--primary" id="btn-save-shopify-token">Save connection</button>
                     </div>
                   </div>
                 </td>
@@ -939,10 +962,29 @@
     // ── Load existing connections ──────────────────────────────────
     let _backfillPollTimer = null;
 
+    // Every column the page reads, named: access_token is not a column a
+    // member may select (20260928120000), so select('*') is refused outright.
+    const SHOPIFY_BASE_COLUMNS = [
+      'id', 'company_entity_id', 'shop_domain', 'display_name', 'location_tag_prefix', 'credential_ref',
+      'api_version', 'sync_enabled', 'history_days_default', 'meta', 'created_at', 'updated_at', 'created_by',
+      'location_id', 'last_tested_at', 'last_test_success', 'last_test_error', 'last_test_status', 'shop_name',
+      'shop_currency', 'is_active', 'updated_by', 'scopes_granted', 'scopes_missing', 'scopes_checked_at',
+      'default_location_code',
+    ];
+    const SHOPIFY_CONNECTION_COLUMNS = [...SHOPIFY_BASE_COLUMNS, 'auth_method', 'token_expires_at', 'oauth_app'].join(',');
+    // The page can go live before the migration that adds those three columns
+    // (the rollout deploys readers first): an unknown column is 42703 on a
+    // select and PGRST204 on an insert, and either means "not yet migrated".
+    const isPreMigration = (e) => !!e && (e.code === '42703' || e.code === 'PGRST204');
+
     async function loadConnections() {
-      let q = db.from('shopify_connections').select('*').order('created_at');
-      if (_co?.id) q = q.eq('company_entity_id', _co.id);
-      const { data, error } = await q;
+      const query = (cols) => {
+        let q = db.from('shopify_connections').select(cols).order('created_at');
+        if (_co?.id) q = q.eq('company_entity_id', _co.id);
+        return q;
+      };
+      let { data, error } = await query(SHOPIFY_CONNECTION_COLUMNS);
+      if (isPreMigration(error)) ({ data, error } = await query(SHOPIFY_BASE_COLUMNS.join(',')));
       if (error) { setStatus('Failed to load connections: ' + error.message, 'neg'); return; }
       renderConnections(data || []);
       syncBackfillPolling(data || []);
@@ -1157,12 +1199,18 @@
       if (fetchErr) {
         return `<div class="int-scope-warn" style="margin:10px 16px 0;">Could not read scopes from Shopify. Re-test after updating the connection.</div>`;
       }
-      if (!missing?.length) return '';
+      // Without read_all_orders Shopify returns only the last 60 days of orders
+      // -- no error, just nothing older -- so say so before a history import
+      // appears to show an empty past.
+      const historyNote = granted.length && !granted.includes('read_all_orders')
+        ? `<div class="int-scope-warn" style="margin:10px 16px 0;">Order history is limited to the last 60 days: Shopify has not granted this store's app <code>read_all_orders</code>. Imports cannot reach further back until it does.</div>`
+        : '';
+      if (!missing?.length) return historyNote;
       if (!granted?.length && missing.length >= 4) {
         return `<div class="int-scope-warn" style="margin:10px 16px 0;">Scope check returned empty — click Re-test. If this persists, reinstall the custom app token in Shopify.</div>`;
       }
       const labels = window.SiloShopifyScopes?.formatScopeList?.(missing) || missing.join(', ');
-      return `<div class="int-scope-warn" style="margin:10px 16px 0;">Missing scopes: ${escHtml(labels)}. Update your Shopify app, then Re-test.</div>`;
+      return `<div class="int-scope-warn" style="margin:10px 16px 0;">Missing scopes: ${escHtml(labels)}. Update your Shopify app, then Re-test.</div>` + historyNote;
     }
 
     function renderConnections(rows) {
@@ -1383,13 +1431,21 @@
       resultEl.className = 'test-result';
 
       try {
-        const { error } = await db.from('shopify_connections').insert({
+        const row = {
           company_entity_id: _co.id,
           shop_domain: shop,
           access_token: token,
+          auth_method: 'manual_token',
           is_active: true,
           sync_enabled: false,
-        });
+        };
+        let { error } = await db.from('shopify_connections').insert(row);
+        if (isPreMigration(error)) {
+          // Before 20260928120000 there is no auth_method column; the row is
+          // the same pasted token either way (NULL reads as a stored token).
+          const { auth_method, ...legacyRow } = row;
+          ({ error } = await db.from('shopify_connections').insert(legacyRow));
+        }
         if (error) throw error;
         closeAddForm();
         setStatus('✓ Shopify connection saved — run Test, then enable sync.', 'pos', 8000);
@@ -1399,7 +1455,48 @@
         resultEl.textContent = 'Save failed: ' + err.message;
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Save connection';
+        btn.textContent = 'Save token';
+      }
+    });
+
+    // ── Connect through the store's own Dev Dashboard app ──────────────
+    // The function checks the pair with Shopify (by minting a token) before
+    // it saves anything, then this page runs the normal Test on the new row.
+    document.getElementById('btn-save-shopify-devapp').addEventListener('click', async () => {
+      const domain = document.getElementById('shop-domain').value.trim();
+      const clientId = document.getElementById('shop-client-id').value.trim();
+      const clientSecret = document.getElementById('shop-client-secret').value.trim();
+      const resultEl = document.getElementById('test-result');
+      const btn = document.getElementById('btn-save-shopify-devapp');
+
+      if (!domain) { resultEl.className = 'test-result err'; resultEl.textContent = 'Enter the shop domain first.'; return; }
+      if (!clientId || !clientSecret) { resultEl.className = 'test-result err'; resultEl.textContent = 'Paste both the Client ID and the Client secret.'; return; }
+      if (!_co?.id) { resultEl.className = 'test-result err'; resultEl.textContent = 'No active company — refresh and try again.'; return; }
+
+      btn.disabled = true;
+      btn.textContent = 'Checking with Shopify…';
+      resultEl.className = 'test-result';
+      resultEl.textContent = '';
+      try {
+        const session = (await db.auth.getSession()).data.session;
+        const res = await fetch(`${FUNCTIONS_URL}/shopify-connect-dev-app`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}`, 'apikey': SUPABASE_ANON_KEY },
+          body: JSON.stringify({ company_entity_id: _co.id, shop_domain: domain, client_id: clientId, client_secret: clientSecret }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || `Connect failed (${res.status})`);
+        document.getElementById('shop-client-secret').value = '';
+        closeAddForm();
+        setStatus(`✓ ${data.shop_domain} connected — testing it now.`, 'pos', 6000);
+        await loadConnections();
+        await retest(data.connection_id);
+      } catch (err) {
+        resultEl.className = 'test-result err';
+        resultEl.textContent = err.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Connect store';
       }
     });
 
@@ -1407,7 +1504,7 @@
     async function retest(id) {
       const { data: conn, error } = await db
         .from('shopify_connections')
-        .select('shop_domain, access_token')
+        .select('id, shop_domain')
         .eq('id', id)
         .single();
       if (error || !conn) { setStatus('Could not load connection', 'neg', 4000); return; }
@@ -1423,7 +1520,9 @@
             'Authorization': `Bearer ${session.access_token}`,
             'apikey': SUPABASE_ANON_KEY,
           },
-          body: JSON.stringify({ shop_domain: conn.shop_domain, access_token: conn.access_token }),
+          // By id: the function reads the token itself (and mints a fresh one
+          // for a store connected through its own Dev Dashboard app).
+          body: JSON.stringify({ connection_id: conn.id }),
         });
         const data = await res.json();
 

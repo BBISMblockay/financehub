@@ -2523,3 +2523,28 @@ measured against them.
 `scripts/tests/ad-studio-database.test.mjs` runs the migration twice against
 PGlite and covers each of those, with four mutations.
 `verify_v2_schema.sql` has the `ad_studio` check.
+
+## Shopify client credentials — `20260928120000_shopify_client_credentials.sql`
+
+Lets a store outside Baseballism's Shopify organization connect. SILO's
+original Shopify app is custom-distributed to Baseballism's organization, and
+Shopify stopped letting stores create "Develop apps" custom apps on
+2026-01-01, so neither Connect nor a pasted `shpat_` token works for a new
+client. What does: the store creates an app in its own Dev Dashboard, and
+SILO mints a 24-hour token from that app's client id and secret
+(client-credentials grant, `scripts/lib/shopify-auth-lib.mjs`).
+
+- **`shopify_connections.auth_method`** (`oauth` / `manual_token` /
+  `client_credentials`; NULL = older rows, a stored token) and
+  **`token_expires_at`** (client credentials only). **`oauth_app`** says which
+  of SILO's two Shopify apps issued an OAuth token.
+- **`shopify_client_credentials`**: the client id + secret. Its own table
+  because `shopify_connections` is readable by every company member. RLS on,
+  no policy, no grant: service role only. Written only by the
+  `shopify-connect-dev-app` function after Shopify accepted the pair.
+- **`shopify_oauth_states.oauth_app`**: which app started a Connect flow, so
+  the callback verifies and exchanges with that app's secret.
+- **`shopify_compliance_requests`**: every privacy (GDPR) webhook and what
+  SILO did about it. Service role only; it can hold customer emails.
+
+`verify_v2_schema.sql` has the `shopify_client_credentials` check.

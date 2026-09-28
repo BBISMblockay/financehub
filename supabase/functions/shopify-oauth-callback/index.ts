@@ -1,39 +1,21 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { appCredentials, normalizeShopDomain, verifyOAuthHmac } from './shopify-auth-lib.mjs';
 
-const CLIENT_ID = Deno.env.get('SHOPIFY_CLIENT_ID') ?? '';
-const CLIENT_SECRET = Deno.env.get('SHOPIFY_CLIENT_SECRET') ?? '';
+const ENV = {
+  SHOPIFY_PUBLIC_CLIENT_ID: Deno.env.get('SHOPIFY_PUBLIC_CLIENT_ID'),
+  SHOPIFY_PUBLIC_CLIENT_SECRET: Deno.env.get('SHOPIFY_PUBLIC_CLIENT_SECRET'),
+  SHOPIFY_CLIENT_ID: Deno.env.get('SHOPIFY_CLIENT_ID'),
+  SHOPIFY_CLIENT_SECRET: Deno.env.get('SHOPIFY_CLIENT_SECRET'),
+};
 const SILO_APP_URL = Deno.env.get('SILO_APP_URL') ?? 'https://silo-baseballism.com';
 const API_VERSION = '2025-01';
-
-async function verifyHmac(params: URLSearchParams, hmac: string): Promise<boolean> {
-  const pairs: string[] = [];
-  params.forEach((v, k) => {
-    if (k !== 'hmac') pairs.push(`${k}=${v}`);
-  });
-  pairs.sort();
-  const message = pairs.join('&');
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(CLIENT_SECRET),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
-  const computed = Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-
-  return computed === hmac;
-}
 
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   const params = url.searchParams;
 
   const code  = params.get('code');
-  const shop  = params.get('shop');
+  const shop  = normalizeShopDomain(params.get('shop'));
   const state = params.get('state');
   const hmac  = params.get('hmac');
 
@@ -41,16 +23,16 @@ Deno.serve(async (req) => {
     Response.redirect(`${SILO_APP_URL}/v2/integrations.html?oauth_error=${encodeURIComponent(msg)}`, 302);
 
   if (!code || !shop || !state || !hmac) return errorRedirect('missing_params');
-  if (!CLIENT_ID || !CLIENT_SECRET) return errorRedirect('server_misconfigured');
-
-  const valid = await verifyHmac(params, hmac);
-  if (!valid) return errorRedirect('invalid_hmac');
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
+  // The state row says which of SILO's two Shopify apps started this flow, and
+  // so which secret signed the callback and must exchange the code. It is read
+  // BEFORE the signature is checked only to choose the secret; nothing is
+  // acted on until the signature verifies.
   const { data: stateRow, error: stateErr } = await supabase
     .from('shopify_oauth_states')
     .select('*')
@@ -60,6 +42,12 @@ Deno.serve(async (req) => {
 
   if (stateErr || !stateRow) return errorRedirect('invalid_or_expired_state');
 
+  const creds = appCredentials(ENV, stateRow.oauth_app);
+  if (!creds) return errorRedirect('server_misconfigured');
+
+  const valid = await verifyOAuthHmac(params, creds.clientSecret);
+  if (!valid) return errorRedirect('invalid_hmac');
+
   await supabase.from('shopify_oauth_states').delete().eq('nonce', state);
 
   if (stateRow.shop_domain !== shop) return errorRedirect('shop_mismatch');
@@ -67,7 +55,7 @@ Deno.serve(async (req) => {
   const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: CLIENT_ID, client_secret: CLIENT_SECRET, code }),
+    body: JSON.stringify({ client_id: creds.clientId, client_secret: creds.clientSecret, code }),
   });
 
   if (!tokenRes.ok) return errorRedirect('token_exchange_failed');
@@ -89,6 +77,11 @@ Deno.serve(async (req) => {
       company_entity_id: stateRow.company_entity_id,
       shop_domain: shop,
       access_token: accessToken,
+      // An OAuth token does not expire; clearing these also turns a store
+      // that was on client credentials into a plain OAuth connection.
+      auth_method: 'oauth',
+      oauth_app: creds.app,
+      token_expires_at: null,
       shop_name: shopInfo.name ?? null,
       shop_currency: shopInfo.currency ?? null,
       scopes_granted: scopesGranted,

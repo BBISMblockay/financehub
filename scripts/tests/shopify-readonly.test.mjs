@@ -6,7 +6,7 @@
  * form of this guarantee -- it does not depend on anyone reviewing a diff.
  *
  * The reason to assert it anyway is that both halves are one line from
- * being lost. Adding 'write_products' to the SCOPES array is a plausible
+ * being lost. Adding 'write_products' to a scopes array is a plausible
  * thing to do while chasing a feature (publishing a collection, fixing a
  * title), and it silently converts every sync in this repo from a reader
  * into something that could write to the live storefront. Nothing else in
@@ -62,22 +62,31 @@ for (const file of SYNC_FILES) {
 
 console.log('\n-- the OAuth app requests only read scopes --');
 
-test('every requested Shopify scope is read_*', () => {
-  const src = read('supabase/functions/shopify-oauth-start/index.ts');
-  const block = /const SCOPES = \[([\s\S]*?)\]/.exec(src);
-  if (!block) throw new Error('could not find the SCOPES array in shopify-oauth-start');
-  const scopes = [...block[1].matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]);
-  if (scopes.length === 0) throw new Error('parsed zero scopes — the assertion would pass vacuously');
-  const writes = scopes.filter((s) => !s.startsWith('read_'));
-  if (writes.length) {
-    throw new Error(
-      `${writes.length} non-read scope(s) requested: ${writes.join(', ')}. ` +
-      'A write scope here widens the credential every nightly sync holds; ' +
-      'put it on a separate narrowly-scoped credential instead.',
-    );
-  }
-  console.log(`       (${scopes.length} scopes, all read_*)`);
-});
+// Two apps request scopes: the legacy custom app (LEGACY_SCOPES in the start
+// function) and the public app (PUBLIC_SCOPES in the shared auth lib). Both
+// lists are checked; a Dev Dashboard app's scopes are set by the store owner
+// in Shopify and are shown to them as the same eight PUBLIC_SCOPES.
+for (const [label, path, name] of [
+  ['legacy app', 'supabase/functions/shopify-oauth-start/index.ts', 'LEGACY_SCOPES'],
+  ['public app', 'scripts/lib/shopify-auth-lib.mjs', 'PUBLIC_SCOPES'],
+]) {
+  test(`every scope the ${label} requests is read_*`, () => {
+    const src = read(path);
+    const block = new RegExp(`const ${name} = \\[([\\s\\S]*?)\\]`).exec(src);
+    if (!block) throw new Error(`could not find the ${name} array in ${path}`);
+    const scopes = [...block[1].matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]);
+    if (scopes.length === 0) throw new Error('parsed zero scopes — the assertion would pass vacuously');
+    const writes = scopes.filter((s) => !s.startsWith('read_'));
+    if (writes.length) {
+      throw new Error(
+        `${writes.length} non-read scope(s) requested: ${writes.join(', ')}. ` +
+        'A write scope here widens the credential every nightly sync holds; ' +
+        'put it on a separate narrowly-scoped credential instead.',
+      );
+    }
+    console.log(`       (${scopes.length} scopes, all read_*)`);
+  });
+}
 
 console.log(`\n${count - failures}/${count} passed`);
 process.exit(failures ? 1 : 0);

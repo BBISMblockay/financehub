@@ -58,6 +58,19 @@ on:
       - 'supabase/migrations/*redo_marketing_reporting.sql'
       - '.github/workflows/mailroom-backfill.yml'
       - 'supabase/functions/shopify-oauth-start/**'
+      # Shopify client credentials, the public app, privacy webhooks
+      # (shopify-auth.test.mjs + shopify-credentials-database.test.mjs).
+      - 'scripts/lib/shopify-auth-lib.mjs'
+      - 'supabase/functions/shopify-oauth-callback/**'
+      - 'supabase/functions/shopify-connect-dev-app/**'
+      - 'supabase/functions/shopify-compliance-webhook/**'
+      - 'supabase/functions/test-shopify-connection/**'
+      - 'supabase/functions/shopify-sync-run/**'
+      - 'supabase/migrations/*shopify_client_credentials.sql'
+      - 'scripts/tests/shopify-auth.test.mjs'
+      - 'scripts/tests/shopify-credentials-database.test.mjs'
+      - 'v2/integrations.html'
+      - '.github/workflows/deploy-edge-function.yml'
       - 'supabase/functions/google-oauth-start/**'
       - 'supabase/functions/google-oauth-callback/**'
       - 'oauth/**'
@@ -239,6 +252,21 @@ jobs:
 
       - name: Shopify stays read-only
         run: node scripts/tests/shopify-readonly.test.mjs
+
+      # Shared Shopify auth rules and their wiring. Mutations:
+      # SHOPIFY_AUTH_MUTATION=disabled-admin | no-refresh | redact-anyway | any-domain
+      - name: Shopify authorization (client credentials, public app, privacy webhooks)
+        run: node scripts/tests/shopify-auth.test.mjs
+      - name: The Shopify auth guards, removed, must break it
+        run: |
+          set -u
+          for m in disabled-admin no-refresh redact-anyway any-domain; do
+            if SHOPIFY_AUTH_MUTATION="$m" node scripts/tests/shopify-auth.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
 
       - name: Finance V1 approval and QBO recovery controls
         run: node scripts/tests/finance-v1-controls.test.mjs
@@ -984,6 +1012,22 @@ jobs:
             echo "--- $m ---"
             if AD_STUDIO_DB_MUTATION="$m" node scripts/tests/ad-studio-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Shopify client secrets and tokens (20260928120000): service role only,
+      # even with Supabase's default grants. Mutations:
+      # SHOPIFY_CRED_DB_MUTATION=grant-back | token-readable | exec-granted
+      - name: Execute Shopify credential-store database regressions
+        run: node scripts/tests/shopify-credentials-database.test.mjs
+      - name: The credential-store revokes, removed, must break it
+        run: |
+          set -u
+          for m in grant-back token-readable exec-granted; do
+            if SHOPIFY_CRED_DB_MUTATION="$m" node scripts/tests/shopify-credentials-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite"
               exit 1
             fi
             echo "$m failed the suite, as it must"

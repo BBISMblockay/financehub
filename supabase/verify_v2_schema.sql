@@ -3660,6 +3660,55 @@ select
     else 'ok'
   end as ad_studio;
 
+-- ── Shopify client credentials + compliance log (20260928120000) ────────────
+-- A store's Dev Dashboard client SECRET must stay unreadable by any client:
+-- shopify_connections is readable by every company member, which is why the
+-- secret lives in its own table with RLS on, no policy and no grant.
+select
+  case
+    when not exists (select 1 from information_schema.columns where table_schema='public'
+                       and table_name='shopify_connections' and column_name='auth_method')
+      then 'MISSING — run 20260928120000_shopify_client_credentials.sql'
+    when to_regclass('public.shopify_client_credentials') is null
+      then 'MISSING — shopify_client_credentials'
+    when not exists (select 1 from pg_class where oid='public.shopify_client_credentials'::regclass and relrowsecurity)
+      then 'CRITICAL — shopify_client_credentials has RLS off'
+    when exists (select 1 from pg_policy where polrelid='public.shopify_client_credentials'::regclass)
+      then 'CRITICAL — a policy exists on shopify_client_credentials; client secrets must be service-role only'
+    when has_table_privilege('authenticated', 'public.shopify_client_credentials', 'select')
+      or has_table_privilege('anon', 'public.shopify_client_credentials', 'select')
+      then 'CRITICAL — a client role holds SELECT on shopify_client_credentials'
+    when exists (select 1 from information_schema.columns where table_schema='public'
+                   and table_name='shopify_connections' and column_name ilike '%secret%')
+      then 'CRITICAL — a secret column exists on shopify_connections, which every member can read'
+    when to_regclass('public.shopify_compliance_requests') is null
+      then 'MISSING — shopify_compliance_requests'
+    when exists (select 1 from pg_policy where polrelid='public.shopify_compliance_requests'::regclass)
+      or has_table_privilege('authenticated', 'public.shopify_compliance_requests', 'select')
+      then 'CRITICAL — shopify_compliance_requests is client-readable; it holds customer emails'
+    when not exists (select 1 from information_schema.columns where table_schema='public'
+                       and table_name='shopify_oauth_states' and column_name='oauth_app')
+      then 'MISSING — shopify_oauth_states.oauth_app'
+    -- The Admin API token: withheld from members by COLUMN privilege, since
+    -- the row's SELECT policy admits the whole company.
+    when has_column_privilege('authenticated', 'public.shopify_connections', 'access_token', 'select')
+      or has_column_privilege('anon', 'public.shopify_connections', 'access_token', 'select')
+      then 'CRITICAL — shopify_connections.access_token (a live Admin API token) is client-readable'
+    when exists (select 1 from information_schema.columns c where c.table_schema='public'
+                   and c.table_name='shopify_connections' and c.column_name <> 'access_token'
+                   and not has_column_privilege('authenticated', 'public.shopify_connections', c.column_name, 'select'))
+      then 'STALE — a shopify_connections column is not granted to authenticated (Integrations names it and fails); re-run the grant block in 20260928120000'
+    when to_regprocedure('public.shopify_save_client_credentials_connection(uuid,text,text,text,text,timestamptz,uuid)') is null
+      or to_regprocedure('public.shopify_close_connections(uuid[])') is null
+      then 'MISSING — shopify_save_client_credentials_connection / shopify_close_connections'
+    when has_function_privilege('authenticated', 'public.shopify_save_client_credentials_connection(uuid,text,text,text,text,timestamptz,uuid)', 'execute')
+      or has_function_privilege('anon', 'public.shopify_save_client_credentials_connection(uuid,text,text,text,text,timestamptz,uuid)', 'execute')
+      or has_function_privilege('authenticated', 'public.shopify_close_connections(uuid[])', 'execute')
+      or has_function_privilege('anon', 'public.shopify_close_connections(uuid[])', 'execute')
+      then 'CRITICAL — a client role can EXECUTE a Shopify credential function (service role only)'
+    else 'ok'
+  end as shopify_client_credentials;
+
 -- ── Empty collections stay visible (20260909320000, corrective) ─────────────
 -- The view LEFT-joined product->SKU but INNER-joined collection->membership,
 -- so a collection with no products vanished -- an empty collection read as a

@@ -2,6 +2,7 @@
 // User-initiated backfill runs via edge function shopify-sync-run + Integrations UI.
 
 import { createClient } from '@supabase/supabase-js';
+import { ensureShopifyAccessToken } from './lib/shopify-auth-lib.mjs';
 import {
   connectionReadyForSync,
 } from './lib/shopify-scopes.mjs';
@@ -230,6 +231,10 @@ async function loadConnections() {
 
 async function syncConnection(connection) {
   const results = { shop_domain: connection.shop_domain, jobs: [] };
+  // A client-credentials connection (the store's own Dev Dashboard app) holds a
+  // 24-hour token: mint a fresh one before any request. A no-op for every
+  // other connection. A refusal fails THIS store only -- the caller catches it.
+  await ensureShopifyAccessToken(supabase, connection);
 
   // Before anything runs, say what will not run and why.
   await reportSkippedStages(connection);

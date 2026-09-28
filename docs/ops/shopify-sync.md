@@ -64,10 +64,71 @@ After changing this logic, **re-run a sales history import** from Integrations s
 
 ### 1. Connect Shopify (UI)
 
-1. Log in → pick company (e.g. test-co)
-2. Open **Settings → Integrations** (`/v2/integrations.html`)
-3. Add shop domain + custom app access token → **Test & Save**
-4. Confirm **all sync scopes granted** (green + no scope warning)
+There are three ways a store connects, and which one works depends on who owns the store
+(Shopify rules, measured onboarding Bat Nutz on 2026-09-27):
+
+| Store | How | Token |
+|-------|-----|-------|
+| In Baseballism's Shopify organization | **Connect with Shopify** (OAuth, the legacy custom-distributed app) | Never expires |
+| Any other store, today | **Connect with your store's own app**: the store owner creates an app in the Shopify **Dev Dashboard** while signed in to THEIR organization, gives it the 8 read scopes below, installs it, and pastes its client ID + secret into Integrations | SILO mints a 24-hour token (client-credentials grant) and refreshes it before every sync |
+| Any store, once SILO's public app passes Shopify review | **Connect with Shopify** (the public app, used automatically once `SHOPIFY_PUBLIC_CLIENT_ID` / `SHOPIFY_PUBLIC_CLIENT_SECRET` are set) | Never expires |
+
+A pasted `shpat_` token still works for a store that already has one, but Shopify stopped letting new
+stores create "Develop apps" custom apps on 2026-01-01, so it is tucked behind a disclosure.
+
+The 8 scopes (`PUBLIC_SCOPES` in `scripts/lib/shopify-auth-lib.mjs`): `read_orders`, `read_products`,
+`read_inventory`, `read_locations`, `read_shopify_payments_payouts`, `read_draft_orders`,
+`read_reports`, `read_publications`. **`read_all_orders` is deliberately absent** until Shopify grants
+it: without it the Admin API returns only the last 60 days of orders, and the Test button says so
+rather than letting a store look fully backfilled.
+
+The client secret is stored in `shopify_client_credentials`, which no browser can read (RLS on, no
+policy, no grant) -- `shopify_connections` is readable by every company member, so the secret is not
+on it. Deleting the connection deletes the secret. The Admin API token itself stays on `shopify_connections`, but its
+`access_token` column is not granted to members (column privilege), so only the service role reads it.
+A store's token and its app credentials are saved in one transaction, so a failed save never leaves a
+token from one app beside another app's secret.
+
+Then:
+
+1. Log in → pick company
+2. Open **Settings → Integrations** (`/v2/integrations.html`) and connect by one of the routes above
+3. Confirm **all sync scopes granted** (green + no scope warning)
+
+#### Rolling out 20260928120000 (order matters)
+
+The migration withholds `access_token` from members, so anything still reading it as the caller
+breaks the moment it applies. Do it in three phases; nothing here is atomic, and each phase is
+safe to stop after:
+
+1. **Merge, and deploy `test-shopify-connection` + `shopify-sync-run`.** Both read the token only as
+   the service role and work on either side of the migration; the Integrations page falls back to
+   the pre-migration columns (`42703` / `PGRST204`) until it runs.
+2. **Apply the migration**, then run `verify_v2_schema.sql` (the `shopify_client_credentials` row
+   must read `ok`).
+3. **Deploy `shopify-oauth-start`, `shopify-oauth-callback`, `shopify-connect-dev-app`,
+   `shopify-compliance-webhook`.** These write the new columns or call the new functions, so they
+   need phase 2. Until then "Connect with your store's own app" returns an error; nothing else
+   changes.
+
+`deploy-edge-function.yml` deploys `shopify-compliance-webhook` with `--no-verify-jwt` on every
+path, `all` included: the plain `all` deploy is followed by a public redeploy of each function in
+`NO_JWT_FUNCTIONS`. Shopify presents no Supabase JWT, so a JWT-verified deploy would reject every
+privacy webhook before the handler ran.
+
+#### Privacy (GDPR) webhooks
+
+A public app must answer three mandatory webhooks. Point all three at
+`https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/shopify-compliance-webhook` in the public
+app's version settings. The function (deployed with `--no-verify-jwt`; the signature is the auth)
+logs every request to `shopify_compliance_requests` and:
+
+- `customers/data_request` -- recorded as `needs_response`; a person answers it (SILO holds only the
+  name, email and id on `shopify_orders` / `shopify_draft_orders`)
+- `customers/redact` -- blanks those three fields on the customer's orders and draft orders
+- `shop/redact` -- closes the connections the SIGNING app issued, and blanks the store's customer
+  details only when no other connection still syncs that store. Baseballism test-installing the
+  public app and removing it must not erase what its legacy connection holds
 
 ### 2. Enable sync
 

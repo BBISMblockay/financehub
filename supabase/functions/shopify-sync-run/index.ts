@@ -12,6 +12,7 @@ import {
   serializeSkuMetaCache,
 } from './lib/shopify-sync-core.mjs';
 import { connectionReadyForSync } from './lib/shopify-scopes.mjs';
+import { ensureShopifyAccessToken } from './lib/shopify-auth-lib.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -42,6 +43,7 @@ function json(data: unknown, status = 200) {
 
 async function assertAdminWithConnection(
   userClient: SupabaseClient,
+  admin: SupabaseClient,
   userId: string,
   connectionId: string,
 ) {
@@ -55,10 +57,19 @@ async function assertAdminWithConnection(
     throw new Error('Admin access required');
   }
 
-  const { data: conn, error } = await userClient
+  // The caller's read proves the connection is in their company; the full
+  // row (access_token is not a column members may select) comes from the
+  // service role, by that same id.
+  const { data: visible, error: visErr } = await userClient
+    .from('shopify_connections')
+    .select('id')
+    .eq('id', connectionId)
+    .single();
+  if (visErr || !visible) throw new Error('Connection not found');
+  const { data: conn, error } = await admin
     .from('shopify_connections')
     .select('*')
-    .eq('id', connectionId)
+    .eq('id', visible.id)
     .single();
 
   if (error || !conn) throw new Error('Connection not found');
@@ -72,6 +83,7 @@ async function assertAdminWithConnection(
 
 async function assertAdminConnection(
   userClient: SupabaseClient,
+  admin: SupabaseClient,
   userId: string,
   connectionId: string,
 ) {
@@ -85,10 +97,19 @@ async function assertAdminConnection(
     throw new Error('Admin access required');
   }
 
-  const { data: conn, error } = await userClient
+  // The caller's read proves the connection is in their company; the full
+  // row (access_token is not a column members may select) comes from the
+  // service role, by that same id.
+  const { data: visible, error: visErr } = await userClient
+    .from('shopify_connections')
+    .select('id')
+    .eq('id', connectionId)
+    .single();
+  if (visErr || !visible) throw new Error('Connection not found');
+  const { data: conn, error } = await admin
     .from('shopify_connections')
     .select('*')
-    .eq('id', connectionId)
+    .eq('id', visible.id)
     .single();
 
   if (error || !conn) throw new Error('Connection not found');
@@ -400,12 +421,16 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'list_shopify_locations') {
-      const connection = await assertAdminConnection(userClient, user.id, connectionId);
+      const connection = await assertAdminConnection(userClient, admin, user.id, connectionId);
+      await ensureShopifyAccessToken(admin, connection);
       const locations = await fetchShopifyLocations(connection);
       return json({ ok: true, locations });
     }
 
-    const connection = await assertAdminWithConnection(userClient, user.id, connectionId);
+    const connection = await assertAdminWithConnection(userClient, admin, user.id, connectionId);
+    // A client-credentials store's token lasts 24 hours: mint a fresh one with
+    // the service role (the only reader of the client secret). No-op otherwise.
+    await ensureShopifyAccessToken(admin, connection);
 
     switch (action) {
       case 'start_history_backfill': {
