@@ -277,6 +277,25 @@ table { border-collapse: collapse; }
   border-color: rgba(255, 255, 255, 0.2);
 }
 
+.silo-sb-badge {
+  flex-shrink: 0;
+  margin-left: auto;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bcn-accent);
+  color: #fff;
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+.silo-sb-section-label .silo-sb-badge { margin-left: auto; margin-right: 6px; }
+/* An open section shows the count on the row itself; a closed one on its label. */
+.silo-sb-section--open > .silo-sb-section-label .silo-sb-badge { display: none; }
+.silo-app[data-collapsed="true"] .silo-sb-badge { display: none; }
+
 .silo-app[data-collapsed="true"] .silo-sb-link-label,
 .silo-app[data-collapsed="true"] .silo-sb-link-ext { display: none; }
 .silo-app[data-collapsed="true"] .silo-sb-link {

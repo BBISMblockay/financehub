@@ -19142,6 +19142,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260928140000_silo_chat_responses.sql
 \i migrations/20260928150000_silo_chat_responses_company_scope.sql
 \i migrations/20260928160000_ad_platform_oauth_reconnect.sql
+\i migrations/20260928170000_nav_badge_counts.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above
