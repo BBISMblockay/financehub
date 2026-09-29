@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>On Deck — SILO</title>
+  <link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
+  <link rel="stylesheet" href="on-deck.css"><link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
+  <script src="v2-shell.js" defer></script>
+</head>
+<body class="on-deck">
+<div class="silo-app" id="silo-app"><main class="silo-main">
+  <header class="bcn-header"><div><div class="od-eyebrow">SILO / YOUR NEXT MOVE <span class="od-badge">PREVIEW</span></div><h1>On Deck<span class="od-dot">.</span></h1><p class="od-sub">A strong lineup. Your call.</p></div>
+    <div class="od-buttons"><button id="refresh" class="bcn-btn bcn-btn--ghost" disabled>Refresh</button><a class="bcn-btn bcn-btn--ghost" href="settings-company.html#on-deck-settings" aria-label="Workspace Settings" title="Workspace Settings">⚙</a><button id="prepare" class="bcn-btn bcn-btn--primary" disabled>Find opportunities</button></div>
+  </header>
+  <div id="status" class="bcn-status" role="status" aria-live="polite">Loading your decision workspace…</div>
+  <div class="od-wrap" id="workspace" hidden>
+    <div class="od-toolbar"><nav id="views" class="od-tabs" aria-label="Proposal views"><button data-view="review" aria-pressed="true">Up next <b>0</b></button><button data-view="preparing" aria-pressed="false">Preparing <b>0</b></button><button data-view="needs" aria-pressed="false">Needs you <b>0</b></button><button data-view="completed" aria-pressed="false">Completed <b>0</b></button></nav><span class="od-meta" id="screened-at"></span></div>
+    <div class="od-board"><section class="od-lineup" aria-label="Curated proposals"><div class="od-section-label">THE LINEUP <span id="queue-count"></span></div><div id="queue"></div></section><section class="od-detail" id="detail" aria-label="Selected proposal"><div class="od-empty">Select a proposal to review its evidence and draft.</div></section><aside class="od-rail" id="rail" aria-label="Connected work and revisions"></aside></div>
+    <details class="od-screening"><summary>What stayed off the lineup</summary><div id="screening"></div></details>
+  </div>
+</main></div>
+<dialog id="edit-dialog" class="od-dialog"><form id="edit-form"><div class="od-dialog-head"><h2>Edit prepared draft</h2><button type="button" data-close class="bcn-btn bcn-btn--ghost">Close</button></div><label>Subject / title<input class="bcn-field" id="edit-subject" maxlength="200" required></label><label>Summary / search description<textarea class="bcn-field" id="edit-summary" maxlength="500" rows="3"></textarea></label><label>Draft copy<textarea class="bcn-field" id="edit-body" maxlength="5000" rows="10" required></textarea></label><div id="edit-tasks"></div><div id="edit-missing"></div><label>Review note<textarea class="bcn-field" id="edit-note" maxlength="2000" rows="3" placeholder="Explain edits or how missing information was resolved"></textarea></label><div class="bcn-status" id="edit-error" role="alert" hidden></div><button class="bcn-btn bcn-btn--primary" type="submit">Save for review</button></form></dialog>
+<dialog id="decision-dialog" class="od-dialog"><form id="decision-form"><div class="od-dialog-head"><h2 id="decision-title">Review decision</h2><button type="button" data-close class="bcn-btn bcn-btn--ghost">Close</button></div><p id="decision-explanation"></p><div id="decision-checks"></div><label id="minutes-label" hidden>Minutes saved, as observed<input class="bcn-field" id="minutes" type="number" min="0" max="100000" step="1"></label><label id="decision-note-label">Review note<textarea class="bcn-field" id="decision-note" maxlength="2000" rows="4"></textarea></label><div class="bcn-status" id="decision-error" role="alert" hidden></div><button class="bcn-btn bcn-btn--primary" id="decision-submit" type="submit">Confirm</button></form></dialog>
+<script src="../pages/config.js"></script><script src="lib/supabase-js.min.js"></script><script src="nav-config.js"></script><script src="avatar.js"></script><script src="silo-chrome.js"></script><script src="on-deck.js"></script>
+</body></html>

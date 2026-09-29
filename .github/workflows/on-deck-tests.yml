@@ -1,0 +1,51 @@
+name: On Deck preview tests
+on:
+  pull_request:
+    paths:
+      - 'v2/on-deck*'
+      - 'v2/settings-company.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'v2/ad-studio.js'
+      - 'v2/tests/browser/on-deck.test.js'
+      - 'scripts/on-deck-prepare.mjs'
+      - 'scripts/lib/on-deck-core.mjs'
+      - 'scripts/tests/on-deck*'
+      - 'supabase/migrations/*on_deck*'
+      - '.github/workflows/on-deck*.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: npm ci --prefix scripts/tests/finance-db --ignore-scripts
+      - run: npm install --prefix v2/tests --ignore-scripts --no-package-lock
+      - run: cd v2/tests && npx playwright install --with-deps chromium
+      - run: node scripts/tests/on-deck-core.test.mjs
+      - run: node scripts/tests/on-deck-worker.test.mjs
+      - run: node scripts/tests/on-deck-database.test.mjs
+      - run: node v2/tests/run.js --unit
+      - run: node v2/tests/browser/on-deck.test.js
+      - name: Mutations must be caught
+        run: |
+          for mutation in budget version source company-read idempotency active-user; do
+            if MUTATE="$mutation" node scripts/tests/on-deck-database.test.mjs > /tmp/mutation.log 2>&1; then
+              cat /tmp/mutation.log
+              echo "Survived mutation: $mutation"
+              exit 1
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: on-deck-screenshots
+          path: .screenshots/on-deck-*.png
+          if-no-files-found: ignore

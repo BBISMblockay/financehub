@@ -5549,6 +5549,26 @@ select 'Declared and booked currency cannot diverge' as check_name,
    then 'CRITICAL: a company reports in one currency and books in another'
  else 'ok' end as status;
 
+-- On Deck direct-link preview: no client DML or paid preparation RPCs.
+select 'On Deck tables and RLS' as check_name,
+ case when count(*)=4 and bool_and(c.relrowsecurity) then 'ok' else 'FAIL' end status
+ from pg_class c join pg_namespace n on n.oid=c.relnamespace
+ where n.nspname='public' and c.relname in ('on_deck_settings','on_deck_proposals','on_deck_attempts','on_deck_events');
+select 'On Deck client writes revoked' as check_name,
+ case when not exists(select 1 from unnest(array['on_deck_settings','on_deck_proposals','on_deck_attempts','on_deck_events']) t
+ cross join unnest(array['anon','authenticated']) r
+ where has_table_privilege(r,'public.'||t,'INSERT,UPDATE,DELETE')) then 'ok' else 'FAIL' end status;
+select 'On Deck paid preparation is service-only' as check_name,
+ case when count(*)=8 and bool_and(not has_function_privilege('anon',p.oid,'EXECUTE')
+ and not has_function_privilege('authenticated',p.oid,'EXECUTE') and has_function_privilege('service_role',p.oid,'EXECUTE')) then 'ok' else 'FAIL' end status
+ from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'
+ and p.proname in ('on_deck_stage','on_deck_source_version','on_deck_reserve','on_deck_finish','on_deck_product_facts','on_deck_seo_facts','on_deck_ad_facts','on_deck_launch_facts');
+select 'On Deck decisions require authentication' as check_name,
+ case when count(*)=5 and bool_and(not has_function_privilege('anon',p.oid,'EXECUTE') and has_function_privilege('authenticated',p.oid,'EXECUTE')) then 'ok' else 'FAIL' end status
+ from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'
+ and p.proname in ('on_deck_can_review','on_deck_stats','on_deck_configure','on_deck_request_preparation','on_deck_decide');
+-- End On Deck preview checks.
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))

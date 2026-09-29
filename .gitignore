@@ -6,6 +6,7 @@ data/legacy-payment-requests*.csv
 data/legacy-payment-requests*.tsv
 node_modules/
 package-lock.json
+!/package-lock.json
 !scripts/tests/finance-db/package-lock.json
 supabase/.temp/
 
