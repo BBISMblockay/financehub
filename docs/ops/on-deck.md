@@ -182,10 +182,8 @@ bundling, runtime secrets and an authorized first run remain deployment checks.
 
 ## Restock source timeout / inventory index
 
-The 2026-09-29 preparation run failed in `on_deck_product_facts`, before
-proposal staging or AI spend. Production logs showed SQLSTATE 57014 at the
-existing 8-second API statement timeout. EXPLAIN found 500 sequential inventory
-scans (about 71,000 rows each), taking 14.52 seconds per first page.
+Preparation can fail in `on_deck_product_facts` before proposal staging or AI
+spend because the inventory aggregate scans the current snapshot for each SKU.
 
 `20260929171502_on_deck_inventory_lookup_index.sql` adds the exact existing
 company/SKU lookup index. It changes no source filters, results, grouping or
@@ -193,8 +191,7 @@ approval rules and does not raise timeouts. The current inventory refresh uses
 REFRESH MATERIALIZED VIEW, which retains the index. Creation has a 2-second lock
 wait limit; retry the migration if a concurrent refresh blocks it.
 
-A transactional live test created the index, called the real RPC, then rolled
-back: offset 0 returned 500 rows in 476ms, offset 10000 returned 500 in 1520ms,
-and offset 20500 returned the final 140 in 314ms. These are sampled timings,
-not a claim that the full preparation workflow passed. After merge, apply this
-migration, run the schema verifier and rerun On Deck preparation.
+Transactional tests created the index, sampled the real RPC at beginning,
+middle and final pages, and rolled back. Sampled calls completed within the
+existing timeout; this is not an end-to-end workflow verification. After merge,
+apply this migration, run the schema verifier and rerun On Deck preparation.
