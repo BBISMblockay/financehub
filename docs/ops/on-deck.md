@@ -179,3 +179,19 @@ and worker caller together; it covers authorization, request validation, stored
 versions, cap refusal, replay, settlement and transport uncertainty. Existing
 core/provider, worker-schema and database tests remain applicable. Live Edge
 bundling, runtime secrets and an authorized first run remain deployment checks.
+
+## Restock source timeout / inventory index
+
+Preparation can fail in `on_deck_product_facts` before proposal staging or AI
+spend because the inventory aggregate scans the current snapshot for each SKU.
+
+`20260929171502_on_deck_inventory_lookup_index.sql` adds the exact existing
+company/SKU lookup index. It changes no source filters, results, grouping or
+approval rules and does not raise timeouts. The current inventory refresh uses
+REFRESH MATERIALIZED VIEW, which retains the index. Creation has a 2-second lock
+wait limit; retry the migration if a concurrent refresh blocks it.
+
+Transactional tests created the index, sampled the real RPC at beginning,
+middle and final pages, and rolled back. Sampled calls completed within the
+existing timeout; this is not an end-to-end workflow verification. After merge,
+apply this migration, run the schema verifier and rerun On Deck preparation.

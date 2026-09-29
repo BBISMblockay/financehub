@@ -5567,6 +5567,17 @@ select 'On Deck decisions require authentication' as check_name,
  case when count(*)=5 and bool_and(not has_function_privilege('anon',p.oid,'EXECUTE') and has_function_privilege('authenticated',p.oid,'EXECUTE')) then 'ok' else 'FAIL' end status
  from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'
  and p.proname in ('on_deck_can_review','on_deck_stats','on_deck_configure','on_deck_request_preparation','on_deck_decide');
+select 'On Deck inventory lookup index' as check_name,
+ case when exists (
+  select 1 from pg_index i join pg_class c on c.oid=i.indexrelid
+  join pg_namespace n on n.oid=c.relnamespace
+  where n.nspname='public' and c.relname='inventory_on_hand_current_mv_company_sku_idx'
+    and i.indrelid='public.inventory_on_hand_current_mv'::regclass
+    and i.indisvalid and i.indisready
+    and pg_get_indexdef(i.indexrelid,1,true)='company_entity_id'
+    and pg_get_indexdef(i.indexrelid,2,true)='variant_sku'
+    and i.indpred is null
+ ) then 'ok' else 'MISSING' end as status;
 -- End On Deck preview checks.
 
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
