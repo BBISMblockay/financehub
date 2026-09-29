@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { curate, productGroups, promptFor, validateDraft, MAX_PROMPT_BYTES } from '../lib/on-deck-core.mjs';
-import { prepareOne } from '../on-deck-prepare.mjs';
+import { prepareOne } from '../../supabase/functions/on-deck-prepare/provider.mjs';
 const now = new Date('2026-09-29T12:00:00Z');
 const fresh = '2026-09-29T01:00:00Z';
 const product = (sku, extra = {}) => ({ id: sku, sku, reorderable: true, is_evergreen: true, unit_cost: 5, msrp: 30, lead_time_days: 30,
