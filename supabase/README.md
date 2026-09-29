@@ -2598,3 +2598,23 @@ revoked. `silo-chrome.js` calls it once per page load and only draws the
 numbers; a new badge is a new row in this function, not sidebar code.
 
 `verify_v2_schema.sql` has the `nav_badge_counts` check.
+
+
+## On Deck direct-link preview — `20260929074429_on_deck_preview.sql`
+
+Adds `/v2/on-deck.html` without a menu entry. Company owner/admin members review
+a maximum of six active proposals (three per workflow). Service-only preparation
+reads company-bound facts and reserves paid attempts; authenticated RPCs record
+versioned decisions and transactional receipts into existing draft workflows.
+No external publishing, ad-budget writes, purchases or accounting posting.
+
+Apply after the Product Workflow SKU spread, SEO project workflow and Ad Studio
+migrations. `verify_v2_schema.sql` checks tables/RLS, client mutation revocations
+and service-only facts/preparation helpers. All company settings default off.
+
+Deployment is separate from this PR: review/apply the migration, verify it, set
+`ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and opt into
+`ON_DECK_ENABLED=true` as a GitHub repository variable. A company owner must then
+enable the company and its workflows in Prep settings. Run once in an authorized
+test company before the hourly schedule is used. See `docs/ops/on-deck.md` for
+limits, monitoring, cost bounds and rollback. No edge-function deployment.
