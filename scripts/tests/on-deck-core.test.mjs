@@ -56,7 +56,7 @@ test('provider schema, UTF8 budget and output limits fail closed', () => {
 async function providerTest(name, response, expected, claimed = true) {
  const calls = [], db = { rpc: async (name, args) => { calls.push({ name, args }); return { data: name === 'on_deck_reserve' ? { claimed, reason: 'budget_cap' } : null }; } };
  let fetched = 0;
- await prepareOne({ db, proposal: { id: 'p', version: 1, kind: 'launch', source: {} }, apiKey: 'test', requestId: 'fixed', fetcher: async (_url, options) => { fetched++; assert.equal(JSON.parse(options.body).max_tokens, 4000); return response(); } });
+ await prepareOne({ db, proposal: { id: 'p', version: 1, kind: 'launch', source: {} }, apiKey: 'test', requestId: 'fixed', fetcher: async (_url, options) => { fetched++; assert.equal(JSON.parse(options.body).max_tokens, 4000); assert.deepEqual(JSON.parse(options.body).thinking, { type: 'disabled' }); return response(); } });
  if (!claimed) { assert.equal(fetched, 0); assert.equal(calls.length, 1); } else { assert.equal(calls[0].name, 'on_deck_reserve'); const done = calls[1]; assert.equal(done.name, 'on_deck_finish'); for (const [key, value] of Object.entries(expected)) assert.deepEqual(done.args[key], value); }
  console.log(`ok ${++checks} - ${name}`);
 }

@@ -38,6 +38,21 @@ real Claude quality/token use, scheduler firing, actual company roles, source
 freshness and an authorized test-company handoff. No migration, deployment,
 provider call or production mutation is authorized by this PR request.
 
+## Workspace controls and review page
+
+Preparation controls are in **Workspace Settings → Company → On Deck**
+(`/v2/settings-company.html#on-deck-settings`). Only workspace owners edit the
+cap, restock review budget, enabled workflows and preparation toggle. Preview
+admins can read usage but cannot change it. The settings card fails closed if
+the migration or usage query is unavailable. Existing company settings remain usable.
+
+On Deck opens on the prepared draft: compact workflow cards, a paper preview,
+collapsed task details/rationale, and explicit approval actions. Evidence,
+revision comparison and history remain available. The page has no spend or
+labor KPI band. Settings retains monthly attempt costs, failures/holds and
+human-recorded outcomes for cost review; this does not implement customer
+billing or infer labor savings. Approval and product-vetting gates are unchanged.
+
 ## Pilot behavior
 
 - Six active slots, at most three per workflow. Rank within workflows, then take
@@ -120,3 +135,18 @@ then-in-progress On Deck fixture test). The final On Deck suite uses the harness
 loopback secure-context option and passes on local Chromium. Shared browser
 regressions remain a CI/live-environment check; no shared harness code was changed.
 No production migration, provider call, scheduler activation or live handoff ran.
+
+## September 29 follow-up
+
+Addressed the first independent review: the worker aliases `shopify_status`
+as `status` against the installed mapping schema, explicitly disables thinking
+for the pinned model, and both On Deck workflows install the committed root
+lockfile with `npm ci --ignore-scripts`. The worker integration test executes the
+actual selected fields against the table DDL from its original migration. It
+fails if the old nonexistent column is restored. Provider tests assert the
+outbound thinking setting and fail if it is removed.
+
+Follow-up checks: 14 core/provider checks, worker schema integration, 11 browser
+checks (including Workspace Settings save/owner permissions), all 23 v2 unit
+suites, YAML parsing and diff whitespace. Desktop/mobile preview captures were
+inspected. No new SQL or production change in this follow-up.

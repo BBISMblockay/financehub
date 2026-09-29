@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'v2/on-deck*'
+      - 'v2/settings-company.html'
+      - 'package.json'
+      - 'package-lock.json'
       - 'v2/ad-studio.js'
       - 'v2/tests/browser/on-deck.test.js'
       - 'scripts/on-deck-prepare.mjs'
@@ -22,11 +25,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --ignore-scripts --no-package-lock
+      - run: npm ci --ignore-scripts
       - run: npm ci --prefix scripts/tests/finance-db --ignore-scripts
       - run: npm install --prefix v2/tests --ignore-scripts --no-package-lock
       - run: cd v2/tests && npx playwright install --with-deps chromium
       - run: node scripts/tests/on-deck-core.test.mjs
+      - run: node scripts/tests/on-deck-worker.test.mjs
       - run: node scripts/tests/on-deck-database.test.mjs
       - run: node v2/tests/run.js --unit
       - run: node v2/tests/browser/on-deck.test.js

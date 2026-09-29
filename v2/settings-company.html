@@ -13,6 +13,7 @@
   <script src="nav-config.js"></script>
   <script src="avatar.js"></script>
   <script src="workspace-settings.js"></script>
+  <script src="on-deck-settings.js"></script>
   <script src="silo-chrome.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
@@ -163,6 +164,23 @@
             </dl>
           </div>
         </div>
+        <section class="ws-card" id="on-deck-settings" hidden>
+          <div class="ws-card-head"><div class="ws-title">On Deck · Background preparation</div><div class="ws-sub">Owner controls</div></div>
+          <form class="ws-body" id="od-settings-form">
+            <label class="ws-note"><input id="od-enabled" type="checkbox" disabled> Enable preparation</label>
+            <p class="ws-note">Screens daily and drafts the strongest opportunities. Revisions run hourly when the scheduler is active.</p>
+            <div class="ws-grid">
+              <label class="ws-field"><span class="ws-label">Monthly AI cap · USD (maximum $100)</span><input id="od-cap" class="bcn-field" type="number" min="0" max="100" step="0.01" required disabled></label>
+              <label class="ws-field"><span class="ws-label">Restock review budget · company currency</span><input id="od-budget" class="bcn-field" type="number" min="0.01" step="0.01" placeholder="Required for restock candidates" disabled></label>
+            </div>
+            <fieldset style="border:0;padding:14px 0"><legend class="ws-label">Workflows</legend><div class="ws-actions">
+              <label><input type="checkbox" name="od-workflow" value="restock" disabled> Restock</label><label><input type="checkbox" name="od-workflow" value="launch" disabled> Launch</label><label><input type="checkbox" name="od-workflow" value="seo" disabled> SEO</label><label><input type="checkbox" name="od-workflow" value="ads" disabled> Ads</label>
+            </div></fieldset>
+            <details class="ws-note"><summary>Usage &amp; cost records</summary><p id="od-usage"></p><p id="od-accounting"></p><p id="od-usage-workflows"></p><p>UTC month. Revisions and failures count toward the cap; uncertain calls retain a $0.25 reservation until reconciled.</p></details>
+            <div class="ws-actions" style="margin-top:14px"><button type="submit" class="bcn-btn bcn-btn--primary" disabled>Save On Deck settings</button><span class="ws-you" id="od-settings-status" role="status" aria-live="polite"></span></div>
+          </form>
+        </section>
+
       </div>
     </main>
   </div>
@@ -405,6 +423,7 @@
 
     await load();
     applyPermission();
+    await window.SiloOnDeckSettings.mount({ db, companyId: _co.id, canEdit: _canEdit });
 
     const refreshButtons = () => { const off = !_canEdit || !dirty(); el('btnSave').disabled = off; el('btnSaveDocs').disabled = off; };
     for (const n of [el('fldName'), el('fldTimezone'), el('fldCurrency'), ...docInputs()]) {

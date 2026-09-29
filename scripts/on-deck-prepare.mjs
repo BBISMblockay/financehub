@@ -28,7 +28,7 @@ export async function prepareOne({ db, proposal, apiKey, fetcher = fetch, reques
     const response = await fetcher('https://api.anthropic.com/v1/messages', {
       method: 'POST', signal: AbortSignal.timeout(90000),
       headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: MODEL, max_tokens: MAX_OUTPUT_TOKENS, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: MODEL, max_tokens: MAX_OUTPUT_TOKENS, thinking: { type: 'disabled' }, messages: [{ role: 'user', content: prompt }] }),
     });
     const body = await response.json();
     if (Number.isInteger(body.usage?.input_tokens) && Number.isInteger(body.usage?.output_tokens)) {
@@ -63,7 +63,7 @@ export async function run({ db, apiKey, now = new Date(), fetcher = fetch }) {
           versions[kind] = await rpc(db, 'on_deck_source_version', { p_company: company, p_kind: kind });
           const endpoint = { restock: 'product', launch: 'launch', seo: 'seo', ads: 'ad' }[kind];
           facts[{ restock: 'products', launch: 'launches', seo: 'seo', ads: 'ads' }[kind]] = await pages(offset => db.rpc(`on_deck_${endpoint}_facts`, { p_company: company, p_offset: offset }));
-          if (kind === 'restock') facts.mappings = await pages(offset => db.from('shopify_product_skus').select('shop_domain,shopify_product_id,shopify_variant_id,sku,product_title,status').eq('company_entity_id', company).order('shop_domain').order('shopify_product_id').order('shopify_variant_id').range(offset, offset + 499));
+          if (kind === 'restock') facts.mappings = await pages(offset => db.from('shopify_product_skus').select('shop_domain,shopify_product_id,shopify_variant_id,sku,product_title,status:shopify_status').eq('company_entity_id', company).order('shop_domain').order('shopify_product_id').order('shopify_variant_id').range(offset, offset + 499));
           if (versions[kind] !== await rpc(db, 'on_deck_source_version', { p_company: company, p_kind: kind })) throw new Error('source_changed_during_screening');
         }
         const cooling = await pages(offset => db.from('on_deck_proposals').select('kind,source_key').eq('company_entity_id', company).in('status', ['completed', 'dismissed', 'screened']).gt('revisit_at', now.toISOString()).order('id').range(offset, offset + 499));

@@ -29,9 +29,10 @@ const rpc = {
  const ready = () => document.getElementById('workspace') && !document.getElementById('workspace').hidden;
  try {
   let page = await suite.open('/v2/on-deck.html', tables(), { rpc, ready });
-  await test('real page loads company-scoped lineup, costs and existing SILO chrome', async () => {
+  await test('real page loads company-scoped lineup and existing SILO chrome', async () => {
    await page.waitForSelector('.od-card'); assert.equal(await page.locator('.od-card').count(), 2);
-   assert.match(await page.locator('#spend').textContent(), /3.42/); assert.match(await page.locator('#saved').textContent(), /42 min/);
+   assert.equal(await page.locator('#spend,#saved,#settings-dialog').count(), 0);
+   assert.equal(await page.getByRole('link', { name: 'Workspace Settings', exact: true }).getAttribute('href'), 'settings-company.html#on-deck-settings');
    const queries = await page.evaluate(() => window.__QUERIES__.filter(q => q.table === 'on_deck_proposals'));
    assert.ok(queries.every(q => q.filters.some(f => f.op === 'eq' && f.col === 'company_entity_id' && f.val === 'test-company')));
    assert.equal(await page.locator('a[href="/v2/on-deck.html"]').count(), 0);
@@ -40,7 +41,7 @@ const rpc = {
    await page.getByRole('button', { name: 'Prepared draft', exact: true }).click();
    assert.match(await page.locator('.od-paper').textContent(), /next first inning/);
    await page.getByText('Compare with previous draft', { exact: true }).click(); assert.match(await page.locator('.od-diff').textContent(), /Previous launch copy/);
-   assert.match(await page.locator('#rail').textContent(), /No publishing or messages/);
+   assert.match(await page.locator('#rail').textContent(), /Nothing publishes or spends here/);
   });
   await test('approval asks for confirmation and sends exact displayed version once', async () => {
    await page.getByRole('button', { name: 'Approve copy & create tasks', exact: true }).click();
@@ -94,6 +95,27 @@ const rpc = {
   await page.close();
   page = await suite.open('/v2/on-deck.html', tables(), { rpc, broken: ['on_deck_settings'], ready: () => /not installed|failed|error|broken|unreadable/i.test(document.getElementById('status').textContent) });
   await test('unavailable data leaves mutations disabled', async () => { assert.equal(await page.locator('#prepare').isDisabled(), true); assert.equal(await page.locator('#workspace').isHidden(), true); });
+  await page.close();
+  const settingsReady = () => document.getElementById('on-deck-settings') && !document.getElementById('on-deck-settings').hidden;
+  page = await suite.open('/v2/settings-company.html#on-deck-settings', tables(), { rpc: { ...rpc, on_deck_configure: args => { Object.assign(window.__FIXTURE_TABLES__.on_deck_settings[0], { enabled: args.p_enabled, monthly_cap_usd: args.p_cap, buy_budget: args.p_buy_budget, workflows: args.p_workflows }); return true; } }, ready: settingsReady });
+  await test('Workspace Settings owns cap, usage and persisted preparation controls', async () => {
+   await page.waitForFunction(() => !document.getElementById('od-cap').disabled);
+   await page.getByText('Usage & cost records', { exact: true }).click();
+   assert.match(await page.locator('#od-usage').textContent(), /3.42/);
+   await page.locator('#od-cap').fill('45'); await page.getByRole('button', { name: 'Save On Deck settings', exact: true }).click();
+   await page.waitForFunction(() => document.getElementById('od-settings-status').textContent === 'On Deck settings saved.');
+   const call = await page.evaluate(() => window.__QUERIES__.find(q => q.table === 'rpc:on_deck_configure'));
+   assert.equal(call.args.p_cap, 45); assert.equal(call.args.p_enabled, true);
+   await page.screenshot({ path: path.resolve(__dirname, '../../../.screenshots/on-deck-settings.png'), fullPage: true });
+  });
+  await page.close();
+  const admin = tables(); admin.entity_memberships[0].role = 'admin';
+  page = await suite.open('/v2/settings-company.html#on-deck-settings', admin, { rpc, ready: settingsReady });
+  await test('Workspace admin can read usage but cannot change the owner cap', async () => {
+   await page.waitForFunction(() => document.getElementById('od-settings-status').textContent.includes('Only a workspace owner'));
+   assert.equal(await page.locator('#od-cap').isDisabled(), true);
+   assert.equal(await page.getByRole('button', { name: 'Save On Deck settings', exact: true }).isDisabled(), true);
+  });
   await page.close();
   console.log(`${checks} browser checks passed`);
  } finally { await suite.close(); }
