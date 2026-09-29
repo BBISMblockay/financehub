@@ -2,7 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { curate, promptFor, validateDraft, MODEL, MAX_OUTPUT_TOKENS } from './lib/on-deck-core.mjs';
+import { curate } from './lib/on-deck-core.mjs';
 const check = r => { if (r.error) throw new Error(r.error.message); return r.data; };
 const rpc = async (db, name, args) => check(await db.rpc(name, args));
 async function pages(fetchPage) {
@@ -13,41 +13,16 @@ async function pages(fetchPage) {
   }
   throw new Error('source_limit_reached'); // Never rank a silently truncated feed.
 }
-export async function prepareOne({ db, proposal, apiKey, fetcher = fetch, requestId = randomUUID() }) {
-  // Validate prompt bound BEFORE reserving/spending. A bad source cannot loop paid calls.
-  let prompt;
-  try { prompt = promptFor(proposal); }
-  catch {
-    check(await db.from('on_deck_proposals').update({ status: 'failed', version: proposal.version + 1 }).eq('id', proposal.id).eq('version', proposal.version));
-    return 'prompt_too_large';
-  }
-  const claim = await rpc(db, 'on_deck_reserve', { p_id: proposal.id, p_version: proposal.version, p_request: requestId });
-  if (!claim.claimed) return claim.reason || 'already_claimed';
-  let content = null, input = null, output = null, error = null;
-  try {
-    const response = await fetcher('https://api.anthropic.com/v1/messages', {
-      method: 'POST', signal: AbortSignal.timeout(90000),
-      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: MODEL, max_tokens: MAX_OUTPUT_TOKENS, thinking: { type: 'disabled' }, messages: [{ role: 'user', content: prompt }] }),
-    });
-    const body = await response.json();
-    if (Number.isInteger(body.usage?.input_tokens) && Number.isInteger(body.usage?.output_tokens)) {
-      input = body.usage.input_tokens; output = body.usage.output_tokens;
-    }
-    if (!response.ok) throw new Error(`provider_http_${response.status}`);
-    if (body.stop_reason !== 'end_turn') throw new Error('incomplete_draft');
-    const raw = body.content?.filter(c => c.type === 'text').map(c => c.text).join('') || '';
-    try { content = validateDraft(JSON.parse(raw), proposal.kind); } catch { throw new Error('invalid_draft'); }
-  } catch (e) {
-    // Never log provider bodies, prompts, customer copy or API credentials.
-    error = /^provider_http_\d+$|^incomplete_draft$|^invalid_draft$/.test(e.message) ? e.message : 'provider_outcome_unknown';
-  }
-  // If this write fails the hold remains. A later job closes it conservatively;
-  // it does not retry the paid call or silently record $0.
-  await rpc(db, 'on_deck_finish', { p_request: requestId, p_content: content, p_input: input, p_output: output, p_error: error });
-  return error || 'prepared';
+// One bounded Edge invocation per proposal. The provider key never enters GitHub.
+export async function prepareViaEdge({ db, proposal, requestId = randomUUID() }) {
+  const { data, error } = await db.functions.invoke('on-deck-prepare', {
+    body: { proposal_id: proposal.id, version: proposal.version, request_id: requestId },
+    timeout: 120000,
+  });
+  if (error || typeof data?.outcome !== 'string') throw new Error('edge_preparation_failed');
+  return data.outcome;
 }
-export async function run({ db, apiKey, now = new Date(), fetcher = fetch }) {
+export async function run({ db, now = new Date(), prepare = prepareViaEdge }) {
   const settings = await pages(offset => db.from('on_deck_settings').select('*').eq('enabled', true).order('company_entity_id').range(offset, offset + 499));
   let failures = 0;
   for (const setting of settings) {
@@ -81,7 +56,7 @@ export async function run({ db, apiKey, now = new Date(), fetcher = fetch }) {
       const pending = check(await db.from('on_deck_proposals').select('*').eq('company_entity_id', company).in('status', ['preparing', 'revision']).order('created_at'));
       const outcomes = [];
       for (const p of pending) {
-        const outcome = await prepareOne({ db, proposal: p, apiKey, fetcher }); outcomes.push(outcome);
+        const outcome = await prepare({ db, proposal: p }); outcomes.push(outcome);
         if (outcome === 'stale') check(await db.from('on_deck_proposals').update({ status: 'failed', version: p.version + 1, updated_at: now.toISOString() }).eq('id', p.id).eq('version', p.version));
       }
       if (outcomes.length) check(await db.from('on_deck_settings').update({ last_status: outcomes.includes('budget_cap') ? 'Monthly preparation cap reached' : outcomes.includes('daily_cap') ? 'Daily safety cap reached' : `Preparation: ${outcomes.filter(x => x === 'prepared').length} ready, ${outcomes.filter(x => x !== 'prepared').length} held or failed` }).eq('company_entity_id', company));
@@ -97,9 +72,9 @@ export async function run({ db, apiKey, now = new Date(), fetcher = fetch }) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.env.ON_DECK_ENABLED !== 'true') { console.log('On Deck worker disabled'); }
   else {
-    const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY } = process.env;
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !ANTHROPIC_API_KEY) throw new Error('Missing preparation credentials');
+    const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) throw new Error('Missing GitHub Supabase URL or service-role credential');
     const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
-    await run({ db, apiKey: ANTHROPIC_API_KEY });
+    await run({ db });
   }
 }

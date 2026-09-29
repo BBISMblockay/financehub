@@ -15,7 +15,7 @@ existing domain gates rechecked at each handoff. No finance records are copied
 into this shared queue. No existing permission helper or action is broadened.
 
 Call path: opt-in GitHub worker → explicit-company source queries → deterministic
-product/page/objective screening → bounded Claude draft → stored proposal →
+product/page/objective screening → bounded Supabase Edge draft → stored proposal →
 versioned user decision → transactional draft/task handoff → stored receipt.
 The worker cannot invoke the authenticated approval endpoint. It cannot send,
 publish, approve purchasing, post journals, or alter ad budgets.
@@ -150,3 +150,32 @@ Follow-up checks: 14 core/provider checks, worker schema integration, 11 browser
 checks (including Workspace Settings save/owner permissions), all 23 v2 unit
 suites, YAML parsing and diff whitespace. Desktop/mobile preview captures were
 inspected. No new SQL or production change in this follow-up.
+
+## Shared Anthropic secret / Edge drafting
+
+`on-deck-prepare` is a new Supabase Edge Function. GitHub still screens and stages
+candidates, then invokes it once per stored proposal with its ID, version and a
+request UUID. The Edge handler reads the stored proposal, reserves the existing
+budget, calls Anthropic, validates the result and settles usage. It reads the
+same project-level `ANTHROPIC_API_KEY` already used by Ask SILO. GitHub needs
+only its existing `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` secrets; remove
+any requirement to duplicate the Anthropic key there.
+
+Keep JWT verification enabled when deploying `on-deck-prepare`. The handler also
+requires the exact service-role credential; normal user/anonymous JWTs cannot
+trigger it. No caller-supplied company, prompt, model, source or cost is accepted.
+All draft modules are inside the function directory so the existing deployment
+workflow bundles them. There are no new SQL migrations or secret values.
+
+After merge, deploy `on-deck-prepare` via **Deploy Edge Function** (or the MCP with
+`verify_jwt=true`) before running **On Deck preparation** on main. Keep the
+existing repository variable and company controls. A 90-second provider timeout
+bounds each invocation; the worker processes proposals sequentially. Interrupted
+calls retain the existing conservative reservation and are not blindly retried.
+A failed Edge invocation fails the company job, retaining prior drafts/holds.
+
+Checks: `node scripts/tests/on-deck-edge.test.mjs` executes the deployed handler
+and worker caller together; it covers authorization, request validation, stored
+versions, cap refusal, replay, settlement and transport uncertainty. Existing
+core/provider, worker-schema and database tests remain applicable. Live Edge
+bundling, runtime secrets and an authorized first run remain deployment checks.

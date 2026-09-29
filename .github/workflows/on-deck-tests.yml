@@ -9,6 +9,7 @@ on:
       - 'v2/ad-studio.js'
       - 'v2/tests/browser/on-deck.test.js'
       - 'scripts/on-deck-prepare.mjs'
+      - 'supabase/functions/on-deck-prepare/**'
       - 'scripts/lib/on-deck-core.mjs'
       - 'scripts/tests/on-deck*'
       - 'supabase/migrations/*on_deck*'
@@ -31,6 +32,7 @@ jobs:
       - run: cd v2/tests && npx playwright install --with-deps chromium
       - run: node scripts/tests/on-deck-core.test.mjs
       - run: node scripts/tests/on-deck-worker.test.mjs
+      - run: node scripts/tests/on-deck-edge.test.mjs
       - run: node scripts/tests/on-deck-database.test.mjs
       - run: node v2/tests/run.js --unit
       - run: node v2/tests/browser/on-deck.test.js
