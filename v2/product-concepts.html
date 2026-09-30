@@ -348,11 +348,20 @@
     // it to Ask SILO with the concept already bound -- silo-chat reads
     // ?concept=<id> and arms the composer against that row.
     const chatUrl = `/v2/silo-chat.html?concept=${encodeURIComponent(c.id)}`;
+    // The concept carries strategy; the PO is where a human commits to real
+    // numbers. Same purchasing-adjacent gate as approving a concept
+    // (po_builder_can_write()) -- the PO Builder end of this link is the
+    // same addFromConcepts() the (still hidden) in-builder picker uses, so
+    // there is one definition of what a concept becomes on a PO, reached
+    // from two entry points. If this concept already produced a PO,
+    // po-builder.html opens that PO instead of adding its lines twice.
+    const poUrl = `/v2/po-builder.html?fromConcept=${encodeURIComponent(c.id)}`;
     const imgCount = Array.isArray(c.reference_image_urls) ? c.reference_image_urls.filter(Boolean).length : 0;
     const editable = canEditConcept(c);
     el('detail').innerHTML = `
       <div class="pc-detail-actions">
         <a class="bcn-btn bcn-btn--primary" href="${chatUrl}">Open in Ask SILO</a>
+        ${canWritePO ? `<a class="bcn-btn bcn-btn--dark" href="${poUrl}">Generate PO</a>` : ''}
         ${editable ? `<button type="button" class="bcn-btn bcn-btn--ghost pc-upload-btn" id="btnAddImage">Add reference image</button>
         <input type="file" id="fileImage" accept="image/*" multiple hidden />` : ''}
         ${imgCount ? `<span class="bcn-mono" style="font-size:10.5px;color:var(--bcn-ink-3)">${imgCount} image${imgCount === 1 ? '' : 's'}</span>` : ''}

@@ -886,8 +886,12 @@
       return [{...base, qty, retail_value:retail?qty*retail:0}];
     }
 
-    async function addFromConcepts(){
-      const picked=pickedConcepts();
+    // explicitPicked lets the ?fromConcept= deep link (see boot()) drive
+    // this with one concept it fetched itself, without touching the
+    // picker's checkboxes at all -- the modal path keeps reading them via
+    // pickedConcepts() exactly as before.
+    async function addFromConcepts(explicitPicked){
+      const picked=explicitPicked||pickedConcepts();
       if(!picked.length){ alert('Select at least one concept.'); return; }
       const facs=[...new Set(picked.map(c=>c.suggested_factory_id).filter(Boolean))];
       if(facs.length>1){ alert('Selected concepts span more than one factory. One PO is one factory.'); return; }
@@ -1576,9 +1580,45 @@
         await loadCatalogProducts();
         await refreshAll();
         const startPo=new URLSearchParams(location.search).get('po_id');
+        const fromConcept=new URLSearchParams(location.search).get('fromConcept');
         if(startPo){ await openPO(startPo); }
+        else if(fromConcept){ await generateFromConceptDeepLink(fromConcept); }
         else if(!state.currentPO?.id && state.poRows.length){ setPoDrawerOpen(true); }
       }catch(e){ console.error(e); alert(e.message||'Initial load failed'); }
+    }
+
+    // /v2/po-builder.html?fromConcept=<id> -- the direct "Generate PO" path
+    // from /v2/product-concepts.html: no picker, no manual pick-and-click,
+    // straight to a PO carrying this concept's lines. Reuses addFromConcepts()
+    // exactly as the (still hidden) picker modal does, so there is one
+    // definition of what a concept becomes on a PO.
+    async function generateFromConceptDeepLink(conceptId){
+      // Already generated once: open that PO rather than adding the same
+      // concept's lines a second time. po_concept_links is the record of
+      // which POs a concept became; unique(po_header_id, concept_id) is
+      // what makes a repeat click here idempotent even without this check,
+      // but going straight to the existing PO is a much better landing
+      // than a second empty attempt at a PO that already has these lines.
+      let linkQ=sb.from('po_concept_links').select('po_header_id').eq('concept_id',conceptId).limit(1);
+      if(_co?.id) linkQ=linkQ.eq('company_entity_id',_co.id);
+      const {data:existingLinks}=await linkQ;
+      if(existingLinks?.length){
+        await openPO(existingLinks[0].po_header_id);
+        setStatus('This concept already has a PO — opened it.','info',6000);
+        return;
+      }
+
+      let q=sb.from('product_concepts_v').select(
+        'id,title,status,phase,parent_concept_id,parent_title,suggested_qty,suggested_factory_id,'
+        +'suggested_factory_name,suggested_product_type,suggested_size_breakdown,economics,evidence_strength,child_count'
+      ).eq('id',conceptId);
+      if(_co?.id) q=q.eq('company_entity_id',_co.id);
+      const {data,error}=await q;
+      if(error){ alert('Could not load that concept: '+error.message); return; }
+      if(!data?.length){ alert('That concept could not be found for your active company.'); return; }
+
+      try{ await addFromConcepts(data); }
+      catch(e){ console.error(e); alert(e.message||'Could not generate a PO from this concept'); }
     }
 
     if(window.SiloChrome){

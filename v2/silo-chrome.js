@@ -218,16 +218,24 @@
     }).join('');
   }
 
+  // Company name doubles as the switcher — the picker self-loads
+  // memberships and returns here via ?next= after set_active_company.
+  // Factored out so the post-mount reconciliation below (mount()'s
+  // ensureActiveCompany() repaint) can redraw exactly this markup when the
+  // resolved company differs from what first paint showed, rather than
+  // drifting into a second definition of this line.
+  function companyLineHtml(company) {
+    const switchHref = '/v2/company-picker.html?next='
+      + encodeURIComponent(window.location.pathname + window.location.search);
+    return company?.title
+      ? `<a href="${escHtml(switchHref)}" title="Switch company" style="color:inherit;text-decoration:none;">${escHtml(company.title)} <span style="opacity:.55" aria-hidden="true">⇄</span></a>`
+      : 'v2.0 · prod';
+  }
+
   function renderSidebar(opts) {
     const { active, user } = opts;
     const company = getActiveCompany();
-    // Company name doubles as the switcher — the picker self-loads
-    // memberships and returns here via ?next= after set_active_company.
-    const switchHref = '/v2/company-picker.html?next='
-      + encodeURIComponent(window.location.pathname + window.location.search);
-    const companyLine = company?.title
-      ? `<a href="${escHtml(switchHref)}" title="Switch company" style="color:inherit;text-decoration:none;">${escHtml(company.title)} <span style="opacity:.55" aria-hidden="true">⇄</span></a>`
-      : 'v2.0 · prod';
+    const companyLine = companyLineHtml(company);
 
     return `
       <aside class="silo-sidebar" role="navigation" aria-label="SILO menu">
@@ -499,6 +507,11 @@
     else if (window.SiloWorkspaceSettings?.contains(navActive)) navActive = 'settings/workspace';
     else if (window.SiloSeoSuite?.contains(navActive)) navActive = 'reports/seo';
     const sidebar = el(renderSidebar({ ...opts, active: navActive }));
+    // What first paint's sidebar LABEL actually shows, so the reconciliation
+    // below only touches the DOM when ensureActiveCompany() resolves a
+    // DIFFERENT company than this -- a normal load (cache already correct)
+    // never flickers it.
+    let lastRenderedCompanyId = getActiveCompany()?.id || null;
     const backdrop = el('<div class="silo-nav-backdrop" data-silo-nav-backdrop hidden></div>');
     appEl.prepend(sidebar);
     appEl.prepend(backdrop);
@@ -521,26 +534,6 @@
         const navEl = sidebar.querySelector('#siloSbNav');
         if (navEl) navEl.innerHTML = renderNavSections(navActive, dept, effectiveRole);
       });
-    }
-
-    // Same deal for the COMPANY itself. getActiveCompany() is a sessionStorage
-    // read and sessionStorage is per-tab, so a bookmark or deep link lands here
-    // fully authenticated with no cached company. resolveNavProfile(null) now
-    // answers 'standard' (it used to answer 'grandfathered', i.e. Baseballism's
-    // menu for whoever happened to be looking) -- so without this re-render a
-    // grandfathered user on a deep link would be stuck on the standard menu for
-    // the whole page. ensureActiveCompany() self-heals the tab from the
-    // server-side profiles.active_company_id, and we repaint the nav with the
-    // company it resolves. Fails quiet: if it cannot resolve one, the smaller
-    // menu is the right thing to leave on screen.
-    if (!getActiveCompany() && opts.supabaseClient) {
-      Promise.resolve(window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient))
-        .then((company) => {
-          if (!company) return;
-          const navEl = sidebar.querySelector('#siloSbNav');
-          if (navEl) navEl.innerHTML = renderNavSections(navActive, getCachedDepartment(), effectiveRole, getCachedGrantIds());
-        })
-        .catch(() => {});
     }
 
     // Same deal for grant-based unlocks (e.g. Ask SILO access granted via
@@ -581,21 +574,55 @@
       });
     }
 
-    // Use the role for this workspace, not a page's first-paint placeholder.
-    // Membership role is per-company and is what the database value uses to
-    // control authorization here -- but profile-level owner/executive
-    // OUTRANKS membership everywhere else in SILO (is_admin_user(),
-    // is_exec_or_owner(), every EXEC_ROLES-equivalent DB gate: see CLAUDE.md's
-    // role system section), and this nav refresh was the one place that rule
-    // wasn't applied -- it discarded profile role outright. A Baseballism
-    // executive who is merely membership 'admin' there (28 of 29 profiles
-    // are) got a sidebar that could never show an EXEC_ROLES-only link like
-    // SEO, no matter how the page mounted, because this correction always
-    // ran and always won.
+    // Company, role and nav-profile all key off ONE ensureActiveCompany()
+    // resolution, unconditionally (not gated on an empty cache): that
+    // function now self-heals a STALE cache too, not only an empty one
+    // (2026-09-30, PR #830 review) -- a tab that already had a company
+    // cached before another tab switched companies used to keep it forever,
+    // because both this and the block this replaced used to run only when
+    // getActiveCompany() was empty. Three things were wrong at once on a
+    // stale tab, and all three are fixed by one repaint here:
+    //   1. the SIDEBAR LABEL (companyLineHtml) kept naming the old company
+    //      even once ensureActiveCompany() had corrected sessionStorage --
+    //      nothing ever told THIS element to redraw from the correction.
+    //   2. the NAV PROFILE (resolveNavProfile(null) answers 'standard', not
+    //      'grandfathered') was stuck on whichever menu the OLD company's
+    //      profile implied, for the rest of the tab's life.
+    //   3. the ROLE label/gating (see below) was stuck on the old
+    //      company's membership.
+    // Fails quiet throughout: if ensureActiveCompany() cannot resolve a
+    // company at all, first paint is left exactly as it was.
     if (opts.supabaseClient) {
       Promise.resolve(window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient))
         .then(async (company) => {
           if (!company?.id) return;
+          // A KNOWN mismatch ensureActiveCompany() could not resolve (the
+          // entities lookup for the server's own answer failed twice) --
+          // company here is the OLD cached value handed back only because
+          // callers need some id to scope queries by. Repainting the label,
+          // role or nav-profile from it would present a value already
+          // known to be wrong as though it were freshly confirmed. Leave
+          // everything exactly as first paint showed it; the next mount
+          // (next navigation) tries again.
+          if (company._staleReconcile) return;
+
+          // 1. Company label -- only touch the DOM if it actually changed,
+          // so a normal load (cache already correct) never flickers it.
+          if (company.id !== (lastRenderedCompanyId || null)) {
+            const verEl = sidebar.querySelector('.silo-sb-ver');
+            if (verEl) verEl.innerHTML = companyLineHtml(company);
+            lastRenderedCompanyId = company.id;
+          }
+
+          // 2 & 3. Role -- profile-level owner/executive OUTRANKS membership
+          // everywhere else in SILO (is_admin_user(), is_exec_or_owner(),
+          // every EXEC_ROLES-equivalent DB gate: see CLAUDE.md's role system
+          // section), and this nav refresh was the one place that rule
+          // wasn't applied -- it discarded profile role outright. A
+          // Baseballism executive who is merely membership 'admin' there
+          // (28 of 29 profiles are) got a sidebar that could never show an
+          // EXEC_ROLES-only link like SEO, no matter how the page mounted,
+          // because this correction always ran and always won.
           const sess = await opts.supabaseClient.auth.getSession();
           const uid = sess?.data?.session?.user?.id;
           if (!uid) return;
@@ -607,13 +634,18 @@
           const profileRole = String(profile?.role || '').toLowerCase();
           const outranks = profileRole === 'owner' || profileRole === 'executive';
           const resolvedRole = outranks ? profileRole : membership?.role;
-          if (!resolvedRole) return;
-          effectiveRole = resolvedRole;
-          paletteRole = effectiveRole;
+          if (resolvedRole) {
+            effectiveRole = resolvedRole;
+            paletteRole = effectiveRole;
+            appEl.querySelectorAll('[data-silo-role]').forEach((node) => {
+              node.textContent = roleLabel(resolvedRole);
+            });
+          }
 
-          appEl.querySelectorAll('[data-silo-role]').forEach((node) => {
-            node.textContent = roleLabel(resolvedRole);
-          });
+          // Repaint the nav ONCE, after both the company (nav profile) and
+          // the role have had their chance to change -- two separate
+          // repaints here is how this drifted into missing the label fix
+          // in the first place.
           const navEl = sidebar.querySelector('#siloSbNav');
           if (navEl) navEl.innerHTML = renderNavSections(
             navActive, getCachedDepartment(), effectiveRole, getCachedGrantIds());

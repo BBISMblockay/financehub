@@ -20,6 +20,18 @@
  *     cache rather than blanking a previously-good one
  *   - calling with no supabaseClient behaves exactly as before (existing
  *     cache or null, no error)
+ *
+ * Second round (same review, cycle 3 -- source review, not yet posted to
+ * the PR): a FAILED read (error set, not thrown -- how the Supabase JS
+ * client actually reports most query failures) is a different fact from a
+ * confirmed answer, and the first pass conflated them twice:
+ *   - a failed profiles read must not be read as "confirmed no active
+ *     company" and must not clear a good cache
+ *   - a known mismatch (server names a different id than the cache) whose
+ *     entity lookup then fails must not be silently handed back as though
+ *     resolved -- one retry gives a transient blip a real chance, and a
+ *     caller that repaints UI from the return value must be able to tell
+ *     "still stale, unresolved" apart from "confirmed current"
  */
 'use strict';
 
@@ -48,7 +60,10 @@ function freshConfig(seedCompany) {
   return g.window.__SILO_CONFIG__;
 }
 
-function fakeClient({ uid = 'u1', activeCompanyId, entity, profErr, entityErr, throwOnAuth, throwOnProfiles } = {}) {
+function fakeClient({
+  uid = 'u1', activeCompanyId, entity, profErr, entityErr, entityFailTimes = 0,
+  throwOnAuth, throwOnProfiles,
+} = {}) {
   const calls = { entities: 0 };
   return {
     auth: {
@@ -78,6 +93,9 @@ function fakeClient({ uid = 'u1', activeCompanyId, entity, profErr, entityErr, t
               single: async () => {
                 calls.entities += 1;
                 if (entityErr) return { data: null, error: entityErr };
+                // entityFailTimes lets a test prove the retry actually helps:
+                // fail the first N attempts (a transient blip), then succeed.
+                if (calls.entities <= entityFailTimes) return { data: null, error: { message: 'transient' } };
                 return { data: entity, error: null };
               },
             }),
@@ -162,15 +180,49 @@ function fakeClient({ uid = 'u1', activeCompanyId, entity, profErr, entityErr, t
     r.ok('with no client and no cache, resolves to null', co === null);
   }
 
-  // 7. The entity lookup for the corrected company fails -- fall back to
-  //    whatever cache existed rather than surfacing null (a resolvable-but-
-  //    momentarily-unreachable entity should not blank a working tab).
+  // 7. The entity lookup for a KNOWN mismatch fails on both attempts --
+  //    fall back to the stale cache (callers need SOME id) but mark it as
+  //    unresolved, never as confirmed, and never persist it as if it were.
   {
     const cfg = freshConfig({ id: 'co-old', title: 'Test Company', entity_key: 'test-co' });
-    const client = fakeClient({ activeCompanyId: 'co-new', entity: null });
+    const client = fakeClient({ activeCompanyId: 'co-new', entity: null, entityFailTimes: 99 });
     const co = await cfg.ensureActiveCompany(client);
     r.ok('an unresolvable server entity falls back to the existing cache',
       co?.id === 'co-old', JSON.stringify(co));
+    r.ok('the fallback is marked unresolved, not confirmed', co?._staleReconcile === true, JSON.stringify(co));
+    r.ok('a real retry was attempted before giving up', client._calls.entities === 2,
+      `entities calls: ${client._calls.entities}`);
+    r.ok('the stale value is never persisted as if it were current',
+      cfg.getActiveCompany()?.id === 'co-old' && !cfg.getActiveCompany()?._staleReconcile,
+      JSON.stringify(cfg.getActiveCompany()));
+  }
+
+  // 8. The retry actually helps: the entity lookup fails ONCE (a transient
+  //    blip) then succeeds -- the mismatch is corrected, not given up on.
+  {
+    const cfg = freshConfig({ id: 'co-old', title: 'Test Company', entity_key: 'test-co' });
+    const client = fakeClient({
+      activeCompanyId: 'co-new',
+      entity: { id: 'co-new', title: 'Baseballism', entity_key: 'baseballism' },
+      entityFailTimes: 1,
+    });
+    const co = await cfg.ensureActiveCompany(client);
+    r.ok('a transient failure on the first attempt is retried and resolved',
+      co?.id === 'co-new' && !co?._staleReconcile, JSON.stringify(co));
+    r.ok('the corrected company is cached', cfg.getActiveCompany()?.id === 'co-new');
+  }
+
+  // 9. A FAILED profiles read (error set, not thrown) must not be read as
+  //    a confirmed "no active company" -- it is a different fact, and
+  //    conflating them used to clear a perfectly good cache on a blip.
+  {
+    const cfg = freshConfig({ id: 'co-1', title: 'Baseballism', entity_key: 'baseballism' });
+    const client = fakeClient({ profErr: { message: 'permission denied' } });
+    const co = await cfg.ensureActiveCompany(client);
+    r.ok('a failed (not thrown) profiles read falls back to the existing cache',
+      co?.id === 'co-1', JSON.stringify(co));
+    r.ok('the cache is NOT cleared by a failed read',
+      cfg.getActiveCompany()?.id === 'co-1', JSON.stringify(cfg.getActiveCompany()));
   }
 
   process.exit(r.summary().fail ? 1 : 0);
