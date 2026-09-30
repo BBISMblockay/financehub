@@ -35,6 +35,7 @@ on:
       - 'supabase/migrations/*ownership_dashboard.sql'
       - 'supabase/migrations/*record_report_catalog_cleanup.sql'
       - 'supabase/migrations/*silo_dashboards.sql'
+      - 'supabase/migrations/*saved_report_archive.sql'
       - 'supabase/apply_all_post_merge.sql'
       - 'v3/js/report-params.js'
       - 'scripts/shopify-sync.mjs'
@@ -879,6 +880,9 @@ jobs:
       # recording migration lands the catalog where production is -- twice.
       - name: Execute report catalog cleanup regressions
         run: node scripts/tests/report-catalog-cleanup-database.test.mjs
+
+      - name: Execute creator-only report archive regressions
+        run: node scripts/tests/saved-report-archive-database.test.mjs
 
       # 20260925120000: SILO dashboards. One global board every company reads
       # and NO client can change -- an exec/owner included -- plus any

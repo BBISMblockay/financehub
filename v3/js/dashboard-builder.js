@@ -41,7 +41,7 @@
   const REPORT_FIELDS = [
     'id', 'title', 'description', 'question', 'answer', 'queries_run',
     'visibility', 'source', 'company_entity_id', 'created_by_name', 'created_at',
-    'row_estimate', 'parameters', 'columns_metadata',
+    'row_estimate', 'parameters', 'columns_metadata', 'archived_at',
   ].join(', ');
 
   /**
@@ -182,6 +182,7 @@
       const { data, error } = await sb
         .from('silo_chat_saved_reports_v')
         .select(REPORT_FIELDS)
+        .is('archived_at', null)
         .order('created_at', { ascending: false });
       if (error) {
         el('addBody').innerHTML = `<div class="v3-empty">Couldn't load reports: ${esc(error.message)}</div>`;
@@ -1466,6 +1467,10 @@
         .eq('id', reportId).maybeSingle();
       if (error || !report) {
         setStatus('That report could not be found — it may have been deleted, or it is private to someone else.', 'neg', 6000);
+        return false;
+      }
+      if (report.archived_at) {
+        setStatus('This report is archived. Its creator can restore it from Reports → Archived before adding it to a dashboard.', 'neg', 6000);
         return false;
       }
       if (!(report.queries_run || []).length) {

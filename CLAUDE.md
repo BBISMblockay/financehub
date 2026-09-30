@@ -845,12 +845,19 @@ than this section.
   standard-profile company still drops all three regardless of role, and nobody who could not
   already reach these pages by URL can now. `/v3/dashboards.html` is the hub, titled **Reports** since
   2026-09-22 (one sidebar row, `reports/dashboards`, labelled Reports; the separate Saved reports row
-  is gone): three tabs — **SILO Reports** (`source = 'system' AND company_entity_id IS NULL`),
-  **My Reports** (every other report RLS lets the viewer read, company-shared ones by colleagues
-  included — "My" is a name, NOT an ownership filter) and **Dashboards** — defaulting to SILO
-  Reports, with the tab kept in `?tab=` (`silo`/`mine`/`dashboards`; the old `?tab=reports` lands on
-  My Reports). The rules live in `v3/js/report-library.js`. A standard-profile workspace still sees
-  Dashboards only. The 2026-09-22 catalog cleanup (21 → 17 SILO reports, short titles) was applied
+  is gone): five tabs — **SILO Reports** (`source = 'system' AND company_entity_id IS NULL`),
+  **My Reports** (only the signed-in creator’s active private or shared reports),
+  **Company Reports** (all active company-shared reports, including yours), **Archived**
+  (your archived reports, with Restore), and **Dashboards** — defaulting to SILO
+  Reports, with the tab kept in `?tab=` (`silo`/`mine`/`company`/`archived`/`dashboards`; the old `?tab=reports` lands on
+  My Reports). The rules live in `v3/js/report-library.js`. A standard-profile workspace still defaults to Dashboards only; Ask SILO’s explicit
+  `?manage=reports&tab=mine` link offers report management without SILO catalog or authoring nav.
+  **Archive is recoverable library state**: only the creator can change it, enforced
+  by RPC and a table trigger, while existing dashboards and authorized direct reads
+  keep their SQL and data. `saved_report_archive_usage()` lists readable dashboard
+  names plus private-board counts; the UI never guesses zero after an error. The
+  unfiltered saved-report view exposes `archived_at`, so list/picker callers must
+  filter it explicitly. See `docs/ops/report-management.md`. The 2026-09-22 catalog cleanup (21 → 17 SILO reports, short titles) was applied
   to prod directly; `20260922170000` re-asserts it and MUST stay the last include in
   `apply_all_post_merge.sql`, because the seed migrations upsert the long titles and the retired
   reports back. Four `source = 'system'` report definitions are seeded

@@ -418,6 +418,7 @@
   <div class="ac-notes-modal" role="dialog" aria-modal="true" aria-labelledby="savedTitle">
     <div class="ac-notes-head">
       <h3 id="savedTitle">Saved reports</h3>
+      <a class="bcn-btn bcn-btn--ghost" id="btnManageReports" href="/v3/dashboards.html?manage=reports&amp;tab=mine">Manage reports</a>
       <button class="ac-notes-close" type="button" id="btnCloseSaved">✕</button>
     </div>
     <div class="ac-notes-body" id="savedBody"></div>
@@ -1836,6 +1837,7 @@
       .from('silo_chat_saved_reports_v')
       .select('id, title, question, answer, queries_run, created_by, created_by_name, created_at, visibility, source')
       .eq('source', 'ask_silo')
+      .is('archived_at', null)
       .order('created_at', { ascending: false });
     if (error) {
       el('savedBody').innerHTML = `<div class="ac-notes-empty">Couldn't load reports: ${esc(error.message)}</div>`;
@@ -1923,13 +1925,6 @@
     }
   }
 
-  // Mirrors the RLS delete policy (creator or exec/owner) — deliberately
-  // NOT canManageNotes: a silo_chat_managers grantee can train notes but
-  // has no special rights over other people's saved reports.
-  function canDeleteReport(r) {
-    return isExecOrOwner || r.created_by === session?.user?.id;
-  }
-
   function renderSavedDetail(r) {
     const answerHtml = (window.marked && window.DOMPurify)
       ? window.DOMPurify.sanitize(window.marked.parse(r.answer ?? ''))
@@ -1946,7 +1941,6 @@
       <div class="ac-report-freshness">Answer text is a snapshot from when this was saved — "Refresh data" below re-runs the saved queries against live data.</div>
       <div class="ac-report-actions">
         <button type="button" class="bcn-btn bcn-btn--primary" id="btnRerunReport" data-id="${esc(r.id)}" ${queries.length ? '' : 'disabled'}>Refresh data (${queries.length} quer${queries.length === 1 ? 'y' : 'ies'})</button>
-        ${canDeleteReport(r) ? `<button type="button" class="bcn-btn bcn-btn--ghost" id="btnDeleteReport" data-id="${esc(r.id)}">Delete</button>` : ''}
       </div>
       <div id="rerunResults" class="ac-rerun-block"></div>`;
   }
@@ -1985,13 +1979,6 @@
     btn.disabled = false;
   }
 
-  async function deleteReport(id) {
-    const { error } = await sb.from('silo_chat_saved_reports').delete().eq('id', id);
-    if (error) { setStatus('Could not delete report: ' + error.message, 'error', 4000); return; }
-    savedReportsCache = savedReportsCache.filter(r => r.id !== id);
-    renderSavedList();
-  }
-
   el('btnSaved').addEventListener('click', openSavedModal);
   el('savedBackdrop').addEventListener('click', (e) => {
     if (e.target.id === 'savedBackdrop' || e.target.closest('#btnCloseSaved')) { closeSavedModal(); return; }
@@ -2000,15 +1987,6 @@
     if (rerunBtn) {
       const r = savedReportsCache.find(x => x.id === rerunBtn.dataset.id);
       if (r) rerunReport(r, rerunBtn);
-      return;
-    }
-    const delBtn = e.target.closest('#btnDeleteReport');
-    if (delBtn) {
-      const rep = savedReportsCache.find(x => x.id === delBtn.dataset.id);
-      const msg = rep?.visibility === 'private'
-        ? 'Delete this report from My reports?'
-        : 'Delete this saved report for the whole company?';
-      if (confirm(msg)) deleteReport(delBtn.dataset.id);
       return;
     }
     const item = e.target.closest('.ac-report-card');
