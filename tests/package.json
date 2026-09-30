@@ -1,0 +1,12 @@
+{
+  "name": "silo-public-landing-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test public-landing.test.mjs",
+    "test:browser": "node public-landing.browser.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.58.2"
+  }
+}

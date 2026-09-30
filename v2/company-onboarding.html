@@ -41,6 +41,8 @@
     .ob-tz-warn { font-size: 12px; line-height: 1.5; margin-top: 8px; padding: 10px 12px;
                   border-radius: 8px; border: 1px solid var(--bcn-warn, #d97706);
                   color: var(--bcn-ink-2, #374151); background: rgba(217,119,6,.06); }
+    .ob-hint a { color: var(--bcn-accent); text-underline-offset: 3px; }
+    .ob-hint a:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 3px; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -53,6 +55,7 @@
 
       <div class="bcn-status" id="status" hidden></div>
       <div class="ob-invited" id="invitedAs" hidden></div>
+      <p class="ob-hint" id="obSupport" hidden>For an invitation or onboarding help, email <a href="mailto:support@get-silo.com">support@get-silo.com</a>.</p>
 
       <form id="obForm" hidden>
         <div class="ob-field">
@@ -126,6 +129,7 @@
       $('obTitle').textContent = 'You need an invitation';
       $('obSub').textContent = '';
       setStatus('Creating a company in SILO is invitation-only right now. Ask for an invite link and open it here.', 'info');
+      $('obSupport').hidden = false;
       return;
     }
 
