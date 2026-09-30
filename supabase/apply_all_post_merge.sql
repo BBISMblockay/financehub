@@ -19148,6 +19148,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260929171502_on_deck_inventory_lookup_index.sql
 \i migrations/20260930000000_generate_po_from_concept_uniq.sql
 \i migrations/20260930120000_product_studio_ready_for_po.sql
+\i migrations/20260930150000_shopify_order_payment_terms.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

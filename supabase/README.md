@@ -2662,3 +2662,21 @@ role and DEFINER functions pass) and the `product_studio_concepts_v` stage view.
 No existing row is modified. After applying: run `verify_v2_schema.sql`
 (the "Product Studio Ready for PO" rows) and `select refresh_chat_schema_catalog();`
 for the new view. See `docs/ops/product-workflow-preview.md`.
+
+## Shopify order payment terms — `20260930150000_shopify_order_payment_terms.sql`
+
+Adds `payment_terms_status`, `payment_terms_name`, `payment_terms_type`,
+`payment_due_in_days`, `payment_due_at`, `payment_terms_completed_at` and
+`total_outstanding` to `shopify_orders`, written by the Shopify sync from the
+`payment_terms` / `total_outstanding` the REST order already carries
+(`orderPaymentTerms()` in `scripts/lib/shopify-sync-core.mjs`).
+`payment_terms_status` is `present` / `none` / NULL, and **NULL means not
+returned** (no `read_payment_terms` scope, or not synced since), never "no
+terms". `shopify_orders_v` gains the columns plus `payment_overdue` and
+`payment_days_overdue`, derived at read time in the company's business days;
+`payment_overdue` is NULL whenever terms were not returned. Existing rows fill
+in on their next sync; older orders need `shopify-orders-backfill.yml`.
+Verified by `scripts/tests/shopify-order-terms.test.mjs` (14) and
+`shopify-order-terms-database.test.mjs` (10), and the
+`shopify_order_payment_terms` verify row.
+
