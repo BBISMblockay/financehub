@@ -338,6 +338,15 @@ let BASE;
     assert.equal(await standard.isHidden('#tab-archived'), true);
     await standard.goto(`${BASE}/v3/dashboards.html?manage=reports&tab=mine`);
     await standard.waitForSelector(action('R1'));
+    // Populated management: organising only, no route into authoring.
+    assert.ok(await standard.locator('#mineBody .lib-card').count() > 0);
+    assert.equal(await standard.locator('#mineBody a[href*="report-builder"]').count(), 0, 'standard management cards must not link to the builder');
+    assert.equal(await standard.locator('#mineBody .lib-card .lib-title-text').count(), await standard.locator('#mineBody .lib-card').count());
+    await standard.click('#tab-company');
+    await standard.waitForSelector('#companyBody .lib-card');
+    assert.equal(await standard.locator('#companyBody a[href*="report-builder"]').count(), 0, 'standard company-report cards must not link to the builder');
+    await standard.click('#tab-mine');
+    await standard.waitForSelector(action('R1'));
     assert.equal(await standard.isVisible('#tab-company'), true);
     assert.equal(await standard.isVisible('#tab-archived'), true);
     assert.equal(await standard.isHidden('#tab-silo'), true);

@@ -374,7 +374,7 @@ await test('migration rerun preserves archive state, report identities, widgets 
 });
 
 // Exact production verification section, so it cannot drift from these tests.
-const verify = await read('supabase/verify_saved_report_archive.sql');
+const verify = await read('supabase/verify_v2_schema.sql');
 const start = verify.indexOf('-- Report archive management');
 const end = verify.indexOf('-- End report archive management', start);
 assert.ok(start >= 0 && end > start, 'verification markers present');

@@ -75,6 +75,7 @@
     .lib-link:focus-visible { outline: none; }
     .lib-link:focus-visible::after { outline: 2px solid var(--bcn-accent); outline-offset: 2px; }
     .lib-card:hover .lib-title { color: var(--bcn-accent); }
+    .lib-card:has(.lib-title-text):hover .lib-title { color: var(--bcn-ink); }
     .lib-summary {
       margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--bcn-ink-2); min-height: 2.9em;
       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -308,7 +309,7 @@
     return `<article class="lib-card" data-kind="${kind}" data-id="${esc(id)}">
       <div class="lib-card-head">
         <span class="lib-icon">${ICON[kind] || ICON.mine}</span>
-        <h3 class="lib-title"><a class="lib-link" href="${esc(href)}">${esc(title)}</a></h3>
+        <h3 class="lib-title">${href ? `<a class="lib-link" href="${esc(href)}">${esc(title)}</a>` : `<span class="lib-title-text">${esc(title)}</span>`}</h3>
       </div>
       ${summary ? `<p class="lib-summary">${esc(summary)}</p>` : ''}
       ${(foot || detailsHtml) ? `<div class="lib-card-foot">${foot || ''}${detailsHtml}${action || ''}</div>` : ''}
@@ -320,7 +321,12 @@
   // or offers a copy is decided there, by RLS -- a SILO report can never be
   // edited in place, so the builder offers the copy. Guessing here would
   // either hide a legitimate edit or promise one that is refused.
-  const reportHref = (r) => `/v3/report-builder.html?id=${encodeURIComponent(r.id)}`;
+  // A standard workspace reaches this list only through ?manage=reports, which
+  // exists to ORGANISE reports it can already read (archive/restore), not to
+  // author them. So there the title does not link anywhere: the builder would
+  // let an owner overwrite a report and save anyone's as an editable copy, and
+  // the read-only preview itself links on to the builder.
+  const reportHref = (r) => (navProfile === 'standard' ? null : `/v3/report-builder.html?id=${encodeURIComponent(r.id)}`);
   // A SILO report opens to READ -- the viewer's data on a temporary board --
   // not into the builder's SQL. Customising is one click away from there.
   const siloReportHref = (r) => `/v3/dashboard.html?report=${encodeURIComponent(r.id)}`;
