@@ -1348,6 +1348,51 @@ select
     else 'ok'
   end as launch_actuals;
 
+-- Generate PO from a concept: the duplicate-PO race guard (20260930000000).
+-- generated_from_concept_id plus its PARTIAL unique index is what stops two
+-- concurrent "Generate PO" attempts for one concept from each creating a
+-- real, duplicated PO -- see the migration for the reproduction. A dropped
+-- index here silently reopens that race with no other visible symptom.
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='po_headers'
+                       and column_name='generated_from_concept_id')
+      then 'MISSING — run 20260930000000_generate_po_from_concept_uniq.sql'
+    when not exists (select 1 from pg_indexes
+                     where schemaname='public' and tablename='po_headers'
+                       and indexname='po_headers_generated_from_concept_uniq')
+      then 'CRITICAL — po_headers_generated_from_concept_uniq index is missing: Generate PO can create duplicate purchase orders'
+    when not (select indexdef ilike '%unique%' and indexdef ilike '%where%generated_from_concept_id is not null%'
+              from pg_indexes
+              where schemaname='public' and tablename='po_headers'
+                and indexname='po_headers_generated_from_concept_uniq')
+      then 'CRITICAL — po_headers_generated_from_concept_uniq is not a partial unique index on generated_from_concept_id'
+    else 'ok'
+  end as generate_po_from_concept_uniq;
+
+-- generate_po_from_concept() (20260930000000) makes the PO, its lines and
+-- the concept link in one transaction, so a failure cannot leave an empty PO
+-- holding the concept's claim. It is SECURITY DEFINER with its own checks,
+-- so the grants ARE the boundary: Supabase's default privileges hand
+-- EXECUTE on a new public function to anon, which the migration revokes.
+select
+  case
+    when to_regprocedure('public.generate_po_from_concept(uuid)') is null
+      then 'MISSING — run 20260930000000_generate_po_from_concept_uniq.sql'
+    when not (select prosecdef from pg_proc where oid = to_regprocedure('public.generate_po_from_concept(uuid)'))
+      then 'CRITICAL — generate_po_from_concept is not SECURITY DEFINER'
+    when not exists (select 1 from pg_proc
+                     where oid = to_regprocedure('public.generate_po_from_concept(uuid)')
+                       and array_to_string(proconfig, ',') like '%search_path=%')
+      then 'CRITICAL — generate_po_from_concept has no pinned search_path'
+    when has_function_privilege('anon', 'public.generate_po_from_concept(uuid)', 'execute')
+      then 'CRITICAL — anon can execute generate_po_from_concept'
+    when not has_function_privilege('authenticated', 'public.generate_po_from_concept(uuid)', 'execute')
+      then 'MISSING — authenticated cannot execute generate_po_from_concept: Generate PO is broken'
+    else 'ok'
+  end as generate_po_from_concept_fn;
+
 -- Strategy notes + unit demand coverage (20260826040000 / 20260826050000).
 -- Strategy notes are how a stated human bet overrides a history-only
 -- recommendation; demand coverage is the unit-based planning context.

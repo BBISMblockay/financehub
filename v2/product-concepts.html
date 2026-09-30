@@ -144,6 +144,22 @@
 
   let concepts = [];
   let selectedId = null;
+  let currentUserId = null;
+  // Mirrors product_concepts' RLS UPDATE policy (20260821110000): creator
+  // may edit their own DRAFT, po_builder_can_write() may edit/approve
+  // anyone's. This is UX only -- RLS is what actually enforces it, and
+  // uploadImages() below still verifies the write took before saying so --
+  // but showing the button to someone the policy will refuse is exactly
+  // the false-success trap the 2026-09-30 review caught: an upload against
+  // the public bucket would succeed, the row UPDATE would silently no-op
+  // (RLS refusal is a zero-row UPDATE, not an error), and the page told the
+  // person the image was added.
+  let canWritePO = false;
+  function canEditConcept(c) {
+    if (!c) return false;
+    if (canWritePO) return true;
+    return c.created_by === currentUserId && c.status === 'draft';
+  }
 
   // Same presentation as the card in Ask SILO -- deliberately the SAME
   // component (evidence-card.js), not a copy, so a concept reads
@@ -332,18 +348,36 @@
     // it to Ask SILO with the concept already bound -- silo-chat reads
     // ?concept=<id> and arms the composer against that row.
     const chatUrl = `/v2/silo-chat.html?concept=${encodeURIComponent(c.id)}`;
+    // The concept carries strategy; the PO is where a human commits to real
+    // numbers. Same purchasing-adjacent gate as approving a concept
+    // (po_builder_can_write()). The PO Builder end calls
+    // generate_po_from_concept(), which makes the PO, its lines and the link
+    // in one transaction and returns the existing PO on a repeat. The
+    // button is left out where that function would refuse (archived, a
+    // collection parent, no factory). The function stays the authority, so
+    // a stale page still gets a clear refusal rather than a PO.
+    const poUrl = `/v2/po-builder.html?fromConcept=${encodeURIComponent(c.id)}`;
+    const poBlocked = c.status === 'archived' ? 'Archived concepts cannot generate a PO'
+      : Number(c.child_count) > 0 ? 'A collection is purchased product by product. Generate a PO from each product'
+      : !c.suggested_factory_id ? 'Set a suggested factory before generating a PO' : '';
     const imgCount = Array.isArray(c.reference_image_urls) ? c.reference_image_urls.filter(Boolean).length : 0;
+    const editable = canEditConcept(c);
     el('detail').innerHTML = `
       <div class="pc-detail-actions">
         <a class="bcn-btn bcn-btn--primary" href="${chatUrl}">Open in Ask SILO</a>
-        <button type="button" class="bcn-btn bcn-btn--ghost pc-upload-btn" id="btnAddImage">Add reference image</button>
-        <input type="file" id="fileImage" accept="image/*" multiple hidden />
+        ${canWritePO ? (poBlocked
+          ? `<button type="button" class="bcn-btn bcn-btn--dark" disabled title="${esc(poBlocked)}">Generate PO</button>`
+          : `<a class="bcn-btn bcn-btn--dark" href="${poUrl}">Generate PO</a>`) : ''}
+        ${editable ? `<button type="button" class="bcn-btn bcn-btn--ghost pc-upload-btn" id="btnAddImage">Add reference image</button>
+        <input type="file" id="fileImage" accept="image/*" multiple hidden />` : ''}
         ${imgCount ? `<span class="bcn-mono" style="font-size:10.5px;color:var(--bcn-ink-3)">${imgCount} image${imgCount === 1 ? '' : 's'}</span>` : ''}
       </div>
       ${window.SiloEvidenceCard.render(c, CONCEPT_SPEC)}`;
 
-    el('btnAddImage').addEventListener('click', () => el('fileImage').click());
-    el('fileImage').addEventListener('change', (ev) => uploadImages([...(ev.target.files || [])], c));
+    if (editable) {
+      el('btnAddImage').addEventListener('click', () => el('fileImage').click());
+      el('fileImage').addEventListener('change', (ev) => uploadImages([...(ev.target.files || [])], c));
+    }
   }
 
   // Same bucket and folder shape as the chat attach flow
@@ -355,7 +389,8 @@
     if (!files.length || !concept?.id) return;
     const btn = el('btnAddImage');
     btn.classList.add('is-busy');
-    const added = [];
+    const added = []; // uploaded urls, for the row update
+    const addedPaths = []; // same uploads' storage paths, for cleanup on failure
     try {
       for (const file of files) {
         if (!file.type.startsWith('image/')) continue;
@@ -363,7 +398,7 @@
         const { error } = await db.storage.from(CONCEPT_IMAGE_BUCKET).upload(path, file, { upsert: false });
         if (error) { setStatus('Upload failed: ' + error.message, 'neg', 5000); continue; }
         const { data: pub } = db.storage.from(CONCEPT_IMAGE_BUCKET).getPublicUrl(path);
-        if (pub?.publicUrl) added.push(pub.publicUrl);
+        if (pub?.publicUrl) { added.push(pub.publicUrl); addedPaths.push(path); }
       }
       if (!added.length) return;
 
@@ -374,18 +409,36 @@
         .select('reference_image_urls').eq('id', concept.id).single();
       const merged = [...new Set([...(fresh?.reference_image_urls || []), ...added])];
 
-      const { error: upErr } = await db.from('product_concepts')
+      // .select().maybeSingle() on purpose: an RLS refusal on this UPDATE
+      // (someone else's already-approved concept, or a draft that is not
+      // the caller's) is a SUCCESS WITH ZERO ROWS, not an error -- upErr
+      // alone would stay null and the old code reported "Added" for a
+      // write that never happened. A null savedRow is the failure signal.
+      const { data: savedRow, error: upErr } = await db.from('product_concepts')
         .update({
           reference_image_urls: merged,
           revision_note: `Added ${added.length} reference image${added.length === 1 ? '' : 's'}.`,
         })
-        .eq('id', concept.id);
-      if (upErr) { setStatus('Saved the image but could not attach it: ' + upErr.message, 'neg', 6000); return; }
+        .eq('id', concept.id)
+        .select('id, reference_image_urls')
+        .maybeSingle();
+      if (upErr || !savedRow) {
+        // The file already landed in the PUBLIC bucket -- clean it up
+        // rather than leave an orphan nobody will ever reference.
+        await db.storage.from(CONCEPT_IMAGE_BUCKET).remove(addedPaths).catch(() => {});
+        setStatus(
+          upErr
+            ? 'Saved the image but could not attach it: ' + upErr.message
+            : 'You no longer have permission to edit this concept -- the image was not attached.',
+          'neg', 6000,
+        );
+        return;
+      }
 
       // Reflect locally so the card redraws without a full reload.
-      concept.reference_image_urls = merged;
+      concept.reference_image_urls = savedRow.reference_image_urls;
       const idx = concepts.findIndex((x) => x.id === concept.id);
-      if (idx >= 0) concepts[idx].reference_image_urls = merged;
+      if (idx >= 0) concepts[idx].reference_image_urls = savedRow.reference_image_urls;
       renderDetail();
       setStatus(`Added ${added.length} image${added.length === 1 ? '' : 's'}.`, 'pos', 4000);
     } finally {
@@ -429,26 +482,26 @@
       return;
     }
     const user = sess.data.session.user;
-    const { data: prof } = await db.from('profiles').select('email, role').eq('id', user.id).single();
+    currentUserId = user.id;
+    const { data: prof } = await db.from('profiles')
+      .select('email, role, active_company_id, is_active').eq('id', user.id).single();
 
-    // Product Concepts is in testing. The same allowlist gates the concept
-    // tools in the silo-chat edge function and the entry points in Ask
-    // SILO; without it here the feature would be allowlisted everywhere
-    // except the one page that shows all of it, which anyone could reach
-    // by typing the URL.
-    //
-    // This is discovery gating, not a security boundary -- a client-side
-    // check never is. The real boundary stays where it always is: RLS
-    // scopes every row to the caller's own company, and writes are gated
-    // by product_concepts' own policies. When this ships to everyone,
-    // delete this block rather than widening the list, same as the
-    // PRODUCT_CONCEPT_TESTERS constant in the edge function.
-    const CONCEPT_TESTERS = ['blake@baseballism.com'];
-    const email = (prof?.email || user.email || '').toLowerCase();
-    if (!CONCEPT_TESTERS.includes(email)) {
-      window.location.replace('/v2/silo-chat.html');
-      return;
+    // Mirrors po_builder_can_write() (20260714210000): a membership role of
+    // owner_admin/admin, or -- with no membership row -- the wider legacy
+    // profile-role fallback that function uses. UX gating only; the RLS
+    // policy on product_concepts is what actually decides this.
+    let membershipRole = null;
+    if (prof?.active_company_id) {
+      const { data: mem } = await db.from('entity_memberships')
+        .select('role').eq('user_id', user.id).eq('entity_id', prof.active_company_id).maybeSingle();
+      membershipRole = mem?.role || null;
     }
+    const roleLower = String(prof?.role || '').toLowerCase();
+    canWritePO = prof?.is_active !== false && (
+      membershipRole
+        ? ['owner_admin', 'admin'].includes(membershipRole) || roleLower === 'executive'
+        : ['owner', 'admin', 'finance', 'exec', 'executive', 'buyer', 'purchasing', 'operations'].includes(roleLower)
+    );
 
     window.SiloChrome?.mount?.({
       appEl: '#silo-app',

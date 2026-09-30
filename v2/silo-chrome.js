@@ -218,16 +218,24 @@
     }).join('');
   }
 
+  // Company name doubles as the switcher — the picker self-loads
+  // memberships and returns here via ?next= after set_active_company.
+  // Factored out so the post-mount reconciliation below (mount()'s
+  // ensureActiveCompany() repaint) can redraw exactly this markup when the
+  // resolved company differs from what first paint showed, rather than
+  // drifting into a second definition of this line.
+  function companyLineHtml(company) {
+    const switchHref = '/v2/company-picker.html?next='
+      + encodeURIComponent(window.location.pathname + window.location.search);
+    return company?.title
+      ? `<a href="${escHtml(switchHref)}" title="Switch company" style="color:inherit;text-decoration:none;">${escHtml(company.title)} <span style="opacity:.55" aria-hidden="true">⇄</span></a>`
+      : 'v2.0 · prod';
+  }
+
   function renderSidebar(opts) {
     const { active, user } = opts;
     const company = getActiveCompany();
-    // Company name doubles as the switcher — the picker self-loads
-    // memberships and returns here via ?next= after set_active_company.
-    const switchHref = '/v2/company-picker.html?next='
-      + encodeURIComponent(window.location.pathname + window.location.search);
-    const companyLine = company?.title
-      ? `<a href="${escHtml(switchHref)}" title="Switch company" style="color:inherit;text-decoration:none;">${escHtml(company.title)} <span style="opacity:.55" aria-hidden="true">⇄</span></a>`
-      : 'v2.0 · prod';
+    const companyLine = companyLineHtml(company);
 
     return `
       <aside class="silo-sidebar" role="navigation" aria-label="SILO menu">
@@ -499,6 +507,24 @@
     else if (window.SiloWorkspaceSettings?.contains(navActive)) navActive = 'settings/workspace';
     else if (window.SiloSeoSuite?.contains(navActive)) navActive = 'reports/seo';
     const sidebar = el(renderSidebar({ ...opts, active: navActive }));
+    // What first paint's sidebar LABEL actually shows, so the reconciliation
+    // below only touches the DOM when ensureActiveCompany() resolves a
+    // DIFFERENT company than this -- a normal load (cache already correct)
+    // never flickers it.
+    let lastRenderedCompanyId = getActiveCompany()?.id || null;
+    // The company this PAGE was built for. Pages read the company once, at
+    // load (products.html, po-builder.html: `const _co = getActiveCompany()`),
+    // so if the server's active company is later found to differ, the
+    // sidebar is not the only thing that is wrong -- everything on screen
+    // belongs to the old company and every further query filters by it while
+    // RLS reads the new one. Repainting the label alone (the 2026-09-30 first
+    // pass) made that worse: the right name over the wrong page.
+    // A deep link with nothing cached has no company yet. Its queries ran
+    // against whatever the server had active at load, so the first company
+    // the check below resolves is recorded as this page's company. Without
+    // that, a tab opened from a link would never notice a later switch.
+    let mountedCompany = getActiveCompany();
+    let mountedCompanyId = mountedCompany?.id || null;
     const backdrop = el('<div class="silo-nav-backdrop" data-silo-nav-backdrop hidden></div>');
     appEl.prepend(sidebar);
     appEl.prepend(backdrop);
@@ -521,26 +547,6 @@
         const navEl = sidebar.querySelector('#siloSbNav');
         if (navEl) navEl.innerHTML = renderNavSections(navActive, dept, effectiveRole);
       });
-    }
-
-    // Same deal for the COMPANY itself. getActiveCompany() is a sessionStorage
-    // read and sessionStorage is per-tab, so a bookmark or deep link lands here
-    // fully authenticated with no cached company. resolveNavProfile(null) now
-    // answers 'standard' (it used to answer 'grandfathered', i.e. Baseballism's
-    // menu for whoever happened to be looking) -- so without this re-render a
-    // grandfathered user on a deep link would be stuck on the standard menu for
-    // the whole page. ensureActiveCompany() self-heals the tab from the
-    // server-side profiles.active_company_id, and we repaint the nav with the
-    // company it resolves. Fails quiet: if it cannot resolve one, the smaller
-    // menu is the right thing to leave on screen.
-    if (!getActiveCompany() && opts.supabaseClient) {
-      Promise.resolve(window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient))
-        .then((company) => {
-          if (!company) return;
-          const navEl = sidebar.querySelector('#siloSbNav');
-          if (navEl) navEl.innerHTML = renderNavSections(navActive, getCachedDepartment(), effectiveRole, getCachedGrantIds());
-        })
-        .catch(() => {});
     }
 
     // Same deal for grant-based unlocks (e.g. Ask SILO access granted via
@@ -581,21 +587,94 @@
       });
     }
 
-    // Use the role for this workspace, not a page's first-paint placeholder.
-    // Membership role is per-company and is what the database value uses to
-    // control authorization here -- but profile-level owner/executive
-    // OUTRANKS membership everywhere else in SILO (is_admin_user(),
-    // is_exec_or_owner(), every EXEC_ROLES-equivalent DB gate: see CLAUDE.md's
-    // role system section), and this nav refresh was the one place that rule
-    // wasn't applied -- it discarded profile role outright. A Baseballism
-    // executive who is merely membership 'admin' there (28 of 29 profiles
-    // are) got a sidebar that could never show an EXEC_ROLES-only link like
-    // SEO, no matter how the page mounted, because this correction always
-    // ran and always won.
-    if (opts.supabaseClient) {
+    // Company, role and nav-profile all key off ONE ensureActiveCompany()
+    // resolution, unconditionally (not gated on an empty cache): that
+    // function now self-heals a STALE cache too, not only an empty one
+    // (2026-09-30, PR #830 review) -- a tab that already had a company
+    // cached before another tab switched companies used to keep it forever,
+    // because both this and the block this replaced used to run only when
+    // getActiveCompany() was empty. Three things were wrong at once on a
+    // stale tab, and all three are fixed by one repaint here:
+    //   1. the SIDEBAR LABEL (companyLineHtml) kept naming the old company
+    //      even once ensureActiveCompany() had corrected sessionStorage --
+    //      nothing ever told THIS element to redraw from the correction.
+    //   2. the NAV PROFILE (resolveNavProfile(null) answers 'standard', not
+    //      'grandfathered') was stuck on whichever menu the OLD company's
+    //      profile implied, for the rest of the tab's life.
+    //   3. the ROLE label/gating (see below) was stuck on the old
+    //      company's membership.
+    // Fails quiet throughout: if ensureActiveCompany() cannot resolve a
+    // company at all, first paint is left exactly as it was.
+    //
+    // Named and reused (2026-09-30, supplemental review) rather than a
+    // mount-time-only .then(): calling this ONLY at mount fixes a tab that
+    // NAVIGATES after another tab's switch, but a tab already sitting open
+    // and idle through that switch never mounts again, so it never got
+    // this reconciliation at all -- reproduced concretely: open Products in
+    // tab A, switch companies in tab B, come back to tab A without
+    // navigating, and A keeps its stale label and stale nav profile
+    // indefinitely. Called again below on a cross-tab broadcast and on
+    // visibility, so an already-open tab gets the SAME correction an idle
+    // page load would have.
+    //
+    // A request that arrives while one is already running is NOT dropped:
+    // the running one may have read the server before the other tab's switch
+    // committed, in which case dropping the later request would leave this
+    // tab stale until its next focus. It sets `rerun`, and the running call
+    // starts one more pass when it finishes.
+    let reconciling = false;
+    let rerun = false;
+    let isInitialPass = true;
+    function reconcileCompanyRoleAndNav() {
+      if (!opts.supabaseClient || pageSuperseded) return;
+      if (reconciling) { rerun = true; return; }
+      reconciling = true;
+      const initial = isInitialPass;
+      isInitialPass = false;
       Promise.resolve(window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient))
         .then(async (company) => {
           if (!company?.id) return;
+          // A KNOWN mismatch ensureActiveCompany() could not resolve (the
+          // entities lookup for the server's own answer failed twice) --
+          // company here is the OLD cached value handed back only because
+          // callers need some id to scope queries by. Repainting the label,
+          // role or nav-profile from it would present a value already
+          // known to be wrong as though it were freshly confirmed. Leave
+          // everything exactly as first paint showed it; the next
+          // reconciliation attempt tries again.
+          if (company._staleReconcile) return;
+
+          // The page was built for a different company than the server now
+          // has active. Nothing on it can be trusted or safely used, so it is
+          // replaced rather than relabelled -- see companyChangedUnderPage().
+          // A deep link with no cached company adopts this first answer as
+          // its own (the ordinary self-heal) and is checked from then on.
+          if (!mountedCompanyId) {
+            mountedCompany = company;
+            mountedCompanyId = company.id;
+          } else if (company.id !== mountedCompanyId) {
+            companyChangedUnderPage(company, initial);
+            return;
+          }
+          clearReloadGuard();
+
+          // 1. Company label -- only touch the DOM if it actually changed,
+          // so a normal load (cache already correct) never flickers it.
+          if (company.id !== (lastRenderedCompanyId || null)) {
+            const verEl = sidebar.querySelector('.silo-sb-ver');
+            if (verEl) verEl.innerHTML = companyLineHtml(company);
+            lastRenderedCompanyId = company.id;
+          }
+
+          // 2 & 3. Role -- profile-level owner/executive OUTRANKS membership
+          // everywhere else in SILO (is_admin_user(), is_exec_or_owner(),
+          // every EXEC_ROLES-equivalent DB gate: see CLAUDE.md's role system
+          // section), and this nav refresh was the one place that rule
+          // wasn't applied -- it discarded profile role outright. A
+          // Baseballism executive who is merely membership 'admin' there
+          // (28 of 29 profiles are) got a sidebar that could never show an
+          // EXEC_ROLES-only link like SEO, no matter how the page mounted,
+          // because this correction always ran and always won.
           const sess = await opts.supabaseClient.auth.getSession();
           const uid = sess?.data?.session?.user?.id;
           if (!uid) return;
@@ -607,19 +686,108 @@
           const profileRole = String(profile?.role || '').toLowerCase();
           const outranks = profileRole === 'owner' || profileRole === 'executive';
           const resolvedRole = outranks ? profileRole : membership?.role;
-          if (!resolvedRole) return;
-          effectiveRole = resolvedRole;
-          paletteRole = effectiveRole;
+          if (resolvedRole) {
+            effectiveRole = resolvedRole;
+            paletteRole = effectiveRole;
+            appEl.querySelectorAll('[data-silo-role]').forEach((node) => {
+              node.textContent = roleLabel(resolvedRole);
+            });
+          }
 
-          appEl.querySelectorAll('[data-silo-role]').forEach((node) => {
-            node.textContent = roleLabel(resolvedRole);
-          });
+          // Repaint the nav ONCE, after both the company (nav profile) and
+          // the role have had their chance to change -- two separate
+          // repaints here is how this drifted into missing the label fix
+          // in the first place.
           const navEl = sidebar.querySelector('#siloSbNav');
           if (navEl) navEl.innerHTML = renderNavSections(
             navActive, getCachedDepartment(), effectiveRole, getCachedGrantIds());
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          reconciling = false;
+          if (rerun && !pageSuperseded) { rerun = false; reconcileCompanyRoleAndNav(); }
+        });
     }
+
+    // What to do when the page turns out to belong to another company.
+    // During the FIRST pass (the page has only just loaded -- nothing typed
+    // yet) the page is simply reloaded, which rebuilds it from the corrected
+    // cache ensureActiveCompany() has already written. Any LATER pass means
+    // the user may be mid-edit in a tab that sat open while another tab
+    // switched, so the page is blocked behind a notice with a Reload button
+    // instead of being reloaded out from under them: they can still see what
+    // they typed, but cannot act on it under the wrong company.
+    //
+    // RELOAD_GUARD stops a reload loop: if the reloaded page STILL disagrees
+    // with the server (sessionStorage blocked, or a failed cache write), the
+    // second pass falls back to the notice rather than reloading forever.
+    const RELOAD_GUARD = 'silo:company:reloaded-for';
+    let pageSuperseded = false;
+    function clearReloadGuard() {
+      try { sessionStorage.removeItem(RELOAD_GUARD); } catch (_) { /* nothing to clear */ }
+    }
+    function companyChangedUnderPage(company, initial) {
+      if (pageSuperseded) return;
+      if (initial) {
+        let guarded = false;
+        try {
+          guarded = sessionStorage.getItem(RELOAD_GUARD) === company.id;
+          if (!guarded) sessionStorage.setItem(RELOAD_GUARD, company.id);
+        } catch (_) {
+          guarded = true; // cannot record the attempt, so cannot rule out a loop
+        }
+        if (!guarded) { pageSuperseded = true; window.location.reload(); return; }
+      }
+      pageSuperseded = true;
+      showCompanyChangedNotice(company);
+    }
+    function showCompanyChangedNotice(company) {
+      const was = mountedCompany?.title || 'another workspace';
+      const now = company?.title || 'another workspace';
+      const notice = el(`
+        <div class="silo-company-changed" role="alertdialog" aria-modal="true" aria-labelledby="siloCompanyChangedTitle"
+             style="position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(15,17,23,.55);">
+          <div class="bcn-card" style="max-width:440px; width:100%;">
+            <div class="bcn-card-body">
+              <div id="siloCompanyChangedTitle" style="font-weight:650; font-size:15px; margin-bottom:8px;">Workspace changed in another tab</div>
+              <p style="margin:0 0 14px; font-size:13px; color:var(--bcn-ink-2); line-height:1.5;">
+                You're now working in <strong>${escHtml(now)}</strong>, but this page was loaded for
+                <strong>${escHtml(was)}</strong>. Reload before doing anything else here — nothing on this page can be
+                saved to the right workspace until you do.
+              </p>
+              <button type="button" class="bcn-btn bcn-btn--primary" data-silo-action="reload-for-company">Reload page</button>
+            </div>
+          </div>
+        </div>`);
+      notice.querySelector('[data-silo-action="reload-for-company"]')
+        .addEventListener('click', () => window.location.reload());
+      // inert keeps keyboard focus and screen readers off the stale page
+      // underneath, not just the mouse.
+      appEl.setAttribute('inert', '');
+      document.body.appendChild(notice);
+      notice.querySelector('button').focus();
+    }
+
+    reconcileCompanyRoleAndNav();
+
+    // Cross-tab wake-up: v2/company-picker.html writes this key to
+    // localStorage (shared across tabs, unlike sessionStorage) right after
+    // a successful switch. The written VALUE is never trusted -- it is
+    // purely a nudge to re-run the SAME server-truth reconciliation above,
+    // so a stale or even tampered value here cannot mislead anything.
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'silo:company:switched') reconcileCompanyRoleAndNav();
+    });
+    // Fallback for the same problem, independent of the broadcast above:
+    // catches a switch made from anywhere the broadcast doesn't cover, and
+    // is the only mechanism at all when localStorage is blocked (private
+    // browsing, storage partitioning). Cheap -- ensureActiveCompany() only
+    // makes a second round trip when the cache does NOT already match the
+    // server (see its own short-circuit), so a tab alt-tabbed back into
+    // with nothing changed costs one lightweight profiles select.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') reconcileCompanyRoleAndNav();
+    });
 
     function setNavOpen(open) {
       appEl.classList.toggle('silo-nav-open', !!open);

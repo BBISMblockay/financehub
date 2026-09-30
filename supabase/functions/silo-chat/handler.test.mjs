@@ -122,8 +122,8 @@ if (typeof capturedHandler !== 'function') {
 // ── mocks ─────────────────────────────────────────────────────────────────
 
 const USER = { id: '11111111-1111-4111-8111-111111111111', email: 'nobody@example.com' };
-// The concept tools are gated to PRODUCT_CONCEPT_TESTERS in index.ts; a test
-// that exercises them has to be that person.
+// Product Concepts is available to every caller; this fixture is just an
+// arbitrary named actor kept for the tests that want one on the record.
 const CONCEPT_TESTER = { id: USER.id, email: 'blake@baseballism.com' };
 let currentUser = USER;
 const COMPANY_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -1878,7 +1878,7 @@ await test('a date the person asked about counts as supplied', async () => {
 
 const SEO_HEAD = 'SEO, SEARCH AND SITE TRAFFIC --';
 const MARKETING_HEAD = 'MARKETING, ADVERTISING AND LAUNCHES --';
-const CONCEPT_HEAD = 'PRODUCT CONCEPTS (in testing';
+const CONCEPT_HEAD = 'PRODUCT CONCEPTS:';
 const CONCEPT_HINT_HEAD = 'Product Concepts: you have access to a structured product-concept workflow';
 const CONCEPT_TOOL_NAMES = ['create_product_concept', 'update_product_concept', 'approve_product_concept'];
 const systemOf = (sent) => sent[0].system.map((b) => b.text).join('');
@@ -1952,27 +1952,27 @@ await test('the system prompt and tools are identical on every round of one requ
   }
 });
 
-await test('concept wording from a non-tester never adds concept guidance or tools', async () => {
+await test('concept wording alone, without the workflow, never adds concept guidance or tools', async () => {
   const model = installModel([say('ok')]);
-  await ask({ ...convo('Draft a new product concept for a youth hoodie collection'), workflow: 'product_concept' });
+  await ask(convo('Draft a new product concept for a youth hoodie collection'));
   const sys = systemOf(model.sent);
-  assert(!sys.includes(CONCEPT_HEAD) && !sys.includes(CONCEPT_HINT_HEAD), 'non-tester saw concept text');
-  for (const t of CONCEPT_TOOL_NAMES) assert(!toolNamesOf(model.sent).includes(t), `${t} was sent to a non-tester`);
+  assert(!sys.includes(CONCEPT_HEAD), 'concept block loaded from wording alone, without the workflow');
+  for (const t of CONCEPT_TOOL_NAMES) assert(!toolNamesOf(model.sent).includes(t), `${t} was sent from wording alone`);
 });
 
-await test('a tester asking an analytical question without the workflow gets the hint, not the tools', async () => {
+await test('an analytical question without the workflow gets the hint, not the tools', async () => {
   const model = installModel([say('ok')]);
-  await ask(convo('Draft a demand plan for our launch collection by product type'), undefined, CONCEPT_TESTER);
+  await ask(convo('Draft a demand plan for our launch collection by product type'));
   const sys = systemOf(model.sent);
-  assert(sys.includes(CONCEPT_HINT_HEAD), 'tester was not told the workflow exists');
+  assert(sys.includes(CONCEPT_HINT_HEAD), 'caller was not told the workflow exists');
   assert(!sys.includes(CONCEPT_HEAD), 'concept block loaded without the workflow');
   for (const t of CONCEPT_TOOL_NAMES) assert(!toolNamesOf(model.sent).includes(t), `${t} was sent without the workflow`);
 });
 
-await test('explicit concept mode for a tester carries the concept block, launch guidance and tools', async () => {
+await test('explicit concept mode carries the concept block, launch guidance and tools', async () => {
   const model = installModel([say('ok')]);
   const { client } = await ask(
-    { ...convo('Something for summer, a new cap idea'), workflow: 'product_concept' }, undefined, CONCEPT_TESTER,
+    { ...convo('Something for summer, a new cap idea'), workflow: 'product_concept' },
   );
   const sys = systemOf(model.sent);
   assert(sys.includes(CONCEPT_HEAD), 'concept block missing');
@@ -1982,15 +1982,12 @@ await test('explicit concept mode for a tester carries the concept block, launch
   eq(auditRow(client).diagnostics.context.guidance_modules, ['marketing'], 'recorded guidance modules');
 });
 
-await test('a concept card action (conceptId) turns concept mode on for a tester only', async () => {
+await test('a concept card action (conceptId) turns concept mode on for any caller', async () => {
   const withId = { history: [{ role: 'user', content: 'Cut the buy 25%', conceptId: 'c-1' }], request_id: REQUEST_ID };
-  let model = installModel([say('ok')]);
-  await ask(withId, undefined, CONCEPT_TESTER);
-  assert(systemOf(model.sent).includes(CONCEPT_HEAD), 'tester card action lost the concept block');
-  model = installModel([say('ok')]);
+  const model = installModel([say('ok')]);
   await ask(withId);
-  assert(!systemOf(model.sent).includes(CONCEPT_HEAD), 'non-tester card action loaded the concept block');
-  for (const t of CONCEPT_TOOL_NAMES) assert(!toolNamesOf(model.sent).includes(t), `${t} sent to a non-tester card action`);
+  assert(systemOf(model.sent).includes(CONCEPT_HEAD), 'card action lost the concept block');
+  for (const t of CONCEPT_TOOL_NAMES) assert(toolNamesOf(model.sent).includes(t), `${t} missing from a card action`);
 });
 
 

@@ -28,10 +28,10 @@
 // below).
 //
 // Product Concepts (create/update/approve_product_concept, writing to the
-// new product_concepts table) is a fifth, in-testing capability gated to
-// PRODUCT_CONCEPT_TESTERS below -- only those callers get the extra tools
-// and system-prompt block. Like everything else here it runs through
-// callerClient, so RLS on product_concepts is still the real boundary.
+// new product_concepts table) is a fifth capability, available to every
+// caller since 2026-09-30 (shipped out of testing). Like everything else
+// here it runs through callerClient, so RLS on product_concepts is still
+// the real boundary.
 // Reference-image upload rides on top of it: the client uploads to the
 // public product-concept-images bucket itself and sends the resulting
 // URL(s) as an `imageUrls` field alongside a history entry's `content`
@@ -133,14 +133,6 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY') || '';
 const MODEL = Deno.env.get('CHAT_MODEL') || 'claude-sonnet-5';
-
-// Product Concepts (Ask SILO's product-generation branch -- see the
-// 2026-08-21 planning thread) is still being built and tested. Gating it
-// to specific emails keeps the new tools and suggested-question flow
-// invisible to the rest of the team while it's exercised. Once it's ready
-// for everyone, delete this constant and the two `conceptsEnabled` checks
-// below rather than widening the list.
-const PRODUCT_CONCEPT_TESTERS = ['blake@baseballism.com'];
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -329,8 +321,8 @@ const CONCEPT_UPDATABLE_FIELDS = [
   'revision_note',
 ];
 
-// Product Concepts write tools -- only appended to the request's tool list
-// for PRODUCT_CONCEPT_TESTERS (see above). Deliberately narrow, single-
+// Product Concepts write tools -- appended to the request's tool list
+// whenever conceptsEnabled is true (see above). Deliberately narrow, single-
 // purpose inserts/updates against product_concepts, same philosophy as
 // save_note: no general-purpose write tool, one tool per real action.
 // Reads don't need a dedicated tool -- product_concepts_v is just another
@@ -1307,7 +1299,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
     }
     question = history[history.length - 1]?.content || '';
 
-    // Product Concepts: in testing -- a history entry may carry imageUrls
+    // Product Concepts: a history entry may carry imageUrls
     // (public URLs already uploaded by the client to product-concept-images)
     // alongside its plain-text content. Only those entries get a real
     // content-block array; everything else stays a plain string exactly as
@@ -1372,9 +1364,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
     // Also materially cheaper: an ordinary question no longer pays for
     // ~4KB of concept prompt and three unused tool schemas.
     const actingOnConcept = history.some((m) => typeof m?.conceptId === 'string' && !!m.conceptId);
-    const conceptsEnabled = PRODUCT_CONCEPT_TESTERS.includes(
-      (userData.user.email || '').toLowerCase(),
-    ) && (activeWorkflow === 'product_concept' || actingOnConcept);
+    const conceptsEnabled = activeWorkflow === 'product_concept' || actingOnConcept;
     // The phase-1 draft circuit breaker below used to arm on conceptsEnabled
     // alone -- i.e. on EVERY question a tester asked. Any analytical question
     // that legitimately ran 5+ tool rounds (overstock analysis, sales
@@ -1407,22 +1397,19 @@ Deno.serve(withKeepAlive(async (req: Request) => {
       && history.some((m) => m.role === 'user' && CONCEPT_LANGUAGE.test(String(m.content || '')))
       && !ANALYTICAL_QUESTION.test(question.trim())
       && !ANALYTICAL_DELIVERABLE.test(question);
-    // When a tester has the capability but has NOT started the workflow,
-    // say so in one line. Without this the model has no idea Product
+    // A caller who has NOT started the Product Concepts workflow gets told
+    // it exists, in one line. Without this the model has no idea Product
     // Concepts exists -- it simply lacks the tools -- so "draft me a youth
     // hoodie concept" with the mode off gets a friendly prose answer,
     // nothing is saved, and nothing explains why. That is a worse failure
     // than the one the mode fixed, because it is silent.
-    const isConceptTester = PRODUCT_CONCEPT_TESTERS.includes(
-      (userData.user.email || '').toLowerCase(),
-    );
     // Same text heuristic that used to arm the circuit breaker -- but here
     // its consequence is offering a dismissible button, not forcing a
     // write. A false positive costs one ignorable line; the version that
     // could misfire into a junk concept row is gone. Worth being explicit
     // that this is why the same imperfect regex is acceptable in one place
     // and was not in the other.
-    const suggestConceptWorkflow = !conceptsEnabled && isConceptTester
+    const suggestConceptWorkflow = !conceptsEnabled
       && /\b(concepts?|draft|design|new product|product idea|collection|collab)\b/i.test(question);
     const schemaSlice = buildSchemaSection(question, (catalogRows ?? []) as CatalogRow[]);
     // Which specialised guidance (marketing/launch, SEO) this request carries.
@@ -1436,10 +1423,13 @@ Deno.serve(withKeepAlive(async (req: Request) => {
       schemaSection: schemaSlice.text,
       guidance,
       conceptsEnabled,
-      // A tester who has the capability but has not started the workflow is
-      // told it exists (without tools), so a request to draft one is not
-      // silently answered in prose as though it were saved.
-      showConceptHint: !conceptsEnabled && isConceptTester,
+      // A caller who has not started the workflow is told it exists
+      // (without tools), so a request to draft one is not silently
+      // answered in prose as though it were saved. Gated on the same
+      // wording heuristic as suggestConceptWorkflow below -- not on
+      // !conceptsEnabled alone, which would put this line into every
+      // ordinary question's prompt.
+      showConceptHint: suggestConceptWorkflow,
     });
     const tools = conceptsEnabled ? [...TOOLS, ...PRODUCT_CONCEPT_TOOLS] : TOOLS;
 

@@ -560,7 +560,7 @@ test('the first block is identical across questions, guidance, concept mode, not
 test('nothing per-request is in the first block', () => {
   const [core, rest] = blocksFor([user('Which collection pages should we improve for search?')],
     { concepts: true, notes: [{ category: 'general', note: 'NOTE-MARKER' }] });
-  for (const marker of ['Database map (fixture)', "Today's date is", 'NOTE-MARKER', 'SEO, SEARCH AND SITE TRAFFIC', 'MARKETING, ADVERTISING AND LAUNCHES', 'PRODUCT CONCEPTS (in testing']) {
+  for (const marker of ['Database map (fixture)', "Today's date is", 'NOTE-MARKER', 'SEO, SEARCH AND SITE TRAFFIC', 'MARKETING, ADVERTISING AND LAUNCHES', 'PRODUCT CONCEPTS:']) {
     lacks(core.text, marker, 'core block');
     has(rest.text, marker, 'request block');
   }
@@ -774,7 +774,7 @@ test('a tester outside the workflow gets the hint, which offers no tools', () =>
 });
 test('the handler decides tools from authorization, never from selected guidance', () => {
   has(SRC, 'const tools = conceptsEnabled ? [...TOOLS, ...PRODUCT_CONCEPT_TOOLS] : TOOLS;', 'index.ts');
-  has(SRC, "const conceptsEnabled = PRODUCT_CONCEPT_TESTERS.includes(", 'index.ts');
+  has(SRC, "const conceptsEnabled = activeWorkflow === 'product_concept' || actingOnConcept;", 'index.ts');
   const toolsLine = SRC.split('\n').find((l) => l.includes('const tools = '));
   assert(!/guidance/.test(toolsLine), 'the tools line reads the guidance selection');
   // selectGuidance only receives the flag the authorization check produced.
@@ -784,7 +784,7 @@ test('the handler decides tools from authorization, never from selected guidance
 console.log('\n-- concept mode keeps its controls --');
 
 test('concept mode carries the concept block AND the launch guidance it grounds on', () => {
-  has(CONCEPT, 'PRODUCT CONCEPTS (in testing -- available to you specifically)');
+  has(CONCEPT, 'PRODUCT CONCEPTS:');
   has(CONCEPT, 'MARKETING, ADVERTISING AND LAUNCHES');
   eq(assemble([user('Something for summer')], { concepts: true }).guidance, ['marketing'], 'concept guidance');
   lacks(CONCEPT, CONCEPT_MODE_HINT, 'active concept prompt');

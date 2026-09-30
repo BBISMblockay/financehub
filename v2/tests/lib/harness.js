@@ -404,7 +404,12 @@ window.__QUERIES__ = [];
             eq: function () { return api; },
             order: function () { return api; },
             then: function (res, rej) {
-              return Promise.resolve({ data: rows(), error: null }).then(res, rej);
+              // A fixture function may return { __error: {message, code} } to
+              // model the RPC raising -- PostgREST answers { data: null, error },
+              // and a page that only handles the happy path should be caught.
+              var r = rows();
+              if (r && !Array.isArray(r) && r.__error) return Promise.resolve({ data: null, error: r.__error }).then(res, rej);
+              return Promise.resolve({ data: r, error: null }).then(res, rej);
             }
           };
           return api;
@@ -420,8 +425,28 @@ const CONFIG_STUB = `
 window.__SILO_CONFIG__ = {
   SUPABASE_URL: 'http://localhost/fake',
   SUPABASE_ANON_KEY: 'fake-anon-key',
-  getActiveCompany: function () { return { id: 'test-company' }; },
-  ensureActiveCompany: function () { return Promise.resolve({ id: 'test-company' }); },
+  // A suite can make the cached (per-tab) company and the server's active
+  // company DISAGREE -- window.__FIXTURE_CACHED_COMPANY__ and
+  // window.__FIXTURE_SERVER_COMPANY__, via open()'s cachedCompany /
+  // serverCompany -- to exercise the sidebar's company-switch handling.
+  // ensureActiveCompany() snapshots the server answer when it is CALLED and
+  // resolves it only once window.__FIXTURE_ENSURE_GATE__ (open()'s
+  // ensureGate) is released, which is how a slow read that started before
+  // another tab's switch is modelled. Unset, both return test-company
+  // immediately, exactly as before.
+  // A cached company of null models a tab with nothing cached (a fresh deep
+  // link), which is different from "unset" (test-company).
+  getActiveCompany: function () {
+    return ('__FIXTURE_CACHED_COMPANY__' in window) ? window.__FIXTURE_CACHED_COMPANY__ : { id: 'test-company' };
+  },
+  ensureActiveCompany: function () {
+    window.__ENSURE_CALLS__ = (window.__ENSURE_CALLS__ || 0) + 1;
+    var snap = window.__FIXTURE_SERVER_COMPANY__
+      || (('__FIXTURE_CACHED_COMPANY__' in window) ? window.__FIXTURE_CACHED_COMPANY__ : null)
+      || { id: 'test-company' };
+    var gate = window.__FIXTURE_ENSURE_GATE__;
+    return gate ? gate.then(function () { return snap; }) : Promise.resolve(snap);
+  },
   withCompany: function (row) { return row; },
   withCompanyRows: function (rows) { return rows; }
 };
@@ -511,20 +536,51 @@ async function startSuite(options = {}) {
 
     const page = await context.newPage();
     page.on('pageerror', (e) => { console.log('  [pageerror] ' + e.message); });
+    // Opt-in (opts.dialogAction: 'accept' | 'dismiss'), registered BEFORE
+    // goto() below -- a dialog a page's own BOOT sequence can raise (an
+    // alert() in an error path reached during initial load, not from a
+    // later user click) can fire before a test's own page.once('dialog',
+    // ...) gets attached, since that line does not run until AFTER open()
+    // returns. Playwright auto-dismisses an unlistened dialog with nothing
+    // to read it. Every page.__dialogs message is recorded regardless, in
+    // order. Left unset (the default for every existing suite), behaviour
+    // is exactly as before: no listener, so a test attaching its own
+    // page.once('dialog', ...) post-load (the established pattern for a
+    // dialog a later CLICK raises) is unaffected.
+    page.__dialogs = [];
+    if (opts && opts.dialogAction) {
+      page.on('dialog', async (d) => {
+        page.__dialogs.push(d.message());
+        if (opts.dialogAction === 'dismiss') await d.dismiss(); else await d.accept();
+      });
+    }
     // Function fixtures cannot cross the addInitScript boundary, so RPC
     // fixtures are passed as source and rebuilt inside the page.
     const rpcSrc = {};
     Object.entries((opts && opts.rpc) || {}).forEach(([k, v]) => { rpcSrc[k] = String(v); });
-    await page.addInitScript(({ t, rpc, broken, missingColumns }) => {
+    // Re-runs on every navigation of this page, reload included, so the
+    // company fixtures below survive a reload the way real server state does.
+    await page.addInitScript(({ t, rpc, broken, missingColumns, cachedCompany, serverCompany, ensureGate }) => {
       window.__FIXTURE_TABLES__ = t;
       window.__FIXTURE_BROKEN__ = broken;
       window.__FIXTURE_MISSING_COLUMNS__ = missingColumns;
+      if (cachedCompany !== '__unset__') window.__FIXTURE_CACHED_COMPANY__ = cachedCompany;
+      if (serverCompany) window.__FIXTURE_SERVER_COMPANY__ = serverCompany;
+      if (ensureGate) {
+        window.__FIXTURE_ENSURE_GATE__ = new Promise((release) => { window.__RELEASE_ENSURE__ = release; });
+      }
       window.__FIXTURE_RPC__ = {};
       Object.entries(rpc).forEach(([k, src]) => {
         // eslint-disable-next-line no-eval
         window.__FIXTURE_RPC__[k] = eval('(' + src + ')');
       });
-    }, { t: tables, rpc: rpcSrc, broken: (opts && opts.broken) || [], missingColumns: (opts && opts.missingColumns) || {} });
+    }, {
+      t: tables, rpc: rpcSrc, broken: (opts && opts.broken) || [],
+      missingColumns: (opts && opts.missingColumns) || {},
+      cachedCompany: (opts && 'cachedCompany' in opts) ? opts.cachedCompany : '__unset__',
+      serverCompany: (opts && opts.serverCompany) || null,
+      ensureGate: !!(opts && opts.ensureGate),
+    });
     await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(ready, { timeout: 20000 });
     return page;

@@ -875,12 +875,15 @@
         title_snapshot:c.title||null, unit_cost:cost, retail_price:retail,
         source_concept_id:c.id,
         line_notes:`From concept: ${c.title||''}`.trim() };
+      // Same rule as generate_po_from_concept(): a breakdown with no
+      // positive size falls back to the single suggested_qty line.
       const bd=c.suggested_size_breakdown;
-      if(bd && typeof bd==='object' && !Array.isArray(bd) && Object.keys(bd).length){
-        return Object.entries(bd)
+      if(bd && typeof bd==='object' && !Array.isArray(bd)){
+        const sized=Object.entries(bd)
           .filter(([,v])=>Number(v)>0)
           .map(([size,v])=>({...base, variant_title_snapshot:String(size), qty:Number(v)||0,
             retail_value:retail?(Number(v)||0)*retail:0}));
+        if(sized.length) return sized;
       }
       const qty=Number(c.suggested_qty)||0;
       return [{...base, qty, retail_value:retail?qty*retail:0}];
@@ -1576,9 +1579,36 @@
         await loadCatalogProducts();
         await refreshAll();
         const startPo=new URLSearchParams(location.search).get('po_id');
+        const fromConcept=new URLSearchParams(location.search).get('fromConcept');
         if(startPo){ await openPO(startPo); }
+        else if(fromConcept){ await generateFromConceptDeepLink(fromConcept); }
         else if(!state.currentPO?.id && state.poRows.length){ setPoDrawerOpen(true); }
       }catch(e){ console.error(e); alert(e.message||'Initial load failed'); }
+    }
+
+    // /v2/po-builder.html?fromConcept=<id> -- the "Generate PO" button on
+    // /v2/product-concepts.html. The PO, its lines and the concept link are
+    // made by ONE database function, generate_po_from_concept()
+    // (20260930000000), so they commit together or not at all. The page used
+    // to write them as three requests, and a failure after the first left an
+    // empty PO holding the concept's claim, which every later click then
+    // opened. The function locks the concept, so a double click or a second
+    // tab gets the PO already made (repeated = true), never a second one.
+    // Its line rule is the same as conceptToLines() below.
+    async function generateFromConceptDeepLink(conceptId){
+      setStatus('Generating a PO from this concept…','info',0);
+      const {data,error}=await sb.rpc('generate_po_from_concept',{p_concept_id:conceptId});
+      if(error){ setStatus('Could not generate a PO: '+(error.message||'unknown error'),'neg',0); return; }
+      const poId=data?.po_header_id;
+      if(!poId){ setStatus('Could not generate a PO: the database returned no PO.','neg',0); return; }
+      // A reload now opens this PO rather than asking to generate again.
+      try{ history.replaceState(null,'',`${location.pathname}?po_id=${encodeURIComponent(poId)}`); }catch(_){ /* keep the URL */ }
+      await refreshAll(); await openPO(poId);
+      if(data.repeated){ setStatus('This concept already has a PO. Opened it.','info',6000); return; }
+      const n=Number(data.line_count)||0;
+      setStatus(`Generated a PO with ${n} line${n===1?'':'s'} from this concept. Adjust quantities before approving.`,'pos',6000);
+      // After the status above, so a Pipeline failure is not overwritten by it.
+      await syncPipeline();
     }
 
     if(window.SiloChrome){
