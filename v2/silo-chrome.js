@@ -512,6 +512,19 @@
     // DIFFERENT company than this -- a normal load (cache already correct)
     // never flickers it.
     let lastRenderedCompanyId = getActiveCompany()?.id || null;
+    // The company this PAGE was built for. Pages read the company once, at
+    // load (products.html, po-builder.html: `const _co = getActiveCompany()`),
+    // so if the server's active company is later found to differ, the
+    // sidebar is not the only thing that is wrong -- everything on screen
+    // belongs to the old company and every further query filters by it while
+    // RLS reads the new one. Repainting the label alone (the 2026-09-30 first
+    // pass) made that worse: the right name over the wrong page.
+    // A deep link with nothing cached has no company yet. Its queries ran
+    // against whatever the server had active at load, so the first company
+    // the check below resolves is recorded as this page's company. Without
+    // that, a tab opened from a link would never notice a later switch.
+    let mountedCompany = getActiveCompany();
+    let mountedCompanyId = mountedCompany?.id || null;
     const backdrop = el('<div class="silo-nav-backdrop" data-silo-nav-backdrop hidden></div>');
     appEl.prepend(sidebar);
     appEl.prepend(backdrop);
@@ -603,10 +616,21 @@
     // indefinitely. Called again below on a cross-tab broadcast and on
     // visibility, so an already-open tab gets the SAME correction an idle
     // page load would have.
+    //
+    // A request that arrives while one is already running is NOT dropped:
+    // the running one may have read the server before the other tab's switch
+    // committed, in which case dropping the later request would leave this
+    // tab stale until its next focus. It sets `rerun`, and the running call
+    // starts one more pass when it finishes.
     let reconciling = false;
+    let rerun = false;
+    let isInitialPass = true;
     function reconcileCompanyRoleAndNav() {
-      if (!opts.supabaseClient || reconciling) return;
+      if (!opts.supabaseClient || pageSuperseded) return;
+      if (reconciling) { rerun = true; return; }
       reconciling = true;
+      const initial = isInitialPass;
+      isInitialPass = false;
       Promise.resolve(window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient))
         .then(async (company) => {
           if (!company?.id) return;
@@ -619,6 +643,20 @@
           // everything exactly as first paint showed it; the next
           // reconciliation attempt tries again.
           if (company._staleReconcile) return;
+
+          // The page was built for a different company than the server now
+          // has active. Nothing on it can be trusted or safely used, so it is
+          // replaced rather than relabelled -- see companyChangedUnderPage().
+          // A deep link with no cached company adopts this first answer as
+          // its own (the ordinary self-heal) and is checked from then on.
+          if (!mountedCompanyId) {
+            mountedCompany = company;
+            mountedCompanyId = company.id;
+          } else if (company.id !== mountedCompanyId) {
+            companyChangedUnderPage(company, initial);
+            return;
+          }
+          clearReloadGuard();
 
           // 1. Company label -- only touch the DOM if it actually changed,
           // so a normal load (cache already correct) never flickers it.
@@ -665,8 +703,71 @@
             navActive, getCachedDepartment(), effectiveRole, getCachedGrantIds());
         })
         .catch(() => {})
-        .finally(() => { reconciling = false; });
+        .finally(() => {
+          reconciling = false;
+          if (rerun && !pageSuperseded) { rerun = false; reconcileCompanyRoleAndNav(); }
+        });
     }
+
+    // What to do when the page turns out to belong to another company.
+    // During the FIRST pass (the page has only just loaded -- nothing typed
+    // yet) the page is simply reloaded, which rebuilds it from the corrected
+    // cache ensureActiveCompany() has already written. Any LATER pass means
+    // the user may be mid-edit in a tab that sat open while another tab
+    // switched, so the page is blocked behind a notice with a Reload button
+    // instead of being reloaded out from under them: they can still see what
+    // they typed, but cannot act on it under the wrong company.
+    //
+    // RELOAD_GUARD stops a reload loop: if the reloaded page STILL disagrees
+    // with the server (sessionStorage blocked, or a failed cache write), the
+    // second pass falls back to the notice rather than reloading forever.
+    const RELOAD_GUARD = 'silo:company:reloaded-for';
+    let pageSuperseded = false;
+    function clearReloadGuard() {
+      try { sessionStorage.removeItem(RELOAD_GUARD); } catch (_) { /* nothing to clear */ }
+    }
+    function companyChangedUnderPage(company, initial) {
+      if (pageSuperseded) return;
+      if (initial) {
+        let guarded = false;
+        try {
+          guarded = sessionStorage.getItem(RELOAD_GUARD) === company.id;
+          if (!guarded) sessionStorage.setItem(RELOAD_GUARD, company.id);
+        } catch (_) {
+          guarded = true; // cannot record the attempt, so cannot rule out a loop
+        }
+        if (!guarded) { pageSuperseded = true; window.location.reload(); return; }
+      }
+      pageSuperseded = true;
+      showCompanyChangedNotice(company);
+    }
+    function showCompanyChangedNotice(company) {
+      const was = mountedCompany?.title || 'another workspace';
+      const now = company?.title || 'another workspace';
+      const notice = el(`
+        <div class="silo-company-changed" role="alertdialog" aria-modal="true" aria-labelledby="siloCompanyChangedTitle"
+             style="position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(15,17,23,.55);">
+          <div class="bcn-card" style="max-width:440px; width:100%;">
+            <div class="bcn-card-body">
+              <div id="siloCompanyChangedTitle" style="font-weight:650; font-size:15px; margin-bottom:8px;">Workspace changed in another tab</div>
+              <p style="margin:0 0 14px; font-size:13px; color:var(--bcn-ink-2); line-height:1.5;">
+                You're now working in <strong>${escHtml(now)}</strong>, but this page was loaded for
+                <strong>${escHtml(was)}</strong>. Reload before doing anything else here — nothing on this page can be
+                saved to the right workspace until you do.
+              </p>
+              <button type="button" class="bcn-btn bcn-btn--primary" data-silo-action="reload-for-company">Reload page</button>
+            </div>
+          </div>
+        </div>`);
+      notice.querySelector('[data-silo-action="reload-for-company"]')
+        .addEventListener('click', () => window.location.reload());
+      // inert keeps keyboard focus and screen readers off the stale page
+      // underneath, not just the mouse.
+      appEl.setAttribute('inert', '');
+      document.body.appendChild(notice);
+      notice.querySelector('button').focus();
+    }
+
     reconcileCompanyRoleAndNav();
 
     // Cross-tab wake-up: v2/company-picker.html writes this key to

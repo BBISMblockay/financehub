@@ -241,21 +241,7 @@ window.__QUERIES__ = [];
         var one = Array.isArray(r) ? r[0] : r;
         var created = Object.assign({ id: 'fixture-inserted-id' }, one);
         var mcw = missingColumn(Object.keys(one || {}).join(','));
-        // A DB constraint an insert can violate (a unique index, a check) --
-        // modelled honestly as a real failure, not a write the fixture
-        // quietly accepts. A test sets window.__FIXTURE_INSERT_ERRORS__ =
-        // { table: [{message}, ...] } (a one-shot queue, shifted per call --
-        // so the FIRST of two racing inserts can be told to lose) or
-        // { table: {message} } (every insert to that table fails). Exists so
-        // a "two callers raced on a unique index" scenario is testable
-        // against the real page code, not only against the real database.
-        var forced = (function () {
-          var cfg = (window.__FIXTURE_INSERT_ERRORS__ || {})[table];
-          if (!cfg) return null;
-          if (Array.isArray(cfg)) return cfg.length ? cfg.shift() : null;
-          return cfg;
-        })();
-        var wErr = forced || (mcw ? { code: '42703', message: 'column ' + table + '.' + mcw + ' does not exist' } : null);
+        var wErr = mcw ? { code: '42703', message: 'column ' + table + '.' + mcw + ' does not exist' } : null;
         var ins = {
           select: function () { return ins; },
           single: function () { return Promise.resolve(wErr ? { data: null, error: wErr } : { data: created, error: null }); },
@@ -418,7 +404,12 @@ window.__QUERIES__ = [];
             eq: function () { return api; },
             order: function () { return api; },
             then: function (res, rej) {
-              return Promise.resolve({ data: rows(), error: null }).then(res, rej);
+              // A fixture function may return { __error: {message, code} } to
+              // model the RPC raising -- PostgREST answers { data: null, error },
+              // and a page that only handles the happy path should be caught.
+              var r = rows();
+              if (r && !Array.isArray(r) && r.__error) return Promise.resolve({ data: null, error: r.__error }).then(res, rej);
+              return Promise.resolve({ data: r, error: null }).then(res, rej);
             }
           };
           return api;
@@ -434,8 +425,28 @@ const CONFIG_STUB = `
 window.__SILO_CONFIG__ = {
   SUPABASE_URL: 'http://localhost/fake',
   SUPABASE_ANON_KEY: 'fake-anon-key',
-  getActiveCompany: function () { return { id: 'test-company' }; },
-  ensureActiveCompany: function () { return Promise.resolve({ id: 'test-company' }); },
+  // A suite can make the cached (per-tab) company and the server's active
+  // company DISAGREE -- window.__FIXTURE_CACHED_COMPANY__ and
+  // window.__FIXTURE_SERVER_COMPANY__, via open()'s cachedCompany /
+  // serverCompany -- to exercise the sidebar's company-switch handling.
+  // ensureActiveCompany() snapshots the server answer when it is CALLED and
+  // resolves it only once window.__FIXTURE_ENSURE_GATE__ (open()'s
+  // ensureGate) is released, which is how a slow read that started before
+  // another tab's switch is modelled. Unset, both return test-company
+  // immediately, exactly as before.
+  // A cached company of null models a tab with nothing cached (a fresh deep
+  // link), which is different from "unset" (test-company).
+  getActiveCompany: function () {
+    return ('__FIXTURE_CACHED_COMPANY__' in window) ? window.__FIXTURE_CACHED_COMPANY__ : { id: 'test-company' };
+  },
+  ensureActiveCompany: function () {
+    window.__ENSURE_CALLS__ = (window.__ENSURE_CALLS__ || 0) + 1;
+    var snap = window.__FIXTURE_SERVER_COMPANY__
+      || (('__FIXTURE_CACHED_COMPANY__' in window) ? window.__FIXTURE_CACHED_COMPANY__ : null)
+      || { id: 'test-company' };
+    var gate = window.__FIXTURE_ENSURE_GATE__;
+    return gate ? gate.then(function () { return snap; }) : Promise.resolve(snap);
+  },
   withCompany: function (row) { return row; },
   withCompanyRows: function (rows) { return rows; }
 };
@@ -547,11 +558,17 @@ async function startSuite(options = {}) {
     // fixtures are passed as source and rebuilt inside the page.
     const rpcSrc = {};
     Object.entries((opts && opts.rpc) || {}).forEach(([k, v]) => { rpcSrc[k] = String(v); });
-    await page.addInitScript(({ t, rpc, broken, missingColumns, insertErrors }) => {
+    // Re-runs on every navigation of this page, reload included, so the
+    // company fixtures below survive a reload the way real server state does.
+    await page.addInitScript(({ t, rpc, broken, missingColumns, cachedCompany, serverCompany, ensureGate }) => {
       window.__FIXTURE_TABLES__ = t;
       window.__FIXTURE_BROKEN__ = broken;
       window.__FIXTURE_MISSING_COLUMNS__ = missingColumns;
-      window.__FIXTURE_INSERT_ERRORS__ = insertErrors;
+      if (cachedCompany !== '__unset__') window.__FIXTURE_CACHED_COMPANY__ = cachedCompany;
+      if (serverCompany) window.__FIXTURE_SERVER_COMPANY__ = serverCompany;
+      if (ensureGate) {
+        window.__FIXTURE_ENSURE_GATE__ = new Promise((release) => { window.__RELEASE_ENSURE__ = release; });
+      }
       window.__FIXTURE_RPC__ = {};
       Object.entries(rpc).forEach(([k, src]) => {
         // eslint-disable-next-line no-eval
@@ -559,7 +576,10 @@ async function startSuite(options = {}) {
       });
     }, {
       t: tables, rpc: rpcSrc, broken: (opts && opts.broken) || [],
-      missingColumns: (opts && opts.missingColumns) || {}, insertErrors: (opts && opts.insertErrors) || {},
+      missingColumns: (opts && opts.missingColumns) || {},
+      cachedCompany: (opts && 'cachedCompany' in opts) ? opts.cachedCompany : '__unset__',
+      serverCompany: (opts && opts.serverCompany) || null,
+      ensureGate: !!(opts && opts.ensureGate),
     });
     await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(ready, { timeout: 20000 });

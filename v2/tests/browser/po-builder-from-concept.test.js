@@ -1,22 +1,21 @@
-/* /v2/po-builder.html?fromConcept=<id> -- the direct "Generate PO" link
- * from /v2/product-concepts.html (added 2026-09-30 at Blake's request: the
- * entry point for turning a concept into a PO should live on the concept,
- * not require finding and clicking the (still hidden) in-builder picker).
+/* /v2/po-builder.html?fromConcept=<id> -- the "Generate PO" link from
+ * /v2/product-concepts.html.
  *
- * Three scenarios against the real page:
- *   1. A concept that already has a PO (po_headers.generated_from_concept_id)
- *      opens it, never creates a second one.
- *   2. A fresh concept generates a brand-new, pre-populated PO from scratch.
- *   3. A concurrent generation this caller LOST the race for (the
- *      po_headers insert fails with the partial unique index's 23505) does
- *      not fall back to creating a duplicate PO -- it fails safely.
+ * The page makes ONE call, generate_po_from_concept(), which creates the
+ * PO, its lines and the concept link in a single transaction (20260930000000).
+ * The page used to write them as three requests, so a failure after the
+ * header left an empty PO holding the concept's claim. These scenarios pin
+ * the page to the single call:
+ *   1. A repeat (the function returns repeated = true) opens that PO and
+ *      writes nothing.
+ *   2. A fresh generation makes exactly one RPC call, writes no table rows
+ *      itself, and lands on the new PO.
+ *   3. A refusal (collection, archived, no factory, permission) is shown
+ *      as a status message, with no table writes and no dialog.
  *
- * The race itself (two real concurrent inserts hitting the actual Postgres
- * unique index) is proven separately in
- * scripts/tests/generate-po-from-concept-database.test.mjs against real
- * PGlite Postgres; this suite proves the PAGE'S reaction to that outcome,
- * via the harness's window.__FIXTURE_INSERT_ERRORS__ hook (added alongside
- * this test) rather than a live race.
+ * What the function itself does (atomic rollback, locking, refusals, grants)
+ * is proven against real Postgres in
+ * scripts/tests/generate-po-from-concept-database.test.mjs.
  */
 'use strict';
 
@@ -29,123 +28,99 @@ const CO = 'test-company';
 
 const header = (o) => Object.assign({
   factory_id: 'fac-inco', factory_name: 'Incotexco', order_date: '2026-09-15', req_ship_date: '2026-12-11',
-  expected_arrival_date: '2026-12-25', date_bucket: 'Holiday 2026', status: 'Sent to Factory',
+  expected_arrival_date: '2026-12-25', date_bucket: 'Holiday 2026', status: 'Draft',
   wholesale_triggered: false, notes: null, internal_notes: null, pdf_url: null, company_entity_id: CO,
   created_at: '2026-09-15T18:00:00Z', total_units: 240, total_retail_value: 8400, total_estimated_cost: 0,
-  generated_from_concept_id: null,
+  is_new_product_po: true,
 }, o);
-
-const CONCEPT = {
-  id: 'concept-sonic', title: 'Sonic summer drop', status: 'approved', phase: 'core_draft',
-  parent_concept_id: null, suggested_qty: 500, suggested_factory_id: 'fac-inco',
-  suggested_factory_name: 'Incotexco', suggested_product_type: 'T-Shirts',
-  suggested_size_breakdown: null, economics: null, evidence_strength: 'moderate', child_count: 0,
-};
 
 const baseTables = () => ({
   factories: [{ id: 'fac-inco', factory_name: 'Incotexco', short_code: 'IN', company_entity_id: CO }],
+  po_headers: [],
   po_lines: [],
   products_master: [],
   product_tracker: [],
   launch_product_readiness: [],
   po_concept_links: [],
-  product_concepts_v: [CONCEPT],
 });
 
-const READY = () => !!document.getElementById('detailTitle') && document.getElementById('detailTitle').textContent !== 'New purchase order';
+const TITLED = () => !!document.getElementById('detailTitle') && document.getElementById('detailTitle').textContent !== 'New purchase order';
 
-const inserts = (page, table) => page.evaluate((t) => (window.__QUERIES__ || [])
-  .filter((q) => q.table === t && q._op === 'insert'), table);
+const writes = (page) => page.evaluate(() => (window.__QUERIES__ || [])
+  .filter((q) => ['po_headers', 'po_lines', 'po_concept_links'].includes(q.table)
+    && ['insert', 'update', 'upsert', 'delete'].includes(q._op))
+  .map((q) => q.table + ':' + q._op));
+
+const rpcCalls = (page, name) => page.evaluate((n) => (window.__QUERIES__ || [])
+  .filter((q) => q.table === 'rpc:' + n).map((q) => q.args), name);
 
 (async () => {
   const suite = await startSuite();
   try {
-    // ── 1. Already generated: opens the existing PO, no duplicate writes ──
+    // 1. Repeat: the function returns the PO already made.
     {
       const tables = Object.assign(baseTables(), {
-        po_headers: [{ id: 'po-existing-1', generated_from_concept_id: 'concept-sonic', company_entity_id: CO }],
-        v_po_header_summary: [
-          header({ id: 'po-existing-1', po_name: 'Incotexco-Sonic-Drop', is_new_product_po: true, generated_from_concept_id: 'concept-sonic' }),
-        ],
+        v_po_header_summary: [header({ id: 'po-existing-1', po_name: 'Incotexco-Sonic-Drop' })],
       });
-
-      const page = await suite.open('/v2/po-builder.html?fromConcept=concept-sonic', tables, { ready: READY });
-
+      const page = await suite.open('/v2/po-builder.html?fromConcept=concept-sonic', tables, {
+        ready: TITLED,
+        rpc: { generate_po_from_concept: () => ({ po_header_id: 'po-existing-1', repeated: true, line_count: null }) },
+      });
       const title = await page.$eval('#detailTitle', (el) => el.textContent);
-      const lineInserts = await inserts(page, 'po_lines');
-      const headerInserts = await inserts(page, 'po_headers');
       const status = await page.$eval('#poStatus', (el) => el.textContent);
+      const w = await writes(page);
+      const calls = await rpcCalls(page, 'generate_po_from_concept');
 
-      R.ok('an already-generated concept opens its existing PO', title === 'Incotexco-Sonic-Drop', title);
-      R.ok('no duplicate lines are inserted for an already-generated concept', lineInserts.length === 0, `po_lines inserts: ${lineInserts.length}`);
-      R.ok('no second po_headers row is inserted either', headerInserts.length === 0, `po_headers inserts: ${headerInserts.length}`);
-      R.ok('the status line says why it landed on this PO', /already/i.test(status), status);
+      R.ok('a repeat opens the PO the function returned', title === 'Incotexco-Sonic-Drop', title);
+      R.ok('the status says the concept already had a PO', /already has a PO/i.test(status), status);
+      R.ok('a repeat writes nothing from the page', w.length === 0, JSON.stringify(w));
+      R.ok('exactly one generate call is made', calls.length === 1, JSON.stringify(calls));
     }
 
-    // ── 2. A fresh concept generates a brand-new, pre-populated PO ─────────
+    // 2. Fresh generation: one call, no page-side writes.
     {
       const tables = Object.assign(baseTables(), {
-        po_headers: [],
-        // The harness fabricates 'fixture-inserted-id' for every insert --
-        // seeding the SAME id here is what lets openPO() (called by
-        // addFromConcepts() right after the insert) find and render it,
-        // exactly as it would find a freshly-committed real row. openPO()
-        // reads THIS static fixture, not the insert's own return value, so
-        // po_name here must match what the seeded generate_next_po_name RPC
-        // below returns -- a real refreshAll() would instead re-read the
-        // row this test's insert actually wrote.
-        v_po_header_summary: [header({ id: 'fixture-inserted-id', po_name: 'Incotexco-9001', is_new_product_po: true })],
+        v_po_header_summary: [header({ id: 'po-new-1', po_name: 'Incotexco-9001' })],
       });
-
       const page = await suite.open('/v2/po-builder.html?fromConcept=concept-sonic', tables, {
-        ready: READY,
-        rpc: { generate_next_po_name: () => 'Incotexco-9001' },
+        ready: () => /Generated a PO/.test((document.getElementById('poStatus') || {}).textContent || ''),
+        rpc: { generate_po_from_concept: () => ({ po_header_id: 'po-new-1', repeated: false, line_count: 3 }) },
       });
-
-      const headerInserts = await inserts(page, 'po_headers');
-      const lineInserts = await inserts(page, 'po_lines');
-      const linkInserts = await inserts(page, 'po_concept_links');
       const title = await page.$eval('#detailTitle', (el) => el.textContent);
+      const status = await page.$eval('#poStatus', (el) => el.textContent);
+      const w = await writes(page);
+      const calls = await rpcCalls(page, 'generate_po_from_concept');
+      const nameCalls = await rpcCalls(page, 'generate_next_po_name');
 
-      R.ok('exactly one po_headers row is inserted', headerInserts.length === 1, `po_headers inserts: ${headerInserts.length}`);
-      R.ok('the insert carries the claim column', headerInserts[0]?.rows?.generated_from_concept_id === 'concept-sonic',
-        JSON.stringify(headerInserts[0]?.rows));
-      R.ok('the concept\'s line is inserted onto the newly-claimed header', lineInserts.length >= 1 && lineInserts[0]?.rows?.[0]?.po_header_id === 'fixture-inserted-id',
-        JSON.stringify(lineInserts[0]?.rows));
-      R.ok('the concept -> PO link is recorded too', linkInserts.length === 1, `po_concept_links inserts: ${linkInserts.length}`);
-      R.ok('the page lands on the newly-generated PO, populated', title === 'Incotexco-9001', title);
+      R.ok('exactly one generate call, naming the concept', calls.length === 1 && calls[0]?.p_concept_id === 'concept-sonic', JSON.stringify(calls));
+      R.ok('the page writes no header, line or link itself', w.length === 0, JSON.stringify(w));
+      R.ok('the page does not name the PO itself (the function does)', nameCalls.length === 0, JSON.stringify(nameCalls));
+      R.ok('the page lands on the generated PO', title === 'Incotexco-9001', title);
+      R.ok('the status reports the line count', /3 lines/.test(status), status);
+      const search = await page.evaluate(() => location.search);
+      R.ok('the URL now names the PO, so a reload opens it instead of generating again', search === '?po_id=po-new-1', search);
     }
 
-    // ── 3. This caller LOST the race: fails safely, no duplicate created ──
+    // 3. Refusal: shown as a status, nothing written, no dialog.
     {
-      const tables = Object.assign(baseTables(), { po_headers: [], v_po_header_summary: [] });
-
-      // The alert() this scenario ends in fires DURING boot(), not from a
-      // later click -- a page.once('dialog', ...) attached only after
-      // open() resolves can lose the race to it entirely (Playwright
-      // auto-dismisses an unlistened dialog with nothing left to read it,
-      // which is exactly what silently hung this suite the first time).
-      // dialogAction registers the listener in the harness BEFORE goto().
-      // ready waits for both po_headers touches (the failed claim attempt,
-      // then the recovery lookup) so open() does not return before the
-      // alert has actually fired and been recorded.
-      const page = await suite.open('/v2/po-builder.html?fromConcept=concept-sonic', tables, {
-        ready: () => (window.__QUERIES__ || []).filter((q) => q.table === 'po_headers').length >= 2,
+      const tables = Object.assign(baseTables(), { v_po_header_summary: [] });
+      const page = await suite.open('/v2/po-builder.html?fromConcept=concept-parent', tables, {
+        ready: () => /Could not generate/.test((document.getElementById('poStatus') || {}).textContent || ''),
         dialogAction: 'accept',
-        insertErrors: {
-          po_headers: [{ message: 'duplicate key value violates unique constraint "po_headers_generated_from_concept_uniq"' }],
-        },
+        rpc: { generate_po_from_concept: () => ({ __error: { message: 'This concept is a collection. Generate a PO from each product in it', code: '22023' } }) },
       });
+      const status = await page.$eval('#poStatus', (el) => el.textContent);
+      const cls = await page.$eval('#poStatus', (el) => el.className);
+      const title = await page.$eval('#detailTitle', (el) => el.textContent);
+      const w = await writes(page);
 
-      const dialogText = page.__dialogs[0];
-      const lineInserts = await inserts(page, 'po_lines');
-      const linkInserts = await inserts(page, 'po_concept_links');
-
-      R.ok('a dialog was actually shown', page.__dialogs.length === 1, `dialogs: ${JSON.stringify(page.__dialogs)}`);
-      R.ok('a lost race with no recoverable winner fails with a clear message, not a crash',
-        /already has a PO/i.test(dialogText || ''), dialogText);
-      R.ok('no lines were inserted for a generation attempt that lost the race', lineInserts.length === 0, `po_lines inserts: ${lineInserts.length}`);
-      R.ok('no po_concept_links row was inserted either', linkInserts.length === 0, `po_concept_links inserts: ${linkInserts.length}`);
+      R.ok('the refusal reason is shown', /collection/i.test(status), status);
+      R.ok('it is shown as an error', /bcn-status--neg/.test(cls), cls);
+      await page.waitForTimeout(4000);
+      R.ok('and it stays on screen (no auto-hide)', await page.$eval('#poStatus', (el) => !el.hidden));
+      R.ok('no dialog is used for it', page.__dialogs.length === 0, JSON.stringify(page.__dialogs));
+      R.ok('nothing is written on a refusal', w.length === 0, JSON.stringify(w));
+      R.ok('the page stays on a new, unsaved PO', title === 'New purchase order', title);
     }
   } finally {
     await suite.close();
