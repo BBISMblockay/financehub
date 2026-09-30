@@ -16,13 +16,14 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260925h" />
+  <link rel="stylesheet" href="dashboard.css?v=20260930a" />
   <style>
     /* ── Reports library ───────────────────────────────────────────────
        Page-specific, so it lives here rather than in dashboard.css (which
        every canvas loads). Beacon tokens only; no new variables. */
     .v3-list-content { padding: 14px 18px 30px; display: flex; flex-direction: column; gap: 14px; }
-    .lib-tabs { padding: 0 18px; flex-shrink: 0; }
+    .lib-tabs { padding: 0 18px; flex-shrink: 0; overflow-x: auto; }
+    .lib-tabs .bcn-tab { flex-shrink: 0; white-space: nowrap; }
     .lib-tabs[hidden] { display: none; }
     /* The tabs are <button>s (real tab semantics), so the UA's button box
        has to go or each one draws as a bordered button. */
@@ -100,6 +101,16 @@
     .lib-details dt { color: var(--bcn-ink-3); }
     .lib-details dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 
+    .lib-report-action { position: relative; z-index: 1; font-size: 11.5px; padding: 3px 7px; }
+    .lib-dialog { padding: 0; border: 1px solid var(--bcn-border); width: min(520px, calc(100% - 24px)); max-height: calc(100vh - 32px); overflow: auto; color: var(--bcn-ink); }
+    .lib-dialog:not([open]) { display: none; }
+    .lib-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+    .lib-dialog .v3-modal-head h3 { min-width: 0; overflow-wrap: anywhere; }
+    .lib-dialog .v3-close { flex-shrink: 0; }
+    .lib-dialog p { line-height: 1.6; overflow-wrap: anywhere; }
+    .lib-dialog ul { padding-left: 20px; }
+    .lib-dialog li { margin: 6px 0; overflow-wrap: anywhere; }
+    .lib-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
     .lib-empty { padding: 34px 16px; text-align: center; font-size: 13px; color: var(--bcn-ink-3); line-height: 1.6; }
     .lib-empty strong { display: block; margin-bottom: 4px; color: var(--bcn-ink-2); font-size: 13.5px; }
     .lib-empty a { color: var(--bcn-accent); }
@@ -122,8 +133,8 @@
 <div class="silo-app" id="silo-app">
   <main class="silo-main">
     <!-- The Reports library: SILO's own definitions, the company's saved
-         reports, and the dashboards built from them. One page, three tabs,
-         because they are one library read three ways -- and the tab is in
+         reports, and the dashboards built from them. Explicit ownership tabs,
+         so each scope is clear. The tab is in
          the URL so a reload or Back lands where the reader left. -->
     <header class="bcn-header v3-header">
       <div class="bcn-header-title v3-header-title">
@@ -140,6 +151,8 @@
     <div class="bcn-tabs lib-tabs" role="tablist" aria-label="Reports library" id="libTabs">
       <button type="button" class="bcn-tab" role="tab" id="tab-silo" data-tab="silo" aria-controls="pane-silo" aria-selected="false" tabindex="-1">SILO Reports <span class="lib-tab-count" data-count="silo"></span></button>
       <button type="button" class="bcn-tab" role="tab" id="tab-mine" data-tab="mine" aria-controls="pane-mine" aria-selected="false" tabindex="-1">My Reports <span class="lib-tab-count" data-count="mine"></span></button>
+      <button type="button" class="bcn-tab" role="tab" id="tab-company" data-tab="company" aria-controls="pane-company" aria-selected="false" tabindex="-1">Company Reports <span class="lib-tab-count" data-count="company"></span></button>
+      <button type="button" class="bcn-tab" role="tab" id="tab-archived" data-tab="archived" aria-controls="pane-archived" aria-selected="false" tabindex="-1">Archived <span class="lib-tab-count" data-count="archived"></span></button>
       <button type="button" class="bcn-tab" role="tab" id="tab-dashboards" data-tab="dashboards" aria-controls="pane-dashboards" aria-selected="false" tabindex="-1">Dashboards <span class="lib-tab-count" data-count="dashboards"></span></button>
     </div>
 
@@ -159,8 +172,16 @@
         <div class="lib-body" id="siloBody"><div class="lib-empty">Loading…</div></div>
       </section>
       <section class="lib-pane" id="pane-mine" role="tabpanel" aria-labelledby="tab-mine" hidden>
-        <p class="lib-intro">Reports saved in your company — yours and ones shared with everyone.</p>
+        <p class="lib-intro">Only reports you created, whether private or shared with your company.</p>
         <div class="lib-body" id="mineBody"><div class="lib-empty">Loading…</div></div>
+      </section>
+      <section class="lib-pane" id="pane-company" role="tabpanel" aria-labelledby="tab-company" hidden>
+        <p class="lib-intro">All reports shared with your company, including yours. Only the creator can archive a report.</p>
+        <div class="lib-body" id="companyBody"><div class="lib-empty">Loading…</div></div>
+      </section>
+      <section class="lib-pane" id="pane-archived" role="tabpanel" aria-labelledby="tab-archived" hidden>
+        <p class="lib-intro">Reports you archived. Existing dashboards still work. Restore a report to return it to active lists with the same visibility.</p>
+        <div class="lib-body" id="archivedBody"><div class="lib-empty">Loading…</div></div>
       </section>
       <section class="lib-pane" id="pane-dashboards" role="tabpanel" aria-labelledby="tab-dashboards" hidden>
         <div class="lib-body" id="listBody"><div class="lib-empty">Loading…</div></div>
@@ -168,6 +189,23 @@
     </div>
   </main>
 </div>
+
+<!-- Native dialog keeps focus inside and returns it on dismissal. -->
+<dialog class="v3-modal lib-dialog" id="archiveDialog" aria-labelledby="archiveTitle" aria-describedby="archiveBody">
+  <div class="v3-modal-head">
+    <h3 id="archiveTitle">Archive report</h3>
+    <button type="button" class="v3-close" id="btnCloseArchive" aria-label="Close">✕</button>
+  </div>
+  <div class="v3-modal-body">
+    <div id="archiveBody"></div>
+    <div class="bcn-status" id="archiveStatus" role="status" hidden></div>
+    <div class="lib-dialog-actions">
+      <button type="button" class="bcn-btn bcn-btn--ghost" id="btnRetryArchive" hidden>Try again</button>
+      <button type="button" class="bcn-btn bcn-btn--ghost" id="btnCancelArchive">Cancel</button>
+      <button type="button" class="bcn-btn bcn-btn--primary" id="btnConfirmArchive" disabled>Archive report</button>
+    </div>
+  </div>
+</dialog>
 
 <!-- New dashboard -->
 <div class="v3-backdrop" id="newBackdrop">
@@ -205,12 +243,12 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260925h"></script>
-<script src="js/field-semantics.js?v=20260925h"></script>
-<script src="js/metrics.js?v=20260925h"></script>
-<script src="js/chart-adapter.js?v=20260925h"></script>
-<script src="js/report-catalog.js?v=20260925h"></script>
-<script src="js/report-library.js?v=20260925h"></script>
+<script src="js/report-params.js?v=20260930a"></script>
+<script src="js/field-semantics.js?v=20260930a"></script>
+<script src="js/metrics.js?v=20260930a"></script>
+<script src="js/chart-adapter.js?v=20260930a"></script>
+<script src="js/report-catalog.js?v=20260930a"></script>
+<script src="js/report-library.js?v=20260930a"></script>
 <script>
 (function () {
   'use strict';
@@ -236,14 +274,19 @@
     return;
   }
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let userId = null;
+  let companyId = null;
+  let reportRows = [];
   let navProfile = 'standard';
+  const explicitManagement = new URLSearchParams(location.search).get('manage') === 'reports';
+  let reportsEnabled = false;
   let allowedTabs = L.TABS.map((t) => t.id);
   let activeTab = L.DEFAULT_TAB;
   let query = '';
   let reportPages = []; // Page links belong only to this library, never the widget picker.
   // null = not loaded yet; an Error = the load failed. Kept apart from []
   // so "nothing here" and "could not ask" never render the same message.
-  const data = { silo: null, mine: null, dashboards: null };
+  const data = { silo: null, mine: null, company: null, archived: null, dashboards: null };
 
   // ── Icons: one simple glyph per kind, never meaning-bearing on its own ──
   const ICON = {
@@ -257,18 +300,18 @@
   const fmtDate = (v) => (v ? new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
   // ── Cards ───────────────────────────────────────────────────────────
-  function card({ kind, id, title, href, summary, foot, details }) {
+  function card({ kind, id, title, href, summary, foot, details, action }) {
     const detId = `det-${kind}-${String(id).replace(/[^a-zA-Z0-9_-]/g, '')}`;
     const detailsHtml = details
       ? `<button type="button" class="lib-details-btn" aria-expanded="false" aria-controls="${detId}">Details ${CHEVRON}</button>`
       : '';
     return `<article class="lib-card" data-kind="${kind}" data-id="${esc(id)}">
       <div class="lib-card-head">
-        <span class="lib-icon">${ICON[kind]}</span>
+        <span class="lib-icon">${ICON[kind] || ICON.mine}</span>
         <h3 class="lib-title"><a class="lib-link" href="${esc(href)}">${esc(title)}</a></h3>
       </div>
       ${summary ? `<p class="lib-summary">${esc(summary)}</p>` : ''}
-      ${(foot || detailsHtml) ? `<div class="lib-card-foot">${foot || ''}${detailsHtml}</div>` : ''}
+      ${(foot || detailsHtml) ? `<div class="lib-card-foot">${foot || ''}${detailsHtml}${action || ''}</div>` : ''}
       ${details ? `<div class="lib-details" id="${detId}" hidden>${details}</div>` : ''}
     </article>`;
   }
@@ -307,13 +350,15 @@
       big ? ['Rows', `${estimate.toLocaleString()} (a tile shows 1,000 at a time)`] : null,
       r.created_by_name ? ['Created by', r.created_by_name] : null,
       r.created_at ? ['Created', fmtDate(r.created_at)] : null,
+      r.archived_at ? ['Archived', fmtDate(r.archived_at)] : null,
     ].filter(Boolean);
     return card({
-      kind: 'mine', id: r.id, title: r.title || 'Untitled report', href: reportHref(r),
+      kind: activeTab, id: r.id, title: r.title || 'Untitled report', href: reportHref(r),
       summary: L.summaryOf(lead),
       foot: `<span class="bcn-pill${r.visibility === 'private' ? '' : ' bcn-pill--accent'}">${L.visibilityLabel(r)}</span>
         ${big ? `<span class="bcn-pill bcn-pill--neg" title="A tile shows 1,000 rows at a time.">${estimate.toLocaleString()} rows</span>` : ''}
-        ${r.created_by_name ? `<span class="lib-meta">${esc(r.created_by_name)}</span>` : ''}`,
+        <span class="lib-meta">Created by ${esc(r.created_by === userId ? 'you' : (r.created_by_name || 'Unknown creator'))}</span>`,
+      action: L.ownsReport(r, userId, companyId) ? `<button type="button" class="bcn-btn bcn-btn--ghost lib-report-action" data-report-action="${r.archived_at ? 'restore' : 'archive'}" data-report-id="${esc(r.id)}" aria-label="${r.archived_at ? 'Restore' : 'Archive'} ${esc(r.title || 'Untitled report')}">${r.archived_at ? 'Restore' : 'Archive'}</button>` : '',
       details: `${lead && L.hasMore(lead) ? `<p>${esc(lead)}</p>` : ''}<dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`,
     });
   }
@@ -336,7 +381,10 @@
   // ── Empty and no-result states ──────────────────────────────────────
   function emptyState(tab) {
     if (tab === 'silo') return `<div class="lib-empty"><strong>No SILO reports are available yet.</strong>Ask a question in <a href="/v2/silo-chat.html">Ask SILO</a> in the meantime.</div>`;
+    if (tab === 'mine' && navProfile === 'standard') return '<div class="lib-empty"><strong>No saved reports yet.</strong>Save an answer from <a href="/v2/silo-chat.html">Ask SILO</a> to see it here.</div>';
     if (tab === 'mine') return `<div class="lib-empty"><strong>No saved reports yet.</strong>Build one with <a href="/v3/report-builder.html">New report</a>, open a SILO report and save your own copy, or save an answer from <a href="/v2/silo-chat.html">Ask SILO</a>.</div>`;
+    if (tab === 'company') return '<div class="lib-empty"><strong>No company reports yet.</strong>Reports shared with your company will appear here.</div>';
+    if (tab === 'archived') return '<div class="lib-empty"><strong>No archived reports.</strong>Reports you archive will appear here, ready to restore.</div>';
     return `<div class="lib-empty"><strong>No dashboards yet.</strong>${navProfile === 'standard'
       ? 'Create one, or use <a href="/v2/silo-chat.html">Ask SILO</a> to turn a question into a reusable view.'
       : 'Create one, then add SILO reports or your own saved reports to it.'}</div>`;
@@ -356,7 +404,7 @@
       const c = document.querySelector(`[data-count="${t.id}"]`);
       if (c) c.textContent = Array.isArray(rows) ? String(rows.length) : '';
     }
-    const body = { silo: el('siloBody'), mine: el('mineBody'), dashboards: el('listBody') }[activeTab];
+    const body = { silo: el('siloBody'), mine: el('mineBody'), company: el('companyBody'), archived: el('archivedBody'), dashboards: el('listBody') }[activeTab];
     const loaded = data[activeTab];
     const pages = activeTab === 'silo' ? reportPages : [];
     const rows = [...pages, ...(Array.isArray(loaded) ? loaded : [])];
@@ -380,7 +428,7 @@
           <h2 class="lib-group-head">${esc(label)}</h2>
           <div class="lib-grid">${by.get(k).slice().sort(L.byTitle).map(siloCard).join('')}</div>
         </section>`).join('');
-    } else if (activeTab === 'mine') {
+    } else if (activeTab !== 'dashboards') {
       body.innerHTML = `<div class="lib-grid">${visible.map(mineCard).join('')}</div>`;
     } else {
       body.innerHTML = `<div class="lib-grid">${visible.map(dashboardCard).join('')}</div>`;
@@ -388,7 +436,7 @@
   }
 
   // ── Tabs ────────────────────────────────────────────────────────────
-  const SEARCH_LABEL = { silo: 'Search SILO reports', mine: 'Search my reports', dashboards: 'Search dashboards' };
+  const SEARCH_LABEL = { silo: 'Search SILO reports', mine: 'Search my reports', company: 'Search company reports', archived: 'Search archived reports', dashboards: 'Search dashboards' };
 
   function selectTab(tab, { updateUrl = true, focus = false } = {}) {
     if (!allowedTabs.includes(tab)) tab = allowedTabs[0];
@@ -403,7 +451,7 @@
     }
     for (const t of L.TABS) el(`pane-${t.id}`).hidden = t.id !== tab;
     // Contextual primary action; Ask SILO stays as the secondary one.
-    el('btnNewReport').hidden = tab !== 'mine';
+    el('btnNewReport').hidden = navProfile !== 'grandfathered' || tab !== 'mine';
     el('btnNew').hidden = tab !== 'dashboards';
     // Search is scoped to the tab, so a query typed on one tab never
     // silently filters the next.
@@ -413,7 +461,7 @@
     // replaceState, not pushState: the URL remembers the tab for a reload
     // and for Back from a report, without turning tab clicks into history
     // entries a reader has to Back through.
-    if (updateUrl && navProfile !== 'standard') history.replaceState(history.state, '', L.urlForTab(location.href, tab));
+    if (updateUrl && reportsEnabled) history.replaceState(history.state, '', L.urlForTab(location.href, tab));
     render();
   }
 
@@ -436,14 +484,19 @@
   // A page restored from the back/forward cache keeps its DOM but may have
   // a different URL than the tab on screen; the URL wins.
   window.addEventListener('pageshow', (e) => {
-    if (e.persisted && navProfile !== 'standard') selectTab(L.tabFromSearch(location.search, allowedTabs), { updateUrl: false });
+    if (e.persisted && reportsEnabled) {
+      selectTab(L.tabFromSearch(location.search, allowedTabs), { updateUrl: false });
+      loadReports().then(render).catch((err) => setStatus('Could not refresh reports: ' + err.message, 'neg'));
+    }
   });
   window.addEventListener('popstate', () => {
-    if (navProfile !== 'standard') selectTab(L.tabFromSearch(location.search, allowedTabs), { updateUrl: false });
+    if (reportsEnabled) selectTab(L.tabFromSearch(location.search, allowedTabs), { updateUrl: false });
   });
 
   el('librarySearch').addEventListener('input', (e) => { query = e.target.value; render(); });
   document.querySelector('.v3-list-content').addEventListener('click', (e) => {
+    const action = e.target.closest('[data-report-action]');
+    if (action) { openArchive(action.dataset.reportId, action); return; }
     const btn = e.target.closest('.lib-details-btn');
     if (btn) {
       const open = btn.getAttribute('aria-expanded') !== 'true';
@@ -465,17 +518,120 @@
     data.dashboards = error ? new Error(error.message) : L.orderDashboards(rows || []);
   }
   async function loadReports() {
-    // The same security_invoker view the Add-insight picker reads, so RLS
-    // alone decides what appears: a company-shared report by anyone, a
-    // private one only for its author, every global SILO definition.
-    const { data: rows, error } = await sb.from('silo_chat_saved_reports_v')
-      .select('id, title, description, question, queries_run, visibility, source, company_entity_id, created_by_name, created_at, row_estimate')
-      .order('created_at', { ascending: false });
-    if (error) { data.silo = data.mine = new Error(error.message); return; }
-    const split = L.splitReports(rows || []);
-    data.silo = split.silo;
-    data.mine = split.mine;
+    // Read every page: fetching one API-capped page and only then applying
+    // ownership would make older own reports disappear behind shared ones.
+    const rows = [];
+    try {
+      for (let offset = 0; ; offset += 500) {
+        const { data: page, error } = await sb.from('silo_chat_saved_reports_v')
+          .select('id, title, description, question, queries_run, visibility, source, company_entity_id, created_by, created_by_name, created_at, row_estimate, archived_at')
+          .order('created_at', { ascending: false }).order('id')
+          .range(offset, offset + 499);
+        if (error) throw new Error(error.message);
+        rows.push(...(page || []));
+        if (!page || page.length < 500) break;
+      }
+    } catch (err) {
+      for (const key of ['silo', 'mine', 'company', 'archived']) data[key] = new Error(err.message);
+      return false;
+    }
+    reportRows = rows || [];
+    Object.assign(data, L.splitReports(reportRows, userId, companyId));
+    return true;
   }
+
+  // ── Recoverable report cleanup ──────────────────────────────────────
+  let archiveTarget = null;
+  let archiveTrigger = null;
+  let archiveGeneration = 0;
+  let archiveBusy = false;
+  let archiveChecked = false;
+  const archiveDialog = el('archiveDialog');
+  function archiveStatus(message) {
+    el('archiveStatus').textContent = message;
+    el('archiveStatus').className = 'bcn-status bcn-status--neg';
+    el('archiveStatus').hidden = !message;
+  }
+  function closeArchive() {
+    if (archiveBusy) return;
+    archiveGeneration++;
+    archiveTarget = null;
+    archiveChecked = false;
+    archiveDialog.close();
+    if (archiveTrigger?.isConnected) archiveTrigger.focus();
+    else el(`tab-${activeTab}`).focus();
+  }
+  async function openArchive(id, trigger) {
+    if (archiveBusy) return;
+    const r = reportRows.find((row) => row.id === id);
+    if (!L.ownsReport(r, userId, companyId)) return;
+    const generation = ++archiveGeneration;
+    archiveTarget = r;
+    archiveTrigger = trigger;
+    archiveChecked = false;
+    archiveStatus('');
+    el('btnRetryArchive').hidden = true;
+    el('btnConfirmArchive').disabled = true;
+    el('btnConfirmArchive').textContent = r.archived_at ? 'Restore report' : 'Archive report';
+    el('archiveTitle').textContent = `${r.archived_at ? 'Restore' : 'Archive'} “${r.title || 'Untitled report'}”?`;
+    el('archiveBody').innerHTML = r.archived_at
+      ? `<p>Return this report to My Reports${r.visibility === 'company' ? ' and Company Reports' : ''}, with the same ${r.visibility === 'company' ? 'company' : 'private'} visibility.</p>`
+      : '<p>Checking dashboards that use this report…</p>';
+    if (!archiveDialog.open) archiveDialog.showModal();
+    el('btnCancelArchive').focus();
+    if (r.archived_at) { archiveChecked = true; el('btnConfirmArchive').disabled = false; return; }
+    try {
+      const { data: usage, error } = await sb.rpc('saved_report_archive_usage', { p_report_id: r.id });
+      if (generation !== archiveGeneration || !archiveDialog.open) return;
+      if (error) throw new Error(error.message);
+      // A missing row is never evidence of zero usage. Fail closed.
+      if (!usage || !Array.isArray(usage.dashboards)
+          || !Number.isInteger(usage.dashboard_count) || !Number.isInteger(usage.widget_count)
+          || !Number.isInteger(usage.hidden_dashboard_count)) throw new Error('Dashboard usage was not returned.');
+      el('archiveBody').innerHTML = `<p>Archive removes this report from active lists${r.visibility === 'company' ? ' for everyone in your company' : ''}. You can restore it anytime.</p>
+        <p><strong>${usage.widget_count} widget${usage.widget_count === 1 ? '' : 's'} on ${usage.dashboard_count} dashboard${usage.dashboard_count === 1 ? '' : 's'} use this report.</strong> Existing dashboards keep working. Report data, queries and widgets are kept.</p>
+        ${usage.dashboards.length ? `<ul>${usage.dashboards.map((d) => `<li><a href="/v3/dashboard.html?id=${encodeURIComponent(d.id)}" target="_blank" rel="noopener">${esc(d.name || 'Untitled dashboard')}</a></li>`).join('')}</ul>` : ''}
+        ${usage.hidden_dashboard_count ? `<p>${usage.hidden_dashboard_count} additional dashboard${usage.hidden_dashboard_count === 1 ? '' : 's'} you cannot view. Their names stay private.</p>` : ''}`;
+      archiveChecked = true;
+      el('btnConfirmArchive').disabled = false;
+    } catch (err) {
+      if (generation !== archiveGeneration || !archiveDialog.open) return;
+      archiveStatus('Could not check dashboards. Nothing changed. ' + err.message);
+      el('btnRetryArchive').hidden = false;
+    }
+  }
+  async function confirmArchive() {
+    if (archiveBusy || !archiveChecked || !archiveTarget) return;
+    const r = archiveTarget;
+    const archived = !r.archived_at;
+    archiveBusy = true;
+    archiveStatus('');
+    for (const id of ['btnConfirmArchive', 'btnCancelArchive', 'btnCloseArchive', 'btnRetryArchive']) el(id).disabled = true;
+    el('btnConfirmArchive').textContent = archived ? 'Archiving…' : 'Restoring…';
+    try {
+      const { data: result, error } = await sb.rpc('set_saved_report_archived', { p_report_id: r.id, p_archived: archived });
+      if (error) throw new Error(error.message);
+      const saved = Array.isArray(result) ? result[0] : result;
+      if (!saved || saved.id !== r.id || !!saved.archived_at !== archived) throw new Error('The change was not confirmed. Refresh reports before trying again.');
+      r.archived_at = saved.archived_at;
+      Object.assign(data, L.splitReports(reportRows, userId, companyId));
+      render();
+      archiveBusy = false;
+      closeArchive();
+      setStatus(archived ? 'Report archived. Find it in Archived to restore it. Existing dashboards keep working.' : 'Report restored with its original visibility.', 'pos');
+    } catch (err) {
+      archiveStatus('Could not ' + (archived ? 'archive' : 'restore') + ' report: ' + err.message);
+    } finally {
+      archiveBusy = false;
+      for (const id of ['btnConfirmArchive', 'btnCancelArchive', 'btnCloseArchive', 'btnRetryArchive']) el(id).disabled = false;
+      el('btnConfirmArchive').textContent = archived ? 'Archive report' : 'Restore report';
+    }
+  }
+  el('btnConfirmArchive').addEventListener('click', confirmArchive);
+  el('btnCancelArchive').addEventListener('click', closeArchive);
+  el('btnCloseArchive').addEventListener('click', closeArchive);
+  el('btnRetryArchive').addEventListener('click', () => { if (archiveTarget) openArchive(archiveTarget.id, archiveTrigger); });
+  archiveDialog.addEventListener('cancel', (event) => { event.preventDefault(); closeArchive(); });
 
   // ── New dashboard ───────────────────────────────────────────────────
   async function createDashboard() {
@@ -514,23 +670,24 @@
   async function boot() {
     const sessRes = await sb.auth.getSession();
     if (!sessRes?.data?.session) { window.location.href = '/pages/login.html'; return; }
-    const userId = sessRes.data.session.user.id;
+    userId = sessRes.data.session.user.id;
     const company = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+    companyId = company?.id || null;
     navProfile = window.SiloNav?.resolveNavProfile?.(company) || 'standard';
+    reportsEnabled = navProfile === 'grandfathered' || explicitManagement;
     reportPages = navProfile === 'grandfathered' ? (window.SiloNav?.SALES_REPORT_PAGES || []) : [];
 
     if (navProfile === 'standard') {
-      // Standard workspaces keep their Insights → Dashboards surface: report
-      // authoring stays out of customer navigation until that workflow is
-      // ready, so the report tabs are not offered at all here.
-      allowedTabs = ['dashboards'];
-      el('hubTitle').textContent = 'Dashboards';
+      // Default customer navigation stays Dashboards-only. The explicit
+      // management link from Ask SILO opens just their report organization,
+      // without introducing SILO catalog or report-authoring navigation.
+      allowedTabs = reportsEnabled ? ['mine', 'company', 'archived', 'dashboards'] : ['dashboards'];
+      el('hubTitle').textContent = reportsEnabled ? 'Manage reports' : 'Dashboards';
       el('hubTestingPill').hidden = true;
       el('btnNewReport').hidden = true;
-      el('tab-silo').hidden = true;
-      el('tab-mine').hidden = true;
-      el('libTabs').hidden = true;
-      document.title = 'SILO · Dashboards';
+      for (const t of L.TABS) el(`tab-${t.id}`).hidden = !allowedTabs.includes(t.id);
+      el('libTabs').hidden = !reportsEnabled;
+      document.title = reportsEnabled ? 'SILO · Manage reports' : 'SILO · Dashboards';
     }
 
     const { data: profile } = await sb.from('profiles').select('name, email, role').eq('id', userId).single();
@@ -544,10 +701,10 @@
       });
     }
 
-    selectTab(L.tabFromSearch(location.search, allowedTabs), { updateUrl: navProfile !== 'standard' });
+    selectTab(L.tabFromSearch(location.search, allowedTabs), { updateUrl: reportsEnabled });
     await Promise.all([
       loadDashboards(),
-      navProfile === 'standard' ? Promise.resolve() : loadReports(),
+      reportsEnabled ? loadReports() : Promise.resolve(),
     ]);
     render();
   }

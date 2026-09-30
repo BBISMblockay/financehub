@@ -56,11 +56,25 @@ Tests defined before implementation:
 Local execution uses fixture data only. Browser suites require Chromium; a shell
 browser launch restriction must be reported as not run, never as a passing suite.
 
+## Publication blockers
+
+This draft intentionally leaves the two existing aggregate SQL files unchanged
+because their publication was blocked. Do not merge until a reviewer integrates:
+
+1. `\i migrations/20260930203350_saved_report_archive.sql` into
+   `supabase/apply_all_post_merge.sql`, before the mandatory final catalog cleanup
+2. The two checks from `supabase/verify_saved_report_archive.sql` into
+   `supabase/verify_v2_schema.sql`, above the Plaid fixture marker
+
+The archive database suite executes the standalone verification now. Its final
+apply-all integration assertion intentionally remains failing until item 1 is
+resolved, after all 31 database behavior/verification checks have run.
+
 ## Rollout
 
 1. Review and merge separately from applying the database migration
 2. Apply the saved-report-archive migration in the same release as the frontend
-3. Run `supabase/verify_v2_schema.sql`; all checks must be `ok`
+3. Run `supabase/verify_v2_schema.sql` and `supabase/verify_saved_report_archive.sql`; all checks must be `ok`
 4. Confirm own private and own shared archive/restore with test reports, and a
    dashboard using one of those reports still renders after archive
 5. Confirm another user's company report has no archive action

@@ -1,5 +1,5 @@
-/* The Reports library (/v3/dashboards.html): three tabs -- SILO Reports, My
- * Reports, Dashboards -- over what RLS already lets the viewer read. A
+/* The Reports library (/v3/dashboards.html): ownership tabs -- SILO, My, Company, Archived and
+ * Dashboards -- over what RLS already lets the viewer read. A
  * missing dashboard id still says so rather than rendering an empty canvas. */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -26,14 +26,14 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   ok('the report builder row stays',
     (await p.locator('.silo-sb-link[data-nav-id="reports/builder"]').count()) === 1);
   const tabs = await p.$$eval('#libTabs [role="tab"]', (els) => els.map((e) => e.dataset.tab));
-  ok('three tabs, in order', tabs.join() === 'silo,mine,dashboards');
+  ok('five tabs, in order', tabs.join() === 'silo,mine,company,archived,dashboards');
   ok('defaults to SILO Reports', (await p.getAttribute('#tab-silo', 'aria-selected')) === 'true');
   ok('...and only its pane is shown', !(await p.isHidden('#pane-silo'))
     && await p.isHidden('#pane-mine') && await p.isHidden('#pane-dashboards'));
 
   // ── Classification: every report in exactly one tab ───────────────────
   const db = await p.evaluate(() => window.__FAKE_DB__.silo_chat_saved_reports
-    .map((r) => ({ id: r.id, silo: r.source === 'system' && r.company_entity_id == null })));
+    .map((r) => ({ id: r.id, own: r.created_by === 'U1', silo: r.source === 'system' && r.company_entity_id == null })));
   const silo = await ids('#siloBody .lib-card');
   ok('SILO Reports keeps every global system report alongside the sales page links',
     silo.filter((id) => !id.startsWith('reports/')).sort().join() === db.filter((r) => r.silo).map((r) => r.id).sort().join());
@@ -46,8 +46,8 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   await p.click('#tab-mine');
   await p.waitForSelector('#mineBody .lib-card');
   const mine = await ids('#mineBody .lib-card');
-  ok('My Reports holds every other readable report, company-shared included',
-    mine.slice().sort().join() === db.filter((r) => !r.silo).map((r) => r.id).sort().join());
+  ok('My Reports holds only reports created by the current user',
+    mine.slice().sort().join() === db.filter((r) => !r.silo && r.own).map((r) => r.id).sort().join());
   ok('no report appears in both tabs', !mine.some((id) => silo.includes(id)));
   ok('custom reports keep their visibility badge',
     (await p.textContent('#mineBody .lib-card[data-id="R1"]')).includes('Company'));
@@ -97,7 +97,8 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   // ── Keyboard ──────────────────────────────────────────────────────────
   await p.focus('#tab-mine');
   await p.keyboard.press('ArrowRight');
-  ok('arrow keys move between tabs', (await p.getAttribute('#tab-dashboards', 'aria-selected')) === 'true');
+  ok('arrow keys move between tabs', (await p.getAttribute('#tab-company', 'aria-selected')) === 'true');
+  await p.click('#tab-dashboards');
   ok('a card title is a real, focusable link', (await p.locator('#listBody .lib-card a.lib-link').count()) === 1);
   ok('titles are not underlined at rest',
     (await p.$eval('#listBody .lib-link', (a) => getComputedStyle(a).textDecorationLine)) === 'none');

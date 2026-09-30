@@ -11,32 +11,46 @@ const { test, eq, truthy } = R;
 
 const rows = [
   { id: 's1', title: 'Daily Sales', source: 'system', company_entity_id: null, visibility: 'company' },
-  // A system-sourced row that is company-scoped is NOT a SILO report: the
-  // classification is both conditions, not the source alone.
   { id: 'c1', title: 'Scoped copy', source: 'system', company_entity_id: 'C1', visibility: 'company' },
-  { id: 'm1', title: 'My draft', source: 'manual', company_entity_id: 'C1', visibility: 'private', created_by_name: 'Blake' },
-  { id: 'm2', title: 'Colleague shared', source: 'ask_silo', company_entity_id: 'C1', visibility: 'company', created_by_name: 'Jess' },
+  { id: 'm1', title: 'My draft', source: 'manual', company_entity_id: 'C1', visibility: 'private', created_by: 'U1', created_by_name: 'Blake' },
+  { id: 'm2', title: 'Colleague shared', source: 'ask_silo', company_entity_id: 'C1', visibility: 'company', created_by: 'U2', created_by_name: 'Jess' },
+  { id: 'm3', title: 'My shared', source: 'manual', company_entity_id: 'C1', visibility: 'company', created_by: 'U1' },
+  { id: 'a1', title: 'My archived', source: 'manual', company_entity_id: 'C1', visibility: 'private', created_by: 'U1', archived_at: '2026-09-30' },
+  { id: 'a2', title: 'Shared archived', source: 'manual', company_entity_id: 'C1', visibility: 'company', created_by: 'U2', archived_at: '2026-09-30' },
+  { id: 'x1', title: 'Other tenant', source: 'manual', company_entity_id: 'C2', visibility: 'company', created_by: 'U1' },
+  { id: 'p2', title: 'Colleague private', source: 'manual', company_entity_id: 'C1', visibility: 'private', created_by: 'U2' },
 ];
 
-test('SILO Reports = system AND global; everything else is My Reports', () => {
-  const { silo, mine } = L.splitReports(rows);
-  eq(silo.map((r) => r.id), ['s1']);
-  eq(mine.map((r) => r.id), ['c1', 'm1', 'm2']);
+test('My Reports is creator-only, both private and shared; Company includes your shared reports', () => {
+  const split = L.splitReports(rows, 'U1', 'C1');
+  eq(split.silo.map((r) => r.id), ['s1']);
+  eq(split.mine.map((r) => r.id), ['m1', 'm3']);
+  eq(split.company.map((r) => r.id), ['c1', 'm2', 'm3']);
+  eq(split.archived.map((r) => r.id), ['a1']);
 });
 
-test('My Reports is not an ownership filter: a colleague\'s shared report stays', () => {
-  truthy(L.splitReports(rows).mine.some((r) => r.id === 'm2'));
+test('archived rows never land in active tabs; restoring preserves original scopes', () => {
+  const own = { ...rows[5], visibility: 'company' };
+  eq(L.splitReports([own], 'U1', 'C1').mine.length, 0);
+  eq(L.splitReports([own], 'U1', 'C1').company.length, 0);
+  const restored = L.splitReports([{ ...own, archived_at: null }], 'U1', 'C1');
+  eq(restored.mine.length, 1); eq(restored.company.length, 1); eq(restored.archived.length, 0);
 });
 
-test('every row lands in exactly one tab', () => {
-  const { silo, mine } = L.splitReports(rows);
-  eq(silo.length + mine.length, rows.length);
-  eq(silo.filter((r) => mine.includes(r)).length, 0);
+test('ownership fails closed for missing identity/company, other owners/tenants and system definitions', () => {
+  truthy(L.ownsReport(rows[2], 'U1', 'C1'));
+  for (const row of [rows[0], rows[1], rows[3], rows[7], null]) eq(L.ownsReport(row, 'U1', 'C1'), false);
+  eq(L.ownsReport(rows[2], null, 'C1'), false);
+  eq(L.ownsReport(rows[2], 'U1', null), false);
+  const split = L.splitReports(rows);
+  eq(split.mine.length + split.company.length + split.archived.length, 0);
 });
 
 test('tab from URL: default, known, legacy, unknown, restricted', () => {
   eq(L.tabFromSearch(''), 'silo');
   eq(L.tabFromSearch('?tab=dashboards'), 'dashboards');
+  eq(L.tabFromSearch('?tab=company'), 'company');
+  eq(L.tabFromSearch('?tab=archived'), 'archived');
   eq(L.tabFromSearch('?tab=reports'), 'mine');
   eq(L.tabFromSearch('?tab=nonsense'), 'silo');
   eq(L.tabFromSearch('?tab=silo', ['dashboards']), 'dashboards');

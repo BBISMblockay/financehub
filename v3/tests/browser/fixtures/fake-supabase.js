@@ -186,8 +186,19 @@
       ] },
     ],
     rpcCalls: [],
+    queryCalls: [],
     upserts: [],
   };
+
+  // Real saved reports have these columns even when their value is null.
+  // Keep old authored fixtures authored by the signed-in user; a deliberately
+  // different creator (R11) and global definitions retain their own identity.
+  for (const report of db.silo_chat_saved_reports) {
+    if (!Object.prototype.hasOwnProperty.call(report, 'created_by')) {
+      report.created_by = report.source === 'system' ? null : 'U1';
+    }
+    if (!Object.prototype.hasOwnProperty.call(report, 'archived_at')) report.archived_at = null;
+  }
 
   const QUERY_ROWS = {
     // Keyed on the RESOLVED sql. A hit here proves substitution reached the
@@ -303,15 +314,27 @@
   }
 
   function builder(table) {
-    let rows = null, filters = [], op = 'select', payload = null, single = null, orderBy = null;
+    let rows = null, filters = [], op = 'select', payload = null, single = null, orderBy = [];
+    let range = null, limit = null;
     const run = () => {
+      db.queryCalls.push({ table, op, filters: JSON.parse(JSON.stringify(filters)), range, limit });
       if (op === 'select') {
         let out = viewRows(table);
         for (const f of filters) {
           if (f.k === 'eq') out = out.filter((r) => String(r[f.c]) === String(f.v));
           if (f.k === 'in') out = out.filter((r) => f.v.includes(r[f.c]));
+          if (f.k === 'is') out = out.filter((r) => f.v === null ? r[f.c] == null : r[f.c] === f.v);
+          if (f.k === 'not' && f.operator === 'is') out = out.filter((r) => f.v === null ? r[f.c] != null : r[f.c] !== f.v);
         }
-        if (orderBy) out = out.slice().sort((a, b) => (a[orderBy.c] > b[orderBy.c] ? 1 : -1) * (orderBy.asc ? 1 : -1));
+        if (orderBy.length) out = out.slice().sort((a, b) => {
+          for (const order of orderBy) {
+            if (a[order.c] === b[order.c]) continue;
+            return (a[order.c] > b[order.c] ? 1 : -1) * (order.asc ? 1 : -1);
+          }
+          return 0;
+        });
+        if (range) out = out.slice(range.from, range.to + 1);
+        if (limit != null) out = out.slice(0, limit);
         if (single) return { data: out[0] ?? null, error: null };
         return { data: out, error: null };
       }
@@ -328,7 +351,8 @@
         const made = (Array.isArray(payload) ? payload : [payload]).map((p) => {
           const row = { id: nextId(), created_by: 'U1', created_by_name: 'Blake',
             company_entity_id: 'C1', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-            description: null, visibility: 'company', ...p };
+            description: null, visibility: 'company',
+            ...(base(table) === 'silo_chat_saved_reports' ? { archived_at: null } : {}), ...p };
           db[base(table)].push(row);
           return row;
         });
@@ -395,7 +419,11 @@
       delete() { op = 'delete'; return api; },
       eq(c, v) { filters.push({ k: 'eq', c, v }); return api; },
       in(c, v) { filters.push({ k: 'in', c, v }); return api; },
-      order(c, o) { orderBy = { c, asc: !o || o.ascending !== false }; return api; },
+      is(c, v) { filters.push({ k: 'is', c, v }); return api; },
+      not(c, operator, v) { filters.push({ k: 'not', c, operator, v }); return api; },
+      range(from, to) { range = { from, to }; return api; },
+      limit(n) { limit = n; return api; },
+      order(c, o) { orderBy.push({ c, asc: !o || o.ascending !== false }); return api; },
       single() { single = true; return api; },
       maybeSingle() { single = true; return api; },
       then(res, rej) { return Promise.resolve(run()).then(res, rej); },
@@ -416,6 +444,33 @@
             return { data: [], error: null };
           }
           window.__FAKE_DB__.rpcCalls.push({ name, args });
+          // Per-page, opt-in fault/latency injection. Recording first lets a
+          // test prove duplicate clicks did not issue duplicate writes. An
+          // undefined result runs the ordinary implementation below.
+          const handler = window.__FAKE_RPC_HANDLERS__?.[name];
+          if (handler) {
+            const response = await handler(args, db);
+            if (response !== undefined) return response;
+          }
+          if (name === 'saved_report_archive_usage' || name === 'set_saved_report_archived') {
+            const report = db.silo_chat_saved_reports.find((r) => r.id === args.p_report_id
+              && r.company_entity_id === 'C1' && r.source !== 'system' && r.created_by === 'U1');
+            if (!report) return { data: null, error: { message: 'Only the report creator can archive or restore it.' } };
+            if (name === 'set_saved_report_archived') {
+              report.archived_at = args.p_archived ? (report.archived_at || new Date().toISOString()) : null;
+              persist();
+              return { data: [{ id: report.id, archived_at: report.archived_at }], error: null };
+            }
+            const companyBoards = db.dashboards.filter((d) => d.company_entity_id === 'C1');
+            const companyIds = new Set(companyBoards.map((d) => d.id));
+            const widgets = db.dashboard_widgets.filter((w) => w.report_id === report.id && companyIds.has(w.dashboard_id));
+            const used = new Set(widgets.map((w) => w.dashboard_id));
+            const visible = companyBoards.filter((d) => used.has(d.id)
+              && (d.created_by === 'U1' || d.visibility === 'company'));
+            return { data: { dashboard_count: used.size, widget_count: widgets.length,
+              dashboards: visible.map((d) => ({ id: d.id, name: d.name })),
+              hidden_dashboard_count: used.size - visible.length }, error: null };
+          }
           if (name === 'saved_report_usage') {
             const ws = db.dashboard_widgets.filter((w) => w.report_id === args.p_report_id);
             const cols = new Set();

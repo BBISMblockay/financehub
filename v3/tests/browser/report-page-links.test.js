@@ -41,7 +41,7 @@ const { startSuite, FIXTURES, REPO_ROOT } = require('../lib/harness');
         window.supabase.createClient = (...args) => {
           const client = create(...args), from = client.from.bind(client);
           client.from = (table) => table === 'silo_chat_saved_reports_v'
-            ? { select() { return this; }, order() { return Promise.resolve({ error: { message: 'fixture unavailable' } }); } }
+            ? { select() { return this; }, order() { return this; }, range() { return Promise.resolve({ error: { message: 'fixture unavailable' } }); } }
             : from(table);
           return client;
         };`,

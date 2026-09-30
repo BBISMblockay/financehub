@@ -374,18 +374,13 @@ await test('migration rerun preserves archive state, report identities, widgets 
 });
 
 // Exact production verification section, so it cannot drift from these tests.
-const verify = await read('supabase/verify_v2_schema.sql');
+const verify = await read('supabase/verify_saved_report_archive.sql');
 const start = verify.indexOf('-- Report archive management');
 const end = verify.indexOf('-- End report archive management', start);
 assert.ok(start >= 0 && end > start, 'verification markers present');
 await test('schema verification executes against the migrated database and reports ok', async () => {
   const results = await db.exec(verify.slice(start, end));
   for (const result of results) for (const row of result.rows || []) assert.equal(row.status, 'ok', JSON.stringify(row));
-});
-await test('apply-all includes archive before the mandatory final catalog-cleanup include', async () => {
-  const apply = await read('supabase/apply_all_post_merge.sql');
-  assert.ok(apply.includes(`\\i migrations/${MIGRATION}`));
-  assert.ok(apply.indexOf(`\\i migrations/${MIGRATION}`) < apply.indexOf('\\i migrations/20260922170000_record_report_catalog_cleanup.sql'));
 });
 await test('clean schema without archived_at also applies and accepts a creator archive', async () => {
   // Synthetic-only reset of the additive column, after all preservation tests.
@@ -395,6 +390,11 @@ await test('clean schema without archived_at also applies and accepts a creator 
   assert.equal((await report(shared)).archived_at, null);
   assert.ok((await as(creator, () => archive(shared))).archived_at instanceof Date);
   assert.deepEqual(await q('select * from public.dashboard_widgets order by id'), initialWidgets);
+});
+await test('apply-all includes archive before the mandatory final catalog-cleanup include', async () => {
+  const apply = await read('supabase/apply_all_post_merge.sql');
+  assert.ok(apply.includes(`\\i migrations/${MIGRATION}`));
+  assert.ok(apply.indexOf(`\\i migrations/${MIGRATION}`) < apply.indexOf('\\i migrations/20260922170000_record_report_catalog_cleanup.sql'));
 });
 console.log(`\n${passed} saved-report archive database tests passed`);
 await db.close();

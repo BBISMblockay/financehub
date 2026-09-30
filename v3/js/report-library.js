@@ -5,18 +5,13 @@
    shows, what search matches, and which tab a URL asks for. The page owns
    the DOM; this owns the rules, so node can execute them.
 
-   Classification uses fields the rows already carry and nothing else:
-     SILO Reports  source = 'system' AND company_entity_id IS NULL
-     My Reports    every other report the caller can read -- their own
-                   private ones AND company-shared ones by anyone. "My" is
-                   the library's name, not an ownership filter: RLS already
-                   decided what this person may read, and hiding a
-                   colleague's shared report here would make it unreachable
-                   from the library while still visible on a dashboard.
-     Dashboards    every dashboard the caller can read. SILO dashboards
-                   (source = 'system', company_entity_id IS NULL) come first
-                   and are labelled SILO: one global board every company
-                   reads with its own data, never editable in place.
+   Classification is a view over rows already authorized by RLS:
+     SILO Reports     global system definitions
+     My Reports       active reports created by the signed-in user
+     Company Reports  active company-visible reports, including the user's
+     Archived         archived reports created by the signed-in user
+   My and Company deliberately overlap for your shared reports. Archiving is
+   organization, not access revocation: existing dashboards keep working.
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -24,6 +19,8 @@
   const TABS = Object.freeze([
     { id: 'silo', label: 'SILO Reports', noun: 'SILO reports' },
     { id: 'mine', label: 'My Reports', noun: 'reports' },
+    { id: 'company', label: 'Company Reports', noun: 'company reports' },
+    { id: 'archived', label: 'Archived', noun: 'archived reports' },
     { id: 'dashboards', label: 'Dashboards', noun: 'dashboards' },
   ]);
   const DEFAULT_TAB = 'silo';
@@ -45,11 +42,22 @@
         list.filter((d) => !isSiloDashboard(d)));
   }
 
-  function splitReports(rows) {
-    const silo = [];
-    const mine = [];
-    for (const r of rows || []) (isSiloReport(r) ? silo : mine).push(r);
-    return { silo, mine };
+  function ownsReport(r, userId, companyId) {
+    return !!(r && userId && companyId && r.created_by === userId
+      && r.company_entity_id === companyId && r.source !== 'system');
+  }
+
+  function splitReports(rows, userId, companyId) {
+    const split = { silo: [], mine: [], company: [], archived: [] };
+    for (const r of rows || []) {
+      if (isSiloReport(r)) { if (!r.archived_at) split.silo.push(r); continue; }
+      if (!companyId || r.company_entity_id !== companyId) continue;
+      const own = ownsReport(r, userId, companyId);
+      if (r.archived_at) { if (own) split.archived.push(r); continue; }
+      if (own) split.mine.push(r);
+      if (r.visibility === 'company') split.company.push(r);
+    }
+    return split;
   }
 
   function tabFromSearch(search, allowed) {
@@ -126,6 +134,7 @@
     DEFAULT_TAB,
     isSiloReport,
     splitReports,
+    ownsReport,
     tabFromSearch,
     urlForTab,
     summaryOf,
