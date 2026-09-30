@@ -1075,6 +1075,74 @@ export function ordersToSalesRows({
 }
 
 /**
+ * An order's payment terms (Net 30 and the like, set on wholesale draft
+ * orders) and when payment is due, from the REST order's `payment_terms`.
+ *
+ * Three states, kept apart because they mean different things:
+ *   status 'present'  Shopify returned terms
+ *   status 'none'     Shopify returned `payment_terms: null` -- no terms
+ *   status null       the key was absent: NOT RETURNED. Shopify only sends
+ *                     payment terms to an app holding read_payment_terms,
+ *                     so absence says nothing about the order.
+ *
+ * payment_due_at is the earliest OPEN schedule's due date; once every
+ * schedule is complete it is the last one's, and payment_terms_completed_at
+ * says when. Nothing here decides "overdue" -- that is derived at read time
+ * in shopify_orders_v, because it changes every day with no sync.
+ */
+/** The shopify_orders columns orderPaymentTerms() writes (20260930150000). */
+export const PAYMENT_TERMS_KEYS = ['payment_terms_status', 'payment_terms_name', 'payment_terms_type',
+  'payment_due_in_days', 'payment_due_at', 'payment_terms_completed_at', 'total_outstanding'];
+// PostgREST's refusal of a column the table does not have (PGRST204 "Could
+// not find the '<col>' column ... in the schema cache", or Postgres' own
+// "column ... does not exist") naming one of those columns.
+const PAYMENT_TERMS_COLUMN_ERROR = new RegExp(
+  `(${PAYMENT_TERMS_KEYS.join('|')}).*(schema cache|does not exist)|(schema cache|does not exist).*(${PAYMENT_TERMS_KEYS.join('|')})`);
+
+/** Adds one upsertOrderFacts() payment_terms tally into a running total. */
+export function addPaymentTermsTally(total, part) {
+  const t = total || { present: 0, none: 0, not_returned: 0 };
+  for (const k of ['present', 'none', 'not_returned']) t[k] += Number(part?.[k] || 0);
+  return t;
+}
+
+export function orderPaymentTerms(order) {
+  const out = {
+    payment_terms_status: null, payment_terms_name: null, payment_terms_type: null,
+    payment_due_in_days: null, payment_due_at: null, payment_terms_completed_at: null,
+    total_outstanding: null,
+  };
+  if (!order || typeof order !== 'object') return out;
+  const money = Number(order.total_outstanding);
+  if (order.total_outstanding != null && order.total_outstanding !== '' && Number.isFinite(money)) {
+    out.total_outstanding = money;
+  }
+  if (!Object.prototype.hasOwnProperty.call(order, 'payment_terms')) return out;
+  const terms = order.payment_terms;
+  if (!terms || typeof terms !== 'object') { out.payment_terms_status = 'none'; return out; }
+
+  out.payment_terms_status = 'present';
+  out.payment_terms_name = typeof terms.payment_terms_name === 'string' && terms.payment_terms_name.trim()
+    ? terms.payment_terms_name.trim() : null;
+  out.payment_terms_type = typeof terms.payment_terms_type === 'string' && terms.payment_terms_type.trim()
+    ? terms.payment_terms_type.trim() : null;
+  out.payment_due_in_days = Number.isInteger(terms.due_in_days) ? terms.due_in_days : null;
+
+  const time = (v) => { const t = v ? Date.parse(v) : NaN; return Number.isFinite(t) ? t : null; };
+  const schedules = (Array.isArray(terms.payment_schedules) ? terms.payment_schedules : [])
+    .filter((s) => s && typeof s === 'object');
+  const open = schedules.filter((s) => !s.completed_at && time(s.due_at) != null);
+  const dated = schedules.filter((s) => time(s.due_at) != null);
+  const pick = (list, better) => list.reduce((a, s) => (a == null || better(time(s.due_at), time(a.due_at)) ? s : a), null);
+  const due = open.length ? pick(open, (x, y) => x < y) : pick(dated, (x, y) => x > y);
+  out.payment_due_at = due ? due.due_at : null;
+  if (schedules.length && schedules.every((s) => time(s.completed_at) != null)) {
+    out.payment_terms_completed_at = schedules.reduce((a, s) => (a == null || time(s.completed_at) > time(a) ? s.completed_at : a), null);
+  }
+  return out;
+}
+
+/**
  * Order-level and line-item-level facts, derived from the same order
  * objects ordersToSalesRows() flattens into sales_by_day -- see
  * 20260817210000_shopify_order_level_analytics.sql for why this exists
@@ -1119,6 +1187,7 @@ export function ordersToOrderRows({ orders, connection, skuMeta, syncedAt, batch
       shopify_created_at: order.created_at || null,
       shopify_processed_at: order.processed_at || null,
       shopify_updated_at: order.updated_at || null,
+      ...orderPaymentTerms(order),
       synced_at: syncedAt,
       sync_batch_id: batchId || null,
     });
@@ -1176,10 +1245,37 @@ export async function upsertOrderFacts(supabase, connection, { orders, skuMeta, 
     if (error) throw new Error(`shopify_order_lines rebuild delete failed: ${error.message}`);
   }
 
-  const ordersUpserted = await upsertInChunks(supabase, 'shopify_orders', orderRows, 'shop_domain,order_id');
+  // A database that has not had 20260930150000 applied yet refuses the
+  // payment-terms columns, and that refusal must not stop the order (and so
+  // the sales) sync: the rows are written again without them and the job
+  // records that terms were skipped.
+  let ordersUpserted;
+  let termsSkipped = null;
+  try {
+    ordersUpserted = await upsertInChunks(supabase, 'shopify_orders', orderRows, 'shop_domain,order_id');
+  } catch (err) {
+    if (!PAYMENT_TERMS_COLUMN_ERROR.test(err?.message || '')) throw err;
+    termsSkipped = 'shopify_orders has no payment-terms columns yet: apply 20260930150000_shopify_order_payment_terms.sql';
+    const stripped = orderRows.map((r) => {
+      const row = { ...r };
+      for (const k of PAYMENT_TERMS_KEYS) delete row[k];
+      return row;
+    });
+    ordersUpserted = await upsertInChunks(supabase, 'shopify_orders', stripped, 'shop_domain,order_id');
+  }
   const linesUpserted = await upsertInChunks(supabase, 'shopify_order_lines', lineRows, 'shop_domain,order_id,line_item_id');
 
-  return { orders_upserted: ordersUpserted, order_lines_upserted: linesUpserted };
+  // Recorded on the sync job so "did Shopify send payment terms at all" is a
+  // stored measurement, not a guess: all not_returned means the connection
+  // lacks read_payment_terms, which is different from no order having terms.
+  const terms = { present: 0, none: 0, not_returned: 0 };
+  for (const r of orderRows) terms[r.payment_terms_status || 'not_returned'] += 1;
+
+  return {
+    orders_upserted: ordersUpserted, order_lines_upserted: linesUpserted,
+    payment_terms: termsSkipped ? null : terms,
+    ...(termsSkipped ? { payment_terms_skipped: termsSkipped } : {}),
+  };
 }
 
 /** Sorted unique YYYY-MM-DD dates → contiguous [{start, end}] runs. */
@@ -1339,6 +1435,8 @@ export async function runHistoryChunk(supabase, connection, {
       sales_rows_upserted: upserted,
       orders_upserted: orderFacts.orders_upserted,
       order_lines_upserted: orderFacts.order_lines_upserted,
+      payment_terms: orderFacts.payment_terms,
+      ...(orderFacts.payment_terms_skipped ? { payment_terms_skipped: orderFacts.payment_terms_skipped } : {}),
     },
     caches: { locationContext, skuMeta },
   };
@@ -1912,6 +2010,8 @@ export async function runIncrementalSales(supabase, connection, {
   let daysRebuilt = 0;
   let ordersUpserted = 0;
   let orderLinesUpserted = 0;
+  let paymentTerms = addPaymentTermsTally(null, null);
+  let paymentTermsSkipped = null;
   const skippedTotals = { cancelled_orders: 0, gift_card_lines: 0, no_location_lines: 0 };
 
   // Rebuild every affected order-date in full: day aggregates can't be patched
@@ -1960,6 +2060,8 @@ export async function runIncrementalSales(supabase, connection, {
     const orderFacts = await upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId });
     ordersUpserted += orderFacts.orders_upserted;
     orderLinesUpserted += orderFacts.order_lines_upserted;
+    paymentTerms = addPaymentTermsTally(paymentTerms, orderFacts.payment_terms);
+    paymentTermsSkipped = paymentTermsSkipped || orderFacts.payment_terms_skipped || null;
   }
 
   return {
@@ -1970,6 +2072,8 @@ export async function runIncrementalSales(supabase, connection, {
     sales_rows_upserted: rowsUpserted,
     orders_upserted: ordersUpserted,
     order_lines_upserted: orderLinesUpserted,
+    payment_terms: paymentTerms,
+    ...(paymentTermsSkipped ? { payment_terms_skipped: paymentTermsSkipped } : {}),
     rows_skipped: skippedTotals,
     newest_order_stamp: newestOrderStamp,
     last_order_sync_at: newestUpdatedStamp || syncedAt,

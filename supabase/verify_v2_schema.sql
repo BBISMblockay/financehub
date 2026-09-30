@@ -918,6 +918,26 @@ select
     else 'ok'
   end as shopify_order_level_analytics;
 
+-- 25b. Shopify order payment terms (20260930150000). shopify_orders_v must
+-- carry the derived overdue fields, and payment_overdue must stay NULL when
+-- terms were not returned -- a view recreated without the CASE guard would
+-- report every order synced without read_payment_terms as "not overdue".
+select
+  case
+    when not exists (select 1 from information_schema.columns where table_schema='public'
+                     and table_name='shopify_orders' and column_name='payment_terms_status')
+      then 'MISSING — run 20260930150000_shopify_order_payment_terms.sql'
+    when not exists (select 1 from pg_constraint where conname='shopify_orders_payment_terms_status_check'
+                     and conrelid='public.shopify_orders'::regclass)
+      then 'MISSING — shopify_orders_payment_terms_status_check'
+    when (select count(*) from information_schema.columns where table_schema='public'
+          and table_name='shopify_orders_v' and column_name in ('payment_due_at','total_outstanding','payment_overdue','payment_days_overdue')) <> 4
+      then 'MISSING — shopify_orders_v payment terms columns'
+    when position('IS DISTINCT FROM ''present''' in pg_get_viewdef('public.shopify_orders_v'::regclass)) = 0
+      then 'CRITICAL — shopify_orders_v.payment_overdue no longer returns NULL when terms were not returned'
+    else 'ok'
+  end as shopify_order_payment_terms;
+
 -- 26. Ask SILO saved reports (migration 20260818050000)
 select
   case

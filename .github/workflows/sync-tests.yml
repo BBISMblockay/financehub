@@ -266,6 +266,11 @@ jobs:
       - name: Shopify stays read-only
         run: node scripts/tests/shopify-readonly.test.mjs
 
+      # Payment terms and due dates on shopify_orders (20260930150000):
+      # "not returned" must never read as "no terms".
+      - name: Shopify order payment terms
+        run: node scripts/tests/shopify-order-terms.test.mjs
+
       # Shared Shopify auth rules and their wiring. Mutations:
       # SHOPIFY_AUTH_MUTATION=disabled-admin | no-refresh | redact-anyway | any-domain
       - name: Shopify authorization (client credentials, public app, privacy webhooks)
@@ -1212,3 +1217,9 @@ jobs:
       # what this does and does not prove.
       - name: Generate PO from a concept -- duplicate race guard
         run: node scripts/tests/generate-po-from-concept-database.test.mjs
+
+      # Shopify order payment terms (20260930150000): the migration applied
+      # to real Postgres, shopify_orders_v's column order kept, and overdue
+      # derived only when terms were returned (NULL, never false, otherwise).
+      - name: Shopify order payment terms -- view and overdue
+        run: node scripts/tests/shopify-order-terms-database.test.mjs

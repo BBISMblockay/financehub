@@ -26,6 +26,7 @@ import {
   loadSkuMeta,
   planHistoryWindows,
   upsertOrderFacts,
+  addPaymentTermsTally,
 } from './lib/shopify-sync-core.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -137,6 +138,8 @@ async function backfillConnection(connection) {
   let ordersTotal = 0;
   let linesTotal = 0;
   let ordersFetched = 0;
+  let paymentTerms = addPaymentTermsTally(null, null);
+  let paymentTermsSkipped = null;
   try {
     for (const [i, win] of windows.entries()) {
       const orders = await fetchOrdersInWindow(headers, base, win.window_start, win.window_end);
@@ -144,7 +147,9 @@ async function backfillConnection(connection) {
       ordersFetched += orders.length;
       ordersTotal += facts.orders_upserted;
       linesTotal += facts.order_lines_upserted;
-      console.log(`[orders-backfill] ${connection.shop_domain} window ${i + 1}/${windows.length} (${win.window_start}→${win.window_end}): ${facts.orders_upserted} orders, ${facts.order_lines_upserted} lines`);
+      paymentTerms = addPaymentTermsTally(paymentTerms, facts.payment_terms);
+      paymentTermsSkipped = paymentTermsSkipped || facts.payment_terms_skipped || null;
+      console.log(`[orders-backfill] ${connection.shop_domain} window ${i + 1}/${windows.length} (${win.window_start}→${win.window_end}): ${facts.orders_upserted} orders, ${facts.order_lines_upserted} lines, payment terms ${JSON.stringify(facts.payment_terms)}`);
     }
     const result = {
       job_type: 'orders_backfill',
@@ -154,6 +159,8 @@ async function backfillConnection(connection) {
       orders_fetched: ordersFetched,
       orders_upserted: ordersTotal,
       order_lines_upserted: linesTotal,
+      payment_terms: paymentTerms,
+      ...(paymentTermsSkipped ? { payment_terms_skipped: paymentTermsSkipped } : {}),
     };
     await finishJob(jobId, 'success', result);
     return result;
