@@ -1164,3 +1164,13 @@ jobs:
             fi
             echo "$m failed the suite, as it must"
           done
+
+      # Generate PO from a concept: the duplicate-PO race guard
+      # (20260930000000_generate_po_from_concept_uniq.sql). Applies that
+      # migration's actual committed SQL against a minimal stand-in schema
+      # and proves the partial unique index rejects a second claim for one
+      # concept while leaving every other PO-creation path (null claim)
+      # unaffected. See the migration and the test file's own header for
+      # what this does and does not prove.
+      - name: Generate PO from a concept -- duplicate race guard
+        run: node scripts/tests/generate-po-from-concept-database.test.mjs

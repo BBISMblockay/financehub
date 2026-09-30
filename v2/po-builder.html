@@ -1592,18 +1592,24 @@
     // straight to a PO carrying this concept's lines. Reuses addFromConcepts()
     // exactly as the (still hidden) picker modal does, so there is one
     // definition of what a concept becomes on a PO.
+    // The PO (if any) already generated FOR this concept via THIS deep
+    // link -- po_headers.generated_from_concept_id, not po_concept_links
+    // (whose own unique constraint is (po_header_id, concept_id) and does
+    // NOT stop two different headers from both claiming the same concept).
+    // Used both as the fast path (avoid a wasted insert attempt on a
+    // repeat click) and, below, to find the WINNER of a race this caller
+    // just lost.
+    async function existingGeneratedPO(conceptId){
+      let q=sb.from('po_headers').select('id').eq('generated_from_concept_id',conceptId).limit(1);
+      if(_co?.id) q=q.eq('company_entity_id',_co.id);
+      const {data}=await q;
+      return data?.length ? data[0].id : null;
+    }
+
     async function generateFromConceptDeepLink(conceptId){
-      // Already generated once: open that PO rather than adding the same
-      // concept's lines a second time. po_concept_links is the record of
-      // which POs a concept became; unique(po_header_id, concept_id) is
-      // what makes a repeat click here idempotent even without this check,
-      // but going straight to the existing PO is a much better landing
-      // than a second empty attempt at a PO that already has these lines.
-      let linkQ=sb.from('po_concept_links').select('po_header_id').eq('concept_id',conceptId).limit(1);
-      if(_co?.id) linkQ=linkQ.eq('company_entity_id',_co.id);
-      const {data:existingLinks}=await linkQ;
-      if(existingLinks?.length){
-        await openPO(existingLinks[0].po_header_id);
+      const already=await existingGeneratedPO(conceptId);
+      if(already){
+        await openPO(already);
         setStatus('This concept already has a PO — opened it.','info',6000);
         return;
       }
@@ -1616,8 +1622,54 @@
       const {data,error}=await q;
       if(error){ alert('Could not load that concept: '+error.message); return; }
       if(!data?.length){ alert('That concept could not be found for your active company.'); return; }
+      const concept=data[0];
 
-      try{ await addFromConcepts(data); }
+      // The ATOMIC CLAIM: insert the header OURSELVES, with
+      // generated_from_concept_id set, rather than letting addFromConcepts()
+      // create it via saveHeader() (which never sets that column). Two
+      // concurrent attempts for the SAME concept -- two tabs, a double
+      // click -- now race on ONE INSERT against a partial unique index
+      // (20260930000000_generate_po_from_concept_uniq.sql) rather than each
+      // silently creating its own full duplicate PO + lines before either
+      // realizes the other exists (reproduced and reported in review:
+      // "two concurrent first requests -- two POs / two lines / two links
+      // for one concept"). Whoever loses the race gets a 23505 here, before
+      // a single line has been written, and opens the winner's PO instead.
+      if(concept.suggested_factory_id) el.factoryId.value=concept.suggested_factory_id;
+      if(!el.factoryId.value){ alert('This concept has no factory. Pick a factory in the header first, then try again.'); return; }
+      el.isNewProductPO.checked=true;
+      if(!el.poName.value.trim()){
+        try{
+          const {data:name,error:nameErr}=await sb.rpc('generate_next_po_name',{p_factory_id:el.factoryId.value});
+          if(!nameErr && name) el.poName.value=name;
+        }catch(e){ console.warn('PO name generation failed, inserting without one',e); }
+      }
+      const payload={...currentFormData(), generated_from_concept_id:concept.id};
+      const {data:newHeader,error:headerErr}=await sb.from('po_headers')
+        .insert({...payload,...(_co?.id?{company_entity_id:_co.id}:{})})
+        .select('*').single();
+
+      if(headerErr){
+        if(/duplicate key|unique constraint/i.test(headerErr.message||'')){
+          const winner=await existingGeneratedPO(concept.id);
+          if(winner){
+            await openPO(winner);
+            setStatus('Someone already generated a PO from this concept — opened it.','info',6000);
+            return;
+          }
+          alert('This concept already has a PO, but it could not be opened. Refresh and try again.');
+          return;
+        }
+        alert('Could not start a PO from this concept: '+headerErr.message);
+        return;
+      }
+
+      // state.currentPO.id is now set, so addFromConcepts() skips its own
+      // (saveHeader()-driven) header-creation branch entirely and inserts
+      // this concept's lines + po_concept_links link straight onto the
+      // header the claim above just won.
+      state.currentPO=newHeader;
+      try{ await addFromConcepts([concept]); }
       catch(e){ console.error(e); alert(e.message||'Could not generate a PO from this concept'); }
     }
 

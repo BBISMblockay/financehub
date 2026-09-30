@@ -2618,3 +2618,18 @@ Deployment is separate from this PR: review/apply the migration, verify it, set
 enable the company and its workflows in Prep settings. Run once in an authorized
 test company before the hourly schedule is used. See `docs/ops/on-deck.md` for
 limits, monitoring, cost bounds and rollback. No edge-function deployment.
+
+## Generate PO from a concept: duplicate-race guard — `20260930000000_generate_po_from_concept_uniq.sql`
+
+Adds `po_headers.generated_from_concept_id` plus a partial unique index (only
+where non-null). Closes a real race in `/v2/po-builder.html?fromConcept=<id>`
+(the Generate PO entry point on `/v2/product-concepts.html`): two concurrent
+attempts for the same concept — two tabs, or a double-click — used to each
+independently create a full duplicate PO with duplicate lines before either
+inserted its `po_concept_links` row (which only de-duplicated the LINK, not
+the PO itself, since its own unique constraint is `(po_header_id, concept_id)`
+and the two headers differ). The insert that loses the race now gets a 23505
+and opens the winner's PO instead. Deliberately not a constraint on
+`po_concept_links` — that table's many-to-many model (several concepts
+combined into one PO via the existing picker modal) is unrelated and
+unaffected; only the primary-generation path sets this column. No RLS change.

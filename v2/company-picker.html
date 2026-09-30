@@ -203,6 +203,23 @@
               sessionStorage.setItem('__SILO_COMPANY__', JSON.stringify(co));
             }
             sessionStorage.removeItem('__SILO_COMPANY_OPTIONS__');
+            // Wake up any OTHER already-open tab of this browser. This
+            // tab's own switch just wrote its OWN sessionStorage above --
+            // sessionStorage is per-tab by design, so that write is
+            // invisible to a tab that was already open on a different page
+            // before this switch happened, and it would otherwise keep
+            // showing its (now stale) company label until it next navigates
+            // (found 2026-09-30, PR #830 supplemental review). localStorage
+            // IS shared and DOES fire a 'storage' event in every OTHER tab
+            // of the same origin -- silo-chrome.js listens for this key and
+            // re-runs ensureActiveCompany() there, which is the actual
+            // source of truth; this write is only a wake-up nudge, never
+            // trusted data, so a stale or tampered value here cannot mislead
+            // anything -- the listener re-asks the server regardless.
+            try {
+              localStorage.setItem('silo:company:switched', String(Date.now()));
+            } catch (_) { /* private-mode/blocked storage: the visibilitychange
+              fallback in silo-chrome.js still catches this on next focus */ }
             window.location.href = DEST;
           } catch (e) {
             showErr('Could not set company: ' + e.message);

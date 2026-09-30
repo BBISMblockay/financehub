@@ -241,7 +241,21 @@ window.__QUERIES__ = [];
         var one = Array.isArray(r) ? r[0] : r;
         var created = Object.assign({ id: 'fixture-inserted-id' }, one);
         var mcw = missingColumn(Object.keys(one || {}).join(','));
-        var wErr = mcw ? { code: '42703', message: 'column ' + table + '.' + mcw + ' does not exist' } : null;
+        // A DB constraint an insert can violate (a unique index, a check) --
+        // modelled honestly as a real failure, not a write the fixture
+        // quietly accepts. A test sets window.__FIXTURE_INSERT_ERRORS__ =
+        // { table: [{message}, ...] } (a one-shot queue, shifted per call --
+        // so the FIRST of two racing inserts can be told to lose) or
+        // { table: {message} } (every insert to that table fails). Exists so
+        // a "two callers raced on a unique index" scenario is testable
+        // against the real page code, not only against the real database.
+        var forced = (function () {
+          var cfg = (window.__FIXTURE_INSERT_ERRORS__ || {})[table];
+          if (!cfg) return null;
+          if (Array.isArray(cfg)) return cfg.length ? cfg.shift() : null;
+          return cfg;
+        })();
+        var wErr = forced || (mcw ? { code: '42703', message: 'column ' + table + '.' + mcw + ' does not exist' } : null);
         var ins = {
           select: function () { return ins; },
           single: function () { return Promise.resolve(wErr ? { data: null, error: wErr } : { data: created, error: null }); },
@@ -511,20 +525,42 @@ async function startSuite(options = {}) {
 
     const page = await context.newPage();
     page.on('pageerror', (e) => { console.log('  [pageerror] ' + e.message); });
+    // Opt-in (opts.dialogAction: 'accept' | 'dismiss'), registered BEFORE
+    // goto() below -- a dialog a page's own BOOT sequence can raise (an
+    // alert() in an error path reached during initial load, not from a
+    // later user click) can fire before a test's own page.once('dialog',
+    // ...) gets attached, since that line does not run until AFTER open()
+    // returns. Playwright auto-dismisses an unlistened dialog with nothing
+    // to read it. Every page.__dialogs message is recorded regardless, in
+    // order. Left unset (the default for every existing suite), behaviour
+    // is exactly as before: no listener, so a test attaching its own
+    // page.once('dialog', ...) post-load (the established pattern for a
+    // dialog a later CLICK raises) is unaffected.
+    page.__dialogs = [];
+    if (opts && opts.dialogAction) {
+      page.on('dialog', async (d) => {
+        page.__dialogs.push(d.message());
+        if (opts.dialogAction === 'dismiss') await d.dismiss(); else await d.accept();
+      });
+    }
     // Function fixtures cannot cross the addInitScript boundary, so RPC
     // fixtures are passed as source and rebuilt inside the page.
     const rpcSrc = {};
     Object.entries((opts && opts.rpc) || {}).forEach(([k, v]) => { rpcSrc[k] = String(v); });
-    await page.addInitScript(({ t, rpc, broken, missingColumns }) => {
+    await page.addInitScript(({ t, rpc, broken, missingColumns, insertErrors }) => {
       window.__FIXTURE_TABLES__ = t;
       window.__FIXTURE_BROKEN__ = broken;
       window.__FIXTURE_MISSING_COLUMNS__ = missingColumns;
+      window.__FIXTURE_INSERT_ERRORS__ = insertErrors;
       window.__FIXTURE_RPC__ = {};
       Object.entries(rpc).forEach(([k, src]) => {
         // eslint-disable-next-line no-eval
         window.__FIXTURE_RPC__[k] = eval('(' + src + ')');
       });
-    }, { t: tables, rpc: rpcSrc, broken: (opts && opts.broken) || [], missingColumns: (opts && opts.missingColumns) || {} });
+    }, {
+      t: tables, rpc: rpcSrc, broken: (opts && opts.broken) || [],
+      missingColumns: (opts && opts.missingColumns) || {}, insertErrors: (opts && opts.insertErrors) || {},
+    });
     await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(ready, { timeout: 20000 });
     return page;

@@ -592,7 +592,21 @@
     //      company's membership.
     // Fails quiet throughout: if ensureActiveCompany() cannot resolve a
     // company at all, first paint is left exactly as it was.
-    if (opts.supabaseClient) {
+    //
+    // Named and reused (2026-09-30, supplemental review) rather than a
+    // mount-time-only .then(): calling this ONLY at mount fixes a tab that
+    // NAVIGATES after another tab's switch, but a tab already sitting open
+    // and idle through that switch never mounts again, so it never got
+    // this reconciliation at all -- reproduced concretely: open Products in
+    // tab A, switch companies in tab B, come back to tab A without
+    // navigating, and A keeps its stale label and stale nav profile
+    // indefinitely. Called again below on a cross-tab broadcast and on
+    // visibility, so an already-open tab gets the SAME correction an idle
+    // page load would have.
+    let reconciling = false;
+    function reconcileCompanyRoleAndNav() {
+      if (!opts.supabaseClient || reconciling) return;
+      reconciling = true;
       Promise.resolve(window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient))
         .then(async (company) => {
           if (!company?.id) return;
@@ -602,8 +616,8 @@
           // callers need some id to scope queries by. Repainting the label,
           // role or nav-profile from it would present a value already
           // known to be wrong as though it were freshly confirmed. Leave
-          // everything exactly as first paint showed it; the next mount
-          // (next navigation) tries again.
+          // everything exactly as first paint showed it; the next
+          // reconciliation attempt tries again.
           if (company._staleReconcile) return;
 
           // 1. Company label -- only touch the DOM if it actually changed,
@@ -650,8 +664,29 @@
           if (navEl) navEl.innerHTML = renderNavSections(
             navActive, getCachedDepartment(), effectiveRole, getCachedGrantIds());
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => { reconciling = false; });
     }
+    reconcileCompanyRoleAndNav();
+
+    // Cross-tab wake-up: v2/company-picker.html writes this key to
+    // localStorage (shared across tabs, unlike sessionStorage) right after
+    // a successful switch. The written VALUE is never trusted -- it is
+    // purely a nudge to re-run the SAME server-truth reconciliation above,
+    // so a stale or even tampered value here cannot mislead anything.
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'silo:company:switched') reconcileCompanyRoleAndNav();
+    });
+    // Fallback for the same problem, independent of the broadcast above:
+    // catches a switch made from anywhere the broadcast doesn't cover, and
+    // is the only mechanism at all when localStorage is blocked (private
+    // browsing, storage partitioning). Cheap -- ensureActiveCompany() only
+    // makes a second round trip when the cache does NOT already match the
+    // server (see its own short-circuit), so a tab alt-tabbed back into
+    // with nothing changed costs one lightweight profiles select.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') reconcileCompanyRoleAndNav();
+    });
 
     function setNavOpen(open) {
       appEl.classList.toggle('silo-nav-open', !!open);
