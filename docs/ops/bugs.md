@@ -8,7 +8,42 @@ Only items that still matter today. Fixed items live in [CHANGELOG.md](CHANGELOG
 
 ## Fix these first (P1)
 
-No open P1s.
+See below.
+
+---
+
+## `company-onboarding-database.test.mjs` fails on `main` right now (P1)
+
+Found 2026-09-30 reviewing PR #830 (unrelated diff — pure UX/permission fix,
+no `supabase/**` touched) and confirmed it is pre-existing: `git diff
+origin/main -- supabase/verify_v2_schema.sql` is empty on this branch, so the
+same failure is on `main`'s current head, not something #830 introduced.
+
+The test's `'the four verify_v2_schema checks pass against the migrated
+schema'` case slices `verify_v2_schema.sql` between the
+`-- ── Company onboarding (20260918120000)` and `-- Plaid ingestion:`
+markers and asserts exactly 4 `select` statements (`assert.equal(statements.length,
+4, 'four checks')`). Later migrations added checks to that section without
+updating the count — it is 9 today, not 4 — so the assertion throws
+`9 !== 4` as an **uncaught exception that crashes the whole `node` process**
+before the section's actual `status = 'ok'` checks ever run. In CI this is
+the "Finance database regressions" job's `company-onboarding-database.test.mjs`
+step in `.github/workflows/sync-tests.yml`, so it has been red on every push
+to `main` that reaches this step, on top of anything that step's own suite
+is supposed to catch.
+
+Fix direction: bump the hardcoded `4` to match the section's real check
+count (verify it against `verify_v2_schema.sql` at fix time, since it may
+have grown again), or — better, since this is exactly the kind of literal
+that silently goes stale — derive the expected count from a count of
+`ok`-status rows the section itself declares rather than a hand-maintained
+number. Whoever fixes it should also check whether the SAME
+`node:internal/modules/run_main` "Missing expected rejection" crashes
+observed earlier in the same job's `product-workflow-database.test.mjs`
+runs (different assertion line each retry — `126`, `231`, `190`, `201`,
+`195` across five consecutive re-runs of the same suite) are a related or
+separate flake; not investigated here since they did not block this PR's
+own diff and are in a file this PR does not touch either.
 
 ---
 
