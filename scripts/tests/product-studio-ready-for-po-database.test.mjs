@@ -50,6 +50,14 @@ const MUTATIONS = {
   'one-size': ["if mode = 'one_size' and n <> 1 then", "if false then"],
   // a concept with a PO can be marked ready again
   'existing-po': ["    if existing_po is not null then\n      raise exception 'This concept already has PO %. Open", "    if false then\n      raise exception 'This concept already has PO %. Open"],
+  // cycle-1 review: the generated claim may be cleared from the browser
+  'claim-mutable': ["if tg_op = 'UPDATE' and old.generated_from_concept_id is not null", "if false and old.generated_from_concept_id is not null"],
+  // cycle-1 review: the generated link may be deleted from the browser
+  'link-deletable': ["where h.id = old.po_header_id and h.generated_from_concept_id = old.concept_id) then", "where false) then"],
+  // cycle-1 review: the PO lookup trusts the link table alone
+  'lookup-links-only': ["      where h.generated_from_concept_id = p_concept_id and h.company_entity_id = p_company\n      limit 1),", "      where false\n      limit 1),"],
+  // cycle-1 review: launch-first strands a ready concept brief
+  'launch-first': ["if b.launch_id is not null and b.source_kind <> 'concept' then", "if b.launch_id is not null then"],
 };
 if (process.env.MUTATE) {
   const [from, to] = MUTATIONS[process.env.MUTATE] || [];
@@ -346,6 +354,40 @@ await test('a failed line rolls back the header, the lines and the link; the ret
   const r = await generate(c);
   assert.equal(r.line_count, 2);
   assert.deepEqual(await counts(c), { headers: 1, lines: 2, links: 1, ready: 1 });
+});
+
+await test('cycle-1: the generated claim and its link cannot be erased from the browser, so no second PO', async () => {
+  const c = await concept({ title: 'Claim holder' });
+  let b = await save(randomUUID(), 0, 'reviewed', ready([{ size: 'S', qty: 5 }], 'sized'), c);
+  const first = (await generate(c)).po_header_id;
+  await fail(() => q('update public.po_headers set generated_from_concept_id = null where id = $1', [first]), /cannot be changed or cleared/);
+  await fail(() => q('update public.po_headers set generated_from_concept_id = $2 where id = $1', [first, randomUUID()]), /cannot be changed|Product Studio/);
+  await fail(() => q('delete from public.po_concept_links where po_header_id = $1', [first]), /cannot be removed/);
+  // Defense in depth: even with the link gone (a service-role write), the claim still names the PO.
+  await superuser(() => q('delete from public.po_concept_links where po_header_id = $1', [first]));
+  assert.deepEqual([(await generate(c)).po_header_id, (await generate(c)).repeated], [first, true]);
+  await fail(() => save(randomUUID(), 0, 'reviewed', ready([{ size: 'S', qty: 5 }], 'sized'), c), /already has PO/);
+  assert.equal((await counts(c)).headers, 1, 'still exactly one PO');
+  // A manual (non-generated) link stays deletable, and deleting the whole PO still works.
+  const manual = (await one("insert into public.po_headers(company_entity_id,po_name,factory_id) values($1,'M-2',$2) returning id", [A, FACTORY])).id;
+  await superuser(() => q('insert into public.po_concept_links(company_entity_id,po_header_id,concept_id) values($1,$2,$3)', [A, manual, c]));
+  await q('delete from public.po_concept_links where po_header_id = $1', [manual]);
+  await q('delete from public.po_headers where id = $1', [first]);
+  assert.equal((await counts(c)).headers, 0, 'deleting the whole PO (cascade) is still allowed');
+});
+
+await test('cycle-1: a ready concept can create its PO after its launch, and the launch is linked to it', async () => {
+  const c = await concept({ title: 'Launch first' });
+  const id = randomUUID();
+  let b = await save(id, 0, 'reviewed', ready([{ size: 'S', qty: 7 }], 'sized'), c);
+  b = await handoff(id, b.version, 'launch', '2026-11-20');
+  assert.ok(b.launch_id);
+  assert.equal((await stage(c)).stage, 'ready_for_po', 'still actionable after the launch');
+  b = await handoff(id, b.version, 'po');
+  assert.ok(b.po_header_id);
+  assert.equal((await superuser(() => one('select linked_po_id from public.launch_calendar where id=$1', [b.launch_id]))).linked_po_id, b.po_header_id);
+  assert.equal((await stage(c)).stage, 'po_created');
+  assert.equal((await generate(c)).po_header_id, b.po_header_id);
 });
 
 await test('a legacy reviewed concept brief (reviewed before the gate) cannot create a PO', async () => {

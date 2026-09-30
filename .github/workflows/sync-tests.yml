@@ -753,7 +753,7 @@ jobs:
         run: node scripts/tests/product-studio-ready-for-po-database.test.mjs
       - name: Prove the Ready for PO tests reject each removed guard
         run: |
-          for mutation in save-readiness handoff-ready fingerprint confirmation totals guard one-size existing-po; do
+          for mutation in save-readiness handoff-ready fingerprint confirmation totals guard one-size existing-po claim-mutable link-deletable lookup-links-only launch-first; do
             if MUTATE="$mutation" node scripts/tests/product-studio-ready-for-po-database.test.mjs; then
               echo "::error::$mutation did not fail the Ready for PO suite"
               exit 1

@@ -255,6 +255,11 @@ ready. A concept that already has a PO (e.g. Bat Bros → KCMTAR-7) lists under
 PO created, opens that PO, and cannot be marked ready again. Nothing in the
 migration writes to existing concepts or POs.
 
+A generated PO's claim is permanent: `generated_from_concept_id` cannot be
+changed or cleared from the browser and its concept link cannot be deleted on
+its own (deleting the whole PO still works). A ready concept may create its PO
+after its planned launch; the launch is then linked to that PO.
+
 Behaviour change for concept briefs: they can no longer be reviewed without
 the purchasing details (a launch-only concept brief now needs them too), and
 one concept yields one PO through this flow. A later buy of the same product

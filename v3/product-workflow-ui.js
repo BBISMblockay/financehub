@@ -220,7 +220,8 @@
     $('reopen').hidden = !!(current.po_header_id || current.launch_id);
     // A concept brief reviewed before Ready for PO existed has no po_ready_at:
     // it must be reopened and marked ready, and the server refuses it anyway.
-    $('create-po').hidden = current.status !== 'reviewed' || !!current.po_header_id || !!current.launch_id
+    // A ready concept may create its PO after its launch; the server links them.
+    $('create-po').hidden = current.status !== 'reviewed' || !!current.po_header_id || (!!current.launch_id && !isConcept)
       || (isConcept && !current.po_ready_at) || (isConcept && !!conceptInfo?.po_header_id) || staleReady;
     $('create-launch').hidden = current.status !== 'reviewed' || !!current.launch_id;
     $('launch-handoff').hidden = current.status !== 'reviewed' || !!current.launch_id;

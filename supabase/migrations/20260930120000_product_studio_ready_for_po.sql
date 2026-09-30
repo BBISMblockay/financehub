@@ -72,13 +72,20 @@ $$;
 
 -- The PO a concept already has, if any: the one this flow generated first,
 -- otherwise the most recent PO it is linked to. Company-scoped explicitly.
+-- The generated claim is read FIRST and on its own (cycle-1 review): the link
+-- table alone is not the record of a generated PO, and the claim column is the
+-- one the unique index and the guard below protect.
 create or replace function public.product_concept_po_header(p_company uuid, p_concept_id uuid)
 returns uuid language sql stable security invoker set search_path = '' as $$
-  select h.id from public.po_concept_links l
-    join public.po_headers h on h.id = l.po_header_id and h.company_entity_id = p_company
-   where l.concept_id = p_concept_id and l.company_entity_id = p_company
-   order by (h.generated_from_concept_id = p_concept_id) desc nulls last, l.created_at desc, h.id
-   limit 1
+  select coalesce(
+    (select h.id from public.po_headers h
+      where h.generated_from_concept_id = p_concept_id and h.company_entity_id = p_company
+      limit 1),
+    (select h.id from public.po_concept_links l
+       join public.po_headers h on h.id = l.po_header_id and h.company_entity_id = p_company
+      where l.concept_id = p_concept_id and l.company_entity_id = p_company
+      order by l.created_at desc, h.id
+      limit 1))
 $$;
 
 -- THE readiness rules. Returns every missing item (empty = ready). Mirrored in
@@ -419,7 +426,10 @@ begin
     raise exception 'The linked PO is missing';
   end if;
   if p_target='po' then
-    if b.launch_id is not null then raise exception 'Launch already created. Start a new brief for a later purchasing decision'; end if;
+    -- A ready concept brief may create its PO after its launch (cycle-1
+    -- review: otherwise launch-first strands it as "ready" forever); the
+    -- launch is linked to the PO below. Other kinds keep the old refusal.
+    if b.launch_id is not null and b.source_kind <> 'concept' then raise exception 'Launch already created. Start a new brief for a later purchasing decision'; end if;
     if concept.id is not null and exists(select 1 from public.product_concepts child
       where child.parent_concept_id=concept.id and child.company_entity_id=p_company and child.status <> 'archived') then
       raise exception 'This concept is a collection. Create a brief from each child product';
@@ -486,6 +496,12 @@ begin
     if concept.id is not null then
       insert into public.po_concept_links(company_entity_id,po_header_id,concept_id,created_by)
         values(p_company,output_id,concept.id,auth.uid());
+    end if;
+    -- A launch made first from this brief now points at its PO, exactly as if
+    -- the PO had come first. Never overwrites a PO someone linked by hand.
+    if b.launch_id is not null then
+      update public.launch_calendar set linked_po_id=output_id
+        where id=b.launch_id and company_entity_id=p_company and linked_po_id is null;
     end if;
     update public.product_workflow_briefs set po_header_id=output_id,version=version+1,updated_at=now()
       where id=b.id returning * into b;
@@ -577,20 +593,34 @@ end $$;
 -- request runs as authenticated (or anon) and is refused. Service-role jobs
 -- are not client roles and are unaffected. Only concept-carrying values are
 -- guarded: a line with no source_concept_id, a header with no
--- generated_from_concept_id, an unchanged value on update, clearing a value,
--- and deleting a link all pass, so manual PO creation and editing behave as
--- before.
+-- generated_from_concept_id and an unchanged value on update all pass, so
+-- manual PO creation and editing behave as before. The generated claim is
+-- immutable once set, and the link it made cannot be deleted on its own
+-- (cycle-1 review: clearing both let a concept be marked ready again and
+-- produce a second PO beside the first). Deleting the whole PO still works:
+-- the link goes by cascade, which runs as the table owner, not the client.
 -- ---------------------------------------------------------------------------
 create or replace function public.guard_concept_po_writes()
 returns trigger language plpgsql security invoker set search_path = '' as $$
 begin
-  if current_user not in ('authenticated', 'anon') then return new; end if;
+  if current_user not in ('authenticated', 'anon') then return coalesce(new, old); end if;
+  if tg_table_name = 'po_concept_links' and tg_op = 'DELETE' then
+    if exists (select 1 from public.po_headers h
+               where h.id = old.po_header_id and h.generated_from_concept_id = old.concept_id) then
+      raise exception 'This PO was generated from the concept; its concept link cannot be removed' using errcode = '42501';
+    end if;
+    return old;
+  end if;
   if tg_table_name = 'po_lines' then
     if new.source_concept_id is not null
        and (tg_op = 'INSERT' or new.source_concept_id is distinct from old.source_concept_id) then
       raise exception 'Concept lines are created from Product Studio once the concept is ready for PO' using errcode = '42501';
     end if;
   elsif tg_table_name = 'po_headers' then
+    if tg_op = 'UPDATE' and old.generated_from_concept_id is not null
+       and new.generated_from_concept_id is distinct from old.generated_from_concept_id then
+      raise exception 'The concept a PO was generated from cannot be changed or cleared' using errcode = '42501';
+    end if;
     if new.generated_from_concept_id is not null
        and (tg_op = 'INSERT' or new.generated_from_concept_id is distinct from old.generated_from_concept_id) then
       raise exception 'A concept PO is created from Product Studio once the concept is ready for PO' using errcode = '42501';
@@ -608,7 +638,7 @@ drop trigger if exists trg_guard_concept_po_writes on public.po_headers;
 create trigger trg_guard_concept_po_writes before insert or update of generated_from_concept_id on public.po_headers
   for each row execute function public.guard_concept_po_writes();
 drop trigger if exists trg_guard_concept_po_writes on public.po_concept_links;
-create trigger trg_guard_concept_po_writes before insert or update on public.po_concept_links
+create trigger trg_guard_concept_po_writes before insert or update or delete on public.po_concept_links
   for each row execute function public.guard_concept_po_writes();
 
 -- ---------------------------------------------------------------------------
