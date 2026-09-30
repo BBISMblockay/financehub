@@ -76,11 +76,24 @@
             <div class="ws-sub" id="memberCount"></div>
           </div>
           <table class="ws-table" id="tblMembers">
-            <thead><tr>
-              <th>Person</th><th>Workspace role</th><th>Department</th><th>Status</th><th></th>
+            <thead><tr id="membersHeadRow">
+              <th>Person</th><th>Workspace role</th><th>Department</th>
+              <th class="ws-perm-col" hidden title="Can teach and edit Ask SILO notes">Ask SILO</th>
+              <th class="ws-perm-col" hidden title="Can approve SEO workflow tasks">SEO</th>
+              <th class="ws-perm-col" hidden title="Finance-sensitive tools and data (department)">Finance</th>
+              <th>Status</th><th></th>
             </tr></thead>
-            <tbody><tr><td colspan="5" class="ws-empty">Loading…</td></tr></tbody>
+            <tbody><tr><td colspan="8" class="ws-empty">Loading…</td></tr></tbody>
           </table>
+          <div class="ws-body" id="featureAccessNote" hidden style="border-top:1px solid var(--bcn-border);padding-top:12px;">
+            <div class="ws-title" style="font-size:13px;margin-bottom:6px;">Feature access</div>
+            <p class="ws-note" style="margin:0;">
+              Checkboxes add narrow grants on top of workspace role and department.
+              Ask SILO and SEO checkboxes need an Owner or Executive profile on the person making the change (same rule as the legacy backend page).
+              Owner and Executive profiles already include those capabilities for the member.
+              Finance uses department (<span class="ws-perm-hint">finance</span> / <span class="ws-perm-hint">ops</span>) and is editable by workspace admins when the member belongs to this company only.
+            </p>
+          </div>
         </div>
 
         <div class="ws-card">
@@ -97,7 +110,6 @@
         <p class="ws-note">
           A workspace role decides what somebody can do <em>here</em>. Removing a member removes them
           from this workspace only — it does not touch any other company they belong to.
-          Contact a SILO administrator if a member's department or additional access needs to change.
         </p>
       </div>
     </main>
@@ -126,9 +138,17 @@
     ['member', 'Member'],
     ['viewer', 'Viewer'],
   ];
+  const DEPTS = ['ops', 'finance', 'logistics', 'marketing', 'retail', 'exec'];
   const roleLabel = (r) => (ROLES.find(([v]) => v === r) || [null, r || '—'])[1];
+  const profileRole = (p) => String(p?.role || '').toLowerCase();
+  const hasExecProfile = (p) => ['owner', 'executive'].includes(profileRole(p));
+  const hasFinanceAccess = (p) => hasExecProfile(p) || ['finance', 'exec'].includes(String(p?.department || '').toLowerCase());
 
-  let _co = null, _me = null, _isAdmin = false, _isOwner = false, _lastInvite = null;
+  let _co = null, _me = null, _isAdmin = false, _isOwner = false;
+  let _canGrantSiloSeo = false;
+  let _lastInvite = null;
+  let _siloGrants = new Map();
+  let _seoGrants = new Map();
 
   function setStatus(msg, type = 'info', ms = 0) {
     const n = el('status');
@@ -136,6 +156,26 @@
     n.textContent = msg;
     n.hidden = false;
     if (ms) setTimeout(() => { n.hidden = true; }, ms);
+  }
+
+  async function loadFeatureGrants(userIds) {
+    _siloGrants = new Map();
+    _seoGrants = new Map();
+    if (!_co?.id || !userIds.length || !_canGrantSiloSeo) return;
+    const [{ data: silo, error: siloErr }, { data: seo, error: seoErr }] = await Promise.all([
+      db.from('silo_chat_managers').select('id, user_id').eq('company_entity_id', _co.id).in('user_id', userIds),
+      db.from('seo_approvers').select('id, user_id').eq('company_entity_id', _co.id).in('user_id', userIds),
+    ]);
+    if (siloErr) throw siloErr;
+    if (seoErr) throw seoErr;
+    for (const row of silo || []) _siloGrants.set(row.user_id, row.id);
+    for (const row of seo || []) _seoGrants.set(row.user_id, row.id);
+  }
+
+  function permCheckbox(kind, userId, p, checked, disabled, title) {
+    const t = title ? ` title="${esc(title)}"` : '';
+    return `<label class="ws-perm"${t}><input type="checkbox" data-perm="${kind}" data-user="${esc(userId)}"`
+      + `${checked ? ' checked' : ''}${disabled ? ' disabled' : ''} aria-label="${esc(kind)} access" /></label>`;
   }
 
   async function loadMembers() {
@@ -148,7 +188,7 @@
     if (error) throw error;
     const ids = (memberships || []).map((m) => m.user_id);
     const { data: profiles } = ids.length
-      ? await db.from('profiles').select('id, name, email, department, is_active').in('id', ids)
+      ? await db.from('profiles').select('id, name, email, department, role, is_active').in('id', ids)
       : { data: [] };
     const byId = new Map((profiles || []).map((p) => [p.id, p]));
 
@@ -157,8 +197,11 @@
       .sort((a, b) => String(a.profile?.email || '').localeCompare(String(b.profile?.email || '')));
 
     el('memberCount').textContent = rows.length + (rows.length === 1 ? ' member' : ' members');
+    await loadFeatureGrants(ids);
     const body = el('tblMembers').querySelector('tbody');
-    if (!rows.length) { body.innerHTML = '<tr><td colspan="5" class="ws-empty">No members.</td></tr>'; return; }
+    const showPerms = _canGrantSiloSeo || _isAdmin;
+    const colSpan = showPerms ? 8 : 5;
+    if (!rows.length) { body.innerHTML = `<tr><td colspan="${colSpan}" class="ws-empty">No members.</td></tr>`; return; }
 
     body.innerHTML = rows.map((r) => {
       const p = r.profile;
@@ -175,11 +218,40 @@
             + `${v === 'owner_admin' && !_isOwner ? ' disabled' : ''}>${l}</option>`).join('')
           + '</select>'
         : esc(roleLabel(r.role));
+      const deptCell = mayEdit
+        ? `<select class="bcn-field ws-dept-select" data-dept-for="${esc(r.user_id)}">`
+          + DEPTS.map((d) => `<option value="${d}"${d === (p?.department || 'ops') ? ' selected' : ''}>${d}</option>`).join('')
+          + '</select>'
+        : esc(p?.department || '—');
+
+      let permCells = '';
+      if (showPerms) {
+        const exec = hasExecProfile(p);
+        const siloChecked = exec || _siloGrants.has(r.user_id);
+        const seoChecked = exec || _seoGrants.has(r.user_id);
+        const finChecked = hasFinanceAccess(p);
+        const siloTitle = exec ? 'Included with Owner/Executive profile' : 'Teach and edit Ask SILO notes';
+        const seoTitle = exec ? 'Included with Owner/Executive profile' : 'Approve SEO tasks';
+        const finTitle = exec ? 'Included with Owner/Executive profile'
+          : (finChecked ? 'Finance department — uncheck sets department to ops' : 'Sets department to finance');
+        const siloCell = _canGrantSiloSeo
+          ? permCheckbox('silo', r.user_id, p, siloChecked, exec || !mayEdit, siloTitle)
+          : '<span class="ws-perm-hint">—</span>';
+        const seoCell = _canGrantSiloSeo
+          ? permCheckbox('seo', r.user_id, p, seoChecked, exec || !mayEdit, seoTitle)
+          : '<span class="ws-perm-hint">—</span>';
+        const finCell = _isAdmin && mayEdit
+          ? permCheckbox('finance', r.user_id, p, finChecked, exec, finTitle)
+          : `<span class="ws-perm-hint">${finChecked ? 'yes' : '—'}</span>`;
+        permCells = `<td class="ws-perm">${siloCell}</td><td class="ws-perm">${seoCell}</td><td class="ws-perm">${finCell}</td>`;
+      }
+
       return `<tr>
         <td><div>${esc(p?.name || p?.email || r.user_id)}</div>
             <div class="ws-you">${esc(p?.email || '')}${isSelf ? ' · you' : ''}</div></td>
         <td>${select}</td>
-        <td>${esc(p?.department || '—')}</td>
+        <td>${deptCell}</td>
+        ${permCells}
         <td>${p && p.is_active === false ? 'Deactivated' : 'Active'}</td>
         <td style="text-align:right;">${mayRemove
           ? `<button class="bcn-btn bcn-btn--danger" data-remove="${esc(r.user_id)}"
@@ -187,6 +259,53 @@
           : `<span class="ws-you">${lastOwner ? 'last owner' : (isSelf ? '—' : '')}</span>`}</td>
       </tr>`;
     }).join('');
+  }
+
+  async function setDepartment(userId, department) {
+    const { error } = await db.rpc('admin_update_profile', {
+      p_user_id: userId,
+      p_name: null,
+      p_department: department,
+      p_role: null,
+      p_is_active: null,
+      p_notes: null,
+    });
+    if (error) throw error;
+    setStatus('Department updated.', 'pos', 5000);
+    await loadMembers();
+  }
+
+  async function toggleSiloGrant(userId, wantGrant) {
+    if (wantGrant) {
+      const { error } = await db.from('silo_chat_managers').insert({ user_id: userId, company_entity_id: _co.id });
+      if (error) throw error;
+      setStatus('Ask SILO teaching access granted.', 'pos', 5000);
+    } else {
+      const id = _siloGrants.get(userId);
+      const { error } = await db.from('silo_chat_managers').delete().eq('id', id);
+      if (error) throw error;
+      setStatus('Ask SILO teaching access revoked.', 'pos', 5000);
+    }
+    await loadMembers();
+  }
+
+  async function toggleSeoGrant(userId, wantGrant) {
+    if (wantGrant) {
+      const row = { user_id: userId, company_entity_id: _co.id, granted_by: _me.id };
+      const { error } = await db.from('seo_approvers').insert(row);
+      if (error) throw error;
+      setStatus('SEO approver access granted.', 'pos', 5000);
+    } else {
+      const id = _seoGrants.get(userId);
+      const { error } = await db.from('seo_approvers').delete().eq('id', id);
+      if (error) throw error;
+      setStatus('SEO approver access revoked.', 'pos', 5000);
+    }
+    await loadMembers();
+  }
+
+  async function toggleFinanceAccess(userId, wantFinance) {
+    await setDepartment(userId, wantFinance ? 'finance' : 'ops');
   }
 
   async function loadInvites() {
@@ -283,6 +402,13 @@
     _isAdmin = _isOwner || mine?.role === 'admin'
       || (!mine && ['owner', 'admin', 'executive'].includes(profileRole));
 
+    const { data: canExec } = await db.rpc('is_exec_or_owner');
+    _canGrantSiloSeo = !!canExec;
+    if (_canGrantSiloSeo || _isAdmin) {
+      document.querySelectorAll('.ws-perm-col').forEach((n) => { n.hidden = false; });
+      el('featureAccessNote').hidden = false;
+    }
+
     if (!_isAdmin) {
       el('inviteCard').hidden = true;
       setStatus('You can see who is in this workspace. Changing roles or inviting needs admin access.', 'info');
@@ -332,6 +458,34 @@
 
     el('tblMembers').addEventListener('change', async (ev) => {
       const sel = ev.target.closest('[data-role-for]');
+      const dept = ev.target.closest('[data-dept-for]');
+      const perm = ev.target.closest('[data-perm]');
+      if (perm) {
+        const userId = perm.dataset.user;
+        const kind = perm.dataset.perm;
+        const want = perm.checked;
+        perm.disabled = true;
+        try {
+          if (kind === 'silo') await toggleSiloGrant(userId, want);
+          else if (kind === 'seo') await toggleSeoGrant(userId, want);
+          else if (kind === 'finance') await toggleFinanceAccess(userId, want);
+        } catch (e) {
+          perm.checked = !want;
+          setStatus(e?.message || String(e), 'neg', 12000);
+        } finally { perm.disabled = false; }
+        return;
+      }
+      if (dept) {
+        const prev = dept.dataset.prev || dept.value;
+        dept.disabled = true;
+        try {
+          await setDepartment(dept.dataset.deptFor, dept.value);
+        } catch (e) {
+          dept.value = prev;
+          setStatus(e?.message || String(e), 'neg', 12000);
+        } finally { dept.disabled = false; }
+        return;
+      }
       if (!sel) return;
       sel.disabled = true;
       try {
@@ -344,6 +498,11 @@
           : 'Role updated here. Their role in their other workspaces is unchanged.', 'pos', 8000);
       } catch (e) { setStatus(e?.message || String(e), 'neg', 12000); }
       finally { sel.disabled = false; await loadMembers(); }
+    });
+
+    el('tblMembers').addEventListener('focusin', (ev) => {
+      const dept = ev.target.closest('[data-dept-for]');
+      if (dept) dept.dataset.prev = dept.value;
     });
 
     el('tblMembers').addEventListener('click', async (ev) => {
