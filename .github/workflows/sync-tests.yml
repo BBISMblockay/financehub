@@ -80,6 +80,7 @@ on:
       - 'supabase/functions/google-oauth-callback/**'
       - 'oauth/**'
       - 'supabase/functions/test-ad-platform-connection/**'
+      - 'supabase/functions/ad-platform-sync-run/**'
       - 'supabase/migrations/*ad_platform_oauth_reconnect.sql'
       - 'v2/ad-account-picker.js'
       - 'supabase/migrations/*company_onboarding.sql'
@@ -584,6 +585,18 @@ jobs:
           if AD_PICKER_MUTATION=no-recheck node scripts/tests/ad-account-picker.test.mjs >/dev/null 2>&1; then
             echo "::error::the suite passes when the callback trusts the state's connection id"; exit 1
           fi
+
+      # Sync now: one Google Ads / GA4 connection through the nightly's own
+      # core, authorized by the caller's RLS read of the row.
+      - name: Ad-platform Sync now (handler over the real sync core)
+        run: |
+          set -u
+          node scripts/tests/ad-platform-sync-run.test.mjs
+          for m in no-rls-check no-account-check no-clamp job-not-failed; do
+            if AD_SYNC_RUN_MUTATION="$m" node scripts/tests/ad-platform-sync-run.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
 
       - name: Each customer onboarding guard, removed one at a time, must break it
         run: |
