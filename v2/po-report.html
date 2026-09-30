@@ -1097,7 +1097,7 @@
         el.mapUnmapped.classList.remove('hidden-safe');
         el.mapUnmapped.innerHTML = `
           <span>${unmapped.length} shipment${unmapped.length === 1 ? '' : 's'} not shown — factory country not set${missingFactories.length ? ' (' + escapeHtml(missingFactories.slice(0,4).join(', ')) + (missingFactories.length > 4 ? ', …' : '') + ')' : ''}.</span>
-          <a href="/pages/factories.html" target="_blank" rel="noopener">Set factory countries →</a>
+          <a href="/v2/factories.html" target="_blank" rel="noopener">Set factory countries →</a>
         `;
       } else {
         el.mapUnmapped.classList.add('hidden-safe');

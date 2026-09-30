@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Factories</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    [hidden] { display: none !important; }
+
+    .fac-layout {
+      display: grid;
+      grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+      gap: 14px;
+      padding: 14px 18px 28px;
+      align-items: start;
+    }
+    @media (max-width: 960px) {
+      .fac-layout { grid-template-columns: 1fr; }
+    }
+
+    .fac-table-wrap {
+      overflow: auto;
+      max-height: min(72vh, 720px);
+      border: 1px solid var(--bcn-border);
+      border-radius: var(--bcn-radius);
+    }
+    .fac-table {
+      width: 100%;
+      min-width: 1040px;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .fac-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--bcn-surface-2, var(--bcn-sunken));
+      border-bottom: 1px solid var(--bcn-border);
+      padding: 8px 6px;
+      font-family: var(--bcn-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--bcn-ink-3);
+      text-align: left;
+      white-space: nowrap;
+    }
+    .fac-table tbody td {
+      border-bottom: 1px solid var(--bcn-border);
+      padding: 4px 5px;
+      vertical-align: middle;
+    }
+    .fac-table tbody tr:hover { background: var(--bcn-sunken); }
+    .fac-cell {
+      width: 100%;
+      min-width: 0;
+      min-height: 28px;
+      padding: 4px 6px;
+      font-size: 12px;
+    }
+    .fac-actions { display: flex; justify-content: flex-end; gap: 4px; flex-wrap: wrap; }
+    .fac-card-foot {
+      font-size: 11.5px;
+      color: var(--bcn-ink-3);
+      padding: 10px 14px;
+      border-top: 1px solid var(--bcn-border);
+    }
+    .fac-kpi-mini {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .fac-kpi-mini .bcn-kpi { padding: 10px 12px; }
+
+    dialog.fac-dialog {
+      border: 1px solid var(--bcn-border);
+      border-radius: var(--bcn-radius);
+      padding: 0;
+      width: min(640px, calc(100vw - 32px));
+      background: var(--bcn-surface);
+      color: var(--bcn-ink);
+    }
+    dialog.fac-dialog::backdrop { background: rgba(10, 14, 20, 0.45); }
+    .fac-dialog-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--bcn-border);
+    }
+    .fac-dialog-title { font-weight: 700; font-size: 15px; }
+    .fac-dialog-body {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+    @media (max-width: 560px) {
+      .fac-dialog-body { grid-template-columns: 1fr; }
+    }
+    .fac-dialog-foot {
+      padding: 12px 16px;
+      border-top: 1px solid var(--bcn-border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .fac-span-2 { grid-column: 1 / -1; }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Purchasing</span>
+        </div>
+        <h1>Factories</h1>
+        <div class="bcn-header-sub bcn-header-sub--trimmed">Vendor master for PO Builder</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnRefresh">Refresh</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnExport">Export CSV</button>
+        <button type="button" class="bcn-btn bcn-btn--primary" id="btnNewFactory">New factory</button>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Factories</div><div id="kpiFactories" class="bcn-kpi-value bcn-num">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">With email</div><div id="kpiEmail" class="bcn-kpi-value bcn-num">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Filtered</div><div id="factoryCount" class="bcn-kpi-value bcn-num">—</div></div>
+    </div>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="fac-layout">
+      <aside class="bcn-card">
+        <div class="bcn-card-header"><span>Filters</span></div>
+        <div class="bcn-card-body">
+          <div class="bcn-field-group">
+            <label class="bcn-label" for="searchInput">Search</label>
+            <input class="bcn-field" id="searchInput" type="search" placeholder="Name, code, contact…" autocomplete="off" />
+          </div>
+          <div class="bcn-field-group">
+            <label class="bcn-label" for="completenessFilter">Completeness</label>
+            <select class="bcn-field" id="completenessFilter">
+              <option value="">All rows</option>
+              <option value="missing_code">Missing short code</option>
+              <option value="missing_contact">Missing contact</option>
+              <option value="missing_email">Missing email</option>
+            </select>
+          </div>
+          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnClearFilters" style="width:100%;margin-top:4px">Clear filters</button>
+        </div>
+      </aside>
+
+      <section class="bcn-card">
+        <div class="bcn-card-header">
+          <span>Factory master</span>
+          <div class="bcn-card-header-actions">
+            <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnSaveAllChanged" disabled>Save changed rows</button>
+          </div>
+        </div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="fac-table-wrap">
+            <table class="fac-table bcn-table">
+              <thead>
+                <tr>
+                  <th style="width:72px">Status</th>
+                  <th style="width:220px">Factory name</th>
+                  <th style="width:110px">Short code</th>
+                  <th style="width:150px">Contact</th>
+                  <th style="width:200px">Email</th>
+                  <th style="width:120px">Phone</th>
+                  <th style="width:140px">Country</th>
+                  <th style="width:180px">Notes</th>
+                  <th style="width:130px;text-align:right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="factoryTbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="fac-card-foot" id="loadStatus">Ready.</div>
+      </section>
+    </div>
+
+  </main>
+</div>
+
+<dialog class="fac-dialog" id="factoryModal">
+  <div class="fac-dialog-head">
+    <div class="fac-dialog-title">New factory</div>
+    <button type="button" class="bcn-btn bcn-btn--ghost" data-close="factoryModal">Close</button>
+  </div>
+  <div class="fac-dialog-body">
+    <div class="bcn-field-group fac-span-2">
+      <label class="bcn-label" for="newFactoryName">Factory name</label>
+      <input class="bcn-field" id="newFactoryName" placeholder="Factory or vendor name" />
+    </div>
+    <div class="bcn-field-group">
+      <label class="bcn-label" for="newShortCode">Short code</label>
+      <input class="bcn-field" id="newShortCode" placeholder="Optional" />
+    </div>
+    <div class="bcn-field-group">
+      <label class="bcn-label" for="newContactName">Contact name</label>
+      <input class="bcn-field" id="newContactName" placeholder="Optional" />
+    </div>
+    <div class="bcn-field-group">
+      <label class="bcn-label" for="newContactEmail">Contact email</label>
+      <input class="bcn-field" id="newContactEmail" type="email" placeholder="Optional" />
+    </div>
+    <div class="bcn-field-group">
+      <label class="bcn-label" for="newContactPhone">Contact phone</label>
+      <input class="bcn-field" id="newContactPhone" placeholder="Optional" />
+    </div>
+    <div class="bcn-field-group">
+      <label class="bcn-label" for="newCountry">Country</label>
+      <select class="bcn-field" id="newCountry"><option value="">—</option></select>
+    </div>
+    <div class="bcn-field-group fac-span-2">
+      <label class="bcn-label" for="newNotes">Notes</label>
+      <input class="bcn-field" id="newNotes" placeholder="Optional" />
+    </div>
+  </div>
+  <div class="fac-dialog-foot">
+    <button type="button" class="bcn-btn bcn-btn--ghost" data-close="factoryModal">Cancel</button>
+    <button type="button" class="bcn-btn bcn-btn--primary" id="btnCreateFactory">Create factory</button>
+  </div>
+</dialog>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="avatar.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+(function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>';
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  let _co = null;
+
+  const KNOWN_COUNTRIES = ['Bangladesh','Brazil','Cambodia','Canada','China','Colombia','Dominican Republic','Egypt','El Salvador','France','Germany','Guatemala','Haiti','Honduras','India','Indonesia','Italy','Japan','Jordan','Malaysia','Mexico','Morocco','Myanmar','Nicaragua','Pakistan','Peru','Philippines','Portugal','South Korea','Spain','Sri Lanka','Taiwan','Thailand','Tunisia','Turkey','United Kingdom','United States','Vietnam'];
+  const OPTIONAL_COLUMNS = ['contact_phone', 'notes', 'country'];
+  const BASE_COLUMNS = ['id', 'factory_name', 'short_code', 'contact_name', 'contact_email', ...OPTIONAL_COLUMNS];
+  const state = { factories: [], filtered: [], changed: new Set(), supportedColumns: new Set(BASE_COLUMNS), missingOptionalColumns: new Set() };
+
+  const el = {
+    btnRefresh: document.getElementById('btnRefresh'),
+    btnExport: document.getElementById('btnExport'),
+    btnNewFactory: document.getElementById('btnNewFactory'),
+    btnSaveAllChanged: document.getElementById('btnSaveAllChanged'),
+    btnClearFilters: document.getElementById('btnClearFilters'),
+    btnCreateFactory: document.getElementById('btnCreateFactory'),
+    searchInput: document.getElementById('searchInput'),
+    completenessFilter: document.getElementById('completenessFilter'),
+    factoryCount: document.getElementById('factoryCount'),
+    kpiFactories: document.getElementById('kpiFactories'),
+    kpiEmail: document.getElementById('kpiEmail'),
+    loadStatus: document.getElementById('loadStatus'),
+    factoryTbody: document.getElementById('factoryTbody'),
+    factoryModal: document.getElementById('factoryModal'),
+    status: document.getElementById('status'),
+    newFactoryName: document.getElementById('newFactoryName'),
+    newShortCode: document.getElementById('newShortCode'),
+    newContactName: document.getElementById('newContactName'),
+    newContactEmail: document.getElementById('newContactEmail'),
+    newContactPhone: document.getElementById('newContactPhone'),
+    newCountry: document.getElementById('newCountry'),
+    newNotes: document.getElementById('newNotes'),
+  };
+
+  el.newCountry.innerHTML += KNOWN_COUNTRIES.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    el.status.className = `bcn-status bcn-status--${type}`;
+    el.status.textContent = msg;
+    el.status.hidden = false;
+    if (ms) setTimeout(() => { el.status.hidden = true; }, ms);
+  }
+
+  function setLoadStatus(text) { el.loadStatus.textContent = text; }
+
+  function escapeHtml(str) {
+    return String(str ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+  }
+  function clean(value) { const v = String(value ?? '').trim(); return v || null; }
+
+  function getEditableColumns() {
+    return ['factory_name', 'short_code', 'contact_name', 'contact_email', ...OPTIONAL_COLUMNS].filter(col => state.supportedColumns.has(col));
+  }
+  function buildSelectColumns() {
+    return BASE_COLUMNS.filter(col => state.supportedColumns.has(col)).join(', ');
+  }
+
+  async function detectOptionalColumns() {
+    for (const col of OPTIONAL_COLUMNS) {
+      const { error } = await sb.from('factories').select(`id, ${col}`).limit(1);
+      if (error) { state.supportedColumns.delete(col); state.missingOptionalColumns.add(col); }
+      else { state.supportedColumns.add(col); }
+    }
+  }
+
+  async function loadFactories() {
+    setLoadStatus('Loading…');
+    state.changed.clear();
+    el.btnSaveAllChanged.disabled = true;
+    await detectOptionalColumns();
+    let q = sb.from('factories').select(buildSelectColumns()).order('factory_name', { ascending: true });
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    const { data, error } = await q;
+    if (error) throw error;
+    state.factories = data || [];
+    applyFilters();
+    let msg = `Loaded ${state.factories.length.toLocaleString()} factories.`;
+    if (state.missingOptionalColumns.size) {
+      msg += ` Optional columns missing: ${[...state.missingOptionalColumns].join(', ')}.`;
+    }
+    setLoadStatus(msg);
+  }
+
+  function applyFilters() {
+    const q = el.searchInput.value.trim().toLowerCase();
+    const mode = el.completenessFilter.value;
+    state.filtered = state.factories.filter(row => {
+      const hay = [row.factory_name, row.short_code, row.contact_name, row.contact_email, row.contact_phone, row.notes].join(' ').toLowerCase();
+      if (q && !hay.includes(q)) return false;
+      if (mode === 'missing_code' && clean(row.short_code)) return false;
+      if (mode === 'missing_contact' && clean(row.contact_name)) return false;
+      if (mode === 'missing_email' && clean(row.contact_email)) return false;
+      return true;
+    });
+    render();
+  }
+
+  function countrySelect(value, supported) {
+    const opts = ['<option value="">—</option>', ...KNOWN_COUNTRIES.map(c => `<option value="${escapeHtml(c)}" ${value === c ? 'selected' : ''}>${escapeHtml(c)}</option>`)].join('');
+    return `<select class="bcn-field fac-cell" data-field="country" ${supported ? '' : 'disabled'}>${supported ? opts : '<option>Column missing</option>'}</select>`;
+  }
+
+  function render() {
+    el.factoryCount.textContent = state.filtered.length.toLocaleString();
+    el.kpiFactories.textContent = state.factories.length.toLocaleString();
+    el.kpiEmail.textContent = state.factories.filter(row => clean(row.contact_email)).length.toLocaleString();
+    if (!state.filtered.length) {
+      el.factoryTbody.innerHTML = '<tr><td colspan="9" style="padding:32px;text-align:center;color:var(--bcn-ink-3)">No factories match the current filters.</td></tr>';
+      return;
+    }
+    el.factoryTbody.innerHTML = state.filtered.map(row => {
+      const dirty = state.changed.has(row.id);
+      const pillClass = dirty ? 'bcn-pill bcn-pill--warn' : 'bcn-pill';
+      const pillLabel = dirty ? 'Changed' : 'Saved';
+      return `<tr data-row-id="${escapeHtml(row.id)}">
+        <td><span class="${pillClass}">${pillLabel}</span></td>
+        <td><input class="bcn-field fac-cell" data-field="factory_name" value="${escapeHtml(row.factory_name || '')}" /></td>
+        <td><input class="bcn-field fac-cell" data-field="short_code" value="${escapeHtml(row.short_code || '')}" /></td>
+        <td><input class="bcn-field fac-cell" data-field="contact_name" value="${escapeHtml(row.contact_name || '')}" /></td>
+        <td><input class="bcn-field fac-cell" data-field="contact_email" value="${escapeHtml(row.contact_email || '')}" /></td>
+        <td><input class="bcn-field fac-cell" data-field="contact_phone" value="${escapeHtml(row.contact_phone || '')}" ${state.supportedColumns.has('contact_phone') ? '' : 'disabled placeholder="Column missing"'} /></td>
+        <td>${countrySelect(row.country, state.supportedColumns.has('country'))}</td>
+        <td><input class="bcn-field fac-cell" data-field="notes" value="${escapeHtml(row.notes || '')}" ${state.supportedColumns.has('notes') ? '' : 'disabled placeholder="Column missing"'} /></td>
+        <td><div class="fac-actions">
+          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-save-row="${escapeHtml(row.id)}">Save</button>
+          <button type="button" class="bcn-btn bcn-btn--danger bcn-btn--mono" data-delete-row="${escapeHtml(row.id)}">Del</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function markChanged(rowId) {
+    state.changed.add(rowId);
+    el.btnSaveAllChanged.disabled = !state.changed.size;
+    const factory = state.factories.find(row => String(row.id) === String(rowId));
+    const tr = document.querySelector(`[data-row-id="${CSS.escape(rowId)}"]`);
+    if (factory && tr) {
+      getEditableColumns().forEach(col => {
+        const input = tr.querySelector(`[data-field="${col}"]`);
+        if (input) factory[col] = input.value;
+      });
+    }
+    render();
+  }
+
+  function getRowPayload(rowId) {
+    const tr = document.querySelector(`[data-row-id="${CSS.escape(rowId)}"]`);
+    if (!tr) throw new Error('Row not found');
+    const payload = {};
+    getEditableColumns().forEach(col => {
+      const input = tr.querySelector(`[data-field="${col}"]`);
+      if (input && !input.disabled) payload[col] = clean(input.value);
+    });
+    if (!payload.factory_name) throw new Error('Factory name is required.');
+    return payload;
+  }
+
+  async function saveRow(rowId) {
+    const payload = getRowPayload(rowId);
+    const { error } = await sb.from('factories').update(payload).eq('id', rowId);
+    if (error) throw error;
+    state.changed.delete(rowId);
+    await loadFactories();
+    setStatus('Row saved.', 'pos', 2000);
+  }
+
+  async function saveAllChanged() {
+    for (const id of [...state.changed]) await saveRow(id);
+    await loadFactories();
+    setStatus('All changed rows saved.', 'pos', 2500);
+  }
+
+  async function deleteRow(rowId) {
+    const row = state.factories.find(f => String(f.id) === String(rowId));
+    if (!confirm(`Delete ${row?.factory_name || 'this factory'}? This may affect PO history if referenced.`)) return;
+    const { error } = await sb.from('factories').delete().eq('id', rowId);
+    if (error) throw error;
+    await loadFactories();
+    setStatus('Factory deleted.', 'pos', 2000);
+  }
+
+  function newFactoryPayload() {
+    const payload = {
+      factory_name: clean(el.newFactoryName.value),
+      short_code: clean(el.newShortCode.value),
+      contact_name: clean(el.newContactName.value),
+      contact_email: clean(el.newContactEmail.value),
+    };
+    if (state.supportedColumns.has('contact_phone')) payload.contact_phone = clean(el.newContactPhone.value);
+    if (state.supportedColumns.has('country')) payload.country = clean(el.newCountry.value);
+    if (state.supportedColumns.has('notes')) payload.notes = clean(el.newNotes.value);
+    if (!payload.factory_name) throw new Error('Factory name is required.');
+    return payload;
+  }
+
+  async function createFactory() {
+    const base = newFactoryPayload();
+    const row = cfg.withCompany ? cfg.withCompany(base) : (_co?.id ? { ...base, company_entity_id: _co.id } : base);
+    const { error } = await sb.from('factories').insert(row);
+    if (error) throw error;
+    clearNewFactory();
+    el.factoryModal.close();
+    await loadFactories();
+    setStatus('Factory created.', 'pos', 2500);
+  }
+
+  function clearNewFactory() {
+    [el.newFactoryName, el.newShortCode, el.newContactName, el.newContactEmail, el.newContactPhone, el.newCountry, el.newNotes].forEach(n => { n.value = ''; });
+  }
+
+  function exportCsv() {
+    const cols = ['factory_name', 'short_code', 'contact_name', 'contact_email', ...OPTIONAL_COLUMNS.filter(col => state.supportedColumns.has(col))];
+    const rows = state.filtered.map(row => cols.map(col => csvCell(row[col])).join(','));
+    const blob = new Blob([[cols.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `silo_factories_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function csvCell(value) {
+    const str = String(value ?? '');
+    return /[",\n\r]/.test(str) ? `"${str.replaceAll('"', '""')}"` : str;
+  }
+
+  function clearFilters() {
+    el.searchInput.value = '';
+    el.completenessFilter.value = '';
+    applyFilters();
+  }
+
+  el.btnRefresh.addEventListener('click', () => loadFactories().catch(e => setStatus(e.message || 'Refresh failed', 'neg')));
+  el.btnExport.addEventListener('click', exportCsv);
+  el.btnNewFactory.addEventListener('click', () => {
+    clearNewFactory();
+    el.factoryModal.showModal();
+    setTimeout(() => el.newFactoryName.focus(), 50);
+  });
+  el.btnCreateFactory.addEventListener('click', () => createFactory().catch(e => setStatus(e.message || 'Create failed', 'neg')));
+  el.btnSaveAllChanged.addEventListener('click', () => saveAllChanged().catch(e => setStatus(e.message || 'Save failed', 'neg')));
+  el.btnClearFilters.addEventListener('click', clearFilters);
+  el.searchInput.addEventListener('input', applyFilters);
+  el.completenessFilter.addEventListener('change', applyFilters);
+
+  function onFieldEdited(ev) {
+    const input = ev.target.closest('[data-field]');
+    if (!input) return;
+    const tr = input.closest('[data-row-id]');
+    if (tr) markChanged(tr.getAttribute('data-row-id'));
+  }
+  document.addEventListener('input', onFieldEdited);
+  document.addEventListener('change', onFieldEdited);
+
+  document.addEventListener('click', ev => {
+    const close = ev.target.closest('[data-close]');
+    if (close) {
+      const id = close.getAttribute('data-close');
+      const node = document.getElementById(id);
+      if (node?.close) node.close();
+      return;
+    }
+    const save = ev.target.closest('[data-save-row]');
+    if (save) {
+      saveRow(save.getAttribute('data-save-row')).catch(e => setStatus(e.message || 'Save row failed', 'neg'));
+      return;
+    }
+    const del = ev.target.closest('[data-delete-row]');
+    if (del) deleteRow(del.getAttribute('data-delete-row')).catch(e => setStatus(e.message || 'Delete failed', 'neg'));
+  });
+
+  async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    const user = sess.data.session.user;
+    const { data: prof } = await sb.from('profiles').select('email, role').eq('id', user.id).single();
+
+    window.SiloChrome?.mount?.({
+      appEl: '#silo-app',
+      active: 'purchasing/factories',
+      user: { email: prof?.email || user.email, role: prof?.role },
+      crumbs: ['Purchasing', 'Factories'],
+      supabaseClient: sb,
+    });
+
+    _co = await cfg.ensureActiveCompany?.(sb) || cfg.getActiveCompany?.() || null;
+    await loadFactories();
+  }
+
+  boot().catch(e => setStatus(e.message || 'Initial load failed', 'neg'));
+})();
+</script>
+</body>
+</html>
