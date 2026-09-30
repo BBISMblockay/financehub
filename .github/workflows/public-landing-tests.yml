@@ -8,7 +8,7 @@ on:
       - 'v2/company-onboarding.html'
       - 'pages/login.html'
       - 'assets/landing/**'
-      - 'tests/public-landing.test.mjs'
+      - 'tests/**'
       - '.github/workflows/public-landing-tests.yml'
   pull_request:
     paths: *landing_paths
@@ -26,3 +26,19 @@ jobs:
           node-version: '24'
       - name: Check public entry links, assets, and auth-router regressions
         run: node --test tests/public-landing.test.mjs
+      - name: Install pinned browser test dependency
+        working-directory: tests
+        run: npm ci
+      - name: Install Chromium for browser tests
+        working-directory: tests
+        run: npx playwright install --with-deps chromium
+      - name: Verify guest navigation and capture responsive screenshots
+        working-directory: tests
+        run: npm run test:browser
+      - name: Upload local-fixture screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-landing-screenshots
+          path: tests/screenshots/
+          if-no-files-found: warn
