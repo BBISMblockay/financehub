@@ -1,8 +1,8 @@
 # Product workflow preview
 
-Blake requested an additive V3 preview, reached only at
-`/v3/product-workflow.html`. Do not add navigation or entry buttons until he
-promotes it. Existing concepts, catalog, PO Builder and launch records remain
+Blake requested an additive V3 preview at `/v3/product-workflow.html`. It was
+promoted to the Purchasing nav on 2026-09-30 with the Ready for PO gate; see
+the last section. Existing concepts, catalog, PO Builder and launch records remain
 the operational sources of truth.
 
 ## Preflight (2026-09-26, before implementation)
@@ -203,3 +203,70 @@ production latency on large spreads remains to be measured. Any timeout aborts
 without creating partial operational records. No production migration was applied
 while preparing this PR. Post-apply: run the verifier, reconcile a real multi-size
 restock, and smoke-test concept → PO → Pipeline plus restock → PO → launch.
+
+## Ready for PO and promotion (2026-09-30, `20260930120000`)
+
+Product Studio is now the Purchasing destination (`purchasing/product-studio`
+in `v2/nav-config.js`) and replaces Product Concepts. `/v2/product-concepts.html`
+forwards to `/v3/product-workflow.html`, keeping `?concept=<id>`. Ask SILO's
+header button and each concept card's **Open in Product Studio** go there too.
+
+One flow: Ask SILO drafts the concept → Studio opens it (evidence, forecast,
+recommendation, reference images, **Add reference image**) → a person confirms
+the purchasing details and presses **Mark ready for PO** → **Create draft PO**.
+The concept list has three views: Ready for PO (default), Ideas / drafts and PO
+created (`product_studio_concepts_v`; `?view=draft|ready_for_po|po_created`).
+
+**What Ready for PO requires** (`product_concept_po_readiness_issues()`; the
+page's checklist is `readinessIssues()` in `v3/product-workflow-model.js`, and
+the database suite fails if the two ever disagree):
+
+- a specific product, not a collection parent with live products
+- a product type and a factory in the active company
+- a positive whole-unit total, and sizes/variants whose quantities sum to it
+  (every line named once, every quantity at least 1)
+- an explicit sized / one-size choice (one size = exactly one line). A concept
+  with one populated size is never assumed to be one size
+- an explicit confirmation of those exact lines. Changing a size, quantity,
+  total or sizing withdraws it on the page, and the database refuses a
+  confirmation that does not describe the lines being saved
+
+Ask SILO's values prefill as proposals. A concept with no size breakdown gets no
+line at all (the old preset made one unsized line with the whole quantity,
+which is how KCMTAR-7 came to be). Ask SILO cannot mark anything ready.
+
+**Enforcement.** For a concept brief, "reviewed" now means ready: the save RPC
+runs the rules and stamps `po_ready_at/by` and a fingerprint of the concept's
+purchasing fields. The PO handoff runs them again, refuses an unmarked brief,
+and refuses if the concept's type, factory, quantity, sizes or parent changed
+after marking (copy and images do not count). The PO is built from the reviewed
+brief, Draft, `generated_from_concept_id` set. `generate_po_from_concept()` (the
+legacy `po-builder.html?fromConcept=` link) now hands off the concept's ready
+brief through the same function, returns an existing PO, or refuses with a link
+back to Studio. A trigger refuses browser writes of `po_lines.source_concept_id`,
+`po_headers.generated_from_concept_id` and `po_concept_links`, so the hidden
+in-builder concept picker and hand-made API calls cannot bypass the gate;
+ordinary PO lines are untouched. Every path locks the concept first, so
+concurrent requests from either entry point return one complete PO.
+
+**Existing records are not converted.** An approved concept is not ready.
+A concept brief reviewed before this change must be reopened and marked
+ready. A concept that already has a PO (e.g. Bat Bros → KCMTAR-7) lists under
+PO created, opens that PO, and cannot be marked ready again. Nothing in the
+migration writes to existing concepts or POs.
+
+A generated PO's claim is permanent: `generated_from_concept_id` cannot be
+changed or cleared from the browser and its concept link cannot be deleted on
+its own (deleting the whole PO still works). A ready concept may create its PO
+after its planned launch; the launch is then linked to that PO.
+
+Behaviour change for concept briefs: they can no longer be reviewed without
+the purchasing details (a launch-only concept brief now needs them too), and
+one concept yields one PO through this flow. A later buy of the same product
+is a catalog/restock brief.
+
+Verification: `scripts/tests/product-studio-ready-for-po-database.test.mjs`
+(19 cases, 8 mutations), `product-studio-ready-for-po-concurrency.test.mjs`
+(real PostgreSQL, 4 overlapping-session cases, 2 lock mutations; CI job
+`onboarding-concurrency`), the v3 unit and browser suites, and
+`v2/tests/browser/po-builder-from-concept.test.js`.

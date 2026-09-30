@@ -1,5 +1,5 @@
-/* /v2/po-builder.html?fromConcept=<id> -- the "Generate PO" link from
- * /v2/product-concepts.html.
+/* /v2/po-builder.html?fromConcept=<id> -- the legacy "Generate PO" link
+ * (Product Concepts now forwards to Product Studio).
  *
  * The page makes ONE call, generate_po_from_concept(), which creates the
  * PO, its lines and the concept link in a single transaction (20260930000000).
@@ -12,6 +12,8 @@
  *      itself, and lands on the new PO.
  *   3. A refusal (collection, archived, no factory, permission) is shown
  *      as a status message, with no table writes and no dialog.
+ *   4. A concept not marked Ready for PO is refused with a link to it in
+ *      Product Studio (the gate itself: product-studio-ready-for-po-database).
  *
  * What the function itself does (atomic rollback, locking, refusals, grants)
  * is proven against real Postgres in
@@ -121,6 +123,20 @@ const rpcCalls = (page, name) => page.evaluate((n) => (window.__QUERIES__ || [])
       R.ok('no dialog is used for it', page.__dialogs.length === 0, JSON.stringify(page.__dialogs));
       R.ok('nothing is written on a refusal', w.length === 0, JSON.stringify(w));
       R.ok('the page stays on a new, unsaved PO', title === 'New purchase order', title);
+    }
+
+    // 4. Not ready for PO (20260930120000): the refusal points to Product
+    //    Studio for that concept, and still writes nothing.
+    {
+      const tables = Object.assign(baseTables(), { v_po_header_summary: [] });
+      const page = await suite.open('/v2/po-builder.html?fromConcept=concept-bat-bros', tables, {
+        ready: () => /Could not generate/.test((document.getElementById('poStatus') || {}).textContent || ''),
+        rpc: { generate_po_from_concept: () => ({ __error: { message: 'This concept is not ready for PO. Open it in Product Studio, confirm the product type, factory, sizes and quantities, and mark it ready for PO', code: '22023' } }) },
+      });
+      const href = await page.$eval('#poStatus a', (el) => el.getAttribute('href')).catch(() => null);
+      const w = await writes(page);
+      R.ok('a not-ready refusal links to that concept in Product Studio', href === '/v3/product-workflow.html?concept=concept-bat-bros', String(href));
+      R.ok('nothing is written when the concept is not ready', w.length === 0, JSON.stringify(w));
     }
   } finally {
     await suite.close();

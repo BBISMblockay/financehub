@@ -21,8 +21,13 @@
       draft_copy: row.suggested_marketing_copy || '',
       creative_dos: row.visual_direction || '', creative_donts: '', copy_dos: '', copy_donts: '',
       launch_date: row.suggested_launch_date || '', factory_id: row.suggested_factory_id || '', decision_note: '',
-      lines: spread ? row.variants.map(v => ({product_master_id:v.id,sku:v.sku,size:v.mapped_variant_title || v.variant_title || '',qty:null,unit_cost:number(v.unit_cost),retail_price:number(v.msrp)})) : (sizes.length ? sizes : [[row.variant_title || '', concept ? row.suggested_qty ?? '' : '']])
-        .map(([size, qty]) => ({ size, qty, unit_cost: cost, retail_price: retail })),
+      // A concept with no size breakdown gets NO line: an unsized line holding
+      // the whole quantity is exactly what Ready for PO exists to stop.
+      lines: spread ? row.variants.map(v => ({product_master_id:v.id,sku:v.sku,size:v.mapped_variant_title || v.variant_title || '',qty:null,unit_cost:number(v.unit_cost),retail_price:number(v.msrp)})) : (sizes.length ? sizes : concept ? [] : [[row.variant_title || '', '']])
+        .map(([size, qty]) => ({ size, qty: concept ? Number(qty) : qty, unit_cost: cost, retail_price: retail })),
+      // Ask SILO's total is a proposal; sizing and the confirmation are always
+      // left for a person, never inferred (one populated size is not one size).
+      ...(concept ? { po_readiness: { size_mode: null, total_qty: Number.isInteger(Number(row.suggested_qty)) && Number(row.suggested_qty) > 0 ? Number(row.suggested_qty) : null, range_confirmed: false, confirmed_lines: [] } } : {}),
       restock: kind === 'restock' ? { lead_days: row.lead_time_days ?? '', cover_days: row.target_stock_days ?? 90, safety_units: 0, basis: null, ...(spread ? {bases:[]} : {}) } : null,
     };
   }
@@ -73,5 +78,48 @@
     }
     return content;
   }
-  root.SiloProductWorkflow = { preset, restock, spreadRestock, identity, validate };
+  // Mirror of product_concept_po_readiness_issues() (20260930120000) for the
+  // on-page checklist. The database is the authority; the same messages come
+  // back from it. ctx: { factoryIds, archived, isCollection }.
+  const WHOLE = /^[0-9]{1,7}$/;
+  const MONEY = /^\s*[0-9]+(\.[0-9]+)?\s*$/;
+  const text = value => value === null || value === undefined ? '' : String(value);
+  function confirmedLines(lines) {
+    return (lines || []).map(l => [text(l?.size).trim(), l?.qty === null || l?.qty === undefined ? null : String(l.qty)]);
+  }
+  function readinessIssues(content, ctx = {}) {
+    if (ctx.archived) return ['The concept is archived or not in the active company'];
+    if (ctx.isCollection) return ['This is a collection. Mark each product in it ready for PO separately'];
+    if (!content || typeof content !== 'object') return ['Save the purchasing details first'];
+    const issues = [];
+    if (!text(content.title).trim()) issues.push('Add a product title');
+    if (!text(content.product_type).trim()) issues.push('Choose a product type');
+    if (!(ctx.factoryIds || []).includes(content.factory_id)) issues.push('Choose a factory in the active company');
+    const r = content.po_readiness && typeof content.po_readiness === 'object' ? content.po_readiness : {};
+    const stated = WHOLE.test(text(r.total_qty)) && Number(r.total_qty) >= 1 && Number(r.total_qty) <= 1000000 ? Number(r.total_qty) : null;
+    if (stated === null) issues.push('Enter a positive whole-unit total quantity');
+    if (!['sized', 'one_size'].includes(r.size_mode)) issues.push('Choose whether the product is sized or one size');
+    const lines = Array.isArray(content.lines) ? content.lines : [];
+    if (!lines.length) issues.push('Add the size/variant range');
+    else if (lines.length > 100) issues.push('Use at most 100 sizes/variants');
+    else {
+      let badQty = false, badSize = false, badMoney = false, total = 0;
+      lines.forEach(l => {
+        if (!l || typeof l !== 'object') { badQty = badSize = true; return; }
+        if (!WHOLE.test(text(l.qty)) || Number(l.qty) < 1) badQty = true; else total += Number(l.qty);
+        if (!text(l.size).trim()) badSize = true;
+        [l.unit_cost, l.retail_price].forEach(v => { if (v !== null && v !== undefined && (!MONEY.test(text(v)) || Number(v) > 1000000)) badMoney = true; });
+      });
+      if (badQty) issues.push('Give every size a whole quantity of at least 1 (remove sizes you are not buying)');
+      if (badSize) issues.push('Name every size/variant');
+      else if (new Set(lines.map(l => text(l.size).trim().toLowerCase())).size !== lines.length) issues.push('List each size/variant once');
+      if (badMoney) issues.push('Unit cost and retail price must be blank or 0-1,000,000');
+      if (r.size_mode === 'one_size' && lines.length !== 1) issues.push('A one-size product has exactly one line');
+      if (!badQty && stated !== null && total !== stated) issues.push(`Sizes total ${total} units but the confirmed total is ${stated}`);
+    }
+    const confirmed = Array.isArray(r.confirmed_lines) ? r.confirmed_lines.map(e => [text(e?.[0]).trim(), e?.[1] === null || e?.[1] === undefined ? null : String(e[1])]) : [];
+    if (r.range_confirmed !== true || !lines.length || JSON.stringify(confirmed) !== JSON.stringify(confirmedLines(lines))) issues.push('Confirm the size/variant range and quantities');
+    return issues;
+  }
+  root.SiloProductWorkflow = { preset, restock, spreadRestock, identity, validate, readinessIssues, confirmedLines };
 })(typeof window !== 'undefined' ? window : module.exports);

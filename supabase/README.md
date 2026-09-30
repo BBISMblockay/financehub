@@ -2644,3 +2644,21 @@ factory outside the active company. Checks mirror
 `handoff_product_workflow_brief()`. Verified by
 `scripts/tests/generate-po-from-concept-database.test.mjs` (20 cases, real
 Postgres) and the `generate_po_from_concept_fn` row in `verify_v2_schema.sql`.
+
+## Product Studio Ready for PO — `20260930120000_product_studio_ready_for_po.sql`
+
+Apply after `20260930000000`. Adds `product_workflow_briefs.po_ready_at/by/
+po_ready_concept_fingerprint`; `product_concept_po_readiness_issues()` (the one
+readiness rule, private), `product_concept_po_header()` (private) and
+`product_concept_purchasing_fingerprint()`; replaces
+`save_product_workflow_brief()` (a concept brief saved as reviewed = marked
+ready, refused unless ready), `handoff_product_workflow_brief()` (a concept PO
+requires readiness, an unchanged concept fingerprint and no existing PO; sets
+`generated_from_concept_id`) and `generate_po_from_concept()` (now hands off the
+concept's ready brief instead of building lines from AI suggestions); adds the
+`trg_guard_concept_po_writes` triggers on `po_lines`, `po_headers` and
+`po_concept_links` (browser writes that attach a concept are refused; service
+role and DEFINER functions pass) and the `product_studio_concepts_v` stage view.
+No existing row is modified. After applying: run `verify_v2_schema.sql`
+(the "Product Studio Ready for PO" rows) and `select refresh_chat_schema_catalog();`
+for the new view. See `docs/ops/product-workflow-preview.md`.

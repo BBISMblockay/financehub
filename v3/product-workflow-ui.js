@@ -3,8 +3,11 @@
   const $ = id => document.getElementById(id);
   const M = window.SiloProductWorkflow;
   const cfg = window.__SILO_CONFIG__ || {};
-  let db, company, canWrite = false, current = null, dirty = false, busy = false;
+  let db, company, canWrite = false, current = null, dirty = false, busy = false, userId = null;
   let activePanel = 'overview';
+  // Concept stages (product_studio_concepts_v) and the live concept behind the
+  // open brief: its images and its current PO, which the brief snapshot lacks.
+  let stageRows = [], stageView = 'ready_for_po', stagesAvailable = true, liveConcept = null, conceptInfo = null;
   let queue = [], factories = [], sourceRows = [], hasMore = false;
   const fields = [
     ['title', 'Brief title', 'text'], ['product_type', 'Product type', 'text'],
@@ -36,6 +39,11 @@
   function applyAccess() {
     $('brief-fields').disabled = !canWrite || current?.status !== 'draft';
     ['save','review','dismiss','reopen','create-po','create-launch','sync-pipeline','another-brief'].forEach(id => { $(id).disabled = !canWrite; });
+    if (current?.source_kind === 'concept') {
+      const locked = !canWrite || current.status !== 'draft';
+      document.querySelectorAll('[name="size-mode"], #f-total_qty, #range-confirmed').forEach(n => { n.disabled = locked; });
+      const attach = $('add-image'); if (attach) attach.disabled = !canEditConcept();
+    }
     if (current?.source_kind === 'restock') drawRestock();
   }
   async function rpc(name, args) {
@@ -74,7 +82,7 @@
   async function openBrief(id) {
     const { data, error } = await db.from('product_workflow_briefs').select('*').eq('company_entity_id', company.id).eq('id', id).single();
     if (error) throw error;
-    remember(data); message('Loaded saved brief. Source values are a snapshot from its first save.');
+    await loadConceptContext(data); remember(data); message('Loaded saved brief. Source values are a snapshot from its first save.');
   }
   async function searchSources(browse = false) {
     const kind = $('source-kind').value;
@@ -122,11 +130,13 @@
     if (error) throw error;
     activePanel = kind === 'restock' ? 'buy' : 'overview';
     const existing = data[0];
+    await loadConceptContext({ source_kind: kind, source_id: row.id });
     const completedBuy = kind !== 'concept' && (existing?.po_header_id || existing?.launch_id);
     if (existing && !completedBuy) { remember(existing); message('Continued the saved brief for this source.'); }
     else start(kind, row);
   }
   function start(kind, row) {
+    if (kind !== 'concept') { liveConcept = null; conceptInfo = null; }
     activePanel = kind === 'restock' ? 'buy' : 'overview';
     current = { id: crypto.randomUUID(), version: 0, status: 'draft', source_kind: kind, source_id: row.id || null,
       source_snapshot: row, content: M.preset(kind, row) };
@@ -157,11 +167,12 @@
     if (!current) return;
     const c = current.content;
     $('editor-heading').textContent = c.title || 'New product brief';
-    $('brief-status').textContent = `${current.status}${current.version ? ' · v' + current.version : ' · unsaved'}`;
+    $('brief-status').textContent = `${statusLabel(current)}${current.version ? ' · v' + current.version : ' · unsaved'}`;
     const source = current.source_snapshot || {};
     $('provenance').textContent = `${sourceLabel(current)}${source.title || source.product_title ? ' · ' + (source.title || source.product_title) : ''}${current.reviewed_at ? ' · Reviewed ' + new Date(current.reviewed_at).toLocaleString() : ''}`;
     $('source-snapshot').replaceChildren();
-    [['Original intent',source.concept_summary || source.notes],['Reasoning',source.reasoning],['Evidence strength',source.evidence_strength],['Audience rationale',source.audience_rationale],['Supply notes',source.supply_notes]]
+    [['Original intent',source.concept_summary || source.notes],['Objective',source.objective],['Reasoning',source.reasoning],['Buy rationale',source.buy_rationale],['Evidence strength',source.evidence_strength],['Audience rationale',source.audience_rationale],['Supply notes',source.supply_notes],
+      ['Recommendation',[source.recommendation && String(source.recommendation).replace(/_/g,' '),source.recommendation_reasoning].filter(Boolean).join(' — ')],['Next decision',source.next_decision]]
       .filter(([,value])=>value).forEach(([label,value])=>$('source-snapshot').append(node('strong',label),node('p',value)));
     const evidence = Array.isArray(source.historical_evidence) ? source.historical_evidence : [];
     const risks = Array.isArray(source.risks) ? source.risks : [];
@@ -170,12 +181,15 @@
     evidence.forEach(e=>list.append(node('li',[e.label || e.metric || 'Evidence',e.value,e.source].filter(v=>v!==undefined && v!==null && v!=='').join(' · '))));
     risks.forEach(r=>list.append(node('li',[r.category || 'Risk',r.detail].filter(Boolean).join(': '))));
     unknowns.forEach(u=>list.append(node('li',['Unknown',u.field?.replace(/_/g,' '),u.why].filter(Boolean).join(' · '))));
+    const forecast = source.forecast && typeof source.forecast === 'object' ? source.forecast : {};
+    ['conservative','base','upside'].filter(k => forecast[k]).forEach(k => list.append(node('li',['Forecast · ' + k, forecast[k].units != null ? forecast[k].units + ' units' : '', forecast[k].assumptions].filter(Boolean).join(' · '))));
+    (Array.isArray(source.provenance) ? source.provenance : []).forEach(p => list.append(node('li',['Source', p.claim, (p.tables || []).join(', '), p.date_range].filter(Boolean).join(' · '))));
     if(list.childNodes.length) $('source-snapshot').append(list);
     $('source-snapshot').append(node('p',current.version ? 'Captured when this brief was first saved. Later source edits do not replace these assumptions.' : 'These source values will be captured when you first save.', 'pw-muted'));
     ['text-fields','creative-fields','buy-fields','launch-fields'].forEach(id => $(id).replaceChildren());
     const creativeKeys = ['marketing_angle','product_callouts','special_callouts','draft_copy','copy_dos','copy_donts','creative_dos','creative_donts'];
     fields.forEach(([key, label, type]) => {
-      const parent = creativeKeys.includes(key) ? 'creative-fields' : ['factory_id','decision_note'].includes(key) ? 'buy-fields' : key === 'launch_date' ? 'launch-fields' : 'text-fields';
+      const parent = creativeKeys.includes(key) ? 'creative-fields' : ['factory_id','decision_note','product_type'].includes(key) ? 'buy-fields' : key === 'launch_date' ? 'launch-fields' : 'text-fields';
       field(key, label, type, c[key], $(parent));
     });
     $('lines').replaceChildren();
@@ -188,15 +202,35 @@
         .forEach(([key,label]) => { const input = field(key, label, 'number', c.restock?.[key], $('restock-inputs')); input.oninput = drawRestock; });
       drawRestock();
     }
+    const isConcept = current.source_kind === 'concept';
+    // Ask SILO (or anyone) changed the concept's type, factory, quantity or
+    // sizes after this brief was marked ready. The database refuses the PO;
+    // say so here instead of offering a button that will fail.
+    const staleReady = isConcept && !!current.po_ready_at && !current.po_header_id && conceptInfo?.ready_brief_id === current.id && !!conceptInfo?.ready_stale;
+    $('readiness-section').hidden = !isConcept;
+    if (isConcept) {
+      const r = c.po_readiness || {};
+      document.querySelectorAll('[name="size-mode"]').forEach(n => { n.checked = n.value === r.size_mode; });
+      $('f-total_qty').value = r.total_qty ?? '';
+      $('range-confirmed').checked = r.range_confirmed === true;
+    }
+    $('review').textContent = isConcept ? 'Mark ready for PO' : 'Save as reviewed';
     $('draft-actions').hidden = current.status !== 'draft';
     $('reviewed-actions').hidden = current.status === 'draft';
     $('reopen').hidden = !!(current.po_header_id || current.launch_id);
-    $('create-po').hidden = current.status !== 'reviewed' || !!current.po_header_id || !!current.launch_id;
+    // A concept brief reviewed before Ready for PO existed has no po_ready_at:
+    // it must be reopened and marked ready, and the server refuses it anyway.
+    // A ready concept may create its PO after its launch; the server links them.
+    $('create-po').hidden = current.status !== 'reviewed' || !!current.po_header_id || (!!current.launch_id && !isConcept)
+      || (isConcept && !current.po_ready_at) || (isConcept && !!conceptInfo?.po_header_id) || staleReady;
     $('create-launch').hidden = current.status !== 'reviewed' || !!current.launch_id;
     $('launch-handoff').hidden = current.status !== 'reviewed' || !!current.launch_id;
     $('handoff-date').value = c.launch_date || '';
     $('outputs').replaceChildren();
     if (current.po_header_id) outputLink('Open draft / current PO in PO Builder', '../v2/po-builder.html?po_id=' + encodeURIComponent(current.po_header_id));
+    else if (isConcept && conceptInfo?.po_header_id) outputLink(`This concept already has ${conceptInfo.po_name ? 'PO ' + conceptInfo.po_name : 'a PO'} · open it`, '../v2/po-builder.html?po_id=' + encodeURIComponent(conceptInfo.po_header_id));
+    if (staleReady) $('outputs').append(node('p','The concept\'s purchasing details changed in Ask SILO after this was marked ready. Reopen the brief, check them and mark it ready again.','bcn-status bcn-status--info'));
+    if (isConcept && current.status === 'reviewed' && !current.po_ready_at && !current.po_header_id) $('outputs').append(node('p','Reviewed before Ready for PO existed. Reopen it, confirm the purchasing details and mark it ready before creating a PO.','bcn-status bcn-status--info'));
     if (current.launch_id) outputLink('Open launch and its Brief tab', '../v2/launch-calendar.html?launch=' + encodeURIComponent(current.launch_id));
     $('sync-pipeline').hidden = !current.po_header_id || !['concept','idea'].includes(current.source_kind);
     renderStudio();
@@ -224,6 +258,13 @@
       ...(tr.dataset.productId ? {product_master_id:tr.dataset.productId,sku:tr.dataset.sku} : {}),
       ...Object.fromEntries([...tr.querySelectorAll('input')].map(input => [input.dataset.key,input.dataset.key==='size' ? input.value.trim() : input.value==='' ? null : Number(input.value)]))
     })).filter(line => c.catalog_scope==='product' || (line.qty!==null && line.qty!==0));
+    if (current.source_kind === 'concept') {
+      const mode = document.querySelector('[name="size-mode"]:checked')?.value || null;
+      const total = $('f-total_qty').value;
+      const confirmed = $('range-confirmed').checked;
+      c.po_readiness = { size_mode: mode, total_qty: total === '' ? null : Number(total), range_confirmed: confirmed,
+        confirmed_lines: confirmed ? M.confirmedLines(c.lines) : [] };
+    }
     if (current.source_kind === 'restock') {
       c.restock = { ...c.restock };
       ['lead_days','cover_days','safety_units'].forEach(key => { c.restock[key] = $('f-' + key).value; });
@@ -275,9 +316,15 @@
     if (!canWrite || !current) return;
     const c = status === 'draft' && current.status !== 'draft' ? current.content : collect();
     M.validate(c, current.source_kind, status === 'reviewed');
+    if (status === 'reviewed' && current.source_kind === 'concept') {
+      const issues = readiness(c);
+      if (issues.length) { showPanel('buy'); throw new Error('Not ready for PO: ' + issues.join('; ')); }
+    }
     const row = await rpc('save_product_workflow_brief', { p_company: company.id, p_id: current.id, p_version: current.version,
       p_kind: current.source_kind, p_source_id: current.source_id, p_content: c, p_status: status });
-    remember(row); message(status === 'reviewed' ? 'Brief reviewed. Choose a handoff below; the PO will remain Draft.' : status === 'draft' ? 'Draft saved.' : 'Brief dismissed.', 'pos');
+    remember(row);
+    message(status === 'reviewed' ? (row.source_kind === 'concept' ? 'Marked ready for PO. Create the draft PO below. It stays Draft and nothing is sent to the factory.' : 'Brief reviewed. Choose a handoff below; the PO will remain Draft.') : status === 'draft' ? 'Draft saved.' : 'Brief dismissed.', 'pos');
+    if (row.source_kind === 'concept') await refreshStages();
   }
   async function syncPipeline() {
     const { data: po, error } = await db.from('po_headers').select('*').eq('company_entity_id',company.id).eq('id',current.po_header_id).single();
@@ -291,17 +338,19 @@
     if (target === 'launch' && !date) throw new Error('Choose a planned launch date.');
     const row = await rpc('handoff_product_workflow_brief', { p_company: company.id, p_id: current.id, p_version: current.version, p_target: target, p_launch_date: target === 'launch' ? date : null });
     remember(row); message(target === 'po' ? 'Draft PO created. Open PO Builder to continue purchasing.' : 'Planned launch created with the reviewed brief.', 'pos');
+    if (row.source_kind === 'concept') await refreshStages();
     if (target === 'po' && ['concept','idea'].includes(row.source_kind)) await syncPipeline();
   }
   async function boot() {
     if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) throw new Error('Missing Supabase config.');
     db = window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
     const { data, error } = await db.auth.getSession(); if (error) throw error;
-    if (!data.session) { location.href='/pages/login.html'; return; }
+    if (!data.session) { location.href='/pages/login.html?next=' + encodeURIComponent(location.pathname + location.search); return; }
+    userId = data.session.user.id;
     company = await cfg.ensureActiveCompany(db);
     if (!company?.id) throw new Error('Choose an active company before opening the preview.');
     const { data: profile } = await db.from('profiles').select('email,role').eq('id',data.session.user.id).single();
-    window.SiloChrome?.mount({ appEl:'#silo-app', active:'', user:{email:profile?.email || data.session.user.email,role:profile?.role}, crumbs:['V3 preview','Product Studio'],supabaseClient:db });
+    window.SiloChrome?.mount({ appEl:'#silo-app', active:'purchasing/product-studio', user:{email:profile?.email || data.session.user.email,role:profile?.role}, crumbs:['Purchasing','Product Studio'],supabaseClient:db });
     canWrite = !!(await rpc('po_builder_can_write',{}));
     // Complete supplier list: no invisible factory past a response cap.
     for (let offset=0;;offset+=500) {
@@ -311,6 +360,8 @@
     }
     await loadQueue();
     const params = new URLSearchParams(location.search);
+    if (['draft','ready_for_po','po_created'].includes(params.get('view'))) stageView = params.get('view');
+    await refreshStages();
     const id = params.get('brief'), concept = params.get('concept');
     if (id) await openBrief(id);
     else if (concept) {
@@ -347,11 +398,88 @@
     }
     const text = node('span'); text.append(node('strong', title), node('small', subtitle)); row.append(text); target.append(row);
   }
+  function statusLabel(b) {
+    if (b.source_kind === 'concept' && b.status === 'reviewed') return b.po_header_id ? 'PO created' : b.po_ready_at ? 'ready for PO' : 'reviewed · not ready';
+    return b.status;
+  }
+  // The on-page mirror of product_concept_po_readiness_issues(). The database
+  // re-runs the rule at mark-ready and at PO creation; this only lists it.
+  function readiness(c) {
+    const extra = conceptInfo?.po_header_id ? [`This concept already has ${conceptInfo.po_name ? 'PO ' + conceptInfo.po_name : 'a PO'}`] : [];
+    return [...extra, ...M.readinessIssues(c, { factoryIds: factories.map(f => f.id), isCollection: Number(conceptInfo?.child_count) > 0 })];
+  }
+  function canEditConcept() {
+    return window.SiloStudioImages.canEditConcept(liveConcept, { canWrite, userId });
+  }
+  async function loadConceptContext(b) {
+    liveConcept = null; conceptInfo = null;
+    if (b?.source_kind !== 'concept' || !b.source_id) return;
+    const { data, error } = await db.from('product_concepts').select('*').eq('company_entity_id', company.id).eq('id', b.source_id).maybeSingle();
+    if (error) throw error;
+    liveConcept = data;
+    if (stagesAvailable) {
+      const { data: info, error: infoError } = await db.from('product_studio_concepts_v').select('*').eq('company_entity_id', company.id).eq('id', b.source_id).maybeSingle();
+      if (!infoError) conceptInfo = info;
+    }
+  }
+  async function refreshStages() {
+    if (!stagesAvailable) return;
+    const { data, error } = await db.from('product_studio_concepts_v').select('*').eq('company_entity_id', company.id)
+      .order('updated_at', { ascending: false }).limit(300);
+    if (error) {
+      // The stage view ships with 20260930120000. Without it the queues below
+      // still work; say what is missing rather than showing empty stages.
+      stagesAvailable = false;
+      $('stage-list').replaceChildren(node('p', 'Concept stages need the Ready for PO migration. Search concepts below.', 'pw-muted'));
+      return;
+    }
+    stageRows = data || [];
+    renderStages();
+  }
+  function renderStages() {
+    document.querySelectorAll('[data-stage]').forEach(tab => {
+      const on = tab.dataset.stage === stageView;
+      tab.setAttribute('aria-selected', String(on)); tab.tabIndex = on ? 0 : -1;
+      const n = stageRows.filter(r => r.stage === tab.dataset.stage || (tab.dataset.stage === 'draft' && r.stage === 'collection')).length;
+      tab.textContent = ({ ready_for_po: 'Ready for PO', draft: 'Ideas / drafts', po_created: 'PO created' })[tab.dataset.stage] + ` · ${n}`;
+    });
+    $('stage-list').setAttribute('aria-labelledby', 'stage-' + stageView);
+    const rows = stageRows.filter(r => r.stage === stageView || (stageView === 'draft' && r.stage === 'collection'));
+    $('stage-count').textContent = stageRows.length === 300 ? 'latest 300' : '';
+    $('stage-list').replaceChildren();
+    rows.forEach(row => {
+      const detail = row.stage === 'po_created' ? `PO ${row.po_name || 'created'}${row.po_status ? ' · ' + row.po_status : ''}`
+        : row.stage === 'collection' ? `Collection · ${row.child_count} product${row.child_count === 1 ? '' : 's'}`
+        : row.stage === 'ready_for_po' ? 'Ready · create the draft PO'
+        : row.ready_stale ? 'Changed after marked ready · review again'
+        : [row.status, row.latest_brief_status === 'draft' ? 'brief in progress' : 'not reviewed'].join(' · ');
+      const n = button('', async () => {
+        if (!leave()) return;
+        const { data: concept, error } = await db.from('product_concepts').select('*').eq('company_entity_id', company.id).eq('id', row.id).single();
+        if (error) throw error;
+        await openSource('concept', concept);
+      });
+      appendSourceRow(n, 'concept', row, row.title || 'Untitled concept', detail);
+      n.setAttribute('aria-current', String(current?.source_id === row.id));
+      $('stage-list').append(n);
+    });
+    if (!rows.length) $('stage-list').append(node('p', ({ ready_for_po: 'Nothing is ready for PO yet. Open a draft, confirm its purchasing details and mark it ready.', draft: 'No concept drafts. Start one in Ask SILO.', po_created: 'No concept has a PO yet.' })[stageView], 'pw-muted'));
+  }
+  async function uploadImages(files) {
+    if (!liveConcept) return;
+    const result = await window.SiloStudioImages.attachConceptImages(db, company.id, liveConcept, files);
+    if (!result.added) return;
+    liveConcept.reference_image_urls = result.urls;
+    renderStudio();
+    message(`Added ${result.added} image${result.added === 1 ? '' : 's'} to the concept. Images do not change Ready for PO.`, 'pos');
+  }
   function renderStudio() {
     const source = current.source_snapshot || {};
     $('overview-edit').open = !current.content.design_intent;
     const art = $('artwork'); art.replaceChildren();
-    const urls = sourceImages(current.source_kind, source);
+    // Imagery is not a purchasing detail: show the concept's CURRENT images, so
+    // one attached here or in Ask SILO appears without a new brief.
+    const urls = sourceImages(current.source_kind, liveConcept || source);
     if (urls.length) {
       const figure = node('figure'), img = node('img', undefined, 'pw-hero');
       img.src = urls[0]; img.alt = current.content.title || 'Product reference'; img.referrerPolicy = 'no-referrer';
@@ -373,10 +501,18 @@
     }
     if (current.source_kind === 'concept' && current.source_id) {
       const a = node('a','Open source concept in Ask SILO →','pw-muted');
-      a.href = '../v2/silo-chat.html?concept=' + encodeURIComponent(current.source_id); art.append(a);
-      if (current.version) art.append(node('p','Artwork uses the saved source snapshot; later concept changes do not replace it.','pw-muted'));
+      a.href = '../v2/silo-chat.html?concept=' + encodeURIComponent(current.source_id);
+      const tools = node('div', undefined, 'pw-attach'); tools.append(a);
+      if (canEditConcept()) {
+        const add = node('button', 'Add reference image', 'bcn-btn bcn-btn--ghost'); add.type = 'button'; add.id = 'add-image';
+        const file = node('input'); file.type = 'file'; file.accept = 'image/*'; file.multiple = true; file.hidden = true; file.id = 'image-file';
+        add.onclick = () => file.click();
+        file.onchange = () => run(() => uploadImages([...(file.files || [])]));
+        tools.append(add, file);
+      }
+      art.append(tools);
     }
-    const stages = [['Concept', current.source_kind === 'concept'], ['Brief', !!current.version], ['Review', current.status === 'reviewed'], ['Draft PO', !!current.po_header_id], ['Launch', !!current.launch_id]];
+    const stages = [['Concept', current.source_kind === 'concept'], ['Brief', !!current.version], [current.source_kind === 'concept' ? 'Ready for PO' : 'Review', current.status === 'reviewed' && (current.source_kind !== 'concept' || !!current.po_ready_at)], ['Draft PO', !!current.po_header_id], ['Launch', !!current.launch_id]];
     $('workflow-stages').replaceChildren();
     const currentStage = current.launch_id ? 4 : current.po_header_id ? 3 : current.status === 'reviewed' ? 2 : 1;
     stages.forEach(([label, done], index) => { const li = node('li', label); li.dataset.done = String(done); if (index === currentStage) li.setAttribute('aria-current','step'); $('workflow-stages').append(li); });
@@ -412,7 +548,16 @@
     else checks.push('Check stock and incoming POs before buying');
     if (!c.launch_date) checks.push('Choose a target launch date');
     $('review-checklist').replaceChildren(...checks.map(text => node('li',text)));
-    $('next-step').textContent = current.status === 'dismissed' ? 'This brief is dismissed. Reopen it to continue.' : current.status === 'reviewed' ? 'Brief reviewed. Continue with the PO or planned launch below the brief.' : 'Complete the buy plan and review the source evidence, then save as reviewed.';
+    if (current.source_kind === 'concept') {
+      const missing = current.status === 'draft' ? readiness(c) : [];
+      $('readiness-checklist').replaceChildren(...missing.map(text => node('li', text)));
+      $('readiness-checklist').hidden = current.status !== 'draft';
+      const total = lines.reduce((sum, l) => sum + (Number.isFinite(l.qty) ? l.qty : 0), 0);
+      $('range-confirmed-label').textContent = `I confirm these ${lines.length} size${lines.length === 1 ? '' : 's'}/variants and quantities (${total.toLocaleString()} units)`;
+    }
+    $('next-step').textContent = current.status === 'dismissed' ? 'This brief is dismissed. Reopen it to continue.'
+      : current.status === 'reviewed' ? (current.source_kind === 'concept' && !current.po_ready_at ? 'Reopen this brief and mark it ready for PO.' : current.source_kind === 'concept' ? 'Ready for PO. Create the draft PO below the brief.' : 'Brief reviewed. Continue with the PO or planned launch below the brief.')
+      : current.source_kind === 'concept' ? 'Confirm product type, factory, sizes and quantities in Buy plan, then mark ready for PO.' : 'Complete the buy plan and review the source evidence, then save as reviewed.';
     $('next-action').textContent = current.status === 'dismissed' ? 'View reopen action' : current.status === 'reviewed' ? 'View handoffs' : 'Open buy plan';
   }
   document.querySelectorAll('[data-panel]').forEach(tab => {
@@ -454,14 +599,20 @@
   $('source-kind').onchange = () => { $('source-results').replaceChildren(); $('source-term').placeholder = $('source-kind').value === 'concept' ? 'Concept title' : 'Product title or exact SKU'; };
   $('queue-filter').onchange = renderQueue;
   $('load-more').onclick = () => run(() => loadQueue(true));
-  $('reload').onclick = () => run(async () => { if (!leave()) return; await loadQueue(); if (current?.version) await openBrief(current.id); });
+  $('reload').onclick = () => run(async () => { if (!leave()) return; await loadQueue(); await refreshStages(); if (current?.version) await openBrief(current.id); });
   $('brief-form').onsubmit = e => { e.preventDefault(); run(() => save('draft')); };
   $('brief-form').addEventListener('invalid', e => {
     const panel = e.target.closest('[role="tabpanel"]');
     if (panel) showPanel(panel.id.replace('panel-', ''));
     if (e.target.closest('#overview-edit')) $('overview-edit').open = true;
   }, true);
-  $('brief-form').oninput = () => { dirty = true; updateSummary(); };
+  $('brief-form').oninput = e => {
+    dirty = true;
+    // A confirmation describes specific lines. Any change to sizes, quantities,
+    // the total or the sizing mode withdraws it; the person confirms again.
+    if (e.target.id !== 'range-confirmed' && (e.target.closest('#lines') || e.target.closest('#readiness-section'))) $('range-confirmed').checked = false;
+    updateSummary();
+  };
   $('review').onclick = () => run(() => save('reviewed'));
   $('dismiss').onclick = () => run(() => save('dismissed'));
   $('reopen').onclick = () => run(() => save('draft'));
@@ -480,7 +631,18 @@
     if (!c.lines.length) c.lines=[{size:current.source_snapshot.variant_title || '',unit_cost:current.source_snapshot.unit_cost ?? null,retail_price:current.source_snapshot.msrp ?? null}];
     c.lines[0].qty=result.qty; current.content=c; dirty=true; render();
   };
-  $('add-size').onclick = () => { renderLine({}); dirty=true; };
+  $('add-size').onclick = () => { renderLine({}); dirty=true; if (current?.source_kind === 'concept') $('range-confirmed').checked = false; updateSummary(); };
+  document.querySelectorAll('[data-stage]').forEach(tab => {
+    tab.onclick = () => { stageView = tab.dataset.stage; renderStages(); };
+    tab.onkeydown = event => {
+      const tabs = [...document.querySelectorAll('[data-stage]')];
+      let index = tabs.indexOf(tab);
+      if (event.key === 'ArrowRight') index = (index + 1) % tabs.length;
+      else if (event.key === 'ArrowLeft') index = (index + tabs.length - 1) % tabs.length;
+      else return;
+      event.preventDefault(); stageView = tabs[index].dataset.stage; renderStages(); tabs[index].focus();
+    };
+  });
   window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
   run(boot);
 })();

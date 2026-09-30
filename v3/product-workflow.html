@@ -2,10 +2,10 @@
 <html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SILO · Product Studio preview</title>
+  <title>SILO · Product Studio</title>
   <link rel="stylesheet" href="../v2/beacon.css">
   <link rel="stylesheet" href="../v2/silo-brand.css">
-  <link rel="stylesheet" href="product-workflow.css?v=20260927spread">
+  <link rel="stylesheet" href="product-workflow.css?v=20260930ready">
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css">
   <link rel="stylesheet" href="../v2/v2-mobile.css">
   <script src="../v2/v2-shell.js" defer></script>
@@ -15,21 +15,30 @@
   <script src="../pages/config.js"></script>
   <script src="../v2/lib/supabase-js.min.js"></script>
   <script src="../v2/po-pipeline-sync.js?v=20260923190000"></script>
-  <script src="product-workflow-model.js?v=20260927spread"></script>
-  <script src="product-workflow-ui.js?v=20260927spread" defer></script>
+  <script src="product-workflow-model.js?v=20260930ready"></script>
+  <script src="product-studio-images.js?v=20260930ready"></script>
+  <script src="product-workflow-ui.js?v=20260930ready" defer></script>
 </head>
 <body>
 <div class="silo-app" id="silo-app"><main class="silo-main">
   <header class="bcn-header">
-    <div><span class="bcn-pill bcn-pill--accent">V3 · Direct-link preview</span><h1 class="bcn-header-title">Product Studio</h1><p>Shape the product. Review the buy. Carry the brief into launch.</p></div>
-    <button type="button" class="bcn-btn bcn-btn--ghost" id="reload">Refresh queue</button>
+    <div><h1 class="bcn-header-title">Product Studio</h1><p>From Ask SILO concept to a reviewed, ready-for-PO product and a draft PO.</p></div>
+    <div class="bcn-header-actions"><a class="bcn-btn bcn-btn--ghost" href="/v2/silo-chat.html">New concept in Ask SILO</a><button type="button" class="bcn-btn bcn-btn--ghost" id="reload">Refresh</button></div>
   </header>
   <div class="pw-content">
     <div id="status" class="bcn-status bcn-status--info" role="status" aria-live="polite">Loading workspace…</div>
-    <details class="pw-preview-note"><summary>About this preview</summary><p>Brief presets, restock review, draft POs and planned launches are connected. Background suggestions and the reporting-to-accounting feedback loop are not connected yet.</p></details>
+    <details class="pw-preview-note"><summary>How Ready for PO works</summary><p>Ask SILO proposes a product. A person confirms the product type, factory, sizes and quantities here and marks it ready. Only a ready product can become a PO, and the PO is created as a Draft from exactly what was reviewed. Marking ready does not approve purchasing or send anything to a factory.</p></details>
     <button type="button" id="browse-toggle" class="bcn-btn pw-browse-toggle" aria-expanded="false" aria-controls="source-rail">Browse sources and briefs</button>
     <div class="pw-layout">
       <aside class="pw-rail" id="source-rail" aria-label="Review queue">
+        <section class="bcn-card" id="concept-stages"><div class="bcn-card-header"><h2>Concepts</h2><span id="stage-count" class="bcn-mono"></span></div><div class="bcn-card-body">
+          <div class="pw-stage-tabs" role="tablist" aria-label="Concept stage">
+            <button type="button" role="tab" id="stage-ready_for_po" data-stage="ready_for_po" aria-selected="true">Ready for PO</button>
+            <button type="button" role="tab" id="stage-draft" data-stage="draft" aria-selected="false" tabindex="-1">Ideas / drafts</button>
+            <button type="button" role="tab" id="stage-po_created" data-stage="po_created" aria-selected="false" tabindex="-1">PO created</button>
+          </div>
+          <div id="stage-list" class="pw-list" role="tabpanel" aria-labelledby="stage-ready_for_po"></div>
+        </div></section>
         <section class="bcn-card"><div class="bcn-card-header"><h2>Start a product</h2></div><div class="bcn-card-body">
           <label class="bcn-label" for="source-kind">Brief preset</label>
           <select id="source-kind" class="bcn-field"><option value="concept">Product concept</option><option value="product">Catalog product</option><option value="restock">Restock · 90-day basis</option><option value="idea">Manual idea</option></select>
@@ -79,6 +88,19 @@
                 <div class="bcn-matrix-scroll" tabindex="0" role="region" aria-label="Purchase quantities"><table class="bcn-table"><thead><tr><th>Size / color</th><th>Units</th><th>Unit cost</th><th>Retail price</th></tr></thead><tbody id="lines"></tbody></table></div>
                 <button type="button" class="bcn-btn bcn-btn--ghost" id="add-size">Add size / color</button>
                 <p class="pw-muted">Keep the full product spread together. Use zero units for catalog sizes you are not buying. Remove an unwanted concept size by clearing its quantity.</p>
+                <section id="readiness-section" class="pw-readiness" hidden aria-labelledby="readiness-heading">
+                  <h3 id="readiness-heading">Ready for PO</h3>
+                  <p class="pw-muted">Confirm what will be bought. Ask SILO's numbers are proposals until you confirm them.</p>
+                  <div class="pw-grid">
+                    <fieldset class="pw-size-mode"><legend class="bcn-label">Sizing</legend>
+                      <label><input type="radio" name="size-mode" value="sized"> Sized product</label>
+                      <label><input type="radio" name="size-mode" value="one_size"> One size</label>
+                    </fieldset>
+                    <div><label class="bcn-label" for="f-total_qty">Total units</label><input id="f-total_qty" class="bcn-field bcn-field--mono" type="number" min="1" step="1"></div>
+                  </div>
+                  <label class="pw-confirm"><input type="checkbox" id="range-confirmed"> <span id="range-confirmed-label">I confirm these sizes/variants and quantities</span></label>
+                  <ul id="readiness-checklist" class="pw-checklist pw-missing" aria-live="polite"></ul>
+                </section>
               </section>
                 <section id="panel-launch" role="tabpanel" aria-labelledby="tab-launch" tabindex="0" hidden>
                   <h3>Plan the handoff</h3><p class="pw-muted">Review this brief first, then create a planned launch below. Manage scheduling and launch measurement in the existing Launch Workbench.</p>

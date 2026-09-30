@@ -854,6 +854,13 @@ await test('a same-named second company gets a distinct key, not a 23505', async
   assert.equal(titles.length, 2, 'two distinct companies may share a display name');
 });
 
+// Where the onboarding checks end: the next feature's block, else the Plaid tail.
+function onboardingEnd(verify) {
+  const plaid = verify.indexOf('-- Plaid ingestion:');
+  const onDeck = verify.indexOf('-- On Deck direct-link preview');
+  return onDeck > 0 && onDeck < plaid ? onDeck : plaid;
+}
+
 // ── The verify checks, actually executed ────────────────────────────────────
 // verify_v2_schema.sql is only worth anything if its checks run. These four
 // are extracted by their own markers and executed against this database, so a
@@ -862,7 +869,9 @@ await test('a same-named second company gets a distinct key, not a 23505', async
 await test('the four verify_v2_schema checks pass against the migrated schema', async () => {
   const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
   const start = verify.indexOf('-- ── Company onboarding (20260918120000)');
-  const end = verify.indexOf('-- Plaid ingestion:');
+  // The On Deck checks (20260929074429) follow the onboarding block inside the
+  // same span; they belong to that feature, not to this count of four.
+  const end = onboardingEnd(verify);
   assert.ok(start > 0 && end > start, 'the onboarding checks must sit above the Plaid marker');
   const statements = verify.slice(start, end).split(/;\s*\n/).filter(x => /^\s*(--[^\n]*\n)*\s*select/i.test(x));
   assert.equal(statements.length, 4, 'four checks');
@@ -876,7 +885,7 @@ await test('the verify checks FAIL when the thing they guard is broken', async (
   // A check that cannot go red is not a check. Break each guard and confirm.
   const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
   const slice = verify.slice(verify.indexOf('-- ── Company onboarding (20260918120000)'),
-                             verify.indexOf('-- Plaid ingestion:'));
+                             onboardingEnd(verify));
   const statements = slice.split(/;\s*\n/).filter(x => /^\s*(--[^\n]*\n)*\s*select/i.test(x));
 
   const check = async (i) => (await one(statements[i] + ';')).status;

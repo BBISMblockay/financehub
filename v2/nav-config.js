@@ -238,6 +238,12 @@
     // usable" shape as Payment Request / Request Manager above.
     { id: 'team/comp-requests', section: 'Team', label: 'Compensation', href: '/v2/comp-requests.html', profiles: ['grandfathered'] },
 
+    // Product Studio (2026-09-30): where an Ask SILO concept is confirmed and
+    // marked Ready for PO, then becomes a Draft PO. Replaces the Product
+    // Concepts page (now a forward). Ungated like PO Builder: reading is
+    // company-wide, and every write is refused server-side without
+    // po_builder_can_write().
+    { id: 'purchasing/product-studio', section: 'Purchasing', label: 'Product Studio', href: '/v3/product-workflow.html', profiles: ['grandfathered', 'standard'] },
     { id: 'purchasing/po-builder', section: 'Purchasing', label: 'PO Builder', href: '/v2/po-builder.html', profiles: ['grandfathered', 'standard'] },
     { id: 'purchasing/po-costing', section: 'Purchasing', label: 'PO Landed Cost', href: '/v2/po-costing.html', profiles: ['grandfathered', 'standard'] },
     { id: 'purchasing/po-report', section: 'Purchasing', label: 'PO Report', href: '/v2/po-report.html', profiles: ['grandfathered', 'standard'] },

@@ -33,5 +33,23 @@ spread.design_intent='Keep sizes available';assert.throws(()=>M.validate(spread,
 spread.lines[0].qty=800;spread.lines[1].qty=0;spread.restock.bases[1].units_90d=null;
 assert.equal(M.spreadRestock(spread)[1].qty,null);assert.throws(()=>M.validate(spread,'restock',true),/Explain/);
 spread.decision_note='Deliberately skip the unknown small size';assert.equal(M.validate(spread,'restock',true).lines.length,2);
-for(const file of ['v2/nav-config.js','v2/product-concepts.html','v2/po-builder.html','v2/launch-calendar.html']) assert.ok(!fs.readFileSync(path.join(root,file),'utf8').includes('product-workflow.html'),file+' remains unpromoted');
-console.log('Product presets, restock math, unknown evidence, review overrides and direct-link isolation passed.');
+// Promoted 2026-09-30: Product Studio is the Purchasing destination and the
+// old Product Concepts URL forwards to it (keeping ?concept=).
+assert.match(fs.readFileSync(path.join(root,'v2/nav-config.js'),'utf8'),/id: 'purchasing\/product-studio'[^\n]*href: '\/v3\/product-workflow\.html'/);
+const legacy=fs.readFileSync(path.join(root,'v2/product-concepts.html'),'utf8');
+assert.match(legacy,/location\.replace\('\/v3\/product-workflow\.html'/);assert.match(legacy,/next\.set\('concept'/);
+// Ready for PO: an Ask SILO proposal never arrives confirmed.
+const noSizes=M.preset('concept',{title:'Bat Bros Youth Hoodie',suggested_qty:1400,suggested_product_type:'Youth Sweatshirt',suggested_factory_id:'F1'});
+assert.equal(noSizes.lines.length,0,'no unsized line is invented for a concept without sizes');
+assert.equal(noSizes.po_readiness.total_qty,1400);assert.equal(noSizes.po_readiness.size_mode,null);assert.equal(noSizes.po_readiness.range_confirmed,false);
+const oneSize=M.preset('concept',{title:'Youth Cap',suggested_size_breakdown:{'One Size (adjustable snapback)':1800},suggested_qty:1800,suggested_factory_id:'F1'});
+assert.equal(oneSize.po_readiness.size_mode,null,'one populated size is not assumed to be one size');
+const issues=c=>JSON.parse(JSON.stringify(M.readinessIssues(c,{factoryIds:['F1']})));
+assert.deepEqual(issues(oneSize),['Choose a product type','Choose whether the product is sized or one size','Confirm the size/variant range and quantities']);
+const confirmed=c=>({...c,po_readiness:{...c.po_readiness,range_confirmed:true,confirmed_lines:M.confirmedLines(c.lines)}});
+assert.deepEqual(issues(confirmed({...oneSize,product_type:'Hats',po_readiness:{...oneSize.po_readiness,size_mode:'one_size'}})),[]);
+assert.deepEqual(issues(confirmed({...preset,factory_id:'F1',product_type:'Tees',po_readiness:{size_mode:'sized',total_qty:90}})),['Sizes total 100 units but the confirmed total is 90']);
+const stale={...confirmed({...preset,factory_id:'F1',product_type:'Tees',po_readiness:{size_mode:'sized',total_qty:100}})};stale.lines=[{size:'S',qty:40},{size:'M',qty:61}];stale.po_readiness.total_qty=101;
+assert.deepEqual(issues(stale),['Confirm the size/variant range and quantities'],'a confirmation of different lines is not a confirmation');
+assert.deepEqual(JSON.parse(JSON.stringify(M.readinessIssues(oneSize,{factoryIds:['F1'],isCollection:true}))),['This is a collection. Mark each product in it ready for PO separately']);
+console.log('Product presets, restock math, unknown evidence, review overrides, Ready for PO checklist and promotion passed.');
