@@ -1393,6 +1393,30 @@ select
     else 'ok'
   end as generate_po_from_concept_fn;
 
+-- A concept must be complete before it becomes a PO (20260930120000).
+-- product_concept_po_missing() is the ONE definition of "ready"; the view
+-- exposes it as po_missing and generate_po_from_concept() refuses on it. A
+-- view recreated without the column makes the page's checklist disappear
+-- silently (it reads a missing po_missing as "unknown"), so check the view,
+-- not only the function.
+select
+  case
+    when to_regprocedure('public.product_concept_po_missing(public.product_concepts)') is null
+      then 'MISSING — run 20260930120000_concept_po_readiness.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='product_concepts_v'
+                       and column_name='po_missing')
+      then 'MISSING — product_concepts_v.po_missing: the concepts page cannot show what a concept lacks'
+    when has_function_privilege('anon', 'public.product_concept_po_missing(public.product_concepts)', 'execute')
+      then 'CRITICAL — anon can execute product_concept_po_missing'
+    when not has_function_privilege('authenticated', 'public.product_concept_po_missing(public.product_concepts)', 'execute')
+      then 'MISSING — authenticated cannot execute product_concept_po_missing: product_concepts_v fails for every reader'
+    when position('product_concept_po_missing' in
+                  pg_get_functiondef(to_regprocedure('public.generate_po_from_concept(uuid)'))) = 0
+      then 'CRITICAL — generate_po_from_concept does not check readiness: incomplete concepts become POs'
+    else 'ok'
+  end as concept_po_readiness;
+
 -- Strategy notes + unit demand coverage (20260826040000 / 20260826050000).
 -- Strategy notes are how a stated human bet overrides a history-only
 -- recommendation; demand coverage is the unit-based planning context.

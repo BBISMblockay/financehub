@@ -47,6 +47,9 @@
     .pc-imgs img { width:100%; height:100%; object-fit:cover; display:block; }
     .pc-imgs a:hover { border-color:var(--bcn-accent); }
     .pc-upload-btn.is-busy { opacity:.55; pointer-events:none; }
+    /* What a concept still needs before Generate PO will take it. */
+    .pc-po-gate { margin:-4px 0 12px; }
+    .pc-po-gate ul { margin:6px 0 0; padding-left:18px; }
 
     @media (max-width: 900px) {
       .pc-content { flex-direction:column; }
@@ -119,6 +122,7 @@
 <script src="avatar.js"></script>
 <script src="silo-chrome.js"></script>
 <script src="evidence-card.js"></script>
+<script src="concept-po-gate.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
   const SUPABASE_URL = cfg.SUPABASE_URL || '';
@@ -180,6 +184,8 @@
         c.child_count > 0 ? h.chip(`${c.child_count} product${c.child_count === 1 ? '' : 's'}`) : '',
         c.suggested_product_type ? h.chip(c.suggested_product_type) : '',
         c.resulting_po_name ? h.chip(`PO: ${c.resulting_po_name}`) : '',
+        Array.isArray(c.po_missing) && !c.po_missing.length && !(c.child_count > 0) && c.status !== 'archived'
+          ? h.chip('PO ready', 'approved') : '',
       ].filter(Boolean).join('');
     },
 
@@ -350,28 +356,35 @@
     const chatUrl = `/v2/silo-chat.html?concept=${encodeURIComponent(c.id)}`;
     // The concept carries strategy; the PO is where a human commits to real
     // numbers. Same purchasing-adjacent gate as approving a concept
-    // (po_builder_can_write()). The PO Builder end calls
-    // generate_po_from_concept(), which makes the PO, its lines and the link
-    // in one transaction and returns the existing PO on a repeat. The
-    // button is left out where that function would refuse (archived, a
-    // collection parent, no factory). The function stays the authority, so
-    // a stale page still gets a clear refusal rather than a PO.
+    // (po_builder_can_write()). Whether THIS concept is ready is decided in
+    // the database (product_concept_po_missing(), read as po_missing) and
+    // only drawn here by concept-po-gate.js. An incomplete concept gets the
+    // list of what it lacks and a request for Ask SILO to fill it, never a
+    // PO: the first live Generate PO made one flat 1,400-unit line at $0
+    // from a concept with no sizes, cost or retail.
     const poUrl = `/v2/po-builder.html?fromConcept=${encodeURIComponent(c.id)}`;
-    const poBlocked = c.status === 'archived' ? 'Archived concepts cannot generate a PO'
-      : Number(c.child_count) > 0 ? 'A collection is purchased product by product. Generate a PO from each product'
-      : !c.suggested_factory_id ? 'Set a suggested factory before generating a PO' : '';
+    const poGate = window.SiloConceptPoGate.gate(c);
+    const completeUrl = poGate.missing.length
+      ? `${chatUrl}&q=${encodeURIComponent(window.SiloConceptPoGate.completionPrompt(c, poGate.missing))}`
+      : '';
+    const gateHtml = canWritePO && !poGate.ready
+      ? `<div class="bcn-status bcn-status--info pc-po-gate" id="poGate">${esc(poGate.reason)}${poGate.missing.length
+          ? ` Missing:<ul>${poGate.missing.map((m) => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}</div>`
+      : '';
     const imgCount = Array.isArray(c.reference_image_urls) ? c.reference_image_urls.filter(Boolean).length : 0;
     const editable = canEditConcept(c);
     el('detail').innerHTML = `
       <div class="pc-detail-actions">
         <a class="bcn-btn bcn-btn--primary" href="${chatUrl}">Open in Ask SILO</a>
-        ${canWritePO ? (poBlocked
-          ? `<button type="button" class="bcn-btn bcn-btn--dark" disabled title="${esc(poBlocked)}">Generate PO</button>`
-          : `<a class="bcn-btn bcn-btn--dark" href="${poUrl}">Generate PO</a>`) : ''}
+        ${canWritePO ? (poGate.ready
+          ? `<a class="bcn-btn bcn-btn--dark" id="btnGeneratePO" href="${poUrl}">Generate PO</a>`
+          : `<button type="button" class="bcn-btn bcn-btn--dark" id="btnGeneratePO" disabled>Generate PO</button>`) : ''}
+        ${canWritePO && completeUrl ? `<a class="bcn-btn bcn-btn--ghost" id="btnCompleteConcept" href="${completeUrl}">Complete in Ask SILO</a>` : ''}
         ${editable ? `<button type="button" class="bcn-btn bcn-btn--ghost pc-upload-btn" id="btnAddImage">Add reference image</button>
         <input type="file" id="fileImage" accept="image/*" multiple hidden />` : ''}
         ${imgCount ? `<span class="bcn-mono" style="font-size:10.5px;color:var(--bcn-ink-3)">${imgCount} image${imgCount === 1 ? '' : 's'}</span>` : ''}
       </div>
+      ${gateHtml}
       ${window.SiloEvidenceCard.render(c, CONCEPT_SPEC)}`;
 
     if (editable) {

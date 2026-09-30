@@ -2644,3 +2644,22 @@ factory outside the active company. Checks mirror
 `handoff_product_workflow_brief()`. Verified by
 `scripts/tests/generate-po-from-concept-database.test.mjs` (20 cases, real
 Postgres) and the `generate_po_from_concept_fn` row in `verify_v2_schema.sql`.
+
+## A concept must be complete before it becomes a PO — `20260930120000_concept_po_readiness.sql`
+
+The first live Generate PO made one flat 1,400-unit line at $0 from a concept
+that was approved but had no size breakdown, unit cost or retail price (3 of
+the 20 concepts on production had a breakdown, 1 had any economics).
+`product_concept_po_missing(concept)` is now the one definition of "ready for
+a PO": approved, a factory, a product type, a size breakdown in whole units
+adding up to `suggested_qty`, and a positive `economics.unit_cost` and
+`economics.msrp`. It returns the names of what is missing (empty = ready).
+`product_concepts_v.po_missing` exposes it, `/v2/product-concepts.html` draws
+it as a checklist with a "Complete in Ask SILO" link, and
+`generate_po_from_concept()` refuses on it and takes lines only from the size
+breakdown (the flat `suggested_qty` fallback line is gone). A fractional size
+is refused, never rounded: `po_lines.qty` is an integer column. Any other path
+that hands a concept to purchasing should call the same function. Approval
+itself is not tightened. Verified by
+`scripts/tests/generate-po-from-concept-database.test.mjs` (23 cases, both
+migrations applied in order) and the `concept_po_readiness` verify row.
