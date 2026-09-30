@@ -267,7 +267,7 @@
         const finCell = finEditable
           ? permCheckbox('finance', r.user_id, p, finChecked, false, finTitle)
           : `<span class="ws-perm-hint"${finTitle ? ` title="${esc(finTitle)}"` : ''}>${finChecked ? 'yes' : '—'}</span>`;
-        permCells = `<td class="ws-perm">${siloCell}</td><td class="ws-perm">${seoCell}</td><td class="ws-perm">${finCell}</td>`;
+        permCells = `<td class="ws-perm-cell">${siloCell}</td><td class="ws-perm-cell">${seoCell}</td><td class="ws-perm-cell">${finCell}</td>`;
       }
 
       return `<tr>
