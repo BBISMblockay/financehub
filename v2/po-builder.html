@@ -875,8 +875,10 @@
         title_snapshot:c.title||null, unit_cost:cost, retail_price:retail,
         source_concept_id:c.id,
         line_notes:`From concept: ${c.title||''}`.trim() };
-      // Same rule as generate_po_from_concept(): a breakdown with no
-      // positive size falls back to the single suggested_qty line.
+      // NOTE: since 20260930120000 the database refuses a browser insert of a
+      // line carrying source_concept_id (and of po_concept_links), so this
+      // still-hidden picker cannot put a concept on a PO without Ready for PO.
+      // A breakdown with no positive size falls back to one suggested_qty line.
       const bd=c.suggested_size_breakdown;
       if(bd && typeof bd==='object' && !Array.isArray(bd)){
         const sized=Object.entries(bd)
@@ -1586,19 +1588,26 @@
       }catch(e){ console.error(e); alert(e.message||'Initial load failed'); }
     }
 
-    // /v2/po-builder.html?fromConcept=<id> -- the "Generate PO" button on
-    // /v2/product-concepts.html. The PO, its lines and the concept link are
-    // made by ONE database function, generate_po_from_concept()
-    // (20260930000000), so they commit together or not at all. The page used
-    // to write them as three requests, and a failure after the first left an
-    // empty PO holding the concept's claim, which every later click then
-    // opened. The function locks the concept, so a double click or a second
-    // tab gets the PO already made (repeated = true), never a second one.
-    // Its line rule is the same as conceptToLines() below.
+    // /v2/po-builder.html?fromConcept=<id> -- the legacy "Generate PO" link
+    // (Product Concepts now forwards to Product Studio). The PO, its lines and
+    // the concept link are made by ONE database function,
+    // generate_po_from_concept(), so they commit together or not at all, and
+    // a double click or a second tab gets the PO already made (repeated =
+    // true). Since 20260930120000 it only builds a PO from a concept a person
+    // marked Ready for PO in Product Studio, from that reviewed snapshot; it
+    // refuses anything else, and this page says where to go instead.
     async function generateFromConceptDeepLink(conceptId){
       setStatus('Generating a PO from this concept…','info',0);
       const {data,error}=await sb.rpc('generate_po_from_concept',{p_concept_id:conceptId});
-      if(error){ setStatus('Could not generate a PO: '+(error.message||'unknown error'),'neg',0); return; }
+      if(error){
+        setStatus('Could not generate a PO: '+(error.message||'unknown error'),'neg',0);
+        const box=document.getElementById('poStatus');
+        if(box && /ready for PO/i.test(error.message||'')){
+          const a=document.createElement('a'); a.href='/v3/product-workflow.html?concept='+encodeURIComponent(conceptId);
+          a.textContent=' Open it in Product Studio'; a.style.marginLeft='6px'; box.append(a);
+        }
+        return;
+      }
       const poId=data?.po_header_id;
       if(!poId){ setStatus('Could not generate a PO: the database returned no PO.','neg',0); return; }
       // A reload now opens this PO rather than asking to generate again.

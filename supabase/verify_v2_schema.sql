@@ -5384,6 +5384,44 @@ select 'Product Studio writer spread guards' as check_name,
  then 'MISSING: product-level save or handoff guard' else 'ok' end as status;
 -- End Product Studio variant spread checks.
 
+-- Product Studio Ready for PO checks.
+-- 20260930120000: the readiness rules run in the database at mark-ready and
+-- again at PO creation, and no browser write can attach a concept to a PO
+-- except through those functions. A lost trigger or grant here silently
+-- reopens the bypass (a concept PO built from unreviewed AI suggestions).
+with expected(signature,client) as (values
+ ('public.product_concept_po_readiness_issues(uuid,uuid,jsonb)',false),
+ ('public.product_concept_po_header(uuid,uuid)',false),
+ ('public.product_concept_purchasing_fingerprint(public.product_concepts)',true),
+ ('public.generate_po_from_concept(uuid)',true))
+select signature as product_studio_ready_rpc,
+ case when to_regprocedure(signature) is null then 'MISSING: apply 20260930120000_product_studio_ready_for_po.sql'
+ when has_function_privilege('anon',to_regprocedure(signature),'EXECUTE') then 'CRITICAL: anonymous Ready for PO function'
+ when has_function_privilege('authenticated',to_regprocedure(signature),'EXECUTE') is distinct from client then 'CRITICAL: incorrect Ready for PO function grant'
+ else 'ok' end as status from expected;
+select 'Product Studio Ready for PO gate' as check_name,
+ case when not exists(select 1 from information_schema.columns where table_schema='public' and table_name='product_workflow_briefs' and column_name='po_ready_concept_fingerprint')
+   then 'MISSING: apply 20260930120000_product_studio_ready_for_po.sql'
+ when not exists(select 1 from pg_proc where oid=to_regprocedure('public.save_product_workflow_brief(uuid,uuid,integer,text,uuid,jsonb,text)')
+   and prosrc like '%product_concept_po_readiness_issues%')
+ or not exists(select 1 from pg_proc where oid=to_regprocedure('public.handoff_product_workflow_brief(uuid,uuid,integer,text,date)')
+   and prosrc like '%product_concept_po_readiness_issues%' and prosrc like '%po_ready_concept_fingerprint%')
+ or not exists(select 1 from pg_proc where oid=to_regprocedure('public.generate_po_from_concept(uuid)')
+   and prosrc like '%handoff_product_workflow_brief%')
+   then 'CRITICAL: a concept-to-PO writer does not enforce Ready for PO'
+ else 'ok' end as status;
+select 'Concept PO bypass guards' as check_name,
+ case when (select count(*) from pg_trigger t join pg_class c on c.oid=t.tgrelid
+            where t.tgname='trg_guard_concept_po_writes' and not t.tgisinternal and t.tgenabled <> 'D'
+              and c.relname in ('po_lines','po_headers','po_concept_links')) <> 3
+   then 'CRITICAL: trg_guard_concept_po_writes is missing or disabled on po_lines/po_headers/po_concept_links'
+ when (select prosecdef from pg_proc where oid=to_regprocedure('public.guard_concept_po_writes()'))
+   then 'CRITICAL: guard_concept_po_writes must be SECURITY INVOKER (it reads current_user)'
+ when to_regclass('public.product_studio_concepts_v') is null then 'MISSING: product_studio_concepts_v'
+ when has_table_privilege('anon','public.product_studio_concepts_v','select') then 'CRITICAL: anon can read product_studio_concepts_v'
+ else 'ok' end as status;
+-- End Product Studio Ready for PO checks.
+
 
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks

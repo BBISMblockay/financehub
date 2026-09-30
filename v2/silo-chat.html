@@ -354,7 +354,7 @@
         <button id="btnSaved" class="bcn-btn bcn-btn--ghost">Saved reports</button>
         <button id="btnNotes" class="bcn-btn bcn-btn--ghost">Training</button>
         <button id="btnConceptMode" class="bcn-btn bcn-btn--ghost" type="button">New concept</button>
-        <a id="btnConcepts" class="bcn-btn bcn-btn--ghost" href="/v2/product-concepts.html">Concepts</a>
+        <a id="btnConcepts" class="bcn-btn bcn-btn--ghost" href="/v3/product-workflow.html">Product Studio</a>
         <button id="btnNewChat" class="bcn-btn bcn-btn--ghost">New chat</button>
       </div>
     </header>
@@ -835,6 +835,11 @@
     actions: (c) => {
       if (c.status === 'archived') return [];
       return [
+        // Purchasing decisions happen in Product Studio: confirm product type,
+        // factory, sizes and quantities there, mark Ready for PO, create the
+        // draft PO. Approving here is not readiness.
+        { label: 'Open in Product Studio', action: 'studio',
+          title: 'Review the concept, confirm the purchasing details and mark it ready for PO' },
         c.phase === 'core_draft'
           ? { label: 'Build full plan', action: 'build_full_plan', variant: 'primary',
               title: 'Ground and fill the launch-plan brief (size curve, channel split, spend, revenue shape, cadence, copy)' }
@@ -845,7 +850,7 @@
           title: 'Describe a change; it becomes a new revision of this concept' },
         c.status === 'draft'
           ? { label: 'Approve', action: 'approve', variant: 'go',
-              title: 'Human sign-off. Requires the same purchasing write access PO Builder needs' }
+              title: 'Human sign-off on the idea. It is not Ready for PO: that is confirmed in Product Studio. Requires the same purchasing write access PO Builder needs' }
           : null,
       ];
     },
@@ -881,6 +886,11 @@
     const action = btn.dataset.ecAction;
     const conceptId = btn.dataset.ecId;
     if (!conceptId) return;
+
+    if (action === 'studio') {
+      window.location.href = '/v3/product-workflow.html?concept=' + encodeURIComponent(conceptId);
+      return;
+    }
 
     // "Revise…" has no canned prompt -- the change is whatever the user
     // types. Rather than a browser dialog (wrong for a chat surface, and

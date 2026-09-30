@@ -20,6 +20,11 @@ on:
       - 'scripts/lib/**'
       - 'scripts/tests/**'
       - 'supabase/migrations/*product_workflow_preview.sql'
+      # Product Studio Ready for PO (product-studio-ready-for-po-*.test.mjs),
+      # including the client checklist it holds to the database rule.
+      - 'supabase/migrations/*product_studio_*.sql'
+      - 'supabase/migrations/*generate_po_from_concept*.sql'
+      - 'v3/product-workflow-model.js'
       - 'supabase/migrations/*canned_report_accuracy.sql'
       # The SILO report catalog seeds and the migration that re-asserts the
       # 2026-09-22 cleanup after them (report-catalog-cleanup-database.test.mjs).
@@ -685,6 +690,24 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
+      # Product Studio Ready for PO: one PO per concept across Generate PO and
+      # the Studio handoff, and one ready brief per concept, under genuinely
+      # overlapping transactions. Each lock, removed, must turn it red.
+      - name: Interleave Generate PO, Studio handoff and mark-ready sessions
+        env:
+          PG_CONCURRENCY_URL: postgresql://postgres@127.0.0.1:5432/postgres
+          PG_CONCURRENCY_REQUIRED: '1'
+        run: |
+          set -u
+          node scripts/tests/product-studio-ready-for-po-concurrency.test.mjs
+          for m in generate-unlocked mark-unlocked; do
+            if CONC_MUTATION="$m" node scripts/tests/product-studio-ready-for-po-concurrency.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the lock it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       - name: The workspace owner-count lock, removed, must break it
         run: |
           set -u
@@ -723,6 +746,16 @@ jobs:
           for mutation in source-scope gate retry freeze read-scope catalog-drift restock-review restock-evidence restock-note; do
             if MUTATE="$mutation" node scripts/tests/product-workflow-database.test.mjs; then
               echo "::error::$mutation did not fail the suite"
+              exit 1
+            fi
+          done
+      - name: Execute Product Studio Ready for PO gate regressions
+        run: node scripts/tests/product-studio-ready-for-po-database.test.mjs
+      - name: Prove the Ready for PO tests reject each removed guard
+        run: |
+          for mutation in save-readiness handoff-ready fingerprint confirmation totals guard one-size existing-po; do
+            if MUTATE="$mutation" node scripts/tests/product-studio-ready-for-po-database.test.mjs; then
+              echo "::error::$mutation did not fail the Ready for PO suite"
               exit 1
             fi
           done

@@ -274,10 +274,9 @@ faster than it is clearing, and a capability with no user is not finished.
 For each: surface it, or record the decision to leave it and stop counting
 it as shipped.
 
-- [ ] **Product Concepts** — `/v2/product-concepts.html` and the Ask SILO
-      branch, gated to a hardcoded tester allowlist in the edge function
-- [ ] **Concept → PO** — fully wired in `/v2/po-builder.html` behind a
-      `hidden` button (see "Decided" below; needs an explicit yes)
+- [x] **Product Concepts / Concept → PO** — surfaced 2026-09-30 as Product
+      Studio (Purchasing nav) with the Ready for PO gate; the old page forwards.
+      The in-builder picker stays hidden and is refused server-side
 - [ ] **Returns Overview** — `/v2/returns-overview.html`, out of nav until
       Redo coverage is complete; no date or criterion recorded for "complete"
 - [ ] **Dashboards / Saved reports / Report builder** — in nav since
@@ -328,8 +327,8 @@ These look like oversights and are not. Each was settled deliberately.
   sold, never by time
 - **Comp self-requests are allowed.** See CLAUDE.md's `comp_adjustment_requests`
   entry — the visibility is the control at this headcount
-- **`/v2/returns-overview.html` and `/v2/product-concepts.html` stay out of the
-  nav** until their coverage/workflow is complete
+- **`/v2/returns-overview.html` stays out of the nav** until its coverage is
+  complete (`/v2/product-concepts.html` became Product Studio, 2026-09-30)
 - **`checkwriter` is kept** as an internal tool despite having no nav entry
 
 ---

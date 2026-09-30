@@ -950,6 +950,12 @@ test('no company-specific channel or store name is hardcoded into the shared pro
 console.log('\n-- size (reported, and bounded so it cannot silently regrow) --');
 
 const words = (s) => s.split(/\s+/).filter(Boolean).length;
+test('approving a concept is not Ready for PO, and missing purchasing details are never invented', () => {
+  has(PRODUCT_CONCEPT_GUIDANCE, 'Approving a concept is NOT Ready for PO, and you cannot mark anything ready', 'concept block');
+  has(PRODUCT_CONCEPT_GUIDANCE, 'Never invent a size breakdown, factory or product type', 'concept block');
+  lacks(PRODUCT_CONCEPT_GUIDANCE, 'still-manual PO Builder link', 'concept block');
+});
+
 test('prompt sizes', () => {
   const sizes = Object.fromEntries(Object.entries(ASSEMBLED).map(([k, p]) => [k, words(p)]));
   console.log(`       words: ${JSON.stringify(sizes)}`);
