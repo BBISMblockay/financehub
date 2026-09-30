@@ -24,7 +24,7 @@
     .v3-list-content { padding: 14px 18px 30px; display: flex; flex-direction: column; gap: 14px; }
     .lib-tabs { padding: 0 18px; flex-shrink: 0; overflow-x: auto; }
     .lib-tabs .bcn-tab { flex-shrink: 0; white-space: nowrap; }
-    .lib-tabs[hidden] { display: none; }
+    .lib-tabs[hidden], .lib-tabs .bcn-tab[hidden] { display: none; }
     /* The tabs are <button>s (real tab semantics), so the UA's button box
        has to go or each one draws as a bordered button. */
     .lib-tabs .bcn-tab {
