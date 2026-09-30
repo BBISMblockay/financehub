@@ -90,6 +90,20 @@ const r = createReporter('bi-navigation');
     r.ok('complete months are not marked',
       heads.filter((h) => /2[0-9]/.test(h.text) && !h.partial).length >= 1, JSON.stringify(heads.map((h) => h.text)));
 
+    // Pinned clock, not today's date: on the LAST day of a month a preset's
+    // range ends exactly on that month's last day, which the page used to read
+    // as a whole month (this suite failed on 2026-09-30 for that reason only).
+    const lastDay = await page.evaluate(() => {
+      const K = window.SiloDailyTrendKpis; const real = K && K.pacificToday;
+      if (K) K.pacificToday = () => '2026-09-30';
+      try {
+        const range = { from: '2026-07-01', to: '2026-09-30' };
+        return { sep: monthPartial('2026-09', range), aug: monthPartial('2026-08', range), hasKpis: !!K };
+      } finally { if (K) K.pacificToday = real; }
+    });
+    r.ok('on a month\'s last day that month is still partial', lastDay.hasKpis && lastDay.sep.partial === true, JSON.stringify(lastDay));
+    r.ok('and the finished month before it is not', lastDay.aug.partial === false, JSON.stringify(lastDay));
+
     console.log('\n── Net Sales is offered, from the existing column ──');
     const metrics = await page.evaluate(() =>
       [...document.querySelectorAll('#metricMode option')].map((o) => o.value));

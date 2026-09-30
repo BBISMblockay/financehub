@@ -367,6 +367,10 @@
     const r = range || state.range || { from:`${mk}-01`, to: lastDayOf(mk) };
     const monthStart = `${mk}-01`, monthEnd = lastDayOf(mk);
     if (r.from > monthStart) return { partial:true, reason:`covers ${fmtDay(r.from)} onward, not the whole month` };
+    // A month whose last day has not finished is still filling up, even when
+    // the range reaches its last day: a preset ends TODAY, so on the last day
+    // of a month r.to === monthEnd and the check below alone passed it as whole.
+    if (monthEnd >= todayIso()) return { partial:true, reason:'still in progress' };
     if (r.to < monthEnd) {
       return mk >= todayIso().slice(0,7)
         ? { partial:true, reason:'still in progress' }
