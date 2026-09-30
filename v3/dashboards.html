@@ -193,7 +193,7 @@
 <!-- Native dialog keeps focus inside and returns it on dismissal. -->
 <dialog class="v3-modal lib-dialog" id="archiveDialog" aria-labelledby="archiveTitle" aria-describedby="archiveBody">
   <div class="v3-modal-head">
-    <h3 id="archiveTitle">Archive report</h3>
+    <h3 id="archiveTitle" tabindex="-1">Archive report</h3>
     <button type="button" class="v3-close" id="btnCloseArchive" aria-label="Close">✕</button>
   </div>
   <div class="v3-modal-body">
@@ -608,6 +608,7 @@
     archiveStatus('');
     for (const id of ['btnConfirmArchive', 'btnCancelArchive', 'btnCloseArchive', 'btnRetryArchive']) el(id).disabled = true;
     el('btnConfirmArchive').textContent = archived ? 'Archiving…' : 'Restoring…';
+    el('archiveTitle').focus(); // The action buttons are disabled while saving.
     try {
       const { data: result, error } = await sb.rpc('set_saved_report_archived', { p_report_id: r.id, p_archived: archived });
       if (error) throw new Error(error.message);
@@ -625,6 +626,7 @@
       archiveBusy = false;
       for (const id of ['btnConfirmArchive', 'btnCancelArchive', 'btnCloseArchive', 'btnRetryArchive']) el(id).disabled = false;
       el('btnConfirmArchive').textContent = archived ? 'Archive report' : 'Restore report';
+      if (archiveDialog.open) el('btnConfirmArchive').focus();
     }
   }
   el('btnConfirmArchive').addEventListener('click', confirmArchive);
@@ -632,6 +634,23 @@
   el('btnCloseArchive').addEventListener('click', closeArchive);
   el('btnRetryArchive').addEventListener('click', () => { if (archiveTarget) openArchive(archiveTarget.id, archiveTrigger); });
   archiveDialog.addEventListener('cancel', (event) => { event.preventDefault(); closeArchive(); });
+  archiveDialog.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab') return;
+    // Native modality makes the page inert, but Tab can still move to the
+    // browser chrome after the last control. Keep this task's focus loop
+    // inside the dialog, including when dependencies add links dynamically.
+    const controls = [...archiveDialog.querySelectorAll('a[href], button, input, select, textarea, [tabindex]')]
+      .filter((node) => !node.disabled && node.tabIndex >= 0 && node.getClientRects().length);
+    if (!controls.length) { event.preventDefault(); return; }
+    const first = controls[0], last = controls[controls.length - 1];
+    if (!controls.includes(document.activeElement)) {
+      event.preventDefault(); (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault(); first.focus();
+    }
+  });
 
   // ── New dashboard ───────────────────────────────────────────────────
   async function createDashboard() {

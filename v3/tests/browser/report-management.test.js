@@ -114,6 +114,10 @@ let BASE;
       await p.keyboard.press('Tab');
       assert.equal(await p.evaluate(() => document.getElementById('archiveDialog').contains(document.activeElement)), true, 'native modal traps keyboard focus');
     }
+    for (let i = 0; i < 8; i++) {
+      await p.keyboard.press('Shift+Tab');
+      assert.equal(await p.evaluate(() => document.getElementById('archiveDialog').contains(document.activeElement)), true, 'reverse keyboard focus stays in the dialog');
+    }
     await p.keyboard.press('Escape');
     await waitClosed(p);
     assert.equal(await p.evaluate(() => document.activeElement?.dataset.reportId), 'R1', 'cancel restores focus to the originating card action');
@@ -217,6 +221,8 @@ let BASE;
     assert.equal(await p.isDisabled('#btnConfirmArchive'), true);
     assert.equal(await p.isDisabled('#btnCancelArchive'), true);
     assert.equal(await p.isDisabled('#btnCloseArchive'), true);
+    await p.keyboard.press('Tab');
+    assert.equal(await p.evaluate(() => document.getElementById('archiveDialog').contains(document.activeElement)), true, 'pending write retains keyboard focus');
     await p.keyboard.press('Escape');
     await p.evaluate(() => {
       document.getElementById('btnCancelArchive').click();
@@ -294,8 +300,18 @@ let BASE;
 
     await p.click('#tab-mine');
     await openAction(p, 'M_PRIVATE');
+    await p.evaluate((name) => {
+      window.__FAKE_RPC_HANDLERS__[name] = () => new Promise((resolve) => { window.__releasePrivateArchive = resolve; });
+    }, ARCHIVE);
     await p.click('#btnConfirmArchive');
+    await p.waitForFunction(() => !!window.__releasePrivateArchive);
+    for (const key of ['Tab', 'Shift+Tab']) {
+      await p.keyboard.press(key);
+      assert.equal(await p.evaluate(() => document.activeElement?.id), 'archiveTitle', 'zero-dependency pending action retains focus when every button is disabled');
+    }
+    await p.evaluate(() => window.__releasePrivateArchive(undefined));
     await waitClosed(p);
+    await p.evaluate(() => { window.__FAKE_RPC_HANDLERS__ = {}; });
     await p.click('#tab-archived');
     await openAction(p, 'M_PRIVATE', 'restore', 'archivedBody');
     await p.click('#btnConfirmArchive');
