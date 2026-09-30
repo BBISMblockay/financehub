@@ -592,7 +592,8 @@ jobs:
         run: |
           set -u
           node scripts/tests/ad-platform-sync-run.test.mjs
-          for m in no-rls-check no-account-check no-clamp job-not-failed; do
+          for m in no-rls-check no-account-check no-clamp job-not-failed \
+                   unchecked-token unchecked-meta unchecked-job-success silent-unrecorded; do
             if AD_SYNC_RUN_MUTATION="$m" node scripts/tests/ad-platform-sync-run.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi

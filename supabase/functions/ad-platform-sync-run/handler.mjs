@@ -107,36 +107,60 @@ export function createHandler({ service, userClientFor, googleEnv, runConnection
     }).select('id').single();
     if (jobErr || !job) return json({ ok: false, error: 'Could not record the sync job' }, 500);
 
+    // Supabase reports a failed write as a returned `error`, never a throw,
+    // so every write here goes through check(): a sync whose bookkeeping did
+    // not land must not answer ok, and a job must not stay 'running' silently.
+    const check = (res, what) => {
+      if (res?.error) throw new Error(`${what}: ${res.error.message || res.error}`);
+      return res;
+    };
+    // Records the job as failed and answers not-ok. If even that write fails,
+    // the response says so, since the stored job then still reads 'running'.
+    const fail = async (message, status) => {
+      const res = await service.from('sync_jobs')
+        .update({ status: 'error', finished_at: now().toISOString(), error: message.slice(0, 2000) })
+        .eq('id', job.id);
+      const unrecorded = res?.error
+        ? ` (and the failure could not be recorded, so job ${job.id} may still read as running: ${res.error.message || res.error})`
+        : '';
+      return json({ ok: false, error: (message + unrecorded).slice(0, 800) }, status);
+    };
+
+    let result;
     try {
-      const result = await runConnectionSync(service, googleEnv, conn, {
+      result = await runConnectionSync(service, googleEnv, conn, {
         batchId: `manual-${job.id}`,
         daysBackOverride: plan.daysBack,
         onTokenRefresh: async (accessToken, expiresAt) => {
-          await service.from('ad_platform_connections')
+          check(await service.from('ad_platform_connections')
             .update({ access_token: accessToken, token_expires_at: expiresAt, updated_at: now().toISOString() })
-            .eq('id', conn.id);
+            .eq('id', conn.id), 'Could not save the refreshed Google token');
         },
       });
-      await service.from('ad_platform_connections')
-        .update({ meta: { ...(conn.meta || {}), last_sync_at: result.synced_at }, updated_at: now().toISOString() })
-        .eq('id', conn.id);
-      await service.from('sync_jobs')
-        .update({ status: 'success', finished_at: now().toISOString(), result })
-        .eq('id', job.id);
-      return json({
-        ok: true,
-        platform: result.platform,
-        window: result.window,
-        rows_fetched: result.rows_fetched,
-        kpi_rows_upserted: result.kpi_rows_upserted,
-        synced_at: result.synced_at,
-      });
     } catch (err) {
-      const message = String(err?.message ?? err).slice(0, 500);
-      await service.from('sync_jobs')
-        .update({ status: 'error', finished_at: now().toISOString(), error: message.slice(0, 2000) })
-        .eq('id', job.id);
-      return json({ ok: false, error: message }, 502);
+      return fail(String(err?.message ?? err).slice(0, 500), 502);
     }
+
+    // The rows are in; only the bookkeeping remains. A failure here is SILO's,
+    // not Google's, and the answer says the data did land.
+    try {
+      check(await service.from('ad_platform_connections')
+        .update({ meta: { ...(conn.meta || {}), last_sync_at: result.synced_at }, updated_at: now().toISOString() })
+        .eq('id', conn.id), 'Could not record the sync time on the connection');
+      check(await service.from('sync_jobs')
+        .update({ status: 'success', finished_at: now().toISOString(), result })
+        .eq('id', job.id), 'Could not record the sync job as finished');
+    } catch (err) {
+      return fail(`Synced ${result.kpi_rows_upserted} rows, but ${String(err?.message ?? err)}`, 500);
+    }
+
+    return json({
+      ok: true,
+      platform: result.platform,
+      window: result.window,
+      rows_fetched: result.rows_fetched,
+      kpi_rows_upserted: result.kpi_rows_upserted,
+      synced_at: result.synced_at,
+    });
   };
 }

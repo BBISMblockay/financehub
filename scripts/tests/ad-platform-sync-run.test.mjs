@@ -6,7 +6,8 @@
  *
  * Run: node scripts/tests/ad-platform-sync-run.test.mjs
  * Mutations (each must fail the suite): AD_SYNC_RUN_MUTATION=
- *   no-rls-check | no-account-check | no-clamp | job-not-failed
+ *   no-rls-check | no-account-check | no-clamp | job-not-failed |
+ *   unchecked-token | unchecked-meta | unchecked-job-success | silent-unrecorded
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -22,6 +23,10 @@ const MUTATIONS = {
   'no-account-check': ['if (!conn[ACCOUNT_FIELD[conn.platform]]) {', 'if (false) {'],
   'no-clamp': ['Math.min(days, MAX_DAYS_BACK)', 'days'],
   'job-not-failed': ["update({ status: 'error',", "update({ status: 'running',"],
+  'unchecked-token': ["check(await service.from('ad_platform_connections')\n            .update({ access_token", "(await service.from('ad_platform_connections')\n            .update({ access_token"],
+  'unchecked-meta': ["check(await service.from('ad_platform_connections')\n        .update({ meta", "(await service.from('ad_platform_connections')\n        .update({ meta"],
+  'unchecked-job-success': ["check(await service.from('sync_jobs')\n        .update({ status: 'success'", "(await service.from('sync_jobs')\n        .update({ status: 'success'"],
+  'silent-unrecorded': ["const unrecorded = res?.error", "const unrecorded = false"],
 };
 assert.ok(mutation === '' || MUTATIONS[mutation], `Unknown mutation ${mutation}`);
 
@@ -40,7 +45,9 @@ const test = async (name, fn) => { await fn(); n += 1; console.log(`ok ${n} - ${
 // ── fakes ───────────────────────────────────────────────────────────────────
 const CO = 'co-1';
 const USER = { id: 'user-1' };
-function makeDb({ rows, visibleIds = null }) {
+// failUpdate(table, patch) -> true makes that write return { error } the way
+// PostgREST does: resolved, never thrown.
+function makeDb({ rows, visibleIds = null, failUpdate = () => false }) {
   const log = { inserts: [], updates: [], upserts: [] };
   const tables = { ad_platform_connections: rows, sync_jobs: [], marketing_kpis_daily: [] };
   function query(table, { rls }) {
@@ -61,8 +68,9 @@ function makeDb({ rows, visibleIds = null }) {
       update(patch) {
         return {
           async eq(col, val) {
-            for (const r of tables[table] || []) if (r[col] === val) Object.assign(r, patch);
             log.updates.push({ table, patch, where: [col, val] });
+            if (failUpdate(table, patch)) return { data: null, error: { message: `injected ${table} failure` } };
+            for (const r of tables[table] || []) if (r[col] === val) Object.assign(r, patch);
             return { error: null };
           },
         };
@@ -211,6 +219,44 @@ await test('a Google refusal marks the job failed and says why', async () => {
   assert.match(job.error, /PERMISSION_DENIED/);
   assert.ok(job.finished_at);
   assert.equal(db.tables.marketing_kpis_daily.length, 0);
+});
+
+await test('a failed write never answers ok, and never leaves the job silently running', async () => {
+  const cases = [
+    ['refreshed token', (t, p) => t === 'ad_platform_connections' && 'access_token' in p, /refreshed Google token/, 502],
+    ['last sync time', (t, p) => t === 'ad_platform_connections' && 'meta' in p, /Synced 2 rows, but Could not record the sync time/, 500],
+    ['job success', (t, p) => t === 'sync_jobs' && p.status === 'success', /Synced 2 rows, but Could not record the sync job as finished/, 500],
+  ];
+  for (const [what, failUpdate, re, status] of cases) {
+    fakeGoogle();
+    const db = makeDb({ rows: [adsConn()], visibleIds: ['c-ads'], failUpdate });
+    const res = await handlerFor(db)(req({ connection_id: 'c-ads' }));
+    const body = await res.json();
+    assert.equal(res.status, status, `${what}: ${JSON.stringify(body)}`);
+    assert.equal(body.ok, false, what);
+    assert.match(body.error, re, what);
+    assert.equal(db.tables.sync_jobs[0].status, 'error', `${what}: job must end as error`);
+  }
+});
+
+await test('when the failure itself cannot be recorded, the answer says the job may still read running', async () => {
+  // Google refuses, then the error write fails too.
+  fakeGoogle({ adsStatus: 403 });
+  let db = makeDb({ rows: [adsConn()], visibleIds: ['c-ads'], failUpdate: (t) => t === 'sync_jobs' });
+  let res = await handlerFor(db)(req({ connection_id: 'c-ads' }));
+  let body = await res.json();
+  assert.equal(body.ok, false);
+  assert.match(body.error, /PERMISSION_DENIED/);
+  assert.match(body.error, /could not be recorded.*may still read as running/);
+  assert.equal(db.tables.sync_jobs[0].status, 'running');
+  // Rows land, then every job write fails: still never ok.
+  fakeGoogle();
+  db = makeDb({ rows: [adsConn()], visibleIds: ['c-ads'], failUpdate: (t) => t === 'sync_jobs' });
+  res = await handlerFor(db)(req({ connection_id: 'c-ads' }));
+  body = await res.json();
+  assert.equal(res.status, 500);
+  assert.equal(body.ok, false);
+  assert.match(body.error, /could not be recorded.*may still read as running/);
 });
 
 await test('Integrations offers Sync now on Google Ads and GA4 rows only, calling this function', () => {
