@@ -16,6 +16,7 @@
   <script src="silo-chrome.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
+  <script src="team-feature-access.js"></script>
 </head>
 <body>
   <div class="silo-app" id="silo-app">
@@ -90,8 +91,10 @@
             <p class="ws-note" style="margin:0;">
               Checkboxes add narrow grants on top of workspace role and department.
               Ask SILO and SEO checkboxes need an Owner or Executive profile on the person making the change (same rule as the legacy backend page).
-              Owner and Executive profiles already include those capabilities for the member.
-              Finance uses department (<span class="ws-perm-hint">finance</span> / <span class="ws-perm-hint">ops</span>) and is editable by workspace admins when the member belongs to this company only.
+              Workspace Owners inherit Ask SILO, SEO, and Finance here regardless of global profile.
+              Executive profile inherits Ask SILO and SEO. Finance also follows department
+              (<span class="ws-perm-hint">finance</span> / <span class="ws-perm-hint">ops</span>) when it is not already included with the Owner role.
+              Department and Finance checkboxes are disabled when the person belongs to more than one workspace, because their department is shared globally.
             </p>
           </div>
         </div>
@@ -140,9 +143,7 @@
   ];
   const DEPTS = ['ops', 'finance', 'logistics', 'marketing', 'retail', 'exec'];
   const roleLabel = (r) => (ROLES.find(([v]) => v === r) || [null, r || '—'])[1];
-  const profileRole = (p) => String(p?.role || '').toLowerCase();
-  const hasExecProfile = (p) => ['owner', 'executive'].includes(profileRole(p));
-  const hasFinanceAccess = (p) => hasExecProfile(p) || ['finance', 'exec'].includes(String(p?.department || '').toLowerCase());
+  const TFA = () => window.SiloTeamFeatureAccess;
 
   let _co = null, _me = null, _isAdmin = false, _isOwner = false;
   let _canGrantSiloSeo = false;
@@ -156,6 +157,16 @@
     n.textContent = msg;
     n.hidden = false;
     if (ms) setTimeout(() => { n.hidden = true; }, ms);
+  }
+
+  async function loadOtherOrgUserIds(userIds) {
+    const set = new Set();
+    if (!_co?.id || !userIds.length) return set;
+    const { data, error } = await db.from('entity_memberships')
+      .select('user_id').neq('entity_id', _co.id).in('user_id', userIds);
+    if (error) throw error;
+    for (const row of data || []) set.add(row.user_id);
+    return set;
   }
 
   async function loadFeatureGrants(userIds) {
@@ -197,7 +208,8 @@
       .sort((a, b) => String(a.profile?.email || '').localeCompare(String(b.profile?.email || '')));
 
     el('memberCount').textContent = rows.length + (rows.length === 1 ? ' member' : ' members');
-    await loadFeatureGrants(ids);
+    const [otherOrg] = await Promise.all([loadOtherOrgUserIds(ids), loadFeatureGrants(ids)]);
+    const access = TFA();
     const body = el('tblMembers').querySelector('tbody');
     const showPerms = _canGrantSiloSeo || _isAdmin;
     const colSpan = showPerms ? 8 : 5;
@@ -218,31 +230,43 @@
             + `${v === 'owner_admin' && !_isOwner ? ' disabled' : ''}>${l}</option>`).join('')
           + '</select>'
         : esc(roleLabel(r.role));
-      const deptCell = mayEdit
+      const deptBlocked = access.departmentChangeBlocked(otherOrg.has(r.user_id));
+      const deptTitle = deptBlocked
+        ? 'Department is shared across workspaces and cannot be changed here while they belong to another company.'
+        : '';
+      const canEditDept = mayEdit && !deptBlocked;
+      const deptCell = canEditDept
         ? `<select class="bcn-field ws-dept-select" data-dept-for="${esc(r.user_id)}">`
           + DEPTS.map((d) => `<option value="${d}"${d === (p?.department || 'ops') ? ' selected' : ''}>${d}</option>`).join('')
           + '</select>'
-        : esc(p?.department || '—');
+        : `<span class="ws-perm-hint"${deptTitle ? ` title="${esc(deptTitle)}"` : ''}>${esc(p?.department || '—')}${deptBlocked ? ' · shared' : ''}</span>`;
 
       let permCells = '';
       if (showPerms) {
-        const exec = hasExecProfile(p);
-        const siloChecked = exec || _siloGrants.has(r.user_id);
-        const seoChecked = exec || _seoGrants.has(r.user_id);
-        const finChecked = hasFinanceAccess(p);
-        const siloTitle = exec ? 'Included with Owner/Executive profile' : 'Teach and edit Ask SILO notes';
-        const seoTitle = exec ? 'Included with Owner/Executive profile' : 'Approve SEO tasks';
-        const finTitle = exec ? 'Included with Owner/Executive profile'
-          : (finChecked ? 'Finance department — uncheck sets department to ops' : 'Sets department to finance');
+        const execInherited = access.targetIsExecOrOwner(r.role, p);
+        const finInheritedOwner = access.financeInheritedFromWorkspace(r.role, p);
+        const finChecked = access.targetHasFinanceAccess(r.role, p);
+        const siloChecked = execInherited || _siloGrants.has(r.user_id);
+        const seoChecked = execInherited || _seoGrants.has(r.user_id);
+        const inheritedLabel = 'Included with workspace role';
+        const siloTitle = execInherited ? inheritedLabel : 'Teach and edit Ask SILO notes';
+        const seoTitle = execInherited ? inheritedLabel : 'Approve SEO tasks';
+        let finTitle = 'Sets department to finance';
+        if (finInheritedOwner) finTitle = 'Included with workspace Owner role';
+        else if (finChecked) finTitle = 'Finance department — uncheck sets department to ops';
+        if (deptBlocked && finChecked && !finInheritedOwner) {
+          finTitle = 'Finance department is shared across workspaces and cannot be changed here.';
+        }
         const siloCell = _canGrantSiloSeo
-          ? permCheckbox('silo', r.user_id, p, siloChecked, exec || !mayEdit, siloTitle)
+          ? permCheckbox('silo', r.user_id, p, siloChecked, execInherited || !mayEdit, siloTitle)
           : '<span class="ws-perm-hint">—</span>';
         const seoCell = _canGrantSiloSeo
-          ? permCheckbox('seo', r.user_id, p, seoChecked, exec || !mayEdit, seoTitle)
+          ? permCheckbox('seo', r.user_id, p, seoChecked, execInherited || !mayEdit, seoTitle)
           : '<span class="ws-perm-hint">—</span>';
-        const finCell = _isAdmin && mayEdit
-          ? permCheckbox('finance', r.user_id, p, finChecked, exec, finTitle)
-          : `<span class="ws-perm-hint">${finChecked ? 'yes' : '—'}</span>`;
+        const finEditable = _isAdmin && mayEdit && !finInheritedOwner && !deptBlocked;
+        const finCell = finEditable
+          ? permCheckbox('finance', r.user_id, p, finChecked, false, finTitle)
+          : `<span class="ws-perm-hint"${finTitle ? ` title="${esc(finTitle)}"` : ''}>${finChecked ? 'yes' : '—'}</span>`;
         permCells = `<td class="ws-perm">${siloCell}</td><td class="ws-perm">${seoCell}</td><td class="ws-perm">${finCell}</td>`;
       }
 
@@ -271,6 +295,17 @@
       p_notes: null,
     });
     if (error) throw error;
+    const { data: refreshed, error: readErr } = await db.from('profiles')
+      .select('department').eq('id', userId).maybeSingle();
+    if (readErr) throw readErr;
+    const saved = String(refreshed?.department || '').toLowerCase();
+    const wanted = String(department || '').toLowerCase();
+    if (saved !== wanted) {
+      throw new Error(
+        'Department was not changed. This person belongs to more than one workspace, '
+        + 'so their department is shared and cannot be edited here.'
+      );
+    }
     setStatus('Department updated.', 'pos', 5000);
     await loadMembers();
   }
