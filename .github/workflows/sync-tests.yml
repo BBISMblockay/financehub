@@ -99,6 +99,8 @@ on:
       - 'supabase/migrations/*incoming_shipment_audit*.sql'
       - 'scripts/tests/incoming-shipment-audit-database.test.mjs'
       - 'v2/settings-team.html'
+      - 'v2/team-feature-access.js'
+      - 'scripts/tests/team-feature-access.test.mjs'
       - 'v2/settings-notifications.html'
       - 'v2/platform-admin.html'
       - 'v2/nav-config.js'
@@ -329,6 +331,9 @@ jobs:
       # platform link that a company owner can never see.
       - name: Workspace settings navigation and platform separation
         run: node --test scripts/tests/workspace-settings.test.mjs
+
+      - name: Team settings feature access helpers
+        run: node --test scripts/tests/team-feature-access.test.mjs
 
       # One SEO row in the sidebar; Studio, Search performance and Keywords
       # are tabs across their existing pages.
