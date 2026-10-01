@@ -314,7 +314,8 @@ await test('the ledger refuses a row whose windows reach past its cutoff', async
      values ($1,'Leaky','2026-09-01','Youth',30,10,'2026-09-01','2026-10-01',
              '2026-06-01','2026-10-01',1,'2025-06-01','2025-09-01',1,'2025-09-01',1,
              1,1,0.6,1.8,false,'2026-08-31','v','{}'::jsonb,'x')`, [SYNTH_CO])),
-    /forecast_ledger_no_lookahead/, 'look-ahead window accepted by the table');
+    /forecast_ledger_no_lookahead|forecast_ledger_frozen_before_outcome/,
+    'look-ahead window accepted by the table');
 });
 
 // ── 4. Ratio clamping at both limits ────────────────────────────────────────

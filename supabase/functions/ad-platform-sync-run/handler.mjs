@@ -131,6 +131,7 @@ export function createHandler({ service, userClientFor, googleEnv, runConnection
       result = await runConnectionSync(service, googleEnv, conn, {
         batchId: `manual-${job.id}`,
         daysBackOverride: plan.daysBack,
+        now: now(),
         onTokenRefresh: async (accessToken, expiresAt) => {
           check(await service.from('ad_platform_connections')
             .update({ access_token: accessToken, token_expires_at: expiresAt, updated_at: now().toISOString() })
