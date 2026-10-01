@@ -2699,3 +2699,13 @@ only); `ai_credit_reconcile()` backs the `AI credit ledger` verify row.
 Rollout, configuration and rollback: `docs/ops/ai-credits.md`. Verified by
 `scripts/tests/ai-credit-database.test.mjs` (28, six mutations) and
 `ai-credit-concurrency.test.mjs` (3 real-PostgreSQL races, two mutations).
+
+## Card splits under pg_safeupdate — `20261001130000_card_splits_safeupdate.sql`
+
+Re-creates `set_card_transaction_splits` with its scratch-table reset written
+as `delete from tmp_split where true;`. Supabase preloads `pg_safeupdate` for
+API sessions and it refuses a WHERE-less DELETE, so every split save failed
+with "DELETE requires a WHERE clause". No other change; grants re-asserted.
+`scripts/tests/no-unqualified-delete.test.mjs` refuses a bare DELETE in the
+latest definition of any function, since PGlite does not load safeupdate.
+
