@@ -147,11 +147,8 @@ const asService = (fn) => asRole('service_role', '', fn);
 // ── Schema ──────────────────────────────────────────────────────────────────
 await db.exec('create extension if not exists pgcrypto;');
 await db.exec(await readFile(new URL('scripts/tests/forecast-db-bootstrap.sql', root), 'utf8'));
-// The suite's fixtures assume "today" is 2026-09-17 (when Youth demand was read).
-// Wall-clock expiry in record_forecast_candidate_run uses now(), so running on a
-// later calendar day refuses cutoffs the tests still treat as open.
-await db.exec(`create or replace function public.silo_forecast_test_now() returns timestamptz
-  language sql stable as $$ select timestamptz '2026-09-17 12:00:00-07' $$;`);
+// Wall-clock expiry in record_forecast_candidate_run uses now(); patch migrations
+// below to read silo_forecast_test_now() (defined in forecast-db-bootstrap.sql).
 
 // A mutation is applied to EVERY migration that contains its anchor, not only
 // the first. Four of these mutations went silently dead the day MIGRATION_2 was
