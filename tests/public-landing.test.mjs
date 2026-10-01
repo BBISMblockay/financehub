@@ -145,6 +145,7 @@ test('hero keeps responsive stills beneath a dimensioned, deferred decorative vi
   }
   assert.match(html, /<button\b[^>]*id="lpMotionToggle"[^>]*type="button"[^>]*aria-controls="lpHeroVideo"[^>]*hidden/);
   assert.match(html, /<script src="\/assets\/landing\/silo-hero-motion\.js" defer><\/script>/);
+  assert.doesNotMatch(html, /transition:\s*opacity/, 'different still and rebuilt scene must not ghost through an opacity crossfade');
   for (const [file, budget] of [['silo-hero-motion.mp4', 2500000], ['silo-hero-motion-mobile.mp4', 1000000]]) {
     const bytes = readFileSync(root + 'assets/landing/' + file);
     assert.ok(bytes.length > 1000 && bytes.length < budget, `${file} is empty or exceeds its byte budget`);
