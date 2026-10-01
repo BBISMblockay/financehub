@@ -218,6 +218,16 @@ async function handle(route: any, event: any, company: string) {
       // is what the billing page reads. Fetch it rather than mapping the
       // session, which carries none of that.
       const session = await stripe.checkout.sessions.retrieve(route.objectId);
+      // An AI-credit top-up: a one-off PAYMENT, not a subscription. Credit is
+      // granted from this re-fetched session only when Stripe says it is paid;
+      // the grant re-checks purpose, company and customer and is keyed by the
+      // PaymentIntent, so a duplicate or out-of-order delivery is a no-op.
+      if (session.mode === 'payment') {
+        if (session.metadata?.silo_purpose === 'ai_credit_topup' && session.payment_status === 'paid') {
+          await grantCredit('ai_credit_grant_purchase', { p_company: company, p_session: session });
+        }
+        return;
+      }
       // This attempt is over either way -- paid or expired -- so the company's
       // in-flight claim is released. Scoped to THIS session id, so a late
       // delivery for a finished session can never drop the claim a second
@@ -244,6 +254,12 @@ async function handle(route: any, event: any, company: string) {
       await rpc('stripe_sync_billing_invoice', {
         p_company: company, p_payload: invoice, p_synced_at: syncedAt,
       });
+      // The monthly included AI credit. Only a PAID invoice that opened or
+      // renewed a subscription period grants it, once per (subscription,
+      // period) -- the function decides and records why not otherwise.
+      if (invoice.status === 'paid') {
+        await grantCredit('ai_credit_grant_included', { p_company: company, p_invoice: invoice });
+      }
       // A failed payment changes the SUBSCRIPTION's status too (active ->
       // past_due), and nothing else would tell the billing page that.
       if (invoice.subscription) {
@@ -432,6 +448,21 @@ async function handle(route: any, event: any, company: string) {
       return;
     }
   }
+}
+
+// Like rpc(), but a grant function that does not exist yet (the AI credit
+// migration not applied) is "nothing to grant" rather than a failure that
+// would make Stripe redeliver a billing event for three days.
+async function grantCredit(name: string, args: Record<string, unknown>) {
+  const { error } = await db.rpc(name, {
+    ...args,
+    ...(args.p_session ? { p_session: JSON.parse(JSON.stringify(args.p_session)) } : {}),
+    ...(args.p_invoice ? { p_invoice: JSON.parse(JSON.stringify(args.p_invoice)) } : {}),
+  });
+  if (!error) return;
+  const code = (error as any).code ?? '';
+  if (code === 'PGRST202' || code === '42883') return;
+  throw new Error(`${name}: ${error.message}`);
 }
 
 async function rpc(name: string, args: Record<string, unknown>) {

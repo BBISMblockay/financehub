@@ -24,15 +24,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Check public entry links, assets, and auth-router regressions
-        run: node --test tests/public-landing.test.mjs
+      - name: Check public entry links, assets, auth routing, and motion policies
+        run: node --test tests/public-landing.test.mjs tests/landing-motion.test.mjs
       - name: Install pinned browser test dependency
         working-directory: tests
         run: npm ci
       - name: Install Chromium for browser tests
         working-directory: tests
         run: npx playwright install --with-deps chromium
-      - name: Verify guest navigation and capture responsive screenshots
+      - name: Verify guest navigation, real media playback, and responsive fallbacks
         working-directory: tests
         run: npm run test:browser
       - name: Upload local-fixture screenshots

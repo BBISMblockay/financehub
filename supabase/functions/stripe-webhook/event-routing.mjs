@@ -25,6 +25,9 @@ export const PLATFORM_EVENTS = {
   // one abandoned tab blocks every later attempt until the session's own
   // expiry is noticed by the next caller.
   'checkout.session.expired': 'checkout',
+  // A delayed-payment top-up (e.g. a bank debit) is only PAID here, not at
+  // completion. The handler re-fetches and grants only a paid session.
+  'checkout.session.async_payment_succeeded': 'checkout',
   'customer.subscription.created': 'subscription',
   'customer.subscription.updated': 'subscription',
   'customer.subscription.deleted': 'subscription',

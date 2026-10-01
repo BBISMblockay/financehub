@@ -133,6 +133,11 @@ export async function interpretMissing(read, { consent, companyId, invoke }) {
   try { response = await invoke('payment-request-extract', { body: { company_id: companyId, text: read.text, consent: true } }); }
   catch { throw Error('AI assistance is unavailable. Your locally read details are still available; you can finish manually.'); }
   const { data, error } = response || {};
+  // An empty AI-credit balance is a 402; supabase-js puts its body on error.context.
+  if (error && error.context?.status === 402) {
+    const body = await error.context.json?.().catch(() => null);
+    if (body?.credit_exhausted) throw Error('Your workspace is out of AI credit, so AI assistance did not run. Your locally read details are still available; you can finish manually.');
+  }
   if (error || data?.error || data?.company_id !== companyId || !data.suggestion) throw Error('AI assistance is unavailable. Your locally read details are still available; you can finish manually.');
   // Never replace deterministic evidence. AI only offers missing fields.
   const suggestion = { ...read.suggestion, warnings: [...read.suggestion.warnings, ...(data.suggestion.warnings || [])] };

@@ -167,6 +167,7 @@ import {
 import { buildSystemBlocks, selectGuidance } from './prompt-lib.mjs';
 import { rewriteSlowShapes, timeoutHint } from './query-shape-lib.mjs';
 import { withKeepAlive } from './keepalive-lib.mjs';
+import { addUsage, createCreditMeter, estimateInputTokens, usageFromResponse } from './ai-credit-lib.mjs';
 import {
   BUSY_STATUSES,
   isSpendLimitResponse,
@@ -625,6 +626,31 @@ ${rows.filter((r) => !detailNames.has(r.relname)).map(indexLine).join('\n')}`,
 /** Thrown when a model call is cut off by its own deadline. Distinct from a
  *  transport error because the caller's response to it is different: there is
  *  no point retrying, but there IS still time reserved to write an answer. */
+/** The workspace's AI credit could not cover another investigation round.
+ *  The loop stops and spends the hold it already has on a final answer. */
+class CreditLowError extends Error {
+  constructor() {
+    super('AI credit hold could not grow');
+    this.name = 'CreditLowError';
+  }
+}
+
+// AI CREDIT -- the ONE service-role client in this function, and the only
+// place the service key is read. It reaches exactly three RPCs, through
+// ai-credit-lib.mjs, with server-derived arguments only (this request's id,
+// the company read from the caller's own profile, measured token usage). It is
+// never passed to a tool handler: every query and write still runs under the
+// caller's JWT. Without the key (and with no settings row in the database) the
+// meter is off and this function behaves as it did before credits existed.
+// prompt.test.mjs-style guard: handler.test.mjs fails if the key is read
+// anywhere else.
+function creditClient() {
+  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  return key ? createClient(SUPABASE_URL, key, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
+}
+const CREDIT_MAX_OUTPUT = 8192;     // matches max_tokens on every call
+const CREDIT_MAX_WEB_SEARCHES = 5;  // matches web_search max_uses
+
 class ModelCallDeadlineError extends Error {
   constructor(timeoutMs: number) {
     super(`Anthropic call exceeded its ${timeoutMs}ms deadline`);
@@ -1164,6 +1190,11 @@ Deno.serve(withKeepAlive(async (req: Request) => {
   // cannot be tied back to the request the browser started is a failed request
   // the browser cannot tell apart from someone else's.
   let requestId: string | null = null;
+  // AI credit for this request (see creditClient). Settled exactly once: on a
+  // delivered answer as `succeeded`, otherwise in the finally below as free.
+  let creditMeter: ReturnType<typeof createCreditMeter> | null = null;
+  const creditUsage: Array<ReturnType<typeof usageFromResponse>> = [];
+  let creditFailOutcome: 'failed' | 'timed_out' = 'failed';
   let history: { role: string; content: string; imageUrls?: string[]; conceptId?: string }[] = [];
   let queriesRun: string[] = [];
   // What the request had done when a provider refusal ended it: rounds used and
@@ -1213,7 +1244,9 @@ Deno.serve(withKeepAlive(async (req: Request) => {
     // insert and lose the row we are logging precisely so it can be recovered.
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const rawRequestId = String(body?.request_id || '');
-    requestId = UUID_RE.test(rawRequestId) ? rawRequestId : null;
+    // Minted here when the browser sent none: a metered request must have an
+    // identity, or a retry could not be told apart from a new question.
+    requestId = UUID_RE.test(rawRequestId) ? rawRequestId : crypto.randomUUID();
 
     // Which company this question was asked FROM. RLS scopes every read in
     // this function through profiles.active_company_id -- a single mutable
@@ -1568,6 +1601,10 @@ Deno.serve(withKeepAlive(async (req: Request) => {
       const answer = (opts.partial
         ? `**Partial answer:** ${opts.partial}.\n\n${text}`
         : text) + formatClaimNote(claimFlags);
+      // An answer is being delivered: this is the one `succeeded` settle.
+      const aiCredit = creditMeter
+        ? await creditMeter.settle({ usage: addUsage(creditUsage), outcome: 'succeeded' })
+        : { status: 'not_metered' };
       const audited = await logAudit(callerClient!, {
         requestId,
         question,
@@ -1588,6 +1625,8 @@ Deno.serve(withKeepAlive(async (req: Request) => {
       return reply({
         answer,
         queries_run: queriesRun,
+        // Customer-priced, settled cost of THIS answer (or why there is none).
+        ai_credit: aiCredit,
         // Only when something was flagged. A consumer that wants to render the
         // scope check as its own element rather than as answer text can; the
         // note is in the answer either way so nothing has to.
@@ -1668,9 +1707,23 @@ Deno.serve(withKeepAlive(async (req: Request) => {
     const modelUsage: Array<ReturnType<typeof pickUsage>> = [];
     const providerRetries: Array<{ status: number; wait_ms: number }> = [];
     auditSoFar = () => ({ toolRounds: roundsUsed, diagnostics: buildDiagnostics(queryLog, contextLog()) });
+    let creditCalls = 0;
     const timedCallAnthropic = async (...args: Parameters<typeof callAnthropic>) => {
-      const startedCallAt = Date.now();
       const opts = args[3] || {};
+      // The first call is covered by the hold taken at open. Every later one
+      // grows the hold first; a forced final answer goes ahead on whatever is
+      // already held (the charge is capped at the hold, so it cannot overdraw).
+      if (creditMeter && creditCalls > 0) {
+        const grown = await creditMeter.step({
+          usage: addUsage(creditUsage),
+          estInput: estimateInputTokens({ s: args[1], t: args[2], m: args[0] }),
+          maxOutput: CREDIT_MAX_OUTPUT,
+          maxWeb: CREDIT_MAX_WEB_SEARCHES,
+        });
+        if (!grown.ok && !opts.forceAnswer) throw new CreditLowError();
+      }
+      creditCalls++;
+      const startedCallAt = Date.now();
       modelCallDeadlineMs.push(opts.timeoutMs || 0);
       try {
         const data = await callAnthropic(args[0], args[1], args[2], {
@@ -1681,6 +1734,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
           onRetry: (status, waitMs) => providerRetries.push({ status, wait_ms: waitMs }),
         });
         modelUsage.push(pickUsage(data?.usage));
+        creditUsage.push(usageFromResponse(data?.usage));
         return data;
       } finally {
         modelCallMs.push(Date.now() - startedCallAt);
@@ -1702,6 +1756,51 @@ Deno.serve(withKeepAlive(async (req: Request) => {
       if (!ms) throw new ModelCallDeadlineError(0);
       return ms;
     };
+
+    // AI CREDIT: the first hold is taken BEFORE the first model call -- the
+    // first call plus the forced final answer it may need. No hold, no call.
+    creditMeter = createCreditMeter({
+      db: creditClient(),
+      requestId: requestId!,
+      companyId: companyAtStart.companyId,
+      userId: userData.user.id,
+      feature: 'ask_silo',
+      model: MODEL,
+    });
+    {
+      const opened = await creditMeter.open({
+        estInput: estimateInputTokens({ s: systemPrompt, t: tools, m: messages }),
+        maxOutput: CREDIT_MAX_OUTPUT,
+        maxWeb: CREDIT_MAX_WEB_SEARCHES,
+        calls: 2,
+      });
+      if (!opened.ok) {
+        const reason = (opened as { reason?: string }).reason;
+        if (reason === 'insufficient_credit') {
+          return reply({
+            error: "Your workspace is out of AI credit, so Ask SILO can't answer right now. Everything else in SILO keeps working. A workspace owner can add credit in Workspace Settings → Billing.",
+            credit_exhausted: true,
+            retryable: false,
+          }, 402);
+        }
+        if (reason === 'duplicate') {
+          return reply({
+            error: 'This question is already being answered (or was answered) under the same request. Reload the page to see it rather than asking twice.',
+            duplicate_request: true,
+            retryable: false,
+          }, 409);
+        }
+        if (reason === 'not_a_member' || reason === 'no_company') {
+          return reply({ error: 'Ask SILO needs an active company membership to run.', retryable: false }, 403);
+        }
+        return reply({
+          error: "Couldn't confirm this workspace's AI credit, so the question wasn't run. Nothing was charged. Try again in a moment.",
+          credit_unavailable: true,
+          retryable: true,
+        }, 503);
+      }
+    }
+    let creditLow = false;
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       if (elapsedMs() >= WALL_CLOCK_BUDGET_MS) {
@@ -1763,6 +1862,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
         // request: everything gathered before it is still good, and the time
         // it was holding back was reserved precisely so the forced final below
         // can still write that up. Anything else propagates as before.
+        if (err instanceof CreditLowError) { creditLow = true; break; }
         if (!(err instanceof ModelCallDeadlineError)) throw err;
         correctionCallTimeoutMs = 0;
         break;
@@ -2433,7 +2533,9 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
       if (finalRaw.trim()) {
         return await finishWithAnswer((answerSoFar + finalRaw).trim(), {
           toolRounds: roundsUsed,
-          partial: hitWallClock
+          partial: creditLow
+            ? "the workspace's AI credit ran low before the investigation finished; this answer covers what had been gathered"
+            : hitWallClock
             ? 'the time budget ran out before the investigation finished; this answer covers what had been gathered'
             : 'the investigation limit was reached before all checks finished; this answer covers what had been gathered',
           // Not an error, but flagged so saturation stays visible when
@@ -2472,6 +2574,7 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
     // questions failing identically on immediate retry -- so the message
     // must steer the user toward narrowing the question, never toward
     // "wait and retry".
+    if (hitWallClock || sawTimeout) creditFailOutcome = 'timed_out';
     const message = hitWallClock
       ? "This one ran out of time before it could finish -- it was still working when the request had to be cut off. Ask for it in smaller pieces (one section at a time, or a shorter date range) rather than retrying the same wording."
       : sawTimeout
@@ -2491,6 +2594,7 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
     return reply({ error: message, queries_run: queriesRun, retryable: true }, 500);
   } catch (err) {
     console.error('[silo-chat]', err);
+    if (err instanceof ModelCallDeadlineError) creditFailOutcome = 'timed_out';
     // Never let a failure to summarise the work mask the refusal being reported.
     const soFar = (() => {
       try { return auditSoFar?.() ?? { toolRounds: 0, diagnostics: null }; } catch { return { toolRounds: 0, diagnostics: null }; }
@@ -2553,6 +2657,17 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
       });
     }
     return reply({ error: errorMessage, retryable: true }, 500);
+  } finally {
+    // Every exit that did not deliver an answer: free to the customer. A
+    // no-op when finishWithAnswer already settled, or when nothing was opened.
+    // Errors here must not replace the response being returned.
+    if (creditMeter) {
+      try {
+        await creditMeter.settle({ usage: addUsage(creditUsage), outcome: creditFailOutcome, error: 'no_answer' });
+      } catch (e) {
+        console.error('[silo-chat] credit settle failed; the hold will be swept free', e);
+      }
+    }
   }
 }, {
   headers: CORS,

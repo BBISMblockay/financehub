@@ -59,7 +59,7 @@ export async function run({ db, now = new Date(), prepare = prepareViaEdge }) {
         const outcome = await prepare({ db, proposal: p }); outcomes.push(outcome);
         if (outcome === 'stale') check(await db.from('on_deck_proposals').update({ status: 'failed', version: p.version + 1, updated_at: now.toISOString() }).eq('id', p.id).eq('version', p.version));
       }
-      if (outcomes.length) check(await db.from('on_deck_settings').update({ last_status: outcomes.includes('budget_cap') ? 'Monthly preparation cap reached' : outcomes.includes('daily_cap') ? 'Daily safety cap reached' : `Preparation: ${outcomes.filter(x => x === 'prepared').length} ready, ${outcomes.filter(x => x !== 'prepared').length} held or failed` }).eq('company_entity_id', company));
+      if (outcomes.length) check(await db.from('on_deck_settings').update({ last_status: outcomes.includes('credit_exhausted') ? 'Paused: workspace AI credit is used up' : outcomes.includes('budget_cap') ? 'Monthly preparation cap reached' : outcomes.includes('daily_cap') ? 'Daily safety cap reached' : `Preparation: ${outcomes.filter(x => x === 'prepared').length} ready, ${outcomes.filter(x => x !== 'prepared').length} held or failed` }).eq('company_entity_id', company));
       console.log('On Deck company processed');
     } catch {
       failures++;

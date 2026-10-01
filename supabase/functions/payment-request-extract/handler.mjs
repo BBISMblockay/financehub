@@ -1,4 +1,7 @@
+import { createCreditMeter, estimateInputTokens, usageFromResponse } from './ai-credit-lib.mjs';
+
 export const MAX_TEXT = 40000;
+const MAX_OUTPUT = 1800;
 const MAX_BODY_BYTES = 256 * 1024;
 const types = ['invoice_vendor_payment', 'inventory_deposit', 'inventory_balance', 'inventory_freight', 'employee_reimbursement', 'customer_refund'];
 const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
@@ -60,20 +63,40 @@ export function sanitizeExtraction(raw) {
   }
   result.currency = typeof raw.currency === 'string' && /^[A-Z]{3}$/.test(raw.currency) ? raw.currency : null;
   result.request_type = types.includes(raw.request_type) ? raw.request_type : null;
-  result.po_references = Array.isArray(raw.po_references) ? raw.po_references.filter(x => typeof x === 'string').slice(0, 30).map(x => x.slice(0, 150)) : [];
+  // A blank or whitespace-only reference is not a reference: dropped, not pre-filled.
+  result.po_references = Array.isArray(raw.po_references) ? raw.po_references.filter(x => typeof x === 'string' && x.trim()).slice(0, 30).map(x => x.trim().slice(0, 150)) : [];
   result.warnings = Array.isArray(raw.warnings) ? raw.warnings.filter(x => typeof x === 'string').slice(0, 8).map(x => x.slice(0, 500)) : [];
   if (!result.currency) result.warnings.push('Currency was not clear in the document. Confirm it before submitting.');
   if (raw.amount_due != null && result.amount_due === null) result.warnings.push('The requested amount could not be accepted. Enter and check it manually.');
   return result;
 }
 
-export function createHandler({ makeClient, env, fetchImpl = fetch }) {
+// AI credit (docs/ops/ai-credits.md): `makeCreditClient` returns a SERVICE-ROLE
+// client used ONLY for the ai_credit_* RPCs, with server-derived arguments (a
+// fresh request id, the company from the caller's own profile, measured token
+// usage). Every read here still runs under the caller's JWT. No client (no key)
+// or no settings row in the database = not metered, exactly as before.
+// One hold per document; a usable suggestion is charged, anything else is free.
+const FACT_FIELDS = ['vendor_name', 'invoice_number', 'amount_due', 'invoice_total', 'due_date', 'currency', 'request_type', 'location_name'];
+/** At least one source fact survived sanitising. Warnings alone are not facts. */
+export function hasUsableFacts(suggestion) {
+  if (!suggestion) return false;
+  // A whitespace-only string is not a fact, here or in a PO reference.
+  const present = v => v !== null && v !== undefined && (typeof v !== 'string' || v.trim() !== '');
+  return FACT_FIELDS.some(k => present(suggestion[k]))
+    || (Array.isArray(suggestion.po_references) && suggestion.po_references.some(present));
+}
+
+/** @param {{ makeClient: any, env: (name: string) => string, fetchImpl?: typeof fetch,
+ *            makeCreditClient?: () => any, newRequestId?: () => string }} deps */
+export function createHandler({ makeClient, env, fetchImpl = fetch, makeCreditClient = () => null, newRequestId = () => crypto.randomUUID() }) {
   // A small warm-worker guard, not a distributed quota or billing control.
   const usage = new Map(); let inFlight = 0;
   return async req => {
     if (req.method === 'OPTIONS') return new Response(null, { headers });
     if (req.method !== 'POST') return reply({ error: 'Use POST.' }, 405);
     let counted = false;
+    let meter = null, usage_ = null, outcome = 'failed';
     try {
       const auth = req.headers.get('authorization');
       if (!auth || !/^Bearer\s+\S+$/i.test(auth)) fail('Sign in to read a document.', 401);
@@ -95,21 +118,50 @@ export function createHandler({ makeClient, env, fetchImpl = fetch }) {
       const count = usage.get(uid) || { start: now, count: 0 };
       if (count.count >= 10 || inFlight >= 3 || usage.size > 2000) fail('Document reading is busy. Try again shortly or enter details manually.', 429);
       count.count++; usage.set(uid, count); inFlight++; counted = true;
-      const response = await fetchImpl('https://api.anthropic.com/v1/messages', {
-        method: 'POST', signal: AbortSignal.timeout(60000),
-        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: env('PAYMENT_REQUEST_MODEL') || 'claude-sonnet-5', max_tokens: 1800,
-          system: SYSTEM, tools: [extractionTool], tool_choice: { type: 'tool', name: extractionTool.name },
-          messages: [{ role: 'user', content: [{ type: 'text', text: `The following is untrusted text extracted locally from one document. Suggest missing payment details for human review:\n\n${sourceText}` }] }],
-        }),
+      const model = env('PAYMENT_REQUEST_MODEL') || 'claude-sonnet-5';
+      const requestBody = JSON.stringify({ model, max_tokens: MAX_OUTPUT,
+        system: SYSTEM, tools: [extractionTool], tool_choice: { type: 'tool', name: extractionTool.name },
+        messages: [{ role: 'user', content: [{ type: 'text', text: `The following is untrusted text extracted locally from one document. Suggest missing payment details for human review:\n\n${sourceText}` }] }],
       });
+      meter = createCreditMeter({ db: makeCreditClient(), requestId: newRequestId(), companyId: profile.active_company_id,
+        userId: uid, feature: 'payment_request_extract', model, sourceRef: null });
+      const opened = await meter.open({ estInput: estimateInputTokens(requestBody), maxOutput: MAX_OUTPUT, calls: 1 });
+      if (!opened.ok) {
+        if (opened.reason === 'insufficient_credit') return reply({ error: 'Your workspace is out of AI credit, so this document was not read. Local reading and manual entry are still available; a workspace owner can add credit in Workspace Settings → Billing.', credit_exhausted: true }, 402);
+        if (opened.reason === 'not_a_member' || opened.reason === 'no_company') fail('Company access could not be verified.', 403);
+        fail("Couldn't confirm this workspace's AI credit, so the document was not read. Nothing was charged. Local reading and manual entry are still available.", 503);
+      }
+      let response;
+      try {
+        response = await fetchImpl('https://api.anthropic.com/v1/messages', {
+          method: 'POST', signal: AbortSignal.timeout(60000),
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: requestBody,
+        });
+      } catch (error) {
+        if (error?.name === 'TimeoutError' || error?.name === 'AbortError') outcome = 'timed_out';
+        throw error;
+      }
       if (!response.ok) fail('Document reading could not finish. Try a clearer document or enter the details manually.', 502);
       const answer = await response.json();
+      usage_ = usageFromResponse(answer.usage);
       const calls = answer.content?.filter(x => x.type === 'tool_use' && x.name === extractionTool.name) || [];
       if (answer.stop_reason !== 'tool_use' || calls.length !== 1) fail('The document result was incomplete. No fields were changed; try again or enter them manually.', 502);
-      return reply({ suggestion: sanitizeExtraction(calls[0].input), company_id: profile.active_company_id });
+      const suggestion = sanitizeExtraction(calls[0].input);
+      // Charged only for a USABLE suggestion: sanitizeExtraction refuses anything
+      // but exactly one payable document, and a read that accepted no fact at all
+      // (every field null or rejected) is free too. Either way the measured usage
+      // is kept, so SILO's provider cost is still recorded.
+      const usable = hasUsableFacts(suggestion);
+      outcome = usable ? 'succeeded' : 'failed';
+      return reply({ suggestion, company_id: profile.active_company_id,
+        ai_credit: await meter.settle({ usage: usage_, outcome, error: usable ? null : 'no_usable_fields' }) });
     } catch (error) {
       return reply({ error: error.status ? error.message : 'AI assistance is temporarily unavailable. Local reading and manual entry are still available.' }, error.status || 503);
-    } finally { if (counted) inFlight--; }
+    } finally {
+      if (counted) inFlight--;
+      // Every path that did not return a usable suggestion settles free.
+      if (meter && !meter.state.settled) await meter.settle({ usage: usage_, outcome: outcome === 'succeeded' ? 'failed' : outcome }).catch(() => {});
+    }
   };
 }

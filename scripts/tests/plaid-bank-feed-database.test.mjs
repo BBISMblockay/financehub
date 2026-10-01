@@ -189,8 +189,8 @@ try {
     await db.exec(historyMigration); await db.exec(historyMigration);
     await db.exec(await readFile(new URL('supabase/migrations/20260912231606_accounting_foundation.sql', root), 'utf8'));
     await db.exec(await readFile(new URL('supabase/migrations/20260913022606_qbo_historical_ledger.sql', root), 'utf8'));
-    // The verifier tail below runs every check from the Plaid marker to the end
-    // of the file, so each migration whose check lands after that marker must
+    // The verifier slice below runs every check from the Plaid marker to the
+    // "End of Plaid fixture checks" marker, so each migration whose check lands after that marker must
     // be applied here first. #684 and #686 appended checks without doing so and
     // the finance-database job went red on every push to main from then on.
     for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql', '20260915220000_plaid_removed_from_status.sql', '20260923120000_card_coding_suggestions.sql', '20260923130000_card_coding_background_preparation.sql', '20260923140000_card_coding_evidence_and_rules.sql']) {
@@ -203,7 +203,12 @@ try {
     const verifySql = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
     const start = verifySql.indexOf('-- Plaid ingestion: metadata');
     assert.ok(start >= 0, 'Plaid health checks must be committed');
-    const checks = splitSqlStatements(verifySql.slice(start));
+    // Stop at the explicit end marker: checks after it test schema this fixture
+    // does not build (the AI credit ledger, 20261001120000, was the first) and
+    // are executed by their own suites instead.
+    const end = verifySql.indexOf('-- ── End of Plaid fixture checks', start);
+    assert.ok(end > start, 'The end-of-Plaid-fixture marker must follow the Plaid marker');
+    const checks = splitSqlStatements(verifySql.slice(start, end));
     assert.ok(checks.length >= 4);
     for (const sql of checks) {
       const rows = await q(sql.text);

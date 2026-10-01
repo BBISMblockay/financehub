@@ -60,6 +60,7 @@ async function page(name, scenario = 'active', extra = {}) {
   vm.createContext(context);
   vm.runInContext(CONFIG_STUB + fakeSupabaseScript(), context);
   vm.runInContext(fs.readFileSync(path.join(V2, 'payments-ui.js'), 'utf8'), context);
+  if (extra.aiCredit !== false) vm.runInContext(fs.readFileSync(path.join(V2, 'ai-credit.js'), 'utf8'), context);
   const inline = mutate([...source.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]).join('\n'));
   vm.runInContext(inline, context, { filename: name + '.html' });
   await settle();
@@ -78,6 +79,11 @@ async function page(name, scenario = 'active', extra = {}) {
   await check('icons are decorative and unknown icon names cannot inject markup', () => {
     assert.match(ui.icon('refresh'), /aria-hidden="true"/);
     assert.doesNotMatch(ui.icon('<script>'), /<script>/);
+  });
+  await check('billing still renders the plan when the AI credit script is missing', async () => {
+    const p = await page('billing', 'active', { aiCredit: false });
+    assert.match(p.nodes.get('current').innerHTML, /Growth/);
+    assert.match(p.nodes.get('credit').innerHTML, /Unavailable/);
   });
   await check('active billing has one current plan, with renewal and portal preserved', async () => {
     const p = await page('billing');
