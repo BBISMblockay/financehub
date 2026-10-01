@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SILO · Mail intake</title>
+  <title>SILO · Mail Intake</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="beacon.css" />
@@ -28,7 +28,17 @@
     <div class="pr-page pr-page--intake">
       <div class="pr-stack">
 
-        <h1 class="pr-page-h1">Mail intake</h1>
+        <div class="pr-btn-row">
+          <a href="mailroom.html" class="btn btn-soft">← Mailroom queue</a>
+        </div>
+
+        <div class="bcn-card pr-intro">
+          <div class="bcn-card-header bcn-card-header--dark">
+            <h2>Mail Intake</h2>
+            <span class="bcn-pill">Requests</span>
+            <p class="bcn-card-meta">Log a piece of mail for the shared Mailroom queue. Finance can route and process it from there.</p>
+          </div>
+        </div>
 
         <div id="authCard" class="card hidden">
           <div class="pr-stack">
@@ -48,8 +58,8 @@
         <div id="appCard" class="card hidden">
           <div class="pr-card-toolbar">
             <div>
-              <div class="section-title">What came in?</div>
-              <div class="section-sub"><span class="pr-req">*</span> indicates a required field.</div>
+              <div class="section-title">Log incoming mail</div>
+              <div class="section-sub"><span class="pr-req">*</span> Required fields. Everything else helps the team route faster.</div>
             </div>
             <span id="signedInAs" class="pill">Signed in</span>
           </div>
@@ -153,7 +163,7 @@
               <div class="pr-muted">Items land in the Mailroom queue as soon as you submit.</div>
               <div class="pr-btn-row">
                 <button id="resetBtn" type="button" class="btn btn-soft">Start over</button>
-                <button id="submitBtn" type="submit" class="btn btn-primary">Log it</button>
+                <button id="submitBtn" type="submit" class="btn btn-primary">Submit to Mailroom</button>
               </div>
             </div>
           </form>
@@ -252,7 +262,7 @@
   function setSubmitting(isSubmitting) {
     els.submitBtn.disabled = isSubmitting;
     els.resetBtn.disabled = isSubmitting;
-    els.submitBtn.textContent = isSubmitting ? "Logging…" : "Log it";
+    els.submitBtn.textContent = isSubmitting ? "Submitting…" : "Submit to Mailroom";
   }
 
   function todayISO() {
@@ -447,9 +457,9 @@
   // Mount chrome synchronously — sidebar visible before any network call
   SiloChrome.mount({
     appEl: '#silo-app',
-    active: 'finance/mail-intake',
+    active: 'finance/mailroom',
     user: { email: '', role: 'MEMBER' },
-    crumbs: ['Ops', 'Mail Intake'],
+    crumbs: ['Finance', 'Mailroom', 'Mail Intake'],
     supabaseClient,
   });
 

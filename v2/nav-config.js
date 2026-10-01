@@ -190,9 +190,8 @@
 
     // Requests (AP intake/approval + mail handling) was split out of
     // Accounting once that section reached nine items and stopped reading as
-    // a section at all. Mail Intake/Mailroom fold into the same section
-    // rather than getting a third one of their own -- both are "things that
-    // came in and need routing," and four items reads as one section fine.
+    // a section at all. Mail Intake is reached from the Mailroom page (not a
+    // separate nav row); both are "things that came in and need routing."
     // The nav is an accordion with one section open at a time, so this costs
     // no height -- opening Requests collapses Accounting.
     //
@@ -218,7 +217,6 @@
     // own created_by rows regardless of department; this just keeps the
     // nav link (and dept-guard.js on the page itself) from hiding it.
     { departments: [...FINANCE_DEPTS, 'logistics'], id: 'finance/request-manager', section: 'Requests', sectionStandard: 'Finance', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'finance/mail-intake', section: 'Requests', sectionStandard: 'Finance', label: 'Mail Intake', href: '/v2/mail-intake.html', profiles: ['grandfathered', 'standard'] },
     { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Requests', sectionStandard: 'Finance', label: 'Mailroom', href: '/v2/mailroom.html', profiles: ['grandfathered', 'standard'] },
     // Travel Report removed 2026-08-16 — stale Google Sheets dashboard, page retired.
 
