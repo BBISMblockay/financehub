@@ -1,0 +1,465 @@
+/* Mail Intake — v2 intake surface (aligned with Mailroom + payment request 2) */
+
+.mi-page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 20px 18px 48px;
+  color: var(--bcn-ink);
+  font-family: var(--bcn-font);
+}
+
+.mi-page [hidden],
+.mi-page .hidden {
+  display: none !important;
+}
+
+.mi-page h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.mi-page h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.mi-lead {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--bcn-ink-2);
+  max-width: 52ch;
+}
+
+.mi-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.mi-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.mi-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  list-style: none;
+  padding: 0 0 18px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--bcn-ink-3);
+  border-bottom: 1px solid var(--bcn-border);
+}
+
+.mi-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mi-steps li::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bcn-border-strong);
+}
+
+.mi-steps li.is-active {
+  color: var(--bcn-ink);
+  font-weight: 600;
+}
+
+.mi-steps li.is-active::before {
+  background: var(--bcn-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bcn-accent) 22%, transparent);
+}
+
+.mi-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.mi-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mi-aside {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mi-panel {
+  padding: 18px 20px;
+  border-radius: var(--bcn-radius, 12px);
+  border: 1px solid var(--bcn-border);
+  background: var(--bcn-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.mi-panel--muted {
+  background: var(--bcn-bg);
+  border-style: dashed;
+}
+
+.mi-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.mi-panel-sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--bcn-ink-3);
+  line-height: 1.45;
+}
+
+.mi-signed-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bcn-bg);
+  border: 1px solid var(--bcn-border);
+  color: var(--bcn-ink-2);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mi-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+}
+
+.mi-span-2 {
+  grid-column: 1 / -1;
+}
+
+.mi-page .bcn-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--bcn-ink);
+}
+
+.mi-page .bcn-field,
+.mi-page .input,
+.mi-page .select,
+.mi-page .textarea {
+  width: 100%;
+  min-height: 40px;
+  font-size: 14px;
+  border-radius: var(--bcn-radius-sm, 8px);
+}
+
+.mi-page .textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.mi-req {
+  color: var(--bcn-danger, #c2410c);
+  margin-left: 2px;
+}
+
+.mi-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--bcn-ink-3);
+}
+
+.mi-priority {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mi-priority button {
+  border: 1px solid var(--bcn-border);
+  background: var(--bcn-surface);
+  color: var(--bcn-ink-2);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.mi-priority button:hover {
+  border-color: var(--bcn-border-strong);
+  color: var(--bcn-ink);
+}
+
+.mi-priority button.is-on {
+  border-color: var(--bcn-accent);
+  background: color-mix(in srgb, var(--bcn-accent) 10%, var(--bcn-surface));
+  color: var(--bcn-ink);
+}
+
+.mi-priority button[data-priority="P0"].is-on {
+  border-color: #dc2626;
+  background: color-mix(in srgb, #dc2626 12%, var(--bcn-surface));
+}
+
+.mi-priority-select {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mi-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 22px 16px;
+  border: 1px dashed var(--bcn-accent);
+  border-radius: var(--bcn-radius-sm, 8px);
+  background: color-mix(in srgb, var(--bcn-accent) 4%, var(--bcn-bg));
+  cursor: pointer;
+  transition: background 0.12s, outline 0.12s;
+}
+
+.mi-drop:hover,
+.mi-drop.is-dragover {
+  background: var(--bcn-bg);
+  outline: 2px solid color-mix(in srgb, var(--bcn-accent) 35%, transparent);
+}
+
+.mi-drop-icon {
+  font-size: 26px;
+  line-height: 1;
+  color: var(--bcn-accent);
+}
+
+.mi-drop strong {
+  font-size: 14px;
+}
+
+.mi-drop span {
+  font-size: 13px;
+  color: var(--bcn-ink-2);
+}
+
+.mi-file-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mi-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--bcn-border);
+  font-size: 12px;
+  background: var(--bcn-surface);
+}
+
+.mi-file-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.mi-file-row button {
+  border: 0;
+  background: transparent;
+  color: var(--bcn-accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mi-details {
+  margin-top: 4px;
+  border-top: 1px solid var(--bcn-border);
+  padding-top: 8px;
+}
+
+.mi-details summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 0;
+  color: var(--bcn-ink);
+  list-style: none;
+}
+
+.mi-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.mi-details summary::after {
+  content: "▾";
+  float: right;
+  color: var(--bcn-ink-3);
+  font-size: 11px;
+}
+
+.mi-details[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.mi-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--bcn-border);
+}
+
+.mi-footer-note {
+  font-size: 12px;
+  color: var(--bcn-ink-3);
+  max-width: 28ch;
+  line-height: 1.45;
+}
+
+.mi-footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mi-page .bcn-status {
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+
+.mi-tips {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--bcn-ink-2);
+}
+
+.mi-tips li + li {
+  margin-top: 8px;
+}
+
+.mi-auth,
+.mi-success {
+  max-width: 480px;
+  margin: 24px auto;
+  text-align: center;
+  padding: 28px 24px;
+}
+
+.mi-success-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  background: color-mix(in srgb, var(--bcn-pos, #16a34a) 14%, var(--bcn-surface));
+  color: var(--bcn-pos, #16a34a);
+  border: 1px solid color-mix(in srgb, var(--bcn-pos, #16a34a) 35%, transparent);
+}
+
+.mi-kv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 18px 0;
+  text-align: left;
+}
+
+.mi-kv {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bcn-bg);
+  border: 1px solid var(--bcn-border);
+}
+
+.mi-kv-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bcn-ink-3);
+  margin-bottom: 4px;
+}
+
+.mi-kv-value {
+  font-size: 13px;
+  font-family: var(--bcn-mono);
+  word-break: break-all;
+  color: var(--bcn-ink);
+}
+
+.mi-success-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .mi-layout {
+    grid-template-columns: 1fr;
+  }
+  .mi-aside {
+    position: static;
+    order: -1;
+  }
+  .mi-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .mi-page {
+    padding: 14px 12px 32px;
+  }
+  .mi-kv-grid {
+    grid-template-columns: 1fr;
+  }
+}
