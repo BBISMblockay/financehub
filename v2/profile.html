@@ -244,21 +244,24 @@
         dept,
         finance: dept === 'finance' || isExecDept,
         purchasing: dept === 'ops' || isExecDept,
-        marketing: dept === 'marketing' || isExecDept,
+        marketing: dept === 'marketing' || dept === 'ops' || dept === 'logistics' || isExecDept,
         logistics: dept === 'logistics' || isExecDept,
       };
     }
 
     const ORG_DOMAINS_BY_DEPT = {
       finance: new Set(['Payables', 'Mailroom']),
-      ops: new Set(['Purchasing']),
+      ops: new Set(['Purchasing', 'Launches', 'Product pipeline']),
       marketing: new Set(['Launches', 'Product pipeline']),
-      logistics: new Set(['Samples']),
+      logistics: new Set(['Samples', 'Launches', 'Product pipeline']),
       exec: new Set(['Payables', 'Purchasing', 'Launches', 'Product pipeline', 'Mailroom', 'Samples', 'Admin']),
       retail: new Set(),
     };
 
+    const PERSONAL_FEED_KINDS = new Set(['my_tasks_overdue', 'my_tasks_open', 'sample_assigned_me']);
+
     function feedItemAllowedForDept(item, access) {
+      if (PERSONAL_FEED_KINDS.has(item.kind)) return true;
       const domain = feedKindMeta(item.kind).domain;
       if (domain === 'For you') return true;
       if (domain === 'Admin') return access.isAdmin;
@@ -271,6 +274,26 @@
       if (!dept || dept === '—') return 'your workspace';
       if (dept === 'ops') return 'purchasing';
       return dept;
+    }
+
+    function feedScopeMessage(access) {
+      const personal = 'Your assigned tasks always show here.';
+      switch (access.dept) {
+        case 'exec':
+          return `${personal} Org-wide feeds for every department.`;
+        case 'ops':
+          return `${personal} Also purchasing, launches, and product pipeline.`;
+        case 'logistics':
+          return `${personal} Also samples, launches, and product pipeline.`;
+        case 'marketing':
+          return `${personal} Also launches and product pipeline.`;
+        case 'finance':
+          return `${personal} Also payables and mailroom.`;
+        case 'retail':
+          return personal;
+        default:
+          return `${personal} Org items match your department when set.`;
+      }
     }
 
     async function countRows(table, applyFilters) {
@@ -347,6 +370,7 @@
 
     async function loadLaunchAttention(items, access) {
       if (!access.marketing) return;
+      const showOrgLaunchTaskBacklog = access.dept === 'marketing' || access.dept === 'exec';
       const today = todayIso();
       const weekEnd = addDaysIso(today, 7);
       let launches = [];
@@ -366,9 +390,11 @@
       if (notReady.length > 0) {
         pushFeedItem(items, { kind: 'launch_readiness', title: `${notReady.length} launch${notReady.length === 1 ? '' : 'es'} not ready`, detail: 'Readiness needs review in the next 7 days.', href: '/v2/launch-calendar.html', severity: 'warn', count: notReady.length });
       }
-      const overdueTasks = await safeCount('launch_tasks', q => { let _q = q.neq('status', 'done').not('due_date', 'is', null).lt('due_date', today); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; });
-      if (overdueTasks.ok && overdueTasks.count > 0) {
-        pushFeedItem(items, { kind: 'launch_tasks', title: `${overdueTasks.count} overdue launch task${overdueTasks.count === 1 ? '' : 's'}`, detail: 'Past due and not done.', href: '/v2/launch-calendar.html', severity: 'high', count: overdueTasks.count });
+      if (showOrgLaunchTaskBacklog) {
+        const overdueTasks = await safeCount('launch_tasks', q => { let _q = q.neq('status', 'done').not('due_date', 'is', null).lt('due_date', today); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; });
+        if (overdueTasks.ok && overdueTasks.count > 0) {
+          pushFeedItem(items, { kind: 'launch_tasks', title: `${overdueTasks.count} overdue launch task${overdueTasks.count === 1 ? '' : 's'}`, detail: 'Past due and not done.', href: '/v2/launch-calendar.html', severity: 'high', count: overdueTasks.count });
+        }
       }
       const atRisk = await safeCount('launch_product_readiness', q => { let _q = q.eq('readiness_status', 'at_risk'); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; });
       if (atRisk.ok && atRisk.count > 0) {
@@ -676,8 +702,9 @@
       els.feedList.hidden = false;
       attentionItems = [];
       access = await resolveAccess(db, authUser, profile, _co);
+      // Personal assignments first — always, every department (ops/logistics included).
+      await loadMyTasksAttention(attentionItems);
       await Promise.all([
-        loadMyTasksAttention(attentionItems),
         loadSampleAttention(attentionItems, access),
         loadPaymentAttention(attentionItems, access),
         loadPoAttention(attentionItems, access),
@@ -692,8 +719,8 @@
       if (scopeSub) {
         const label = departmentQueueLabel(access.dept);
         scopeSub.textContent = access.dept === 'exec'
-          ? 'Org-wide open items (exec), plus anything assigned to you.'
-          : `Open items for ${label}, plus anything assigned to you.`;
+          ? 'Org-wide open items (exec), plus your assigned tasks.'
+          : `Open items for ${label}, launches, product pipeline, and your assigned tasks.`;
       }
       renderAttentionFeed();
       const n = attentionItems.length;
