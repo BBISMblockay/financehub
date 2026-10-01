@@ -19151,6 +19151,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260930150000_shopify_order_payment_terms.sql
 \i migrations/20260930203350_saved_report_archive.sql
 \i migrations/20261001120000_ai_credit_billing.sql
+\i migrations/20261001130000_card_splits_safeupdate.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

@@ -188,6 +188,7 @@ on:
       - 'v2/card-splits.js'
       - 'v2/coding-suggestions.js'
       - 'supabase/migrations/*card_coding_suggestions.sql'
+      - 'supabase/migrations/**.sql'
       - 'v2/transactions-workspace.css'
       - 'v2/bank-workspace.js'
       - 'v2/accounting-suite*'
@@ -325,7 +326,7 @@ jobs:
         run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
 
       - name: Accounting suite navigation and legacy routes
-        run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/accounting-ledger.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs
+        run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/accounting-ledger.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs scripts/tests/no-unqualified-delete.test.mjs
 
       # Which company's sidebar a session is served. Visibility only -- RLS
       # decides the data -- but resolveNavProfile(null) used to answer
