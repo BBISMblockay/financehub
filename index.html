@@ -238,12 +238,22 @@
     #landing .lp-signin:hover { background: #fff; border-color: #fff; }
     #landing .lp-create { color: var(--bcn-band-ink); background: transparent; border-color: #536375; }
     #landing .lp-create:hover { background: var(--bcn-surface); border-color: var(--bcn-band-ink-2); }
-    #landing a:focus-visible { outline: 3px solid var(--bcn-accent); outline-offset: 5px; }
+    #landing a:focus-visible, #landing button:focus-visible { outline: 3px solid var(--bcn-accent); outline-offset: 5px; }
     #landing .lp-invite { margin: 16px 0 0; font-size: 12px; line-height: 1.65; color: #a3b3c3; }
     #landing .lp-invite a { color: var(--bcn-band-ink); text-underline-offset: 3px; }
     #landing .lp-visual { position: relative; align-self: stretch; min-height: 510px; margin: 0 -5.6vw 0 -18%; overflow: hidden; }
     #landing .lp-visual picture { position: absolute; inset: 0; display: block; }
-    #landing .lp-visual img { position: absolute; right: 0; top: 0; width: 150%; max-width: none; height: 100%; object-fit: contain; object-position: right center; }
+    #landing .lp-visual img, #landing .lp-visual video { position: absolute; right: 0; top: 0; width: 150%; max-width: none; height: 100%; object-fit: contain; object-position: right center; }
+    #landing .lp-visual video { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
+    #landing .lp-visual[data-motion="playing"] video,
+    #landing .lp-visual[data-motion="paused"] video { opacity: 1; }
+    #landing .lp-motion-toggle {
+      position: absolute; z-index: 2; right: clamp(24px, 5.6vw, 96px); bottom: 8px;
+      min-height: 44px; padding: 10px 14px; font-size: 12px;
+      color: var(--bcn-band-ink-2); background: #08111de6; border-color: #536375;
+    }
+    #landing .lp-motion-toggle:hover { color: #fff; border-color: var(--bcn-band-ink-2); }
+    #landing .lp-motion-toggle[hidden] { display: none; }
     #landing .lp-visual::after {
       content: "";
       position: absolute;
@@ -263,7 +273,7 @@
       #landing h1 { max-width: none; font-size: clamp(38px, 7vw, 56px); margin-bottom: 18px; }
       #landing .lp-description { max-width: 540px; font-size: 18px; }
       #landing .lp-visual { min-height: 0; height: clamp(290px, 65vw, 490px); margin: 12px -28px 0; }
-      #landing .lp-visual img { width: 135%; right: -2%; }
+      #landing .lp-visual img, #landing .lp-visual video { width: 135%; right: 0; }
     }
     @media (max-width: 420px) {
       #landing { padding-inline: 20px; }
@@ -277,6 +287,8 @@
     }
     @media (prefers-reduced-motion: reduce) {
       #landing .bcn-btn { transition: none; }
+      #landing .lp-visual video { display: none; transition: none; }
+      #landing .lp-motion-toggle { display: none; }
       .spinner { animation: none; }
     }
   </style>
@@ -294,13 +306,16 @@
         </div>
         <p class="lp-invite" id="lpInviteNote">New workspaces are invitation-only.<br /><a href="mailto:support@get-silo.com?subject=SILO%20workspace%20invitation">Request an invitation</a></p>
       </div>
-      <div class="lp-visual" aria-hidden="true">
-        <!-- The refined Blender still is the hero. No autoplay or motion is
-             needed; the JPEG keeps the artwork available without WebP. -->
-        <picture>
+      <div class="lp-visual" id="lpVisual" data-motion="still">
+        <!-- Always keep the original responsive artwork underneath the video.
+             No video src is assigned until motion and visibility permit it. -->
+        <picture aria-hidden="true">
           <source type="image/webp" srcset="/assets/landing/silo-hero-1080.webp 1080w, /assets/landing/silo-hero.webp 1800w" sizes="(max-width: 900px) 135vw, 100vw" />
           <img src="/assets/landing/silo-hero.jpg" width="1800" height="1100" alt="" fetchpriority="high" decoding="async" />
         </picture>
+        <video id="lpHeroVideo" width="1080" height="660" muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"
+          data-src="/assets/landing/silo-hero-motion.mp4" data-mobile-src="/assets/landing/silo-hero-motion-mobile.mp4"></video>
+        <button class="bcn-btn lp-motion-toggle" id="lpMotionToggle" type="button" aria-controls="lpHeroVideo" hidden>Pause motion</button>
       </div>
     </main>
     <footer class="lp-foot">
@@ -331,6 +346,7 @@
     <div class="meta" id="debugMeta"></div>
   </div>
 
+  <script src="/assets/landing/silo-hero-motion.js" defer></script>
   <script src="/pages/config.js"></script>
   <script type="module">
     import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";

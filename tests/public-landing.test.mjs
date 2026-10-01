@@ -128,13 +128,28 @@ test('welcome actions are real links to the existing auth and invitation-gated f
   assert.match(readFileSync(root + 'v2/company-onboarding.html', 'utf8'), /if \(!token\) \{[\s\S]*?You need an invitation[\s\S]*?return;/);
 });
 
-test('hero uses responsive local WebP with a dimensioned decorative JPEG fallback', () => {
+test('hero keeps responsive stills beneath a dimensioned, deferred decorative video', () => {
   assert.match(html, /<source type="image\/webp"[^>]+silo-hero-1080.webp 1080w, \/assets\/landing\/silo-hero.webp 1800w/);
   assert.match(html, /<img src="\/assets\/landing\/silo-hero.jpg" width="1800" height="1100" alt="" fetchpriority="high"/);
   for (const [file, budget] of [['silo-hero-1080.webp', 50000], ['silo-hero.webp', 120000], ['silo-hero.jpg', 200000]]) {
     assert.ok(statSync(root + 'assets/landing/' + file).size < budget, `${file} exceeds its byte budget`);
   }
-  assert.doesNotMatch(html.replace(/<!--[\s\S]*?-->/g, ''), /<video\b|<[^>]+\bautoplay\b/);
+  const video = html.match(/<video\b[^>]*>[\s\S]*?<\/video>/g);
+  assert.equal(video?.length, 1, 'exactly one progressive-enhancement video');
+  assert.doesNotMatch(video[0], /\s(?:src|autoplay)\s*(?:=|>|\s)/, 'the parser must never initiate video loading');
+  assert.doesNotMatch(video[0], /<source\b/, 'nested sources would bypass the motion policy');
+  for (const attribute of ['muted', 'loop', 'playsinline']) assert.match(video[0], new RegExp('\\s' + attribute + '(?:\\s|>)'));
+  for (const attribute of ['width="1080"', 'height="660"', 'preload="none"', 'tabindex="-1"', 'aria-hidden="true"',
+    'data-src="/assets/landing/silo-hero-motion.mp4"', 'data-mobile-src="/assets/landing/silo-hero-motion-mobile.mp4"']) {
+    assert.ok(video[0].includes(attribute), 'missing video contract: ' + attribute);
+  }
+  assert.match(html, /<button\b[^>]*id="lpMotionToggle"[^>]*type="button"[^>]*aria-controls="lpHeroVideo"[^>]*hidden/);
+  assert.match(html, /<script src="\/assets\/landing\/silo-hero-motion\.js" defer><\/script>/);
+  for (const [file, budget] of [['silo-hero-motion.mp4', 2500000], ['silo-hero-motion-mobile.mp4', 1000000]]) {
+    const bytes = readFileSync(root + 'assets/landing/' + file);
+    assert.ok(bytes.length > 1000 && bytes.length < budget, `${file} is empty or exceeds its byte budget`);
+    assert.equal(bytes.toString('ascii', 4, 8), 'ftyp', `${file} must be an actual MP4`);
+  }
 });
 
 test('keyboard focus, reduced motion, and mobile layout are explicit', () => {
@@ -142,6 +157,38 @@ test('keyboard focus, reduced motion, and mobile layout are explicit', () => {
   assert.match(html, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(html, /@media \(max-width: 900px\)/);
   assert.match(html, /<nav aria-label="Legal and contact">/);
+});
+
+test('browser media fixtures serve actual, bounded MP4 byte ranges', async () => {
+  const browserTest = readFileSync(new URL('./public-landing.browser.mjs', import.meta.url), 'utf8');
+  const helper = browserTest.match(/^async function fulfillVideo\(route, bytes\) \{[\s\S]*?^\}/m)?.[0];
+  assert.ok(helper, 'exercise the same Range response helper that the browser uses');
+  const fulfillVideo = vm.runInNewContext('(' + helper + ')');
+  const bytes = Buffer.from('0123456789');
+  const request = range => fulfillVideo({ request: () => ({ headers: () => ({ range }) }), fulfill: result => result }, bytes);
+  const full = await request(undefined);
+  assert.equal(full.contentType, 'video/mp4');
+  assert.equal(full.headers['accept-ranges'], 'bytes');
+  assert.ok(full.body.equals(bytes));
+  for (const [range, contentRange, body] of [
+    ['bytes=0-', 'bytes 0-9/10', '0123456789'],
+    ['bytes=2-5', 'bytes 2-5/10', '2345'],
+    ['bytes=8-999', 'bytes 8-9/10', '89'],
+    ['bytes=-3', 'bytes 7-9/10', '789'],
+    ['bytes=0-0', 'bytes 0-0/10', '0'],
+  ]) {
+    const result = await request(range);
+    assert.equal(result.status, 206, range);
+    assert.equal(result.contentType, 'video/mp4');
+    assert.equal(result.headers['content-range'], contentRange, range);
+    assert.equal(result.headers['content-length'], String(body.length), range);
+    assert.equal(result.body.toString(), body, range);
+  }
+  for (const range of ['bytes=20-', 'bytes=5-2', 'bytes=-', 'bytes=0-1,3-4', 'not-a-range']) {
+    const result = await request(range);
+    assert.equal(result.status, 416, range);
+    assert.equal(result.headers['content-range'], 'bytes */10');
+  }
 });
 
 async function openGuestOnboarding(search = '') {
