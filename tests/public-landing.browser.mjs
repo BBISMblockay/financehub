@@ -431,6 +431,10 @@ try {
     await expectPlaying(restricted.page);
     if (options.reducedMotion) {
       await restricted.page.emulateMedia({ reducedMotion: 'no-preference' });
+      // Chromium may coalesce back-to-back preference updates before dispatching
+      // a change event. Observe the first edge revoking the explicit opt-in.
+      await restricted.page.waitForFunction(() =>
+        document.getElementById('lpVisual').dataset.userMotion !== 'true');
       await restricted.page.emulateMedia({ reducedMotion: 'reduce' });
     } else {
       await restricted.page.evaluate(() => { navigator.connection.saveData = false; navigator.connection.dispatchEvent(new Event('change')); });
@@ -517,7 +521,11 @@ try {
     assert.ok(broken.mediaRequests().length > 0);
     const failedAttempts = await broken.page.evaluate(() => globalThis.__testPlayCalls);
     await broken.page.emulateMedia({ reducedMotion: 'reduce' });
+    await broken.page.waitForFunction(() =>
+      document.getElementById('lpMotionToggle').textContent === 'Play animation');
     await broken.page.emulateMedia({ reducedMotion: 'no-preference' });
+    await broken.page.waitForFunction(() =>
+      document.getElementById('lpMotionToggle').textContent === 'Retry animation');
     await expectStill(broken.page);
     assert.equal(await broken.page.evaluate(() => globalThis.__testPlayCalls), failedAttempts);
     await assertGeometry(broken.page, `${name} failed media`, width);
