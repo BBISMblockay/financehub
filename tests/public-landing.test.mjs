@@ -144,7 +144,14 @@ test('hero keeps responsive stills beneath a dimensioned, deferred decorative vi
     assert.ok(video[0].includes(attribute), 'missing video contract: ' + attribute);
   }
   assert.match(html, /<button\b[^>]*id="lpMotionToggle"[^>]*type="button"[^>]*aria-controls="lpHeroVideo"[^>]*hidden/);
-  assert.match(html, /<script src="\/assets\/landing\/silo-hero-motion\.js" defer><\/script>/);
+  const status = html.match(/<[^>]+\bid="lpMotionStatus"[^>]*>/)?.[0];
+  assert.ok(status, 'an explanatory playback status is present in the HTML');
+  assert.match(status, /aria-live="polite"/);
+  const fallback = html.match(/<a\b[^>]*\bid="lpMotionFallback"[^>]*>\s*Watch animation\s*<\/a>/)?.[0];
+  assert.ok(fallback, 'a plain Watch animation link must work independently of the controller');
+  assert.match(fallback, /href="\/assets\/landing\/silo-hero-motion\.mp4"/);
+  assert.doesNotMatch(fallback, /\bhidden(?:\s|=|>)/, 'the static fallback cannot depend on JavaScript to become available');
+  assert.match(html, /<script src="\/assets\/landing\/silo-hero-motion\.js\?v=\d+" defer><\/script>/, 'new markup must request the matching controller revision');
   assert.doesNotMatch(html, /transition:\s*opacity/, 'different still and rebuilt scene must not ghost through an opacity crossfade');
   for (const [file, budget] of [['silo-hero-motion.mp4', 2500000], ['silo-hero-motion-mobile.mp4', 1000000]]) {
     const bytes = readFileSync(root + 'assets/landing/' + file);
