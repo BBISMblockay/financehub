@@ -650,14 +650,30 @@
     }
 
     const SEVERITY_ORDER = { high: 0, warn: 1, info: 2 };
+    const DOMAIN_TIE_ORDER = ['For you', 'Payables', 'Purchasing', 'Launches', 'Product pipeline', 'Mailroom', 'Samples', 'Admin'];
+
+    function feedUnderlyingCount(it) {
+      const n = Number(it.count);
+      return Number.isFinite(n) && n > 0 ? n : 1;
+    }
+
+    function compareFeedItems(a, b) {
+      const sa = SEVERITY_ORDER[a.severity] ?? 9;
+      const sb = SEVERITY_ORDER[b.severity] ?? 9;
+      if (sa !== sb) return sa - sb;
+      return feedUnderlyingCount(b) - feedUnderlyingCount(a);
+    }
+
+    function groupWorstSeverity(items) {
+      return Math.min(...items.map(it => SEVERITY_ORDER[it.severity] ?? 9));
+    }
+
+    function groupPeakCount(items) {
+      return Math.max(...items.map(feedUnderlyingCount));
+    }
 
     function renderAttentionFeed() {
-      const sorted = attentionItems.slice().sort((a, b) => {
-        const sa = SEVERITY_ORDER[a.severity] ?? 9;
-        const sb = SEVERITY_ORDER[b.severity] ?? 9;
-        if (sa !== sb) return sa - sb;
-        return (b.count || 0) - (a.count || 0);
-      });
+      const sorted = attentionItems.slice().sort(compareFeedItems);
 
       const groups = new Map();
       sorted.forEach(it => {
@@ -666,15 +682,22 @@
         groups.get(domain).push(it);
       });
 
-      const domainOrder = ['For you', 'Payables', 'Purchasing', 'Launches', 'Product pipeline', 'Mailroom', 'Samples', 'Admin'];
       const orderedDomains = [...groups.keys()].sort((a, b) => {
-        const ia = domainOrder.indexOf(a);
-        const ib = domainOrder.indexOf(b);
+        const itemsA = groups.get(a);
+        const itemsB = groups.get(b);
+        const sa = groupWorstSeverity(itemsA);
+        const sb = groupWorstSeverity(itemsB);
+        if (sa !== sb) return sa - sb;
+        const ca = groupPeakCount(itemsA);
+        const cb = groupPeakCount(itemsB);
+        if (ca !== cb) return cb - ca;
+        const ia = DOMAIN_TIE_ORDER.indexOf(a);
+        const ib = DOMAIN_TIE_ORDER.indexOf(b);
         return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
       });
 
       els.feedList.innerHTML = orderedDomains.map(domain => {
-        const domainItems = groups.get(domain);
+        const domainItems = groups.get(domain).slice().sort(compareFeedItems);
         const isPersonal = domain === 'For you';
         return `
         <section class="profile-feed-group${isPersonal ? ' profile-feed-group--personal' : ''}" aria-label="${esc(domain)}">
@@ -716,17 +739,18 @@
       ]);
       attentionItems = attentionItems.filter((it) => feedItemAllowedForDept(it, access));
       const scopeSub = document.getElementById('feedScopeSub');
-      if (scopeSub) {
-        const label = departmentQueueLabel(access.dept);
-        scopeSub.textContent = access.dept === 'exec'
-          ? 'Org-wide open items (exec), plus your assigned tasks.'
-          : `Open items for ${label}, launches, product pipeline, and your assigned tasks.`;
-      }
+      if (scopeSub) scopeSub.textContent = feedScopeMessage(access);
       renderAttentionFeed();
-      const n = attentionItems.length;
-      els.feedStatus.textContent = n
-        ? `Updated ${new Date().toLocaleTimeString()} · ${n} open item${n === 1 ? '' : 's'}`
-        : `Updated ${new Date().toLocaleTimeString()} · nothing open for ${departmentQueueLabel(access.dept)}`;
+      const alertCount = attentionItems.length;
+      const itemTotal = attentionItems.reduce((sum, it) => sum + feedUnderlyingCount(it), 0);
+      const time = new Date().toLocaleTimeString();
+      if (!alertCount) {
+        els.feedStatus.textContent = `Updated ${time} · nothing open for ${departmentQueueLabel(access.dept)}`;
+      } else if (itemTotal === alertCount) {
+        els.feedStatus.textContent = `Updated ${time} · ${alertCount} alert${alertCount === 1 ? '' : 's'}`;
+      } else {
+        els.feedStatus.textContent = `Updated ${time} · ${alertCount} alert${alertCount === 1 ? '' : 's'} (${itemTotal} item${itemTotal === 1 ? '' : 's'})`;
+      }
     }
 
     function renderLandingOptions(selected) {
