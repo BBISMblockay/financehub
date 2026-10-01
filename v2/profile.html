@@ -104,7 +104,7 @@
                 <h2>Work queue</h2>
                 <span class="profile-queue-header__badge" id="feedCountBadge" hidden>0</span>
               </div>
-              <p class="profile-queue-header__sub" id="feedScopeSub">Open items for your department, plus anything assigned to you.</p>
+              <p class="profile-queue-header__sub" id="feedScopeSub">Your assigned tasks always show here.</p>
             </header>
             <div class="profile-queue-body">
               <p id="feedStatus" class="profile-feed-status">Checking SILO…</p>
@@ -276,24 +276,42 @@
       return dept;
     }
 
-    function feedScopeMessage(access) {
+    const FEED_DOMAIN_SCOPE_ORDER = ['Payables', 'Purchasing', 'Launches', 'Product pipeline', 'Mailroom', 'Samples', 'Admin'];
+    const FEED_DOMAIN_SCOPE_LABEL = {
+      Payables: 'payables',
+      Purchasing: 'purchasing',
+      Launches: 'launches',
+      'Product pipeline': 'product pipeline',
+      Mailroom: 'mailroom',
+      Samples: 'samples',
+      Admin: 'admin access',
+    };
+
+    function englishPhraseList(parts) {
+      if (!parts.length) return '';
+      if (parts.length === 1) return parts[0];
+      if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+      return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+    }
+
+    function orgDomainsPresentInFeed(items) {
+      const present = new Set();
+      (items || []).forEach((it) => {
+        const domain = feedKindMeta(it.kind).domain;
+        if (domain === 'For you' || domain === 'SILO') return;
+        present.add(domain);
+      });
+      return FEED_DOMAIN_SCOPE_ORDER.filter((d) => present.has(d));
+    }
+
+    /** Subtitle reflects what is in the queue right now — not every feed finance could ever see. */
+    function feedScopeMessage(access, items = []) {
       const personal = 'Your assigned tasks always show here.';
-      switch (access.dept) {
-        case 'exec':
-          return `${personal} Org-wide feeds for every department.`;
-        case 'ops':
-          return `${personal} Also purchasing, launches, and product pipeline.`;
-        case 'logistics':
-          return `${personal} Also samples, launches, and product pipeline.`;
-        case 'marketing':
-          return `${personal} Also launches and product pipeline.`;
-        case 'finance':
-          return `${personal} Also payables and mailroom.`;
-        case 'retail':
-          return personal;
-        default:
-          return `${personal} Org items match your department when set.`;
-      }
+      const orgParts = orgDomainsPresentInFeed(items).map(
+        (d) => FEED_DOMAIN_SCOPE_LABEL[d] || d.toLowerCase()
+      );
+      if (!orgParts.length) return personal;
+      return `${personal} Also ${englishPhraseList(orgParts)}.`;
     }
 
     async function countRows(table, applyFilters) {
@@ -721,6 +739,8 @@
       if (!db || !profile || !authUser) return;
       els.attentionAside.hidden = false;
       els.feedStatus.textContent = 'Checking SILO data…';
+      const scopeSub = document.getElementById('feedScopeSub');
+      if (scopeSub) scopeSub.textContent = 'Your assigned tasks always show here.';
       els.feedEmpty.hidden = true;
       els.feedList.hidden = false;
       attentionItems = [];
@@ -738,8 +758,7 @@
         loadAdminAttention(attentionItems, access),
       ]);
       attentionItems = attentionItems.filter((it) => feedItemAllowedForDept(it, access));
-      const scopeSub = document.getElementById('feedScopeSub');
-      if (scopeSub) scopeSub.textContent = feedScopeMessage(access);
+      if (scopeSub) scopeSub.textContent = feedScopeMessage(access, attentionItems);
       renderAttentionFeed();
       const alertCount = attentionItems.length;
       const itemTotal = attentionItems.reduce((sum, it) => sum + feedUnderlyingCount(it), 0);
