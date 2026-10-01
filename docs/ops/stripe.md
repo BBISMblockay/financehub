@@ -157,6 +157,12 @@ on conflict (plan_key) do update
       unit_amount_cents = excluded.unit_amount_cents;
 ```
 
+**AI usage is not unlimited on any plan** (2026-10-01). Ask SILO and On Deck
+draw from a customer-priced AI credit balance: a plan's monthly allowance is
+`billing_plans.included_ai_credit_micros` (null = not configured), and extra
+credit is bought as a top-up. Plan copy should not promise "Ask SILO included"
+as unlimited. See [ai-credits.md](ai-credits.md).
+
 `unit_amount_cents` here is a **display copy**. The price Stripe charges is the
 one on the price object; if they disagree, Stripe is right and this column is
 stale. It is nullable, and null renders as "Contact us" rather than as free.

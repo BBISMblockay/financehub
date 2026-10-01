@@ -88,6 +88,9 @@ export function fakeDatabase(records, { rpc = {}, fail = {} } = {}) {
       // Defaults for the two reads every preparation makes: no saved rule
       // answers anything, and history is what the records hold.
       if (name === 'card_coding_rule_answered') return { data: [], error: null };
+      // AI credit: by default, a database the credit migration has not
+      // reached -- the meter reads that as `off` and nothing is held.
+      if (name.startsWith('ai_credit_')) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } };
       if (name === 'card_coding_history_evidence') {
         return historyEvidence({ ...records, card_transactions: records.card_transactions || records.card_transactions_v || [] }, args);
       }

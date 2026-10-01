@@ -36,6 +36,9 @@
     .ac-msg--assistant .ac-bubble { background:var(--bcn-sunken); color:var(--bcn-ink); border-top-left-radius:3px; }
     .ac-msg--error .ac-bubble { background:color-mix(in oklab, var(--bcn-neg) 12%, var(--bcn-surface)); color:var(--bcn-neg); }
 
+    .ac-credit-note { margin-top: 6px; font-family: var(--bcn-mono); font-size: 10.5px; color: var(--bcn-ink-3); }
+    .ac-credit-pill { text-decoration: none; font-family: var(--bcn-mono); font-size: 11px; white-space: nowrap; align-self: center; }
+    .ac-credit-pill[hidden] { display: none !important; }
     .ac-retry-note {
       margin-top:8px; font-size:11.5px; color:var(--bcn-ink-3);
       display:flex; align-items:center; gap:8px; flex-wrap:wrap;
@@ -351,6 +354,7 @@
         <div class="bcn-header-sub bcn-header-sub--trimmed">Live-queries your SILO data as you ask — sales, inventory, marketing, returns. No report needs to exist first.</div>
       </div>
       <div class="bcn-header-actions">
+        <a id="creditPill" class="bcn-pill ac-credit-pill" href="/v2/billing.html" hidden title="Workspace AI credit — opens Billing"></a>
         <button id="btnSaved" class="bcn-btn bcn-btn--ghost">Saved reports</button>
         <button id="btnNotes" class="bcn-btn bcn-btn--ghost">Training</button>
         <button id="btnConceptMode" class="bcn-btn bcn-btn--ghost" type="button">New concept</button>
@@ -483,6 +487,7 @@
 <script src="nav-config.js"></script>
 <script src="silo-chrome.js"></script>
 <script src="evidence-card.js"></script>
+<script src="ai-credit.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
   const SUPABASE_URL = cfg.SUPABASE_URL || '';
@@ -657,7 +662,7 @@
     history.forEach((m, i) => {
       if (m.role === 'assistant') {
         const question = [...history.slice(0, i)].reverse().find(x => x.role === 'user')?.content || '';
-        renderMessage({ role: 'assistant', content: m.content, queries: m.queries, concepts: m.concepts, sources: m.sources, saveCtx: { question } });
+        renderMessage({ role: 'assistant', content: m.content, queries: m.queries, concepts: m.concepts, sources: m.sources, saveCtx: { question }, credit: m.credit });
       } else {
         renderMessage({ role: 'user', content: m.content, images: m.imageUrls });
       }
@@ -920,7 +925,27 @@
     await askSilo();
   });
 
-  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts, sources, suggestWorkflow }) {
+  // The workspace's AI credit, compact. Hidden when credit is not switched on
+  // (or the database has no credit yet), so nothing changes for a workspace
+  // that is not metered; an unreadable balance says so rather than guessing.
+  async function refreshCreditPill() {
+    const pill = el('creditPill');
+    const AI = window.SiloAICredit;
+    if (!pill || !AI) return;
+    const { summary, error } = await AI.load(sb);
+    const missing = error && (error.code === 'PGRST202' || error.code === '42883');
+    const d = AI.describe(summary, error);
+    if (missing || d.state === 'unconfigured') { pill.hidden = true; return; }
+    pill.hidden = false;
+    pill.className = 'bcn-pill ac-credit-pill';
+    if (d.state === 'unavailable') { pill.textContent = 'AI credit: unavailable'; return; }
+    if (d.state === 'preview') { pill.textContent = 'AI credit: preview'; pill.classList.add('bcn-pill--accent'); return; }
+    if (d.neverGranted) { pill.textContent = 'AI credit: none yet'; return; }
+    pill.textContent = 'AI credit ' + AI.fmtMicros(Math.max(0, Number(d.available)), { exact: true });
+    pill.classList.add(d.exhausted ? 'bcn-pill--neg' : 'bcn-pill--pos');
+  }
+
+  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts, sources, suggestWorkflow, credit }) {
     el('emptyState')?.remove();
     const wrap = document.createElement('div');
     wrap.className = `ac-msg ac-msg--${isError ? 'error' : role}`;
@@ -981,6 +1006,10 @@
     const suggestHtml = suggestWorkflow === 'product_concept' && activeWorkflow !== 'product_concept'
       ? `<div class="ac-answer-actions"><button type="button" class="ac-save-btn" id="btnStartConceptFlow">Start product concept workflow</button></div>`
       : '';
+    // What this answer cost in AI credit (customer-priced, settled by the
+    // server). Absent for answers from before credit existed.
+    const charge = window.SiloAICredit?.describeCharge?.(credit);
+    const creditHtml = charge ? `<div class="ac-credit-note">${esc(charge.text)}</div>` : '';
     const bubble = renderBubbleContent(content, role, isError);
     wrap.innerHTML = `
       <div class="ac-avatar">${esc(avatar)}</div>
@@ -992,6 +1021,7 @@
         ${queriesHtml}
         ${sourcesHtml}
         ${saveHtml}
+        ${creditHtml}
         ${retryHtml}
       </div>`;
     el('log').appendChild(wrap);
@@ -1026,7 +1056,48 @@
   // own rows at all. The old recency window is gone with it: a request id is
   // unique, so age proves nothing, and the window was cutting off exactly the
   // long drafts recovery exists for.
+  //
+  // The FULL stored response is read first: silo_chat_responses holds the exact
+  // body the page would have received (concept cards, web sources, and the
+  // ai_credit the request was charged), where the audit row carries only the
+  // answer text and SQL. A charged answer recovered from the audit log alone
+  // showed no cost line. The audit log stays the fallback for a database
+  // without that table, or a request that wrote no row there -- and then no
+  // cost is shown at all, never an invented $0.
   async function tryRecoverAnswer(requestId) {
+    if (!requestId || !identity.userId) return null;
+    const stored = await recoverStoredResponse(requestId);
+    if (stored) return stored;
+    return recoverFromAuditLog(requestId);
+  }
+
+  // The asker's stored response for one request, only when it is a finished
+  // ANSWER. An error body is not an answer to recover; returns null so the
+  // caller falls through to the audit log exactly as before.
+  async function recoverStoredResponse(requestId) {
+    if (!requestId) return null;
+    try {
+      const { data, error } = await sb.from('silo_chat_responses')
+        .select('http_status, response')
+        .eq('request_id', requestId)
+        .maybeSingle();
+      if (error || !data?.response) return null;
+      const status = Number(data.http_status) || 200;
+      const body = data.response;
+      if (status < 200 || status >= 300 || body.error || !body.answer) return null;
+      return {
+        answer: body.answer,
+        queries_run: body.queries_run || [],
+        concepts: body.concepts,
+        sources: body.sources,
+        ai_credit: body.ai_credit,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async function recoverFromAuditLog(requestId) {
     if (!requestId || !identity.userId) return null;
     try {
       const { data } = await sb.from('silo_chat_audit_log')
@@ -1074,7 +1145,7 @@
         }
       }
       if (tableMissing) {
-        const recovered = await tryRecoverAnswer(requestId);
+        const recovered = await recoverFromAuditLog(requestId);
         if (recovered) {
           el('status').hidden = true;
           return { http_status: 200, response: { answer: recovered.answer, queries_run: recovered.queries_run || [] } };
@@ -1089,10 +1160,19 @@
     unansweredEntry = null;
     const historyEntry = { role: 'assistant', content: recovered.answer };
     if (recovered.queries_run?.length) historyEntry.queries = recovered.queries_run;
+    if (recovered.concepts?.length) historyEntry.concepts = recovered.concepts;
+    if (recovered.sources?.length) historyEntry.sources = recovered.sources;
+    // Only a stored response carries ai_credit; an audit-log recovery has none
+    // and shows no cost line rather than a made-up one.
+    if (recovered.ai_credit) historyEntry.credit = recovered.ai_credit;
     history.push(historyEntry);
     saveHistoryToSession();
     const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
-    renderMessage({ role: 'assistant', content: recovered.answer, queries: recovered.queries_run, saveCtx: { question } });
+    renderMessage({ role: 'assistant', content: recovered.answer, queries: recovered.queries_run, saveCtx: { question },
+      concepts: recovered.concepts, sources: recovered.sources, credit: recovered.ai_credit });
+    // The request ran (and may have been charged) while this tab was not
+    // listening, so the balance shown is stale whatever the source was.
+    refreshCreditPill();
   }
 
   // Shared by both failure paths below: try to recover a completed answer
@@ -1286,6 +1366,14 @@
         // The AI account's spend cap is reached. Nothing was answered and
         // asking again cannot work until an admin raises the limit, so show
         // it now and offer no Try again.
+        // Out of AI credit: nothing ran and nothing was charged. Asking again
+        // cannot work until credit is added, so no Try again.
+        if (status === 402 && data.credit_exhausted) {
+          unansweredEntry = askedEntry;
+          renderMessage({ role: 'assistant', content: data.error, isError: true, retryable: false });
+          refreshCreditPill();
+          return;
+        }
         if (status === 503 && data.provider_spend_limit) {
           unansweredEntry = askedEntry;
           renderMessage({ role: 'assistant', content: data.error, isError: true, retryable: false });
@@ -1325,11 +1413,13 @@
       // Same reasoning for the web sources behind a web_search-backed answer:
       // replay can only show what the entry carries.
       if (data.sources && data.sources.length) historyEntry.sources = data.sources;
+      if (data.ai_credit) historyEntry.credit = data.ai_credit;
       history.push(historyEntry);
       unansweredEntry = null;
       saveHistoryToSession();
       const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
-      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question }, concepts: data.concepts, sources: data.sources, suggestWorkflow: data.suggest_workflow });
+      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question }, concepts: data.concepts, sources: data.sources, suggestWorkflow: data.suggest_workflow, credit: data.ai_credit });
+      if (data.ai_credit && data.ai_credit.status !== 'not_metered') refreshCreditPill();
       // The edge function only sends this when the audit INSERT was rejected.
       // It means this answer is not in the log, so a later "Try again" cannot
       // find it -- worth knowing before promising a recovery that cannot work.
@@ -2043,6 +2133,7 @@
         supabaseClient: sb,
       });
     }
+    refreshCreditPill();
 
     // Product Concepts shipped to everyone 2026-09-30 -- the RLS boundary on
     // product_concepts is what was ever real here; this just restores the

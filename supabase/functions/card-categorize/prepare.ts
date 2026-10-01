@@ -461,6 +461,56 @@ Respond with JSON only, no prose, no code fence:
 Every line you were given must appear exactly once.`;
 }
 
+// ---------------------------------------------------------------------------
+// AI credit (20261001120000, docs/ops/ai-credits.md). Card coding is billed to
+// the company's customer-priced AI credit like Ask SILO and On Deck: ONE
+// reservation per model call, taken BEFORE the call, settled once from the
+// API's own usage. A call that fails, times out or returns nothing usable is
+// free. `supabase` here is the service-role client both callers already pass,
+// which is what the credit RPCs require. Kept inline (rather than importing
+// silo-chat's ai-credit-lib.mjs) because this file is loaded as a single
+// module by the scheduled worker and by the node test sandbox.
+// ---------------------------------------------------------------------------
+const CREDIT_MAX_OUTPUT = 24000;   // matches max_tokens below
+type CreditMeter = {
+  open: (estInput: number) => Promise<{ ok: boolean; id: string | null; reason?: string }>;
+  settle: (id: string | null, usage: Record<string, number> | null, ok: boolean) => Promise<void>;
+};
+const isMissingFunction = (e: any) => ['PGRST202', '42883'].includes(e?.code) || /Could not find the function|does not exist/i.test(String(e?.message || ''));
+function creditUsage(usage: any) {
+  const n = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 ? v as number : 0);
+  return {
+    input: n(usage?.input_tokens), output: n(usage?.output_tokens), cache_read: n(usage?.cache_read_input_tokens),
+    cache_write: n(usage?.cache_creation_input_tokens),
+    cache_write_5m: n(usage?.cache_creation?.ephemeral_5m_input_tokens),
+    cache_write_1h: n(usage?.cache_creation?.ephemeral_1h_input_tokens),
+    web_search: n(usage?.server_tool_use?.web_search_requests),
+  };
+}
+function createCreditMeter(supabase: any, companyId: string, userId: string | null, batchId: string): CreditMeter {
+  return {
+    async open(estInput) {
+      const id = crypto.randomUUID();
+      const { data, error } = await supabase.rpc('ai_credit_open', {
+        p_request: id, p_company: companyId, p_user: userId, p_feature: 'card_coding', p_model: MODEL,
+        p_est_input: estInput, p_max_output: CREDIT_MAX_OUTPUT, p_max_web: 0, p_calls_to_hold: 1,
+        p_source_ref: batchId,
+      });
+      if (error) return isMissingFunction(error) ? { ok: true, id: null } : { ok: false, id: null, reason: 'credit_unavailable' };
+      if (!data?.ok) return { ok: false, id: null, reason: data?.reason === 'insufficient_credit' ? 'credit_exhausted' : `credit_${data?.reason || 'unavailable'}` };
+      return { ok: true, id: data.mode === 'off' ? null : id };
+    },
+    async settle(id, usage, ok) {
+      if (!id) return;
+      // A failed settle leaves the hold; the sweep closes it later, free.
+      await supabase.rpc('ai_credit_settle', {
+        p_request: id, p_usage: usage ? creditUsage(usage) : null,
+        p_outcome: ok ? 'succeeded' : 'failed', p_error: ok ? null : 'no_answer',
+      }).then(() => undefined, () => undefined);
+    },
+  };
+}
+
 async function askModel(
   merchants: Merchant[],
   accounts: { name: string; type: string; sub: string | null; used: number | null }[],
@@ -472,7 +522,8 @@ async function askModel(
   cardNames: string[],
   bankMode = false,
   history: string[] = [],
-): Promise<{ suggestions: Suggestion[]; usage: Record<string, number> }> {
+  credit: CreditMeter | null = null,
+): Promise<{ suggestions: Suggestion[]; usage: Record<string, number>; hold: string | null; rawUsage: any }> {
   const userMsg = merchants
     .map((m) =>
       `- merchant: "${m.merchant}" | card: ${m.card_name ? `"${m.card_name}"` : 'none'}`
@@ -481,29 +532,53 @@ async function askModel(
     )
     .join('\n');
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 24000,
-      system: systemPrompt(
-        accounts, locations, examples, sourceName, relatedEntities, companyName, cardNames, bankMode, history),
-      messages: [{ role: 'user', content: `Code these lines:\n${userMsg}` }],
-    }),
+  const requestBody = JSON.stringify({
+    model: MODEL,
+    max_tokens: CREDIT_MAX_OUTPUT,
+    system: systemPrompt(
+      accounts, locations, examples, sourceName, relatedEntities, companyName, cardNames, bankMode, history),
+    messages: [{ role: 'user', content: `Code these lines:\n${userMsg}` }],
   });
+  // The hold comes first: no hold, no call. ~2.5 characters per token is a
+  // HIGH estimate; the charge is always the measured usage.
+  const hold = credit ? await credit.open(Math.ceil(requestBody.length / 2.5)) : { ok: true, id: null };
+  if (!hold.ok) throw Object.assign(new Error(hold.reason || 'credit_unavailable'), { creditRefused: true });
+  let handedOff = false;
+  // The provider's measured usage, kept even when the answer is then unusable:
+  // the customer is not charged for a failed call, but SILO's provider cost
+  // must still be recorded, or failure spend reads as zero.
+  let measured: any = null;
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: requestBody,
+    });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`anthropic_${res.status}: ${detail.slice(0, 300)}`);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`anthropic_${res.status}: ${detail.slice(0, 300)}`);
+    }
+
+    const data = await res.json();
+    measured = data?.usage ?? null;
+    const result = readModelAnswer(data, merchants);
+    // The CALLER settles: whether this call is charged depends on whether a
+    // suggestion for a requested line was actually recorded, which is only
+    // known after matching and persisting.
+    handedOff = true;
+    return { ...result, hold: hold.id, rawUsage: data.usage };
+  } finally {
+    if (!handedOff) await credit?.settle(hold.id, measured, false);
   }
+}
 
-  const data = await res.json();
+function readModelAnswer(data: any, merchants: Merchant[]): { suggestions: Suggestion[]; usage: Record<string, number> } {
   const text = (data.content || [])
     .filter((c: any) => c.type === 'text')
     .map((c: any) => c.text)
@@ -1090,7 +1165,9 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
   // elsewhere cannot take finished work down with it. Progress lands on the
   // run row for the page to show.
   let progress: Promise<unknown> = Promise.resolve();
-  const persistSlice = async (answers: (Suggestion & { failed?: string })[]) => {
+  // Returns how many usable (non-failed) rows from this slice actually landed.
+  const persistSlice = async (answers: (Suggestion & { failed?: string })[]): Promise<number> => {
+    let landed = 0;
     const rows: Record<string, unknown>[] = [];
     for (const s of answers) {
       for (const t of rowsByKey.get(groupKey(s.merchant, s.card_name ?? null, s.direction)) || []) {
@@ -1105,7 +1182,7 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
         });
       }
     }
-    if (!rows.length) return;
+    if (!rows.length) return 0;
     // One merchant group expands to every transaction sharing its merchant and
     // card, so a single slice can carry thousands of rows. The writer takes a
     // bounded payload; send it in chunks, and keep whatever landed if a later
@@ -1121,6 +1198,7 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       for (const r of part) {
         if (skippedIds.has(String(r.transaction_id))) continue;
         if (r.outcome === 'suggested') totals.suggested++; else if (r.outcome === 'failed') totals.failed++; else totals.needs_judgment++;
+        if (r.outcome !== 'failed') landed++;
       }
     }
     progress = progress.then(() => supabase.from('card_coding_preparation_runs').update({
@@ -1128,15 +1206,18 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       suggestions_recorded: totals.suggested, needs_judgment_recorded: totals.needs_judgment,
       failures_recorded: totals.failed, skipped: totals.skipped,
     }).eq('id', runId)).catch(() => undefined);
+    return landed;
   };
 
   const slices: Merchant[][] = chunks(merchants, BATCH_SIZE);
+  // Every model call below is metered against the company's AI credit.
+  const credit = createCreditMeter(supabase, companyId, request.requestedBy, request.batchId);
 
   // CONCURRENT, not sequential. Each call has taken ~65s, and Supabase's
   // gateway kills the request at 150s. Capped at 4 in flight to stay clear of
   // the API's own rate limits.
   const LIMIT = 4;
-  let next = 0;
+  let next = 0, creditRefused = 0;
   phase = performance.now();
   await Promise.all(Array.from({ length: Math.min(LIMIT, slices.length) }, async () => {
     for (;;) {
@@ -1144,12 +1225,14 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       if (i >= slices.length) return;
       const slice = slices[i];
       let answers: (Suggestion & { failed?: string })[];
+      let charge: { hold: string | null; usage: any } | null = null;
       const callStarted = performance.now();
       try {
         const sliceHistory = [...new Set(slice.map(historyLine).filter((l): l is string => !!l))];
         const result = await askModel(
           slice, accounts, locations, examples, sourceName, relatedEntities,
-          companyName, cardNames, bankMode, sliceHistory);
+          companyName, cardNames, bankMode, sliceHistory, credit);
+        charge = { hold: result.hold, usage: result.rawUsage };
         for (const [k, v] of Object.entries(result.usage)) tokenUsage[k] = (tokenUsage[k] || 0) + v;
         // Answers are matched back on the merchant AND card pair, since the same
         // merchant can legitimately appear twice with different cards.
@@ -1157,6 +1240,15 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
         answers = slice.map((m) => finalize(m, byMerchant.get(groupKey(m.merchant, m.card_name, m.direction)), null));
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
+        if ((error as any).creditRefused) {
+          // No model call was made. Record NOTHING for these rows: a failed
+          // row would count toward the five-attempt retry limit, and a
+          // workspace out of credit for five scheduled passes would then never
+          // resume after a top-up. Left unprepared, they are picked up again.
+          creditRefused++;
+          if (!errors.includes(error.message)) errors.push(error.message);
+          continue;
+        }
         errors.push(error.message);
         totals.model_calls_failed++;
         answers = slice.map((m) => finalize(m, undefined, error));
@@ -1164,7 +1256,14 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       totals.model_calls++;
       modelCallMs.push(elapsed(callStarted));
       out.push(...answers);
-      await persistSlice(answers);
+      let landed = 0;
+      try { landed = await persistSlice(answers); }
+      finally {
+        // Charged only when at least one suggestion for a line we asked about
+        // is now stored. Key mismatches (recorded as failed) and write errors
+        // are free.
+        if (charge) await credit.settle(charge.hold, charge.usage, landed > 0);
+      }
     }
   }));
   timings.model_ms = elapsed(phase);
@@ -1210,6 +1309,7 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       timings,
       token_usage: tokenUsage,
       errors: errors.length ? errors : undefined,
+      credit_refused_batches: creditRefused || undefined,
     },
   };
   }

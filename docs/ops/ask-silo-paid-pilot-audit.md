@@ -384,6 +384,11 @@ What this means:
 
 ## 5. Decisions
 
+> **Superseded 2026-10-01 (Blake).** The trial, markup and spend-limit
+> decisions below are dropped in favour of the AI-credit model in
+> [`ai-credits.md`](ai-credits.md): a subscription with included
+> customer-priced credit plus top-ups. Kept as a record only.
+
 ### Recorded (Blake, 2026-09-24)
 
 | Decision | Answer |

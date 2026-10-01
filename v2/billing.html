@@ -42,6 +42,37 @@
     .bil-num { text-align: right; font-family: var(--bcn-mono); font-variant-numeric: tabular-nums; }
     .bil-empty { padding: 26px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
     .bil-note { font-size: 12px; color: var(--bcn-ink-3); line-height: 1.55; max-width: 76ch; }
+
+    /* AI credit. Two rows: credit + plan, usage + On Deck cap. */
+    .bil-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 0 20px; align-items: stretch; }
+    .bil-grid > .bil-card { min-width: 0; }
+    @media (max-width: 960px) { .bil-grid { grid-template-columns: minmax(0, 1fr); } }
+    .bil-credit { background: var(--bcn-band); color: var(--bcn-band-ink); border-color: var(--bcn-band-hi); }
+    .bil-credit .bil-card-head { border-bottom-color: var(--bcn-band-hi); }
+    .bil-credit .bil-sub, .bil-credit .bil-fact-label, .bil-credit .bil-fact-note { color: var(--bcn-band-ink-2); }
+    .bil-credit .bil-body { padding: 24px 28px; }
+    .bil-credit-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+    .bil-credit-amount { font: 500 40px/1.15 var(--bcn-mono); letter-spacing: -.04em; font-variant-numeric: tabular-nums; margin-top: 6px; }
+    .bil-credit-amount--muted { font-size: 22px; color: var(--bcn-band-ink-2); letter-spacing: 0; }
+    .bil-meter { height: 6px; border-radius: 3px; background: var(--bcn-band-hi); overflow: hidden; margin: 6px 0 4px; }
+    .bil-meter > span { display: block; height: 100%; background: var(--bcn-accent); }
+    .bil-meter-row { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--bcn-band-ink-2); margin-top: 18px; }
+    .bil-credit-split { display: flex; gap: 40px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--bcn-band-hi); }
+    .bil-credit-split .bil-fact-value { font-size: 17px; }
+    .bil-credit-foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--bcn-band-hi); font-size: 11px; color: var(--bcn-band-ink-2); }
+    .bil-credit .bcn-pill { border-color: var(--bcn-band-hi); color: var(--bcn-band-ink); background: var(--bcn-band-hi); }
+    .bil-packs { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .bil-usage-row { display: grid; grid-template-columns: 32px minmax(0,1fr) auto; gap: 4px 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--bcn-border); }
+    .bil-usage-row:last-of-type { border-bottom: 0; }
+    .bil-usage-name { font-weight: 600; font-size: 13px; }
+    .bil-usage-meta { font-size: 11px; color: var(--bcn-ink-3); }
+    .bil-usage-amt { text-align: right; font-family: var(--bcn-mono); font-variant-numeric: tabular-nums; font-size: 14px; }
+    .bil-usage-bar { grid-column: 2 / 4; height: 4px; border-radius: 2px; background: var(--bcn-sunken); overflow: hidden; }
+    .bil-usage-bar > span { display: block; height: 100%; background: var(--bcn-accent); }
+    .bil-usage-total { display: flex; justify-content: space-between; padding-top: 12px; border-top: 1px solid var(--bcn-border); font-size: 12px; color: var(--bcn-ink-2); }
+    .bil-usage-total strong { font-family: var(--bcn-mono); color: var(--bcn-ink); font-weight: 500; }
+    .bil-cap-state { font: 500 22px/1.3 var(--bcn-font); margin: 4px 0 10px; }
+    .bil-callout { background: var(--bcn-sunken); border-radius: 6px; padding: 10px 12px; font-size: 12px; color: var(--bcn-ink-2); line-height: 1.5; }
   </style>
   <link rel="stylesheet" href="payments-ui.css" />
   <link rel="stylesheet" href="workspace-settings.css" />
@@ -53,6 +84,7 @@
   <script src="workspace-settings.js"></script>
   <script src="silo-chrome.js"></script>
   <script src="payments-ui.js"></script>
+  <script src="ai-credit.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
 </head>
@@ -73,12 +105,43 @@
       <div class="bil-page">
         <div class="bcn-status" id="status" role="status" hidden></div>
 
-        <div class="bcn-card bil-card bil-hero">
-          <div class="bil-card-head">
-            <div class="bil-title">Your plan</div>
-            <div class="bil-sub" id="subSynced"></div>
+        <div class="bil-grid">
+          <div class="bcn-card bil-card bil-credit" id="creditCard" aria-labelledby="creditTitle">
+            <div class="bil-card-head">
+              <div class="bil-title" id="creditTitle">AI credit</div>
+              <div class="bil-sub">Workspace balance</div>
+            </div>
+            <div class="bil-body" id="credit"><div class="bil-empty">Loading…</div></div>
           </div>
-          <div class="bil-body" id="current"><div class="bil-empty">Loading…</div></div>
+
+          <div class="bcn-card bil-card bil-hero">
+            <div class="bil-card-head">
+              <div class="bil-title">Your plan</div>
+              <div class="bil-sub" id="subSynced"></div>
+            </div>
+            <div class="bil-body" id="current"><div class="bil-empty">Loading…</div></div>
+          </div>
+
+          <div class="bcn-card bil-card" id="usageCard" hidden>
+            <div class="bil-card-head">
+              <div>
+                <div class="bil-title">Credit usage</div>
+                <div class="bil-sub">This billing period</div>
+              </div>
+              <div class="bil-sub" id="usagePeriod"></div>
+            </div>
+            <div class="bil-body" id="usage"></div>
+          </div>
+
+          <div class="bcn-card bil-card" id="capCard" hidden>
+            <div class="bil-card-head">
+              <div>
+                <div class="bil-title">On Deck safety cap</div>
+                <div class="bil-sub">A limit on background AI usage</div>
+              </div>
+            </div>
+            <div class="bil-body" id="cap"></div>
+          </div>
         </div>
 
         <div class="bcn-card bil-card" id="planCard">
@@ -102,7 +165,7 @@
         </div>
 
         <div class="pay-footnote"><span data-pay-icon="lock"></span> Card details stay with Stripe.</div>
-        <details class="pay-disclosure"><summary>Billing &amp; access</summary><p>Manage cards, plan changes and cancellation in Stripe. A past-due subscription does not automatically switch off SILO access; we follow up with you.</p></details>
+        <details class="pay-disclosure"><summary>Billing &amp; access</summary><p>Manage cards, plan changes and cancellation in Stripe. A past-due subscription does not automatically switch off SILO access; we follow up with you. When AI credit runs out, AI features (Ask SILO, On Deck, card coding suggestions and invoice reading) pause until credit is added; everything else in SILO keeps working, including entering details by hand.</p></details>
       </div>
     </main>
   </div>
@@ -122,6 +185,16 @@
   let _co = null;
   let _sub = null;
   let _plans = [];
+  let _credit = null;      // ai_credit_summary() result, or null
+  let _creditError = null; // why it could not be read
+  let _packs = [];
+  // ai-credit.js is a separate file; if it failed to load, the credit card
+  // says so and the rest of Billing still renders.
+  const AI = window.SiloAICredit || {
+    fmtMicros: () => '—',
+    describe: () => ({ state: 'unavailable', label: 'Unavailable', note: 'AI credit could not be loaded right now.' }),
+    load: async () => ({ summary: null, error: new Error('ai-credit.js not loaded') }),
+  };
 
   const el = (id) => document.getElementById(id);
   const { icon, decorate } = window.SiloPaymentsUI;
@@ -232,6 +305,11 @@
           <span class="bil-fact-value">${dateText(s.current_period_end)}</span>
         </div>
         <div class="bil-fact">
+          <span class="bil-fact-label">Included AI credit</span>
+          <span class="bil-fact-value">${_credit?.plan_included_micros == null ? '—' : AI.fmtMicros(_credit.plan_included_micros)}</span>
+          <span class="bil-fact-note">${_credit?.plan_included_micros == null ? 'Not configured for this plan' : `per ${esc(s.billing_interval || 'period')}`}</span>
+        </div>
+        <div class="bil-fact">
           <span class="bil-fact-label">Billing cycle</span>
           <span class="bil-fact-value">${esc(s.billing_interval || '—')}</span>
           ${s.seat_based ? `<span class="bil-fact-note">${s.quantity || 1} seats</span>` : ''}
@@ -309,6 +387,129 @@
       </tr>`).join('')}</tbody>`;
   }
 
+  const FEATURES = {
+    ask_silo: { name: 'Ask SILO', unit: (n) => `${n} answer${n === 1 ? '' : 's'}`, kind: 'Interactive questions', icon: 'search' },
+    on_deck: { name: 'On Deck', unit: (n) => `${n} background run${n === 1 ? '' : 's'}`, kind: 'Background preparation', icon: 'clock' },
+    card_coding: { name: 'Card coding', unit: (n) => `${n} suggestion batch${n === 1 ? '' : 'es'}`, kind: 'Coding suggestions', icon: 'card' },
+    payment_request_extract: { name: 'Invoice reading', unit: (n) => `${n} document${n === 1 ? '' : 's'} read`, kind: 'Payment request fill', icon: 'invoice' },
+  };
+
+  function renderCredit() {
+    const host = el('credit');
+    const d = AI.describe(_credit, _creditError);
+    if (d.state === 'unavailable' || d.state === 'unconfigured') {
+      host.innerHTML = `<div class="bil-fact-label">AI credit</div>
+        <div class="bil-credit-amount bil-credit-amount--muted">${esc(d.label)}</div>
+        <p class="bil-hero-message" style="color:var(--bcn-band-ink-2)">${esc(d.note)}</p>`;
+      el('usageCard').hidden = true;
+      return;
+    }
+    const used = Number(_credit.used_this_period_micros || 0);
+    const avail = Math.max(0, Number(d.available || 0));
+    const denom = used + avail;
+    const pct = denom > 0 ? Math.min(100, (used / denom) * 100) : 0;
+    const canTop = !!_credit.can_top_up;
+    const packsReady = _credit.packs_configured && _packs.length;
+    const topUp = canTop
+      ? (packsReady
+          ? `<div class="bil-packs">${_packs.map((p) => `<button class="bcn-btn bcn-btn--primary" data-pack="${esc(p.pack_key)}">${icon('plus')} Top up ${esc(p.title)}</button>`).join('')}</div>`
+          : '<span class="bil-fact-note">Top-ups are not configured yet.</span>')
+      : '<span class="bil-fact-note">A workspace owner can add credit.</span>';
+    host.innerHTML = `
+      <div class="bil-credit-top">
+        <div>
+          <div class="bil-fact-label">${d.state === 'preview' ? 'Preview · not deducted' : 'Available AI credit'}</div>
+          <div class="bil-credit-amount ${d.neverGranted ? 'bil-credit-amount--muted' : ''}">${d.neverGranted ? 'No credit yet' : AI.fmtMicros(avail, { exact: true })}</div>
+          ${Number(d.pending) > 0 ? `<div class="bil-fact-note">${AI.fmtMicros(d.pending)} held for answers in progress</div>` : ''}
+        </div>
+        ${topUp}
+      </div>
+      ${d.note ? `<p class="bil-hero-message" style="color:var(--bcn-band-ink-2)">${esc(d.note)}</p>` : ''}
+      ${d.exhausted ? '<p class="bil-hero-message bil-hero-message--warn">Credit is used up. AI features are paused; everything else in SILO keeps working.</p>' : ''}
+      ${_credit.period ? `<div class="bil-meter-row"><span>${AI.fmtMicros(used, { exact: true })} used of ${AI.fmtMicros(denom, { exact: true })} available this period</span><span>${pct.toFixed(1)}% used</span></div>
+      <div class="bil-meter" role="img" aria-label="${pct.toFixed(0)} percent of this period's credit used"><span style="width:${pct}%"></span></div>` : ''}
+      <div class="bil-credit-split">
+        <div class="bil-fact"><span class="bil-fact-label">Included credit left</span><span class="bil-fact-value">${AI.fmtMicros(d.included ?? (d.neverGranted ? null : 0), { exact: true })}</span>
+          <span class="bil-fact-note">${_credit.included_expires_at ? `Expires ${esc(dateText(_credit.included_expires_at))} · does not roll over` : 'Does not roll over'}</span></div>
+        <div class="bil-fact"><span class="bil-fact-label">Top-up credit left</span><span class="bil-fact-value">${AI.fmtMicros(d.purchased ?? (d.neverGranted ? null : 0), { exact: true })}</span>
+          <span class="bil-fact-note">Rolls over · used after included credit</span></div>
+      </div>
+      <div class="bil-credit-foot">Ask SILO, On Deck, card coding and invoice reading draw from the same credit balance. Failed or timed-out requests are not charged.</div>`;
+    renderUsage();
+  }
+
+  function renderUsage() {
+    const card = el('usageCard');
+    const rows = _credit?.usage_by_feature;
+    if (!Array.isArray(rows)) { card.hidden = true; return; }
+    card.hidden = false;
+    const p = _credit.period;
+    el('usagePeriod').textContent = p ? `${dateText(p.start)} – ${dateText(p.end)}` : '';
+    const byKey = Object.fromEntries(rows.map((r) => [r.feature, r]));
+    const total = rows.reduce((a, r) => a + Number(r.charged_micros || 0), 0);
+    const preview = _credit.state === 'preview';
+    const line = (key) => {
+      const f = FEATURES[key], r = byKey[key] || { charged_micros: 0, succeeded: 0, free_failures: 0, pending: 0 };
+      const share = total > 0 ? (Number(r.charged_micros) / total) * 100 : 0;
+      const extra = [r.free_failures ? `${r.free_failures} failed, not charged` : '', r.pending ? `${r.pending} in progress` : '']
+        .filter(Boolean).join(' · ');
+      return `<div class="bil-usage-row">
+        <span class="pay-symbol" style="width:32px;height:32px">${icon(f.icon)}</span>
+        <div><div class="bil-usage-name">${esc(f.name)}</div><div class="bil-usage-meta">${esc(f.unit(Number(r.succeeded || 0)))}${extra ? ' · ' + esc(extra) : ''}</div></div>
+        <div><div class="bil-usage-amt">${AI.fmtMicros(r.charged_micros, { exact: true })}</div><div class="bil-usage-meta" style="text-align:right">${esc(f.kind)}</div></div>
+        <div class="bil-usage-bar"><span style="width:${share}%"></span></div>
+      </div>`;
+    };
+    el('usage').innerHTML = line('ask_silo') + line('on_deck') + line('card_coding') + line('payment_request_extract') + `
+      <div class="bil-usage-total"><span>Total AI credit ${preview ? 'priced (not deducted)' : 'used'}</span><strong>${AI.fmtMicros(total, { exact: true })}</strong></div>
+      ${(_credit.purchases || []).length ? `<div class="bil-note" style="margin-top:12px">Recent top-ups: ${_credit.purchases.slice(0, 3).map((x) => `${esc(dateText(x.at))} ${AI.fmtMicros(x.credit_micros, { exact: true })}`).join(' · ')}</div>` : ''}`;
+  }
+
+  // The cap is an OPERATIONAL limit in provider terms, so the database returns
+  // only its state -- never an amount beside customer-priced credit.
+  function renderCap() {
+    const card = el('capCard');
+    const o = _credit?.on_deck;
+    if (!o) { card.hidden = true; return; }
+    card.hidden = false;
+    const STATE = {
+      within: ['Within cap', 'bcn-pill bcn-pill--pos'],
+      near: ['Near cap', 'bcn-pill bcn-pill--accent'],
+      paused: ['Paused at cap', 'bcn-pill bcn-pill--neg'],
+    };
+    const [label, pill] = o.enabled ? (STATE[o.cap_state] || ['Unknown', 'bcn-pill']) : ['Off', 'bcn-pill'];
+    el('cap').innerHTML = `
+      <div><span class="${pill}">${esc(label)}</span></div>
+      <div class="bil-cap-state">${Number(o.attempts_this_month || 0)} preparation${Number(o.attempts_this_month) === 1 ? '' : 's'} this month</div>
+      <div class="bil-callout">On Deck pauses at its cap, even if credit remains. Adding credit does not raise this limit.</div>
+      <p class="bil-note" style="margin-top:12px">Separate from your shared AI credit balance. ${_credit.can_top_up ? '<a href="/v2/settings-company.html#on-deck-settings">Change the cap</a>' : ''}</p>`;
+  }
+
+  async function loadCredit() {
+    const { summary, error } = await AI.load(sb);
+    _credit = summary; _creditError = error;
+    if (summary?.packs_configured) {
+      const { data } = await sb.from('ai_credit_packs').select('pack_key, title, unit_amount_cents, credit_micros').order('sort_order');
+      _packs = data || [];
+    } else {
+      _packs = [];
+    }
+  }
+
+  async function startTopup(packKey, btn) {
+    // One id per click: a double-submit is collapsed by Stripe onto one session.
+    const requestId = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
+    try {
+      btn.disabled = true;
+      setStatus('Opening Stripe Checkout…', 'info');
+      const { url } = await callFn({ action: 'topup', pack_key: packKey, request_id: requestId });
+      window.location.href = url;
+    } catch (err) {
+      btn.disabled = false;
+      setStatus(err.message, 'neg', 12000);
+    }
+  }
+
   async function openPortal() {
     try {
       setStatus('Opening the Stripe billing portal…', 'info');
@@ -331,6 +532,9 @@
     if (planError) throw new Error('Plans unavailable: ' + planError.message);
     _plans = plans || [];
 
+    await loadCredit();
+    renderCredit();
+    renderCap();
     renderCurrent();
     renderPlans();
     await renderInvoices();
@@ -362,6 +566,15 @@
       try { await callFn({ action: 'sync' }); } catch (_) { /* the page still renders */ }
       setStatus('Subscription active — thank you.', 'pos', 8000);
       history.replaceState({}, '', location.pathname);
+    } else if (params.get('topup') === 'done') {
+      // The redirect proves nothing: credit is added only when Stripe's paid
+      // session reaches SILO (webhook, or the sync below asking Stripe).
+      try { await callFn({ action: 'sync' }); } catch (_) { /* the page still renders */ }
+      setStatus('Payment received by Stripe. Credit appears here once Stripe confirms it — usually within a minute.', 'pos', 10000);
+      history.replaceState({}, '', location.pathname);
+    } else if (params.get('topup') === 'cancelled') {
+      setStatus('Top-up was cancelled. Nothing was charged.', 'info', 8000);
+      history.replaceState({}, '', location.pathname);
     } else if (params.get('checkout') === 'cancelled') {
       setStatus('Checkout was cancelled. Nothing was charged.', 'info', 8000);
       history.replaceState({}, '', location.pathname);
@@ -386,12 +599,18 @@
 
     el('btnPortal').addEventListener('click', openPortal);
 
+    el('credit').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-pack]');
+      if (b) startTopup(b.dataset.pack, b);
+    });
+
     el('btnSync').addEventListener('click', async () => {
       try {
         setStatus('Asking Stripe…', 'info');
-        await callFn({ action: 'sync' });
+        const r = await callFn({ action: 'sync' });
         await load();
-        setStatus('Up to date.', 'pos', 5000);
+        if (r?.topups?.complete === false) setStatus('Plan and invoices are up to date, but not every older top-up payment could be checked. If a top-up is missing from your balance, contact SILO support.', 'info', 15000);
+        else setStatus('Up to date.', 'pos', 5000);
       } catch (e) { setStatus(e.message, 'neg', 12000); }
     });
   })().catch((e) => {
