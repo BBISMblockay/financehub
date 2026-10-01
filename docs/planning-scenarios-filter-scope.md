@@ -1,5 +1,7 @@
 # Planning Scenarios v2 — filter scope parity
 
+Historical reference: `legacy/pages/planning-scenarios.html` was retired 2026-10-01. Its [last retained source](https://github.com/BBISMblockay/financehub/blob/7072325174049a0775cecaa6b49996a8bd455ea1/legacy/pages/planning-scenarios.html) remains in Git history; the current engine is in `v2/planning-scenarios.html`.
+
 ## v1 reference
 
 `legacy/pages/planning-scenarios.html` applies product type, channel, search, and date filters **before** aggregation:

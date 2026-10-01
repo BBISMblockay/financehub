@@ -1,5 +1,7 @@
 # Planning Scenarios v2 — UX/UI/Perf pass (plan + impl)
 
+Historical reference: `legacy/pages/planning-scenarios.html` was retired 2026-10-01. Its [last retained source](https://github.com/BBISMblockay/financehub/blob/7072325174049a0775cecaa6b49996a8bd455ea1/legacy/pages/planning-scenarios.html) remains in Git history; the current engine is in `v2/planning-scenarios.html`.
+
 > **2026-05-28 update — superseded by v1-shaped rebuild.**
 > After three PRs of UX patching (#81 plan, #82 chrome split, #83 deterministic Run), the page still felt clunkier than the v1 reference in `legacy/pages/planning-scenarios.html`. We accepted that v1's structure was the right answer and rebuilt `v2/planning-scenarios.html` from v1 directly, dressed in the Silo / Beacon theme, with two surgical additions:
 > 1. "Seed from Projections" button on the Revenue Plan card (lazy-loads `revenue_projections` + `locations`).
