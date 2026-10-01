@@ -104,7 +104,7 @@
                 <h2>Work queue</h2>
                 <span class="profile-queue-header__badge" id="feedCountBadge" hidden>0</span>
               </div>
-              <p class="profile-queue-header__sub">Open items from AP, purchasing, launches, and mail.</p>
+              <p class="profile-queue-header__sub" id="feedScopeSub">Open items for your department, plus anything assigned to you.</p>
             </header>
             <div class="profile-queue-body">
               <p id="feedStatus" class="profile-feed-status">Checking SILO…</p>
@@ -219,16 +219,11 @@
       return String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     }
 
-    // Department bucketing mirrors the real profiles.department picklist
-    // (v2/backend.html's admin dropdowns: ops, finance, logistics, marketing,
-    // retail, exec) rather than the old regex-over-free-text approach — a
-    // 'logistics' or 'retail' user used to fall through every bucket and see
-    // an empty queue even though nothing here actually matched their dept.
-    // Admin detection prefers entity_memberships.role for the active company
-    // (owner_admin/admin), falling back to profiles.role only when no
-    // membership row exists — the same precedence is_admin_user() uses
-    // server-side (see CLAUDE.md). profiles.role 'executive' always counts,
-    // matching is_exec_or_owner()'s reach.
+    // Department bucketing mirrors profiles.department (ops, finance, logistics,
+    // marketing, retail, exec). The work queue loads only what matches that
+    // department — not every org backlog because someone is workspace admin.
+    // Exec sees all departmental feeds; retail (and unknown depts) see personal
+    // items only unless we add retail-specific sources later.
     async function resolveAccess(db, authUser, profile, co) {
       let membershipRole = null;
       if (co?.id && authUser?.id) {
@@ -242,14 +237,40 @@
       const dept = normToken(pickDepartment(profile));
       const isOwnerAdmin = membershipRole === 'owner_admin' || (!membershipRole && profileRole === 'owner');
       const isAdmin = isOwnerAdmin || membershipRole === 'admin' || (!membershipRole && profileRole === 'admin') || profileRole === 'executive';
+      const isExecDept = dept === 'exec';
       return {
         isAdmin,
         isOwnerAdmin,
-        finance: isAdmin || dept === 'finance' || dept === 'exec',
-        purchasing: isAdmin || dept === 'ops',
-        marketing: isAdmin || dept === 'marketing',
-        logistics: isAdmin || dept === 'logistics',
+        dept,
+        finance: dept === 'finance' || isExecDept,
+        purchasing: dept === 'ops' || isExecDept,
+        marketing: dept === 'marketing' || isExecDept,
+        logistics: dept === 'logistics' || isExecDept,
       };
+    }
+
+    const ORG_DOMAINS_BY_DEPT = {
+      finance: new Set(['Payables', 'Mailroom']),
+      ops: new Set(['Purchasing']),
+      marketing: new Set(['Launches', 'Product pipeline']),
+      logistics: new Set(['Samples']),
+      exec: new Set(['Payables', 'Purchasing', 'Launches', 'Product pipeline', 'Mailroom', 'Samples', 'Admin']),
+      retail: new Set(),
+    };
+
+    function feedItemAllowedForDept(item, access) {
+      const domain = feedKindMeta(item.kind).domain;
+      if (domain === 'For you') return true;
+      if (domain === 'Admin') return access.isAdmin;
+      const allowed = ORG_DOMAINS_BY_DEPT[access.dept];
+      if (!allowed) return false;
+      return allowed.has(domain);
+    }
+
+    function departmentQueueLabel(dept) {
+      if (!dept || dept === '—') return 'your workspace';
+      if (dept === 'ops') return 'purchasing';
+      return dept;
     }
 
     async function countRows(table, applyFilters) {
@@ -666,11 +687,19 @@
         loadMailAttention(attentionItems, access),
         loadAdminAttention(attentionItems, access),
       ]);
+      attentionItems = attentionItems.filter((it) => feedItemAllowedForDept(it, access));
+      const scopeSub = document.getElementById('feedScopeSub');
+      if (scopeSub) {
+        const label = departmentQueueLabel(access.dept);
+        scopeSub.textContent = access.dept === 'exec'
+          ? 'Org-wide open items (exec), plus anything assigned to you.'
+          : `Open items for ${label}, plus anything assigned to you.`;
+      }
       renderAttentionFeed();
       const n = attentionItems.length;
       els.feedStatus.textContent = n
         ? `Updated ${new Date().toLocaleTimeString()} · ${n} open item${n === 1 ? '' : 's'}`
-        : `Updated ${new Date().toLocaleTimeString()} · queue clear`;
+        : `Updated ${new Date().toLocaleTimeString()} · nothing open for ${departmentQueueLabel(access.dept)}`;
     }
 
     function renderLandingOptions(selected) {
