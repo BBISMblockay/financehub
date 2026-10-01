@@ -42,7 +42,7 @@ body.profile-page .silo-main > .profile-layout {
   max-width: 1200px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "alerts" "main" "aside";
+  grid-template-areas: "alerts" "aside" "main";
   gap: 14px;
   align-content: start;
 }
@@ -56,7 +56,7 @@ body.profile-page #loadWarn {
 body.profile-page .profile-layout__main {
   grid-area: main;
   min-width: 0;
-  max-width: 720px;
+  max-width: 520px;
 }
 
 body.profile-page #attentionAside,
@@ -71,8 +71,8 @@ body.profile-page .profile-layout__main .bcn-card {
 
 @media (min-width: 768px) {
   body.profile-page .silo-main > .profile-layout {
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
-    grid-template-areas: "alerts alerts" "main aside";
+    grid-template-columns: minmax(300px, 400px) minmax(0, 1fr);
+    grid-template-areas: "alerts alerts" "aside main";
     column-gap: 22px;
   }
 
@@ -630,4 +630,84 @@ body.profile-page .profile-layout__main .bcn-card-header h2 {
 body.profile-page .profile-layout__main .hint {
   font-size: 12px;
   line-height: 1.45;
+}
+
+.profile-offscreen {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.profile-page-header .bcn-header-actions {
+  align-items: center;
+}
+
+.profile-save-status {
+  font-size: 12px;
+  color: var(--bcn-pos);
+  min-width: 0;
+  max-width: 140px;
+  text-align: right;
+}
+
+.profile-save-status:empty {
+  display: none;
+}
+
+.profile-settings-card {
+  border: 1px solid var(--bcn-border-strong);
+  overflow: hidden;
+}
+
+.profile-settings-card__head {
+  padding: 16px 18px 0;
+}
+
+.profile-settings-card__head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.profile-settings-card__head .hint {
+  margin: 6px 0 0;
+}
+
+.profile-settings-card__body {
+  padding: 14px 18px 18px;
+}
+
+.profile-settings__section + .profile-settings__section {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--bcn-border);
+}
+
+.profile-settings__section--nav {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--bcn-border);
+}
+
+.profile-settings__status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.profile-settings__status-row .bcn-label {
+  margin: 0;
+}
+
+.profile-settings__security {
+  margin-top: 14px;
 }
