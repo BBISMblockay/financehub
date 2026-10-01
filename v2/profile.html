@@ -100,14 +100,11 @@
         <aside class="profile-layout__aside" id="attentionAside" aria-label="Work queue">
           <section class="profile-queue-card" id="attentionCard">
             <header class="profile-queue-header">
-              <div class="profile-queue-header__mark" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-              </div>
-              <div class="profile-queue-header__text">
+              <div class="profile-queue-header__row">
                 <h2>Work queue</h2>
-                <p>What needs your eyes right now</p>
+                <span class="profile-queue-header__badge" id="feedCountBadge" hidden>0</span>
               </div>
-              <span class="profile-queue-header__badge" id="feedCountBadge" hidden>0</span>
+              <p class="profile-queue-header__sub">Open items from AP, purchasing, launches, and mail.</p>
             </header>
             <div class="profile-queue-body">
               <p id="feedStatus" class="profile-feed-status">Checking SILO…</p>
@@ -117,9 +114,8 @@
                 <p class="profile-feed-empty__title">All clear</p>
                 <p class="profile-feed-empty__sub">No open flags from AP, POs, launches, or admin.</p>
               </div>
-              <button type="button" class="profile-feed-refresh" id="btnFeedRefresh">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
-                Refresh queue
+              <button type="button" class="bcn-btn bcn-btn--ghost profile-feed-refresh" id="btnFeedRefresh">
+                Refresh
               </button>
             </div>
           </section>
@@ -591,16 +587,18 @@
       const meta = feedKindMeta(it.kind);
       const count = it.count != null ? `<span class="profile-feed-card__count">${esc(it.count)}</span>` : '';
       return `<a class="profile-feed-card profile-feed-card--${esc(it.severity)}" href="${esc(it.href)}" role="listitem">
-        <span class="profile-feed-card__icon profile-feed-card__icon--${esc(meta.icon)}" aria-hidden="true">${feedIconSvg(meta.icon)}</span>
         <span class="profile-feed-card__body">
-          <span class="profile-feed-card__eyebrow">${esc(meta.workspace)} · <em>${esc(severityLabel(it.severity))}</em></span>
-          <span class="profile-feed-card__title">${esc(it.title)}</span>
+          <span class="profile-feed-card__title-row">
+            <span class="profile-feed-card__title">${esc(it.title)}</span>
+            ${count}
+          </span>
           <span class="profile-feed-card__detail">${esc(it.detail)}</span>
+          <span class="profile-feed-card__meta">
+            <span class="profile-feed-card__workspace">${esc(meta.workspace)}</span>
+            <span class="profile-feed-card__sev profile-feed-card__sev--${esc(it.severity)}">${esc(severityLabel(it.severity))}</span>
+          </span>
         </span>
-        <span class="profile-feed-card__trail">
-          ${count}
-          <span class="profile-feed-card__chev" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></span>
-        </span>
+        <span class="profile-feed-card__chev" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></span>
       </a>`;
     }
 

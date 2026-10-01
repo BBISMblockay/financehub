@@ -44,14 +44,11 @@
         <aside class="profile-layout__aside" aria-label="Work queue">
           <section class="profile-queue-card">
             <header class="profile-queue-header">
-              <div class="profile-queue-header__mark" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-              </div>
-              <div class="profile-queue-header__text">
+              <div class="profile-queue-header__row">
                 <h2>Work queue</h2>
-                <p>What needs your eyes right now</p>
+                <span class="profile-queue-header__badge">4</span>
               </div>
-              <span class="profile-queue-header__badge">4</span>
+              <p class="profile-queue-header__sub">Open items from AP, purchasing, launches, and mail.</p>
             </header>
             <div class="profile-queue-body">
               <p class="profile-feed-status">Updated 2:10 PM · 4 open items</p>
@@ -60,32 +57,42 @@
                   <h3 class="profile-feed-group__label">For you<span class="profile-feed-group__count">1</span></h3>
                   <div class="profile-feed-group__list">
                     <a class="profile-feed-card profile-feed-card--high" href="#">
-                      <span class="profile-feed-card__icon profile-feed-card__icon--bell" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/></svg></span>
                       <span class="profile-feed-card__body">
-                        <span class="profile-feed-card__eyebrow">Task Manager · <em>Urgent</em></span>
-                        <span class="profile-feed-card__title">2 of your tasks overdue</span>
+                        <span class="profile-feed-card__title-row">
+                          <span class="profile-feed-card__title">2 of your tasks overdue</span>
+                          <span class="profile-feed-card__count">2</span>
+                        </span>
                         <span class="profile-feed-card__detail">Assigned to you, past due date.</span>
+                        <span class="profile-feed-card__meta">
+                          <span class="profile-feed-card__workspace">Task Manager</span>
+                          <span class="profile-feed-card__sev profile-feed-card__sev--high">Urgent</span>
+                        </span>
                       </span>
-                      <span class="profile-feed-card__trail"><span class="profile-feed-card__count">2</span></span>
+                      <span class="profile-feed-card__chev" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></span>
                     </a>
                   </div>
                 </section>
                 <section class="profile-feed-group">
-                  <h3 class="profile-feed-group__label">Mailroom<span class="profile-feed-group__count">2</span></h3>
+                  <h3 class="profile-feed-group__label">Mailroom<span class="profile-feed-group__count">1</span></h3>
                   <div class="profile-feed-group__list">
                     <a class="profile-feed-card profile-feed-card--warn" href="#">
-                      <span class="profile-feed-card__icon profile-feed-card__icon--mailbox" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 10V6a2 2 0 0 0-2-2H4v16h14a2 2 0 0 0 2-2v-4"/></svg></span>
                       <span class="profile-feed-card__body">
-                        <span class="profile-feed-card__eyebrow">Mailroom · <em>Review</em></span>
-                        <span class="profile-feed-card__title">5 unassigned mail items</span>
+                        <span class="profile-feed-card__title-row">
+                          <span class="profile-feed-card__title">5 unassigned mail items</span>
+                          <span class="profile-feed-card__count">5</span>
+                        </span>
                         <span class="profile-feed-card__detail">Open and not routed to anyone.</span>
+                        <span class="profile-feed-card__meta">
+                          <span class="profile-feed-card__workspace">Mailroom</span>
+                          <span class="profile-feed-card__sev profile-feed-card__sev--warn">Review</span>
+                        </span>
                       </span>
-                      <span class="profile-feed-card__trail"><span class="profile-feed-card__count">5</span></span>
+                      <span class="profile-feed-card__chev" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></span>
                     </a>
                   </div>
                 </section>
               </div>
-              <button type="button" class="profile-feed-refresh">Refresh queue</button>
+              <button type="button" class="bcn-btn bcn-btn--ghost profile-feed-refresh">Refresh</button>
             </div>
           </section>
         </aside>
