@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test public-landing.test.mjs",
+    "test": "node --test public-landing.test.mjs landing-motion.test.mjs",
     "test:browser": "node public-landing.browser.mjs"
   },
   "devDependencies": {
