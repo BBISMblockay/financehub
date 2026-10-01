@@ -256,8 +256,8 @@ See CLAUDE.md for the full mechanism — this section tracks only what is left.
 
 ## Next (v2 product)
 
-- [ ] Finish Beacon shell migration — 4 iframe wrappers left
-      (`baseballismwholesale`, `buyer`, `checkwriter`, `wholesale`)
+- [ ] Finish Beacon shell migration — 2 iframe wrappers left
+      (`baseballismwholesale`, `checkwriter`; buyer/wholesale wrappers retired 2026-10-01)
 - [ ] One canonical URL per tool (`/v2/...` preferred)
 - [ ] Same error/status pattern on all v2 pages
 - [x] `v2/profile.html`'s `LANDING_OPTIONS` offered `/finance.html` and

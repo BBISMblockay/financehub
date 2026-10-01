@@ -563,15 +563,14 @@
       {
         section: "Overview",
         items: [
-          { id:"baseballism", label:"Dashboard", src:"/employeehub.html", access:["admin","finance"] },
-          { id:"executive", label:"Executive", src:"/executive.html", access:["admin"] }
+          { id:"baseballism", label:"Dashboard", src:"/v2/finance.html", access:["admin","finance"] }
         ]
       },
       {
         section: "Payables",
         items: [
           { id:"ap-manager", label:"AP Manager", src:"/accountspayable.html", access:["admin","finance"] },
-          { id:"mailroom", label:"Mailroom Inbox", src:"/mailroom.html", access:["admin","finance"] },
+          { id:"mailroom", label:"Mailroom Inbox", src:"/v2/mailroom.html", access:["admin","finance"] },
           { id:"payables", label:"BBISM Payables", src:"/ap-report.html", access:["admin","finance"] }
         ]
       },
@@ -593,7 +592,7 @@
       {
         section: "Planning",
         items: [
-          { id:"projections", label:"Revenue Projection", src:"/projections.html", access:["admin","finance"] },
+          { id:"projections", label:"Revenue Projection", src:"/v2/projections.html", access:["admin","finance"] },
           { id:"marketing-calendar", label:"Marketing Calendar", src:"/calendar.html", access:["admin","finance"] },
           { id:"po-calendar", label:"PO Calendar", src:"/planner.html", access:["admin","finance"] },
           { id:"po-builder", label:"PO Builder", src:"/pages/po-builder.html", access:["admin","finance"] },
@@ -603,8 +602,8 @@
       {
         section: "Inventory",
         items: [
-          { id:"inventory", label:"Inventory Manager", src:"/inventory.html", access:["admin","finance"] },
-          { id:"product-tags", label:"Product Tags", src:"/pages/product-manager.html", access:["admin","finance"] }
+          { id:"inventory", label:"Inventory Manager", src:"/v2/inventory.html", access:["admin","finance"] },
+          { id:"product-tags", label:"Product Tags", src:"/v2/products.html?tab=catalog", access:["admin","finance"] }
         ]
       },
       {

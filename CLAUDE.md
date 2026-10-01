@@ -46,7 +46,7 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 │   ├── lib/supabase-js.min.js ← Local Supabase SDK copy (calendar.html + launch-calendar.html only;
 │   │                            every other page loads the SDK from the jsDelivr CDN)
 │   ├── hidden/                ← Parked pages, deliberately not in nav (bi-dashboard, bi-returns)
-│   ├── licensing/             ← Standalone MLB licensing microsite, not linked from the app
+│   ├── licensing/             ← Retained microsite assets; entry page retired 2026-10-01
 │   └── [page].html            ← One file per tool
 ├── v3/                        ← ONE feature, not the new home for pages: the dashboard runtime
 │   ├── dashboards.html        ← List / create dashboards
@@ -65,13 +65,12 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 │   ├── review.html            ← PUBLIC review portal (token = the authorization)
 │   ├── embed.js               ← Loaded by iframe tool pages
 │   ├── po-costing-lib.js      ← Shared PO costing logic (used by v2/po-builder + v2/po-costing)
-│   └── [legacy-tool].html     ← factories, wholesale, baseballismwholesale, sales-verification,
-│                                product-manager — some iframed by v2 wrappers, some linked directly
-├── *.html (repo root)         ← iframe TARGETS for the v2 tool-shell wrappers
-│                                (buyer, checkwriter). UNAUTHENTICATED —
+│   └── [legacy-tool].html     ← factories, wholesale, baseballismwholesale, sales-verification
+│                                — some iframed by v2 wrappers, some linked directly
+├── *.html (repo root)         ← Legacy standalone tools / iframe targets
+│                                (buyer retained, checkwriter still wrapped). UNAUTHENTICATED —
 │                                see "Repo drift" note below.
-│                                Also holds superseded originals (inventory, projections, mailroom,
-│                                executive, employeehub) — see stale-file note
+│                                Superseded originals were retired 2026-10-01; see retirement runbook
 ├── legacy/                    ← DO NOT TOUCH — old pages, kept for reference only
 ├── supabase/
 │   ├── verify_v2_schema.sql   ← Run this to health-check the DB after any SQL changes
@@ -85,7 +84,7 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 ├── data/                      ← One-off CSV import fixtures
 ├── .github/workflows/         ← GitHub Actions (see "GitHub Actions / data sync" below)
 ├── docs/ops/                  ← Ops documentation (bugs, roadmap, changelog, runbooks)
-└── silo-pitch.html            ← Product pitch deck (standalone, not part of the app, not linked)
+└── docs/ops/legacy-page-retirement.md ← 2026-10-01 page retirement and recovery record
 ```
 
 ---
@@ -171,7 +170,8 @@ window.SiloChrome.mount({
 ```
 
 ### Pattern 2: Tool shell (iframe wrapper for legacy pages)
-4 pages remain: `baseballismwholesale`, `buyer`, `checkwriter`, `wholesale`.
+2 pages remain: `baseballismwholesale`, `checkwriter`.
+The `buyer` and `wholesale` wrappers were retired 2026-10-01; their unlisted iframe targets remain.
 (`sales-verification.html` was rebuilt as Pattern 1 and is no longer a wrapper. `allocation`,
 `aprio`, `cashflow`, `modelapps`, `recon`, `travel` and `wpvaccounts` were retired 2026-08-16 —
 stale Google Sheets flows.)
@@ -974,10 +974,9 @@ Not bugs to fix blind — context so you don't mistake leftovers for live code:
   (root target + `v2/` wrapper; stale Google Sheets flows). Their entry points went with them: the
   WPV and Travel Report nav rows, both Home links, and the Cash flow option in the profile
   default-landing-page dropdown
-- **Superseded originals still sit at the repo root** with no inbound links: `inventory.html`,
-  `projections.html`, `mailroom.html`, `executive.html`, `employeehub.html`. The live versions are the
-  `/v2/` ones. Root `inventory.html` still renders its own pre-v2 sidebar ("Classic workbench" /
-  "Executive") — that nav is dead
+- **Superseded originals were retired 2026-10-01:** root `inventory.html`, `projections.html`,
+  `mailroom.html`, `executive.html`, and `employeehub.html`. Current inventory, mailroom, projections
+  and Finance pages remain under `/v2/`. See `docs/ops/legacy-page-retirement.md` for exact scope.
 - **Root iframe targets are directly reachable and unauthenticated.** `buyer.html` and
   `checkwriter.html` ship no auth check of their own, so
   `https://silo-baseballism.com/checkwriter.html` loads for anyone. The v2 wrapper's auth gate does
@@ -999,8 +998,8 @@ Not bugs to fix blind — context so you don't mistake leftovers for live code:
   still STORES one of the dead paths keeps 404-ing until its owner re-saves — a one-line
   `update profiles set default_page = null where default_page in ('/finance.html','/ops.html')` clears it
 - **Orphan CSS:** `v2/po-builder-beacon.css` and `v2/purchasing-hub-shell.css` have zero references
-- **`v2/hidden/`** is parked-on-purpose (not in nav, no inbound links). **`v2/licensing/`** is a
-  standalone microsite. **`config.json`** (JotForm routes) has no reader anywhere in the repo
+- **`v2/hidden/`** is parked-on-purpose (not in nav, no inbound links). **`v2/licensing/`** holds
+  retained assets after its entry page was retired 2026-10-01. **`config.json`** (JotForm routes) has no reader anywhere in the repo
 - **Nav ids in Pattern-2 wrappers can be stale.** Several `data-tool.active` keys
   (`finance/cashflow`, `purchasing/buyer`, `ops/modelapps`, …) no longer exist in `nav-config.js`, so
   those pages highlight nothing in the sidebar

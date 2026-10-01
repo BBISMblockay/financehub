@@ -96,4 +96,4 @@ You'll now see it two ways:
 
 1. Browser DevTools → Console (client errors).  
 2. Supabase → Logs / SQL for RLS or missing views.  
-3. Architecture context: [app-status.html](../../legacy/app-status.html).
+3. Architecture context: [the current architecture guide](../../CLAUDE.md).
