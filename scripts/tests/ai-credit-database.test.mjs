@@ -105,6 +105,22 @@ if (mutation) {
   assert.ok(sql.includes(before), `mutation ${mutation} matched nothing`);
   sql = sql.replace(before, () => after);
 }
+// Production's catalogue has a NOT NULL relkind (and columns) with no default;
+// the shared bootstrap's minimal table does not, which is how an insert that
+// omitted relkind passed here and failed on apply (2026-10-01). Reshape it to
+// prod's constraints before the credit migration runs.
+await db.exec(`
+  alter table public.silo_chat_schema_catalog add column if not exists relkind text;
+  alter table public.silo_chat_schema_catalog add column if not exists columns jsonb not null default '[]'::jsonb;
+  update public.silo_chat_schema_catalog set relkind = 'r' where relkind is null;
+  alter table public.silo_chat_schema_catalog alter column relkind set not null;
+  create or replace function public.refresh_chat_schema_catalog() returns void language plpgsql as $f$
+  begin
+    insert into public.silo_chat_schema_catalog (relname, relkind)
+    select c.relname, c.relkind::text from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind in ('r','v','m')
+    on conflict (relname) do nothing;
+  end $f$;`);
 await db.exec(sql);
 await db.exec(sql); // idempotent
 
