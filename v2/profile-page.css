@@ -269,7 +269,7 @@ body.profile-page .profile-layout__main .bcn-card {
 }
 
 .profile-queue-header {
-  padding: 16px 16px 12px;
+  padding: 16px;
   border-bottom: 1px solid var(--bcn-border);
   background: var(--bcn-surface);
 }
@@ -287,13 +287,6 @@ body.profile-page .profile-layout__main .bcn-card {
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--bcn-ink);
-}
-
-.profile-queue-header__sub {
-  margin: 6px 0 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--bcn-ink-3);
 }
 
 .profile-queue-header__badge {
