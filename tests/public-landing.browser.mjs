@@ -134,7 +134,8 @@ async function expectPlaying(page) {
   await page.waitForFunction(() => {
     const video = document.getElementById('lpHeroVideo');
     return document.getElementById('lpVisual').dataset.motion === 'playing' &&
-      !video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0;
+      !video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0 &&
+      Number(getComputedStyle(video).opacity) === 1;
   }, null, { timeout: 15000 });
   const start = await page.locator('#lpHeroVideo').evaluate(video => ({ time: video.currentTime,
     frames: video.getVideoPlaybackQuality().totalVideoFrames }));
