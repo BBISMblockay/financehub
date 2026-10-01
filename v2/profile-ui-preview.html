@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SILO · My profile (layout preview)</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <link rel="stylesheet" href="profile-page.css" />
+  <style>
+    .profile-preview-banner {
+      grid-column: 1 / -1;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      background: var(--bcn-accent-soft);
+      border: 1px solid var(--bcn-accent-border);
+      color: var(--bcn-ink-2);
+    }
+    body.profile-page .silo-app { display: block; min-height: 100vh; background: var(--bcn-bg); }
+    body.profile-page .silo-main { max-width: 1200px; margin: 0 auto; }
+  </style>
+</head>
+<body class="silo-brand profile-page">
+  <div class="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header profile-page-header">
+        <div style="flex:1;min-width:0;">
+          <div class="bcn-header-title"><h1>My profile</h1></div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed">Work queue and preferences for your SILO account.</div>
+        </div>
+        <div class="bcn-header-actions profile-header-actions">
+          <span class="profile-save-status">Saved.</span>
+          <button type="button" class="bcn-btn bcn-btn--ghost">Reload</button>
+          <button type="button" class="bcn-btn bcn-btn--primary">Save</button>
+        </div>
+      </header>
+
+      <div class="profile-layout">
+        <p class="profile-preview-banner">Static layout preview — sample data only, no Supabase.</p>
+
+        <aside class="profile-layout__aside" aria-label="Work queue">
+          <section class="profile-queue-card">
+            <header class="profile-queue-header">
+              <div class="profile-queue-header__row">
+                <h2>Work queue</h2>
+                <span class="profile-queue-header__badge">4</span>
+              </div>
+              <p class="profile-queue-header__sub">Open items from AP, purchasing, launches, and mail.</p>
+            </header>
+            <div class="profile-queue-body">
+              <p class="profile-feed-status">Updated 2:10 PM · 4 open items</p>
+              <div class="profile-feed-groups">
+                <section class="profile-feed-group profile-feed-group--personal">
+                  <h3 class="profile-feed-group__label">For you<span class="profile-feed-group__count">1</span></h3>
+                  <div class="profile-feed-group__list">
+                    <a class="profile-feed-card profile-feed-card--high" href="#">
+                      <span class="profile-feed-card__body">
+                        <span class="profile-feed-card__title-row">
+                          <span class="profile-feed-card__title">2 of your tasks overdue</span>
+                          <span class="profile-feed-card__count">2</span>
+                        </span>
+                        <span class="profile-feed-card__detail">Assigned to you, past due date.</span>
+                        <span class="profile-feed-card__meta">
+                          <span class="profile-feed-card__workspace">Task Manager</span>
+                          <span class="profile-feed-card__sev profile-feed-card__sev--high">Urgent</span>
+                        </span>
+                      </span>
+                      <span class="profile-feed-card__chev" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></span>
+                    </a>
+                  </div>
+                </section>
+                <section class="profile-feed-group">
+                  <h3 class="profile-feed-group__label">Mailroom<span class="profile-feed-group__count">1</span></h3>
+                  <div class="profile-feed-group__list">
+                    <a class="profile-feed-card profile-feed-card--warn" href="#">
+                      <span class="profile-feed-card__body">
+                        <span class="profile-feed-card__title-row">
+                          <span class="profile-feed-card__title">5 unassigned mail items</span>
+                          <span class="profile-feed-card__count">5</span>
+                        </span>
+                        <span class="profile-feed-card__detail">Open and not routed to anyone.</span>
+                        <span class="profile-feed-card__meta">
+                          <span class="profile-feed-card__workspace">Mailroom</span>
+                          <span class="profile-feed-card__sev profile-feed-card__sev--warn">Review</span>
+                        </span>
+                      </span>
+                      <span class="profile-feed-card__chev" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></span>
+                    </a>
+                  </div>
+                </section>
+              </div>
+              <button type="button" class="bcn-btn bcn-btn--ghost profile-feed-refresh">Refresh</button>
+            </div>
+          </section>
+        </aside>
+
+        <div class="profile-layout__main">
+          <section class="bcn-card profile-hero-card">
+            <div class="profile-hero">
+              <div class="profile-hero__avatar-wrap">
+                <div class="bcn-avatar bcn-avatar--lg" style="background:#4f46e5;color:#fff;display:grid;place-items:center;font-weight:700;">JC</div>
+              </div>
+              <div class="profile-hero__body">
+                <p class="profile-hero__eyebrow">Signed in</p>
+                <h2 class="profile-hero__name">Jenny Chen</h2>
+                <p class="profile-hero__email">jenny@baseballism.com</p>
+                <div class="profile-hero__chips">
+                  <span class="profile-chip profile-chip--role">Admin</span>
+                  <span class="profile-chip profile-chip--dept">finance</span>
+                  <span class="profile-chip profile-chip--active">Active</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="bcn-card profile-settings-card">
+            <header class="profile-settings-card__head">
+              <h2>Preferences</h2>
+              <p class="hint">Name and sign-in defaults. Role and department are managed by your workspace admin.</p>
+            </header>
+            <div class="profile-settings-card__body">
+              <section class="profile-settings__section">
+                <div class="bcn-field-group">
+                  <label class="bcn-label">Display name</label>
+                  <input class="bcn-field" type="text" value="Jenny Chen" />
+                </div>
+                <div class="bcn-field-group profile-settings__status-row">
+                  <span class="bcn-label">Account status</span>
+                  <span class="status-pill status-pill--active"><span class="bcn-dot bcn-dot--pos"></span>Active</span>
+                </div>
+              </section>
+              <section class="profile-settings__section profile-settings__section--nav">
+                <div class="bcn-field-group">
+                  <label class="bcn-label">Default landing page</label>
+                  <select class="bcn-field bcn-field--mono">
+                    <option>Finance hub</option>
+                  </select>
+                  <p class="hint">Used after sign-in when set. Otherwise department defaults apply.</p>
+                </div>
+                <div class="profile-settings__security">
+                  <a class="bcn-btn bcn-btn--ghost" href="#">Change password</a>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
