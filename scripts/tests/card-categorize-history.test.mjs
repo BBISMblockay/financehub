@@ -160,6 +160,8 @@ function fixture(options = {}) {
       if (options.recordFailure) return { data: null, error: { message: 'synthetic record failure' } };
       return { data: { recorded: args.p_rows.length, skipped: [] }, error: null };
     }
+    // AI credit not migrated in this fixture: the meter reads it as off.
+    if (name.startsWith('ai_credit_')) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } };
     throw new Error(`Unexpected rpc ${name}`);
   };
   const { handler, exports } = loadCategorizer(effective, {

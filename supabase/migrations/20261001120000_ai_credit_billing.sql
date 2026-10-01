@@ -125,7 +125,7 @@ create table if not exists public.ai_credit_reservations (
   id                          uuid primary key,
   company_entity_id           uuid not null references public.entities(id) on delete cascade,
   user_id                     uuid,
-  feature                     text not null check (feature in ('ask_silo','on_deck')),
+  feature                     text not null check (feature in ('ask_silo','on_deck','card_coding')),
   source_ref                  text,
   model                       text not null,
   status                      text not null default 'held'
@@ -159,7 +159,7 @@ create table if not exists public.ai_credit_ledger (
   id                          uuid primary key default gen_random_uuid(),
   company_entity_id           uuid not null references public.entities(id) on delete cascade,
   entry_type                  text not null check (entry_type in
-                                ('included_grant','purchase_grant','usage_charge')),
+                                ('included_grant','purchase_grant','usage_charge','included_expiry')),
   bucket                      text not null check (bucket in ('included','purchased')),
   amount_micros               bigint not null check (amount_micros <> 0),
   idempotency_key             text not null unique,
@@ -175,9 +175,9 @@ create table if not exists public.ai_credit_ledger (
   created_at                  timestamptz not null default now(),
   constraint ai_credit_ledger_sign check (
     (entry_type in ('included_grant','purchase_grant') and amount_micros > 0)
-    or (entry_type = 'usage_charge' and amount_micros < 0)),
+    or (entry_type in ('usage_charge','included_expiry') and amount_micros < 0)),
   constraint ai_credit_ledger_bucket check (
-    (entry_type = 'included_grant' and bucket = 'included')
+    (entry_type in ('included_grant','included_expiry') and bucket = 'included')
     or (entry_type = 'purchase_grant' and bucket = 'purchased')
     or entry_type = 'usage_charge')
 );
@@ -424,8 +424,10 @@ begin
   if p_company is null then
     return jsonb_build_object('ok', false, 'mode', s.mode, 'reason', 'no_company');
   end if;
-  -- Close this company's abandoned operations first (free), in every mode.
+  -- Close this company's abandoned operations first (free), in every mode,
+  -- then let a lapsed period's included credit go.
   perform public.ai_credit_sweep(p_company);
+  if s.mode = 'enforce' then perform public.ai_credit_expire_included(p_company); end if;
 
   -- Service role bypasses RLS, so the caller's standing is checked here.
   if p_user is not null and not exists (
@@ -578,6 +580,64 @@ begin
   return true;
 end $$;
 
+-- ── Included credit does not roll over; purchased credit does ──────────────
+-- (Blake, 2026-10-01.) The plan allowance is good for the period it was
+-- granted for. Once that period has ended, whatever is left of it is removed
+-- with an `included_expiry` ledger entry; top-up credit is never touched.
+--
+-- What can expire is what is not spoken for: a hold in flight may be paid
+-- from included credit, so included credit still needed to cover open holds
+-- beyond the purchased balance stays until those holds settle -- the
+-- `held <= included + purchased` CHECK would refuse anything else. The next
+-- call after they settle expires the rest (the key carries a sequence number,
+-- so a second, smaller expiry of the same grant is a new entry, not a no-op).
+create or replace function public.ai_credit_expirable_micros(p_acct public.ai_credit_accounts)
+returns bigint language sql immutable set search_path to 'public' as $$
+  select greatest(0, coalesce(p_acct.included_micros, 0)
+                     - greatest(0, coalesce(p_acct.held_micros, 0) - coalesce(p_acct.purchased_micros, 0)));
+$$;
+
+-- The latest included grant for a company: whose period governs expiry.
+create or replace function public.ai_credit_latest_included_grant(p_company uuid)
+returns public.ai_credit_ledger language sql stable set search_path to 'public' as $$
+  select * from public.ai_credit_ledger
+   where company_entity_id = p_company and entry_type = 'included_grant'
+   order by period_end desc nulls last, created_at desc limit 1;
+$$;
+
+-- Expire the included balance if the period of the latest included grant has
+-- ended as of p_as_of. Called before a new period's grant (so last period's
+-- leftover cannot stack onto this one) and on every open (so a lapsed
+-- subscription's allowance does not outlive its period). Returns the amount
+-- expired.
+create or replace function public.ai_credit_expire_included(p_company uuid, p_as_of timestamptz default now())
+returns bigint language plpgsql security definer set search_path to 'public' as $$
+declare
+  g    public.ai_credit_ledger;
+  acct public.ai_credit_accounts;
+  amt  bigint;
+  seq  integer;
+begin
+  g := public.ai_credit_latest_included_grant(p_company);
+  if g.id is null or g.period_end is null or g.period_end > p_as_of then return 0; end if;
+  select * into acct from public.ai_credit_accounts where company_entity_id = p_company for update;
+  if not found then return 0; end if;
+  amt := public.ai_credit_expirable_micros(acct);
+  if amt <= 0 then return 0; end if;
+  select count(*) into seq from public.ai_credit_ledger
+   where company_entity_id = p_company and entry_type = 'included_expiry'
+     and idempotency_key like 'expire:' || g.id || ':%';
+  insert into public.ai_credit_ledger
+    (company_entity_id, entry_type, bucket, amount_micros, idempotency_key,
+     plan_key, stripe_subscription_id, period_start, period_end)
+  values (p_company, 'included_expiry', 'included', -amt, 'expire:' || g.id || ':' || seq,
+          g.plan_key, g.stripe_subscription_id, g.period_start, g.period_end);
+  update public.ai_credit_accounts
+     set included_micros = included_micros - amt, updated_at = now()
+   where company_entity_id = p_company;
+  return amt;
+end $$;
+
 -- Monthly included credit. Granted once per (subscription, billing period),
 -- only from a PAID invoice that opened or renewed that period. A proration,
 -- a manual invoice (a top-up's receipt), an unpaid or a zero-amount invoice
@@ -629,6 +689,10 @@ begin
       if v_sub is null or v_start is null then
         return jsonb_build_object('granted', false, 'reason', 'no_period');
       end if;
+      -- Last period's allowance ends where this one begins (no rollover).
+      -- A replayed invoice for the CURRENT period does not expire anything:
+      -- the latest grant is then this period's, which has not ended.
+      perform public.ai_credit_expire_included(p_company, v_start);
       v_granted := public.ai_credit_add(p_company, 'included_grant', v_plan.included_ai_credit_micros,
         'included:' || v_sub || ':' || extract(epoch from v_start)::bigint,
         p_plan => v_plan.plan_key, p_invoice => p_invoice->>'id', p_subscription => v_sub,
@@ -733,6 +797,8 @@ declare
   -- Usage is reported for the CURRENT mode only: preview (shadow) figures
   -- were never deducted and must not be added to real charges.
   v_enforced boolean;
+  v_grant  public.ai_credit_ledger;
+  v_pending_expiry bigint := 0;
   result   jsonb;
 begin
   if v_uid is null or v_co is null or not exists (
@@ -762,13 +828,25 @@ begin
     from public.billing_plans where plan_key = sub.plan_key;
 
   select * into acct from public.ai_credit_accounts where company_entity_id = v_co;
+  -- The summary is read-only, so an allowance whose period has ended but has
+  -- not been expired yet (no AI request since) is SHOWN as expired: it can no
+  -- longer be spent, and the next request removes it from the ledger.
+  v_grant := public.ai_credit_latest_included_grant(v_co);
+  if acct.company_entity_id is not null and v_grant.period_end is not null and v_grant.period_end <= now() then
+    v_pending_expiry := public.ai_credit_expirable_micros(acct);
+  else
+    v_pending_expiry := 0;
+  end if;
 
   result := jsonb_build_object(
     'state', v_state,
     'account_exists', acct.company_entity_id is not null,
     'available_micros', case when acct.company_entity_id is null then null
-                             else acct.included_micros + acct.purchased_micros - acct.held_micros end,
-    'included_micros', acct.included_micros,
+                             else acct.included_micros + acct.purchased_micros - acct.held_micros
+                                  - v_pending_expiry end,
+    'included_micros', acct.included_micros - v_pending_expiry,
+    -- When the included allowance stops being spendable. Top-ups never expire.
+    'included_expires_at', case when acct.included_micros - v_pending_expiry > 0 then v_grant.period_end end,
     'purchased_micros', acct.purchased_micros,
     'pending_micros', acct.held_micros,
     'plan_included_micros', v_plan_included,
@@ -866,7 +944,10 @@ begin
     'ai_credit_provider_cost(public.ai_provider_rates,jsonb)',
     'ai_credit_call_worst(public.ai_provider_rates,integer,bigint,bigint,integer)',
     'ai_credit_customer_micros(numeric,integer)',
-    'ai_credit_usage_valid(jsonb)'
+    'ai_credit_usage_valid(jsonb)',
+    'ai_credit_expire_included(uuid,timestamptz)',
+    'ai_credit_expirable_micros(public.ai_credit_accounts)',
+    'ai_credit_latest_included_grant(uuid)'
   ] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
     execute format('grant execute on function public.%s to service_role', f);

@@ -19,6 +19,7 @@ const active = {
     { feature: 'ask_silo', charged_micros: 12600000, succeeded: 84, free_failures: 3, pending: 0, unpriced: 0 },
     { feature: 'on_deck', charged_micros: 2600000, succeeded: 12, free_failures: 0, pending: 1, unpriced: 0 },
   ],
+  included_expires_at: '2026-10-19T12:00:00Z',
   purchases: [{ at: '2026-09-25T12:00:00Z', credit_micros: 50000000, pack: '$50 credit' }],
   on_deck: { enabled: true, cap_state: 'within', attempts_this_month: 12 },
 };
@@ -46,12 +47,15 @@ const rpcFor = (summary) => ({ ai_credit_summary: summary === 'error'
       assert.match(text, /Included credit left\s*\$14\.80/);
       assert.match(text, /Top-up credit left\s*\$50\.00/);
       assert.match(text, /draw from the same credit balance/);
+      assert.match(text, /Expires Oct 19, 2026 · does not roll over/);
+      assert.match(text, /Top-up credit left.*Rolls over/s);
       assert.match(await page.locator('#current').textContent(), /Included AI credit\s*\$30\.00/);
     });
     await check('usage by feature reconciles to the total, failures marked free', async () => {
       const usage = await page.locator('#usage').textContent();
       assert.match(usage, /Ask SILO.*84 answers.*3 failed, not charged.*\$12\.60/s);
       assert.match(usage, /On Deck.*12 background runs.*1 in progress.*\$2\.60/s);
+      assert.match(usage, /Card coding.*0 suggestion batches.*\$0\.00/s);
       assert.match(usage, /Total AI credit used\s*\$15\.20/);
     });
     await check('On Deck cap shows its state, never a dollar amount beside credit', async () => {

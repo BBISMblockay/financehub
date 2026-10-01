@@ -461,6 +461,56 @@ Respond with JSON only, no prose, no code fence:
 Every line you were given must appear exactly once.`;
 }
 
+// ---------------------------------------------------------------------------
+// AI credit (20261001120000, docs/ops/ai-credits.md). Card coding is billed to
+// the company's customer-priced AI credit like Ask SILO and On Deck: ONE
+// reservation per model call, taken BEFORE the call, settled once from the
+// API's own usage. A call that fails, times out or returns nothing usable is
+// free. `supabase` here is the service-role client both callers already pass,
+// which is what the credit RPCs require. Kept inline (rather than importing
+// silo-chat's ai-credit-lib.mjs) because this file is loaded as a single
+// module by the scheduled worker and by the node test sandbox.
+// ---------------------------------------------------------------------------
+const CREDIT_MAX_OUTPUT = 24000;   // matches max_tokens below
+type CreditMeter = {
+  open: (estInput: number) => Promise<{ ok: boolean; id: string | null; reason?: string }>;
+  settle: (id: string | null, usage: Record<string, number> | null, ok: boolean) => Promise<void>;
+};
+const isMissingFunction = (e: any) => ['PGRST202', '42883'].includes(e?.code) || /Could not find the function|does not exist/i.test(String(e?.message || ''));
+function creditUsage(usage: any) {
+  const n = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 ? v as number : 0);
+  return {
+    input: n(usage?.input_tokens), output: n(usage?.output_tokens), cache_read: n(usage?.cache_read_input_tokens),
+    cache_write: n(usage?.cache_creation_input_tokens),
+    cache_write_5m: n(usage?.cache_creation?.ephemeral_5m_input_tokens),
+    cache_write_1h: n(usage?.cache_creation?.ephemeral_1h_input_tokens),
+    web_search: n(usage?.server_tool_use?.web_search_requests),
+  };
+}
+function createCreditMeter(supabase: any, companyId: string, userId: string | null, batchId: string): CreditMeter {
+  return {
+    async open(estInput) {
+      const id = crypto.randomUUID();
+      const { data, error } = await supabase.rpc('ai_credit_open', {
+        p_request: id, p_company: companyId, p_user: userId, p_feature: 'card_coding', p_model: MODEL,
+        p_est_input: estInput, p_max_output: CREDIT_MAX_OUTPUT, p_max_web: 0, p_calls_to_hold: 1,
+        p_source_ref: batchId,
+      });
+      if (error) return isMissingFunction(error) ? { ok: true, id: null } : { ok: false, id: null, reason: 'credit_unavailable' };
+      if (!data?.ok) return { ok: false, id: null, reason: data?.reason === 'insufficient_credit' ? 'credit_exhausted' : `credit_${data?.reason || 'unavailable'}` };
+      return { ok: true, id: data.mode === 'off' ? null : id };
+    },
+    async settle(id, usage, ok) {
+      if (!id) return;
+      // A failed settle leaves the hold; the sweep closes it later, free.
+      await supabase.rpc('ai_credit_settle', {
+        p_request: id, p_usage: usage ? creditUsage(usage) : null,
+        p_outcome: ok ? 'succeeded' : 'failed', p_error: ok ? null : 'no_answer',
+      }).then(() => undefined, () => undefined);
+    },
+  };
+}
+
 async function askModel(
   merchants: Merchant[],
   accounts: { name: string; type: string; sub: string | null; used: number | null }[],
@@ -472,6 +522,7 @@ async function askModel(
   cardNames: string[],
   bankMode = false,
   history: string[] = [],
+  credit: CreditMeter | null = null,
 ): Promise<{ suggestions: Suggestion[]; usage: Record<string, number> }> {
   const userMsg = merchants
     .map((m) =>
@@ -481,29 +532,47 @@ async function askModel(
     )
     .join('\n');
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 24000,
-      system: systemPrompt(
-        accounts, locations, examples, sourceName, relatedEntities, companyName, cardNames, bankMode, history),
-      messages: [{ role: 'user', content: `Code these lines:\n${userMsg}` }],
-    }),
+  const requestBody = JSON.stringify({
+    model: MODEL,
+    max_tokens: CREDIT_MAX_OUTPUT,
+    system: systemPrompt(
+      accounts, locations, examples, sourceName, relatedEntities, companyName, cardNames, bankMode, history),
+    messages: [{ role: 'user', content: `Code these lines:\n${userMsg}` }],
   });
+  // The hold comes first: no hold, no call. ~2.5 characters per token is a
+  // HIGH estimate; the charge is always the measured usage.
+  const hold = credit ? await credit.open(Math.ceil(requestBody.length / 2.5)) : { ok: true, id: null };
+  if (!hold.ok) throw new Error(hold.reason || 'credit_unavailable');
+  let settled = false;
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: requestBody,
+    });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`anthropic_${res.status}: ${detail.slice(0, 300)}`);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`anthropic_${res.status}: ${detail.slice(0, 300)}`);
+    }
+
+    const data = await res.json();
+    const result = readModelAnswer(data, merchants);
+    // Charged only when the call produced answers to record.
+    settled = true;
+    await credit?.settle(hold.id, data.usage, result.suggestions.length > 0);
+    return result;
+  } finally {
+    if (!settled) await credit?.settle(hold.id, null, false);
   }
+}
 
-  const data = await res.json();
+function readModelAnswer(data: any, merchants: Merchant[]): { suggestions: Suggestion[]; usage: Record<string, number> } {
   const text = (data.content || [])
     .filter((c: any) => c.type === 'text')
     .map((c: any) => c.text)
@@ -1131,6 +1200,8 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
   };
 
   const slices: Merchant[][] = chunks(merchants, BATCH_SIZE);
+  // Every model call below is metered against the company's AI credit.
+  const credit = createCreditMeter(supabase, companyId, request.requestedBy, request.batchId);
 
   // CONCURRENT, not sequential. Each call has taken ~65s, and Supabase's
   // gateway kills the request at 150s. Capped at 4 in flight to stay clear of
@@ -1149,7 +1220,7 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
         const sliceHistory = [...new Set(slice.map(historyLine).filter((l): l is string => !!l))];
         const result = await askModel(
           slice, accounts, locations, examples, sourceName, relatedEntities,
-          companyName, cardNames, bankMode, sliceHistory);
+          companyName, cardNames, bankMode, sliceHistory, credit);
         for (const [k, v] of Object.entries(result.usage)) tokenUsage[k] = (tokenUsage[k] || 0) + v;
         // Answers are matched back on the merchant AND card pair, since the same
         // merchant can legitimately appear twice with different cards.

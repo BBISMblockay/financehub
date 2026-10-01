@@ -21,6 +21,8 @@
 //   AI_CREDIT_MUTATION=grant-any-invoice  (a proration/manual invoice grants credit)
 //   AI_CREDIT_MUTATION=charge-uncapped    (a charge may exceed its hold)
 //   AI_CREDIT_MUTATION=summary-open       (summary does not require membership)
+//   AI_CREDIT_MUTATION=included-rolls-over (last period's allowance survives a renewal)
+//   AI_CREDIT_MUTATION=expiry-ignores-holds (expiry takes included credit an open hold needs)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -31,6 +33,10 @@ import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/co
 
 const mutation = process.env.AI_CREDIT_MUTATION || '';
 const MUTATIONS = {
+  'included-rolls-over': [`      perform public.ai_credit_expire_included(p_company, v_start);`, ``],
+  'expiry-ignores-holds': [`  select greatest(0, coalesce(p_acct.included_micros, 0)
+                     - greatest(0, coalesce(p_acct.held_micros, 0) - coalesce(p_acct.purchased_micros, 0)));`,
+    `  select greatest(0, coalesce(p_acct.included_micros, 0));`],
   'no-hold-check': [`  if avail < need then
     return jsonb_build_object('ok', false, 'mode', s.mode, 'reason', 'insufficient_credit',`,
     `  if false then
@@ -142,7 +148,8 @@ await test('clients cannot call any metering or grant function', async () => {
     for (const f of ['ai_credit_open(uuid,uuid,uuid,text,text,bigint,bigint,integer,integer,text)',
       'ai_credit_step(uuid,jsonb,bigint,bigint,integer)', 'ai_credit_settle(uuid,jsonb,text,text)',
       'ai_credit_sweep(uuid,interval)', 'ai_credit_grant_included(uuid,jsonb)', 'ai_credit_grant_purchase(uuid,jsonb)',
-      'ai_credit_add(uuid,text,bigint,text,text,text,text,text,text,text,timestamptz,timestamptz)', 'ai_credit_reconcile(uuid)']) {
+      'ai_credit_add(uuid,text,bigint,text,text,text,text,text,text,text,timestamptz,timestamptz)', 'ai_credit_reconcile(uuid)',
+      'ai_credit_expire_included(uuid,timestamptz)']) {
       assert.equal((await one('select has_function_privilege($1,$2,\'execute\') ok', [role, 'public.' + f])).ok, false, `${role} ${f}`);
     }
   }
@@ -218,11 +225,20 @@ await test('unpaid, zero-amount, proration and manual invoices grant nothing', a
   assert.equal(Number((await account()).included_micros), 30000000);
 });
 
-await test('the next period grants again (basil invoice shape)', async () => {
+await test('the next period grants again and last period\'s allowance does NOT roll over (basil shape)', async () => {
+  // Spend a little of period 1's allowance first, so the expiry is of a remainder.
+  await svc(() => call('ai_credit_add', [A, 'purchase_grant', 1000000, 'purchase:pre-roll', null, null, null, null, null, 'pi_pre_roll', null, null]));
   const inv = invoice({ subscription: undefined, parent: { subscription_details: { subscription: 'sub_A' } },
     lines: { data: [{ pricing: { price_details: { price: 'price_silo' } }, period: { start: 1792592000, end: 1795184000 } }] } });
   assert.equal((await svc(() => call('ai_credit_grant_included', [A, inv]))).granted, true);
-  assert.equal(Number((await account()).included_micros), 60000000);
+  const a = await account();
+  assert.equal(Number(a.included_micros), 30000000, 'only the new period\'s allowance');
+  assert.equal(Number(a.purchased_micros), 1000000, 'top-up credit rolls over untouched');
+  const exp = await one(`select amount_micros from public.ai_credit_ledger where company_entity_id=$1 and entry_type='included_expiry'`, [A]);
+  assert.equal(Number(exp.amount_micros), -30000000);
+  // A replay of the new period's invoice neither grants nor expires again.
+  assert.equal((await svc(() => call('ai_credit_grant_included', [A, inv]))).reason, 'already_granted');
+  assert.equal(Number((await account()).included_micros), 30000000);
   await reconciled();
 });
 
@@ -236,7 +252,7 @@ await test('a paid top-up credits the PACK amount once per payment intent', asyn
   assert.equal((await svc(() => call('ai_credit_grant_purchase', [A, s]))).reason, 'already_granted');
   // The async_payment_succeeded event for the same session/payment intent.
   assert.equal((await svc(() => call('ai_credit_grant_purchase', [A, { ...s, id: 'cs_again' }]))).reason, 'already_granted');
-  assert.equal(Number((await account()).purchased_micros), 50000000);
+  assert.equal(Number((await account()).purchased_micros), 51000000);
   await reconciled();
 });
 
@@ -245,7 +261,7 @@ await test('unpaid, foreign and non-top-up sessions credit nothing', async () =>
   assert.equal((await svc(() => call('ai_credit_grant_purchase', [A, session({ mode: 'subscription' })]))).reason, 'not_a_topup');
   await assert.rejects(() => svc(() => call('ai_credit_grant_purchase', [A, session({ metadata: { silo_purpose: 'ai_credit_topup', silo_company_entity_id: B, silo_credit_pack: 'p50' } })])), /another company/);
   await assert.rejects(() => svc(() => call('ai_credit_grant_purchase', [A, session({ customer: 'cus_B' })])), /not this company/);
-  assert.equal(Number((await account()).purchased_micros), 50000000);
+  assert.equal(Number((await account()).purchased_micros), 51000000);
 });
 
 // ── 4. Holds and charges ────────────────────────────────────────────────────
@@ -263,8 +279,8 @@ await test('a request holds, steps, and is charged only what it used -- included
   assert.equal(out.charged_micros, 33300);
   const a = await account();
   assert.equal(Number(a.held_micros), 0);
-  assert.equal(Number(a.included_micros), 60000000 - 33300);
-  assert.equal(Number(a.purchased_micros), 50000000);
+  assert.equal(Number(a.included_micros), 30000000 - 33300);
+  assert.equal(Number(a.purchased_micros), 51000000);
   await reconciled();
 });
 
@@ -327,7 +343,7 @@ await test('charges spill from included into purchased credit, never below zero'
   const out = await settle(req, { input: Math.ceil((included + 1000) / 3) + 1, output: 0 });
   const b = await account();
   assert.equal(Number(b.included_micros), 0);
-  assert.equal(Number(b.purchased_micros), 50000000 - (out.charged_micros - included));
+  assert.equal(Number(b.purchased_micros), 51000000 - (out.charged_micros - included));
   const entries = await q('select bucket, amount_micros from public.ai_credit_ledger where reservation_id=$1 order by bucket', [req]);
   assert.deepEqual(entries.map((e) => e.bucket), ['included', 'purchased']);
   await reconciled();
@@ -377,6 +393,63 @@ await test('a stranger, a disabled user and an unpriced model are refused', asyn
   assert.equal((await open(randomUUID(), { user: rival })).reason, 'not_a_member');
   assert.equal((await open(randomUUID(), { user: disabled })).reason, 'not_a_member');
   assert.equal((await open(randomUUID(), { model: 'unknown-model' })).reason, 'unpriced_model');
+});
+
+// ── Included credit expires with its period; top-ups do not ───────────────
+const C = randomUUID(), cOwner = randomUUID();
+await q(`insert into auth.users(id,email) values ($1,'c@c.test')`, [cOwner]);
+await q(`insert into public.entities(id,module,entity_type,entity_key,title) values ($1,'finance_hub','company','c','C')`, [C]);
+await q(`insert into public.profiles(id,email,role,is_active,active_company_id) values ($1,'c@c.test','owner',true,$2)`, [cOwner, C]);
+await q(`insert into public.entity_memberships(entity_id,user_id,role) values ($1,$2,'owner_admin')`, [C, cOwner]);
+await q(`insert into public.billing_subscriptions(company_entity_id,stripe_customer_id,stripe_subscription_id,plan_key,status)
+  values ($1,'cus_C','sub_C','silo','active')`, [C]);
+const pastPeriod = { start: Math.floor(Date.now() / 1000) - 40 * 86400, end: Math.floor(Date.now() / 1000) - 10 * 86400 };
+
+await test('a lapsed period\'s allowance reads as expired at once, and is removed on the next request', async () => {
+  await svc(() => call('ai_credit_grant_included', [C, invoice({ customer: 'cus_C', subscription: 'sub_C',
+    lines: { data: [{ price: { id: 'price_silo' }, period: pastPeriod }] } })]));
+  await svc(() => call('ai_credit_add', [C, 'purchase_grant', 2000000, 'purchase:c', null, null, null, null, null, 'pi_c', null, null]));
+  // Read-only summary: the allowance is shown as gone, the top-up is not.
+  const before = await as(cOwner, () => call('ai_credit_summary', []));
+  assert.equal(before.included_micros, 0);
+  assert.equal(before.purchased_micros, 2000000);
+  assert.equal(before.available_micros, 2000000);
+  assert.equal(before.included_expires_at, null);
+  assert.equal(Number((await account(C)).included_micros), 30000000, 'nothing written by a read');
+  // The next request expires it in the ledger, then runs on top-up credit.
+  const req = randomUUID();
+  assert.equal((await open(req, { company: C, user: cOwner })).ok, true);
+  const a = await account(C);
+  assert.equal(Number(a.included_micros), 0);
+  assert.equal(Number(a.purchased_micros), 2000000, 'top-up credit never expires');
+  await settle(req, { input: 100, output: 10 });
+  assert.equal(Number((await account(C)).purchased_micros), 2000000 - 450);
+  await reconciled();
+});
+
+await test('included credit needed to cover an in-flight hold is not expired out from under it', async () => {
+  const D = randomUUID(), dOwner = randomUUID();
+  await q(`insert into auth.users(id) values ($1)`, [dOwner]);
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title) values ($1,'finance_hub','company','d','D')`, [D]);
+  await q(`insert into public.profiles(id,role,is_active,active_company_id) values ($1,'owner',true,$2)`, [dOwner, D]);
+  await q(`insert into public.entity_memberships(entity_id,user_id,role) values ($1,$2,'owner_admin')`, [D, dOwner]);
+  await q(`insert into public.billing_subscriptions(company_entity_id,stripe_customer_id,stripe_subscription_id,plan_key,status)
+    values ($1,'cus_D','sub_D','silo','active')`, [D]);
+  const now = Math.floor(Date.now() / 1000);
+  await svc(() => call('ai_credit_grant_included', [D, invoice({ customer: 'cus_D', subscription: 'sub_D',
+    lines: { data: [{ price: { id: 'price_silo' }, period: { start: now - 86400, end: now + 3600 } }] } })]));
+  const req = randomUUID();
+  assert.equal((await open(req, { company: D, user: dOwner })).ok, true); // holds 21000 against included only
+  // The period ends while the request is in flight.
+  const expired = await svc(() => call('ai_credit_expire_included', [D, new Date(Date.now() + 7200e3).toISOString()]));
+  assert.equal(Number(expired), 30000000 - 21000);
+  assert.equal(Number((await account(D)).included_micros), 21000);
+  const out = await settle(req, { input: 100, output: 10 });
+  assert.equal(out.charged_micros, 450, 'the request still settles from what was kept for it');
+  // The rest goes on the next pass (a second, numbered expiry of the same grant).
+  assert.equal(Number(await svc(() => call('ai_credit_expire_included', [D, new Date(Date.now() + 7200e3).toISOString()]))), 21000 - 450);
+  assert.equal(Number((await account(D)).included_micros), 0);
+  await reconciled();
 });
 
 await test('ledger and rates are append-only', async () => {

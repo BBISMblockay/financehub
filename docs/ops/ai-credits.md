@@ -70,14 +70,23 @@ request, which is a new, separately metered question; the failed one was free.
 Nothing is granted from the success redirect. That page calls Sync, which asks
 Stripe. Proration, manual, open and zero-amount invoices grant nothing.
 
+**Included credit does not roll over; top-ups do** (Blake, 2026-10-01). Spend
+takes included credit first. When the next period's grant arrives, whatever is
+left of the previous allowance is removed with an `included_expiry` ledger
+entry before the new one is added. When a period ends with no renewal (a
+lapsed subscription), the next AI request removes it, and Billing shows it as
+gone straight away. Top-up credit is never expired. Included credit that an
+in-flight request's hold still needs is kept until that request settles, then
+removed on the next pass.
+
 ## Coverage
 
 | AI entry point | Metered | Notes |
 |---|---|---|
 | Ask SILO (`silo-chat`) | **Yes** | Every model call, including the forced final answer and its continuation |
 | On Deck (`on-deck-prepare`) | **Yes** | Checked BEFORE On Deck's own cap, so an empty balance pauses preparation without consuming cap. A prepared draft is charged; provider failures, invalid drafts and failed writes are free |
-| Card coding suggestions (`card-categorize`, `card-coding-prepare-scheduled`) | **No** | Finance automation; whether it is billable is a decision (below) |
-| Payment request extraction (`payment-request-extract`) | **No** | Same |
+| Card coding suggestions (`card-categorize`, `card-coding-prepare-scheduled`) | **Yes** | Decided 2026-10-01. One hold per model call (up to 4 run at once), charged when the call returned suggestions; a failed, empty or unparseable call is free. With no credit the rows are recorded as failed with `credit_exhausted` and the model is not called. Scheduled preparation spends credit too |
+| Payment request extraction (`payment-request-extract`) | **No** | Not decided |
 | Ask SILO evals (`silo-chat/evals`) | No | Internal tooling |
 
 On Deck's **operational cap** (`on_deck_settings.monthly_cap_usd`) is
@@ -89,7 +98,15 @@ beside customer-priced credit would reveal the multiplier.
 
 1. **Apply** `20261001120000_ai_credit_billing.sql`, then run
    `verify_v2_schema.sql`. With no settings row the feature is **off**.
-2. **Deploy** `stripe-webhook`, `stripe-billing`, `silo-chat`, `on-deck-prepare`.
+2. **Deploy** `stripe-webhook`, `stripe-billing`, `silo-chat`, `on-deck-prepare`,
+   `card-categorize` and `card-coding-prepare-scheduled` (which bundles
+   card-categorize's `prepare.ts`). **Stripe is live**, so the two Stripe
+   functions change live webhook handling the moment they deploy; in off mode
+   the only difference is the grant calls, which find nothing to do.
+   **`card-categorize` is a deferred-drift function**: production runs a
+   different location rule than `main` (`scripts/check-function-drift.mjs`).
+   Deploying it from `main` ships `main`'s rule. Decide that first, or port
+   the credit change onto the deployed version.
    Off mode = no behaviour change (one extra RPC per Ask SILO request /
    On Deck attempt). Order between 1 and 2 does not matter. The functions read
    a missing RPC as "off", and the webhook reads a missing grant function as
@@ -149,41 +166,48 @@ select company_entity_id, feature, count(*), sum(held_micros)/1e6
   from ai_credit_reservations where status = 'held' group by 1,2;
 ```
 
-## Decisions needed (not invented here)
+## Decisions
 
-1. **Rollover/expiry of included credit.** Not defined anywhere. As built,
-   unused included credit **carries over** (nothing expires). The mockup's
-   "this period" wording assumes a period allowance. Expiry would be a new
-   ledger entry type at period end.
+Recorded (Blake, 2026-10-01):
+
+- **Rollover**: top-ups roll over; the included allowance does not.
+- **Price**: the multiplier is decided; it is set in `ai_billing_settings`
+  at rollout and deliberately not written in the repo.
+- **Partial answers** are delivered and charged.
+- **Card coding** is billed.
+
+Still open:
+
+1. **Trials.** A Stripe free trial makes a $0 first invoice, and included
+   credit is granted only from a paid invoice, so a trialing workspace gets
+   no allowance (and AI refuses) until its first real charge. Grant it during
+   trials or not?
 2. **Refunds.** A refunded top-up or subscription invoice does **not**
    remove credit (`charge.refunded` is not routed). Decide whether a refund
    claws back unspent credit.
 3. **Auto-refill.** Not built. The earlier audit's decision (opt-in, bounded
    by a spend limit) predates this model.
 4. **The 2026-09-24 decisions this supersedes.** `docs/ops/ask-silo-paid-pilot-audit.md`
-   recorded a 3-question trial, 22% markup, top-up only, and a company-set
-   $100–$1,000 running spend limit. This build follows the 2026-10-01 model
-   (subscription + included credit, private multiplier). The trial and the
-   spend limit are **not** built. Confirm they are dropped.
-5. **Partial answers are charged.** An answer cut short by the time budget or
-   by low credit is delivered and charged (capped at the hold). Only requests
-   that deliver no answer are free. Confirm.
-6. **Trial periods.** A $0 trial invoice grants no included credit
-   (`amount_paid > 0` is required).
-7. **Seat-based plans.** Included credit is per subscription, not per seat.
-8. **Who may ask.** Unchanged: whoever could use Ask SILO before. Top-ups
-   use the existing owner-admin gate of `stripe-billing`.
-9. **Finance AI** (card coding, payment-request extraction): billable or not.
-10. **On Deck settings page** (`settings-company.html`) already shows On
+   recorded a 3-question trial, 22% markup, and a company-set $100–$1,000
+   running spend limit. None is built. Confirm they are dropped.
+5. **Seat-based plans.** Included credit is per subscription, not per seat.
+6. **Who may spend.** Any member who can use Ask SILO or card coding spends
+   the company's shared credit; only an owner-admin can buy more. Should
+   spending be limited (e.g. admins only, or a per-person cap)?
+7. **Payment-request extraction**: billable or not.
+8. **On Deck settings page** (`settings-company.html`) already shows On
     Deck's spend in provider dollars to company admins. With a private
     multiplier, that figure beside Billing's customer-priced usage reveals the
     ratio. Pre-existing; not changed here.
 
 ## Verification record (2026-10-01, local)
 
-- `scripts/tests/ai-credit-database.test.mjs`: 28 checks on PGlite with the real
-  Stripe + credit migrations (boundary, modes, grants, holds, settles, sweep,
-  reconciliation, summary scoping, verify check). Six mutations each fail it.
+- `scripts/tests/ai-credit-database.test.mjs`: 30 checks on PGlite with the real
+  Stripe + credit migrations (boundary, modes, grants, included expiry, holds,
+  settles, sweep, reconciliation, summary scoping, verify check). Eight
+  mutations each fail it.
+- `card-categorize-persistence.test.mjs`: 24 (4 new credit scenarios; 2
+  mutations each fail it). `-history` and `-bank-guard` unchanged.
 - `scripts/tests/ai-credit-concurrency.test.mjs`: three races on two real
   PostgreSQL 16 connections. Two mutations each fail it. With both lock layers
   removed, the CHECK constraint still refuses the overdraw (as an error).

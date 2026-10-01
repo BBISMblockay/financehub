@@ -53,7 +53,7 @@ const COMPANY = '00000000-0000-4000-8000-000000000006', BATCH = '00000000-0000-4
 const SOURCE = '00000000-0000-4000-8000-000000000002', CONNECTION = '00000000-0000-4000-8000-000000000005';
 const txnId = (i) => `00000000-0000-4000-9000-${String(i).padStart(12, '0')}`;
 
-function fixture({ merchants = 3, live = [], modelFails = () => false, omit = () => false, recordFails = false, delay = () => 0, heldElsewhere = [], sameMerchant = false, recordFailsOn = () => false, onClaim = () => {}, ruleAnswered = [], reportRuns = [] } = {}) {
+function fixture({ credit = null, merchants = 3, live = [], modelFails = () => false, omit = () => false, recordFails = false, delay = () => 0, heldElsewhere = [], sameMerchant = false, recordFailsOn = () => false, onClaim = () => {}, ruleAnswered = [], reportRuns = [] } = {}) {
   const claims = [], released = [];
   let recordCalls = 0;
   const transactions = Array.from({ length: merchants }, (_, i) => ({
@@ -86,6 +86,10 @@ function fixture({ merchants = 3, live = [], modelFails = () => false, omit = ()
     },
     release_card_coding_preparation: ({ p_token }) => { released.push(p_token); return { data: 1, error: null }; },
     card_coding_rule_answered: ({ p_ids }) => ({ data: p_ids.filter((id) => ruleAnswered.includes(id)).map((id) => ({ transaction_id: id, rule_id: 'rule-1' })), error: null }),
+    ...(credit ? {
+      ai_credit_open: (args) => { credit.calls.push(['open', args]); return { data: credit.open(args), error: null }; },
+      ai_credit_settle: (args) => { credit.calls.push(['settle', args]); return { data: { ok: true }, error: null }; },
+    } : {}),
     record_card_coding_suggestions: ({ p_rows }) => {
       recordCalls++;
       if (recordFails || recordFailsOn(recordCalls)) return { data: null, error: { message: 'synthetic record failure' } };
@@ -386,3 +390,52 @@ test('38 merchants become four calls of at most ten, run in parallel', async () 
   const t = h.db.timeline, firstDone = t.findIndex((e) => e.startsWith('model-done:'));
   assert.equal(t.slice(0, firstDone).filter((e) => e.startsWith('model:')).length, 4);
 });
+
+// ── AI credit: card coding is billed per model call ───────────────────────
+const creditScript = (open) => ({ calls: [], open });
+test('AI credit: each model call holds credit first, and is charged only when it answered', async () => {
+  const credit = creditScript(() => ({ ok: true, mode: 'enforce', held_micros: 1000 }));
+  const h = fixture({ credit, merchants: 12, modelFails: (asked) => asked.includes('vendor 11') });
+  const { status } = await h.run();
+  assert.equal(status, 200);
+  const opens = credit.calls.filter(([k]) => k === 'open'), settles = credit.calls.filter(([k]) => k === 'settle');
+  assert.equal(opens.length, 2, 'one hold per model call');
+  assert.equal(settles.length, 2, 'every hold is settled once');
+  for (const [, a] of opens) {
+    assert.equal(a.p_feature, 'card_coding'); assert.equal(a.p_company, COMPANY); assert.equal(a.p_user, 'user');
+    assert.equal(a.p_source_ref, BATCH); assert.equal(a.p_max_output, 24000);
+  }
+  const outcomes = settles.map(([, a]) => a.p_outcome).sort();
+  assert.deepEqual(outcomes, ['failed', 'succeeded'], 'the failed call is free');
+  const ok = settles.find(([, a]) => a.p_outcome === 'succeeded')[1];
+  assert.equal(ok.p_usage.input, 1000); assert.equal(ok.p_usage.output, 200);
+  assert.equal(new Set(settles.map(([, a]) => a.p_request)).size, 2);
+  assert.deepEqual(new Set(settles.map(([, a]) => a.p_request)), new Set(opens.map(([, a]) => a.p_request)));
+});
+
+test('AI credit: no credit means no model call; the rows record a free failure, not a coding', async () => {
+  const credit = creditScript(() => ({ ok: false, mode: 'enforce', reason: 'insufficient_credit' }));
+  const h = fixture({ credit, merchants: 3 });
+  await h.run();
+  assert.equal(h.modelCalls.length, 0, 'the model was never asked');
+  assert.equal(credit.calls.filter(([k]) => k === 'settle').length, 0, 'nothing held, nothing to settle');
+  assert.ok(h.recorded.length > 0 && h.recorded.every((r) => r.outcome === 'failed' && r.error_code === 'credit_exhausted'));
+});
+
+test('AI credit: an unreachable credit check refuses the call rather than running unmetered', async () => {
+  const h = fixture({ merchants: 2 });
+  h.db.client.rpc = ((orig) => async (name, args) => (name === 'ai_credit_open'
+    ? { data: null, error: { code: 'PGRST000', message: 'connection refused' } } : orig(name, args)))(h.db.client.rpc);
+  await h.run();
+  assert.equal(h.modelCalls.length, 0);
+});
+
+test('AI credit: a call that returns no usable answer is free', async () => {
+  const credit = creditScript(() => ({ ok: true, mode: 'enforce', held_micros: 1000 }));
+  const h = fixture({ credit, merchants: 2, omit: () => true });
+  await h.run();
+  const settles = credit.calls.filter(([k]) => k === 'settle');
+  assert.equal(settles.length, 1);
+  assert.equal(settles[0][1].p_outcome, 'failed');
+});
+

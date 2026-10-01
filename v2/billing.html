@@ -390,6 +390,7 @@
   const FEATURES = {
     ask_silo: { name: 'Ask SILO', unit: (n) => `${n} answer${n === 1 ? '' : 's'}`, kind: 'Interactive questions', icon: 'search' },
     on_deck: { name: 'On Deck', unit: (n) => `${n} background run${n === 1 ? '' : 's'}`, kind: 'Background preparation', icon: 'clock' },
+    card_coding: { name: 'Card coding', unit: (n) => `${n} suggestion batch${n === 1 ? '' : 'es'}`, kind: 'Coding suggestions', icon: 'card' },
   };
 
   function renderCredit() {
@@ -427,10 +428,12 @@
       ${_credit.period ? `<div class="bil-meter-row"><span>${AI.fmtMicros(used, { exact: true })} used of ${AI.fmtMicros(denom, { exact: true })} available this period</span><span>${pct.toFixed(1)}% used</span></div>
       <div class="bil-meter" role="img" aria-label="${pct.toFixed(0)} percent of this period's credit used"><span style="width:${pct}%"></span></div>` : ''}
       <div class="bil-credit-split">
-        <div class="bil-fact"><span class="bil-fact-label">Included credit left</span><span class="bil-fact-value">${AI.fmtMicros(d.included ?? (d.neverGranted ? null : 0), { exact: true })}</span></div>
-        <div class="bil-fact"><span class="bil-fact-label">Top-up credit left</span><span class="bil-fact-value">${AI.fmtMicros(d.purchased ?? (d.neverGranted ? null : 0), { exact: true })}</span></div>
+        <div class="bil-fact"><span class="bil-fact-label">Included credit left</span><span class="bil-fact-value">${AI.fmtMicros(d.included ?? (d.neverGranted ? null : 0), { exact: true })}</span>
+          <span class="bil-fact-note">${_credit.included_expires_at ? `Expires ${esc(dateText(_credit.included_expires_at))} · does not roll over` : 'Does not roll over'}</span></div>
+        <div class="bil-fact"><span class="bil-fact-label">Top-up credit left</span><span class="bil-fact-value">${AI.fmtMicros(d.purchased ?? (d.neverGranted ? null : 0), { exact: true })}</span>
+          <span class="bil-fact-note">Rolls over · used after included credit</span></div>
       </div>
-      <div class="bil-credit-foot">Ask SILO and On Deck draw from the same credit balance. Failed or timed-out requests are not charged.</div>`;
+      <div class="bil-credit-foot">Ask SILO, On Deck and card coding draw from the same credit balance. Failed or timed-out requests are not charged.</div>`;
     renderUsage();
   }
 
@@ -456,7 +459,7 @@
         <div class="bil-usage-bar"><span style="width:${share}%"></span></div>
       </div>`;
     };
-    el('usage').innerHTML = line('ask_silo') + line('on_deck') + `
+    el('usage').innerHTML = line('ask_silo') + line('on_deck') + line('card_coding') + `
       <div class="bil-usage-total"><span>Total AI credit ${preview ? 'priced (not deducted)' : 'used'}</span><strong>${AI.fmtMicros(total, { exact: true })}</strong></div>
       ${(_credit.purchases || []).length ? `<div class="bil-note" style="margin-top:12px">Recent top-ups: ${_credit.purchases.slice(0, 3).map((x) => `${esc(dateText(x.at))} ${AI.fmtMicros(x.credit_micros, { exact: true })}`).join(' · ')}</div>` : ''}`;
   }

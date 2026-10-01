@@ -1224,7 +1224,7 @@ jobs:
         run: |
           set -u
           for m in no-hold-check failure-charges settle-twice grant-any-invoice \
-                   charge-uncapped summary-open; do
+                   charge-uncapped summary-open included-rolls-over expiry-ignores-holds; do
             echo "--- $m ---"
             if AI_CREDIT_MUTATION="$m" node scripts/tests/ai-credit-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"

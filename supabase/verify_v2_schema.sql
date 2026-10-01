@@ -6179,7 +6179,8 @@ select 'AI credit ledger' as check_name,
      'ai_credit_add(uuid,text,bigint,text,text,text,text,text,text,text,timestamptz,timestamptz)',
      'ai_credit_grant_included(uuid,jsonb)',
      'ai_credit_grant_purchase(uuid,jsonb)',
-     'ai_credit_reconcile(uuid)']) f
+     'ai_credit_reconcile(uuid)',
+     'ai_credit_expire_included(uuid,timestamptz)']) f
    where has_function_privilege('authenticated', to_regprocedure('public.' || f), 'EXECUTE')
       or has_function_privilege('anon', to_regprocedure('public.' || f), 'EXECUTE'))
   then 'CRITICAL: an AI credit metering or grant function is callable from the browser (a browser could settle its own request at zero)'
