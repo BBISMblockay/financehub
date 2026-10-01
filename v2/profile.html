@@ -276,44 +276,6 @@
       return dept;
     }
 
-    const FEED_DOMAIN_SCOPE_ORDER = ['Payables', 'Purchasing', 'Launches', 'Product pipeline', 'Mailroom', 'Samples', 'Admin'];
-    const FEED_DOMAIN_SCOPE_LABEL = {
-      Payables: 'payables',
-      Purchasing: 'purchasing',
-      Launches: 'launches',
-      'Product pipeline': 'product pipeline',
-      Mailroom: 'mailroom',
-      Samples: 'samples',
-      Admin: 'admin access',
-    };
-
-    function englishPhraseList(parts) {
-      if (!parts.length) return '';
-      if (parts.length === 1) return parts[0];
-      if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
-      return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
-    }
-
-    function orgDomainsPresentInFeed(items) {
-      const present = new Set();
-      (items || []).forEach((it) => {
-        const domain = feedKindMeta(it.kind).domain;
-        if (domain === 'For you' || domain === 'SILO') return;
-        present.add(domain);
-      });
-      return FEED_DOMAIN_SCOPE_ORDER.filter((d) => present.has(d));
-    }
-
-    /** Subtitle reflects what is in the queue right now — not every feed finance could ever see. */
-    function feedScopeMessage(access, items = []) {
-      const personal = 'Your assigned tasks always show here.';
-      const orgParts = orgDomainsPresentInFeed(items).map(
-        (d) => FEED_DOMAIN_SCOPE_LABEL[d] || d.toLowerCase()
-      );
-      if (!orgParts.length) return personal;
-      return `${personal} Also ${englishPhraseList(orgParts)}.`;
-    }
-
     async function countRows(table, applyFilters) {
       let q = db.from(table).select('*', { count: 'exact', head: true });
       if (applyFilters) q = applyFilters(q);
@@ -739,8 +701,6 @@
       if (!db || !profile || !authUser) return;
       els.attentionAside.hidden = false;
       els.feedStatus.textContent = 'Checking SILO data…';
-      const scopeSub = document.getElementById('feedScopeSub');
-      if (scopeSub) scopeSub.textContent = 'Your assigned tasks always show here.';
       els.feedEmpty.hidden = true;
       els.feedList.hidden = false;
       attentionItems = [];
@@ -758,7 +718,6 @@
         loadAdminAttention(attentionItems, access),
       ]);
       attentionItems = attentionItems.filter((it) => feedItemAllowedForDept(it, access));
-      if (scopeSub) scopeSub.textContent = feedScopeMessage(access, attentionItems);
       renderAttentionFeed();
       const alertCount = attentionItems.length;
       const itemTotal = attentionItems.reduce((sum, it) => sum + feedUnderlyingCount(it), 0);
