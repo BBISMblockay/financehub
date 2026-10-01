@@ -6,10 +6,20 @@ const proposal = { id, version: 3, kind: 'launch', company_entity_id: 'company-a
 const draft = { recommend: true, subject: 'Fall', summary: '', body: 'For baseball days.', reason: 'Upcoming launch', missing: [], tasks: [{ title: 'Review copy', detail: 'Review before publishing' }] };
 const input = { proposal_id: id, version: 3, request_id: requestId };
 const request = (body = input, token = 'service-test') => new Request('https://example.test/functions/v1/on-deck-prepare', { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: typeof body === 'string' ? body : JSON.stringify(body) });
-function fixture({ cap = false, missing = false, network = false, settlement = false, apiKey = 'edge-only-key', credit = null } = {}) {
+function fixture({ cap = false, missing = false, network = false, settlement = false, apiKey = 'edge-only-key', credit = null, stale = false, eventsError = false } = {}) {
   const calls = [], claims = new Set(), creditCalls = []; let paid = 0, reads = 0;
   const db = {
     from(table) {
+      // The 'prepared' event on_deck_finish writes in the same transaction as
+      // the draft. `stale`: the proposal changed mid-generation, so none was.
+      if (table === 'on_deck_events') {
+        const filters = [];
+        return { select() { return this; }, eq(k, v) { filters.push([k, v]); return this; }, async limit() {
+          assert.deepEqual(filters, [['proposal_id', id], ['detail->>attempt', requestId]]);
+          if (eventsError) return { data: null, error: { message: 'read failed' } };
+          return { data: stale ? [] : [{ id: 'event-1' }], error: null };
+        } };
+      }
       assert.equal(table, 'on_deck_proposals'); const filters = [];
       return { select() { return this; }, eq(k,v) { filters.push([k,v]); return this; }, async maybeSingle() { reads++; assert.deepEqual(filters, [['id', id], ['version', 3]]); return { data: missing ? null : proposal }; } };
     },
@@ -99,6 +109,14 @@ await test('AI credit: a failed settlement write is not charged', async () => {
   const f = fixture({ settlement: true, credit: meteredCredit() });
   assert.equal((await f.handler(request())).status, 503);
   assert.equal(f.creditCalls.at(-1).args.p_outcome, 'failed');
+});
+await test('AI credit: a proposal edited or dismissed mid-generation is not charged', async () => {
+  for (const options of [{ stale: true }, { eventsError: true }]) {
+    const f = fixture({ ...options, credit: meteredCredit() });
+    assert.deepEqual(await (await f.handler(request())).json(), { outcome: 'changed' });
+    const settle = f.creditCalls.at(-1);
+    assert.equal(settle.args.p_outcome, 'failed'); assert.equal(settle.args.p_error, 'draft_not_stored');
+  }
 });
 await test('AI credit: the two copies of the credit library are identical', async () => {
   const { readFile } = await import('node:fs/promises');

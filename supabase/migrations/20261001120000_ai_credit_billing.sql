@@ -89,15 +89,36 @@ alter table public.billing_plans
   add column if not exists included_ai_credit_micros bigint
     check (included_ai_credit_micros is null or included_ai_credit_micros >= 0);
 comment on column public.billing_plans.included_ai_credit_micros is
-  'Customer-priced AI credit granted once per PAID subscription period on this plan, in micro-USD. Null = not configured. Set at rollout by service role, never committed.';
+  'Customer-priced AI credit granted once per PAID subscription period on this plan, in micro-USD. Null = not configured. Set at rollout by service role, never committed. Write-once: a different allowance is a different Stripe Price / plan row.';
+
+-- What a period invoice grants is decided by the plan row its Stripe Price
+-- names, read when the webhook lands. If the allowance could be edited, a
+-- delayed webhook would grant terms other than the ones sold. So once set it
+-- is frozen; a different allowance is a new price and a new plan row.
+create or replace function public.billing_plans_allowance_frozen()
+returns trigger language plpgsql set search_path to 'public' as $$
+begin
+  if old.included_ai_credit_micros is not null
+     and new.included_ai_credit_micros is distinct from old.included_ai_credit_micros then
+    raise exception 'billing_plans.included_ai_credit_micros is write-once (plan %); create a new price and plan row instead', old.plan_key;
+  end if;
+  if old.included_ai_credit_micros is not null and new.stripe_price_id is distinct from old.stripe_price_id then
+    raise exception 'billing_plans.stripe_price_id cannot change once the plan grants AI credit (plan %)', old.plan_key;
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_billing_plans_allowance_frozen on public.billing_plans;
+create trigger trg_billing_plans_allowance_frozen before update on public.billing_plans
+  for each row execute function public.billing_plans_allowance_frozen();
 
 create table if not exists public.ai_credit_packs (
   id                 uuid primary key default gen_random_uuid(),
   pack_key           text not null unique,
   title              text not null,
   stripe_price_id    text not null unique,
-  -- what the customer pays (display copy; Stripe's price is authoritative)
-  unit_amount_cents  bigint,
+  -- what the customer pays, in minor units of `currency`. Checked against the
+  -- paid Checkout Session before anything is granted.
+  unit_amount_cents  bigint not null check (unit_amount_cents > 0),
   currency           text not null default 'usd' check (currency = 'usd'),
   -- what the customer receives
   credit_micros      bigint not null check (credit_micros > 0),
@@ -105,6 +126,26 @@ create table if not exists public.ai_credit_packs (
   sort_order         integer not null default 0,
   created_at         timestamptz not null default now()
 );
+
+-- A pack is a sold product: its price and what it credits are frozen, so a
+-- webhook landing after an edit still grants what was sold. Retire a pack
+-- (is_active = false) and add a new one to change terms; title, sort order
+-- and is_active stay editable. Packs are never deleted (ledger rows name them).
+create or replace function public.ai_credit_packs_frozen()
+returns trigger language plpgsql set search_path to 'public' as $$
+begin
+  if tg_op = 'DELETE' then
+    raise exception 'ai_credit_packs rows are never deleted; set is_active = false';
+  end if;
+  if (new.pack_key, new.stripe_price_id, new.unit_amount_cents, new.currency, new.credit_micros)
+     is distinct from (old.pack_key, old.stripe_price_id, old.unit_amount_cents, old.currency, old.credit_micros) then
+    raise exception 'ai_credit_packs terms are frozen (pack %); retire it and add a new pack', old.pack_key;
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_ai_credit_packs_frozen on public.ai_credit_packs;
+create trigger trg_ai_credit_packs_frozen before update or delete on public.ai_credit_packs
+  for each row execute function public.ai_credit_packs_frozen();
 
 -- ---------------------------------------------------------------------------
 -- 3. Balances, holds, ledger
@@ -187,6 +228,24 @@ create index if not exists ai_credit_ledger_company_idx
 create unique index if not exists ai_credit_ledger_one_grant_per_payment
   on public.ai_credit_ledger (stripe_payment_intent_id) where entry_type = 'purchase_grant';
 
+-- Included credit is tracked PER GRANT, because it expires per period: an
+-- aggregate balance cannot say which part belongs to an ended period once a
+-- renewal has added the next one. Spending included credit draws the oldest
+-- grant first; expiry removes what is left of ended grants. The account's
+-- included_micros always equals the sum of remaining_micros here
+-- (ai_credit_reconcile checks it).
+create table if not exists public.ai_credit_included_grants (
+  ledger_id          uuid primary key references public.ai_credit_ledger(id),
+  company_entity_id  uuid not null references public.entities(id) on delete cascade,
+  period_start       timestamptz not null,
+  period_end         timestamptz not null check (period_end > period_start),
+  granted_micros     bigint not null check (granted_micros > 0),
+  remaining_micros   bigint not null check (remaining_micros >= 0 and remaining_micros <= granted_micros),
+  created_at         timestamptz not null default now()
+);
+create index if not exists ai_credit_included_grants_company_idx
+  on public.ai_credit_included_grants (company_entity_id, period_end);
+
 create or replace function public.ai_credit_ledger_append_only()
 returns trigger language plpgsql set search_path to 'public' as $$
 begin
@@ -205,7 +264,8 @@ do $$
 declare t text;
 begin
   foreach t in array array['ai_billing_settings','ai_provider_rates','ai_credit_packs',
-                           'ai_credit_accounts','ai_credit_reservations','ai_credit_ledger'] loop
+                           'ai_credit_accounts','ai_credit_reservations','ai_credit_ledger',
+                           'ai_credit_included_grants'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from public, anon, authenticated', t);
     execute format('grant all on public.%I to service_role', t);
@@ -338,6 +398,7 @@ begin
     end if;
     from_included  := least(charge, acct.included_micros);
     from_purchased := charge - from_included;
+    perform public.ai_credit_take_included(r.company_entity_id, from_included);
     update public.ai_credit_accounts
        set held_micros      = held_micros - r.held_micros,
            included_micros  = included_micros - from_included,
@@ -364,6 +425,8 @@ begin
          computed_charge_micros = computed, charged_micros = charge,
          settled_at = now(), last_activity_at = now()
    where id = r.id;
+  -- An ended period's credit kept only to back this hold goes now.
+  if r.enforced then perform public.ai_credit_expire_included(r.company_entity_id); end if;
 
   return jsonb_build_object('ok', true, 'repeated', false, 'outcome', p_outcome,
     'enforced', r.enforced, 'charged_micros', charge,
@@ -560,16 +623,25 @@ create or replace function public.ai_credit_add(
   p_period_start timestamptz default null, p_period_end timestamptz default null)
 returns boolean language plpgsql security definer set search_path to 'public' as $$
 declare v_bucket text := case when p_type = 'included_grant' then 'included' else 'purchased' end;
+        v_id uuid := gen_random_uuid();
 begin
   if p_amount is null or p_amount <= 0 then return false; end if;
+  if v_bucket = 'included' and (p_period_start is null or p_period_end is null) then
+    raise exception 'ai_credit_add: an included grant needs its period';
+  end if;
   insert into public.ai_credit_ledger
-    (company_entity_id, entry_type, bucket, amount_micros, idempotency_key, plan_key, pack_key,
+    (id, company_entity_id, entry_type, bucket, amount_micros, idempotency_key, plan_key, pack_key,
      stripe_invoice_id, stripe_subscription_id, stripe_checkout_session_id,
      stripe_payment_intent_id, period_start, period_end)
-  values (p_company, p_type, v_bucket, p_amount, p_key, p_plan, p_pack, p_invoice,
+  values (v_id, p_company, p_type, v_bucket, p_amount, p_key, p_plan, p_pack, p_invoice,
           p_subscription, p_session, p_payment_intent, p_period_start, p_period_end)
   on conflict do nothing;
   if not found then return false; end if;   -- duplicate: already credited
+  if v_bucket = 'included' then
+    insert into public.ai_credit_included_grants
+      (ledger_id, company_entity_id, period_start, period_end, granted_micros, remaining_micros)
+    values (v_id, p_company, p_period_start, p_period_end, p_amount, p_amount);
+  end if;
   insert into public.ai_credit_accounts (company_entity_id) values (p_company)
     on conflict (company_entity_id) do nothing;
   update public.ai_credit_accounts
@@ -582,66 +654,99 @@ end $$;
 
 -- ── Included credit does not roll over; purchased credit does ──────────────
 -- (Blake, 2026-10-01.) The plan allowance is good for the period it was
--- granted for. Once that period has ended, whatever is left of it is removed
--- with an `included_expiry` ledger entry; top-up credit is never touched.
+-- granted for. Once that period has ended, whatever is left of THAT GRANT is
+-- removed with an `included_expiry` ledger entry; top-up credit is never
+-- touched. Tracked per grant (ai_credit_included_grants), so a renewal can
+-- never make an older period's leftover look current.
 --
--- What can expire is what is not spoken for: a hold in flight may be paid
--- from included credit, so included credit still needed to cover open holds
--- beyond the purchased balance stays until those holds settle -- the
--- `held <= included + purchased` CHECK would refuse anything else. The next
--- call after they settle expires the rest (the key carries a sequence number,
--- so a second, smaller expiry of the same grant is a new entry, not a no-op).
-create or replace function public.ai_credit_expirable_micros(p_acct public.ai_credit_accounts)
-returns bigint language sql immutable set search_path to 'public' as $$
-  select greatest(0, coalesce(p_acct.included_micros, 0)
-                     - greatest(0, coalesce(p_acct.held_micros, 0) - coalesce(p_acct.purchased_micros, 0)));
-$$;
+-- Lock order, everywhere: the company's account row FIRST, then grants and
+-- reservations. Every function below takes it before reading any grant, so
+-- two deliveries of the same renewal serialise instead of one acting on what
+-- the other has already changed.
 
--- The latest included grant for a company: whose period governs expiry.
-create or replace function public.ai_credit_latest_included_grant(p_company uuid)
-returns public.ai_credit_ledger language sql stable set search_path to 'public' as $$
-  select * from public.ai_credit_ledger
-   where company_entity_id = p_company and entry_type = 'included_grant'
-   order by period_end desc nulls last, created_at desc limit 1;
-$$;
+-- Spend included credit, oldest grant first (ended grants kept only to back a
+-- hold go before current ones). Caller holds the account lock.
+create or replace function public.ai_credit_take_included(p_company uuid, p_amount bigint)
+returns void language plpgsql security definer set search_path to 'public' as $$
+declare g record; v_left bigint := coalesce(p_amount, 0); v_take bigint;
+begin
+  if v_left <= 0 then return; end if;
+  for g in select ledger_id, remaining_micros from public.ai_credit_included_grants
+            where company_entity_id = p_company and remaining_micros > 0
+            order by period_end, created_at, ledger_id for update
+  loop
+    v_take := least(v_left, g.remaining_micros);
+    update public.ai_credit_included_grants set remaining_micros = remaining_micros - v_take
+     where ledger_id = g.ledger_id;
+    v_left := v_left - v_take;
+    exit when v_left = 0;
+  end loop;
+  if v_left > 0 then
+    raise exception 'ai_credit_take_included: grants hold % less than the account says', v_left;
+  end if;
+end $$;
 
--- Expire the included balance if the period of the latest included grant has
--- ended as of p_as_of. Called before a new period's grant (so last period's
--- leftover cannot stack onto this one) and on every open (so a lapsed
--- subscription's allowance does not outlive its period). Returns the amount
--- expired.
+-- Expire what is left of every grant whose period has ended as of p_as_of.
+-- What can expire is what is not spoken for: open holds are backed first by
+-- purchased credit and current grants, and only the shortfall keeps ended
+-- credit alive -- the `held <= included + purchased` CHECK would refuse
+-- anything else. Settling those holds calls this again, which expires the
+-- rest (the key carries a sequence number, so a second, smaller expiry of
+-- the same grant is a new entry, not a no-op). Returns the amount expired.
 create or replace function public.ai_credit_expire_included(p_company uuid, p_as_of timestamptz default now())
 returns bigint language plpgsql security definer set search_path to 'public' as $$
 declare
-  g    public.ai_credit_ledger;
-  acct public.ai_credit_accounts;
-  amt  bigint;
-  seq  integer;
+  acct    public.ai_credit_accounts;
+  g       record;
+  v_live  bigint;
+  v_ended bigint;
+  v_left  bigint;
+  v_take  bigint;
+  v_total bigint;
+  seq     integer;
 begin
-  g := public.ai_credit_latest_included_grant(p_company);
-  if g.id is null or g.period_end is null or g.period_end > p_as_of then return 0; end if;
   select * into acct from public.ai_credit_accounts where company_entity_id = p_company for update;
   if not found then return 0; end if;
-  amt := public.ai_credit_expirable_micros(acct);
-  if amt <= 0 then return 0; end if;
-  select count(*) into seq from public.ai_credit_ledger
-   where company_entity_id = p_company and entry_type = 'included_expiry'
-     and idempotency_key like 'expire:' || g.id || ':%';
-  insert into public.ai_credit_ledger
-    (company_entity_id, entry_type, bucket, amount_micros, idempotency_key,
-     plan_key, stripe_subscription_id, period_start, period_end)
-  values (p_company, 'included_expiry', 'included', -amt, 'expire:' || g.id || ':' || seq,
-          g.plan_key, g.stripe_subscription_id, g.period_start, g.period_end);
+  select coalesce(sum(remaining_micros) filter (where period_end >  p_as_of), 0),
+         coalesce(sum(remaining_micros) filter (where period_end <= p_as_of), 0)
+    into v_live, v_ended
+    from public.ai_credit_included_grants where company_entity_id = p_company;
+  v_total := greatest(0, v_ended - greatest(0, acct.held_micros - acct.purchased_micros - v_live));
+  if v_total <= 0 then return 0; end if;
+  v_left := v_total;
+  for g in select * from public.ai_credit_included_grants
+            where company_entity_id = p_company and period_end <= p_as_of and remaining_micros > 0
+            order by period_end, created_at, ledger_id for update
+  loop
+    v_take := least(v_left, g.remaining_micros);
+    update public.ai_credit_included_grants set remaining_micros = remaining_micros - v_take
+     where ledger_id = g.ledger_id;
+    select count(*) into seq from public.ai_credit_ledger
+     where company_entity_id = p_company and entry_type = 'included_expiry'
+       and idempotency_key like 'expire:' || g.ledger_id || ':%';
+    insert into public.ai_credit_ledger
+      (company_entity_id, entry_type, bucket, amount_micros, idempotency_key,
+       plan_key, stripe_subscription_id, period_start, period_end)
+    select p_company, 'included_expiry', 'included', -v_take, 'expire:' || g.ledger_id || ':' || seq,
+           l.plan_key, l.stripe_subscription_id, g.period_start, g.period_end
+      from public.ai_credit_ledger l where l.id = g.ledger_id;
+    v_left := v_left - v_take;
+    exit when v_left = 0;
+  end loop;
   update public.ai_credit_accounts
-     set included_micros = included_micros - amt, updated_at = now()
+     set included_micros = included_micros - v_total, updated_at = now()
    where company_entity_id = p_company;
-  return amt;
+  return v_total;
 end $$;
 
 -- Monthly included credit. Granted once per (subscription, billing period),
--- only from a PAID invoice that opened or renewed that period. A proration,
--- a manual invoice (a top-up's receipt), an unpaid or a zero-amount invoice
--- grants nothing. Accepts both Stripe invoice shapes (pre- and post-basil).
+-- only from a PAID invoice that opened or renewed that period, and only while
+-- that period is still running: an invoice delivered after its period ended
+-- (a delayed or replayed webhook) grants nothing, since the allowance would
+-- already have expired. A proration, a manual invoice (a top-up's receipt),
+-- an unpaid or a zero-amount invoice grants nothing. Accepts both Stripe
+-- invoice shapes (pre- and post-basil). The amount is the plan row's frozen
+-- allowance (billing_plans_allowance_frozen), so it is the one that was sold.
 create or replace function public.ai_credit_grant_included(p_company uuid, p_invoice jsonb)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare
@@ -671,6 +776,11 @@ begin
     return jsonb_build_object('granted', false, 'reason', 'not_a_period_invoice');
   end if;
 
+  -- The account lock before anything is read (see "Lock order" above).
+  insert into public.ai_credit_accounts (company_entity_id) values (p_company)
+    on conflict (company_entity_id) do nothing;
+  perform 1 from public.ai_credit_accounts where company_entity_id = p_company for update;
+
   v_sub := coalesce(
     case when jsonb_typeof(p_invoice->'subscription') = 'string' then p_invoice->>'subscription' end,
     p_invoice->'subscription'->>'id',
@@ -686,17 +796,19 @@ begin
       v_end   := public.stripe_epoch(nullif(v_line->'period'->>'end','')::bigint);
       v_sub := coalesce(v_sub, v_line->>'subscription',
                         v_line->'parent'->'subscription_item_details'->>'subscription');
-      if v_sub is null or v_start is null then
+      if v_sub is null or v_start is null or v_end is null then
         return jsonb_build_object('granted', false, 'reason', 'no_period');
       end if;
-      -- Last period's allowance ends where this one begins (no rollover).
-      -- A replayed invoice for the CURRENT period does not expire anything:
-      -- the latest grant is then this period's, which has not ended.
-      perform public.ai_credit_expire_included(p_company, v_start);
+      if v_end <= now() then
+        return jsonb_build_object('granted', false, 'reason', 'period_ended');
+      end if;
       v_granted := public.ai_credit_add(p_company, 'included_grant', v_plan.included_ai_credit_micros,
         'included:' || v_sub || ':' || extract(epoch from v_start)::bigint,
         p_plan => v_plan.plan_key, p_invoice => p_invoice->>'id', p_subscription => v_sub,
         p_period_start => v_start, p_period_end => v_end);
+      -- Last period's leftover goes now (no rollover): every grant that ended
+      -- by the time this period starts is expired. This grant is current.
+      perform public.ai_credit_expire_included(p_company, greatest(now(), v_start));
       return jsonb_build_object('granted', v_granted,
                                 'reason', case when v_granted then 'granted' else 'already_granted' end);
     end if;
@@ -705,8 +817,11 @@ begin
 end $$;
 
 -- A top-up. Granted once per PaymentIntent, only from a Checkout Session that
--- SILO created for this purpose, for this company, that Stripe reports paid.
--- The amount comes from ai_credit_packs, never from the session.
+-- SILO created for this purpose, for this company, that Stripe reports paid,
+-- for exactly the pack's price. The credit comes from ai_credit_packs, never
+-- from the session; packs are frozen (ai_credit_packs_frozen), so the pack a
+-- session names is the one that was sold, and the paid amount and currency
+-- are checked against it before anything is credited.
 create or replace function public.ai_credit_grant_purchase(p_company uuid, p_session jsonb)
 returns jsonb language plpgsql security definer set search_path to 'public' as $$
 declare
@@ -743,6 +858,23 @@ begin
   if not found then
     raise exception 'ai_credit_grant_purchase: unknown pack %', p_session->'metadata'->>'silo_credit_pack';
   end if;
+  -- What was paid must be what the pack sells. amount_subtotal is before tax,
+  -- so a tax line does not read as a mismatch. A mismatch is RAISED, not
+  -- skipped: it is money taken for terms SILO cannot honour automatically,
+  -- and the webhook's retry ledger keeps it visible until a person resolves it.
+  if lower(coalesce(p_session->>'currency','')) is distinct from v_pack.currency
+     or nullif(p_session->>'amount_subtotal','')::bigint is distinct from v_pack.unit_amount_cents then
+    raise exception 'ai_credit_grant_purchase: session % paid % % but pack % sells % %',
+      p_session->>'id', p_session->>'amount_subtotal', p_session->>'currency',
+      v_pack.pack_key, v_pack.unit_amount_cents, v_pack.currency;
+  end if;
+  if exists (select 1 from jsonb_array_elements(coalesce(p_session->'line_items'->'data','[]'::jsonb)) li
+              where coalesce(li->'price'->>'id', li->>'price') is distinct from v_pack.stripe_price_id) then
+    raise exception 'ai_credit_grant_purchase: session % is not for pack % price', p_session->>'id', v_pack.pack_key;
+  end if;
+  insert into public.ai_credit_accounts (company_entity_id) values (p_company)
+    on conflict (company_entity_id) do nothing;
+  perform 1 from public.ai_credit_accounts where company_entity_id = p_company for update;
   v_granted := public.ai_credit_add(p_company, 'purchase_grant', v_pack.credit_micros,
     'purchase:' || v_pi, p_pack => v_pack.pack_key,
     p_session => p_session->>'id', p_payment_intent => v_pi);
@@ -754,18 +886,22 @@ end $$;
 -- agree; verify_v2_schema.sql goes CRITICAL when one does not.
 create or replace function public.ai_credit_reconcile(p_company uuid default null)
 returns table (company_entity_id uuid, included_micros bigint, ledger_included bigint,
+               grants_remaining bigint,
                purchased_micros bigint, ledger_purchased bigint,
                held_micros bigint, open_holds bigint, ok boolean)
 language sql stable security definer set search_path to 'public' as $$
-  select a.company_entity_id, a.included_micros, coalesce(l.inc, 0),
+  select a.company_entity_id, a.included_micros, coalesce(l.inc, 0), coalesce(g.rem, 0),
          a.purchased_micros, coalesce(l.pur, 0), a.held_micros, coalesce(h.held, 0),
-         a.included_micros = coalesce(l.inc, 0) and a.purchased_micros = coalesce(l.pur, 0)
+         a.included_micros = coalesce(l.inc, 0) and a.included_micros = coalesce(g.rem, 0)
+           and a.purchased_micros = coalesce(l.pur, 0)
            and a.held_micros = coalesce(h.held, 0)
     from public.ai_credit_accounts a
     left join (select company_entity_id,
                       sum(amount_micros) filter (where bucket = 'included')::bigint inc,
                       sum(amount_micros) filter (where bucket = 'purchased')::bigint pur
                  from public.ai_credit_ledger group by 1) l using (company_entity_id)
+    left join (select company_entity_id, sum(remaining_micros)::bigint rem
+                 from public.ai_credit_included_grants group by 1) g using (company_entity_id)
     left join (select company_entity_id, sum(held_micros)::bigint held
                  from public.ai_credit_reservations
                 where status = 'held' and enforced group by 1) h using (company_entity_id)
@@ -797,7 +933,9 @@ declare
   -- Usage is reported for the CURRENT mode only: preview (shadow) figures
   -- were never deducted and must not be added to real charges.
   v_enforced boolean;
-  v_grant  public.ai_credit_ledger;
+  v_live   bigint := 0;
+  v_ended  bigint := 0;
+  v_live_until timestamptz;
   v_pending_expiry bigint := 0;
   result   jsonb;
 begin
@@ -831,11 +969,14 @@ begin
   -- The summary is read-only, so an allowance whose period has ended but has
   -- not been expired yet (no AI request since) is SHOWN as expired: it can no
   -- longer be spent, and the next request removes it from the ledger.
-  v_grant := public.ai_credit_latest_included_grant(v_co);
-  if acct.company_entity_id is not null and v_grant.period_end is not null and v_grant.period_end <= now() then
-    v_pending_expiry := public.ai_credit_expirable_micros(acct);
-  else
-    v_pending_expiry := 0;
+  -- Same arithmetic as ai_credit_expire_included, without writing.
+  select coalesce(sum(remaining_micros) filter (where period_end >  now()), 0),
+         coalesce(sum(remaining_micros) filter (where period_end <= now()), 0),
+         min(period_end) filter (where period_end > now() and remaining_micros > 0)
+    into v_live, v_ended, v_live_until
+    from public.ai_credit_included_grants where company_entity_id = v_co;
+  if acct.company_entity_id is not null then
+    v_pending_expiry := greatest(0, v_ended - greatest(0, acct.held_micros - acct.purchased_micros - v_live));
   end if;
 
   result := jsonb_build_object(
@@ -846,7 +987,7 @@ begin
                                   - v_pending_expiry end,
     'included_micros', acct.included_micros - v_pending_expiry,
     -- When the included allowance stops being spendable. Top-ups never expire.
-    'included_expires_at', case when acct.included_micros - v_pending_expiry > 0 then v_grant.period_end end,
+    'included_expires_at', case when acct.included_micros - v_pending_expiry > 0 then v_live_until end,
     'purchased_micros', acct.purchased_micros,
     'pending_micros', acct.held_micros,
     'plan_included_micros', v_plan_included,
@@ -946,8 +1087,7 @@ begin
     'ai_credit_customer_micros(numeric,integer)',
     'ai_credit_usage_valid(jsonb)',
     'ai_credit_expire_included(uuid,timestamptz)',
-    'ai_credit_expirable_micros(public.ai_credit_accounts)',
-    'ai_credit_latest_included_grant(uuid)'
+    'ai_credit_take_included(uuid,bigint)'
   ] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
     execute format('grant execute on function public.%s to service_role', f);
@@ -966,6 +1106,7 @@ values
   ('ai_credit_ledger', 'SILO AI-credit ledger (billing plumbing). Not readable by clients.', array['billing','internal'], true),
   ('ai_credit_accounts', 'SILO AI-credit balances (billing plumbing). Not readable by clients.', array['billing','internal'], true),
   ('ai_credit_reservations', 'SILO AI-credit holds and charges (billing plumbing). Not readable by clients.', array['billing','internal'], true),
+  ('ai_credit_included_grants', 'SILO AI-credit included allowance per billing period (billing plumbing). Not readable by clients.', array['billing','internal'], true),
   ('ai_credit_packs', 'AI-credit top-up packs SILO sells. Global catalogue.', array['billing','internal'], true),
   ('ai_provider_rates', 'Private pricing configuration. Not readable by clients.', array['internal'], true),
   ('ai_billing_settings', 'Private billing configuration. Not readable by clients.', array['internal'], true)

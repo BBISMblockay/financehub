@@ -523,7 +523,7 @@ async function askModel(
   bankMode = false,
   history: string[] = [],
   credit: CreditMeter | null = null,
-): Promise<{ suggestions: Suggestion[]; usage: Record<string, number> }> {
+): Promise<{ suggestions: Suggestion[]; usage: Record<string, number>; hold: string | null; rawUsage: any }> {
   const userMsg = merchants
     .map((m) =>
       `- merchant: "${m.merchant}" | card: ${m.card_name ? `"${m.card_name}"` : 'none'}`
@@ -542,8 +542,8 @@ async function askModel(
   // The hold comes first: no hold, no call. ~2.5 characters per token is a
   // HIGH estimate; the charge is always the measured usage.
   const hold = credit ? await credit.open(Math.ceil(requestBody.length / 2.5)) : { ok: true, id: null };
-  if (!hold.ok) throw new Error(hold.reason || 'credit_unavailable');
-  let settled = false;
+  if (!hold.ok) throw Object.assign(new Error(hold.reason || 'credit_unavailable'), { creditRefused: true });
+  let handedOff = false;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -563,12 +563,13 @@ async function askModel(
 
     const data = await res.json();
     const result = readModelAnswer(data, merchants);
-    // Charged only when the call produced answers to record.
-    settled = true;
-    await credit?.settle(hold.id, data.usage, result.suggestions.length > 0);
-    return result;
+    // The CALLER settles: whether this call is charged depends on whether a
+    // suggestion for a requested line was actually recorded, which is only
+    // known after matching and persisting.
+    handedOff = true;
+    return { ...result, hold: hold.id, rawUsage: data.usage };
   } finally {
-    if (!settled) await credit?.settle(hold.id, null, false);
+    if (!handedOff) await credit?.settle(hold.id, null, false);
   }
 }
 
@@ -1159,7 +1160,9 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
   // elsewhere cannot take finished work down with it. Progress lands on the
   // run row for the page to show.
   let progress: Promise<unknown> = Promise.resolve();
-  const persistSlice = async (answers: (Suggestion & { failed?: string })[]) => {
+  // Returns how many usable (non-failed) rows from this slice actually landed.
+  const persistSlice = async (answers: (Suggestion & { failed?: string })[]): Promise<number> => {
+    let landed = 0;
     const rows: Record<string, unknown>[] = [];
     for (const s of answers) {
       for (const t of rowsByKey.get(groupKey(s.merchant, s.card_name ?? null, s.direction)) || []) {
@@ -1174,7 +1177,7 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
         });
       }
     }
-    if (!rows.length) return;
+    if (!rows.length) return 0;
     // One merchant group expands to every transaction sharing its merchant and
     // card, so a single slice can carry thousands of rows. The writer takes a
     // bounded payload; send it in chunks, and keep whatever landed if a later
@@ -1190,6 +1193,7 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       for (const r of part) {
         if (skippedIds.has(String(r.transaction_id))) continue;
         if (r.outcome === 'suggested') totals.suggested++; else if (r.outcome === 'failed') totals.failed++; else totals.needs_judgment++;
+        if (r.outcome !== 'failed') landed++;
       }
     }
     progress = progress.then(() => supabase.from('card_coding_preparation_runs').update({
@@ -1197,6 +1201,7 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       suggestions_recorded: totals.suggested, needs_judgment_recorded: totals.needs_judgment,
       failures_recorded: totals.failed, skipped: totals.skipped,
     }).eq('id', runId)).catch(() => undefined);
+    return landed;
   };
 
   const slices: Merchant[][] = chunks(merchants, BATCH_SIZE);
@@ -1207,7 +1212,7 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
   // gateway kills the request at 150s. Capped at 4 in flight to stay clear of
   // the API's own rate limits.
   const LIMIT = 4;
-  let next = 0;
+  let next = 0, creditRefused = 0;
   phase = performance.now();
   await Promise.all(Array.from({ length: Math.min(LIMIT, slices.length) }, async () => {
     for (;;) {
@@ -1215,12 +1220,14 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       if (i >= slices.length) return;
       const slice = slices[i];
       let answers: (Suggestion & { failed?: string })[];
+      let charge: { hold: string | null; usage: any } | null = null;
       const callStarted = performance.now();
       try {
         const sliceHistory = [...new Set(slice.map(historyLine).filter((l): l is string => !!l))];
         const result = await askModel(
           slice, accounts, locations, examples, sourceName, relatedEntities,
           companyName, cardNames, bankMode, sliceHistory, credit);
+        charge = { hold: result.hold, usage: result.rawUsage };
         for (const [k, v] of Object.entries(result.usage)) tokenUsage[k] = (tokenUsage[k] || 0) + v;
         // Answers are matched back on the merchant AND card pair, since the same
         // merchant can legitimately appear twice with different cards.
@@ -1228,6 +1235,15 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
         answers = slice.map((m) => finalize(m, byMerchant.get(groupKey(m.merchant, m.card_name, m.direction)), null));
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
+        if ((error as any).creditRefused) {
+          // No model call was made. Record NOTHING for these rows: a failed
+          // row would count toward the five-attempt retry limit, and a
+          // workspace out of credit for five scheduled passes would then never
+          // resume after a top-up. Left unprepared, they are picked up again.
+          creditRefused++;
+          if (!errors.includes(error.message)) errors.push(error.message);
+          continue;
+        }
         errors.push(error.message);
         totals.model_calls_failed++;
         answers = slice.map((m) => finalize(m, undefined, error));
@@ -1235,7 +1251,14 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       totals.model_calls++;
       modelCallMs.push(elapsed(callStarted));
       out.push(...answers);
-      await persistSlice(answers);
+      let landed = 0;
+      try { landed = await persistSlice(answers); }
+      finally {
+        // Charged only when at least one suggestion for a line we asked about
+        // is now stored. Key mismatches (recorded as failed) and write errors
+        // are free.
+        if (charge) await credit.settle(charge.hold, charge.usage, landed > 0);
+      }
     }
   }));
   timings.model_ms = elapsed(phase);
@@ -1281,6 +1304,7 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
       timings,
       token_usage: tokenUsage,
       errors: errors.length ? errors : undefined,
+      credit_refused_batches: creditRefused || undefined,
     },
   };
   }

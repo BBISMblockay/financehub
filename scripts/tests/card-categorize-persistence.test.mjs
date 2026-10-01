@@ -413,13 +413,27 @@ test('AI credit: each model call holds credit first, and is charged only when it
   assert.deepEqual(new Set(settles.map(([, a]) => a.p_request)), new Set(opens.map(([, a]) => a.p_request)));
 });
 
-test('AI credit: no credit means no model call; the rows record a free failure, not a coding', async () => {
+test('AI credit: no credit means no model call and NO recorded attempt, so a top-up resumes preparation', async () => {
   const credit = creditScript(() => ({ ok: false, mode: 'enforce', reason: 'insufficient_credit' }));
   const h = fixture({ credit, merchants: 3 });
-  await h.run();
+  const { body } = await h.run();
   assert.equal(h.modelCalls.length, 0, 'the model was never asked');
   assert.equal(credit.calls.filter(([k]) => k === 'settle').length, 0, 'nothing held, nothing to settle');
-  assert.ok(h.recorded.length > 0 && h.recorded.every((r) => r.outcome === 'failed' && r.error_code === 'credit_exhausted'));
+  // A recorded failure would count toward the five-attempt retry limit
+  // (card_coding_needs_preparation -> retry_limit); nothing recorded = the
+  // rows stay unprepared and the next pass after a top-up picks them up.
+  assert.equal(h.recorded.length, 0);
+  assert.equal(body.credit_refused_batches, 1);
+  assert.match(body.errors.join(' '), /credit_exhausted/);
+});
+
+test('AI credit: answers that could not be stored are free', async () => {
+  const credit = creditScript(() => ({ ok: true, mode: 'enforce', held_micros: 1000 }));
+  const h = fixture({ credit, merchants: 2, recordFails: true });
+  await h.run();
+  const settles = credit.calls.filter(([k]) => k === 'settle');
+  assert.equal(h.modelCalls.length, 1);
+  assert.equal(settles.length, 1); assert.equal(settles[0][1].p_outcome, 'failed');
 });
 
 test('AI credit: an unreachable credit check refuses the call rather than running unmetered', async () => {

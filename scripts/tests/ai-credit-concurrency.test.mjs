@@ -117,6 +117,13 @@ try {
   insert into public.ai_credit_accounts (company_entity_id) values (p_company)
     on conflict (company_entity_id) do nothing;`, () => '  -- enforce');
     assert.notEqual(sql, mid, 'open-unlocked (upsert) matched nothing');
+    // open() first runs the included-credit expiry, which takes the same
+    // account lock; without removing it too, open would still be serialised.
+    const mid2 = sql;
+    sql = sql.replace(`  select * into acct from public.ai_credit_accounts where company_entity_id = p_company for update;
+  if not found then return 0; end if;`, () => `  select * into acct from public.ai_credit_accounts where company_entity_id = p_company;
+  if not found then return 0; end if;`);
+    assert.notEqual(sql, mid2, 'open-unlocked (expiry lock) matched nothing');
     assert.notEqual(sql, before, 'open-unlocked matched nothing');
   }
   if (mutation === 'settle-unlocked') {
@@ -139,7 +146,9 @@ try {
     insert into public.ai_provider_rates(model,effective_from,input_micros_per_token,output_micros_per_token,
       cache_read_micros_per_token,cache_write_5m_micros_per_token,cache_write_1h_micros_per_token)
       values ('m', now()-interval '1 day', 2, 10, 0.2, 2.5, 4);
-    insert into public.ai_credit_packs(pack_key,title,stripe_price_id,credit_micros) values ('p','p','price_p',30000);
+    insert into public.ai_credit_packs(pack_key,title,stripe_price_id,unit_amount_cents,credit_micros) values ('p','p','price_p',100,30000);
+    insert into public.billing_plans(plan_key,title,stripe_price_id,unit_amount_cents,included_ai_credit_micros)
+      values ('silo','Silo','price_silo',50000,40000);
   `)]);
 
   const ctl = session('credit-ctl');
@@ -157,7 +166,7 @@ try {
   const reconciled = async () => assert.equal(await scalar(ctl, `select bool_and(ok) from public.ai_credit_reconcile('${A}');`), 't', 'ledger does not reconcile');
 
   // One worst-case call = (1000*4 + 1000*10) * 1.5 = 21000 micros. 30000 covers one.
-  await ctl.send(`select public.ai_credit_grant_purchase('${A}', '{"id":"cs_seed","mode":"payment","payment_status":"paid","customer":"cus_A","payment_intent":"pi_seed","metadata":{"silo_purpose":"ai_credit_topup","silo_company_entity_id":"${A}","silo_credit_pack":"p"}}'::jsonb);`);
+  await ctl.send(`select public.ai_credit_grant_purchase('${A}', '{"id":"cs_seed","mode":"payment","payment_status":"paid","amount_subtotal":100,"currency":"usd","customer":"cus_A","payment_intent":"pi_seed","metadata":{"silo_purpose":"ai_credit_topup","silo_company_entity_id":"${A}","silo_credit_pack":"p"}}'::jsonb);`);
 
   await test('two concurrent opens cannot both hold one balance', async () => {
     const s1 = session('credit-s1'), s2 = session('credit-s2');
@@ -202,7 +211,7 @@ try {
   });
 
   await test('one top-up delivered twice at the same moment credits once', async () => {
-    const session1 = `'{"id":"cs_dup","mode":"payment","payment_status":"paid","customer":"cus_A","payment_intent":"pi_dup","metadata":{"silo_purpose":"ai_credit_topup","silo_company_entity_id":"${A}","silo_credit_pack":"p"}}'::jsonb`;
+    const session1 = `'{"id":"cs_dup","mode":"payment","payment_status":"paid","amount_subtotal":100,"currency":"usd","customer":"cus_A","payment_intent":"pi_dup","metadata":{"silo_purpose":"ai_credit_topup","silo_company_entity_id":"${A}","silo_credit_pack":"p"}}'::jsonb`;
     const s1 = session('credit-s1'), s2 = session('credit-s2');
     let a, b;
     try {
@@ -219,6 +228,32 @@ try {
     assert.match(a, /"granted": true/);
     assert.match(b, /already_granted/);
     assert.equal(await scalar(ctl, `select count(*) from public.ai_credit_ledger where stripe_payment_intent_id='pi_dup';`), '1');
+    await reconciled();
+  });
+  await test('one renewal delivered twice at the same moment grants once and expires only the OLD period', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const inv = (id, start, end) => `'{"id":"${id}","customer":"cus_A","status":"paid","amount_paid":50000,"billing_reason":"subscription_cycle","subscription":"sub_A","lines":{"data":[{"price":{"id":"price_silo"},"period":{"start":${start},"end":${end}}}]}}'::jsonb`;
+    await ctl.send(`select public.ai_credit_grant_included('${A}', ${inv('in_p1', now - 86400, now + 3600)});`);
+    const renewal = inv('in_p2', now + 3600, now + 31 * 86400);
+    const s1 = session('credit-s1'), s2 = session('credit-s2');
+    let a, b, waited;
+    try {
+      await svc(s1); await svc(s2);
+      await s1.send('begin;');
+      a = await s1.send(`select public.ai_credit_grant_included('${A}', ${renewal})::text;`);
+      await s2.send('begin;');
+      const inflight = s2.send(`select public.ai_credit_grant_included('${A}', ${renewal})::text;`);
+      waited = await waitUntilBlocked('credit-s2');
+      await s1.send('commit;');
+      b = await inflight;
+      await s2.send(/ERROR/.test(b) ? 'rollback;' : 'commit;');
+    } finally { await s1.end(); await s2.end(); }
+    assert.ok(waited, 'the second delivery must wait for the first');
+    assert.match(a, /"granted": true/);
+    assert.match(b, /already_granted/, `second delivery: ${b}`);
+    assert.equal(await scalar(ctl, `select included_micros from public.ai_credit_accounts where company_entity_id='${A}';`), '40000',
+      'exactly the new allowance survives');
+    assert.equal(await scalar(ctl, `select string_agg(remaining_micros::text, ',' order by period_end) from public.ai_credit_included_grants where company_entity_id='${A}';`), '0,40000');
     await reconciled();
   });
   await ctl.end();

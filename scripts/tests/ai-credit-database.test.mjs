@@ -23,6 +23,10 @@
 //   AI_CREDIT_MUTATION=summary-open       (summary does not require membership)
 //   AI_CREDIT_MUTATION=included-rolls-over (last period's allowance survives a renewal)
 //   AI_CREDIT_MUTATION=expiry-ignores-holds (expiry takes included credit an open hold needs)
+//   AI_CREDIT_MUTATION=no-expiry-on-settle  (an ended period's credit outlives the hold it backed)
+//   AI_CREDIT_MUTATION=late-invoice-grants  (an invoice for an ended period still grants)
+//   AI_CREDIT_MUTATION=topup-amount-unchecked (a session paying a different amount is credited)
+//   AI_CREDIT_MUTATION=packs-editable       (a pack's sold terms can be edited)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -33,10 +37,15 @@ import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/co
 
 const mutation = process.env.AI_CREDIT_MUTATION || '';
 const MUTATIONS = {
-  'included-rolls-over': [`      perform public.ai_credit_expire_included(p_company, v_start);`, ``],
-  'expiry-ignores-holds': [`  select greatest(0, coalesce(p_acct.included_micros, 0)
-                     - greatest(0, coalesce(p_acct.held_micros, 0) - coalesce(p_acct.purchased_micros, 0)));`,
-    `  select greatest(0, coalesce(p_acct.included_micros, 0));`],
+  'included-rolls-over': [`      perform public.ai_credit_expire_included(p_company, greatest(now(), v_start));`, ``],
+  'expiry-ignores-holds': [`  v_total := greatest(0, v_ended - greatest(0, acct.held_micros - acct.purchased_micros - v_live));`,
+    `  v_total := v_ended;`],
+  // An ended grant kept only for a hold is NOT expired once that hold settles
+  // while a renewal is current (the aggregate-balance bug).
+  'no-expiry-on-settle': [`  if r.enforced then perform public.ai_credit_expire_included(r.company_entity_id); end if;`, ``],
+  'late-invoice-grants': [`      if v_end <= now() then`, `      if false then`],
+  'topup-amount-unchecked': [`  if lower(coalesce(p_session->>'currency','')) is distinct from v_pack.currency`, `  if false`],
+  'packs-editable': [`  if (new.pack_key, new.stripe_price_id, new.unit_amount_cents, new.currency, new.credit_micros)`, `  if false and (new.pack_key)`],
   'no-hold-check': [`  if avail < need then
     return jsonb_build_object('ok', false, 'mode', s.mode, 'reason', 'insufficient_credit',`,
     `  if false then
@@ -123,14 +132,17 @@ const reconciled = async () => {
   const rows = await q('select * from public.ai_credit_reconcile()');
   for (const r of rows) assert.equal(r.ok, true, `ledger does not reconcile for ${r.company_entity_id}: ${JSON.stringify(r)}`);
 };
+// Periods relative to the clock: a grant is refused once its period has ended.
+const NOW = Math.floor(Date.now() / 1000), DAY = 86400;
+const P1 = { start: NOW - 10 * DAY, end: NOW + 20 * DAY }, P2 = { start: NOW + 20 * DAY, end: NOW + 50 * DAY };
 const invoice = (over = {}) => ({
   id: 'in_' + randomUUID().slice(0, 8), customer: 'cus_A', status: 'paid', amount_paid: 50000,
   billing_reason: 'subscription_cycle', subscription: 'sub_A',
-  lines: { data: [{ price: { id: 'price_silo' }, period: { start: 1790000000, end: 1792592000 } }] }, ...over,
+  lines: { data: [{ price: { id: 'price_silo' }, period: P1 }] }, ...over,
 });
 const session = (over = {}) => ({
   id: 'cs_' + randomUUID().slice(0, 8), mode: 'payment', payment_status: 'paid', customer: 'cus_A',
-  payment_intent: 'pi_' + randomUUID().slice(0, 8),
+  amount_subtotal: 5000, amount_total: 5400, currency: 'usd', payment_intent: 'pi_' + randomUUID().slice(0, 8),
   metadata: { silo_purpose: 'ai_credit_topup', silo_company_entity_id: A, silo_credit_pack: 'p50' }, ...over,
 });
 
@@ -219,7 +231,7 @@ await test('unpaid, zero-amount, proration and manual invoices grant nothing', a
     [{ billing_reason: 'manual', subscription: null }, 'not_a_period_invoice'],
   ];
   for (const [over, reason] of cases) {
-    const lines = { data: [{ price: { id: 'price_silo' }, period: { start: 1795000000 + Math.floor(Math.random() * 1e5), end: 1797600000 } }] };
+    const lines = { data: [{ price: { id: 'price_silo' }, period: { start: NOW + 60 * DAY + Math.floor(Math.random() * 1e5), end: NOW + 90 * DAY } }] };
     assert.equal((await svc(() => call('ai_credit_grant_included', [A, invoice({ ...over, lines })]))).reason, reason);
   }
   assert.equal(Number((await account()).included_micros), 30000000);
@@ -229,7 +241,7 @@ await test('the next period grants again and last period\'s allowance does NOT r
   // Spend a little of period 1's allowance first, so the expiry is of a remainder.
   await svc(() => call('ai_credit_add', [A, 'purchase_grant', 1000000, 'purchase:pre-roll', null, null, null, null, null, 'pi_pre_roll', null, null]));
   const inv = invoice({ subscription: undefined, parent: { subscription_details: { subscription: 'sub_A' } },
-    lines: { data: [{ pricing: { price_details: { price: 'price_silo' } }, period: { start: 1792592000, end: 1795184000 } }] } });
+    lines: { data: [{ pricing: { price_details: { price: 'price_silo' } }, period: P2 }] } });
   assert.equal((await svc(() => call('ai_credit_grant_included', [A, inv]))).granted, true);
   const a = await account();
   assert.equal(Number(a.included_micros), 30000000, 'only the new period\'s allowance');
@@ -247,7 +259,7 @@ await test('an invoice for another company\'s customer is refused, not credited'
 });
 
 await test('a paid top-up credits the PACK amount once per payment intent', async () => {
-  const s = session({ amount_total: 1 }); // the amount on the session is never what is credited
+  const s = session(); // credits the PACK's credit; amount_total includes tax and is not what is checked
   assert.equal((await svc(() => call('ai_credit_grant_purchase', [A, s]))).granted, true);
   assert.equal((await svc(() => call('ai_credit_grant_purchase', [A, s]))).reason, 'already_granted');
   // The async_payment_succeeded event for the same session/payment intent.
@@ -405,9 +417,17 @@ await q(`insert into public.billing_subscriptions(company_entity_id,stripe_custo
   values ($1,'cus_C','sub_C','silo','active')`, [C]);
 const pastPeriod = { start: Math.floor(Date.now() / 1000) - 40 * 86400, end: Math.floor(Date.now() / 1000) - 10 * 86400 };
 
-await test('a lapsed period\'s allowance reads as expired at once, and is removed on the next request', async () => {
-  await svc(() => call('ai_credit_grant_included', [C, invoice({ customer: 'cus_C', subscription: 'sub_C',
+await test('an invoice delivered after its period ended grants nothing (out-of-order / late webhook)', async () => {
+  const out = await svc(() => call('ai_credit_grant_included', [C, invoice({ customer: 'cus_C', subscription: 'sub_C',
     lines: { data: [{ price: { id: 'price_silo' }, period: pastPeriod }] } })]));
+  assert.equal(out.granted, false); assert.equal(out.reason, 'period_ended');
+  assert.equal(await one('select 1 from public.ai_credit_ledger where company_entity_id=$1', [C]), undefined);
+});
+
+await test('a lapsed period\'s allowance reads as expired at once, and is removed on the next request', async () => {
+  // Granted while its period ran (seeded directly: the clock cannot be moved).
+  await svc(() => call('ai_credit_add', [C, 'included_grant', 30000000, 'included:sub_C:past', 'silo', null, 'in_past', 'sub_C', null, null,
+    new Date(pastPeriod.start * 1000).toISOString(), new Date(pastPeriod.end * 1000).toISOString()]));
   await svc(() => call('ai_credit_add', [C, 'purchase_grant', 2000000, 'purchase:c', null, null, null, null, null, 'pi_c', null, null]));
   // Read-only summary: the allowance is shown as gone, the top-up is not.
   const before = await as(cOwner, () => call('ai_credit_summary', []));
@@ -449,6 +469,65 @@ await test('included credit needed to cover an in-flight hold is not expired out
   // The rest goes on the next pass (a second, numbered expiry of the same grant).
   assert.equal(Number(await svc(() => call('ai_credit_expire_included', [D, new Date(Date.now() + 7200e3).toISOString()]))), 21000 - 450);
   assert.equal(Number((await account(D)).included_micros), 0);
+  await reconciled();
+});
+
+await test('a renewal while a hold is open: the old period\'s credit goes, the hold settles from the new one', async () => {
+  const E = randomUUID(), eOwner = randomUUID();
+  await q(`insert into auth.users(id) values ($1)`, [eOwner]);
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title) values ($1,'finance_hub','company','e','E')`, [E]);
+  await q(`insert into public.profiles(id,role,is_active,active_company_id) values ($1,'owner',true,$2)`, [eOwner, E]);
+  await q(`insert into public.entity_memberships(entity_id,user_id,role) values ($1,$2,'owner_admin')`, [E, eOwner]);
+  await q(`insert into public.billing_subscriptions(company_entity_id,stripe_customer_id,stripe_subscription_id,plan_key,status)
+    values ($1,'cus_E','sub_E','silo','active')`, [E]);
+  const now = Math.floor(Date.now() / 1000);
+  await svc(() => call('ai_credit_grant_included', [E, invoice({ customer: 'cus_E', subscription: 'sub_E',
+    lines: { data: [{ price: { id: 'price_silo' }, period: { start: now - 86400, end: now + 3600 } }] } })]));
+  const req = randomUUID();
+  assert.equal((await open(req, { company: E, user: eOwner })).ok, true);
+  // The renewal lands while the request is in flight.
+  assert.equal((await svc(() => call('ai_credit_grant_included', [E, invoice({ customer: 'cus_E', subscription: 'sub_E',
+    lines: { data: [{ price: { id: 'price_silo' }, period: { start: now + 3600, end: now + 31 * 86400 } }] } })]))).granted, true);
+  assert.equal(Number((await account(E)).included_micros), 30000000, 'only the new allowance: the hold is backed by it');
+  await settle(req, { input: 100, output: 10 });
+  assert.equal(Number((await account(E)).included_micros), 30000000 - 450);
+  const old = await one(`select remaining_micros from public.ai_credit_included_grants where company_entity_id=$1 order by period_end limit 1`, [E]);
+  assert.equal(Number(old.remaining_micros), 0, 'nothing of the old period is left to spend');
+  await reconciled();
+});
+
+await test('credit kept for a hold expires as soon as that hold settles after its period ended', async () => {
+  const F = randomUUID(), fOwner = randomUUID();
+  await q(`insert into auth.users(id) values ($1)`, [fOwner]);
+  await q(`insert into public.entities(id,module,entity_type,entity_key,title) values ($1,'finance_hub','company','f','F')`, [F]);
+  await q(`insert into public.profiles(id,role,is_active,active_company_id) values ($1,'owner',true,$2)`, [fOwner, F]);
+  await q(`insert into public.entity_memberships(entity_id,user_id,role) values ($1,$2,'owner_admin')`, [F, fOwner]);
+  const ends = new Date(Date.now() + 1500);
+  await svc(() => call('ai_credit_add', [F, 'included_grant', 30000000, 'included:sub_F:1', 'silo', null, 'in_f', 'sub_F', null, null,
+    new Date(Date.now() - 86400e3).toISOString(), ends.toISOString()]));
+  const req = randomUUID();
+  assert.equal((await open(req, { company: F, user: fOwner })).ok, true);
+  await new Promise((r) => setTimeout(r, 2000)); // the period ends mid-request
+  await settle(req, { input: 100, output: 10 });
+  assert.equal(Number((await account(F)).included_micros), 0, 'the ended period\'s remainder went with the settle');
+  await reconciled();
+});
+
+await test('sold terms are frozen: pack price/credit and a plan allowance cannot be edited', async () => {
+  await assert.rejects(() => q(`update public.ai_credit_packs set credit_micros = 1 where pack_key = 'p50'`), /frozen/);
+  await assert.rejects(() => q(`update public.ai_credit_packs set unit_amount_cents = 1 where pack_key = 'p50'`), /frozen/);
+  await assert.rejects(() => q(`delete from public.ai_credit_packs where pack_key = 'p50'`), /never deleted/);
+  await q(`update public.ai_credit_packs set title = '$50 of AI credit', sort_order = 2 where pack_key = 'p50'`);
+  await assert.rejects(() => q(`update public.billing_plans set included_ai_credit_micros = 1 where plan_key = 'silo'`), /write-once/);
+});
+
+await test('a top-up is credited only for the price the pack sells', async () => {
+  for (const over of [{ amount_subtotal: 1 }, { currency: 'eur' }, { amount_subtotal: null },
+                      { line_items: { data: [{ price: { id: 'price_other' } }] } }]) {
+    await assert.rejects(() => svc(() => call('ai_credit_grant_purchase', [A, session(over)])), /pack/);
+  }
+  const ok = session({ line_items: { data: [{ price: { id: 'price_p50' } }] } });
+  assert.equal((await svc(() => call('ai_credit_grant_purchase', [A, ok]))).granted, true);
   await reconciled();
 });
 

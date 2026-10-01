@@ -6067,7 +6067,9 @@ select 'Plaid removal classification' as check_name,
 -- check gets appended to rather than only in the test that breaks.
 --
 -- So: put a check for anything OUTSIDE the finance/Plaid schema above the
--- Plaid marker, and only add to the tail when the fixture genuinely covers it.
+-- Plaid marker, or BELOW the "End of Plaid fixture checks" marker further
+-- down, and only add between the two markers when the fixture genuinely
+-- covers it. The fixture slices from the Plaid marker up to that end marker.
 
 -- Prepared coding suggestions (20260923120000). Claude's suggestions are stored
 -- apart from accepted coding: preparing writes only card_coding_suggestions,
@@ -6154,6 +6156,13 @@ select 'Coding evidence and saved rules' as check_name,
   then 'STALE: background preparation does not skip rows a saved rule answers; apply 20260923140000'
  else 'ok' end as status;
 
+-- ── End of Plaid fixture checks ─────────────────────────────────────────────
+-- scripts/tests/plaid-bank-feed-database.test.mjs executes every check from
+-- the "Plaid ingestion" marker up to this line, and nothing below it. Checks
+-- below this line test schema the Plaid fixture does not build (it would
+-- report MISSING for them), so they are covered by their own database suites.
+-- Keep this line exactly as written: the test locates it by text.
+
 -- AI credit billing (20261001120000). The ledger a tenant's balance is
 -- charged against: closed to clients (no table read, no metering or grant
 -- RPC), append-only, and RECONCILED -- the balances and open holds must equal
@@ -6163,11 +6172,12 @@ select 'AI credit ledger' as check_name,
  case when to_regclass('public.ai_credit_ledger') is null
    or to_regclass('public.ai_credit_accounts') is null
    or to_regclass('public.ai_credit_reservations') is null
+   or to_regclass('public.ai_credit_included_grants') is null
    or to_regprocedure('public.ai_credit_summary()') is null
    or to_regprocedure('public.ai_credit_reconcile(uuid)') is null
   then 'MISSING: run 20261001120000_ai_credit_billing.sql'
  when exists (select 1 from unnest(array['ai_credit_ledger','ai_credit_accounts','ai_credit_reservations',
-                                         'ai_provider_rates','ai_billing_settings']) t
+                                         'ai_credit_included_grants','ai_provider_rates','ai_billing_settings']) t
                where has_table_privilege('authenticated', to_regclass('public.' || t), 'SELECT,INSERT,UPDATE,DELETE')
                   or has_table_privilege('anon', to_regclass('public.' || t), 'SELECT,INSERT,UPDATE,DELETE'))
   then 'CRITICAL: an AI credit table or private pricing is reachable from the browser'
@@ -6180,7 +6190,8 @@ select 'AI credit ledger' as check_name,
      'ai_credit_grant_included(uuid,jsonb)',
      'ai_credit_grant_purchase(uuid,jsonb)',
      'ai_credit_reconcile(uuid)',
-     'ai_credit_expire_included(uuid,timestamptz)']) f
+     'ai_credit_expire_included(uuid,timestamptz)',
+     'ai_credit_take_included(uuid,bigint)']) f
    where has_function_privilege('authenticated', to_regprocedure('public.' || f), 'EXECUTE')
       or has_function_privilege('anon', to_regprocedure('public.' || f), 'EXECUTE'))
   then 'CRITICAL: an AI credit metering or grant function is callable from the browser (a browser could settle its own request at zero)'
@@ -6191,6 +6202,11 @@ select 'AI credit ledger' as check_name,
   then 'CRITICAL: the AI credit ledger is no longer append-only'
  when not exists (select 1 from pg_constraint where conname = 'ai_credit_never_overheld')
   then 'CRITICAL: an AI credit account can be held beyond its balance'
+ when not exists (select 1 from pg_trigger where tgname = 'trg_ai_credit_packs_frozen'
+                    and tgrelid = to_regclass('public.ai_credit_packs'))
+   or not exists (select 1 from pg_trigger where tgname = 'trg_billing_plans_allowance_frozen'
+                    and tgrelid = to_regclass('public.billing_plans'))
+  then 'CRITICAL: a sold top-up pack or plan allowance can be edited after sale (a delayed webhook would grant different terms)'
  -- Evaluated only once the objects exist (query_to_xml defers the parse).
  when (xpath('/row/n/text()', query_to_xml(
          'select count(*) as n from public.ai_credit_reconcile() where not ok', false, true, '')))[1]::text <> '0'

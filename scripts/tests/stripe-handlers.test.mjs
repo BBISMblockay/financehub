@@ -101,6 +101,9 @@ const MUTATIONS = {
   'billing-lookup-fails-open': (s) => s.replace(
     /    const status = Number\(\(e as any\)\?\.statusCode[\s\S]*?Try again in a moment\.'\);\n/,
     '    return null;\n'),
+  'billing-topups-first-page-only': (s) => s.replace(
+    '    if (!list?.has_more) return { complete: true, scanned, paid };',
+    '    return { complete: true, scanned, paid };'),
   'billing-body-price': (s) => s.replace(
     '    line_items: [{ price: plan.stripe_price_id, quantity }],',
     '    line_items: [{ price: body?.price_id ?? plan.stripe_price_id, quantity }],'),
@@ -1208,6 +1211,72 @@ await test('sync: a lost top-up webhook is recovered from Stripe\'s own sessions
   assert.equal(grants.length, 1, 'only the paid, SILO-tagged session');
   assert.equal(grants[0].args.p_session.id, 'cs_topup');
   assert.equal(f.db.calls.filter((c) => c.rpc === 'ai_credit_grant_included').length, 1);
+});
+
+// A Stripe list double that honours limit / starting_after / has_more over
+// `all`, newest first -- the shape Stripe's own list endpoints page in.
+const pagedSessions = (all) => (args) => {
+  const { limit = 10, starting_after: after } = args[0] ?? {};
+  const start = after ? all.findIndex((x) => x.id === after) + 1 : 0;
+  const data = all.slice(start, start + limit);
+  return { data, has_more: start + limit < all.length };
+};
+const noise = (n, prefix = 'cs_new') => Array.from({ length: n }, (_, i) =>
+  ({ id: `${prefix}_${i}`, mode: 'subscription', payment_status: 'paid', metadata: {} }));
+
+await test('sync: a lost top-up OLDER than the first page of sessions is still recovered', async () => {
+  const all = [...noise(150), { ...paidTopup, id: 'cs_old_topup', payment_intent: 'pi_old' }];
+  const f = await topupFixture({
+    stripe: {
+      'subscriptions.list': { data: [] },
+      'invoices.list': { data: [] },
+      'checkout.sessions.list': pagedSessions(all),
+    },
+  });
+  const out = await f.request({ body: { action: 'sync' } });
+  assert.equal(out.status, 200);
+  const grants = f.db.calls.filter((c) => c.rpc === 'ai_credit_grant_purchase');
+  assert.deepEqual(grants.map((g) => g.args.p_session.id), ['cs_old_topup'],
+    'the paid top-up on page 2 is granted');
+  const lists = f.stripe.calls.filter((c) => c.path === 'checkout.sessions.list');
+  assert.equal(lists.length, 2);
+  assert.equal(lists[1].args[0].starting_after, 'cs_new_99');
+  assert.deepEqual(out.body.topups, { complete: true, scanned: 151, paid: 1 });
+});
+
+await test('sync: hitting the page bound reports top-up recovery as INCOMPLETE', async () => {
+  const f = await topupFixture({
+    stripe: {
+      'subscriptions.list': { data: [] },
+      'invoices.list': { data: [] },
+      // Every page is full and claims more: the walk can never finish.
+      'checkout.sessions.list': (args) => {
+        const after = args[0]?.starting_after;
+        const n = after ? Number(after.split('_').pop()) + 1 : 0;
+        return { data: noise(100, `cs_p${n}`).map((x, i) => (i === 99 ? { ...x, id: `cs_last_${n}` } : x)), has_more: true };
+      },
+    },
+  });
+  const out = await f.request({ body: { action: 'sync' } });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.topups.complete, false, 'a bounded walk never claims full recovery');
+  assert.equal(out.body.topups.reason, 'page limit');
+  assert.equal(out.body.topups.scanned, 2000);
+  assert.equal(f.stripe.calls.filter((c) => c.path === 'checkout.sessions.list').length, 20);
+});
+
+await test('sync: a Stripe error while listing sessions is an error, not `synced: true`', async () => {
+  let n = 0;
+  const f = await topupFixture({
+    stripe: {
+      'subscriptions.list': { data: [] },
+      'invoices.list': { data: [] },
+      'checkout.sessions.list': () => (n++ === 0 ? { data: noise(100), has_more: true } : new Error('stripe 500')),
+    },
+  });
+  const out = await f.request({ body: { action: 'sync' } });
+  assert.equal(out.status, 502);
+  assert.equal(out.body.synced, undefined);
 });
 
 console.log(`\n${passed} handler scenarios passed`);

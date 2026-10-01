@@ -3,7 +3,8 @@
 Connects measured AI usage to what a tenant pays: a subscription with a
 monthly allowance of customer-priced AI credit, plus one-off top-ups.
 Migration `20261001120000_ai_credit_billing.sql`; functions `silo-chat`,
-`on-deck-prepare`, `stripe-billing`, `stripe-webhook`; pages `/v2/billing.html`
+`on-deck-prepare`, `card-categorize`, `payment-request-extract`,
+`stripe-billing`, `stripe-webhook`; pages `/v2/billing.html`
 and `/v2/silo-chat.html`.
 
 **Status: implemented and tested locally. Not applied, not deployed, no live
@@ -19,6 +20,13 @@ settings row switches it on (step 5 below).
 | Provider token rates | `ai_provider_rates` (one row per model, immutable, new row per price change) | **No** |
 | Customer multiplier and on/off | `ai_billing_settings` (`customer_multiplier_bps`, `mode`) | **No** |
 | Top-up packs (price, credit) | `ai_credit_packs` | **No** |
+
+**Sold terms are frozen.** A pack's price, currency and credit cannot be
+edited or deleted (`trg_ai_credit_packs_frozen`), and a plan's
+`included_ai_credit_micros` is write-once (`trg_billing_plans_allowance_frozen`).
+A webhook can land after a change; with these frozen it still grants what was
+sold. To change terms, retire the pack (`is_active = false`) and add a new one,
+or create a new Stripe Price and plan row.
 
 The pricing tables have RLS on, no policy and no client grant. No view, RPC
 result or page carries provider cost, rates or the multiplier.
@@ -65,28 +73,38 @@ request, which is a new, separately metered question; the failed one was free.
 | Grant | Trigger | Idempotency key |
 |---|---|---|
 | Included | `invoice.paid` (webhook) or Billing **Sync**, from the re-fetched invoice: `status = paid`, `amount_paid > 0`, `billing_reason` `subscription_create`/`subscription_cycle`, a line priced on a plan with included credit | `included:<subscription>:<period_start>` |
-| Top-up | `checkout.session.completed` / `checkout.session.async_payment_succeeded` (webhook) or Billing **Sync** (lists the customer's sessions), from the re-fetched session: `mode = payment`, `payment_status = paid`, SILO's `silo_purpose`/company metadata, the company's customer. Amount from `ai_credit_packs`, never the session | `purchase:<payment_intent>` (also unique per PaymentIntent) |
+| Top-up | `checkout.session.completed` / `checkout.session.async_payment_succeeded` (webhook) or Billing **Sync** (pages through all of the customer's sessions; says so if it hit its 2,000-session bound), from the re-fetched session: `mode = payment`, `payment_status = paid`, SILO's `silo_purpose`/company metadata, the company's customer, and **`amount_subtotal` + `currency` equal to the pack's price** (and the line item's Price, when present). A mismatch raises, so the webhook keeps retrying and the event stays visible rather than crediting terms nobody sold. Credit from `ai_credit_packs`, never the session | `purchase:<payment_intent>` (also unique per PaymentIntent) |
 
 Nothing is granted from the success redirect. That page calls Sync, which asks
 Stripe. Proration, manual, open and zero-amount invoices grant nothing.
 
-**Included credit does not roll over; top-ups do** (Blake, 2026-10-01). Spend
-takes included credit first. When the next period's grant arrives, whatever is
-left of the previous allowance is removed with an `included_expiry` ledger
-entry before the new one is added. When a period ends with no renewal (a
-lapsed subscription), the next AI request removes it, and Billing shows it as
-gone straight away. Top-up credit is never expired. Included credit that an
-in-flight request's hold still needs is kept until that request settles, then
-removed on the next pass.
+**Included credit does not roll over; top-ups do** (Blake, 2026-10-01).
+Included credit is tracked **per grant** (`ai_credit_included_grants`, one row
+per paid period, with what remains of it). Spend takes included credit first,
+oldest grant first. When the next period's grant arrives, every grant whose
+period has ended is expired with an `included_expiry` ledger entry. When a
+period ends with no renewal (a lapsed subscription), the next AI request
+removes it, and Billing shows it as gone straight away. Top-up credit is never
+expired.
+
+Open holds are backed by purchased credit and current grants first. Only the
+shortfall keeps an ended grant's credit alive, and the settle that releases
+that hold expires the rest at once. An invoice delivered after its own period
+ended (a late or out-of-order webhook) grants nothing (`period_ended`).
+
+Every function that touches included credit takes the company's account row
+lock **first**, then grants and reservations. Two deliveries of the same
+renewal therefore serialise. The race test proves the second finds the grant
+already made and leaves the new allowance intact.
 
 ## Coverage
 
 | AI entry point | Metered | Notes |
 |---|---|---|
 | Ask SILO (`silo-chat`) | **Yes** | Every model call, including the forced final answer and its continuation |
-| On Deck (`on-deck-prepare`) | **Yes** | Checked BEFORE On Deck's own cap, so an empty balance pauses preparation without consuming cap. A prepared draft is charged; provider failures, invalid drafts and failed writes are free |
-| Card coding suggestions (`card-categorize`, `card-coding-prepare-scheduled`) | **Yes** | Decided 2026-10-01. One hold per model call (up to 4 run at once), charged when the call returned suggestions; a failed, empty or unparseable call is free. With no credit the rows are recorded as failed with `credit_exhausted` and the model is not called. Scheduled preparation spends credit too |
-| Payment request extraction (`payment-request-extract`) | **No** | Not decided |
+| On Deck (`on-deck-prepare`) | **Yes** | Checked BEFORE On Deck's own cap, so an empty balance pauses preparation without consuming cap. Charged only when the draft was **stored**, proven by the `prepared`/`revised` event `on_deck_finish` writes in the same transaction. A proposal edited or dismissed during generation (`on_deck_finish` then leaves it alone), provider failures, invalid drafts and failed writes are free |
+| Card coding suggestions (`card-categorize`, `card-coding-prepare-scheduled`) | **Yes** | Decided 2026-10-01. One hold per model call (up to 4 run at once). Charged only once at least one suggestion for a line that was asked about is **stored**. A failed, empty or unparseable call, answers that match no requested line, and a failed write are free. With no credit the model is not called and **nothing is recorded**, so the five-attempt retry limit is not consumed and a top-up resumes preparation on the next pass. Scheduled preparation spends credit too |
+| Invoice reading (`payment-request-extract`) | **Yes** | Decided 2026-10-01. One hold per document, charged when a usable suggestion comes back. Provider errors, truncation, timeouts and "more than one invoice" refusals are free. With no credit the page says so and keeps the locally read fields; manual entry is unaffected |
 | Ask SILO evals (`silo-chat/evals`) | No | Internal tooling |
 
 On Deck's **operational cap** (`on_deck_settings.monthly_cap_usd`) is
@@ -99,7 +117,7 @@ beside customer-priced credit would reveal the multiplier.
 1. **Apply** `20261001120000_ai_credit_billing.sql`, then run
    `verify_v2_schema.sql`. With no settings row the feature is **off**.
 2. **Deploy** `stripe-webhook`, `stripe-billing`, `silo-chat`, `on-deck-prepare`,
-   `card-categorize` and `card-coding-prepare-scheduled` (which bundles
+   `payment-request-extract`, `card-categorize` and `card-coding-prepare-scheduled` (which bundles
    card-categorize's `prepare.ts`). **Stripe is live**, so the two Stripe
    functions change live webhook handling the moment they deploy; in off mode
    the only difference is the grant calls, which find nothing to do.
@@ -148,7 +166,7 @@ beside customer-priced credit would reveal the multiplier.
   on the new code.
 - Do **not** drop the tables once anything was charged. They are the record of
   what customers paid for. Before any data exists, the migration can be
-  reversed by dropping the six `ai_*` tables, the `ai_credit_*`/`ai_rates_*`
+  reversed by dropping the seven `ai_*` tables, the two frozen-terms triggers, the `ai_credit_*`/`ai_rates_*`
   functions and `billing_plans.included_ai_credit_micros`.
 
 ## Operating queries (service role)
@@ -174,50 +192,56 @@ Recorded (Blake, 2026-10-01):
 - **Price**: the multiplier is decided; it is set in `ai_billing_settings`
   at rollout and deliberately not written in the repo.
 - **Partial answers** are delivered and charged.
-- **Card coding** is billed.
+- **Card coding** and **invoice reading** are billed.
+- **Trials**: a trialing workspace gets no included allowance (its first
+  invoice is $0, and included credit comes only from a paid invoice). The
+  workspace owner can buy top-ups during the trial (`trialing` is a live
+  status for top-ups; a handler test covers it).
+- **Refunds**: no clawback. Top-ups roll over, so there is no unused-credit
+  refund to handle (`charge.refunded` is not routed).
+- **No per-seat scaling**: revenue is from AI usage, not seats. Included
+  credit is per subscription.
 
 Still open:
 
-1. **Trials.** A Stripe free trial makes a $0 first invoice, and included
-   credit is granted only from a paid invoice, so a trialing workspace gets
-   no allowance (and AI refuses) until its first real charge. Grant it during
-   trials or not?
-2. **Refunds.** A refunded top-up or subscription invoice does **not**
-   remove credit (`charge.refunded` is not routed). Decide whether a refund
-   claws back unspent credit.
-3. **Auto-refill.** Not built. The earlier audit's decision (opt-in, bounded
-   by a spend limit) predates this model.
-4. **The 2026-09-24 decisions this supersedes.** `docs/ops/ask-silo-paid-pilot-audit.md`
+1. **Auto-refill.** Not built.
+2. **Who may spend.** Any member who can use Ask SILO, card coding or invoice
+   reading spends the company's shared credit; only an owner-admin can buy
+   more. Limit it (admins only, or a per-person cap)?
+3. **The 2026-09-24 decisions this supersedes.** `docs/ops/ask-silo-paid-pilot-audit.md`
    recorded a 3-question trial, 22% markup, and a company-set $100–$1,000
    running spend limit. None is built. Confirm they are dropped.
-5. **Seat-based plans.** Included credit is per subscription, not per seat.
-6. **Who may spend.** Any member who can use Ask SILO or card coding spends
-   the company's shared credit; only an owner-admin can buy more. Should
-   spending be limited (e.g. admins only, or a per-person cap)?
-7. **Payment-request extraction**: billable or not.
-8. **On Deck settings page** (`settings-company.html`) already shows On
-    Deck's spend in provider dollars to company admins. With a private
-    multiplier, that figure beside Billing's customer-priced usage reveals the
-    ratio. Pre-existing; not changed here.
+4. **On Deck settings page** (`settings-company.html`) shows On Deck's spend
+   in provider dollars to company admins. Beside Billing's customer-priced
+   usage, that reveals the ratio. Pre-existing; not changed here.
 
 ## Verification record (2026-10-01, local)
 
-- `scripts/tests/ai-credit-database.test.mjs`: 30 checks on PGlite with the real
-  Stripe + credit migrations (boundary, modes, grants, included expiry, holds,
-  settles, sweep, reconciliation, summary scoping, verify check). Eight
-  mutations each fail it.
-- `card-categorize-persistence.test.mjs`: 24 (4 new credit scenarios; 2
-  mutations each fail it). `-history` and `-bank-guard` unchanged.
-- `scripts/tests/ai-credit-concurrency.test.mjs`: three races on two real
-  PostgreSQL 16 connections. Two mutations each fail it. With both lock layers
-  removed, the CHECK constraint still refuses the overdraw (as an error).
-- `silo-chat/handler.test.mjs`: 149 (10 new credit scenarios, incl. 402 before
-  any model call, duplicate, unreachable meter, free failures, company switch,
-  low-credit forced answer, failed settle → "pending").
-- `on-deck-edge.test.mjs`: 16 (6 new), `on-deck-core.test.mjs`: 14.
-- `stripe-handlers.test.mjs`: 65 (11 new), with all 20 existing mutations still killing.
-- Browser: `ai-credit-billing.test.js` (12), `ask-silo-credit.test.js` (14);
-  existing `payments-ui` and `ask-silo-conversation` unchanged.
+- `scripts/tests/ai-credit-database.test.mjs`: 36 checks on PGlite with the real
+  Stripe + credit migrations: boundary, modes, grants, per-grant expiry
+  (renewal during a hold, settle after a period ended, late invoice), frozen
+  terms, top-up price check, holds, settles, sweep, reconciliation, summary
+  scoping, invoice reading, and the verify check. Twelve mutations each fail it.
+- `scripts/tests/ai-credit-concurrency.test.mjs`: four races on two real
+  PostgreSQL 16 connections (two opens, settle vs sweep, a duplicate top-up, a
+  duplicate renewal). Two lock-removal mutations each fail it. Removing the
+  account lock from the renewal path does **not** fail it: the ledger's unique
+  key and the per-grant rows already serialise that race. The lock is kept for
+  lock order (account → grants), which a test cannot force into a deadlock.
+- `card-categorize-persistence.test.mjs`: 25 (6 credit scenarios, incl.
+  unstored answers free and no recorded attempt on refusal; 2 mutations).
+- `payment-request-extract/handler.test.mjs`: 14 (6 credit; 3 mutations).
+- `silo-chat/handler.test.mjs`: 149. `on-deck-edge.test.mjs`: 17 (incl. a
+  proposal changed mid-generation), `on-deck-core.test.mjs`: 14.
+- `stripe-handlers.test.mjs`: 69 (incl. trial top-up and paginated Sync
+  recovery past 150 newer sessions; a pagination mutation fails it).
+- `plaid-bank-feed-database.test.mjs`: 38. The Plaid fixture now stops at an
+  end marker in `verify_v2_schema.sql`, so the AI credit check no longer runs
+  inside it. That failure is what had been skipping the AI credit suite in CI.
+- Browser: `ai-credit-billing.test.js` (12), `ask-silo-credit.test.js` (14),
+  `ask-silo-credit-recovery.test.js` (12: a charged answer recovered after a
+  dropped connection shows its cost and refreshes the balance),
+  `ask-silo-conversation.test.js` (20). `node v2/tests/run.js --unit`: 25 suites.
 
 **Not verified:** live Stripe (test or live mode), a deployed function, real
 token usage against the provider's invoice, production data volumes, and the

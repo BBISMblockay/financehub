@@ -508,15 +508,52 @@ async function sync(company: string) {
   }
 
   // Top-ups whose webhook was lost. Each session is Stripe's own object; the
-  // grant function re-checks purpose, company, customer and payment status.
-  const sessions = await stripe.checkout.sessions.list({ customer: row.stripe_customer_id, limit: 20 });
-  for (const session of sessions.data) {
-    if (session.mode !== 'payment' || session.payment_status !== 'paid'
-        || session.metadata?.silo_purpose !== 'ai_credit_topup') continue;
-    await grantCredit('ai_credit_grant_purchase', {
-      p_company: company, p_session: JSON.parse(JSON.stringify(session)),
-    });
-  }
+  // grant function re-checks purpose, company, customer and payment status,
+  // and is idempotent per payment intent, so re-granting one already credited
+  // is a no-op. EVERY session is walked, not the newest page: a lost top-up
+  // older than the newest page would otherwise never be credited while sync
+  // reported success. Bounded so one request cannot page forever; hitting
+  // the bound is reported as incomplete, never as a full recovery. A list
+  // error throws, and the handler answers 502 -- never `synced: true`.
+  const topups = await recoverTopups(company, row.stripe_customer_id);
 
-  return { synced: true, subscription: active?.status ?? null, invoices: invoices.data.length };
+  return {
+    synced: true,
+    subscription: active?.status ?? null,
+    invoices: invoices.data.length,
+    topups,
+  };
+}
+
+const TOPUP_PAGE_SIZE = 100;
+const TOPUP_MAX_PAGES = 20;
+
+async function recoverTopups(company: string, customer: string) {
+  let startingAfter: string | undefined;
+  let scanned = 0;
+  let paid = 0;
+  for (let page = 0; page < TOPUP_MAX_PAGES; page += 1) {
+    const list = await stripe.checkout.sessions.list({
+      customer,
+      limit: TOPUP_PAGE_SIZE,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+    const data = list?.data ?? [];
+    scanned += data.length;
+    for (const session of data) {
+      if (session.mode !== 'payment' || session.payment_status !== 'paid'
+          || session.metadata?.silo_purpose !== 'ai_credit_topup') continue;
+      await grantCredit('ai_credit_grant_purchase', {
+        p_company: company, p_session: JSON.parse(JSON.stringify(session)),
+      });
+      paid += 1;
+    }
+    if (!list?.has_more) return { complete: true, scanned, paid };
+    const last = data[data.length - 1]?.id;
+    // has_more with nothing to page from is a malformed answer; say so
+    // rather than loop or claim the walk finished.
+    if (!last) return { complete: false, scanned, paid, reason: 'malformed page' };
+    startingAfter = last;
+  }
+  return { complete: false, scanned, paid, reason: 'page limit' };
 }

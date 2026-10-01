@@ -44,15 +44,27 @@ export async function prepareOne({ db, proposal, apiKey, fetcher = fetch, reques
   }
   // If this write fails the hold remains. A later job closes it conservatively;
   // it does not retry the paid call or silently record $0.
-  let finished = false;
+  let finished = false, stored = false;
   try {
     await rpc(db, 'on_deck_finish', { p_request: requestId, p_content: content, p_input: input, p_output: output, p_error: error });
     finished = true;
+    // on_deck_finish returns nothing and silently leaves the proposal alone
+    // when it was edited or dismissed while the model ran. It writes the
+    // 'prepared'/'revised' event in the SAME transaction as the draft, so that
+    // event naming this attempt is the proof the draft was stored. Unproven
+    // (including a failed read) = not stored = not charged.
+    if (!error) {
+      const { data, error: readError } = await db.from('on_deck_events').select('id')
+        .eq('proposal_id', proposal.id).eq('detail->>attempt', requestId).limit(1);
+      stored = !readError && Array.isArray(data) && data.length > 0;
+    }
   } finally {
     // Only a prepared draft that was stored is charged to the customer's
     // credit. Everything else -- provider failure, invalid draft, timeout, a
-    // failed write -- is free to them (On Deck's own cap still counts it).
-    await credit.settle({ usage, outcome: !error && finished ? 'succeeded' : timedOut ? 'timed_out' : 'failed', error: error || (finished ? null : 'finish_failed') });
+    // failed write, a proposal changed mid-generation -- is free to them (On
+    // Deck's own cap still counts it).
+    await credit.settle({ usage, outcome: stored ? 'succeeded' : timedOut ? 'timed_out' : 'failed',
+      error: error || (!finished ? 'finish_failed' : stored ? null : 'draft_not_stored') });
   }
-  return error || 'prepared';
+  return error || (stored ? 'prepared' : 'changed');
 }

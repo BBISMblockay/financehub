@@ -607,9 +607,10 @@
     el('btnSync').addEventListener('click', async () => {
       try {
         setStatus('Asking Stripe…', 'info');
-        await callFn({ action: 'sync' });
+        const r = await callFn({ action: 'sync' });
         await load();
-        setStatus('Up to date.', 'pos', 5000);
+        if (r?.topups?.complete === false) setStatus('Plan and invoices are up to date, but not every older top-up payment could be checked. If a top-up is missing from your balance, contact SILO support.', 'info', 15000);
+        else setStatus('Up to date.', 'pos', 5000);
       } catch (e) { setStatus(e.message, 'neg', 12000); }
     });
   })().catch((e) => {

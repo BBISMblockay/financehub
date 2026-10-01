@@ -1056,7 +1056,48 @@
   // own rows at all. The old recency window is gone with it: a request id is
   // unique, so age proves nothing, and the window was cutting off exactly the
   // long drafts recovery exists for.
+  //
+  // The FULL stored response is read first: silo_chat_responses holds the exact
+  // body the page would have received (concept cards, web sources, and the
+  // ai_credit the request was charged), where the audit row carries only the
+  // answer text and SQL. A charged answer recovered from the audit log alone
+  // showed no cost line. The audit log stays the fallback for a database
+  // without that table, or a request that wrote no row there -- and then no
+  // cost is shown at all, never an invented $0.
   async function tryRecoverAnswer(requestId) {
+    if (!requestId || !identity.userId) return null;
+    const stored = await recoverStoredResponse(requestId);
+    if (stored) return stored;
+    return recoverFromAuditLog(requestId);
+  }
+
+  // The asker's stored response for one request, only when it is a finished
+  // ANSWER. An error body is not an answer to recover; returns null so the
+  // caller falls through to the audit log exactly as before.
+  async function recoverStoredResponse(requestId) {
+    if (!requestId) return null;
+    try {
+      const { data, error } = await sb.from('silo_chat_responses')
+        .select('http_status, response')
+        .eq('request_id', requestId)
+        .maybeSingle();
+      if (error || !data?.response) return null;
+      const status = Number(data.http_status) || 200;
+      const body = data.response;
+      if (status < 200 || status >= 300 || body.error || !body.answer) return null;
+      return {
+        answer: body.answer,
+        queries_run: body.queries_run || [],
+        concepts: body.concepts,
+        sources: body.sources,
+        ai_credit: body.ai_credit,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async function recoverFromAuditLog(requestId) {
     if (!requestId || !identity.userId) return null;
     try {
       const { data } = await sb.from('silo_chat_audit_log')
@@ -1104,7 +1145,7 @@
         }
       }
       if (tableMissing) {
-        const recovered = await tryRecoverAnswer(requestId);
+        const recovered = await recoverFromAuditLog(requestId);
         if (recovered) {
           el('status').hidden = true;
           return { http_status: 200, response: { answer: recovered.answer, queries_run: recovered.queries_run || [] } };
@@ -1119,10 +1160,19 @@
     unansweredEntry = null;
     const historyEntry = { role: 'assistant', content: recovered.answer };
     if (recovered.queries_run?.length) historyEntry.queries = recovered.queries_run;
+    if (recovered.concepts?.length) historyEntry.concepts = recovered.concepts;
+    if (recovered.sources?.length) historyEntry.sources = recovered.sources;
+    // Only a stored response carries ai_credit; an audit-log recovery has none
+    // and shows no cost line rather than a made-up one.
+    if (recovered.ai_credit) historyEntry.credit = recovered.ai_credit;
     history.push(historyEntry);
     saveHistoryToSession();
     const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
-    renderMessage({ role: 'assistant', content: recovered.answer, queries: recovered.queries_run, saveCtx: { question } });
+    renderMessage({ role: 'assistant', content: recovered.answer, queries: recovered.queries_run, saveCtx: { question },
+      concepts: recovered.concepts, sources: recovered.sources, credit: recovered.ai_credit });
+    // The request ran (and may have been charged) while this tab was not
+    // listening, so the balance shown is stale whatever the source was.
+    refreshCreditPill();
   }
 
   // Shared by both failure paths below: try to recover a completed answer
