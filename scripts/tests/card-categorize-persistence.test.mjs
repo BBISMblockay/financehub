@@ -53,7 +53,7 @@ const COMPANY = '00000000-0000-4000-8000-000000000006', BATCH = '00000000-0000-4
 const SOURCE = '00000000-0000-4000-8000-000000000002', CONNECTION = '00000000-0000-4000-8000-000000000005';
 const txnId = (i) => `00000000-0000-4000-9000-${String(i).padStart(12, '0')}`;
 
-function fixture({ credit = null, merchants = 3, live = [], modelFails = () => false, omit = () => false, recordFails = false, delay = () => 0, heldElsewhere = [], sameMerchant = false, recordFailsOn = () => false, onClaim = () => {}, ruleAnswered = [], reportRuns = [] } = {}) {
+function fixture({ credit = null, merchants = 3, live = [], modelFails = () => false, omit = () => false, recordFails = false, delay = () => 0, heldElsewhere = [], sameMerchant = false, recordFailsOn = () => false, onClaim = () => {}, ruleAnswered = [], reportRuns = [], garbled = false } = {}) {
   const claims = [], released = [];
   let recordCalls = 0;
   const transactions = Array.from({ length: merchants }, (_, i) => ({
@@ -109,6 +109,7 @@ function fixture({ credit = null, merchants = 3, live = [], modelFails = () => f
       await new Promise((r) => setTimeout(r, delay(asked)));
       db.timeline.push(`model-done:${asked.length}`);
       if (modelFails(asked)) return new Response('overloaded', { status: 529 });
+      if (garbled) return Response.json({ content: [{ type: 'text', text: 'not JSON at all' }], stop_reason: 'end_turn', usage: { input_tokens: 1000, output_tokens: 200 } });
       return Response.json({ content: [{ type: 'text', text: JSON.stringify({ suggestions: asked.filter((m) => !omit(m)).map((merchant) => ({
         merchant, card_name: null, account_name: 'Supplies', location_name: null, vendor_name: merchant, confidence: 0.7, reasoning: 'Synthetic.' })) }) }],
         stop_reason: 'end_turn', usage: { input_tokens: 1000, output_tokens: 200 } });
@@ -425,6 +426,17 @@ test('AI credit: no credit means no model call and NO recorded attempt, so a top
   assert.equal(h.recorded.length, 0);
   assert.equal(body.credit_refused_batches, 1);
   assert.match(body.errors.join(' '), /credit_exhausted/);
+});
+
+test('AI credit: an unparseable answer is free to the customer but keeps its measured provider usage', async () => {
+  const credit = creditScript(() => ({ ok: true, mode: 'enforce', held_micros: 1000 }));
+  const h = fixture({ credit, merchants: 2, garbled: true });
+  await h.run();
+  const settles = credit.calls.filter(([k]) => k === 'settle');
+  assert.equal(settles.length, 1);
+  assert.equal(settles[0][1].p_outcome, 'failed');
+  assert.equal(settles[0][1].p_usage.input, 1000, 'provider cost must still be measurable');
+  assert.equal(settles[0][1].p_usage.output, 200);
 });
 
 test('AI credit: answers that could not be stored are free', async () => {

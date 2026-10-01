@@ -76,6 +76,14 @@ export function sanitizeExtraction(raw) {
 // usage). Every read here still runs under the caller's JWT. No client (no key)
 // or no settings row in the database = not metered, exactly as before.
 // One hold per document; a usable suggestion is charged, anything else is free.
+const FACT_FIELDS = ['vendor_name', 'invoice_number', 'amount_due', 'invoice_total', 'due_date', 'currency', 'request_type', 'location_name'];
+/** At least one source fact survived sanitising. Warnings alone are not facts. */
+export function hasUsableFacts(suggestion) {
+  if (!suggestion) return false;
+  return FACT_FIELDS.some(k => suggestion[k] !== null && suggestion[k] !== undefined && suggestion[k] !== '')
+    || (Array.isArray(suggestion.po_references) && suggestion.po_references.length > 0);
+}
+
 /** @param {{ makeClient: any, env: (name: string) => string, fetchImpl?: typeof fetch,
  *            makeCreditClient?: () => any, newRequestId?: () => string }} deps */
 export function createHandler({ makeClient, env, fetchImpl = fetch, makeCreditClient = () => null, newRequestId = () => crypto.randomUUID() }) {
@@ -137,11 +145,14 @@ export function createHandler({ makeClient, env, fetchImpl = fetch, makeCreditCl
       const calls = answer.content?.filter(x => x.type === 'tool_use' && x.name === extractionTool.name) || [];
       if (answer.stop_reason !== 'tool_use' || calls.length !== 1) fail('The document result was incomplete. No fields were changed; try again or enter them manually.', 502);
       const suggestion = sanitizeExtraction(calls[0].input);
-      // Charged only once a usable suggestion exists (sanitizeExtraction refuses
-      // anything but exactly one payable document; that refusal is free).
-      outcome = 'succeeded';
+      // Charged only for a USABLE suggestion: sanitizeExtraction refuses anything
+      // but exactly one payable document, and a read that accepted no fact at all
+      // (every field null or rejected) is free too. Either way the measured usage
+      // is kept, so SILO's provider cost is still recorded.
+      const usable = hasUsableFacts(suggestion);
+      outcome = usable ? 'succeeded' : 'failed';
       return reply({ suggestion, company_id: profile.active_company_id,
-        ai_credit: await meter.settle({ usage: usage_, outcome }) });
+        ai_credit: await meter.settle({ usage: usage_, outcome, error: usable ? null : 'no_usable_fields' }) });
     } catch (error) {
       return reply({ error: error.status ? error.message : 'AI assistance is temporarily unavailable. Local reading and manual entry are still available.' }, error.status || 503);
     } finally {

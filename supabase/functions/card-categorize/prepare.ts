@@ -544,6 +544,10 @@ async function askModel(
   const hold = credit ? await credit.open(Math.ceil(requestBody.length / 2.5)) : { ok: true, id: null };
   if (!hold.ok) throw Object.assign(new Error(hold.reason || 'credit_unavailable'), { creditRefused: true });
   let handedOff = false;
+  // The provider's measured usage, kept even when the answer is then unusable:
+  // the customer is not charged for a failed call, but SILO's provider cost
+  // must still be recorded, or failure spend reads as zero.
+  let measured: any = null;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -562,6 +566,7 @@ async function askModel(
     }
 
     const data = await res.json();
+    measured = data?.usage ?? null;
     const result = readModelAnswer(data, merchants);
     // The CALLER settles: whether this call is charged depends on whether a
     // suggestion for a requested line was actually recorded, which is only
@@ -569,7 +574,7 @@ async function askModel(
     handedOff = true;
     return { ...result, hold: hold.id, rawUsage: data.usage };
   } finally {
-    if (!handedOff) await credit?.settle(hold.id, null, false);
+    if (!handedOff) await credit?.settle(hold.id, measured, false);
   }
 }
 

@@ -103,8 +103,8 @@ already made and leaves the new allowance intact.
 |---|---|---|
 | Ask SILO (`silo-chat`) | **Yes** | Every model call, including the forced final answer and its continuation |
 | On Deck (`on-deck-prepare`) | **Yes** | Checked BEFORE On Deck's own cap, so an empty balance pauses preparation without consuming cap. Charged only when the draft was **stored**, proven by the `prepared`/`revised` event `on_deck_finish` writes in the same transaction. A proposal edited or dismissed during generation (`on_deck_finish` then leaves it alone), provider failures, invalid drafts and failed writes are free |
-| Card coding suggestions (`card-categorize`, `card-coding-prepare-scheduled`) | **Yes** | Decided 2026-10-01. One hold per model call (up to 4 run at once). Charged only once at least one suggestion for a line that was asked about is **stored**. A failed, empty or unparseable call, answers that match no requested line, and a failed write are free. With no credit the model is not called and **nothing is recorded**, so the five-attempt retry limit is not consumed and a top-up resumes preparation on the next pass. Scheduled preparation spends credit too |
-| Invoice reading (`payment-request-extract`) | **Yes** | Decided 2026-10-01. One hold per document, charged when a usable suggestion comes back. Provider errors, truncation, timeouts and "more than one invoice" refusals are free. With no credit the page says so and keeps the locally read fields; manual entry is unaffected |
+| Card coding suggestions (`card-categorize`, `card-coding-prepare-scheduled`) | **Yes** | Decided 2026-10-01. One hold per model call (up to 4 run at once). Charged only once at least one suggestion for a line that was asked about is **stored**. A failed, empty or unparseable call, answers that match no requested line, and a failed write are free. A free call still records its measured token usage, so SILO's provider cost for failures is not undercounted. With no credit the model is not called and **nothing is recorded**, so the five-attempt retry limit is not consumed and a top-up resumes preparation on the next pass. Scheduled preparation spends credit too |
+| Invoice reading (`payment-request-extract`) | **Yes** | Decided 2026-10-01. One hold per document, charged only when the read accepted at least one fact (a field or a PO reference). Provider errors, truncation, timeouts, "more than one invoice" refusals and a read with every field empty or rejected are free. With no credit the page says so and keeps the locally read fields; manual entry is unaffected |
 | Ask SILO evals (`silo-chat/evals`) | No | Internal tooling |
 
 On Deck's **operational cap** (`on_deck_settings.monthly_cap_usd`) is
@@ -230,9 +230,11 @@ Still open:
   account lock from the renewal path does **not** fail it: the ledger's unique
   key and the per-grant rows already serialise that race. The lock is kept for
   lock order (account → grants), which a test cannot force into a deadlock.
-- `card-categorize-persistence.test.mjs`: 25 (6 credit scenarios, incl.
-  unstored answers free and no recorded attempt on refusal; 2 mutations).
-- `payment-request-extract/handler.test.mjs`: 14 (6 credit; 3 mutations).
+- `card-categorize-persistence.test.mjs`: 26 (7 credit scenarios, incl.
+  unstored answers free, no recorded attempt on refusal, and an unparseable
+  answer keeping its measured usage; 3 mutations).
+- `payment-request-extract/handler.test.mjs`: 15 (7 credit, incl. an all-empty
+  and an all-rejected read being free with usage kept; 4 mutations).
 - `silo-chat/handler.test.mjs`: 149. `on-deck-edge.test.mjs`: 17 (incl. a
   proposal changed mid-generation), `on-deck-core.test.mjs`: 14.
 - `stripe-handlers.test.mjs`: 69 (incl. trial top-up and paginated Sync

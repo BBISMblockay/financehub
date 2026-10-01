@@ -96,6 +96,21 @@ await test('credit: provider errors, truncation, timeouts and multi-invoice refu
     assert.equal(settles.length, 1, 'settled exactly once'); assert.equal(settles[0].args.p_outcome, outcome);
   }
 });
+await test('credit: a read that accepted no fact is free, and keeps its measured usage', async () => {
+  const empty = { document_count: 1, vendor_name: null, invoice_number: null, amount_due: null, invoice_total: null, due_date: null, currency: null, request_type: null, location_name: null, po_references: [], warnings: ['The source text was unreadable.'] };
+  const rejected = { ...empty, vendor_name: '', amount_due: -10, invoice_total: '2,580', due_date: '2026-02-30', currency: '$', request_type: 'payroll_payment' };
+  for (const facts of [empty, rejected]) {
+    const f = fixture({ facts, credit: metered() }); const r = await f.call(); const data = await r.json();
+    assert.equal(r.status, 200, 'the page still gets the (empty) suggestion and its warnings');
+    const settle = f.credit.find(c => c.name === 'ai_credit_settle').args;
+    assert.equal(settle.p_outcome, 'failed'); assert.equal(settle.p_error, 'no_usable_fields');
+    assert.equal(settle.p_usage.input, 900, 'provider cost is still recorded'); assert.equal(settle.p_usage.output, 120);
+    assert.deepEqual(data.ai_credit, { status: 'free', charged_micros: 0 });
+  }
+  // One accepted fact is enough to be a usable read.
+  const one = fixture({ facts: { ...empty, po_references: ['PO-1'] }, credit: metered() }); await one.call();
+  assert.equal(one.credit.find(c => c.name === 'ai_credit_settle').args.p_outcome, 'succeeded');
+});
 await test('credit: not migrated or no service key = unmetered, exactly as before', async () => {
   const missing = fixture({ credit: { ai_credit_open: { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } } } });
   const r = await missing.call(); assert.equal(r.status, 200); assert.deepEqual((await r.json()).ai_credit, { status: 'not_metered' });
