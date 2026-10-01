@@ -1176,6 +1176,13 @@ await test('top-up: the price comes from the pack table; the session is tagged f
   assert.equal(f.db.calls.some((c) => c.rpc && c.rpc.startsWith('ai_credit_grant')), false, 'nothing is granted at session creation');
 });
 
+await test('top-up: a workspace on a free trial can buy credit (decided 2026-10-01)', async () => {
+  const f = await topupFixture({ subscription: { status: 'trialing' } });
+  const out = await f.request({ body: { action: 'topup', pack_key: 'p50' } });
+  assert.equal(out.status, 200);
+  assert.equal(f.stripe.calls.filter((c) => c.path === 'checkout.sessions.create').length, 1);
+});
+
 await test('top-up: an inactive pack and a workspace without a live subscription are refused', async () => {
   const a = await topupFixture();
   assert.equal((await a.request({ body: { action: 'topup', pack_key: 'old' } })).status, 502);

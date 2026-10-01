@@ -34,7 +34,7 @@
       return { state: 'unavailable', label: 'Unavailable', note: 'AI credit could not be loaded right now.' };
     }
     if (summary.state === 'unconfigured') {
-      return { state: 'unconfigured', label: 'Not switched on', note: "AI credit isn't switched on for this workspace yet. Ask SILO and On Deck work as before." };
+      return { state: 'unconfigured', label: 'Not switched on', note: "AI credit isn't switched on for this workspace yet. AI features work as before." };
     }
     var base = {
       state: summary.state,

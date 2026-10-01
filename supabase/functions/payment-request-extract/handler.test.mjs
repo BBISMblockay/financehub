@@ -6,21 +6,28 @@ async function test(name, fn) { await fn(); passed++; console.log('PASS', name);
 const facts = { document_count: 1, vendor_name: 'Northline', invoice_number: '1048', amount_due: 2580, invoice_total: 2580, due_date: '2026-10-18', currency: 'USD', request_type: 'inventory_freight', location_name: null, po_references: ['PO-329', 'PO-330'], warnings: [] };
 const body = () => ({ company_id: 'company-a', consent: true, text: 'Vendor: Northline\nInvoice #: 1048\nAmount due: USD 2580.00' });
 function fixture(options = {}) {
-  let calls = 0, lastRequest;
+  let calls = 0, lastRequest; const credit = [];
+  const creditDb = options.credit && { rpc: async (name, args) => {
+    credit.push({ name, args });
+    const answer = options.credit[name];
+    return typeof answer === 'function' ? answer(args) : (answer || { data: null, error: { code: 'XX000', message: 'unexpected' } });
+  } };
   const handler = createHandler({
+    makeCreditClient: () => creditDb || null, newRequestId: () => 'req-1',
     env: key => key === 'ANTHROPIC_API_KEY' && options.noKey ? '' : key,
     makeClient: () => ({ auth: { getUser: async () => ({ data: { user: options.noUser ? null : { id: 'user-a' } } }) },
       from(table) { return { select() { return this; }, eq() { return this; }, async single() { return { data: { is_active: !options.inactive, active_company_id: 'company-a' } }; }, async maybeSingle() { return { data: options.noMembership ? null : { entity_id: 'company-a' } }; } }; },
     }),
     fetchImpl: async (url, init) => {
       calls++; lastRequest = JSON.parse(init.body);
+      if (options.timeout) throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });
       if (options.providerError) return new Response('error', { status: 503 });
       if (options.invalidJson) return new Response('not JSON');
-      return Response.json({ stop_reason: options.truncated ? 'max_tokens' : 'tool_use', content: [{ type: 'tool_use', name: 'extract_payment_request', input: options.facts || facts }] });
+      return Response.json({ usage: { input_tokens: 900, output_tokens: 120 }, stop_reason: options.truncated ? 'max_tokens' : 'tool_use', content: [{ type: 'tool_use', name: 'extract_payment_request', input: options.facts || facts }] });
     },
   });
   const call = (data = body(), auth = 'Bearer test') => handler(new Request('https://example.invalid', { method: 'POST', headers: auth ? { authorization: auth } : {}, body: JSON.stringify(data) }));
-  return { call, get calls() { return calls; }, get lastRequest() { return lastRequest; } };
+  return { call, credit, get calls() { return calls; }, get lastRequest() { return lastRequest; } };
 }
 await test('requires authenticated active company membership before provider call', async () => {
   for (const options of [{ noUser: true }, { inactive: true }, { noMembership: true }]) {
@@ -54,5 +61,51 @@ await test('multiple invoices cannot be silently aggregated', async () => {
 });
 await test('unknown currency is explicitly flagged and never defaults to USD', () => {
   const data = sanitizeExtraction({ ...facts, currency: '$' }); assert.equal(data.currency, null); assert.match(data.warnings.join(' '), /Currency/);
+});
+// AI credit (docs/ops/ai-credits.md). The database decides; the handler holds
+// before the model call, charges a usable suggestion, and settles everything
+// else free.
+const metered = (over = {}) => ({
+  ai_credit_open: { data: { ok: true, mode: 'enforce', held_micros: 50000 } },
+  ai_credit_settle: (args) => ({ data: { ok: true, enforced: true, outcome: args.p_outcome, charged_micros: args.p_outcome === 'succeeded' ? 12000 : 0 } }),
+  ...over,
+});
+await test('credit: a usable suggestion is held first, then charged on measured usage', async () => {
+  const f = fixture({ credit: metered() }); const r = await f.call(); const data = await r.json();
+  assert.equal(r.status, 200);
+  assert.deepEqual(f.credit.map(c => c.name), ['ai_credit_open', 'ai_credit_settle']);
+  const open = f.credit[0].args;
+  assert.equal(open.p_feature, 'payment_request_extract'); assert.equal(open.p_company, 'company-a'); assert.equal(open.p_user, 'user-a');
+  assert.equal(open.p_max_output, 1800); assert.ok(open.p_est_input > 0);
+  assert.equal(f.credit[1].args.p_outcome, 'succeeded'); assert.equal(f.credit[1].args.p_usage.input, 900); assert.equal(f.credit[1].args.p_usage.output, 120);
+  assert.deepEqual(data.ai_credit, { status: 'charged', charged_micros: 12000 });
+});
+await test('credit: an empty balance refuses BEFORE the model is called', async () => {
+  const f = fixture({ credit: metered({ ai_credit_open: { data: { ok: false, mode: 'enforce', reason: 'insufficient_credit' } } }) });
+  const r = await f.call(); assert.equal(r.status, 402); assert.equal((await r.json()).credit_exhausted, true);
+  assert.equal(f.calls, 0); assert.equal(f.credit.length, 1);
+});
+await test('credit: an unreadable balance refuses without calling the model', async () => {
+  const f = fixture({ credit: metered({ ai_credit_open: { data: null, error: { code: '08006', message: 'connection lost' } } }) });
+  assert.equal((await f.call()).status, 503); assert.equal(f.calls, 0);
+});
+await test('credit: provider errors, truncation, timeouts and multi-invoice refusals are free', async () => {
+  for (const [options, outcome] of [[{ providerError: true }, 'failed'], [{ truncated: true }, 'failed'], [{ invalidJson: true }, 'failed'], [{ timeout: true }, 'timed_out'], [{ facts: { ...facts, document_count: 2 } }, 'failed']]) {
+    const f = fixture({ ...options, credit: metered() }); assert.ok((await f.call()).status >= 400);
+    const settles = f.credit.filter(c => c.name === 'ai_credit_settle');
+    assert.equal(settles.length, 1, 'settled exactly once'); assert.equal(settles[0].args.p_outcome, outcome);
+  }
+});
+await test('credit: not migrated or no service key = unmetered, exactly as before', async () => {
+  const missing = fixture({ credit: { ai_credit_open: { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } } } });
+  const r = await missing.call(); assert.equal(r.status, 200); assert.deepEqual((await r.json()).ai_credit, { status: 'not_metered' });
+  assert.equal(missing.credit.length, 1, 'no settle without a hold');
+  const none = fixture(); assert.equal((await none.call()).status, 200);
+});
+await test('credit: the three copies of the credit library are identical', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const read = d => readFile(new URL(`../${d}/ai-credit-lib.mjs`, import.meta.url), 'utf8');
+  const mine = await read('payment-request-extract');
+  assert.equal(mine, await read('silo-chat')); assert.equal(mine, await read('on-deck-prepare'));
 });
 console.log(`${passed} extraction handler checks passed.`);

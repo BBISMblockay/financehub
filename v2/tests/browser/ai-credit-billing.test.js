@@ -56,6 +56,7 @@ const rpcFor = (summary) => ({ ai_credit_summary: summary === 'error'
       assert.match(usage, /Ask SILO.*84 answers.*3 failed, not charged.*\$12\.60/s);
       assert.match(usage, /On Deck.*12 background runs.*1 in progress.*\$2\.60/s);
       assert.match(usage, /Card coding.*0 suggestion batches.*\$0\.00/s);
+      assert.match(usage, /Invoice reading.*0 documents read.*\$0\.00/s);
       assert.match(usage, /Total AI credit used\s*\$15\.20/);
     });
     await check('On Deck cap shows its state, never a dollar amount beside credit', async () => {
@@ -119,7 +120,7 @@ const rpcFor = (summary) => ({ ai_credit_summary: summary === 'error'
 
     page = await open({ ...active, available_micros: 0, included_micros: 0, purchased_micros: 0, used_this_period_micros: 80000000 });
     await check('exhausted: AI pauses, the rest of SILO keeps working', async () => {
-      assert.match(await page.locator('#credit').textContent(), /Credit is used up\. Ask SILO and On Deck are paused; everything else in SILO keeps working/);
+      assert.match(await page.locator('#credit').textContent(), /Credit is used up\. AI features are paused; everything else in SILO keeps working/);
     });
     await page.close();
 

@@ -96,6 +96,8 @@ const assert = require('node:assert/strict');
   await test('unavailable AI preserves locally extracted results; mixed invoices never invoke it', async () => {
     const read = { ...suggestFromText(text), text }; const before = structuredClone(read);
     await assert.rejects(interpretMissing(read, { consent: true, companyId: 'a', invoke: async () => ({ error: Error('not deployed') }) }), /locally read/); assert.deepEqual(read, before);
+    const exhausted = Object.assign(Error('402'), { context: { status: 402, json: async () => ({ credit_exhausted: true }) } });
+    await assert.rejects(interpretMissing(read, { consent: true, companyId: 'a', invoke: async () => ({ error: exhausted }) }), /out of AI credit.*locally read/); assert.deepEqual(read, before);
     await assert.rejects(interpretMissing({ ...read, multipleInvoices: true }, { consent: true, invoke: () => { throw Error('must not invoke'); } }), /single invoice/);
   });
   console.log(`${passed} local reading checks passed.`);

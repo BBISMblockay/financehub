@@ -1,9 +1,9 @@
 // AI credit metering, from inside an Edge Function.
 //
-// ONE COPY PER FUNCTION, IDENTICAL BY TEST: supabase/functions/silo-chat/ and
-// supabase/functions/on-deck-prepare/ each bundle this file, because a
-// function directory is what the deploy workflow ships. Change one, copy it to
-// the other; scripts/tests/ai-credit-lib.test.mjs fails if they differ.
+// ONE COPY PER FUNCTION, IDENTICAL BY TEST: supabase/functions/silo-chat/,
+// on-deck-prepare/ and payment-request-extract/ each bundle this file, because
+// a function directory is what the deploy workflow ships. Change one, copy it
+// to the others; scripts/tests/on-deck-edge.test.mjs fails if they differ.
 //
 // The database owns every decision (see 20261001120000_ai_credit_billing.sql):
 // whether metering is on, the price, whether a hold fits, what is charged.

@@ -125,7 +125,7 @@ create table if not exists public.ai_credit_reservations (
   id                          uuid primary key,
   company_entity_id           uuid not null references public.entities(id) on delete cascade,
   user_id                     uuid,
-  feature                     text not null check (feature in ('ask_silo','on_deck','card_coding')),
+  feature                     text not null check (feature in ('ask_silo','on_deck','card_coding','payment_request_extract')),
   source_ref                  text,
   model                       text not null,
   status                      text not null default 'held'

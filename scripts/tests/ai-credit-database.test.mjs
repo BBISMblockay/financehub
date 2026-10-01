@@ -495,6 +495,16 @@ await test('a disabled user and an outsider get no summary', async () => {
   await assert.rejects(() => as(stranger, () => call('ai_credit_summary', [])), /membership required/);
 });
 
+await test('invoice reading is metered like any other feature; an unknown feature is refused', async () => {
+  const req = randomUUID();
+  assert.equal((await open(req, { feature: 'payment_request_extract' })).ok, true);
+  assert.equal((await settle(req, { input: 1000, output: 100 })).ok, true);
+  const r = await one('select feature, status from public.ai_credit_reservations where id=$1', [req]);
+  assert.equal(r.feature, 'payment_request_extract'); assert.equal(r.status, 'settled');
+  await assert.rejects(() => open(randomUUID(), { feature: 'something_else' }));
+  await reconciled();
+});
+
 await test('verify_v2_schema.sql reports the AI credit ledger ok against this schema', async () => {
   const v = await read('supabase/verify_v2_schema.sql');
   const check = v.slice(v.lastIndexOf("select 'AI credit ledger'"));
