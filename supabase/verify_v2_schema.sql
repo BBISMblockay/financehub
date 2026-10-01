@@ -6153,3 +6153,46 @@ select 'Coding evidence and saved rules' as check_name,
  when pg_get_functiondef(to_regprocedure('public.card_coding_needs_preparation(public.card_transactions,public.card_import_batches,public.card_sources)')) not like '%rule_applies%'
   then 'STALE: background preparation does not skip rows a saved rule answers; apply 20260923140000'
  else 'ok' end as status;
+
+-- AI credit billing (20261001120000). The ledger a tenant's balance is
+-- charged against: closed to clients (no table read, no metering or grant
+-- RPC), append-only, and RECONCILED -- the balances and open holds must equal
+-- the ledger and the open reservations. Pricing is configured out of the
+-- repo; its absence is not an error here (the feature is then `off`).
+select 'AI credit ledger' as check_name,
+ case when to_regclass('public.ai_credit_ledger') is null
+   or to_regclass('public.ai_credit_accounts') is null
+   or to_regclass('public.ai_credit_reservations') is null
+   or to_regprocedure('public.ai_credit_summary()') is null
+   or to_regprocedure('public.ai_credit_reconcile(uuid)') is null
+  then 'MISSING: run 20261001120000_ai_credit_billing.sql'
+ when exists (select 1 from unnest(array['ai_credit_ledger','ai_credit_accounts','ai_credit_reservations',
+                                         'ai_provider_rates','ai_billing_settings']) t
+               where has_table_privilege('authenticated', to_regclass('public.' || t), 'SELECT,INSERT,UPDATE,DELETE')
+                  or has_table_privilege('anon', to_regclass('public.' || t), 'SELECT,INSERT,UPDATE,DELETE'))
+  then 'CRITICAL: an AI credit table or private pricing is reachable from the browser'
+ when exists (select 1 from unnest(array[
+     'ai_credit_open(uuid,uuid,uuid,text,text,bigint,bigint,integer,integer,text)',
+     'ai_credit_step(uuid,jsonb,bigint,bigint,integer)',
+     'ai_credit_settle(uuid,jsonb,text,text)',
+     'ai_credit_sweep(uuid,interval)',
+     'ai_credit_add(uuid,text,bigint,text,text,text,text,text,text,text,timestamptz,timestamptz)',
+     'ai_credit_grant_included(uuid,jsonb)',
+     'ai_credit_grant_purchase(uuid,jsonb)',
+     'ai_credit_reconcile(uuid)']) f
+   where has_function_privilege('authenticated', to_regprocedure('public.' || f), 'EXECUTE')
+      or has_function_privilege('anon', to_regprocedure('public.' || f), 'EXECUTE'))
+  then 'CRITICAL: an AI credit metering or grant function is callable from the browser (a browser could settle its own request at zero)'
+ when has_function_privilege('anon', to_regprocedure('public.ai_credit_summary()'), 'EXECUTE')
+  then 'CRITICAL: ai_credit_summary() is callable by anon'
+ when not exists (select 1 from pg_trigger where tgname = 'trg_ai_credit_ledger_append_only'
+                    and tgrelid = to_regclass('public.ai_credit_ledger'))
+  then 'CRITICAL: the AI credit ledger is no longer append-only'
+ when not exists (select 1 from pg_constraint where conname = 'ai_credit_never_overheld')
+  then 'CRITICAL: an AI credit account can be held beyond its balance'
+ -- Evaluated only once the objects exist (query_to_xml defers the parse).
+ when (xpath('/row/n/text()', query_to_xml(
+         'select count(*) as n from public.ai_credit_reconcile() where not ok', false, true, '')))[1]::text <> '0'
+  then 'CRITICAL: AI credit balances do not reconcile with the ledger -- select * from ai_credit_reconcile() where not ok'
+ else 'ok' end as status;
+

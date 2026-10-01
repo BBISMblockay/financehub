@@ -167,7 +167,7 @@ export function fakeStripe(script = {}) {
       webhooks: { constructEventAsync: m('webhooks.constructEventAsync') },
       checkout: { sessions: {
         retrieve: m('checkout.sessions.retrieve'), create: m('checkout.sessions.create'),
-        expire: m('checkout.sessions.expire'),
+        expire: m('checkout.sessions.expire'), list: m('checkout.sessions.list'),
       } },
       subscriptions: { retrieve: m('subscriptions.retrieve'), list: m('subscriptions.list') },
       invoices: {

@@ -46,6 +46,7 @@ const PROMPT_LIB_URL = pathToFileURL(join(HERE, 'prompt-lib.mjs')).href;
 const PROVIDER_LIB_URL = pathToFileURL(join(HERE, 'provider-lib.mjs')).href;
 const QUERY_SHAPE_LIB_URL = pathToFileURL(join(HERE, 'query-shape-lib.mjs')).href;
 const KEEPALIVE_LIB_URL = pathToFileURL(join(HERE, 'keepalive-lib.mjs')).href;
+const CREDIT_LIB_URL = pathToFileURL(join(HERE, 'ai-credit-lib.mjs')).href;
 
 let failures = 0;
 let run = 0;
@@ -100,10 +101,11 @@ const harnessPath = join(tmpdir(), `silo-chat-harness-${process.pid}.ts`);
     .replace("from './prompt-lib.mjs';", `from ${JSON.stringify(PROMPT_LIB_URL)};`)
     .replace("from './provider-lib.mjs';", `from ${JSON.stringify(PROVIDER_LIB_URL)};`)
     .replace("from './query-shape-lib.mjs';", `from ${JSON.stringify(QUERY_SHAPE_LIB_URL)};`)
-    .replace("from './keepalive-lib.mjs';", `from ${JSON.stringify(KEEPALIVE_LIB_URL)};`);
+    .replace("from './keepalive-lib.mjs';", `from ${JSON.stringify(KEEPALIVE_LIB_URL)};`)
+    .replace("from './ai-credit-lib.mjs';", `from ${JSON.stringify(CREDIT_LIB_URL)};`);
   // A silently-unapplied rewrite would load a file that still imports npm:,
   // which fails with a confusing resolver error 40 lines away from the cause.
-  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, QUERY_SHAPE_LIB_URL, KEEPALIVE_LIB_URL, 'Buffer.from(bytes)']) {
+  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, QUERY_SHAPE_LIB_URL, KEEPALIVE_LIB_URL, CREDIT_LIB_URL, 'Buffer.from(bytes)']) {
     if (!rewritten.includes(marker)) {
       throw new Error(`harness rewrite failed: index.ts no longer matches the expected import for ${marker}`);
     }
@@ -498,11 +500,13 @@ await test('the client request id is written onto the audit row', async () => {
   eq(row.payload.request_id, REQUEST_ID, 'audited request_id');
 });
 
-await test('a malformed request id is stored as null, never passed through', async () => {
+await test('a malformed request id is never passed through; the server mints one', async () => {
   installModel([say('Sales were $10.')]);
   const { client } = await ask({ ...BASIC, request_id: 'not-a-uuid' });
   const row = client.__state.inserts.find((i) => i.table === 'silo_chat_audit_log');
-  eq(row.payload.request_id, null, 'audited request_id');
+  assert(row.payload.request_id !== 'not-a-uuid', 'malformed id passed through');
+  assert(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(row.payload.request_id),
+    'a metered request must always carry a real id');
 });
 
 console.log('\n-- the company a question was asked from is the company it is answered for --');
@@ -2176,6 +2180,139 @@ await test('concurrent requests do not bleed into each other', async () => {
   const rows = wrote(client, 'silo_chat_audit_log').map((r) => r.payload);
   eq(rows.length, questions.length, 'audit rows');
   for (const r of rows) eq(r.answer, `answer to: ${r.question}`, 'an audit row paired one question with another\'s answer');
+});
+
+
+console.log('\n-- AI credit: hold before the first call, charge only a delivered answer --');
+
+// A service-role double for the three credit RPCs. The user-scoped client from
+// makeClient() never sees them, and the credit client never sees anything else.
+function creditDb({ open = { ok: true, mode: 'enforce', held_micros: 50000 }, step = { ok: true, held_micros: 90000 },
+  settle = (a) => ({ ok: true, outcome: a.p_outcome, enforced: true, charged_micros: a.p_outcome === 'succeeded' ? 1234 : 0 }),
+  error = null } = {}) {
+  const calls = [];
+  return {
+    calls,
+    from() { throw new Error('the credit client must only call the credit RPCs'); },
+    rpc: async (name, args) => {
+      calls.push({ name, args });
+      if (error && error(name)) return { data: null, error: error(name) };
+      if (name === 'ai_credit_open') return { data: typeof open === 'function' ? open(args) : open, error: null };
+      if (name === 'ai_credit_step') return { data: typeof step === 'function' ? step(args) : step, error: null };
+      if (name === 'ai_credit_settle') return { data: settle(args), error: null };
+      throw new Error(`credit client called ${name}`);
+    },
+  };
+}
+async function askMetered(body, credit, clientOpts) {
+  ENV.SUPABASE_SERVICE_ROLE_KEY = 'service-key';
+  const client = makeClient(clientOpts);
+  currentClientFactory = (_url, key) => (key === 'service-key' ? credit : client);
+  try {
+    const res = await capturedHandler(request(body));
+    return { res, json: await res.json(), client };
+  } finally {
+    delete ENV.SUPABASE_SERVICE_ROLE_KEY;
+  }
+}
+const creditCalls = (credit, name) => credit.calls.filter((c) => c.name === name);
+
+await test('the service key is read in exactly one place', async () => {
+  const src = readFileSync(INDEX, 'utf8');
+  eq(src.split('SUPABASE_SERVICE_ROLE_KEY').length - 1, 1, 'occurrences of the service key');
+  eq(src.split('creditClient()').length - 1, 2, 'creditClient is defined once and called once');
+});
+
+await test('a delivered answer is charged once, with measured usage, and says so', async () => {
+  const credit = creditDb();
+  let callsAtFirstModel = null;
+  installModel([toolRound(1), say('Sales were $10.')], (n) => { if (n === 1) callsAtFirstModel = credit.calls.map((c) => c.name); });
+  globalThis.__usage = null;
+  const { json } = await askMetered(BASIC, credit, { rpcResults: [{ total: 10 }] });
+  eq(callsAtFirstModel, ['ai_credit_open'], 'the hold is taken BEFORE the first model call');
+  eq(creditCalls(credit, 'ai_credit_open')[0].args.p_request, REQUEST_ID, 'request id');
+  eq(creditCalls(credit, 'ai_credit_open')[0].args.p_company, COMPANY_A, 'company from the server, not the body');
+  eq(creditCalls(credit, 'ai_credit_open')[0].args.p_user, USER.id, 'user');
+  eq(creditCalls(credit, 'ai_credit_step').length, 1, 'the second call grew the hold first');
+  const settles = creditCalls(credit, 'ai_credit_settle');
+  eq(settles.length, 1, 'settled exactly once');
+  eq(settles[0].args.p_outcome, 'succeeded', 'outcome');
+  eq(json.ai_credit, { status: 'charged', charged_micros: 1234 }, 'per-answer charge in the response');
+});
+
+await test('no credit refuses with 402 and never calls the model', async () => {
+  const credit = creditDb({ open: { ok: false, mode: 'enforce', reason: 'insufficient_credit' } });
+  const model = installModel([]);
+  const { res, json } = await askMetered(BASIC, credit);
+  eq(res.status, 402, 'status');
+  eq(json.credit_exhausted, true, 'flag');
+  eq(model.sent.length, 0, 'model calls');
+  eq(creditCalls(credit, 'ai_credit_settle').length, 0, 'nothing to settle');
+});
+
+await test('a replayed request id is refused, not run twice', async () => {
+  const credit = creditDb({ open: { ok: false, mode: 'enforce', reason: 'duplicate' } });
+  const model = installModel([]);
+  const { res } = await askMetered(BASIC, credit);
+  eq(res.status, 409, 'status');
+  eq(model.sent.length, 0, 'model calls');
+});
+
+await test('an unreachable credit check refuses rather than spending unmetered', async () => {
+  const credit = creditDb({ error: (n) => (n === 'ai_credit_open' ? { message: 'connection refused', code: 'PGRST000' } : null) });
+  const model = installModel([]);
+  const { res, json } = await askMetered(BASIC, credit);
+  eq(res.status, 503, 'status');
+  eq(json.credit_unavailable, true, 'flag');
+  eq(model.sent.length, 0, 'model calls');
+});
+
+await test('before the migration is applied the meter is off and Ask SILO is unchanged', async () => {
+  const credit = creditDb({ error: (n) => (n === 'ai_credit_open' ? { message: 'Could not find the function public.ai_credit_open', code: 'PGRST202' } : null) });
+  installModel([say('Sales were $10.')]);
+  const { res, json } = await askMetered(BASIC, credit);
+  eq(res.status, 200, 'status');
+  eq(json.ai_credit, { status: 'not_metered' }, 'not metered');
+  eq(creditCalls(credit, 'ai_credit_settle').length, 0, 'no settle');
+});
+
+await test('a failed question is settled free', async () => {
+  const credit = creditDb();
+  globalThis.fetch = async () => ({ ok: false, status: 400, headers: { get: () => null }, text: async () => 'bad request', json: async () => ({}) });
+  const { res } = await askMetered(BASIC, credit);
+  eq(res.status, 500, 'status');
+  const settles = creditCalls(credit, 'ai_credit_settle');
+  eq(settles.length, 1, 'settled once');
+  eq(settles[0].args.p_outcome, 'failed', 'outcome');
+});
+
+await test('a company switch mid-request discards the answer and charges nothing', async () => {
+  const credit = creditDb();
+  installModel([say('Sales were $10.')]);
+  const { res } = await askMetered(BASIC, credit, { activeCompanies: [COMPANY_A, COMPANY_B] });
+  eq(res.status, 409, 'status');
+  const settles = creditCalls(credit, 'ai_credit_settle');
+  eq(settles.length, 1, 'settled once');
+  eq(settles[0].args.p_outcome, 'failed', 'outcome');
+});
+
+await test('credit running low stops the investigation and answers from what is held', async () => {
+  const credit = creditDb({ step: (a) => ({ ok: false, reason: 'insufficient_credit', held_micros: 50000 }) });
+  const model = installModel([toolRound(1), say('Partial: sales were $10.')]);
+  const { res, json } = await askMetered(BASIC, credit, { rpcResults: [{ total: 10 }] });
+  eq(res.status, 200, 'status');
+  eq(model.sent.length, 2, 'one investigation round, then the forced final');
+  assert(model.sent[1].tool_choice?.type === 'none', 'the second call is the forced final answer');
+  assert(/AI credit ran low/.test(json.answer), 'the answer says why it is partial');
+  eq(creditCalls(credit, 'ai_credit_settle')[0].args.p_outcome, 'succeeded', 'a delivered partial answer is charged (capped at the hold)');
+});
+
+await test('a settle that fails reports pending, never $0', async () => {
+  const credit = creditDb({ error: (n) => (n === 'ai_credit_settle' ? { message: 'db down' } : null) });
+  installModel([say('Sales were $10.')]);
+  const { res, json } = await askMetered(BASIC, credit);
+  eq(res.status, 200, 'the answer is still delivered');
+  eq(json.ai_credit, { status: 'pending' }, 'pending');
 });
 
 console.log(`\n${run - failures}/${run} passed`);

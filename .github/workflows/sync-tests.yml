@@ -204,6 +204,7 @@ on:
       - 'scripts/sql/forecast_candidate_backtest.sql'
       - 'supabase/migrations/*forecast_candidate_ledger.sql'
       - 'supabase/migrations/*stripe_billing_and_connect.sql'
+      - 'supabase/migrations/*ai_credit_billing.sql'
       - 'supabase/functions/stripe-webhook/**'
       - 'supabase/functions/stripe-invoice/**'
       - 'supabase/functions/stripe-connect/**'
@@ -733,6 +734,20 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
+      # Two requests on one balance, a settle racing the sweep, one top-up
+      # delivered twice at once -- with two genuine connections.
+      - name: Interleave AI credit holds, settles, sweeps and grants
+        run: |
+          set -u
+          node scripts/tests/ai-credit-concurrency.test.mjs
+          for m in open-unlocked settle-unlocked; do
+            if AI_CREDIT_RACE_MUTATION="$m" node scripts/tests/ai-credit-concurrency.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the lock it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       - name: The workspace owner-count lock, removed, must break it
         run: |
           set -u
@@ -1191,6 +1206,27 @@ jobs:
                    checkout-takeover-rotates checkout-note-silent; do
             echo "--- $m ---"
             if STRIPE_MUTATION="$m" node scripts/tests/stripe-billing-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # AI credit: the ledger a customer's balance is charged against. Clients
+      # cannot read it or call a metering RPC; nothing is charged that was not
+      # held; only a delivered answer charges; grants and settles are
+      # idempotent; and the ledger reconciles with the balances after every
+      # step.
+      - name: Execute AI credit ledger, grant and tenancy regressions
+        run: node scripts/tests/ai-credit-database.test.mjs
+
+      - name: Each AI credit guard, removed one at a time, must break it
+        run: |
+          set -u
+          for m in no-hold-check failure-charges settle-twice grant-any-invoice \
+                   charge-uncapped summary-open; do
+            echo "--- $m ---"
+            if AI_CREDIT_MUTATION="$m" node scripts/tests/ai-credit-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

@@ -2680,3 +2680,22 @@ Verified by `scripts/tests/shopify-order-terms.test.mjs` (14) and
 `shopify-order-terms-database.test.mjs` (10), and the
 `shopify_order_payment_terms` verify row.
 
+## AI credit billing — `20261001120000_ai_credit_billing.sql`
+
+Apply after `20260919120000` (Stripe billing) and `20260929074429` (On Deck,
+optional: without it the summary simply omits the On Deck card). Adds the
+customer AI-credit ledger: `ai_credit_ledger` (append-only),
+`ai_credit_accounts` (running balances, `held <= included + purchased` as a
+CHECK), `ai_credit_reservations` (one row per metered operation, keyed by its
+request id), the private configuration `ai_billing_settings` /
+`ai_provider_rates` (no rows committed, service role only) and the readable
+`ai_credit_packs` catalogue, plus `billing_plans.included_ai_credit_micros`.
+Service-role RPCs `ai_credit_open` / `_step` / `_settle` / `_sweep` meter
+`silo-chat` and `on-deck-prepare`; `ai_credit_grant_included` /
+`_grant_purchase` are called by `stripe-webhook` and `stripe-billing` sync;
+`ai_credit_summary()` is the one client read (active company, customer dollars
+only); `ai_credit_reconcile()` backs the `AI credit ledger` verify row.
+**With no `ai_billing_settings` row the feature is off and nothing changes.**
+Rollout, configuration and rollback: `docs/ops/ai-credits.md`. Verified by
+`scripts/tests/ai-credit-database.test.mjs` (28, six mutations) and
+`ai-credit-concurrency.test.mjs` (3 real-PostgreSQL races, two mutations).

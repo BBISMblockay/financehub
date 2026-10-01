@@ -9,7 +9,13 @@
 //   checkout -- a Stripe Checkout session for a plan from billing_plans.
 //   portal   -- a Stripe Billing Portal session (change card, change plan,
 //               cancel, download receipts).
-//   sync     -- re-fetch the subscription and its recent invoices.
+//   sync     -- re-fetch the subscription and its recent invoices, and grant
+//               any AI credit those Stripe objects entitle the company to
+//               (the backstop for a lost webhook; grants are idempotent).
+//   topup    -- a one-off Stripe Checkout (mode: payment) for an AI-credit
+//               pack from ai_credit_packs. The credit is granted ONLY from
+//               the paid session re-fetched from Stripe (webhook or sync),
+//               never from the browser coming back to the success URL.
 //
 // WHY CHECKOUT AND THE PORTAL RATHER THAN A PRICING UI IN SILO: card details
 // never reach SILO's origin, so SILO stays out of PCI scope entirely, and
@@ -78,6 +84,7 @@ export async function handleStripeBilling(req: Request): Promise<Response> {
       case 'checkout': return reply(await checkout(company, profile, user.id, body));
       case 'portal':   return reply(await portal(company));
       case 'sync':     return reply(await sync(company));
+      case 'topup':    return reply(await topup(company, user.id, body));
       default:         return reply({ error: `Unknown action ${body?.action}` }, 400);
     }
   } catch (e) {
@@ -397,6 +404,68 @@ async function portal(company: string) {
   return { url: session.url };
 }
 
+// Grants are SQL functions that re-check everything (customer, company,
+// paid status, purpose) and are keyed so a repeat is a no-op. Before the AI
+// credit migration is applied they do not exist yet; that is "nothing to
+// grant", never a reason to fail a billing sync.
+async function grantCredit(name: string, args: Record<string, unknown>) {
+  const { error } = await db.rpc(name, args);
+  if (!error) return;
+  const code = (error as any).code ?? '';
+  if (code === 'PGRST202' || code === '42883') return;
+  throw new Error(`${name}: ${error.message}`);
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function topup(company: string, userId: string, body: any) {
+  const packKey = String(body?.pack_key ?? '').trim();
+  if (!packKey) throw new Error('pack_key is required');
+  // The pack -- price AND credit -- comes from ai_credit_packs, never from
+  // the request.
+  const { data: pack } = await db
+    .from('ai_credit_packs')
+    .select('pack_key, stripe_price_id, is_active')
+    .eq('pack_key', packKey)
+    .maybeSingle();
+  if (!pack?.is_active) throw new Error(`Credit pack ${packKey} is not available`);
+
+  // Credit belongs to a subscribing company, and the grant is attributed by
+  // the company's existing Stripe customer -- so no new customer is created
+  // here, and a company without a live subscription is told to subscribe.
+  const { data: sub } = await db
+    .from('billing_subscriptions')
+    .select('status, stripe_customer_id')
+    .eq('company_entity_id', company)
+    .maybeSingle();
+  if (!sub?.stripe_customer_id || !LIVE_STATUSES.has(sub.status)) {
+    throw new Error('AI credit can be added once the workspace has an active SILO subscription.');
+  }
+
+  const metadata = {
+    silo_purpose: 'ai_credit_topup',
+    silo_company_entity_id: company,
+    silo_credit_pack: pack.pack_key,
+    silo_started_by: userId,
+  };
+  // A double click must not open two payable sessions: the page mints one id
+  // per attempt and Stripe collapses a repeat onto the first session.
+  const requestId = UUID_RE.test(String(body?.request_id ?? '')) ? String(body.request_id) : crypto.randomUUID();
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    customer: sub.stripe_customer_id,
+    line_items: [{ price: pack.stripe_price_id, quantity: 1 }],
+    success_url: `${SITE_URL}/v2/billing.html?topup=done`,
+    cancel_url: `${SITE_URL}/v2/billing.html?topup=cancelled`,
+    client_reference_id: company,
+    metadata,
+    payment_intent_data: { metadata },
+    // A receipt in the company's invoice history, like the subscription's.
+    invoice_creation: { enabled: true, invoice_data: { metadata } },
+  }, { idempotencyKey: `silo-topup-${company}-${requestId}` });
+  return { url: session.url, pack_key: pack.pack_key };
+}
+
 async function sync(company: string) {
   const { data: row } = await db
     .from('billing_subscriptions')
@@ -431,6 +500,22 @@ async function sync(company: string) {
       p_synced_at: new Date().toISOString(),
     });
     if (error) throw new Error(`stripe_sync_billing_invoice: ${error.message}`);
+    if (invoice.status === 'paid') {
+      await grantCredit('ai_credit_grant_included', {
+        p_company: company, p_invoice: JSON.parse(JSON.stringify(invoice)),
+      });
+    }
+  }
+
+  // Top-ups whose webhook was lost. Each session is Stripe's own object; the
+  // grant function re-checks purpose, company, customer and payment status.
+  const sessions = await stripe.checkout.sessions.list({ customer: row.stripe_customer_id, limit: 20 });
+  for (const session of sessions.data) {
+    if (session.mode !== 'payment' || session.payment_status !== 'paid'
+        || session.metadata?.silo_purpose !== 'ai_credit_topup') continue;
+    await grantCredit('ai_credit_grant_purchase', {
+      p_company: company, p_session: JSON.parse(JSON.stringify(session)),
+    });
   }
 
   return { synced: true, subscription: active?.status ?? null, invoices: invoices.data.length };

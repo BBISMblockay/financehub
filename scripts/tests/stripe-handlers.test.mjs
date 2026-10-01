@@ -1062,6 +1062,147 @@ await test('billing: an unknown or inactive plan is refused', async () => {
   assert.equal(f.stripe.calls.length, 0);
 });
 
+
+// ── AI credit grants and top-ups ────────────────────────────────────────────
+const PLATFORM_INVOICE_EVENT = {
+  id: 'evt_inv', type: 'invoice.paid', created: 1758278400,
+  data: { object: { id: 'in_plat', customer: 'cus_platform_1', status: 'open' } },
+};
+const TOPUP_EVENT = {
+  id: 'evt_topup', type: 'checkout.session.completed', created: 1758278400,
+  data: { object: { id: 'cs_topup', customer: 'cus_platform_1' } },
+};
+const paidTopup = {
+  id: 'cs_topup', mode: 'payment', payment_status: 'paid', customer: 'cus_platform_1', payment_intent: 'pi_1',
+  metadata: { silo_purpose: 'ai_credit_topup', silo_company_entity_id: COMPANY, silo_credit_pack: 'p50' },
+};
+const platformHook = (event, over = {}) => webhookFixture({
+  validSecret: 'whsec_platform', event,
+  rpcs: { ai_credit_grant_purchase: { granted: true }, ai_credit_grant_included: { granted: true }, ...over.rpcs },
+  stripe: over.stripe,
+});
+const sig = { headers: { 'stripe-signature': 't=1,v1=x' }, jwt: null };
+
+await test('credit: a paid top-up is granted from the RE-FETCHED session, for the resolved company', async () => {
+  const f = await platformHook(TOPUP_EVENT, { stripe: { 'checkout.sessions.retrieve': paidTopup } });
+  const out = await f.request(sig);
+  assert.equal(out.status, 200);
+  const grant = f.db.calls.find((c) => c.rpc === 'ai_credit_grant_purchase');
+  assert.equal(grant.args.p_company, COMPANY);
+  assert.equal(grant.args.p_session.payment_intent, 'pi_1');
+  assert.equal(f.db.calls.some((c) => c.rpc === 'stripe_release_checkout'), false, 'a top-up is not a subscription checkout');
+  assert.equal(f.stripe.pathsCalled().includes('subscriptions.retrieve'), false);
+});
+
+await test('credit: an unpaid top-up (delayed payment) grants nothing yet', async () => {
+  const f = await platformHook(TOPUP_EVENT, { stripe: { 'checkout.sessions.retrieve': { ...paidTopup, payment_status: 'unpaid' } } });
+  await f.request(sig);
+  assert.equal(f.db.calls.some((c) => c.rpc === 'ai_credit_grant_purchase'), false);
+});
+
+await test('credit: async_payment_succeeded is routed to the same grant', async () => {
+  const f = await platformHook({ ...TOPUP_EVENT, id: 'evt_async', type: 'checkout.session.async_payment_succeeded' },
+    { stripe: { 'checkout.sessions.retrieve': paidTopup } });
+  await f.request(sig);
+  assert.ok(f.db.calls.some((c) => c.rpc === 'ai_credit_grant_purchase'));
+});
+
+await test('credit: a paid subscription invoice asks for the included grant', async () => {
+  const f = await platformHook(PLATFORM_INVOICE_EVENT, {
+    stripe: { 'invoices.retrieve': { id: 'in_plat', customer: 'cus_platform_1', status: 'paid', amount_paid: 50000, billing_reason: 'subscription_cycle' } },
+  });
+  const out = await f.request(sig);
+  assert.equal(out.status, 200);
+  const grant = f.db.calls.find((c) => c.rpc === 'ai_credit_grant_included');
+  assert.equal(grant.args.p_company, COMPANY);
+  assert.equal(grant.args.p_invoice.billing_reason, 'subscription_cycle');
+});
+
+await test('credit: an open invoice does not ask for a grant', async () => {
+  const f = await platformHook(PLATFORM_INVOICE_EVENT, {
+    stripe: { 'invoices.retrieve': { id: 'in_plat', customer: 'cus_platform_1', status: 'open' } },
+  });
+  await f.request(sig);
+  assert.equal(f.db.calls.some((c) => c.rpc === 'ai_credit_grant_included'), false);
+});
+
+await test('credit: before the migration exists a grant is skipped, not retried for three days', async () => {
+  const f = await platformHook(TOPUP_EVENT, {
+    stripe: { 'checkout.sessions.retrieve': paidTopup },
+    rpcs: { ai_credit_grant_purchase: { data: null, error: { code: 'PGRST202', message: 'Could not find the function' } } },
+  });
+  assert.equal((await f.request(sig)).status, 200);
+});
+
+await test('credit: a grant that fails for real answers 500 so Stripe redelivers', async () => {
+  const f = await platformHook(TOPUP_EVENT, {
+    stripe: { 'checkout.sessions.retrieve': paidTopup },
+    rpcs: { ai_credit_grant_purchase: { data: null, error: { code: '08006', message: 'connection lost' } } },
+  });
+  assert.equal((await f.request(sig)).status, 500);
+});
+
+const topupFixture = (over = {}) => billingFixture({
+  subscription: { stripe_customer_id: 'cus_platform_1', status: 'active', ...(over.subscription ?? {}) },
+  ownerAdmin: over.ownerAdmin,
+  stripe: { 'checkout.sessions.create': { id: 'cs_topup', url: 'https://checkout.stripe.test/c/pay/cs_topup' }, ...over.stripe },
+  rpcs: { ai_credit_grant_included: { granted: false }, ai_credit_grant_purchase: { granted: true }, ...over.rpcs },
+}).then(async (f) => {
+  f.db.rowsOf('ai_credit_packs').push({ pack_key: 'p50', stripe_price_id: 'price_p50', is_active: true },
+    { pack_key: 'old', stripe_price_id: 'price_old', is_active: false });
+  return f;
+});
+
+await test('top-up: a non-owner-admin is refused before Stripe', async () => {
+  const f = await topupFixture({ ownerAdmin: false });
+  assert.equal((await f.request({ body: { action: 'topup', pack_key: 'p50' } })).status, 403);
+  assert.equal(f.stripe.calls.length, 0);
+});
+
+await test('top-up: the price comes from the pack table; the session is tagged for the grant', async () => {
+  const f = await topupFixture();
+  const out = await f.request({ body: { action: 'topup', pack_key: 'p50', price_id: 'price_cheap', request_id: '11111111-1111-4111-8111-111111111111' } });
+  assert.equal(out.status, 200);
+  const create = f.stripe.calls.find((c) => c.path === 'checkout.sessions.create');
+  const [params, opts] = create.args;
+  assert.equal(params.mode, 'payment');
+  assert.equal(params.customer, 'cus_platform_1', 'the company\'s existing customer, so the grant can be attributed');
+  assert.equal(params.line_items[0].price, 'price_p50');
+  assert.equal(params.metadata.silo_purpose, 'ai_credit_topup');
+  assert.equal(params.metadata.silo_company_entity_id, COMPANY);
+  assert.equal(params.metadata.silo_credit_pack, 'p50');
+  assert.match(params.success_url, /topup=done/);
+  assert.equal(opts.idempotencyKey, `silo-topup-${COMPANY}-11111111-1111-4111-8111-111111111111`);
+  assert.equal(f.db.calls.some((c) => c.rpc && c.rpc.startsWith('ai_credit_grant')), false, 'nothing is granted at session creation');
+});
+
+await test('top-up: an inactive pack and a workspace without a live subscription are refused', async () => {
+  const a = await topupFixture();
+  assert.equal((await a.request({ body: { action: 'topup', pack_key: 'old' } })).status, 502);
+  const b = await topupFixture({ subscription: { status: 'canceled' } });
+  const out = await b.request({ body: { action: 'topup', pack_key: 'p50' } });
+  assert.equal(out.status, 502);
+  assert.match(out.body.error, /active SILO subscription/);
+  assert.equal(b.stripe.calls.length, 0);
+});
+
+await test('sync: a lost top-up webhook is recovered from Stripe\'s own sessions', async () => {
+  const f = await topupFixture({
+    stripe: {
+      'subscriptions.list': { data: [] },
+      'invoices.list': { data: [{ id: 'in_x', status: 'paid', billing_reason: 'subscription_cycle' }] },
+      'checkout.sessions.list': { data: [paidTopup, { ...paidTopup, id: 'cs_unpaid', payment_status: 'unpaid' },
+        { ...paidTopup, id: 'cs_other', metadata: {} }] },
+    },
+  });
+  const out = await f.request({ body: { action: 'sync' } });
+  assert.equal(out.status, 200);
+  const grants = f.db.calls.filter((c) => c.rpc === 'ai_credit_grant_purchase');
+  assert.equal(grants.length, 1, 'only the paid, SILO-tagged session');
+  assert.equal(grants[0].args.p_session.id, 'cs_topup');
+  assert.equal(f.db.calls.filter((c) => c.rpc === 'ai_credit_grant_included').length, 1);
+});
+
 console.log(`\n${passed} handler scenarios passed`);
 if (mutation) {
   console.error(`\nFAILED: mutation ${mutation} did not break the suite -- `

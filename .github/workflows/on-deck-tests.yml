@@ -10,6 +10,7 @@ on:
       - 'v2/tests/browser/on-deck.test.js'
       - 'scripts/on-deck-prepare.mjs'
       - 'supabase/functions/on-deck-prepare/**'
+      - 'supabase/functions/silo-chat/ai-credit-lib.mjs'
       - 'scripts/lib/on-deck-core.mjs'
       - 'scripts/tests/on-deck*'
       - 'supabase/migrations/*on_deck*'
