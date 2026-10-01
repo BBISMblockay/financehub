@@ -138,6 +138,19 @@ try {
   const A = randomUUID();
   run(dbConn, ['-f', await file('00-bootstrap.sql', await readFile(new URL('./stripe-db-bootstrap.sql', import.meta.url), 'utf8'))]);
   run(dbConn, ['-f', await file('01-stripe.sql', await readFile(new URL('supabase/migrations/20260919120000_stripe_billing_and_connect.sql', root), 'utf8'))]);
+  // Production's catalogue shape (NOT NULL relkind/columns); see ai-credit-database.test.mjs.
+  run(dbConn, ['-f', await file('01b-catalog.sql', `
+    alter table public.silo_chat_schema_catalog add column if not exists relkind text;
+    alter table public.silo_chat_schema_catalog add column if not exists columns jsonb not null default '[]'::jsonb;
+    update public.silo_chat_schema_catalog set relkind = 'r' where relkind is null;
+    alter table public.silo_chat_schema_catalog alter column relkind set not null;
+    create or replace function public.refresh_chat_schema_catalog() returns void language plpgsql as $f$
+    begin
+      insert into public.silo_chat_schema_catalog (relname, relkind)
+      select c.relname, c.relkind::text from pg_class c join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and c.relkind in ('r','v','m')
+      on conflict (relname) do nothing;
+    end $f$;`)]);
   run(dbConn, ['-f', await file('02-credit.sql', sql)]);
   run(dbConn, ['-f', await file('03-seed.sql', `
     insert into public.entities(id,module,entity_type,entity_key,title) values ('${A}','finance_hub','company','a','A');
