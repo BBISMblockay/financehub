@@ -202,16 +202,18 @@ Recorded (Blake, 2026-10-01):
 - **No per-seat scaling**: revenue is from AI usage, not seats. Included
   credit is per subscription.
 
+- **Who may spend**: anyone who can use an AI feature spends the company's
+  shared credit. The feature's own gate is the only limit (Ask SILO's access,
+  card coding's finance gate, and so on). No per-person cap. Only an
+  owner-admin can buy more.
+- **Auto-refill**: not now. Top-ups are bought by hand.
+- **The 2026-09-24 plan is dropped**: the 3-question trial, the 22% markup and
+  the company-set spend limit in `docs/ops/ask-silo-paid-pilot-audit.md` are
+  superseded by this model and will not be built.
+
 Still open:
 
-1. **Auto-refill.** Not built.
-2. **Who may spend.** Any member who can use Ask SILO, card coding or invoice
-   reading spends the company's shared credit; only an owner-admin can buy
-   more. Limit it (admins only, or a per-person cap)?
-3. **The 2026-09-24 decisions this supersedes.** `docs/ops/ask-silo-paid-pilot-audit.md`
-   recorded a 3-question trial, 22% markup, and a company-set $100–$1,000
-   running spend limit. None is built. Confirm they are dropped.
-4. **On Deck settings page** (`settings-company.html`) shows On Deck's spend
+1. **On Deck settings page** (`settings-company.html`) shows On Deck's spend
    in provider dollars to company admins. Beside Billing's customer-priced
    usage, that reveals the ratio. Pre-existing; not changed here.
 
