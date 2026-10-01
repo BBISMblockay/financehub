@@ -17,17 +17,21 @@ or zoom of the still. It contains no application screenshots or account data.
 - `silo-hero-motion-mobile.mp4`: 720 × 440, 318,136 bytes; selected at ≤600 CSS px
 - `silo-hero-motion.js`: small, dependency-free playback controller
 
-The controller assigns a video URL only when the artwork enters view on the
-public welcome page and reduced-motion / data-saver settings allow playback.
+The controller automatically assigns a video URL only when the artwork enters
+view and reduced-motion / data-saver settings allow playback. Otherwise the
+still remains with a reason and an explicit Play animation control. A click
+opts into playback for this page only; changes to either preference revoke that
+choice. No video download begins under those preferences without that click.
 The original responsive still stays underneath until a frame is playing.
-Failed autoplay keeps the still and offers a manual Play button; network or
-decode errors keep the still. Pause / Play is keyboard accessible. Hidden tabs,
-offscreen artwork and auth routing stop playback; reduced-motion changes take
-effect immediately. Returning to the page never overrides a visitor's Pause.
+Failed autoplay or a five-second pending start keeps a reachable Play control;
+network/decode errors offer Retry and a direct video link without automatic
+retries. Pause / Play is keyboard accessible. Hidden tabs, offscreen artwork
+and auth routing stop playback. Returning never overrides a visitor's Pause.
 
 Both videos are six seconds / 144 frames at 24fps, silent H.264 (`yuv420p`)
 with faststart metadata. They are inline, looping and dimensioned, with no external media
-service or runtime rendering dependency. If the motion script fails, the still remains.
+service or runtime rendering dependency. If the motion script fails or browser
+features are unavailable, the still and a plain Watch animation link remain.
 The video and image are decorative; the page copy names the product's purpose.
 
 The editable Blender scene, procedural reconstruction script and render

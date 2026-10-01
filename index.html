@@ -247,13 +247,21 @@
     #landing .lp-visual video { opacity: 0; pointer-events: none; }
     #landing .lp-visual[data-motion="playing"] video,
     #landing .lp-visual[data-motion="paused"] video { opacity: 1; }
-    #landing .lp-motion-toggle {
+    #landing .lp-motion-controls {
       position: absolute; z-index: 2; right: clamp(24px, 5.6vw, 96px); bottom: 8px;
+      display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px;
+      max-width: min(300px, calc(100% - 48px));
+    }
+    #landing .lp-motion-toggle, #landing .lp-motion-fallback {
       min-height: 44px; padding: 10px 14px; font-size: 12px;
       color: var(--bcn-band-ink-2); background: #08111de6; border-color: #536375;
     }
     #landing .lp-motion-toggle:hover { color: #fff; border-color: var(--bcn-band-ink-2); }
-    #landing .lp-motion-toggle[hidden] { display: none; }
+    #landing .lp-motion-controls [hidden] { display: none; }
+    #landing .lp-motion-status {
+      flex-basis: 100%; margin: 0; padding: 4px 8px; border-radius: 4px;
+      color: var(--bcn-band-ink-2); background: #08111de6; font-size: 12px; line-height: 1.4; text-align: right;
+    }
     #landing .lp-visual::after {
       content: "";
       position: absolute;
@@ -287,8 +295,7 @@
     }
     @media (prefers-reduced-motion: reduce) {
       #landing .bcn-btn { transition: none; }
-      #landing .lp-visual video { display: none; transition: none; }
-      #landing .lp-motion-toggle { display: none; }
+      #landing .lp-visual:not([data-user-motion="true"]) video { display: none; }
       .spinner { animation: none; }
     }
   </style>
@@ -315,7 +322,11 @@
         </picture>
         <video id="lpHeroVideo" width="1080" height="660" muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"
           data-src="/assets/landing/silo-hero-motion.mp4" data-mobile-src="/assets/landing/silo-hero-motion-mobile.mp4"></video>
-        <button class="bcn-btn lp-motion-toggle" id="lpMotionToggle" type="button" aria-controls="lpHeroVideo" hidden>Pause motion</button>
+        <div class="lp-motion-controls">
+          <p class="lp-motion-status" id="lpMotionStatus" role="status" aria-live="polite" hidden></p>
+          <button class="bcn-btn lp-motion-toggle" id="lpMotionToggle" type="button" aria-controls="lpHeroVideo" aria-describedby="lpMotionStatus" hidden>Play animation</button>
+          <a class="bcn-btn lp-motion-fallback" id="lpMotionFallback" href="/assets/landing/silo-hero-motion.mp4" target="_blank" rel="noopener">Watch animation</a>
+        </div>
       </div>
     </main>
     <footer class="lp-foot">
@@ -346,7 +357,7 @@
     <div class="meta" id="debugMeta"></div>
   </div>
 
-  <script src="/assets/landing/silo-hero-motion.js" defer></script>
+  <script src="/assets/landing/silo-hero-motion.js?v=2" defer></script>
   <script src="/pages/config.js"></script>
   <script type="module">
     import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";

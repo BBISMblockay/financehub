@@ -50,7 +50,7 @@ async function fulfillVideo(route, bytes) {
 
 async function fixture({ session = null, reducedMotion = 'no-preference', unavailable = false,
   saveData = false, blockedAutoplay = false, failedVideo = false, missingController = false,
-  unsupportedVideo = false, simulatedVisibility = false } = {}) {
+  unsupportedVideo = false, simulatedVisibility = false, pendingPlay = false, legacyMedia = false } = {}) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion, serviceWorkers: 'block' });
   const requests = [];
   await context.addInitScript(options => {
@@ -66,14 +66,25 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
       if (options.blockedAutoplay && globalThis.__testPlayCalls === 1) {
         return Promise.reject(new DOMException('Fixture autoplay policy', 'NotAllowedError'));
       }
+      if (options.pendingPlay && globalThis.__testPlayCalls === 1) return new Promise(() => {});
       return nativePlay.apply(this, arguments);
     };
+    if (options.legacyMedia) {
+      const matchMedia = window.matchMedia.bind(window);
+      window.matchMedia = query => {
+        const media = matchMedia(query);
+        const add = media.addEventListener.bind(media);
+        Object.defineProperty(media, 'addEventListener', { value: undefined });
+        media.addListener = callback => add('change', callback);
+        return media;
+      };
+    }
     if (options.unsupportedVideo) HTMLMediaElement.prototype.canPlayType = () => '';
     if (options.simulatedVisibility) {
       globalThis.__testHidden = false;
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => globalThis.__testHidden });
     }
-  }, { session, saveData, blockedAutoplay, unsupportedVideo, simulatedVisibility });
+  }, { session, saveData, blockedAutoplay, unsupportedVideo, simulatedVisibility, pendingPlay, legacyMedia });
   await context.route('**/*', async route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -122,7 +133,8 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
   });
   const page = await context.newPage();
   page.on('pageerror', error => failures.push(error.message));
-  return { context, page, requests, mediaRequests: () => requests.filter(request => mediaPaths.includes(request.pathname)) };
+  return { context, page, requests, mediaRequests: () => requests.filter(request => mediaPaths.includes(request.pathname)),
+    restoreMedia() { failedVideo = false; } };
 }
 
 async function decodedStill(page) {
@@ -135,7 +147,8 @@ async function expectPlaying(page) {
     const video = document.getElementById('lpHeroVideo');
     return document.getElementById('lpVisual').dataset.motion === 'playing' &&
       !video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0 &&
-      Number(getComputedStyle(video).opacity) === 1;
+      Number(getComputedStyle(video).opacity) === 1 && getComputedStyle(video).display !== 'none' &&
+      video.getBoundingClientRect().width > 0;
   }, null, { timeout: 15000 });
   const start = await page.locator('#lpHeroVideo').evaluate(video => ({ time: video.currentTime,
     frames: video.getVideoPlaybackQuality().totalVideoFrames }));
@@ -144,7 +157,7 @@ async function expectPlaying(page) {
     return !video.paused && video.currentTime !== initial.time &&
       video.getVideoPlaybackQuality().totalVideoFrames >= initial.frames + 2;
   }, start, { timeout: 10000 });
-  assert.equal(await page.locator('#lpMotionToggle').textContent(), 'Pause motion');
+  assert.equal(await page.locator('#lpMotionToggle').textContent(), 'Pause animation');
   assert.equal(await page.locator('#lpMotionToggle').isVisible(), true);
 }
 
@@ -165,14 +178,41 @@ async function expectFrozen(page) {
   assert.equal(await page.locator('#lpHeroVideo').evaluate(video => video.currentTime), time);
 }
 
-async function expectNoMedia(f) {
+async function expectNoMedia(f, { manual = false, message = /motion|data saving/i } = {}) {
   await f.page.locator('#lpVisual').scrollIntoViewIfNeeded();
   await f.page.waitForTimeout(250); // Give the real intersection callback a chance to run.
   await expectStill(f.page);
   assert.equal(await f.page.locator('#lpHeroVideo').getAttribute('src'), null);
   assert.equal(await f.page.evaluate(() => globalThis.__testPlayCalls), 0);
-  assert.equal(await f.page.locator('#lpMotionToggle').isVisible(), false);
+  assert.equal(await f.page.locator('#lpMotionToggle').isVisible(), manual);
+  if (manual) await expectManualStatus(f.page, message);
   assert.deepEqual(f.mediaRequests(), [], 'the static policy must not even request MP4 bytes');
+}
+
+async function expectManualStatus(page, message) {
+  assert.equal(await page.locator('#lpMotionToggle').isVisible(), true);
+  assert.equal(await page.locator('#lpMotionToggle').isEnabled(), true);
+  assert.equal(await page.locator('#lpMotionToggle').textContent(), 'Play animation');
+  assert.equal(await page.locator('#lpMotionStatus').isVisible(), true);
+  assert.match(await page.locator('#lpMotionStatus').textContent(), message);
+}
+
+async function expectFallbackLink(page) {
+  assert.equal(await page.getByRole('link', { name: 'Watch animation', exact: true }).isVisible(), true);
+  assert.equal(await page.locator('#lpMotionFallback').getAttribute('href'), mediaPaths[0]);
+}
+
+async function expectMotionControlsUsable(page) {
+  for (const selector of ['#lpMotionToggle', '#lpMotionFallback']) {
+    const control = page.locator(selector);
+    if (!await control.isVisible()) continue;
+    await control.scrollIntoViewIfNeeded();
+    assert.equal(await control.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      return element === hit || element.contains(hit);
+    }), true, `${selector}: actionable control must not be clipped or obstructed`);
+  }
 }
 
 async function assertGeometry(page, name, width) {
@@ -182,7 +222,8 @@ async function assertGeometry(page, name, width) {
     return { width: innerWidth, scrollWidth: document.documentElement.scrollWidth,
       imageFit: getComputedStyle(image).objectFit, videoFit: getComputedStyle(video).objectFit,
       image: image.getBoundingClientRect().toJSON(), video: video.getBoundingClientRect().toJSON(),
-      actions: [...document.querySelectorAll('.lp-actions a')].map(a => a.getBoundingClientRect().toJSON()) };
+      actions: [...document.querySelectorAll('.lp-actions a, #lpMotionToggle, #lpMotionFallback')]
+        .filter(a => a.getClientRects().length).map(a => a.getBoundingClientRect().toJSON()) };
   });
   assert.ok(geometry.scrollWidth <= geometry.width, `${name}: horizontal overflow`);
   assert.equal(geometry.imageFit, 'contain', `${name}: whole still must fit vertically`);
@@ -308,7 +349,7 @@ try {
     await motion.page.locator('#lpMotionToggle').focus();
     await motion.page.keyboard.press('Enter');
     assert.equal(await motion.page.locator('#lpVisual').getAttribute('data-motion'), 'paused');
-    assert.equal(await motion.page.locator('#lpMotionToggle').textContent(), 'Play motion');
+    assert.equal(await motion.page.locator('#lpMotionToggle').textContent(), 'Play animation');
     await expectFrozen(motion.page);
     await motion.page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
     await expectStill(motion.page);
@@ -318,7 +359,7 @@ try {
     await expectStill(motion.page);
     await motion.page.evaluate(() => { globalThis.__testHidden = false; document.dispatchEvent(new Event('visibilitychange')); });
     await expectFrozen(motion.page);
-    assert.equal(await motion.page.locator('#lpMotionToggle').textContent(), 'Play motion');
+    assert.equal(await motion.page.locator('#lpMotionToggle').textContent(), 'Play animation');
     await motion.page.emulateMedia({ reducedMotion: 'reduce' });
     await expectStill(motion.page);
     await motion.page.emulateMedia({ reducedMotion: 'no-preference' });
@@ -346,7 +387,7 @@ try {
   await motion.page.emulateMedia({ reducedMotion: 'reduce' });
   await expectStill(motion.page);
   await expectFrozen(motion.page);
-  assert.equal(await motion.page.locator('#lpMotionToggle').isVisible(), false);
+  await expectManualStatus(motion.page, /motion.*off|device/i);
   await motion.page.emulateMedia({ reducedMotion: 'no-preference' });
   await expectPlaying(motion.page);
   await motion.page.evaluate(() => { navigator.connection.saveData = true; navigator.connection.dispatchEvent(new Event('change')); });
@@ -361,35 +402,79 @@ try {
   await motion.context.close();
   pass('offscreen, simulated hidden/pagehide, live reduced-motion and data-saver changes pause real media and restore the still');
 
-  const reduced = await fixture({ reducedMotion: 'reduce' });
-  await reduced.page.goto('https://get-silo.com/');
-  assert.equal(await reduced.page.locator('.lp-signin').evaluate(a => getComputedStyle(a).transitionDuration), '0s');
-  await expectNoMedia(reduced);
-  await reduced.page.screenshot({ path: path.join(screenshots, 'reduced-motion-initial.png'), fullPage: true });
-  await reduced.context.close();
-  pass('initial reduced motion: original still, no button transition, no MP4 request');
-
-  const saver = await fixture({ saveData: true });
-  await saver.page.goto('https://get-silo.com/');
-  await expectNoMedia(saver);
-  await saver.context.close();
-  pass('initial data saver: original still and no MP4 request');
+  for (const [name, options, width = 1440, height = 900] of [
+    ['reduced-motion', { reducedMotion: 'reduce' }],
+    ['reduced-motion-mobile', { reducedMotion: 'reduce' }, 390, 844],
+    ['reduced-motion-small-mobile', { reducedMotion: 'reduce' }, 320, 640],
+    ['save-data', { saveData: true }],
+    ['combined-policies', { reducedMotion: 'reduce', saveData: true }],
+    ['legacy-media-query', { reducedMotion: 'reduce', legacyMedia: true }],
+  ]) {
+    const restricted = await fixture(options);
+    await restricted.page.setViewportSize({ width, height });
+    await restricted.page.goto('https://get-silo.com/');
+    if (options.reducedMotion) assert.equal(await restricted.page.locator('.lp-signin').evaluate(a => getComputedStyle(a).transitionDuration), '0s');
+    await expectNoMedia(restricted, { manual: true, message: options.saveData ? /data.*saving|download/i : /motion.*off|device/i });
+    await assertGeometry(restricted.page, name, width);
+    await expectMotionControlsUsable(restricted.page);
+    await restricted.page.screenshot({ path: path.join(screenshots, `${name}-initial.png`), fullPage: true });
+    await restricted.page.locator('#lpMotionToggle').focus();
+    await restricted.page.keyboard.press('Enter');
+    await expectPlaying(restricted.page);
+    await expectMotionControlsUsable(restricted.page);
+    assert.equal(await restricted.page.locator('#lpVisual').getAttribute('data-user-motion'), 'true');
+    assert.ok(restricted.mediaRequests().length > 0, 'only the explicit click should start downloading');
+    await restricted.page.screenshot({ path: path.join(screenshots, `${name}-manual.png`), fullPage: true });
+    await restricted.page.locator('#lpMotionToggle').click();
+    await expectFrozen(restricted.page);
+    await restricted.page.locator('#lpMotionToggle').click();
+    await expectPlaying(restricted.page);
+    if (options.reducedMotion) {
+      await restricted.page.emulateMedia({ reducedMotion: 'no-preference' });
+      await restricted.page.emulateMedia({ reducedMotion: 'reduce' });
+    } else {
+      await restricted.page.evaluate(() => { navigator.connection.saveData = false; navigator.connection.dispatchEvent(new Event('change')); });
+      await restricted.page.evaluate(() => { navigator.connection.saveData = true; navigator.connection.dispatchEvent(new Event('change')); });
+    }
+    await expectStill(restricted.page);
+    await expectFrozen(restricted.page);
+    assert.equal(await restricted.page.locator('#lpVisual').getAttribute('data-user-motion'), null);
+    await expectManualStatus(restricted.page, /motion|data saving/i);
+    await restricted.page.locator('#lpMotionToggle').click();
+    await expectPlaying(restricted.page);
+    const requestedBeforeReload = restricted.mediaRequests().length;
+    await restricted.page.reload();
+    await restricted.page.locator('#lpVisual').scrollIntoViewIfNeeded();
+    await restricted.page.waitForTimeout(250);
+    await expectStill(restricted.page);
+    assert.equal(await restricted.page.locator('#lpHeroVideo').getAttribute('src'), null, 'opt-in is limited to this page lifetime');
+    assert.equal(restricted.mediaRequests().length, requestedBeforeReload, 'reload cannot reuse the previous opt-in to download');
+    await restricted.context.close();
+    pass(`${name}: static default, explicit keyboard play, pause/resume, policy revocation, and page-local permission`);
+  }
 
   for (const options of [{ missingController: true }, { unsupportedVideo: true }]) {
     const fallback = await fixture(options);
     await fallback.page.goto('https://get-silo.com/');
     await expectNoMedia(fallback);
+    await expectFallbackLink(fallback.page);
     assert.equal(await fallback.page.getByRole('link', { name: 'Sign in', exact: true }).isVisible(), true);
     assert.equal(await fallback.page.getByRole('link', { name: 'Create your SILO' }).isVisible(), true);
+    const popupPromise = fallback.page.waitForEvent('popup');
+    await fallback.page.getByRole('link', { name: 'Watch animation', exact: true }).click();
+    const popup = await popupPromise;
+    await popup.waitForURL('**/assets/landing/silo-hero-motion.mp4');
+    assert.ok(fallback.mediaRequests().length > 0, 'the plain link opens the actual local MP4 without controller help');
+    await popup.close();
     await fallback.context.close();
   }
-  pass('missing motion JavaScript and unsupported codec keep the original still and navigation');
+  pass('missing motion JavaScript and unsupported codec keep navigation and a working plain Watch animation link');
 
   const blocked = await fixture({ blockedAutoplay: true });
   await blocked.page.goto('https://get-silo.com/');
-  await blocked.page.waitForFunction(() => !document.getElementById('lpMotionToggle').hidden);
+  await blocked.page.waitForFunction(() => document.getElementById('lpMotionStatus').textContent.includes('did not start'));
   await expectStill(blocked.page);
-  assert.equal(await blocked.page.locator('#lpMotionToggle').textContent(), 'Play motion');
+  await expectManualStatus(blocked.page, /did not start/i);
   await blocked.page.waitForTimeout(250);
   assert.equal(await blocked.page.evaluate(() => globalThis.__testPlayCalls), 1, 'failed autoplay must not retry itself');
   await blocked.page.screenshot({ path: path.join(screenshots, 'autoplay-blocked.png'), fullPage: true });
@@ -399,21 +484,52 @@ try {
   await blocked.context.close();
   pass('rejected autoplay keeps the still and a manual retry plays real media');
 
-  const broken = await fixture({ failedVideo: true });
-  await broken.page.goto('https://get-silo.com/');
-  await broken.page.waitForFunction(() => document.getElementById('lpHeroVideo').error !== null);
-  await expectStill(broken.page);
-  await expectFrozen(broken.page);
-  assert.equal(await broken.page.locator('#lpMotionToggle').isVisible(), false);
-  assert.ok(broken.mediaRequests().length > 0);
-  const failedAttempts = await broken.page.evaluate(() => globalThis.__testPlayCalls);
-  await broken.page.emulateMedia({ reducedMotion: 'reduce' });
-  await broken.page.emulateMedia({ reducedMotion: 'no-preference' });
-  await expectStill(broken.page);
-  assert.equal(await broken.page.evaluate(() => globalThis.__testPlayCalls), failedAttempts);
-  await broken.page.screenshot({ path: path.join(screenshots, 'video-unavailable.png'), fullPage: true });
-  await broken.context.close();
-  pass('real media load error restores the still permanently without breaking navigation');
+  for (const waitForWatchdog of [false, true]) {
+    const stalled = await fixture({ pendingPlay: true });
+    await stalled.page.goto('https://get-silo.com/');
+    await stalled.page.waitForFunction(() => globalThis.__testPlayCalls === 1);
+    await expectManualStatus(stalled.page, /loading/i);
+    if (waitForWatchdog) {
+      await stalled.page.waitForFunction(() => document.getElementById('lpMotionStatus').textContent.includes('did not start'), null, { timeout: 8000 });
+      await expectStill(stalled.page);
+      assert.equal(await stalled.page.evaluate(() => globalThis.__testPlayCalls), 1, 'the watchdog cannot start an automatic retry loop');
+    }
+    await stalled.page.locator('#lpMotionToggle').click();
+    await expectPlaying(stalled.page);
+    assert.equal(await stalled.page.evaluate(() => globalThis.__testPlayCalls), 2);
+    await stalled.context.close();
+  }
+  pass('pending autoplay keeps Play reachable immediately and after the watchdog; explicit retry decodes real media');
+
+  for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844], ['small-mobile', 320, 640]]) {
+    const broken = await fixture({ failedVideo: true });
+    await broken.page.setViewportSize({ width, height });
+    await broken.page.goto('https://get-silo.com/');
+    await broken.page.locator('#lpVisual').scrollIntoViewIfNeeded();
+    await broken.page.waitForFunction(() => document.getElementById('lpHeroVideo').error !== null);
+    await expectStill(broken.page);
+    await expectFrozen(broken.page);
+    assert.equal(await broken.page.locator('#lpMotionToggle').isVisible(), true);
+    assert.equal(await broken.page.locator('#lpMotionToggle').textContent(), 'Retry animation');
+    assert.equal(await broken.page.locator('#lpMotionStatus').isVisible(), true);
+    assert.match(await broken.page.locator('#lpMotionStatus').textContent(), /could not load/i);
+    await expectFallbackLink(broken.page);
+    assert.ok(broken.mediaRequests().length > 0);
+    const failedAttempts = await broken.page.evaluate(() => globalThis.__testPlayCalls);
+    await broken.page.emulateMedia({ reducedMotion: 'reduce' });
+    await broken.page.emulateMedia({ reducedMotion: 'no-preference' });
+    await expectStill(broken.page);
+    assert.equal(await broken.page.evaluate(() => globalThis.__testPlayCalls), failedAttempts);
+    await assertGeometry(broken.page, `${name} failed media`, width);
+    await expectMotionControlsUsable(broken.page);
+    await broken.page.screenshot({ path: path.join(screenshots, `video-unavailable-${name}.png`), fullPage: true });
+    broken.restoreMedia();
+    await broken.page.locator('#lpMotionToggle').click();
+    await expectPlaying(broken.page);
+    assert.equal(await broken.page.locator('#lpMotionFallback').isVisible(), false);
+    await broken.context.close();
+    pass(`${name}: real load error offers reachable Retry and Watch animation; explicit retry recovers`);
+  }
 
   const signedIn = await fixture({ session: { user: { id: 'fixture-user' } } });
   await signedIn.page.goto('https://get-silo.com/');
