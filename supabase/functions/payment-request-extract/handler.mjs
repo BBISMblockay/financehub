@@ -63,7 +63,8 @@ export function sanitizeExtraction(raw) {
   }
   result.currency = typeof raw.currency === 'string' && /^[A-Z]{3}$/.test(raw.currency) ? raw.currency : null;
   result.request_type = types.includes(raw.request_type) ? raw.request_type : null;
-  result.po_references = Array.isArray(raw.po_references) ? raw.po_references.filter(x => typeof x === 'string').slice(0, 30).map(x => x.slice(0, 150)) : [];
+  // A blank or whitespace-only reference is not a reference: dropped, not pre-filled.
+  result.po_references = Array.isArray(raw.po_references) ? raw.po_references.filter(x => typeof x === 'string' && x.trim()).slice(0, 30).map(x => x.trim().slice(0, 150)) : [];
   result.warnings = Array.isArray(raw.warnings) ? raw.warnings.filter(x => typeof x === 'string').slice(0, 8).map(x => x.slice(0, 500)) : [];
   if (!result.currency) result.warnings.push('Currency was not clear in the document. Confirm it before submitting.');
   if (raw.amount_due != null && result.amount_due === null) result.warnings.push('The requested amount could not be accepted. Enter and check it manually.');
@@ -80,8 +81,10 @@ const FACT_FIELDS = ['vendor_name', 'invoice_number', 'amount_due', 'invoice_tot
 /** At least one source fact survived sanitising. Warnings alone are not facts. */
 export function hasUsableFacts(suggestion) {
   if (!suggestion) return false;
-  return FACT_FIELDS.some(k => suggestion[k] !== null && suggestion[k] !== undefined && suggestion[k] !== '')
-    || (Array.isArray(suggestion.po_references) && suggestion.po_references.length > 0);
+  // A whitespace-only string is not a fact, here or in a PO reference.
+  const present = v => v !== null && v !== undefined && (typeof v !== 'string' || v.trim() !== '');
+  return FACT_FIELDS.some(k => present(suggestion[k]))
+    || (Array.isArray(suggestion.po_references) && suggestion.po_references.some(present));
 }
 
 /** @param {{ makeClient: any, env: (name: string) => string, fetchImpl?: typeof fetch,

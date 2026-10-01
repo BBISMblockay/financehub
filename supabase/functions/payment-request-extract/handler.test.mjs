@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHandler, sanitizeExtraction, MAX_TEXT } from './handler.mjs';
+import { createHandler, sanitizeExtraction, hasUsableFacts, MAX_TEXT } from './handler.mjs';
 
 let passed = 0;
 async function test(name, fn) { await fn(); passed++; console.log('PASS', name); }
@@ -99,7 +99,8 @@ await test('credit: provider errors, truncation, timeouts and multi-invoice refu
 await test('credit: a read that accepted no fact is free, and keeps its measured usage', async () => {
   const empty = { document_count: 1, vendor_name: null, invoice_number: null, amount_due: null, invoice_total: null, due_date: null, currency: null, request_type: null, location_name: null, po_references: [], warnings: ['The source text was unreadable.'] };
   const rejected = { ...empty, vendor_name: '', amount_due: -10, invoice_total: '2,580', due_date: '2026-02-30', currency: '$', request_type: 'payroll_payment' };
-  for (const facts of [empty, rejected]) {
+  const blanks = { ...empty, vendor_name: '   ', invoice_number: '\t', location_name: ' ', po_references: ['', '   ', '\n'] };
+  for (const facts of [empty, rejected, blanks]) {
     const f = fixture({ facts, credit: metered() }); const r = await f.call(); const data = await r.json();
     assert.equal(r.status, 200, 'the page still gets the (empty) suggestion and its warnings');
     const settle = f.credit.find(c => c.name === 'ai_credit_settle').args;
@@ -107,6 +108,8 @@ await test('credit: a read that accepted no fact is free, and keeps its measured
     assert.equal(settle.p_usage.input, 900, 'provider cost is still recorded'); assert.equal(settle.p_usage.output, 120);
     assert.deepEqual(data.ai_credit, { status: 'free', charged_micros: 0 });
   }
+  assert.deepEqual(sanitizeExtraction(blanks).po_references, [], 'blank PO references are dropped, not pre-filled');
+  assert.equal(hasUsableFacts({ ...empty, po_references: ['  '] }), false);
   // One accepted fact is enough to be a usable read.
   const one = fixture({ facts: { ...empty, po_references: ['PO-1'] }, credit: metered() }); await one.call();
   assert.equal(one.credit.find(c => c.name === 'ai_credit_settle').args.p_outcome, 'succeeded');
