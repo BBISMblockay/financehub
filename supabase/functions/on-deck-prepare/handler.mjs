@@ -2,7 +2,15 @@ import { timingSafeEqual } from 'node:crypto';
 import { prepareOne } from './provider.mjs';
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-export function createHandler({ createDb, serviceKey, apiKey, fetcher = fetch }) {
+// The role a bearer JWT CLAIMS. Unverified on its own -- only ever used to
+// decide whether to ask the auth server to verify the token.
+function claimedRole(token) {
+  try {
+    const part = token.split('.')[1]; if (!part) return null;
+    return JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '='))).role ?? null;
+  } catch { return null; }
+}
+export function createHandler({ createDb, serviceKey, apiKey, fetcher = fetch, verifyServiceToken = async () => false }) {
   return async request => {
     if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
     // Gateway JWT verification is retained. A normal user JWT is insufficient:
@@ -10,7 +18,14 @@ export function createHandler({ createDb, serviceKey, apiKey, fetcher = fetch })
     const provided = request.headers.get('authorization') || '';
     const expected = `Bearer ${serviceKey || ''}`;
     const encoder = new TextEncoder(), left = encoder.encode(provided), right = encoder.encode(expected);
-    if (!serviceKey || left.length !== right.length || !timingSafeEqual(left, right)) return json({ error: 'unauthorized' }, 401);
+    // The key the platform injects here is not always byte-identical to the
+    // service-role key the GitHub worker holds (both valid), and the exact
+    // compare alone 401'd every scheduled run from 2026-09-29. So a token that
+    // CLAIMS service_role is accepted only once the auth server confirms it
+    // (an admin-only endpoint), never on the claim itself.
+    const exact = !!serviceKey && left.length === right.length && timingSafeEqual(left, right);
+    const token = provided.startsWith('Bearer ') ? provided.slice(7) : '';
+    if (!serviceKey || (!exact && !(claimedRole(token) === 'service_role' && await verifyServiceToken(token).catch(() => false)))) return json({ error: 'unauthorized' }, 401);
     if (!apiKey) return json({ error: 'anthropic_secret_not_configured_in_supabase' }, 503);
     try {
       // Stream-limit even chunked bodies; callers may only name stored work.
