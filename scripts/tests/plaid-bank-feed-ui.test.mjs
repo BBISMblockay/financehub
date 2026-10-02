@@ -1018,4 +1018,66 @@ await test('a linked import outside the initial batch list is read with company 
  assert.deepEqual(filters,[['id','older'],['company_entity_id','company-one']]);
  assert.equal(h.page.state.batches.some(b=>b.id==='older'),true);
 });
+await test('rows Entry would refuse are called out while tagging, with why and one-click fixes', async () => {
+  const h = await pageHarness();
+  const ar = { id: '3', name: 'Due From LFRE', type: 'Accounts Receivable', connectionId: 'qbo-one' };
+  h.page.state.allAccounts = [...chart, ar]; h.page.state.accounts = [...chart, ar];
+  const coded = { ...transaction, status: 'coded', coding_source: 'manual', batch_id: 'batch-one' };
+  h.page.state.txns = [
+    { ...coded, id: 'blank', qbo_account_id: '2', qbo_account_name: 'Expense', accounting_treatment: 'unknown' },
+    { ...coded, id: 'bank', qbo_account_id: '1', qbo_account_name: 'Cash', accounting_treatment: 'unknown', amount: 500 },
+    { ...coded, id: 'ar-new', qbo_account_id: '3', qbo_account_name: 'Due From LFRE', accounting_treatment: 'purchase' },
+    { ...coded, id: 'ar-old', qbo_account_id: '3', qbo_account_name: 'Due From LFRE', accounting_treatment: 'purchase',
+      entity_type: 'Customer', entity_qbo_id: 'c9', entity_name: 'LFRE' },
+  ];
+  h.page.renderCoding();
+  const box = h.el('codeBlockers');
+  assert.equal(box.hidden, false);
+  assert.match(box.innerHTML, /2 categorized bank rows have no transaction type/);
+  assert.match(box.innerHTML, /without a type/); assert.match(box.innerHTML, /Bank accounts do not say/);
+  assert.match(box.innerHTML, /Set suggested type on 1/);
+  assert.match(box.innerHTML, /1 row is on a receivable or payable account with no entity/);
+  assert.match(h.el('codeFilterSegments').innerHTML, /Needs type <span>2/);
+  assert.match(h.el('codeFilterSegments').innerHTML, /Needs entity <span>1/);
+  assert.match(h.el('tblCoding').innerHTML, /Needs transaction type: Bank accounts do not say/);
+  assert.match(h.el('tblCoding').innerHTML, /data-use-entity[^>]*>Use LFRE/);
+  h.page.renderEntry();
+  assert.match(h.el('entryStatus').textContent, /2 bank rows need a transaction type — Transactions › Needs type/);
+  // The suggested type goes only where the category implies one; Bank stays a person's choice.
+  await box.fire('click', { target: { closest: (sel) => sel === '[data-blocker-fix]' ? { dataset: { blockerFix: 'treatment' } } : null } });
+  const byId = Object.fromEntries(h.page.state.txns.map((t) => [t.id, t]));
+  assert.equal(byId.blank.accounting_treatment, 'purchase'); assert.equal(byId.bank.accounting_treatment, 'unknown');
+  await box.fire('click', { target: { closest: (sel) => sel === '[data-blocker-fix]' ? { dataset: { blockerFix: 'entity' } } : null } });
+  assert.equal(byId['ar-new'].entity_qbo_id, 'c9'); assert.equal(byId['ar-new'].entity_name, 'LFRE');
+  assert.deepEqual([...h.page.state.dirty].sort(), ['ar-new', 'blank'], 'fixes are unsaved edits, like choosing by hand');
+  assert.match(h.el('codeBlockers').innerHTML, /1 categorized bank row has no transaction type/);
+  assert.doesNotMatch(h.el('codeBlockers').innerHTML, /no entity/);
+});
+await test('the row-level Set type and Use entity buttons fill that one row and mark it unsaved', async () => {
+  const h = await pageHarness();
+  const ar = { id: '3', name: 'Due From LFRE', type: 'Accounts Receivable', connectionId: 'qbo-one' };
+  h.page.state.allAccounts = [...chart, ar]; h.page.state.accounts = [...chart, ar];
+  const coded = { ...transaction, status: 'coded', coding_source: 'manual', batch_id: 'batch-one' };
+  h.page.state.txns = [
+    { ...coded, id: 'blank', qbo_account_id: '2', accounting_treatment: 'unknown' },
+    { ...coded, id: 'ar-new', qbo_account_id: '3', accounting_treatment: 'purchase' },
+    { ...coded, id: 'ar-old', qbo_account_id: '3', accounting_treatment: 'purchase', entity_type: 'Customer', entity_qbo_id: 'c9', entity_name: 'LFRE' },
+  ];
+  h.page.renderCoding();
+  const click = (id, sel, dataset) => h.el('tblCoding').fire('click', { target: { id: '', matches: () => false,
+    closest: (s) => s === '[data-txn]' ? { dataset: { txn: id } } : s === sel ? { dataset } : null } });
+  await click('blank', '[data-use-treatment]', { useTreatment: 'purchase' });
+  await click('ar-new', '[data-use-entity]', {});
+  const byId = Object.fromEntries(h.page.state.txns.map((t) => [t.id, t]));
+  assert.equal(byId.blank.accounting_treatment, 'purchase');
+  assert.equal(byId['ar-new'].entity_qbo_id, 'c9');
+  assert.deepEqual([...h.page.state.dirty].sort(), ['ar-new', 'blank']);
+});
+await test('a rule saved without a type no longer blanks the type its category implies', async () => {
+  const h = await pageHarness();
+  h.page.state.rules = [{ pattern: 'merchant', match_type: 'normalized', source_id: source.id, direction: 'outflow', accounting_treatment: 'unknown',
+    qbo_account_id: '2', qbo_account_name: 'Expense', is_active: true, priority: 100 }];
+  await h.page.applyRules(true);
+  assert.equal(h.page.state.txns[0].qbo_account_id, '2'); assert.equal(h.page.state.txns[0].accounting_treatment, 'purchase');
+});
 console.log(`${tests} UI scenarios passed`);

@@ -538,3 +538,11 @@
  .transaction-list #codeActionBar #unsavedCount {margin-left:auto;}
  .transaction-list:has(#codeActionBar:not([hidden])) .cc-body {padding-bottom:124px;}
 }
+
+/* What Entry will refuse, called out while tagging (Needs type / Needs entity). */
+.txn-blockers {display:grid;gap:8px;margin:8px 0;}
+.txn-blockers ul {margin:4px 0 6px 18px;padding:0;}
+.txn-blockers .bcn-btn {margin-top:2px;}
+#tblCoding .txn-entity-line {display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px;font-size:12px;}
+#tblCoding .txn-entity-line .cc-cell {font-size:12px;}
+#tblCoding .txn-hint {padding:2px 8px;font-size:12px;}

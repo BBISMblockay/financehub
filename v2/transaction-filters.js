@@ -40,7 +40,7 @@
   const NO_MERCHANT = '__none__';
   const NO_ACCOUNT = '__none__';
 
-  const STATUSES = ['all', 'uncoded', 'conflict', 'low', 'ai', 'excluded'];
+  const STATUSES = ['all', 'uncoded', 'treatment', 'entity', 'conflict', 'low', 'ai', 'excluded'];
   const DIRECTIONS = ['any', 'out', 'in'];
   const AMOUNT_MODES = ['any', 'exact', 'range'];
 
@@ -207,9 +207,24 @@
     ].some((v) => lower(v).includes(q));
   }
 
+  /* A categorized BANK row with no accounting treatment. Approval refuses the
+     whole import over one of these (approve_card_import_batch), so this is
+     the one definition both the Transactions filter and the Entry blocker
+     count -- the number someone fixes is the number that blocked them. */
+  function needsTreatment(row) {
+    return !!row && row.origin === 'plaid' && row.status === 'coded'
+      && (!row.accounting_treatment || row.accounting_treatment === 'unknown');
+  }
+
   function matchesStatus(row, status, ctx) {
     if (status === 'all') return true;
     if (status === 'uncoded') return row.status === 'uncoded';
+    if (status === 'treatment') return needsTreatment(row);
+    // Which accounts need an entity is QuickBooks chart data the page holds,
+    // so the page supplies the test; with none supplied nothing matches.
+    if (status === 'entity') {
+      return row.status !== 'excluded' && !!(ctx && typeof ctx.missingEntity === 'function' && ctx.missingEntity(row));
+    }
     if (status === 'excluded') return row.status === 'excluded';
     if (status === 'conflict') return !!row.coding_conflict;
     if (status === 'low') {
@@ -406,6 +421,7 @@
   }
 
   global.SiloTransactionFilters = {
+    needsTreatment,
     EMPTY, NO_MERCHANT, NO_ACCOUNT, STATUSES, DIRECTIONS, AMOUNT_MODES,
     normalize, matches, apply, isActive, describe, clear, options,
     merchantOf, canonicalMerchant, directionOf, accountKeys, accountNames, accountPairs,

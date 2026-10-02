@@ -345,6 +345,27 @@ r.test('the AI status includes a pending suggestion, not just a stored one', () 
   r.eq(ids(F.apply(list, Object.assign({}, F.EMPTY, { status: 'ai' }), ctx)), ['suggested', 'ai']);
 });
 
+r.test('Needs type selects exactly the categorized bank rows Entry refuses', () => {
+  const list = [
+    txn({ id: 'blank', origin: 'plaid', status: 'coded', accounting_treatment: 'unknown' }),
+    txn({ id: 'null', origin: 'plaid', status: 'coded', accounting_treatment: null }),
+    txn({ id: 'typed', origin: 'plaid', status: 'coded', accounting_treatment: 'transfer' }),
+    txn({ id: 'uncoded', origin: 'plaid', status: 'uncoded', accounting_treatment: 'unknown' }),
+    txn({ id: 'excluded', origin: 'plaid', status: 'excluded', accounting_treatment: 'unknown' }),
+    txn({ id: 'csv', origin: 'csv', status: 'coded', accounting_treatment: 'unknown' }),
+  ];
+  r.eq(ids(F.apply(list, Object.assign({}, F.EMPTY, { status: 'treatment' }), ctx)), ['blank', 'null']);
+  r.eq(list.filter(F.needsTreatment).map((t) => t.id), ['blank', 'null'], 'the Entry blocker counts the same rows');
+});
+
+r.test('Needs entity asks the page, never matches excluded rows, and matches nothing without a test', () => {
+  const list = [txn({ id: 'ar' }), txn({ id: 'arx', status: 'excluded' }), txn({ id: 'ok' })];
+  const withTest = Object.assign({}, ctx, { missingEntity: (t) => t.id !== 'ok' });
+  r.eq(ids(F.apply(list, Object.assign({}, F.EMPTY, { status: 'entity' }), withTest)), ['ar']);
+  r.eq(ids(F.apply(list, Object.assign({}, F.EMPTY, { status: 'entity' }), ctx)), []);
+  r.eq(F.normalize({ status: 'entity' }).status, 'entity', 'a stored Needs entity position survives');
+});
+
 // ------------------------------------------------------------ combination
 
 console.log('\n── filters combine ──');
