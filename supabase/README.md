@@ -12,13 +12,6 @@
 
 ## Individual migrations (same content, split)
 
-**Shopify online sales default:** `migrations/20261002031446_shopify_online_sales_default.sql`
-adds service-only atomic setup of a company-named online reporting location when
-a connection has no sales fallback. Apply before running the changed Shopify
-Node sync or deploying `shopify-sync-run`. No data changes on migration apply.
-The Integrations mapper can rename its label without changing the stable code.
-See [rollout and bounded replay](../docs/ops/shopify-online-default.md).
-
 **Product Studio SKU spread:** `migrations/20260927074820_product_studio_variant_spread.sql` adds store-mapped product search, per-SKU restock evidence and atomic multi-line PO handoffs. Existing single-SKU briefs remain supported. Apply after the original preview migration; no menu promotion or edge deploy.
 
 **Product workflow preview:** `migrations/20260926082115_product_workflow_preview.sql`

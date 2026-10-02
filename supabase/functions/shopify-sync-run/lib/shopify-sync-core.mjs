@@ -244,15 +244,14 @@ export async function upsertInChunks(supabase, table, rows, onConflict, chunkSiz
   return rows.length;
 }
 
-export async function loadLocationMap(supabase, companyEntityId, connectionId) {
+export async function loadLocationMap(supabase, companyEntityId) {
   const byShopifyId = new Map();
 
   // Primary source: shopify_location_mappings (set via integrations UI)
   const { data: mappings, error: mappingsError } = await supabase
     .from('shopify_location_mappings')
     .select('shopify_location_id, silo_location_code, location_id')
-    .eq('company_entity_id', companyEntityId)
-    .eq('connection_id', connectionId);
+    .eq('company_entity_id', companyEntityId);
 
   if (mappingsError) throw new Error(`shopify_location_mappings load failed: ${mappingsError.message}`);
 
@@ -263,7 +262,6 @@ export async function loadLocationMap(supabase, companyEntityId, connectionId) {
     const { data: locs, error: locsError } = await supabase
       .from('locations')
       .select('id, location_name')
-      .eq('company_entity_id', companyEntityId)
       .in('id', locationIds);
     if (locsError) throw new Error(`locations name load failed: ${locsError.message}`);
     for (const l of locs || []) nameById.set(l.id, l.location_name);
@@ -350,27 +348,6 @@ export function shopifyLocationIdsOnOrder(order) {
   return ids;
 }
 
-/** Resolve/provision the stable, company-owned reporting fallback before any
- * sales writes. A setup failure must fail the job, not skip its sales. This
- * mutates only the in-memory connection snapshot; the RPC persists atomically. */
-export async function prepareSalesDefault(supabase, connection) {
-  const { data, error } = await supabase.rpc('ensure_shopify_sales_default', {
-    p_connection_id: connection.id,
-  });
-  if (error) throw new Error(`Shopify sales default setup failed: ${error.message}`);
-  if (!data?.location_tag || !data?.location_name || !data?.default_location_code) {
-    throw new Error('Shopify sales default setup returned no usable location');
-  }
-  connection.default_location_code = data.default_location_code;
-  connection.sales_default_location = data;
-}
-
-export function assertSalesLocationsResolved(skipped) {
-  if (skipped?.no_location_lines) {
-    throw new Error(`Cannot rebuild sales: ${skipped.no_location_lines} line(s) have an unmapped Shopify location. Map the real location in Integrations and retry.`);
-  }
-}
-
 /**
  * Resolve SILO location_tag/name for sales_by_day aggregation only.
  * Uses Shopify location ids when present, then SILO shopify_location_id mapping.
@@ -401,24 +378,31 @@ export function resolveSalesRowLocation({
     return { location_tag: hit.location_tag, location_name: hit.location_name };
   }
 
-  // Explicit defaults retain their legacy semantics. A web order with no
-  // order/line sales location can have a fulfillment warehouse id: that is
-  // not evidence of a POS sale. MAPPED fulfillment locations already won above.
-  // Otherwise, never infer an unmapped actual sales location to be online.
-  const fallback = connection?.sales_default_location;
-  const directSalesId = order?.location_id || lineItem?.location_id
-    || (order?.line_items || []).some((li) => li?.location_id);
-  const webWithoutSalesLocation = order?.source_name === 'web' && !directSalesId;
-  if (fallback?.automatic && candidateIds.length && !webWithoutSalesLocation) return null;
+  // Fall back to the connection's default_location_code (set per-store in shopify_connections)
   if (connection?.default_location_code) {
-    return {
-      location_tag: fallback?.location_tag || slugify(connection.default_location_code),
-      location_name: fallback?.location_name || connection.default_location_code,
-    };
+    const tag = slugify(connection.default_location_code);
+    return { location_tag: tag, location_name: connection.default_location_code };
   }
 
-  // No mapping found — skip this row rather than writing a garbage unknown tag
-  return null;
+  // Nothing mapped and nothing typed: label the sale with the Shopify store's
+  // own name rather than dropping it.
+  return storeNameLocation(connection);
+}
+
+/**
+ * Last-resort sales location: the Shopify store itself. The TAG comes from the
+ * myshopify domain, which never changes, so renaming the store in Shopify
+ * relabels its rows instead of splitting its history across two tags. The NAME
+ * is the store's name (refreshed from shop.json by runShopDomainsSync), falling
+ * back to the domain. No locations row is created, so these sales report as an
+ * unclassified channel until someone maps the real location.
+ */
+export function storeNameLocation(connection) {
+  const domain = String(connection?.shop_domain || '').trim().toLowerCase();
+  if (!domain) return null;
+  const handle = domain.replace(/\.myshopify\.com$/, '');
+  const name = String(connection?.shop_name || '').replace(/\s+/g, ' ').trim();
+  return { location_tag: slugify(`shopify_${handle}`), location_name: name || handle };
 }
 
 /** Remove shopify_api sales for one shop only (safe for multi-store companies). */
@@ -731,7 +715,7 @@ export async function fetchShopifyLocations(connection) {
 
 async function loadLocationContext(supabase, connection, headers, base) {
   const [dbLocationMap, siloMappedLocations] = await Promise.all([
-    loadLocationMap(supabase, connection.company_entity_id, connection.id),
+    loadLocationMap(supabase, connection.company_entity_id),
     loadSiloMappedLocations(supabase, connection.company_entity_id),
   ]);
   const siloMappedByShopifyId = buildSiloMappedByShopifyId(siloMappedLocations);
@@ -1259,7 +1243,6 @@ export async function runHistoryChunk(supabase, connection, {
   };
   const syncedAt = new Date().toISOString();
 
-  await prepareSalesDefault(supabase, connection);
   const locationContext = locationContextCache || await loadLocationContext(supabase, connection, headers, base);
   const skuMeta = skuMetaCache || await loadSkuMeta(headers, base);
 
@@ -1270,7 +1253,7 @@ export async function runHistoryChunk(supabase, connection, {
   // upsert) the complete aggregate written by this one.
   const fetchStart = isoDateOnly(addDays(new Date(`${win.window_start}T00:00:00Z`), -1));
   const orders = await fetchOrdersInWindow(headers, base, fetchStart, win.window_end);
-  const { salesRows, newestOrderStamp, skipped } = await ordersToSalesRows({
+  const { salesRows, newestOrderStamp } = await ordersToSalesRows({
     orders,
     connection,
     locationMap: locationContext.dbLocationMap,
@@ -1278,8 +1261,6 @@ export async function runHistoryChunk(supabase, connection, {
     syncedAt,
     batchId,
   });
-
-  assertSalesLocationsResolved(skipped);
 
   // Refund rows (total_orders = 0) are keyed per order + refund date and may
   // land outside the window's date range — keep them regardless; the upsert
@@ -1420,7 +1401,7 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
   };
 
   const [dbLocationMap, locations, variants, ...productsByStatus] = await Promise.all([
-    loadLocationMap(supabase, connection.company_entity_id, connection.id),
+    loadLocationMap(supabase, connection.company_entity_id),
     getAll(headers, `${base}/locations.json?limit=250`),
     getAll(headers, `${base}/variants.json?limit=250`),
     ...PRODUCT_STATUSES_FOR_LABELING.map((status) => getAll(headers, `${base}/products.json?limit=250&status=${status}`)),
@@ -1558,7 +1539,6 @@ export async function runIncrementalSales(supabase, connection, {
     'Content-Type': 'application/json',
   };
 
-  await prepareSalesDefault(supabase, connection);
   const locationContext = await loadLocationContext(supabase, connection, headers, base);
   const skuMeta = await loadSkuMeta(headers, base);
 
@@ -1603,7 +1583,6 @@ export async function runIncrementalSales(supabase, connection, {
       syncedAt,
       batchId,
     });
-    assertSalesLocationsResolved(skipped);
     for (const key of Object.keys(skippedTotals)) skippedTotals[key] += skipped[key] || 0;
 
     const keepRows = salesRows.filter((r) =>
@@ -1660,9 +1639,6 @@ export async function runWindowedHistory(supabase, connection, {
   if (missing.length) {
     return { skipped: true, missing };
   }
-
-  // Setup must succeed before a new history run can purge existing sales.
-  await prepareSalesDefault(supabase, connection);
 
   let meta = readMeta(connection);
   let state = meta.history_backfill;
