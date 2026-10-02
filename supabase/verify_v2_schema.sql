@@ -5493,6 +5493,17 @@ select 'Report archive management permissions' as check_name,
 -- End report archive management
 
 
+-- Shopify missing sales-default provisioning must stay service-only and invoker.
+select 'shopify_online_sales_default' as check_name,
+  case
+    when to_regprocedure('public.ensure_shopify_sales_default(uuid)') is null then 'MISSING: apply 20261002031446_shopify_online_sales_default.sql'
+    when (select prosecdef from pg_proc where oid = to_regprocedure('public.ensure_shopify_sales_default(uuid)')) then 'CRITICAL: sales default function must be security invoker'
+    when has_function_privilege('anon', 'public.ensure_shopify_sales_default(uuid)', 'EXECUTE')
+      or has_function_privilege('authenticated', 'public.ensure_shopify_sales_default(uuid)', 'EXECUTE') then 'CRITICAL: sales default provisioning must be service-only'
+    when not has_function_privilege('service_role', 'public.ensure_shopify_sales_default(uuid)', 'EXECUTE') then 'MISSING: service_role sales default grant'
+    else 'ok'
+  end as status;
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further

@@ -1099,6 +1099,8 @@
     let _backfillBusy = false;
     let _uiBackfillConnectionId = null;
     const _locMapperCache = new Map();
+    const _locMapperLoads = new Map();
+    const _salesDefaultSaves = new Set();
 
     /** UI-tab chunking | UI paused (needs Resume) | server (GHA) | idle */
     function backfillMode(row) {
@@ -1753,6 +1755,150 @@
 
     const STORE_TYPES = ['online', 'retail', 'outlet', 'pop_up', 'warehouse', 'wholesale'];
 
+    function shopifyOnlineLocationCode(connectionId) {
+      return 'shopify_online_' + String(connectionId).replace(/-/g, '').toLowerCase();
+    }
+
+    function normalizedShopifyLocationName(value) {
+      return String(value ?? '').replace(/\s+/g, ' ').trim();
+    }
+
+    function shopifySalesDefaultHtml(connectionId, cache) {
+      const autoCode = shopifyOnlineLocationCode(connectionId);
+      const autoLocation = cache.siloLocations.find((loc) => loc.location_code === autoCode && loc.shopify_location_id == null);
+      // Match ensure_shopify_sales_default's display fallback exactly. An
+      // existing row keeps its own label (or code), never a newly coined name.
+      const autoName = autoLocation ? normalizedShopifyLocationName(autoLocation.location_name) || autoLocation.location_code
+        : `${normalizedShopifyLocationName(cache.companyTitle) || normalizedShopifyLocationName(cache.shopName) || normalizedShopifyLocationName(cache.shopDomain) || 'Shopify'} Online`;
+      const legacyLocation = cache.siloLocations.find((loc) => String(loc.id) === String(cache.defaultLocationId));
+      const currentCode = (cache.defaultLocationCode || '').trim() || legacyLocation?.location_code || '';
+      const canChooseAutomatic = cache.defaultLocationId == null;
+      const automatic = (!currentCode && canChooseAutomatic) || currentCode === autoCode;
+      const currentLocation = cache.siloLocations.find((loc) => loc.location_code === currentCode);
+      const options = canChooseAutomatic ? [`<option value="__automatic__"${automatic ? ' selected' : ''}>Automatic: ${escHtml(autoName)}</option>`] : [];
+      for (const loc of cache.siloLocations) {
+        if ((canChooseAutomatic && loc === autoLocation) || !loc.location_code) continue;
+        options.push(`<option value="${escHtml(loc.id)}"${(!automatic || !canChooseAutomatic) && loc === currentLocation ? ' selected' : ''}>${escHtml(loc.location_name)} (${escHtml(loc.location_code)})</option>`);
+      }
+      if (!automatic && !currentLocation) options.push(`<option value="__missing__" selected disabled>Unavailable default: ${escHtml(currentCode || `location #${cache.defaultLocationId}`)}</option>`);
+      return `<div class="bcn-card" style="margin-bottom:12px;">
+        <div class="bcn-card-header">Online sales fallback</div>
+        <div class="bcn-card-body">
+          <p style="margin:0 0 10px;">Sales use their mapped location first. Choose the fallback for unresolved sales. The automatic online option does not reclassify sales from an unmapped real store.</p>
+          <div class="bcn-field-group">
+            <label class="bcn-label" for="sales-default-select-${connectionId}">Default sales location</label>
+            <select class="bcn-field" id="sales-default-select-${connectionId}" data-sales-default-control
+              onchange="onSalesDefaultChange('${connectionId}')">${options.join('')}</select>
+          </div>
+          ${cache.defaultLocationId != null ? '<p style="margin:8px 0;">This connection already has a selected SILO location. Its existing location link is preserved.</p>' : ''}
+          <p id="sales-default-auto-${connectionId}"${automatic ? '' : ' hidden'} style="margin:8px 0;">${autoLocation
+            ? `Automatic online location: <strong>${escHtml(autoName)}</strong>. Its code and identity stay the same when you rename it.`
+            : `<strong>${escHtml(autoName)}</strong> will be created on the next sales sync. You can edit its display name after it exists.`}</p>
+          ${!automatic && !currentLocation ? `<p class="bcn-status bcn-status--neg">The saved default is not an available SILO location. Choose an existing location${canChooseAutomatic ? ' or the automatic online fallback' : ''}.</p>` : ''}
+          <button class="bcn-btn bcn-btn--primary" data-sales-default-control onclick="saveShopifySalesDefault('${connectionId}', 'default')">Save default</button>
+          ${autoLocation ? `<div id="sales-default-name-wrap-${connectionId}"${automatic ? '' : ' hidden'} style="margin-top:12px;">
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="sales-default-name-${connectionId}">Online location display name</label>
+              <input class="bcn-field" id="sales-default-name-${connectionId}" data-sales-default-control type="text" value="${escHtml(autoName)}" />
+            </div>
+            <button class="bcn-btn bcn-btn--ghost" data-sales-default-control style="margin-top:8px;" onclick="saveShopifySalesDefault('${connectionId}', 'name')">Save display name</button>
+          </div>` : ''}
+          <div class="bcn-status" id="sales-default-status-${connectionId}" role="status" aria-live="polite" style="margin-top:8px;" hidden></div>
+        </div>
+      </div>`;
+    }
+
+    function onSalesDefaultChange(connectionId) {
+      const value = document.getElementById(`sales-default-select-${connectionId}`)?.value;
+      const cache = _locMapperCache.get(connectionId);
+      const automatic = value === '__automatic__' || (cache?.siloLocations || []).some((loc) => String(loc.id) === value
+        && loc.location_code === shopifyOnlineLocationCode(connectionId) && loc.shopify_location_id == null);
+      for (const part of ['auto', 'name-wrap']) {
+        const el = document.getElementById(`sales-default-${part}-${connectionId}`);
+        if (el) el.hidden = !automatic;
+      }
+    }
+
+    function locationMapperIsCurrent(connectionId, panel, load) {
+      return !!panel && document.getElementById(`loc-panel-${connectionId}`) === panel && !panel.hidden
+        && (load === undefined || _locMapperLoads.get(connectionId) === load);
+    }
+
+    function salesDefaultStatus(connectionId, message, type) {
+      const status = document.getElementById(`sales-default-status-${connectionId}`);
+      if (!status) return;
+      status.className = `bcn-status bcn-status--${type}`;
+      status.textContent = message;
+      status.hidden = false;
+    }
+
+    async function saveShopifySalesDefault(connectionId, action) {
+      const panel = document.getElementById(`loc-panel-${connectionId}`);
+      const select = document.getElementById(`sales-default-select-${connectionId}`);
+      const cache = _locMapperCache.get(connectionId);
+      if (!locationMapperIsCurrent(connectionId, panel) || !select || !cache || _salesDefaultSaves.has(connectionId)) return;
+      const load = _locMapperLoads.get(connectionId);
+      const current = () => locationMapperIsCurrent(connectionId, panel, load)
+        && document.getElementById(`sales-default-select-${connectionId}`) === select;
+      const autoCode = shopifyOnlineLocationCode(connectionId);
+      const autoLocation = cache.siloLocations.find((loc) => loc.location_code === autoCode && loc.shopify_location_id == null);
+      const selectedLocation = cache.siloLocations.find((loc) => String(loc.id) === select.value);
+      const name = document.getElementById(`sales-default-name-${connectionId}`)?.value.trim();
+      const defaultCode = select.value === '__automatic__' ? autoLocation?.location_code || null : selectedLocation?.location_code;
+      const automaticSelected = select.value === '__automatic__' || selectedLocation === autoLocation;
+      if (action === 'name' ? !autoLocation || !name || !automaticSelected : action !== 'default' || defaultCode === undefined || (select.value === '__automatic__' && cache.defaultLocationId != null)) {
+        salesDefaultStatus(connectionId, action === 'name' ? 'Enter a display name for the automatic online location.' : 'Choose an available SILO location or the automatic online fallback.', 'neg');
+        return;
+      }
+
+      _salesDefaultSaves.add(connectionId);
+      const busy = (disabled) => panel.querySelectorAll('[data-sales-default-control], [data-loc-refresh]').forEach((el) => { el.disabled = disabled; });
+      busy(true);
+      salesDefaultStatus(connectionId, 'Saving…', 'info');
+      try {
+        const company = await window.__SILO_CONFIG__?.ensureActiveCompany?.(db);
+        if (!current()) return;
+        if (!company?.id || company._staleReconcile || company.id !== cache.companyId) throw new Error('The active company changed or could not be verified. Refresh the page before saving.');
+        if (action === 'name') {
+          const { data, error } = await db.from('locations')
+            .update({ location_name: name, updated_by: _session?.user?.id })
+            .eq('company_entity_id', company.id).eq('id', autoLocation.id)
+            .eq('location_code', autoCode).is('shopify_location_id', null)
+            .select('id, company_entity_id, location_code, location_name').maybeSingle();
+          if (error) throw new Error(error.message);
+          if (!data || String(data.id) !== String(autoLocation.id) || data.company_entity_id !== company.id || data.location_code !== autoCode || data.location_name !== name) {
+            throw new Error('The display name was not confirmed saved. Check your permissions and refresh before retrying.');
+          }
+          autoLocation.location_name = data.location_name;
+        } else {
+          const { data, error } = await db.from('shopify_connections')
+            .update({ default_location_code: defaultCode })
+            .eq('company_entity_id', company.id).eq('id', connectionId)
+            .select('id, company_entity_id, default_location_code').maybeSingle();
+          if (error) throw new Error(error.message);
+          if (!data || data.id !== connectionId || data.company_entity_id !== company.id || data.default_location_code !== defaultCode) {
+            throw new Error('The default location was not confirmed saved. Check your permissions and refresh before retrying.');
+          }
+          cache.defaultLocationCode = data.default_location_code;
+        }
+        if (!current()) return;
+        renderLocationMapper(connectionId, cache);
+        salesDefaultStatus(connectionId, action === 'name' ? 'Display name saved. The location code and sales history are unchanged.'
+          : defaultCode ? 'Default sales location saved. Re-run sales import to update existing row tags.'
+          : 'Automatic online fallback saved. It will be created on the next sales sync.', 'pos');
+      } catch (err) {
+        if (current()) salesDefaultStatus(connectionId, 'Save failed: ' + err.message, 'neg');
+      } finally {
+        _salesDefaultSaves.delete(connectionId);
+        if (locationMapperIsCurrent(connectionId, panel)) {
+          busy(false);
+          // A close/reopen or newer refresh may have read before this write
+          // finished. Reconcile that read without repainting a dismissed panel.
+          if (_locMapperLoads.get(connectionId) !== load) await refreshLocationMapper(connectionId);
+        }
+      }
+    }
+
     function locationMapperRowHtml(connectionId, shopLoc, siloLocs, existingMappings, shopDomain) {
       const mapping = mappingForShopifyId(existingMappings, shopLoc.id);
       const mappedSiloLoc = mapping ? (siloLocs || []).find((l) => String(l.id) === String(mapping.location_id)) : null;
@@ -1779,7 +1925,7 @@
       const displayCode = mappedSiloLoc?.location_code || mapping?.silo_location_code;
       const mappedBadge = displayCode
         ? `<div class="int-loc-mapped">→ ${escHtml(displayCode)}</div>`
-        : `<div class="int-loc-unmapped">Uses fallback tag until mapped</div>`;
+        : `<div class="int-loc-unmapped">Unmapped Shopify location</div>`;
 
       return `<tr id="${rowId}">
         <td>
@@ -1825,13 +1971,14 @@
       panel.innerHTML = `
         <div class="int-loc-head">
           <div class="int-loc-summary">${mappedCount} of ${total} Shopify locations mapped to SILO</div>
-          <button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;"
+          <button class="bcn-btn bcn-btn--ghost" data-loc-refresh style="font-size:11px;height:26px;padding:0 8px;"
             onclick="refreshLocationMapper('${connectionId}')">Refresh</button>
         </div>
+        ${shopifySalesDefaultHtml(connectionId, cache)}
         <div id="chan-scope-${connectionId}" class="int-scope-warn" style="margin-bottom:8px;" hidden></div>
         ${mappedCount < total ? `<div class="int-scope-warn" style="margin-bottom:8px;">
-          Sales at unmapped locations fall back to the connection's default location code;
-          without one they are skipped (counted in the sync result as <code>no_location_lines</code>).
+          Map real Shopify store locations here before importing their sales. The automatic online
+          fallback covers online sales without a mapped sales location; it does not reclassify an unmapped store as online.
           Map them here, then re-run a sales import to update existing rows.
         </div>` : `<div class="int-scope-warn" style="margin-bottom:8px;background:#f0fdf4;border-color:#bbf7d0;color:#166534;">
           All locations mapped. Re-run sales import if you changed mappings on existing data.
@@ -1852,6 +1999,7 @@
       for (const s of shopifyLocations || []) {
         onLocationMapModeChange(connectionId, s.id);
       }
+      if (_salesDefaultSaves.has(connectionId)) panel.querySelectorAll('[data-sales-default-control], [data-loc-refresh]').forEach((el) => { el.disabled = true; });
 
       // What a store_type actually MEANS for reporting. Read from the
       // database (wow_channel_status) rather than re-deriving the mapping in
@@ -1933,29 +2081,32 @@
       }
     }
 
-    async function loadSiloLocations() {
+    async function loadSiloLocations(companyId) {
       let q = db
         .from('locations')
         .select('id, location_code, location_name, domain, store_type, shopify_location_id')
         .order('location_name');
-      if (_co?.id) q = q.eq('company_entity_id', _co.id);
+      q = q.eq('company_entity_id', companyId);
       const { data, error } = await q;
       if (error) throw new Error(error.message);
       return data || [];
     }
 
     async function loadLocationMapperData(connectionId) {
+      const company = await window.__SILO_CONFIG__?.ensureActiveCompany?.(db);
+      if (!company?.id || company._staleReconcile) throw new Error('Active company could not be verified. Refresh the page and try again.');
       const { data: conn, error: connErr } = await db
         .from('shopify_connections')
-        .select('shop_domain')
+        .select('shop_domain, shop_name, default_location_code, location_id')
+        .eq('company_entity_id', company.id)
         .eq('id', connectionId)
         .single();
       if (connErr || !conn) throw new Error('Connection not found');
 
       const [syncRes, siloLocations, existingMappings] = await Promise.all([
         syncRun({ action: 'list_shopify_locations', connection_id: connectionId }),
-        loadSiloLocations(),
-        loadConnectionMappings(connectionId),
+        loadSiloLocations(company.id),
+        loadConnectionMappings(connectionId, company.id),
       ]);
 
       return {
@@ -1963,13 +2114,19 @@
         siloLocations,
         existingMappings,
         shopDomain: conn.shop_domain,
+        shopName: conn.shop_name,
+        defaultLocationCode: conn.default_location_code,
+        defaultLocationId: conn.location_id,
+        companyId: company.id,
+        companyTitle: company.title,
       };
     }
 
-    async function loadConnectionMappings(connectionId) {
+    async function loadConnectionMappings(connectionId, companyId) {
       const { data, error } = await db
         .from('shopify_location_mappings')
         .select('shopify_location_id, location_id, silo_location_code, shopify_location_name')
+        .eq('company_entity_id', companyId)
         .eq('connection_id', connectionId);
       if (error) throw new Error(error.message);
       return data || [];
@@ -1977,15 +2134,17 @@
 
     async function refreshLocationMapper(connectionId) {
       const panel = document.getElementById(`loc-panel-${connectionId}`);
-      if (panel) {
-        panel.innerHTML = '<div class="int-loc-summary">Loading Shopify locations…</div>';
-      }
+      if (!locationMapperIsCurrent(connectionId, panel)) return;
+      const load = {};
+      _locMapperLoads.set(connectionId, load);
+      panel.innerHTML = '<div class="int-loc-summary">Loading Shopify locations…</div>';
       try {
         const cache = await loadLocationMapperData(connectionId);
+        if (!locationMapperIsCurrent(connectionId, panel, load)) return;
         _locMapperCache.set(connectionId, cache);
         renderLocationMapper(connectionId, cache);
       } catch (err) {
-        if (panel) {
+        if (locationMapperIsCurrent(connectionId, panel, load)) {
           panel.innerHTML = `<div class="int-scope-warn">Failed to load locations: ${escHtml(err.message)}</div>`;
         }
       }
@@ -1998,12 +2157,13 @@
       const isHidden = panel.hasAttribute('hidden');
       if (!isHidden) {
         panel.setAttribute('hidden', '');
+        _locMapperLoads.delete(connectionId);
         return;
       }
 
       panel.removeAttribute('hidden');
       await refreshLocationMapper(connectionId);
-      panel.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      if (locationMapperIsCurrent(connectionId, panel)) panel.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 
     async function saveLocationMapping(connectionId, shopifyLocId) {

@@ -73,6 +73,7 @@ on:
       - 'supabase/functions/test-shopify-connection/**'
       - 'supabase/functions/shopify-sync-run/**'
       - 'supabase/migrations/*shopify_client_credentials.sql'
+      - 'supabase/migrations/*shopify_online_sales_default.sql'
       - 'scripts/tests/shopify-auth.test.mjs'
       - 'scripts/tests/shopify-credentials-database.test.mjs'
       - 'v2/integrations.html'
@@ -269,6 +270,27 @@ jobs:
 
       - name: Shopify stays read-only
         run: node scripts/tests/shopify-readonly.test.mjs
+
+      - name: Shopify online sales defaults (Node and edge)
+        run: node scripts/tests/shopify-online-default.test.mjs
+      - name: Shopify online-default UI state and save controls
+        run: node v2/tests/unit/shopify-sales-default.test.js
+      - name: Shopify online-default UI guards must catch mutations
+        run: |
+          for m in scope rename duplicate dismissed preview returned_row; do
+            if SHOPIFY_UI_MUTATION="$m" node v2/tests/unit/shopify-sales-default.test.js >/dev/null 2>&1; then
+              echo "::error::online-default UI mutation $m survived"
+              exit 1
+            fi
+          done
+      - name: Shopify online-default guards must catch mutations
+        run: |
+          for m in drop-default override-mapping unmapped-online cross-company web-dropped cross-store skip-prepare delete-unresolved name-is-identity; do
+            if SHOPIFY_DEFAULT_MUTATION="$m" node scripts/tests/shopify-online-default.test.mjs >/dev/null 2>&1; then
+              echo "::error::online-default mutation $m survived"
+              exit 1
+            fi
+          done
 
       # Payment terms and due dates on shopify_orders (20260930150000):
       # "not returned" must never read as "no terms".
@@ -1279,3 +1301,14 @@ jobs:
       # derived only when terms were returned (NULL, never false, otherwise).
       - name: Shopify order payment terms -- view and overdue
         run: node scripts/tests/shopify-order-terms-database.test.mjs
+
+      - name: Shopify online sales defaults -- allocation, isolation and permissions
+        run: node scripts/tests/shopify-online-default-database.test.mjs
+      - name: Shopify online-default database guards must catch mutations
+        run: |
+          for m in grant-clients definer shop-name-first unstable-code ignore-explicit ignore-pointer cross-company-pointer skip-default-save rename-overwrite fake-shopify-id no-row-lock no-table-lock no-pk-retry swallow-other-unique space-only-code-check space-only-name-check space-only-domain-check empty-explicit-label empty-pointer-label empty-recovered-label unbounded-pk-retry; do
+            if SHOPIFY_ONLINE_DB_MUTATION="$m" node scripts/tests/shopify-online-default-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::online-default database mutation $m survived"
+              exit 1
+            fi
+          done

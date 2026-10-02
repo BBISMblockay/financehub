@@ -6,6 +6,7 @@ import {
   fetchShopifyLocations,
   initHistoryBackfillState,
   purgeShopifySalesForShop,
+  prepareSalesDefault,
   readMeta,
   runHistoryChunk,
   runInventorySnapshot,
@@ -228,6 +229,8 @@ async function handleStartHistoryBackfill(
     return handleHistoryChunk(admin, connection, state.job_id as string, chunkDays);
   }
 
+  // A missing migration/default must fail before the history reset deletes rows.
+  await prepareSalesDefault(admin, connection);
   await purgeShopifySalesForShop(
     admin,
     connection.company_entity_id as string,
