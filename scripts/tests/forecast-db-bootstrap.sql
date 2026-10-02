@@ -139,8 +139,13 @@ grant select on public.sales_monthly_product_type_rollup_v to authenticated, ser
 -- forecast_candidate_cycles was undetectable while the suite stopped at the
 -- first migration, and that bug silently returned INSUFFICIENT_DATA for
 -- forecasts that existed.
+-- Youth demand fixtures and buy-report SQL were read on 2026-09-17. Pinning
+-- "today" keeps month-boundary logic stable when CI runs on a later calendar day.
+create function public.silo_forecast_test_now() returns timestamptz language sql stable as $$
+  select timestamptz '2026-09-17 12:00:00-07';
+$$;
 create function public.silo_business_today() returns date language sql stable as $$
-  select (timezone('America/Los_Angeles', now()))::date;
+  select (timezone('America/Los_Angeles', public.silo_forecast_test_now()))::date;
 $$;
 
 create function public.is_admin_user() returns boolean language sql stable security definer as $$

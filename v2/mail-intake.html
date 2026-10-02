@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SILO · Mail intake</title>
+  <title>SILO · Mail Intake</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
-  <link rel="stylesheet" href="purchasing-page-content.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="mail-intake.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
@@ -25,54 +25,58 @@
 <div id="silo-app" class="silo-app">
   <main class="silo-main">
 
-    <div class="pr-page pr-page--intake">
-      <div class="pr-stack">
+    <div class="mi-page">
 
-        <h1 class="pr-page-h1">Mail intake</h1>
-
-        <div id="authCard" class="card hidden">
-          <div class="pr-stack">
-            <div>
-              <div class="section-title">Sign in to continue</div>
-              <div class="section-sub">This form is only available to signed-in users.</div>
-            </div>
-            <div class="pr-callout">
-              Sign in with your SILO account. We will attach this item to your profile as the submitter.
-            </div>
-            <div class="pr-btn-row" style="margin-top:12px;">
-              <a href="/pages/login.html" class="btn btn-primary">Sign in to SILO</a>
-            </div>
-          </div>
+      <header class="mi-header">
+        <div>
+          <h1>Mail intake</h1>
+          <p class="mi-lead">Log incoming mail for the shared Mailroom queue. Finance routes and processes items from there.</p>
         </div>
+        <div class="mi-header-actions">
+          <a href="mailroom.html" class="bcn-btn bcn-btn--ghost">← Mailroom queue</a>
+        </div>
+      </header>
 
-        <div id="appCard" class="card hidden">
-          <div class="pr-card-toolbar">
-            <div>
-              <div class="section-title">What came in?</div>
-              <div class="section-sub"><span class="pr-req">*</span> indicates a required field.</div>
-            </div>
-            <span id="signedInAs" class="pill">Signed in</span>
-          </div>
+      <ol class="mi-steps" aria-label="Intake flow">
+        <li class="is-active" id="stepDescribe">Describe the item</li>
+        <li id="stepRoute">Dates &amp; routing</li>
+        <li id="stepAttach">Scan &amp; submit</li>
+      </ol>
 
-          <div id="statusBox" class="bcn-status hidden pr-status-slot" role="status" aria-live="polite"></div>
+      <div id="authCard" class="mi-panel mi-auth hidden">
+        <h2>Sign in to continue</h2>
+        <p class="mi-panel-sub">Mail intake is available to signed-in SILO users. Your profile is recorded as the submitter.</p>
+        <a href="/pages/login.html" class="bcn-btn bcn-btn--primary" style="margin-top:16px;">Sign in to SILO</a>
+      </div>
 
-          <form id="intakeForm" class="pr-form-stack">
-            <div class="pr-section-card">
-              <div class="section-title">What is it</div>
-              <div class="pr-form-grid">
-                <div class="pr-span-2">
-                  <label class="bcn-label" for="subject">Subject<span class="pr-req">*</span></label>
-                  <input id="subject" class="input" placeholder="What is this about?" required />
+      <div id="appCard" class="hidden">
+        <div id="statusBox" class="bcn-status hidden" role="status" aria-live="polite"></div>
+
+        <div class="mi-layout">
+          <div class="mi-main">
+            <form id="intakeForm" class="mi-panel" novalidate>
+              <div class="mi-panel-head">
+                <div>
+                  <h2>Log incoming mail</h2>
+                  <p class="mi-panel-sub"><span class="mi-req">*</span> Required fields. Everything else helps the team route faster.</p>
+                </div>
+                <span id="signedInAs" class="mi-signed-pill" title="Signed in">Signed in</span>
+              </div>
+
+              <section class="mi-fields" aria-labelledby="stepDescribe">
+                <div class="mi-span-2">
+                  <label class="bcn-label" for="subject">Subject<span class="mi-req">*</span></label>
+                  <input id="subject" class="bcn-field input" placeholder="What is this about?" required autocomplete="off" />
                 </div>
 
                 <div>
                   <label class="bcn-label" for="sender">Received from</label>
-                  <input id="sender" class="input" placeholder="Sender name / company" />
+                  <input id="sender" class="bcn-field input" placeholder="Sender or company" autocomplete="off" />
                 </div>
 
                 <div>
                   <label class="bcn-label" for="documentType">Document type</label>
-                  <select id="documentType" class="select">
+                  <select id="documentType" class="bcn-field select">
                     <option value="">Select type</option>
                     <option value="invoice_bill">Invoice / bill</option>
                     <option value="check_payment">Check / payment</option>
@@ -86,99 +90,118 @@
                   </select>
                 </div>
 
-                <div>
+                <div class="mi-span-2">
                   <label class="bcn-label" for="priority">Priority</label>
-                  <select id="priority" class="select">
+                  <div class="mi-priority" id="priorityChips" role="group" aria-label="Priority">
+                    <button type="button" data-priority="P0">P0 · Urgent</button>
+                    <button type="button" data-priority="P1">P1 · High</button>
+                    <button type="button" data-priority="P2">P2 · Normal</button>
+                    <button type="button" data-priority="P3">P3 · Low</button>
+                  </div>
+                  <select id="priority" class="mi-priority-select select" tabindex="-1" aria-hidden="true">
                     <option value="P0">P0 — Urgent</option>
                     <option value="P1">P1 — High</option>
                     <option value="P2" selected>P2 — Normal</option>
                     <option value="P3">P3 — Low</option>
                   </select>
                 </div>
-              </div>
-            </div>
+              </section>
 
-            <div class="pr-section-card">
-              <div class="section-title">Dates and routing</div>
-              <div class="pr-form-grid">
+              <section class="mi-fields" style="margin-top:18px;" aria-labelledby="stepRoute">
                 <div>
                   <label class="bcn-label" for="receivedDate">Received date</label>
-                  <input id="receivedDate" type="date" class="input" />
+                  <input id="receivedDate" type="date" class="bcn-field input" />
                 </div>
-
                 <div>
                   <label class="bcn-label" for="dueDate">Due date (if any)</label>
-                  <input id="dueDate" type="date" class="input" />
+                  <input id="dueDate" type="date" class="bcn-field input" />
                 </div>
-
-                <div class="pr-span-2">
+                <div class="mi-span-2">
                   <label class="bcn-label" for="assignedTo">Send to</label>
-                  <select id="assignedTo" class="select">
+                  <select id="assignedTo" class="bcn-field select">
                     <option value="">Loading team…</option>
                   </select>
-                  <div class="pr-help">Optional — route it to someone now, or leave unassigned for the Mailroom queue to pick up.</div>
+                  <p class="mi-hint">Optional — assign now, or leave unassigned for the Mailroom queue.</p>
                 </div>
-              </div>
-            </div>
-
-            <div class="pr-section-card">
-              <div class="section-title">Details and attachment</div>
-              <div class="pr-form-grid">
-                <div class="pr-span-2">
+                <div class="mi-span-2">
                   <label class="bcn-label" for="actionNeeded">Action needed</label>
-                  <input id="actionNeeded" class="input" placeholder="e.g. Deposit check, forward to legal, file for records..." />
+                  <input id="actionNeeded" class="bcn-field input" placeholder="e.g. Deposit check, forward to legal, file for records…" />
                 </div>
+              </section>
 
-                <div class="pr-span-2">
-                  <label class="bcn-label" for="mailFile">Scan / photo of the item</label>
-                  <div class="pr-upload">
-                    <input
-                      id="mailFile"
-                      type="file"
-                      accept=".pdf,.png,.jpg,.jpeg,.webp"
-                      multiple
-                    />
-                    <div class="pr-help">PDFs or photos are fine. You can attach more than one file.</div>
-                  </div>
+              <section style="margin-top:18px;" aria-labelledby="stepAttach">
+                <label class="bcn-label" for="mailFile">Scan / photo</label>
+                <div id="dropZone" class="mi-drop" role="button" tabindex="0" aria-label="Add PDF or image files">
+                  <span class="mi-drop-icon" aria-hidden="true">↥</span>
+                  <strong>Drop files here or browse</strong>
+                  <span>PDF, PNG, JPG, or WebP · multiple files OK</span>
                 </div>
+                <input
+                  id="mailFile"
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp"
+                  multiple
+                  class="hidden"
+                />
+                <div id="fileList" class="mi-file-list" hidden></div>
 
-                <div class="pr-span-2">
-                  <label class="bcn-label" for="notes">Notes</label>
-                  <textarea id="notes" class="textarea" placeholder="Anything else worth flagging..."></textarea>
+                <details class="mi-details">
+                  <summary>Notes for Mailroom</summary>
+                  <label class="bcn-label" for="notes" style="margin-top:10px;">Notes</label>
+                  <textarea id="notes" class="bcn-field textarea" placeholder="Anything else worth flagging…"></textarea>
+                </details>
+              </section>
+
+              <footer class="mi-footer">
+                <p class="mi-footer-note">Items appear in the Mailroom queue as soon as you submit.</p>
+                <div class="mi-footer-actions">
+                  <button id="resetBtn" type="button" class="bcn-btn bcn-btn--ghost">Start over</button>
+                  <button id="submitBtn" type="submit" class="bcn-btn bcn-btn--primary">Submit to Mailroom</button>
                 </div>
-              </div>
-            </div>
-
-            <div class="pr-form-actions">
-              <div class="pr-muted">Items land in the Mailroom queue as soon as you submit.</div>
-              <div class="pr-btn-row">
-                <button id="resetBtn" type="button" class="btn btn-soft">Start over</button>
-                <button id="submitBtn" type="submit" class="btn btn-primary">Log it</button>
-              </div>
-            </div>
-          </form>
-        </div>
-
-        <div id="successCard" class="card hidden">
-          <div class="section-title">Logged</div>
-          <div class="section-sub">This item is now in the Mailroom queue.</div>
-          <div class="pr-success-grid">
-            <div class="pr-callout">
-              <div class="pr-kv-label">Reference number</div>
-              <div id="successItemId" class="pr-kv-value">—</div>
-            </div>
-            <div class="pr-callout">
-              <div class="pr-kv-label">Attachments</div>
-              <div id="successFileName" class="pr-kv-value">No files</div>
-            </div>
+              </footer>
+            </form>
           </div>
-          <div class="pr-btn-row pr-success-actions">
-            <button id="newItemBtn" type="button" class="btn btn-primary">Log another item</button>
-            <a href="mailroom.html" class="btn btn-soft">Open Mailroom queue</a>
-          </div>
-        </div>
 
+          <aside class="mi-aside" aria-label="Guidance">
+            <div class="mi-panel mi-panel--muted">
+              <h2>Quick tips</h2>
+              <ul class="mi-tips" style="margin-top:12px;">
+                <li>Use a clear <strong>subject</strong> — it becomes the row title in the queue.</li>
+                <li>Set <strong>priority</strong> when something is time-sensitive or legal.</li>
+                <li>Attach a scan when you can; the team can work from the queue without chasing paper.</li>
+                <li><strong>Unassigned</strong> items stay in the shared queue for Finance to route.</li>
+              </ul>
+            </div>
+            <div class="mi-panel">
+              <h2>What happens next</h2>
+              <p class="mi-panel-sub" style="margin-top:8px;">You’ll get a reference ID after submit. Open Mailroom to track status, assignees, and attachments.</p>
+              <a href="mailroom.html" class="bcn-btn bcn-btn--ghost" style="margin-top:14px;width:100%;justify-content:center;">Open Mailroom queue</a>
+            </div>
+          </aside>
+        </div>
       </div>
+
+      <div id="successCard" class="mi-panel mi-success hidden">
+        <div class="mi-success-icon" aria-hidden="true">✓</div>
+        <span class="bcn-pill bcn-pill--pos">Logged</span>
+        <h2 style="margin-top:12px;">In the Mailroom queue</h2>
+        <p class="mi-panel-sub">Finance can route and process this item from the shared queue.</p>
+        <div class="mi-kv-grid">
+          <div class="mi-kv">
+            <div class="mi-kv-label">Reference</div>
+            <div id="successItemId" class="mi-kv-value">—</div>
+          </div>
+          <div class="mi-kv">
+            <div class="mi-kv-label">Attachments</div>
+            <div id="successFileName" class="mi-kv-value">No files</div>
+          </div>
+        </div>
+        <div class="mi-success-actions">
+          <button id="newItemBtn" type="button" class="bcn-btn bcn-btn--primary">Log another item</button>
+          <a href="mailroom.html" class="bcn-btn bcn-btn--ghost">Open Mailroom queue</a>
+        </div>
+      </div>
+
     </div>
 
   </main>
@@ -216,11 +239,14 @@
     sender: document.getElementById("sender"),
     documentType: document.getElementById("documentType"),
     priority: document.getElementById("priority"),
+    priorityChips: document.getElementById("priorityChips"),
     receivedDate: document.getElementById("receivedDate"),
     dueDate: document.getElementById("dueDate"),
     assignedTo: document.getElementById("assignedTo"),
     actionNeeded: document.getElementById("actionNeeded"),
     mailFile: document.getElementById("mailFile"),
+    dropZone: document.getElementById("dropZone"),
+    fileList: document.getElementById("fileList"),
     notes: document.getElementById("notes"),
 
     resetBtn: document.getElementById("resetBtn"),
@@ -232,6 +258,8 @@
   };
 
   let currentUser = null;
+  /** @type {File[]} */
+  let stagedFiles = [];
 
   function escapeAttr(value) {
     return String(value || "").replace(/[&<>"]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
@@ -239,30 +267,77 @@
 
   function showStatus(message, type = "info") {
     const tone = type === "error" ? "neg" : type === "success" ? "pos" : "info";
-    els.statusBox.className = `bcn-status bcn-status--${tone} pr-status-slot`;
+    els.statusBox.className = `bcn-status bcn-status--${tone}`;
     els.statusBox.textContent = message;
     els.statusBox.classList.remove("hidden");
   }
 
   function clearStatus() {
     els.statusBox.textContent = "";
-    els.statusBox.className = "bcn-status hidden pr-status-slot";
+    els.statusBox.className = "bcn-status hidden";
   }
 
   function setSubmitting(isSubmitting) {
     els.submitBtn.disabled = isSubmitting;
     els.resetBtn.disabled = isSubmitting;
-    els.submitBtn.textContent = isSubmitting ? "Logging…" : "Log it";
+    els.submitBtn.textContent = isSubmitting ? "Submitting…" : "Submit to Mailroom";
   }
 
   function todayISO() {
     return new Date().toISOString().slice(0, 10);
   }
 
+  function syncPriorityChips() {
+    const value = els.priority.value || "P2";
+    els.priorityChips.querySelectorAll("button[data-priority]").forEach((btn) => {
+      btn.classList.toggle("is-on", btn.dataset.priority === value);
+    });
+  }
+
+  function syncInputFiles() {
+    const dt = new DataTransfer();
+    stagedFiles.forEach((f) => dt.items.add(f));
+    els.mailFile.files = dt.files;
+  }
+
+  function renderFileList() {
+    if (!stagedFiles.length) {
+      els.fileList.hidden = true;
+      els.fileList.innerHTML = "";
+      return;
+    }
+    els.fileList.hidden = false;
+    els.fileList.innerHTML = stagedFiles.map((file, index) => (
+      `<div class="mi-file-row">
+        <span>${escapeAttr(file.name)}</span>
+        <button type="button" data-remove="${index}">Remove</button>
+      </div>`
+    )).join("");
+    els.fileList.querySelectorAll("[data-remove]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        stagedFiles.splice(Number(btn.dataset.remove), 1);
+        syncInputFiles();
+        renderFileList();
+      });
+    });
+  }
+
+  function addFiles(fileList) {
+    const incoming = Array.from(fileList || []);
+    if (!incoming.length) return;
+    stagedFiles = stagedFiles.concat(incoming);
+    syncInputFiles();
+    renderFileList();
+  }
+
   function resetForm() {
     els.intakeForm.reset();
     els.receivedDate.value = todayISO();
     els.priority.value = "P2";
+    syncPriorityChips();
+    stagedFiles = [];
+    syncInputFiles();
+    renderFileList();
     clearStatus();
     els.successCard.classList.add("hidden");
     els.appCard.classList.remove("hidden");
@@ -275,7 +350,9 @@
     } else {
       els.authCard.classList.add("hidden");
       els.appCard.classList.remove("hidden");
-      els.signedInAs.textContent = `Signed in: ${currentUser.email || "user"}`;
+      const label = currentUser.email || "user";
+      els.signedInAs.textContent = label;
+      els.signedInAs.title = `Signed in as ${label}`;
     }
   }
 
@@ -368,14 +445,6 @@
         updated_by: currentUser?.id || null
       };
 
-      // The mail item row has to exist BEFORE any file upload: the
-      // mail-item-files storage bucket's own RLS policy only accepts an
-      // object into a "<item id>/..." path once a mail_items row with that
-      // id already exists (same shape as "payment request files writable
-      // with the request"). Uploading first (the old order) raced that
-      // check and could fail with "new row violates row-level security
-      // policy" -- same root cause fixed in purchase_request.html
-      // (2026-09-03), hit here too.
       const { error: insertError } = await supabaseClient.from("mail_items").insert({...payload,...(_co?.id?{company_entity_id:_co.id}:{})});
       if (insertError) throw insertError;
 
@@ -387,9 +456,6 @@
           if (fileRowsError) throw fileRowsError;
         }
       } catch (attachError) {
-        // The mail item itself is already saved -- say so plainly instead
-        // of a generic failure, which would read as "nothing happened" and
-        // invite a duplicate submission.
         console.error(attachError);
         try {
           await logActivity({
@@ -435,6 +501,7 @@
         : "No files attached";
       els.appCard.classList.add("hidden");
       els.successCard.classList.remove("hidden");
+      document.querySelector(".mi-steps")?.classList.add("hidden");
       showStatus("Logged to the Mailroom queue.", "success");
     } catch (error) {
       console.error(error);
@@ -444,23 +511,55 @@
     }
   }
 
-  // Mount chrome synchronously — sidebar visible before any network call
   SiloChrome.mount({
     appEl: '#silo-app',
-    active: 'finance/mail-intake',
+    active: 'finance/mailroom',
     user: { email: '', role: 'MEMBER' },
-    crumbs: ['Ops', 'Mail Intake'],
+    crumbs: ['Finance', 'Mailroom', 'Mail Intake'],
     supabaseClient,
   });
 
-  // Always attach listeners synchronously — never inside async init
   els.intakeForm.addEventListener("submit", createMailItem);
   els.resetBtn.addEventListener("click", resetForm);
-  els.newItemBtn.addEventListener("click", resetForm);
+  els.newItemBtn.addEventListener("click", () => {
+    document.querySelector(".mi-steps")?.classList.remove("hidden");
+    resetForm();
+  });
+
+  els.priorityChips.querySelectorAll("button[data-priority]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      els.priority.value = btn.dataset.priority;
+      syncPriorityChips();
+    });
+  });
+  els.priority.addEventListener("change", syncPriorityChips);
+
+  els.dropZone.addEventListener("click", () => els.mailFile.click());
+  els.dropZone.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      els.mailFile.click();
+    }
+  });
+  els.mailFile.addEventListener("change", () => addFiles(els.mailFile.files));
+  ["dragenter", "dragover"].forEach((ev) => {
+    els.dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      els.dropZone.classList.add("is-dragover");
+    });
+  });
+  ["dragleave", "drop"].forEach((ev) => {
+    els.dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      els.dropZone.classList.remove("is-dragover");
+    });
+  });
+  els.dropZone.addEventListener("drop", (e) => addFiles(e.dataTransfer?.files));
 
   async function boot() {
     try {
       els.receivedDate.value = todayISO();
+      syncPriorityChips();
 
       const { data, error } = await supabaseClient.auth.getUser();
       if (error) console.warn("Auth:", error.message);

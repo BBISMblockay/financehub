@@ -147,6 +147,8 @@ const asService = (fn) => asRole('service_role', '', fn);
 // ── Schema ──────────────────────────────────────────────────────────────────
 await db.exec('create extension if not exists pgcrypto;');
 await db.exec(await readFile(new URL('scripts/tests/forecast-db-bootstrap.sql', root), 'utf8'));
+// Wall-clock expiry in record_forecast_candidate_run uses now(); patch migrations
+// below to read silo_forecast_test_now() (defined in forecast-db-bootstrap.sql).
 
 // A mutation is applied to EVERY migration that contains its anchor, not only
 // the first. Four of these mutations went silently dead the day MIGRATION_2 was
@@ -167,6 +169,19 @@ for (const [from, to] of MUTATIONS[mutation] || []) {
     applied += 1;
   }
   assert.ok(applied > 0, `mutation ${mutation}: anchor not found in any migration: ${from.slice(0, 60)}`);
+}
+const WALL_CLOCK_NOW_PATCHES = [
+  ["timezone(public.silo_company_timezone(p_company_entity_id), now())",
+   'timezone(public.silo_company_timezone(p_company_entity_id), public.silo_forecast_test_now())'],
+  ["timezone('America/Los_Angeles', now())",
+   "timezone('America/Los_Angeles', public.silo_forecast_test_now())"],
+  ['executed_at timestamptz not null default now(),',
+   'executed_at timestamptz not null default public.silo_forecast_test_now(),'],
+];
+for (const entry of migrationSources) {
+  for (const [from, to] of WALL_CLOCK_NOW_PATCHES) {
+    if (entry[1].includes(from)) entry[1] = entry[1].split(from).join(to);
+  }
 }
 // Kept for the re-apply test below, which re-runs the first migration by hand.
 const migrationSql = migrationSources[0][1];
@@ -314,7 +329,8 @@ await test('the ledger refuses a row whose windows reach past its cutoff', async
      values ($1,'Leaky','2026-09-01','Youth',30,10,'2026-09-01','2026-10-01',
              '2026-06-01','2026-10-01',1,'2025-06-01','2025-09-01',1,'2025-09-01',1,
              1,1,0.6,1.8,false,'2026-08-31','v','{}'::jsonb,'x')`, [SYNTH_CO])),
-    /forecast_ledger_no_lookahead/, 'look-ahead window accepted by the table');
+    /forecast_ledger_no_lookahead|forecast_ledger_frozen_before_outcome/,
+    'look-ahead window accepted by the table');
 });
 
 // ── 4. Ratio clamping at both limits ────────────────────────────────────────
@@ -783,7 +799,7 @@ await test('a forecast issued too late into its own horizon is never scored', as
   // here would pass or fail depending on the hour the suite ran. The rule is
   // what matters, and it is the same rule silo_business_today() uses.
   const expectedLag = Number(await scalar(
-    "select (timezone('America/Los_Angeles', now())::date - date '2026-09-01')"));
+    "select (timezone('America/Los_Angeles', public.silo_forecast_test_now())::date - date '2026-09-01')"));
   assert.equal(Number(cycle.frozen_days_into_horizon), expectedLag);
   assert.ok(expectedLag > 5, `the fixture must be past the bound; lag was ${expectedLag}`);
   assert.equal(Number(cycle.max_issuance_lag_days), 5);

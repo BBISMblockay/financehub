@@ -7,7 +7,6 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
-  <link rel="stylesheet" href="po-workbench.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <link rel="stylesheet" href="profile-page.css" />
   <script src="v2-shell.js" defer></script>
@@ -33,10 +32,15 @@
 <body class="silo-brand profile-page">
   <div class="silo-app" id="silo-app">
     <main class="silo-main">
-      <header class="bcn-header">
+      <header class="bcn-header profile-page-header">
         <div style="flex:1;min-width:0;">
           <div class="bcn-header-title"><h1>My profile</h1></div>
-          <div class="bcn-header-sub bcn-header-sub--trimmed">Your account, preferences, and a live work queue pulled from SILO.</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed">Work queue and preferences for your SILO account.</div>
+        </div>
+        <div class="bcn-header-actions profile-header-actions">
+          <span id="saveStatus" class="profile-save-status" role="status" aria-live="polite"></span>
+          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnReload">Reload</button>
+          <button type="button" class="bcn-btn bcn-btn--primary" id="btnSave">Save</button>
         </div>
       </header>
 
@@ -49,91 +53,57 @@
         <section class="bcn-card profile-hero-card" id="summaryCard" hidden>
           <div class="profile-hero" id="profileHero"></div>
           <details class="profile-hero-details">
-            <summary>Account details</summary>
+            <summary>Technical account details</summary>
             <dl class="profile-summary-grid" id="summaryDl"></dl>
           </details>
         </section>
 
-        <section class="bcn-card" id="formCard" hidden>
-          <header class="bcn-card-header">
-            <span class="bcn-pill">PROFILE</span>
-            <h2>Account</h2>
+        <div class="bcn-card profile-settings-card" id="settingsCard" hidden>
+          <header class="profile-settings-card__head">
+            <h2>Preferences</h2>
+            <p class="hint">Name and sign-in defaults. Role and department are managed by your workspace admin.</p>
           </header>
-          <div class="bcn-card-body">
-            <div class="bcn-field-group">
-              <label class="bcn-label">Email</label>
-              <input id="fEmail" class="bcn-field" type="email" disabled />
-            </div>
-            <div class="bcn-field-group">
-              <label class="bcn-label">Display name</label>
-              <input id="fName" class="bcn-field" type="text" placeholder="Your name" />
-            </div>
-            <div class="bcn-field-group">
-              <label class="bcn-label">Status</label>
-              <div id="fStatus"></div>
-            </div>
-          </div>
-        </section>
+          <div class="profile-settings-card__body">
+            <section id="formCard" class="profile-settings__section">
+              <input id="fEmail" class="profile-offscreen" type="email" disabled tabindex="-1" aria-hidden="true" />
+              <div class="bcn-field-group">
+                <label class="bcn-label" for="fName">Display name</label>
+                <input id="fName" class="bcn-field" type="text" placeholder="Your name" />
+              </div>
+              <div class="bcn-field-group profile-settings__status-row">
+                <span class="bcn-label">Account status</span>
+                <div id="fStatus"></div>
+              </div>
+            </section>
 
-        <section class="bcn-card" id="orgCard" hidden>
-          <header class="bcn-card-header">
-            <span class="bcn-pill">ORG</span>
-            <h2>Organization</h2>
-          </header>
-          <div class="bcn-card-body">
-            <div class="bcn-field-group">
-              <label class="bcn-label">Role</label>
-              <input id="fRole" class="bcn-field" type="text" disabled />
-              <p class="hint">A workspace administrator can change your role.</p>
-            </div>
-            <div class="bcn-field-group">
-              <label class="bcn-label">Department</label>
-              <input id="fDepartment" class="bcn-field" type="text" disabled />
-            </div>
-          </div>
-        </section>
+            <section id="orgCard" class="profile-offscreen" aria-hidden="true">
+              <input id="fRole" type="text" disabled tabindex="-1" />
+              <input id="fDepartment" type="text" disabled tabindex="-1" />
+            </section>
 
-        <section class="bcn-card" id="navCard" hidden>
-          <header class="bcn-card-header">
-            <span class="bcn-pill bcn-pill--accent">NAV</span>
-            <h2>Navigation</h2>
-          </header>
-          <div class="bcn-card-body">
-            <div class="bcn-field-group">
-              <label class="bcn-label">Default landing page</label>
-              <select id="fDefaultPage" class="bcn-field bcn-field--mono"></select>
-              <p class="hint">Used after sign-in when set. Otherwise department defaults apply.</p>
-            </div>
+            <section id="navCard" class="profile-settings__section profile-settings__section--nav">
+              <div class="bcn-field-group">
+                <label class="bcn-label" for="fDefaultPage">Default landing page</label>
+                <select id="fDefaultPage" class="bcn-field bcn-field--mono"></select>
+                <p class="hint">Used after sign-in when set. Otherwise department defaults apply.</p>
+              </div>
+              <div class="profile-settings__security">
+                <a class="bcn-btn bcn-btn--ghost" href="/pages/set-password.html">Change password</a>
+              </div>
+            </section>
           </div>
-        </section>
+        </div>
 
-        <section class="bcn-card" id="actionsCard" hidden>
-          <header class="bcn-card-header bcn-card-header--dark">
-            <span class="bcn-pill bcn-pill--dark">ACTIONS</span>
-            <h2>Save</h2>
-          </header>
-          <footer class="bcn-card-foot">
-            <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnSave">SAVE</button>
-            <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/pages/set-password.html">PASSWORD</a>
-            <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnReload">RELOAD</button>
-          </footer>
-          <div class="bcn-card-body" style="padding-top:0;">
-            <div id="saveStatus" class="hint"></div>
-          </div>
-        </section>
+        <section id="actionsCard" class="profile-offscreen" aria-hidden="true" hidden></section>
         </div>
 
         <aside class="profile-layout__aside" id="attentionAside" aria-label="Work queue">
           <section class="profile-queue-card" id="attentionCard">
             <header class="profile-queue-header">
-              <div class="profile-queue-header__mark" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-              </div>
-              <div class="profile-queue-header__text">
+              <div class="profile-queue-header__row">
                 <h2>Work queue</h2>
-                <p>What needs your eyes right now</p>
+                <span class="profile-queue-header__badge" id="feedCountBadge" hidden>0</span>
               </div>
-              <span class="profile-queue-header__badge" id="feedCountBadge" hidden>0</span>
             </header>
             <div class="profile-queue-body">
               <p id="feedStatus" class="profile-feed-status">Checking SILO…</p>
@@ -143,9 +113,8 @@
                 <p class="profile-feed-empty__title">All clear</p>
                 <p class="profile-feed-empty__sub">No open flags from AP, POs, launches, or admin.</p>
               </div>
-              <button type="button" class="profile-feed-refresh" id="btnFeedRefresh">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
-                Refresh queue
+              <button type="button" class="bcn-btn bcn-btn--ghost profile-feed-refresh" id="btnFeedRefresh">
+                Refresh
               </button>
             </div>
           </section>
@@ -184,6 +153,7 @@
       summaryCard: document.getElementById('summaryCard'),
       profileHero: document.getElementById('profileHero'),
       summaryDl: document.getElementById('summaryDl'),
+      settingsCard: document.getElementById('settingsCard'),
       formCard: document.getElementById('formCard'),
       orgCard: document.getElementById('orgCard'),
       navCard: document.getElementById('navCard'),
@@ -248,16 +218,11 @@
       return String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     }
 
-    // Department bucketing mirrors the real profiles.department picklist
-    // (v2/backend.html's admin dropdowns: ops, finance, logistics, marketing,
-    // retail, exec) rather than the old regex-over-free-text approach — a
-    // 'logistics' or 'retail' user used to fall through every bucket and see
-    // an empty queue even though nothing here actually matched their dept.
-    // Admin detection prefers entity_memberships.role for the active company
-    // (owner_admin/admin), falling back to profiles.role only when no
-    // membership row exists — the same precedence is_admin_user() uses
-    // server-side (see CLAUDE.md). profiles.role 'executive' always counts,
-    // matching is_exec_or_owner()'s reach.
+    // Department bucketing mirrors profiles.department (ops, finance, logistics,
+    // marketing, retail, exec). The work queue loads only what matches that
+    // department — not every org backlog because someone is workspace admin.
+    // Exec sees all departmental feeds; retail (and unknown depts) see personal
+    // items only unless we add retail-specific sources later.
     async function resolveAccess(db, authUser, profile, co) {
       let membershipRole = null;
       if (co?.id && authUser?.id) {
@@ -271,14 +236,43 @@
       const dept = normToken(pickDepartment(profile));
       const isOwnerAdmin = membershipRole === 'owner_admin' || (!membershipRole && profileRole === 'owner');
       const isAdmin = isOwnerAdmin || membershipRole === 'admin' || (!membershipRole && profileRole === 'admin') || profileRole === 'executive';
+      const isExecDept = dept === 'exec';
       return {
         isAdmin,
         isOwnerAdmin,
-        finance: isAdmin || dept === 'finance' || dept === 'exec',
-        purchasing: isAdmin || dept === 'ops',
-        marketing: isAdmin || dept === 'marketing',
-        logistics: isAdmin || dept === 'logistics',
+        dept,
+        finance: dept === 'finance' || isExecDept,
+        purchasing: dept === 'ops' || isExecDept,
+        marketing: dept === 'marketing' || dept === 'ops' || dept === 'logistics' || isExecDept,
+        logistics: dept === 'logistics' || isExecDept,
       };
+    }
+
+    const ORG_DOMAINS_BY_DEPT = {
+      finance: new Set(['Payables', 'Mailroom']),
+      ops: new Set(['Purchasing', 'Launches', 'Product pipeline']),
+      marketing: new Set(['Launches', 'Product pipeline']),
+      logistics: new Set(['Samples', 'Launches', 'Product pipeline']),
+      exec: new Set(['Payables', 'Purchasing', 'Launches', 'Product pipeline', 'Mailroom', 'Samples', 'Admin']),
+      retail: new Set(),
+    };
+
+    const PERSONAL_FEED_KINDS = new Set(['my_tasks_overdue', 'my_tasks_open', 'sample_assigned_me']);
+
+    function feedItemAllowedForDept(item, access) {
+      if (PERSONAL_FEED_KINDS.has(item.kind)) return true;
+      const domain = feedKindMeta(item.kind).domain;
+      if (domain === 'For you') return true;
+      if (domain === 'Admin') return access.isAdmin;
+      const allowed = ORG_DOMAINS_BY_DEPT[access.dept];
+      if (!allowed) return false;
+      return allowed.has(domain);
+    }
+
+    function departmentQueueLabel(dept) {
+      if (!dept || dept === '—') return 'your workspace';
+      if (dept === 'ops') return 'purchasing';
+      return dept;
     }
 
     async function countRows(table, applyFilters) {
@@ -355,6 +349,7 @@
 
     async function loadLaunchAttention(items, access) {
       if (!access.marketing) return;
+      const showOrgLaunchTaskBacklog = access.dept === 'marketing' || access.dept === 'exec';
       const today = todayIso();
       const weekEnd = addDaysIso(today, 7);
       let launches = [];
@@ -374,9 +369,11 @@
       if (notReady.length > 0) {
         pushFeedItem(items, { kind: 'launch_readiness', title: `${notReady.length} launch${notReady.length === 1 ? '' : 'es'} not ready`, detail: 'Readiness needs review in the next 7 days.', href: '/v2/launch-calendar.html', severity: 'warn', count: notReady.length });
       }
-      const overdueTasks = await safeCount('launch_tasks', q => { let _q = q.neq('status', 'done').not('due_date', 'is', null).lt('due_date', today); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; });
-      if (overdueTasks.ok && overdueTasks.count > 0) {
-        pushFeedItem(items, { kind: 'launch_tasks', title: `${overdueTasks.count} overdue launch task${overdueTasks.count === 1 ? '' : 's'}`, detail: 'Past due and not done.', href: '/v2/launch-calendar.html', severity: 'high', count: overdueTasks.count });
+      if (showOrgLaunchTaskBacklog) {
+        const overdueTasks = await safeCount('launch_tasks', q => { let _q = q.neq('status', 'done').not('due_date', 'is', null).lt('due_date', today); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; });
+        if (overdueTasks.ok && overdueTasks.count > 0) {
+          pushFeedItem(items, { kind: 'launch_tasks', title: `${overdueTasks.count} overdue launch task${overdueTasks.count === 1 ? '' : 's'}`, detail: 'Past due and not done.', href: '/v2/launch-calendar.html', severity: 'high', count: overdueTasks.count });
+        }
       }
       const atRisk = await safeCount('launch_product_readiness', q => { let _q = q.eq('readiness_status', 'at_risk'); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; });
       if (atRisk.ok && atRisk.count > 0) {
@@ -616,28 +613,46 @@
       const meta = feedKindMeta(it.kind);
       const count = it.count != null ? `<span class="profile-feed-card__count">${esc(it.count)}</span>` : '';
       return `<a class="profile-feed-card profile-feed-card--${esc(it.severity)}" href="${esc(it.href)}" role="listitem">
-        <span class="profile-feed-card__icon profile-feed-card__icon--${esc(meta.icon)}" aria-hidden="true">${feedIconSvg(meta.icon)}</span>
         <span class="profile-feed-card__body">
-          <span class="profile-feed-card__eyebrow">${esc(meta.workspace)} · <em>${esc(severityLabel(it.severity))}</em></span>
-          <span class="profile-feed-card__title">${esc(it.title)}</span>
+          <span class="profile-feed-card__title-row">
+            <span class="profile-feed-card__title">${esc(it.title)}</span>
+            ${count}
+          </span>
           <span class="profile-feed-card__detail">${esc(it.detail)}</span>
+          <span class="profile-feed-card__meta">
+            <span class="profile-feed-card__workspace">${esc(meta.workspace)}</span>
+            <span class="profile-feed-card__sev profile-feed-card__sev--${esc(it.severity)}">${esc(severityLabel(it.severity))}</span>
+          </span>
         </span>
-        <span class="profile-feed-card__trail">
-          ${count}
-          <span class="profile-feed-card__chev" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></span>
-        </span>
+        <span class="profile-feed-card__chev" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></span>
       </a>`;
     }
 
     const SEVERITY_ORDER = { high: 0, warn: 1, info: 2 };
+    const DOMAIN_TIE_ORDER = ['For you', 'Payables', 'Purchasing', 'Launches', 'Product pipeline', 'Mailroom', 'Samples', 'Admin'];
+
+    function feedUnderlyingCount(it) {
+      const n = Number(it.count);
+      return Number.isFinite(n) && n > 0 ? n : 1;
+    }
+
+    function compareFeedItems(a, b) {
+      const sa = SEVERITY_ORDER[a.severity] ?? 9;
+      const sb = SEVERITY_ORDER[b.severity] ?? 9;
+      if (sa !== sb) return sa - sb;
+      return feedUnderlyingCount(b) - feedUnderlyingCount(a);
+    }
+
+    function groupWorstSeverity(items) {
+      return Math.min(...items.map(it => SEVERITY_ORDER[it.severity] ?? 9));
+    }
+
+    function groupPeakCount(items) {
+      return Math.max(...items.map(feedUnderlyingCount));
+    }
 
     function renderAttentionFeed() {
-      const sorted = attentionItems.slice().sort((a, b) => {
-        const sa = SEVERITY_ORDER[a.severity] ?? 9;
-        const sb = SEVERITY_ORDER[b.severity] ?? 9;
-        if (sa !== sb) return sa - sb;
-        return (b.count || 0) - (a.count || 0);
-      });
+      const sorted = attentionItems.slice().sort(compareFeedItems);
 
       const groups = new Map();
       sorted.forEach(it => {
@@ -646,15 +661,22 @@
         groups.get(domain).push(it);
       });
 
-      const domainOrder = ['For you', 'Payables', 'Purchasing', 'Launches', 'Product pipeline', 'Mailroom', 'Samples', 'Admin'];
       const orderedDomains = [...groups.keys()].sort((a, b) => {
-        const ia = domainOrder.indexOf(a);
-        const ib = domainOrder.indexOf(b);
+        const itemsA = groups.get(a);
+        const itemsB = groups.get(b);
+        const sa = groupWorstSeverity(itemsA);
+        const sb = groupWorstSeverity(itemsB);
+        if (sa !== sb) return sa - sb;
+        const ca = groupPeakCount(itemsA);
+        const cb = groupPeakCount(itemsB);
+        if (ca !== cb) return cb - ca;
+        const ia = DOMAIN_TIE_ORDER.indexOf(a);
+        const ib = DOMAIN_TIE_ORDER.indexOf(b);
         return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
       });
 
       els.feedList.innerHTML = orderedDomains.map(domain => {
-        const domainItems = groups.get(domain);
+        const domainItems = groups.get(domain).slice().sort(compareFeedItems);
         const isPersonal = domain === 'For you';
         return `
         <section class="profile-feed-group${isPersonal ? ' profile-feed-group--personal' : ''}" aria-label="${esc(domain)}">
@@ -682,8 +704,9 @@
       els.feedList.hidden = false;
       attentionItems = [];
       access = await resolveAccess(db, authUser, profile, _co);
+      // Personal assignments first — always, every department (ops/logistics included).
+      await loadMyTasksAttention(attentionItems);
       await Promise.all([
-        loadMyTasksAttention(attentionItems),
         loadSampleAttention(attentionItems, access),
         loadPaymentAttention(attentionItems, access),
         loadPoAttention(attentionItems, access),
@@ -693,11 +716,18 @@
         loadMailAttention(attentionItems, access),
         loadAdminAttention(attentionItems, access),
       ]);
+      attentionItems = attentionItems.filter((it) => feedItemAllowedForDept(it, access));
       renderAttentionFeed();
-      const n = attentionItems.length;
-      els.feedStatus.textContent = n
-        ? `Updated ${new Date().toLocaleTimeString()} · ${n} open item${n === 1 ? '' : 's'}`
-        : `Updated ${new Date().toLocaleTimeString()} · queue clear`;
+      const alertCount = attentionItems.length;
+      const itemTotal = attentionItems.reduce((sum, it) => sum + feedUnderlyingCount(it), 0);
+      const time = new Date().toLocaleTimeString();
+      if (!alertCount) {
+        els.feedStatus.textContent = `Updated ${time} · nothing open for ${departmentQueueLabel(access.dept)}`;
+      } else if (itemTotal === alertCount) {
+        els.feedStatus.textContent = `Updated ${time} · ${alertCount} alert${alertCount === 1 ? '' : 's'}`;
+      } else {
+        els.feedStatus.textContent = `Updated ${time} · ${alertCount} alert${alertCount === 1 ? '' : 's'} (${itemTotal} item${itemTotal === 1 ? '' : 's'})`;
+      }
     }
 
     function renderLandingOptions(selected) {
@@ -717,10 +747,11 @@
 
     function showPanels(hasProfile) {
       els.summaryCard.hidden = false;
+      if (els.settingsCard) els.settingsCard.hidden = false;
       els.formCard.hidden = false;
-      els.orgCard.hidden = false;
+      if (els.orgCard) els.orgCard.hidden = true;
       els.navCard.hidden = false;
-      els.actionsCard.hidden = hasProfile;
+      if (els.actionsCard) els.actionsCard.hidden = true;
       els.btnSave.disabled = !hasProfile;
       fixProfileScroll();
     }

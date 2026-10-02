@@ -434,8 +434,25 @@ export function resolveSalesRowLocation({
     return { location_tag: tag, location_name: connection.default_location_code };
   }
 
-  // No mapping found — skip this row rather than writing a garbage unknown tag
-  return null;
+  // Nothing mapped and nothing typed: label the sale with the Shopify store's
+  // own name rather than dropping it.
+  return storeNameLocation(connection);
+}
+
+/**
+ * Last-resort sales location: the Shopify store itself. The TAG comes from the
+ * myshopify domain, which never changes, so renaming the store in Shopify
+ * relabels its rows instead of splitting its history across two tags. The NAME
+ * is the store's name (refreshed from shop.json by runShopDomainsSync), falling
+ * back to the domain. No locations row is created, so these sales report as an
+ * unclassified channel until someone maps the real location.
+ */
+export function storeNameLocation(connection) {
+  const domain = String(connection?.shop_domain || '').trim().toLowerCase();
+  if (!domain) return null;
+  const handle = domain.replace(/\.myshopify\.com$/, '');
+  const name = String(connection?.shop_name || '').replace(/\s+/g, ' ').trim();
+  return { location_tag: slugify(`shopify_${handle}`), location_name: name || handle };
 }
 
 /** Remove shopify_api sales for one shop only (safe for multi-store companies). */
@@ -1703,8 +1720,25 @@ export async function runShopDomainsSync(supabase, connection, { fetchJson = nul
     return { skipped: true, error: String(err?.message || err).slice(0, 300) };
   }
 
+  // Keep the store's name current: it labels sales at unmapped locations
+  // (storeNameLocation), and the name captured at connect time goes stale.
+  // Best-effort, like the rest of this function.
+  const shopName = String(shop?.name || '').replace(/\s+/g, ' ').trim();
+  const storedName = String(connection.shop_name || '').replace(/\s+/g, ' ').trim();
+  let shopNameUpdated = false;
+  if (shopName && shopName !== storedName && connection.id) {
+    const { error: nameErr } = await supabase
+      .from('shopify_connections')
+      .update({ shop_name: shopName })
+      .eq('id', connection.id);
+    if (!nameErr) {
+      connection.shop_name = shopName;
+      shopNameUpdated = true;
+    }
+  }
+
   const rows = buildShopDomainRows(shop, connection);
-  if (!rows.length) return { skipped: true, error: 'shop object carried no usable domain' };
+  if (!rows.length) return { skipped: true, shop_name_updated: shopNameUpdated, error: 'shop object carried no usable domain' };
 
   const upserted = await upsertInChunks(
     supabase,
@@ -1741,6 +1775,7 @@ export async function runShopDomainsSync(supabase, connection, { fetchJson = nul
 
   return {
     hosts: keep,
+    shop_name_updated: shopNameUpdated,
     rows_upserted: upserted,
     hosts_retired: sweepErr ? null : (removed || []).map((r) => r.host),
     sweep_error: sweepErr ? sweepErr.message : null,
