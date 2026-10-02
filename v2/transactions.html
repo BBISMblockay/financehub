@@ -220,7 +220,7 @@
     .cc-chip--split { background: rgba(37,99,235,.12); border-color: var(--bcn-accent); }
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
-  <link rel="stylesheet" href="./transactions-workspace.css?v=0cd019a62d73" />
+  <link rel="stylesheet" href="./transactions-workspace.css?v=6c88609aa9f1" />
   <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -374,6 +374,8 @@
                 <select id="codeFilter" hidden aria-hidden="true" tabindex="-1">
                   <option value="all">All rows</option>
                   <option value="uncoded">Needs categorizing</option>
+                  <option value="treatment">Needs transaction type</option>
+                  <option value="entity">Needs entity</option>
                   <option value="conflict">Card vs merchant</option>
                   <option value="low">Low confidence</option>
                   <option value="ai">AI-suggested</option>
@@ -441,6 +443,7 @@
               <div class="txn-activefilters-chips" id="filterChips"></div>
               <button class="bcn-btn" type="button" id="btnClearFilters">Clear filters</button>
             </div>
+            <div class="bcn-status bcn-status--neg txn-blockers" id="codeBlockers" role="status" hidden></div>
             <div class="cc-variants" id="codeVariants"></div>
             <div class="cc-body">
               <table class="cc-tbl" id="tblCoding"></table>
@@ -668,11 +671,11 @@
 <script src="plaid-bank-feed.js?v=3bb27ed5e68f"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
-<script src="transaction-dates.js?v=0bad96d29084"></script>
+<script src="transaction-dates.js?v=dda280ea3b11"></script>
 <script src="coding-suggestions.js?v=08bc45603fb5"></script>
 <script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
 <script src="card-splits.js?v=050d8f3d5bed"></script>
-<script src="transaction-filters.js?v=53b49e70ff5e"></script>
+<script src="transaction-filters.js?v=afa2cf64ec50"></script>
 <script>
 (function () {
   'use strict';
@@ -1170,6 +1173,38 @@
   const NEEDS_ENTITY = new Set(['Accounts Receivable', 'Accounts Payable']);
   const acctType = (id) => refsForConnection(state.allAccounts).find((a) => a.id === id)?.type || null;
   const needsEntity = (t) => NEEDS_ENTITY.has(acctType(t.qbo_account_id) || '');
+  // A row whose journal line(s) will be refused for want of an entity: its own
+  // account, or any split line's -- the same test the Entry blocker counts.
+  function missingEntity(t) {
+    if (!t || !t.qbo_account_id && !isSplit(t)) return false;
+    if (isSplit(t)) return (splitsFor(t) || []).some((l) => NEEDS_ENTITY.has(acctType(l.qbo_account_id) || '') && !l.entity_qbo_id);
+    return needsEntity(t) && !t.entity_qbo_id;
+  }
+  // Why a categorized bank row has no type yet, and what SILO would set.
+  const treatmentGapFor = (t) => window.SiloTransactionDates.treatmentGap(t, acctType(t.qbo_account_id),
+    batchSource()?.source_type, isSplit(t));
+  /* An entity this company has already used for the same merchant on the same
+     account, among the rows loaded. A suggestion a person applies, never an
+     automatic fill: two entities on one merchant+account suggest nothing. */
+  // Indexed once per render (renderCoding resets it): asking per row by
+  // scanning every row would be quadratic on a 400-row table.
+  let entityHints = null;
+  function entitySuggestion(t) {
+    if (!t || isSplit(t) || t.entity_qbo_id || !needsEntity(t)) return null;
+    if (!entityHints) {
+      entityHints = new Map();
+      for (const r of workingRows()) {
+        if (!r.entity_qbo_id || !r.qbo_account_id) continue;
+        const key = `${r.qbo_account_id}|${merchantKey(r)}`;
+        const seen = entityHints.get(key) || new Map();
+        const k = `${r.entity_type}:${r.entity_qbo_id}`;
+        seen.set(k, { entity_type: r.entity_type, entity_qbo_id: r.entity_qbo_id, entity_name: r.entity_name, n: (seen.get(k)?.n || 0) + 1 });
+        entityHints.set(key, seen);
+      }
+    }
+    const seen = entityHints.get(`${t.qbo_account_id}|${merchantKey(t)}`);
+    return seen && seen.size === 1 ? [...seen.values()][0] : null;
+  }
 
   const acctName = (id) => refsForConnection(state.accounts).find((a) => a.id === id)?.name || null;
   const locName = (id) => refsForConnection(state.locations).find((l) => l.id === id)?.name || null;
@@ -1684,7 +1719,10 @@
       t.entity_name = rule.entity_name || null;
       t.entity_type = rule.entity_type || null;
       t.vendor_name = rule.vendor_name || t.vendor_name;
-      if (t.origin === 'plaid') t.accounting_treatment = rule.accounting_treatment || 'unknown';
+      // A rule saved without a type no longer blanks one the category implies.
+      if (t.origin === 'plaid') t.accounting_treatment = (rule.accounting_treatment && rule.accounting_treatment !== 'unknown')
+        ? rule.accounting_treatment
+        : window.SiloTransactionDates.inferTreatment({ ...t, accounting_treatment: 'unknown' }, acctType(t.qbo_account_id), batchSource()?.source_type);
       t.coding_source = 'rule';
       t.confidence = 1;
       t.ai_reasoning = null;
@@ -1753,9 +1791,11 @@
     merchantLabel: (key) => merchantLabels.get(key) || '',
     sourceName: () => batchSource()?.display_name || '',
     hasSuggestion: (t) => !!readySuggestion(t),
+    missingEntity,
     accountName: (id) => acctName(id) || state.allAccounts.find((a) => a.id === id)?.name || id,
     typeLabel: (v) => TREATMENTS[v] || v,
-    statusLabel: (v) => ({ uncoded: 'Needs categorizing', conflict: 'Card vs merchant',
+    statusLabel: (v) => ({ uncoded: 'Needs categorizing', treatment: 'Needs transaction type',
+      entity: 'Needs entity', conflict: 'Card vs merchant',
       low: 'Low confidence', ai: 'AI-suggested', excluded: 'Excluded' }[v] || v),
   });
 
@@ -1775,17 +1815,75 @@
   });
   let expandedTransaction = null;
   function renderFilterSegments(rows) {
-    const counts={all:rows.length,uncoded:0,conflict:0,low:0,ai:0,excluded:0};
+    const counts={all:rows.length,uncoded:0,treatment:0,entity:0,conflict:0,low:0,ai:0,excluded:0};
     for(const t of rows) {
       if(t.status==='uncoded')counts.uncoded++;
+      if(TF.needsTreatment(t))counts.treatment++;
+      if(t.status!=='excluded' && missingEntity(t))counts.entity++;
       if(t.coding_conflict)counts.conflict++;
       if(t.status!=='excluded' && (t.confidence??1)<.6)counts.low++;
       if(t.coding_source==='ai' || readySuggestion(t))counts.ai++;
       if(t.status==='excluded')counts.excluded++;
     }
-    const segments=[['all','All'],['uncoded','Needs categorizing'],['conflict','Conflicts'],['ai','AI'],['low','Low confidence'],['excluded','Excluded']];
+    // The two "Entry will refuse this" segments appear only when something is
+    // in them (or one is selected), so a card feed with neither is unchanged.
+    const segments=[['all','All'],['uncoded','Needs categorizing'],['treatment','Needs type'],['entity','Needs entity'],['conflict','Conflicts'],['ai','AI'],['low','Low confidence'],['excluded','Excluded']]
+      .filter(([value])=>!['treatment','entity'].includes(value) || counts[value] || filters.status===value);
     el('codeFilterSegments').innerHTML=segments.map(([value,label])=>`<button type="button" data-code-filter="${value}" aria-pressed="${filters.status===value}">${label} <span>${counts[value]}</span></button>`).join('');
   }
+  /* What Entry will refuse, said here while tagging. Same predicates as the
+     Entry blockers (TF.needsTreatment, missingEntity), so the counts agree. */
+  function renderBlockers(rows) {
+    const box = el('codeBlockers');
+    const live = rows.filter((t) => t.status !== 'excluded');
+    const types = live.filter(TF.needsTreatment);
+    const entities = live.filter(missingEntity);
+    if (!types.length && !entities.length) { box.hidden = true; box.innerHTML = ''; return; }
+    const fixable = types.filter((t) => rowEditable(t) && treatmentGapFor(t)?.suggested);
+    const entityFixable = entities.filter((t) => rowEditable(t) && entitySuggestion(t));
+    const reasons = new Map();
+    for (const t of types) { const r = treatmentGapFor(t)?.reason || ''; reasons.set(r, (reasons.get(r) || 0) + 1); }
+    const parts = [];
+    if (types.length) {
+      parts.push(`<div><b>${types.length} categorized bank row${types.length === 1 ? ' has' : 's have'} no transaction type</b> — Entry cannot be approved until ${types.length === 1 ? 'it has' : 'each has'} one.`
+        + `<ul>${[...reasons].map(([r, n]) => `<li>${n} × ${esc(r)}</li>`).join('')}</ul>`
+        + `<button class="bcn-btn" type="button" data-blocker-filter="treatment">Show them</button>`
+        + (fixable.length ? ` <button class="bcn-btn bcn-btn--primary" type="button" data-blocker-fix="treatment">Set suggested type on ${fixable.length}</button>` : '')
+        + '</div>');
+    }
+    if (entities.length) {
+      parts.push(`<div><b>${entities.length} row${entities.length === 1 ? ' is' : 's are'} on a receivable or payable account with no entity</b> — QuickBooks refuses the whole entry over one.`
+        + ` <button class="bcn-btn" type="button" data-blocker-filter="entity">Show them</button>`
+        + (entityFixable.length ? ` <button class="bcn-btn bcn-btn--primary" type="button" data-blocker-fix="entity">Use the entity already used for that merchant on ${entityFixable.length}</button>` : '')
+        + '</div>');
+    }
+    box.innerHTML = parts.join('');
+    box.hidden = false;
+  }
+  el('codeBlockers').addEventListener('click', (e) => {
+    const show = e.target.closest('[data-blocker-filter]');
+    if (show) {
+      filters.status = show.dataset.blockerFilter;
+      el('codeFilter').value = filters.status;
+      state.selected.clear(); saveFilters(); renderCoding();
+      return;
+    }
+    const fix = e.target.closest('[data-blocker-fix]');
+    if (!fix || !requireEditable()) return;
+    for (const t of reviewDateRows().filter((r) => r.status !== 'excluded' && rowEditable(r))) {
+      if (fix.dataset.blockerFix === 'treatment') {
+        const g = TF.needsTreatment(t) && treatmentGapFor(t);
+        if (!g?.suggested) continue;
+        t.accounting_treatment = g.suggested;
+      } else {
+        const hint = missingEntity(t) && entitySuggestion(t);
+        if (!hint) continue;
+        Object.assign(t, { entity_type: hint.entity_type, entity_qbo_id: hint.entity_qbo_id, entity_name: hint.entity_name });
+      }
+      state.dirty.add(t.id);
+    }
+    renderCoding(); renderEntry();
+  });
   function renderSaveBar() {
     el('codeActionBar').hidden=(!dateBrowse && !state.batch) || (!state.selected.size && !state.dirty.size);
   }
@@ -1805,6 +1903,8 @@
     // X of Y" count are right even when the table itself has nothing to draw.
     const filteredRows = codingRows();
     renderFilterBar(reviewDateRows(), filteredRows.length);
+    entityHints = null;
+    renderBlockers(reviewDateRows());
     /* A removed row cannot be coded, but it can be looked at, and the one that
        matters is the one nothing replaced. Refreshed HERE, before the early
        returns below, for the same reason the filter chips are: an account or
@@ -1890,15 +1990,15 @@
         <td class="txn-select"><input type="checkbox" class="cc-check" data-pick ${!rowEditable(t)?'disabled title="This transaction is locked or unavailable"':''} aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
         <td class="txn-date">${esc(t.txn_date || '—')}</td>
         <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${esc(t.description)}</button>
-          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestedCategory?'Suggestion ready':suggestion?.kind==='failed'?'Preparation failed':t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':t.origin==='plaid' && t.qbo_account_id && t.accounting_treatment==='unknown'?'Accounting details needed':state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
+          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestedCategory?'Suggestion ready':suggestion?.kind==='failed'?'Preparation failed':t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':treatmentGapFor(t)?'Needs transaction type: '+esc(treatmentGapFor(t).reason):state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-merchant">${merchantCell(t)}</td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
-        <td class="txn-category" data-cell="account">${suggestedCategory?quickAccept(t,suggestion,suggestedCategory,expanded):isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}</td>
+        <td class="txn-category" data-cell="account">${suggestedCategory?quickAccept(t,suggestion,suggestedCategory,expanded):isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}${treatmentLine(t)}${entityLine(t)}</td>
         <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close':'Review'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${expanded?'−':'↗'}</button></td>
       </tr>
       <tr class="txn-detail-row" data-txn="${esc(t.id)}" id="txn-detail-${esc(t.id)}" ${expanded?'':'hidden'}><td colspan="7"><div class="txn-detail-panel">
         <section class="txn-explanation"><h3>${suggestedCategory?'Suggested category':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid' && !bank.isAvailable(t)?esc(providerNote(t))+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>Source details</button><button class="bcn-btn" data-journal>Review journal</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
-        <section><h3>Accounting details</h3>${t.origin==='plaid'?`<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t)?'disabled':''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>`:''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t)?'<span class="cc-note">set per split line</span>':cellButton(t.qbo_location_name,'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t)?'<span class="cc-note">set per split line</span>':entityCell(t)}</td></tr></tbody></table><button class="bcn-btn" data-toggle-exclude>${t.status==='excluded'?'Include transaction':'Exclude transaction'}</button><button class="bcn-btn" data-split title="Code this transaction across several accounts">${isSplit(t)?'Edit split':'Split across accounts'}</button></section>
+        <section><h3>Accounting details</h3>${t.origin==='plaid'?`<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t)?'disabled':''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>${(g=>g?`<p class="cc-note">${esc(g.reason)}.${g.choices.length?' Approval accepts: '+esc(g.choices.map(c=>TREATMENTS[c]).join(', '))+'.':''}</p>`:'')(treatmentGapFor(t))}`:''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t)?'<span class="cc-note">set per split line</span>':cellButton(t.qbo_location_name,'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t)?'<span class="cc-note">set per split line</span>':entityCell(t)}</td></tr></tbody></table><button class="bcn-btn" data-toggle-exclude>${t.status==='excluded'?'Include transaction':'Exclude transaction'}</button><button class="bcn-btn" data-split title="Code this transaction across several accounts">${isSplit(t)?'Edit split':'Split across accounts'}</button></section>
       </div></td></tr>`;
     }).join('') + '</tbody>';
 
@@ -1933,9 +2033,21 @@
   function entityCell(t) {
     if (!t.qbo_account_id) return '<span class="cc-note">—</span>';
     if (t.entity_name) return `<button class="cc-cell" data-edit="entity">${esc(t.entity_name)}</button>`;
-    return needsEntity(t)
-      ? '<button class="cc-cell cc-cell--req" data-edit="entity">needs entity</button>'
-      : '<span class="cc-note">not needed</span>';
+    if (!needsEntity(t)) return '<span class="cc-note">not needed</span>';
+    const hint = entitySuggestion(t);
+    return '<button class="cc-cell cc-cell--req" data-edit="entity">needs entity</button>'
+      + (hint ? ` <button class="bcn-btn bcn-btn--ghost txn-hint" data-use-entity title="Used on ${hint.n} other ${esc(merchantKey(t))} row${hint.n === 1 ? '' : 's'} on this account">Use ${esc(hint.entity_name || hint.entity_qbo_id)}</button>` : '');
+  }
+  // Under the category in the register, so an AR/AP row's entity is visible
+  // while tagging rather than only inside the review panel.
+  const entityLine = (t) => !isSplit(t) && t.qbo_account_id && (t.entity_name || needsEntity(t))
+    ? `<div class="txn-entity-line" data-entity-slot><span class="cc-note">Entity</span> ${entityCell(t)}</div>` : '';
+  function treatmentLine(t) {
+    const gap = treatmentGapFor(t);
+    if (!gap) return '';
+    return `<div class="txn-entity-line"><span class="cc-chip cc-chip--none">needs type</span> `
+      + (gap.suggested ? `<button class="bcn-btn bcn-btn--ghost txn-hint" data-use-treatment="${esc(gap.suggested)}">Set ${esc(TREATMENTS[gap.suggested] || gap.suggested)}</button>`
+        : `<button class="bcn-btn bcn-btn--ghost txn-hint" data-review>Choose type</button>`) + '</div>';
   }
 
   // Every distinct card name in the file, with its row count and total. This
@@ -2581,6 +2693,23 @@
     const t0 = workingRows().find((x) => x.id === tr0.dataset.txn);
     if (!t0) return;
 
+    // One-click fixes for the two things Entry refuses. Each marks the row
+    // unsaved, exactly like choosing the value by hand; Save still writes it.
+    const useTreatment = e.target.closest('[data-use-treatment]');
+    if (useTreatment) {
+      if (!requireEditable() || !rowEditable(t0)) return;
+      t0.accounting_treatment = useTreatment.dataset.useTreatment;
+      state.dirty.add(t0.id); renderCoding(); renderEntry();
+      return;
+    }
+    if (e.target.closest('[data-use-entity]')) {
+      const hint = entitySuggestion(t0);
+      if (!hint || !requireEditable() || !rowEditable(t0)) return;
+      Object.assign(t0, { entity_type: hint.entity_type, entity_qbo_id: hint.entity_qbo_id, entity_name: hint.entity_name });
+      state.dirty.add(t0.id); renderCoding(); renderEntry();
+      return;
+    }
+
     if (e.target.closest('[data-review]')) {
       expandedTransaction = expandedTransaction === t0.id ? null : t0.id;
       renderCoding();
@@ -2627,7 +2756,7 @@
 
     const edit = e.target.closest('[data-edit]');
     if (edit) {
-      openEditor(edit.closest('td'), t0, edit.dataset.edit);
+      openEditor(edit.closest('[data-entity-slot]') || edit.closest('td'), t0, edit.dataset.edit);
       return;
     }
 
@@ -3167,8 +3296,9 @@
     const blockers = [];
     const unavailable = state.txns.filter((txn) => txn.status !== 'excluded' && !bank.isAvailable(txn)).length;
     if (unavailable) blockers.push(`${unavailable} bank rows are pending or removed`);
-    const treatments = state.txns.filter((txn) => txn.origin === 'plaid' && txn.status === 'coded' && (!txn.accounting_treatment || txn.accounting_treatment === 'unknown')).length;
-    if (treatments) blockers.push(`${treatments} bank rows need an accounting treatment`);
+    const treatments = state.txns.filter(TF.needsTreatment).length;
+    if (treatments) blockers.push(`${treatments} bank row${treatments === 1 ? '' : 's'} need${treatments === 1 ? 's' : ''} a transaction type — `
+      + 'Transactions › Needs type shows which and why');
     if (!e.src?.credit_qbo_account_id) blockers.push('choose a balancing account in Accounts');
     if (/Accounts (Payable|Receivable)/i.test(e.src?.credit_qbo_account_type || '')
         && !e.src?.credit_vendor_qbo_id) {

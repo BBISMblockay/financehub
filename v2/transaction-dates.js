@@ -59,6 +59,39 @@
     if(['Income','Other Income','Accounts Receivable'].includes(type) && Number(t.amount)<0)return 'deposit';
     return 'unknown';
   }
+  /* Which treatments approval will accept for this row -- the same rules
+     approve_card_import_batch enforces (20260915100000): direction decides
+     purchase vs refund/deposit, a clearing treatment needs an Other Current
+     Asset/Liability account, and a card payment needs a Credit Card or
+     Accounts Payable account on a BANK feed. */
+  function allowedTreatments(t,type,sourceType) {
+    const n=Number(t.amount), out=[];
+    if(n>0)out.push('purchase');
+    if(n<0)out.push('refund','deposit');
+    if(['Other Current Asset','Other Current Liability'].includes(type))out.push('transfer','payroll_settlement','shopify_settlement');
+    if(sourceType!=='card' && ['Credit Card','Accounts Payable'].includes(type))out.push('card_payment');
+    return out;
+  }
+  /* Why a categorized bank row still has no treatment, and what SILO would
+     set. null when the row is not blocking. The reason is what Transactions
+     shows, so a person learns it while tagging rather than as an Entry block. */
+  function treatmentGap(t,type,sourceType,isSplit) {
+    if(t.origin!=='plaid' || t.status!=='coded' || (t.accounting_treatment && t.accounting_treatment!=='unknown'))return null;
+    const gap=treatmentGapReason(t,type,sourceType,isSplit);
+    return {...gap,choices:isSplit?[]:allowedTreatments(t,type,sourceType)};
+  }
+  function treatmentGapReason(t,type,sourceType,isSplit) {
+    if(isSplit)return {reason:'Split across accounts, so the type cannot be read from one account — choose it',suggested:null};
+    const inferred=inferTreatment({...t,accounting_treatment:'unknown'},type,sourceType);
+    if(inferred!=='unknown')return {reason:'Categorized without a type (an older rule or import left it blank)',suggested:inferred};
+    const dir=Number(t.amount)>0?'money out':Number(t.amount)<0?'money in':'a zero amount';
+    if(!type)return {reason:'The category is not in the current QuickBooks chart — re-pick it',suggested:null};
+    if(sourceType==='card' && ['Credit Card','Accounts Payable'].includes(type))
+      return {reason:`${type} account on a card feed — a card cannot pay a card here; check the category`,suggested:null};
+    if(['Income','Other Income','Accounts Receivable'].includes(type) && Number(t.amount)>0)
+      return {reason:`Money out categorized to an ${type} account — check the category`,suggested:null};
+    return {reason:`${type} accounts do not say what kind of transaction this is (${dir}) — choose a type`,suggested:null};
+  }
   // Resolve only a real account in the source connection, including older name-only responses.
   function suggestionAccount(t,s,accounts) {
     const matches=accounts.filter(a=>s.account_id ? a.id===s.account_id && a.name===s.account_name : a.name===s.account_name);
@@ -72,5 +105,5 @@
       card_payment:['Credit Card','Accounts Payable']};
     return (types[treatment] || []).includes(matches[0].type)?matches[0]:null;
   }
-  window.SiloTransactionDates={suggestionAccount,inferTreatment,preset,valid,read,summary,preferences,fingerprint};
+  window.SiloTransactionDates={suggestionAccount,inferTreatment,allowedTreatments,treatmentGap,preset,valid,read,summary,preferences,fingerprint};
 })();

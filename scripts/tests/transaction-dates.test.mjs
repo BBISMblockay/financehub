@@ -51,3 +51,32 @@ for(const [type,amount,sourceType,expected] of [
 ]) assert.equal(api.inferTreatment({origin:'plaid',qbo_account_id:'a',amount},type,sourceType),expected);
 
 });
+
+test('a categorized bank row with no type says why, and suggests only what approval accepts',()=>{
+ const row=(amount,extra={})=>({origin:'plaid',status:'coded',qbo_account_id:'a',amount,accounting_treatment:'unknown',...extra});
+ // Not blocking: typed, uncategorized, excluded, CSV.
+ assert.equal(api.treatmentGap(row(10,{accounting_treatment:'purchase'}),'Expense','bank'),null);
+ assert.equal(api.treatmentGap(row(10,{status:'uncoded'}),'Expense','bank'),null);
+ assert.equal(api.treatmentGap(row(10,{origin:'csv'}),'Expense','bank'),null);
+ // An older rule left the type blank where the category implies one.
+ const blank=api.treatmentGap(row(10),'Other Current Liability','bank');
+ assert.equal(blank.suggested,'transfer'); assert.match(blank.reason,/without a type/);
+ // A Bank-type category (a transfer between bank accounts) implies nothing; transfer is NOT offered,
+ // because approval refuses a clearing treatment off an Other Current Asset/Liability account.
+ const bankGap=api.treatmentGap(row(500),'Bank','bank');
+ assert.equal(bankGap.suggested,null); assert.match(bankGap.reason,/Bank accounts do not say/);
+ assert.deepEqual([...bankGap.choices],['purchase']);
+ assert.deepEqual([...api.treatmentGap(row(-500),'Equity','bank').choices],['refund','deposit']);
+ // Card feed paying a card: approval refuses card_payment, so it is named as a category problem.
+ const cardGap=api.treatmentGap(row(10),'Credit Card','card');
+ assert.equal(cardGap.suggested,null); assert.match(cardGap.reason,/card feed/);
+ assert.ok(![...cardGap.choices].includes('card_payment'));
+ assert.match(api.treatmentGap(row(10),'Income','bank').reason,/Money out categorized to an Income/);
+ assert.match(api.treatmentGap(row(10),null,'bank').reason,/not in the current QuickBooks chart/);
+ assert.match(api.treatmentGap(row(10,{qbo_account_id:null}),null,'bank',true).reason,/Split/);
+ // Every suggestion is one approval accepts.
+ for(const [type,amount,src] of [['Expense',10,'bank'],['Expense',-10,'bank'],['Income',-10,'bank'],['Other Current Asset',10,'bank'],['Credit Card',10,'bank']]) {
+  const g=api.treatmentGap(row(amount),type,src);
+  assert.ok([...g.choices].includes(g.suggested),type+' '+amount);
+ }
+});
