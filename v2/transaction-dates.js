@@ -57,7 +57,14 @@
     if(['Credit Card','Accounts Payable'].includes(type))return sourceType==='bank'?'card_payment':'unknown';
     if(['Expense','Other Expense','Cost of Goods Sold','Fixed Asset','Other Asset'].includes(type))return Number(t.amount)>0?'purchase':Number(t.amount)<0?'refund':'unknown';
     if(['Income','Other Income','Accounts Receivable'].includes(type) && Number(t.amount)<0)return 'deposit';
-    return 'unknown';
+    // No chart type (account not in the current chart): nothing to read.
+    if(!type)return 'unknown';
+    // A card feed paying a card is a category mistake, not a type to guess.
+    if(sourceType==='card' && ['Credit Card','Accounts Payable'].includes(type))return 'unknown';
+    // Every other category: the bank already said which way the money went,
+    // and that is all approval asks of the type (purchase = out, deposit = in).
+    // The journal is the account and the signed amount either way.
+    return Number(t.amount)>0?'purchase':Number(t.amount)<0?'deposit':'unknown';
   }
   /* Which treatments approval will accept for this row -- the same rules
      approve_card_import_batch enforces (20260915100000): direction decides
@@ -84,13 +91,10 @@
     if(isSplit)return {reason:'Split across accounts, so the type cannot be read from one account — choose it',suggested:null};
     const inferred=inferTreatment({...t,accounting_treatment:'unknown'},type,sourceType);
     if(inferred!=='unknown')return {reason:'Categorized without a type (an older rule or import left it blank)',suggested:inferred};
-    const dir=Number(t.amount)>0?'money out':Number(t.amount)<0?'money in':'a zero amount';
     if(!type)return {reason:'The category is not in the current QuickBooks chart — re-pick it',suggested:null};
     if(sourceType==='card' && ['Credit Card','Accounts Payable'].includes(type))
       return {reason:`${type} account on a card feed — a card cannot pay a card here; check the category`,suggested:null};
-    if(['Income','Other Income','Accounts Receivable'].includes(type) && Number(t.amount)>0)
-      return {reason:`Money out categorized to an ${type} account — check the category`,suggested:null};
-    return {reason:`${type} accounts do not say what kind of transaction this is (${dir}) — choose a type`,suggested:null};
+    return {reason:'A zero-amount row has no direction — choose a type or exclude it',suggested:null};
   }
   // Resolve only a real account in the source connection, including older name-only responses.
   function suggestionAccount(t,s,accounts) {

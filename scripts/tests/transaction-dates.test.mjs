@@ -47,7 +47,11 @@ test('category choices derive routine treatment while ambiguous categories stay 
 for(const [type,amount,sourceType,expected] of [
  ['Expense',10,'bank','purchase'],['Expense',-10,'card','refund'],['Income',-10,'bank','deposit'],
  ['Other Current Asset',10,'bank','transfer'],['Credit Card',10,'bank','card_payment'],
- ['Credit Card',10,'card','unknown'],['Bank',10,'bank','unknown'],['Income',10,'bank','unknown']
+ ['Credit Card',10,'card','unknown'],
+ // The bank says which way the money went; that is the type for every other category.
+ ['Bank',10,'bank','purchase'],['Bank',-10,'bank','deposit'],['Long Term Liability',10,'bank','purchase'],
+ ['Accounts Receivable',10,'bank','purchase'],['Equity',-10,'bank','deposit'],['Income',10,'bank','purchase'],
+ ['Bank',0,'bank','unknown'],[null,10,'bank','unknown']
 ]) assert.equal(api.inferTreatment({origin:'plaid',qbo_account_id:'a',amount},type,sourceType),expected);
 
 });
@@ -61,21 +65,20 @@ test('a categorized bank row with no type says why, and suggests only what appro
  // An older rule left the type blank where the category implies one.
  const blank=api.treatmentGap(row(10),'Other Current Liability','bank');
  assert.equal(blank.suggested,'transfer'); assert.match(blank.reason,/without a type/);
- // A Bank-type category (a transfer between bank accounts) implies nothing; transfer is NOT offered,
- // because approval refuses a clearing treatment off an Other Current Asset/Liability account.
- const bankGap=api.treatmentGap(row(500),'Bank','bank');
- assert.equal(bankGap.suggested,null); assert.match(bankGap.reason,/Bank accounts do not say/);
- assert.deepEqual([...bankGap.choices],['purchase']);
- assert.deepEqual([...api.treatmentGap(row(-500),'Equity','bank').choices],['refund','deposit']);
+ // Money in transit (Bank), a loan payment, a receivable transfer: direction alone gives the type.
+ for(const [type,amount,want] of [['Bank',500,'purchase'],['Bank',-500,'deposit'],['Long Term Liability',25000,'purchase'],['Accounts Receivable',4874.3,'purchase']]) {
+  const g=api.treatmentGap(row(amount),type,'bank');
+  assert.equal(g.suggested,want,type+' '+amount); assert.match(g.reason,/without a type/);
+ }
+ const zero=api.treatmentGap(row(0),'Bank','bank'); assert.equal(zero.suggested,null); assert.match(zero.reason,/zero-amount/);
  // Card feed paying a card: approval refuses card_payment, so it is named as a category problem.
  const cardGap=api.treatmentGap(row(10),'Credit Card','card');
  assert.equal(cardGap.suggested,null); assert.match(cardGap.reason,/card feed/);
  assert.ok(![...cardGap.choices].includes('card_payment'));
- assert.match(api.treatmentGap(row(10),'Income','bank').reason,/Money out categorized to an Income/);
  assert.match(api.treatmentGap(row(10),null,'bank').reason,/not in the current QuickBooks chart/);
  assert.match(api.treatmentGap(row(10,{qbo_account_id:null}),null,'bank',true).reason,/Split/);
  // Every suggestion is one approval accepts.
- for(const [type,amount,src] of [['Expense',10,'bank'],['Expense',-10,'bank'],['Income',-10,'bank'],['Other Current Asset',10,'bank'],['Credit Card',10,'bank']]) {
+ for(const [type,amount,src] of [['Expense',10,'bank'],['Expense',-10,'bank'],['Income',-10,'bank'],['Other Current Asset',10,'bank'],['Credit Card',10,'bank'],['Bank',10,'bank'],['Bank',-10,'bank'],['Long Term Liability',10,'bank'],['Equity',-10,'bank']]) {
   const g=api.treatmentGap(row(amount),type,src);
   assert.ok([...g.choices].includes(g.suggested),type+' '+amount);
  }
