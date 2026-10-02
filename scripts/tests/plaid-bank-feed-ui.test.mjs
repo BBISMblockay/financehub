@@ -1034,23 +1034,23 @@ await test('rows Entry would refuse are called out while tagging, with why and o
   const box = h.el('codeBlockers');
   assert.equal(box.hidden, false);
   assert.match(box.innerHTML, /2 categorized bank rows have no transaction type/);
-  assert.match(box.innerHTML, /without a type/); assert.match(box.innerHTML, /Bank accounts do not say/);
-  assert.match(box.innerHTML, /Set suggested type on 1/);
+  assert.match(box.innerHTML, /2 × Categorized without a type/);
+  assert.match(box.innerHTML, /Set suggested type on 2/);
   assert.match(box.innerHTML, /1 row is on a receivable or payable account with no entity/);
   assert.match(h.el('codeFilterSegments').innerHTML, /Needs type <span>2/);
   assert.match(h.el('codeFilterSegments').innerHTML, /Needs entity <span>1/);
-  assert.match(h.el('tblCoding').innerHTML, /Needs transaction type: Bank accounts do not say/);
+  assert.match(h.el('tblCoding').innerHTML, /Needs transaction type: Categorized without a type/);
   assert.match(h.el('tblCoding').innerHTML, /data-use-entity[^>]*>Use LFRE/);
   h.page.renderEntry();
   assert.match(h.el('entryStatus').textContent, /2 bank rows need a transaction type — Transactions › Needs type/);
-  // The suggested type goes only where the category implies one; Bank stays a person's choice.
+  // Direction gives the type: money out to Expense is a purchase, money out to a Bank account too.
   await box.fire('click', { target: { closest: (sel) => sel === '[data-blocker-fix]' ? { dataset: { blockerFix: 'treatment' } } : null } });
   const byId = Object.fromEntries(h.page.state.txns.map((t) => [t.id, t]));
-  assert.equal(byId.blank.accounting_treatment, 'purchase'); assert.equal(byId.bank.accounting_treatment, 'unknown');
+  assert.equal(byId.blank.accounting_treatment, 'purchase'); assert.equal(byId.bank.accounting_treatment, 'purchase');
   await box.fire('click', { target: { closest: (sel) => sel === '[data-blocker-fix]' ? { dataset: { blockerFix: 'entity' } } : null } });
   assert.equal(byId['ar-new'].entity_qbo_id, 'c9'); assert.equal(byId['ar-new'].entity_name, 'LFRE');
-  assert.deepEqual([...h.page.state.dirty].sort(), ['ar-new', 'blank'], 'fixes are unsaved edits, like choosing by hand');
-  assert.match(h.el('codeBlockers').innerHTML, /1 categorized bank row has no transaction type/);
+  assert.deepEqual([...h.page.state.dirty].sort(), ['ar-new', 'bank', 'blank'], 'fixes are unsaved edits, like choosing by hand');
+  assert.equal(h.el('codeBlockers').hidden, true);
   assert.doesNotMatch(h.el('codeBlockers').innerHTML, /no entity/);
 });
 await test('the row-level Set type and Use entity buttons fill that one row and mark it unsaved', async () => {
