@@ -57,6 +57,20 @@ await test('unauthenticated, anon and normal-user callers cannot read or spend',
   const f = fixture(); for (const key of ['', 'anon', 'user-jwt', 'service-tesx']) assert.equal((await f.handler(request(input, key))).status, 401);
   assert.equal(f.reads(), 0); assert.equal(f.paid(), 0);
 });
+await test('a service-role JWT that differs from the injected key passes only when the auth server confirms it', async () => {
+  const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const svc = `${b64({ alg: 'HS256' })}.${b64({ role: 'service_role' })}.sig`, user = `${b64({ alg: 'HS256' })}.${b64({ role: 'authenticated' })}.sig`;
+  const asked = [];
+  const mk = ok => { return createHandler({ createDb: () => { throw Error('must not read'); }, serviceKey: 'service-test', apiKey: 'k', verifyServiceToken: async t => { asked.push(t); if (ok === 'throw') throw Error('net'); return ok; } }); };
+  assert.equal((await mk(false)(request(input, svc))).status, 401);
+  assert.equal((await mk('throw')(request(input, svc))).status, 401);
+  assert.equal((await mk(true)(request(input, user))).status, 401); // never asked: wrong claimed role
+  assert.deepEqual(asked, [svc, svc]);
+  const passed = await mk(true)(request(input, svc)).catch(e => e);
+  assert.ok(passed instanceof Error && /must not read/.test(passed.message) || passed.status !== 401);
+  const dflt = createHandler({ createDb: () => { throw Error('must not read'); }, serviceKey: 'service-test', apiKey: 'k' });
+  assert.equal((await dflt(request(input, svc))).status, 401); // no verifier configured: fails closed
+});
 await test('missing server credential fails closed before database or provider', async () => {
   const f = fixture({ apiKey: '' }); assert.equal((await f.handler(request())).status, 503); assert.equal(f.reads(), 0);
   const h = createHandler({ createDb: () => { throw Error('must not read'); }, serviceKey: '', apiKey: 'present' });
