@@ -1831,7 +1831,7 @@
         <div id="chan-scope-${connectionId}" class="int-scope-warn" style="margin-bottom:8px;" hidden></div>
         ${mappedCount < total ? `<div class="int-scope-warn" style="margin-bottom:8px;">
           Sales at unmapped locations fall back to the connection's default location code;
-          without one they are skipped (counted in the sync result as <code>no_location_lines</code>).
+          without one they are labelled with the Shopify store's name.
           Map them here, then re-run a sales import to update existing rows.
         </div>` : `<div class="int-scope-warn" style="margin-bottom:8px;background:#f0fdf4;border-color:#bbf7d0;color:#166534;">
           All locations mapped. Re-run sales import if you changed mappings on existing data.

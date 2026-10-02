@@ -384,8 +384,25 @@ export function resolveSalesRowLocation({
     return { location_tag: tag, location_name: connection.default_location_code };
   }
 
-  // No mapping found — skip this row rather than writing a garbage unknown tag
-  return null;
+  // Nothing mapped and nothing typed: label the sale with the Shopify store's
+  // own name rather than dropping it.
+  return storeNameLocation(connection);
+}
+
+/**
+ * Last-resort sales location: the Shopify store itself. The TAG comes from the
+ * myshopify domain, which never changes, so renaming the store in Shopify
+ * relabels its rows instead of splitting its history across two tags. The NAME
+ * is the store's name (refreshed from shop.json by runShopDomainsSync), falling
+ * back to the domain. No locations row is created, so these sales report as an
+ * unclassified channel until someone maps the real location.
+ */
+export function storeNameLocation(connection) {
+  const domain = String(connection?.shop_domain || '').trim().toLowerCase();
+  if (!domain) return null;
+  const handle = domain.replace(/\.myshopify\.com$/, '');
+  const name = String(connection?.shop_name || '').replace(/\s+/g, ' ').trim();
+  return { location_tag: slugify(`shopify_${handle}`), location_name: name || handle };
 }
 
 /** Remove shopify_api sales for one shop only (safe for multi-store companies). */
