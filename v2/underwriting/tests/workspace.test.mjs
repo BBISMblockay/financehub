@@ -1133,7 +1133,8 @@ test('an exclusion survives a visit to a month where the account had no balance'
   const ids = () => JSON.parse(JSON.stringify(h.api.state.quick.debts.map(d => [d.id, d.include])));
   assert.deepEqual(ids(), [['connection-a:42', true], ['connection-a:77', false], ['connection-a:9', true]], 'sorted by balance: 400k, 9k, 8k');
   assert.ok(h.api.state.facilities.some(f => f.accountId === 'connection-a:9'), 'the card starts as a facility');
-  // The person says the card is not repayable debt.
+  // The person types the card's payment, then says it is not repayable debt after all.
+  h.node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:9', field: 'monthlyPayment' }, value: '300' } });
   h.node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:9', field: 'include' }, checked: false } });
   assert.equal(h.api.state.facilities.some(f => f.accountId === 'connection-a:9'), false);
   // Visit July, where the card had no balance, then come back.
@@ -1141,12 +1142,13 @@ test('an exclusion survives a visit to a month where the account had no balance'
   assert.deepEqual(ids(), [['connection-a:42', true], ['connection-a:77', false]], 'a zero-balance month does not list the card');
   h.node('workspace').change({ target: { dataset: { quick: 'asOfMonth' }, value: '2026-08' } });
   assert.deepEqual(ids(), [['connection-a:42', true], ['connection-a:77', false], ['connection-a:9', false]], 'the exclusion is remembered');
+  assert.equal(h.api.state.quick.debts.find(d => d.id === 'connection-a:9').monthlyPayment, 300, 'a payment typed on an unticked row is remembered too; the register cannot restore it, only the per-account set can');
   assert.equal(h.api.state.facilities.some(f => f.accountId === 'connection-a:9'), false, 'no facility is recreated');
   // The remembered set, not the visible rows, is what the file stores.
   h.node('workspace').change({ target: { dataset: { quick: 'asOfMonth' }, value: '2026-07' } });
   await h.api.download();
   const payload = JSON.parse(await h.downloads[0].text());
-  assert.deepEqual(payload.quick.debts.find(d => d.id === 'connection-a:9'), { id: 'connection-a:9', include: false, monthlyPayment: null });
+  assert.deepEqual(payload.quick.debts.find(d => d.id === 'connection-a:9'), { id: 'connection-a:9', include: false, monthlyPayment: 300 }, 'stored although the card is not visible in July');
   await h.api.importScenario(h.file(payload));
   h.node('workspace').change({ target: { dataset: { quick: 'asOfMonth' }, value: '2026-08' } });
   assert.deepEqual(ids(), [['connection-a:42', true], ['connection-a:77', false], ['connection-a:9', false]], 'the exclusion survives a reopen');
