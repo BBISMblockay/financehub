@@ -444,3 +444,27 @@ test('imported timing drafts and unsupported receipt pools cannot fall back to a
   assert.equal(timing.recoveryBeyondHorizon, 200);
   assert.equal(computeScenario(timing.model).summary.endingCash, computeScenario(timingModel()).summary.endingCash - 200);
 });
+
+test('imported facility and commitment IDs must fit the review-snapshot identifier grammar', () => {
+  // review-snapshot.js refuses a fact id outside /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$/,
+  // and builds `payment:<facility id>:<month>`; an id that cannot form one would
+  // leave review capture permanently unavailable after import.
+  for (const id of ['<img src=x onerror=alert(1)> loan', 'has space', '-leading-dash', 'x'.repeat(101), 'tab\there']) {
+    assert.throws(() => validate({ ...doc(), facilities: [{ ...facility(), id }] }), /unique ID/, `facility ${id}`);
+    assert.throws(() => validate({ ...doc(), commitments: [{ ...commitment(), id }] }), /unique ID/, `commitment ${id}`);
+  }
+  for (const id of ['11111111-1111-4111-8111-111111111111', 'facility-1700000000000-0', 'po:A/1.2_b', 'x'.repeat(100)]) {
+    assert.equal(validate({ ...doc(), facilities: [{ ...facility(), id }] }).facilities[0].id, id);
+    assert.equal(validate({ ...doc(), commitments: [{ ...commitment(), id }] }).commitments[0].id, id);
+  }
+  const snapshotFromImported = validate({ ...doc(), facilities: [{ ...facility(), id: 'x'.repeat(100) }] });
+  assert.ok(snapshotFromImported.facilities.length === 1);
+});
+
+test('monthly overrides are bounded and empty months are not carried', () => {
+  const months = [];
+  for (let year = 1000; months.length <= 1200; year++) for (let month = 1; month <= 12 && months.length <= 1200; month++) months.push(`${year}-${String(month).padStart(2, '0')}`);
+  assert.throws(() => validate({ ...doc(), overrides: Object.fromEntries(months.map(month => [month, {}])) }), /at most 1200/);
+  assert.deepEqual(validate({ ...doc(), overrides: Object.fromEntries(months.slice(0, 1200).map(month => [month, {}])) }).overrides, {}, 'empty rows are dropped');
+  assert.deepEqual(validate({ ...doc(), overrides: { '2026-10': {}, '2026-11': { preDebtCash: '5' } } }).overrides, { '2026-11': { preDebtCash: '5' } });
+});

@@ -257,3 +257,31 @@ test('even a one-cent fee cannot be hidden by zero-rate terminal rounding uncert
   assert.equal(result.maximumAdditionalPrincipal, 0);
   assert.equal(result.suggestedPrincipal, 0);
 });
+
+test('certified zero borrowing is reported as feasible even when no positive cent interval survives rounding', () => {
+  // Coverage target so high that only P = 0 passes: the outer interval holds
+  // whole cents but the rounding-safe inner interval is empty. The two sibling
+  // exits already report feasible/0 here; this one used to say "unassessed".
+  const result = assessFundingCapacity(input({ coverageTarget: 1000000, scenario: scenario({ existingDebt: { monthlyPayment: 0, complete: true, provenance: 'Synthetic: no existing debt' } }) }));
+  assert.ok(result.continuousBounds.maximum > 0 && result.continuousBounds.maximum < .5, 'outer interval holds cents, inner does not');
+  assert.equal(result.zeroFeasible, true);
+  assert.equal(result.status, 'feasible');
+  assert.equal(result.maximumAdditionalPrincipal, 0);
+  assert.equal(result.suggestedPrincipal, 0);
+  assert.equal(result.verification.interval, true);
+  assert.equal(result.verification.exact, true);
+  assert.match(result.reasons.join(' '), /Cent-rounding uncertainty/);
+  assert.equal(result.residualAtWindowEnd, null, 'nothing borrowed, nothing remains');
+});
+
+test('post-window residual describes the headline ceiling, never the zero suggestion', () => {
+  const args = input({ terms: terms({ termMonths: 24, annualRatePct: 12 }) });
+  const result = assessFundingCapacity(args);
+  assert.equal(result.scope, 'window-only');
+  assert.equal(result.suggestedPrincipal, 0);
+  assert.ok(result.maximumAdditionalPrincipal > 0);
+  const atCeiling = computeScenario({ ...args.scenario, proposal: { ...args.terms, principal: result.maximumAdditionalPrincipal } });
+  assert.equal(result.residualAtWindowEnd, atCeiling.summary.proposedEndingBalance);
+  assert.ok(result.residualAtWindowEnd > 0);
+  assert.ok(result.remainingDebtServiceAfterWindow > result.residualAtWindowEnd, 'remaining service includes interest beyond the window');
+});

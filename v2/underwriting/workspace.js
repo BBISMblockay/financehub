@@ -14,9 +14,9 @@ const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const monthAdd = (month,n) => { const [y,m] = month.split('-').map(Number); return new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7); };
 const initialMonth = new Date().toISOString().slice(0,7);
-const state = { context:null, sources:null, values:{}, overrides:{}, commitments:[], facilities:[], portfolio:null, reviewBaseline:null, cashTiming:emptyCashTimingAssumptions(), cashTimingResult:null, step:'business', result:null, preset:'base', currency:null, ready:false };
+const state = { context:null, held:false, sources:null, values:{}, overrides:{}, commitments:[], facilities:[], portfolio:null, reviewBaseline:null, cashTiming:emptyCashTimingAssumptions(), cashTimingResult:null, step:'business', result:null, preset:'base', currency:null, ready:false };
 const guard = createLoadGuard();
-let db, mounted = false, validationPromise = null;
+let db, mounted = false, validationPromise = null, printing = false;
 const definitions = {
   proposalFields: [
     ['amount','Loan amount','number','','uw-span-all uw-amount'],
@@ -290,7 +290,11 @@ function renderFacility(force=false) {
   $('creditSummary').innerHTML=`<div class="uw-result-row"><span>Registered debt outstanding</span><strong>${money(p.totalBalance,true)}</strong></div><div class="uw-result-row"><span>Undrawn credit · documented inputs</span><strong>${money(p.totalAvailable,true)}</strong></div><p>${state.facilities.length} facilities. ${v.existingDebtMode==='facilities'?'Reviewed facility payments feed capacity.':'Manual aggregate P&I feeds capacity; facility payments are comparison only.'}</p>`;
   if(force||!$('facilityEditor').contains(document.activeElement)){
     const openIds=[...$('facilityEditor').querySelectorAll('[data-facility-panel][open]')].map(el=>el.dataset.facilityPanel);
+    // A forced rebuild after a change event replaces the focused control (and, on
+    // Tab, the control Tab had just reached). Re-find it by its data attributes.
+    const active=document.activeElement,focused=active&&$('facilityEditor').contains(active)&&active.dataset?.facility?Object.entries(active.dataset).filter(([key])=>['facility','field','term','paymentMonth'].includes(key)).map(([key,value])=>`[data-${key.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}="${String(value).replace(/["\\]/g,'\\$&')}"]`).join(''):null;
     $('facilityEditor').innerHTML=facilityEditorHtml({facilities:state.facilities,accountOptions:state.sources?.accountOptions||[],portfolio:p,months:facilityMonths(),money,openIds});
+    if(focused){const again=$('facilityEditor').querySelector(focused);if(again)again.focus?.({preventScroll:true});}
   }
   const manual=v.existingDebtMode==='manual';$('existingPayment').disabled=!manual;$('existingPayment').closest('div').hidden=!manual;$('debtComplete').disabled=!manual;$('debtComplete').closest('label').hidden=!manual;$('debtProvenance').disabled=!manual;const first=p.rows?.[0];$('activeFacilityPI').hidden=manual;$('activeFacilityPI').innerHTML=`<span class="uw-label">Existing P&I · facility schedules</span><strong>${money(first?.payment)}</strong><small>${esc(first?.month||'No schedule')} · varies with payment timing</small>`;
   $('debtReconciliation').innerHTML=`<p class="uw-fine">Active: ${manual?'manual aggregate only':'facility schedules only'}. These are alternatives, never added together. A difference needs investigation, not automatic balancing.</p><table class="uw-table"><thead><tr><th>Month</th><th>Facility total</th><th>Manual aggregate</th><th>Difference</th></tr></thead><tbody>${(p.reconciliation||[]).map(r=>`<tr><td>${esc(r.month)}</td><td>${money(r.facilityPayment)}</td><td>${money(r.manualPayment)}</td><td>${money(r.difference)}</td></tr>`).join('')}</tbody></table>`;
@@ -323,17 +327,25 @@ function renderReview(model,valid) {
   catch(error){state.currentReview=null;$('reviewChanges').innerHTML=`<p class="uw-data-warning">Review comparison unavailable: ${esc(error.message)}</p>`;}
 }
 async function captureReview() {
-  await revalidate();if(!state.ready)return;render();
+  await revalidate();if(!state.ready||state.held)return;render();
   if(!state.currentReview){setStatus('The current inputs cannot yet be captured as a review baseline. Resolve the review comparison warning.','neg');return;}
   state.reviewBaseline=state.currentReview;render();
   setStatus('Reviewed baseline captured locally. Download the scenario to retain it; later changes will be compared with this snapshot.');
 }
 async function printProposal() {
-  await revalidate();if(!state.ready)return;render();
+  await revalidate();if(!state.ready||state.held)return;
+  buildPrintPacket();
+  printing=true;try{window.print();}finally{printing=false;}
+}
+// Built from CURRENT state every time, including for Ctrl+P / File > Print: the
+// print stylesheet shows only #printPacket, so a packet left over from an
+// earlier button print would otherwise print an old amount with nothing on the
+// page saying so. afterprint empties it again for the same reason.
+function buildPrintPacket() {
+  render();
   const sources=$('sourceDetail').innerHTML,evidence=printEvidenceHtml(state,money);
   $('printPacket').innerHTML=`<header><h1>Underwriting proposal</h1><p>Draft analyst scenario · ${esc(state.context.company.title||'Current company')} · Prepared ${esc(new Date().toISOString())}</p></header>${$('proposalMemo').innerHTML}<section class="uw-print-appendix"><h2>Supporting schedules & evidence</h2><h3>Existing facilities</h3>${$('currentCreditRegister').innerHTML}<h3>Debt service, cash uses & cash coverage</h3>${$('debtSchedule').innerHTML}<h3>Assumptions and provenance</h3><dl>${allDefs.filter(([id])=>!(['amortizationMonths'].includes(id)&&state.values.repayment!=='balloon')&&!(['creditScore','clientReference','documentReferences','lenderRules','scenarioName'].includes(id)&&String(state.values[id]??'').trim()==='')).map(([id,label])=>`<dt>${esc(label)}</dt><dd>${esc(String(state.values[id]??'Unknown'))||'Unknown'}</dd>`).join('')}</dl><h3>Planned payments</h3><table class="uw-table"><thead><tr><th>Reference</th><th>Month</th><th>Amount</th><th>Treatment</th></tr></thead><tbody>${state.commitments.map(r=>`<tr><td>${esc(r.sourceReference)}</td><td>${esc(r.month)}</td><td>${money(r.amount)} ${esc(r.currency)}</td><td>${esc(r.inclusion)} · ${r.reviewed?'reviewed':'not reviewed'}</td></tr>`).join('')}</tbody></table><h3>Source coverage</h3>${sources}<h3>Facility evidence and remaining terms</h3>${evidence.facilities}<h3>Existing P&I by facility</h3><table class="uw-table"><thead><tr><th>Month</th>${state.facilities.map(f=>`<th>${esc(f.name||f.id)}</th>`).join('')}<th>Combined</th></tr></thead><tbody>${(state.portfolio.rows||[]).map(r=>`<tr><td>${esc(r.month)}</td>${r.byFacility.map(f=>`<td>${money(f.payment)}</td>`).join('')}<td>${money(r.payment)}</td></tr>`).join('')}</tbody></table><h3>Receipt timing assumptions</h3>${evidence.timing}${$('cashTimingImpact').innerHTML}<h3>Monthly input overrides</h3><table class="uw-table"><thead><tr><th>Month</th><th>Cash before debt</th><th>Manual P&I reference</th><th>Growth WC</th><th>Other cash use</th></tr></thead><tbody>${Object.entries(state.overrides).map(([month,row])=>`<tr><td>${esc(month)}</td>${['preDebtCash','payment','workingCapitalUse','otherCashUse'].map(key=>`<td>${number(row[key])===null?'Baseline':money(number(row[key]))}</td>`).join('')}</tr>`).join('')}</tbody></table><h3>Calculation notes</h3>${$('methodology').innerHTML}</section>`;
   $('printPacket').querySelectorAll('details').forEach(el=>{el.open=true;});
-  window.print();
 }
 const sourceNames={revenuePlan:'Sales plan',balanceSheet:'Balance sheet',profitAndLoss:'P&L',cashflow:'Cash flow',bank:'Bank',inventory:'Inventory',purchaseOrders:'Purchase orders'};
 function renderSources() {
@@ -352,7 +364,7 @@ function sourceRows(key,s) {
 }
 function setStatus(message,tone='info') {$('status').textContent=message;$('status').className=`bcn-status bcn-status--${tone}`;$('status').hidden=!message;}
 function clearSensitive(message) {
-  guard.invalidate();state.ready=false;state.sources=null;state.context=null;state.result=null;state.capacity=null;state.facilities=[];state.portfolio=null;state.reviewBaseline=null;state.currentReview=null;state.cashTiming=emptyCashTimingAssumptions();state.cashTimingResult=null;state.overrides={};state.commitments=[];
+  guard.invalidate();state.ready=false;state.held=false;state.sources=null;state.context=null;state.result=null;state.capacity=null;state.facilities=[];state.portfolio=null;state.reviewBaseline=null;state.currentReview=null;state.cashTiming=emptyCashTimingAssumptions();state.cashTimingResult=null;state.overrides={};state.commitments=[];
   $('workspace').hidden=true;$('gate').hidden=false;
   const note=document.createElement('p');note.textContent=message;
   const signedOut=/sign in|signed out/i.test(message||'');
@@ -376,7 +388,7 @@ async function load() {
     if(!guard.current(ticket))return;
     if(after.key!==context.key){clearSensitive('Company changed while sources were loading. Refresh to continue.');return;}
     if(state.sources){const old=state.sources.accountOptions||[],next=snapshot.accountOptions||[];for(const f of state.facilities)if(f.balanceSource==='account'){const before=old.find(a=>a.id===f.accountId),after=next.find(a=>a.id===f.accountId);if(JSON.stringify([before?.balance,before?.balanceAsOf,before?.balanceCurrency])!==JSON.stringify([after?.balance,after?.balanceAsOf,after?.balanceCurrency])){f.scheduleComplete=false;invalidateFacilityReview();}}}
-    state.sources=snapshot;state.ready=true;
+    state.sources=snapshot;state.ready=true;state.held=false;
     if(!mounted){window.SiloChrome?.mount({appEl:'#silo-app',active:'',user:{email:context.user.email,role:context.profile.role},crumbs:['Finance','Underwriting'],supabaseClient:db});mounted=true;}
     $('company').textContent=context.company.title||'Current company';
     $('workspace').hidden=false;$('gate').hidden=true;
@@ -386,61 +398,90 @@ async function load() {
     setStatus(errors.length?`${errors.length} source read${errors.length===1?'':'s'} failed. Other sources are shown; missing values remain unknown.`:'');
   } catch(error) {
     if(!guard.current(ticket))return;
-    clearSensitive(error.message||'Could not verify access or read the source data. Refresh to try again.');
+    if(error?.transient&&state.ready&&state.sources){setStatus(`${error.message} The previously loaded sources are still shown.`,'neg');}
+    else if(error?.transient)holdForRetry(error.message,load);
+    else clearSensitive(error.message||'Could not verify access or read the source data. Refresh to try again.');
   } finally {if(guard.current(ticket))$('refresh').disabled=false;}
+}
+// A read that did not come back is not a verdict. The scenario stays in memory,
+// the workspace stays hidden, and the person retries; only a DEFINITIVE answer
+// (signed out, disabled, another company, no finance gate) clears anything.
+function holdForRetry(message,retry) {
+  state.held=true;$('workspace').hidden=true;$('gate').hidden=false;
+  const note=document.createElement('p');note.textContent=`${message} Your scenario inputs are kept in this tab until verification succeeds.`;
+  const action=document.createElement('button');action.type='button';action.className='bcn-btn bcn-btn--dark';action.textContent='Retry verification';action.addEventListener('click',()=>retry().catch(e=>setStatus(e.message,'neg')));
+  $('gate').replaceChildren(note,action);
+}
+function release() {
+  state.held=false;$('gate').hidden=true;
+  if(state.ready&&document.visibilityState==='visible')$('workspace').hidden=false;
 }
 async function revalidate() {
   if(validationPromise)return validationPromise;
   if(!state.ready)return;
   const key=state.context?.key;
   validationPromise=(async()=>{
-    try {const next=await readContext(db,window.__SILO_CONFIG__);if(state.context?.key!==key)return;if(next.key!==key)clearSensitive('Your active company changed. This scenario was cleared. Refresh to continue.');}
-    catch(error){clearSensitive(error.message);}
+    try {const next=await readContext(db,window.__SILO_CONFIG__);if(state.context?.key!==key)return;if(next.key!==key)clearSensitive('Your active company changed. This scenario was cleared. Refresh to continue.');else if(state.held)release();}
+    catch(error){if(error?.transient)holdForRetry(error.message,retryVerification);else clearSensitive(error.message);}
     finally{validationPromise=null;}
   })();
   return validationPromise;
 }
+async function retryVerification() {await revalidate();}
 async function resumeView() {
   if(!state.ready)return;
   $('workspace').hidden=true;
   await revalidate();
-  if(state.ready&&document.visibilityState==='visible')$('workspace').hidden=false;
+  if(state.ready&&!state.held&&document.visibilityState==='visible')$('workspace').hidden=false;
 }
 function setValues(values) {
   for(const def of allDefs){const id=def[0];if(!Object.hasOwn(values,id))continue;state.values[id]=values[id];if(def[2]==='checkbox')$(id).checked=values[id]===true;else $(id).value=values[id];}
 }
-function choosePreset(preset) {
-  state.preset=preset;
-  const values=preset==='downside'?{growthPct:'0',revenueDecline:'10',marginCompression:'3'}:preset==='growth'?{growthPct:'20',revenueDecline:'0',marginCompression:'0'}:{growthPct:'0',revenueDecline:'0',marginCompression:'0'};
-  setValues(values);invalidateTimingReview();
+const PRESETS={base:{growthPct:'0',revenueDecline:'0',marginCompression:'0'},downside:{growthPct:'0',revenueDecline:'10',marginCompression:'3'},growth:{growthPct:'20',revenueDecline:'0',marginCompression:'0'}};
+const PRESET_NOTES={base:'Base: no revenue reduction or incremental growth working capital. All other inputs remain yours.',downside:'Illustrative downside: revenue −10%, margin −3 points. Requires revenue and gross-margin assumptions.',growth:'Illustrative growth: fund 20% more inventory / operating working capital. No automatic revenue uplift.',custom:'Custom assumptions: the entered growth, revenue-decline and margin inputs do not match an illustrative preset.'};
+// The pressed preset is DERIVED from the three values, never remembered: an
+// imported scenario or a hand edit would otherwise leave "Base" lit over a 20%
+// growth case.
+function presetFromValues(v) {
+  return Object.keys(PRESETS).find(key=>['growthPct','revenueDecline','marginCompression'].every(id=>number(v[id])!==null&&number(v[id])===Number(PRESETS[key][id])))||null;
+}
+function reflectPreset() {
+  const preset=presetFromValues(state.values);state.preset=preset;
   document.querySelectorAll('[data-preset]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.preset===preset)));
-  $('presetNote').textContent=({base:'Base: no revenue reduction or incremental growth working capital. All other inputs remain yours.',downside:'Illustrative downside: revenue −10%, margin −3 points. Requires revenue and gross-margin assumptions.',growth:'Illustrative growth: fund 20% more inventory / operating working capital. No automatic revenue uplift.'})[preset];
+  $('presetNote').textContent=PRESET_NOTES[preset||'custom'];
+}
+function choosePreset(preset) {
+  if(!PRESETS[preset])return;
+  setValues(PRESETS[preset]);invalidateTimingReview();
+  reflectPreset();
   render();
 }
 async function download() {
-  await revalidate();if(!state.ready)return;
+  await revalidate();if(!state.ready||state.held)return;
   const payload={format:'silo-underwriting-scenario',version:4,companyId:state.context.company.id,exportedAt:new Date().toISOString(),values:state.values,overrides:state.overrides,commitments:state.commitments,facilities:state.facilities,cashTiming:state.cashTiming,reviewBaseline:state.reviewBaseline,sourceDates:Object.fromEntries(Object.entries(state.sources.sources).map(([k,s])=>[k,{asOf:s.asOf,periodStart:s.periodStart,periodEnd:s.periodEnd,status:s.status}]))};
-  const serialized=JSON.stringify(payload,null,2);if(new TextEncoder().encode(serialized).length>2000000)throw new Error('This scenario exceeds the 2 MB import limit. Reduce oversized notes or schedules before downloading.');
+  // Compact on purpose: the import bound is the raw file size, and a pretty-printed
+  // copy measured 1.46x larger, so a file that imported could fail to download.
+  const serialized=JSON.stringify(payload);if(new TextEncoder().encode(serialized).length>2000000)throw new Error('This scenario exceeds the 2 MB import limit. Reduce oversized notes or schedules before downloading.');
   const blob=new Blob([serialized],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`silo-underwriting-${state.values.startMonth}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setStatus('Scenario downloaded. It contains your local inputs and references; no source records were changed.');
 }
 async function importScenario(file) {
   if(!file)return;
   if(file.size>2000000)throw new Error('Choose a scenario JSON file smaller than 2 MB.');
-  await revalidate();if(!state.ready)return;
+  await revalidate();if(!state.ready||state.held)return;
   const doc=JSON.parse(await file.text());
   const imported=validateScenarioDocument(doc,allDefs,state.context.company.id);
   // Async file reads cannot carry an old tenant's inputs into a new context.
   await revalidate();if(!state.ready||doc.companyId!==state.context.company.id)return;
   setValues(imported.values);state.overrides=imported.overrides;state.commitments=imported.commitments;
   state.facilities=imported.facilities;state.reviewBaseline=imported.reviewBaseline;state.cashTiming=imported.cashTiming;
-  render();renderCommitmentEditor(true);renderFacility(true);renderCashTiming(true);setStatus('Local scenario opened. Imported inputs are user-provided assumptions; current source records were refreshed separately.');
+  reflectPreset();render();renderCommitmentEditor(true);renderFacility(true);renderCashTiming(true);setStatus('Local scenario opened. Imported inputs are user-provided assumptions; current source records were refreshed separately.');
 }
 async function boot() {
   buildFields();
   const cfg=window.__SILO_CONFIG__;
   if(!cfg?.SUPABASE_URL||!cfg?.SUPABASE_ANON_KEY||!window.supabase?.createClient){clearSensitive('Missing SILO configuration.');return;}
   db=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
-  $('workspace').addEventListener('change',e=>{if(!state.ready)return;const def=allDefs.find(d=>d[0]===e.target.id);if(def){state.values[e.target.id]=def[2]==='checkbox'?e.target.checked:e.target.value;if(['normalizedCash','cashProvenance','revenue','revenueDecline','grossMargin','marginCompression'].includes(e.target.id))invalidateTimingReview();if(['normalizedCash','cashProvenance'].includes(e.target.id)){state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;}if(['existingDebtMode','facilitiesProvenance'].includes(e.target.id))invalidateFacilityReview();if(['existingPayment','debtProvenance'].includes(e.target.id)){state.values.debtComplete=false;$('debtComplete').checked=false;}if(['startMonth','currency','forecastMonths'].includes(e.target.id)){invalidateFacilityReview();state.facilities.forEach(f=>f.scheduleComplete=false);invalidateTimingReview();invalidateCommitmentReview();state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;state.values.debtComplete=false;$('debtComplete').checked=false;}render();}if(e.target.dataset.month){const {month,key}=e.target.dataset;state.overrides[month]??={};state.overrides[month][key]=e.target.value;if(key==='preDebtCash'){invalidateTimingReview();state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;}if(key==='payment'){state.values.debtComplete=false;$('debtComplete').checked=false;}render();}if(e.target.dataset.commitment){const row=state.commitments.find(r=>r.id===e.target.dataset.commitment);if(row){const key=e.target.dataset.field;row[key]=key==='reviewed'?e.target.checked:key==='amount'?number(e.target.value):e.target.value;invalidateCommitmentReview();if(key!=='reviewed'){row.reviewed=false;$('commitmentEditor').querySelectorAll('[data-field="reviewed"]').forEach(el=>{if(el.dataset.commitment===row.id)el.checked=false;});}render();}}if(e.target.dataset.facility)changeFacility(e.target);if(e.target.dataset.timing)changeCashTiming(e.target);if(e.target.hasAttribute?.('data-timing-distinct')){state.cashTiming.distinctReceiptPoolsReviewed=e.target.checked;render();}});
+  $('workspace').addEventListener('change',e=>{if(!state.ready)return;const def=allDefs.find(d=>d[0]===e.target.id);if(def){state.values[e.target.id]=def[2]==='checkbox'?e.target.checked:e.target.value;if(['normalizedCash','cashProvenance','revenue','revenueDecline','grossMargin','marginCompression'].includes(e.target.id))invalidateTimingReview();if(['growthPct','revenueDecline','marginCompression'].includes(e.target.id))reflectPreset();if(['normalizedCash','cashProvenance'].includes(e.target.id)){state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;}if(['existingDebtMode','facilitiesProvenance'].includes(e.target.id))invalidateFacilityReview();if(['existingPayment','debtProvenance'].includes(e.target.id)){state.values.debtComplete=false;$('debtComplete').checked=false;}if(['startMonth','currency','forecastMonths'].includes(e.target.id)){invalidateFacilityReview();state.facilities.forEach(f=>f.scheduleComplete=false);invalidateTimingReview();invalidateCommitmentReview();state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;state.values.debtComplete=false;$('debtComplete').checked=false;}render();}if(e.target.dataset.month){const {month,key}=e.target.dataset;state.overrides[month]??={};state.overrides[month][key]=e.target.value;if(key==='preDebtCash'){invalidateTimingReview();state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;}if(key==='payment'){state.values.debtComplete=false;$('debtComplete').checked=false;}render();}if(e.target.dataset.commitment){const row=state.commitments.find(r=>r.id===e.target.dataset.commitment);if(row){const key=e.target.dataset.field;row[key]=key==='reviewed'?e.target.checked:key==='amount'?number(e.target.value):e.target.value;invalidateCommitmentReview();if(key!=='reviewed'){row.reviewed=false;$('commitmentEditor').querySelectorAll('[data-field="reviewed"]').forEach(el=>{if(el.dataset.commitment===row.id)el.checked=false;});}render();}}if(e.target.dataset.facility)changeFacility(e.target);if(e.target.dataset.timing)changeCashTiming(e.target);if(e.target.hasAttribute?.('data-timing-distinct')){state.cashTiming.distinctReceiptPoolsReviewed=e.target.checked;render();}});
   $('workspace').addEventListener('click',e=>{const step=e.target.closest('[data-step]');if(step)setStep(step.dataset.step);const anchor=e.target.closest('[data-go-step]');if(anchor){setStep(anchor.dataset.goStep);const target=$(anchor.getAttribute('href').slice(1));let parent=target?.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}}const add=e.target.closest('[data-add-facility]');if(add&&state.ready&&state.facilities.length<50){invalidateFacilityReview();const f=createFacility(globalThis.crypto?.randomUUID?.()||`facility-${Date.now()}-${state.facilities.length}`,add.dataset.addFacility,state.values.currency);state.facilities.push(f);render();renderFacility(true);const panel=[...$('facilityEditor').querySelectorAll('[data-facility-panel]')].find(el=>el.dataset.facilityPanel===f.id);if(panel)panel.open=true;}const edit=e.target.closest('[data-edit-facility]');if(edit){const panel=[...$('facilityEditor').querySelectorAll('[data-facility-panel]')].find(el=>el.dataset.facilityPanel===edit.dataset.editFacility);if(panel){panel.open=true;panel.scrollIntoView?.({block:'nearest',behavior:'smooth'});}}const removeFacility=e.target.closest('[data-remove-facility]');if(removeFacility){invalidateFacilityReview();state.facilities=state.facilities.filter(f=>f.id!==removeFacility.dataset.removeFacility);render();renderFacility(true);}const b=e.target.closest('[data-preset]');if(b)choosePreset(b.dataset.preset);const capacityChoice=e.target.closest('[data-use-capacity]');if(capacityChoice){const candidate=number(capacityChoice.dataset.useCapacity);if(candidate!==null&&candidate>0){setValues({amount:String(candidate)});render();}}const remove=e.target.closest('[data-remove-commitment]');if(remove){invalidateCommitmentReview();state.commitments=state.commitments.filter(r=>r.id!==remove.dataset.removeCommitment);render();renderCommitmentEditor(true);}});
   document.querySelector('.uw-flow')?.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;const steps=['business','funding','test','review'];const i=steps.indexOf(state.step),next=e.key==='Home'?0:e.key==='End'?3:(i+(e.key==='ArrowRight'?1:3))%4;setStep(steps[next]);$('tab-'+steps[next]).focus();e.preventDefault();});
   $('addCommitment').addEventListener('click',()=>{if(!state.ready||state.commitments.length>=500)return;invalidateCommitmentReview();state.commitments.push({id:globalThis.crypto?.randomUUID?.()||`payment-${Date.now()}-${state.commitments.length}`,month:'',amount:null,currency:state.values.currency||'',sourceReference:'',paymentType:'deposit',inclusion:'incremental',reviewed:false});render();renderCommitmentEditor(true);});
@@ -449,6 +490,8 @@ async function boot() {
   $('import').addEventListener('click',()=>$('importFile').click());$('importFile').addEventListener('change',e=>importScenario(e.target.files[0]).catch(e=>setStatus(e.message,'neg')).finally(()=>{e.target.value='';}));
   db.auth.onAuthStateChange((event)=>{if(event==='SIGNED_OUT'||event==='USER_DELETED')clearSensitive('Signed out. Sign in to SILO and refresh this page.');else if(event==='SIGNED_IN'||event==='USER_UPDATED')setTimeout(resumeView,0);});
   window.addEventListener('focus',resumeView);
+  window.addEventListener('beforeprint',()=>{if(printing)return;if(state.ready&&!state.held)buildPrintPacket();else $('printPacket').replaceChildren();});
+  window.addEventListener('afterprint',()=>{if(!printing)$('printPacket').replaceChildren();});
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')resumeView();else if(state.ready)$('workspace').hidden=true;});
   await load();
 }

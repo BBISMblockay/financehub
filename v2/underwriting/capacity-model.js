@@ -232,7 +232,17 @@ export function assessFundingCapacity(input) {
     return result;
   }
   if (innerBlocked || !finite(innerLower) || !finite(innerUpper) || innerLower > innerUpper || innerUpper < .01) {
-    result.status = 'unassessed'; result.reasons.push('Cent-rounding uncertainty leaves no certified continuous positive-principal interval. No range is claimed from isolated feasible amounts.'); return result;
+    result.reasons.push('Cent-rounding uncertainty leaves no certified continuous positive-principal interval. No range is claimed from isolated feasible amounts.');
+    // Same answer as the two exits above: zero borrowing was checked against the
+    // production roll-forward and passed, so it is a certified result, not an
+    // unassessed one. Only the POSITIVE interval is unclaimed.
+    if (result.zeroFeasible) {
+      result.status = 'feasible';
+      result.maximumAdditionalPrincipal = result.suggestedPrincipal = 0;
+      result.verification.exact = result.verification.minimum = result.verification.maximum = result.verification.suggested = true;
+      result.verification.interval = true;
+    } else result.status = 'unassessed';
+    return result;
   }
   const firstCent = Math.max(1, Math.ceil(innerLower * 100));
   const lastCent = Math.floor(innerUpper * 100);
@@ -276,9 +286,13 @@ export function assessFundingCapacity(input) {
     result.status = 'unassessed'; result.reasons.push('Final integrated cash validation did not confirm the candidate; no suggestion is claimed.');
     result.suggestedPrincipal = null; result.verification.exact = false; result.verification.suggested = false; return result;
   }
-  result.residualAtWindowEnd = suggested.summary.proposedEndingBalance;
-  result.remainingDebtServiceAfterWindow = round((suggested.proposalSchedule?.rows ?? []).filter(row => row.month > endMonth).reduce((total, row) => total + row.payment, 0));
-  const atCapacity = computeScenario({ ...scenario, proposal: { ...terms, principal: result.maximumAdditionalPrincipal } });
+  // What is left outside the window is reported for the headline CEILING, the
+  // number a reader would qualify, never for the suggested minimum, which is 0
+  // whenever zero borrowing is feasible and would read as "nothing remains"
+  // beside a non-zero window-only ceiling. Null when nothing is borrowed.
+  const atCapacity = computeScenario({ ...scenario, proposal: result.maximumAdditionalPrincipal > 0 ? { ...terms, principal: result.maximumAdditionalPrincipal } : null });
+  result.residualAtWindowEnd = result.maximumAdditionalPrincipal > 0 ? atCapacity.summary.proposedEndingBalance : null;
+  result.remainingDebtServiceAfterWindow = result.maximumAdditionalPrincipal > 0 ? round((atCapacity.proposalSchedule?.rows ?? []).filter(row => row.month > endMonth).reduce((total, row) => total + row.payment, 0)) : null;
   result.fundingGapAtCapacity = Math.max(0, ...atCapacity.rows.map(row => round(floor - row.closingCash)));
   return result;
 }

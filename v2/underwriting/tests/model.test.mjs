@@ -652,3 +652,14 @@ test('explicit missing or malformed fees cannot become zero; omitted legacy fees
   }
   assert.match(computeScenario(scenario()).warnings.join(' '), /assumes zero upfront loan fees/i);
 });
+
+test('a hand-entered existing payment is one cents figure everywhere it appears', () => {
+  const input = scenario({ existingDebt: { monthlyPayment: 500.004, monthlyPayments: { '2026-03': 1000.005 }, complete: true, provenance: 'Statement' } });
+  const result = computeScenario(input);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.rows[1].existingDebtService, 500);
+  assert.equal(result.rows[1].totalDebtService, result.rows[1].existingDebtService + result.rows[1].proposedDebtService);
+  assert.equal(result.rows[2].existingDebtService, 1000.01);
+  const summed = Math.round(result.rows.reduce((total, row) => total + row.existingDebtService, 0) * 100) / 100;
+  assert.equal(result.summary.totalExistingDebtService, summed, 'summary equals the sum of the rows it describes');
+});

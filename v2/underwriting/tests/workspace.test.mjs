@@ -43,7 +43,7 @@ function harness({ readContext, loadSourceSnapshot } = {}) {
       supabase: { createClient: () => ({ auth }) } }, AbortController, Intl, Date,
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${workspace}\nglobalThis.api={state,allDefs,inputModel,assessCurrentCapacity,capacityTerms,importScenario,load,boot,render,renderMonthlyEditor,renderCommitmentEditor,renderSources,sourceRows,clearSensitive,captureReview,printProposal,setStep,download};`, sandbox);
+  vm.runInContext(`${workspace}\nglobalThis.api={state,allDefs,inputModel,assessCurrentCapacity,capacityTerms,importScenario,load,boot,render,renderMonthlyEditor,renderCommitmentEditor,renderSources,sourceRows,clearSensitive,captureReview,printProposal,buildPrintPacket,setStep,download,revalidate,resumeView,renderFacility,choosePreset,presetFromValues};`, sandbox);
   const api = sandbox.api;
   api.state.ready = true;
   api.state.context = { key: 'user:11111111-1111-4111-8111-111111111111', company: { id: '11111111-1111-4111-8111-111111111111' } };
@@ -888,4 +888,110 @@ test('printed draft facility choices stay unknown rather than becoming documente
   assert.ok(!html.includes('Documented monthly P&amp;I'));
   assert.ok(!html.includes('Documented manual lender balance'));
   assert.ok(!html.includes('Term loan'));
+});
+
+const COMPANY_A = '11111111-1111-4111-8111-111111111111';
+const contextA = () => ({ key: `user:${COMPANY_A}`, company: { id: COMPANY_A, title: 'Synthetic company A' } });
+const offline = () => Object.assign(new Error('Your current company could not be verified. Check your connection and retry.'), { transient: true });
+
+test('a transient verification failure holds the workspace and keeps the unsaved scenario', async () => {
+  // resumeView, the held print, the held download and the first Retry each
+  // re-verify; all four must fail before the fifth read succeeds.
+  let failures = 4;
+  const { api, node, document, window, downloads } = harness({ readContext: async () => { if (failures-- > 0) throw offline(); return contextA(); } });
+  document.visibilityState = 'visible';
+  api.state.commitments = [reviewedPayment()]; api.state.values.amount = '4321'; api.state.facilities = [{ id: 'kept' }];
+  await api.resumeView();
+  assert.equal(api.state.held, true); assert.equal(api.state.ready, true);
+  assert.equal(node('workspace').hidden, true); assert.equal(node('gate').hidden, false);
+  assert.match(node('gate').children[0].textContent, /kept in this tab/);
+  assert.equal(node('gate').children[1].textContent, 'Retry verification');
+  assert.equal(api.state.values.amount, '4321'); assert.equal(api.state.commitments.length, 1); assert.equal(api.state.facilities.length, 1);
+  await api.printProposal(); assert.notEqual(window.printed, true, 'nothing prints while held');
+  await api.download(); assert.equal(downloads.length, 0, 'nothing downloads while held');
+  // Retry: still failing keeps the hold; a successful read releases it with state intact.
+  await node('gate').children[1].click();
+  assert.equal(api.state.held, true);
+  await node('gate').children[1].click();
+  assert.equal(api.state.held, false); assert.equal(node('gate').hidden, true); assert.equal(node('workspace').hidden, false);
+  assert.equal(api.state.values.amount, '4321');
+});
+
+test('a definitive verification failure still clears the scenario', async () => {
+  const { api, node } = harness({ readContext: async () => { throw new Error('Finance or executive access is required for this company.'); } });
+  api.state.values.amount = '4321';
+  await api.resumeView();
+  assert.equal(api.state.ready, false); assert.equal(api.state.values.amount, '');
+  assert.equal(node('gate').children[1].textContent, 'Refresh page');
+});
+
+test('a transient failure during Refresh sources keeps the sources already loaded', async () => {
+  const { api, node } = harness({ readContext: async () => { throw offline(); } });
+  const kept = api.state.sources;
+  api.state.values.amount = '4321';
+  await api.load();
+  assert.equal(api.state.ready, true); assert.equal(api.state.sources, kept); assert.equal(api.state.values.amount, '4321');
+  assert.equal(node('workspace').hidden, false);
+  assert.match(node('status').textContent, /previously loaded sources are still shown/);
+  assert.equal(node('refresh').disabled, false);
+});
+
+test('a transient failure on first load offers a retry that loads rather than a page refresh', async () => {
+  let attempts = 0;
+  const { api, node } = harness({ readContext: async () => { if (++attempts === 1) throw offline(); return contextA(); }, loadSourceSnapshot: async () => ({ currency: 'USD', sources: {} }) });
+  api.state.ready = false; api.state.sources = null; api.state.context = null;
+  await api.load();
+  assert.equal(api.state.held, true); assert.equal(node('gate').children[1].textContent, 'Retry verification');
+  await node('gate').children[1].click();
+  assert.equal(api.state.ready, true); assert.equal(api.state.held, false); assert.equal(node('workspace').hidden, false);
+});
+
+test('the print packet is rebuilt from current inputs for every print, button or browser menu', async () => {
+  const h = await mountedHarness();
+  h.api.state.values.amount = '1000'; h.api.buildPrintPacket();
+  const first = h.node('printPacket').innerHTML; assert.ok(first.includes('$1,000'), 'packet names the entered amount');
+  h.api.state.values.amount = '2000'; h.api.buildPrintPacket();
+  const second = h.node('printPacket').innerHTML;
+  assert.notEqual(second, first); assert.ok(second.includes('$2,000')); assert.ok(!first.includes('$2,000'));
+  await h.api.printProposal(); assert.equal(h.window.printed, true);
+  assert.ok(h.node('printPacket').innerHTML.includes('$2,000'));
+});
+
+test('downloads are compact so any file that imports can be downloaded again', async () => {
+  const h = await mountedHarness(); h.api.render();
+  await h.api.download();
+  const text = await h.downloads[0].text();
+  assert.ok(!text.includes('\n'), 'no pretty-printing');
+  assert.equal(text, JSON.stringify(JSON.parse(text)));
+});
+
+test('the pressed stress preset is derived from the values in force', async () => {
+  const { api, node, scenario, file } = harness();
+  const input = scenario(); Object.assign(input.values, { growthPct: '20', revenueDecline: '0', marginCompression: '0' });
+  await api.importScenario(file(input));
+  assert.equal(api.state.preset, 'growth'); assert.match(node('presetNote').textContent, /20%/);
+  const custom = scenario(); Object.assign(custom.values, { growthPct: '7', revenueDecline: '0', marginCompression: '0' });
+  await api.importScenario(file(custom));
+  assert.equal(api.state.preset, null); assert.match(node('presetNote').textContent, /Custom/);
+  api.choosePreset('downside');
+  assert.equal(api.state.preset, 'downside'); assert.equal(api.state.values.revenueDecline, '10');
+  assert.equal(api.presetFromValues({ growthPct: '0', revenueDecline: '10', marginCompression: '3' }), 'downside');
+  assert.equal(api.presetFromValues({ growthPct: '', revenueDecline: '10', marginCompression: '3' }), null, 'an unknown value never matches a preset');
+});
+
+test('a forced facility editor rebuild returns focus to the control being edited', () => {
+  const { api, node, document } = harness(); api.render();
+  const editor = node('facilityEditor');
+  const editing = { dataset: { facility: 'f-1', field: 'rate', term: 'true' }, focus() { this.focused = true; } };
+  const rebuilt = { focus(options) { this.focused = options; } };
+  let asked = null;
+  document.activeElement = editing; editor.contains = el => el === editing; editor.querySelectorAll = () => [];
+  editor.querySelector = selector => { asked = selector; return rebuilt; };
+  api.renderFacility(true);
+  assert.equal(asked, '[data-facility="f-1"][data-field="rate"][data-term="true"]');
+  assert.equal(rebuilt.focused?.preventScroll, true);
+  const monthCell = { dataset: { facility: 'f-1', paymentMonth: '2026-11' } };
+  document.activeElement = monthCell; editor.contains = el => el === monthCell;
+  api.renderFacility(true);
+  assert.equal(asked, '[data-facility="f-1"][data-payment-month="2026-11"]');
 });

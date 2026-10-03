@@ -11,6 +11,16 @@ const inclusionTypes = ['incremental', 'included-in-pre-debt-cash', 'included-in
 const MAX_COMMITMENTS = 500;
 const MAX_FACILITIES = 100;
 const MAX_FACILITY_MONTHS = 1200;
+// Overrides are keyed by month; a scenario cannot usefully carry more months than
+// the longest facility schedule, and an unbounded map is how an importable file
+// became one that could never be downloaded again (pretty-printed 1.46x larger).
+const MAX_OVERRIDE_MONTHS = 1200;
+// review-snapshot.js builds fact ids such as `payment:<facility id>:<month>` and
+// refuses any id outside /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$/. An imported id
+// that fails it would make review capture permanently unavailable, so the same
+// grammar is enforced here, capped at 100 so every prefixed fact id still fits.
+const STABLE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,99}$/;
+const ID_RULE = 'a unique ID of at most 100 letters, digits or . _ : / - characters';
 const facilityFields = ['id', 'name', 'kind', 'balanceSource', 'accountId', 'manualBalance', 'balanceAsOf', 'balanceProvenance', 'currency',
   'limit', 'borrowingBase', 'reserves', 'lenderAvailable', 'availabilityAsOf', 'availabilityProvenance',
   'scheduleMode', 'monthlyPayment', 'monthlyPayments', 'scheduleComplete', 'scheduleProvenance', 'terms'];
@@ -48,8 +58,8 @@ function validateCommitments(items) {
   return items.map((item, index) => {
     const label = `commitment ${index + 1}`;
     if (!isRecord(item) || commitmentFields.some(key => !Object.hasOwn(item, key)) || Object.keys(item).some(key => !commitmentFields.includes(key))) throw new Error(`Invalid ${label}: all commitment fields are required.`);
-    if (typeof item.id !== 'string' || !item.id.trim() || item.id.length > 128 || seen.has(item.id.trim())) throw new Error(`Invalid ${label}: each commitment needs a unique ID.`);
-    seen.add(item.id.trim());
+    if (typeof item.id !== 'string' || !STABLE_ID.test(item.id) || seen.has(item.id)) throw new Error(`Invalid ${label}: each commitment needs ${ID_RULE}.`);
+    seen.add(item.id);
     if (typeof item.reviewed !== 'boolean') throw new Error(`Invalid ${label}: reviewed must be true or false.`);
     if (typeof item.month !== 'string' || (item.month !== '' && !monthPattern.test(item.month)) || (item.reviewed && item.month === '')) throw new Error(`Invalid ${label} month.`);
     if (!(item.amount === null && !item.reviewed) && (typeof item.amount !== 'number' || !Number.isFinite(item.amount) || item.amount < 0 || item.amount > MAX_COMMITMENT_AMOUNT)) throw new Error(`Invalid ${label} amount: enter a finite nonnegative number within the supported range.`);
@@ -95,8 +105,8 @@ function validateFacilities(items) {
   return items.map((item, index) => {
     const label = `facility ${index + 1}`;
     if (!exactFields(item, facilityFields)) throw new Error(`Invalid ${label}: all facility fields are required and unknown fields are not supported.`);
-    if (typeof item.id !== 'string' || !item.id.trim() || item.id.length > 128 || seenIds.has(item.id.trim())) throw new Error(`Invalid ${label}: each facility needs a unique ID.`);
-    seenIds.add(item.id.trim());
+    if (typeof item.id !== 'string' || !STABLE_ID.test(item.id) || seenIds.has(item.id)) throw new Error(`Invalid ${label}: each facility needs ${ID_RULE}.`);
+    seenIds.add(item.id);
     const row = { id: item.id.trim() };
     for (const key of ['name', 'accountId', 'balanceProvenance', 'availabilityProvenance', 'scheduleProvenance']) row[key] = draftText(item[key], `${label} ${key}`);
     row.kind = draftEnum(item.kind, ['loan', 'loc'], `${label} kind`);
@@ -180,13 +190,16 @@ export function validateScenarioDocument(doc, definitions, companyId) {
     }
   }
   if (!isRecord(doc.overrides)) throw new Error('The scenario must contain its monthly overrides.');
+  if (Object.keys(doc.overrides).length > MAX_OVERRIDE_MONTHS) throw new Error(`The scenario may carry monthly overrides for at most ${MAX_OVERRIDE_MONTHS} months.`);
   const overrides = {};
   for (const [month, row] of Object.entries(doc.overrides)) {
     if (!monthPattern.test(month) || !isRecord(row) || Object.keys(row).some(key => !overrideFields.includes(key))) throw new Error('Invalid monthly override.');
-    overrides[month] = {};
+    const parsed = {};
     for (const key of overrideFields) {
-      if (Object.hasOwn(row, key)) overrides[month][key] = numericString(row[key], `${month} ${key}`);
+      if (Object.hasOwn(row, key)) parsed[key] = numericString(row[key], `${month} ${key}`);
     }
+    // A month with nothing entered is not an override; carrying it forward only grows the file.
+    if (Object.keys(parsed).length) overrides[month] = parsed;
   }
   const commitments = validateCommitments(doc.commitments);
   const facilities = validateFacilities(doc.facilities);

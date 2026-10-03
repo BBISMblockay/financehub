@@ -488,8 +488,12 @@ export function computeScenario(input) {
   const reasons = [];
   const normalized = input.normalizedPreDebtCash ?? {};
   const normalizedDefaultKnown = money(normalized.monthlyAmount) && provenance(normalized.provenance);
+  // Rounded at ingestion, like normalizedAmounts below, so a typed aggregate of
+  // 500.004 reads as the same cents figure in every row, in totalDebtService,
+  // in summary.totalExistingDebtService and in the capacity headroom.
+  const toCents = value => (Number.isFinite(value) ? round(value) : value);
   const debtAmounts = months.map(month => has(debt.monthlyPayments ?? {}, month)
-    ? debt.monthlyPayments[month] : nonnegative(debt.monthlyPayment) ? debt.monthlyPayment : null);
+    ? toCents(debt.monthlyPayments[month]) : nonnegative(debt.monthlyPayment) ? round(debt.monthlyPayment) : null);
   const existingDebtComplete = debt.complete === true && provenance(debt.provenance) && debtAmounts.every(nonnegative);
   if (debtAmounts.some(amount => amount > 0)) warnings.push('Existing debt service is an entered aggregate; loan-by-loan contract terms, payment timing and principal/interest splits are not inferred or independently verified. Confirm the entered schedule includes every required maturity and balloon.');
   const normalizedAmounts = months.map(month => {

@@ -36,9 +36,14 @@ authenticated SECURITY INVOKER read-only report RPC. No new grants or policies.
 
 The context is rechecked after source reads, file reads, focus/visibility resume,
 and before download, review capture or printing. Abort/generation guards reject
-stale asynchronous loads. Auth/company changes clear all sources, facilities,
-scenario inputs, review baseline and print material. Refreshing a changed matched
-source balance invalidates its payment review and portfolio attestation.
+stale asynchronous loads. A DEFINITIVE answer (signed out, disabled, another
+company, no finance/executive gate) clears all sources, facilities, scenario
+inputs, review baseline and print material. A read that did not come back at all
+(network blip, 5xx, a laptop waking before Wi-Fi) is TRANSIENT: `readContext`
+marks it, the workspace is hidden behind a Retry, and nothing typed is lost --
+the same stance `ensureActiveCompany()` takes toward a failed profile read. While
+held, download, import, print and review capture refuse. Refreshing a changed
+matched source balance invalidates its payment review and portfolio attestation.
 
 Source semantics:
 
@@ -103,6 +108,8 @@ P&I. Source profit, debt balances or net financing flows never become capacity.
 Monthly cash/debt overrides carry separate evidence. Existing debt is deducted
 once; the proposed loan enters once, with fixed upfront fees and plan uses once.
 
+A hand-entered existing payment is rounded to cents at ingestion, so every row,
+the combined service, the horizon total and the capacity headroom read one figure.
 `scenario-model.js` supports monthly/quarterly/annual amortization,
 interest-only-plus-balloon and amortizing-balloon schedules, cents rounding,
 zero rates and explicit maturity. First proposed payment is one full interval
@@ -116,6 +123,11 @@ cash-floor inequality with the selected monthly coverage target, includes
 financing fees and the loan’s own payment cost, and applies a conservative
 rounding-error envelope. Production cents schedules verify the interval.
 Incomplete or uncertifiable cases remain unassessed. No automatic lender policy.
+Certified zero borrowing is reported as feasible with a zero ceiling on every
+exit, including the one where no positive cent interval survives rounding. The
+post-window residual and remaining service describe the headline CEILING (null
+when nothing is borrowed), never the suggested minimum, which is 0 whenever zero
+borrowing is feasible.
 
 A window-only result is explicitly scoped; maturity beyond the horizon and
 pre-funding shortfalls never headline full-term capacity. Existing availability
@@ -155,17 +167,28 @@ rows, free-form notes, client names and credentials are not in review snapshots.
 The memo prioritizes material gaps; calculation notes and evidence remain in
 supporting detail. Print builds a static appendix with full proposal schedule,
 per-facility P&I, terms/evidence, monthly overrides, commitment treatment and
-receipt timing. It invokes the browser’s print dialog; nothing is sent.
+receipt timing. It invokes the browser’s print dialog; nothing is sent. The
+packet is rebuilt from CURRENT inputs on every print, including the browser's
+own Ctrl+P / File > Print (`beforeprint`), and emptied again afterwards: the
+print stylesheet shows only the packet, so one left over from an earlier button
+print would otherwise print an old amount with nothing on the page saying so.
 
 ## Scenario files
 
 Version 4 is a full company-bound snapshot of values, overrides, commitments,
 facilities, receipt timing and optional actual review baseline. Strict validation
 rejects malformed/duplicate IDs, wrong companies, unsupported fields and invalid
-numeric/date inputs. Draft unknowns can roundtrip but cannot qualify capacity.
-Versions 1–3 require explicit re-entry rather than invented migration assumptions.
-Maximum local file size is 2 MB, enforced before both import and export. Review
-snapshots have a 2,000-fact bound; oversized captures are visibly unavailable.
+numeric/date inputs. Facility and commitment IDs must fit the review-snapshot
+identifier grammar (`^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,99}$`): a fact id is built
+from them, and an id outside that grammar would make review capture permanently
+unavailable after import. Monthly overrides are bounded to 1,200 months and an
+empty month is not carried. Draft unknowns can roundtrip but cannot qualify
+capacity. Versions 1–3 require explicit re-entry rather than invented migration
+assumptions. Maximum local file size is 2 MB, enforced on the raw file before
+import and on the compact serialization before export -- compact on purpose,
+since a pretty-printed copy measured 1.46x larger and could turn a file that
+imported into one that could not be downloaded again. Review snapshots have a
+2,000-fact bound; oversized captures are visibly unavailable.
 
 ## Verification and release hold
 
