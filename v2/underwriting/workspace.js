@@ -10,7 +10,7 @@ import { cashTimingEditorHtml, cashTimingImpactHtml } from './timing-view.js';
 import { snapshotForReview, reviewChangesHtml, proposalMemoHtml, printEvidenceHtml } from './review-view.js';
 import { createFacility, facilityRegisterHtml, facilityEditorHtml } from './facility-view.js';
 import { parseInputNumber as number, validateScenarioDocument } from './scenario-file.js';
-import { quickLook, draftQuickDebts, quickFactsHtml, quickResultHtml, quickVerdictHtml, quickDebtsHtml, quickProposalHtml, quickMonthOptions } from './quick-look.js';
+import { quickLook, quickDebtCoverage, draftQuickDebts, quickFactsHtml, quickResultHtml, quickVerdictHtml, quickDebtsHtml, quickProposalHtml, quickMonthOptions, resolveAsOfMonth } from './quick-look.js';
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const monthAdd = (month,n) => { const [y,m] = month.split('-').map(Number); return new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7); };
@@ -109,6 +109,13 @@ function inputModel() {
   }
   const manualDebt={monthlyPayment:number(v.existingPayment),monthlyPayments,complete:v.debtComplete===true,provenance:v.debtProvenance};
   state.portfolio=assessFacilityPortfolio({facilities:state.facilities,accountOptions:state.sources?.accountOptions||[],currency:v.currency,startMonth:start,horizonMonths:horizon,mode:v.existingDebtMode,complete:v.facilitiesComplete===true,provenance:v.facilitiesProvenance,manualDebt});
+  const debtCoverage=quickDebtCoverage(state.sources,state.quick.debts);
+  if(!debtCoverage.complete){
+    state.portfolio.warnings.push(...debtCoverage.reasons);
+    // Source-derived schedules cannot certify a register from an incomplete list.
+    // A separately documented manual aggregate keeps its own evidence gate.
+    if(v.existingDebtMode==='facilities')state.portfolio.existingDebt={...state.portfolio.existingDebt,complete:false};
+  }
   const proposalEntered=String(v.amount??'').trim()!=='';
   // The UI balloon option is amortizing: a missing amortization must fail validation, not use the pure model's legacy interest-only fallback.
   const model={currency:v.currency,cashCommitments:{complete:v.commitmentsComplete===true,items:state.commitments},startMonth:start,horizonMonths:horizon,startingCash:number(v.startingCash),requiredCashFloor:number(v.cashFloor),normalizedPreDebtCash:{monthlyAmount:number(v.normalizedCash),provenance:v.cashProvenance},existingDebt:state.portfolio.existingDebt,proposal:proposalEntered?{upfrontFees:number(v.upfrontFees),principal:number(v.amount),annualRatePct:number(v.rate),termMonths:number(v.term),frequency:v.frequency,repayment:v.repayment,startMonth:start,...(v.repayment==='balloon'?{amortizationMonths:number(v.amortizationMonths)??NaN}:{})}:null,growth:{baselineWorkingCapital:number(v.baselineWorkingCapital),growthPct:number(v.growthPct),spreadMonths:number(v.growthSpread),provenance:v.wcProvenance},stress:{monthlyRevenue:number(v.revenue),revenueDeclinePct:number(v.revenueDecline),grossMarginPct:number(v.grossMargin),marginCompressionPct:number(v.marginCompression)},monthlyOverrides};
@@ -209,7 +216,7 @@ function rememberQuick(rows) {
 function redraftQuickDebts(previous=null) {
   if(previous)rememberQuick(previous);
   const bs=state.sources?.sources?.balanceSheet;
-  state.quick.debts=draftQuickDebts(state.sources?.accountOptions||[],state.quick.prefs,{accountHistory:bs?.accountHistory||[],asOfMonth:state.quick.asOfMonth});
+  state.quick.debts=draftQuickDebts(state.sources?.accountOptions||[],state.quick.prefs,{accountHistory:bs?.accountHistory||[],asOfMonth:resolveAsOfMonth(state.sources,state.quick.asOfMonth).month});
   rememberQuick(state.quick.debts);
 }
 function changeQuickInput(el) {
@@ -624,3 +631,4 @@ async function boot() {
   await load();
 }
 boot().catch(error=>clearSensitive(error.message));
+

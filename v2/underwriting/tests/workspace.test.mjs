@@ -511,6 +511,8 @@ const registeredFacility = (overrides = {}) => ({ ...facilityView.createFacility
   lenderAvailable: 50000, availabilityAsOf: '2026-09-30', availabilityProvenance: 'Synthetic lender certificate',
   monthlyPayment: 10, scheduleComplete: true, scheduleProvenance: 'Synthetic complete payment schedule', ...overrides });
 function seedFacilities(h, facilities = [registeredFacility()]) {
+  h.api.state.sources.sources.accounts = { status: 'available' };
+  h.api.state.sources.sources.balanceSheet = { status: 'available' };
   h.api.state.sources.accountOptions = [
     { id: 'connection-a:42', accountId: '42', connectionId: 'connection-a', label: 'Synthetic operating line', balance: 40000, balanceAsOf: '2026-09-30', balanceCurrency: 'USD' },
     { id: 'connection-a:43', accountId: '43', connectionId: 'connection-a', label: 'Synthetic second line', balance: 10000, balanceAsOf: '2026-09-30', balanceCurrency: 'USD' },
@@ -1002,7 +1004,8 @@ const quickAccounts = () => [
   { id: 'connection-a:77', label: 'Sales tax payable', accountType: 'Other Current Liability', balance: 9000, balanceAsOf: '2026-08-31', balanceCurrency: 'USD' },
 ];
 const quickSnapshot = () => ({ currency: 'USD', accountOptions: quickAccounts(), sources: {
-  balanceSheet: { currency: 'USD', periodEnd: '2026-08-31', metrics: [], monthly: [{ month: '2026-07', periodEnd: '2026-07-31', completeMonth: true, bookCash: 90000, assets: 1900000 }, { month: '2026-08', periodEnd: '2026-08-31', completeMonth: true, bookCash: 125000, assets: 2000000 }],
+  accounts: { status: 'available' },
+  balanceSheet: { status: 'available', currency: 'USD', periodEnd: '2026-08-31', metrics: [], monthly: [{ month: '2026-07', periodEnd: '2026-07-31', completeMonth: true, bookCash: 90000, assets: 1900000 }, { month: '2026-08', periodEnd: '2026-08-31', completeMonth: true, bookCash: 125000, assets: 2000000 }],
     accountHistory: [{ accountId: '42', connectionId: 'connection-a', ambiguous: false, values: [{ periodEnd: '2026-07-31', balance: 410000 }, { periodEnd: '2026-08-31', balance: 400000 }] }] },
   profitAndLoss: { currency: 'USD', metrics: [], monthly: [] },
   cashflow: { currency: 'USD', metrics: [], monthly: ['2026-05', '2026-06', '2026-07', '2026-08'].map(m => ({ periodStart: `${m}-01`, periodEnd: `${m}-28`, completeMonth: true, operating: 60000 })) },
@@ -1152,4 +1155,30 @@ test('an exclusion survives a visit to a month where the account had no balance'
   await h.api.importScenario(h.file(payload));
   h.node('workspace').change({ target: { dataset: { quick: 'asOfMonth' }, value: '2026-08' } });
   assert.deepEqual(ids(), [['connection-a:42', true], ['connection-a:77', false], ['connection-a:9', false]], 'the exclusion survives a reopen');
+});
+
+
+
+test('incomplete account loading blocks facility-derived debt completeness while preserving documented manual mode', () => {
+  const h = harness(); seedFacilities(h);
+  h.api.state.values.existingDebtMode = 'facilities';
+  assert.equal(h.api.inputModel().existingDebt.complete, true);
+  h.api.state.sources.sources.accounts = { status: 'error' };
+  assert.equal(h.api.inputModel().existingDebt.complete, false);
+  h.api.render();
+  assert.equal(h.api.state.capacity.status, 'incomplete');
+  assert.match(h.node('methodology').innerHTML, /QBO account mapping coverage is incomplete/);
+  Object.assign(h.api.state.values, { existingDebtMode: 'manual', existingPayment: '10', debtComplete: true, debtProvenance: 'Independent complete lender payment register' });
+  assert.equal(h.api.inputModel().existingDebt.complete, true);
+});
+
+
+test('initial Quick debt rows use the resolved complete month instead of a newer partial headline', async () => {
+  const snap = quickSnapshot();
+  snap.accountOptions[0].balance = 100; snap.accountOptions[0].balanceAsOf = '2026-09-10';
+  snap.sources.balanceSheet.monthly.push({ month: '2026-09', periodEnd: '2026-09-10', completeMonth: false, bookCash: 1000, assets: 10000 });
+  const { api } = harness({ loadSourceSnapshot: async () => snap }); await api.boot();
+  assert.equal(api.state.quickResult.facts.asOfMonth, '2026-08');
+  assert.equal(api.state.quick.debts.find(d => d.id === 'connection-a:42').balance, 400000);
+  assert.equal(api.state.quick.debts.find(d => d.id === 'connection-a:42').asOf, '2026-08-31');
 });
