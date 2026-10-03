@@ -331,7 +331,7 @@ test('the plan is the default basis, the trailing share stays beside it, and the
   assert.ok(Math.abs(r.ratios.trailingShare - r.combinedService / 60000) < 1e-12);
   assert.ok(Math.abs(r.ratios.planWeakestShare - r.combinedService / 36000) < 1e-9);
   assert.match(r.verdict.title, /on the sales plan/);
-  assert.match(r.verdict.reasons.join(' '), /planned sales 10,000,000 × 80% matched attainment \(6 months\) × 7\.5¢ of operating cash flow per recorded sales dollar/);
+  assert.match(r.verdict.reasons.join(' '), /planned sales 10,000,000 × 80% plan attainment \(6 months\) × 7\.5¢ of operating cash flow per recorded sales dollar/);
   assert.match(r.verdict.reasons.join(' '), /Weakest plan month 2026-09/);
   assert.match(r.verdict.reasons.join(' '), /On the last 6 months of actual operating cash flow .* the share is/);
   const t = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10', basis: 'trailing' });
@@ -384,4 +384,45 @@ test('attainment is measured on matched locations while conversion counts every 
   assert.equal(o.months[4].projectedCash, 4000000 * .5 * .04);
   const html = quickProposalHtml({ result: quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10' }), debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
   assert.ok(html.includes('50% plan attainment')); assert.ok(html.includes('for the same locations')); assert.ok(html.includes('locations the plan does not cover'));
+});
+
+test('a plan month that was barely recorded cannot calibrate attainment, and unrecorded planned dollars count as unattained', () => {
+  // Three complete months, each planned for thirty location-days at $100 with ONE recorded day at $200:
+  // 200% on the recorded day, 29 planned location-days with no record. Matched sums alone would admit all three at 200%.
+  const sparse = plannedSnapshot();
+  sparse.sources.revenuePlan.monthly = sparse.sources.revenuePlan.monthly.map(r => r.completeMonth
+    ? { ...r, plannedSales: 3000, matchedPlannedSales: 100, matchedActualNetSales: 200, actualNetSales: 200, matchedLocationDays: 1, missingActualPlanLocationDays: 29 }
+    : r);
+  const sp = forwardOutlook(sparse);
+  assert.equal(sp.available, false); assert.equal(sp.attainment, null); assert.deepEqual(sp.months, []);
+  assert.match(sp.reasons.join(' '), /6 plan months \(2026-01 96\.7%, .*2026-06 96\.7%\) had more than 20% of planned sales with no recorded sales for that location-day/);
+  assert.equal(quickLook({ snapshot: sparse, inputs, debts: [], month: '2026-10' }).basisChoice, 'trailing');
+  // The bound is in DOLLARS, not location-days: a month missing a third of its location-days but 8% of its planned
+  // dollars (daily-planned event locations that did not trade) still calibrates -- against EVERY planned dollar.
+  const seasonal = plannedSnapshot();
+  seasonal.sources.revenuePlan.monthly = seasonal.sources.revenuePlan.monthly.map(r => r.completeMonth
+    ? { ...r, plannedSales: 1000000, matchedPlannedSales: 920000, matchedActualNetSales: 800000, actualNetSales: 800000, matchedLocationDays: 320, missingActualPlanLocationDays: 160 }
+    : r);
+  const se = forwardOutlook(seasonal);
+  assert.equal(se.available, true);
+  assert.equal(se.attainment, .8, '800,000 ÷ 1,000,000 planned, not ÷ 920,000 matched (86.96%)');
+  assert.equal(se.unmeasuredPlanShare, .08);
+  assert.match(se.reasons.join(' '), /8% of planned sales in the calibration months fell on location-days with no recorded sales.*count as unattained/);
+  // Exactly at the bound qualifies; one dollar past it does not.
+  const edge = plannedSnapshot();
+  edge.sources.revenuePlan.monthly = edge.sources.revenuePlan.monthly.map(r => r.completeMonth ? { ...r, plannedSales: 1000000, matchedPlannedSales: 800000, matchedActualNetSales: 700000, actualNetSales: 700000 } : r);
+  assert.equal(forwardOutlook(edge).available, true);
+  edge.sources.revenuePlan.monthly = edge.sources.revenuePlan.monthly.map(r => r.completeMonth ? { ...r, matchedPlannedSales: 799999 } : r);
+  assert.equal(forwardOutlook(edge).available, false);
+  // Only the months that fail coverage are dropped; the rest still calibrate when enough remain.
+  const mixed = plannedSnapshot();
+  mixed.sources.revenuePlan.monthly = mixed.sources.revenuePlan.monthly.map(r => r.completeMonth && r.month < '2026-04'
+    ? { ...r, plannedSales: 3000, matchedPlannedSales: 100, matchedActualNetSales: 200, actualNetSales: 200, missingActualPlanLocationDays: 29 } : r);
+  const mx = forwardOutlook(mixed);
+  assert.equal(mx.available, true); assert.equal(mx.attainmentMonths, 3); assert.equal(mx.attainmentFrom, '2026-04'); assert.equal(mx.attainment, .8);
+  // The proposal and the fact strip say what the figure is and what it leaves out.
+  const html = quickProposalHtml({ result: quickLook({ snapshot: seasonal, inputs, debts: [], month: '2026-10' }), debts: [], snapshot: seasonal, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
+  assert.ok(html.includes('every planned dollar')); assert.ok(html.includes('8% of planned sales in the calibration months'));
+  const facts = quickFactsHtml(quickLook({ snapshot: seasonal, inputs, debts: [], month: '2026-10' }), money);
+  assert.ok(facts.includes('8% of plan unrecorded, counted as unattained'));
 });

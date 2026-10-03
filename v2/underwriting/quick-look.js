@@ -20,7 +20,8 @@
  *     nobody has entered is not a payment of zero.
  *   - FORWARD basis (default when the company has a sales plan ahead): the
  *     plan's monthly sales for the next 12 plan months, times measured plan
- *     attainment (recorded sales ÷ planned sales over the matched months),
+ *     attainment (matched recorded sales ÷ every planned dollar over the
+ *     calibration months, unrecorded location-days counted as unattained),
  *     times measured conversion (operating cash ÷ recorded sales over the same
  *     months) = projected monthly operating cash. The plan is the company's own
  *     plan; the two factors are measured, never assumed. The other basis is
@@ -32,8 +33,9 @@ const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const finite = v => Number.isFinite(v);
 const num = v => { if (typeof v === 'number') return finite(v) ? v : null; const s = String(v ?? '').trim(); if (!s || !/^-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/.test(s)) return null; const n = Number(s); return finite(n) ? n : null; };
 const round2 = v => Math.round((v + Number.EPSILON) * 100) / 100;
+const round4 = v => Math.round((v + Number.EPSILON) * 10000) / 10000;
 
-export const QUICK_RULES = Object.freeze({ comfortableShare: .25, tightShare: .5, minimumMonths: 3, trailingMonths: 12 });
+export const QUICK_RULES = Object.freeze({ comfortableShare: .25, tightShare: .5, minimumMonths: 3, trailingMonths: 12, maximumUnmeasuredPlanShare: .2 });
 
 /** Which balance-sheet account types are offered as existing debt, and whether
  * they start ticked. Long-term liabilities and credit cards usually are debt;
@@ -118,7 +120,7 @@ export function forwardOutlook(snapshot, { asOfMonth = null, horizon = QUICK_RUL
   const sources = snapshot?.sources || {}, plan = sources.revenuePlan || {}, cf = sources.cashflow || {}, pl = sources.profitAndLoss || {};
   const rows = plan.monthly || [];
   const businessMonth = String(plan.businessDate || '').slice(0, 7);
-  const out = { available: false, months: [], reasons: [], attainment: null, attainmentMonths: 0, attainmentFrom: null, attainmentTo: null, conversion: null, conversionMonths: 0, conversionLabel: null, conversionFrom: null, conversionTo: null, totalPlanned: null, totalProjected: null, averageProjected: null, weakest: null, from: null, to: null, businessMonth: businessMonth || null, unplannedStreams: false };
+  const out = { available: false, months: [], reasons: [], attainment: null, attainmentMonths: 0, attainmentFrom: null, attainmentTo: null, conversion: null, conversionMonths: 0, conversionLabel: null, conversionFrom: null, conversionTo: null, totalPlanned: null, totalProjected: null, averageProjected: null, weakest: null, from: null, to: null, businessMonth: businessMonth || null, unplannedStreams: false, unmeasuredPlanShare: null };
   if (!rows.length) { out.reasons.push('No sales plan is saved for this company, so there is no forward basis.'); return out; }
   const min = QUICK_RULES.minimumMonths;
   const upTo = asOfMonth || (businessMonth ? prevMonth(businessMonth) : null);
@@ -138,15 +140,33 @@ export function forwardOutlook(snapshot, { asOfMonth = null, horizon = QUICK_RUL
   const history = rows.filter(r => r.completeMonth && (!upTo || r.month <= upTo));
   const unmapped = history.filter(r => Number(r.unmappedPlanRows) > 0);
   if (unmapped.length) { out.reasons.push(`${unmapped.length} plan month${unmapped.length === 1 ? ' has' : 's have'} plan rows that map to no location (${unmapped.map(r => r.month).join(', ')}), so plan and recorded sales cannot be compared like for like.`); return out; }
-  const cohort = history.filter(r => Number(r.matchedLocationDays) > 0 && finite(r.matchedPlannedSales) && r.matchedPlannedSales > 0 && finite(r.matchedActualNetSales) && r.matchedActualNetSales > 0 && finite(r.actualNetSales) && r.actualNetSales > 0 && cash.byMonth.has(r.month)).slice(-QUICK_RULES.trailingMonths);
+  // A month qualifies only when MOST of its plan was actually measured. A
+  // planned location-day with no recorded sales row is "not recorded", which
+  // may be a closed seasonal store or a missing record -- the data cannot say
+  // which -- so the test is in DOLLARS, not location-days: measured on the
+  // live plan (2026-10), every month carried 30-50% of its location-days
+  // unrecorded (event and pop-up locations planned daily) but only 1-9% of its
+  // planned dollars. A month with one recorded day out of thirty fails here.
+  const measured = r => finite(r.matchedPlannedSales) && r.matchedPlannedSales > 0 && finite(r.matchedActualNetSales) && r.matchedActualNetSales > 0 && finite(r.plannedSales) && r.plannedSales > 0;
+  const unmeasuredShare = r => Math.max(0, (r.plannedSales - r.matchedPlannedSales) / r.plannedSales);
+  const covered = r => unmeasuredShare(r) <= QUICK_RULES.maximumUnmeasuredPlanShare;
+  const cohort = history.filter(r => Number(r.matchedLocationDays) > 0 && measured(r) && covered(r) && finite(r.actualNetSales) && r.actualNetSales > 0 && cash.byMonth.has(r.month)).slice(-QUICK_RULES.trailingMonths);
   if (cohort.length < min) {
-    const planMonths = history.filter(r => finite(r.matchedPlannedSales) && r.matchedPlannedSales > 0 && finite(r.matchedActualNetSales) && r.matchedActualNetSales > 0).length;
-    if (planMonths < min) out.reasons.push(`Plan attainment is not measured: only ${planMonths} month${planMonths === 1 ? '' : 's'} ${planMonths === 1 ? 'has' : 'have'} both a plan and recorded sales for the same locations; ${min} are needed. The plan is not taken at face value.`);
+    const planMonths = history.filter(measured);
+    const thin = planMonths.filter(r => !covered(r));
+    if (planMonths.length < min) out.reasons.push(`Plan attainment is not measured: only ${planMonths.length} month${planMonths.length === 1 ? '' : 's'} ${planMonths.length === 1 ? 'has' : 'have'} both a plan and recorded sales for the same locations; ${min} are needed. The plan is not taken at face value.`);
+    else if (planMonths.length - thin.length < min) out.reasons.push(`Plan attainment is not measured: ${thin.length} plan month${thin.length === 1 ? '' : 's'} (${thin.map(r => `${r.month} ${pct(unmeasuredShare(r))}`).join(', ')}) had more than ${pct(QUICK_RULES.maximumUnmeasuredPlanShare)} of planned sales with no recorded sales for that location-day, leaving fewer than ${min} months whose plan was measured. A month that was barely recorded cannot calibrate the plan.`);
     else out.reasons.push(`${cfSaved ? 'The saved cash-flow statement' : 'The saved P&L'} covers only ${cohort.length} of those months with a complete ${cash.label} figure; ${min} are needed. ${cfSaved ? 'Net operating income is not used in its place while a cash-flow statement is saved.' : ''}`.trim());
     return out;
   }
-  out.attainment = cohort.reduce((t, r) => t + r.matchedActualNetSales, 0) / cohort.reduce((t, r) => t + r.matchedPlannedSales, 0);
+  // Attainment: matched recorded sales over EVERY planned dollar in the cohort
+  // months, the unrecorded location-days included. A planned dollar with no
+  // recorded sales counts as unattained, so an unrecorded day can only lower
+  // the figure, never raise it.
+  const plannedTotal = cohort.reduce((t, r) => t + r.plannedSales, 0);
+  out.attainment = cohort.reduce((t, r) => t + r.matchedActualNetSales, 0) / plannedTotal;
   out.attainmentMonths = cohort.length; out.attainmentFrom = cohort[0].month; out.attainmentTo = cohort.at(-1).month;
+  out.unmeasuredPlanShare = round4(cohort.reduce((t, r) => t + (r.plannedSales - r.matchedPlannedSales), 0) / plannedTotal);
   // Conversion: cash per dollar of ALL recorded sales in the cohort months --
   // including streams the plan never covered -- applied below to projected
   // PLANNED sales only. Both choices understate rather than overstate.
@@ -168,6 +188,7 @@ export function forwardOutlook(snapshot, { asOfMonth = null, horizon = QUICK_RUL
   out.available = true;
   if (cash.label === 'net operating income') out.reasons.push('No cash-flow statement is saved, so the conversion uses net operating income, which is not cash.');
   if (out.unplannedStreams) out.reasons.push('Recorded sales include locations the plan does not cover; the projection counts planned locations only, and the conversion was measured against all recorded sales, so it understates rather than overstates.');
+  if (out.unmeasuredPlanShare > 0) out.reasons.push(`${pct(out.unmeasuredPlanShare)} of planned sales in the calibration months fell on location-days with no recorded sales (a closed seasonal location or a missing record; the data cannot say which). Those dollars count as unattained, so the attainment understates rather than overstates.`);
   return out;
 }
 const nextMonth = m => { const [y, mo] = m.split('-').map(Number); return `${mo === 12 ? y + 1 : y}-${String(mo === 12 ? 1 : mo + 1).padStart(2, '0')}`; };
@@ -246,7 +267,7 @@ export function quickLook({ snapshot, inputs = {}, debts = [], month, asOfMonth 
     title = { comfortable: `Looks comfortable ${on}`, tight: `Tight ${on}`, no: `Does not fit ${on}` }[status];
     const payments = knownExisting > 0 ? 'this payment plus the existing payments you entered' : 'this payment';
     if (basisChoice === 'plan') {
-      reasons.push(`${pct(share)} of projected monthly operating cash over the next ${forward.months.length} plan months (${forward.from} to ${forward.to}) would go to ${payments}: planned sales ${n0(forward.totalPlanned)} × ${pct(forward.attainment)} matched attainment (${forward.attainmentMonths} months) × ${(forward.conversion * 100).toFixed(1)}¢ of ${forward.conversionLabel} per recorded sales dollar (${forward.conversionMonths} months, ${forward.conversionFrom} to ${forward.conversionTo}). Comfortable is up to ${pct(QUICK_RULES.comfortableShare)}, tight up to ${pct(QUICK_RULES.tightShare)}.`);
+      reasons.push(`${pct(share)} of projected monthly operating cash over the next ${forward.months.length} plan months (${forward.from} to ${forward.to}) would go to ${payments}: planned sales ${n0(forward.totalPlanned)} × ${pct(forward.attainment)} plan attainment (${forward.attainmentMonths} months) × ${(forward.conversion * 100).toFixed(1)}¢ of ${forward.conversionLabel} per recorded sales dollar (${forward.conversionMonths} months, ${forward.conversionFrom} to ${forward.conversionTo}). Comfortable is up to ${pct(QUICK_RULES.comfortableShare)}, tight up to ${pct(QUICK_RULES.tightShare)}.`);
       if (finite(ratios.planWeakestShare)) reasons.push(`Weakest plan month ${forward.weakest.month}: ${pct(ratios.planWeakestShare)} of that month's projected cash.`);
       if (trailingBasis) reasons.push(`On the last ${trailingBasis.months} months of actual ${trailingBasis.label} (${trailingBasis.from} to ${trailingBasis.to}) the share is ${pct(ratios.trailingShare)}.`);
     } else {
@@ -275,7 +296,7 @@ export function quickLook({ snapshot, inputs = {}, debts = [], month, asOfMonth 
     methodology: [
       'Payment: amortizing monthly payment at the typed rate and term; no fees, no balloon.',
       basisChoice === 'plan'
-        ? `Basis (sales plan): the company's stored active sales plan for the next ${forward.months.length} plan months × plan attainment measured as recorded ÷ planned sales for the same locations over ${forward.attainmentMonths} matched months × conversion measured as ${forward.conversionLabel} ÷ all recorded sales over the same ${forward.conversionMonths} months. Fewer than ${QUICK_RULES.minimumMonths} such months, an unmapped plan row, or a saved cash-flow statement that covers too few of them means no forward basis. Recorded sales are Shopify net sales; the conversion keeps the Shopify-versus-QuickBooks scope difference inside a measured ratio. The trailing basis is shown beside it.`
+        ? `Basis (sales plan): the company's stored active sales plan for the next ${forward.months.length} plan months × plan attainment measured as matched recorded sales ÷ every planned dollar for the same locations over ${forward.attainmentMonths} calibration months (a planned location-day with no recorded sales counts as unattained; a month with more than ${pct(QUICK_RULES.maximumUnmeasuredPlanShare)} of its plan unrecorded does not calibrate) × conversion measured as ${forward.conversionLabel} ÷ all recorded sales over the same ${forward.conversionMonths} months. Fewer than ${QUICK_RULES.minimumMonths} such months, an unmapped plan row, or a saved cash-flow statement that covers too few of them means no forward basis. Recorded sales are Shopify net sales; the conversion keeps the Shopify-versus-QuickBooks scope difference inside a measured ratio. The trailing basis is shown beside it.`
         : `Basis (recent results): average monthly ${basis ? basis.label : 'operating cash flow'} over complete months in the saved statements (up to ${QUICK_RULES.trailingMonths}). Partial months are excluded.${planBasis ? ' The sales-plan basis is shown beside it.' : ''}`,
       `Verdict: combined monthly service as a share of that basis -- comfortable up to ${pct(QUICK_RULES.comfortableShare)}, tight up to ${pct(QUICK_RULES.tightShare)}. A ticked debt with no payment entered caps the verdict at tight. Incomplete debt source coverage prevents a positive verdict.`,
       'Existing debt: balance-sheet accounts typed as long-term liability, credit card or other current liability, ticked by you. Balances are book balances as of the statement date; payments are only what you typed.',
@@ -297,9 +318,9 @@ export function quickFactsHtml(result, money) {
     + avg(f.revenue, 'Monthly revenue') + avg(f.grossProfit, 'Monthly gross profit')
     + avg(f.operatingCash, 'Monthly operating cash flow') + avg(f.operatingIncome, 'Monthly net operating income')
     + (f.forward.available
-      ? span('Projected monthly operating cash · sales plan', money(f.forward.averageProjected, true), `Next ${f.forward.months.length} plan months · ${f.forward.from} to ${f.forward.to} · planned sales ${n0(f.forward.totalPlanned)} × ${pct(f.forward.attainment)} matched attainment × ${(f.forward.conversion * 100).toFixed(1)}¢ per sales dollar`)
+      ? span('Projected monthly operating cash · sales plan', money(f.forward.averageProjected, true), `Next ${f.forward.months.length} plan months · ${f.forward.from} to ${f.forward.to} · planned sales ${n0(f.forward.totalPlanned)} × ${pct(f.forward.attainment)} plan attainment × ${(f.forward.conversion * 100).toFixed(1)}¢ per sales dollar`)
       : span('Projected monthly operating cash · sales plan', '—', f.forward.reasons[0] || 'No forward basis'))
-    + span('Plan attainment', f.forward.attainment !== null ? pct(f.forward.attainment) : '—', f.forward.attainment !== null ? `Matched recorded ÷ matched planned sales · ${f.forward.attainmentMonths} months · ${f.forward.attainmentFrom} to ${f.forward.attainmentTo}` : 'Not measured')
+    + span('Plan attainment', f.forward.attainment !== null ? pct(f.forward.attainment) : '—', f.forward.attainment !== null ? `Matched recorded ÷ all planned sales · ${f.forward.attainmentMonths} months · ${f.forward.attainmentFrom} to ${f.forward.attainmentTo}${f.forward.unmeasuredPlanShare > 0 ? ` · ${pct(f.forward.unmeasuredPlanShare)} of plan unrecorded, counted as unattained` : ''}` : 'Not measured')
     + span(result.debtCoverage.complete ? 'Existing debt ticked below' : 'Existing debt total unknown', money(result.existingDebt, true), `${result.includedCount} account${result.includedCount === 1 ? '' : 's'} · ${result.unknownPaymentCount ? `${result.unknownPaymentCount} without a payment entered` : 'payments entered'}`)
     + span('Currency', esc(f.currency || 'not stated'), 'From the statement headers');
 }
@@ -371,7 +392,7 @@ export function quickProposalHtml({ result, debts, snapshot, money, companyTitle
     + `<section><h2>Request</h2><p><strong>${result.inputsComplete ? `${money(result.inputs.amount)} at ${esc(result.inputs.rate)}% over ${esc(result.inputs.term)} months, amortizing monthly` : 'Amount, rate and term not yet entered'}</strong>${result.inputs.purpose ? ` · ${esc(result.inputs.purpose)}` : ''}</p>${quickVerdictHtml(result)}<div class="uw-kpis">${quickResultHtml(result, money)}</div></section>`
     + `<section><h2>Business performance</h2><p class="uw-fine">Complete calendar months in the saved statements, newest ${perf.length ? `${perf[0].month} to ${perf.at(-1).month}` : 'none'}. Operating cash flow is the cash-flow statement's operating total for the same month; it is historical and unnormalized.</p>${missingNote(pl, SOURCE_NAMES.profitAndLoss)}${missingNote(cf, SOURCE_NAMES.cashflow)}${table(['Month', 'Revenue', 'Gross profit', 'Gross margin', 'Operating income', 'Operating cash flow'], perfRows, 'No complete months in the saved P&L')}</section>`
     + `<section><h2>Forward outlook from the sales plan</h2>${f.forward.available
-      ? `<p class="uw-fine">The company's stored active sales plan for the next ${f.forward.months.length} plan months. Projected operating cash = planned sales × ${pct(f.forward.attainment)} plan attainment (recorded ÷ planned sales for the same locations, ${f.forward.attainmentMonths} months, ${esc(f.forward.attainmentFrom)} to ${esc(f.forward.attainmentTo)}) × ${(f.forward.conversion * 100).toFixed(1)}¢ of ${esc(f.forward.conversionLabel)} per recorded sales dollar over the same months. Planned sales carry no recorded currency and are plain numbers; projected cash is in the statement currency because the conversion was measured from the statements.</p>${table(['Plan month', 'Planned sales (currency not recorded)', 'Projected operating cash', 'Combined payments', 'Share'], [...f.forward.months.map(m => td([esc(m.month), n0(m.plannedSales), money(m.projectedCash), money(result.combinedService), m.projectedCash > 0 && result.combinedService !== null ? pct(result.combinedService / m.projectedCash) : '—'])), td([`<strong>${f.forward.months.length}-month total</strong>`, `<strong>${n0(f.forward.totalPlanned)}</strong>`, `<strong>${money(f.forward.totalProjected)}</strong>`, `<strong>${result.combinedService !== null ? money(round2(result.combinedService * f.forward.months.length)) : '—'}</strong>`, `<strong>${pct(r.planShare)}</strong>`])], 'No plan months ahead')}${f.forward.reasons.length ? `<p class="uw-data-warning">${esc(f.forward.reasons.join(' '))}</p>` : ''}`
+      ? `<p class="uw-fine">The company's stored active sales plan for the next ${f.forward.months.length} plan months. Projected operating cash = planned sales × ${pct(f.forward.attainment)} plan attainment (matched recorded sales ÷ every planned dollar for the same locations, unrecorded location-days counted as unattained, ${f.forward.attainmentMonths} months, ${esc(f.forward.attainmentFrom)} to ${esc(f.forward.attainmentTo)}) × ${(f.forward.conversion * 100).toFixed(1)}¢ of ${esc(f.forward.conversionLabel)} per recorded sales dollar over the same months. Planned sales carry no recorded currency and are plain numbers; projected cash is in the statement currency because the conversion was measured from the statements.</p>${table(['Plan month', 'Planned sales (currency not recorded)', 'Projected operating cash', 'Combined payments', 'Share'], [...f.forward.months.map(m => td([esc(m.month), n0(m.plannedSales), money(m.projectedCash), money(result.combinedService), m.projectedCash > 0 && result.combinedService !== null ? pct(result.combinedService / m.projectedCash) : '—'])), td([`<strong>${f.forward.months.length}-month total</strong>`, `<strong>${n0(f.forward.totalPlanned)}</strong>`, `<strong>${money(f.forward.totalProjected)}</strong>`, `<strong>${result.combinedService !== null ? money(round2(result.combinedService * f.forward.months.length)) : '—'}</strong>`, `<strong>${pct(r.planShare)}</strong>`])], 'No plan months ahead')}${f.forward.reasons.length ? `<p class="uw-data-warning">${esc(f.forward.reasons.join(' '))}</p>` : ''}`
       : `<p class="uw-data-warning">No forward basis: ${esc(f.forward.reasons.join(' ') || 'the sales plan could not be turned into projected cash.')}</p>`}</section>`
     + `<section><h2>Balance sheet</h2><p class="uw-fine">${esc(SOURCE_NAMES.balanceSheet)} as of ${esc(bsAsOf || 'date unknown')} · ${esc(bs.basis || 'basis not stated')}.</p>${missingNote(bs, SOURCE_NAMES.balanceSheet)}${column && ['assets', 'liabilities', 'equity', 'bookCash'].some(k => !finite(b[k])) ? `<p class="uw-data-warning">The ${esc(f.asOfMonth)} column lacks ${esc([['assets', 'total assets'], ['liabilities', 'total liabilities'], ['equity', 'equity'], ['bookCash', 'bank balances']].filter(([k]) => !finite(b[k])).map(([, l]) => l).join(', '))}; those lines are left out rather than filled from another month.</p>` : ''}${table(['Line', 'Book balance'], bsItems.filter(([, v]) => finite(v)).map(([k, v]) => td([esc(k), money(v)])), 'No balance sheet loaded')}</section>`
     + `<section><h2>Saved bank balances</h2><p class="uw-fine">Balances as last synced from the bank feed (${esc(SOURCE_NAMES.bank)}), each with its own date and connection status. Loading this page does not call the bank; a balance is only as current as its sync date. Not reconciled to the books; a negative balance can be a sweep or line position.</p>${missingNote(bank, SOURCE_NAMES.bank)}${bank.status === 'partial' ? `<p class="uw-data-warning">Bank coverage is partial: ${esc((bank.warnings || []).find(w => /cap|incomplete/i.test(w)) || 'one or more accounts has a missing balance, date, currency, or an inactive or non-production connection.')}</p>` : ''}${table(['Account', 'Current', 'Available', 'Currency', 'Last synced', 'Connection'], (bank.rows || []).map(x => td([esc(x.name || x.id), bankAmount(x.current_balance, x.iso_currency_code), bankAmount(x.available_balance, x.iso_currency_code), esc(x.iso_currency_code || 'not recorded'), esc(String(x.balance_updated_at || '').slice(0, 10) || 'unknown'), esc([x.connection_status || 'status unknown', x.environment && x.environment !== 'production' ? x.environment : null].filter(Boolean).join(' · '))])), 'No bank accounts loaded')}</section>`
