@@ -123,7 +123,7 @@ test('the draft proposal is assembled from every loaded source, names each date,
   }
   assert.ok(!html.includes('<b>acct</b>')); assert.ok(!html.includes('<input'));
   // Amounts whose source records no currency never borrow the statement currency.
-  for (const text of ['$9,000,000', '>$300,000<', '$2,074,000', '$5,300,000', '$1,790,000', 'Live']) assert.ok(!html.includes(text), `must not print ${text}`); // $300,000 book cash is legitimately in the statement currency; the PO cost cell is not
+  for (const text of ['$9,000,000', '$2,074,000', '$5,300,000', '$1,790,000', 'Live']) assert.ok(!html.includes(text), `must not print ${text}`); // the PO cost cell is asserted plain below; book cash is legitimately in the statement currency
   assert.ok(html.includes('<td>2,074,000</td><td>2,400,000</td>'), 'recorded sales and plan are plain numbers');
   assert.ok(!html.includes('2026-07</td>') || !/2026-07<\/td><td>\$95,000/.test(html), 'the current partial month is not presented as a recorded month');
   // Missing sources are named, not silently skipped.
