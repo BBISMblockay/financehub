@@ -29,6 +29,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { appendFileSync } from 'node:fs';
+import { SYNC_STAMP, feedIsQuiet } from './lib/freshness-quiet.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -179,8 +180,22 @@ async function main() {
         }
       }
 
-      const ok = lagOk && !partial;
-      const verdict = !lagOk ? 'STALE' : partial ? 'PARTIAL' : 'ok';
+      // Data lags, but did the sync run? A company with nothing to report
+      // (a new store, an idle ad account) is QUIET, not stale -- see
+      // lib/freshness-quiet.mjs. Only asked when the data lags.
+      let quiet = false;
+      if (!lagOk) {
+        const { data: conns, error: connErr } = await db
+          .from(feed.connTable)
+          .select('sync_enabled, meta')
+          .eq('company_entity_id', companyId)
+          .eq('is_active', true);
+        if (connErr) throw new Error(`${feed.connTable} stamp probe failed for ${companyId}: ${connErr.message}`);
+        quiet = feedIsQuiet(conns, SYNC_STAMP[feed.connTable], pacificMidnightUtc(today));
+      }
+
+      const ok = (lagOk && !partial) || quiet;
+      const verdict = quiet ? 'quiet (synced after the day ended, no newer data)' : !lagOk ? 'STALE' : partial ? 'PARTIAL' : 'ok';
       console.log(
         `[freshness] ${feed.label.padEnd(9)} ${companyId}  latest=${maxDay || 'NONE'}  lag=${lag === null ? 'n/a' : `${lag}d`}`
         + `  ${required} captured=${capturedAt || 'n/a'}  ${verdict}`,

@@ -279,6 +279,11 @@ jobs:
       - name: Shopify store-name sales fallback
         run: node scripts/tests/shopify-store-name-fallback.test.mjs
 
+      # Freshness alarm: a sync that succeeded after the day ended with nothing
+      # new is QUIET, never stale; a dropped or failed sync still alarms.
+      - name: Freshness quiet feeds
+        run: node scripts/tests/freshness-quiet.test.mjs
+
       # Shared Shopify auth rules and their wiring. Mutations:
       # SHOPIFY_AUTH_MUTATION=disabled-admin | no-refresh | redact-anyway | any-domain
       - name: Shopify authorization (client credentials, public app, privacy webhooks)
