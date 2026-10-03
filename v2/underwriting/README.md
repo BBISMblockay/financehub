@@ -21,7 +21,10 @@ rests on, with dates:
   account TYPE, never by name: long-term liabilities and credit cards start
   ticked, other current liabilities (payables, tax, deferred revenue) start
   unticked. Balances are book balances; monthly payments are only what a person
-  types.
+  types. Unmatched liability accounts remain visible with an unknown balance.
+  Incomplete account mapping or balance-sheet coverage blocks a positive Quick
+  look verdict and withholds total debt and debt-to-assets ratios. Known amounts
+  are labeled subtotals; excluded rows and unresolved coverage print in the proposal.
 - **Verdict**: combined monthly service (new payment plus typed existing
   payments) as a share of average monthly operating cash flow (or net operating
   income when no cash-flow statement is saved). Up to 25% reads comfortable, up
@@ -291,3 +294,4 @@ This change is submitted as a draft PR after the user reviewed the synthetic
 design renderings. Browser/mobile/live-auth verification and company-specific
 cash/lender evidence remain release gates. Merge, deployment and migration
 application are not authorized by this PR.
+

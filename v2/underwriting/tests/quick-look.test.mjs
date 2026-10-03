@@ -10,7 +10,8 @@ const cfRows = (operating = 50000, complete = true) => months.map(m => ({ period
 const snapshot = ({ operating = 50000, cf = true, bookCash = 300000, assets = 5000000, cfComplete = true } = {}) => ({
   currency: 'USD',
   sources: {
-    balanceSheet: { currency: 'USD', periodEnd: '2026-06-30', metrics: [], monthly: [{ month: '2026-06', periodEnd: '2026-06-30', completeMonth: true, bookCash, assets }] },
+    accounts: { status: 'available' },
+    balanceSheet: { status: 'available', currency: 'USD', periodEnd: '2026-06-30', metrics: [], monthly: [{ month: '2026-06', periodEnd: '2026-06-30', completeMonth: true, bookCash, assets }] },
     profitAndLoss: { currency: 'USD', metrics: [], monthly: plRows() },
     cashflow: cf ? { currency: 'USD', metrics: [], monthly: cfRows(operating, cfComplete) } : { status: 'missing', monthly: [] },
   },
@@ -20,14 +21,13 @@ const snapshot = ({ operating = 50000, cf = true, bookCash = 300000, assets = 50
     { id: 'c:ocl-1', label: 'Sales tax payable', accountType: 'Other Current Liability', balance: 50000, balanceAsOf: '2026-06-30', balanceCurrency: 'USD' },
     { id: 'c:ocl-2', label: 'Overpaid note', accountType: 'Other Current Liability', balance: -4000, balanceAsOf: '2026-06-30', balanceCurrency: 'USD' },
     { id: 'c:ap', label: 'Accounts payable', accountType: 'Accounts Payable', balance: 900000, balanceAsOf: '2026-06-30', balanceCurrency: 'USD' },
-    { id: 'c:unmatched', label: 'Unmatched loan', accountType: 'Long Term Liability', balance: null },
   ],
 });
 const inputs = { amount: '500000', rate: '9.5', term: '36', purpose: 'Holiday buy' };
 
 test('existing debt is drafted from liability account types, never from names, and keeps prior ticks', () => {
   const debts = draftQuickDebts(snapshot().accountOptions);
-  assert.deepEqual(debts.map(d => [d.id, d.include]), [['c:loan-1', true], ['c:cc-1', true], ['c:ocl-1', false]], 'LTL and cards ticked, OCL unticked, AP/negative/unmatched absent, sorted by balance');
+  assert.deepEqual(debts.map(d => [d.id, d.include]), [['c:loan-1', true], ['c:cc-1', true], ['c:ocl-1', false]], 'LTL and cards ticked, OCL unticked, AP/negative absent, sorted by balance');
   const again = draftQuickDebts(snapshot().accountOptions, [{ id: 'c:ocl-1', include: true, monthlyPayment: 1200 }, { id: 'c:loan-1', include: false, monthlyPayment: -5 }]);
   assert.equal(again.find(d => d.id === 'c:ocl-1').include, true); assert.equal(again.find(d => d.id === 'c:ocl-1').monthlyPayment, 1200);
   assert.equal(again.find(d => d.id === 'c:loan-1').include, false); assert.equal(again.find(d => d.id === 'c:loan-1').monthlyPayment, null, 'a negative payment is not kept');
@@ -170,16 +170,16 @@ test('the as-of month re-dates the balance sheet, the averages window and the de
   assert.equal(march.facts.asOfMonth, '2026-03'); assert.equal(march.facts.openingCash.value, 200000); assert.equal(march.facts.totalAssets.value, 4400000);
   assert.equal(march.facts.operatingCash.months, 3); assert.equal(march.facts.operatingCash.average, 100000); assert.equal(march.facts.operatingCash.to, '2026-03');
   assert.equal(march.facts.revenue.to, '2026-03', 'P&L averages stop at the as-of month too');
-  assert.equal(march.verdict.status, 'comfortable'); assert.equal(latest.verdict.status, 'tight', 'the same request reads differently as of a weaker window');
+  assert.equal(march.verdict.status, 'unknown', 'ambiguous historical debt prevents a positive verdict'); assert.equal(latest.verdict.status, 'unknown', 'ambiguous debt also prevents a verdict in the latest window');
   const bad = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10', asOfMonth: '2026-09' });
   assert.equal(bad.facts.asOfMonth, '2026-06'); assert.match(bad.verdict.reasons.join(' '), /2026-09 is not a complete month.*as of 2026-06/);
-  // Debts: balances come from the chosen month's column; a zero-balance month drops the account; ambiguous history falls back to the latest match.
+  // Debts: balances come from the chosen month's column; a zero-balance month drops the account; ambiguous history stays unknown.
   const opts = snapshot().accountOptions.map(a => ({ ...a, id: a.id.replace('c:', 'c:') }));
   const history = snap.sources.balanceSheet.accountHistory;
   const atMarch = draftQuickDebts(opts, [], { accountHistory: history, asOfMonth: '2026-03' });
-  assert.deepEqual(atMarch.map(d => [d.id, d.balance, d.asOf]), [['c:loan-1', 1400000, '2026-03-28'], ['c:ocl-1', 50000, '2026-06-30']], 'card had no balance in March; ambiguous OCL keeps the latest matched balance');
+  assert.deepEqual(atMarch.map(d => [d.id, d.balance, d.asOf]), [['c:loan-1', 1400000, '2026-03-28'], ['c:ocl-1', null, null], ['c:ocl-2', null, null]], 'card had no balance in March; ambiguous OCL stays unknown');
   const atJune = draftQuickDebts(opts, atMarch, { accountHistory: history, asOfMonth: '2026-06' });
-  assert.deepEqual(atJune.map(d => [d.id, d.balance]), [['c:loan-1', 1250000], ['c:cc-1', 80000], ['c:ocl-1', 50000]]);
+  assert.deepEqual(atJune.map(d => [d.id, d.balance]), [['c:loan-1', 1250000], ['c:cc-1', 80000], ['c:ocl-1', null]]);
   const html = quickProposalHtml({ result: march, debts: atMarch, snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
   assert.ok(html.includes('figures as of 2026-03')); assert.ok(html.includes('as of 2026-03-28')); assert.ok(html.includes('3-month total')); assert.ok(!html.includes('2026-04</td>'));
 });
@@ -205,4 +205,85 @@ test('a selected month never borrows another month\'s balance-sheet figures', ()
   const headlineOnly = snapshot(); headlineOnly.sources.balanceSheet.monthly = []; headlineOnly.sources.balanceSheet.metrics = snap.sources.balanceSheet.metrics;
   const h = quickLook({ snapshot: headlineOnly, inputs, debts: [], month: '2026-10' });
   assert.equal(h.facts.asOfMonth, null); assert.equal(h.facts.openingCash.value, 999999); assert.equal(h.facts.totalAssets.value, 8888888);
+});
+
+
+
+test('unknown loan balances stay visible, count unknown payments, and block positive verdicts and totals', () => {
+  const snap = snapshot({ operating: 200000 });
+  snap.accountOptions.push({ id: 'c:unmatched', label: 'Unmatched loan', accountType: 'Long Term Liability', balance: null });
+  const debts = draftQuickDebts(snap.accountOptions);
+  assert.equal(debts.at(-1).include, true);
+  const r = quickLook({ snapshot: snap, inputs, debts, month: '2026-10' });
+  assert.equal(r.unknownPaymentCount, 3);
+  assert.equal(r.verdict.status, 'unknown');
+  assert.equal(r.existingDebt, null);
+  assert.equal(r.knownDebt, 1280000);
+  assert.equal(r.ratios.debtToAssetsBefore, null);
+  assert.equal(r.ratios.cashCoverMonths, null);
+  assert.equal(r.ratios.debtToAssetsAfter, null);
+  assert.match(quickDebtsHtml(debts, money), /Unknown — no matched balance/);
+  const html = quickPrintHtml({ result: r, debts, snapshot: snap, money, preparedAt: '2026-10-03' });
+  for (const text of ['Unmatched loan', 'Debt coverage incomplete', 'QBO account mapping', 'Total ticked debt unknown', 'known balance subtotal']) assert.ok(html.includes(text), text);
+  // Entered P&I is still real evidence, but cannot certify missing balances.
+  debts.at(-1).monthlyPayment = 1200;
+  assert.equal(quickLook({ snapshot: snap, inputs, debts }).knownExisting, 1200);
+});
+
+test('missing, failed, partial or truncated debt sources never masquerade as zero debt', () => {
+  for (const key of ['accounts', 'balanceSheet']) for (const status of [undefined, 'missing', 'error', 'partial']) {
+    const snap = snapshot({ operating: 200000 }); snap.accountOptions = [];
+    snap.sources[key].status = status;
+    const r = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10' });
+    assert.equal(r.verdict.status, 'unknown', `${key}: ${status}`);
+    assert.equal(r.existingDebt, null);
+  }
+  const snap = snapshot({ operating: 200000 }); snap.sources.accounts.truncated = true;
+  assert.equal(quickLook({ snapshot: snap, inputs }).verdict.status, 'unknown');
+});
+
+test('matched zero/repaid balances are not unknown debt; complete sources permit a zero-debt verdict', () => {
+  const snap = snapshot({ operating: 200000 });
+  snap.accountOptions = [{ id: 'paid', accountType: 'Long Term Liability', balance: 0, balanceAsOf: '2026-06-30' }, { id: 'credit', accountType: 'Credit Card', balanceAsOf: '2026-06-30', balance: -10 }];
+  const debts = draftQuickDebts(snap.accountOptions);
+  assert.deepEqual(debts, []);
+  const r = quickLook({ snapshot: snap, inputs, debts, month: '2026-10' });
+  assert.equal(r.existingDebt, 0); assert.equal(r.verdict.status, 'comfortable');
+});
+
+test('explicit exclusions survive refresh without hiding unknown source coverage or including nonloan liabilities', () => {
+  const options = [{ id: 'loan', label: 'Excluded loan', accountType: 'Long Term Liability', balance: null }, { id: 'tax', label: 'Tax', accountType: 'Other Current Liability', balance: null }];
+  const debts = draftQuickDebts(options, [{ id: 'loan', include: false, monthlyPayment: 20 }]);
+  assert.ok(debts.every(d => !d.include));
+  const snap = snapshot({ operating: 200000 }); snap.accountOptions = options;
+  const r = quickLook({ snapshot: snap, inputs, debts, month: '2026-10' });
+  assert.equal(r.includedCount, 0); assert.equal(r.knownExisting, 0); assert.equal(r.verdict.status, 'unknown');
+  assert.match(quickPrintHtml({ result: r, debts, snapshot: snap, money }), /○ Excluded loan/);
+  const failedRefresh = draftQuickDebts([], debts);
+  assert.equal(failedRefresh.length, 2); assert.ok(failedRefresh.every(d => d.balance === null && !d.include));
+});
+
+
+test('selected-month missing debt history never borrows a latest balance, while historical zero stays zero', () => {
+  const snap = datedSnapshot();
+  snap.accountOptions = [snap.accountOptions[0]];
+  snap.sources.balanceSheet.accountHistory[0].values = [{ periodEnd: '2026-06-30', balance: 1200000 }];
+  const args = { accountHistory: snap.sources.balanceSheet.accountHistory, asOfMonth: '2026-03' };
+  const debts = draftQuickDebts(snap.accountOptions, [], args);
+  assert.equal(debts[0].balance, null); assert.equal(debts[0].asOf, null);
+  const r = quickLook({ snapshot: snap, inputs, debts, month: '2026-10', asOfMonth: '2026-03' });
+  assert.equal(r.verdict.status, 'unknown'); assert.equal(r.existingDebt, null);
+  snap.sources.balanceSheet.accountHistory[0].values.push({ periodEnd: '2026-03-31', balance: 0 });
+  const zero = draftQuickDebts(snap.accountOptions, debts, args);
+  assert.deepEqual(zero, []);
+  assert.equal(quickLook({ snapshot: snap, inputs, debts: zero, month: '2026-10', asOfMonth: '2026-03' }).existingDebt, 0);
+});
+
+
+test('default latest-complete month checks debt coverage for that month, not a newer partial headline', () => {
+  const snap = snapshot({ operating: 200000 });
+  snap.accountOptions = [{ id: 'c:loan', label: 'Loan', accountType: 'Long Term Liability', balance: 100, balanceAsOf: '2026-07-10' }];
+  snap.sources.balanceSheet.monthly.push({ month: '2026-07', periodEnd: '2026-07-10', completeMonth: false, bookCash: 1000, assets: 10000 });
+  const r = quickLook({ snapshot: snap, inputs, debts: draftQuickDebts(snap.accountOptions), month: '2026-10' });
+  assert.equal(r.facts.asOfMonth, '2026-06'); assert.equal(r.debtCoverage.complete, false); assert.equal(r.verdict.status, 'unknown');
 });
