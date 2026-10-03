@@ -1226,7 +1226,7 @@
       // -- no error, just nothing older -- so say so before a history import
       // appears to show an empty past.
       const historyNote = granted.length && !granted.includes('read_all_orders')
-        ? `<div class="int-scope-warn" style="margin:10px 16px 0;">Order history is limited to the last 60 days: Shopify has not granted this store's app <code>read_all_orders</code>. Imports cannot reach further back until it does.</div>`
+        ? `<div class="int-scope-warn" style="margin:10px 16px 0;">Order history is limited to the last 60 days: this store's app does not have <code>read_all_orders</code>, so imports cannot reach further back. Add it to the app, release, approve the update in the store admin, then Re-test before importing history. <button type="button" class="ig-open-btn" data-guide="shopify_dev_app">How to fix</button></div>`
         : '';
       if (!missing?.length) return historyNote;
       if (!granted?.length && missing.length >= 4) {
@@ -1668,6 +1668,16 @@
 
     async function startHistoryBackfill(connectionId, historyDays) {
       if (_backfillBusy) return;
+      // A store without read_all_orders answers only the last 60 days, with no
+      // error -- a 365-day import would "complete" with 60 days in it. Say so
+      // before it starts, rather than after it looks done.
+      const conn = (_summaryState.shopify || []).find((r) => r.id === connectionId);
+      const granted = Array.isArray(conn?.scopes_granted) ? conn.scopes_granted : [];
+      if (historyDays > 60 && granted.length && !granted.includes('read_all_orders') && !confirm(
+        `This store's app does not have read_all_orders, so Shopify will only return the last 60 days of orders — not ${historyDays}.\n\n`
+        + 'Add read_all_orders to the app in Shopify\'s Dev Dashboard, release it, approve the update, then Re-test here before importing.\n\n'
+        + 'Import the last 60 days anyway?',
+      )) return;
       if (!confirm(
         `Import ${historyDays} days of sales from Shopify?\n\n`
         + 'Runs in this browser — keep the tab open until Last import shows complete.\n'

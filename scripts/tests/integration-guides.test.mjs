@@ -1,7 +1,7 @@
 /* Integration setup guides (v2/integration-guides.js).
  *
  * Proven:
- *   1. The Shopify guide lists exactly PUBLIC_SCOPES -- shopify-connect-dev-app
+ *   1. The Shopify own-app guide lists PUBLIC_SCOPES plus read_all_orders -- shopify-connect-dev-app
  *      refuses a token missing one, so a guide that drifts walks a store owner
  *      into a refusal.
  *   2. Every guide renders, has numbered steps, and links only to https.
@@ -11,8 +11,8 @@
  *      page names a guide that exists.
  *
  * Run: node scripts/tests/integration-guides.test.mjs
- * Mutations: GUIDES_MUTATION=scope-drift (a Shopify scope dropped) and
- * GUIDES_MUTATION=no-pages-show-list must each fail. */
+ * Mutations: GUIDES_MUTATION=scope-drift (a Shopify scope dropped),
+ * no-pages-show-list and no-all-orders must each fail. */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -23,10 +23,11 @@ import { PUBLIC_SCOPES } from '../lib/shopify-auth-lib.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const mutation = process.env.GUIDES_MUTATION || '';
-assert.ok(['', 'scope-drift', 'no-pages-show-list'].includes(mutation), `Unknown mutation ${mutation}`);
+assert.ok(['', 'scope-drift', 'no-pages-show-list', 'no-all-orders'].includes(mutation), `Unknown mutation ${mutation}`);
 
 let src = read('v2/integration-guides.js');
 if (mutation === 'scope-drift') src = src.replace("    'read_publications',\n", '');
+if (mutation === 'no-all-orders') src = src.replace(".concat(['read_all_orders'])", '');
 if (mutation === 'no-pages-show-list') src = src.replace("['pages_show_list', ", '[');
 const sandbox = { window: {} };
 vm.runInNewContext(src, sandbox);
@@ -38,8 +39,7 @@ const t = (name, fn) => { fn(); passed++; console.log('ok -', name); };
 
 t('Shopify scopes equal PUBLIC_SCOPES', () => {
   assert.deepEqual([...G.SHOPIFY_SCOPES].sort(), [...PUBLIC_SCOPES].sort());
-  const copy = G.copyValues('shopify_dev_app', {});
-  assert.deepEqual(Object.values(copy)[0].split(',').sort(), [...PUBLIC_SCOPES].sort());
+  for (const s of PUBLIC_SCOPES) assert.ok(G.SHOPIFY_OWN_APP_SCOPES.includes(s), `own-app route includes ${s}`);
 });
 
 t('Meta organic scopes include pages_show_list (Test lists Pages via /me/accounts)', () => {
@@ -62,6 +62,15 @@ t('every guide renders with steps and https-only links', () => {
   }
   assert.equal(G.render('nope', {}), '');
   assert.equal(G.resolve('nope'), null);
+});
+
+t('the own-app route asks for read_all_orders (full history backfill)', () => {
+  assert.deepEqual([...G.SHOPIFY_OWN_APP_SCOPES].sort(), [...PUBLIC_SCOPES, 'read_all_orders'].sort());
+  const step = G.resolve('shopify_dev_app', {}).steps.find((s) => s.copy);
+  assert.ok(step.scopes.includes('read_all_orders'), 'listed in the step');
+  assert.ok(step.copy[0].value.split(',').includes('read_all_orders'), 'in Copy all scopes');
+  const page = read('v2/integrations.html');
+  assert.match(page, /historyDays > 60 && granted\.length && !granted\.includes\('read_all_orders'\)/, 'import warns first');
 });
 
 t('ctx values are copy chips, escaped, and absent without ctx', () => {

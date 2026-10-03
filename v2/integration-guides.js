@@ -30,6 +30,13 @@
     'read_reports',
     'read_publications',
   ];
+  // The store's OWN app is custom-distributed in its own organization -- the
+  // same kind of app as Baseballism's, which holds read_all_orders and so
+  // backfills full history. Only SILO's PUBLIC app has to wait for Shopify to
+  // approve that scope (hence its absence from PUBLIC_SCOPES). Without it the
+  // Admin API returns just the last 60 days of orders, silently, so a history
+  // import looks complete and is not. The own-app route therefore asks for it.
+  const SHOPIFY_OWN_APP_SCOPES = SHOPIFY_SCOPES.concat(['read_all_orders']);
   const META_ADS_SCOPES = ['ads_read', 'business_management'];
   // pages_show_list is what lets Test's /me/accounts lookup list the Pages;
   // without it Meta refuses that call and the tester shows no Pages at all.
@@ -75,8 +82,9 @@
         {
           title: 'Give it read-only access, then release',
           body: 'Create a new <strong>version</strong> of the app. Under access scopes, add each of these, then <strong>Release</strong> the version. All are read-only; SILO cannot change anything in your store.',
-          copy: [{ label: 'Copy all scopes', value: SHOPIFY_SCOPES.join(',') }],
-          scopes: SHOPIFY_SCOPES,
+          copy: [{ label: 'Copy all scopes', value: SHOPIFY_OWN_APP_SCOPES.join(',') }],
+          scopes: SHOPIFY_OWN_APP_SCOPES,
+          note: '<strong>Don\'t skip <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders, so SILO cannot import your sales history. If Shopify asks you to request access to it, submit the request before releasing.',
         },
         {
           title: 'Install the app on the store',
@@ -99,7 +107,7 @@
       troubleshooting: [
         { q: 'Shopify refused the app / "shop and app must belong to the same organization"', a: 'The app was created while signed in to a different Shopify organization. Sign in as the store owner, create the app again from the Dev Dashboard, and use the new Client ID and secret.' },
         { q: 'The store row warns about missing scopes', a: 'Add the missing scope in a new app version, release it, approve the update in the store admin if Shopify asks, then click <strong>Re-test</strong> in SILO.' },
-        { q: 'Order history stops at 60 days', a: 'Expected for now. Shopify only returns older orders with the <code>read_all_orders</code> permission, which needs Shopify\'s approval. Test says so on the row rather than letting the store look fully imported.' },
+        { q: 'The store row says order history is limited to 60 days', a: 'The app is missing <code>read_all_orders</code>. In the Dev Dashboard, add it to a new app version (request access if Shopify asks), release it, approve the update in the store admin, then click <strong>Re-test</strong> in SILO. Run the history import <em>after</em> the warning is gone — an import started without it only reaches 60 days back.' },
       ],
       action: { id: 'shopify_form', label: 'Go to the Shopify form' },
     },
@@ -342,7 +350,7 @@
     return true;
   }
 
-  const api = { GUIDES, SHOPIFY_SCOPES, META_ADS_SCOPES, META_ORGANIC_SCOPES, REDO_MARKETING_SCOPES, resolve, render, copyValues, open, keys: () => Object.keys(GUIDES) };
+  const api = { GUIDES, SHOPIFY_SCOPES, SHOPIFY_OWN_APP_SCOPES, META_ADS_SCOPES, META_ORGANIC_SCOPES, REDO_MARKETING_SCOPES, resolve, render, copyValues, open, keys: () => Object.keys(GUIDES) };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.SiloIntegrationGuides = api;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
