@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="workspace-settings.css" />
+  <link rel="stylesheet" href="integration-guides.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -17,6 +18,7 @@
   <script src="silo-chrome.js"></script>
   <script src="shopify-scopes.js"></script>
   <script src="ad-account-picker.js"></script>
+  <script src="integration-guides.js"></script>
   <style>
     /* ── Page layout (scrollable within silo-main shell) ── */
     #silo-app .silo-main {
@@ -631,11 +633,8 @@
                          2026-01-01. shopify-connect-dev-app mints a token BEFORE saving anything,
                          and the client secret goes to a table no browser can read. -->
                     <div class="int-muted" style="margin:14px 0 10px;"><strong>Connect with your store's own app</strong> (works for any store):</div>
-                    <ol class="int-muted" style="margin:0 0 10px;padding-left:18px;">
-                      <li>Signed in as the store owner, open <a href="https://dev.shopify.com/dashboard" target="_blank" rel="noopener">Shopify's Dev Dashboard</a> and create an app (any name, e.g. "SILO").</li>
-                      <li>In a new version, turn on these access scopes: <code>read_orders</code>, <code>read_products</code>, <code>read_inventory</code>, <code>read_locations</code>, <code>read_shopify_payments_payouts</code>, <code>read_draft_orders</code>, <code>read_reports</code>, <code>read_publications</code>. Release the version.</li>
-                      <li>Install the app on this store, then copy its <strong>Client ID</strong> and <strong>Client secret</strong> from the app's settings into the fields below.</li>
-                    </ol>
+                    <div class="int-muted" style="margin:0 0 10px;">You create a small read-only app in Shopify's Dev Dashboard, then paste its Client ID and Client secret here.
+                      <button type="button" class="ig-open-btn" data-guide="shopify_dev_app" style="margin-left:4px;">Step-by-step guide</button></div>
                     <div class="bcn-field-group">
                       <label class="bcn-label" for="shop-client-id">Client ID</label>
                       <input class="bcn-field bcn-field--mono" id="shop-client-id" type="text" autocomplete="off" spellcheck="false" />
@@ -651,7 +650,8 @@
 
                     <details class="int-muted" style="margin:6px 0 10px;">
                       <summary>Already have an Admin API token (<code>shpat_…</code>)?</summary>
-                      <div style="margin-top:8px;">Stores that created a custom app in their admin before 2026 can paste its token. Shopify no longer lets stores create new ones.</div>
+                      <div style="margin-top:8px;">Stores that created a custom app in their admin before 2026 can paste its token. Shopify no longer lets stores create new ones.
+                        <button type="button" class="ig-open-btn" data-guide="shopify_token" style="margin-left:4px;">Where to find it</button></div>
                       <div class="bcn-field-group" style="margin-top:8px;">
                         <label class="bcn-label" for="shop-access-token">Access token</label>
                         <input class="bcn-field bcn-field--mono" id="shop-access-token" type="password"
@@ -707,8 +707,11 @@
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--search-console" id="btn-connect-search-console">Connect Search Console →</button>
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--tiktok" id="btn-connect-tiktok">Connect TikTok Ads →</button>
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--meta" id="btn-add-meta">Add Meta Ads token…</button>
+                    <button type="button" class="ig-open-btn" data-guide="meta_ads">Meta setup guide</button>
                   </div>
                   <div class="int-add-form add-form" id="meta-add-form">
+                    <div class="int-muted" style="margin-bottom:10px;">Meta needs a System User token created in your Business settings first.
+                      <button type="button" class="ig-open-btn" data-guide="meta_ads" style="margin-left:4px;">How to get one</button></div>
                     <div class="bcn-field-group">
                       <label class="bcn-label" for="meta-token">Meta System User access token</label>
                       <input class="bcn-field bcn-field--mono" id="meta-token" type="password"
@@ -761,8 +764,9 @@
             <tfoot>
               <tr class="int-add-row">
                 <td colspan="5">
-                  <div class="form-row" style="padding:10px 0;">
+                  <div class="form-row" style="padding:10px 0;gap:12px;align-items:center;">
                     <button class="bcn-btn bcn-btn--ghost" id="btn-add-redo">Connect Redo…</button>
+                    <button type="button" class="ig-open-btn" data-guide="redo">Redo setup guide</button>
                   </div>
                 </td>
               </tr>
@@ -1351,6 +1355,35 @@
     });
 
     document.getElementById('btn-cancel-add').addEventListener('click', closeAddForm);
+
+    // ── Setup guides (v2/integration-guides.js) ─────────────────────
+    // Delegated, because the Meta rows' "How to generate one" is re-rendered
+    // on every load. The guide's footer button jumps to the matching form.
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-guide]');
+      if (!btn || !window.SiloIntegrationGuides) return;
+      e.preventDefault();
+      window.SiloIntegrationGuides.open(btn.dataset.guide, {
+        ctx: { redoWebhookUrl: _summaryState.redo ? redoWebhookUrl() : null },
+        onAction: goToGuideTarget,
+      });
+    });
+
+    function goToGuideTarget(action) {
+      const reveal = (el) => { if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus?.({ preventScroll: true }); } };
+      if (action === 'shopify_form' || action === 'shopify_token_form') {
+        if (!document.getElementById('shopify-add-form').classList.contains('open')) document.getElementById('btn-add-shopify').click();
+        if (action === 'shopify_token_form') {
+          document.getElementById('shop-access-token').closest('details').open = true;
+        }
+        reveal(document.getElementById(document.getElementById('shop-domain').value.trim() ? (action === 'shopify_token_form' ? 'shop-access-token' : 'shop-client-id') : 'shop-domain'));
+      } else if (action === 'meta_form') {
+        document.getElementById('meta-add-form').classList.add('open');
+        reveal(document.getElementById('meta-token'));
+      } else if (action === 'redo_row') {
+        reveal(document.getElementById('redo-connections-list').closest('section'));
+      }
+    }
 
     function closeAddForm() {
       document.getElementById('shopify-add-form').classList.remove('open');
@@ -2233,6 +2266,7 @@
               <button class="int-btn int-btn--primary" onclick="saveMetaToken('${row.id}')">Save token</button>
               <button class="int-btn int-btn--ghost" onclick="toggleMetaTokenForm('${row.id}')">Cancel</button>
               <span style="font-size:10.5px;color:var(--bcn-ink-3);">— replaces the token on THIS connection; never add a second one for the same account</span>
+              <button type="button" class="ig-open-btn" data-guide="meta_ads">How to generate one</button>
             </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:10.5px;color:var(--bcn-ink-3);">
               <span style="font-family:var(--bcn-mono);">Organic (optional):</span>
@@ -2242,7 +2276,7 @@
               <input class="bcn-field bcn-field--mono" style="min-width:190px;font-size:11px;"
                 value="${escAttr(row.instagram_business_account_id || '')}" placeholder="Instagram Business Account ID"
                 onchange="updateAdConnection('${row.id}', { instagram_business_account_id: this.value.trim() || null })" />
-              <span>— needs pages_read_engagement / instagram_basic / instagram_manage_insights on the token + Page asset assignment</span>
+              <span>— needs pages_show_list / pages_read_engagement / instagram_basic / instagram_manage_insights on the token + Page asset assignment</span>
             </div>
           </td>
         </tr>`;
