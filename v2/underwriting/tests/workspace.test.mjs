@@ -1186,7 +1186,7 @@ test('initial Quick debt rows use the resolved complete month instead of a newer
 const plannedSnapshot = () => {
   const snap = quickSnapshot();
   snap.sources.revenuePlan = { status: 'partial', businessDate: '2026-09-03', monthly: [
-    ...['2026-05', '2026-06', '2026-07', '2026-08'].map(m => ({ month: m, plannedSales: 500000, actualNetSales: 400000, completeMonth: true })),
+    ...['2026-05', '2026-06', '2026-07', '2026-08'].map(m => ({ month: m, plannedSales: 500000, actualNetSales: 400000, matchedPlannedSales: 500000, matchedActualNetSales: 400000, matchedLocationDays: 60, unmappedPlanRows: 0, unplannedActualLocationDays: 0, completeMonth: true })),
     ...['2026-09', '2026-10', '2026-11', '2026-12'].map((m, i) => ({ month: m, plannedSales: [500000, 800000, 2000000, 600000][i], actualNetSales: null, completeMonth: false })),
   ] };
   return snap;

@@ -291,7 +291,7 @@ test('default latest-complete month checks debt coverage for that month, not a n
 const plannedSnapshot = () => {
   const snap = snapshot({ operating: 60000 }); // Jan–Jun 2026 complete P&L and cash-flow months
   snap.sources.revenuePlan = { status: 'partial', businessDate: '2026-07-03', monthly: [
-    ...months.map((m, i) => ({ month: m, plannedSales: 1000000, actualNetSales: 800000 + (i === 0 ? 100000 : 0) - (i === 1 ? 100000 : 0), completeMonth: true })),
+    ...months.map((m, i) => { const actual = 800000 + (i === 0 ? 100000 : 0) - (i === 1 ? 100000 : 0); return { month: m, plannedSales: 1000000, actualNetSales: actual, matchedPlannedSales: 1000000, matchedActualNetSales: actual, matchedLocationDays: 90, unmappedPlanRows: 0, unplannedActualLocationDays: 0, missingActualPlanLocationDays: 0, completeMonth: true }; }),
     { month: '2026-07', plannedSales: 1200000, actualNetSales: 95000, completeMonth: false },
     { month: '2026-08', plannedSales: 900000, actualNetSales: null, completeMonth: false },
     { month: '2026-09', plannedSales: 600000, actualNetSales: null, completeMonth: false },
@@ -316,7 +316,7 @@ test('the forward outlook turns the sales plan into projected cash with measured
   assert.equal(march.attainmentMonths, 3); assert.equal(march.months[0].month, '2026-04'); assert.equal(march.months.length, 9);
   // Not enough matched months: no forward basis, with the reason named.
   const thin = plannedSnapshot(); thin.sources.cashflow.monthly = thin.sources.cashflow.monthly.slice(0, 2); thin.sources.profitAndLoss.monthly = thin.sources.profitAndLoss.monthly.slice(0, 2);
-  const t = forwardOutlook(thin); assert.equal(t.available, false); assert.match(t.reasons.join(' '), /conversion is not measured/);
+  const t = forwardOutlook(thin); assert.equal(t.available, false); assert.match(t.reasons.join(' '), /cash-flow statement covers only 2 of those months/); assert.equal(t.conversion, null);
   assert.equal(forwardOutlook(snapshot()).available, false);
   // Without a cash-flow statement the conversion falls back to net operating income and says so.
   const noCf = plannedSnapshot(); noCf.sources.cashflow = { status: 'missing', monthly: [] };
@@ -331,7 +331,7 @@ test('the plan is the default basis, the trailing share stays beside it, and the
   assert.ok(Math.abs(r.ratios.trailingShare - r.combinedService / 60000) < 1e-12);
   assert.ok(Math.abs(r.ratios.planWeakestShare - r.combinedService / 36000) < 1e-9);
   assert.match(r.verdict.title, /on the sales plan/);
-  assert.match(r.verdict.reasons.join(' '), /planned sales 10,000,000 × 80% attainment \(6 months\) × 7\.5¢ of operating cash flow per recorded sales dollar/);
+  assert.match(r.verdict.reasons.join(' '), /planned sales 10,000,000 × 80% matched attainment \(6 months\) × 7\.5¢ of operating cash flow per recorded sales dollar/);
   assert.match(r.verdict.reasons.join(' '), /Weakest plan month 2026-09/);
   assert.match(r.verdict.reasons.join(' '), /On the last 6 months of actual operating cash flow .* the share is/);
   const t = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10', basis: 'trailing' });
@@ -347,4 +347,41 @@ test('the plan is the default basis, the trailing share stays beside it, and the
   assert.ok(!html.includes('$4,000,000'), 'planned sales are never printed in the statement currency');
   const facts = quickFactsHtml(r, money);
   assert.ok(facts.includes('Projected monthly operating cash · sales plan')); assert.ok(facts.includes('$100.0K')); assert.ok(facts.includes('Plan attainment')); assert.ok(facts.includes('80%'));
+});
+
+test('the forward basis fails closed on thin attainment, a thin cash-flow statement, and unmapped plan rows', () => {
+  // Two plan/actual months, six cash-flow months: attainment is not measured, so nothing is projected at face value.
+  const young = plannedSnapshot();
+  young.sources.revenuePlan.monthly = young.sources.revenuePlan.monthly.map(r => r.completeMonth && r.month < '2026-05' ? { ...r, plannedSales: null, matchedPlannedSales: null, matchedLocationDays: 0 } : r);
+  const y = forwardOutlook(young);
+  assert.equal(y.available, false); assert.equal(y.attainment, null); assert.match(y.reasons.join(' '), /attainment is not measured: only 2 months have both a plan and recorded sales for the same locations/);
+  assert.equal(quickLook({ snapshot: young, inputs, debts: [], month: '2026-10' }).basisChoice, 'trailing');
+  // A saved cash-flow statement with two negative matched months is incomplete coverage, never a reason to read P&L profit as cash.
+  const sparse = plannedSnapshot();
+  sparse.sources.cashflow.monthly = sparse.sources.cashflow.monthly.slice(0, 2).map(x => ({ ...x, operating: -5000 }));
+  const sp = forwardOutlook(sparse);
+  assert.equal(sp.available, false); assert.equal(sp.conversion, null); assert.match(sp.reasons.join(' '), /cash-flow statement covers only 2 of those months.*Net operating income is not used/);
+  const spLook = quickLook({ snapshot: sparse, inputs, debts: [], month: '2026-10' });
+  assert.equal(spLook.basisChoice, 'trailing'); assert.ok(!/net operating income/.test(spLook.forward.conversionLabel || ''));
+  // A plan row that maps to no location breaks the like-for-like comparison, in history or ahead.
+  const unmappedHistory = plannedSnapshot(); unmappedHistory.sources.revenuePlan.monthly[2].unmappedPlanRows = 4;
+  assert.match(forwardOutlook(unmappedHistory).reasons.join(' '), /plan rows that map to no location \(2026-03\)/);
+  const unmappedAhead = plannedSnapshot(); unmappedAhead.sources.revenuePlan.monthly.find(r => r.month === '2026-11').unmappedPlanRows = 1;
+  assert.match(forwardOutlook(unmappedAhead).reasons.join(' '), /ahead \(2026-11\) carry plan rows that map to no location/);
+});
+
+test('attainment is measured on matched locations while conversion counts every recorded sales dollar', () => {
+  // The plan covers one store; Shopify also records an unplanned online stream.
+  const snap = plannedSnapshot();
+  snap.sources.revenuePlan.monthly = snap.sources.revenuePlan.monthly.map(r => r.completeMonth
+    ? { ...r, plannedSales: 1000000, matchedPlannedSales: 1000000, matchedActualNetSales: 500000, actualNetSales: 1500000, unplannedActualLocationDays: 30 }
+    : r);
+  const o = forwardOutlook(snap);
+  assert.equal(o.available, true);
+  assert.equal(o.attainment, .5, 'matched actual ÷ matched planned, not whole-month 1.5M ÷ 1M');
+  assert.ok(Math.abs(o.conversion - 360000 / 9000000) < 1e-12, 'cash per dollar of ALL recorded sales, the conservative denominator');
+  assert.equal(o.unplannedStreams, true); assert.match(o.reasons.join(' '), /locations the plan does not cover.*understates rather than overstates/);
+  assert.equal(o.months[4].projectedCash, 4000000 * .5 * .04);
+  const html = quickProposalHtml({ result: quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10' }), debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
+  assert.ok(html.includes('50% plan attainment')); assert.ok(html.includes('for the same locations')); assert.ok(html.includes('locations the plan does not cover'));
 });
