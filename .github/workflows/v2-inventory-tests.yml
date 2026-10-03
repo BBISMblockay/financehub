@@ -142,7 +142,13 @@ jobs:
         env:
           PLAYWRIGHT_MODULE: ${{ github.workspace }}/v2/tests/node_modules/playwright/index.mjs
           UW_OUTPUT: ${{ runner.temp }}/underwriting-preview
-        run: node v2/underwriting/tests/browser.mjs
+          # Ubuntu's existing Chrome profile supports sandboxed user namespaces.
+          # Keep chromiumSandbox:true; do not relax AppArmor or add --no-sandbox.
+          CHROMIUM_PATH: /opt/google/chrome/chrome
+        run: |
+          test -x "$CHROMIUM_PATH"
+          "$CHROMIUM_PATH" --version
+          node v2/underwriting/tests/browser.mjs
 
       - name: Upload synthetic underwriting screenshots
         if: always()
