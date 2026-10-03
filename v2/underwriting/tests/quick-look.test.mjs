@@ -114,18 +114,32 @@ test('the draft proposal is assembled from every loaded source, names each date,
   for (const text of ['DRAFT FINANCING PROPOSAL', 'Northline &lt;Supply&gt;', 'Prepared 2026-10-03', '$500,000 at 9.5% over 36 months', 'Holiday buy',
     'Business performance', '6-month total', '$3,750,000', '2026-01 to 2026-06',          // revenue total and window
     'Balance sheet', 'as of 2026-06-30', 'Accrual', 'Long-term liabilities', '$1,500,000',
-    'Bank balances', 'Operating &lt;b&gt;acct&lt;/b&gt;', '-$688,010', '2026-07-01',
+    'Saved bank balances', 'Operating &lt;b&gt;acct&lt;/b&gt;', '-$688,010', '2026-07-01', 'Last synced', 'active',
     'Existing debt', 'Total ticked debt $1,280,000', '1 ticked account has none',
-    'Inventory and purchase commitments', '538,101', 'recorded value $9,000,000', 'placed purchase orders <strong>135', 'No date',
-    'Sales plan and recorded sales', '2026-06', '90.5%', 'Planned ahead: 2026-07 $5,300,000 · 2026-08 $1,790,000',
+    'Inventory and purchase commitments', '538,101', 'recorded value 9,000,000 (currency not recorded)', 'placed purchase orders <strong>135', 'No date', '<td>300,000</td>',
+    'Sales plan and recorded sales', '2026-06', '90.5%', 'Planned ahead: 2026-07 5,300,000 · 2026-08 1,790,000',
     'Sources and dates', 'Sales plan and recorded sales (SILO)', 'partial coverage', 'How this was prepared', 'nothing was typed except the request']) {
     assert.ok(html.includes(text), text);
   }
   assert.ok(!html.includes('<b>acct</b>')); assert.ok(!html.includes('<input'));
+  // Amounts whose source records no currency never borrow the statement currency.
+  for (const text of ['$9,000,000', '>$300,000<', '$2,074,000', '$5,300,000', '$1,790,000', 'Live']) assert.ok(!html.includes(text), `must not print ${text}`); // $300,000 book cash is legitimately in the statement currency; the PO cost cell is not
+  assert.ok(html.includes('<td>2,074,000</td><td>2,400,000</td>'), 'recorded sales and plan are plain numbers');
   assert.ok(!html.includes('2026-07</td>') || !/2026-07<\/td><td>\$95,000/.test(html), 'the current partial month is not presented as a recorded month');
   // Missing sources are named, not silently skipped.
   const bare = { sources: { profitAndLoss: { status: 'error', error: { message: 'offline' }, monthly: [] } }, accountOptions: [] };
   const empty = quickProposalHtml({ result: quickLook({ snapshot: bare, inputs, debts: [], month: '2026-10' }), debts: [], snapshot: bare, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
-  for (const text of ['Profit and loss (QuickBooks): read failed (offline)', 'Balance sheet (QuickBooks): not loaded', 'Bank balances (Plaid feed): not loaded', 'No complete months in the saved P&amp;L', 'No bank accounts loaded', 'No placed purchase orders', 'Not enough saved history to judge']) assert.ok(empty.includes(text), text);
+  for (const text of ['Profit and loss (QuickBooks): read failed (offline)', 'Balance sheet (QuickBooks): not loaded', 'Bank balances (Plaid feed): not loaded', 'Saved bank balances', 'No complete months in the saved P&amp;L', 'No bank accounts loaded', 'No placed purchase orders', 'Not enough saved history to judge']) assert.ok(empty.includes(text), text);
   assert.equal(quickPrintHtml({ result: r, debts, snapshot: snap, money, companyTitle: 'X', preparedAt: '2026-10-03' }), html.replace('Northline &lt;Supply&gt;', 'X'));
+});
+
+test('a bank row is shown in its own currency or as a plain number, with stale or partial coverage named', () => {
+  const snap = fullSnapshot();
+  snap.sources.bank = { status: 'partial', warnings: ['Bank account rows are capped at 500; source coverage is incomplete.'], rows: [
+    { id: 'b1', name: 'CAD account', current_balance: 1000, available_balance: 900, iso_currency_code: 'CAD', balance_updated_at: '2026-06-20T00:00:00Z', connection_status: 'login_required', environment: 'production' },
+    { id: 'b2', name: 'No currency', current_balance: 5000, available_balance: null, iso_currency_code: null, balance_updated_at: null, connection_status: 'active', environment: 'sandbox' }] };
+  const r = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10' });
+  const html = quickProposalHtml({ result: r, debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
+  for (const text of ['CA$1,000', 'CA$900', '2026-06-20', 'login_required', '5,000 (currency not recorded)', 'not recorded', 'unknown', 'active · sandbox', 'Bank coverage is partial', 'capped at 500']) assert.ok(html.includes(text), text);
+  assert.ok(!html.includes('>$1,000<'), 'a CAD balance is never printed as USD');
 });
