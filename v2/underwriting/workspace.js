@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const monthAdd = (month,n) => { const [y,m] = month.split('-').map(Number); return new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7); };
 const initialMonth = new Date().toISOString().slice(0,7);
-const state = { context:null, held:false, mode:'quick', quick:{debts:[],asOfMonth:null}, sources:null, values:{}, overrides:{}, commitments:[], facilities:[], portfolio:null, reviewBaseline:null, cashTiming:emptyCashTimingAssumptions(), cashTimingResult:null, step:'business', result:null, preset:'base', currency:null, ready:false };
+const state = { context:null, held:false, mode:'quick', quick:{debts:[],prefs:[],asOfMonth:null}, sources:null, values:{}, overrides:{}, commitments:[], facilities:[], portfolio:null, reviewBaseline:null, cashTiming:emptyCashTimingAssumptions(), cashTimingResult:null, step:'business', result:null, preset:'base', currency:null, ready:false };
 const guard = createLoadGuard();
 let db, mounted = false, validationPromise = null, printing = false;
 const definitions = {
@@ -197,13 +197,24 @@ function renderAsOfSelect(result) {
   if(sel.value!==(current||''))sel.value=current||'';
   sel.disabled=!options.length;
 }
-function redraftQuickDebts(previous=state.quick.debts) {
+// Ticks and typed payments are remembered PER ACCOUNT in state.quick.prefs,
+// whatever month is showing: an account unticked at the latest month must stay
+// unticked after a visit to a month where it had no balance (found in review).
+// The visible rows are drafted from that set; the file stores that set.
+function rememberQuick(rows) {
+  const byId=new Map(state.quick.prefs.map(p=>[p.id,p]));
+  for(const r of rows)byId.set(r.id,{id:r.id,include:r.include===true,monthlyPayment:Number.isFinite(r.monthlyPayment)&&r.monthlyPayment>=0?r.monthlyPayment:null});
+  state.quick.prefs=[...byId.values()];
+}
+function redraftQuickDebts(previous=null) {
+  if(previous)rememberQuick(previous);
   const bs=state.sources?.sources?.balanceSheet;
-  state.quick.debts=draftQuickDebts(state.sources?.accountOptions||[],previous,{accountHistory:bs?.accountHistory||[],asOfMonth:state.quick.asOfMonth});
+  state.quick.debts=draftQuickDebts(state.sources?.accountOptions||[],state.quick.prefs,{accountHistory:bs?.accountHistory||[],asOfMonth:state.quick.asOfMonth});
+  rememberQuick(state.quick.debts);
 }
 function changeQuickInput(el) {
   const key=el.dataset.quick;
-  if(key==='asOfMonth'){state.quick.asOfMonth=el.value||null;redraftQuickDebts();reflectFacilitiesIntoQuick();syncQuickDebtsToFacilities();render();renderQuick(true);renderFacility(true);return;}
+  if(key==='asOfMonth'){state.quick.asOfMonth=el.value||null;redraftQuickDebts();reflectFacilitiesIntoQuick();syncQuickDebtsToFacilities();rememberQuick(state.quick.debts);render();renderQuick(true);renderFacility(true);return;}
   if(!['amount','rate','term','purpose'].includes(key))return;
   state.values[key]=el.value;const mirror=$(key);if(mirror)mirror.value=el.value;
   render();
@@ -212,7 +223,8 @@ function changeQuickDebt(el) {
   const row=state.quick.debts.find(d=>d.id===el.dataset.quickDebt);if(!row)return;
   if(el.dataset.field==='include')row.include=el.checked;
   else if(el.dataset.field==='monthlyPayment')row.monthlyPayment=number(el.value);
-  syncQuickDebtsToFacilities();
+  rememberQuick([row]);
+  syncQuickDebtsToFacilities();rememberQuick(state.quick.debts);
   render();renderQuick(true);renderFacility(true);
 }
 // ── Quick debts ARE the Advanced facility register ──────────────────────
@@ -252,6 +264,7 @@ function syncQuickDebtsToFacilities() {
 }
 function reflectFacilitiesIntoQuick() {
   for(const d of state.quick.debts){const f=facilityForDebt(d);d.include=!!f;if(f&&f.scheduleMode==='payments')d.monthlyPayment=f.monthlyPayment;}
+  rememberQuick(state.quick.debts);
 }
 // Opening cash is the one advanced input the books can answer directly. Seeded
 // once per load, only when blank, with provenance that names the source and
@@ -472,7 +485,7 @@ function sourceRows(key,s) {
 }
 function setStatus(message,tone='info') {$('status').textContent=message;$('status').className=`bcn-status bcn-status--${tone}`;$('status').hidden=!message;}
 function clearSensitive(message) {
-  guard.invalidate();state.ready=false;state.held=false;state.quick={debts:[],asOfMonth:null};state.quickResult=null;state.sources=null;state.context=null;state.result=null;state.capacity=null;state.facilities=[];state.portfolio=null;state.reviewBaseline=null;state.currentReview=null;state.cashTiming=emptyCashTimingAssumptions();state.cashTimingResult=null;state.overrides={};state.commitments=[];
+  guard.invalidate();state.ready=false;state.held=false;state.quick={debts:[],prefs:[],asOfMonth:null};state.quickResult=null;state.sources=null;state.context=null;state.result=null;state.capacity=null;state.facilities=[];state.portfolio=null;state.reviewBaseline=null;state.currentReview=null;state.cashTiming=emptyCashTimingAssumptions();state.cashTimingResult=null;state.overrides={};state.commitments=[];
   $('workspace').hidden=true;$('gate').hidden=false;
   const note=document.createElement('p');note.textContent=message;
   const signedOut=/sign in|signed out/i.test(message||'');
@@ -497,9 +510,9 @@ async function load() {
     if(after.key!==context.key){clearSensitive('Company changed while sources were loading. Refresh to continue.');return;}
     if(state.sources){const old=state.sources.accountOptions||[],next=snapshot.accountOptions||[];for(const f of state.facilities)if(f.balanceSource==='account'){const before=old.find(a=>a.id===f.accountId),after=next.find(a=>a.id===f.accountId);if(JSON.stringify([before?.balance,before?.balanceAsOf,before?.balanceCurrency])!==JSON.stringify([after?.balance,after?.balanceAsOf,after?.balanceCurrency])){f.scheduleComplete=false;invalidateFacilityReview();}}}
     state.sources=snapshot;state.ready=true;state.held=false;
-    redraftQuickDebts(state.quick.debts);
+    redraftQuickDebts();
     if(state.facilities.length)reflectFacilitiesIntoQuick();
-    syncQuickDebtsToFacilities();
+    syncQuickDebtsToFacilities();rememberQuick(state.quick.debts);
     if(!mounted){window.SiloChrome?.mount({appEl:'#silo-app',active:'',user:{email:context.user.email,role:context.profile.role},crumbs:['Finance','Underwriting'],supabaseClient:db});mounted=true;}
     $('company').textContent=context.company.title||'Current company';
     $('workspace').hidden=false;$('gate').hidden=true;
@@ -569,7 +582,7 @@ function choosePreset(preset) {
 }
 async function download() {
   await revalidate();if(!state.ready||state.held)return;
-  const payload={format:'silo-underwriting-scenario',version:4,companyId:state.context.company.id,exportedAt:new Date().toISOString(),values:state.values,overrides:state.overrides,commitments:state.commitments,facilities:state.facilities,cashTiming:state.cashTiming,reviewBaseline:state.reviewBaseline,quick:{asOfMonth:state.quick.asOfMonth,debts:state.quick.debts.map(({id,include,monthlyPayment})=>({id,include,monthlyPayment}))},sourceDates:Object.fromEntries(Object.entries(state.sources.sources).map(([k,s])=>[k,{asOf:s.asOf,periodStart:s.periodStart,periodEnd:s.periodEnd,status:s.status}]))};
+  const payload={format:'silo-underwriting-scenario',version:4,companyId:state.context.company.id,exportedAt:new Date().toISOString(),values:state.values,overrides:state.overrides,commitments:state.commitments,facilities:state.facilities,cashTiming:state.cashTiming,reviewBaseline:state.reviewBaseline,quick:{asOfMonth:state.quick.asOfMonth,debts:state.quick.prefs.map(({id,include,monthlyPayment})=>({id,include,monthlyPayment}))},sourceDates:Object.fromEntries(Object.entries(state.sources.sources).map(([k,s])=>[k,{asOf:s.asOf,periodStart:s.periodStart,periodEnd:s.periodEnd,status:s.status}]))};
   // Compact on purpose: the import bound is the raw file size, and a pretty-printed
   // copy measured 1.46x larger, so a file that imported could fail to download.
   const serialized=JSON.stringify(payload);if(new TextEncoder().encode(serialized).length>2000000)throw new Error('This scenario exceeds the 2 MB import limit. Reduce oversized notes or schedules before downloading.');
@@ -585,9 +598,9 @@ async function importScenario(file) {
   await revalidate();if(!state.ready||doc.companyId!==state.context.company.id)return;
   setValues(imported.values);state.overrides=imported.overrides;state.commitments=imported.commitments;
   state.facilities=imported.facilities;state.reviewBaseline=imported.reviewBaseline;state.cashTiming=imported.cashTiming;
-  state.quick.asOfMonth=imported.quick.asOfMonth||null;redraftQuickDebts(imported.quick.debts);
+  state.quick.asOfMonth=imported.quick.asOfMonth||null;state.quick.prefs=[];redraftQuickDebts(imported.quick.debts);
   for(const d of state.quick.debts)if(facilityForDebt(d))d.include=true;
-  reflectFacilitiesIntoQuick();syncQuickDebtsToFacilities();
+  reflectFacilitiesIntoQuick();syncQuickDebtsToFacilities();rememberQuick(state.quick.debts);
   reflectPreset();render();renderQuick(true);renderCommitmentEditor(true);renderFacility(true);renderCashTiming(true);setStatus('Local scenario opened. Imported inputs are user-provided assumptions; current source records were refreshed separately.');
 }
 async function boot() {

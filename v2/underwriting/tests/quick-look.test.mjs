@@ -75,7 +75,7 @@ test('negative operating cash, thin history and missing inputs never produce a c
   const bad = quickLook({ snapshot: snapshot(), inputs: { amount: '500000', rate: '9.5', term: '0' }, debts, month: '2026-10' });
   assert.equal(bad.verdict.status, 'unknown'); assert.ok(bad.errors.length > 0);
   const noCash = quickLook({ snapshot: snapshot({ bookCash: null }), inputs, debts, month: '2026-10' });
-  assert.equal(noCash.ratios.cashCoverMonths, null); assert.match(noCash.verdict.reasons.join(' '), /Opening cash is not available/);
+  assert.equal(noCash.ratios.cashCoverMonths, null); assert.match(noCash.verdict.reasons.join(' '), /Opening cash is not available|no bank-balance total/);
 });
 
 test('renderers escape source text and the print packet names every basis', () => {
@@ -182,4 +182,27 @@ test('the as-of month re-dates the balance sheet, the averages window and the de
   assert.deepEqual(atJune.map(d => [d.id, d.balance]), [['c:loan-1', 1250000], ['c:cc-1', 80000], ['c:ocl-1', 50000]]);
   const html = quickProposalHtml({ result: march, debts: atMarch, snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
   assert.ok(html.includes('figures as of 2026-03')); assert.ok(html.includes('as of 2026-03-28')); assert.ok(html.includes('3-month total')); assert.ok(!html.includes('2026-04</td>'));
+});
+
+test('a selected month never borrows another month\'s balance-sheet figures', () => {
+  const snap = datedSnapshot();
+  snap.sources.balanceSheet.metrics = [{ label: 'Book bank balances', value: 999999 }, { label: 'Total assets', value: 8888888 }, { label: 'Total liabilities', value: 7777777 }, { label: 'Total equity', value: 1111111 }];
+  const march = snap.sources.balanceSheet.monthly.find(r => r.month === '2026-03');
+  march.bookCash = null; march.assets = null;
+  const r = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10', asOfMonth: '2026-03' });
+  assert.equal(r.facts.openingCash.value, null); assert.equal(r.facts.totalAssets.value, null);
+  assert.equal(r.ratios.cashCoverMonths, null); assert.equal(r.ratios.debtToAssetsAfter, null);
+  assert.match(r.verdict.reasons.join(' '), /2026-03 balance-sheet column has no bank-balance total/);
+  assert.match(r.verdict.reasons.join(' '), /no total-assets figure/);
+  const html = quickProposalHtml({ result: r, debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
+  for (const text of ['$999,999', '$8,888,888', '$7,777,777', '$1,111,111']) assert.ok(!html.includes(text), `headline ${text} must not appear under the March header`);
+  assert.match(html, /2026-03 column lacks total assets, total liabilities, equity, bank balances/);
+  // The latest month, when it is itself a monthly column, follows the same rule.
+  const latestRowRef = snap.sources.balanceSheet.monthly.at(-1); latestRowRef.assets = null;
+  const latest = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10' });
+  assert.equal(latest.facts.totalAssets.value, null);
+  // With no monthly columns at all, the headline metrics are the only figures and are used.
+  const headlineOnly = snapshot(); headlineOnly.sources.balanceSheet.monthly = []; headlineOnly.sources.balanceSheet.metrics = snap.sources.balanceSheet.metrics;
+  const h = quickLook({ snapshot: headlineOnly, inputs, debts: [], month: '2026-10' });
+  assert.equal(h.facts.asOfMonth, null); assert.equal(h.facts.openingCash.value, 999999); assert.equal(h.facts.totalAssets.value, 8888888);
 });
