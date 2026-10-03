@@ -285,7 +285,8 @@ export function coverageQueries(companyId) {
       sum(total_available_quantity) as reported_units,
       count(*) filter (where total_available_quantity is null) as missing_quantity_rows,
       count(*) filter (where total_available_inventory_value is null) as missing_value_rows,
-      count(*) filter (where total_available_inventory_value = 0) as zero_value_rows
+      count(*) filter (where total_available_inventory_value = 0) as zero_value_rows,
+      count(*) filter (where snapshot_at is null) as missing_snapshot_rows
       from public.inventory_on_hand_current_v where company_entity_id = ${company}`,
     purchaseOrders: `with headers as (select id, status, expected_arrival_date, updated_at
       from public.po_headers where company_entity_id = ${company}),
@@ -322,16 +323,20 @@ async function aggregateSource(db, companyId, key, signal) {
   if (key === 'inventory') {
     if (data.length !== 1) throw new Error('Inventory aggregate returned an invalid result');
     const r = data[0];
-    requireCounts(r, ['row_count', 'location_count', 'missing_quantity_rows', 'missing_value_rows', 'zero_value_rows']);
+    requireCounts(r, ['row_count', 'location_count', 'missing_quantity_rows', 'missing_value_rows', 'zero_value_rows', 'missing_snapshot_rows']);
     result.count = parseReportNumber(r.row_count);
     result.status = result.count ? 'available' : 'missing';
+    // asOf is the OLDEST row's snapshot and newestAsOf the newest: the aggregate
+    // sums every current row across the company, and a reader placing it
+    // against a date needs BOTH ends plus the rows with no date at all.
     result.asOf = r.oldest_snapshot || null;
     result.newestAsOf = r.newest_snapshot || null;
+    result.missingSnapshotRows = Number(r.missing_snapshot_rows);
     result.metrics = [metric('Snapshot rows', result.count), metric('Reported on-hand units', parseReportNumber(r.reported_units), 'units'),
       metric('Rows missing quantity', parseReportNumber(r.missing_quantity_rows)), metric('Rows missing inventory value', parseReportNumber(r.missing_value_rows)),
-      metric('Rows with zero inventory value', parseReportNumber(r.zero_value_rows))];
+      metric('Rows with zero inventory value', parseReportNumber(r.zero_value_rows)), metric('Rows with no snapshot date', result.missingSnapshotRows)];
     result.warnings = ['Current snapshot only, with no reliable collateral valuation or eligibility. Source inventory values are not a borrowing base.'];
-    if (!result.asOf || Number(r.missing_quantity_rows) > 0 || Number(r.missing_value_rows) > 0 || Number(r.zero_value_rows) > 0) result.status = result.count ? 'partial' : 'missing';
+    if (!result.asOf || result.missingSnapshotRows > 0 || Number(r.missing_quantity_rows) > 0 || Number(r.missing_value_rows) > 0 || Number(r.zero_value_rows) > 0) result.status = result.count ? 'partial' : 'missing';
   } else if (key === 'purchaseOrders') {
     for (const row of data) requireCounts(row, ['po_count', 'line_count', 'missing_cost_lines', 'zero_cost_lines', 'negative_cost_lines', 'pos_without_lines', 'missing_arrival_dates']);
     const sum = (field) => data.length ? data.reduce((total, row) => total + (parseReportNumber(row[field]) ?? 0), 0) : null;

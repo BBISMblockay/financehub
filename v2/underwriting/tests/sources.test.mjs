@@ -120,7 +120,7 @@ function mockDb(handler) {
   return { calls, from: (table) => builder(table), rpc: (name, params) => { assert.equal(name, 'chat_run_readonly_query'); return builder(name, params); } };
 }
 const filter = (call, key) => call.operations.find((op) => op.method === 'eq' && op.args[0] === key)?.args[1];
-const emptyAggregate = (query) => query.includes('inventory_on_hand_current_v') ? [{ row_count: 0, location_count: 0, reported_units: null, missing_quantity_rows: 0, missing_value_rows: 0, zero_value_rows: 0 }] : [];
+const emptyAggregate = (query) => query.includes('inventory_on_hand_current_v') ? [{ row_count: 0, location_count: 0, reported_units: null, missing_quantity_rows: 0, missing_value_rows: 0, zero_value_rows: 0, missing_snapshot_rows: 0 }] : [];
 function defaultHandler(call) {
   if (call.table === 'chat_run_readonly_query') {
     const q = call.params.query;
@@ -138,6 +138,19 @@ test('integrated loader: all direct reads use explicit company and RPCs are fixe
   assert.equal(snapshot.sources.balanceSheet.status, 'missing');
   assert.equal(snapshot.sources.inventory.metrics.find((m) => m.label === 'Reported on-hand units').value, null);
   for (const call of db.calls.filter((c) => c.table !== 'chat_run_readonly_query')) assert.equal(filter(call, 'company_entity_id'), COMPANY);
+});
+test('the inventory aggregate carries both ends of its snapshot range and the rows with no date', async () => {
+  const db = mockDb((call) => call.table === 'chat_run_readonly_query' && call.params.query.includes('inventory_on_hand_current_v')
+    ? { data: [{ row_count: 10, location_count: 2, oldest_snapshot: '2026-07-01T02:00:00Z', newest_snapshot: '2026-10-02T02:00:00Z', reported_units: 500, missing_quantity_rows: 0, missing_value_rows: 0, zero_value_rows: 0, missing_snapshot_rows: 2 }], error: null }
+    : defaultHandler(call));
+  const { sources: { inventory } } = await loadSourceSnapshot(db, COMPANY);
+  assert.equal(inventory.asOf, '2026-07-01T02:00:00Z'); assert.equal(inventory.newestAsOf, '2026-10-02T02:00:00Z'); assert.equal(inventory.missingSnapshotRows, 2);
+  assert.equal(inventory.status, 'partial'); assert.equal(inventory.metrics.find((m) => m.label === 'Rows with no snapshot date').value, 2);
+  // The count is required: an aggregate without it is an invalid result, not a complete one.
+  const bare = mockDb((call) => call.table === 'chat_run_readonly_query' && call.params.query.includes('inventory_on_hand_current_v')
+    ? { data: [{ row_count: 10, location_count: 2, oldest_snapshot: '2026-07-01T02:00:00Z', newest_snapshot: '2026-07-01T02:00:00Z', reported_units: 500, missing_quantity_rows: 0, missing_value_rows: 0, zero_value_rows: 0 }], error: null }
+    : defaultHandler(call));
+  assert.equal((await loadSourceSnapshot(bare, COMPANY)).sources.inventory.status, 'error');
 });
 test('integrated loader anchors all financial statements to one connection', async () => {
   const db = mockDb((call) => {

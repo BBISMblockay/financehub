@@ -98,7 +98,7 @@ const fullSnapshot = () => {
   Object.assign(snap.sources.balanceSheet.monthly[0], { liabilities: 3000000, equity: 2000000, accountsReceivable: 400000, accountsPayable: 350000, currentAssets: 2500000, currentLiabilities: 1200000, longTermLiabilities: 1500000, creditCards: 80000 });
   snap.sources.profitAndLoss.status = 'available'; snap.sources.cashflow.status = 'available';
   snap.sources.bank = { status: 'available', asOf: '2026-06-30', rows: [{ id: 'b1', name: 'Operating <b>acct</b>', current_balance: -688009.6, available_balance: -688009.6, iso_currency_code: 'USD', balance_updated_at: '2026-06-30T05:30:00Z' }] };
-  snap.sources.inventory = { status: 'partial', asOf: '2026-06-30T02:00:00Z', metrics: [{ label: 'Reported on-hand units', value: 538101 }], byProductType: [{ productType: 'Tees', units: 300000, knownRecordedValue: 9000000 }, { productType: 'Hats', units: 100000, knownRecordedValue: null }] };
+  snap.sources.inventory = { status: 'partial', asOf: '2026-06-29T02:00:00Z', newestAsOf: '2026-06-30T02:00:00Z', missingSnapshotRows: 0, metrics: [{ label: 'Reported on-hand units', value: 538101 }], byProductType: [{ productType: 'Tees', units: 300000, knownRecordedValue: 9000000 }, { productType: 'Hats', units: 100000, knownRecordedValue: null }] };
   snap.sources.purchaseOrders = { status: 'partial', placedCount: 3, placedTruncated: false, placed: [
     { id: 'po-1', orderDate: '2026-05-10', arrivalDate: '2026-10-05', units: 25000, knownEstimatedCost: 200000 }, { id: 'po-2', orderDate: '2026-06-20', arrivalDate: '2026-10-20', units: 15000, knownEstimatedCost: 100000 },
     { id: 'po-3', orderDate: '2026-06-28', arrivalDate: null, units: 900, knownEstimatedCost: null }], arrivalMonths: [{ month: '2026-10', poCount: 2, units: 40000, knownEstimatedCost: 300000 }, { month: null, poCount: 1, units: 900, knownEstimatedCost: null }] };
@@ -143,7 +143,7 @@ test('the as-of month bounds every dated section: nothing held after it is print
   snap.sources.bank = { status: 'available', asOf: '2026-10-02', rows: [
     { id: 'b1', name: 'Operating', current_balance: -700000, available_balance: -700000, iso_currency_code: 'USD', balance_updated_at: '2026-10-02T05:30:00Z', connection_status: 'active', environment: 'production' },
     { id: 'b2', name: 'Old savings', current_balance: 12000, available_balance: 12000, iso_currency_code: 'USD', balance_updated_at: '2026-08-15T05:30:00Z', connection_status: 'active', environment: 'production' }] };
-  snap.sources.inventory = { status: 'partial', asOf: '2026-10-02T02:00:00Z', metrics: [{ label: 'Reported on-hand units', value: 538101 }], byProductType: [{ productType: 'Tees', units: 300000, knownRecordedValue: 9000000 }] };
+  snap.sources.inventory = { status: 'partial', asOf: '2026-10-02T02:00:00Z', newestAsOf: '2026-10-02T02:30:00Z', missingSnapshotRows: 0, metrics: [{ label: 'Reported on-hand units', value: 538101 }], byProductType: [{ productType: 'Tees', units: 300000, knownRecordedValue: 9000000 }] };
   snap.sources.purchaseOrders = { status: 'partial', placedCount: 3, placedTruncated: false, placed: [
     { id: 'po-1', orderDate: '2026-08-10', arrivalDate: '2026-11-05', units: 25000, knownEstimatedCost: 200000 }, { id: 'po-2', orderDate: '2026-09-20', arrivalDate: '2026-11-20', units: 15000, knownEstimatedCost: 100000 },
     { id: 'po-3', orderDate: null, arrivalDate: null, units: 900, knownEstimatedCost: null }], arrivalMonths: [{ month: '2026-11', poCount: 2, units: 40000, knownEstimatedCost: 300000 }, { month: null, poCount: 1, units: 900, knownEstimatedCost: null }] };
@@ -157,7 +157,7 @@ test('the as-of month bounds every dated section: nothing held after it is print
   // Bank: the October row is named and left out, the August row stays.
   assert.ok(html.includes('1 of 2 bank balances are dated after 2026-08 (last synced 2026-10-02)')); assert.ok(html.includes('Old savings')); assert.ok(!html.includes('-$700,000')); assert.ok(!html.includes('2026-10-02T'));
   // Inventory: no on-hand figure as of August, and no October units anywhere.
-  assert.ok(html.includes('On-hand inventory is held only as its latest sync (2026-10-02), after 2026-08')); assert.ok(!html.includes('538,101')); assert.ok(!html.includes('<td>Tees</td>'));
+  assert.ok(html.includes('On-hand inventory is held only as its latest sync (rows dated 2026-10-02 to 2026-10-02), after 2026-08')); assert.ok(!html.includes('538,101')); assert.ok(!html.includes('<td>Tees</td>'));
   // Purchase orders: only the order placed by August, as a named lower bound; the undated one is counted out.
   assert.ok(html.includes('of 3 orders placed today, 1 were ordered by the end of 2026-08 (1 more carry no order date and are left out)')); assert.ok(html.includes('lower bound'));
   assert.ok(html.includes('<td>2026-11</td><td>1</td><td>25,000</td><td>200,000</td>')); assert.ok(!html.includes('<td>40,000</td>'));
@@ -176,12 +176,24 @@ test('the as-of month bounds every dated section: nothing held after it is print
   // An UNDATED current balance or snapshot cannot be placed on either side of the cutoff, so it is left out too --
   // the loader admits both (status partial), and "Last synced unknown" beside a current balance is still a current balance.
   snap.sources.bank.rows.push({ id: 'b3', name: 'Undated card', current_balance: -45000, available_balance: null, iso_currency_code: 'USD', balance_updated_at: null, connection_status: 'active', environment: 'production' });
-  snap.sources.inventory = { status: 'partial', asOf: null, metrics: [{ label: 'Reported on-hand units', value: 538101 }], byProductType: [{ productType: 'Tees', units: 300000, knownRecordedValue: 9000000 }] };
+  snap.sources.inventory = { status: 'partial', asOf: null, newestAsOf: null, missingSnapshotRows: 12, metrics: [{ label: 'Reported on-hand units', value: 538101 }], byProductType: [{ productType: 'Tees', units: 300000, knownRecordedValue: 9000000 }] };
   const undated = quickProposalHtml({ result: r, debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
   assert.ok(undated.includes('2 of 3 bank balances are dated after 2026-08 or undated (1 undated; last synced 2026-10-02)')); assert.ok(!undated.includes('Undated card')); assert.ok(!undated.includes('-$45,000')); assert.ok(undated.includes('Old savings'));
   assert.ok(undated.includes('On-hand inventory carries no snapshot date, so it cannot be placed before or after the cutoff')); assert.ok(!undated.includes('538,101')); assert.ok(!undated.includes('<td>Tees</td>'));
   snap.sources.bank.rows = [snap.sources.bank.rows[2]];
   assert.ok(quickProposalHtml({ result: r, debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' }).includes('1 of 1 bank balance is undated. The feed holds only the position at its last sync, so it is not shown as of 2026-08.'));
+  // The aggregate is dated by BOTH ends: Store A synced in July and Store B in October is October stock under an
+  // August cutoff, whatever the oldest row says; a dated aggregate with undated rows in it is undatable too.
+  const mixed = (inventory) => quickProposalHtml({ result: r, debts: [], snapshot: { ...snap, sources: { ...snap.sources, inventory } }, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
+  const units = { metrics: [{ label: 'Reported on-hand units', value: 538101 }], byProductType: [{ productType: 'Tees', units: 300000, knownRecordedValue: 9000000 }] };
+  const mixedAge = mixed({ status: 'partial', asOf: '2026-07-15T02:00:00Z', newestAsOf: '2026-10-02T02:00:00Z', missingSnapshotRows: 0, ...units });
+  assert.ok(mixedAge.includes('rows dated 2026-07-15 to 2026-10-02), after 2026-08')); assert.ok(!mixedAge.includes('538,101'));
+  const someUndated = mixed({ status: 'partial', asOf: '2026-07-15T02:00:00Z', newestAsOf: '2026-08-20T02:00:00Z', missingSnapshotRows: 3, ...units });
+  assert.ok(someUndated.includes('3 on-hand rows carry no snapshot date, so the aggregate cannot be placed before or after the cutoff')); assert.ok(!someUndated.includes('538,101'));
+  const uncounted = mixed({ status: 'partial', asOf: '2026-07-15T02:00:00Z', newestAsOf: '2026-08-20T02:00:00Z', ...units });
+  assert.ok(uncounted.includes('Some on-hand rows carry no snapshot date')); assert.ok(!uncounted.includes('538,101'));
+  const inRange = mixed({ status: 'available', asOf: '2026-07-15T02:00:00Z', newestAsOf: '2026-08-20T02:00:00Z', missingSnapshotRows: 0, ...units });
+  assert.ok(inRange.includes('On hand <strong>538,101</strong> units as of 2026-07-15')); assert.ok(inRange.includes('<td>Tees</td>'));
   // Without an as-of month an undated row still prints, as before, with its date unknown.
   const noColumns = fullSnapshot(); noColumns.sources.balanceSheet.monthly = []; noColumns.sources.bank.rows[0].balance_updated_at = null;
   const plain = quickProposalHtml({ result: quickLook({ snapshot: noColumns, inputs, debts: [], month: '2026-10' }), debts: [], snapshot: noColumns, money, companyTitle: 'Co', preparedAt: '2026-10-03' });

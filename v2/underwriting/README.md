@@ -38,8 +38,12 @@ and the trailing windows. In the proposal, recorded sales stop at the as-of
 month and "planned ahead" starts the month after it; a bank balance dated
 after the month, or carrying no date at all, is named and left out (the feed
 holds only its last position, and an undated current balance cannot be placed
-on either side of the cutoff); the on-hand snapshot after the month, or with
-no snapshot date, is named as held but not as of (SILO keeps no on-hand
+on either side of the cutoff); the on-hand aggregate is dated by BOTH ends of its
+rows (`asOf` is the oldest row, `newestAsOf` the newest) plus
+`missingSnapshotRows`, and stands as of the month only when its newest row is
+inside the month and every row is dated -- Store A synced in July and Store B
+in October is October stock under an August cutoff whatever the oldest row
+says -- otherwise it is named as held but not as of (SILO keeps no on-hand
 history); and the PO register, which holds
 CURRENT status only, prints the orders placed by the end of the month as a
 stated lower bound (orders placed by then and received since are gone from
