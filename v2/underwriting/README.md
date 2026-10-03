@@ -173,6 +173,7 @@ Run from repository root:
 
 ```
 node --test v2/underwriting/tests/*.test.mjs
+node v2/underwriting/tests/browser.mjs --contract-only
 node v2/tests/run.js --unit
 find v2/underwriting -name '*.js' -o -name '*.mjs' | xargs -n1 node --check
 git diff --check
@@ -182,7 +183,10 @@ All fixtures are synthetic. Test coverage includes debt/amortization boundaries,
 capacity interval certification, multiple-lender overlaps, source identity,
 unknown/zero, currency, mode exclusivity, import replacement, stale async/auth
 changes, receipt conservation, review provenance, keyboard tabs and print gating.
-These new unit tests are not wired into the existing CI runner.
+The existing v2 page workflow runs these unit/integration tests and the synthetic
+scenario contract on underwriting pull requests and main-branch changes. Both
+checks use a bare Node 22 checkout without secrets, installs or live sources.
+The contract check does not execute a browser; browser verification is separate.
 
 Browser suite (only in a supported authorized Chromium environment):
 
