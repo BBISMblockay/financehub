@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { SYNC_STAMP, feedIsQuiet } from '../lib/freshness-quiet.mjs';
+import { SYNC_STAMP, feedIsQuiet, producesFeed } from '../lib/freshness-quiet.mjs';
 
 const dayEnded = new Date('2026-10-02T07:00:00Z'); // Pacific midnight starting 2026-10-02
 const shop = (at, extra = {}) => ({ sync_enabled: true, meta: at ? { last_sales_sync_at: at } : {}, ...extra });
@@ -31,5 +31,22 @@ t('no stamp, a garbage stamp, the wrong key, or no connections are never quiet',
 t('a connection with sync switched off is not expected to sync', () => {
   assert.equal(feedIsQuiet([ads('2026-10-02T23:38:45Z'), ads(null, { sync_enabled: false })], 'last_sync_at', dayEnded), true);
   assert.equal(feedIsQuiet([ads(null, { sync_enabled: false })], 'last_sync_at', dayEnded), false);
+});
+t('Search Console does not write marketing_kpis_daily, so its stamp is ignored either way', () => {
+  const T = 'ad_platform_connections';
+  const sc = (at) => ads(at, { platform: 'search_console' });
+  const meta = (at) => ads(at, { platform: 'meta_ads' });
+  // Fresh campaign connection + a stale/missing Search Console stamp: quiet.
+  assert.equal(feedIsQuiet([meta('2026-10-02T23:38:45Z'), sc(null)], 'last_sync_at', dayEnded, T), true);
+  assert.equal(feedIsQuiet([meta('2026-10-02T23:38:45Z'), sc('2026-09-01T00:00:00Z')], 'last_sync_at', dayEnded, T), true);
+  // Search-Console-only company: a fresh Search Console stamp is NOT a quiet marketing feed.
+  assert.equal(feedIsQuiet([sc('2026-10-02T23:38:45Z')], 'last_sync_at', dayEnded, T), false);
+  // A stale campaign connection is still stale beside a fresh Search Console one.
+  assert.equal(feedIsQuiet([meta('2026-09-30T00:00:00Z'), sc('2026-10-02T23:38:45Z')], 'last_sync_at', dayEnded, T), false);
+  // Company discovery uses the same predicate.
+  assert.equal(producesFeed(T, { platform: 'search_console' }), false);
+  for (const p of ['google_ads', 'meta_ads', 'tiktok_ads', 'ga4', 'some_new_platform']) assert.equal(producesFeed(T, { platform: p }), true, p);
+  assert.equal(producesFeed('shopify_connections', { shop_domain: 'x' }), true);
+  assert.equal(producesFeed(T, null), false);
 });
 console.log(`${n} freshness quiet checks passed`);

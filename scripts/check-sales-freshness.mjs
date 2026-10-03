@@ -29,7 +29,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { appendFileSync } from 'node:fs';
-import { SYNC_STAMP, feedIsQuiet } from './lib/freshness-quiet.mjs';
+import { SYNC_STAMP, feedIsQuiet, producesFeed } from './lib/freshness-quiet.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -120,7 +120,8 @@ const FEEDS = [
 ];
 
 async function companiesFor(connTable) {
-  let q = db.from(connTable).select('company_entity_id').eq('is_active', true);
+  const cols = connTable === 'ad_platform_connections' ? 'company_entity_id, platform' : 'company_entity_id';
+  let q = db.from(connTable).select(cols).eq('is_active', true);
   // shopify_connections gates on sync_enabled + a token; ad_platform_connections
   // is keyed differently, so only apply what each table actually has.
   if (connTable === 'shopify_connections') {
@@ -128,7 +129,10 @@ async function companiesFor(connTable) {
   }
   const { data, error } = await q;
   if (error) throw new Error(`${connTable} load failed: ${error.message}`);
-  return [...new Set((data || []).map((c) => c.company_entity_id).filter(Boolean))];
+  // Only connections that write this feed's table make a company expected to
+  // have it (a Search-Console-only company has no marketing_kpis_daily).
+  return [...new Set((data || []).filter((c) => producesFeed(connTable, c))
+    .map((c) => c.company_entity_id).filter(Boolean))];
 }
 
 async function main() {
@@ -187,11 +191,11 @@ async function main() {
       if (!lagOk) {
         const { data: conns, error: connErr } = await db
           .from(feed.connTable)
-          .select('sync_enabled, meta')
+          .select(feed.connTable === 'ad_platform_connections' ? 'sync_enabled, meta, platform' : 'sync_enabled, meta')
           .eq('company_entity_id', companyId)
           .eq('is_active', true);
         if (connErr) throw new Error(`${feed.connTable} stamp probe failed for ${companyId}: ${connErr.message}`);
-        quiet = feedIsQuiet(conns, SYNC_STAMP[feed.connTable], pacificMidnightUtc(today));
+        quiet = feedIsQuiet(conns, SYNC_STAMP[feed.connTable], pacificMidnightUtc(today), feed.connTable);
       }
 
       const ok = (lagOk && !partial) || quiet;
