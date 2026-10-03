@@ -125,7 +125,10 @@ async function runBrowser() {
   assert.match(await page.locator('#quickVerdict').innerText(),/on recent results|until existing payments/);
   assert.equal(await page.locator('#quickDebts tbody tr').count(),2,'both synthetic liability accounts are offered as debt');
   await page.locator('#quickProposalDetails summary').click();
-  assert.match(await page.locator('#quickProposalPreview').innerText(),/DRAFT FINANCING PROPOSAL[\s\S]*Business performance[\s\S]*Sources and dates/);
+  // The <details> toggle event fires asynchronously after the click; the
+  // preview is rendered by that handler, so wait for it rather than racing it.
+  await page.waitForFunction(()=>document.getElementById('quickProposalPreview').innerText.includes('Sources and dates'));
+  assert.match(await page.locator('#quickProposalPreview').innerText(),/DRAFT FINANCING PROPOSAL[\s\S]*Business performance[\s\S]*Forward outlook from the sales plan[\s\S]*Sources and dates/);
   await page.locator('#quickProposalDetails summary').click();
   await page.screenshot({path:path.join(output,'underwriting-quick.png'),fullPage:false});
   await page.locator('[data-mode="advanced"]').first().click();
