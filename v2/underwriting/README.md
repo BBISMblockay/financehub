@@ -31,7 +31,14 @@ rests on, with dates:
   entered is not a payment of zero. The rules are printed under the result.
 
 The three inputs are the same fields as the advanced proposal, so switching to
-the Advanced workflow finds them filled. Opening cash is seeded once from book
+the Advanced workflow finds them filled. **Ticked debts are the Advanced
+facility register**: ticking creates a facility matched to that account
+(`quick:<account id>`, payments mode, the typed payment as its monthly P&I),
+unticking removes the facility Quick look made, a payment typed in either place
+shows in both, and a facility removed in Advanced unticks the row. A facility a
+person built by hand for the same account is never removed from Quick look.
+When the first facilities arrive and the manual aggregate is blank, capacity
+switches to facility mode once; a later choice of mode is kept. Opening cash is seeded once from book
 bank balances (only when blank, with provenance naming the source and date; the
 review box stays unchecked). Ticks and typed payments travel in the v4 scenario
 file (`quick.debts`); balances come back from the live balance sheet.

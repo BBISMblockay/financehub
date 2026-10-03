@@ -1038,14 +1038,67 @@ test('quick mode prints a static one-page packet and the ticks survive a downloa
   assert.ok(packet.includes('DRAFT FINANCING PROPOSAL')); assert.ok(packet.includes('Synthetic company A')); assert.ok(packet.includes('Sources and dates')); assert.ok(!packet.includes('<input'));
   h.node('quickProposalDetails').open = true; h.node('quickProposalDetails').toggle();
   assert.ok(h.node('quickProposalPreview').innerHTML.includes('Business performance'), 'opening the preview renders the same proposal on screen');
-  h.api.state.quick.debts[0].monthlyPayment = 4321; h.api.state.quick.debts[1].include = true;
+  h.node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:42', field: 'monthlyPayment' }, value: '4321' } });
+  h.node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:77', field: 'include' }, checked: true } });
   await h.api.download();
   const payload = JSON.parse(await h.downloads[0].text());
   assert.deepEqual(payload.quick, { debts: [{ id: 'connection-a:42', include: true, monthlyPayment: 4321 }, { id: 'connection-a:77', include: true, monthlyPayment: null }] });
+  assert.deepEqual(payload.facilities.map(f => [f.id, f.monthlyPayment]), [['quick:connection-a:42', 4321], ['quick:connection-a:77', null]], 'the register travels with the file');
   h.api.state.quick.debts[0].monthlyPayment = null; h.api.state.quick.debts[1].include = false;
   await h.api.importScenario(h.file(payload));
   assert.equal(h.api.state.quick.debts[0].monthlyPayment, 4321); assert.equal(h.api.state.quick.debts[1].include, true);
   assert.equal(h.api.state.quick.debts[0].balance, 400000, 'balances still come from the live balance sheet, not the file');
   h.api.clearSensitive('Signed out. Sign in to SILO and refresh this page.');
   assert.deepEqual(JSON.parse(JSON.stringify(h.api.state.quick)), { debts: [] }); assert.equal(h.node('quickVerdict').innerHTML, '');
+});
+
+const plain = value => JSON.parse(JSON.stringify(value));
+test('ticked quick debts are the advanced facility register, in both directions', async () => {
+  const { api, node } = harness({ loadSourceSnapshot: async () => quickSnapshot() });
+  api.state.values.existingPayment = '';
+  await api.boot();
+  // Load: the long-term liability starts ticked and is already a facility; the OCL is not.
+  assert.deepEqual(plain(api.state.facilities.map(f => [f.id, f.accountId, f.kind, f.name, f.scheduleMode, f.balanceSource])), [['quick:connection-a:42', 'connection-a:42', 'loan', 'Bank term loan', 'payments', 'account']]);
+  assert.equal(api.state.facilities[0].monthlyPayment, null);
+  assert.equal(api.state.values.existingDebtMode, 'facilities', 'capacity reads the register once facilities exist and the manual aggregate is blank');
+  // Payment typed in Quick look is the facility's monthly payment.
+  node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:42', field: 'monthlyPayment' }, value: '2500' } });
+  assert.equal(api.state.facilities[0].monthlyPayment, 2500); assert.match(api.state.facilities[0].scheduleProvenance, /Quick look/);
+  // Tick the OCL: a second facility, kind loan.
+  node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:77', field: 'include' }, checked: true } });
+  assert.deepEqual(plain(api.state.facilities.map(f => f.id)), ['quick:connection-a:42', 'quick:connection-a:77']);
+  // Payment edited in Advanced flows back to Quick look.
+  node('workspace').change({ target: { dataset: { facility: 'quick:connection-a:42', field: 'monthlyPayment' }, type: 'number', value: '3100' } });
+  assert.equal(api.state.quick.debts[0].monthlyPayment, 3100);
+  // Untick removes the facility Quick look made.
+  node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:77', field: 'include' }, checked: false } });
+  assert.deepEqual(plain(api.state.facilities.map(f => f.id)), ['quick:connection-a:42']);
+  // A hand-built facility for the same account is kept and the row stays ticked.
+  api.state.facilities.push({ ...api.state.facilities[0], id: 'hand-made', accountId: 'connection-a:77', name: 'My note', monthlyPayment: 900 });
+  api.state.quick.debts[1].include = true; api.render();
+  node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:77', field: 'include' }, checked: false } });
+  assert.equal(api.state.facilities.some(f => f.id === 'hand-made'), true); assert.equal(api.state.quick.debts[1].include, true);
+  assert.match(node('status').textContent, /set up in the Advanced workflow/);
+  // Removing a facility in Advanced unticks the row.
+  node('workspace').click({ target: { closest: selector => selector === '[data-remove-facility]' ? { dataset: { removeFacility: 'quick:connection-a:42' } } : null } });
+  assert.equal(api.state.quick.debts[0].include, false); assert.deepEqual(plain(api.state.facilities.map(f => f.id)), ['hand-made']);
+  // The mode choice is made once: switching back to manual survives later ticks.
+  api.state.values.existingDebtMode = 'manual';
+  node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:42', field: 'include' }, checked: true } });
+  assert.equal(api.state.values.existingDebtMode, 'manual'); assert.equal(api.state.facilities.length, 2);
+});
+
+test('a reopened file keeps its facilities as the truth for the quick ticks', async () => {
+  const h = harness({ loadSourceSnapshot: async () => quickSnapshot() });
+  h.api.state.values.existingPayment = '';
+  await h.api.boot();
+  h.api.state.facilities[0].monthlyPayment = 4321; h.api.render();
+  await h.api.download();
+  const payload = JSON.parse(await h.downloads[0].text());
+  assert.equal(payload.facilities[0].id, 'quick:connection-a:42');
+  payload.quick.debts[0].include = false; payload.quick.debts[0].monthlyPayment = null; // stale tick in the file
+  await h.api.importScenario(h.file(payload));
+  assert.equal(h.api.state.quick.debts[0].include, true, 'the facility in the file wins over a stale tick');
+  assert.equal(h.api.state.quick.debts[0].monthlyPayment, 4321);
+  assert.deepEqual(plain(h.api.state.facilities.map(f => f.id)), ['quick:connection-a:42']);
 });

@@ -194,7 +194,46 @@ function changeQuickDebt(el) {
   const row=state.quick.debts.find(d=>d.id===el.dataset.quickDebt);if(!row)return;
   if(el.dataset.field==='include')row.include=el.checked;
   else if(el.dataset.field==='monthlyPayment')row.monthlyPayment=number(el.value);
-  render();renderQuick(true);
+  syncQuickDebtsToFacilities();
+  render();renderQuick(true);renderFacility(true);
+}
+// ── Quick debts ARE the Advanced facility register ──────────────────────
+// A ticked debt is a facility matched to that balance-sheet account; the
+// payment typed in Quick look is that facility's monthly payment. One fact,
+// two views: untick removes the facility Quick look made, a payment typed in
+// either place shows in both, and a facility removed in Advanced unticks here.
+// A facility a person built by hand for the same account is never removed
+// from Quick look; the row stays ticked and says to remove it in Advanced.
+const quickFacilityId=debt=>`quick:${debt.id}`.replace(/[^a-zA-Z0-9._:/-]/g,'-').slice(0,100);
+const facilityForDebt=debt=>state.facilities.find(f=>f.balanceSource==='account'&&f.accountId===debt.id);
+function syncQuickDebtsToFacilities() {
+  let changed=false;
+  for(const d of state.quick.debts){
+    const existing=facilityForDebt(d);
+    if(d.include){
+      if(!existing){
+        const f=createFacility(quickFacilityId(d),d.kind,d.currency||state.values.currency||'');
+        Object.assign(f,{name:d.label,accountId:d.id,monthlyPayment:d.monthlyPayment,scheduleProvenance:d.monthlyPayment!==null?'Monthly payment entered in Quick look':''});
+        state.facilities.push(f);changed=true;
+      } else if(existing.scheduleMode==='payments'&&existing.monthlyPayment!==d.monthlyPayment){
+        existing.monthlyPayment=d.monthlyPayment;existing.scheduleComplete=false;
+        if(!existing.scheduleProvenance&&d.monthlyPayment!==null)existing.scheduleProvenance='Monthly payment entered in Quick look';
+        changed=true;
+      }
+    } else if(existing&&existing.id===quickFacilityId(d)){state.facilities=state.facilities.filter(f=>f!==existing);changed=true;}
+    else if(existing){d.include=true;setStatus(`${d.label} stays in the register: it was set up in the Advanced workflow. Remove it there if it is not debt.`);}
+  }
+  if(changed){
+    invalidateFacilityReview();
+    // Facilities now exist, so capacity should read them rather than a blank
+    // manual aggregate. Done once; a person's later choice of mode is kept.
+    if(!state.quick.modeSeeded&&state.values.existingDebtMode==='manual'&&String(state.values.existingPayment??'').trim()===''&&state.facilities.length){state.values.existingDebtMode='facilities';$('existingDebtMode').value='facilities';}
+    state.quick.modeSeeded=true;
+  }
+  return changed;
+}
+function reflectFacilitiesIntoQuick() {
+  for(const d of state.quick.debts){const f=facilityForDebt(d);d.include=!!f;if(f&&f.scheduleMode==='payments')d.monthlyPayment=f.monthlyPayment;}
 }
 // Opening cash is the one advanced input the books can answer directly. Seeded
 // once per load, only when blank, with provenance that names the source and
@@ -355,7 +394,8 @@ function changeFacility(el) {
   }
   if(el.dataset.field==='repayment'&&f.terms.repayment!=='balloon')f.terms.amortizationMonths=null;
   if(el.dataset.field!=='name')invalidateFacilityReview();
-  render();renderFacility(true);
+  reflectFacilitiesIntoQuick();
+  render();renderFacility(true);renderQuick(true);
 }
 function setStep(step) {
   if(!['business','funding','test','review'].includes(step))return;state.step=step;
@@ -440,6 +480,8 @@ async function load() {
     if(state.sources){const old=state.sources.accountOptions||[],next=snapshot.accountOptions||[];for(const f of state.facilities)if(f.balanceSource==='account'){const before=old.find(a=>a.id===f.accountId),after=next.find(a=>a.id===f.accountId);if(JSON.stringify([before?.balance,before?.balanceAsOf,before?.balanceCurrency])!==JSON.stringify([after?.balance,after?.balanceAsOf,after?.balanceCurrency])){f.scheduleComplete=false;invalidateFacilityReview();}}}
     state.sources=snapshot;state.ready=true;state.held=false;
     state.quick.debts=draftQuickDebts(snapshot.accountOptions,state.quick.debts);
+    if(state.facilities.length)reflectFacilitiesIntoQuick();
+    syncQuickDebtsToFacilities();
     if(!mounted){window.SiloChrome?.mount({appEl:'#silo-app',active:'',user:{email:context.user.email,role:context.profile.role},crumbs:['Finance','Underwriting'],supabaseClient:db});mounted=true;}
     $('company').textContent=context.company.title||'Current company';
     $('workspace').hidden=false;$('gate').hidden=true;
@@ -526,6 +568,8 @@ async function importScenario(file) {
   setValues(imported.values);state.overrides=imported.overrides;state.commitments=imported.commitments;
   state.facilities=imported.facilities;state.reviewBaseline=imported.reviewBaseline;state.cashTiming=imported.cashTiming;
   state.quick.debts=draftQuickDebts(state.sources?.accountOptions||[],imported.quick.debts);
+  for(const d of state.quick.debts)if(facilityForDebt(d))d.include=true;
+  reflectFacilitiesIntoQuick();syncQuickDebtsToFacilities();
   reflectPreset();render();renderQuick(true);renderCommitmentEditor(true);renderFacility(true);renderCashTiming(true);setStatus('Local scenario opened. Imported inputs are user-provided assumptions; current source records were refreshed separately.');
 }
 async function boot() {
@@ -534,7 +578,7 @@ async function boot() {
   if(!cfg?.SUPABASE_URL||!cfg?.SUPABASE_ANON_KEY||!window.supabase?.createClient){clearSensitive('Missing SILO configuration.');return;}
   db=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
   $('workspace').addEventListener('change',e=>{if(!state.ready)return;if(e.target.dataset?.quick){changeQuickInput(e.target);return;}if(e.target.dataset?.quickDebt){changeQuickDebt(e.target);return;}const def=allDefs.find(d=>d[0]===e.target.id);if(def){state.values[e.target.id]=def[2]==='checkbox'?e.target.checked:e.target.value;if(['normalizedCash','cashProvenance','revenue','revenueDecline','grossMargin','marginCompression'].includes(e.target.id))invalidateTimingReview();if(['growthPct','revenueDecline','marginCompression'].includes(e.target.id))reflectPreset();if(['normalizedCash','cashProvenance'].includes(e.target.id)){state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;}if(['existingDebtMode','facilitiesProvenance'].includes(e.target.id))invalidateFacilityReview();if(['existingPayment','debtProvenance'].includes(e.target.id)){state.values.debtComplete=false;$('debtComplete').checked=false;}if(['startMonth','currency','forecastMonths'].includes(e.target.id)){invalidateFacilityReview();state.facilities.forEach(f=>f.scheduleComplete=false);invalidateTimingReview();invalidateCommitmentReview();state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;state.values.debtComplete=false;$('debtComplete').checked=false;}render();}if(e.target.dataset.month){const {month,key}=e.target.dataset;state.overrides[month]??={};state.overrides[month][key]=e.target.value;if(key==='preDebtCash'){invalidateTimingReview();state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;}if(key==='payment'){state.values.debtComplete=false;$('debtComplete').checked=false;}render();}if(e.target.dataset.commitment){const row=state.commitments.find(r=>r.id===e.target.dataset.commitment);if(row){const key=e.target.dataset.field;row[key]=key==='reviewed'?e.target.checked:key==='amount'?number(e.target.value):e.target.value;invalidateCommitmentReview();if(key!=='reviewed'){row.reviewed=false;$('commitmentEditor').querySelectorAll('[data-field="reviewed"]').forEach(el=>{if(el.dataset.commitment===row.id)el.checked=false;});}render();}}if(e.target.dataset.facility)changeFacility(e.target);if(e.target.dataset.timing)changeCashTiming(e.target);if(e.target.hasAttribute?.('data-timing-distinct')){state.cashTiming.distinctReceiptPoolsReviewed=e.target.checked;render();}});
-  $('workspace').addEventListener('click',e=>{const mode=e.target.closest('[data-mode]');if(mode){setMode(mode.dataset.mode);return;}const step=e.target.closest('[data-step]');if(step)setStep(step.dataset.step);const anchor=e.target.closest('[data-go-step]');if(anchor){setStep(anchor.dataset.goStep);const target=$(anchor.getAttribute('href').slice(1));let parent=target?.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}}const add=e.target.closest('[data-add-facility]');if(add&&state.ready&&state.facilities.length<50){invalidateFacilityReview();const f=createFacility(globalThis.crypto?.randomUUID?.()||`facility-${Date.now()}-${state.facilities.length}`,add.dataset.addFacility,state.values.currency);state.facilities.push(f);render();renderFacility(true);const panel=[...$('facilityEditor').querySelectorAll('[data-facility-panel]')].find(el=>el.dataset.facilityPanel===f.id);if(panel)panel.open=true;}const edit=e.target.closest('[data-edit-facility]');if(edit){const panel=[...$('facilityEditor').querySelectorAll('[data-facility-panel]')].find(el=>el.dataset.facilityPanel===edit.dataset.editFacility);if(panel){panel.open=true;panel.scrollIntoView?.({block:'nearest',behavior:'smooth'});}}const removeFacility=e.target.closest('[data-remove-facility]');if(removeFacility){invalidateFacilityReview();state.facilities=state.facilities.filter(f=>f.id!==removeFacility.dataset.removeFacility);render();renderFacility(true);}const b=e.target.closest('[data-preset]');if(b)choosePreset(b.dataset.preset);const capacityChoice=e.target.closest('[data-use-capacity]');if(capacityChoice){const candidate=number(capacityChoice.dataset.useCapacity);if(candidate!==null&&candidate>0){setValues({amount:String(candidate)});render();}}const remove=e.target.closest('[data-remove-commitment]');if(remove){invalidateCommitmentReview();state.commitments=state.commitments.filter(r=>r.id!==remove.dataset.removeCommitment);render();renderCommitmentEditor(true);}});
+  $('workspace').addEventListener('click',e=>{const mode=e.target.closest('[data-mode]');if(mode){setMode(mode.dataset.mode);return;}const step=e.target.closest('[data-step]');if(step)setStep(step.dataset.step);const anchor=e.target.closest('[data-go-step]');if(anchor){setStep(anchor.dataset.goStep);const target=$(anchor.getAttribute('href').slice(1));let parent=target?.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}}const add=e.target.closest('[data-add-facility]');if(add&&state.ready&&state.facilities.length<50){invalidateFacilityReview();const f=createFacility(globalThis.crypto?.randomUUID?.()||`facility-${Date.now()}-${state.facilities.length}`,add.dataset.addFacility,state.values.currency);state.facilities.push(f);render();renderFacility(true);const panel=[...$('facilityEditor').querySelectorAll('[data-facility-panel]')].find(el=>el.dataset.facilityPanel===f.id);if(panel)panel.open=true;}const edit=e.target.closest('[data-edit-facility]');if(edit){const panel=[...$('facilityEditor').querySelectorAll('[data-facility-panel]')].find(el=>el.dataset.facilityPanel===edit.dataset.editFacility);if(panel){panel.open=true;panel.scrollIntoView?.({block:'nearest',behavior:'smooth'});}}const removeFacility=e.target.closest('[data-remove-facility]');if(removeFacility){invalidateFacilityReview();state.facilities=state.facilities.filter(f=>f.id!==removeFacility.dataset.removeFacility);reflectFacilitiesIntoQuick();render();renderFacility(true);renderQuick(true);}const b=e.target.closest('[data-preset]');if(b)choosePreset(b.dataset.preset);const capacityChoice=e.target.closest('[data-use-capacity]');if(capacityChoice){const candidate=number(capacityChoice.dataset.useCapacity);if(candidate!==null&&candidate>0){setValues({amount:String(candidate)});render();}}const remove=e.target.closest('[data-remove-commitment]');if(remove){invalidateCommitmentReview();state.commitments=state.commitments.filter(r=>r.id!==remove.dataset.removeCommitment);render();renderCommitmentEditor(true);}});
   document.querySelector('.uw-flow')?.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;const steps=['business','funding','test','review'];const i=steps.indexOf(state.step),next=e.key==='Home'?0:e.key==='End'?3:(i+(e.key==='ArrowRight'?1:3))%4;setStep(steps[next]);$('tab-'+steps[next]).focus();e.preventDefault();});
   $('addCommitment').addEventListener('click',()=>{if(!state.ready||state.commitments.length>=500)return;invalidateCommitmentReview();state.commitments.push({id:globalThis.crypto?.randomUUID?.()||`payment-${Date.now()}-${state.commitments.length}`,month:'',amount:null,currency:state.values.currency||'',sourceReference:'',paymentType:'deposit',inclusion:'incremental',reviewed:false});render();renderCommitmentEditor(true);});
   $('quickProposalDetails')?.addEventListener?.('toggle',()=>{const open=$('quickProposalDetails').open;$('quickProposalPreview').hidden=!open;if(open&&state.ready)renderQuick();});
