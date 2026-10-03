@@ -173,16 +173,29 @@ test('the as-of month bounds every dated section: nothing held after it is print
   snap.sources.purchaseOrders.placedTruncated = true; snap.sources.purchaseOrders.placedCount = 240;
   const capped = quickProposalHtml({ result: r, debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
   assert.ok(capped.includes('capped at 3 of 240 placed orders')); assert.ok(capped.includes('No purchase commitment shown as of 2026-08')); assert.ok(!capped.includes('<td>2026-11</td>'));
+  // An UNDATED current balance or snapshot cannot be placed on either side of the cutoff, so it is left out too --
+  // the loader admits both (status partial), and "Last synced unknown" beside a current balance is still a current balance.
+  snap.sources.bank.rows.push({ id: 'b3', name: 'Undated card', current_balance: -45000, available_balance: null, iso_currency_code: 'USD', balance_updated_at: null, connection_status: 'active', environment: 'production' });
+  snap.sources.inventory = { status: 'partial', asOf: null, metrics: [{ label: 'Reported on-hand units', value: 538101 }], byProductType: [{ productType: 'Tees', units: 300000, knownRecordedValue: 9000000 }] };
+  const undated = quickProposalHtml({ result: r, debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
+  assert.ok(undated.includes('2 of 3 bank balances are dated after 2026-08 or undated (1 undated; last synced 2026-10-02)')); assert.ok(!undated.includes('Undated card')); assert.ok(!undated.includes('-$45,000')); assert.ok(undated.includes('Old savings'));
+  assert.ok(undated.includes('On-hand inventory carries no snapshot date, so it cannot be placed before or after the cutoff')); assert.ok(!undated.includes('538,101')); assert.ok(!undated.includes('<td>Tees</td>'));
+  snap.sources.bank.rows = [snap.sources.bank.rows[2]];
+  assert.ok(quickProposalHtml({ result: r, debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' }).includes('1 of 1 bank balance is undated. The feed holds only the position at its last sync, so it is not shown as of 2026-08.'));
+  // Without an as-of month an undated row still prints, as before, with its date unknown.
+  const noColumns = fullSnapshot(); noColumns.sources.balanceSheet.monthly = []; noColumns.sources.bank.rows[0].balance_updated_at = null;
+  const plain = quickProposalHtml({ result: quickLook({ snapshot: noColumns, inputs, debts: [], month: '2026-10' }), debts: [], snapshot: noColumns, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
+  assert.ok(plain.includes('-$688,010')); assert.ok(plain.includes('<td>unknown</td>'));
 });
 
 test('a bank row is shown in its own currency or as a plain number, with stale or partial coverage named', () => {
   const snap = fullSnapshot();
   snap.sources.bank = { status: 'partial', warnings: ['Bank account rows are capped at 500; source coverage is incomplete.'], rows: [
     { id: 'b1', name: 'CAD account', current_balance: 1000, available_balance: 900, iso_currency_code: 'CAD', balance_updated_at: '2026-06-20T00:00:00Z', connection_status: 'login_required', environment: 'production' },
-    { id: 'b2', name: 'No currency', current_balance: 5000, available_balance: null, iso_currency_code: null, balance_updated_at: null, connection_status: 'active', environment: 'sandbox' }] };
+    { id: 'b2', name: 'No currency', current_balance: 5000, available_balance: null, iso_currency_code: null, balance_updated_at: '2026-06-25T00:00:00Z', connection_status: 'active', environment: 'sandbox' }] };
   const r = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10' });
   const html = quickProposalHtml({ result: r, debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
-  for (const text of ['CA$1,000', 'CA$900', '2026-06-20', 'login_required', '5,000 (currency not recorded)', 'not recorded', 'unknown', 'active · sandbox', 'Bank coverage is partial', 'capped at 500']) assert.ok(html.includes(text), text);
+  for (const text of ['CA$1,000', 'CA$900', '2026-06-20', 'login_required', '5,000 (currency not recorded)', 'not recorded', '2026-06-25', 'active · sandbox', 'Bank coverage is partial', 'capped at 500']) assert.ok(html.includes(text), text);
   assert.ok(!html.includes('>$1,000<'), 'a CAD balance is never printed as USD');
 });
 

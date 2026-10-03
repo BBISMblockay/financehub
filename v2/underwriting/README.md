@@ -36,9 +36,11 @@ rests on, with dates:
 **Figures as of** bounds EVERYTHING dated, not only the balance-sheet column
 and the trailing windows. In the proposal, recorded sales stop at the as-of
 month and "planned ahead" starts the month after it; a bank balance dated
-after the month is named with its sync date and left out (the feed holds only
-its last position); the on-hand snapshot after the month is named as held but
-not as of (SILO keeps no on-hand history); and the PO register, which holds
+after the month, or carrying no date at all, is named and left out (the feed
+holds only its last position, and an undated current balance cannot be placed
+on either side of the cutoff); the on-hand snapshot after the month, or with
+no snapshot date, is named as held but not as of (SILO keeps no on-hand
+history); and the PO register, which holds
 CURRENT status only, prints the orders placed by the end of the month as a
 stated lower bound (orders placed by then and received since are gone from
 the placed set), or nothing when its 200-row detail list is capped. Nothing
