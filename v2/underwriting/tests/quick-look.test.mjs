@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { quickLook, draftQuickDebts, quickDebtsHtml, quickFactsHtml, quickResultHtml, quickVerdictHtml, quickPrintHtml, quickProposalHtml, quickMonthOptions, resolveAsOfMonth, QUICK_RULES } from '../quick-look.js';
+import { forwardOutlook, quickLook, draftQuickDebts, quickDebtsHtml, quickFactsHtml, quickResultHtml, quickVerdictHtml, quickPrintHtml, quickProposalHtml, quickMonthOptions, resolveAsOfMonth, QUICK_RULES } from '../quick-look.js';
 import { buildDebtSchedule } from '../scenario-model.js';
 
 const money = (v, compact = false) => Number.isFinite(v) ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: compact ? 'compact' : 'standard', maximumFractionDigits: compact ? 1 : 0 }).format(v) : '—';
@@ -286,4 +286,65 @@ test('default latest-complete month checks debt coverage for that month, not a n
   snap.sources.balanceSheet.monthly.push({ month: '2026-07', periodEnd: '2026-07-10', completeMonth: false, bookCash: 1000, assets: 10000 });
   const r = quickLook({ snapshot: snap, inputs, debts: draftQuickDebts(snap.accountOptions), month: '2026-10' });
   assert.equal(r.facts.asOfMonth, '2026-06'); assert.equal(r.debtCoverage.complete, false); assert.equal(r.verdict.status, 'unknown');
+});
+
+const plannedSnapshot = () => {
+  const snap = snapshot({ operating: 60000 }); // Jan–Jun 2026 complete P&L and cash-flow months
+  snap.sources.revenuePlan = { status: 'partial', businessDate: '2026-07-03', monthly: [
+    ...months.map((m, i) => ({ month: m, plannedSales: 1000000, actualNetSales: 800000 + (i === 0 ? 100000 : 0) - (i === 1 ? 100000 : 0), completeMonth: true })),
+    { month: '2026-07', plannedSales: 1200000, actualNetSales: 95000, completeMonth: false },
+    { month: '2026-08', plannedSales: 900000, actualNetSales: null, completeMonth: false },
+    { month: '2026-09', plannedSales: 600000, actualNetSales: null, completeMonth: false },
+    { month: '2026-10', plannedSales: 1500000, actualNetSales: null, completeMonth: false },
+    { month: '2026-11', plannedSales: 4000000, actualNetSales: null, completeMonth: false },
+    { month: '2026-12', plannedSales: 1800000, actualNetSales: null, completeMonth: false },
+  ] };
+  return snap;
+};
+
+test('the forward outlook turns the sales plan into projected cash with measured attainment and conversion', () => {
+  const snap = plannedSnapshot();
+  const o = forwardOutlook(snap);
+  assert.equal(o.available, true);
+  assert.equal(o.attainment, .8); assert.equal(o.attainmentMonths, 6); assert.equal(o.attainmentFrom, '2026-01'); assert.equal(o.attainmentTo, '2026-06');
+  assert.ok(Math.abs(o.conversion - 360000 / 4800000) < 1e-12, 'operating cash per recorded sales dollar'); assert.equal(o.conversionLabel, 'operating cash flow'); assert.equal(o.conversionMonths, 6);
+  assert.deepEqual(o.months.map(m => m.month), ['2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12'], 'starts at the business month, current partial month included as plan');
+  assert.equal(o.months[4].projectedCash, 4000000 * .8 * .075); assert.equal(o.totalPlanned, 10000000); assert.equal(o.totalProjected, 600000); assert.equal(o.averageProjected, 100000);
+  assert.equal(o.weakest.month, '2026-09');
+  // As of an earlier month: calibration stops there and the window starts after it.
+  const march = forwardOutlook(snap, { asOfMonth: '2026-03' });
+  assert.equal(march.attainmentMonths, 3); assert.equal(march.months[0].month, '2026-04'); assert.equal(march.months.length, 9);
+  // Not enough matched months: no forward basis, with the reason named.
+  const thin = plannedSnapshot(); thin.sources.cashflow.monthly = thin.sources.cashflow.monthly.slice(0, 2); thin.sources.profitAndLoss.monthly = thin.sources.profitAndLoss.monthly.slice(0, 2);
+  const t = forwardOutlook(thin); assert.equal(t.available, false); assert.match(t.reasons.join(' '), /conversion is not measured/);
+  assert.equal(forwardOutlook(snapshot()).available, false);
+  // Without a cash-flow statement the conversion falls back to net operating income and says so.
+  const noCf = plannedSnapshot(); noCf.sources.cashflow = { status: 'missing', monthly: [] };
+  const n = forwardOutlook(noCf); assert.equal(n.conversionLabel, 'net operating income'); assert.match(n.reasons.join(' '), /not cash/);
+});
+
+test('the plan is the default basis, the trailing share stays beside it, and the proposal shows the plan table in plain numbers', () => {
+  const snap = plannedSnapshot();
+  const r = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10' });
+  assert.equal(r.basisChoice, 'plan'); assert.equal(r.basis.key, 'plan'); assert.equal(r.basis.average, 100000);
+  assert.ok(Math.abs(r.ratios.serviceShare - r.combinedService / 100000) < 1e-12);
+  assert.ok(Math.abs(r.ratios.trailingShare - r.combinedService / 60000) < 1e-12);
+  assert.ok(Math.abs(r.ratios.planWeakestShare - r.combinedService / 36000) < 1e-9);
+  assert.match(r.verdict.title, /on the sales plan/);
+  assert.match(r.verdict.reasons.join(' '), /planned sales 10,000,000 × 80% attainment \(6 months\) × 7\.5¢ of operating cash flow per recorded sales dollar/);
+  assert.match(r.verdict.reasons.join(' '), /Weakest plan month 2026-09/);
+  assert.match(r.verdict.reasons.join(' '), /On the last 6 months of actual operating cash flow .* the share is/);
+  const t = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10', basis: 'trailing' });
+  assert.equal(t.basisChoice, 'trailing'); assert.match(t.verdict.title, /on recent results/); assert.match(t.verdict.reasons.join(' '), /On the sales plan for the next 6 months .* the share would be/);
+  const none = quickLook({ snapshot: snapshot(), inputs, debts: [], month: '2026-10', basis: 'plan' });
+  assert.equal(none.basisChoice, 'trailing'); assert.match(none.verdict.reasons.join(' '), /sales-plan basis was requested but is not available/);
+  // A negative conversion reads as "does not fit on the sales plan", never as a projection of positive cash.
+  const neg = plannedSnapshot(); neg.sources.cashflow.monthly.forEach(x => { x.operating = -10000; });
+  const nr = quickLook({ snapshot: neg, inputs, debts: [], month: '2026-10' });
+  assert.equal(nr.verdict.status, 'no'); assert.match(nr.verdict.title, /on the sales plan/); assert.match(nr.verdict.reasons.join(' '), /conversion is negative/);
+  const html = quickProposalHtml({ result: r, debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
+  for (const text of ['Forward outlook from the sales plan', '80% plan attainment', '7.5¢ of operating cash flow', '<td>2026-11</td><td>4,000,000</td><td>$240,000</td>', '6-month total', '<strong>10,000,000</strong>', '<strong>$600,000</strong>']) assert.ok(html.includes(text), text);
+  assert.ok(!html.includes('$4,000,000'), 'planned sales are never printed in the statement currency');
+  const facts = quickFactsHtml(r, money);
+  assert.ok(facts.includes('Projected monthly operating cash · sales plan')); assert.ok(facts.includes('$100.0K')); assert.ok(facts.includes('Plan attainment')); assert.ok(facts.includes('80%'));
 });

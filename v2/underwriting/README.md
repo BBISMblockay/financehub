@@ -33,6 +33,20 @@ rests on, with dates:
   with no payment entered caps the verdict at tight** -- a payment nobody has
   entered is not a payment of zero. The rules are printed under the result.
 
+**Judge on** picks the basis. *Sales plan ahead* (the default whenever the
+company has a plan ahead) turns the stored active sales plan for the next 12
+plan months into projected monthly operating cash: planned sales × plan
+attainment (recorded ÷ planned sales over the matched months) × conversion
+(operating cash ÷ recorded sales over the same months, net operating income
+when no cash-flow statement is saved). The plan is the company's own; both
+factors are measured, never assumed, and fewer than three matched months means
+no forward basis. Recorded sales are Shopify net sales, so the conversion keeps
+the Shopify-versus-QuickBooks scope difference inside a measured ratio. The
+verdict names the weakest plan month and always shows the other basis beside
+the chosen one; the proposal carries the month-by-month plan table with planned
+sales as plain numbers (no recorded currency). *Recent results* is the trailing
+average over complete statement months.
+
 **Figures as of** lists the complete months on the saved balance sheet (latest
 by default). Choosing one re-dates the balance-sheet facts and the debt
 balances to that month's column and ends every trailing average at it, so the
