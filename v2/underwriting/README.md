@@ -186,7 +186,10 @@ changes, receipt conservation, review provenance, keyboard tabs and print gating
 The existing v2 page workflow runs these unit/integration tests and the synthetic
 scenario contract on underwriting pull requests and main-branch changes. Both
 checks use a bare Node 22 checkout without secrets, installs or live sources.
-The contract check does not execute a browser; browser verification is separate.
+The contract check does not execute a browser. The same workflow's Chromium job
+also runs the synthetic browser suite below using its existing Playwright install,
+and retains synthetic desktop/mobile screenshots as CI artifacts. No live
+credentials or company records are used; the normal Chromium sandbox is retained.
 
 Browser suite (only in a supported authorized Chromium environment):
 

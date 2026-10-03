@@ -137,3 +137,17 @@ jobs:
       # own resolution, which is what `playwright install` just set up.
       - name: Run browser suites
         run: node v2/tests/run.js --browser
+
+      - name: Underwriting synthetic browser flow
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/v2/tests/node_modules/playwright/index.mjs
+          UW_OUTPUT: ${{ runner.temp }}/underwriting-preview
+        run: node v2/underwriting/tests/browser.mjs
+
+      - name: Upload synthetic underwriting screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: underwriting-synthetic-screenshots
+          path: ${{ runner.temp }}/underwriting-preview/*.png
+          if-no-files-found: warn
