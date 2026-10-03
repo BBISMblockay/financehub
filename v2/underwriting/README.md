@@ -1,13 +1,56 @@
 # Underwriting workspace
 
-Direct URL: `/v2/underwriting/index.html`. This plain v2 Beacon page is deliberately
+Direct URL: `/v2/underwriting/index.html`. One page, two modes: a Quick look that
+lands first, and the four-step Advanced workflow. This plain v2 Beacon page is deliberately
 unlisted: no navigation, search, home, menu, accounting-suite or dashboard
 registration. The existing report dashboard is untouched. There is no new app
 framework, backend workflow, database schema or server persistence.
 
-## Workflow
+## Quick look (lands first)
 
-Four keyboard-accessible steps keep the work progressive:
+Most people open this page with one question: can the business carry this
+loan? `quick-look.js` answers it from the saved QuickBooks statements with three
+typed inputs (amount, rate, term; purpose optional) and shows what the answer
+rests on, with dates:
+
+- **From the books**: book bank balances and total assets from the latest
+  balance sheet; average monthly revenue, gross profit, operating cash flow and
+  net operating income over the complete months in the saved statements (up to
+  12, partial months excluded).
+- **Existing debt** is drafted from balance-sheet accounts by QuickBooks
+  account TYPE, never by name: long-term liabilities and credit cards start
+  ticked, other current liabilities (payables, tax, deferred revenue) start
+  unticked. Balances are book balances; monthly payments are only what a person
+  types.
+- **Verdict**: combined monthly service (new payment plus typed existing
+  payments) as a share of average monthly operating cash flow (or net operating
+  income when no cash-flow statement is saved). Up to 25% reads comfortable, up
+  to 50% tight, above that does not fit; a non-positive basis does not fit;
+  fewer than three complete months is "not enough history". **A ticked debt
+  with no payment entered caps the verdict at tight** -- a payment nobody has
+  entered is not a payment of zero. The rules are printed under the result.
+
+The three inputs are the same fields as the advanced proposal, so switching to
+the Advanced workflow finds them filled. Opening cash is seeded once from book
+bank balances (only when blank, with provenance naming the source and date; the
+review box stays unchecked). Ticks and typed payments travel in the v4 scenario
+file (`quick.debts`); balances come back from the live balance sheet.
+
+**Draft proposal** (`quickProposalHtml`, previewed under "Draft proposal
+preview" and printed by "Print draft proposal") is the document for an
+underwriter, assembled entirely from the loaded sources plus the three inputs:
+request and verdict; complete-month revenue, gross profit, margin, operating
+income and operating cash flow with totals; the balance sheet lines as of its
+date; live bank balances; ticked debt with totals and debt-to-assets; inventory
+units and recorded value by product group with placed-PO arrivals by month;
+recorded sales against the plan for the last six months and the next three; a
+sources-and-dates table; and the rules it was judged by. A source that did not
+load is named as such rather than left blank. A quick read of saved snapshots,
+not an approval, covenant test or lender policy.
+
+## Advanced workflow
+
+Four keyboard-accessible steps keep the work progressive, behind the mode switch:
 
 1. **Business picture**: read-only QBO revenue/margin, balance-sheet/cash history,
    company sales plans, inventory valuation coverage and placed purchase orders

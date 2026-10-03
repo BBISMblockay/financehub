@@ -117,6 +117,19 @@ async function runBrowser() {
    assert.equal(await page.locator(`[role="tab"][data-step="${name}"]`).getAttribute('aria-selected'),'true');
   }
   const {page,errors}=await setup();const doc=await fill(page);
+  // Quick look lands first: the synthetic doc's amount/rate/term produce a payment and a verdict.
+  assert.equal(await page.locator('#step-quick').isVisible(),true,'quick look is the landing view');
+  assert.equal(await page.locator('.uw-flow').isVisible(),false,'advanced tabs are hidden in quick mode');
+  assert.equal(await page.locator('#q-amount').inputValue(),doc.values.amount,'quick inputs mirror the proposal fields');
+  assert.match(await page.locator('#quickResult').innerText(),/Monthly payment/);
+  assert.match(await page.locator('#quickVerdict').innerText(),/on recent results|until existing payments/);
+  assert.equal(await page.locator('#quickDebts tbody tr').count(),2,'both synthetic liability accounts are offered as debt');
+  await page.locator('#quickProposalDetails summary').click();
+  assert.match(await page.locator('#quickProposalPreview').innerText(),/DRAFT FINANCING PROPOSAL[\s\S]*Business performance[\s\S]*Sources and dates/);
+  await page.locator('#quickProposalDetails summary').click();
+  await page.screenshot({path:path.join(output,'underwriting-quick.png'),fullPage:false});
+  await page.locator('[data-mode="advanced"]').first().click();
+  assert.equal(await page.locator('.uw-flow').isVisible(),true);
   const portfolio=portfolioFor(doc,await syntheticAccounts());
   for(const name of ['business','funding','test','review','funding'])await step(page,name);
   assert.equal(await page.locator('#currentCreditRegister tbody tr').count(),3,'multiple stable-ID facilities render');

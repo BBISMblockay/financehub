@@ -16,6 +16,7 @@ import * as reviewView from '../review-view.js';
 import { compareReviewSnapshots } from '../review-snapshot.js';
 import { createLoadGuard } from '../context.js';
 import { parseInputNumber, validateScenarioDocument } from '../scenario-file.js';
+import * as quickLookModule from '../quick-look.js';
 
 const workspace = (await readFile(new URL('../workspace.js', import.meta.url), 'utf8'))
   .replace(/^import .*;$/gm, '')
@@ -35,7 +36,7 @@ function harness({ readContext, loadSourceSnapshot } = {}) {
   const tabs = steps.map(step => Object.assign(node('tab-' + step), { dataset: { step } }));
   document.querySelectorAll = selector => selector === '[data-step-panel]' ? panels : selector === '[role="tab"][data-step]' ? tabs : [];
   const auth = { onAuthStateChange(callback) { this.callback = callback; } };
-  const sandbox = { ...model, ...charts, ...facilityView, ...cashTimingModel, ...timingView, ...reviewView, businessView, assessFundingCapacity, assessFacilityPortfolio, createLoadGuard, number: parseInputNumber, validateScenarioDocument,
+  const sandbox = { ...model, ...charts, ...facilityView, ...cashTimingModel, ...timingView, ...reviewView, ...quickLookModule, businessView, assessFundingCapacity, assessFacilityPortfolio, createLoadGuard, number: parseInputNumber, validateScenarioDocument,
     readContext: readContext || (async () => ({ key: 'user:11111111-1111-4111-8111-111111111111', company: { id: '11111111-1111-4111-8111-111111111111', title: 'Synthetic company A' } })),
     loadSourceSnapshot: loadSourceSnapshot || (async () => ({ sources: {} })),
     document, JSON, Blob, TextEncoder, URL: { createObjectURL(blob) { downloads.push(blob); return 'blob:synthetic-download'; }, revokeObjectURL() {} }, setTimeout: callback => callback(), window: { print() { this.printed = true; }, location: { reload() {} }, addEventListener() {},
@@ -43,7 +44,7 @@ function harness({ readContext, loadSourceSnapshot } = {}) {
       supabase: { createClient: () => ({ auth }) } }, AbortController, Intl, Date,
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${workspace}\nglobalThis.api={state,allDefs,inputModel,assessCurrentCapacity,capacityTerms,importScenario,load,boot,render,renderMonthlyEditor,renderCommitmentEditor,renderSources,sourceRows,clearSensitive,captureReview,printProposal,buildPrintPacket,setStep,download,revalidate,resumeView,renderFacility,choosePreset,presetFromValues};`, sandbox);
+  vm.runInContext(`${workspace}\nglobalThis.api={state,allDefs,inputModel,assessCurrentCapacity,capacityTerms,importScenario,load,boot,render,renderMonthlyEditor,renderCommitmentEditor,renderSources,sourceRows,clearSensitive,captureReview,printProposal,buildPrintPacket,setStep,setMode,renderQuick,download,revalidate,resumeView,renderFacility,choosePreset,presetFromValues};`, sandbox);
   const api = sandbox.api;
   api.state.ready = true;
   api.state.context = { key: 'user:11111111-1111-4111-8111-111111111111', company: { id: '11111111-1111-4111-8111-111111111111' } };
@@ -738,7 +739,7 @@ test('keyboard tabs switch a single panel, selected state and focus with wraparo
 });
 
 test('signed-out gates clear facility, timing, review and print material', async () => {
-  const h = await mountedHarness(); seedFacilities(h); h.api.state.cashTiming.collections = reviewedTiming(); h.api.render();
+  const h = await mountedHarness(); h.api.setMode('advanced'); seedFacilities(h); h.api.state.cashTiming.collections = reviewedTiming(); h.api.render();
   await h.api.captureReview(); await h.api.printProposal();
   assert.ok(h.node('printPacket').innerHTML.includes('Supporting schedules'));
   h.auth.callback('SIGNED_OUT');
@@ -779,7 +780,7 @@ test('a blank cash assumption is never printed as a zero-dollar repayment baseli
 });
 
 test('printed proposal includes facility and receipt-timing evidence and static supporting schedules', async () => {
-  const h = await mountedHarness(); seedFacilities(h); h.api.state.cashTiming.collections = reviewedTiming();
+  const h = await mountedHarness(); h.api.setMode('advanced'); seedFacilities(h); h.api.state.cashTiming.collections = reviewedTiming();
   h.api.state.facilities[0].scheduleProvenance = 'Synthetic payment evidence <script>unsafe()</script>';
   await h.api.printProposal(); const print = h.node('printPacket').innerHTML;
   for (const text of ['Facility evidence and remaining terms', 'Existing P&I by facility', 'Receipt timing assumptions',
@@ -994,4 +995,57 @@ test('a forced facility editor rebuild returns focus to the control being edited
   document.activeElement = monthCell; editor.contains = el => el === monthCell;
   api.renderFacility(true);
   assert.equal(asked, '[data-facility="f-1"][data-payment-month="2026-11"]');
+});
+
+const quickAccounts = () => [
+  { id: 'connection-a:42', label: 'Bank term loan', accountType: 'Long Term Liability', balance: 400000, balanceAsOf: '2026-08-31', balanceCurrency: 'USD' },
+  { id: 'connection-a:77', label: 'Sales tax payable', accountType: 'Other Current Liability', balance: 9000, balanceAsOf: '2026-08-31', balanceCurrency: 'USD' },
+];
+const quickSnapshot = () => ({ currency: 'USD', accountOptions: quickAccounts(), sources: {
+  balanceSheet: { currency: 'USD', periodEnd: '2026-08-31', metrics: [], monthly: [{ month: '2026-08', periodEnd: '2026-08-31', completeMonth: true, bookCash: 125000, assets: 2000000 }] },
+  profitAndLoss: { currency: 'USD', metrics: [], monthly: [] },
+  cashflow: { currency: 'USD', metrics: [], monthly: ['2026-05', '2026-06', '2026-07', '2026-08'].map(m => ({ periodStart: `${m}-01`, periodEnd: `${m}-28`, completeMonth: true, operating: 60000 })) },
+} });
+
+test('the quick look lands first, mirrors its three inputs into the advanced proposal and seeds opening cash once', async () => {
+  const { api, node } = harness({ loadSourceSnapshot: async () => quickSnapshot() });
+  await api.boot(); // binds the change/click listeners and runs the first load
+  assert.equal(api.state.mode, 'quick'); assert.equal(node('step-quick').hidden, false); assert.equal(node('flow').hidden, true);
+  assert.equal(api.state.quick.debts.map(d => [d.id, d.include]).length, 2);
+  assert.equal(api.state.values.startingCash, '125000'); assert.match(api.state.values.cashEvidence, /balance sheet.*2026-08-31.*auto-filled/);
+  api.state.values.startingCash = '99'; await api.load(); assert.equal(api.state.values.startingCash, '99', 'a typed opening cash is never overwritten');
+  node('workspace').change({ target: { id: 'q-amount', dataset: { quick: 'amount' }, value: '250000' } });
+  node('workspace').change({ target: { id: 'q-rate', dataset: { quick: 'rate' }, value: '8' } });
+  node('workspace').change({ target: { id: 'q-term', dataset: { quick: 'term' }, value: '24' } });
+  assert.equal(api.state.values.amount, '250000'); assert.equal(node('amount').value, '250000'); assert.equal(api.state.values.term, '24');
+  assert.ok(api.state.quickResult.payment > 0); assert.ok(node('quickResult').innerHTML.includes('Monthly payment'));
+  assert.equal(api.state.quickResult.verdict.status, 'tight', 'the term loan is ticked with no payment entered');
+  node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:42', field: 'monthlyPayment' }, value: '100' } });
+  assert.equal(api.state.quick.debts[0].monthlyPayment, 100);
+  node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:42', field: 'include' }, checked: false } });
+  assert.equal(api.state.quick.debts[0].include, false); assert.equal(api.state.quickResult.includedCount, 0);
+  assert.equal(api.state.quickResult.verdict.status, 'comfortable');
+  api.setMode('advanced'); assert.equal(node('step-quick').hidden, true); assert.equal(node('flow').hidden, false); assert.equal(node('panel-business').hidden, false);
+  api.setMode('quick'); assert.equal(node('panel-business').hidden, true);
+});
+
+test('quick mode prints a static one-page packet and the ticks survive a download and reopen', async () => {
+  const h = harness({ loadSourceSnapshot: async () => quickSnapshot() });
+  await h.api.boot();
+  h.api.state.values.amount = '250000'; h.api.state.values.rate = '8'; h.api.state.values.term = '24'; h.api.render();
+  h.api.buildPrintPacket();
+  const packet = h.node('printPacket').innerHTML;
+  assert.ok(packet.includes('DRAFT FINANCING PROPOSAL')); assert.ok(packet.includes('Synthetic company A')); assert.ok(packet.includes('Sources and dates')); assert.ok(!packet.includes('<input'));
+  h.node('quickProposalDetails').open = true; h.node('quickProposalDetails').toggle();
+  assert.ok(h.node('quickProposalPreview').innerHTML.includes('Business performance'), 'opening the preview renders the same proposal on screen');
+  h.api.state.quick.debts[0].monthlyPayment = 4321; h.api.state.quick.debts[1].include = true;
+  await h.api.download();
+  const payload = JSON.parse(await h.downloads[0].text());
+  assert.deepEqual(payload.quick, { debts: [{ id: 'connection-a:42', include: true, monthlyPayment: 4321 }, { id: 'connection-a:77', include: true, monthlyPayment: null }] });
+  h.api.state.quick.debts[0].monthlyPayment = null; h.api.state.quick.debts[1].include = false;
+  await h.api.importScenario(h.file(payload));
+  assert.equal(h.api.state.quick.debts[0].monthlyPayment, 4321); assert.equal(h.api.state.quick.debts[1].include, true);
+  assert.equal(h.api.state.quick.debts[0].balance, 400000, 'balances still come from the live balance sheet, not the file');
+  h.api.clearSensitive('Signed out. Sign in to SILO and refresh this page.');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.api.state.quick)), { debts: [] }); assert.equal(h.node('quickVerdict').innerHTML, '');
 });

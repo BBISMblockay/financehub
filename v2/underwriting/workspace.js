@@ -10,11 +10,12 @@ import { cashTimingEditorHtml, cashTimingImpactHtml } from './timing-view.js';
 import { snapshotForReview, reviewChangesHtml, proposalMemoHtml, printEvidenceHtml } from './review-view.js';
 import { createFacility, facilityRegisterHtml, facilityEditorHtml } from './facility-view.js';
 import { parseInputNumber as number, validateScenarioDocument } from './scenario-file.js';
+import { quickLook, draftQuickDebts, quickFactsHtml, quickResultHtml, quickVerdictHtml, quickDebtsHtml, quickProposalHtml } from './quick-look.js';
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const monthAdd = (month,n) => { const [y,m] = month.split('-').map(Number); return new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7); };
 const initialMonth = new Date().toISOString().slice(0,7);
-const state = { context:null, held:false, sources:null, values:{}, overrides:{}, commitments:[], facilities:[], portfolio:null, reviewBaseline:null, cashTiming:emptyCashTimingAssumptions(), cashTimingResult:null, step:'business', result:null, preset:'base', currency:null, ready:false };
+const state = { context:null, held:false, mode:'quick', quick:{debts:[]}, sources:null, values:{}, overrides:{}, commitments:[], facilities:[], portfolio:null, reviewBaseline:null, cashTiming:emptyCashTimingAssumptions(), cashTimingResult:null, step:'business', result:null, preset:'base', currency:null, ready:false };
 const guard = createLoadGuard();
 let db, mounted = false, validationPromise = null, printing = false;
 const definitions = {
@@ -166,6 +167,51 @@ function render() {
   const commitmentIssues=result.cashCommitments?.issues||[];
   $('commitmentIssues').textContent=commitmentIssues.join(' ');
   $('commitmentIssues').hidden=commitmentIssues.length===0;
+  renderQuick();
+}
+// ── Quick look ─────────────────────────────────────────────────────────
+// Three typed inputs (shared with the advanced proposal fields, so the
+// detailed workflow is pre-seeded), everything else from the loaded sources.
+function quickInputs() { const v=state.values; return {amount:v.amount,rate:v.rate,term:v.term,purpose:v.purpose}; }
+function currentQuickLook() {
+  return quickLook({snapshot:state.sources,inputs:quickInputs(),debts:state.quick.debts,month:/^\d{4}-(0[1-9]|1[0-2])$/.test(state.values.startMonth)?state.values.startMonth:initialMonth});
+}
+function renderQuick(force=false) {
+  const result=currentQuickLook();state.quickResult=result;
+  for(const [id,key] of [['q-amount','amount'],['q-rate','rate'],['q-term','term'],['q-purpose','purpose']]){const el=$(id);if(el&&el!==document.activeElement)el.value=state.values[key]??'';}
+  $('quickFacts').innerHTML=quickFactsHtml(result,money);
+  $('quickResult').innerHTML=quickResultHtml(result,money);
+  $('quickVerdict').innerHTML=quickVerdictHtml(result);
+  if(force||!$('quickDebts').contains(document.activeElement))$('quickDebts').innerHTML=quickDebtsHtml(state.quick.debts,money);
+  if(!$('quickProposalPreview').hidden)$('quickProposalPreview').innerHTML=quickProposalHtml({result,debts:state.quick.debts,snapshot:state.sources,money,companyTitle:state.context?.company?.title,preparedAt:new Date().toISOString()});
+}
+function changeQuickInput(el) {
+  const key=el.dataset.quick;if(!['amount','rate','term','purpose'].includes(key))return;
+  state.values[key]=el.value;const mirror=$(key);if(mirror)mirror.value=el.value;
+  render();
+}
+function changeQuickDebt(el) {
+  const row=state.quick.debts.find(d=>d.id===el.dataset.quickDebt);if(!row)return;
+  if(el.dataset.field==='include')row.include=el.checked;
+  else if(el.dataset.field==='monthlyPayment')row.monthlyPayment=number(el.value);
+  render();renderQuick(true);
+}
+// Opening cash is the one advanced input the books can answer directly. Seeded
+// once per load, only when blank, with provenance that names the source and
+// date; the review box stays unchecked because a person still has to agree.
+function seedOpeningCash() {
+  const cash=state.quickResult?.facts?.openingCash;
+  if(!cash||!Number.isFinite(cash.value)||String(state.values.startingCash??'').trim()!=='')return;
+  state.values.startingCash=String(cash.value);$('startingCash').value=state.values.startingCash;
+  if(!String(state.values.cashEvidence??'').trim()){state.values.cashEvidence=`${cash.source} as of ${String(cash.asOf||'date unknown').slice(0,10)} (auto-filled from Quick look; confirm it is unrestricted)`;$('cashEvidence').value=state.values.cashEvidence;}
+}
+function setMode(mode) {
+  if(!['quick','advanced'].includes(mode))return;state.mode=mode;
+  $('step-quick').hidden=mode!=='quick';
+  const flow=document.querySelector('.uw-flow');if(flow)flow.hidden=mode!=='advanced';
+  if(mode==='advanced')setStep(state.step);else document.querySelectorAll('[data-step-panel]').forEach(el=>{el.hidden=true;});
+  document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===mode)));
+  document.querySelector('.silo-main')?.scrollTo?.({top:0,behavior:'auto'});
 }
 
 function renderCashInsights(result,baseline,valid) {
@@ -343,6 +389,10 @@ async function printProposal() {
 // page saying so. afterprint empties it again for the same reason.
 function buildPrintPacket() {
   render();
+  if(state.mode==='quick'){
+    $('printPacket').innerHTML=quickProposalHtml({result:state.quickResult,debts:state.quick.debts,snapshot:state.sources,money,companyTitle:state.context.company.title,preparedAt:new Date().toISOString()});
+    return;
+  }
   const sources=$('sourceDetail').innerHTML,evidence=printEvidenceHtml(state,money);
   $('printPacket').innerHTML=`<header><h1>Underwriting proposal</h1><p>Draft analyst scenario · ${esc(state.context.company.title||'Current company')} · Prepared ${esc(new Date().toISOString())}</p></header>${$('proposalMemo').innerHTML}<section class="uw-print-appendix"><h2>Supporting schedules & evidence</h2><h3>Existing facilities</h3>${$('currentCreditRegister').innerHTML}<h3>Debt service, cash uses & cash coverage</h3>${$('debtSchedule').innerHTML}<h3>Assumptions and provenance</h3><dl>${allDefs.filter(([id])=>!(['amortizationMonths'].includes(id)&&state.values.repayment!=='balloon')&&!(['creditScore','clientReference','documentReferences','lenderRules','scenarioName'].includes(id)&&String(state.values[id]??'').trim()==='')).map(([id,label])=>`<dt>${esc(label)}</dt><dd>${esc(String(state.values[id]??'Unknown'))||'Unknown'}</dd>`).join('')}</dl><h3>Planned payments</h3><table class="uw-table"><thead><tr><th>Reference</th><th>Month</th><th>Amount</th><th>Treatment</th></tr></thead><tbody>${state.commitments.map(r=>`<tr><td>${esc(r.sourceReference)}</td><td>${esc(r.month)}</td><td>${money(r.amount)} ${esc(r.currency)}</td><td>${esc(r.inclusion)} · ${r.reviewed?'reviewed':'not reviewed'}</td></tr>`).join('')}</tbody></table><h3>Source coverage</h3>${sources}<h3>Facility evidence and remaining terms</h3>${evidence.facilities}<h3>Existing P&I by facility</h3><table class="uw-table"><thead><tr><th>Month</th>${state.facilities.map(f=>`<th>${esc(f.name||f.id)}</th>`).join('')}<th>Combined</th></tr></thead><tbody>${(state.portfolio.rows||[]).map(r=>`<tr><td>${esc(r.month)}</td>${r.byFacility.map(f=>`<td>${money(f.payment)}</td>`).join('')}<td>${money(r.payment)}</td></tr>`).join('')}</tbody></table><h3>Receipt timing assumptions</h3>${evidence.timing}${$('cashTimingImpact').innerHTML}<h3>Monthly input overrides</h3><table class="uw-table"><thead><tr><th>Month</th><th>Cash before debt</th><th>Manual P&I reference</th><th>Growth WC</th><th>Other cash use</th></tr></thead><tbody>${Object.entries(state.overrides).map(([month,row])=>`<tr><td>${esc(month)}</td>${['preDebtCash','payment','workingCapitalUse','otherCashUse'].map(key=>`<td>${number(row[key])===null?'Baseline':money(number(row[key]))}</td>`).join('')}</tr>`).join('')}</tbody></table><h3>Calculation notes</h3>${$('methodology').innerHTML}</section>`;
   $('printPacket').querySelectorAll('details').forEach(el=>{el.open=true;});
@@ -364,7 +414,7 @@ function sourceRows(key,s) {
 }
 function setStatus(message,tone='info') {$('status').textContent=message;$('status').className=`bcn-status bcn-status--${tone}`;$('status').hidden=!message;}
 function clearSensitive(message) {
-  guard.invalidate();state.ready=false;state.held=false;state.sources=null;state.context=null;state.result=null;state.capacity=null;state.facilities=[];state.portfolio=null;state.reviewBaseline=null;state.currentReview=null;state.cashTiming=emptyCashTimingAssumptions();state.cashTimingResult=null;state.overrides={};state.commitments=[];
+  guard.invalidate();state.ready=false;state.held=false;state.quick={debts:[]};state.quickResult=null;state.sources=null;state.context=null;state.result=null;state.capacity=null;state.facilities=[];state.portfolio=null;state.reviewBaseline=null;state.currentReview=null;state.cashTiming=emptyCashTimingAssumptions();state.cashTimingResult=null;state.overrides={};state.commitments=[];
   $('workspace').hidden=true;$('gate').hidden=false;
   const note=document.createElement('p');note.textContent=message;
   const signedOut=/sign in|signed out/i.test(message||'');
@@ -372,7 +422,7 @@ function clearSensitive(message) {
   if(signedOut){action.textContent='Sign in to SILO';action.href='/pages/login.html?next=%2Fv2%2Funderwriting%2Findex.html';}
   else{action.type='button';action.textContent='Refresh page';action.addEventListener('click',()=>window.location.reload());}
   $('gate').replaceChildren(note,action);
-  buildFields();for(const id of ['sourceStrip','sourceDetail','businessKpis','performanceView','liquidityView','planningView','exposureView','purchaseOrderView','bookLiabilityView','creditSummary','cashChart','cashInsights','debtChart','debtSummary','debtSchedule','commitmentEditor','commitmentIssues','capacitySummary','capacityExplanation','structureComparison','currentCreditRegister','facilityEditor','debtReconciliation','proposalMemo','reviewChanges','printPacket','cashTimingEditor','cashTimingImpact','activeFacilityPI'])$(id).replaceChildren();
+  buildFields();for(const id of ['sourceStrip','sourceDetail','businessKpis','performanceView','liquidityView','planningView','exposureView','purchaseOrderView','bookLiabilityView','creditSummary','cashChart','cashInsights','debtChart','debtSummary','debtSchedule','commitmentEditor','commitmentIssues','capacitySummary','capacityExplanation','structureComparison','currentCreditRegister','facilityEditor','debtReconciliation','proposalMemo','reviewChanges','printPacket','cashTimingEditor','cashTimingImpact','activeFacilityPI','quickFacts','quickResult','quickVerdict','quickDebts','quickProposalPreview'])$(id).replaceChildren();
 }
 async function load() {
   const ticket=guard.begin();
@@ -389,11 +439,12 @@ async function load() {
     if(after.key!==context.key){clearSensitive('Company changed while sources were loading. Refresh to continue.');return;}
     if(state.sources){const old=state.sources.accountOptions||[],next=snapshot.accountOptions||[];for(const f of state.facilities)if(f.balanceSource==='account'){const before=old.find(a=>a.id===f.accountId),after=next.find(a=>a.id===f.accountId);if(JSON.stringify([before?.balance,before?.balanceAsOf,before?.balanceCurrency])!==JSON.stringify([after?.balance,after?.balanceAsOf,after?.balanceCurrency])){f.scheduleComplete=false;invalidateFacilityReview();}}}
     state.sources=snapshot;state.ready=true;state.held=false;
+    state.quick.debts=draftQuickDebts(snapshot.accountOptions,state.quick.debts);
     if(!mounted){window.SiloChrome?.mount({appEl:'#silo-app',active:'',user:{email:context.user.email,role:context.profile.role},crumbs:['Finance','Underwriting'],supabaseClient:db});mounted=true;}
     $('company').textContent=context.company.title||'Current company';
     $('workspace').hidden=false;$('gate').hidden=true;
     if(!state.values.currency&&snapshot.currency&&[...$('currency').options].some(o=>o.value===snapshot.currency)){state.values.currency=snapshot.currency;$('currency').value=snapshot.currency;}
-    renderSources();render();
+    renderSources();render();seedOpeningCash();render();setMode(state.mode);
     const errors=Object.values(snapshot.sources).filter(s=>s.status==='error');
     setStatus(errors.length?`${errors.length} source read${errors.length===1?'':'s'} failed. Other sources are shown; missing values remain unknown.`:'');
   } catch(error) {
@@ -458,7 +509,7 @@ function choosePreset(preset) {
 }
 async function download() {
   await revalidate();if(!state.ready||state.held)return;
-  const payload={format:'silo-underwriting-scenario',version:4,companyId:state.context.company.id,exportedAt:new Date().toISOString(),values:state.values,overrides:state.overrides,commitments:state.commitments,facilities:state.facilities,cashTiming:state.cashTiming,reviewBaseline:state.reviewBaseline,sourceDates:Object.fromEntries(Object.entries(state.sources.sources).map(([k,s])=>[k,{asOf:s.asOf,periodStart:s.periodStart,periodEnd:s.periodEnd,status:s.status}]))};
+  const payload={format:'silo-underwriting-scenario',version:4,companyId:state.context.company.id,exportedAt:new Date().toISOString(),values:state.values,overrides:state.overrides,commitments:state.commitments,facilities:state.facilities,cashTiming:state.cashTiming,reviewBaseline:state.reviewBaseline,quick:{debts:state.quick.debts.map(({id,include,monthlyPayment})=>({id,include,monthlyPayment}))},sourceDates:Object.fromEntries(Object.entries(state.sources.sources).map(([k,s])=>[k,{asOf:s.asOf,periodStart:s.periodStart,periodEnd:s.periodEnd,status:s.status}]))};
   // Compact on purpose: the import bound is the raw file size, and a pretty-printed
   // copy measured 1.46x larger, so a file that imported could fail to download.
   const serialized=JSON.stringify(payload);if(new TextEncoder().encode(serialized).length>2000000)throw new Error('This scenario exceeds the 2 MB import limit. Reduce oversized notes or schedules before downloading.');
@@ -474,18 +525,20 @@ async function importScenario(file) {
   await revalidate();if(!state.ready||doc.companyId!==state.context.company.id)return;
   setValues(imported.values);state.overrides=imported.overrides;state.commitments=imported.commitments;
   state.facilities=imported.facilities;state.reviewBaseline=imported.reviewBaseline;state.cashTiming=imported.cashTiming;
-  reflectPreset();render();renderCommitmentEditor(true);renderFacility(true);renderCashTiming(true);setStatus('Local scenario opened. Imported inputs are user-provided assumptions; current source records were refreshed separately.');
+  state.quick.debts=draftQuickDebts(state.sources?.accountOptions||[],imported.quick.debts);
+  reflectPreset();render();renderQuick(true);renderCommitmentEditor(true);renderFacility(true);renderCashTiming(true);setStatus('Local scenario opened. Imported inputs are user-provided assumptions; current source records were refreshed separately.');
 }
 async function boot() {
   buildFields();
   const cfg=window.__SILO_CONFIG__;
   if(!cfg?.SUPABASE_URL||!cfg?.SUPABASE_ANON_KEY||!window.supabase?.createClient){clearSensitive('Missing SILO configuration.');return;}
   db=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
-  $('workspace').addEventListener('change',e=>{if(!state.ready)return;const def=allDefs.find(d=>d[0]===e.target.id);if(def){state.values[e.target.id]=def[2]==='checkbox'?e.target.checked:e.target.value;if(['normalizedCash','cashProvenance','revenue','revenueDecline','grossMargin','marginCompression'].includes(e.target.id))invalidateTimingReview();if(['growthPct','revenueDecline','marginCompression'].includes(e.target.id))reflectPreset();if(['normalizedCash','cashProvenance'].includes(e.target.id)){state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;}if(['existingDebtMode','facilitiesProvenance'].includes(e.target.id))invalidateFacilityReview();if(['existingPayment','debtProvenance'].includes(e.target.id)){state.values.debtComplete=false;$('debtComplete').checked=false;}if(['startMonth','currency','forecastMonths'].includes(e.target.id)){invalidateFacilityReview();state.facilities.forEach(f=>f.scheduleComplete=false);invalidateTimingReview();invalidateCommitmentReview();state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;state.values.debtComplete=false;$('debtComplete').checked=false;}render();}if(e.target.dataset.month){const {month,key}=e.target.dataset;state.overrides[month]??={};state.overrides[month][key]=e.target.value;if(key==='preDebtCash'){invalidateTimingReview();state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;}if(key==='payment'){state.values.debtComplete=false;$('debtComplete').checked=false;}render();}if(e.target.dataset.commitment){const row=state.commitments.find(r=>r.id===e.target.dataset.commitment);if(row){const key=e.target.dataset.field;row[key]=key==='reviewed'?e.target.checked:key==='amount'?number(e.target.value):e.target.value;invalidateCommitmentReview();if(key!=='reviewed'){row.reviewed=false;$('commitmentEditor').querySelectorAll('[data-field="reviewed"]').forEach(el=>{if(el.dataset.commitment===row.id)el.checked=false;});}render();}}if(e.target.dataset.facility)changeFacility(e.target);if(e.target.dataset.timing)changeCashTiming(e.target);if(e.target.hasAttribute?.('data-timing-distinct')){state.cashTiming.distinctReceiptPoolsReviewed=e.target.checked;render();}});
-  $('workspace').addEventListener('click',e=>{const step=e.target.closest('[data-step]');if(step)setStep(step.dataset.step);const anchor=e.target.closest('[data-go-step]');if(anchor){setStep(anchor.dataset.goStep);const target=$(anchor.getAttribute('href').slice(1));let parent=target?.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}}const add=e.target.closest('[data-add-facility]');if(add&&state.ready&&state.facilities.length<50){invalidateFacilityReview();const f=createFacility(globalThis.crypto?.randomUUID?.()||`facility-${Date.now()}-${state.facilities.length}`,add.dataset.addFacility,state.values.currency);state.facilities.push(f);render();renderFacility(true);const panel=[...$('facilityEditor').querySelectorAll('[data-facility-panel]')].find(el=>el.dataset.facilityPanel===f.id);if(panel)panel.open=true;}const edit=e.target.closest('[data-edit-facility]');if(edit){const panel=[...$('facilityEditor').querySelectorAll('[data-facility-panel]')].find(el=>el.dataset.facilityPanel===edit.dataset.editFacility);if(panel){panel.open=true;panel.scrollIntoView?.({block:'nearest',behavior:'smooth'});}}const removeFacility=e.target.closest('[data-remove-facility]');if(removeFacility){invalidateFacilityReview();state.facilities=state.facilities.filter(f=>f.id!==removeFacility.dataset.removeFacility);render();renderFacility(true);}const b=e.target.closest('[data-preset]');if(b)choosePreset(b.dataset.preset);const capacityChoice=e.target.closest('[data-use-capacity]');if(capacityChoice){const candidate=number(capacityChoice.dataset.useCapacity);if(candidate!==null&&candidate>0){setValues({amount:String(candidate)});render();}}const remove=e.target.closest('[data-remove-commitment]');if(remove){invalidateCommitmentReview();state.commitments=state.commitments.filter(r=>r.id!==remove.dataset.removeCommitment);render();renderCommitmentEditor(true);}});
+  $('workspace').addEventListener('change',e=>{if(!state.ready)return;if(e.target.dataset?.quick){changeQuickInput(e.target);return;}if(e.target.dataset?.quickDebt){changeQuickDebt(e.target);return;}const def=allDefs.find(d=>d[0]===e.target.id);if(def){state.values[e.target.id]=def[2]==='checkbox'?e.target.checked:e.target.value;if(['normalizedCash','cashProvenance','revenue','revenueDecline','grossMargin','marginCompression'].includes(e.target.id))invalidateTimingReview();if(['growthPct','revenueDecline','marginCompression'].includes(e.target.id))reflectPreset();if(['normalizedCash','cashProvenance'].includes(e.target.id)){state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;}if(['existingDebtMode','facilitiesProvenance'].includes(e.target.id))invalidateFacilityReview();if(['existingPayment','debtProvenance'].includes(e.target.id)){state.values.debtComplete=false;$('debtComplete').checked=false;}if(['startMonth','currency','forecastMonths'].includes(e.target.id)){invalidateFacilityReview();state.facilities.forEach(f=>f.scheduleComplete=false);invalidateTimingReview();invalidateCommitmentReview();state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;state.values.debtComplete=false;$('debtComplete').checked=false;}render();}if(e.target.dataset.month){const {month,key}=e.target.dataset;state.overrides[month]??={};state.overrides[month][key]=e.target.value;if(key==='preDebtCash'){invalidateTimingReview();state.values.cashForecastReviewed=false;$('cashForecastReviewed').checked=false;}if(key==='payment'){state.values.debtComplete=false;$('debtComplete').checked=false;}render();}if(e.target.dataset.commitment){const row=state.commitments.find(r=>r.id===e.target.dataset.commitment);if(row){const key=e.target.dataset.field;row[key]=key==='reviewed'?e.target.checked:key==='amount'?number(e.target.value):e.target.value;invalidateCommitmentReview();if(key!=='reviewed'){row.reviewed=false;$('commitmentEditor').querySelectorAll('[data-field="reviewed"]').forEach(el=>{if(el.dataset.commitment===row.id)el.checked=false;});}render();}}if(e.target.dataset.facility)changeFacility(e.target);if(e.target.dataset.timing)changeCashTiming(e.target);if(e.target.hasAttribute?.('data-timing-distinct')){state.cashTiming.distinctReceiptPoolsReviewed=e.target.checked;render();}});
+  $('workspace').addEventListener('click',e=>{const mode=e.target.closest('[data-mode]');if(mode){setMode(mode.dataset.mode);return;}const step=e.target.closest('[data-step]');if(step)setStep(step.dataset.step);const anchor=e.target.closest('[data-go-step]');if(anchor){setStep(anchor.dataset.goStep);const target=$(anchor.getAttribute('href').slice(1));let parent=target?.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement;}}const add=e.target.closest('[data-add-facility]');if(add&&state.ready&&state.facilities.length<50){invalidateFacilityReview();const f=createFacility(globalThis.crypto?.randomUUID?.()||`facility-${Date.now()}-${state.facilities.length}`,add.dataset.addFacility,state.values.currency);state.facilities.push(f);render();renderFacility(true);const panel=[...$('facilityEditor').querySelectorAll('[data-facility-panel]')].find(el=>el.dataset.facilityPanel===f.id);if(panel)panel.open=true;}const edit=e.target.closest('[data-edit-facility]');if(edit){const panel=[...$('facilityEditor').querySelectorAll('[data-facility-panel]')].find(el=>el.dataset.facilityPanel===edit.dataset.editFacility);if(panel){panel.open=true;panel.scrollIntoView?.({block:'nearest',behavior:'smooth'});}}const removeFacility=e.target.closest('[data-remove-facility]');if(removeFacility){invalidateFacilityReview();state.facilities=state.facilities.filter(f=>f.id!==removeFacility.dataset.removeFacility);render();renderFacility(true);}const b=e.target.closest('[data-preset]');if(b)choosePreset(b.dataset.preset);const capacityChoice=e.target.closest('[data-use-capacity]');if(capacityChoice){const candidate=number(capacityChoice.dataset.useCapacity);if(candidate!==null&&candidate>0){setValues({amount:String(candidate)});render();}}const remove=e.target.closest('[data-remove-commitment]');if(remove){invalidateCommitmentReview();state.commitments=state.commitments.filter(r=>r.id!==remove.dataset.removeCommitment);render();renderCommitmentEditor(true);}});
   document.querySelector('.uw-flow')?.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;const steps=['business','funding','test','review'];const i=steps.indexOf(state.step),next=e.key==='Home'?0:e.key==='End'?3:(i+(e.key==='ArrowRight'?1:3))%4;setStep(steps[next]);$('tab-'+steps[next]).focus();e.preventDefault();});
   $('addCommitment').addEventListener('click',()=>{if(!state.ready||state.commitments.length>=500)return;invalidateCommitmentReview();state.commitments.push({id:globalThis.crypto?.randomUUID?.()||`payment-${Date.now()}-${state.commitments.length}`,month:'',amount:null,currency:state.values.currency||'',sourceReference:'',paymentType:'deposit',inclusion:'incremental',reviewed:false});render();renderCommitmentEditor(true);});
-  $('captureReview').addEventListener('click',()=>captureReview().catch(e=>setStatus(e.message,'neg')));$('printProposal').addEventListener('click',()=>printProposal().catch(e=>setStatus(e.message,'neg')));
+  $('quickProposalDetails')?.addEventListener?.('toggle',()=>{const open=$('quickProposalDetails').open;$('quickProposalPreview').hidden=!open;if(open&&state.ready)renderQuick();});
+  $('captureReview').addEventListener('click',()=>captureReview().catch(e=>setStatus(e.message,'neg')));$('printQuick').addEventListener('click',()=>printProposal().catch(e=>setStatus(e.message,'neg')));$('printProposal').addEventListener('click',()=>printProposal().catch(e=>setStatus(e.message,'neg')));
   $('refresh').addEventListener('click',load);$('download').addEventListener('click',()=>download().catch(e=>setStatus(e.message,'neg')));
   $('import').addEventListener('click',()=>$('importFile').click());$('importFile').addEventListener('change',e=>importScenario(e.target.files[0]).catch(e=>setStatus(e.message,'neg')).finally(()=>{e.target.value='';}));
   db.auth.onAuthStateChange((event)=>{if(event==='SIGNED_OUT'||event==='USER_DELETED')clearSensitive('Signed out. Sign in to SILO and refresh this page.');else if(event==='SIGNED_IN'||event==='USER_UPDATED')setTimeout(resumeView,0);});
