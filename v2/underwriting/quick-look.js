@@ -171,10 +171,54 @@ export function quickDebtsHtml(debts, money, { editable = true } = {}) {
   return `<div class="uw-table-wrap"><table class="uw-table uw-quick-debts"><thead><tr><th>Balance-sheet account</th><th>Book balance</th><th>As of</th><th>Monthly payment</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
 }
 
-export function quickPrintHtml({ result, debts, money, companyTitle, preparedAt }) {
-  return `<header><h1>Quick look · ${esc(companyTitle || 'Current company')}</h1><p>Prepared ${esc(preparedAt)} · ${esc(result.inputs.purpose || 'Purpose not stated')}</p></header>`
-    + `<section><h2>Request</h2><p>${money(result.inputs.amount)} at ${esc(result.inputs.rate ?? '—')}% over ${esc(result.inputs.term ?? '—')} months, amortizing monthly.</p>${quickVerdictHtml(result)}<div class="uw-kpis">${quickResultHtml(result, money)}</div></section>`
-    + `<section><h2>From the books</h2><div class="uw-quick-facts">${quickFactsHtml(result, money)}</div></section>`
-    + `<section><h2>Existing debt</h2>${quickDebtsHtml(debts, money, { editable: false })}</section>`
-    + `<section><h2>How this was judged</h2><ul>${result.methodology.map(m => `<li>${esc(m)}</li>`).join('')}</ul></section>`;
+/** The draft proposal: what you hand an underwriter. Assembled ENTIRELY from the
+ * loaded sources plus the three typed inputs -- no manual assumptions -- so it
+ * is ready the moment the page loads. Every section names its source and date;
+ * a source that did not load says so instead of printing nothing. */
+const SOURCE_NAMES = { profitAndLoss: 'Profit and loss (QuickBooks)', balanceSheet: 'Balance sheet (QuickBooks)', cashflow: 'Cash flow statement (QuickBooks)', bank: 'Bank balances (Plaid feed)', inventory: 'Inventory on hand (Shopify sync)', purchaseOrders: 'Purchase orders (SILO PO Builder)', revenuePlan: 'Sales plan and recorded sales (SILO)' };
+const STATUS_WORDS = { available: 'loaded', partial: 'partial coverage', missing: 'not available', error: 'read failed' };
+const pctOf = (a, b) => finite(a) && finite(b) && b !== 0 ? `${(a / b * 100).toFixed(1)}%` : '—';
+const n0 = v => finite(v) ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(v) : '—';
+const table = (headers, rows, empty) => `<table class="uw-table"><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.join('') : `<tr><td colspan="${headers.length}">${esc(empty)}</td></tr>`}</tbody></table>`;
+const td = cells => `<tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
+const missingNote = (source, name) => source?.status === 'available' || source?.status === 'partial' ? '' : `<p class="uw-data-warning">${esc(name)}: ${esc(STATUS_WORDS[source?.status] || 'not loaded')}${source?.error?.message ? ` (${esc(source.error.message)})` : ''}.</p>`;
+
+export function quickProposalHtml({ result, debts, snapshot, money, companyTitle, preparedAt }) {
+  const sources = snapshot?.sources || {}, pl = sources.profitAndLoss || {}, bs = sources.balanceSheet || {}, cf = sources.cashflow || {}, bank = sources.bank || {}, inv = sources.inventory || {}, po = sources.purchaseOrders || {}, plan = sources.revenuePlan || {};
+  const f = result.facts, r = result.ratios;
+  // Performance: complete P&L months (up to 12) with the cash-flow month beside them.
+  const cfByMonth = new Map((cf.monthly || []).filter(x => x.completeMonth).map(x => [String(x.periodStart).slice(0, 7), x.operating]));
+  const perf = (pl.monthly || []).filter(x => x.completeMonth).slice(-QUICK_RULES.trailingMonths);
+  const sum = key => perf.length && perf.every(x => finite(x[key])) ? perf.reduce((t, x) => t + x[key], 0) : null;
+  const revenueTotal = sum('revenue'), gpTotal = sum('grossProfit'), oiTotal = sum('operatingIncome');
+  const cfTotal = perf.length && perf.every(x => finite(cfByMonth.get(x.month))) ? perf.reduce((t, x) => t + cfByMonth.get(x.month), 0) : null;
+  const perfRows = perf.map(x => td([esc(x.month), money(x.revenue), money(x.grossProfit), pctOf(x.grossProfit, x.revenue), money(x.operatingIncome), finite(cfByMonth.get(x.month)) ? money(cfByMonth.get(x.month)) : '—']));
+  if (perf.length) perfRows.push(td([`<strong>${perf.length}-month total</strong>`, `<strong>${money(revenueTotal)}</strong>`, `<strong>${money(gpTotal)}</strong>`, `<strong>${pctOf(gpTotal, revenueTotal)}</strong>`, `<strong>${money(oiTotal)}</strong>`, `<strong>${money(cfTotal)}</strong>`]));
+  // Balance sheet: the latest monthly column, or the headline metrics.
+  const b = latestRow(bs.monthly) || {};
+  const bsAsOf = b.periodEnd || bs.periodEnd || null;
+  const bsItems = [['Total assets', finite(b.assets) ? b.assets : metric(bs, 'Total assets')], ['Total liabilities', finite(b.liabilities) ? b.liabilities : metric(bs, 'Total liabilities')], ['Equity', finite(b.equity) ? b.equity : metric(bs, 'Total equity')],
+    ['Bank accounts (book)', f.openingCash.value], ['Accounts receivable', b.accountsReceivable], ['Accounts payable', b.accountsPayable], ['Current assets', b.currentAssets], ['Current liabilities', b.currentLiabilities], ['Long-term liabilities', b.longTermLiabilities], ['Credit cards', b.creditCards]];
+  const included = (debts || []).filter(d => d.include);
+  // Inventory and purchase orders: units and recorded value, arrivals by month.
+  const invUnits = metric(inv, 'Reported on-hand units'), groups = (inv.byProductType || []).slice(0, 6);
+  const knownInvValue = (inv.byProductType || []).length ? (inv.byProductType || []).reduce((t, g) => t + (finite(g.knownRecordedValue) ? g.knownRecordedValue : 0), 0) : null;
+  const arrivals = (po.arrivalMonths || []).slice(0, 8);
+  // Sales plan: last six months actual vs plan, next three planned.
+  const planRows = (plan.monthly || []).filter(x => finite(x.plannedSales) || finite(x.actualNetSales));
+  const today = String(plan.businessDate || '').slice(0, 7);
+  const recent = planRows.filter(x => x.month < today).slice(-6), ahead = planRows.filter(x => x.month >= today && finite(x.plannedSales)).slice(0, 3);
+  const coverage = Object.entries(SOURCE_NAMES).map(([key, name]) => { const s = sources[key] || {}; return td([esc(name), esc(STATUS_WORDS[s.status] || 'not loaded'), esc(String(s.asOf || s.periodEnd || 'date unknown').slice(0, 10)), esc(s.periodStart ? `${s.periodStart} to ${s.periodEnd || '?'}` : '')]); });
+  return `<header><div class="uw-eyebrow">DRAFT FINANCING PROPOSAL · PREPARED FROM SAVED SOURCES</div><h1>${esc(companyTitle || 'Current company')}</h1><p>Prepared ${esc(String(preparedAt).slice(0, 10))} · ${esc(f.currency || 'currency not stated')} · draft for an underwriter's review, not an approval or offer</p></header>`
+    + `<section><h2>Request</h2><p><strong>${result.inputsComplete ? `${money(result.inputs.amount)} at ${esc(result.inputs.rate)}% over ${esc(result.inputs.term)} months, amortizing monthly` : 'Amount, rate and term not yet entered'}</strong>${result.inputs.purpose ? ` · ${esc(result.inputs.purpose)}` : ''}</p>${quickVerdictHtml(result)}<div class="uw-kpis">${quickResultHtml(result, money)}</div></section>`
+    + `<section><h2>Business performance</h2><p class="uw-fine">Complete calendar months in the saved statements, newest ${perf.length ? `${perf[0].month} to ${perf.at(-1).month}` : 'none'}. Operating cash flow is the cash-flow statement's operating total for the same month; it is historical and unnormalized.</p>${missingNote(pl, SOURCE_NAMES.profitAndLoss)}${missingNote(cf, SOURCE_NAMES.cashflow)}${table(['Month', 'Revenue', 'Gross profit', 'Gross margin', 'Operating income', 'Operating cash flow'], perfRows, 'No complete months in the saved P&L')}</section>`
+    + `<section><h2>Balance sheet</h2><p class="uw-fine">${esc(SOURCE_NAMES.balanceSheet)} as of ${esc(bsAsOf || 'date unknown')} · ${esc(bs.basis || 'basis not stated')}.</p>${missingNote(bs, SOURCE_NAMES.balanceSheet)}${table(['Line', 'Book balance'], bsItems.filter(([, v]) => finite(v)).map(([k, v]) => td([esc(k), money(v)])), 'No balance sheet loaded')}</section>`
+    + `<section><h2>Bank balances</h2><p class="uw-fine">Live feed balances, not reconciled to the books. A negative balance can be a sweep or line position.</p>${missingNote(bank, SOURCE_NAMES.bank)}${table(['Account', 'Current', 'Available', 'Currency', 'As of'], (bank.rows || []).map(x => td([esc(x.name || x.id), money(x.current_balance), money(x.available_balance), esc(x.iso_currency_code || '—'), esc(String(x.balance_updated_at || '').slice(0, 10) || '—')])), 'No bank accounts loaded')}</section>`
+    + `<section><h2>Existing debt</h2><p class="uw-fine">Balance-sheet liability accounts ticked as debt (${included.length}), book balances as of the statement date. Monthly payments are only those entered; ${result.unknownPaymentCount ? `${result.unknownPaymentCount} ticked account${result.unknownPaymentCount === 1 ? ' has' : 's have'} none.` : 'all ticked accounts have one.'}</p>${quickDebtsHtml(included, money, { editable: false })}<p><strong>Total ticked debt ${money(result.existingDebt)}</strong> · entered monthly payments ${money(result.knownExisting)} · debt to assets ${pct(r.debtToAssetsBefore)} today, ${pct(r.debtToAssetsAfter)} after the request</p></section>`
+    + `<section><h2>Inventory and purchase commitments</h2>${missingNote(inv, SOURCE_NAMES.inventory)}${missingNote(po, SOURCE_NAMES.purchaseOrders)}<p>On hand <strong>${n0(invUnits)}</strong> units as of ${esc(String(inv.asOf || 'date unknown').slice(0, 10))}${finite(knownInvValue) ? ` · recorded value ${money(knownInvValue)} where a value is recorded` : ''} · placed purchase orders <strong>${n0(po.placedCount)}</strong>.</p>${table(['Product group', 'Units', 'Recorded value'], groups.map(g => td([esc(g.productType), n0(g.units), money(g.knownRecordedValue)])), 'No inventory groups loaded')}${table(['Expected arrival', 'POs', 'Units', 'Known line cost'], arrivals.map(a => td([esc(a.month || 'No date'), n0(a.poCount), n0(a.units), money(a.knownEstimatedCost)])), 'No placed purchase orders')}<p class="uw-fine">Inventory values are the sync's recorded values, not an appraisal or borrowing base. PO cost is known line cost, not an unpaid balance; arrival months are planning dates, not payment dates.</p></section>`
+    + `<section><h2>Sales plan and recorded sales</h2>${missingNote(plan, SOURCE_NAMES.revenuePlan)}${table(['Month', 'Recorded net sales', 'Planned sales', 'Recorded ÷ plan'], recent.map(x => td([esc(x.month), money(x.actualNetSales), money(x.plannedSales), pctOf(x.actualNetSales, x.plannedSales)])), 'No recent months')}${ahead.length ? `<p class="uw-fine">Planned ahead: ${ahead.map(x => `${esc(x.month)} ${money(x.plannedSales)}`).join(' · ')}</p>` : ''}<p class="uw-fine">Recorded sales are Shopify net sales; the plan is the company's active daily sales plan. Neither is QuickBooks revenue.</p></section>`
+    + `<section><h2>Sources and dates</h2>${table(['Source', 'Status', 'As of', 'Period'], coverage, 'No sources')}</section>`
+    + `<section><h2>How this was prepared</h2><ul>${result.methodology.map(m => `<li>${esc(m)}</li>`).join('')}<li>Every figure above is read from a saved snapshot named in Sources and dates; nothing was typed except the request and the ticked debts. Loading this page does not refresh QuickBooks, the bank feed or Shopify.</li></ul></section>`;
 }
+
+export function quickPrintHtml(args) { return quickProposalHtml(args); }

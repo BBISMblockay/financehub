@@ -34,9 +34,19 @@ The three inputs are the same fields as the advanced proposal, so switching to
 the Advanced workflow finds them filled. Opening cash is seeded once from book
 bank balances (only when blank, with provenance naming the source and date; the
 review box stays unchecked). Ticks and typed payments travel in the v4 scenario
-file (`quick.debts`); balances come back from the live balance sheet. "Print
-quick look" prints a static one-page packet with the rules on it. A quick read
-of saved snapshots, not an approval, covenant test or lender policy.
+file (`quick.debts`); balances come back from the live balance sheet.
+
+**Draft proposal** (`quickProposalHtml`, previewed under "Draft proposal
+preview" and printed by "Print draft proposal") is the document for an
+underwriter, assembled entirely from the loaded sources plus the three inputs:
+request and verdict; complete-month revenue, gross profit, margin, operating
+income and operating cash flow with totals; the balance sheet lines as of its
+date; live bank balances; ticked debt with totals and debt-to-assets; inventory
+units and recorded value by product group with placed-PO arrivals by month;
+recorded sales against the plan for the last six months and the next three; a
+sources-and-dates table; and the rules it was judged by. A source that did not
+load is named as such rather than left blank. A quick read of saved snapshots,
+not an approval, covenant test or lender policy.
 
 ## Advanced workflow
 

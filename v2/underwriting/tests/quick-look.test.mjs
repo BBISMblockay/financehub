@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { quickLook, draftQuickDebts, quickDebtsHtml, quickFactsHtml, quickResultHtml, quickVerdictHtml, quickPrintHtml, QUICK_RULES } from '../quick-look.js';
+import { quickLook, draftQuickDebts, quickDebtsHtml, quickFactsHtml, quickResultHtml, quickVerdictHtml, quickPrintHtml, quickProposalHtml, QUICK_RULES } from '../quick-look.js';
 import { buildDebtSchedule } from '../scenario-model.js';
 
 const money = (v, compact = false) => Number.isFinite(v) ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: compact ? 'compact' : 'standard', maximumFractionDigits: compact ? 1 : 0 }).format(v) : '—';
@@ -86,8 +86,46 @@ test('renderers escape source text and the print packet names every basis', () =
     assert.ok(!html.includes('<script>')); assert.ok(!html.includes('<b>x</b>')); assert.ok(!html.includes('Co <i>'));
   }
   const print = quickPrintHtml({ result: r, debts, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
-  for (const text of ['Quick look · Co', 'Monthly payment', 'From the books', 'Existing debt', 'How this was judged', 'operating cash flow', '2026-06-30']) assert.ok(print.includes(text), text);
+  for (const text of ['DRAFT FINANCING PROPOSAL', 'Monthly payment', 'Business performance', 'Existing debt', 'How this was prepared', 'operating cash flow', '2026-06-30']) assert.ok(print.includes(text), text);
   assert.ok(!print.includes('<input'), 'print is static');
   assert.ok(quickDebtsHtml(debts, money).includes('data-quick-debt="c:loan-1"'));
   assert.match(quickDebtsHtml([], money), /No liability accounts/);
+});
+
+const fullSnapshot = () => {
+  const snap = snapshot({ operating: 60000 });
+  snap.sources.balanceSheet.basis = 'Accrual'; snap.sources.balanceSheet.status = 'available';
+  Object.assign(snap.sources.balanceSheet.monthly[0], { liabilities: 3000000, equity: 2000000, accountsReceivable: 400000, accountsPayable: 350000, currentAssets: 2500000, currentLiabilities: 1200000, longTermLiabilities: 1500000, creditCards: 80000 });
+  snap.sources.profitAndLoss.status = 'available'; snap.sources.cashflow.status = 'available';
+  snap.sources.bank = { status: 'available', asOf: '2026-07-01', rows: [{ id: 'b1', name: 'Operating <b>acct</b>', current_balance: -688009.6, available_balance: -688009.6, iso_currency_code: 'USD', balance_updated_at: '2026-07-01T05:30:00Z' }] };
+  snap.sources.inventory = { status: 'partial', asOf: '2026-07-01T02:00:00Z', metrics: [{ label: 'Reported on-hand units', value: 538101 }], byProductType: [{ productType: 'Tees', units: 300000, knownRecordedValue: 9000000 }, { productType: 'Hats', units: 100000, knownRecordedValue: null }] };
+  snap.sources.purchaseOrders = { status: 'partial', placedCount: 135, placed: [], arrivalMonths: [{ month: '2026-10', poCount: 12, units: 40000, knownEstimatedCost: 300000 }, { month: null, poCount: 3, units: 900, knownEstimatedCost: null }] };
+  snap.sources.revenuePlan = { status: 'partial', businessDate: '2026-07-03', monthly: [
+    { month: '2026-05', plannedSales: 2400000, actualNetSales: 2074000, completeMonth: true }, { month: '2026-06', plannedSales: 3500000, actualNetSales: 3169000, completeMonth: true },
+    { month: '2026-07', plannedSales: 5300000, actualNetSales: 95000, completeMonth: false }, { month: '2026-08', plannedSales: 1790000, actualNetSales: null, completeMonth: false }] };
+  return snap;
+};
+
+test('the draft proposal is assembled from every loaded source, names each date, and prints nothing it was not given', () => {
+  const snap = fullSnapshot();
+  const debts = draftQuickDebts(snap.accountOptions).map(d => d.id === 'c:loan-1' ? { ...d, monthlyPayment: 10000 } : d);
+  const r = quickLook({ snapshot: snap, inputs, debts, month: '2026-10' });
+  const html = quickProposalHtml({ result: r, debts, snapshot: snap, money, companyTitle: 'Northline <Supply>', preparedAt: '2026-10-03T07:00:00Z' });
+  for (const text of ['DRAFT FINANCING PROPOSAL', 'Northline &lt;Supply&gt;', 'Prepared 2026-10-03', '$500,000 at 9.5% over 36 months', 'Holiday buy',
+    'Business performance', '6-month total', '$3,750,000', '2026-01 to 2026-06',          // revenue total and window
+    'Balance sheet', 'as of 2026-06-30', 'Accrual', 'Long-term liabilities', '$1,500,000',
+    'Bank balances', 'Operating &lt;b&gt;acct&lt;/b&gt;', '-$688,010', '2026-07-01',
+    'Existing debt', 'Total ticked debt $1,280,000', '1 ticked account has none',
+    'Inventory and purchase commitments', '538,101', 'recorded value $9,000,000', 'placed purchase orders <strong>135', 'No date',
+    'Sales plan and recorded sales', '2026-06', '90.5%', 'Planned ahead: 2026-07 $5,300,000 · 2026-08 $1,790,000',
+    'Sources and dates', 'Sales plan and recorded sales (SILO)', 'partial coverage', 'How this was prepared', 'nothing was typed except the request']) {
+    assert.ok(html.includes(text), text);
+  }
+  assert.ok(!html.includes('<b>acct</b>')); assert.ok(!html.includes('<input'));
+  assert.ok(!html.includes('2026-07</td>') || !/2026-07<\/td><td>\$95,000/.test(html), 'the current partial month is not presented as a recorded month');
+  // Missing sources are named, not silently skipped.
+  const bare = { sources: { profitAndLoss: { status: 'error', error: { message: 'offline' }, monthly: [] } }, accountOptions: [] };
+  const empty = quickProposalHtml({ result: quickLook({ snapshot: bare, inputs, debts: [], month: '2026-10' }), debts: [], snapshot: bare, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
+  for (const text of ['Profit and loss (QuickBooks): read failed (offline)', 'Balance sheet (QuickBooks): not loaded', 'Bank balances (Plaid feed): not loaded', 'No complete months in the saved P&amp;L', 'No bank accounts loaded', 'No placed purchase orders', 'Not enough saved history to judge']) assert.ok(empty.includes(text), text);
+  assert.equal(quickPrintHtml({ result: r, debts, snapshot: snap, money, companyTitle: 'X', preparedAt: '2026-10-03' }), html.replace('Northline &lt;Supply&gt;', 'X'));
 });

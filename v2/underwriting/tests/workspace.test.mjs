@@ -1031,11 +1031,13 @@ test('the quick look lands first, mirrors its three inputs into the advanced pro
 
 test('quick mode prints a static one-page packet and the ticks survive a download and reopen', async () => {
   const h = harness({ loadSourceSnapshot: async () => quickSnapshot() });
-  await h.api.load();
+  await h.api.boot();
   h.api.state.values.amount = '250000'; h.api.state.values.rate = '8'; h.api.state.values.term = '24'; h.api.render();
   h.api.buildPrintPacket();
   const packet = h.node('printPacket').innerHTML;
-  assert.ok(packet.includes('Quick look ·')); assert.ok(packet.includes('How this was judged')); assert.ok(!packet.includes('<input'));
+  assert.ok(packet.includes('DRAFT FINANCING PROPOSAL')); assert.ok(packet.includes('Synthetic company A')); assert.ok(packet.includes('Sources and dates')); assert.ok(!packet.includes('<input'));
+  h.node('quickProposalDetails').open = true; h.node('quickProposalDetails').toggle();
+  assert.ok(h.node('quickProposalPreview').innerHTML.includes('Business performance'), 'opening the preview renders the same proposal on screen');
   h.api.state.quick.debts[0].monthlyPayment = 4321; h.api.state.quick.debts[1].include = true;
   await h.api.download();
   const payload = JSON.parse(await h.downloads[0].text());
