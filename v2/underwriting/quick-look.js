@@ -120,7 +120,7 @@ export function forwardOutlook(snapshot, { asOfMonth = null, horizon = QUICK_RUL
   const sources = snapshot?.sources || {}, plan = sources.revenuePlan || {}, cf = sources.cashflow || {}, pl = sources.profitAndLoss || {};
   const rows = plan.monthly || [];
   const businessMonth = String(plan.businessDate || '').slice(0, 7);
-  const out = { available: false, months: [], reasons: [], attainment: null, attainmentMonths: 0, attainmentFrom: null, attainmentTo: null, conversion: null, conversionMonths: 0, conversionLabel: null, conversionFrom: null, conversionTo: null, totalPlanned: null, totalProjected: null, averageProjected: null, weakest: null, from: null, to: null, businessMonth: businessMonth || null, unplannedStreams: false, unmeasuredPlanShare: null };
+  const out = { available: false, months: [], reasons: [], attainment: null, attainmentMonths: 0, attainmentFrom: null, attainmentTo: null, conversion: null, conversionMonths: 0, conversionLabel: null, conversionFrom: null, conversionTo: null, totalPlanned: null, totalProjected: null, averageProjected: null, weakest: null, from: null, to: null, businessMonth: businessMonth || null, unplannedStreams: false, unmeasuredPlanShare: null, netNegativeUnplanned: [] };
   if (!rows.length) { out.reasons.push('No sales plan is saved for this company, so there is no forward basis.'); return out; }
   const min = QUICK_RULES.minimumMonths;
   const upTo = asOfMonth || (businessMonth ? prevMonth(businessMonth) : null);
@@ -170,7 +170,14 @@ export function forwardOutlook(snapshot, { asOfMonth = null, horizon = QUICK_RUL
   // Conversion: cash per dollar of ALL recorded sales in the cohort months --
   // including streams the plan never covered -- applied below to projected
   // PLANNED sales only. Both choices understate rather than overstate.
-  out.conversion = cohort.reduce((t, r) => t + cash.byMonth.get(r.month), 0) / cohort.reduce((t, r) => t + r.actualNetSales, 0);
+  // A month whose unplanned stream is NET NEGATIVE (returns booked at a
+  // location the plan does not cover) would pull that denominator BELOW the
+  // matched sales and inflate the ratio, so the denominator is floored at the
+  // matched sales month by month. With the floor, attainment × conversion ≤
+  // cash ÷ planned holds by construction; without it the claim below is false.
+  const salesBase = r => Math.max(r.actualNetSales, r.matchedActualNetSales);
+  out.conversion = cohort.reduce((t, r) => t + cash.byMonth.get(r.month), 0) / cohort.reduce((t, r) => t + salesBase(r), 0);
+  out.netNegativeUnplanned = cohort.filter(r => r.actualNetSales < r.matchedActualNetSales - 0.005).map(r => r.month);
   out.conversionMonths = cohort.length; out.conversionLabel = cash.label; out.conversionFrom = cohort[0].month; out.conversionTo = cohort.at(-1).month;
   out.unplannedStreams = cohort.some(r => Number(r.unplannedActualLocationDays) > 0);
   const start = asOfMonth ? nextMonth(asOfMonth) : businessMonth;
@@ -188,6 +195,7 @@ export function forwardOutlook(snapshot, { asOfMonth = null, horizon = QUICK_RUL
   out.available = true;
   if (cash.label === 'net operating income') out.reasons.push('No cash-flow statement is saved, so the conversion uses net operating income, which is not cash.');
   if (out.unplannedStreams) out.reasons.push('Recorded sales include locations the plan does not cover; the projection counts planned locations only, and the conversion was measured against all recorded sales, so it understates rather than overstates.');
+  if (out.netNegativeUnplanned.length) out.reasons.push(`In ${out.netNegativeUnplanned.join(', ')} recorded sales net below the planned locations' own sales (net returns at a location the plan does not cover); the conversion there was measured against the planned locations' sales, never against the smaller total.`);
   if (out.unmeasuredPlanShare > 0) out.reasons.push(`${pct(out.unmeasuredPlanShare)} of planned sales in the calibration months fell on location-days with no recorded sales (a closed seasonal location or a missing record; the data cannot say which). Those dollars count as unattained, so the attainment understates rather than overstates.`);
   return out;
 }
@@ -296,7 +304,7 @@ export function quickLook({ snapshot, inputs = {}, debts = [], month, asOfMonth 
     methodology: [
       'Payment: amortizing monthly payment at the typed rate and term; no fees, no balloon.',
       basisChoice === 'plan'
-        ? `Basis (sales plan): the company's stored active sales plan for the next ${forward.months.length} plan months × plan attainment measured as matched recorded sales ÷ every planned dollar for the same locations over ${forward.attainmentMonths} calibration months (a planned location-day with no recorded sales counts as unattained; a month with more than ${pct(QUICK_RULES.maximumUnmeasuredPlanShare)} of its plan unrecorded does not calibrate) × conversion measured as ${forward.conversionLabel} ÷ all recorded sales over the same ${forward.conversionMonths} months. Fewer than ${QUICK_RULES.minimumMonths} such months, an unmapped plan row, or a saved cash-flow statement that covers too few of them means no forward basis. Recorded sales are Shopify net sales; the conversion keeps the Shopify-versus-QuickBooks scope difference inside a measured ratio. The trailing basis is shown beside it.`
+        ? `Basis (sales plan): the company's stored active sales plan for the next ${forward.months.length} plan months × plan attainment measured as matched recorded sales ÷ every planned dollar for the same locations over ${forward.attainmentMonths} calibration months (a planned location-day with no recorded sales counts as unattained; a month with more than ${pct(QUICK_RULES.maximumUnmeasuredPlanShare)} of its plan unrecorded does not calibrate) × conversion measured as ${forward.conversionLabel} ÷ all recorded sales over the same ${forward.conversionMonths} months (never less than the planned locations' own sales, so a net-negative unplanned stream cannot inflate it). Fewer than ${QUICK_RULES.minimumMonths} such months, an unmapped plan row, or a saved cash-flow statement that covers too few of them means no forward basis. Recorded sales are Shopify net sales; the conversion keeps the Shopify-versus-QuickBooks scope difference inside a measured ratio. The trailing basis is shown beside it.`
         : `Basis (recent results): average monthly ${basis ? basis.label : 'operating cash flow'} over complete months in the saved statements (up to ${QUICK_RULES.trailingMonths}). Partial months are excluded.${planBasis ? ' The sales-plan basis is shown beside it.' : ''}`,
       `Verdict: combined monthly service as a share of that basis -- comfortable up to ${pct(QUICK_RULES.comfortableShare)}, tight up to ${pct(QUICK_RULES.tightShare)}. A ticked debt with no payment entered caps the verdict at tight. Incomplete debt source coverage prevents a positive verdict.`,
       'Existing debt: balance-sheet accounts typed as long-term liability, credit card or other current liability, ticked by you. Balances are book balances as of the statement date; payments are only what you typed.',

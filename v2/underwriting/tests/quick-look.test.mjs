@@ -426,3 +426,28 @@ test('a plan month that was barely recorded cannot calibrate attainment, and unr
   const facts = quickFactsHtml(quickLook({ snapshot: seasonal, inputs, debts: [], month: '2026-10' }), money);
   assert.ok(facts.includes('8% of plan unrecorded, counted as unattained'));
 });
+
+test('a net-negative unplanned stream cannot inflate the conversion', () => {
+  // Planned locations sell $500k against a $1m plan; an unplanned location books $400k of net returns, so the
+  // whole-month total is $100k; operating cash is $50k. Dividing cash by the $100k total would read 50% conversion
+  // and project $250k per $1m of plan, five times the $50k the month actually produced.
+  const snap = plannedSnapshot();
+  snap.sources.revenuePlan.monthly = snap.sources.revenuePlan.monthly.map(r => r.completeMonth
+    ? { ...r, plannedSales: 1000000, matchedPlannedSales: 1000000, matchedActualNetSales: 500000, actualNetSales: 100000, unplannedActualLocationDays: 30 }
+    : r);
+  snap.sources.cashflow.monthly.forEach(x => { x.operating = 50000; });
+  const o = forwardOutlook(snap);
+  assert.equal(o.available, true);
+  assert.equal(o.attainment, .5); assert.equal(o.conversion, .1, 'cash ÷ the planned locations\' sales, not ÷ the smaller total');
+  assert.equal(o.months[4].projectedCash, 4000000 * .05, 'attainment × conversion equals measured cash ÷ plan');
+  assert.deepEqual(o.netNegativeUnplanned, months.slice());
+  assert.match(o.reasons.join(' '), /In 2026-01, .*2026-06 recorded sales net below the planned locations' own sales/);
+  // A positive unplanned stream is unchanged: all recorded sales stay the denominator.
+  const pos = plannedSnapshot();
+  pos.sources.revenuePlan.monthly = pos.sources.revenuePlan.monthly.map(r => r.completeMonth ? { ...r, matchedActualNetSales: 500000, actualNetSales: 1500000 } : r);
+  const po = forwardOutlook(pos); assert.deepEqual(po.netNegativeUnplanned, []); assert.ok(Math.abs(po.conversion - 360000 / 9000000) < 1e-12);
+  // The invariant the wording claims: projected cash per planned dollar never exceeds measured cash per planned dollar.
+  assert.ok(o.attainment * o.conversion <= 50000 / 1000000 + 1e-12); assert.ok(po.attainment * po.conversion <= 60000 / 1000000 + 1e-12);
+  const html = quickProposalHtml({ result: quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10' }), debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
+  assert.ok(html.includes('net returns at a location the plan does not cover'));
+});

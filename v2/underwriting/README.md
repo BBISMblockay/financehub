@@ -53,8 +53,16 @@ location-days included: the data cannot say whether such a day was a closed
 seasonal store or a missing record, so its planned dollars count as
 unattained and can only lower the figure. The share so counted is printed
 beside it. Conversion is operating cash ÷ ALL recorded sales in those months
-(streams the plan never covered included, so the ratio understates), applied
-to planned sales only. The cash source is the
+(streams the plan never covered included), floored month by month at the
+planned locations' own sales: an unplanned location that nets to RETURNS for
+a month would otherwise pull the denominator below the matched sales and
+inflate the ratio (traced in review: $500k matched, $400k of unplanned
+returns, $50k cash read as 50% conversion and projected five times the cash
+the month produced). With the floor, attainment × conversion ≤ cash ÷ plan
+holds by construction, and the months it bit are named in the reasons.
+Measured 2026-10-03 the live unplanned stream is positive every month (the
+Allen store and spring-training locations), so the floor is a guard, not a
+correction. Applied to planned sales only. The cash source is the
 saved cash-flow statement; net operating income stands in only when no cash-
 flow statement is saved at all -- a thin one is incomplete coverage, never a
 reason to read profit as cash. Fewer than three cohort months, or a plan row
