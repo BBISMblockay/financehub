@@ -487,7 +487,8 @@ test('a debt-free nonpayment month cannot be labeled the tightest repayment mont
   api.render();
   assert.equal(api.state.capacity.monthlyHeadroom[0].dscrApplicable, false);
   assert.equal(api.state.capacity.monthlyHeadroom[0].availableForNewDebtService, .8);
-  assert.match(node('capacitySummary').innerHTML, /Tightest incremental P&amp;I room<\/div><div class="uw-kpi-value ">\$80<\/div><div class="uw-kpi-note">2027-10/);
+  // ICU versions may retain a zero decimal in compact currency ($80 vs $80.0).
+  assert.match(node('capacitySummary').innerHTML, /Tightest incremental P&amp;I room<\/div><div class="uw-kpi-value ">\$80(?:\.0+)?<\/div><div class="uw-kpi-note">2027-10 · /);
 });
 
 test('entered loan amount is assessed against capacity without redefining cash need or the range', async () => {
