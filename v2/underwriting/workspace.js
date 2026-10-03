@@ -10,12 +10,12 @@ import { cashTimingEditorHtml, cashTimingImpactHtml } from './timing-view.js';
 import { snapshotForReview, reviewChangesHtml, proposalMemoHtml, printEvidenceHtml } from './review-view.js';
 import { createFacility, facilityRegisterHtml, facilityEditorHtml } from './facility-view.js';
 import { parseInputNumber as number, validateScenarioDocument } from './scenario-file.js';
-import { quickLook, draftQuickDebts, quickFactsHtml, quickResultHtml, quickVerdictHtml, quickDebtsHtml, quickProposalHtml } from './quick-look.js';
+import { quickLook, draftQuickDebts, quickFactsHtml, quickResultHtml, quickVerdictHtml, quickDebtsHtml, quickProposalHtml, quickMonthOptions } from './quick-look.js';
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const monthAdd = (month,n) => { const [y,m] = month.split('-').map(Number); return new Date(Date.UTC(y,m-1+n,1)).toISOString().slice(0,7); };
 const initialMonth = new Date().toISOString().slice(0,7);
-const state = { context:null, held:false, mode:'quick', quick:{debts:[]}, sources:null, values:{}, overrides:{}, commitments:[], facilities:[], portfolio:null, reviewBaseline:null, cashTiming:emptyCashTimingAssumptions(), cashTimingResult:null, step:'business', result:null, preset:'base', currency:null, ready:false };
+const state = { context:null, held:false, mode:'quick', quick:{debts:[],asOfMonth:null}, sources:null, values:{}, overrides:{}, commitments:[], facilities:[], portfolio:null, reviewBaseline:null, cashTiming:emptyCashTimingAssumptions(), cashTimingResult:null, step:'business', result:null, preset:'base', currency:null, ready:false };
 const guard = createLoadGuard();
 let db, mounted = false, validationPromise = null, printing = false;
 const definitions = {
@@ -174,19 +174,37 @@ function render() {
 // detailed workflow is pre-seeded), everything else from the loaded sources.
 function quickInputs() { const v=state.values; return {amount:v.amount,rate:v.rate,term:v.term,purpose:v.purpose}; }
 function currentQuickLook() {
-  return quickLook({snapshot:state.sources,inputs:quickInputs(),debts:state.quick.debts,month:/^\d{4}-(0[1-9]|1[0-2])$/.test(state.values.startMonth)?state.values.startMonth:initialMonth});
+  return quickLook({snapshot:state.sources,inputs:quickInputs(),debts:state.quick.debts,asOfMonth:state.quick.asOfMonth,month:/^\d{4}-(0[1-9]|1[0-2])$/.test(state.values.startMonth)?state.values.startMonth:initialMonth});
 }
 function renderQuick(force=false) {
   const result=currentQuickLook();state.quickResult=result;
   for(const [id,key] of [['q-amount','amount'],['q-rate','rate'],['q-term','term'],['q-purpose','purpose']]){const el=$(id);if(el&&el!==document.activeElement)el.value=state.values[key]??'';}
+  renderAsOfSelect(result);
   $('quickFacts').innerHTML=quickFactsHtml(result,money);
   $('quickResult').innerHTML=quickResultHtml(result,money);
   $('quickVerdict').innerHTML=quickVerdictHtml(result);
   if(force||!$('quickDebts').contains(document.activeElement))$('quickDebts').innerHTML=quickDebtsHtml(state.quick.debts,money);
   if(!$('quickProposalPreview').hidden)$('quickProposalPreview').innerHTML=quickProposalHtml({result,debts:state.quick.debts,snapshot:state.sources,money,companyTitle:state.context?.company?.title,preparedAt:new Date().toISOString()});
 }
+// The as-of month lists the complete months on the saved balance sheet.
+// Choosing one re-dates the facts, the averages' window and the debt
+// balances; the Advanced register keeps the latest statement balance.
+function renderAsOfSelect(result) {
+  const sel=$('q-asof');if(!sel)return;
+  const options=quickMonthOptions(state.sources),current=result.facts.asOfMonth;
+  const html=options.length?options.slice().reverse().map(m=>`<option value="${esc(m)}" ${m===current?'selected':''}>${esc(m)}${m===options.at(-1)?' · latest':''}</option>`).join(''):'<option value="">Latest statement</option>';
+  if(sel.innerHTML!==html)sel.innerHTML=html;
+  if(sel.value!==(current||''))sel.value=current||'';
+  sel.disabled=!options.length;
+}
+function redraftQuickDebts(previous=state.quick.debts) {
+  const bs=state.sources?.sources?.balanceSheet;
+  state.quick.debts=draftQuickDebts(state.sources?.accountOptions||[],previous,{accountHistory:bs?.accountHistory||[],asOfMonth:state.quick.asOfMonth});
+}
 function changeQuickInput(el) {
-  const key=el.dataset.quick;if(!['amount','rate','term','purpose'].includes(key))return;
+  const key=el.dataset.quick;
+  if(key==='asOfMonth'){state.quick.asOfMonth=el.value||null;redraftQuickDebts();reflectFacilitiesIntoQuick();syncQuickDebtsToFacilities();render();renderQuick(true);renderFacility(true);return;}
+  if(!['amount','rate','term','purpose'].includes(key))return;
   state.values[key]=el.value;const mirror=$(key);if(mirror)mirror.value=el.value;
   render();
 }
@@ -454,7 +472,7 @@ function sourceRows(key,s) {
 }
 function setStatus(message,tone='info') {$('status').textContent=message;$('status').className=`bcn-status bcn-status--${tone}`;$('status').hidden=!message;}
 function clearSensitive(message) {
-  guard.invalidate();state.ready=false;state.held=false;state.quick={debts:[]};state.quickResult=null;state.sources=null;state.context=null;state.result=null;state.capacity=null;state.facilities=[];state.portfolio=null;state.reviewBaseline=null;state.currentReview=null;state.cashTiming=emptyCashTimingAssumptions();state.cashTimingResult=null;state.overrides={};state.commitments=[];
+  guard.invalidate();state.ready=false;state.held=false;state.quick={debts:[],asOfMonth:null};state.quickResult=null;state.sources=null;state.context=null;state.result=null;state.capacity=null;state.facilities=[];state.portfolio=null;state.reviewBaseline=null;state.currentReview=null;state.cashTiming=emptyCashTimingAssumptions();state.cashTimingResult=null;state.overrides={};state.commitments=[];
   $('workspace').hidden=true;$('gate').hidden=false;
   const note=document.createElement('p');note.textContent=message;
   const signedOut=/sign in|signed out/i.test(message||'');
@@ -479,7 +497,7 @@ async function load() {
     if(after.key!==context.key){clearSensitive('Company changed while sources were loading. Refresh to continue.');return;}
     if(state.sources){const old=state.sources.accountOptions||[],next=snapshot.accountOptions||[];for(const f of state.facilities)if(f.balanceSource==='account'){const before=old.find(a=>a.id===f.accountId),after=next.find(a=>a.id===f.accountId);if(JSON.stringify([before?.balance,before?.balanceAsOf,before?.balanceCurrency])!==JSON.stringify([after?.balance,after?.balanceAsOf,after?.balanceCurrency])){f.scheduleComplete=false;invalidateFacilityReview();}}}
     state.sources=snapshot;state.ready=true;state.held=false;
-    state.quick.debts=draftQuickDebts(snapshot.accountOptions,state.quick.debts);
+    redraftQuickDebts(state.quick.debts);
     if(state.facilities.length)reflectFacilitiesIntoQuick();
     syncQuickDebtsToFacilities();
     if(!mounted){window.SiloChrome?.mount({appEl:'#silo-app',active:'',user:{email:context.user.email,role:context.profile.role},crumbs:['Finance','Underwriting'],supabaseClient:db});mounted=true;}
@@ -551,7 +569,7 @@ function choosePreset(preset) {
 }
 async function download() {
   await revalidate();if(!state.ready||state.held)return;
-  const payload={format:'silo-underwriting-scenario',version:4,companyId:state.context.company.id,exportedAt:new Date().toISOString(),values:state.values,overrides:state.overrides,commitments:state.commitments,facilities:state.facilities,cashTiming:state.cashTiming,reviewBaseline:state.reviewBaseline,quick:{debts:state.quick.debts.map(({id,include,monthlyPayment})=>({id,include,monthlyPayment}))},sourceDates:Object.fromEntries(Object.entries(state.sources.sources).map(([k,s])=>[k,{asOf:s.asOf,periodStart:s.periodStart,periodEnd:s.periodEnd,status:s.status}]))};
+  const payload={format:'silo-underwriting-scenario',version:4,companyId:state.context.company.id,exportedAt:new Date().toISOString(),values:state.values,overrides:state.overrides,commitments:state.commitments,facilities:state.facilities,cashTiming:state.cashTiming,reviewBaseline:state.reviewBaseline,quick:{asOfMonth:state.quick.asOfMonth,debts:state.quick.debts.map(({id,include,monthlyPayment})=>({id,include,monthlyPayment}))},sourceDates:Object.fromEntries(Object.entries(state.sources.sources).map(([k,s])=>[k,{asOf:s.asOf,periodStart:s.periodStart,periodEnd:s.periodEnd,status:s.status}]))};
   // Compact on purpose: the import bound is the raw file size, and a pretty-printed
   // copy measured 1.46x larger, so a file that imported could fail to download.
   const serialized=JSON.stringify(payload);if(new TextEncoder().encode(serialized).length>2000000)throw new Error('This scenario exceeds the 2 MB import limit. Reduce oversized notes or schedules before downloading.');
@@ -567,7 +585,7 @@ async function importScenario(file) {
   await revalidate();if(!state.ready||doc.companyId!==state.context.company.id)return;
   setValues(imported.values);state.overrides=imported.overrides;state.commitments=imported.commitments;
   state.facilities=imported.facilities;state.reviewBaseline=imported.reviewBaseline;state.cashTiming=imported.cashTiming;
-  state.quick.debts=draftQuickDebts(state.sources?.accountOptions||[],imported.quick.debts);
+  state.quick.asOfMonth=imported.quick.asOfMonth||null;redraftQuickDebts(imported.quick.debts);
   for(const d of state.quick.debts)if(facilityForDebt(d))d.include=true;
   reflectFacilitiesIntoQuick();syncQuickDebtsToFacilities();
   reflectPreset();render();renderQuick(true);renderCommitmentEditor(true);renderFacility(true);renderCashTiming(true);setStatus('Local scenario opened. Imported inputs are user-provided assumptions; current source records were refreshed separately.');

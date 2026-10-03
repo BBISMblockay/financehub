@@ -171,10 +171,11 @@ function validateCashTiming(input) {
  * types come back from the live balance sheet on import. */
 const MAX_QUICK_DEBTS = 200;
 function validateQuick(input) {
-  if (input === undefined || input === null) return { debts: [] };
-  if (!isRecord(input) || !Array.isArray(input.debts) || input.debts.length > MAX_QUICK_DEBTS || Object.keys(input).some(key => key !== 'debts')) throw new Error(`Invalid quick-look section: expected a debts list of at most ${MAX_QUICK_DEBTS} rows.`);
+  if (input === undefined || input === null) return { asOfMonth: null, debts: [] };
+  if (!isRecord(input) || !Array.isArray(input.debts) || input.debts.length > MAX_QUICK_DEBTS || Object.keys(input).some(key => !['debts', 'asOfMonth'].includes(key))) throw new Error(`Invalid quick-look section: expected a debts list of at most ${MAX_QUICK_DEBTS} rows and an optional asOfMonth.`);
+  if (input.asOfMonth !== undefined && input.asOfMonth !== null && (typeof input.asOfMonth !== 'string' || (input.asOfMonth !== '' && !monthPattern.test(input.asOfMonth)))) throw new Error('Invalid quick-look asOfMonth: use YYYY-MM or leave it blank.');
   const seen = new Set();
-  return { debts: input.debts.map((row, index) => {
+  return { asOfMonth: input.asOfMonth || null, debts: input.debts.map((row, index) => {
     const label = `quick-look debt ${index + 1}`;
     if (!isRecord(row) || Object.keys(row).some(key => !['id', 'include', 'monthlyPayment'].includes(key))) throw new Error(`Invalid ${label}: unsupported fields.`);
     if (typeof row.id !== 'string' || !STABLE_ID.test(row.id) || seen.has(row.id)) throw new Error(`Invalid ${label}: needs ${ID_RULE}.`);

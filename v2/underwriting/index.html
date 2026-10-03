@@ -46,7 +46,8 @@
               <div><label class="uw-label" for="q-amount">Loan amount</label><input id="q-amount" class="bcn-field" type="number" step="any" min="0" data-quick="amount" placeholder="e.g. 500000"></div>
               <div><label class="uw-label" for="q-rate">Annual interest %</label><input id="q-rate" class="bcn-field" type="number" step="any" min="0" data-quick="rate" placeholder="e.g. 9.5"></div>
               <div><label class="uw-label" for="q-term">Term · months</label><input id="q-term" class="bcn-field" type="number" step="1" min="1" data-quick="term" placeholder="e.g. 36"></div>
-              <div class="uw-span-all"><label class="uw-label" for="q-purpose">What it is for <span class="uw-muted">(optional)</span></label><input id="q-purpose" class="bcn-field" type="text" maxlength="200" data-quick="purpose" placeholder="Inventory for the holiday buy, new store build-out…"></div>
+              <div><label class="uw-label" for="q-asof">Figures as of</label><select id="q-asof" class="bcn-field" data-quick="asOfMonth"><option value="">Latest statement</option></select><small class="uw-field-hint">A complete month on the saved balance sheet. Averages run up to it.</small></div>
+              <div class="uw-span-all uw-quick-purpose"><label class="uw-label" for="q-purpose">What it is for <span class="uw-muted">(optional)</span></label><input id="q-purpose" class="bcn-field" type="text" maxlength="200" data-quick="purpose" placeholder="Inventory for the holiday buy, new store build-out…"></div>
             </div>
             <div id="quickVerdict"></div>
             <div id="quickResult" class="uw-kpis uw-quick-kpis"></div>

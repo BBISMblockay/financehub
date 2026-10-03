@@ -35,7 +35,7 @@ test('input numbers preserve unknowns and reject non-decimal JS coercions', () =
 
 test('complete scenario imports preserve explicit unknowns and booleans', () => {
   const input = doc();
-  assert.deepEqual(validate(input), { values: input.values, overrides: {}, commitments: [], facilities: [], cashTiming: cashTiming(), reviewBaseline: null, quick: { debts: [] } });
+  assert.deepEqual(validate(input), { values: input.values, overrides: {}, commitments: [], facilities: [], cashTiming: cashTiming(), reviewBaseline: null, quick: { asOfMonth: null, debts: [] } });
   input.values.amount = '';
   assert.equal(validate(input).values.amount, '');
 });
@@ -470,9 +470,12 @@ test('monthly overrides are bounded and empty months are not carried', () => {
 });
 
 test('the optional quick-look section stores only ticks and typed payments per account id', () => {
-  assert.deepEqual(validate(doc()).quick, { debts: [] }, 'absent means none');
+  assert.deepEqual(validate(doc()).quick, { asOfMonth: null, debts: [] }, 'absent means none');
   const input = { ...doc(), quick: { debts: [{ id: 'conn-a:42', include: true, monthlyPayment: 1250.5 }, { id: 'conn-a:43', include: false, monthlyPayment: null }] } };
-  assert.deepEqual(validate(input).quick, input.quick);
+  assert.deepEqual(validate(input).quick, { asOfMonth: null, ...input.quick });
+  assert.equal(validate({ ...doc(), quick: { asOfMonth: '2026-03', debts: [] } }).quick.asOfMonth, '2026-03');
+  assert.equal(validate({ ...doc(), quick: { asOfMonth: '', debts: [] } }).quick.asOfMonth, null);
+  for (const asOfMonth of ['2026-3', '2026-13', 'latest', 3]) assert.throws(() => validate({ ...doc(), quick: { asOfMonth, debts: [] } }), /asOfMonth/);
   for (const quick of ['x', [], { debts: 'x' }, { debts: [], extra: 1 }, { debts: [{ id: 'conn-a:42', include: true }] }, { debts: [{ id: 'conn-a:42', include: 'yes', monthlyPayment: null }] },
     { debts: [{ id: 'conn-a:42', include: true, monthlyPayment: -1 }] }, { debts: [{ id: 'conn-a:42', include: true, monthlyPayment: '5' }] }, { debts: [{ id: 'bad id', include: true, monthlyPayment: null }] },
     { debts: [{ id: 'conn-a:42', include: true, monthlyPayment: null }, { id: 'conn-a:42', include: false, monthlyPayment: null }] }, { debts: [{ id: 'conn-a:42', include: true, monthlyPayment: null, balance: 5 }] }]) {

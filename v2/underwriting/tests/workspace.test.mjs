@@ -1002,7 +1002,8 @@ const quickAccounts = () => [
   { id: 'connection-a:77', label: 'Sales tax payable', accountType: 'Other Current Liability', balance: 9000, balanceAsOf: '2026-08-31', balanceCurrency: 'USD' },
 ];
 const quickSnapshot = () => ({ currency: 'USD', accountOptions: quickAccounts(), sources: {
-  balanceSheet: { currency: 'USD', periodEnd: '2026-08-31', metrics: [], monthly: [{ month: '2026-08', periodEnd: '2026-08-31', completeMonth: true, bookCash: 125000, assets: 2000000 }] },
+  balanceSheet: { currency: 'USD', periodEnd: '2026-08-31', metrics: [], monthly: [{ month: '2026-07', periodEnd: '2026-07-31', completeMonth: true, bookCash: 90000, assets: 1900000 }, { month: '2026-08', periodEnd: '2026-08-31', completeMonth: true, bookCash: 125000, assets: 2000000 }],
+    accountHistory: [{ accountId: '42', connectionId: 'connection-a', ambiguous: false, values: [{ periodEnd: '2026-07-31', balance: 410000 }, { periodEnd: '2026-08-31', balance: 400000 }] }] },
   profitAndLoss: { currency: 'USD', metrics: [], monthly: [] },
   cashflow: { currency: 'USD', metrics: [], monthly: ['2026-05', '2026-06', '2026-07', '2026-08'].map(m => ({ periodStart: `${m}-01`, periodEnd: `${m}-28`, completeMonth: true, operating: 60000 })) },
 } });
@@ -1042,7 +1043,7 @@ test('quick mode prints a static one-page packet and the ticks survive a downloa
   h.node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:77', field: 'include' }, checked: true } });
   await h.api.download();
   const payload = JSON.parse(await h.downloads[0].text());
-  assert.deepEqual(payload.quick, { debts: [{ id: 'connection-a:42', include: true, monthlyPayment: 4321 }, { id: 'connection-a:77', include: true, monthlyPayment: null }] });
+  assert.deepEqual(payload.quick, { asOfMonth: null, debts: [{ id: 'connection-a:42', include: true, monthlyPayment: 4321 }, { id: 'connection-a:77', include: true, monthlyPayment: null }] });
   assert.deepEqual(payload.facilities.map(f => [f.id, f.monthlyPayment]), [['quick:connection-a:42', 4321], ['quick:connection-a:77', null]], 'the register travels with the file');
   h.api.state.quick.debts[0].monthlyPayment = null; h.api.state.quick.debts[1].include = false;
   await h.api.importScenario(h.file(payload));
@@ -1101,4 +1102,23 @@ test('a reopened file keeps its facilities as the truth for the quick ticks', as
   assert.equal(h.api.state.quick.debts[0].include, true, 'the facility in the file wins over a stale tick');
   assert.equal(h.api.state.quick.debts[0].monthlyPayment, 4321);
   assert.deepEqual(plain(h.api.state.facilities.map(f => f.id)), ['quick:connection-a:42']);
+});
+
+test('the as-of month select re-dates the quick look and travels in the file', async () => {
+  const h = harness({ loadSourceSnapshot: async () => quickSnapshot() });
+  h.api.state.values.existingPayment = '';
+  await h.api.boot();
+  assert.equal(h.api.state.quickResult.facts.asOfMonth, '2026-08'); assert.equal(h.api.state.values.startingCash, '125000');
+  assert.match(h.node('q-asof').innerHTML, /2026-08 · latest/); assert.ok(h.node('q-asof').innerHTML.includes('2026-07'));
+  h.node('workspace').change({ target: { dataset: { quick: 'asOfMonth' }, value: '2026-07' } });
+  assert.equal(h.api.state.quick.asOfMonth, '2026-07'); assert.equal(h.api.state.quickResult.facts.openingCash.value, 90000);
+  assert.equal(h.api.state.quick.debts[0].balance, 410000, 'debt balance is the chosen month\'s column');
+  assert.equal(h.api.state.values.startingCash, '125000', 'a seeded opening cash is not rewritten by re-dating');
+  assert.equal(h.api.state.facilities[0].accountId, 'connection-a:42', 'the register is unchanged');
+  await h.api.download();
+  const payload = JSON.parse(await h.downloads[0].text());
+  assert.equal(payload.quick.asOfMonth, '2026-07');
+  h.api.state.quick.asOfMonth = null;
+  await h.api.importScenario(h.file(payload));
+  assert.equal(h.api.state.quick.asOfMonth, '2026-07'); assert.equal(h.api.state.quickResult.facts.asOfMonth, '2026-07');
 });
