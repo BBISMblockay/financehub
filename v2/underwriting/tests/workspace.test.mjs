@@ -1050,7 +1050,7 @@ test('quick mode prints a static one-page packet and the ticks survive a downloa
   assert.equal(h.api.state.quick.debts[0].monthlyPayment, 4321); assert.equal(h.api.state.quick.debts[1].include, true);
   assert.equal(h.api.state.quick.debts[0].balance, 400000, 'balances still come from the live balance sheet, not the file');
   h.api.clearSensitive('Signed out. Sign in to SILO and refresh this page.');
-  assert.deepEqual(JSON.parse(JSON.stringify(h.api.state.quick)), { debts: [] }); assert.equal(h.node('quickVerdict').innerHTML, '');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.api.state.quick)), { debts: [], asOfMonth: null }); assert.equal(h.node('quickVerdict').innerHTML, '');
 });
 
 const plain = value => JSON.parse(JSON.stringify(value));
