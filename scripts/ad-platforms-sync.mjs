@@ -12,7 +12,7 @@
 // dev-portal setup is finished; Meta/TikTok connections sync regardless.
 
 import { createClient } from '@supabase/supabase-js';
-import { clientSideReason } from './lib/ad-sync-client-errors.mjs';
+import { makeFinishJob, runConnections } from './lib/ad-sync-client-errors.mjs';
 import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync, fetchMetaJsonOrThrow, META_API_VERSION } from './lib/ad-platforms-sync-core.mjs';
 import { archiveCreativeImages, scrubError } from './lib/creative-image-archive.mjs';
 import { runSearchConsoleSync, SEARCH_CONSOLE_JOB_TYPE } from './lib/search-console-sync-core.mjs';
@@ -88,12 +88,8 @@ async function startJob(connection) {
   return data.id;
 }
 
-async function finishJob(jobId, status, payload) {
-  const update = { status, finished_at: new Date().toISOString() };
-  if (status === 'success') update.result = payload;
-  else update.error = String(payload?.error || payload).slice(0, 2000);
-  await supabase.from('sync_jobs').update(update).eq('id', jobId);
-}
+// Throws when the sync_jobs write fails -- see lib/ad-sync-client-errors.mjs.
+const finishJob = makeFinishJob(supabase);
 
 async function loadConnections() {
   let q = supabase
@@ -271,28 +267,14 @@ async function main() {
     return;
   }
 
-  let hadError = false;
-  const clientSide = [];
-  const allResults = [];
-  for (const connection of connections) {
-    console.log(`[ad-platforms-sync] → ${connection.display_name || connection.id} (${connection.platform})`);
-    try {
-      allResults.push(await syncConnection(connection));
-    } catch (err) {
-      const error = String(err?.message || err);
-      // A failure only the client can fix (their account disabled, access
-      // revoked) is recorded and reported but does not fail the run -- see
-      // lib/ad-sync-client-errors.mjs. Anything else is SILO's and does.
-      const reason = clientSideReason(error);
-      if (reason) clientSide.push({ connection, reason });
-      else hadError = true;
-      allResults.push({
-        connection: `${connection.display_name || connection.id} (${connection.platform})`,
-        error,
-        ...(reason ? { client_side: reason } : {}),
-      });
-    }
-  }
+  // A failure only the client can fix (their account disabled, access
+  // revoked) is recorded and reported but does not fail the run -- see
+  // lib/ad-sync-client-errors.mjs. Anything else is SILO's and does.
+  const label = (c) => `${c.display_name || c.id} (${c.platform})`;
+  const { hadError, clientSide, results: allResults } = await runConnections(connections, (connection) => {
+    console.log(`[ad-platforms-sync] → ${label(connection)}`);
+    return syncConnection(connection);
+  }, label);
 
   // The keyword-candidate rollup (search_console_query_rollup_mv,
   // 20260926150000) is what /v2/seo-keywords.html reads instead of the

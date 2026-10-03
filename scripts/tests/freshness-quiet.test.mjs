@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { SYNC_STAMP, feedIsQuiet, producesFeed } from '../lib/freshness-quiet.mjs';
+import { SYNC_STAMP, feedIsQuiet, producesFeed, expectedCompanies } from '../lib/freshness-quiet.mjs';
 
 const dayEnded = new Date('2026-10-02T07:00:00Z'); // Pacific midnight starting 2026-10-02
 const shop = (at, extra = {}) => ({ sync_enabled: true, meta: at ? { last_sales_sync_at: at } : {}, ...extra });
@@ -48,5 +48,17 @@ t('Search Console does not write marketing_kpis_daily, so its stamp is ignored e
   for (const p of ['google_ads', 'meta_ads', 'tiktok_ads', 'ga4', 'some_new_platform']) assert.equal(producesFeed(T, { platform: p }), true, p);
   assert.equal(producesFeed('shopify_connections', { shop_domain: 'x' }), true);
   assert.equal(producesFeed(T, null), false);
+});
+t('a company whose only campaign connection is switched off is not expected to have marketing data', () => {
+  const T = 'ad_platform_connections';
+  const row = (company, platform, sync_enabled = true) => ({ company_entity_id: company, platform, sync_enabled });
+  assert.deepEqual(expectedCompanies(T, [
+    row('disabled-only', 'google_ads', false),
+    row('sc-only', 'search_console'),
+    row('mixed', 'search_console'), row('mixed', 'meta_ads'),
+    row('mixed', 'meta_ads'),
+  ]), ['mixed']);
+  assert.deepEqual(expectedCompanies('shopify_connections', [{ company_entity_id: 'a', sync_enabled: true }, { company_entity_id: 'b', sync_enabled: false }]), ['a']);
+  assert.deepEqual(expectedCompanies(T, null), []);
 });
 console.log(`${n} freshness quiet checks passed`);

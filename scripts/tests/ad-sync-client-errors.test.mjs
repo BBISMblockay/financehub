@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { clientSideReason } from '../lib/ad-sync-client-errors.mjs';
+import { clientSideReason, makeFinishJob, runConnections } from '../lib/ad-sync-client-errors.mjs';
 
 let n = 0; const t = (name, fn) => { fn(); console.log(`ok ${++n} - ${name}`); };
 
@@ -28,5 +28,31 @@ t('an invalidated Meta token is client-side; other Meta errors are not', () => {
 });
 t('5xx, timeouts, bugs and empty messages are SILO-side', () => {
   for (const m of ['Google Ads search → 500: internal', 'fetch failed', "TypeError: Cannot read properties of undefined (reading 'rows')", '', null, undefined]) assert.equal(clientSideReason(m), null, String(m));
+});
+
+// The orchestrator, with the real failure path: syncConnection's catch records
+// the error through finishJob, then rethrows.
+const fakeDb = (fail) => { const writes = []; return { writes, from: () => ({ update: (u) => ({ eq: async () => { writes.push(u); return fail ? { error: { message: 'connection reset' } } : { error: null }; } }) }) }; };
+const syncWith = (finishJob, failure) => async (c) => {
+  if (!failure) { await finishJob('job-' + c.id, 'success', {}); return { connection: c.id }; }
+  try { throw new Error(failure); } catch (err) { await finishJob('job-' + c.id, 'error', { error: err.message }); throw err; }
+};
+const tasync = async (name, fn) => { await fn(); console.log(`ok ${++n} - ${name}`); };
+await tasync('a client-side failure with its error recorded leaves the run green and reports it', async () => {
+  const db = fakeDb(false), finishJob = makeFinishJob(db);
+  const out = await runConnections([{ id: 'ok' }, { id: 'blockay' }], (c) => syncWith(finishJob, c.id === 'blockay' ? blockayOps : null)(c));
+  assert.equal(out.hadError, false); assert.equal(out.clientSide.length, 1); assert.equal(out.clientSide[0].connection.id, 'blockay');
+  assert.equal(db.writes.at(-1).status, 'error');
+});
+await tasync('the same client-side failure goes RED when its error record cannot be written', async () => {
+  const finishJob = makeFinishJob(fakeDb(true));
+  const out = await runConnections([{ id: 'blockay' }], syncWith(finishJob, blockayOps));
+  assert.equal(out.hadError, true); assert.equal(out.clientSide.length, 0);
+  assert.match(out.results[0].error, /sync_jobs update failed/);
+});
+await tasync('a SILO-side failure is red; a success write that fails is red too', async () => {
+  const ok = makeFinishJob(fakeDb(false));
+  assert.equal((await runConnections([{ id: 'x' }], syncWith(ok, 'Google Ads search → 500: internal'))).hadError, true);
+  assert.equal((await runConnections([{ id: 'x' }], syncWith(makeFinishJob(fakeDb(true)), null))).hadError, true);
 });
 console.log(`${n} client-side classification checks passed`);

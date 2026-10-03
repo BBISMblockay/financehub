@@ -54,3 +54,16 @@ export function feedIsQuiet(connections, stampKey, dayEndedAt, connTable = null)
     return Number.isFinite(at) && at >= +dayEndedAt;
   });
 }
+
+/**
+ * Companies expected to have this feed: those with at least one active,
+ * sync-enabled connection that writes it. Matches what the syncs load
+ * (ad-platforms-sync.mjs filters sync_enabled = true), so a company whose
+ * only campaign connection is switched off is not alarmed on (review
+ * cycle 2, #859).
+ */
+export function expectedCompanies(connTable, rows) {
+  return [...new Set((rows || [])
+    .filter((c) => c && c.sync_enabled !== false && producesFeed(connTable, c))
+    .map((c) => c.company_entity_id).filter(Boolean))];
+}
