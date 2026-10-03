@@ -78,9 +78,14 @@ stores create "Develop apps" custom apps on 2026-01-01, so it is tucked behind a
 
 The 8 scopes (`PUBLIC_SCOPES` in `scripts/lib/shopify-auth-lib.mjs`): `read_orders`, `read_products`,
 `read_inventory`, `read_locations`, `read_shopify_payments_payouts`, `read_draft_orders`,
-`read_reports`, `read_publications`. **`read_all_orders` is deliberately absent** until Shopify grants
-it: without it the Admin API returns only the last 60 days of orders, and the Test button says so
-rather than letting a store look fully backfilled.
+`read_reports`, `read_publications`. **`read_all_orders` is deliberately absent from the PUBLIC app** until
+Shopify grants it: without it the Admin API returns only the last 60 days of orders, and the Test button
+says so rather than letting a store look fully backfilled. **A store's own Dev Dashboard app is told to
+add it** (Integrations' setup guide, `SHOPIFY_OWN_APP_SCOPES` in `v2/integration-guides.js`): that app is
+custom-distributed in the store's own organization, the same kind as Baseballism's legacy app, which holds
+`read_all_orders` and backfills full history. `shopify-connect-dev-app` takes whatever scopes the app
+was given, so nothing server-side changes. A history import over 60 days on a store without it asks
+first, since it would otherwise "complete" holding 60 days.
 
 The client secret is stored in `shopify_client_credentials`, which no browser can read (RLS on, no
 policy, no grant) -- `shopify_connections` is readable by every company member, so the secret is not
