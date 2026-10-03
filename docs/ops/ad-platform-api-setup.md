@@ -70,7 +70,7 @@ pointing at two DIFFERENT account ids.
 
 The System User token above only grants `ads_read` — organic reach/engagement needs two additional things, not just a permission checkbox:
 
-1. **Add scopes to the same token**: regenerate it (step 3 above) with `pages_read_engagement`, `instagram_basic`, `instagram_manage_insights` added alongside `ads_read` + `business_management`.
+1. **Add scopes to the same token**: regenerate it (step 3 above) with `pages_show_list`, `pages_read_engagement`, `instagram_basic`, `instagram_manage_insights` added (`pages_show_list` is what lets Integrations' Test list the Pages via `/me/accounts`) alongside `ads_read` + `business_management`.
 2. **Assign the System User to the Page**: Business settings → Users → System Users → your system user → **Assign Assets** → Pages → select the Baseballism Page, grant at least Analyst access. Token scopes alone don't grant Page access — this asset assignment is separate and easy to miss.
 3. The Instagram professional account must already be **linked to that Facebook Page** (Instagram app → Settings → linked accounts) — this is how Meta's API finds the Instagram business account ID from the Page.
 4. Send Blake the **Facebook Page ID** and **Instagram Business Account ID** (Graph API Explorer: `GET /me/accounts` for the Page ID, then `GET /{page-id}?fields=instagram_business_account` for the IG account ID) — set on the existing Meta connection row (`facebook_page_id`, `instagram_business_account_id`), no new connection needed.

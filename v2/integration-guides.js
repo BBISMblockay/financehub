@@ -31,7 +31,9 @@
     'read_publications',
   ];
   const META_ADS_SCOPES = ['ads_read', 'business_management'];
-  const META_ORGANIC_SCOPES = ['pages_read_engagement', 'instagram_basic', 'instagram_manage_insights'];
+  // pages_show_list is what lets Test's /me/accounts lookup list the Pages;
+  // without it Meta refuses that call and the tester shows no Pages at all.
+  const META_ORGANIC_SCOPES = ['pages_show_list', 'pages_read_engagement', 'instagram_basic', 'instagram_manage_insights'];
   const REDO_MARKETING_SCOPES = [
     'Campaigns',
     'Marketing automations',
@@ -173,10 +175,10 @@
       extra: {
         title: 'Optional: organic insights (Instagram posts, Facebook Page)',
         steps: [
-          { title: 'Add three permissions to the token', body: 'Regenerate the token with these added alongside the two above:', scopes: META_ORGANIC_SCOPES },
+          { title: 'Add four permissions to the token', body: 'Regenerate the token with these added alongside the two above:', scopes: META_ORGANIC_SCOPES },
           { title: 'Assign the Page to the system user', body: 'System user → <strong>Assign assets → Pages</strong> → your Page, at least Analyst access. Permissions alone don\'t grant Page access.' },
           { title: 'Link Instagram to the Page', body: 'The Instagram professional account must be linked to that Facebook Page.' },
-          { title: 'Fill in the two IDs', body: 'On the Meta row in SILO, enter the <strong>Facebook Page ID</strong> and <strong>Instagram Business Account ID</strong>.' },
+          { title: 'Fill in the two IDs', body: 'Click <strong>Test</strong> on the Meta row — it lists the Pages the token can see with their linked Instagram account. Enter the <strong>Facebook Page ID</strong> and <strong>Instagram Business Account ID</strong> on the row.' },
         ],
       },
       troubleshooting: [

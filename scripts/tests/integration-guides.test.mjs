@@ -11,7 +11,8 @@
  *      page names a guide that exists.
  *
  * Run: node scripts/tests/integration-guides.test.mjs
- * Mutation: GUIDES_MUTATION=scope-drift (one scope dropped) must fail. */
+ * Mutations: GUIDES_MUTATION=scope-drift (a Shopify scope dropped) and
+ * GUIDES_MUTATION=no-pages-show-list must each fail. */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -22,10 +23,11 @@ import { PUBLIC_SCOPES } from '../lib/shopify-auth-lib.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const mutation = process.env.GUIDES_MUTATION || '';
-assert.ok(['', 'scope-drift'].includes(mutation), `Unknown mutation ${mutation}`);
+assert.ok(['', 'scope-drift', 'no-pages-show-list'].includes(mutation), `Unknown mutation ${mutation}`);
 
 let src = read('v2/integration-guides.js');
 if (mutation === 'scope-drift') src = src.replace("    'read_publications',\n", '');
+if (mutation === 'no-pages-show-list') src = src.replace("['pages_show_list', ", '[');
 const sandbox = { window: {} };
 vm.runInNewContext(src, sandbox);
 const G = sandbox.window.SiloIntegrationGuides;
@@ -38,6 +40,14 @@ t('Shopify scopes equal PUBLIC_SCOPES', () => {
   assert.deepEqual([...G.SHOPIFY_SCOPES].sort(), [...PUBLIC_SCOPES].sort());
   const copy = G.copyValues('shopify_dev_app', {});
   assert.deepEqual(Object.values(copy)[0].split(',').sort(), [...PUBLIC_SCOPES].sort());
+});
+
+t('Meta organic scopes include pages_show_list (Test lists Pages via /me/accounts)', () => {
+  for (const s of ['pages_show_list', 'pages_read_engagement', 'instagram_basic', 'instagram_manage_insights']) {
+    assert.ok(G.META_ORGANIC_SCOPES.includes(s), `organic scope ${s}`);
+  }
+  const extra = G.resolve('meta_ads', {}).extra.steps[0];
+  assert.ok(extra.scopes.includes('pages_show_list'), 'the guide step shows it');
 });
 
 t('every guide renders with steps and https-only links', () => {
