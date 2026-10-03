@@ -18,6 +18,13 @@
  *     above that does not fit; a non-positive basis does not fit.
  *   - A ticked debt with no payment typed caps the verdict at "tight": a payment
  *     nobody has entered is not a payment of zero.
+ *   - FORWARD basis (default when the company has a sales plan ahead): the
+ *     plan's monthly sales for the next 12 plan months, times measured plan
+ *     attainment (recorded sales ÷ planned sales over the matched months),
+ *     times measured conversion (operating cash ÷ recorded sales over the same
+ *     months) = projected monthly operating cash. The plan is the company's own
+ *     plan; the two factors are measured, never assumed. The other basis is
+ *     always shown beside the chosen one.
  * Nothing here is an approval, covenant test or lender policy. */
 import { buildDebtSchedule } from './scenario-model.js';
 
@@ -100,7 +107,73 @@ function trailing(rows, key, max = QUICK_RULES.trailingMonths, upTo = null) {
 const latestRow = rows => (rows || []).slice().sort((a, b) => String(a.periodEnd || a.month).localeCompare(String(b.periodEnd || b.month))).at(-1);
 const metric = (source, label) => source?.scopeFiltered ? null : source?.metrics?.find(m => m.label === label)?.value ?? null;
 
-export function quickLook({ snapshot, inputs = {}, debts = [], month, asOfMonth = null } = {}) {
+/** Forward outlook from the company's own sales plan. Nothing is assumed: the
+ * plan is the stored active plan, attainment and conversion are measured over
+ * months that have both a plan and recorded sales (and, for conversion, a
+ * complete cash-flow month). Recorded sales are Shopify net sales, so the
+ * conversion is "operating cash per recorded sales dollar", which keeps the
+ * QBO-versus-Shopify scope difference inside a measured ratio rather than
+ * pretending the two revenues are the same number. */
+export function forwardOutlook(snapshot, { asOfMonth = null, horizon = QUICK_RULES.trailingMonths } = {}) {
+  const sources = snapshot?.sources || {}, plan = sources.revenuePlan || {}, cf = sources.cashflow || {}, pl = sources.profitAndLoss || {};
+  const rows = plan.monthly || [];
+  const businessMonth = String(plan.businessDate || '').slice(0, 7);
+  const out = { available: false, months: [], reasons: [], attainment: null, attainmentMonths: 0, attainmentFrom: null, attainmentTo: null, conversion: null, conversionMonths: 0, conversionLabel: null, conversionFrom: null, conversionTo: null, totalPlanned: null, totalProjected: null, averageProjected: null, weakest: null, from: null, to: null, businessMonth: businessMonth || null, unplannedStreams: false };
+  if (!rows.length) { out.reasons.push('No sales plan is saved for this company, so there is no forward basis.'); return out; }
+  const min = QUICK_RULES.minimumMonths;
+  const upTo = asOfMonth || (businessMonth ? prevMonth(businessMonth) : null);
+  // The cash source: the saved cash-flow statement, or net operating income
+  // ONLY when no cash-flow statement is saved at all. A thin cash-flow
+  // statement is incomplete coverage, never a reason to read profit as cash.
+  const cfRows = (cf.monthly || []).filter(x => x.completeMonth && finite(x.operating));
+  const cfSaved = cfRows.length > 0 || cf.status === 'available' || cf.status === 'partial';
+  const cash = cfSaved
+    ? { byMonth: new Map(cfRows.map(x => [monthOf(x), x.operating])), label: 'operating cash flow' }
+    : { byMonth: new Map((pl.monthly || []).filter(x => x.completeMonth && finite(x.operatingIncome)).map(x => [monthOf(x), x.operatingIncome])), label: 'net operating income' };
+  // ONE calibration cohort. A month qualifies when its plan and its recorded
+  // sales were MATCHED location by location by the plan parser (matched sums,
+  // never whole-month totals), every plan row mapped to a location, and the
+  // cash source covers the month. Attainment and conversion are both measured
+  // over exactly this cohort.
+  const history = rows.filter(r => r.completeMonth && (!upTo || r.month <= upTo));
+  const unmapped = history.filter(r => Number(r.unmappedPlanRows) > 0);
+  if (unmapped.length) { out.reasons.push(`${unmapped.length} plan month${unmapped.length === 1 ? ' has' : 's have'} plan rows that map to no location (${unmapped.map(r => r.month).join(', ')}), so plan and recorded sales cannot be compared like for like.`); return out; }
+  const cohort = history.filter(r => Number(r.matchedLocationDays) > 0 && finite(r.matchedPlannedSales) && r.matchedPlannedSales > 0 && finite(r.matchedActualNetSales) && r.matchedActualNetSales > 0 && finite(r.actualNetSales) && r.actualNetSales > 0 && cash.byMonth.has(r.month)).slice(-QUICK_RULES.trailingMonths);
+  if (cohort.length < min) {
+    const planMonths = history.filter(r => finite(r.matchedPlannedSales) && r.matchedPlannedSales > 0 && finite(r.matchedActualNetSales) && r.matchedActualNetSales > 0).length;
+    if (planMonths < min) out.reasons.push(`Plan attainment is not measured: only ${planMonths} month${planMonths === 1 ? '' : 's'} ${planMonths === 1 ? 'has' : 'have'} both a plan and recorded sales for the same locations; ${min} are needed. The plan is not taken at face value.`);
+    else out.reasons.push(`${cfSaved ? 'The saved cash-flow statement' : 'The saved P&L'} covers only ${cohort.length} of those months with a complete ${cash.label} figure; ${min} are needed. ${cfSaved ? 'Net operating income is not used in its place while a cash-flow statement is saved.' : ''}`.trim());
+    return out;
+  }
+  out.attainment = cohort.reduce((t, r) => t + r.matchedActualNetSales, 0) / cohort.reduce((t, r) => t + r.matchedPlannedSales, 0);
+  out.attainmentMonths = cohort.length; out.attainmentFrom = cohort[0].month; out.attainmentTo = cohort.at(-1).month;
+  // Conversion: cash per dollar of ALL recorded sales in the cohort months --
+  // including streams the plan never covered -- applied below to projected
+  // PLANNED sales only. Both choices understate rather than overstate.
+  out.conversion = cohort.reduce((t, r) => t + cash.byMonth.get(r.month), 0) / cohort.reduce((t, r) => t + r.actualNetSales, 0);
+  out.conversionMonths = cohort.length; out.conversionLabel = cash.label; out.conversionFrom = cohort[0].month; out.conversionTo = cohort.at(-1).month;
+  out.unplannedStreams = cohort.some(r => Number(r.unplannedActualLocationDays) > 0);
+  const start = asOfMonth ? nextMonth(asOfMonth) : businessMonth;
+  const ahead = rows.filter(r => finite(r.plannedSales) && r.plannedSales >= 0 && (!start || r.month >= start)).slice(0, horizon);
+  const aheadUnmapped = ahead.filter(r => Number(r.unmappedPlanRows) > 0);
+  if (aheadUnmapped.length) { out.reasons.push(`${aheadUnmapped.length} plan month${aheadUnmapped.length === 1 ? '' : 's'} ahead (${aheadUnmapped.map(r => r.month).join(', ')}) carry plan rows that map to no location; the measured attainment cannot be applied to them.`); return out; }
+  if (ahead.length < min) { out.reasons.push(`Fewer than ${min} plan months lie ahead of ${start || 'today'}.`); return out; }
+  const factor = out.attainment * out.conversion;
+  out.months = ahead.map(r => ({ month: r.month, plannedSales: r.plannedSales, projectedCash: round2(r.plannedSales * factor) }));
+  out.totalPlanned = round2(ahead.reduce((t, r) => t + r.plannedSales, 0));
+  out.totalProjected = round2(out.months.reduce((t, m) => t + m.projectedCash, 0));
+  out.averageProjected = round2(out.totalProjected / out.months.length);
+  out.weakest = out.months.slice().sort((a, b) => a.projectedCash - b.projectedCash)[0];
+  out.from = out.months[0].month; out.to = out.months.at(-1).month;
+  out.available = true;
+  if (cash.label === 'net operating income') out.reasons.push('No cash-flow statement is saved, so the conversion uses net operating income, which is not cash.');
+  if (out.unplannedStreams) out.reasons.push('Recorded sales include locations the plan does not cover; the projection counts planned locations only, and the conversion was measured against all recorded sales, so it understates rather than overstates.');
+  return out;
+}
+const nextMonth = m => { const [y, mo] = m.split('-').map(Number); return `${mo === 12 ? y + 1 : y}-${String(mo === 12 ? 1 : mo + 1).padStart(2, '0')}`; };
+const prevMonth = m => { const [y, mo] = m.split('-').map(Number); return `${mo === 1 ? y - 1 : y}-${String(mo === 1 ? 12 : mo - 1).padStart(2, '0')}`; };
+
+export function quickLook({ snapshot, inputs = {}, debts = [], month, asOfMonth = null, basis: requestedBasis = null } = {}) {
   const sources = snapshot?.sources || {}, pl = sources.profitAndLoss || {}, bs = sources.balanceSheet || {}, cf = sources.cashflow || {};
   const amount = num(inputs.amount), rate = num(inputs.rate), term = num(inputs.term);
   const asOf = resolveAsOfMonth(snapshot, asOfMonth);
@@ -134,15 +207,26 @@ export function quickLook({ snapshot, inputs = {}, debts = [], month, asOfMonth 
     if (s.errors.length) errors.push(...s.errors);
     else { payment = s.summary.periodicPayment; totalInterest = s.summary.totalInterest; maturityMonth = s.rows.at(-1)?.month || null; }
   }
-  const basis = facts.operatingCash.months >= QUICK_RULES.minimumMonths
+  const trailingBasis = facts.operatingCash.months >= QUICK_RULES.minimumMonths
     ? { key: 'operatingCash', label: 'operating cash flow', source: 'QuickBooks cash flow statement', ...facts.operatingCash }
     : facts.operatingIncome.months >= QUICK_RULES.minimumMonths
       ? { key: 'operatingIncome', label: 'net operating income', source: 'QuickBooks profit and loss', ...facts.operatingIncome }
       : null;
+  const forward = forwardOutlook(snapshot, { asOfMonth: asOf.month });
+  const planBasis = forward.available ? { key: 'plan', label: 'projected operating cash from the sales plan', source: 'SILO sales plan × measured attainment × measured conversion', months: forward.months.length, average: forward.averageProjected, total: forward.totalProjected, from: forward.from, to: forward.to } : null;
+  // Default to the plan when there is one: a seasonal business is judged on
+  // what is coming, not only on the months behind it. The other basis is
+  // always reported beside the chosen one.
+  const basisChoice = requestedBasis === 'trailing' ? 'trailing' : requestedBasis === 'plan' && planBasis ? 'plan' : requestedBasis === 'plan' ? 'trailing' : planBasis ? 'plan' : 'trailing';
+  const basis = basisChoice === 'plan' ? planBasis : trailingBasis;
+  facts.forward = forward;
   const combined = payment !== null ? round2(payment + knownExisting) : null;
   const assets = facts.totalAssets.value;
   const ratios = {
     serviceShare: combined !== null && basis && basis.average > 0 ? combined / basis.average : null,
+    trailingShare: combined !== null && trailingBasis && trailingBasis.average > 0 ? combined / trailingBasis.average : null,
+    planShare: combined !== null && planBasis && planBasis.average > 0 ? combined / planBasis.average : null,
+    planWeakestShare: combined !== null && forward.available && forward.weakest.projectedCash > 0 ? combined / forward.weakest.projectedCash : null,
     grossProfitShare: combined !== null && facts.grossProfit.average > 0 ? combined / facts.grossProfit.average : null,
     cashCoverMonths: debtCoverage.complete && combined > 0 && finite(facts.openingCash.value) ? facts.openingCash.value / combined : null,
     debtToAssetsBefore: finite(existingDebt) && finite(assets) && assets > 0 ? existingDebt / assets : null,
@@ -154,12 +238,21 @@ export function quickLook({ snapshot, inputs = {}, debts = [], month, asOfMonth 
   if (errors.length) { status = 'unknown'; title = 'Check the loan inputs'; reasons.push(...errors); }
   else if (payment === null) { status = 'unknown'; title = 'Enter an amount, rate and term'; reasons.push('The quick look needs all three to compute a payment.'); }
   else if (!basis) { status = 'unknown'; title = 'Not enough saved history to judge'; reasons.push(`Fewer than ${QUICK_RULES.minimumMonths} complete months of operating results are in the saved statements. Pull a monthly cash-flow or P&L report in QuickBooks Reports first.`); }
-  else if (basis.average <= 0) { status = 'no'; title = 'Does not fit on recent results'; reasons.push(`Average monthly ${basis.label} was ${basis.average <= 0 && basis.average !== 0 ? 'negative' : 'zero'} over ${basis.months} months (${basis.from} to ${basis.to}), so there is no recurring cash to pay this from.`); }
+  else if (basis.average <= 0) { status = 'no'; title = basisChoice === 'plan' ? 'Does not fit on the sales plan' : 'Does not fit on recent results'; reasons.push(basisChoice === 'plan' ? `The measured conversion is ${forward.conversion <= 0 && forward.conversion !== 0 ? 'negative' : 'zero'}: over ${forward.conversionMonths} months (${forward.conversionFrom} to ${forward.conversionTo}) the business produced no ${forward.conversionLabel} per recorded sales dollar, so the plan projects no cash to pay this from.` : `Average monthly ${basis.label} was ${basis.average <= 0 && basis.average !== 0 ? 'negative' : 'zero'} over ${basis.months} months (${basis.from} to ${basis.to}), so there is no recurring cash to pay this from.`); }
   else {
     const share = ratios.serviceShare;
     status = share <= QUICK_RULES.comfortableShare ? 'comfortable' : share <= QUICK_RULES.tightShare ? 'tight' : 'no';
-    title = { comfortable: 'Looks comfortable on recent results', tight: 'Tight on recent results', no: 'Does not fit on recent results' }[status];
-    reasons.push(`${pct(share)} of average monthly ${basis.label} (${basis.months} months, ${basis.from} to ${basis.to}) would go to ${knownExisting > 0 ? 'this payment plus the existing payments you entered' : 'this payment'}. Comfortable is up to ${pct(QUICK_RULES.comfortableShare)}, tight up to ${pct(QUICK_RULES.tightShare)}.`);
+    const on = basisChoice === 'plan' ? 'on the sales plan' : 'on recent results';
+    title = { comfortable: `Looks comfortable ${on}`, tight: `Tight ${on}`, no: `Does not fit ${on}` }[status];
+    const payments = knownExisting > 0 ? 'this payment plus the existing payments you entered' : 'this payment';
+    if (basisChoice === 'plan') {
+      reasons.push(`${pct(share)} of projected monthly operating cash over the next ${forward.months.length} plan months (${forward.from} to ${forward.to}) would go to ${payments}: planned sales ${n0(forward.totalPlanned)} × ${pct(forward.attainment)} matched attainment (${forward.attainmentMonths} months) × ${(forward.conversion * 100).toFixed(1)}¢ of ${forward.conversionLabel} per recorded sales dollar (${forward.conversionMonths} months, ${forward.conversionFrom} to ${forward.conversionTo}). Comfortable is up to ${pct(QUICK_RULES.comfortableShare)}, tight up to ${pct(QUICK_RULES.tightShare)}.`);
+      if (finite(ratios.planWeakestShare)) reasons.push(`Weakest plan month ${forward.weakest.month}: ${pct(ratios.planWeakestShare)} of that month's projected cash.`);
+      if (trailingBasis) reasons.push(`On the last ${trailingBasis.months} months of actual ${trailingBasis.label} (${trailingBasis.from} to ${trailingBasis.to}) the share is ${pct(ratios.trailingShare)}.`);
+    } else {
+      reasons.push(`${pct(share)} of average monthly ${basis.label} (${basis.months} months, ${basis.from} to ${basis.to}) would go to ${payments}. Comfortable is up to ${pct(QUICK_RULES.comfortableShare)}, tight up to ${pct(QUICK_RULES.tightShare)}.`);
+      if (planBasis) reasons.push(`On the sales plan for the next ${forward.months.length} months (${forward.from} to ${forward.to}) the share would be ${pct(ratios.planShare)}.`);
+    }
     if (unknownPaymentCount > 0 && status === 'comfortable') { status = 'tight'; title = 'Tight until existing payments are known'; }
     if (unknownPaymentCount > 0) reasons.push(`${unknownPaymentCount} ticked debt${unknownPaymentCount === 1 ? ' has' : 's have'} no monthly payment entered, so the real combined service is higher than shown.`);
     if (finite(ratios.cashCoverMonths) && ratios.cashCoverMonths < 1) reasons.push(`Book bank balances cover less than one month of combined payments (${ratios.cashCoverMonths.toFixed(1)} months).`);
@@ -172,14 +265,18 @@ export function quickLook({ snapshot, inputs = {}, debts = [], month, asOfMonth 
   if (column && !finite(facts.totalAssets.value)) reasons.push(`The ${asOf.month} balance-sheet column has no total-assets figure; debt to assets is unknown rather than another month's figure.`);
   if (!asOf.honoured) reasons.push(`${asOf.requested} is not a complete month on the saved balance sheet; figures are as of ${asOf.month}.`);
   if (basis && basis.key === 'operatingIncome') reasons.push('No saved cash-flow statement, so the basis is net operating income, which is not cash.');
+  if (requestedBasis === 'plan' && !planBasis) reasons.push(`The sales-plan basis was requested but is not available: ${forward.reasons.join(' ')}`);
+  if (basisChoice === 'plan') reasons.push(...forward.reasons);
 
   return {
     inputs: { amount, rate, term, purpose: String(inputs.purpose ?? '') }, inputsComplete, month: month || null,
     payment, totalInterest, maturityMonth, existingDebt, knownDebt, debtCoverage, knownExisting, unknownPaymentCount, includedCount: included.length,
-    combinedService: combined, basis, facts, ratios, verdict: { status, title, reasons }, errors,
+    combinedService: combined, basis, basisChoice, trailingBasis, planBasis, forward, facts, ratios, verdict: { status, title, reasons }, errors,
     methodology: [
       'Payment: amortizing monthly payment at the typed rate and term; no fees, no balloon.',
-      `Basis: average monthly ${basis ? basis.label : 'operating cash flow'} over complete months in the saved statements (up to ${QUICK_RULES.trailingMonths}). Partial months are excluded.`,
+      basisChoice === 'plan'
+        ? `Basis (sales plan): the company's stored active sales plan for the next ${forward.months.length} plan months × plan attainment measured as recorded ÷ planned sales for the same locations over ${forward.attainmentMonths} matched months × conversion measured as ${forward.conversionLabel} ÷ all recorded sales over the same ${forward.conversionMonths} months. Fewer than ${QUICK_RULES.minimumMonths} such months, an unmapped plan row, or a saved cash-flow statement that covers too few of them means no forward basis. Recorded sales are Shopify net sales; the conversion keeps the Shopify-versus-QuickBooks scope difference inside a measured ratio. The trailing basis is shown beside it.`
+        : `Basis (recent results): average monthly ${basis ? basis.label : 'operating cash flow'} over complete months in the saved statements (up to ${QUICK_RULES.trailingMonths}). Partial months are excluded.${planBasis ? ' The sales-plan basis is shown beside it.' : ''}`,
       `Verdict: combined monthly service as a share of that basis -- comfortable up to ${pct(QUICK_RULES.comfortableShare)}, tight up to ${pct(QUICK_RULES.tightShare)}. A ticked debt with no payment entered caps the verdict at tight. Incomplete debt source coverage prevents a positive verdict.`,
       'Existing debt: balance-sheet accounts typed as long-term liability, credit card or other current liability, ticked by you. Balances are book balances as of the statement date; payments are only what you typed.',
       `As-of month: ${asOf.month ? `${asOf.month}; balance-sheet figures and debt balances are that month's column and averages run up to it` : 'the statement\'s latest column (no monthly columns are saved)'}. The Advanced register always reads the latest statement balance.`,
@@ -199,6 +296,10 @@ export function quickFactsHtml(result, money) {
     + span('Total assets', money(f.totalAssets.value, true), `${f.totalAssets.source} · ${date(f.totalAssets.asOf)}`)
     + avg(f.revenue, 'Monthly revenue') + avg(f.grossProfit, 'Monthly gross profit')
     + avg(f.operatingCash, 'Monthly operating cash flow') + avg(f.operatingIncome, 'Monthly net operating income')
+    + (f.forward.available
+      ? span('Projected monthly operating cash · sales plan', money(f.forward.averageProjected, true), `Next ${f.forward.months.length} plan months · ${f.forward.from} to ${f.forward.to} · planned sales ${n0(f.forward.totalPlanned)} × ${pct(f.forward.attainment)} matched attainment × ${(f.forward.conversion * 100).toFixed(1)}¢ per sales dollar`)
+      : span('Projected monthly operating cash · sales plan', '—', f.forward.reasons[0] || 'No forward basis'))
+    + span('Plan attainment', f.forward.attainment !== null ? pct(f.forward.attainment) : '—', f.forward.attainment !== null ? `Matched recorded ÷ matched planned sales · ${f.forward.attainmentMonths} months · ${f.forward.attainmentFrom} to ${f.forward.attainmentTo}` : 'Not measured')
     + span(result.debtCoverage.complete ? 'Existing debt ticked below' : 'Existing debt total unknown', money(result.existingDebt, true), `${result.includedCount} account${result.includedCount === 1 ? '' : 's'} · ${result.unknownPaymentCount ? `${result.unknownPaymentCount} without a payment entered` : 'payments entered'}`)
     + span('Currency', esc(f.currency || 'not stated'), 'From the statement headers');
 }
@@ -207,7 +308,7 @@ export function quickResultHtml(result, money) {
   const r = result.ratios, kpi = (label, value, note, tone = '') => `<div><div class="uw-kpi-label">${esc(label)}</div><div class="uw-kpi-value ${tone}">${value}</div><div class="uw-kpi-note">${esc(note)}</div></div>`;
   const tone = result.verdict.status === 'no' ? 'uw-negative' : result.verdict.status === 'comfortable' ? 'uw-positive' : '';
   return kpi('Monthly payment', money(result.payment), result.payment !== null ? `${result.inputs.term} months · total interest ${money(result.totalInterest)} · last payment ${result.maturityMonth || '—'}` : 'Enter amount, rate and term')
-    + kpi('Share of monthly cash', pct(r.serviceShare), result.basis ? `Entered payment${result.debtCoverage.complete ? 's' : ' subtotal (incomplete debt coverage)'} ÷ average ${result.basis.label}` : 'Needs 3+ complete months of statements', tone)
+    + kpi('Share of monthly cash', pct(r.serviceShare), result.basis ? `Entered payment${result.debtCoverage.complete ? 's' : ' subtotal (incomplete debt coverage)'} ÷ ${result.basisChoice === 'plan' ? `projected cash on the plan · ${pct(r.trailingShare)} on recent results` : `average ${result.basis.label}${finite(r.planShare) ? ` · ${pct(r.planShare)} on the sales plan` : ''}`}` : 'Needs 3+ complete months of statements', tone)
     + kpi('Months of cash cover', finite(r.cashCoverMonths) ? r.cashCoverMonths.toFixed(1) : '—', result.debtCoverage.complete ? 'Book bank balances ÷ combined monthly payments' : 'Needs complete debt coverage')
     + kpi('Debt to assets after loan', pct(r.debtToAssetsAfter), finite(r.debtToAssetsBefore) ? `${pct(r.debtToAssetsBefore)} today on ticked debt` : result.debtCoverage.complete ? 'Needs total assets' : 'Needs complete debt coverage');
 }
@@ -269,6 +370,9 @@ export function quickProposalHtml({ result, debts, snapshot, money, companyTitle
   return `<header><div class="uw-eyebrow">DRAFT FINANCING PROPOSAL · PREPARED FROM SAVED SOURCES</div><h1>${esc(companyTitle || 'Current company')}</h1><p>Prepared ${esc(String(preparedAt).slice(0, 10))} · ${esc(f.currency || 'currency not stated')}${f.asOfMonth ? ` · figures as of ${esc(f.asOfMonth)}` : ''} · draft for an underwriter's review, not an approval or offer</p></header>`
     + `<section><h2>Request</h2><p><strong>${result.inputsComplete ? `${money(result.inputs.amount)} at ${esc(result.inputs.rate)}% over ${esc(result.inputs.term)} months, amortizing monthly` : 'Amount, rate and term not yet entered'}</strong>${result.inputs.purpose ? ` · ${esc(result.inputs.purpose)}` : ''}</p>${quickVerdictHtml(result)}<div class="uw-kpis">${quickResultHtml(result, money)}</div></section>`
     + `<section><h2>Business performance</h2><p class="uw-fine">Complete calendar months in the saved statements, newest ${perf.length ? `${perf[0].month} to ${perf.at(-1).month}` : 'none'}. Operating cash flow is the cash-flow statement's operating total for the same month; it is historical and unnormalized.</p>${missingNote(pl, SOURCE_NAMES.profitAndLoss)}${missingNote(cf, SOURCE_NAMES.cashflow)}${table(['Month', 'Revenue', 'Gross profit', 'Gross margin', 'Operating income', 'Operating cash flow'], perfRows, 'No complete months in the saved P&L')}</section>`
+    + `<section><h2>Forward outlook from the sales plan</h2>${f.forward.available
+      ? `<p class="uw-fine">The company's stored active sales plan for the next ${f.forward.months.length} plan months. Projected operating cash = planned sales × ${pct(f.forward.attainment)} plan attainment (recorded ÷ planned sales for the same locations, ${f.forward.attainmentMonths} months, ${esc(f.forward.attainmentFrom)} to ${esc(f.forward.attainmentTo)}) × ${(f.forward.conversion * 100).toFixed(1)}¢ of ${esc(f.forward.conversionLabel)} per recorded sales dollar over the same months. Planned sales carry no recorded currency and are plain numbers; projected cash is in the statement currency because the conversion was measured from the statements.</p>${table(['Plan month', 'Planned sales (currency not recorded)', 'Projected operating cash', 'Combined payments', 'Share'], [...f.forward.months.map(m => td([esc(m.month), n0(m.plannedSales), money(m.projectedCash), money(result.combinedService), m.projectedCash > 0 && result.combinedService !== null ? pct(result.combinedService / m.projectedCash) : '—'])), td([`<strong>${f.forward.months.length}-month total</strong>`, `<strong>${n0(f.forward.totalPlanned)}</strong>`, `<strong>${money(f.forward.totalProjected)}</strong>`, `<strong>${result.combinedService !== null ? money(round2(result.combinedService * f.forward.months.length)) : '—'}</strong>`, `<strong>${pct(r.planShare)}</strong>`])], 'No plan months ahead')}${f.forward.reasons.length ? `<p class="uw-data-warning">${esc(f.forward.reasons.join(' '))}</p>` : ''}`
+      : `<p class="uw-data-warning">No forward basis: ${esc(f.forward.reasons.join(' ') || 'the sales plan could not be turned into projected cash.')}</p>`}</section>`
     + `<section><h2>Balance sheet</h2><p class="uw-fine">${esc(SOURCE_NAMES.balanceSheet)} as of ${esc(bsAsOf || 'date unknown')} · ${esc(bs.basis || 'basis not stated')}.</p>${missingNote(bs, SOURCE_NAMES.balanceSheet)}${column && ['assets', 'liabilities', 'equity', 'bookCash'].some(k => !finite(b[k])) ? `<p class="uw-data-warning">The ${esc(f.asOfMonth)} column lacks ${esc([['assets', 'total assets'], ['liabilities', 'total liabilities'], ['equity', 'equity'], ['bookCash', 'bank balances']].filter(([k]) => !finite(b[k])).map(([, l]) => l).join(', '))}; those lines are left out rather than filled from another month.</p>` : ''}${table(['Line', 'Book balance'], bsItems.filter(([, v]) => finite(v)).map(([k, v]) => td([esc(k), money(v)])), 'No balance sheet loaded')}</section>`
     + `<section><h2>Saved bank balances</h2><p class="uw-fine">Balances as last synced from the bank feed (${esc(SOURCE_NAMES.bank)}), each with its own date and connection status. Loading this page does not call the bank; a balance is only as current as its sync date. Not reconciled to the books; a negative balance can be a sweep or line position.</p>${missingNote(bank, SOURCE_NAMES.bank)}${bank.status === 'partial' ? `<p class="uw-data-warning">Bank coverage is partial: ${esc((bank.warnings || []).find(w => /cap|incomplete/i.test(w)) || 'one or more accounts has a missing balance, date, currency, or an inactive or non-production connection.')}</p>` : ''}${table(['Account', 'Current', 'Available', 'Currency', 'Last synced', 'Connection'], (bank.rows || []).map(x => td([esc(x.name || x.id), bankAmount(x.current_balance, x.iso_currency_code), bankAmount(x.available_balance, x.iso_currency_code), esc(x.iso_currency_code || 'not recorded'), esc(String(x.balance_updated_at || '').slice(0, 10) || 'unknown'), esc([x.connection_status || 'status unknown', x.environment && x.environment !== 'production' ? x.environment : null].filter(Boolean).join(' · '))])), 'No bank accounts loaded')}</section>`
     + `<section><h2>Existing debt</h2><p class="uw-fine">Balance-sheet liability accounts ticked as debt (${included.length}), book balances as of the statement date. Monthly payments are only those entered; ${result.unknownPaymentCount ? `${result.unknownPaymentCount} ticked account${result.unknownPaymentCount === 1 ? ' has' : 's have'} none.` : 'all ticked accounts have one.'}</p>${result.debtCoverage.complete ? '' : `<p class="uw-data-warning">Debt coverage incomplete: ${esc(result.debtCoverage.reasons.join(' '))}</p>`}${quickDebtsHtml(debts || [], money, { editable: false })}<p class="uw-fine">Unticked rows are excluded by classification; unknown balances remain unresolved.</p><p><strong>${result.debtCoverage.complete ? `Total ticked debt ${money(result.existingDebt)}` : `Total ticked debt unknown · known balance subtotal ${money(result.knownDebt)}`}</strong> · entered monthly payments ${money(result.knownExisting)} · debt to assets ${pct(r.debtToAssetsBefore)} today, ${pct(r.debtToAssetsAfter)} after the request</p></section>`

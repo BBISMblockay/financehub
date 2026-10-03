@@ -45,7 +45,7 @@
 /* Quick look: three inputs, the rest from the books. Lands first; the four-step workflow sits behind the mode switch. */
 .uw-mode{display:inline-flex;align-self:flex-start;padding:3px;border:1px solid var(--bcn-border);border-radius:5px;background:var(--bcn-sunken);gap:2px}.uw-mode button{border:0;border-radius:3px;padding:8px 14px;background:none;color:var(--bcn-ink-3);font:600 11px var(--bcn-font);cursor:pointer}.uw-mode button[aria-pressed=true]{color:var(--bcn-ink);background:var(--bcn-surface);box-shadow:0 1px 3px #0001}
 .uw-quick{display:grid;gap:18px}.uw-quick[hidden]{display:none!important}.uw-quick-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:20px;align-items:start}
-.uw-quick-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;padding:18px 22px 4px}.uw-quick-fields .uw-span-all{grid-column:1/-1}
+.uw-quick-fields{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;padding:18px 22px 4px}.uw-quick-fields .uw-span-all{grid-column:1/-1}
 .uw-verdict{margin:16px 22px 0;padding:16px 18px;border-radius:8px;border:1px solid var(--bcn-border);border-left-width:4px;background:var(--bcn-sunken)}.uw-verdict strong{display:block;font-size:16px;letter-spacing:-.3px;margin-bottom:6px}.uw-verdict p{margin:4px 0 0;font-size:11px;line-height:1.55;color:var(--bcn-ink-2)}
 .uw-verdict--comfortable{border-left-color:var(--bcn-pos);background:var(--bcn-pos-soft)}.uw-verdict--tight{border-left-color:var(--bcn-warn)}.uw-verdict--no{border-left-color:var(--bcn-neg);background:var(--bcn-neg-soft)}.uw-verdict--unknown{border-left-color:var(--bcn-ink-4)}
 .uw-quick-kpis{grid-template-columns:repeat(4,minmax(0,1fr));padding-top:18px}.uw-quick-kpis .uw-kpi-value{font-size:22px}

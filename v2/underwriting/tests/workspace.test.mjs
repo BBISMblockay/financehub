@@ -1046,14 +1046,14 @@ test('quick mode prints a static one-page packet and the ticks survive a downloa
   h.node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:77', field: 'include' }, checked: true } });
   await h.api.download();
   const payload = JSON.parse(await h.downloads[0].text());
-  assert.deepEqual(payload.quick, { asOfMonth: null, debts: [{ id: 'connection-a:42', include: true, monthlyPayment: 4321 }, { id: 'connection-a:77', include: true, monthlyPayment: null }] });
+  assert.deepEqual(payload.quick, { asOfMonth: null, basis: null, debts: [{ id: 'connection-a:42', include: true, monthlyPayment: 4321 }, { id: 'connection-a:77', include: true, monthlyPayment: null }] });
   assert.deepEqual(payload.facilities.map(f => [f.id, f.monthlyPayment]), [['quick:connection-a:42', 4321], ['quick:connection-a:77', null]], 'the register travels with the file');
   h.api.state.quick.debts[0].monthlyPayment = null; h.api.state.quick.debts[1].include = false;
   await h.api.importScenario(h.file(payload));
   assert.equal(h.api.state.quick.debts[0].monthlyPayment, 4321); assert.equal(h.api.state.quick.debts[1].include, true);
   assert.equal(h.api.state.quick.debts[0].balance, 400000, 'balances still come from the live balance sheet, not the file');
   h.api.clearSensitive('Signed out. Sign in to SILO and refresh this page.');
-  assert.deepEqual(JSON.parse(JSON.stringify(h.api.state.quick)), { debts: [], prefs: [], asOfMonth: null }); assert.equal(h.node('quickVerdict').innerHTML, '');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.api.state.quick)), { debts: [], prefs: [], asOfMonth: null, basis: null }); assert.equal(h.node('quickVerdict').innerHTML, '');
 });
 
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -1181,4 +1181,38 @@ test('initial Quick debt rows use the resolved complete month instead of a newer
   assert.equal(api.state.quickResult.facts.asOfMonth, '2026-08');
   assert.equal(api.state.quick.debts.find(d => d.id === 'connection-a:42').balance, 400000);
   assert.equal(api.state.quick.debts.find(d => d.id === 'connection-a:42').asOf, '2026-08-31');
+});
+
+const plannedSnapshot = () => {
+  const snap = quickSnapshot();
+  snap.sources.revenuePlan = { status: 'partial', businessDate: '2026-09-03', monthly: [
+    ...['2026-05', '2026-06', '2026-07', '2026-08'].map(m => ({ month: m, plannedSales: 500000, actualNetSales: 400000, matchedPlannedSales: 500000, matchedActualNetSales: 400000, matchedLocationDays: 60, unmappedPlanRows: 0, unplannedActualLocationDays: 0, completeMonth: true })),
+    ...['2026-09', '2026-10', '2026-11', '2026-12'].map((m, i) => ({ month: m, plannedSales: [500000, 800000, 2000000, 600000][i], actualNetSales: null, completeMonth: false })),
+  ] };
+  return snap;
+};
+
+test('the quick look judges on the sales plan when one lies ahead and the choice travels in the file', async () => {
+  const h = harness({ loadSourceSnapshot: async () => plannedSnapshot() });
+  h.api.state.values.existingPayment = '';
+  await h.api.boot();
+  const r = () => h.api.state.quickResult;
+  assert.equal(r().basisChoice, 'plan', 'plan is the default when available');
+  assert.equal(r().forward.conversion, 60000 / 400000); assert.equal(r().forward.attainment, .8);
+  assert.deepEqual(JSON.parse(JSON.stringify(r().forward.months.map(m => [m.month, m.projectedCash]))), [['2026-09', 60000], ['2026-10', 96000], ['2026-11', 240000], ['2026-12', 72000]]);
+  assert.equal(h.node('q-basis').value, 'plan');
+  assert.match(h.node('quickVerdict').innerHTML, /on the sales plan|Not enough|Enter an amount/);
+  h.node('workspace').change({ target: { dataset: { quick: 'basis' }, value: 'trailing' } });
+  assert.equal(h.api.state.quick.basis, 'trailing'); assert.equal(r().basisChoice, 'trailing'); assert.equal(h.node('q-basis').value, 'trailing');
+  await h.api.download();
+  const payload = JSON.parse(await h.downloads[0].text());
+  assert.equal(payload.quick.basis, 'trailing');
+  h.api.state.quick.basis = null;
+  await h.api.importScenario(h.file(payload));
+  assert.equal(h.api.state.quick.basis, 'trailing'); assert.equal(r().basisChoice, 'trailing');
+  // Without a plan the plan option is disabled and the choice falls back.
+  const bare = harness({ loadSourceSnapshot: async () => quickSnapshot() });
+  bare.node('q-basis').options = [{ value: 'plan' }, { value: 'trailing' }];
+  await bare.api.boot();
+  assert.equal(bare.api.state.quickResult.basisChoice, 'trailing'); assert.equal(bare.node('q-basis').options[0].disabled, true);
 });

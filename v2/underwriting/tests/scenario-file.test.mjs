@@ -35,7 +35,7 @@ test('input numbers preserve unknowns and reject non-decimal JS coercions', () =
 
 test('complete scenario imports preserve explicit unknowns and booleans', () => {
   const input = doc();
-  assert.deepEqual(validate(input), { values: input.values, overrides: {}, commitments: [], facilities: [], cashTiming: cashTiming(), reviewBaseline: null, quick: { asOfMonth: null, debts: [] } });
+  assert.deepEqual(validate(input), { values: input.values, overrides: {}, commitments: [], facilities: [], cashTiming: cashTiming(), reviewBaseline: null, quick: { asOfMonth: null, basis: null, debts: [] } });
   input.values.amount = '';
   assert.equal(validate(input).values.amount, '');
 });
@@ -470,9 +470,12 @@ test('monthly overrides are bounded and empty months are not carried', () => {
 });
 
 test('the optional quick-look section stores only ticks and typed payments per account id', () => {
-  assert.deepEqual(validate(doc()).quick, { asOfMonth: null, debts: [] }, 'absent means none');
+  assert.deepEqual(validate(doc()).quick, { asOfMonth: null, basis: null, debts: [] }, 'absent means none');
   const input = { ...doc(), quick: { debts: [{ id: 'conn-a:42', include: true, monthlyPayment: 1250.5 }, { id: 'conn-a:43', include: false, monthlyPayment: null }] } };
-  assert.deepEqual(validate(input).quick, { asOfMonth: null, ...input.quick });
+  assert.deepEqual(validate(input).quick, { asOfMonth: null, basis: null, ...input.quick });
+  assert.equal(validate({ ...doc(), quick: { basis: 'plan', debts: [] } }).quick.basis, 'plan');
+  assert.equal(validate({ ...doc(), quick: { basis: 'trailing', debts: [] } }).quick.basis, 'trailing');
+  for (const basis of ['auto', 'PLAN', 1]) assert.throws(() => validate({ ...doc(), quick: { basis, debts: [] } }), /basis/);
   assert.equal(validate({ ...doc(), quick: { asOfMonth: '2026-03', debts: [] } }).quick.asOfMonth, '2026-03');
   assert.equal(validate({ ...doc(), quick: { asOfMonth: '', debts: [] } }).quick.asOfMonth, null);
   for (const asOfMonth of ['2026-3', '2026-13', 'latest', 3]) assert.throws(() => validate({ ...doc(), quick: { asOfMonth, debts: [] } }), /asOfMonth/);
