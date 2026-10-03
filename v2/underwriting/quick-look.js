@@ -41,20 +41,42 @@ const DEBT_TYPES = {
 
 /** Draft the existing-debt list from matched balance-sheet accounts, keeping any
  * tick or payment the person already entered for the same account id. */
-export function draftQuickDebts(accountOptions = [], previous = []) {
+export function draftQuickDebts(accountOptions = [], previous = [], { accountHistory = [], asOfMonth = null } = {}) {
   const prior = new Map((previous || []).map(d => [d.id, d]));
+  // When a month is chosen, each account's balance is that month's column of
+  // the same balance sheet; otherwise the statement's latest column.
+  const dated = new Map();
+  if (asOfMonth) for (const h of accountHistory || []) {
+    const v = (h.values || []).find(x => String(x.periodEnd || '').slice(0, 7) === asOfMonth);
+    if (v && !h.ambiguous) dated.set(`${h.connectionId}:${h.accountId}`, { balance: finite(v.balance) ? v.balance : null, asOf: v.periodEnd });
+  }
   return (accountOptions || [])
-    .filter(a => DEBT_TYPES[a.accountType] && finite(a.balance) && a.balance > 0)
-    .sort((a, b) => b.balance - a.balance)
-    .map(a => {
+    .map(a => { const d = asOfMonth && dated.has(a.id) ? dated.get(a.id) : { balance: a.balance, asOf: a.balanceAsOf || null }; return { a, balance: d.balance, asOf: d.asOf }; })
+    .filter(({ a, balance }) => DEBT_TYPES[a.accountType] && finite(balance) && balance > 0)
+    .sort((x, y) => y.balance - x.balance)
+    .map(({ a, balance, asOf }) => {
       const p = prior.get(a.id), rule = DEBT_TYPES[a.accountType];
-      return { id: a.id, label: a.label, accountType: a.accountType, kind: rule.kind, balance: a.balance, asOf: a.balanceAsOf || null, currency: a.balanceCurrency || null,
+      return { id: a.id, label: a.label, accountType: a.accountType, kind: rule.kind, balance, asOf, currency: a.balanceCurrency || null,
         include: p ? p.include === true : rule.include, monthlyPayment: p && finite(p.monthlyPayment) && p.monthlyPayment >= 0 ? p.monthlyPayment : null };
     });
 }
 
-function trailing(rows, key, max = QUICK_RULES.trailingMonths) {
-  const complete = (rows || []).filter(r => r.completeMonth && finite(r[key])).slice(-max);
+const monthOf = r => String(r?.month || r?.periodStart || r?.periodEnd || '').slice(0, 7);
+/** The statement months a reader can date the Quick look to: complete months
+ * on the saved balance sheet, oldest first. Empty when the balance sheet has
+ * no monthly columns (then everything reads from its headline column). */
+export function quickMonthOptions(snapshot) {
+  const rows = snapshot?.sources?.balanceSheet?.monthly || [];
+  return [...new Set(rows.filter(r => r.completeMonth && monthOf(r)).map(monthOf))].sort();
+}
+export function resolveAsOfMonth(snapshot, requested) {
+  const options = quickMonthOptions(snapshot);
+  if (!options.length) return { month: null, options, requested: requested || null, honoured: !requested };
+  const month = options.includes(requested) ? requested : options.at(-1);
+  return { month, options, requested: requested || null, honoured: !requested || month === requested };
+}
+function trailing(rows, key, max = QUICK_RULES.trailingMonths, upTo = null) {
+  const complete = (rows || []).filter(r => r.completeMonth && finite(r[key]) && (!upTo || monthOf(r) <= upTo)).slice(-max);
   if (!complete.length) return { months: 0, total: null, average: null, from: null, to: null };
   const total = complete.reduce((t, r) => t + r[key], 0);
   const label = r => String(r.month || r.periodStart || '').slice(0, 7);
@@ -63,17 +85,23 @@ function trailing(rows, key, max = QUICK_RULES.trailingMonths) {
 const latestRow = rows => (rows || []).slice().sort((a, b) => String(a.periodEnd || a.month).localeCompare(String(b.periodEnd || b.month))).at(-1);
 const metric = (source, label) => source?.scopeFiltered ? null : source?.metrics?.find(m => m.label === label)?.value ?? null;
 
-export function quickLook({ snapshot, inputs = {}, debts = [], month } = {}) {
+export function quickLook({ snapshot, inputs = {}, debts = [], month, asOfMonth = null } = {}) {
   const sources = snapshot?.sources || {}, pl = sources.profitAndLoss || {}, bs = sources.balanceSheet || {}, cf = sources.cashflow || {};
   const amount = num(inputs.amount), rate = num(inputs.rate), term = num(inputs.term);
-  const b = latestRow(bs.monthly) || {};
+  const asOf = resolveAsOfMonth(snapshot, asOfMonth);
+  const column = asOf.month ? (bs.monthly || []).find(r => monthOf(r) === asOf.month) : null;
+  // Once a monthly column is in use, a field it lacks stays UNKNOWN. The
+  // headline metric is another period's figure and may only stand in when the
+  // statement has no monthly columns at all.
+  const b = column || (asOf.month ? {} : latestRow(bs.monthly) || {});
+  const fromColumn = (key, headline) => finite(b[key]) ? b[key] : column ? null : metric(bs, headline);
   const currency = bs.currency || pl.currency || cf.currency || null;
   const facts = {
-    currency,
-    openingCash: { value: finite(b.bookCash) ? b.bookCash : metric(bs, 'Book bank balances'), asOf: b.periodEnd || bs.periodEnd || null, source: 'QuickBooks balance sheet · bank accounts' },
-    totalAssets: { value: finite(b.assets) ? b.assets : metric(bs, 'Total assets'), asOf: b.periodEnd || bs.periodEnd || null, source: 'QuickBooks balance sheet' },
-    revenue: trailing(pl.monthly, 'revenue'), grossProfit: trailing(pl.monthly, 'grossProfit'), operatingIncome: trailing(pl.monthly, 'operatingIncome'),
-    operatingCash: trailing(cf.monthly, 'operating'),
+    currency, asOfMonth: asOf.month, asOfOptions: asOf.options, asOfHonoured: asOf.honoured,
+    openingCash: { value: fromColumn('bookCash', 'Book bank balances'), asOf: b.periodEnd || bs.periodEnd || null, source: 'QuickBooks balance sheet · bank accounts' },
+    totalAssets: { value: fromColumn('assets', 'Total assets'), asOf: b.periodEnd || bs.periodEnd || null, source: 'QuickBooks balance sheet' },
+    revenue: trailing(pl.monthly, 'revenue', QUICK_RULES.trailingMonths, asOf.month), grossProfit: trailing(pl.monthly, 'grossProfit', QUICK_RULES.trailingMonths, asOf.month), operatingIncome: trailing(pl.monthly, 'operatingIncome', QUICK_RULES.trailingMonths, asOf.month),
+    operatingCash: trailing(cf.monthly, 'operating', QUICK_RULES.trailingMonths, asOf.month),
   };
   const included = (debts || []).filter(d => d.include === true && finite(d.balance));
   const existingDebt = included.length ? round2(included.reduce((t, d) => t + d.balance, 0)) : 0;
@@ -119,7 +147,9 @@ export function quickLook({ snapshot, inputs = {}, debts = [], month } = {}) {
     if (unknownPaymentCount > 0) reasons.push(`${unknownPaymentCount} ticked debt${unknownPaymentCount === 1 ? ' has' : 's have'} no monthly payment entered, so the real combined service is higher than shown.`);
     if (finite(ratios.cashCoverMonths) && ratios.cashCoverMonths < 1) reasons.push(`Book bank balances cover less than one month of combined payments (${ratios.cashCoverMonths.toFixed(1)} months).`);
   }
-  if (!finite(facts.openingCash.value)) reasons.push('Opening cash is not available from the saved balance sheet.');
+  if (!finite(facts.openingCash.value)) reasons.push(column ? `The ${asOf.month} balance-sheet column has no bank-balance total; opening cash is unknown rather than another month's figure.` : 'Opening cash is not available from the saved balance sheet.');
+  if (column && !finite(facts.totalAssets.value)) reasons.push(`The ${asOf.month} balance-sheet column has no total-assets figure; debt to assets is unknown rather than another month's figure.`);
+  if (!asOf.honoured) reasons.push(`${asOf.requested} is not a complete month on the saved balance sheet; figures are as of ${asOf.month}.`);
   if (basis && basis.key === 'operatingIncome') reasons.push('No saved cash-flow statement, so the basis is net operating income, which is not cash.');
 
   return {
@@ -131,6 +161,7 @@ export function quickLook({ snapshot, inputs = {}, debts = [], month } = {}) {
       `Basis: average monthly ${basis ? basis.label : 'operating cash flow'} over complete months in the saved statements (up to ${QUICK_RULES.trailingMonths}). Partial months are excluded.`,
       `Verdict: combined monthly service as a share of that basis -- comfortable up to ${pct(QUICK_RULES.comfortableShare)}, tight up to ${pct(QUICK_RULES.tightShare)}. A ticked debt with no payment entered caps the verdict at tight.`,
       'Existing debt: balance-sheet accounts typed as long-term liability, credit card or other current liability, ticked by you. Balances are book balances as of the statement date; payments are only what you typed.',
+      `As-of month: ${asOf.month ? `${asOf.month}; balance-sheet figures and debt balances are that month's column and averages run up to it` : 'the statement\'s latest column (no monthly columns are saved)'}. The Advanced register always reads the latest statement balance.`,
       'This is a quick read of saved QuickBooks snapshots, not an approval, covenant test or lender policy. The advanced workflow is where documented assumptions and full schedules live.',
     ],
   };
@@ -191,16 +222,18 @@ export function quickProposalHtml({ result, debts, snapshot, money, companyTitle
   const f = result.facts, r = result.ratios;
   // Performance: complete P&L months (up to 12) with the cash-flow month beside them.
   const cfByMonth = new Map((cf.monthly || []).filter(x => x.completeMonth).map(x => [String(x.periodStart).slice(0, 7), x.operating]));
-  const perf = (pl.monthly || []).filter(x => x.completeMonth).slice(-QUICK_RULES.trailingMonths);
+  const perf = (pl.monthly || []).filter(x => x.completeMonth && (!f.asOfMonth || monthOf(x) <= f.asOfMonth)).slice(-QUICK_RULES.trailingMonths);
   const sum = key => perf.length && perf.every(x => finite(x[key])) ? perf.reduce((t, x) => t + x[key], 0) : null;
   const revenueTotal = sum('revenue'), gpTotal = sum('grossProfit'), oiTotal = sum('operatingIncome');
   const cfTotal = perf.length && perf.every(x => finite(cfByMonth.get(x.month))) ? perf.reduce((t, x) => t + cfByMonth.get(x.month), 0) : null;
   const perfRows = perf.map(x => td([esc(x.month), money(x.revenue), money(x.grossProfit), pctOf(x.grossProfit, x.revenue), money(x.operatingIncome), finite(cfByMonth.get(x.month)) ? money(cfByMonth.get(x.month)) : '—']));
   if (perf.length) perfRows.push(td([`<strong>${perf.length}-month total</strong>`, `<strong>${money(revenueTotal)}</strong>`, `<strong>${money(gpTotal)}</strong>`, `<strong>${pctOf(gpTotal, revenueTotal)}</strong>`, `<strong>${money(oiTotal)}</strong>`, `<strong>${money(cfTotal)}</strong>`]));
   // Balance sheet: the latest monthly column, or the headline metrics.
-  const b = latestRow(bs.monthly) || {};
+  const column = f.asOfMonth ? (bs.monthly || []).find(x => monthOf(x) === f.asOfMonth) : null;
+  const b = column || (f.asOfMonth ? {} : latestRow(bs.monthly) || {});
   const bsAsOf = b.periodEnd || bs.periodEnd || null;
-  const bsItems = [['Total assets', finite(b.assets) ? b.assets : metric(bs, 'Total assets')], ['Total liabilities', finite(b.liabilities) ? b.liabilities : metric(bs, 'Total liabilities')], ['Equity', finite(b.equity) ? b.equity : metric(bs, 'Total equity')],
+  const fromColumn = (key, headline) => finite(b[key]) ? b[key] : column ? null : metric(bs, headline);
+  const bsItems = [['Total assets', fromColumn('assets', 'Total assets')], ['Total liabilities', fromColumn('liabilities', 'Total liabilities')], ['Equity', fromColumn('equity', 'Total equity')],
     ['Bank accounts (book)', f.openingCash.value], ['Accounts receivable', b.accountsReceivable], ['Accounts payable', b.accountsPayable], ['Current assets', b.currentAssets], ['Current liabilities', b.currentLiabilities], ['Long-term liabilities', b.longTermLiabilities], ['Credit cards', b.creditCards]];
   const included = (debts || []).filter(d => d.include);
   // Inventory and purchase orders: units and recorded value, arrivals by month.
@@ -212,10 +245,10 @@ export function quickProposalHtml({ result, debts, snapshot, money, companyTitle
   const today = String(plan.businessDate || '').slice(0, 7);
   const recent = planRows.filter(x => x.month < today).slice(-6), ahead = planRows.filter(x => x.month >= today && finite(x.plannedSales)).slice(0, 3);
   const coverage = Object.entries(SOURCE_NAMES).map(([key, name]) => { const s = sources[key] || {}; return td([esc(name), esc(STATUS_WORDS[s.status] || 'not loaded'), esc(String(s.asOf || s.periodEnd || 'date unknown').slice(0, 10)), esc(s.periodStart ? `${s.periodStart} to ${s.periodEnd || '?'}` : '')]); });
-  return `<header><div class="uw-eyebrow">DRAFT FINANCING PROPOSAL · PREPARED FROM SAVED SOURCES</div><h1>${esc(companyTitle || 'Current company')}</h1><p>Prepared ${esc(String(preparedAt).slice(0, 10))} · ${esc(f.currency || 'currency not stated')} · draft for an underwriter's review, not an approval or offer</p></header>`
+  return `<header><div class="uw-eyebrow">DRAFT FINANCING PROPOSAL · PREPARED FROM SAVED SOURCES</div><h1>${esc(companyTitle || 'Current company')}</h1><p>Prepared ${esc(String(preparedAt).slice(0, 10))} · ${esc(f.currency || 'currency not stated')}${f.asOfMonth ? ` · figures as of ${esc(f.asOfMonth)}` : ''} · draft for an underwriter's review, not an approval or offer</p></header>`
     + `<section><h2>Request</h2><p><strong>${result.inputsComplete ? `${money(result.inputs.amount)} at ${esc(result.inputs.rate)}% over ${esc(result.inputs.term)} months, amortizing monthly` : 'Amount, rate and term not yet entered'}</strong>${result.inputs.purpose ? ` · ${esc(result.inputs.purpose)}` : ''}</p>${quickVerdictHtml(result)}<div class="uw-kpis">${quickResultHtml(result, money)}</div></section>`
     + `<section><h2>Business performance</h2><p class="uw-fine">Complete calendar months in the saved statements, newest ${perf.length ? `${perf[0].month} to ${perf.at(-1).month}` : 'none'}. Operating cash flow is the cash-flow statement's operating total for the same month; it is historical and unnormalized.</p>${missingNote(pl, SOURCE_NAMES.profitAndLoss)}${missingNote(cf, SOURCE_NAMES.cashflow)}${table(['Month', 'Revenue', 'Gross profit', 'Gross margin', 'Operating income', 'Operating cash flow'], perfRows, 'No complete months in the saved P&L')}</section>`
-    + `<section><h2>Balance sheet</h2><p class="uw-fine">${esc(SOURCE_NAMES.balanceSheet)} as of ${esc(bsAsOf || 'date unknown')} · ${esc(bs.basis || 'basis not stated')}.</p>${missingNote(bs, SOURCE_NAMES.balanceSheet)}${table(['Line', 'Book balance'], bsItems.filter(([, v]) => finite(v)).map(([k, v]) => td([esc(k), money(v)])), 'No balance sheet loaded')}</section>`
+    + `<section><h2>Balance sheet</h2><p class="uw-fine">${esc(SOURCE_NAMES.balanceSheet)} as of ${esc(bsAsOf || 'date unknown')} · ${esc(bs.basis || 'basis not stated')}.</p>${missingNote(bs, SOURCE_NAMES.balanceSheet)}${column && ['assets', 'liabilities', 'equity', 'bookCash'].some(k => !finite(b[k])) ? `<p class="uw-data-warning">The ${esc(f.asOfMonth)} column lacks ${esc([['assets', 'total assets'], ['liabilities', 'total liabilities'], ['equity', 'equity'], ['bookCash', 'bank balances']].filter(([k]) => !finite(b[k])).map(([, l]) => l).join(', '))}; those lines are left out rather than filled from another month.</p>` : ''}${table(['Line', 'Book balance'], bsItems.filter(([, v]) => finite(v)).map(([k, v]) => td([esc(k), money(v)])), 'No balance sheet loaded')}</section>`
     + `<section><h2>Saved bank balances</h2><p class="uw-fine">Balances as last synced from the bank feed (${esc(SOURCE_NAMES.bank)}), each with its own date and connection status. Loading this page does not call the bank; a balance is only as current as its sync date. Not reconciled to the books; a negative balance can be a sweep or line position.</p>${missingNote(bank, SOURCE_NAMES.bank)}${bank.status === 'partial' ? `<p class="uw-data-warning">Bank coverage is partial: ${esc((bank.warnings || []).find(w => /cap|incomplete/i.test(w)) || 'one or more accounts has a missing balance, date, currency, or an inactive or non-production connection.')}</p>` : ''}${table(['Account', 'Current', 'Available', 'Currency', 'Last synced', 'Connection'], (bank.rows || []).map(x => td([esc(x.name || x.id), bankAmount(x.current_balance, x.iso_currency_code), bankAmount(x.available_balance, x.iso_currency_code), esc(x.iso_currency_code || 'not recorded'), esc(String(x.balance_updated_at || '').slice(0, 10) || 'unknown'), esc([x.connection_status || 'status unknown', x.environment && x.environment !== 'production' ? x.environment : null].filter(Boolean).join(' · '))])), 'No bank accounts loaded')}</section>`
     + `<section><h2>Existing debt</h2><p class="uw-fine">Balance-sheet liability accounts ticked as debt (${included.length}), book balances as of the statement date. Monthly payments are only those entered; ${result.unknownPaymentCount ? `${result.unknownPaymentCount} ticked account${result.unknownPaymentCount === 1 ? ' has' : 's have'} none.` : 'all ticked accounts have one.'}</p>${quickDebtsHtml(included, money, { editable: false })}<p><strong>Total ticked debt ${money(result.existingDebt)}</strong> · entered monthly payments ${money(result.knownExisting)} · debt to assets ${pct(r.debtToAssetsBefore)} today, ${pct(r.debtToAssetsAfter)} after the request</p></section>`
     + `<section><h2>Inventory and purchase commitments</h2>${missingNote(inv, SOURCE_NAMES.inventory)}${missingNote(po, SOURCE_NAMES.purchaseOrders)}<p>On hand <strong>${n0(invUnits)}</strong> units as of ${esc(String(inv.asOf || 'date unknown').slice(0, 10))}${finite(knownInvValue) ? ` · recorded value ${n0(knownInvValue)} (currency not recorded) where a value is recorded` : ''} · placed purchase orders <strong>${n0(po.placedCount)}</strong>.</p>${table(['Product group', 'Units', 'Recorded value (currency not recorded)'], groups.map(g => td([esc(g.productType), n0(g.units), n0(g.knownRecordedValue)])), 'No inventory groups loaded')}${table(['Expected arrival', 'POs', 'Units', 'Known line cost (currency not recorded)'], arrivals.map(a => td([esc(a.month || 'No date'), n0(a.poCount), n0(a.units), n0(a.knownEstimatedCost)])), 'No placed purchase orders')}<p class="uw-fine">Inventory values and PO line costs carry no currency in their sources, so they are shown as plain numbers and never in the statement currency. Inventory values are the sync's recorded values, not an appraisal or borrowing base. PO cost is known line cost, not an unpaid balance; arrival months are planning dates, not payment dates.</p></section>`

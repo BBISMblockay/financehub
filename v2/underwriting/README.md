@@ -30,8 +30,22 @@ rests on, with dates:
   with no payment entered caps the verdict at tight** -- a payment nobody has
   entered is not a payment of zero. The rules are printed under the result.
 
+**Figures as of** lists the complete months on the saved balance sheet (latest
+by default). Choosing one re-dates the balance-sheet facts and the debt
+balances to that month's column and ends every trailing average at it, so the
+same request can be read as of a stronger or weaker window; the proposal says
+which month it is as of. A month not on the statement falls back to the latest
+and says so. The Advanced register always reads the latest statement balance.
+
 The three inputs are the same fields as the advanced proposal, so switching to
-the Advanced workflow finds them filled. Opening cash is seeded once from book
+the Advanced workflow finds them filled. **Ticked debts are the Advanced
+facility register**: ticking creates a facility matched to that account
+(`quick:<account id>`, payments mode, the typed payment as its monthly P&I),
+unticking removes the facility Quick look made, a payment typed in either place
+shows in both, and a facility removed in Advanced unticks the row. A facility a
+person built by hand for the same account is never removed from Quick look.
+When the first facilities arrive and the manual aggregate is blank, capacity
+switches to facility mode once; a later choice of mode is kept. Opening cash is seeded once from book
 bank balances (only when blank, with provenance naming the source and date; the
 review box stays unchecked). Ticks and typed payments travel in the v4 scenario
 file (`quick.debts`); balances come back from the live balance sheet.

@@ -1002,7 +1002,8 @@ const quickAccounts = () => [
   { id: 'connection-a:77', label: 'Sales tax payable', accountType: 'Other Current Liability', balance: 9000, balanceAsOf: '2026-08-31', balanceCurrency: 'USD' },
 ];
 const quickSnapshot = () => ({ currency: 'USD', accountOptions: quickAccounts(), sources: {
-  balanceSheet: { currency: 'USD', periodEnd: '2026-08-31', metrics: [], monthly: [{ month: '2026-08', periodEnd: '2026-08-31', completeMonth: true, bookCash: 125000, assets: 2000000 }] },
+  balanceSheet: { currency: 'USD', periodEnd: '2026-08-31', metrics: [], monthly: [{ month: '2026-07', periodEnd: '2026-07-31', completeMonth: true, bookCash: 90000, assets: 1900000 }, { month: '2026-08', periodEnd: '2026-08-31', completeMonth: true, bookCash: 125000, assets: 2000000 }],
+    accountHistory: [{ accountId: '42', connectionId: 'connection-a', ambiguous: false, values: [{ periodEnd: '2026-07-31', balance: 410000 }, { periodEnd: '2026-08-31', balance: 400000 }] }] },
   profitAndLoss: { currency: 'USD', metrics: [], monthly: [] },
   cashflow: { currency: 'USD', metrics: [], monthly: ['2026-05', '2026-06', '2026-07', '2026-08'].map(m => ({ periodStart: `${m}-01`, periodEnd: `${m}-28`, completeMonth: true, operating: 60000 })) },
 } });
@@ -1038,14 +1039,117 @@ test('quick mode prints a static one-page packet and the ticks survive a downloa
   assert.ok(packet.includes('DRAFT FINANCING PROPOSAL')); assert.ok(packet.includes('Synthetic company A')); assert.ok(packet.includes('Sources and dates')); assert.ok(!packet.includes('<input'));
   h.node('quickProposalDetails').open = true; h.node('quickProposalDetails').toggle();
   assert.ok(h.node('quickProposalPreview').innerHTML.includes('Business performance'), 'opening the preview renders the same proposal on screen');
-  h.api.state.quick.debts[0].monthlyPayment = 4321; h.api.state.quick.debts[1].include = true;
+  h.node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:42', field: 'monthlyPayment' }, value: '4321' } });
+  h.node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:77', field: 'include' }, checked: true } });
   await h.api.download();
   const payload = JSON.parse(await h.downloads[0].text());
-  assert.deepEqual(payload.quick, { debts: [{ id: 'connection-a:42', include: true, monthlyPayment: 4321 }, { id: 'connection-a:77', include: true, monthlyPayment: null }] });
+  assert.deepEqual(payload.quick, { asOfMonth: null, debts: [{ id: 'connection-a:42', include: true, monthlyPayment: 4321 }, { id: 'connection-a:77', include: true, monthlyPayment: null }] });
+  assert.deepEqual(payload.facilities.map(f => [f.id, f.monthlyPayment]), [['quick:connection-a:42', 4321], ['quick:connection-a:77', null]], 'the register travels with the file');
   h.api.state.quick.debts[0].monthlyPayment = null; h.api.state.quick.debts[1].include = false;
   await h.api.importScenario(h.file(payload));
   assert.equal(h.api.state.quick.debts[0].monthlyPayment, 4321); assert.equal(h.api.state.quick.debts[1].include, true);
   assert.equal(h.api.state.quick.debts[0].balance, 400000, 'balances still come from the live balance sheet, not the file');
   h.api.clearSensitive('Signed out. Sign in to SILO and refresh this page.');
-  assert.deepEqual(JSON.parse(JSON.stringify(h.api.state.quick)), { debts: [] }); assert.equal(h.node('quickVerdict').innerHTML, '');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.api.state.quick)), { debts: [], prefs: [], asOfMonth: null }); assert.equal(h.node('quickVerdict').innerHTML, '');
+});
+
+const plain = value => JSON.parse(JSON.stringify(value));
+test('ticked quick debts are the advanced facility register, in both directions', async () => {
+  const { api, node } = harness({ loadSourceSnapshot: async () => quickSnapshot() });
+  api.state.values.existingPayment = '';
+  await api.boot();
+  // Load: the long-term liability starts ticked and is already a facility; the OCL is not.
+  assert.deepEqual(plain(api.state.facilities.map(f => [f.id, f.accountId, f.kind, f.name, f.scheduleMode, f.balanceSource])), [['quick:connection-a:42', 'connection-a:42', 'loan', 'Bank term loan', 'payments', 'account']]);
+  assert.equal(api.state.facilities[0].monthlyPayment, null);
+  assert.equal(api.state.values.existingDebtMode, 'facilities', 'capacity reads the register once facilities exist and the manual aggregate is blank');
+  // Payment typed in Quick look is the facility's monthly payment.
+  node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:42', field: 'monthlyPayment' }, value: '2500' } });
+  assert.equal(api.state.facilities[0].monthlyPayment, 2500); assert.match(api.state.facilities[0].scheduleProvenance, /Quick look/);
+  // Tick the OCL: a second facility, kind loan.
+  node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:77', field: 'include' }, checked: true } });
+  assert.deepEqual(plain(api.state.facilities.map(f => f.id)), ['quick:connection-a:42', 'quick:connection-a:77']);
+  // Payment edited in Advanced flows back to Quick look.
+  node('workspace').change({ target: { dataset: { facility: 'quick:connection-a:42', field: 'monthlyPayment' }, type: 'number', value: '3100' } });
+  assert.equal(api.state.quick.debts[0].monthlyPayment, 3100);
+  // Untick removes the facility Quick look made.
+  node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:77', field: 'include' }, checked: false } });
+  assert.deepEqual(plain(api.state.facilities.map(f => f.id)), ['quick:connection-a:42']);
+  // A hand-built facility for the same account is kept and the row stays ticked.
+  api.state.facilities.push({ ...api.state.facilities[0], id: 'hand-made', accountId: 'connection-a:77', name: 'My note', monthlyPayment: 900 });
+  api.state.quick.debts[1].include = true; api.render();
+  node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:77', field: 'include' }, checked: false } });
+  assert.equal(api.state.facilities.some(f => f.id === 'hand-made'), true); assert.equal(api.state.quick.debts[1].include, true);
+  assert.match(node('status').textContent, /set up in the Advanced workflow/);
+  // Removing a facility in Advanced unticks the row.
+  node('workspace').click({ target: { closest: selector => selector === '[data-remove-facility]' ? { dataset: { removeFacility: 'quick:connection-a:42' } } : null } });
+  assert.equal(api.state.quick.debts[0].include, false); assert.deepEqual(plain(api.state.facilities.map(f => f.id)), ['hand-made']);
+  // The mode choice is made once: switching back to manual survives later ticks.
+  api.state.values.existingDebtMode = 'manual';
+  node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:42', field: 'include' }, checked: true } });
+  assert.equal(api.state.values.existingDebtMode, 'manual'); assert.equal(api.state.facilities.length, 2);
+});
+
+test('a reopened file keeps its facilities as the truth for the quick ticks', async () => {
+  const h = harness({ loadSourceSnapshot: async () => quickSnapshot() });
+  h.api.state.values.existingPayment = '';
+  await h.api.boot();
+  h.api.state.facilities[0].monthlyPayment = 4321; h.api.render();
+  await h.api.download();
+  const payload = JSON.parse(await h.downloads[0].text());
+  assert.equal(payload.facilities[0].id, 'quick:connection-a:42');
+  payload.quick.debts[0].include = false; payload.quick.debts[0].monthlyPayment = null; // stale tick in the file
+  await h.api.importScenario(h.file(payload));
+  assert.equal(h.api.state.quick.debts[0].include, true, 'the facility in the file wins over a stale tick');
+  assert.equal(h.api.state.quick.debts[0].monthlyPayment, 4321);
+  assert.deepEqual(plain(h.api.state.facilities.map(f => f.id)), ['quick:connection-a:42']);
+});
+
+test('the as-of month select re-dates the quick look and travels in the file', async () => {
+  const h = harness({ loadSourceSnapshot: async () => quickSnapshot() });
+  h.api.state.values.existingPayment = '';
+  await h.api.boot();
+  assert.equal(h.api.state.quickResult.facts.asOfMonth, '2026-08'); assert.equal(h.api.state.values.startingCash, '125000');
+  assert.match(h.node('q-asof').innerHTML, /2026-08 · latest/); assert.ok(h.node('q-asof').innerHTML.includes('2026-07'));
+  h.node('workspace').change({ target: { dataset: { quick: 'asOfMonth' }, value: '2026-07' } });
+  assert.equal(h.api.state.quick.asOfMonth, '2026-07'); assert.equal(h.api.state.quickResult.facts.openingCash.value, 90000);
+  assert.equal(h.api.state.quick.debts[0].balance, 410000, 'debt balance is the chosen month\'s column');
+  assert.equal(h.api.state.values.startingCash, '125000', 'a seeded opening cash is not rewritten by re-dating');
+  assert.equal(h.api.state.facilities[0].accountId, 'connection-a:42', 'the register is unchanged');
+  await h.api.download();
+  const payload = JSON.parse(await h.downloads[0].text());
+  assert.equal(payload.quick.asOfMonth, '2026-07');
+  h.api.state.quick.asOfMonth = null;
+  await h.api.importScenario(h.file(payload));
+  assert.equal(h.api.state.quick.asOfMonth, '2026-07'); assert.equal(h.api.state.quickResult.facts.asOfMonth, '2026-07');
+});
+
+test('an exclusion survives a visit to a month where the account had no balance', async () => {
+  const snap = quickSnapshot();
+  snap.accountOptions.push({ id: 'connection-a:9', label: 'Company card', accountType: 'Credit Card', balance: 8000, balanceAsOf: '2026-08-31', balanceCurrency: 'USD' });
+  snap.sources.balanceSheet.accountHistory.push({ accountId: '9', connectionId: 'connection-a', ambiguous: false, values: [{ periodEnd: '2026-07-31', balance: 0 }, { periodEnd: '2026-08-31', balance: 8000 }] });
+  const h = harness({ loadSourceSnapshot: async () => snap });
+  h.api.state.values.existingPayment = '';
+  await h.api.boot();
+  const ids = () => JSON.parse(JSON.stringify(h.api.state.quick.debts.map(d => [d.id, d.include])));
+  assert.deepEqual(ids(), [['connection-a:42', true], ['connection-a:77', false], ['connection-a:9', true]], 'sorted by balance: 400k, 9k, 8k');
+  assert.ok(h.api.state.facilities.some(f => f.accountId === 'connection-a:9'), 'the card starts as a facility');
+  // The person types the card's payment, then says it is not repayable debt after all.
+  h.node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:9', field: 'monthlyPayment' }, value: '300' } });
+  h.node('workspace').change({ target: { dataset: { quickDebt: 'connection-a:9', field: 'include' }, checked: false } });
+  assert.equal(h.api.state.facilities.some(f => f.accountId === 'connection-a:9'), false);
+  // Visit July, where the card had no balance, then come back.
+  h.node('workspace').change({ target: { dataset: { quick: 'asOfMonth' }, value: '2026-07' } });
+  assert.deepEqual(ids(), [['connection-a:42', true], ['connection-a:77', false]], 'a zero-balance month does not list the card');
+  h.node('workspace').change({ target: { dataset: { quick: 'asOfMonth' }, value: '2026-08' } });
+  assert.deepEqual(ids(), [['connection-a:42', true], ['connection-a:77', false], ['connection-a:9', false]], 'the exclusion is remembered');
+  assert.equal(h.api.state.quick.debts.find(d => d.id === 'connection-a:9').monthlyPayment, 300, 'a payment typed on an unticked row is remembered too; the register cannot restore it, only the per-account set can');
+  assert.equal(h.api.state.facilities.some(f => f.accountId === 'connection-a:9'), false, 'no facility is recreated');
+  // The remembered set, not the visible rows, is what the file stores.
+  h.node('workspace').change({ target: { dataset: { quick: 'asOfMonth' }, value: '2026-07' } });
+  await h.api.download();
+  const payload = JSON.parse(await h.downloads[0].text());
+  assert.deepEqual(payload.quick.debts.find(d => d.id === 'connection-a:9'), { id: 'connection-a:9', include: false, monthlyPayment: 300 }, 'stored although the card is not visible in July');
+  await h.api.importScenario(h.file(payload));
+  h.node('workspace').change({ target: { dataset: { quick: 'asOfMonth' }, value: '2026-08' } });
+  assert.deepEqual(ids(), [['connection-a:42', true], ['connection-a:77', false], ['connection-a:9', false]], 'the exclusion survives a reopen');
 });

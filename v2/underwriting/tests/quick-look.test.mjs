@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { quickLook, draftQuickDebts, quickDebtsHtml, quickFactsHtml, quickResultHtml, quickVerdictHtml, quickPrintHtml, quickProposalHtml, QUICK_RULES } from '../quick-look.js';
+import { quickLook, draftQuickDebts, quickDebtsHtml, quickFactsHtml, quickResultHtml, quickVerdictHtml, quickPrintHtml, quickProposalHtml, quickMonthOptions, resolveAsOfMonth, QUICK_RULES } from '../quick-look.js';
 import { buildDebtSchedule } from '../scenario-model.js';
 
 const money = (v, compact = false) => Number.isFinite(v) ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: compact ? 'compact' : 'standard', maximumFractionDigits: compact ? 1 : 0 }).format(v) : '—';
@@ -75,7 +75,7 @@ test('negative operating cash, thin history and missing inputs never produce a c
   const bad = quickLook({ snapshot: snapshot(), inputs: { amount: '500000', rate: '9.5', term: '0' }, debts, month: '2026-10' });
   assert.equal(bad.verdict.status, 'unknown'); assert.ok(bad.errors.length > 0);
   const noCash = quickLook({ snapshot: snapshot({ bookCash: null }), inputs, debts, month: '2026-10' });
-  assert.equal(noCash.ratios.cashCoverMonths, null); assert.match(noCash.verdict.reasons.join(' '), /Opening cash is not available/);
+  assert.equal(noCash.ratios.cashCoverMonths, null); assert.match(noCash.verdict.reasons.join(' '), /Opening cash is not available|no bank-balance total/);
 });
 
 test('renderers escape source text and the print packet names every basis', () => {
@@ -142,4 +142,67 @@ test('a bank row is shown in its own currency or as a plain number, with stale o
   const html = quickProposalHtml({ result: r, debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
   for (const text of ['CA$1,000', 'CA$900', '2026-06-20', 'login_required', '5,000 (currency not recorded)', 'not recorded', 'unknown', 'active · sandbox', 'Bank coverage is partial', 'capped at 500']) assert.ok(html.includes(text), text);
   assert.ok(!html.includes('>$1,000<'), 'a CAD balance is never printed as USD');
+});
+
+const datedSnapshot = () => {
+  const snap = snapshot({ operating: 60000 });
+  snap.sources.balanceSheet.monthly = months.map((m, i) => ({ month: m, periodEnd: `${m}-28`, completeMonth: true, bookCash: 100000 + i * 50000, assets: 4000000 + i * 200000 }));
+  snap.sources.balanceSheet.accountHistory = [
+    { accountId: 'loan-1', connectionId: 'c', ambiguous: false, values: months.map((m, i) => ({ periodEnd: `${m}-28`, balance: 1500000 - i * 50000 })) },
+    { accountId: 'cc-1', connectionId: 'c', ambiguous: false, values: months.map((m, i) => ({ periodEnd: `${m}-28`, balance: i < 3 ? 0 : 80000 })) },
+    { accountId: 'ocl-1', connectionId: 'c', ambiguous: true, values: months.map(m => ({ periodEnd: `${m}-28`, balance: 50000 })) },
+  ];
+  // Cash flow dips late so the window matters.
+  snap.sources.cashflow.monthly = cfRows(60000).map((r, i) => ({ ...r, operating: i < 3 ? 100000 : 20000 }));
+  return snap;
+};
+
+test('the as-of month re-dates the balance sheet, the averages window and the debt balances', () => {
+  const snap = datedSnapshot();
+  assert.deepEqual(quickMonthOptions(snap), months);
+  assert.deepEqual(resolveAsOfMonth(snap, '2026-03'), { month: '2026-03', options: months, requested: '2026-03', honoured: true });
+  assert.deepEqual(resolveAsOfMonth(snap, '2026-09'), { month: '2026-06', options: months, requested: '2026-09', honoured: false });
+  assert.deepEqual(resolveAsOfMonth(snap, null), { month: '2026-06', options: months, requested: null, honoured: true });
+  const latest = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10' });
+  assert.equal(latest.facts.asOfMonth, '2026-06'); assert.equal(latest.facts.openingCash.value, 350000); assert.equal(latest.facts.openingCash.asOf, '2026-06-28');
+  assert.equal(latest.facts.operatingCash.months, 6); assert.equal(latest.facts.operatingCash.average, 60000);
+  const march = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10', asOfMonth: '2026-03' });
+  assert.equal(march.facts.asOfMonth, '2026-03'); assert.equal(march.facts.openingCash.value, 200000); assert.equal(march.facts.totalAssets.value, 4400000);
+  assert.equal(march.facts.operatingCash.months, 3); assert.equal(march.facts.operatingCash.average, 100000); assert.equal(march.facts.operatingCash.to, '2026-03');
+  assert.equal(march.facts.revenue.to, '2026-03', 'P&L averages stop at the as-of month too');
+  assert.equal(march.verdict.status, 'comfortable'); assert.equal(latest.verdict.status, 'tight', 'the same request reads differently as of a weaker window');
+  const bad = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10', asOfMonth: '2026-09' });
+  assert.equal(bad.facts.asOfMonth, '2026-06'); assert.match(bad.verdict.reasons.join(' '), /2026-09 is not a complete month.*as of 2026-06/);
+  // Debts: balances come from the chosen month's column; a zero-balance month drops the account; ambiguous history falls back to the latest match.
+  const opts = snapshot().accountOptions.map(a => ({ ...a, id: a.id.replace('c:', 'c:') }));
+  const history = snap.sources.balanceSheet.accountHistory;
+  const atMarch = draftQuickDebts(opts, [], { accountHistory: history, asOfMonth: '2026-03' });
+  assert.deepEqual(atMarch.map(d => [d.id, d.balance, d.asOf]), [['c:loan-1', 1400000, '2026-03-28'], ['c:ocl-1', 50000, '2026-06-30']], 'card had no balance in March; ambiguous OCL keeps the latest matched balance');
+  const atJune = draftQuickDebts(opts, atMarch, { accountHistory: history, asOfMonth: '2026-06' });
+  assert.deepEqual(atJune.map(d => [d.id, d.balance]), [['c:loan-1', 1250000], ['c:cc-1', 80000], ['c:ocl-1', 50000]]);
+  const html = quickProposalHtml({ result: march, debts: atMarch, snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
+  assert.ok(html.includes('figures as of 2026-03')); assert.ok(html.includes('as of 2026-03-28')); assert.ok(html.includes('3-month total')); assert.ok(!html.includes('2026-04</td>'));
+});
+
+test('a selected month never borrows another month\'s balance-sheet figures', () => {
+  const snap = datedSnapshot();
+  snap.sources.balanceSheet.metrics = [{ label: 'Book bank balances', value: 999999 }, { label: 'Total assets', value: 8888888 }, { label: 'Total liabilities', value: 7777777 }, { label: 'Total equity', value: 1111111 }];
+  const march = snap.sources.balanceSheet.monthly.find(r => r.month === '2026-03');
+  march.bookCash = null; march.assets = null;
+  const r = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10', asOfMonth: '2026-03' });
+  assert.equal(r.facts.openingCash.value, null); assert.equal(r.facts.totalAssets.value, null);
+  assert.equal(r.ratios.cashCoverMonths, null); assert.equal(r.ratios.debtToAssetsAfter, null);
+  assert.match(r.verdict.reasons.join(' '), /2026-03 balance-sheet column has no bank-balance total/);
+  assert.match(r.verdict.reasons.join(' '), /no total-assets figure/);
+  const html = quickProposalHtml({ result: r, debts: [], snapshot: snap, money, companyTitle: 'Co', preparedAt: '2026-10-03' });
+  for (const text of ['$999,999', '$8,888,888', '$7,777,777', '$1,111,111']) assert.ok(!html.includes(text), `headline ${text} must not appear under the March header`);
+  assert.match(html, /2026-03 column lacks total assets, total liabilities, equity, bank balances/);
+  // The latest month, when it is itself a monthly column, follows the same rule.
+  const latestRowRef = snap.sources.balanceSheet.monthly.at(-1); latestRowRef.assets = null;
+  const latest = quickLook({ snapshot: snap, inputs, debts: [], month: '2026-10' });
+  assert.equal(latest.facts.totalAssets.value, null);
+  // With no monthly columns at all, the headline metrics are the only figures and are used.
+  const headlineOnly = snapshot(); headlineOnly.sources.balanceSheet.monthly = []; headlineOnly.sources.balanceSheet.metrics = snap.sources.balanceSheet.metrics;
+  const h = quickLook({ snapshot: headlineOnly, inputs, debts: [], month: '2026-10' });
+  assert.equal(h.facts.asOfMonth, null); assert.equal(h.facts.openingCash.value, 999999); assert.equal(h.facts.totalAssets.value, 8888888);
 });
