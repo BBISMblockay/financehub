@@ -35,6 +35,7 @@ on:
       - 'v2/*.js'
       - 'v2/*.css'
       - 'v2/tests/**'
+      - 'v2/underwriting/**'
       - 'supabase/functions/payment-request-extract/**'
       # onboarding-callbacks.test.js reads pages/login.html: it guards that the
       # emailed auth callbacks keep carrying `next` (a company-creation invite
@@ -48,6 +49,7 @@ on:
       - 'v2/*.js'
       - 'v2/*.css'
       - 'v2/tests/**'
+      - 'v2/underwriting/**'
       - 'supabase/functions/payment-request-extract/**'
       # onboarding-callbacks.test.js reads pages/login.html: it guards that the
       # emailed auth callbacks keep carrying `next` (a company-creation invite
@@ -79,6 +81,10 @@ jobs:
       # checkout; if that ever stops being true, this job fails and says so.
       - name: Run unit suites
         run: node v2/tests/run.js --unit
+      - name: Underwriting unit and integration suites
+        run: node --test v2/underwriting/tests/*.test.mjs
+      - name: Underwriting synthetic scenario contract (no browser)
+        run: node v2/underwriting/tests/browser.mjs --contract-only
       - name: Payment request document boundary
         run: node --test supabase/functions/payment-request-extract/handler.test.mjs
 
@@ -131,3 +137,23 @@ jobs:
       # own resolution, which is what `playwright install` just set up.
       - name: Run browser suites
         run: node v2/tests/run.js --browser
+
+      - name: Underwriting synthetic browser flow
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/v2/tests/node_modules/playwright/index.mjs
+          UW_OUTPUT: ${{ runner.temp }}/underwriting-preview
+          # Ubuntu's existing Chrome profile supports sandboxed user namespaces.
+          # Keep chromiumSandbox:true; do not relax AppArmor or add --no-sandbox.
+          CHROMIUM_PATH: /opt/google/chrome/chrome
+        run: |
+          test -x "$CHROMIUM_PATH"
+          "$CHROMIUM_PATH" --version
+          node v2/underwriting/tests/browser.mjs
+
+      - name: Upload synthetic underwriting screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: underwriting-synthetic-screenshots
+          path: ${{ runner.temp }}/underwriting-preview/*.png
+          if-no-files-found: warn
