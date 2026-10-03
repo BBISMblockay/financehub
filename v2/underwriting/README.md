@@ -33,6 +33,20 @@ rests on, with dates:
   with no payment entered caps the verdict at tight** -- a payment nobody has
   entered is not a payment of zero. The rules are printed under the result.
 
+**Figures as of** bounds EVERYTHING dated, not only the balance-sheet column
+and the trailing windows. In the proposal, recorded sales stop at the as-of
+month and "planned ahead" starts the month after it; a bank balance dated
+after the month is named with its sync date and left out (the feed holds only
+its last position); the on-hand snapshot after the month is named as held but
+not as of (SILO keeps no on-hand history); and the PO register, which holds
+CURRENT status only, prints the orders placed by the end of the month as a
+stated lower bound (orders placed by then and received since are gone from
+the placed set), or nothing when its 200-row detail list is capped. Nothing
+dated after the as-of month is printed under a header that says "figures as
+of" that month; Sources and dates still lists every source with its own date.
+The forward outlook is the one thing that reaches past the as-of month, on
+purpose: it starts the month after it.
+
 **Judge on** picks the basis. *Sales plan ahead* (the default whenever the
 company has a plan ahead) turns the stored active sales plan for the next 12
 plan months into projected monthly operating cash: planned sales × plan
