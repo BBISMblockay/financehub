@@ -12,6 +12,7 @@
 // dev-portal setup is finished; Meta/TikTok connections sync regardless.
 
 import { createClient } from '@supabase/supabase-js';
+import { clientSideReason } from './lib/ad-sync-client-errors.mjs';
 import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync, fetchMetaJsonOrThrow, META_API_VERSION } from './lib/ad-platforms-sync-core.mjs';
 import { archiveCreativeImages, scrubError } from './lib/creative-image-archive.mjs';
 import { runSearchConsoleSync, SEARCH_CONSOLE_JOB_TYPE } from './lib/search-console-sync-core.mjs';
@@ -271,16 +272,24 @@ async function main() {
   }
 
   let hadError = false;
+  const clientSide = [];
   const allResults = [];
   for (const connection of connections) {
     console.log(`[ad-platforms-sync] → ${connection.display_name || connection.id} (${connection.platform})`);
     try {
       allResults.push(await syncConnection(connection));
     } catch (err) {
-      hadError = true;
+      const error = String(err?.message || err);
+      // A failure only the client can fix (their account disabled, access
+      // revoked) is recorded and reported but does not fail the run -- see
+      // lib/ad-sync-client-errors.mjs. Anything else is SILO's and does.
+      const reason = clientSideReason(error);
+      if (reason) clientSide.push({ connection, reason });
+      else hadError = true;
       allResults.push({
         connection: `${connection.display_name || connection.id} (${connection.platform})`,
-        error: String(err?.message || err),
+        error,
+        ...(reason ? { client_side: reason } : {}),
       });
     }
   }
@@ -300,6 +309,11 @@ async function main() {
   }
 
   console.log('[ad-platforms-sync] done', JSON.stringify(allResults, null, 2));
+  for (const { connection, reason } of clientSide) {
+    const msg = `${connection.display_name || connection.id} (${connection.platform}, company ${connection.company_entity_id}, connection ${connection.id}): ${reason}`;
+    console.log(`::warning title=Client-side ad connection problem::${msg}`);
+    console.error(`[client-side] ${msg} -- not a SILO failure; the client must fix or disconnect it`);
+  }
   if (hadError) process.exit(1);
 }
 

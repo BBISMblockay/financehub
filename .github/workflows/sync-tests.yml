@@ -284,6 +284,11 @@ jobs:
       - name: Freshness quiet feeds
         run: node scripts/tests/freshness-quiet.test.mjs
 
+      # A client's disabled ad account or revoked access is reported, not a
+      # red run; SILO-side failures (developer token, 5xx, bugs) still fail.
+      - name: Ad sync client-side failures
+        run: node scripts/tests/ad-sync-client-errors.test.mjs
+
       # Shared Shopify auth rules and their wiring. Mutations:
       # SHOPIFY_AUTH_MUTATION=disabled-admin | no-refresh | redact-anyway | any-domain
       - name: Shopify authorization (client credentials, public app, privacy webhooks)
