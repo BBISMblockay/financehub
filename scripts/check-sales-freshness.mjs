@@ -29,6 +29,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { appendFileSync } from 'node:fs';
+import { SYNC_STAMP, feedIsQuiet, expectedCompanies } from './lib/freshness-quiet.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -119,15 +120,17 @@ const FEEDS = [
 ];
 
 async function companiesFor(connTable) {
-  let q = db.from(connTable).select('company_entity_id').eq('is_active', true);
-  // shopify_connections gates on sync_enabled + a token; ad_platform_connections
-  // is keyed differently, so only apply what each table actually has.
+  const cols = connTable === 'ad_platform_connections' ? 'company_entity_id, platform, sync_enabled' : 'company_entity_id, sync_enabled';
+  let q = db.from(connTable).select(cols).eq('is_active', true).eq('sync_enabled', true);
+  // shopify_connections additionally needs a token to sync at all.
   if (connTable === 'shopify_connections') {
-    q = q.eq('sync_enabled', true).not('access_token', 'is', null);
+    q = q.not('access_token', 'is', null);
   }
   const { data, error } = await q;
   if (error) throw new Error(`${connTable} load failed: ${error.message}`);
-  return [...new Set((data || []).map((c) => c.company_entity_id).filter(Boolean))];
+  // Only connections that write this feed's table make a company expected to
+  // have it (a Search-Console-only company has no marketing_kpis_daily).
+  return expectedCompanies(connTable, data);
 }
 
 async function main() {
@@ -179,8 +182,22 @@ async function main() {
         }
       }
 
-      const ok = lagOk && !partial;
-      const verdict = !lagOk ? 'STALE' : partial ? 'PARTIAL' : 'ok';
+      // Data lags, but did the sync run? A company with nothing to report
+      // (a new store, an idle ad account) is QUIET, not stale -- see
+      // lib/freshness-quiet.mjs. Only asked when the data lags.
+      let quiet = false;
+      if (!lagOk) {
+        const { data: conns, error: connErr } = await db
+          .from(feed.connTable)
+          .select(feed.connTable === 'ad_platform_connections' ? 'sync_enabled, meta, platform' : 'sync_enabled, meta')
+          .eq('company_entity_id', companyId)
+          .eq('is_active', true);
+        if (connErr) throw new Error(`${feed.connTable} stamp probe failed for ${companyId}: ${connErr.message}`);
+        quiet = feedIsQuiet(conns, SYNC_STAMP[feed.connTable], pacificMidnightUtc(today), feed.connTable);
+      }
+
+      const ok = (lagOk && !partial) || quiet;
+      const verdict = quiet ? 'quiet (synced after the day ended, no newer data)' : !lagOk ? 'STALE' : partial ? 'PARTIAL' : 'ok';
       console.log(
         `[freshness] ${feed.label.padEnd(9)} ${companyId}  latest=${maxDay || 'NONE'}  lag=${lag === null ? 'n/a' : `${lag}d`}`
         + `  ${required} captured=${capturedAt || 'n/a'}  ${verdict}`,

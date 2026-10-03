@@ -279,6 +279,16 @@ jobs:
       - name: Shopify store-name sales fallback
         run: node scripts/tests/shopify-store-name-fallback.test.mjs
 
+      # Freshness alarm: a sync that succeeded after the day ended with nothing
+      # new is QUIET, never stale; a dropped or failed sync still alarms.
+      - name: Freshness quiet feeds
+        run: node scripts/tests/freshness-quiet.test.mjs
+
+      # A client's disabled ad account or revoked access is reported, not a
+      # red run; SILO-side failures (developer token, 5xx, bugs) still fail.
+      - name: Ad sync client-side failures
+        run: node scripts/tests/ad-sync-client-errors.test.mjs
+
       # Shared Shopify auth rules and their wiring. Mutations:
       # SHOPIFY_AUTH_MUTATION=disabled-admin | no-refresh | redact-anyway | any-domain
       - name: Shopify authorization (client credentials, public app, privacy webhooks)
