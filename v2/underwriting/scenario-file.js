@@ -166,6 +166,25 @@ function validateCashTiming(input) {
 }
 
 /** Version 4 is a complete snapshot, never a patch over another scenario. */
+/** Quick-look state is optional in a file (older v4 files have none). Only the
+ * tick and the typed payment are stored per account id; balances, labels and
+ * types come back from the live balance sheet on import. */
+const MAX_QUICK_DEBTS = 200;
+function validateQuick(input) {
+  if (input === undefined || input === null) return { debts: [] };
+  if (!isRecord(input) || !Array.isArray(input.debts) || input.debts.length > MAX_QUICK_DEBTS || Object.keys(input).some(key => key !== 'debts')) throw new Error(`Invalid quick-look section: expected a debts list of at most ${MAX_QUICK_DEBTS} rows.`);
+  const seen = new Set();
+  return { debts: input.debts.map((row, index) => {
+    const label = `quick-look debt ${index + 1}`;
+    if (!isRecord(row) || Object.keys(row).some(key => !['id', 'include', 'monthlyPayment'].includes(key))) throw new Error(`Invalid ${label}: unsupported fields.`);
+    if (typeof row.id !== 'string' || !STABLE_ID.test(row.id) || seen.has(row.id)) throw new Error(`Invalid ${label}: needs ${ID_RULE}.`);
+    seen.add(row.id);
+    if (typeof row.include !== 'boolean') throw new Error(`Invalid ${label}: include must be true or false.`);
+    if (row.monthlyPayment !== null && (typeof row.monthlyPayment !== 'number' || !Number.isFinite(row.monthlyPayment) || row.monthlyPayment < 0 || row.monthlyPayment > MAX_COMMITMENT_AMOUNT)) throw new Error(`Invalid ${label}: monthly payment must be null or a finite nonnegative number.`);
+    return { id: row.id, include: row.include, monthlyPayment: row.monthlyPayment };
+  }) };
+}
+
 export function validateScenarioDocument(doc, definitions, companyId) {
   if (isRecord(doc) && doc.format === 'silo-underwriting-scenario' && [1, 2, 3].includes(doc.version)) throw new Error(`Version ${doc.version} scenarios do not include the explicit multi-facility register and debt-source review required by this workspace. Re-enter the facilities and assumptions, choose manual or facility-derived debt, and download a version 4 scenario. Nothing was loaded.`);
   if (!isRecord(doc) || doc.format !== 'silo-underwriting-scenario' || doc.version !== 4) throw new Error('This is not a supported SILO underwriting scenario.');
@@ -206,5 +225,6 @@ export function validateScenarioDocument(doc, definitions, companyId) {
   const cashTiming = validateCashTiming(doc.cashTiming);
   if (!Object.hasOwn(doc, 'reviewBaseline')) throw new Error('The scenario must explicitly state reviewBaseline; use null when no prior review was captured.');
   const reviewBaseline = doc.reviewBaseline === null ? null : validateReviewSnapshot(doc.reviewBaseline, companyId);
-  return { values, overrides, commitments, facilities, cashTiming, reviewBaseline };
+  const quick = validateQuick(doc.quick);
+  return { values, overrides, commitments, facilities, cashTiming, reviewBaseline, quick };
 }
