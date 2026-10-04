@@ -166,6 +166,11 @@
    */
   const NAV_ITEMS = [
     { id: 'finance/menu', section: 'Start', label: 'Home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
+    // On Deck: prepared work waiting for a decision. Its first module is
+    // transaction coding, so the row follows the finance gate the database
+    // applies (on_deck_coding_access). Owner/admins without a finance
+    // department still reach workflow proposals from Home's "Ready for review".
+    { departments: FINANCE_DEPTS, id: 'start/on-deck', section: 'Start', label: 'On Deck', href: '/v2/on-deck.html', profiles: ['grandfathered', 'standard'] },
     { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
     { id: 'start/help', section: 'Start', label: 'Help', href: '/v2/help.html', profiles: ['grandfathered', 'standard'] },
     // Standard-profile only, and admin-only within that. Baseballism is years

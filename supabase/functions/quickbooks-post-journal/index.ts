@@ -113,9 +113,16 @@ Deno.serve(async (req) => {
   if (authErr || !user) return json({ error: 'Unauthorized' }, 401);
 
   const input = await req.json().catch(() => ({}));
-  const { batch_id, adjustment_id, recovery_action, recovery_note } = input;
+  const { batch_id, adjustment_id, recovery_action, recovery_note, expected_approval_hash } = input;
   if ((!batch_id && !adjustment_id) || (batch_id && adjustment_id)) {
     return json({ error: 'Pass exactly one of batch_id or adjustment_id' }, 400);
+  }
+  // Optional: the approval hash the caller REVIEWED. On Deck always sends it,
+  // so a reopen-and-reapprove by someone else between the review and the click
+  // cannot post a version this person never saw. Absent = previous behaviour.
+  if (expected_approval_hash !== undefined && expected_approval_hash !== null
+      && !(typeof expected_approval_hash === 'string' && /^[0-9a-f]{64}$/.test(expected_approval_hash))) {
+    return json({ error: 'expected_approval_hash must be the 64-character approval hash' }, 400);
   }
   if (recovery_action && recovery_action !== 'confirm_not_posted') {
     return json({ error: 'Unsupported recovery_action' }, 400);
@@ -173,6 +180,12 @@ Deno.serve(async (req) => {
   if (parent.status === 'posted') return json({ error: 'This entry is already posted' }, 409);
   if (parent.status !== 'approved') {
     return json({ error: `Entry must be approved before posting (it is ${parent.status})` }, 409);
+  }
+  if (expected_approval_hash && expected_approval_hash !== parent.approval_hash) {
+    return json({
+      error: 'This journal entry was reapproved after you reviewed it. Review the current version before posting.',
+      code: 'APPROVAL_CHANGED',
+    }, 409);
   }
   const snapshot = parent.approval_snapshot;
   if (!snapshot || !parent.approval_hash || !parent.qbo_connection_id) {

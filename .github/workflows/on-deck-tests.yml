@@ -7,7 +7,13 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'v2/ad-studio.js'
-      - 'v2/tests/browser/on-deck.test.js'
+      - 'v2/tests/browser/on-deck*.test.js'
+      - 'v2/tests/unit/on-deck*.test.js'
+      - 'v2/finance.html'
+      - 'v2/nav-config.js'
+      - 'v2/coding-suggestions.js'
+      - 'supabase/functions/quickbooks-post-journal/**'
+      - 'supabase/verify_v2_schema.sql'
       - 'scripts/on-deck-prepare.mjs'
       - 'supabase/functions/on-deck-prepare/**'
       - 'supabase/functions/silo-chat/ai-credit-lib.mjs'
@@ -37,12 +43,24 @@ jobs:
       - run: node scripts/tests/on-deck-database.test.mjs
       - run: node v2/tests/run.js --unit
       - run: node v2/tests/browser/on-deck.test.js
+      # Transaction coding on On Deck: finance-only queue, preview = rolled-back
+      # approval, approval and posting bound to the reviewed hash.
+      - run: node scripts/tests/on-deck-coding-database.test.mjs
+      - run: node scripts/tests/finance-v1-posting-handler.test.mjs
+      - run: node v2/tests/browser/on-deck-coding.test.js
       - name: Mutations must be caught
         run: |
           for mutation in budget version source company-read idempotency active-user; do
             if MUTATE="$mutation" node scripts/tests/on-deck-database.test.mjs > /tmp/mutation.log 2>&1; then
               cat /tmp/mutation.log
               echo "Survived mutation: $mutation"
+              exit 1
+            fi
+          done
+          for mutation in no-hash-check preview-commits items-ungated preview-ungated; do
+            if ON_DECK_CODING_MUTATION="$mutation" node scripts/tests/on-deck-coding-database.test.mjs > /tmp/mutation.log 2>&1; then
+              cat /tmp/mutation.log
+              echo "Survived coding mutation: $mutation"
               exit 1
             fi
           done

@@ -5810,6 +5810,22 @@ select 'On Deck inventory lookup index' as check_name,
  ) then 'ok' else 'MISSING' end as status;
 -- End On Deck preview checks.
 
+-- On Deck coding review (20261004120000): finance-only, authenticated, no anon.
+select 'On Deck coding review functions' as check_name,
+ case when count(*)=5 and bool_and(not has_function_privilege('anon',p.oid,'EXECUTE') and has_function_privilege('authenticated',p.oid,'EXECUTE'))
+   then 'ok' when count(*)<5 then 'MISSING' else 'CRITICAL: an On Deck coding function is executable by anon' end status
+ from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'
+ and p.proname in ('on_deck_coding_access','on_deck_coding_items','card_import_batch_preview','approve_reviewed_card_import_batch','on_deck_ready_count');
+-- The preview must run the real approval and roll it back -- one definition of
+-- the entry. A preview that rebuilt the lines itself would drift from approval.
+select 'On Deck preview runs approve_card_import_batch and rolls back' as check_name,
+ case when not exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='card_import_batch_preview') then 'MISSING'
+  when (select bool_and(pg_get_functiondef(p.oid) like '%perform public.approve_card_import_batch(p_batch_id)%'
+                    and pg_get_functiondef(p.oid) like '%on_deck_preview_rollback%')
+        from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='card_import_batch_preview') then 'ok'
+  else 'CRITICAL: card_import_batch_preview no longer previews through the real approval' end status;
+-- End On Deck coding review checks.
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))

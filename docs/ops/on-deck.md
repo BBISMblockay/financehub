@@ -195,3 +195,66 @@ Transactional tests created the index, sampled the real RPC at beginning,
 middle and final pages, and rolled back. Sampled calls completed within the
 existing timeout; this is not an end-to-end workflow verification. After merge,
 apply this migration, run the schema verifier and rerun On Deck preparation.
+
+## October 4: approval-first layout and transaction coding
+
+On Deck now opens on **Ready for your review** (real prepared records only),
+then the review of the selected item's actual output, then **After approval**
+(receipts and anything needing attention). Workflow proposals keep their
+existing board below. Home gains only a compact "Ready for review · N" link,
+shown when `on_deck_ready_count()` returns real work for that user and hidden on
+zero or any error. A **Start → On Deck** sidebar row follows the finance
+department gate (owner/admins outside finance still reach proposals from Home).
+
+**Transaction coding is the first module, and it adds no coding logic.** Flow:
+
+1. `on_deck_coding_items()` lists the company's import batches with a derived
+   stage: `code` (current suggestions waiting), `approve` (all rows coded or
+   excluded), `post` (approved, not posted), `needs_input` with a specific
+   reason (`uncoded_without_suggestion`, `posting_disabled`,
+   `posting_unresolved`) or `posted` (14-day receipt). card_import_batches is
+   readable by every member, so the function gates explicitly on
+   `can_manage_journal_entries() or is_exec_or_owner()` — the same population
+   accept/approve already admit. No On Deck table copies finance data.
+2. **Code**: Review shows each suggested account, location, confidence and its
+   evidence. Suggestions under 60% confidence start unticked. "Save N
+   categorizations" calls `accept_card_coding_suggestions` (which re-checks every
+   row's fingerprint); refusals are listed by reason. Nothing is sent to QuickBooks.
+3. **Approve**: `card_import_batch_preview(batch)` runs the real
+   `approve_card_import_batch` inside a block it then rolls back, so the shown
+   lines, destination realm and hash are exactly what approval would freeze. A
+   refusal is returned as the blocker and shown as **Needs input** — never a
+   reconstructed entry. "Approve journal entry" calls
+   `approve_reviewed_card_import_batch(batch, hash)`, which refuses (and rolls
+   back) when the frozen entry no longer hashes to the reviewed one, then
+   refreshes the preview. A repeat returns `already_approved` with the same hash.
+4. **Post**: "Post journal entry to QuickBooks" confirms in a dialog, then calls
+   `quickbooks-post-journal` with `expected_approval_hash`. A reapproval since
+   review returns `APPROVAL_CHANGED`; an unknown outcome is reported as locked
+   (the existing claim prevents a double post) with a link to the Transactions
+   recovery flow. Only finance (`can_manage_journal_entries`) may post, as before.
+
+Editing stays in Transactions (deep link `?batch=&company=`). Any edit changes
+the hash, so the next approval or post requires a fresh review. Reopening an
+approved batch discards its approval as before. Creating or approving here never
+releases a payment.
+
+**Not in this PR (separate proposals):** "Create draft PO" from restock or
+projection — restock still stops at a draft Product Studio brief with no size
+quantities, and turning that into a PO needs Product Studio's Ready-for-PO gate
+wired in; invoice/bill connectors. SEO's existing handoff is relabelled
+"Create SEO task"; launch and ads buttons now name their effect too.
+
+**Activation (Blake):** apply `20261004120000_on_deck_coding_review.sql`, run
+`verify_v2_schema.sql` (two "On Deck coding" checks), and redeploy
+`quickbooks-post-journal`. Page and migration can ship in either order: before
+the migration the page hides coding (and Home hides the link); before the
+redeploy the posting function ignores `expected_approval_hash`, so posts are
+bound only to the approval itself — deploy before relying on it.
+
+Checks: `node scripts/tests/on-deck-coding-database.test.mjs` (19, mutations via
+`ON_DECK_CODING_MUTATION=no-hash-check|preview-commits|items-ungated|preview-ungated`),
+`node scripts/tests/finance-v1-posting-handler.test.mjs` (26 scenarios incl.
+the hash binding), `node v2/tests/unit/on-deck-coding.test.js`,
+`node v2/tests/browser/on-deck-coding.test.js` (16) and the existing
+`on-deck.test.js` (11).
