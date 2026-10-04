@@ -146,10 +146,7 @@
   border: 1px solid #222b40;
   border-radius: 4px;
   background: #0f1526;
-  scroll-margin-top: 24px;
-  transition: border-color .2s, box-shadow .2s;
 }
-#landing .lp-access:target { border-color: #3b63e6; box-shadow: 0 0 0 3px rgba(59, 99, 230, .35); }
 #landing .lp-access h2 {
   margin: 0 0 8px;
   color: #fff;
@@ -172,7 +169,7 @@
   line-height: 1.4;
 }
 #landing .bcn-field:focus { border-color: #3b63e6; }
-#landing .lp-join, #landing .lp-closing-cta {
+#landing .lp-join {
   min-height: 50px;
   padding: 12px 22px;
   border: 1px solid #3b63e6;
@@ -184,7 +181,7 @@
   white-space: normal;
 }
 #landing .lp-join { width: 100%; margin-top: 4px; }
-#landing .lp-join:hover, #landing .lp-closing-cta:hover { background: #4a70ee; border-color: #4a70ee; }
+#landing .lp-join:hover { background: #4a70ee; border-color: #4a70ee; }
 #landing .lp-join[disabled] { cursor: default; }
 #landing .lp-privacy, #landing .lp-form-fallback { margin: 16px 0 0; color: #aab4c8; font-size: 11px; line-height: 1.65; }
 #landing .lp-privacy a, #landing .lp-form-fallback a { color: #fff; text-underline-offset: 3px; }
@@ -267,7 +264,6 @@
 /* Closing invitation: open, like the poster's last block. */
 #landing .lp-closing { margin-top: 112px; max-width: 1100px; }
 #landing .lp-closing-copy > p:last-child { max-width: 760px; margin: 16px 0 0; color: #c3cad8; font-size: 19px; line-height: 1.6; }
-#landing .lp-closing-cta { display: inline-flex; align-items: center; margin-top: 28px; text-decoration: none; }
 
 #landing .lp-foot {
   display: flex;
@@ -303,7 +299,6 @@
   #landing .lp-feature--ask { padding: 24px 20px 26px; }
   #landing .lp-feature h3 { font-size: 21px; }
   #landing .lp-feature p { font-size: 16px; }
-  #landing .lp-closing-cta { width: 100%; justify-content: center; text-align: center; }
 }
 @media (max-width: 420px) {
   #landing { padding-inline: 20px; }
@@ -316,9 +311,6 @@
   #landing .lp-icon { width: 44px; height: 44px; }
   #landing .lp-demo-note { left: 12px; right: 12px; bottom: 12px; max-width: calc(100% - 24px); padding: 8px 12px; font-size: 11px; }
 }
-@media (prefers-reduced-motion: no-preference) {
-  html { scroll-behavior: smooth; }
-}
 @media (prefers-reduced-motion: reduce) {
-  #landing .bcn-btn, #landing .lp-access { transition: none; }
+  #landing .bcn-btn { transition: none; }
 }
