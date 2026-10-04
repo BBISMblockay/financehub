@@ -915,6 +915,14 @@
     let _co = null;
     let _navProfile = 'standard';
 
+    // Whether to draw the Integrations controls. The database's answer wins;
+    // only when it cannot be asked (an RPC error) does the profile role decide,
+    // with the same hierarchy as is_admin_user(): owner, admin and executive.
+    function integrationsAccessAllowed(isAdmin, adminError, profileRole) {
+      if (!adminError) return isAdmin === true;
+      return ['owner', 'admin', 'executive'].includes(profileRole);
+    }
+
     db.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { window.location.href = '/pages/login.html'; return; }
       _session = session;
@@ -938,7 +946,16 @@
         supabaseClient: db,
       });
 
-      if (profile?.role !== 'owner' && profile?.role !== 'admin') {
+      // Ask the database the SAME question the data's RLS asks. Every table
+      // this page reads and writes is gated by is_admin_user(), which passes
+      // for a membership owner_admin/admin in the active company and for a
+      // profile owner/admin/executive. The old check here admitted only a
+      // profile role of exactly 'owner' or 'admin', so every executive (6 on
+      // 2026-10-04) was refused a page whose data they could already read,
+      // while the nav offered them the link. The page is not the boundary;
+      // RLS is. This only decides what is drawn.
+      const { data: isAdmin, error: adminError } = await db.rpc('is_admin_user');
+      if (!integrationsAccessAllowed(isAdmin, adminError, profile?.role)) {
         setStatus('Integrations settings require admin access.', 'neg');
         return;
       }
