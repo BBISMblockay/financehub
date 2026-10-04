@@ -105,12 +105,12 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
     const relative = url.pathname.slice(1);
     const allowed = ['demo.html', 'pages/login.html', 'v2/beacon.css', 'v2/silo-brand.css',
       'legal/privacy.html', 'assets/landing/early-access.js', 'assets/landing/early-access.css'];
-    if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative)) {
+    if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative) && relative !== 'assets/landing/silo-web-flow.png') {
       failures.push('Unexpected fixture path: ' + relative);
       return route.abort();
     }
     if (unavailable && /\.(webp|jpg)$/.test(relative)) return route.abort();
-    const contentType = { '.html': 'text/html', '.css': 'text/css', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.js': 'text/javascript' }[path.extname(relative)];
+    const contentType = { '.html': 'text/html', '.css': 'text/css', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.png': 'image/png', '.js': 'text/javascript' }[path.extname(relative)];
     return route.fulfill({ contentType, body: await readFile(path.join(root, relative)) });
   });
   const page = await context.newPage();
@@ -152,7 +152,7 @@ try {
     assert.equal(await page.locator('#router').count(), 0, 'standalone demo must not contain the homepage auth router');
     assert.equal(await page.locator('#lpDemoVideo').isVisible(), false);
     assert.equal(await page.locator('#lpDemoVideo').getAttribute('src'), null);
-    assert.equal(await page.getByText('Interface image', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('Silo workspace', { exact: true }).isVisible(), true);
     assert.equal(await page.getByRole('button', { name: 'Request Redo access', exact: true }).isVisible(), true);
     assert.equal(await page.locator('#lpInterestForm input[required]').count(), 3);
     await assertGeometry(page, name, width);

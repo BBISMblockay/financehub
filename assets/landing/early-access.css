@@ -1,5 +1,5 @@
 /* Standalone demo page only. Redo Marketing poster: flat navy, royal blue,
-   open sections, sample interface frames where a real screen can drop in. */
+   the existing Blender rendering, and the sales-review screenshot. */
 .lp-demo-page {
   margin: 0;
   min-width: 0;
@@ -48,7 +48,7 @@
 /* Header */
 #landing .lp-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 #landing .lp-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-#landing .lp-mark, #landing .lp-hub {
+#landing .lp-mark {
   display: grid;
   place-items: center;
   border-radius: 10px;
@@ -126,58 +126,14 @@
 #landing .lp-cta:hover { background: #3d78ff; }
 #landing .lp-note { margin: 12px 0 0; color: #8b97ad; font-size: 13px; }
 
-/* Connection map */
-#landing .lp-orbit {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1.15fr .7fr 1.15fr;
-  grid-template-areas:
-    "redo . shopify"
-    "meta hub google"
-    "tiktok . qbo";
-  gap: 14px 10px;
-  min-height: 360px;
-  align-items: center;
-}
-#landing .lp-orbit-lines { position: absolute; inset: 8% 6%; width: 88%; height: 84%; pointer-events: none; }
-#landing .lp-orbit-lines line { stroke: rgba(90, 140, 255, .55); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
-#landing .lp-node {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 52px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(12, 20, 38, .92);
-  border: 1px solid #243352;
-  color: #e7edf8;
-  font-size: 13px;
-  font-weight: 700;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, .28);
-}
-#landing .lp-node--redo { grid-area: redo; }
-#landing .lp-node--shopify { grid-area: shopify; justify-self: end; }
-#landing .lp-node--meta { grid-area: meta; }
-#landing .lp-node--google { grid-area: google; justify-self: end; }
-#landing .lp-node--tiktok { grid-area: tiktok; }
-#landing .lp-node--qbo { grid-area: qbo; justify-self: end; }
-#landing .lp-marklet { width: 18px; height: 18px; flex: none; border-radius: 5px; }
-#landing .lp-node--redo .lp-marklet { background: #e23b4a; }
-#landing .lp-node--shopify .lp-marklet { background: #95bf47; }
-#landing .lp-node--meta .lp-marklet { background: #0668e1; }
-#landing .lp-node--google .lp-marklet { background: linear-gradient(135deg, #4285f4, #34a853 45%, #fbbc05 70%, #ea4335); }
-#landing .lp-node--tiktok .lp-marklet { background: #25f4ee; box-shadow: inset -4px 0 0 #fe2c55; }
-#landing .lp-node--qbo .lp-marklet { background: #2ca01c; border-radius: 50%; }
-#landing .lp-hub {
-  grid-area: hub;
-  justify-self: center;
-  z-index: 1;
-  width: 84px;
-  height: 84px;
-  font-size: 34px;
-  letter-spacing: -.04em;
+/* Existing Blender rendering. Fade the still's black field into the page. */
+#landing .lp-render { margin: 0; }
+#landing .lp-render img {
+  display: block;
+  width: 100%;
+  height: auto;
+  -webkit-mask-image: radial-gradient(ellipse 86% 78% at 50% 46%, #000 46%, transparent 76%);
+  mask-image: radial-gradient(ellipse 86% 78% at 50% 46%, #000 46%, transparent 76%);
 }
 
 /* Works with */
@@ -209,142 +165,28 @@
 #landing .lp-understand { margin-top: 72px; }
 #landing .lp-features { margin-top: 64px; }
 
-/* Performance board */
-#landing .lp-board {
-  padding: 18px 18px 14px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(16, 26, 48, .96), rgba(10, 16, 30, .96));
-  border: 1px solid #243352;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, .28);
-}
-#landing .lp-board-head, #landing .lp-board-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-#landing .lp-board-head h3 { margin: 0; font-size: 15px; font-weight: 800; }
-#landing .lp-board-range {
-  color: #9aa8c2;
-  font-family: var(--bcn-mono);
-  font-size: 11px;
-  font-weight: 500;
-}
-#landing .lp-board-hero {
-  display: grid;
-  grid-template-columns: minmax(220px, .8fr) minmax(0, 1.2fr);
-  gap: 18px;
-  align-items: center;
-  margin-top: 16px;
-}
-#landing .lp-board-hero .lp-kpi-value { font-size: 40px; }
-#landing .lp-kpi-label { margin: 0; color: #93a0b8; font-size: 12px; font-weight: 600; }
-#landing .lp-kpi-value {
-  margin: 4px 0 0;
-  color: #fff;
-  font-family: var(--bcn-mono);
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -.03em;
-  line-height: 1.15;
-}
-#landing .lp-delta { color: #3ee0a0; font-size: .55em; font-weight: 600; letter-spacing: 0; }
-#landing .lp-kpi-unit { color: #93a0b8; font-size: .45em; font-weight: 500; }
+/* Sales-review screenshot */
 #landing .lp-demo { margin: 0; min-width: 0; }
 #landing .lp-demo-frame {
   position: relative;
-  min-height: 168px;
   overflow: hidden;
-  border-radius: 12px;
-  background: #08111f;
-  border: 1px dashed #3558a8;
+  border-radius: 16px;
+  background: #eef1f6;
+  border: 1px solid #243352;
 }
-#landing .lp-demo-placeholder { position: relative; min-height: 168px; padding: 28px 14px 26px; }
-#landing .lp-demo-placeholder picture {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
-#landing .lp-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  height: 132px;
-  padding-bottom: 18px;
-}
-#landing .lp-bars span {
-  position: relative;
-  flex: 1;
-  height: var(--h);
-  border-radius: 4px 4px 2px 2px;
-  background: linear-gradient(180deg, #8eb6ff, #2f6bff);
-}
-#landing .lp-bars i {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  color: #7e8da8;
-  font-family: var(--bcn-mono);
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 500;
-  white-space: nowrap;
-}
-#landing .lp-demo-note {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  margin: 0;
-  padding: 4px 8px;
-  border-radius: 999px;
-  color: #d5e2ff;
-  background: rgba(8, 16, 32, .82);
-  border: 1px solid #3558a8;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+#landing .lp-demo-placeholder img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 #landing .lp-demo-frame video {
   display: block;
   width: 100%;
-  height: 220px;
-  object-fit: contain;
+  height: auto;
   background: #08111f;
 }
 #landing .lp-demo-frame [hidden] { display: none; }
 #landing .lp-demo-caption { margin: 8px 0 0; color: #8b97ad; font-size: 12px; line-height: 1.4; }
-#landing .lp-kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin: 16px 0 0;
-  padding: 0;
-  list-style: none;
-}
-#landing .lp-kpi-grid li {
-  min-width: 0;
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(6, 12, 24, .55);
-  border: 1px solid #1d2c48;
-}
-#landing .lp-kpi-grid .lp-kpi-value { font-size: 20px; }
-#landing .lp-board-foot {
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(6, 12, 24, .55);
-  border: 1px solid #1d2c48;
-  justify-content: flex-start;
-}
-#landing .lp-board-foot .lp-kpi-label { display: block; }
-#landing .lp-board-foot span { color: #d5ddec; font-size: 14px; font-weight: 700; }
-#landing .lp-trophy { color: #f5c451; font-size: 16px; }
-#landing .lp-board-foot .lp-kpi-value { margin: 0 0 0 auto; font-size: 18px; }
 
 /* Ask Silo — the major feature */
 #landing .lp-ask {
@@ -387,49 +229,6 @@
   color: #e7eefc;
   font-size: 14px;
   line-height: 1.4;
-}
-#landing .lp-iface {
-  position: relative;
-  grid-column: 1 / -1;
-  margin-top: 2px;
-  padding: 14px 14px 34px;
-  border-radius: 14px;
-  background: rgba(6, 12, 24, .72);
-  border: 1px dashed #6f93ea;
-}
-#landing .lp-iface-kicker {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 8px;
-  color: #8eb0ff;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-#landing .lp-iface-mark {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: #2f6bff;
-  color: #fff;
-  font-size: 12px;
-  letter-spacing: 0;
-}
-#landing .lp-iface-answer { margin: 0; color: #e7eefc; font-size: 14px; line-height: 1.5; }
-#landing .lp-iface-tag {
-  position: absolute;
-  right: 10px;
-  bottom: 8px;
-  margin: 0;
-  color: #b9ccff;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .06em;
-  text-transform: uppercase;
 }
 
 /* What you get */
@@ -535,14 +334,8 @@
 #landing .lp-foot a:hover { color: #fff; }
 
 @media (max-width: 900px) {
-  #landing .lp-hero, #landing .lp-ask, #landing .lp-board-hero { grid-template-columns: minmax(0, 1fr); }
-  #landing .lp-iface { grid-column: auto; }
-  #landing .lp-board-head { flex-wrap: wrap; }
-  #landing .lp-board-range { white-space: nowrap; }
-  #landing .lp-orbit { min-height: 0; }
-  #landing .lp-fields, #landing .lp-kpi-grid { grid-template-columns: 1fr 1fr; }
-  #landing .lp-board-foot { flex-wrap: wrap; }
-  #landing .lp-board-foot .lp-kpi-value { margin-left: 0; }
+  #landing .lp-hero, #landing .lp-ask { grid-template-columns: minmax(0, 1fr); }
+  #landing .lp-fields { grid-template-columns: 1fr 1fr; }
   #landing .lp-brand-for { display: none; }
 }
 @media (max-width: 680px) {
@@ -550,16 +343,8 @@
   #landing .lp-mid { padding-top: 32px; }
   #landing h1 { font-size: 34px; }
   #landing .lp-feature-grid, #landing .lp-fields { grid-template-columns: minmax(0, 1fr); }
-  #landing .lp-kpi-grid { grid-template-columns: 1fr 1fr; }
-  #landing .lp-board-hero .lp-kpi-value { font-size: 34px; }
   #landing .lp-asks li { margin-left: 0; }
   #landing .lp-cta { width: 100%; }
-  #landing .lp-node { font-size: 12px; min-height: 44px; padding: 8px; }
-  #landing .lp-hub { width: 64px; height: 64px; font-size: 26px; }
-  #landing .lp-kpi-value { font-size: 24px; }
-}
-@media (max-width: 400px) {
-  #landing .lp-kpi-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
   #landing .bcn-btn, #landing .lp-cta { transition: none; }
