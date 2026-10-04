@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SILO Demo</title>
-  <meta name="description" content="Sales, inventory, purchasing, finance and marketing, in one workspace." />
+  <title>Silo · Early access</title>
+  <meta name="description" content="Silo is the AI business intelligence platform for owners and operators: sales, inventory, purchasing, finance and marketing in one workspace. Request early access." />
   <link rel="stylesheet" href="/v2/beacon.css" />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/landing/early-access.css?v=1" />
+  <link rel="stylesheet" href="/assets/landing/early-access.css?v=5" />
 </head>
 <body class="lp-demo-page">
   <div id="landing">
@@ -17,8 +17,9 @@
     </header>
     <main class="lp-mid">
       <div class="lp-copy">
-        <h1>Welcome to Silo.</h1>
-        <p class="lp-description">Sales, inventory, purchasing, finance and marketing,<br class="lp-description-break" /> in one workspace.</p>
+        <p class="lp-eyebrow">Silo · Early access</p>
+        <h1>Run your whole business from one place. <span class="lp-h1-line">Get early access to Silo.</span></h1>
+        <p class="lp-description">Silo is the AI business intelligence platform for owners and operators who are tired of juggling tools and guessing at numbers.</p>
       </div>
       <div class="lp-content">
         <figure class="lp-demo" aria-labelledby="lpDemoCaption">
@@ -33,12 +34,13 @@
             <!-- A real walkthrough is enabled only when LANDING_DEMO_VIDEO_URL
                  is configured. The existing artwork is not a playable demo. -->
             <video id="lpDemoVideo" width="1800" height="1100" controls playsinline preload="none"
-              poster="/assets/landing/silo-hero.jpg" aria-label="SILO product walkthrough" aria-describedby="lpDemoCaption" hidden></video>
+              poster="/assets/landing/silo-hero.jpg" aria-label="Silo product walkthrough" aria-describedby="lpDemoCaption" hidden></video>
           </div>
-          <figcaption id="lpDemoCaption" class="lp-demo-caption">A closer look at SILO is on the way.</figcaption>
+          <figcaption id="lpDemoCaption" class="lp-demo-caption">A guided walkthrough of Silo is on the way.</figcaption>
         </figure>
-        <section class="bcn-card lp-access" aria-labelledby="lpAccessHeading">
+        <section class="bcn-card lp-access" id="lpAccess" aria-labelledby="lpAccessHeading">
           <h2 id="lpAccessHeading">Join for early access</h2>
+          <p class="lp-access-intro">Workspaces are invitation-only while we bring on our first companies.</p>
           <form id="lpInterestForm" method="post" aria-describedby="lpPrivacyNote">
             <div class="bcn-field-group">
               <label class="bcn-label" for="lpName">Name</label>
@@ -57,12 +59,68 @@
               <input id="lpWebsite" name="website" type="text" autocomplete="off" tabindex="-1" maxlength="200" />
             </div>
             <button class="bcn-btn bcn-btn--primary lp-join" id="lpJoinButton" type="submit" disabled>Join for early access</button>
-            <p class="lp-privacy" id="lpPrivacyNote">We’ll use these details to contact you about SILO onboarding. <a href="/legal/privacy.html">Privacy policy</a></p>
+            <p class="lp-privacy" id="lpPrivacyNote">We’ll use these details to contact you about Silo onboarding. <a href="/legal/privacy.html">Privacy policy</a></p>
             <div class="bcn-status" id="lpFormStatus" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></div>
             <noscript><p class="lp-form-fallback">Enable JavaScript to send your request, or <a href="mailto:support@get-silo.com">contact us</a>.</p></noscript>
           </form>
         </section>
       </div>
+
+      <div class="lp-connects">
+        <span class="lp-connects-label">Connects to</span>
+        <ul class="lp-connects-list" role="list">
+          <li>Shopify</li><li>QuickBooks</li><li>Google &amp; Meta ads</li><li>TikTok ads</li><li>Bank feeds</li>
+        </ul>
+      </div>
+
+      <section class="lp-features" aria-labelledby="lpFeaturesHeading">
+        <div class="lp-section-head">
+          <h2 id="lpFeaturesHeading">What you get</h2>
+        </div>
+        <ul class="lp-feature-grid" role="list">
+          <li class="lp-feature">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/></svg></span>
+            <h3>One workspace</h3>
+            <p>Sales, inventory, purchasing, finance and marketing side by side, pulled from the systems you already use.</p>
+          </li>
+          <li class="lp-feature">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/></svg></span>
+            <h3>A part-time CFO</h3>
+            <p>AI guidance on cash, margins and what to do next, built on your own books rather than rules of thumb.</p>
+          </li>
+          <li class="lp-feature">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h12m0 0-3-3m3 3-3 3"/><path d="M20 17H8m0 0 3-3m-3 3 3 3"/></svg></span>
+            <h3>Operational workflows</h3>
+            <p>Payment requests, mail, tasks and team reviews routed to the right person, with every step on record.</p>
+          </li>
+          <li class="lp-feature">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4.5 12.6 9l4.4 1.6-4.4 1.6L11 16.7l-1.6-4.5L5 10.6 9.4 9Z"/><path d="M18 15v5M15.5 17.5h5"/></svg></span>
+            <h3>AI actions and suggestions</h3>
+            <p>Silo suggests what to do next and drafts it for your approval: campaign ideas built from your best ads, SEO fixes for the pages that matter, and coded card transactions.</p>
+          </li>
+          <li class="lp-feature">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+            <h3>Marketing and SEO</h3>
+            <p>See what your ad spend actually returns in sales, and where your pages rank in search.</p>
+          </li>
+          <li class="lp-feature">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg></span>
+            <h3>Purchase orders</h3>
+            <p>Build orders, see landed cost per unit, and follow every PO through to delivery.</p>
+          </li>
+          <li class="lp-feature">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span>
+            <h3>Launch calendar</h3>
+            <p>Plan product drops against inventory on hand and stock on the way, in one view.</p>
+          </li>
+          <li class="lp-feature lp-feature--ask">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg></span>
+            <h3>Ask Silo</h3>
+            <p>Ask about your business in plain language and get an answer with the numbers behind it.</p>
+            <p class="lp-ask-example"><span class="lp-ask-label">Try asking</span>“Which products sold through fastest last month, and are we restocking them?”</p>
+          </li>
+        </ul>
+      </section>
     </main>
     <footer class="lp-foot">
       <span>&copy; <span id="lpYear">2026</span> SILO</span>
