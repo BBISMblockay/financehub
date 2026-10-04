@@ -25,6 +25,19 @@ Migration: `20261005120000_silo_daily_ledger.sql`.
   Applying saved rules on the server at bank sync is the next PR; today rules are applied by the
   Transactions page.
 
+- **Only valid coding is recorded.** `silo_ledger_blocker()` runs, per transaction, the checks the
+  QuickBooks approval runs:
+  - active accounts, locations, customers and vendors, and the receivable/payable entity rule;
+  - the balancing account and its vendor or customer, and split totals;
+  - for a bank feed: USD data, a known treatment, direction, the clearing-account type (a card
+    payment belongs on the card or payable account), and no open feed exception.
+
+  A coded row that fails stays out of the ledger. On Deck shows its import as "needs input" with the
+  reason (`silo_ledger_batch_status()`), and fixing it in Transactions records it on save. A
+  QuickBooks-posted batch is never blocked, because QuickBooks already accepted it.
+- **Opening balances accepted later:** accepting them, or moving `accounting_start_date`, records
+  every already-categorized transaction for that company (a trigger on each table).
+
 ## Corrections
 
 The ledger is append-only. Statement-level triggers refuse any UPDATE, DELETE or TRUNCATE, the
@@ -39,6 +52,13 @@ owner's included.
 - **Period lock:** `set_accounting_period_lock(through, reason)` is finance-only and moves forward
   only. Nothing is ever dated on or before the lock. A correction to a locked month, or a late
   arrival for one, is dated the first open day.
+- **QuickBooks-posted history is frozen.** Once a transaction's batch is posted, its entry
+  describes the frozen snapshot QuickBooks holds. Changing the source's balancing account, location,
+  vendor or feed start does not rewrite it. Unposting the batch (a void) resyncs it to the current
+  facts.
+- **Locking:** recording takes a per-company advisory lock shared, and `set_accounting_period_lock`
+  takes it exclusive. A recording that overlaps a lock change waits, then reads the new lock. The
+  lock row's upsert only ever advances the date.
 - Every entry balances to the cent. The writer checks it, and a deferred constraint trigger checks it
   again, so a direct write cannot dodge it.
 
@@ -88,6 +108,11 @@ owner's included.
 - It skips 819 dated earlier, which are already in the accepted opening balances: 804 July bank-feed
   rows and 15 Columbia CC rows.
 
+Of the categorized rows the backfill would consider, the new validator would hold back 9 in
+Operating's draft month, because their bank-feed treatment is unknown or the data is not USD. They
+show as "needs input" in On Deck. Posted batches (Columbia CC, Divvy, Flex, Shopify Payable CC) are
+not re-validated.
+
 ## Activation
 
 1. Apply `20261005120000_silo_daily_ledger.sql` after `20261004120000`. It runs the backfill.
@@ -100,8 +125,14 @@ No edge function changes; no secrets.
 
 ## Tests
 
-- `node scripts/tests/silo-ledger-database.test.mjs`: 19 checks. Mutations
-  `SILO_LEDGER_MUTATION=no-start-check|edit-in-place|ignore-lock|read-ungated|cosmetic-rerecord` must each fail it,
-  and run in CI.
+- `node scripts/tests/silo-ledger-database.test.mjs`: 23 checks. Mutations
+  `SILO_LEDGER_MUTATION=no-start-check|edit-in-place|ignore-lock|read-ungated|cosmetic-rerecord|no-validation|posted-not-frozen|no-books-start-sync|lock-unshared`
+  must each fail it, and run in CI.
+- `SILO_PG_CONN=... node scripts/tests/silo-ledger-concurrency.test.mjs`: two real PostgreSQL
+  sessions.
+  - Race 1: recording while finance locks the month lands on the first open day.
+  - Race 2: two first locks at once cannot reopen a closed month.
+  - Mutations `LEDGER_RACE_MUTATION=lock-unshared|period-unlocked` must each fail it
+    (`period-unlocked` with `LEDGER_RACE_ONLY=2` as well). Runs in the CI PostgreSQL job.
 - `node --test scripts/tests/accounting-ledger.test.mjs`: Ledger tab, 12 tests.
 - `node scripts/tests/on-deck-coding-database.test.mjs` (23) and the On Deck browser suites.

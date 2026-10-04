@@ -82,4 +82,19 @@ r.test('Transactions deep links carry the batch and company, encoded', () => {
   r.eq(C.transactionsHref('a b', 'c&d'), '/v2/transactions.html?batch=a%20b&company=c%26d');
 });
 
+r.test('coded rows the ledger refused turn a recorded import into needs input; review and posted cards are left alone', () => {
+  const items = [{ batch_id: 'a', stage: 'approve' }, { batch_id: 'b', stage: 'code' }, { batch_id: 'c', stage: 'posted' },
+    { batch_id: 'd', stage: 'needs_input', stage_reason: 'posting_disabled' }, { batch_id: 'e', stage: 'approve' }];
+  const status = ['a', 'b', 'c', 'd'].map((id) => ({ batch_id: id, unrecorded: 1, reason: 'A location is not active' }));
+  const out = C.applyLedgerStatus(items, status);
+  r.eq(out[0].stage_reason, 'ledger_blocked');
+  r.eq(out[1].stage, 'code');
+  r.eq(out[2].stage, 'posted');
+  r.eq(out[3].stage_reason, 'ledger_blocked');
+  r.eq(out[4].stage, 'approve');
+  r.ok('a blocked import is not a receipt', !C.isRecorded(out[0]) && !C.isRecorded(out[3]));
+  r.ok('the card names the reason', /not in the SILO ledger yet/.test(C.cardModel(out[0]).title) && /location is not active/.test(C.cardModel(out[0]).detail));
+  r.eq(C.applyLedgerStatus(items, null).length, 5);
+});
+
 r.summary();

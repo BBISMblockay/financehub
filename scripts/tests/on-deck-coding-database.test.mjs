@@ -345,7 +345,13 @@ try {
     await db.exec(await readFile(new URL('supabase/migrations/20261005120000_silo_daily_ledger.sql', root), 'utf8'));
     const rows = await items(finance);
     const codeStage = rows.filter((r) => r.stage === 'code').length;
-    const realNeeds = rows.filter((r) => r.stage === 'needs_input' && r.stage_reason !== 'posting_disabled').length;
+    // This fixture has no accepted opening balances, so the ledger refuses every
+    // coded row ("starts once opening balances are accepted"): those imports are
+    // needs input too, never a receipt.
+    const blocked = new Set((await as(finance, () => q('select batch_id, reason from silo_ledger_batch_status()'))).map((r) => r.batch_id));
+    assert.ok(blocked.size > 0, 'fixture: coded rows the ledger cannot record yet');
+    const realNeeds = rows.filter((r) => (r.stage === 'needs_input' && r.stage_reason !== 'posting_disabled')
+      || (!['code', 'posted'].includes(r.stage) && blocked.has(r.batch_id))).length;
     const count = await as(finance, () => rpc('on_deck_ready_count'));
     assert.ok(rows.some((r) => r.stage === 'approve'), 'fixture: a batch waiting on the optional QuickBooks entry');
     assert.equal(Number(count.coding), codeStage, 'a batch waiting only on the QuickBooks entry is not pending');

@@ -5835,8 +5835,14 @@ select 'SILO ledger tables, RLS and no client writes' as check_name,
   else 'ok' end as status;
 select 'SILO ledger is append-only and recorded by trigger' as check_name,
  case when (select count(*) from pg_trigger where not tgisinternal and tgname in
-            ('ledger_entries_immutable','ledger_lines_immutable','ledger_lines_balance','silo_ledger_card_transaction','silo_ledger_card_transaction_delete','silo_ledger_split','silo_ledger_source')) < 7
-  then 'MISSING' else 'ok' end as status;
+            ('ledger_entries_immutable','ledger_lines_immutable','ledger_lines_balance','silo_ledger_card_transaction','silo_ledger_card_transaction_delete','silo_ledger_split','silo_ledger_source',
+             'silo_ledger_batch','silo_ledger_opening_accepted','silo_ledger_start_moved')) < 10
+    or to_regprocedure('public.silo_ledger_blocker(uuid)') is null
+  then 'MISSING'
+  when has_function_privilege('authenticated','public.silo_ledger_blocker(uuid)','execute')
+    or has_function_privilege('anon','public.silo_ledger_batch_status()','execute')
+  then 'CRITICAL: a ledger internal is client-callable'
+  else 'ok' end as status;
 select 'SILO ledger entries balance' as check_name,
  case when to_regclass('public.ledger_lines') is null then 'MISSING'
   when (xpath('/row/n/text()', query_to_xml(

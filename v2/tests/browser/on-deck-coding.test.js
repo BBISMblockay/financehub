@@ -281,6 +281,16 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
       await page.close();
     }
 
+    page = await open(tables(), { silo_ledger_batch_status: () => [{ batch_id: 'b-approve', unrecorded: 2, reason: 'A category is not an active account in the chart of accounts' }] });
+    await test('categorized transactions the SILO ledger refused are needs input, never a receipt', async () => {
+      const card = page.locator('#ready-cards [data-batch=b-approve]');
+      assert.equal(await card.count(), 1, 'the import is back in Ready, not under After approval');
+      assert.match(await card.textContent(), /Needs input.*2 categorized transactions not in the SILO ledger yet.*not an active account/);
+      assert.equal(await card.locator('a').getAttribute('href'), '/v2/transactions.html?batch=b-approve&company=test-company');
+      assert.equal(await page.locator('#after-cards [data-batch=b-approve]').count(), 0);
+    });
+    await page.close();
+
     page = await open();
     await test('narrow mobile keeps the cards and the review inside the viewport', async () => {
       await page.setViewportSize({ width: 390, height: 844 });

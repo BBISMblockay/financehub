@@ -21,6 +21,7 @@
 //   SILO_LEDGER_MUTATION=ignore-lock
 //   SILO_LEDGER_MUTATION=read-ungated
 //   SILO_LEDGER_MUTATION=cosmetic-rerecord
+//   SILO_LEDGER_MUTATION=no-validation|posted-not-frozen|no-books-start-sync|lock-unshared
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -33,6 +34,17 @@ const MUTATIONS = {
   'edit-in-place': ['  if v_active.id is not null then\n    v_date := greatest(v_active.entry_date', '  if false then\n    v_date := greatest(v_active.entry_date'],
   'ignore-lock': ['    v_date := greatest(t.txn_date, coalesce(v_lock + 1, t.txn_date));', '    v_date := t.txn_date;'],
   // Fingerprint the labels too: a card rename then re-records every transaction.
+  // Record whatever was coded, valid or not.
+  'no-validation': ['  if public.silo_ledger_blocker(p_txn) is not null then return null; end if;\n', ''],
+  // Let a source remap rewrite QuickBooks-posted history.
+  // Both guards: the writer's freeze and the remap's posted-batch filter overlap.
+  'posted-not-frozen': [
+    ["    select 1 from public.card_import_batches pb where pb.id = t.batch_id and pb.status = 'posted') then", "    select 1 where false) then"],
+    ["              where b.source_id = new.id and b.status <> 'posted' loop", "              where b.source_id = new.id loop"]],
+  // Forget to record what was coded before the books started.
+  'no-books-start-sync': ["  if tg_table_name = 'accounting_opening_balances' then", "  if true then return null; end if;\n  if tg_table_name = 'accounting_opening_balances' then"],
+  // Record without the company lock.
+  'lock-unshared': ["  perform pg_advisory_xact_lock_shared(hashtextextended('silo_ledger:company:' || v_company::text, 0));", ''],
   'cosmetic-rerecord': ["(select jsonb_agg(x.value - 'description' order by x.ordinality)", "(select jsonb_agg(x.value order by x.ordinality)"],
   'read-ungated': ["create policy ledger_lines_read on public.ledger_lines for select to authenticated\n  using (company_entity_id = public.active_company_id() and (public.can_manage_journal_entries() or public.is_exec_or_owner()));",
     "create policy ledger_lines_read on public.ledger_lines for select to authenticated\n  using (true);"],
@@ -90,9 +102,11 @@ try {
                  create or replace function public.silo_business_today() returns date language sql stable as $$ select date '2026-10-04' $$;`);
   let sql = await readFile(new URL('supabase/migrations/20261005120000_silo_daily_ledger.sql', root), 'utf8');
   if (mutation) {
-    const [from, to] = MUTATIONS[mutation];
-    assert.ok(sql.includes(from), `Mutation ${mutation} is stale: its target text is gone`);
-    sql = sql.replace(from, to);
+    const spec = MUTATIONS[mutation];
+    for (const [from, to] of Array.isArray(spec[0]) ? spec : [spec]) {
+      assert.ok(sql.includes(from), `Mutation ${mutation} is stale: its target text is gone`);
+      sql = sql.replace(from, to);
+    }
   }
 
   await q("insert into entities(id,title) values($1,'A'),($2,'B')", [co, other]);
@@ -196,7 +210,7 @@ try {
     await q(`insert into plaid_connections(id,company_entity_id,item_id,environment,institution_name) values($1,$2,'item','sandbox','Bank')`, [plaidConn, co]);
     await q(`insert into plaid_accounts(id,company_entity_id,connection_id,provider_account_id,name,type,source_id) values($1,$2,$3,'acct','Checking','depository',$4)`, [plaidAcct, co, plaidConn, bank]);
     const asPlaid = (id, status) => q(`update card_transactions set origin='plaid', plaid_account_id=$3, external_transaction_id=$1::text,
-      provider_status=$2, provider_updated_at=now() where id=$1`, [id, status, plaidAcct]);
+      provider_status=$2, provider_updated_at=now(), accounting_treatment='purchase' where id=$1`, [id, status, plaidAcct]);
     const b = await newBatch(bank);
     // The bank-feed guard keeps a pending row excluded; it is coded once it settles.
     const pending = await newTxn(b, 50, { date: '2026-08-25' });
@@ -271,6 +285,91 @@ try {
     await db.exec('alter table card_import_batches enable trigger user');
     const posted = await as(finance, () => q(`select v.in_quickbooks from silo_ledger_lines_v v join card_transactions t on t.id=v.source_id where t.batch_id=$1`, [batch]));
     assert.ok(posted.length > 0 && posted.every((r) => r.in_quickbooks === true));
+  });
+
+  await test('invalid coding is never recorded: a card payment coded to an expense, or an inactive account, waits in On Deck', async () => {
+    const plaidAcct = (await one('select id from plaid_accounts where source_id=$1', [bank])).id;
+    const b = await newBatch(bank);
+    const pay = await newTxn(b, -200, { date: '2026-09-10' });
+    await q(`update card_transactions set origin='plaid', plaid_account_id=$2, external_transaction_id=$1::text,
+      provider_status='posted', provider_updated_at=now(), accounting_treatment='card_payment' where id=$1`, [pay, plaidAcct]);
+    await code(pay, 'supplies');
+    assert.equal((await entries(pay)).length, 0, 'a card payment coded to an expense is not recorded');
+    let status = await as(finance, () => q('select * from silo_ledger_batch_status() where batch_id=$1', [b]));
+    assert.equal(status.length, 1); assert.equal(status[0].unrecorded, 1); assert.match(status[0].reason, /direction and treatment/);
+    await code(pay, 'cc');
+    assert.equal((await entries(pay)).length, 1, 'recorded once coded to the card account it pays');
+    assert.equal((await as(finance, () => q('select * from silo_ledger_batch_status() where batch_id=$1', [b]))).length, 0);
+    assert.equal((await as(member, () => q('select * from silo_ledger_batch_status()'))).length, 0, 'finance only');
+
+    await q("update quickbooks_accounts set is_active=false where company_entity_id=$1 and qbo_account_id='meals'", [co]);
+    const cb = await newBatch(card);
+    const stale = await newTxn(cb, 30, { date: '2026-09-12' });
+    await code(stale, 'meals');
+    assert.equal((await entries(stale)).length, 0, 'an inactive account is not recorded');
+    status = await as(finance, () => q('select * from silo_ledger_batch_status() where batch_id=$1', [cb]));
+    assert.match(status[0].reason, /not an active account/);
+    await q("update quickbooks_accounts set is_active=true where company_entity_id=$1 and qbo_account_id='meals'", [co]);
+    await code(stale, 'supplies');
+    assert.equal((await entries(stale)).length, 1);
+  });
+
+  await test('a source remap never rewrites QuickBooks-posted history; unposting brings it up to date', async () => {
+    await q("insert into quickbooks_accounts(company_entity_id,connection_id,qbo_account_id,name,account_type,is_active) values($1,$2,'cc2','cc2','Credit Card',true)", [co, conn]);
+    const postedTxns = (await q("select id from card_transactions where batch_id=$1 and status='coded'", [batch])).map((r) => r.id);
+    assert.ok(postedTxns.length > 0);
+    const countFor = async (ids) => (await one('select count(*)::int n from ledger_entries where source_id = any($1::uuid[])', [ids])).n;
+    const before = await countFor(postedTxns);
+    const open = await newBatch(card);
+    const live = await newTxn(open, 12, { status: 'coded', account: 'supplies', date: '2026-09-15' });
+    await q("update card_sources set credit_qbo_account_id='cc2', credit_qbo_account_name='cc2' where id=$1", [card]);
+    assert.equal(await countFor(postedTxns), before, 'posted history is frozen');
+    const latest = async (id) => (await q(`select l.qbo_account_id from ledger_lines l join ledger_entries e on e.id=l.entry_id
+      where e.source_id=$1 and e.kind='original' order by e.recorded_at desc, l.line_no`, [id])).map((r) => r.qbo_account_id);
+    assert.ok((await latest(live)).includes('cc2'), 'unposted history follows the remap');
+    const v = await as(finance, () => q(`select bool_and(in_quickbooks) ok from silo_ledger_lines_v v join card_transactions t on t.id=v.source_id where t.batch_id=$1`, [batch]));
+    assert.equal(v[0].ok, true, 'what QuickBooks holds is still what SILO says it holds');
+    // A void moves the batch off posted: the freeze lifts and the remap applies.
+    await q("update card_import_batches set status='approved' where id=$1", [batch]);
+    assert.ok(await countFor(postedTxns) > before, 'unposting resynced the batch');
+    assert.ok((await latest(postedTxns[0])).includes('cc2'));
+    await q("update card_sources set credit_qbo_account_id='cc', credit_qbo_account_name='cc' where id=$1", [card]);
+  });
+
+  await test('accepting opening balances later records everything already categorized', async () => {
+    const c3 = randomUUID(), c3conn = randomUUID(), c3card = randomUUID();
+    await q("insert into entities(id,title) values($1,'C')", [c3]);
+    await q("insert into quickbooks_connections(id,company_entity_id,realm_id,access_token) values($1,$2,'r3','x')", [c3conn, c3]);
+    for (const [id, type] of [['supplies', 'Expense'], ['cc', 'Credit Card']]) {
+      await q('insert into quickbooks_accounts(company_entity_id,connection_id,qbo_account_id,name,account_type,is_active) values($1,$2,$3,$3,$4,true)', [c3, c3conn, id, type]);
+    }
+    await q(`insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,credit_qbo_account_id,credit_qbo_account_name,is_active)
+             values($1,$2,$3,'card','C card','card','cc','cc',true)`, [c3card, c3, c3conn]);
+    const run = (await one(`insert into quickbooks_report_runs(company_entity_id,connection_id,report_name,status) values($1,$2,'TrialBalance','ok') returning id`, [c3, c3conn])).id;
+    await q(`insert into accounting_settings(company_entity_id,qbo_connection_id,base_currency,fiscal_year_start_month,accounting_start_date,accounting_basis)
+             values($1,$2,'USD',1,'2026-08-01','Accrual')`, [c3, c3conn]);
+    const ob = (await one(`insert into accounting_opening_balances(company_entity_id,report_run_id,snapshot,snapshot_hash,status) values($1,$2,'{}'::jsonb,'h','draft') returning id`, [c3, run])).id;
+    const b = await newBatch(c3card, c3, c3conn);
+    const t = await newTxn(b, 40, { status: 'coded', account: 'supplies', date: '2026-09-03', company: c3 });
+    assert.equal((await entries(t)).length, 0, 'no books yet, nothing recorded');
+    assert.match((await one('select silo_ledger_blocker($1) r', [t])).r, /opening balances are accepted/, 'and it says why');
+    await q("update accounting_opening_balances set status='accepted', accepted_at=now() where id=$1", [ob]);
+    assert.equal((await entries(t)).length, 1, 'acceptance recorded it');
+  });
+
+  await test('recording holds the company ledger lock shared; moving the period lock takes it exclusive', async () => {
+    const t = await newTxn(await newBatch(card), 5, { status: 'coded', account: 'supplies', date: '2026-09-20' });
+    const advisory = "select mode, classid, objid from pg_locks where locktype='advisory' and pid=pg_backend_pid()";
+    await db.exec('begin');
+    await q('select silo_ledger_sync_card_transaction($1)', [t]);
+    const shared = (await q(advisory)).filter((r) => r.mode === 'ShareLock');
+    await db.exec('rollback');
+    assert.equal(shared.length, 1, 'one shared company lock while recording');
+    await db.exec('begin');
+    await as(finance, () => q("select set_accounting_period_lock('2026-09-02','early September closed')"));
+    const exclusive = (await q(advisory)).filter((r) => r.mode === 'ExclusiveLock');
+    await db.exec('rollback');
+    assert.ok(exclusive.some((r) => r.classid === shared[0].classid && r.objid === shared[0].objid), 'the period lock takes the same key exclusively');
   });
 
   await test('re-running the migration over a populated ledger writes nothing', async () => {

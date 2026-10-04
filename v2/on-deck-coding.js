@@ -57,6 +57,10 @@
       title: 'Recorded in SILO',
       detail: 'Every transaction is in the SILO ledger. This card does not send to QuickBooks (its \u201cposting enabled\u201d switch is off), so there is no monthly QuickBooks entry to prepare.',
     }),
+    ledger_blocked: (i) => ({
+      title: `${plural(i.ledger_unrecorded, 'categorized transaction')} not in the SILO ledger yet`,
+      detail: `${i.ledger_reason || 'The coding cannot be recorded as it stands'}. Fix it in Transactions and it is recorded on save.`,
+    }),
     posting_unresolved: () => ({
       title: 'Posting outcome needs checking',
       detail: 'A post was sent and its outcome is unknown. SILO has locked the entry so it cannot post twice. Open it in Transactions to check QuickBooks and resolve it.',
@@ -120,10 +124,22 @@
     return { kind: 'error', message: b.error || `Posting failed (HTTP ${status}).` };
   }
 
+  /* Coded transactions the ledger refused (silo_ledger_batch_status) are not
+     done: such an import is needs input, whatever its QuickBooks stage, unless
+     it still has suggestions to review (that card comes first) or is posted. */
+  function applyLedgerStatus(items, status) {
+    const byBatch = new Map((status || []).map((s) => [s.batch_id, s]));
+    return (items || []).map((i) => {
+      const s = byBatch.get(i.batch_id);
+      if (!s || !(s.unrecorded > 0) || i.stage === 'code' || i.stage === 'posted') return i;
+      return { ...i, stage: 'needs_input', stage_reason: 'ledger_blocked', ledger_unrecorded: s.unrecorded, ledger_reason: s.reason };
+    });
+  }
+
   // Done as far as SILO is concerned: shown under "After approval", never as pending work.
   const isRecorded = (item) => RECORDED.includes(item.stage) || item.stage_reason === 'posting_disabled';
 
-  const API = { money, cardModel, mixSegments, defaultSelected, postOutcome, transactionsHref, dayRange, isRecorded, REVIEWABLE, RECORDED, LOW_CONFIDENCE };
+  const API = { money, cardModel, mixSegments, defaultSelected, postOutcome, transactionsHref, dayRange, isRecorded, applyLedgerStatus, REVIEWABLE, RECORDED, LOW_CONFIDENCE };
 
   // ───────────────────────────────────────────────────────────── UI ──
   function el(tag, text, className) {
@@ -146,6 +162,14 @@
 
     async function load() {
       st.items = ctx.access.review ? (await rpc('on_deck_coding_items')) || [] : [];
+      if (st.items.length) {
+        // Before the ledger migration the function does not exist: nothing is
+        // recorded by SILO then, so there is nothing to flag.
+        let status = [];
+        try { status = (await rpc('silo_ledger_batch_status')) || []; }
+        catch (e) { if (!['42883', 'PGRST202'].includes(e.code)) throw e; }
+        st.items = applyLedgerStatus(st.items, status);
+      }
       if (st.active && !st.items.some((i) => i.batch_id === st.active)) close();
       return st.items;
     }
