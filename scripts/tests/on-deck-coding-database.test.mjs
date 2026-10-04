@@ -237,11 +237,12 @@ try {
     assert.equal(after.approval_version, reviewed.version, 'no second approval');
   });
 
-  await test('an approved batch previews its stored approval and is ready to post', async () => {
+  await test('an approved batch is done in SILO and previews its stored approval', async () => {
     const stored = await preview(finance, codedBatch);
     assert.equal(stored.hash, reviewed.hash); assert.equal(stored.status, 'approved'); assert.equal(stored.can_post, true);
     const row = (await items(finance)).find((r) => r.batch_id === codedBatch);
-    assert.equal(row.stage, 'post'); assert.equal(row.approval_hash, reviewed.hash);
+    assert.equal(row.stage, 'approved', 'approved in SILO is done; QuickBooks is optional'); assert.equal(row.approval_hash, reviewed.hash);
+    assert.equal((await as(finance, () => rpc('on_deck_ready_count'))).coding, 1, 'only the code batch waits; an approved entry is never pending');
     assert.equal((await preview(exec, codedBatch)).can_post, false, 'an exec outside finance cannot post');
   });
 

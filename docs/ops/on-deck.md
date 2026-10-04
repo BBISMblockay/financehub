@@ -206,13 +206,19 @@ shown when `on_deck_ready_count()` returns real work for that user and hidden on
 zero or any error. A **Start → On Deck** sidebar row follows the finance
 department gate (owner/admins outside finance still reach proposals from Home).
 
+**SILO is the ledger of record for this flow; QuickBooks is read for history.**
+Approving in SILO is the finish line: the entry is frozen in SILO's journal
+register and leaves the queue. Sending a copy to QuickBooks is optional and
+deliberately takes more steps (expand "Also send to QuickBooks", acknowledge,
+confirm). Approved entries are never counted as pending.
+
 **Transaction coding is the first module, and it adds no coding logic.** Flow:
 
 1. `on_deck_coding_items()` lists the company's import batches with a derived
    stage: `code` (current suggestions waiting), `approve` (all rows coded or
-   excluded), `post` (approved, not posted), `needs_input` with a specific
+   excluded), `approved` (done in SILO), `needs_input` with a specific
    reason (`uncoded_without_suggestion`, `posting_disabled`,
-   `posting_unresolved`) or `posted` (14-day receipt). card_import_batches is
+   `posting_unresolved`) or `posted` (also sent to QuickBooks; 14-day receipt). card_import_batches is
    readable by every member, so the function gates explicitly on
    `can_manage_journal_entries() or is_exec_or_owner()` — the same population
    accept/approve already admit. No On Deck table copies finance data.
@@ -224,11 +230,13 @@ department gate (owner/admins outside finance still reach proposals from Home).
    `approve_card_import_batch` inside a block it then rolls back, so the shown
    lines, destination realm and hash are exactly what approval would freeze. A
    refusal is returned as the blocker and shown as **Needs input** — never a
-   reconstructed entry. "Approve journal entry" calls
+   reconstructed entry. "Approve journal entry in SILO" calls
    `approve_reviewed_card_import_batch(batch, hash)`, which refuses (and rolls
    back) when the frozen entry no longer hashes to the reviewed one, then
    refreshes the preview. A repeat returns `already_approved` with the same hash.
-4. **Post**: "Post journal entry to QuickBooks" confirms in a dialog, then calls
+4. **Optional QuickBooks copy**: under "Also send to QuickBooks (optional)",
+   "Send to QuickBooks…" opens a dialog that stays disabled until the person
+   acknowledges they want a copy in QuickBooks too, then calls
    `quickbooks-post-journal` with `expected_approval_hash`. A reapproval since
    review returns `APPROVAL_CHANGED`; an unknown outcome is reported as locked
    (the existing claim prevents a double post) with a link to the Transactions
@@ -238,6 +246,14 @@ Editing stays in Transactions (deep link `?batch=&company=`). Any edit changes
 the hash, so the next approval or post requires a fresh review. Reopening an
 approved batch discards its approval as before. Creating or approving here never
 releases a payment.
+
+**Known coupling, unchanged here:** `approve_card_import_batch` refuses a card
+whose `posting_enabled` switch is off, so SILO approval still depends on that
+QuickBooks-era switch (shown as "Approval is switched off for this card").
+And Books → Ledger still counts only entries POSTED to QuickBooks
+(`accounting-ledger.js` siloActivity), so an entry approved in SILO but not sent
+appears in the journal register, not yet in the Ledger roll-forward. Both are
+follow-ups toward SILO-owned books.
 
 **Not in this PR (separate proposals):** "Create draft PO" from restock or
 projection — restock still stops at a draft Product Studio brief with no size

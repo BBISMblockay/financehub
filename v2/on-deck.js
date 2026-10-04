@@ -71,7 +71,8 @@
   }
   function renderReady() {
     const grid = $('ready-cards'); grid.replaceChildren();
-    const coding = state.coding ? state.coding.items().filter(i => i.stage !== 'posted') : [];
+    // Approved entries are done in SILO and belong under "After approval".
+    const coding = state.coding ? state.coding.items().filter(i => !['approved', 'posted'].includes(i.stage)) : [];
     const proposals = state.access.proposals ? state.rows.filter(p => ['ready', 'needs_info'].includes(p.status)) : [];
     coding.forEach(i => grid.append(state.coding.card(i)));
     proposals.forEach(p => grid.append(proposalCard(p)));
@@ -88,12 +89,15 @@
   /* "After approval": what actually happened, with the record it created. */
   function renderAfter() {
     const box = $('after-cards'); box.replaceChildren(); const att = $('attention'); att.replaceChildren();
-    const posted = state.coding ? state.coding.items().filter(i => i.stage === 'posted') : [];
+    const posted = state.coding ? state.coding.items().filter(i => ['approved', 'posted'].includes(i.stage)) : [];
     const done = state.access.proposals ? state.rows.filter(p => p.status === 'completed').slice(0, 3) : [];
-    posted.slice(0, 3).forEach(i => {
-      const c = node('article', null, 'od-after');
-      c.append(node('span', 'Completed', 'od-rpill od-rpill--posted'), node('h3', 'Journal entry posted'), node('p', [i.source_name, i.label].filter(Boolean).join(' · '), 'od-rcard-sub'));
-      const dl = node('dl'); evidenceCard(dl, 'OWNER', 'Finance'); evidenceCard(dl, 'RECEIPT', `QuickBooks ${i.qbo_doc_number || i.qbo_journal_entry_id || 'entry'}`); c.append(dl); box.append(c);
+    posted.slice(0, 6).forEach(i => {
+      const c = node('article', null, 'od-after'); c.dataset.batch = i.batch_id;
+      const sent = i.stage === 'posted';
+      c.append(node('span', 'Approved in SILO', 'od-rpill od-rpill--posted'), node('h3', 'Journal entry approved'), node('p', [i.source_name, i.label].filter(Boolean).join(' · '), 'od-rcard-sub'));
+      const dl = node('dl'); evidenceCard(dl, 'OWNER', 'Finance'); evidenceCard(dl, 'RECORD', 'SILO journal register');
+      evidenceCard(dl, 'QUICKBOOKS', sent ? `Also sent · ${i.qbo_doc_number || i.qbo_journal_entry_id || 'entry'}` : 'Not sent (optional)');
+      c.append(dl, button('View entry', () => state.coding.open(i.batch_id))); box.append(c);
     });
     done.forEach(p => {
       const c = node('article', null, 'od-after');

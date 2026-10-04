@@ -196,3 +196,8 @@ table.bcn-table.od-review-table{table-layout:auto}
 .od-review-table th{text-align:left}
 .od-review-table th.bcn-num,.od-review-table td.bcn-num{text-align:right}
 .od-rcard[aria-current=true]{border-color:var(--bcn-accent);box-shadow:0 0 0 1px var(--bcn-accent)}
+/* Sending to QuickBooks is optional and visually secondary to SILO approval. */
+.od-qbo-optional{margin:0 22px 8px;padding:10px 14px;border:1px dashed var(--bcn-border-strong);border-radius:6px;font-size:12px;color:var(--bcn-ink-2)}
+.od-qbo-optional summary{cursor:pointer;font-weight:600}
+.od-qbo-optional p{margin:8px 0;line-height:1.6}
+@media(max-width:700px){.od-qbo-optional{margin:0 14px 8px}}

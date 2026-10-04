@@ -4,7 +4,8 @@
  * Proves the approval-first contract in the browser: Review opens the actual
  * output (suggested accounts, the journal entry and its destination) before
  * anything consequential; every final button names its effect; the exact
- * reviewed hash is what is sent; repeated clicks send one request; a stale
+ * reviewed hash is what is sent; approval in SILO is the finish line and
+ * sending to QuickBooks is an optional, extra-effort step; repeated clicks send one request; a stale
  * approval, a missing input and an unknown posting outcome each end in a
  * specific, actionable receipt. Database enforcement of the same rules is in
  * scripts/tests/on-deck-coding-database.test.mjs. */
@@ -66,7 +67,7 @@ const rpc = {
     const mode = window.__APPROVE_MODE__ || 'ok';
     if (mode === 'stale') return { __error: { message: 'This journal entry changed after you reviewed it.', code: '40001' } };
     const p = window.__FIXTURE_TABLES__.previews[a.p_batch_id]; p.status = 'approved'; p.approval_version = 1;
-    const i = window.__FIXTURE_TABLES__.coding_items.find(x => x.batch_id === a.p_batch_id); Object.assign(i, { stage: 'post', status: 'approved', approval_hash: a.p_expected_hash });
+    const i = window.__FIXTURE_TABLES__.coding_items.find(x => x.batch_id === a.p_batch_id); Object.assign(i, { stage: 'approved', status: 'approved', approval_hash: a.p_expected_hash });
     return { id: a.p_batch_id, approval_hash: a.p_expected_hash, approval_version: 1 };
   },
 };
@@ -87,7 +88,7 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
   });
   let checks = 0;
   const test = async (name, fn) => { await fn(); console.log(`ok ${++checks} - ${name}`); };
-  const ready = () => !!document.querySelector('#ready-cards .od-rcard') || /requires|not installed/.test(document.getElementById('status').textContent);
+  const ready = () => !!document.querySelector('#ready-cards .od-rcard, #after-cards .od-after') || /requires|not installed/.test(document.getElementById('status').textContent);
   const open = (t = tables(), extraRpc = {}) => suite.open('/v2/on-deck.html', t, { rpc: { ...rpc, ...extraRpc }, ready });
   try {
     let page = await open();
@@ -139,38 +140,51 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
       await page.locator('[data-batch=b-approve] button').click();
       await page.waitForSelector('#coding-review .od-entry');
       const text = await page.locator('#coding-review').textContent();
-      assert.match(text, /QuickBooks · Test Books/); assert.match(text, /2026-08-31/); assert.match(text, /Aug 12, 2026 – Aug 14, 2026/);
+      assert.match(text, /SILO journal register/); assert.match(text, /Test Books · from QuickBooks/); assert.match(text, /2026-08-31/); assert.match(text, /Aug 12, 2026 – Aug 14, 2026/);
       assert.match(text, /2 coded · 1 excluded/);
       const total = await page.locator('.od-total').textContent();
       assert.match(total, /\$35\.50.*\$35\.50/);
-      assert.match(text, /does not post to QuickBooks/);
-      assert.equal(await page.getByRole('button', { name: 'Post journal entry to QuickBooks' }).count(), 0, 'posting is not offered before approval');
+      assert.match(text, /Nothing is sent to QuickBooks/);
+      assert.equal(await page.locator('.od-qbo-optional').count(), 0, 'QuickBooks is not offered before SILO approval');
       await page.screenshot({ path: path.join(shots, 'on-deck-coding-entry.png'), fullPage: true });
     });
 
     await test('a change since the preview refuses approval and refreshes the preview', async () => {
       await page.evaluate(() => { window.__APPROVE_MODE__ = 'stale'; });
       const before = (await calls(page, 'card_import_batch_preview')).length;
-      await page.getByRole('button', { name: 'Approve journal entry' }).click();
+      await page.getByRole('button', { name: 'Approve journal entry in SILO' }).click();
       await page.waitForSelector('.od-receipt--failed');
       assert.match(await page.locator('.od-receipt').textContent(), /changed — review it again/);
       assert.ok((await calls(page, 'card_import_batch_preview')).length > before, 'the preview was fetched again');
       assert.equal(await page.evaluate(() => window.__FIXTURE_TABLES__.previews['b-approve'].status), 'categorized');
     });
 
-    await test('approval sends the exact reviewed hash once and moves the entry to Post', async () => {
+    await test('approval in SILO sends the exact reviewed hash once and is the finish line', async () => {
       await page.evaluate(() => { window.__APPROVE_MODE__ = 'ok'; });
-      await doubleClick(page, 'Approve journal entry');
-      await page.waitForSelector('text=Journal entry approved');
+      await doubleClick(page, 'Approve journal entry in SILO');
+      await page.waitForFunction(() => /Frozen in SILO/.test(document.querySelector('.od-receipt')?.textContent || ''));
       const sent = (await calls(page, 'approve_reviewed_card_import_batch')).filter(c => c.args.p_expected_hash === HASH);
       assert.equal(sent.length, 2, 'one stale attempt, then exactly one approval');
-      assert.match(await page.locator('#coding-review').textContent(), /Nothing has been posted to QuickBooks yet/);
-      assert.equal(await page.getByRole('button', { name: 'Post journal entry to QuickBooks' }).isVisible(), true);
+      assert.match(await page.locator('#coding-review').textContent(), /Nothing was sent to QuickBooks/);
+      assert.match(await page.locator('#coding-review .od-footer').textContent(), /This entry is done/);
+      assert.equal(await page.locator('#ready-cards [data-batch=b-approve]').count(), 0, 'it leaves Ready for your review');
+      assert.match(await page.locator('#after-cards [data-batch=b-approve]').textContent(), /Not sent \(optional\)/);
+      assert.equal(await page.locator('#ready-count').textContent(), '1');
+      assert.equal(await page.getByRole('button', { name: 'Send to QuickBooks…' }).isVisible(), false, 'QuickBooks stays folded away');
+      assert.equal(posts.length, 0);
+      await page.getByText('Also send to QuickBooks (optional)').click();
+      await page.locator('#coding-review').screenshot({ path: path.join(shots, 'on-deck-coding-approved.png') });
+      await page.getByText('Also send to QuickBooks (optional)').click();
     });
 
-    await test('posting asks for confirmation, sends the reviewed approval hash once, and shows the QuickBooks receipt', async () => {
-      await page.getByRole('button', { name: 'Post journal entry to QuickBooks' }).click();
-      assert.match(await page.locator('#coding-post-summary').textContent(), /\$35\.50.*Test Books/);
+    await test('sending to QuickBooks takes extra steps, sends the reviewed approval hash once, and shows the receipt', async () => {
+      await page.getByText('Also send to QuickBooks (optional)').click();
+      await page.getByRole('button', { name: 'Send to QuickBooks…' }).click();
+      assert.match(await page.locator('#coding-post-summary').textContent(), /\$35\.50.*Test Books.*already approved in SILO/);
+      assert.equal(await page.locator('#coding-post-confirm').isDisabled(), true, 'nothing sends until acknowledged');
+      await page.evaluate(() => document.getElementById('coding-post-confirm').click());
+      assert.equal(posts.length, 0);
+      await page.locator('#coding-post-ack').check();
       await page.evaluate(() => { const b = document.getElementById('coding-post-confirm'); b.click(); b.click(); });
       await page.waitForFunction(() => /QuickBooks entry/.test(document.querySelector('.od-receipt')?.textContent || ''));
       assert.equal(posts.length, 1); assert.deepEqual(posts[0], { batch_id: 'b-approve', expected_approval_hash: HASH });
@@ -179,15 +193,17 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
     await page.close();
 
     for (const [name, reply, expect] of [
-      ['an unknown posting outcome is reported honestly with the recovery path', { status: 502, body: { error: 'timeout', code: 'UNKNOWN_OUTCOME' } }, /locked this entry so it cannot post twice/],
+      ['an unknown QuickBooks outcome is reported honestly with the recovery path', { status: 502, body: { error: 'timeout', code: 'UNKNOWN_OUTCOME' } }, /still approved in SILO.*cannot post twice/],
       ['a reapproval after review is refused with a fresh-review instruction', { status: 409, body: { error: 'This journal entry was reapproved after you reviewed it.', code: 'APPROVAL_CHANGED' } }, /approval changed — review it again/],
     ]) {
-      const t = tables(); t.coding_items = [item({ batch_id: 'b-approve', stage: 'post', status: 'approved', approval_hash: HASH, account_mix: [] })];
+      const t = tables(); t.coding_items = [item({ batch_id: 'b-approve', stage: 'approved', status: 'approved', approval_hash: HASH, account_mix: [] })];
       t.previews['b-approve'].status = 'approved';
       page = await open(t); postReply = reply; posts.length = 0;
       await test(name, async () => {
         await page.locator('[data-batch=b-approve] button').click();
-        await page.getByRole('button', { name: 'Post journal entry to QuickBooks' }).click();
+        await page.getByText('Also send to QuickBooks (optional)').click();
+        await page.getByRole('button', { name: 'Send to QuickBooks…' }).click();
+        await page.locator('#coding-post-ack').check();
         await page.locator('#coding-post-confirm').click();
         await page.waitForSelector('.od-receipt--failed');
         assert.match(await page.locator('.od-receipt').textContent(), expect);
@@ -205,19 +221,19 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
         await page.locator('[data-batch=b-approve] button').click();
         await page.waitForSelector('.od-needs');
         assert.match(await page.locator('.od-needs').textContent(), /Needs input.*invalid QuickBooks account/);
-        assert.equal(await page.getByRole('button', { name: 'Approve journal entry' }).count(), 0);
+        assert.equal(await page.getByRole('button', { name: 'Approve journal entry in SILO' }).count(), 0);
       });
       await page.close();
     }
     {
-      const t = tables(); t.coding_items = [item({ batch_id: 'b-approve', stage: 'post', status: 'approved', account_mix: [] })];
+      const t = tables(); t.coding_items = [item({ batch_id: 'b-approve', stage: 'approved', status: 'approved', account_mix: [] })];
       t.previews['b-approve'].status = 'approved';
       page = await open(t, { on_deck_coding_access: () => ({ review: true, post: false }) });
       await test('a reviewer without posting authority is told why instead of offered a button', async () => {
         await page.locator('[data-batch=b-approve] button').click();
         await page.waitForSelector('#coding-review .od-entry');
-        assert.equal(await page.getByRole('button', { name: 'Post journal entry to QuickBooks' }).count(), 0);
-        assert.match(await page.locator('#coding-review .od-footer').textContent(), /Posting requires finance access/);
+        assert.equal(await page.getByRole('button', { name: 'Send to QuickBooks…' }).count(), 0);
+        assert.match(await page.locator('#coding-review .od-qbo-optional').textContent(), /requires finance access/);
       });
       await page.close();
     }

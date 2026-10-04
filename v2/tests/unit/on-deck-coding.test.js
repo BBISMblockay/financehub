@@ -28,15 +28,17 @@ r.test('a mixed or unknown currency is never shown as dollars', () => {
 });
 r.test('needs-input names the specific gap and is not reviewable', () => {
   const m = C.cardModel(item({ stage: 'needs_input', stage_reason: 'posting_disabled' }));
-  r.eq(m.title, 'Posting is off for this card'); r.eq(m.reviewable, false); r.eq(m.figure, null);
+  r.eq(m.title, 'Approval is switched off for this card'); r.eq(m.reviewable, false); r.eq(m.figure, null);
   r.eq(C.cardModel(item({ stage: 'needs_input', stage_reason: 'uncoded_without_suggestion', uncoded_count: 4 })).title, '4 transactions need a person');
   r.eq(C.cardModel(item({ stage: 'needs_input', stage_reason: 'posting_unresolved' })).title, 'Posting outcome needs checking');
 });
-r.test('approve and post cards show the coded total, and only approval stages are reviewable', () => {
+r.test('approval in SILO is the finish line: an approved entry is done, never pending', () => {
   r.eq(C.cardModel(item({ stage: 'approve', coded_amount: 35.5 })).figure, '$35.50');
-  r.eq(C.cardModel(item({ stage: 'post' })).title, 'Post journal entry');
+  const done = C.cardModel(item({ stage: 'approved', coded_amount: 35.5 }));
+  r.eq(done.title, 'Approved in SILO'); r.eq(done.reviewable, false);
+  r.ok('says it was not sent to QuickBooks', /not sent to QuickBooks/.test(done.caption));
   r.eq(C.cardModel(item({ stage: 'posted' })).reviewable, false);
-  r.eq(C.REVIEWABLE.join(','), 'code,approve,post');
+  r.eq(C.REVIEWABLE.join(','), 'code,approve');
 });
 
 console.log('\n── account mix ──');

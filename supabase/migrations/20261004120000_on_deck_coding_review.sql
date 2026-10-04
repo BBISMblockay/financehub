@@ -29,8 +29,10 @@
 --       company member, so this gates on the finance population explicitly.
 --   on_deck_ready_count()  -- the compact count on Home.
 --
--- Posting is bound to the reviewed approval in quickbooks-post-journal
--- (optional expected_approval_hash), not here.
+-- SILO is the ledger of record for this flow: approval freezes the entry in
+-- SILO's journal register and is the finish line. Sending it to QuickBooks is
+-- an optional extra step, bound to the reviewed approval in
+-- quickbooks-post-journal (optional expected_approval_hash), not here.
 --
 -- No table, no policy, no grant on an existing object changes. The one-argument
 -- approve_card_import_batch is untouched; Transactions keeps calling it.
@@ -59,9 +61,10 @@ $$;
 -- fortnight's posted batches (receipts). Stage is derived, never stored:
 --   code         open, current suggestions are waiting to be accepted
 --   approve      every row is coded or excluded; the entry can be previewed
---   post         approved and not yet posted
+--   approved     approved in SILO: frozen in the journal register. DONE as far
+--                as SILO is concerned; sending it to QuickBooks is optional
 --   needs_input  something a person must supply first (stage_reason says what)
---   posted       receipt
+--   posted       approved and also sent to QuickBooks (receipt)
 create or replace function public.on_deck_coding_items()
 returns table(
   batch_id uuid, label text, source_name text, status text,
@@ -137,8 +140,7 @@ as $$
          case
            when b.status = 'posted' then 'posted'
            when b.status = 'approved' and b.posting_status in ('submitting', 'unknown') then 'needs_input'
-           when b.status = 'approved' and not coalesce(b.source_posting_enabled, false) then 'needs_input'
-           when b.status = 'approved' then 'post'
+           when b.status = 'approved' then 'approved'
            when coalesce(s.open_suggestions, 0) > 0 then 'code'
            when b.uncoded_count = 0 and not coalesce(b.source_posting_enabled, false) then 'needs_input'
            when b.uncoded_count = 0 then 'approve'
@@ -146,8 +148,8 @@ as $$
          end,
          case
            when b.status = 'approved' and b.posting_status in ('submitting', 'unknown') then 'posting_unresolved'
-           when b.status in ('approved', 'draft', 'categorized') and not coalesce(b.source_posting_enabled, false)
-                and (b.status = 'approved' or (coalesce(s.open_suggestions, 0) = 0 and b.uncoded_count = 0)) then 'posting_disabled'
+           when b.status in ('draft', 'categorized') and not coalesce(b.source_posting_enabled, false)
+                and coalesce(s.open_suggestions, 0) = 0 and b.uncoded_count = 0 then 'posting_disabled'
            when b.status in ('draft', 'categorized') and coalesce(s.open_suggestions, 0) = 0 and b.uncoded_count > 0 then 'uncoded_without_suggestion'
          end
   from batches b
@@ -305,6 +307,8 @@ end;
 $$;
 
 -- ── The compact count on Home ───────────────────────────────────────────────
+-- Counts only work waiting for a decision. An entry approved in SILO is done:
+-- sending it to QuickBooks is optional and never counted as pending.
 -- Counts only real work: coding batches in a reviewable stage (finance only,
 -- via on_deck_coding_items' own gate) and On Deck proposals ready for a
 -- decision (on_deck_proposals RLS already limits these to owner/admin members).
@@ -316,7 +320,7 @@ security invoker
 set search_path = public, pg_temp
 as $$
   select jsonb_build_object(
-    'coding', (select count(*) from public.on_deck_coding_items() i where i.stage in ('code', 'approve', 'post')),
+    'coding', (select count(*) from public.on_deck_coding_items() i where i.stage in ('code', 'approve')),
     'needs_input', (select count(*) from public.on_deck_coding_items() i where i.stage = 'needs_input'),
     'proposals', (select count(*) from public.on_deck_proposals p
                   where p.company_entity_id = public.active_company_id() and p.status = 'ready'));

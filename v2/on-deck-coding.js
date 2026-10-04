@@ -8,9 +8,11 @@
      - the journal preview is card_import_batch_preview(), which runs the real
        approval and rolls it back, so what is shown is what approval freezes;
      - approval is approve_reviewed_card_import_batch(batch, hash), refused if
-       the entry changed since the preview;
-     - posting is quickbooks-post-journal with expected_approval_hash, refused
-       if the entry was reapproved since it was reviewed.
+       the entry changed since the preview. APPROVAL IN SILO IS THE FINISH LINE:
+       the entry is frozen in SILO's journal register and leaves the queue;
+     - sending to QuickBooks is OPTIONAL and deliberately takes more steps
+       (expand, acknowledge, confirm): quickbooks-post-journal with
+       expected_approval_hash, refused if the entry was reapproved since review.
    Repeated clicks are harmless server-side (accepted rows are no longer open,
    approval returns the frozen hash, posting is claimed before Intuit) and
    buttons are disabled while a request is in flight.
@@ -39,15 +41,16 @@
     return `/v2/transactions.html?batch=${encodeURIComponent(batchId)}&company=${encodeURIComponent(company || '')}`;
   }
 
-  const REVIEWABLE = ['code', 'approve', 'post'];
+  // Waiting for a decision. 'approved' (in SILO) is done, not pending.
+  const REVIEWABLE = ['code', 'approve'];
   const NEEDS = {
     uncoded_without_suggestion: (i) => ({
       title: `${plural(i.uncoded_count, 'transaction')} need a person`,
       detail: 'SILO has no prepared account for these. Choose one in Transactions; nothing is guessed here.',
     }),
     posting_disabled: () => ({
-      title: 'Posting is off for this card',
-      detail: 'This card is not enabled to post to QuickBooks. Turn posting on for the card in Transactions settings, or keep using the CSV export.',
+      title: 'Approval is switched off for this card',
+      detail: 'Approving in SILO currently requires the card\u2019s \u201cposting enabled\u201d switch (Transactions settings). Turning it on sends nothing to QuickBooks by itself.',
     }),
     posting_unresolved: () => ({
       title: 'Posting outcome needs checking',
@@ -68,12 +71,12 @@
         return { ...base, pill: 'Ready to approve', title: 'Approve journal entry',
           figure: money(item.coded_amount, item.currency),
           caption: `${plural(item.txn_count - item.excluded_count, 'coded transaction')}`, action: 'Review' };
-      case 'post':
-        return { ...base, pill: 'Approved', title: 'Post journal entry',
-          figure: money(item.coded_amount, item.currency), caption: 'approved · not yet in QuickBooks', action: 'Review' };
+      case 'approved':
+        return { ...base, pill: 'In SILO', title: 'Approved in SILO',
+          figure: money(item.coded_amount, item.currency), caption: 'in SILO\u2019s journal register · not sent to QuickBooks', action: 'View' };
       case 'posted':
-        return { ...base, pill: 'Posted', title: 'Journal entry posted',
-          figure: item.qbo_doc_number || item.qbo_journal_entry_id || '—', caption: 'QuickBooks journal entry', action: null };
+        return { ...base, pill: 'In SILO + QuickBooks', title: 'Approved and sent to QuickBooks',
+          figure: item.qbo_doc_number || item.qbo_journal_entry_id || '—', caption: 'QuickBooks journal entry', action: 'View' };
       default: {
         const n = (NEEDS[item.stage_reason] || (() => ({ title: 'Needs input', detail: 'Open this import in Transactions.' })))(item);
         return { ...base, stage: 'needs_input', pill: 'Needs input', title: n.title, detail: n.detail,
@@ -99,11 +102,11 @@
   /* What a posting response means for the person who clicked. */
   function postOutcome(status, body) {
     const b = body || {};
-    if (status >= 200 && status < 300 && (b.ok || b.recovered)) return { kind: 'posted', message: 'Posted to QuickBooks.' };
+    if (status >= 200 && status < 300 && (b.ok || b.recovered)) return { kind: 'posted', message: 'Sent to QuickBooks.' };
     if (b.code === 'APPROVAL_CHANGED') return { kind: 'changed', message: b.error || 'The entry was reapproved after you reviewed it.' };
     if (status === 409 && /already posted/i.test(b.error || '')) return { kind: 'already', message: 'This entry is already posted.' };
     if (b.code === 'UNKNOWN_OUTCOME' || b.code === 'LOCAL_PERSISTENCE_FAILURE' || status === 0 || status >= 500) {
-      return { kind: 'unknown', message: 'The outcome is unknown. SILO has locked this entry so it cannot post twice. Open it in Transactions to check QuickBooks and resolve it.' + (b.error ? ` (${b.error})` : '') };
+      return { kind: 'unknown', message: 'The QuickBooks outcome is unknown. The entry is still approved in SILO, and SILO has locked the send so it cannot post twice. Open it in Transactions to check QuickBooks and resolve it.' + (b.error ? ` (${b.error})` : '') };
     }
     return { kind: 'error', message: b.error || `Posting failed (HTTP ${status}).` };
   }
@@ -168,6 +171,7 @@
       ].filter(Boolean).forEach((t) => ul.append(el('li', t)));
       ev.append(ul); c.append(ev);
       if (m.action === 'Review') c.append(btn('Review →', () => open(i.batch_id), 'primary'));
+      else if (m.action === 'View') c.append(btn('View entry', () => open(i.batch_id)));
       else if (m.action) c.append(link(`${m.action} ↗`, transactionsHref(i.batch_id, ctx.co), 'bcn-btn bcn-btn--ghost'));
       return c;
     }
@@ -318,11 +322,12 @@
         panel.append(needs); box.append(panel); return;
       }
       const paper = el('div', null, 'od-paper od-entry');
-      paper.append(el('span', p.status === 'draft' || p.status === 'categorized' ? 'JOURNAL ENTRY / FOR YOUR REVIEW' : 'JOURNAL ENTRY / APPROVED', 'od-paper-label'));
+      paper.append(el('span', p.status === 'draft' || p.status === 'categorized' ? 'JOURNAL ENTRY / FOR YOUR REVIEW' : 'JOURNAL ENTRY / APPROVED IN SILO', 'od-paper-label'));
       const facts = el('dl', null, 'od-evidence');
       const fact = (k, v) => { const d = el('div'); d.append(el('dt', k), el('dd', v == null || v === '' ? 'Unknown' : String(v))); facts.append(d); };
       const dest = p.destination || {};
-      fact('DESTINATION', dest.company_name ? `QuickBooks · ${dest.company_name}${dest.environment === 'sandbox' ? ' (sandbox)' : ''}` : 'QuickBooks connection unknown');
+      fact('RECORDED IN', 'SILO journal register');
+      fact('CHART OF ACCOUNTS', dest.company_name ? `${dest.company_name}${dest.environment === 'sandbox' ? ' (sandbox)' : ''} · from QuickBooks` : 'QuickBooks connection unknown');
       fact('ENTRY DATE', p.entry_date);
       fact('SOURCE DATES', dayRange(p.facts?.first_txn, p.facts?.last_txn));
       fact('TRANSACTIONS', `${p.facts?.coded ?? 0} coded · ${p.facts?.excluded ?? 0} excluded`);
@@ -351,23 +356,31 @@
 
       const footer = el('div', null, 'od-footer');
       if (p.status === 'draft' || p.status === 'categorized') {
-        const approve = btn('Approve journal entry', () => approveEntry(i, approve), 'primary');
+        const approve = btn('Approve journal entry in SILO', () => approveEntry(i, approve), 'primary');
         approve.disabled = st.busy || !ctx.access.review;
-        footer.append(approve, el('span', 'Freezes exactly this entry. It does not post to QuickBooks; posting is a separate step.', 'od-meta'));
-      } else if (p.status === 'posted') {
-        footer.append(el('span', `Posted${p.posting?.posted_at ? ` ${new Date(p.posting.posted_at).toLocaleString()}` : ''} · QuickBooks entry ${p.posting?.qbo_doc_number || p.posting?.qbo_journal_entry_id || 'recorded'}`, 'od-meta'));
-      } else if (p.status === 'approved') {
-        if (p.posting?.status === 'posted') {
-          footer.append(el('span', `Posted · QuickBooks entry ${p.posting.qbo_doc_number || p.posting.qbo_journal_entry_id}`, 'od-meta'));
-        } else if (p.can_post && ctx.access.post) {
-          const post = btn('Post journal entry to QuickBooks', () => confirmPost(i, post), 'primary');
-          post.disabled = st.busy;
-          footer.append(post, el('span', 'Writes this approved entry to your live books.', 'od-meta'));
-        } else {
-          footer.append(el('span', p.can_post ? 'Posting requires finance access.' : 'Posting is off for this card.', 'od-meta'));
-        }
+        footer.append(approve, el('span', 'Freezes exactly this entry in SILO\u2019s journal register. Nothing is sent to QuickBooks.', 'od-meta'));
+        box.append(footer);
+        return;
       }
+      if (p.status === 'posted' || p.posting?.status === 'posted') {
+        footer.append(el('span', `Approved in SILO · also in QuickBooks as entry ${p.posting?.qbo_doc_number || p.posting?.qbo_journal_entry_id || 'recorded'}${p.posting?.posted_at ? ` (${new Date(p.posting.posted_at).toLocaleString()})` : ''}`, 'od-meta'));
+        box.append(footer);
+        return;
+      }
+      footer.append(el('span', `Approved in SILO${p.approval_version ? ` · version ${p.approval_version}` : ''}. This entry is done.`, 'od-meta'));
       box.append(footer);
+      // Optional and deliberately more work: expand, acknowledge, confirm.
+      const qbo = el('details', null, 'od-qbo-optional');
+      qbo.append(el('summary', 'Also send to QuickBooks (optional)'));
+      qbo.append(el('p', 'SILO keeps this entry either way. Sending writes a copy to the connected QuickBooks books; QuickBooks history otherwise stays read-only in SILO.'));
+      if (p.can_post && ctx.access.post) {
+        const send = btn('Send to QuickBooks…', () => confirmPost(i, send));
+        send.disabled = st.busy;
+        qbo.append(send);
+      } else {
+        qbo.append(el('p', p.can_post ? 'Sending to QuickBooks requires finance access.' : 'Sending to QuickBooks is off for this card.', 'od-meta'));
+      }
+      box.append(qbo);
     }
 
     async function approveEntry(i, button) {
@@ -376,8 +389,8 @@
       try {
         await ctx.stillActive();
         const out = await rpc('approve_reviewed_card_import_batch', { p_batch_id: i.batch_id, p_expected_hash: hash });
-        st.receipt = { kind: 'done', title: out.already_approved ? 'Already approved — same entry' : 'Journal entry approved',
-          lines: [`Approval version ${out.approval_version}. Nothing has been posted to QuickBooks yet.`] };
+        st.receipt = { kind: 'done', title: out.already_approved ? 'Already approved in SILO — same entry' : 'Approved in SILO',
+          lines: [`Frozen in SILO\u2019s journal register (version ${out.approval_version}). Nothing was sent to QuickBooks.`] };
       } catch (e) {
         st.receipt = { kind: 'failed', title: e.code === '40001' ? 'The entry changed — review it again' : 'Not approved',
           lines: [e.code === '40001' ? 'The preview below has been refreshed with the current entry. Nothing was approved.' : e.message] };
@@ -389,10 +402,14 @@
       const dialog = document.getElementById('coding-post-dialog');
       const p = st.preview;
       document.getElementById('coding-post-summary').textContent =
-        `Post ${money(p.debits, p.facts?.currency)} (${plural((p.lines || []).length, 'line')}) dated ${p.entry_date} to QuickBooks · ${p.destination?.company_name || 'the connected company'}. A posted entry can only be reversed by voiding it.`;
+        `Send ${money(p.debits, p.facts?.currency)} (${plural((p.lines || []).length, 'line')}) dated ${p.entry_date} to QuickBooks · ${p.destination?.company_name || 'the connected company'}. It is already approved in SILO; this only adds a copy to QuickBooks, which can then only be reversed by voiding it there.`;
+      const ack = document.getElementById('coding-post-ack');
+      ack.checked = false;
       const go = document.getElementById('coding-post-confirm');
       const fresh = go.cloneNode(true); go.replaceWith(fresh);
-      fresh.addEventListener('click', () => { dialog.close(); postEntry(i, button, p.hash); }, { once: true });
+      fresh.disabled = true;
+      ack.onchange = () => { fresh.disabled = !ack.checked; };
+      fresh.addEventListener('click', () => { if (!ack.checked) return; dialog.close(); postEntry(i, button, p.hash); }, { once: true });
       dialog.showModal();
     }
 
@@ -412,7 +429,7 @@
       const o = postOutcome(status, body);
       st.receipt = {
         kind: o.kind === 'posted' || o.kind === 'already' ? 'done' : 'failed',
-        title: o.kind === 'posted' ? 'Posted to QuickBooks' : o.kind === 'already' ? 'Already posted' : o.kind === 'changed' ? 'The approval changed — review it again' : 'Not posted',
+        title: o.kind === 'posted' ? 'Sent to QuickBooks' : o.kind === 'already' ? 'Already in QuickBooks' : o.kind === 'changed' ? 'The approval changed — review it again' : 'Not sent to QuickBooks',
         lines: [o.kind === 'posted' && (body.qbo_journal_entry_id || body.doc_number) ? `QuickBooks entry ${body.doc_number || body.qbo_journal_entry_id}.` : o.message,
           body.warning || null].filter(Boolean),
         link: o.kind === 'unknown' || o.kind === 'error' ? ['Open in Transactions ↗', transactionsHref(i.batch_id, ctx.co)] : null,
