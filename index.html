@@ -162,171 +162,65 @@
     html:not([data-mode="landing"]) #landing { display: none; }
     html[data-mode="landing"] #router { display: none; }
 
-    /* Public welcome page only; the auth router below keeps its own layout. */
-    #landing {
-      position: relative;
-      min-height: 100vh;
-      min-height: 100svh;
-      overflow: hidden;
-      color: var(--bcn-band-ink);
-      font-family: var(--bcn-font);
-      background: #02070c;
-      display: flex;
-      flex-direction: column;
-      padding: 40px clamp(24px, 5.6vw, 96px) 28px;
-    }
-    #landing::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background: radial-gradient(ellipse at 92% 25%, rgba(11, 94, 163, .18), transparent 55%);
-    }
-    #landing .lp-top, #landing .lp-mid, #landing .lp-foot {
-      position: relative;
-      width: 100%;
-      max-width: 1600px;
-      margin-inline: auto;
-    }
-    #landing .lp-top {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 22px;
-      font-weight: 800;
-      letter-spacing: -.03em;
-    }
-    #landing .lp-mark {
-      width: 44px;
-      height: 44px;
-      border-radius: 12px;
-      display: grid;
-      place-items: center;
-      font-size: 20px;
-      background: var(--bcn-surface);
-      border: 1px solid var(--bcn-border-strong);
-    }
-    #landing .lp-mid {
-      flex: 1;
-      display: grid;
-      grid-template-columns: minmax(340px, .9fr) minmax(0, 1.25fr);
-      align-items: center;
-      min-height: 580px;
-      padding-block: 44px;
-    }
-    #landing .lp-copy { position: relative; z-index: 1; padding-block: 28px; }
-    #landing h1 {
-      max-width: 600px;
-      font-size: clamp(40px, 4.25vw, 68px);
-      font-weight: 800;
-      line-height: 1.08;
-      letter-spacing: -.045em;
-      margin: 0 0 24px;
-      color: var(--bcn-band-ink);
-      text-wrap: balance;
-    }
-    #landing .lp-description {
-      max-width: 460px;
-      color: var(--bcn-ink-2);
-      font-size: clamp(17px, 1.45vw, 22px);
-      line-height: 1.6;
-      margin: 0;
-    }
-    #landing .lp-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
-    #landing .bcn-btn { min-height: 48px; padding: 13px 22px; border-radius: 10px; font-size: 14px; font-weight: 700; }
-    #landing .lp-signin { color: #09111b; background: var(--bcn-band-ink); border-color: var(--bcn-band-ink); }
-    #landing .lp-signin:hover { background: #fff; border-color: #fff; }
-    #landing .lp-create { color: var(--bcn-band-ink); background: transparent; border-color: #536375; }
-    #landing .lp-create:hover { background: var(--bcn-surface); border-color: var(--bcn-band-ink-2); }
-    #landing a:focus-visible, #landing button:focus-visible { outline: 3px solid var(--bcn-accent); outline-offset: 5px; }
-    #landing .lp-invite { margin: 16px 0 0; font-size: 12px; line-height: 1.65; color: #a3b3c3; }
-    #landing .lp-invite a { color: var(--bcn-band-ink); text-underline-offset: 3px; }
-    #landing .lp-visual { position: relative; align-self: stretch; min-height: 510px; margin: 0 -5.6vw 0 -18%; overflow: hidden; }
-    #landing .lp-visual picture { position: absolute; inset: 0; display: block; }
-    #landing .lp-visual img, #landing .lp-visual video { position: absolute; right: 0; top: 0; width: 150%; max-width: none; height: 100%; object-fit: contain; object-position: right center; }
-    #landing .lp-visual video { opacity: 0; pointer-events: none; }
-    #landing .lp-visual[data-motion="playing"] video,
-    #landing .lp-visual[data-motion="paused"] video { opacity: 1; }
-    #landing .lp-motion-controls {
-      position: absolute; z-index: 2; right: clamp(24px, 5.6vw, 96px); bottom: 8px;
-      display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px;
-      max-width: min(300px, calc(100% - 48px));
-    }
-    #landing .lp-motion-toggle, #landing .lp-motion-fallback {
-      min-height: 44px; padding: 10px 14px; font-size: 12px;
-      color: var(--bcn-band-ink-2); background: #08111de6; border-color: #536375;
-    }
-    #landing .lp-motion-toggle:hover { color: #fff; border-color: var(--bcn-band-ink-2); }
-    #landing .lp-motion-controls [hidden] { display: none; }
-    #landing .lp-motion-status {
-      flex-basis: 100%; margin: 0; padding: 4px 8px; border-radius: 4px;
-      color: var(--bcn-band-ink-2); background: #08111de6; font-size: 12px; line-height: 1.4; text-align: right;
-    }
-    #landing .lp-visual::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background: linear-gradient(90deg, #02070c 0%, transparent 20%),
-                  linear-gradient(0deg, #02070c 0%, transparent 15%, transparent 85%, #02070c 100%);
-    }
-    #landing .lp-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px 24px; font-size: 12px; color: #a3b3c3; }
-    #landing .lp-foot nav { display: flex; gap: 24px; flex-wrap: wrap; }
-    #landing .lp-foot a { display: inline-flex; align-items: center; min-height: 44px; color: var(--bcn-ink-2); text-decoration: none; }
-    #landing .lp-foot a:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
-    @media (max-width: 900px) {
-      #landing { padding: 28px 28px 20px; }
-      #landing .lp-mid { grid-template-columns: 1fr; min-height: 0; padding-block: 36px 12px; }
-      #landing .lp-copy { padding-block: 0; }
-      #landing h1 { max-width: none; font-size: clamp(38px, 7vw, 56px); margin-bottom: 18px; }
-      #landing .lp-description { max-width: 540px; font-size: 18px; }
-      #landing .lp-visual { min-height: 0; height: clamp(290px, 65vw, 490px); margin: 12px -28px 0; }
-      #landing .lp-visual img, #landing .lp-visual video { width: 135%; right: 0; }
-    }
-    @media (max-width: 420px) {
-      #landing { padding-inline: 20px; }
-      #landing .lp-mid { padding-top: 36px; }
-      #landing .lp-top { font-size: 20px; }
-      #landing .lp-actions { gap: 10px; margin-top: 24px; }
-      #landing .bcn-btn { padding-inline: 16px; }
-      #landing .lp-invite { max-width: 285px; }
-      #landing .lp-visual { margin-inline: -20px; }
-      #landing .lp-foot nav { gap: 18px; }
-    }
     @media (prefers-reduced-motion: reduce) {
-      #landing .bcn-btn { transition: none; }
-      #landing .lp-visual:not([data-user-motion="true"]) video { display: none; }
       .spinner { animation: none; }
     }
   </style>
+  <link rel="stylesheet" href="/assets/landing/early-access.css?v=1" />
 </head>
 <body>
   <div id="landing">
-    <header class="lp-top" aria-label="SILO"><span class="lp-mark" aria-hidden="true">S</span>SILO</header>
+    <header class="lp-top">
+      <div class="lp-brand" aria-label="SILO"><span class="lp-mark" aria-hidden="true">S</span>SILO</div>
+      <a class="bcn-btn lp-signin" href="/pages/login.html">Sign in</a>
+    </header>
     <main class="lp-mid">
       <div class="lp-copy">
         <h1>Welcome to Silo.</h1>
-        <p class="lp-description">Sales, inventory, purchasing, finance and marketing, in one workspace.</p>
-        <div class="lp-actions">
-          <a class="bcn-btn lp-signin" href="/pages/login.html">Sign in</a>
-          <a class="bcn-btn lp-create" href="/v2/company-onboarding.html" aria-describedby="lpInviteNote">Create your SILO <span aria-hidden="true">&rarr;</span></a>
-        </div>
-        <p class="lp-invite" id="lpInviteNote">New workspaces are invitation-only.<br /><a href="mailto:support@get-silo.com?subject=SILO%20workspace%20invitation">Request an invitation</a></p>
+        <p class="lp-description">Sales, inventory, purchasing, finance and marketing,<br class="lp-description-break" /> in one workspace.</p>
       </div>
-      <div class="lp-visual" id="lpVisual" data-motion="still">
-        <!-- Always keep the original responsive artwork underneath the video.
-             No video src is assigned until motion and visibility permit it. -->
-        <picture aria-hidden="true">
-          <source type="image/webp" srcset="/assets/landing/silo-hero-1080.webp 1080w, /assets/landing/silo-hero.webp 1800w" sizes="(max-width: 900px) 135vw, 100vw" />
-          <img src="/assets/landing/silo-hero.jpg" width="1800" height="1100" alt="" fetchpriority="high" decoding="async" />
-        </picture>
-        <video id="lpHeroVideo" width="1080" height="660" muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"
-          data-src="/assets/landing/silo-hero-motion.mp4" data-mobile-src="/assets/landing/silo-hero-motion-mobile.mp4"></video>
-        <div class="lp-motion-controls">
-          <p class="lp-motion-status" id="lpMotionStatus" role="status" aria-live="polite" hidden></p>
-          <button class="bcn-btn lp-motion-toggle" id="lpMotionToggle" type="button" aria-controls="lpHeroVideo" aria-describedby="lpMotionStatus" hidden>Play animation</button>
-          <a class="bcn-btn lp-motion-fallback" id="lpMotionFallback" href="/assets/landing/silo-hero-motion.mp4" target="_blank" rel="noopener">Watch animation</a>
-        </div>
+      <div class="lp-content">
+        <figure class="lp-demo" aria-labelledby="lpDemoCaption">
+          <div class="lp-demo-frame">
+            <div id="lpDemoPlaceholder" class="lp-demo-placeholder">
+              <picture aria-hidden="true">
+                <source type="image/webp" srcset="/assets/landing/silo-hero-1080.webp 1080w, /assets/landing/silo-hero.webp 1800w" sizes="(max-width: 900px) 100vw, 62vw" />
+                <img src="/assets/landing/silo-hero.jpg" width="1800" height="1100" alt="" fetchpriority="high" decoding="async" />
+              </picture>
+              <p class="lp-demo-note">Product walkthrough coming soon</p>
+            </div>
+            <!-- A real walkthrough is enabled only when LANDING_DEMO_VIDEO_URL
+                 is configured. The existing artwork is not a playable demo. -->
+            <video id="lpDemoVideo" width="1800" height="1100" controls playsinline preload="none"
+              poster="/assets/landing/silo-hero.jpg" aria-label="SILO product walkthrough" aria-describedby="lpDemoCaption" hidden></video>
+          </div>
+          <figcaption id="lpDemoCaption" class="lp-demo-caption">A closer look at SILO is on the way.</figcaption>
+        </figure>
+        <section class="bcn-card lp-access" aria-labelledby="lpAccessHeading">
+          <h2 id="lpAccessHeading">Join for early access</h2>
+          <form id="lpInterestForm" method="post" aria-describedby="lpPrivacyNote">
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="lpName">Name</label>
+              <input class="bcn-field" id="lpName" name="name" type="text" autocomplete="name" maxlength="120" required />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="lpCompanyName">Company Name</label>
+              <input class="bcn-field" id="lpCompanyName" name="company_name" type="text" autocomplete="organization" maxlength="200" required />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="lpEmail">Email</label>
+              <input class="bcn-field" id="lpEmail" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" required />
+            </div>
+            <div class="lp-honeypot" aria-hidden="true" inert>
+              <label for="lpWebsite">Leave this field empty</label>
+              <input id="lpWebsite" name="website" type="text" autocomplete="off" tabindex="-1" maxlength="200" />
+            </div>
+            <button class="bcn-btn bcn-btn--primary lp-join" id="lpJoinButton" type="submit" disabled>Join for early access</button>
+            <p class="lp-privacy" id="lpPrivacyNote">We’ll use these details to contact you about SILO onboarding. <a href="/legal/privacy.html">Privacy policy</a></p>
+            <div class="bcn-status" id="lpFormStatus" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></div>
+            <noscript><p class="lp-form-fallback">Enable JavaScript to send your request, or <a href="mailto:support@get-silo.com">contact us</a>.</p></noscript>
+          </form>
+        </section>
       </div>
     </main>
     <footer class="lp-foot">
@@ -357,8 +251,8 @@
     <div class="meta" id="debugMeta"></div>
   </div>
 
-  <script src="/assets/landing/silo-hero-motion.js?v=2" defer></script>
   <script src="/pages/config.js"></script>
+  <script src="/assets/landing/early-access.js?v=1" defer></script>
   <script type="module">
     import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 

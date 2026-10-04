@@ -6,7 +6,14 @@ on:
     paths: &landing_paths
       - 'index.html'
       - 'v2/company-onboarding.html'
+      - 'v2/platform-admin.html'
+      - 'pages/config.js'
+      - 'supabase/functions/onboarding-interest/**'
       - 'pages/login.html'
+      - 'legal/privacy.html'
+      - 'supabase/migrations/*_onboarding_interest_queue.sql'
+      - 'scripts/tests/onboarding-interest-*.test.mjs'
+      - 'scripts/tests/finance-db/package*.json'
       - 'assets/landing/**'
       - 'tests/**'
       - '.github/workflows/public-landing-tests.yml'
@@ -24,15 +31,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Check public entry links, assets, auth routing, and motion policies
-        run: node --test tests/public-landing.test.mjs tests/landing-motion.test.mjs
+      - name: Check public entry, form states, admin queue, auth routing, and legacy motion
+        run: node --test tests/public-landing.test.mjs tests/landing-motion.test.mjs tests/early-access-ui.test.mjs tests/platform-interest.test.mjs
+      - name: Check real public endpoint validation and CORS
+        run: node scripts/tests/onboarding-interest-handler.test.mjs
+      - name: Install pinned isolated PostgreSQL test dependency
+        run: npm ci --prefix scripts/tests/finance-db
+      - name: Check interest queue permissions, persistence, deduplication, and rate limits
+        run: node scripts/tests/onboarding-interest-database.test.mjs
       - name: Install pinned browser test dependency
         working-directory: tests
         run: npm ci
       - name: Install Chromium for browser tests
         working-directory: tests
         run: npx playwright install --with-deps chromium
-      - name: Verify guest navigation, real media playback, and responsive fallbacks
+      - name: Verify guest navigation, interest submissions, configurable video, responsive layout, and admin queue
         working-directory: tests
         run: npm run test:browser
       - name: Upload local-fixture screenshots

@@ -1,0 +1,205 @@
+/* Public landing only. Auth/router styling and routing stay in index.html. */
+#landing {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100svh;
+  color: var(--bcn-band-ink);
+  font-family: var(--bcn-font);
+  background: #02070c;
+  display: flex;
+  flex-direction: column;
+  padding: 40px clamp(24px, 5.6vw, 96px) 20px;
+}
+#landing::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 92% 25%, rgba(11, 94, 163, .18), transparent 55%);
+}
+#landing .lp-top, #landing .lp-mid, #landing .lp-foot {
+  position: relative;
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+}
+#landing .lp-top, #landing .lp-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -.03em;
+}
+#landing .lp-top { justify-content: space-between; }
+#landing .lp-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  background: var(--bcn-surface);
+  border: 1px solid var(--bcn-border-strong);
+}
+#landing .lp-signin {
+  min-height: 44px;
+  padding: 11px 22px;
+  border-radius: 8px;
+  color: var(--bcn-band-ink);
+  border-color: #34414d;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 700;
+}
+#landing .lp-signin:hover { background: var(--bcn-surface); border-color: var(--bcn-band-ink-2); }
+#landing .lp-mid { flex: 1; padding-block: 61px 64px; }
+#landing h1 {
+  font-size: clamp(40px, 4.2vw, 60px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -.045em;
+  margin: 0 0 19px;
+  color: var(--bcn-band-ink);
+  text-wrap: balance;
+}
+#landing .lp-description {
+  max-width: 700px;
+  margin: 0;
+  color: #a7b7c7;
+  font-size: 18px;
+  line-height: 1.65;
+}
+#landing .lp-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1.78fr) minmax(340px, 1fr);
+  gap: 40px;
+  align-items: start;
+  margin-top: 45px;
+}
+#landing .lp-demo { margin: 0; min-width: 0; }
+#landing .lp-demo-frame {
+  position: relative;
+  aspect-ratio: 794 / 462;
+  overflow: hidden;
+  border: 1px solid #263d51;
+  border-radius: 20px;
+  background: #03090f;
+}
+#landing .lp-demo-placeholder { height: 100%; }
+#landing .lp-demo-placeholder picture { display: block; height: 100%; }
+#landing .lp-demo-placeholder img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center bottom;
+}
+#landing .lp-demo-note {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 20px;
+  width: fit-content;
+  max-width: calc(100% - 40px);
+  margin: 0 auto;
+  padding: 10px 16px;
+  color: var(--bcn-band-ink);
+  background: #071019ed;
+  border: 1px solid #304252;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+#landing .lp-demo-frame video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #03090f;
+}
+#landing .lp-demo-frame [hidden] { display: none; }
+#landing .lp-demo-caption { font-size: 13px; color: #869caf; margin: 17px 0 0; line-height: 1.5; }
+#landing .lp-access {
+  padding: 30px 30px 28px;
+  border: 1px solid #243949;
+  border-radius: 20px;
+  background: #0b151f;
+  min-width: 0;
+  overflow: visible;
+}
+#landing .lp-access h2 {
+  font-size: 25px;
+  line-height: 1.3;
+  letter-spacing: -.024em;
+  margin: 0 0 29px;
+  font-weight: 800;
+  color: var(--bcn-band-ink);
+}
+#landing .bcn-field-group { gap: 9px; margin-bottom: 22px; }
+#landing .bcn-label { font-size: 13px; font-weight: 700; color: var(--bcn-band-ink); }
+#landing .bcn-field {
+  height: 47px;
+  padding: 10px 12px;
+  border: 1px solid #304252;
+  border-radius: 8px;
+  background: #071019;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+#landing .bcn-field:focus { border-color: var(--bcn-accent); }
+#landing .lp-join {
+  min-height: 50px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 12px 16px;
+  border: 1px solid #6ab4ef;
+  border-radius: 8px;
+  background: #358bd0;
+  font-size: 14px;
+  font-weight: 800;
+  white-space: normal;
+}
+#landing .lp-join:hover { background: #358bd0; filter: brightness(1.08); }
+#landing .lp-join[disabled] { cursor: default; }
+#landing .lp-privacy, #landing .lp-form-fallback { margin: 16px 0 0; color: #a7b7c7; font-size: 11px; line-height: 1.65; }
+#landing .lp-privacy a, #landing .lp-form-fallback a { color: var(--bcn-band-ink); text-underline-offset: 3px; }
+#landing .lp-honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#landing #lpFormStatus { margin-top: 16px; padding: 12px; border-radius: 8px; line-height: 1.6; overflow-wrap: anywhere; }
+#landing a:focus-visible, #landing button:focus-visible, #landing input:focus-visible, #landing video:focus-visible {
+  outline: 3px solid var(--bcn-accent);
+  outline-offset: 4px;
+}
+#landing .lp-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px 24px; font-size: 12px; color: #869caf; }
+#landing .lp-foot nav { display: flex; gap: 26px; flex-wrap: wrap; }
+#landing .lp-foot a { display: inline-flex; align-items: center; min-height: 44px; color: #869caf; text-decoration: none; }
+#landing .lp-foot a:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 1100px) {
+  #landing .lp-content { grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); gap: 28px; }
+  #landing .lp-access { padding: 26px 24px; }
+  #landing .lp-access h2 { font-size: 23px; }
+}
+@media (max-width: 900px) {
+  #landing { padding: 28px 28px 20px; }
+  #landing .lp-mid { padding-block: 48px 48px; }
+  #landing h1 { font-size: clamp(38px, 7vw, 56px); }
+  #landing .lp-content { grid-template-columns: minmax(0, 1fr); gap: 32px; margin-top: 32px; }
+  #landing .lp-access { width: 100%; max-width: 560px; justify-self: center; padding: 30px; }
+}
+@media (max-width: 420px) {
+  #landing { padding-inline: 20px; }
+  #landing .lp-mid { padding-top: 38px; }
+  #landing .lp-brand { font-size: 20px; }
+  #landing .lp-signin { padding-inline: 16px; }
+  #landing h1 { font-size: 38px; }
+  #landing .lp-description { font-size: 17px; }
+  #landing .lp-description-break { display: none; }
+  #landing .lp-access { padding: 24px 20px; }
+  #landing .lp-demo-frame { border-radius: 14px; }
+  #landing .lp-demo-note { left: 12px; right: 12px; bottom: 12px; max-width: calc(100% - 24px); padding: 8px 12px; font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #landing .bcn-btn { transition: none; }
+}

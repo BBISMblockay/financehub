@@ -50,6 +50,33 @@
         <div id="admin" hidden>
           <div class="ws-card" style="max-width:none;">
             <div class="ws-card-head">
+              <div class="ws-title">Early-access interest</div>
+              <div class="ws-sub">Prospects awaiting personal follow-up</div>
+            </div>
+            <div class="ws-body">
+              <p class="ws-note">This queue records interest only. Changing a status does not send a message,
+                create an account, or issue an invitation.</p>
+              <div class="ws-actions" style="margin-top:14px;">
+                <label for="interestFilter">Status</label>
+                <select id="interestFilter" class="bcn-field">
+                  <option value="pending">Pending</option><option value="contacted">Contacted</option>
+                  <option value="closed">Closed</option><option value="all">All</option>
+                </select>
+                <button class="bcn-btn" id="interestPrevious" disabled>Previous</button>
+                <button class="bcn-btn" id="interestNext" disabled>Next</button>
+                <span id="interestPage" role="status" aria-live="polite"></span>
+              </div>
+            </div>
+            <div style="overflow-x:auto;">
+              <table class="ws-table" id="tblInterest">
+                <thead><tr><th>Received</th><th>Name</th><th>Company</th><th>Email</th><th>Status</th><th></th></tr></thead>
+                <tbody><tr><td colspan="6" class="ws-empty">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="ws-card" style="max-width:none;">
+            <div class="ws-card-head">
               <div class="ws-title">Companies</div>
               <div class="ws-sub" id="companyCount"></div>
             </div>
@@ -145,6 +172,50 @@
     if (ms) setTimeout(() => { n.hidden = true; }, ms);
   }
 
+  const interestPageSize = 25;
+  let interestPage = 0;
+  let interestBusy = false;
+  let interestHasNext = false;
+
+  function setInterestBusy(busy) {
+    interestBusy = busy;
+    el('interestFilter').disabled = busy;
+    el('interestPrevious').disabled = busy || interestPage === 0;
+    el('interestNext').disabled = busy || !interestHasNext;
+    el('tblInterest').querySelectorAll('button, select').forEach(n => { n.disabled = busy; });
+  }
+
+  async function loadInterest() {
+    if (interestBusy) return;
+    setInterestBusy(true);
+    const body = el('tblInterest').querySelector('tbody');
+    try {
+      let query = db.from('onboarding_interest_queue')
+        .select('id, name, company_name, email, created_at, status')
+        .order('created_at', { ascending: false }).order('id', { ascending: false });
+      const filter = el('interestFilter').value;
+      if (filter !== 'all') query = query.eq('status', filter);
+      const start = interestPage * interestPageSize;
+      const { data, error } = await query.range(start, start + interestPageSize);
+      if (error) throw error;
+      const rows = data || [];
+      interestHasNext = rows.length > interestPageSize;
+      el('interestPage').textContent = `Page ${interestPage + 1}`;
+      body.innerHTML = rows.slice(0, interestPageSize).map(row => `<tr>
+        <td>${esc(day(row.created_at))}</td><td>${esc(row.name)}</td>
+        <td>${esc(row.company_name)}</td><td>${esc(row.email)}</td>
+        <td><select class="bcn-field" aria-label="Status for ${esc(row.name)}" data-interest-status="${esc(row.id)}">
+          ${['pending', 'contacted', 'closed'].map(value => `<option value="${value}"${value === row.status ? ' selected' : ''}>${value}</option>`).join('')}
+        </select></td>
+        <td><button class="bcn-btn" data-interest-save="${esc(row.id)}" data-original-status="${esc(row.status)}">Save</button></td>
+      </tr>`).join('') || '<tr><td colspan="6" class="ws-empty">No interest in this view.</td></tr>';
+    } catch (_) {
+      interestHasNext = false;
+      el('interestPage').textContent = '';
+      body.innerHTML = '<tr><td colspan="6" class="ws-empty">Could not load the queue. Use Reload to retry.</td></tr>';
+    } finally { setInterestBusy(false); }
+  }
+
   async function loadCompanies() {
     const { data, error } = await db.rpc('platform_list_companies');
     const body = el('tblCompanies').querySelector('tbody');
@@ -200,17 +271,44 @@
     });
 
     // This decides what is DRAWN. It is not the boundary: is_platform_admin()
-    // is re-checked inside every RPC below, all of which are SECURITY DEFINER,
-    // so reaching this URL without the grant renders nothing and returns
-    // nothing.
+    // is re-checked inside existing admin RPCs and in the interest queue's
+    // SELECT/UPDATE RLS policies. Reaching this URL does not grant access.
     const { data: isPlatform } = await db.rpc('is_platform_admin');
     if (isPlatform !== true) { el('gate').hidden = false; return; }
 
     el('admin').hidden = false;
     el('btnReload').hidden = false;
-    await Promise.all([loadCompanies(), loadInvites()]);
+    await Promise.all([loadCompanies(), loadInvites(), loadInterest()]);
 
-    el('btnReload').addEventListener('click', () => Promise.all([loadCompanies(), loadInvites()]));
+    el('btnReload').addEventListener('click', () => Promise.all([loadCompanies(), loadInvites(), loadInterest()]));
+
+    el('interestFilter').addEventListener('change', () => { interestPage = 0; loadInterest(); });
+    el('interestPrevious').addEventListener('click', () => { if (!interestBusy && interestPage > 0) { interestPage--; loadInterest(); } });
+    el('interestNext').addEventListener('click', () => { if (!interestBusy && interestHasNext) { interestPage++; loadInterest(); } });
+    el('tblInterest').addEventListener('click', async (event) => {
+      const button = event.target.closest('[data-interest-save]');
+      if (!button || interestBusy) return;
+      const select = button.closest('tr').querySelector('[data-interest-status]');
+      const nextStatus = select.value;
+      if (!['pending', 'contacted', 'closed'].includes(nextStatus)) return;
+      setInterestBusy(true);
+      let saved = false;
+      try {
+        const { data, error } = await db.from('onboarding_interest_queue')
+          .update({ status: nextStatus }).eq('id', button.dataset.interestSave)
+          .eq('status', button.dataset.originalStatus).select('id').maybeSingle();
+        if (error) throw error;
+        if (!data) {
+          setStatus('This entry changed or access is no longer available. Reload before trying again.', 'neg');
+        } else {
+          saved = true;
+          setStatus('Interest status saved.', 'pos', 5000);
+        }
+      } catch (_) {
+        setStatus('Could not save the status. Your selection is kept; try again.', 'neg');
+      } finally { setInterestBusy(false); }
+      if (saved) await loadInterest();
+    });
 
     el('pfCreate').addEventListener('click', async () => {
       const email = el('pfEmail').value.trim();
