@@ -371,7 +371,11 @@ Deno.serve(async (req) => {
     if ((claimError as any).code === 'PBF01') return bankChangeRequired();
     // card_import_claim_matches_approval: the batch was reopened or reapproved
     // after it was read. Nothing was sent; the person must review again.
-    if ((claimError as any).code === 'P0OD1') {
+    // plaid_guard_new_posting_claim fires first for bank-feed sources and
+    // raises the default SQLSTATE for the same stale-approval case, so it is
+    // recognised by its message (cycle-2 review). Nothing was sent.
+    if ((claimError as any).code === 'P0OD1'
+        || /Posting claim must match the approved bank batch/.test(String((claimError as any).message || ''))) {
       return json({
         error: 'The approved entry changed before it could be sent. Review the current version.',
         code: 'APPROVAL_CHANGED',

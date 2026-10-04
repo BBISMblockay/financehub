@@ -84,24 +84,32 @@ as $$
   with gate as (
     select public.active_company_id() as co,
            coalesce(public.can_manage_journal_entries() or public.is_exec_or_owner(), false) as ok
+  ), base as (
+    -- The ACTIVE claim is read from the claims table itself: the batch's
+    -- posting_id (and so card_import_batches_v.posting_status) is set only
+    -- after a successful send, so an unknown outcome would otherwise read as
+    -- an ordinary approved entry and be forgotten (cycle-2 review).
+    select b.*,
+           (select p.status from public.quickbooks_journal_postings p
+            where p.company_entity_id = b.company_entity_id and p.source = 'card_import'
+              and p.source_ref = b.id::text and p.status in ('submitting', 'unknown')
+            order by p.created_at desc limit 1) as active_claim_status
+    from public.card_import_batches_v b, gate
+    where gate.ok and b.company_entity_id = gate.co and coalesce(b.txn_count, 0) > 0
   ), batches as (
     -- Work that still needs a person is selected on its own, so receipts can
     -- never crowd it out of the queue or out of Home's count (cycle-1 review).
-    (select b.* from public.card_import_batches_v b, gate
-     where gate.ok and b.company_entity_id = gate.co and coalesce(b.txn_count, 0) > 0
-       and (b.status in ('draft', 'categorized')
-            or (b.status = 'approved' and b.posting_status in ('submitting', 'unknown')))
-     order by b.updated_at desc
+    (select * from base
+     where status in ('draft', 'categorized') or (status = 'approved' and active_claim_status is not null)
+     order by updated_at desc
      limit 500)
     union all
     -- Receipts (approved in SILO, or also sent to QuickBooks): a bounded,
     -- recent history only.
-    (select b.* from public.card_import_batches_v b, gate
-     where gate.ok and b.company_entity_id = gate.co and coalesce(b.txn_count, 0) > 0
-       and b.updated_at > now() - interval '14 days'
-       and (b.status = 'posted'
-            or (b.status = 'approved' and b.posting_status is distinct from 'submitting' and b.posting_status is distinct from 'unknown'))
-     order by b.updated_at desc
+    (select * from base
+     where updated_at > now() - interval '14 days'
+       and (status = 'posted' or (status = 'approved' and active_claim_status is null))
+     order by updated_at desc
      limit 12)
   ), sugg as (
     -- Only live, current suggestions on rows still waiting for a category --
@@ -146,12 +154,12 @@ as $$
          coalesce(s.open_suggestions, 0), coalesce(s.suggested_amount, 0), coalesce(s.low_confidence, 0),
          coalesce(s.needs_judgment, 0), coalesce(s.failed, 0),
          d.first_txn, d.last_txn, coalesce(b.source_posting_enabled, false),
-         b.posting_status, b.qbo_journal_entry_id, b.qbo_doc_number,
+         coalesce(b.active_claim_status, b.posting_status), b.qbo_journal_entry_id, b.qbo_doc_number,
          b.approval_hash, b.approved_at, b.updated_at,
          coalesce(m.account_mix, '[]'::jsonb), d.currency,
          case
            when b.status = 'posted' then 'posted'
-           when b.status = 'approved' and b.posting_status in ('submitting', 'unknown') then 'needs_input'
+           when b.status = 'approved' and b.active_claim_status is not null then 'needs_input'
            when b.status = 'approved' then 'approved'
            when coalesce(s.open_suggestions, 0) > 0 then 'code'
            when b.uncoded_count = 0 and not coalesce(b.source_posting_enabled, false) then 'needs_input'
@@ -159,7 +167,7 @@ as $$
            else 'needs_input'
          end,
          case
-           when b.status = 'approved' and b.posting_status in ('submitting', 'unknown') then 'posting_unresolved'
+           when b.status = 'approved' and b.active_claim_status is not null then 'posting_unresolved'
            when b.status in ('draft', 'categorized') and not coalesce(b.source_posting_enabled, false)
                 and coalesce(s.open_suggestions, 0) = 0 and b.uncoded_count = 0 then 'posting_disabled'
            when b.status in ('draft', 'categorized') and coalesce(s.open_suggestions, 0) = 0 and b.uncoded_count > 0 then 'uncoded_without_suggestion'

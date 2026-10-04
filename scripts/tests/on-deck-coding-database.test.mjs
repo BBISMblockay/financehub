@@ -23,6 +23,7 @@
 //   ON_DECK_CODING_MUTATION=preview-ungated
 //   ON_DECK_CODING_MUTATION=claim-unguarded
 //   ON_DECK_CODING_MUTATION=receipts-crowd-work
+//   ON_DECK_CODING_MUTATION=unknown-send-hidden
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -38,6 +39,8 @@ const MUTATIONS = {
 MUTATIONS['claim-unguarded'] = ["  if new.source <> 'card_import' or new.status <> 'submitting' then return new; end if;", '  return new;'];
 // Put the receipts and the pending work back under one shared limit.
 MUTATIONS['receipts-crowd-work'] = ['     limit 500)', '     limit 0)'];
+// Read the send state from the batch's posting_id again (set only on success).
+MUTATIONS['unknown-send-hidden'] = ["              and p.source_ref = b.id::text and p.status in ('submitting', 'unknown')", "              and p.id = b.posting_id and p.status in ('submitting', 'unknown')"];
 const mutation = process.env.ON_DECK_CODING_MUTATION || '';
 assert.ok(!mutation || MUTATIONS[mutation], 'Unknown On Deck coding mutation');
 
@@ -301,6 +304,24 @@ try {
     assert.ok(rows.some((r) => r.batch_id === codeBatch && r.stage === 'code'), 'the older batch waiting on coding is still listed');
     assert.ok(rows.filter((r) => r.stage === 'approved').length <= 12, 'receipts are a bounded history');
     assert.equal((await as(finance, () => rpc('on_deck_ready_count'))).coding, before.coding, 'the count is unchanged by receipts');
+  });
+
+  await test('a QuickBooks send with an unknown outcome stays in the queue as needs input', async () => {
+    const b = await newBatch(source);
+    await newTxn(b, 20, { coded: true });
+    const h = (await preview(finance, b)).hash;
+    await approveReviewed(finance, b, h);
+    // What a network timeout leaves behind: an unknown claim, and the batch's
+    // posting_id still null because finalize never ran.
+    await as(null, () => q(`insert into quickbooks_journal_postings(company_entity_id,connection_id,source,source_ref,payload,status,payload_hash,attempt_count)
+      values($1,$2,'card_import',$3,'{}'::jsonb,'submitting',$4,1)`, [co, conn, b, h]), 'service_role');
+    await q("update quickbooks_journal_postings set status='unknown' where source_ref=$1", [b]);
+    assert.equal((await one('select posting_id from card_import_batches where id=$1', [b])).posting_id, null);
+    const row = (await items(finance)).find((r) => r.batch_id === b);
+    assert.ok(row, 'still listed');
+    assert.equal(row.stage, 'needs_input'); assert.equal(row.stage_reason, 'posting_unresolved'); assert.equal(row.posting_status, 'unknown');
+    await q("update card_import_batches set updated_at = now() - interval '30 days' where id=$1", [b]);
+    assert.ok((await items(finance)).some((r) => r.batch_id === b && r.stage === 'needs_input'), 'never ages out like a receipt');
   });
 
   await test('no function in this migration is executable by anon', async () => {

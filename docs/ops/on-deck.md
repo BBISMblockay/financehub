@@ -253,6 +253,15 @@ categorized, or an unresolved send) is selected separately from receipts, which
 are a bounded 14-day history, so receipts never push pending work out of the
 queue or Home's count.
 
+**Cycle-2 review fixes.** (a) An unresolved QuickBooks send is read from the
+claim itself (`quickbooks_journal_postings` by `source_ref`), not from the
+batch's `posting_id`, which is set only on success, so a timed-out send stays
+in the queue as Needs input and never ages out like a receipt. (b) Suggestion
+and preview loads commit only if they are still the current open, so a slow
+load for one batch cannot replace another batch's rows or selection. (c) The
+bank-feed claim trigger's refusal (default SQLSTATE, recognised by message) maps
+to 409 `APPROVAL_CHANGED`, like the new trigger's `P0OD1`.
+
 Editing stays in Transactions (deep link `?batch=&company=`). Any edit changes
 the hash, so the next approval or post requires a fresh review. Reopening an
 approved batch discards its approval as before. Creating or approving here never

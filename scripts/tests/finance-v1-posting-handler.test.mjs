@@ -79,7 +79,7 @@ function fixture(options = {}) {
           return { data: null, error: { code: 'PBF01', message: 'Resolve the bank feed change before a new posting attempt' } };
         }
         if (options.claimRefused && this.table === 'quickbooks_journal_postings') {
-          return { data: null, error: { code: options.claimRefused, message: 'The approved entry changed before it could be sent.' } };
+          return { data: null, error: { code: options.claimRefused, message: options.claimMessage || 'The approved entry changed before it could be sent.' } };
         }
         if (options.concurrentClaim && this.table === 'quickbooks_journal_postings') {
           return { data: null, error: { code: '23505', message: 'active claim already exists' } };
@@ -293,6 +293,19 @@ for (const postFailure of ['network', 503, 400, 'missing-id']) {
   const out = await f.request({ expected_approval_hash: hash });
   assert.equal(out.status, 409); assert.equal(out.body.code, 'APPROVAL_CHANGED');
   assert.equal(f.posts(), 0, 'a refused claim never reaches QuickBooks');
+  scenarios++;
+}
+{
+  const f = fixture({ kind: 'card', claimRefused: 'P0001', claimMessage: 'Posting claim must match the approved bank batch and connection' });
+  const out = await f.request({ expected_approval_hash: hash });
+  assert.equal(out.status, 409, 'the bank-feed trigger refusal is a re-review, not a 500');
+  assert.equal(out.body.code, 'APPROVAL_CHANGED'); assert.equal(f.posts(), 0);
+  scenarios++;
+}
+{
+  const f = fixture({ kind: 'card', claimRefused: 'P0001', claimMessage: 'some other database failure' });
+  const out = await f.request();
+  assert.equal(out.status, 500, 'an unrelated claim failure is still reported as a failure'); assert.equal(f.posts(), 0);
   scenarios++;
 }
 console.log(`finance-v1-posting-handler: ${scenarios} executed request scenarios passed`);

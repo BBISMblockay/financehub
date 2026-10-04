@@ -195,9 +195,15 @@
       try {
         const i = item();
         if (!i) { close(); return; }
-        if (i.stage === 'code') await loadSuggestions(i);
-        else st.preview = await rpc('card_import_batch_preview', { p_batch_id: batchId });
-        if (token === st.token) render();
+        // Load into locals and commit only if this is still the current open:
+        // a slow load for one batch must never replace another batch's rows,
+        // selection or preview (cycle-2 review).
+        const loaded = i.stage === 'code' ? await loadSuggestions(i)
+          : { preview: await rpc('card_import_batch_preview', { p_batch_id: batchId }) };
+        if (token !== st.token || st.active !== batchId) return;
+        st.rows = loaded.rows || []; st.selected = loaded.selected || new Set();
+        st.unprepared = loaded.unprepared || 0; st.preview = loaded.preview || null;
+        render();
       } catch (e) { if (token === st.token) { ctx.reviewEl.replaceChildren(el('div', e.message, 'bcn-status bcn-status--neg')); } }
     }
 
@@ -209,10 +215,10 @@
       if (error) throw new Error(error.message);
       const loaded = await window.SiloCodingSuggestions.load(ctx.db, ctx.co, (data || []).map((t) => t.id));
       if (!loaded.available) throw new Error('Prepared coding suggestions are not installed in this environment.');
-      st.rows = (data || []).map((t) => ({ t, s: loaded.byTransaction.get(t.id) || null }))
+      const rows = (data || []).map((t) => ({ t, s: loaded.byTransaction.get(t.id) || null }))
         .filter((r) => r.s && r.s.kind === 'ready' && window.SiloCodingSuggestions.applies(r.t, false));
-      st.selected = new Set(st.rows.filter((r) => defaultSelected(r.s)).map((r) => r.s.id));
-      st.unprepared = (data || []).length - st.rows.length;
+      return { rows, selected: new Set(rows.filter((r) => defaultSelected(r.s)).map((r) => r.s.id)),
+        unprepared: (data || []).length - rows.length };
     }
 
     function head(i, m) {

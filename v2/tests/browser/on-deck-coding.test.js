@@ -154,6 +154,30 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
     });
     await page.close();
 
+    {
+      const t = tables();
+      t.coding_items.push(item({ batch_id: 'b-code2', label: 'October', open_suggestions: 1, suggested_amount: 9, low_confidence: 0, account_mix: [{ account: 'Meals', count: 1, amount: 9 }] }));
+      t.card_transactions.push({ id: 't3', company_entity_id: company, batch_id: 'b-code2', txn_date: '2026-10-01', description: 'CAFE', clean_merchant: 'Cafe', amount: 9, card_name: 'Travel', status: 'uncoded', qbo_account_id: null });
+      t.card_coding_suggestions_v.push({ id: 's3', transaction_id: 't3', company_entity_id: company, review_status: 'open', outcome: 'suggested', qbo_account_id: 'meals', qbo_account_name: 'Meals', confidence: 0.9, reasoning: 'Cafe.', stale_reason: null });
+      page = await open(t);
+      await test('a slow load for one batch never replaces the batch that is open', async () => {
+        // Batch A's suggestions resolve late; batch B is opened meanwhile.
+        await page.evaluate(() => { const S = window.SiloCodingSuggestions, orig = S.load;
+          S.load = (db, co, ids) => ids.includes('t1') ? new Promise(r => setTimeout(() => r(orig(db, co, ids)), 500)) : orig(db, co, ids); });
+        await page.locator('#ready-cards [data-batch=b-code] button').click();
+        await page.locator('#ready-cards [data-batch=b-code2] button').click();
+        await page.waitForSelector('#coding-review .od-review-table');
+        await page.waitForTimeout(700); // A has now resolved
+        assert.match(await page.locator('#coding-review h2').textContent(), /Code 1 transaction/);
+        assert.equal(await page.locator('#coding-review tbody tr').count(), 1);
+        await page.getByRole('button', { name: 'Save 1 categorization' }).click();
+        await page.waitForSelector('.od-receipt');
+        const sent = await calls(page, 'accept_card_coding_suggestions');
+        assert.deepEqual(sent.map(c => c.args.p_ids), [['s3']], 'only the open batch\'s suggestion is saved');
+      });
+      await page.close();
+    }
+
     page = await open();
     await test('the journal entry preview shows destination, dates, lines and balanced totals before approval', async () => {
       await page.locator('[data-batch=b-approve] button').click();
