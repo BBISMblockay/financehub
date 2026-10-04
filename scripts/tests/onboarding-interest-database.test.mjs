@@ -1,9 +1,10 @@
 // Isolated PostgreSQL permissions and transaction tests. PGlite is one connection;
 // queued calls are NOT evidence of real multiconnection interleaving.
 // Run: node scripts/tests/onboarding-interest-database.test.mjs
-// Optional mutation: ONBOARDING_DB_MUTATION=wide-policy|wide-grants|overwrite|no-rate-limit|extra-bucket|removal
+// Optional mutation: ONBOARDING_DB_MUTATION=wide-policy|wide-grants|overwrite|no-rate-limit|no-email-limit|extra-bucket|removal
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 const db = new PGlite();
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
@@ -17,7 +18,8 @@ const swaps = {
   'wide-grants': ['grant update (status) on public.onboarding_interest_queue to authenticated;', 'grant update on public.onboarding_interest_queue to authenticated;'],
   overwrite: ['on conflict (email) do nothing;', 'on conflict (email) do update set name = excluded.name;'],
   'no-rate-limit': ['if v_retry > 0 then', 'if false then'],
-  'extra-bucket': ["bucket_key in ('global:minute', 'global:day')", "bucket_key in ('global:minute', 'global:day', 'extra')"],
+  'no-email-limit': ["('email:' || p_email_key, 3)", "('email:' || p_email_key, 300)"],
+  'extra-bucket': ["bucket_key in ('global:minute', 'global:day') or", "bucket_key in ('global:minute', 'global:day', 'extra') or"],
   removal: ['  v_now := clock_timestamp();', '  v_now := clock_timestamp();\n  delete from public.onboarding_interest_rate_buckets;'],
 };
 if (mutation) { assert.ok(swaps[mutation]); const [a,b] = swaps[mutation]; assert.ok(sql.includes(a)); sql = sql.replaceAll(a,b); }
@@ -62,8 +64,9 @@ async function as(role, uid, fn) {
 const service = fn => as('service_role', '', fn);
 const admin = fn => as('authenticated', '00000000-0000-0000-0000-000000000001', fn);
 const ordinary = fn => as('authenticated', '00000000-0000-0000-0000-000000000002', fn);
-const submit = (email='lead@example.com', name='First person', company='First company') =>
-  one('select public.submit_onboarding_interest($1,$2,$3) as result', [name,company,email]).then(r=>r.result);
+const digest = text => createHash('sha256').update(text).digest('hex');
+const submit = (email='lead@example.com', name='First person', company='First company', key=digest(String(email))) =>
+  one('select public.submit_onboarding_interest($1,$2,$3,$4) as result', [name,company,email,key]).then(r=>r.result);
 async function denied(fn, pattern=/permission denied|row-level security|check constraint|Invalid interest request/) {
   await db.exec('savepoint expected_refusal');
   try { await assert.rejects(fn, pattern); }
@@ -106,6 +109,7 @@ await test('RPC input validation rejects missing, malformed, non-normalized, and
     ['x@example.com','Name','x'.repeat(201)], ['x@example.com','Name','bad\ncompany'], ['UPPER@example.com'],
     [' a@example.com'], ['bad'], ['a..b@example.com'], ['a@-example.com'], ['a@one'], ['a@'+'x'.repeat(64)+'.com'],
     [null], ['x@example.com','Name',null],
+    ['x@example.com','Name','Company',null], ['x@example.com','Name','Company','ip-address'], ['x@example.com','Name','Company','G'.repeat(64)],
   ];
   for (const args of bad) await service(()=>denied(()=>submit(...args)));
 });
@@ -115,11 +119,22 @@ await test('table constraints backstop direct service inserts',async()=>{
       [column==='name'?value:'Name',column==='company_name'?value:'Company',column==='email'?value:'fresh@example.com', ['name','company_name','email'].includes(column)?'pending':value])));
   }
 });
-await test('duplicate attempts consume the same durable global quota without per-email state',async()=>{
-  for(let i=0;i<30;i++) assert.equal((await service(()=>submit())).accepted,true);
-  const result=await service(()=>submit()); assert.equal(result.accepted,false); assert.ok(result.retry_after_seconds > 0);
+await test('repeat attempts for one address are throttled at 3 per hour before the global quota, with one lead',async()=>{
+  for(let i=0;i<3;i++) assert.equal((await service(()=>submit())).accepted,true);
+  const result=await service(()=>submit()); assert.equal(result.accepted,false); assert.ok(result.retry_after_seconds > 0 && result.retry_after_seconds <= 3600);
   assert.equal((await one('select count(*)::int as n from onboarding_interest_queue')).n,1);
-  assert.deepEqual((await q('select bucket_key from onboarding_interest_rate_buckets order by bucket_key')).map(r=>r.bucket_key),['global:day','global:minute']);
+  assert.deepEqual((await q('select bucket_key,hits from onboarding_interest_rate_buckets order by bucket_key')),
+    [{bucket_key:'email:'+digest('lead@example.com'),hits:3},{bucket_key:'global:day',hits:3},{bucket_key:'global:minute',hits:3}]);
+  // A different address is still admitted: the throttle is per address, not global.
+  assert.equal((await service(()=>submit('other@example.com'))).accepted,true);
+});
+await test('an expired per-address counter resets in place; the row is reused, never removed',async()=>{
+  for(let i=0;i<3;i++) await service(()=>submit());
+  assert.equal((await service(()=>submit())).accepted,false);
+  await q("update onboarding_interest_rate_buckets set expires_at=clock_timestamp()-interval '1 second' where bucket_key like 'email:%'");
+  assert.equal((await service(()=>submit())).accepted,true);
+  assert.deepEqual(await q("select hits from onboarding_interest_rate_buckets where bucket_key like 'email:%'"),[{hits:1}]);
+  assert.equal((await one('select count(*)::int as n from onboarding_interest_rate_buckets')).n,3);
 });
 await test('global minute cap denies new addresses without changing rate state or leads',async()=>{
   for(let i=0;i<30;i++) assert.equal((await service(()=>submit(`lead${i}@example.com`))).accepted,true);
@@ -128,24 +143,24 @@ await test('global minute cap denies new addresses without changing rate state o
   assert.deepEqual(await q('select * from onboarding_interest_rate_buckets order by bucket_key'),before);
   assert.equal((await one('select count(*)::int as n from onboarding_interest_queue')).n,30);
 });
-await test('300 unique emails fit exactly two reusable quota rows; the day cap and reset work',async()=>{
+await test('300 unique emails add exactly one row each; refused attempts add none; the day cap and reset work',async()=>{
   for(let i=0;i<300;i++) {
     if(i && i%30===0) await q("update onboarding_interest_rate_buckets set expires_at=clock_timestamp()-interval '1 second' where bucket_key='global:minute'");
     assert.equal((await service(()=>submit(`lead${i}@example.com`))).accepted,true);
-    assert.equal((await one('select count(*)::int as n from onboarding_interest_rate_buckets')).n,2);
+    assert.equal((await one('select count(*)::int as n from onboarding_interest_rate_buckets')).n,2+i+1);
   }
   await q("update onboarding_interest_rate_buckets set expires_at=clock_timestamp()-interval '1 second' where bucket_key='global:minute'");
   for(let i=300;i<400;i++) assert.equal((await service(()=>submit(`lead${i}@example.com`))).accepted,false);
   assert.equal((await one('select count(*)::int as n from onboarding_interest_queue')).n,300);
-  assert.equal((await one('select count(*)::int as n from onboarding_interest_rate_buckets')).n,2);
-  const keys=await q('select bucket_key from onboarding_interest_rate_buckets order by bucket_key');
+  assert.equal((await one('select count(*)::int as n from onboarding_interest_rate_buckets')).n,302,'a refused request adds no per-address row');
   await q("update onboarding_interest_rate_buckets set expires_at=clock_timestamp()-interval '1 second'");
   assert.equal((await service(()=>submit('next-day@example.com'))).accepted,true);
-  assert.deepEqual(await q('select bucket_key from onboarding_interest_rate_buckets order by bucket_key'),keys);
+  assert.equal((await one('select count(*)::int as n from onboarding_interest_rate_buckets')).n,303);
   assert.ok((await q('select hits from onboarding_interest_rate_buckets')).every(r=>r.hits===1));
 });
 await test('bucket key constraint and service permissions prevent unbounded state or removal',async()=>{
   await service(()=>denied(()=>q("insert into onboarding_interest_rate_buckets values('extra',1,now()+interval '1 hour')")));
+  await service(()=>denied(()=>q("insert into onboarding_interest_rate_buckets values('email:not-a-digest',1,now()+interval '1 hour')")));
   for(const table of ['onboarding_interest_queue','onboarding_interest_rate_buckets'])
     assert.equal((await one('select has_table_privilege($1,$2,$3) as allowed',['service_role',table,'DELETE,TRUNCATE'])).allowed,false);
 });
@@ -155,16 +170,16 @@ await test('a persistence exception rolls back quota admission',async()=>{
   await service(()=>denied(()=>submit(),/fixture persistence failed/));
   assert.equal((await one('select count(*)::int as n from onboarding_interest_rate_buckets')).n,0);
 });
-await test('only the three-argument invoker RPC exists, with no removal statements in its stored body',async()=>{
+await test('only the four-argument invoker RPC exists, with no removal statements in its stored body',async()=>{
   const functions=await q("select pronargs,prosecdef,prosrc from pg_proc where pronamespace='public'::regnamespace and proname='submit_onboarding_interest'");
   assert.equal(functions.length,1); const [f]=functions;
-  assert.equal(f.pronargs,3); assert.equal(f.prosecdef,false); assert.match(f.prosrc,/pg_advisory_xact_lock/);
+  assert.equal(f.pronargs,4); assert.equal(f.prosecdef,false); assert.match(f.prosrc,/pg_advisory_xact_lock/);
   assert.doesNotMatch(f.prosrc,/\b(?:drop|delete|truncate)\b/i);
   assert.equal((await one("select has_table_privilege('authenticated','public.onboarding_interest_queue','UPDATE') as allowed")).allowed,false);
   assert.equal(policyOids.length,2);
 });
 await test('read-only deployment verifier reports both queue checks ok',async()=>{
-  const full=await readFile(new URL('../../supabase/queries/verify_onboarding_interest_queue.sql',import.meta.url),'utf8');
+  const full=await readFile(new URL('../../supabase/verify_v2_schema.sql',import.meta.url),'utf8');
   const fragment=full.split('-- Begin onboarding interest checks.')[1].split('-- End onboarding interest checks.')[0];
   const result=await db.exec(fragment);
   assert.equal(result.length,2);

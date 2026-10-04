@@ -34,13 +34,19 @@ media URL; native video controls are used, without autoplay or an iframe.
 
 ## Durable intake bounds
 
-The service-only RPC takes name, company name and normalized email. It admits
-at most 30 requests per minute and 300 per day, using exactly two permitted
-reusable global counter keys. Duplicate requests consume the same quota as new
-requests and never overwrite the original lead. Expired counters reset in place.
-No IP address, email hash, per-email bucket, or cleanup operation is used.
-A sender can exhaust the shared intake quota temporarily; this is the availability
-tradeoff for a small public intake without a trusted client-IP contract.
+The service-only RPC takes name, company name, normalized email and a per-address
+key. It admits at most 30 requests per minute and 300 per day across everyone,
+and at most 3 per hour per address, using two reusable global counters plus one
+counter per address. The per-address key is an HMAC computed only in the Edge
+Function under the service key, so the database holds no address, hash of a
+known shape, IP or client metadata. Every bound is checked before any counter is
+touched, so a refused request adds no row; an admitted request adds at most one.
+Nothing is ever removed from the counter table: an expired counter resets in
+place on its next hit, and the table grows by at most the daily cap. Duplicate
+requests consume quota like new ones and never overwrite the original lead.
+A sender rotating addresses can still exhaust the shared daily quota; that is the
+availability tradeoff for a small public intake without a trusted client-IP
+contract. A sender repeating one address cannot.
 
 Before first application, migration `20261003221720_onboarding_interest_queue.sql`
 was revised on 2026-10-04 after read-only verification that its objects and
@@ -53,10 +59,11 @@ creates policies only if absent, and grants no removal privilege on either table
    tests and browser fixtures with the PR.
 2. Apply only the reviewed new queue migration to the Silo project. Do not run
    the repository-wide apply-all script as part of this change.
-3. Run `supabase/queries/verify_onboarding_interest_queue.sql` to verify the new
-   tables, RLS policies and column/function privileges using read-only queries.
-   Both checks must report `ok`. Existing broad schema checks remain unchanged.
-   Do not create fake production leads.
+3. Run `supabase/verify_v2_schema.sql` as after any DB change. Its two
+   "Early-access intake" checks verify the new tables, RLS policies and
+   column/function privileges read-only and must report `ok`; the daily
+   deployment drift check runs the same file, so a later widening of these
+   grants goes red on its own. Do not create fake production leads.
 4. After deployment is separately approved, deploy the `onboarding-interest`
    function with JWT verification disabled for this intentionally public intake.
    The existing manual Deploy Edge Function workflow records the exact commit.

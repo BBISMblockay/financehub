@@ -13,7 +13,7 @@ on:
       - 'pages/login.html'
       - 'legal/privacy.html'
       - 'supabase/migrations/*_onboarding_interest_queue.sql'
-      - 'supabase/queries/verify_onboarding_interest_queue.sql'
+      - 'supabase/verify_v2_schema.sql'
       - 'scripts/tests/onboarding-interest-*.test.mjs'
       - 'scripts/tests/finance-db/package*.json'
       - 'assets/landing/**'

@@ -12,6 +12,8 @@
 
 ## Individual migrations (same content, split)
 
+**Early-access interest queue:** `migrations/20261003221720_onboarding_interest_queue.sql` adds platform-admin-only contact requests from the standalone `/demo.html` page and service-only intake counters (two global plus one per address, reset in place, nothing ever removed). Authenticated clients may update only status; ordinary company administrators and anonymous clients cannot read the queue. No account, company, invite, billing or email side effect. Deploy `onboarding-interest` separately with JWT verification disabled, after the migration. Verified by the two "Early-access intake" checks in `verify_v2_schema.sql`; runbook [docs/ops/early-access-queue.md](../docs/ops/early-access-queue.md).
+
 **Product Studio SKU spread:** `migrations/20260927074820_product_studio_variant_spread.sql` adds store-mapped product search, per-SKU restock evidence and atomic multi-line PO handoffs. Existing single-SKU briefs remain supported. Apply after the original preview migration; no menu promotion or edge deploy.
 
 **Product workflow preview:** `migrations/20260926082115_product_workflow_preview.sql`

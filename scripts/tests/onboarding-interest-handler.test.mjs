@@ -45,18 +45,19 @@ await test('deployed index normalizes fields, posts one RPC, and returns only ge
   const {handler,calls}=fixture(); const response=await handler(request());
   assert.equal(response.status,200);assert.deepEqual(await response.json(),{ok:true});assert.equal(calls.length,1);
   const [url,opts]=calls[0];assert.equal(url,'https://fixture.supabase.co/rest/v1/rpc/submit_onboarding_interest');
-  const body=JSON.parse(opts.body);assert.deepEqual(Object.keys(body).sort(),['p_company_name','p_email','p_name']);
+  const body=JSON.parse(opts.body);assert.deepEqual(Object.keys(body).sort(),['p_company_name','p_email','p_email_key','p_name']);
   assert.equal(body.p_name,'Alex Example');assert.equal(body.p_company_name,'Example Co');assert.equal(body.p_email,'alex@example.com');
+  assert.match(body.p_email_key,/^[a-f0-9]{64}$/);assert.ok(!body.p_email_key.includes('alex'));
   assert.equal(opts.headers.Authorization,'Bearer fixture-secret');assert.equal(opts.headers.apikey,'fixture-secret');
   assert.equal(response.headers.get('Cache-Control'),'no-store');
   assert.equal(response.headers.get('Access-Control-Allow-Origin'),ORIGIN);
 });
-await test('duplicates use same response; only contact fields reach the three-argument RPC',async()=>{
+await test('duplicates use same response and the same keyed digest; IP headers never reach the database',async()=>{
   const {handler,calls}=fixture();const first=await handler(request());
   const second=await handler(request({...input,name:'Changed'},{headers:{'x-forwarded-for':'1.2.3.4','cf-connecting-ip':'5.6.7.8'}}));
   assert.equal(await first.text(),await second.text());
-  assert.deepEqual(Object.keys(JSON.parse(calls[1][1].body)).sort(),['p_company_name','p_email','p_name']);
-  assert.equal(JSON.parse(calls[0][1].body).p_email,JSON.parse(calls[1][1].body).p_email);
+  assert.deepEqual(Object.keys(JSON.parse(calls[1][1].body)).sort(),['p_company_name','p_email','p_email_key','p_name']);
+  assert.equal(JSON.parse(calls[0][1].body).p_email_key,JSON.parse(calls[1][1].body).p_email_key);
   assert.doesNotMatch(calls[1][1].body,/1\.2\.3\.4|5\.6\.7\.8/);
 });
 await test('exact official origins preflight content-type and apikey; other/missing origins refused without persistence',async()=>{

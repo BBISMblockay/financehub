@@ -29,14 +29,17 @@ create index if not exists onboarding_interest_queue_newest_idx
 create index if not exists onboarding_interest_queue_status_newest_idx
   on public.onboarding_interest_queue(status, created_at desc, id desc);
 
--- Exactly two permitted global keys bound rate state permanently. Expired
--- counters reset in place; no contact identity or client metadata is stored.
+-- Two shared global counters plus one counter per address, keyed by an HMAC
+-- produced only at the edge: no raw address, IP, headers or user agent is
+-- stored. Nothing is ever removed from this table. An expired counter resets
+-- in place on its next hit, and a per-address row is only ever added for an
+-- ADMITTED request, so the table grows by at most the daily cap.
 create table if not exists public.onboarding_interest_rate_buckets (
   bucket_key text primary key,
   hits integer not null check (hits between 1 and 300),
   expires_at timestamptz not null,
   constraint onboarding_interest_bucket_key_valid check (
-    bucket_key in ('global:minute', 'global:day'))
+    bucket_key in ('global:minute', 'global:day') or bucket_key ~ '^email:[0-9a-f]{64}$')
 );
 
 alter table public.onboarding_interest_queue enable row level security;
@@ -75,7 +78,7 @@ end;
 $policies$;
 
 create or replace function public.submit_onboarding_interest(
-  p_name text, p_company_name text, p_email text
+  p_name text, p_company_name text, p_email text, p_email_key text
 ) returns jsonb
 language plpgsql security invoker
 set search_path = ''
@@ -95,7 +98,8 @@ begin
      or p_email is null or p_email <> lower(btrim(p_email)) or char_length(p_email) not between 3 and 254
      or char_length(split_part(p_email, '@', 1)) > 64
      or split_part(p_email, '@', 1) like '.%' or split_part(p_email, '@', 1) like '%.' or split_part(p_email, '@', 1) like '%..%'
-     or p_email !~ $rx$^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$$rx$ then
+     or p_email !~ $rx$^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$$rx$
+     or p_email_key is null or p_email_key !~ '^[0-9a-f]{64}$' then
     raise exception 'Invalid interest request' using errcode = '22023';
   end if;
 
@@ -105,9 +109,11 @@ begin
   perform pg_catalog.pg_advisory_xact_lock(735214901, 1);
   v_now := clock_timestamp();
 
-  -- Check both shared bounds before admitting a new or repeated request.
+  -- Check every bound BEFORE touching any counter, the per-address one
+  -- included: a refused request adds no row, so a sender cycling addresses
+  -- against a full global counter cannot grow this table at all.
   for v_key, v_limit in select * from (values
-    ('global:minute'::text, 30), ('global:day'::text, 300)
+    ('global:minute'::text, 30), ('global:day'::text, 300), ('email:' || p_email_key, 3)
   ) as limits(bucket_key, max_hits)
   loop
     select hits, expires_at into v_hits, v_expires
@@ -122,7 +128,8 @@ begin
 
   for v_key, v_window in select * from (values
     ('global:minute'::text, interval '1 minute'),
-    ('global:day'::text, interval '1 day')
+    ('global:day'::text, interval '1 day'),
+    ('email:' || p_email_key, interval '1 hour')
   ) as windows(bucket_key, duration)
   loop
     insert into public.onboarding_interest_rate_buckets as b(bucket_key, hits, expires_at)
@@ -140,13 +147,13 @@ begin
   return jsonb_build_object('accepted', true, 'retry_after_seconds', 0);
 end;
 $fn$;
-revoke all on function public.submit_onboarding_interest(text, text, text)
+revoke all on function public.submit_onboarding_interest(text, text, text, text)
   from public, anon, authenticated, service_role;
-grant execute on function public.submit_onboarding_interest(text, text, text) to service_role;
+grant execute on function public.submit_onboarding_interest(text, text, text, text) to service_role;
 
 comment on table public.onboarding_interest_queue is
   'Public landing contact requests; platform-admin only. Not an account, invite, tenant or marketing subscription.';
 comment on table public.onboarding_interest_rate_buckets is
-  'Service-only intake quotas with exactly two permitted reusable global keys. No contact identity or client metadata.';
+  'Service-only intake quotas: two reusable global counters plus one per address keyed by an edge HMAC. Rows reset in place and are never removed; no raw email, IP or client metadata.';
 
 commit;
