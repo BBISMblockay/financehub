@@ -3,6 +3,7 @@
 // invite, payment or real interest entry is touched by this suite.
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -105,13 +106,16 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
     const relative = url.pathname.slice(1);
     const allowed = ['demo.html', 'pages/login.html', 'v2/beacon.css', 'v2/silo-brand.css',
       'legal/privacy.html', 'assets/landing/early-access.js', 'assets/landing/early-access.css'];
-    if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative)) {
+    if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative)
+      && !/^assets\/landing\/redo-demo-(?:chart|dashboard|ask-silo)\.png$/.test(relative)) {
       failures.push('Unexpected fixture path: ' + relative);
       return route.abort();
     }
     if (unavailable && /\.(webp|jpg)$/.test(relative)) return route.abort();
+    const filePath = path.join(root, relative);
+    if (!existsSync(filePath)) return route.fulfill({ status: 404, body: 'Not found' });
     const contentType = { '.html': 'text/html', '.css': 'text/css', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.png': 'image/png', '.js': 'text/javascript' }[path.extname(relative)];
-    return route.fulfill({ contentType, body: await readFile(path.join(root, relative)) });
+    return route.fulfill({ contentType, body: await readFile(filePath) });
   });
   const page = await context.newPage();
   page.on('pageerror', error => failures.push(error.message));

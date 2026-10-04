@@ -247,8 +247,12 @@ test('absent demo stays an honest still with no fake active play or old animatio
   assert.match(landing, /assets\/landing\/silo-hero\.jpg/);
   assert.match(landing, /Redo Marketing Performance/);
   assert.match(landing, /Sample · Last 30 days/);
-  assert.match(landing, /lp-bars/);
-  assert.doesNotMatch(landing, /silo-web-flow\.png|Silo workspace/);
+  assert.match(landing, /lp-shot/);
+  assert.match(landing, /data-asset="redo-demo-chart\.png"/);
+  assert.match(landing, /data-asset="redo-demo-dashboard\.png"/);
+  assert.match(landing, /data-asset="redo-demo-ask-silo\.png"/);
+  assert.doesNotMatch(landing, /lp-bars|silo-web-flow\.png/);
+  assert.match(readFileSync(new URL('../assets/landing/early-access.js', import.meta.url), 'utf8'), /\.lp-shot\[data-asset\]/);
   assert.doesNotMatch(landing, /<iframe|autoplay|\bloop\b|Play animation|Watch animation|lpMotionToggle|lpMotionFallback/);
   assert.doesNotMatch(html, /<script[^>]*silo-hero-motion/);
 });

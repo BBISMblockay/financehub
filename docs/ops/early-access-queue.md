@@ -10,10 +10,12 @@ new homepage or navigation link is added.
 
 For now the page is the Redo Marketing landing. The hero uses the existing
 Blender rendering (`silo-hero`). The performance board follows the poster
-layout with sample Redo figures and a chart frame that can be swapped for a
-real Redo performance screen. Ask Silo analysis is its own section.
-`LANDING_DEMO_VIDEO_URL` is intentionally unconfigured, so the chart frame stays
-the sample bars without a play button. Once approved, configure
+layout with sample Redo figures and dark-mode **interface slots** that load
+automatically when PNGs are added under `assets/landing/` (see that folder’s
+README). Ask Silo has its own slot plus the question list. Sample KPI copy
+stays until a full dashboard capture replaces the wide slot.
+`LANDING_DEMO_VIDEO_URL` is intentionally unconfigured, so the chart slot stays
+an image placeholder without a play button. Once approved, configure
 that optional property with the final supported media URL; native video controls
 are used, without autoplay or an iframe.
 

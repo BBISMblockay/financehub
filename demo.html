@@ -6,7 +6,7 @@
   <title>Silo · Redo Marketing</title>
   <meta name="description" content="Silo connects to Redo and turns email and SMS into decision-ready reporting beside Shopify sales, ad spend, and margin. Ask Silo for the analysis. Early access for Redo Marketing customers." />
   <link rel="stylesheet" href="/v2/beacon.css" />
-  <link rel="stylesheet" href="/assets/landing/early-access.css?v=10" />
+  <link rel="stylesheet" href="/assets/landing/early-access.css?v=11" />
 </head>
 <body class="lp-demo-page">
   <div id="landing">
@@ -54,38 +54,31 @@
           <h2 id="lpUnderstandHeading">Redo runs your marketing. Silo helps you understand it.</h2>
           <p>Go beyond opens, clicks and basic attribution. Understand which campaigns create valuable customers, repeat purchases, margin, and real business growth.</p>
         </div>
-        <article class="lp-board" aria-labelledby="lpBoardTitle">
+        <article class="lp-board lp-board--dark" aria-labelledby="lpBoardTitle">
           <header class="lp-board-head">
             <h3 id="lpBoardTitle">Redo Marketing Performance</h3>
             <span class="lp-board-range">Sample · Last 30 days</span>
           </header>
           <div class="lp-board-hero">
-            <div>
+            <div class="lp-board-kpi">
               <p class="lp-kpi-label">Email &amp; SMS Revenue</p>
               <p class="lp-kpi-value">$382,451 <span class="lp-delta">+27%</span></p>
             </div>
             <figure class="lp-demo">
               <div class="lp-demo-frame">
-                <div id="lpDemoPlaceholder" class="lp-demo-placeholder">
-                  <p class="lp-demo-note">Sample chart</p>
-                  <div class="lp-bars" aria-hidden="true">
-                    <span style="--h:38%"><i>Oct 1</i></span>
-                    <span style="--h:46%"></span>
-                    <span style="--h:42%"><i>Oct 7</i></span>
-                    <span style="--h:58%"></span>
-                    <span style="--h:52%"><i>Oct 14</i></span>
-                    <span style="--h:70%"></span>
-                    <span style="--h:64%"><i>Oct 21</i></span>
-                    <span style="--h:88%"><i>Oct 28</i></span>
-                  </div>
+                <div id="lpDemoPlaceholder" class="lp-shot lp-shot--chart" data-asset="redo-demo-chart.png" data-alt="Redo revenue chart">
+                  <p class="lp-shot-label">Interface image</p>
                 </div>
                 <!-- A real walkthrough replaces this frame only when LANDING_DEMO_VIDEO_URL is configured. -->
-                <video id="lpDemoVideo" width="1800" height="1100" controls playsinline preload="none"
-                  poster="/assets/landing/silo-hero.jpg" aria-label="Silo product walkthrough" aria-describedby="lpDemoCaption" hidden></video>
+                <video id="lpDemoVideo" width="960" height="540" controls playsinline preload="none"
+                  aria-label="Silo product walkthrough" aria-describedby="lpDemoCaption" hidden></video>
               </div>
-              <figcaption id="lpDemoCaption" class="lp-demo-caption">Sample chart. A Redo performance screen can replace this frame.</figcaption>
+              <figcaption id="lpDemoCaption" class="lp-demo-caption">Chart slot for a dark-mode capture, or a walkthrough video when configured.</figcaption>
             </figure>
           </div>
+          <figure class="lp-shot lp-shot--wide" data-asset="redo-demo-dashboard.png" data-alt="Silo dashboard in dark mode">
+            <p class="lp-shot-label">Interface image</p>
+          </figure>
           <ul class="lp-kpi-grid" role="list">
             <li><p class="lp-kpi-label">Revenue / Recipient</p><p class="lp-kpi-value">$1.82 <span class="lp-delta">+18%</span></p></li>
             <li><p class="lp-kpi-label">Campaign Revenue</p><p class="lp-kpi-value">$214,830 <span class="lp-delta">+32%</span></p></li>
@@ -119,6 +112,9 @@
           <li>Which campaign produced the highest contribution margin?</li>
           <li>Why did email revenue decline last week?</li>
         </ol>
+        <figure class="lp-shot lp-shot--ask" data-asset="redo-demo-ask-silo.png" data-alt="Ask Silo analysis">
+          <p class="lp-shot-label">Interface image</p>
+        </figure>
       </section>
 
       <section class="lp-features" aria-labelledby="lpFeaturesHeading">
@@ -190,6 +186,6 @@
   </div>
 
   <script src="/pages/config.js"></script>
-  <script src="/assets/landing/early-access.js?v=2" defer></script>
+  <script src="/assets/landing/early-access.js?v=3" defer></script>
 </body>
 </html>

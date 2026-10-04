@@ -210,60 +210,61 @@
 #landing .lp-demo { margin: 0; min-width: 0; }
 #landing .lp-demo-frame {
   position: relative;
-  min-height: 168px;
   overflow: hidden;
   border-radius: 12px;
-  background: #08111f;
-  border: 1px dashed #3558a8;
+  background: #060b14;
+  border: 1px solid #243352;
 }
-#landing .lp-demo-placeholder { position: relative; min-height: 168px; padding: 28px 14px 26px; }
-#landing .lp-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  height: 132px;
-  padding-bottom: 18px;
-}
-#landing .lp-bars span {
+#landing .lp-shot {
   position: relative;
-  flex: 1;
-  height: var(--h);
-  border-radius: 4px 4px 2px 2px;
-  background: linear-gradient(180deg, #8eb6ff, #2f6bff);
+  display: grid;
+  place-items: center;
+  min-height: 168px;
+  margin: 0;
+  padding: 20px 14px;
+  border-radius: 12px;
+  background: linear-gradient(165deg, #0a1224 0%, #060b14 55%, #050910 100%);
+  border: 1px dashed #3d5288;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
 }
-#landing .lp-bars i {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  color: #7e8da8;
+#landing .lp-shot-label {
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: #b9ccff;
+  background: rgba(8, 16, 32, .88);
+  border: 1px solid #3d5288;
   font-family: var(--bcn-mono);
   font-size: 10px;
-  font-style: normal;
-  font-weight: 500;
-  white-space: nowrap;
-}
-#landing .lp-demo-note {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  margin: 0;
-  padding: 4px 8px;
-  border-radius: 999px;
-  color: #d5e2ff;
-  background: rgba(8, 16, 32, .82);
-  border: 1px solid #3558a8;
-  font-size: 10px;
   font-weight: 700;
-  letter-spacing: .06em;
+  letter-spacing: .08em;
   text-transform: uppercase;
+}
+#landing .lp-shot--filled { padding: 0; border-style: solid; background: #060b14; }
+#landing .lp-shot--filled .lp-shot-label { display: none; }
+#landing .lp-shot-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: inherit;
+}
+#landing .lp-shot--chart { min-height: 180px; }
+#landing .lp-shot--wide {
+  min-height: 280px;
+  margin-top: 16px;
+}
+#landing .lp-shot--ask {
+  grid-column: 1 / -1;
+  min-height: 220px;
+  margin-top: 4px;
 }
 #landing .lp-demo-frame video {
   display: block;
   width: 100%;
-  height: 220px;
+  height: auto;
+  min-height: 180px;
   object-fit: contain;
-  background: #08111f;
+  background: #060b14;
 }
 #landing .lp-demo-frame [hidden] { display: none; }
 #landing .lp-demo-caption { margin: 8px 0 0; color: #8b97ad; font-size: 12px; line-height: 1.4; }
