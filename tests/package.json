@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test public-landing.test.mjs landing-motion.test.mjs",
-    "test:browser": "node public-landing.browser.mjs"
+    "test": "node --test public-landing.test.mjs landing-motion.test.mjs early-access-ui.test.mjs platform-interest.test.mjs",
+    "test:browser": "node public-landing.browser.mjs && node early-access.browser.mjs && node platform-interest.browser.mjs"
   },
   "devDependencies": {
     "playwright": "1.58.2"

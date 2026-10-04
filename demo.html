@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-mode="landing">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO Demo</title>
+  <meta name="description" content="Sales, inventory, purchasing, finance and marketing, in one workspace." />
+  <link rel="stylesheet" href="/v2/beacon.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/landing/early-access.css?v=1" />
+</head>
+<body class="lp-demo-page">
+  <div id="landing">
+    <header class="lp-top">
+      <div class="lp-brand" aria-label="SILO"><span class="lp-mark" aria-hidden="true">S</span>SILO</div>
+      <a class="bcn-btn lp-signin" href="/pages/login.html">Sign in</a>
+    </header>
+    <main class="lp-mid">
+      <div class="lp-copy">
+        <h1>Welcome to Silo.</h1>
+        <p class="lp-description">Sales, inventory, purchasing, finance and marketing,<br class="lp-description-break" /> in one workspace.</p>
+      </div>
+      <div class="lp-content">
+        <figure class="lp-demo" aria-labelledby="lpDemoCaption">
+          <div class="lp-demo-frame">
+            <div id="lpDemoPlaceholder" class="lp-demo-placeholder">
+              <picture aria-hidden="true">
+                <source type="image/webp" srcset="/assets/landing/silo-hero-1080.webp 1080w, /assets/landing/silo-hero.webp 1800w" sizes="(max-width: 900px) 100vw, 62vw" />
+                <img src="/assets/landing/silo-hero.jpg" width="1800" height="1100" alt="" fetchpriority="high" decoding="async" />
+              </picture>
+              <p class="lp-demo-note">Product walkthrough coming soon</p>
+            </div>
+            <!-- A real walkthrough is enabled only when LANDING_DEMO_VIDEO_URL
+                 is configured. The existing artwork is not a playable demo. -->
+            <video id="lpDemoVideo" width="1800" height="1100" controls playsinline preload="none"
+              poster="/assets/landing/silo-hero.jpg" aria-label="SILO product walkthrough" aria-describedby="lpDemoCaption" hidden></video>
+          </div>
+          <figcaption id="lpDemoCaption" class="lp-demo-caption">A closer look at SILO is on the way.</figcaption>
+        </figure>
+        <section class="bcn-card lp-access" aria-labelledby="lpAccessHeading">
+          <h2 id="lpAccessHeading">Join for early access</h2>
+          <form id="lpInterestForm" method="post" aria-describedby="lpPrivacyNote">
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="lpName">Name</label>
+              <input class="bcn-field" id="lpName" name="name" type="text" autocomplete="name" maxlength="120" required />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="lpCompanyName">Company Name</label>
+              <input class="bcn-field" id="lpCompanyName" name="company_name" type="text" autocomplete="organization" maxlength="200" required />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="lpEmail">Email</label>
+              <input class="bcn-field" id="lpEmail" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" required />
+            </div>
+            <div class="lp-honeypot" aria-hidden="true" inert>
+              <label for="lpWebsite">Leave this field empty</label>
+              <input id="lpWebsite" name="website" type="text" autocomplete="off" tabindex="-1" maxlength="200" />
+            </div>
+            <button class="bcn-btn bcn-btn--primary lp-join" id="lpJoinButton" type="submit" disabled>Join for early access</button>
+            <p class="lp-privacy" id="lpPrivacyNote">We’ll use these details to contact you about SILO onboarding. <a href="/legal/privacy.html">Privacy policy</a></p>
+            <div class="bcn-status" id="lpFormStatus" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></div>
+            <noscript><p class="lp-form-fallback">Enable JavaScript to send your request, or <a href="mailto:support@get-silo.com">contact us</a>.</p></noscript>
+          </form>
+        </section>
+      </div>
+    </main>
+    <footer class="lp-foot">
+      <span>&copy; <span id="lpYear">2026</span> SILO</span>
+      <nav aria-label="Legal and contact">
+        <a href="/legal/privacy.html">Privacy</a>
+        <a href="mailto:support@get-silo.com">Contact</a>
+      </nav>
+    </footer>
+  </div>
+
+  <script src="/pages/config.js"></script>
+  <script src="/assets/landing/early-access.js?v=1" defer></script>
+</body>
+</html>
