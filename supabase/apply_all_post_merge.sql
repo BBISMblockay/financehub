@@ -19159,6 +19159,9 @@ $c$select (select count(*) from v_po_header_summary
 -- On Deck coding review: preview = rolled-back approval; approve/post bound to the reviewed hash.
 \i migrations/20261004120000_on_deck_coding_review.sql
 
+-- SILO daily ledger: categorized, settled transactions recorded per transaction, append-only.
+\i migrations/20261005120000_silo_daily_ledger.sql
+
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above
 -- upsert the catalog, so re-running this file without it re-creates the four

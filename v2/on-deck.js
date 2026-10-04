@@ -71,13 +71,13 @@
   }
   function renderReady() {
     const grid = $('ready-cards'); grid.replaceChildren();
-    // Approved entries are done in SILO and belong under "After approval".
-    const coding = state.coding ? state.coding.items().filter(i => !['approved', 'posted'].includes(i.stage)) : [];
+    // Recorded entries are done in SILO and belong under "After approval".
+    const coding = state.coding ? state.coding.items().filter(i => !window.SiloOnDeckCoding.isRecorded(i)) : [];
     const proposals = state.access.proposals ? state.rows.filter(p => ['ready', 'needs_info'].includes(p.status)) : [];
     coding.forEach(i => grid.append(state.coding.card(i)));
     proposals.forEach(p => grid.append(proposalCard(p)));
     state.coding?.markActive();
-    const reviewable = coding.filter(i => window.SiloOnDeckCoding.REVIEWABLE.includes(i.stage)).length + proposals.filter(p => p.status === 'ready').length;
+    const reviewable = coding.filter(i => window.SiloOnDeckCoding.isPending(i)).length + proposals.filter(p => p.status === 'ready').length;
     $('ready-count').textContent = String(reviewable);
     $('ready-section').hidden = false;
     if (!grid.children.length) {
@@ -89,15 +89,17 @@
   /* "After approval": what actually happened, with the record it created. */
   function renderAfter() {
     const box = $('after-cards'); box.replaceChildren(); const att = $('attention'); att.replaceChildren();
-    const posted = state.coding ? state.coding.items().filter(i => ['approved', 'posted'].includes(i.stage)) : [];
+    const posted = state.coding ? state.coding.items().filter(i => window.SiloOnDeckCoding.isRecorded(i)) : [];
     const done = state.access.proposals ? state.rows.filter(p => p.status === 'completed').slice(0, 3) : [];
     posted.slice(0, 6).forEach(i => {
       const c = node('article', null, 'od-after'); c.dataset.batch = i.batch_id;
       const sent = i.stage === 'posted';
-      c.append(node('span', 'Approved in SILO', 'od-rpill od-rpill--posted'), node('h3', 'Journal entry approved'), node('p', [i.source_name, i.label].filter(Boolean).join(' · '), 'od-rcard-sub'));
-      const dl = node('dl'); evidenceCard(dl, 'OWNER', 'Finance'); evidenceCard(dl, 'RECORD', 'SILO journal register');
+      c.append(node('span', 'In SILO ledger', 'od-rpill od-rpill--posted'), node('h3', 'Transactions recorded'), node('p', [i.source_name, i.label].filter(Boolean).join(' · '), 'od-rcard-sub'));
+      const dl = node('dl'); evidenceCard(dl, 'OWNER', 'Finance'); evidenceCard(dl, 'RECORD', 'SILO ledger');
       evidenceCard(dl, 'QUICKBOOKS', sent ? `Also sent · ${i.qbo_doc_number || i.qbo_journal_entry_id || 'entry'}` : 'Not sent (optional)');
-      c.append(dl, button('View entry', () => state.coding.open(i.batch_id))); box.append(c);
+      c.append(dl);
+      if (i.stage_reason !== 'posting_disabled') c.append(button('View entry', () => state.coding.open(i.batch_id)));
+      box.append(c);
     });
     done.forEach(p => {
       const c = node('article', null, 'od-after');

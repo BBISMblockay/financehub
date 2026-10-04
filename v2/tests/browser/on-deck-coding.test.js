@@ -93,14 +93,14 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
   try {
     let page = await open();
     await test('finance sees real coding cards; proposals, preparation and settings stay hidden', async () => {
-      assert.equal(await page.locator('#ready-cards .od-rcard').count(), 3);
+      assert.equal(await page.locator('#ready-cards .od-rcard').count(), 2, 'the batch waiting only on the optional QuickBooks entry is a receipt');
       const code = page.locator('[data-batch=b-code]');
       assert.match(await code.textContent(), /Code 2 transactions/);
       assert.match(await code.locator('.od-rcard-figure').textContent(), /\$142\.10/);
       assert.match(await code.locator('.od-mix-legend').textContent(), /Office supplies1Meals1/);
       assert.match(await page.locator('[data-batch=b-stuck]').textContent(), /4 transactions need a person/);
       assert.equal(await page.locator('[data-batch=b-stuck] a').getAttribute('href'), '/v2/transactions.html?batch=b-stuck&company=test-company');
-      assert.equal(await page.locator('#ready-count').textContent(), '2', 'needs-input is not counted as ready');
+      assert.equal(await page.locator('#ready-count').textContent(), '1', 'only transactions waiting to be categorized count');
       assert.equal(await page.locator('#workspace').isHidden(), true);
       assert.equal(await page.locator('#prepare').isHidden(), true);
       assert.equal(await page.locator('#settings-link').isHidden(), true);
@@ -145,7 +145,7 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
         c.ensureActiveCompany = (...a) => new Promise(r => setTimeout(() => r(orig(...a)), 400)); });
       await page.getByRole('button', { name: 'Save 2 categorizations' }).click();
       await page.locator('#coding-review tbody tr').nth(0).locator('input').uncheck().catch(() => {});
-      await page.locator('#ready-cards [data-batch=b-approve] button').click();
+      await page.locator('#after-cards [data-batch=b-approve] button').click();
       assert.match(await page.locator('#status').textContent(), /Wait for the current action to finish/);
       await page.waitForSelector('.od-receipt');
       const sent = await calls(page, 'accept_card_coding_suggestions');
@@ -183,11 +183,11 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
       await page.locator('[data-batch=b-approve] button').click();
       await page.waitForSelector('#coding-review .od-entry');
       const text = await page.locator('#coding-review').textContent();
-      assert.match(text, /SILO journal register/); assert.match(text, /Test Books · from QuickBooks/); assert.match(text, /2026-08-31/); assert.match(text, /Aug 12, 2026 – Aug 14, 2026/);
+      assert.match(text, /Already recorded, day by day/); assert.match(text, /Test Books · from QuickBooks/); assert.match(text, /2026-08-31/); assert.match(text, /Aug 12, 2026 – Aug 14, 2026/);
       assert.match(text, /2 coded · 1 excluded/);
       const total = await page.locator('.od-total').textContent();
       assert.match(total, /\$35\.50.*\$35\.50/);
-      assert.match(text, /Nothing is sent to QuickBooks/);
+      assert.match(text, /Optional\. Your SILO ledger already has these transactions/);
       assert.equal(await page.locator('.od-qbo-optional').count(), 0, 'QuickBooks is not offered before SILO approval');
       await page.screenshot({ path: path.join(shots, 'on-deck-coding-entry.png'), fullPage: true });
     });
@@ -195,7 +195,7 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
     await test('a change since the preview refuses approval and refreshes the preview', async () => {
       await page.evaluate(() => { window.__APPROVE_MODE__ = 'stale'; });
       const before = (await calls(page, 'card_import_batch_preview')).length;
-      await page.getByRole('button', { name: 'Approve journal entry in SILO' }).click();
+      await page.getByRole('button', { name: 'Approve QuickBooks entry' }).click();
       await page.waitForSelector('.od-receipt--failed');
       assert.match(await page.locator('.od-receipt').textContent(), /changed — review it again/);
       assert.ok((await calls(page, 'card_import_batch_preview')).length > before, 'the preview was fetched again');
@@ -204,12 +204,12 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
 
     await test('approval in SILO sends the exact reviewed hash once and is the finish line', async () => {
       await page.evaluate(() => { window.__APPROVE_MODE__ = 'ok'; });
-      await doubleClick(page, 'Approve journal entry in SILO');
-      await page.waitForFunction(() => /Frozen in SILO/.test(document.querySelector('.od-receipt')?.textContent || ''));
+      await doubleClick(page, 'Approve QuickBooks entry');
+      await page.waitForFunction(() => /Frozen for QuickBooks/.test(document.querySelector('.od-receipt')?.textContent || ''));
       const sent = (await calls(page, 'approve_reviewed_card_import_batch')).filter(c => c.args.p_expected_hash === HASH);
       assert.equal(sent.length, 2, 'one stale attempt, then exactly one approval');
       assert.match(await page.locator('#coding-review').textContent(), /Nothing was sent to QuickBooks/);
-      assert.match(await page.locator('#coding-review .od-footer').textContent(), /This entry is done/);
+      assert.match(await page.locator('#coding-review .od-footer').textContent(), /already in the SILO ledger/);
       assert.equal(await page.locator('#ready-cards [data-batch=b-approve]').count(), 0, 'it leaves Ready for your review');
       assert.match(await page.locator('#after-cards [data-batch=b-approve]').textContent(), /Not sent \(optional\)/);
       assert.equal(await page.locator('#ready-count').textContent(), '1');
@@ -223,13 +223,13 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
     await test('sending to QuickBooks takes extra steps, sends the reviewed approval hash once, and shows the receipt', async () => {
       await page.getByText('Also send to QuickBooks (optional)').click();
       await page.getByRole('button', { name: 'Send to QuickBooks…' }).click();
-      assert.match(await page.locator('#coding-post-summary').textContent(), /\$35\.50.*Test Books.*already approved in SILO/);
+      assert.match(await page.locator('#coding-post-summary').textContent(), /\$35\.50.*Test Books.*already in the SILO ledger/);
       assert.equal(await page.locator('#coding-post-confirm').isDisabled(), true, 'nothing sends until acknowledged');
       await page.evaluate(() => document.getElementById('coding-post-confirm').click());
       assert.equal(posts.length, 0);
       await page.locator('#coding-post-ack').check();
       await page.evaluate(() => { const b = document.getElementById('coding-post-confirm'); b.click(); b.click(); });
-      await page.waitForFunction(() => /QuickBooks entry/.test(document.querySelector('.od-receipt')?.textContent || ''));
+      await page.waitForFunction(() => /SILO-aaaa/.test(document.querySelector('.od-receipt')?.textContent || ''));
       assert.equal(posts.length, 1); assert.deepEqual(posts[0], { batch_id: 'b-approve', expected_approval_hash: HASH });
       assert.match(await page.locator('.od-receipt').textContent(), /SILO-aaaa/);
     });
@@ -260,11 +260,11 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
     {
       const t = tables(); t.previews['b-approve'] = preview({ ready: false, hash: null, lines: [], blocker: 'A coded line has an invalid QuickBooks account' });
       page = await open(t);
-      await test('a missing input shows the specific blocker and no approval button', async () => {
+      await test('a QuickBooks blocker is specific, says the SILO ledger is unaffected, and offers no approval button', async () => {
         await page.locator('[data-batch=b-approve] button').click();
         await page.waitForSelector('.od-needs');
-        assert.match(await page.locator('.od-needs').textContent(), /Needs input.*invalid QuickBooks account/);
-        assert.equal(await page.getByRole('button', { name: 'Approve journal entry in SILO' }).count(), 0);
+        assert.match(await page.locator('.od-needs').textContent(), /QuickBooks entry needs input.*invalid QuickBooks account.*SILO ledger is unaffected/);
+        assert.equal(await page.getByRole('button', { name: 'Approve QuickBooks entry' }).count(), 0);
       });
       await page.close();
     }
@@ -280,6 +280,27 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
       });
       await page.close();
     }
+
+    page = await open(tables(), { silo_ledger_batch_status: () => [{ batch_id: 'b-approve', unrecorded: 2, reason: 'A category is not an active account in the chart of accounts' }] });
+    await test('categorized transactions the SILO ledger refused are needs input, never a receipt', async () => {
+      const card = page.locator('#ready-cards [data-batch=b-approve]');
+      assert.equal(await card.count(), 1, 'the import is back in Ready, not under After approval');
+      assert.match(await card.textContent(), /Needs input.*2 categorized transactions not in the SILO ledger yet.*not an active account/);
+      assert.equal(await card.locator('a').getAttribute('href'), '/v2/transactions.html?batch=b-approve&company=test-company');
+      assert.equal(await page.locator('#after-cards [data-batch=b-approve]').count(), 0);
+    });
+    await page.close();
+
+    page = await open(tables(), { silo_ledger_batch_status: () => ({ __error: { message: 'Could not find the function public.silo_ledger_batch_status', code: 'PGRST202' } }) });
+    await test('before the ledger migration, a categorized import is still waiting on its monthly entry, never "recorded"', async () => {
+      const card = page.locator('#ready-cards [data-batch=b-approve]');
+      assert.equal(await card.count(), 1, 'it stays in Ready');
+      assert.match(await card.textContent(), /Not recorded in SILO yet.*daily ledger is not switched on/);
+      assert.doesNotMatch(await page.locator('main').textContent(), /In SILO ledger/);
+      assert.equal(await page.locator('#ready-count').textContent(), '2', 'and it counts as waiting');
+      assert.equal(await card.getByRole('button', { name: /Review/ }).count(), 1, 'the approval review is still reachable');
+    });
+    await page.close();
 
     page = await open();
     await test('narrow mobile keeps the cards and the review inside the viewport', async () => {

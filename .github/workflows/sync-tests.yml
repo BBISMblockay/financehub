@@ -126,6 +126,7 @@ on:
       - 'v2/accounting-books*'
       - 'v2/accounting-ledger.js'
       - 'scripts/tests/accounting-ledger.test.mjs'
+      - 'supabase/migrations/*silo_daily_ledger.sql'
       - 'v2/qbo-reports.html'
       - 'v2/cash-forecast.html'
       - 'v2/cashflow*'
@@ -748,6 +749,32 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
+      # SILO daily ledger: recording vs. moving the period lock, two first
+      # locks at once, and opening-balance acceptance vs. a categorization. Both need two real connections; each lock removed must
+      # turn it red (period-unlocked also run on race 2 alone, since it trips
+      # race 1 first).
+      - name: Interleave SILO ledger recording with the period lock
+        run: |
+          set -u
+          node scripts/tests/silo-ledger-concurrency.test.mjs
+          for m in lock-unshared period-unlocked; do
+            if LEDGER_RACE_MUTATION="$m" node scripts/tests/silo-ledger-concurrency.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the lock it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+          if LEDGER_RACE_ONLY=2 LEDGER_RACE_MUTATION=period-unlocked node scripts/tests/silo-ledger-concurrency.test.mjs; then
+            echo "::error::race 2 does not catch an unserialised, backward-moving period lock"
+            exit 1
+          fi
+          for race in 3 4; do
+            if LEDGER_RACE_ONLY=$race LEDGER_RACE_MUTATION=books-unlocked node scripts/tests/silo-ledger-concurrency.test.mjs; then
+              echo "::error::race $race does not catch opening-balance acceptance racing a categorization"
+              exit 1
+            fi
+          done
+
       # Product Studio Ready for PO: one PO per concept across Generate PO and
       # the Studio handoff, and one ready brief per concept, under genuinely
       # overlapping transactions. Each lock, removed, must turn it red.
@@ -868,6 +895,18 @@ jobs:
       # categorizer suites use checked row-for-row against the real function.
       - name: Execute coding evidence and saved-rule regressions
         run: node scripts/tests/card-coding-evidence-database.test.mjs
+
+      # The SILO daily ledger: a categorized, settled transaction is recorded at
+      # once, changes are reversal + new entry, locked periods are never written
+      # into, and the ledger is append-only, balanced and finance-only.
+      - name: Execute SILO daily ledger regressions
+        run: |
+          node scripts/tests/silo-ledger-database.test.mjs
+          for mutation in no-start-check edit-in-place ignore-lock read-ungated cosmetic-rerecord no-validation posted-not-frozen no-books-start-sync lock-unshared connection-not-stored approved-not-frozen; do
+            if SILO_LEDGER_MUTATION="$mutation" node scripts/tests/silo-ledger-database.test.mjs > /tmp/ledger-mutation.log 2>&1; then
+              cat /tmp/ledger-mutation.log; echo "Survived ledger mutation: $mutation"; exit 1
+            fi
+          done
 
       - name: Execute profiles tenant-isolation regressions
         run: node --test scripts/tests/profiles-tenant-scope.test.mjs

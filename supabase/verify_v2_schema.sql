@@ -5826,6 +5826,31 @@ select 'On Deck preview runs approve_card_import_batch and rolls back' as check_
   else 'CRITICAL: card_import_batch_preview no longer previews through the real approval' end status;
 -- End On Deck coding review checks.
 
+-- SILO daily ledger (20261005120000): append-only, balanced, finance-read only.
+select 'SILO ledger tables, RLS and no client writes' as check_name,
+ case when (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace
+            where n.nspname='public' and c.relname in ('ledger_entries','ledger_lines','accounting_period_locks') and c.relrowsecurity) < 3 then 'MISSING'
+  when exists(select 1 from unnest(array['ledger_entries','ledger_lines','accounting_period_locks']) t cross join unnest(array['anon','authenticated']) r
+              where has_table_privilege(r,'public.'||t,'INSERT,UPDATE,DELETE')) then 'CRITICAL: a client can write the SILO ledger'
+  else 'ok' end as status;
+select 'SILO ledger is append-only and recorded by trigger' as check_name,
+ case when (select count(*) from pg_trigger where not tgisinternal and tgname in
+            ('ledger_entries_immutable','ledger_lines_immutable','ledger_lines_balance','silo_ledger_card_transaction','silo_ledger_card_transaction_delete','silo_ledger_split','silo_ledger_source',
+             'silo_ledger_batch','silo_ledger_opening_accepted','silo_ledger_start_moved')) < 10
+    or to_regprocedure('public.silo_ledger_blocker(uuid)') is null
+  then 'MISSING'
+  when has_function_privilege('authenticated','public.silo_ledger_blocker(uuid)','execute')
+    or has_function_privilege('anon','public.silo_ledger_batch_status()','execute')
+  then 'CRITICAL: a ledger internal is client-callable'
+  else 'ok' end as status;
+select 'SILO ledger entries balance' as check_name,
+ case when to_regclass('public.ledger_lines') is null then 'MISSING'
+  when (xpath('/row/n/text()', query_to_xml(
+         'select count(*) as n from (select entry_id from public.ledger_lines group by entry_id having sum(case when posting_type=''Debit'' then amount else -amount end) <> 0) x', false, true, '')))[1]::text <> '0'
+  then 'CRITICAL: a SILO ledger entry does not balance'
+  else 'ok' end as status;
+-- End SILO ledger checks.
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))

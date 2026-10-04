@@ -27,18 +27,25 @@ r.test('a mixed or unknown currency is never shown as dollars', () => {
   r.eq(C.cardModel(item({ currency: null })).figure, '1,234.50');
 });
 r.test('needs-input names the specific gap and is not reviewable', () => {
-  const m = C.cardModel(item({ stage: 'needs_input', stage_reason: 'posting_disabled' }));
-  r.eq(m.title, 'Approval is switched off for this card'); r.eq(m.reviewable, false); r.eq(m.figure, null);
+  // A card that does not send to QuickBooks is not a gap any more: its transactions are in the SILO ledger.
+  const m = C.cardModel(item({ stage: 'needs_input', stage_reason: 'posting_disabled', coded_amount: 5 }));
+  r.eq(m.title, 'Recorded in SILO'); r.eq(m.reviewable, false); r.eq(m.action, null);
+  r.eq(C.isRecorded(item({ stage: 'needs_input', stage_reason: 'posting_disabled' })), true);
+  r.eq(C.isRecorded(item({ stage: 'needs_input', stage_reason: 'uncoded_without_suggestion' })), false);
   r.eq(C.cardModel(item({ stage: 'needs_input', stage_reason: 'uncoded_without_suggestion', uncoded_count: 4 })).title, '4 transactions need a person');
   r.eq(C.cardModel(item({ stage: 'needs_input', stage_reason: 'posting_unresolved' })).title, 'Posting outcome needs checking');
 });
-r.test('approval in SILO is the finish line: an approved entry is done, never pending', () => {
-  r.eq(C.cardModel(item({ stage: 'approve', coded_amount: 35.5 })).figure, '$35.50');
+r.test('a saved categorization is the finish line: the monthly QuickBooks entry is optional, never pending', () => {
+  const ready = C.cardModel(item({ stage: 'approve', coded_amount: 35.5 }));
+  r.eq(ready.figure, '$35.50'); r.eq(ready.title, 'Recorded in SILO'); r.eq(ready.reviewable, false);
+  r.ok('says the QuickBooks entry is optional', /QuickBooks entry not prepared \(optional\)/.test(ready.caption));
   const done = C.cardModel(item({ stage: 'approved', coded_amount: 35.5 }));
-  r.eq(done.title, 'Approved in SILO'); r.eq(done.reviewable, false);
+  r.eq(done.title, 'QuickBooks entry approved'); r.eq(done.reviewable, false);
   r.ok('says it was not sent to QuickBooks', /not sent to QuickBooks/.test(done.caption));
   r.eq(C.cardModel(item({ stage: 'posted' })).reviewable, false);
-  r.eq(C.REVIEWABLE.join(','), 'code,approve');
+  r.eq(C.REVIEWABLE.join(','), 'code');
+  r.ok('every recorded stage is a receipt', ['approve', 'approved', 'posted'].every((stage) => C.isRecorded(item({ stage }))));
+  r.eq(C.isRecorded(item({ stage: 'code' })), false);
 });
 
 console.log('\n── account mix ──');
@@ -73,6 +80,32 @@ r.test('a reapproval since review asks for a fresh review', () => {
 });
 r.test('Transactions deep links carry the batch and company, encoded', () => {
   r.eq(C.transactionsHref('a b', 'c&d'), '/v2/transactions.html?batch=a%20b&company=c%26d');
+});
+
+r.test('coded rows the ledger refused turn a recorded import into needs input; review and posted cards are left alone', () => {
+  const items = [{ batch_id: 'a', stage: 'approve' }, { batch_id: 'b', stage: 'code' }, { batch_id: 'c', stage: 'posted' },
+    { batch_id: 'd', stage: 'needs_input', stage_reason: 'posting_disabled' }, { batch_id: 'e', stage: 'approve' }];
+  const status = ['a', 'b', 'c', 'd'].map((id) => ({ batch_id: id, unrecorded: 1, reason: 'A location is not active' }));
+  const out = C.applyLedgerStatus(items, status);
+  r.eq(out[0].stage_reason, 'ledger_blocked');
+  r.eq(out[1].stage, 'code');
+  r.eq(out[2].stage, 'posted');
+  r.eq(out[3].stage_reason, 'ledger_blocked');
+  r.eq(out[4].stage, 'approve');
+  r.ok('a blocked import is not a receipt', !C.isRecorded(out[0]) && !C.isRecorded(out[3]));
+  r.ok('the card names the reason', /not in the SILO ledger yet/.test(C.cardModel(out[0]).title) && /location is not active/.test(C.cardModel(out[0]).detail));
+  r.eq(C.applyLedgerStatus(items, null).length, 5);
+});
+
+r.test('without the ledger installed, nothing is shown as recorded and the monthly entry is still pending', () => {
+  const items = [{ batch_id: 'a', stage: 'approve', txn_count: 2, excluded_count: 0, coded_amount: 10 }, { batch_id: 'b', stage: 'code' },
+    { batch_id: 'c', stage: 'posted' }, { batch_id: 'd', stage: 'needs_input', stage_reason: 'posting_disabled' }];
+  const out = C.applyLedgerStatus(items, null);
+  r.ok('approve is not a receipt', !C.isRecorded(out[0]) && C.isPending(out[0]));
+  r.eq(C.cardModel(out[0]).action, 'Review');
+  r.ok('a card that does not post is in no ledger', !C.isRecorded(out[3]) && C.cardModel(out[3]).stage === 'needs_input');
+  r.ok('posted stays a receipt (it is in QuickBooks)', C.isRecorded(out[2]));
+  r.eq(out[1].stage, 'code');
 });
 
 r.summary();
