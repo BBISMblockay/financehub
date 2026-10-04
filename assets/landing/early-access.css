@@ -210,7 +210,7 @@
 /* What you get: the poster's open two-column list, no card boxes. */
 #landing .lp-features { margin-top: 112px; max-width: 1100px; }
 #landing .lp-section-head { margin-bottom: 40px; }
-#landing .lp-section-head h2, #landing .lp-closing h2 {
+#landing .lp-section-head h2 {
   margin: 0;
   color: #fff;
   font-size: clamp(32px, 3.4vw, 48px);
@@ -261,9 +261,6 @@
 }
 #landing .lp-ask-label { display: block; margin-bottom: 4px; color: #dbe3ff; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 
-/* Closing invitation: open, like the poster's last block. */
-#landing .lp-closing { margin-top: 112px; max-width: 1100px; }
-#landing .lp-closing-copy > p:last-child { max-width: 760px; margin: 16px 0 0; color: #c3cad8; font-size: 19px; line-height: 1.6; }
 
 #landing .lp-foot {
   display: flex;
@@ -290,8 +287,8 @@
   #landing .lp-mid { padding-block: 44px 56px; }
   #landing .lp-content { grid-template-columns: minmax(0, 1fr); gap: 32px; margin-top: 32px; }
   #landing .lp-access { width: 100%; max-width: 560px; justify-self: center; padding: 30px; }
-  #landing .lp-features, #landing .lp-closing { margin-top: 80px; }
-  #landing .lp-description, #landing .lp-closing-copy > p:last-child { font-size: 17px; }
+  #landing .lp-features { margin-top: 80px; }
+  #landing .lp-description { font-size: 17px; }
 }
 @media (max-width: 680px) {
   #landing .lp-feature-grid { grid-template-columns: minmax(0, 1fr); }
