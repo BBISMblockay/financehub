@@ -1,6 +1,16 @@
 /* Account roll-forward: opening balance + activity = closing balance.
  *
- * Three independent sources, never blended into one figure:
+ * Since 20261005120000 SILO keeps its OWN ledger (silo_ledger_lines_v): a
+ * categorized, settled card or bank transaction is recorded the day it is
+ * categorized, whether or not it has been sent to QuickBooks. When that ledger
+ * is readable, "Recorded in SILO" is its lines plus the non-transaction
+ * entries SILO posted (schedules, fixed assets, adjustments), and card-batch
+ * postings are NOT counted again -- they are the same transactions. "Not yet
+ * in QuickBooks" is the part of SILO's figure QuickBooks cannot contain yet,
+ * which is what keeps "other activity" honest. Without the ledger (migration
+ * not applied) the tab behaves exactly as before.
+ *
+ * Sources, never blended into one figure:
  *   opening   the ACCEPTED opening trial balance (accounting_opening_balances),
  *             as of the day before Silo's accounting start date
  *   silo      what Silo actually sent to QuickBooks: the Line array of every
@@ -81,12 +91,32 @@
     return { byAccount, skippedBefore };
   }
 
-  function rollForward({ opening, postings, trialBalance, closingDate }) {
+  // SILO ledger lines per account, dated after the opening date and on or
+  // before the closing date. `pending` is what QuickBooks cannot hold yet as
+  // of `through`: lines not sent, or sent on a later date than the trial balance.
+  function ledgerActivity(lines, { after, through }) {
+    const byAccount = new Map();
+    for (const l of lines || []) {
+      const date = String(l.entry_date || '').slice(0, 10);
+      if (!date || date <= after) continue;
+      if (through && date > through) continue;
+      const amount = cents(l.signed_amount);
+      const inQbo = !!l.in_quickbooks && (!through || (l.quickbooks_date && String(l.quickbooks_date).slice(0, 10) <= through));
+      const entry = byAccount.get(String(l.qbo_account_id)) || { net: 0, pending: 0, lines: [] };
+      entry.net += amount;
+      if (!inQbo) entry.pending += amount;
+      entry.lines.push({ date, amount, source: 'silo_ledger', memo: l.description || l.memo || '', doc: l.kind === 'reversal' ? 'Reversal' : (inQbo ? 'In QuickBooks' : 'SILO only') });
+      byAccount.set(String(l.qbo_account_id), entry);
+    }
+    return byAccount;
+  }
+
+  function rollForward({ opening, postings, trialBalance, closingDate, ledgerLines = null }) {
     const snap = opening?.snapshot || {};
     const after = snap.as_of || '';
     const accounts = new Map();
     const row = (id) => {
-      if (!accounts.has(id)) accounts.set(id, { id, name: '', type: '', opening: 0, silo: 0, closing: null, lines: [] });
+      if (!accounts.has(id)) accounts.set(id, { id, name: '', type: '', opening: 0, silo: 0, pending: 0, closing: null, lines: [] });
       return accounts.get(id);
     };
     for (const l of snap.lines || []) {
@@ -95,10 +125,20 @@
       r.name = l.name; r.type = l.account_type || '';
       r.opening += cents(l.debit) - cents(l.credit);
     }
-    const activity = siloActivity(postings, { after, through: closingDate || null });
+    const hasLedger = Array.isArray(ledgerLines);
+    // With the ledger, a card batch's posting is the same transactions the
+    // ledger already holds: count them once, from the ledger.
+    const posted = hasLedger ? (postings || []).filter((p) => p.source !== 'card_import') : postings;
+    const activity = siloActivity(posted, { after, through: closingDate || null });
     for (const [id, a] of activity.byAccount) {
       const r = row(id);
-      r.silo += a.net; r.lines = a.lines;
+      r.silo += a.net; r.lines = r.lines.concat(a.lines);
+    }
+    if (hasLedger) {
+      for (const [id, a] of ledgerActivity(ledgerLines, { after, through: closingDate || null })) {
+        const r = row(id);
+        r.silo += a.net; r.pending += a.pending; r.lines = r.lines.concat(a.lines);
+      }
     }
     if (trialBalance) {
       for (const [id, t] of trialBalance) {
@@ -110,12 +150,13 @@
     }
     const rows = [...accounts.values()].map((r) => ({
       ...r,
-      other: r.closing === null ? null : r.closing - r.opening - r.silo,
+      balance: r.opening + r.silo,
+      other: r.closing === null ? null : r.closing - r.opening - (r.silo - r.pending),
     }));
     const sum = (k) => rows.reduce((n, r) => n + (r[k] || 0), 0);
     return {
-      after, closingDate: closingDate || null, rows,
-      totals: { opening: sum('opening'), silo: sum('silo'), closing: trialBalance ? sum('closing') : null, other: trialBalance ? sum('other') : null },
+      after, closingDate: closingDate || null, rows, hasLedger,
+      totals: { opening: sum('opening'), silo: sum('silo'), balance: sum('balance'), pending: sum('pending'), closing: trialBalance ? sum('closing') : null, other: trialBalance ? sum('other') : null },
       skippedBefore: activity.skippedBefore,
     };
   }
@@ -168,34 +209,40 @@
   const money = (c) => c === null || c === undefined ? '—'
     : (c < 0 ? '(' : '') + (Math.abs(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (c < 0 ? ')' : '');
   const SOURCE = { card_import: 'Transactions', journal_adjustment: 'Sales & journals', manual_adjustment: 'Journal entry',
-    prepaid_amortization: 'Schedules', fixed_asset_depreciation: 'Fixed assets' };
+    prepaid_amortization: 'Schedules', fixed_asset_depreciation: 'Fixed assets', silo_ledger: 'Transactions (SILO ledger)' };
 
   function render(model, { onlyActivity = true, fiscalCrossed = false, closingNote = '' } = {}) {
     const rows = model.rows
       .filter((r) => !onlyActivity || r.opening || r.silo || r.closing || (r.other ?? 0))
       .sort((a, b) => (!a.type - !b.type) || (a.type || '').localeCompare(b.type || '') || a.name.localeCompare(b.name));
     const has = model.closingDate !== null;
-    const head = `<tr><th>Account</th><th class="num">Opening ${esc(model.after)}</th><th class="num">Posted by Silo</th>`
+    const L = model.hasLedger;
+    const siloCell = (r) => `<td class="num">${r.lines.length ? `<button type="button" class="ledger-drill" data-ledger-account="${esc(r.id)}">${money(r.silo)}</button>` : money(r.silo)}</td>`;
+    const head = `<tr><th>Account</th><th class="num">Opening ${esc(model.after)}</th>`
+      + (L ? `<th class="num">Recorded in SILO</th><th class="num">SILO balance</th><th class="num">Not yet in QuickBooks</th>` : `<th class="num">Posted by Silo</th>`)
       + `<th class="num">Other activity in QuickBooks</th><th class="num">Closing per QuickBooks${has ? ' ' + esc(model.closingDate) : ''}</th></tr>`;
     const body = rows.map((r) => `<tr><td>${esc(r.name || 'QBO account ' + r.id)}<small>${esc(r.type)}</small></td>`
-      + `<td class="num">${money(r.opening)}</td>`
-      + `<td class="num">${r.lines.length ? `<button type="button" class="ledger-drill" data-ledger-account="${esc(r.id)}">${money(r.silo)}</button>` : money(r.silo)}</td>`
+      + `<td class="num">${money(r.opening)}</td>` + siloCell(r)
+      + (L ? `<td class="num">${money(r.balance)}</td><td class="num">${money(r.pending)}</td>` : '')
       + `<td class="num">${has ? money(r.other) : '—'}</td>`
       + `<td class="num">${has ? money(r.closing) : '—'}</td></tr>`).join('');
     const t = model.totals;
     const foot = `<tr class="ledger-total"><td>Total (every column nets to zero when its source balances)</td><td class="num">${money(t.opening)}</td>`
-      + `<td class="num">${money(t.silo)}</td><td class="num">${has ? money(t.other) : '—'}</td><td class="num">${has ? money(t.closing) : '—'}</td></tr>`;
+      + `<td class="num">${money(t.silo)}</td>` + (L ? `<td class="num">${money(t.balance)}</td><td class="num">${money(t.pending)}</td>` : '')
+      + `<td class="num">${has ? money(t.other) : '—'}</td><td class="num">${has ? money(t.closing) : '—'}</td></tr>`;
     const notes = [];
+    if (L) notes.push('Recorded in SILO counts each categorized bank and card transaction the day it was categorized, plus the entries SILO posted. Not yet in QuickBooks is the part QuickBooks does not hold as of the closing date; it is excluded from other activity.');
     if (closingNote) notes.push(closingNote);
     else if (!has) notes.push('No QuickBooks trial balance after the opening date is saved yet, so closing balances and other activity cannot be shown. Fetch one above.');
     if (fiscalCrossed) notes.push('The closing date is in a later fiscal year than the opening balances. Profit and loss accounts restart at year end, so their other-activity figure also carries the year-end close.');
     if (model.skippedBefore) notes.push(`${model.skippedBefore} posted entr${model.skippedBefore === 1 ? 'y is' : 'ies are'} dated on or before the opening date and already inside the opening balances, so ${model.skippedBefore === 1 ? 'it is' : 'they are'} not counted again.`);
+    const cols = L ? 7 : 5;
     return notes.map((n) => `<p class="books-caption">${esc(n)}</p>`).join('')
-      + `<div class="books-table-scroll"><table class="ledger-table"><thead>${head}</thead><tbody>${body || '<tr><td colspan="5">No account activity.</td></tr>'}</tbody><tfoot>${foot}</tfoot></table></div>`;
+      + `<div class="books-table-scroll"><table class="ledger-table"><thead>${head}</thead><tbody>${body || `<tr><td colspan="${cols}">No account activity.</td></tr>`}</tbody><tfoot>${foot}</tfoot></table></div>`;
   }
 
   function renderLines(r) {
-    return `<p class="books-caption">${esc(r.name)} · every line Silo posted to QuickBooks for this account after the opening date.</p>`
+    return `<p class="books-caption">${esc(r.name)} · every line SILO recorded or posted for this account after the opening date.</p>`
       + `<div class="books-table-scroll"><table><thead><tr><th>Date</th><th>Source</th><th>Entry</th><th>Description</th><th class="num">Amount</th></tr></thead><tbody>`
       + r.lines.slice().sort((a, b) => a.date.localeCompare(b.date)).map((l) => `<tr><td>${esc(l.date)}</td><td>${esc(SOURCE[l.source] || l.source)}</td><td>${esc(l.doc)}</td><td>${esc(l.memo)}</td><td class="num">${money(l.amount)}</td></tr>`).join('')
       + `</tbody></table></div>`;
@@ -240,11 +287,33 @@
         offset += page.length;
       }
     }
+    // SILO's own ledger lines, paged to the end. null = not installed here
+    // (the tab then behaves as before); any other error is an error.
+    async function allLedgerLines() {
+      const rows = [];
+      for (let offset = 0; ; ) {
+        const r = await db.from('silo_ledger_lines_v')
+          .select('id,entry_date,kind,memo,description,qbo_account_id,signed_amount,in_quickbooks,quickbooks_date')
+          // Account ids are local to one QuickBooks connection: read the
+          // books' own, exactly as the postings are read.
+          .eq('company_entity_id', companyId).eq('qbo_connection_id', connection).gt('entry_date', after)
+          .order('id').range(offset, offset + POSTING_PAGE - 1);
+        if (r.error) {
+          if (/42P01|does not exist|schema cache/i.test(`${r.error.code || ''} ${r.error.message || ''}`)) return null;
+          throw new Error(r.error.message);
+        }
+        const page = r.data || [];
+        if (!page.length) return rows;
+        rows.push(...page);
+        offset += page.length;
+      }
+    }
     let model = null, lastOptions = {};
     async function draw() {
       out.textContent = 'Reading posted entries and saved trial balances…';
-      const [postings, runs] = await Promise.all([
+      const [postings, ledgerLines, runs] = await Promise.all([
         allPostings(),
+        allLedgerLines(),
         read(db.from('quickbooks_report_runs').select('id,end_date,fetched_at,connection_id,params').eq('company_entity_id', companyId).eq('connection_id', connection).eq('report_name', 'TrialBalance').eq('status', 'ok').gte('end_date', nextDay(after)).order('end_date', { ascending: false }).order('fetched_at', { ascending: false }).limit(20)),
       ]);
       const usable = runs.filter((r) => r.connection_id === connection && !paramsIncompatibility(r.params, snap));
@@ -263,7 +332,7 @@
       } else if (skipped) {
         closingNote = `${skipped} saved trial balance${skipped === 1 ? ' was' : 's were'} left out because ${skipped === 1 ? 'it does' : 'they do'} not match the opening balances' ${snap.basis || ''} basis or ${skipped === 1 ? 'is' : 'are'} filtered. Fetch one above.`;
       }
-      model = rollForward({ opening, postings, trialBalance: tb, closingDate });
+      model = rollForward({ opening, postings, trialBalance: tb, closingDate, ledgerLines });
       lastOptions = { fiscalCrossed: crossesFiscalYear(after, closingDate, settings?.fiscal_year_start_month), closingNote };
       out.innerHTML = render(model, { ...lastOptions, onlyActivity: !el('ledgerAll').checked });
     }
@@ -294,5 +363,5 @@
     await draw().catch(fail);
   }
 
-  window.SiloLedger = { parseTrialBalance, siloActivity, rollForward, crossesFiscalYear, paramsIncompatibility, closingIncompatibility, render, renderLines, mount, POSTING_PAGE };
+  window.SiloLedger = { parseTrialBalance, siloActivity, ledgerActivity, rollForward, crossesFiscalYear, paramsIncompatibility, closingIncompatibility, render, renderLines, mount, POSTING_PAGE };
 })();

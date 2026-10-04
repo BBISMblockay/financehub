@@ -41,16 +41,21 @@
     return `/v2/transactions.html?batch=${encodeURIComponent(batchId)}&company=${encodeURIComponent(company || '')}`;
   }
 
-  // Waiting for a decision. 'approved' (in SILO) is done, not pending.
-  const REVIEWABLE = ['code', 'approve'];
+  // Waiting for a person. Since the daily SILO ledger (20261005120000) a saved
+  // categorization IS the finish line: the transaction is in SILO's books the
+  // moment it is categorized. Preparing and sending the monthly QuickBooks
+  // entry is optional and never counted as pending.
+  const REVIEWABLE = ['code'];
+  // Stages that are done as far as SILO is concerned (shown as receipts).
+  const RECORDED = ['approve', 'approved', 'posted'];
   const NEEDS = {
     uncoded_without_suggestion: (i) => ({
       title: `${plural(i.uncoded_count, 'transaction')} need a person`,
       detail: 'SILO has no prepared account for these. Choose one in Transactions; nothing is guessed here.',
     }),
     posting_disabled: () => ({
-      title: 'Approval is switched off for this card',
-      detail: 'Approving in SILO currently requires the card\u2019s \u201cposting enabled\u201d switch (Transactions settings). Turning it on sends nothing to QuickBooks by itself.',
+      title: 'Recorded in SILO',
+      detail: 'Every transaction is in the SILO ledger. This card does not send to QuickBooks (its \u201cposting enabled\u201d switch is off), so there is no monthly QuickBooks entry to prepare.',
     }),
     posting_unresolved: () => ({
       title: 'Posting outcome needs checking',
@@ -68,17 +73,21 @@
         return { ...base, pill: 'Prepared', title: `Code ${plural(item.open_suggestions, 'transaction')}`,
           figure: money(item.suggested_amount, item.currency), caption: 'ready to classify', action: 'Review' };
       case 'approve':
-        return { ...base, pill: 'Ready to approve', title: 'Approve journal entry',
+        return { ...base, pill: 'In SILO ledger', title: 'Recorded in SILO',
           figure: money(item.coded_amount, item.currency),
-          caption: `${plural(item.txn_count - item.excluded_count, 'coded transaction')}`, action: 'Review' };
+          caption: `${plural(item.txn_count - item.excluded_count, 'transaction')} in the SILO ledger · QuickBooks entry not prepared (optional)`, action: 'View' };
       case 'approved':
-        return { ...base, pill: 'In SILO', title: 'Approved in SILO',
-          figure: money(item.coded_amount, item.currency), caption: 'in SILO\u2019s journal register · not sent to QuickBooks', action: 'View' };
+        return { ...base, pill: 'In SILO ledger', title: 'QuickBooks entry approved',
+          figure: money(item.coded_amount, item.currency), caption: 'in the SILO ledger · not sent to QuickBooks (optional)', action: 'View' };
       case 'posted':
-        return { ...base, pill: 'In SILO + QuickBooks', title: 'Approved and sent to QuickBooks',
+        return { ...base, pill: 'In SILO + QuickBooks', title: 'Recorded in SILO and QuickBooks',
           figure: item.qbo_doc_number || item.qbo_journal_entry_id || '—', caption: 'QuickBooks journal entry', action: 'View' };
       default: {
         const n = (NEEDS[item.stage_reason] || (() => ({ title: 'Needs input', detail: 'Open this import in Transactions.' })))(item);
+        if (item.stage_reason === 'posting_disabled') {
+          return { ...base, stage: 'approve', pill: 'In SILO ledger', title: n.title, detail: n.detail,
+            figure: money(item.coded_amount, item.currency), caption: 'in the SILO ledger', action: null, reviewable: false };
+        }
         return { ...base, stage: 'needs_input', pill: 'Needs input', title: n.title, detail: n.detail,
           figure: null, caption: null, action: 'Open in Transactions' };
       }
@@ -111,7 +120,10 @@
     return { kind: 'error', message: b.error || `Posting failed (HTTP ${status}).` };
   }
 
-  const API = { money, cardModel, mixSegments, defaultSelected, postOutcome, transactionsHref, dayRange, REVIEWABLE, LOW_CONFIDENCE };
+  // Done as far as SILO is concerned: shown under "After approval", never as pending work.
+  const isRecorded = (item) => RECORDED.includes(item.stage) || item.stage_reason === 'posting_disabled';
+
+  const API = { money, cardModel, mixSegments, defaultSelected, postOutcome, transactionsHref, dayRange, isRecorded, REVIEWABLE, RECORDED, LOW_CONFIDENCE };
 
   // ───────────────────────────────────────────────────────────── UI ──
   function el(tag, text, className) {
@@ -319,7 +331,7 @@
         refused.forEach((r) => { const t = window.SiloCodingSuggestions.reasonText(r.reason); reasons[t] = (reasons[t] || 0) + 1; });
         st.receipt = {
           kind: refused.length ? (accepted.length ? 'partial' : 'failed') : 'done',
-          title: accepted.length ? `Saved ${plural(accepted.length, 'categorization')}` : 'Nothing was saved',
+          title: accepted.length ? `Saved ${plural(accepted.length, 'categorization')} \u2014 recorded in the SILO ledger` : 'Nothing was saved',
           lines: Object.entries(reasons).map(([t, n]) => `${n} not saved: ${t}.`),
         };
       } catch (e) {
@@ -333,16 +345,17 @@
       const panel = el('div', null, 'od-panel');
       if (!p.ready) {
         const needs = el('div', null, 'od-needs');
-        needs.append(el('strong', 'Needs input'), el('p', p.blocker || 'This entry cannot be prepared yet.'),
+        needs.append(el('strong', 'The monthly QuickBooks entry needs input'),
+          el('p', `${p.blocker || 'It cannot be prepared yet.'} Your SILO ledger is unaffected: categorized transactions are already recorded.`),
           link('Resolve in Transactions ↗', transactionsHref(i.batch_id, ctx.co)));
         panel.append(needs); box.append(panel); return;
       }
       const paper = el('div', null, 'od-paper od-entry');
-      paper.append(el('span', p.status === 'draft' || p.status === 'categorized' ? 'JOURNAL ENTRY / FOR YOUR REVIEW' : 'JOURNAL ENTRY / APPROVED IN SILO', 'od-paper-label'));
+      paper.append(el('span', p.status === 'draft' || p.status === 'categorized' ? 'MONTHLY QUICKBOOKS ENTRY / OPTIONAL' : 'MONTHLY QUICKBOOKS ENTRY / APPROVED', 'od-paper-label'));
       const facts = el('dl', null, 'od-evidence');
       const fact = (k, v) => { const d = el('div'); d.append(el('dt', k), el('dd', v == null || v === '' ? 'Unknown' : String(v))); facts.append(d); };
       const dest = p.destination || {};
-      fact('RECORDED IN', 'SILO journal register');
+      fact('SILO LEDGER', 'Already recorded, day by day, as each transaction was categorized');
       fact('CHART OF ACCOUNTS', dest.company_name ? `${dest.company_name}${dest.environment === 'sandbox' ? ' (sandbox)' : ''} · from QuickBooks` : 'QuickBooks connection unknown');
       fact('ENTRY DATE', p.entry_date);
       fact('SOURCE DATES', dayRange(p.facts?.first_txn, p.facts?.last_txn));
@@ -372,18 +385,18 @@
 
       const footer = el('div', null, 'od-footer');
       if (p.status === 'draft' || p.status === 'categorized') {
-        const approve = btn('Approve journal entry in SILO', () => approveEntry(i, approve), 'primary');
+        const approve = btn('Approve QuickBooks entry', () => approveEntry(i, approve));
         approve.disabled = st.busy || !ctx.access.review;
-        footer.append(approve, el('span', 'Freezes exactly this entry in SILO\u2019s journal register. Nothing is sent to QuickBooks.', 'od-meta'));
+        footer.append(approve, el('span', 'Optional. Your SILO ledger already has these transactions; this freezes the monthly entry for QuickBooks. Nothing is sent yet.', 'od-meta'));
         box.append(footer);
         return;
       }
       if (p.status === 'posted' || p.posting?.status === 'posted') {
-        footer.append(el('span', `Approved in SILO · also in QuickBooks as entry ${p.posting?.qbo_doc_number || p.posting?.qbo_journal_entry_id || 'recorded'}${p.posting?.posted_at ? ` (${new Date(p.posting.posted_at).toLocaleString()})` : ''}`, 'od-meta'));
+        footer.append(el('span', `In the SILO ledger · also in QuickBooks as entry ${p.posting?.qbo_doc_number || p.posting?.qbo_journal_entry_id || 'recorded'}${p.posting?.posted_at ? ` (${new Date(p.posting.posted_at).toLocaleString()})` : ''}`, 'od-meta'));
         box.append(footer);
         return;
       }
-      footer.append(el('span', `Approved in SILO${p.approval_version ? ` · version ${p.approval_version}` : ''}. This entry is done.`, 'od-meta'));
+      footer.append(el('span', `QuickBooks entry approved${p.approval_version ? ` · version ${p.approval_version}` : ''}. The transactions are already in the SILO ledger.`, 'od-meta'));
       box.append(footer);
       // Optional and deliberately more work: expand, acknowledge, confirm.
       const qbo = el('details', null, 'od-qbo-optional');
@@ -405,8 +418,8 @@
       try {
         await ctx.stillActive();
         const out = await rpc('approve_reviewed_card_import_batch', { p_batch_id: i.batch_id, p_expected_hash: hash });
-        st.receipt = { kind: 'done', title: out.already_approved ? 'Already approved in SILO — same entry' : 'Approved in SILO',
-          lines: [`Frozen in SILO\u2019s journal register (version ${out.approval_version}). Nothing was sent to QuickBooks.`] };
+        st.receipt = { kind: 'done', title: out.already_approved ? 'QuickBooks entry already approved \u2014 same entry' : 'QuickBooks entry approved',
+          lines: [`Frozen for QuickBooks (version ${out.approval_version}). Nothing was sent to QuickBooks.`] };
       } catch (e) {
         st.receipt = { kind: 'failed', title: e.code === '40001' ? 'The entry changed — review it again' : 'Not approved',
           lines: [e.code === '40001' ? 'The preview below has been refreshed with the current entry. Nothing was approved.' : e.message] };
@@ -418,7 +431,7 @@
       const dialog = document.getElementById('coding-post-dialog');
       const p = st.preview;
       document.getElementById('coding-post-summary').textContent =
-        `Send ${money(p.debits, p.facts?.currency)} (${plural((p.lines || []).length, 'line')}) dated ${p.entry_date} to QuickBooks · ${p.destination?.company_name || 'the connected company'}. It is already approved in SILO; this only adds a copy to QuickBooks, which can then only be reversed by voiding it there.`;
+        `Send ${money(p.debits, p.facts?.currency)} (${plural((p.lines || []).length, 'line')}) dated ${p.entry_date} to QuickBooks · ${p.destination?.company_name || 'the connected company'}. The transactions are already in the SILO ledger; this only adds a copy to QuickBooks, which can then only be reversed by voiding it there.`;
       const ack = document.getElementById('coding-post-ack');
       ack.checked = false;
       const go = document.getElementById('coding-post-confirm');

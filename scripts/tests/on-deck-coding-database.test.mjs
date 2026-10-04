@@ -339,6 +339,19 @@ try {
     for (const part of parts) for (const row of await q(part)) assert.equal(row.status, 'ok', `${row.check_name}: ${row.status}`);
   });
 
+  await test('with the daily SILO ledger installed, Home counts only transactions waiting to be categorized', async () => {
+    await db.exec(`create or replace function public.attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;
+                   create or replace function public.silo_business_today() returns date language sql stable as $$ select date '2026-10-04' $$;`);
+    await db.exec(await readFile(new URL('supabase/migrations/20261005120000_silo_daily_ledger.sql', root), 'utf8'));
+    const rows = await items(finance);
+    const codeStage = rows.filter((r) => r.stage === 'code').length;
+    const realNeeds = rows.filter((r) => r.stage === 'needs_input' && r.stage_reason !== 'posting_disabled').length;
+    const count = await as(finance, () => rpc('on_deck_ready_count'));
+    assert.ok(rows.some((r) => r.stage === 'approve'), 'fixture: a batch waiting on the optional QuickBooks entry');
+    assert.equal(Number(count.coding), codeStage, 'a batch waiting only on the QuickBooks entry is not pending');
+    assert.equal(Number(count.needs_input), realNeeds, 'a card that does not send to QuickBooks is not "needs input"');
+  });
+
   console.log(`PASS on-deck coding: ${passed} checks -- finance-only queue, preview equals approval with no trace, approval bound to the reviewed hash, idempotent retries, specific blockers, company isolation`);
 } catch (error) {
   console.error(error);

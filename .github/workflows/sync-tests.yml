@@ -126,6 +126,7 @@ on:
       - 'v2/accounting-books*'
       - 'v2/accounting-ledger.js'
       - 'scripts/tests/accounting-ledger.test.mjs'
+      - 'supabase/migrations/*silo_daily_ledger.sql'
       - 'v2/qbo-reports.html'
       - 'v2/cash-forecast.html'
       - 'v2/cashflow*'
@@ -868,6 +869,18 @@ jobs:
       # categorizer suites use checked row-for-row against the real function.
       - name: Execute coding evidence and saved-rule regressions
         run: node scripts/tests/card-coding-evidence-database.test.mjs
+
+      # The SILO daily ledger: a categorized, settled transaction is recorded at
+      # once, changes are reversal + new entry, locked periods are never written
+      # into, and the ledger is append-only, balanced and finance-only.
+      - name: Execute SILO daily ledger regressions
+        run: |
+          node scripts/tests/silo-ledger-database.test.mjs
+          for mutation in no-start-check edit-in-place ignore-lock read-ungated cosmetic-rerecord; do
+            if SILO_LEDGER_MUTATION="$mutation" node scripts/tests/silo-ledger-database.test.mjs > /tmp/ledger-mutation.log 2>&1; then
+              cat /tmp/ledger-mutation.log; echo "Survived ledger mutation: $mutation"; exit 1
+            fi
+          done
 
       - name: Execute profiles tenant-isolation regressions
         run: node --test scripts/tests/profiles-tenant-scope.test.mjs

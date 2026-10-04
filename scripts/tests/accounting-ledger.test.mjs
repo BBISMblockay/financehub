@@ -67,7 +67,7 @@ test('roll-forward separates opening, Silo postings and other QuickBooks activit
   assert.deepEqual(plain([by['500'].opening, by['500'].closing, by['500'].other]), [10000, 0, -10000]);
   assert.equal(by['163'].lines.length, 1, 'only the posted, in-window entry is listed');
   assert.equal(by['163'].lines[0].doc, 'SILO-amort');
-  assert.deepEqual(plain(m.totals), { opening: 0, silo: 0, closing: 0, other: 0 });
+  assert.deepEqual(plain(m.totals), { opening: 0, silo: 0, balance: 0, pending: 0, closing: 0, other: 0 });
   assert.equal(m.skippedBefore, 1);
 });
 
@@ -94,17 +94,19 @@ function fakeDb(data, { cap = Infinity } = {}) {
   return {
     calls,
     from(table) {
-      const q = { table, eq: [], gte: [], order: null, range: null, limit: null };
+      const q = { table, eq: [], gte: [], gt: [], order: null, range: null, limit: null };
       calls.push(q);
       const api = {
         select() { return api; },
         eq(c, v) { q.eq.push([c, v]); return api; },
         gte(c, v) { q.gte.push([c, v]); return api; },
+        gt(c, v) { q.gt.push([c, v]); return api; },
         order(c) { q.order = q.order || c; return api; },
         range(a, b) { q.range = [a, b]; return api; },
         limit(n) { q.limit = n; return api; },
         then(res, rej) {
-          let rows = (data[table] || []).filter((r) => q.eq.every(([c, v]) => r[c] === v) && q.gte.every(([c, v]) => String(r[c]) >= String(v)));
+          if (data.__missing?.includes(table)) return Promise.resolve({ data: null, error: { code: '42P01', message: `relation "${table}" does not exist` } }).then(res, rej);
+          let rows = (data[table] || []).filter((r) => q.eq.every(([c, v]) => r[c] === v) && q.gte.every(([c, v]) => String(r[c]) >= String(v)) && q.gt.every(([c, v]) => String(r[c]) > String(v)));
           if (q.order) rows = rows.slice().sort((a, b) => String(a[q.order]).localeCompare(String(b[q.order])));
           if (q.range) rows = rows.slice(q.range[0], Math.min(q.range[1] + 1, q.range[0] + cap));
           if (q.limit) rows = rows.slice(0, q.limit);
@@ -195,4 +197,49 @@ test('every posted journal is read, past any page size or server row cap', async
   const { el } = await mountWith({ quickbooks_journal_postings: [...early, late], quickbooks_report_runs: [run('tb-a')] }, { cap: 700 });
   assert.match(el('ledgerTable').innerHTML, /data-ledger-account="83"/, 'the in-period journal beyond the first page is counted');
   assert.match(el('ledgerTable').innerHTML, /5000 posted entries are dated on or before the opening date/);
+});
+
+// ---- SILO's own ledger (20261005120000) -----------------------------------
+const lline = (account, date, signed, extra = {}) => ({ id: account + date + signed, company_entity_id: 'co', qbo_connection_id: 'A', entry_date: date, kind: 'original', qbo_account_id: account, signed_amount: signed, in_quickbooks: false, quickbooks_date: null, description: 'OFFICE DEPOT', ...extra });
+
+test('a transaction recorded in SILO counts the day it is categorized, and stays out of other activity until QuickBooks has it', () => {
+  const ledgerLines = [lline('163', '2026-08-12', 40), lline('83', '2026-08-12', -40)];
+  const m = L.rollForward({ opening, postings: [], trialBalance: L.parseTrialBalance(trialBalance), closingDate: '2026-09-22', ledgerLines });
+  const by = Object.fromEntries(m.rows.map((r) => [r.id, r]));
+  // Checking: 1,000 opening, -40 recorded in SILO only; QuickBooks shows 1,400, so 400 is other activity.
+  assert.deepEqual(plain([by['83'].opening, by['83'].silo, by['83'].balance, by['83'].pending, by['83'].other]), [100000, -4000, 96000, -4000, 40000]);
+  assert.equal(m.totals.silo, 0, 'SILO entries balance');
+  assert.ok(m.hasLedger);
+  const html = L.render(m);
+  assert.match(html, /Recorded in SILO/); assert.match(html, /Not yet in QuickBooks/); assert.match(html, /SILO balance/);
+});
+
+test('a card batch already posted to QuickBooks is counted once, from the ledger', () => {
+  const postings = [posting('card', '2026-08-31', [line('163', 'Debit', 40), line('83', 'Credit', 40)], { source: 'card_import' }),
+    posting('amort', '2026-08-31', [line('163', 'Debit', 500), line('290', 'Credit', 500)])];
+  const ledgerLines = [lline('163', '2026-08-12', 40, { in_quickbooks: true, quickbooks_date: '2026-08-31' }), lline('83', '2026-08-12', -40, { in_quickbooks: true, quickbooks_date: '2026-08-31' })];
+  const m = L.rollForward({ opening, postings, trialBalance: L.parseTrialBalance(trialBalance), closingDate: '2026-09-22', ledgerLines });
+  const by = Object.fromEntries(m.rows.map((r) => [r.id, r]));
+  assert.equal(by['163'].silo, 54000, '40 from the ledger plus 500 amortization -- the card posting is not added again');
+  assert.equal(by['163'].pending, 0, 'QuickBooks has it');
+  // A trial balance dated before QuickBooks carries the batch does not contain it yet.
+  const early = L.rollForward({ opening, postings, trialBalance: new Map(), closingDate: '2026-08-20', ledgerLines });
+  assert.equal(Object.fromEntries(early.rows.map((r) => [r.id, r]))['163'].pending, 4000);
+});
+
+test('without the ledger the tab behaves exactly as before', async () => {
+  const { el } = await mountWith({ __missing: ['silo_ledger_lines_v'], quickbooks_journal_postings: [stored('a1', '2026-08-31', [line('163', 'Debit', 500), line('290', 'Credit', 500)])], quickbooks_report_runs: [run('tb-a')] });
+  const html = el('ledgerTable').innerHTML;
+  assert.match(html, /Posted by Silo/); assert.ok(!/Recorded in SILO/.test(html));
+});
+
+test('the ledger is read for the company, after the opening date, past any page cap', async () => {
+  const lines = Array.from({ length: 1500 }, (_, i) => lline('163', '2026-08-12', 1, { id: 'l' + String(i).padStart(5, '0') }));
+  lines.push(lline('83', '2026-08-12', -1500, { id: 'z-last' }), lline('163', '2026-07-30', 9, { id: 'pre' }),
+    // Another QuickBooks connection's colliding account id never reaches these books.
+    lline('163', '2026-08-12', 77, { id: 'other-conn', qbo_connection_id: 'B' }));
+  const { el } = await mountWith({ silo_ledger_lines_v: lines, quickbooks_journal_postings: [], quickbooks_report_runs: [run('tb-a')] }, { cap: 700 });
+  const html = el('ledgerTable').innerHTML;
+  assert.match(html, /data-ledger-account="83"/, 'the line beyond the first page is counted');
+  assert.match(html, /data-ledger-account="163">1,500\.00</, 'all 1,500 one-dollar lines count, and the pre-opening one does not');
 });

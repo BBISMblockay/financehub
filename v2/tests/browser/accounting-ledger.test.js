@@ -63,13 +63,14 @@ const FIXTURES = () => ({
         const tr = [...document.querySelectorAll('#ledgerTable tbody tr')].find((t) => t.querySelector('td').textContent.startsWith(n));
         return tr ? [...tr.querySelectorAll('td')].slice(1).map((td) => td.textContent.trim()) : null;
       }, name);
-      await check("Silo's postings and other QuickBooks activity are separate columns", async () => {
-        r.eq(await rowOf('Prepaid licensing'), ['5,000.00', '(500.00)', '0.00', '4,500.00']);
-        r.eq(await rowOf('Checking'), ['1,000.00', '0.00', '400.00', '1,400.00']);
+      // Columns: opening, recorded in SILO, SILO balance, not yet in QuickBooks, other activity, closing.
+      await check("Silo's own activity and other QuickBooks activity are separate columns", async () => {
+        r.eq(await rowOf('Prepaid licensing'), ['5,000.00', '(500.00)', '4,500.00', '0.00', '0.00', '4,500.00']);
+        r.eq(await rowOf('Checking'), ['1,000.00', '0.00', '1,000.00', '0.00', '400.00', '1,400.00']);
       });
       await check('every column nets to zero', async () => {
         const foot = await page.$$eval('#ledgerTable tfoot td', (t) => t.slice(1).map((x) => x.textContent.trim()));
-        r.eq(foot, ['0.00', '0.00', '0.00', '0.00']);
+        r.eq(foot, ['0.00', '0.00', '0.00', '0.00', '0.00', '0.00']);
       });
       await check('a Posted by Silo figure opens the lines behind it', async () => {
         await page.click('[data-ledger-account="290"]');

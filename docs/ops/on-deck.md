@@ -275,6 +275,14 @@ And Books → Ledger still counts only entries POSTED to QuickBooks
 appears in the journal register, not yet in the Ledger roll-forward. Both are
 follow-ups toward SILO-owned books.
 
+**Superseded by the daily SILO ledger (`20261005120000`, [silo-ledger.md](silo-ledger.md)):**
+a categorized, settled transaction is now in SILO's ledger the moment it is
+saved, and Books → Ledger reads those entries. On Deck counts only
+uncategorized transactions as pending; a fully categorized batch is a receipt
+("Recorded in SILO"), and "Approve QuickBooks entry" is an optional monthly
+step. A card with `posting_enabled` off is recorded in SILO and is no longer
+"needs input" — the switch now only governs the QuickBooks entry.
+
 **Not in this PR (separate proposals):** "Create draft PO" from restock or
 projection — restock still stops at a draft Product Studio brief with no size
 quantities, and turning that into a PO needs Product Studio's Ready-for-PO gate

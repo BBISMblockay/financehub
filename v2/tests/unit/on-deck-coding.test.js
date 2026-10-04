@@ -27,18 +27,25 @@ r.test('a mixed or unknown currency is never shown as dollars', () => {
   r.eq(C.cardModel(item({ currency: null })).figure, '1,234.50');
 });
 r.test('needs-input names the specific gap and is not reviewable', () => {
-  const m = C.cardModel(item({ stage: 'needs_input', stage_reason: 'posting_disabled' }));
-  r.eq(m.title, 'Approval is switched off for this card'); r.eq(m.reviewable, false); r.eq(m.figure, null);
+  // A card that does not send to QuickBooks is not a gap any more: its transactions are in the SILO ledger.
+  const m = C.cardModel(item({ stage: 'needs_input', stage_reason: 'posting_disabled', coded_amount: 5 }));
+  r.eq(m.title, 'Recorded in SILO'); r.eq(m.reviewable, false); r.eq(m.action, null);
+  r.eq(C.isRecorded(item({ stage: 'needs_input', stage_reason: 'posting_disabled' })), true);
+  r.eq(C.isRecorded(item({ stage: 'needs_input', stage_reason: 'uncoded_without_suggestion' })), false);
   r.eq(C.cardModel(item({ stage: 'needs_input', stage_reason: 'uncoded_without_suggestion', uncoded_count: 4 })).title, '4 transactions need a person');
   r.eq(C.cardModel(item({ stage: 'needs_input', stage_reason: 'posting_unresolved' })).title, 'Posting outcome needs checking');
 });
-r.test('approval in SILO is the finish line: an approved entry is done, never pending', () => {
-  r.eq(C.cardModel(item({ stage: 'approve', coded_amount: 35.5 })).figure, '$35.50');
+r.test('a saved categorization is the finish line: the monthly QuickBooks entry is optional, never pending', () => {
+  const ready = C.cardModel(item({ stage: 'approve', coded_amount: 35.5 }));
+  r.eq(ready.figure, '$35.50'); r.eq(ready.title, 'Recorded in SILO'); r.eq(ready.reviewable, false);
+  r.ok('says the QuickBooks entry is optional', /QuickBooks entry not prepared \(optional\)/.test(ready.caption));
   const done = C.cardModel(item({ stage: 'approved', coded_amount: 35.5 }));
-  r.eq(done.title, 'Approved in SILO'); r.eq(done.reviewable, false);
+  r.eq(done.title, 'QuickBooks entry approved'); r.eq(done.reviewable, false);
   r.ok('says it was not sent to QuickBooks', /not sent to QuickBooks/.test(done.caption));
   r.eq(C.cardModel(item({ stage: 'posted' })).reviewable, false);
-  r.eq(C.REVIEWABLE.join(','), 'code,approve');
+  r.eq(C.REVIEWABLE.join(','), 'code');
+  r.ok('every recorded stage is a receipt', ['approve', 'approved', 'posted'].every((stage) => C.isRecorded(item({ stage }))));
+  r.eq(C.isRecorded(item({ stage: 'code' })), false);
 });
 
 console.log('\n── account mix ──');
