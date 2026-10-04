@@ -77,7 +77,7 @@
     coding.forEach(i => grid.append(state.coding.card(i)));
     proposals.forEach(p => grid.append(proposalCard(p)));
     state.coding?.markActive();
-    const reviewable = coding.filter(i => window.SiloOnDeckCoding.REVIEWABLE.includes(i.stage)).length + proposals.filter(p => p.status === 'ready').length;
+    const reviewable = coding.filter(i => window.SiloOnDeckCoding.isPending(i)).length + proposals.filter(p => p.status === 'ready').length;
     $('ready-count').textContent = String(reviewable);
     $('ready-section').hidden = false;
     if (!grid.children.length) {

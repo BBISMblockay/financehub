@@ -36,7 +36,12 @@ Migration: `20261005120000_silo_daily_ledger.sql`.
   reason (`silo_ledger_batch_status()`), and fixing it in Transactions records it on save. A
   QuickBooks-posted batch is never blocked, because QuickBooks already accepted it.
 - **Opening balances accepted later:** accepting them, or moving `accounting_start_date`, records
-  every already-categorized transaction for that company (a trigger on each table).
+  every already-categorized transaction for that company (a trigger on each table). It takes the
+  company lock exclusive before it looks, so a categorization saved at the same moment is either seen
+  by it or waits and is then recorded by its own save. `silo_ledger_batch_status()` also reports a
+  valid categorized row that is somehow not recorded, so nothing can sit unrecorded silently.
+- **Before the migration** (the page deployed first), On Deck shows categorized imports as "Not
+  recorded in SILO yet" and keeps the monthly approval as pending work; nothing is called recorded.
 
 ## Corrections
 
@@ -52,10 +57,14 @@ owner's included.
 - **Period lock:** `set_accounting_period_lock(through, reason)` is finance-only and moves forward
   only. Nothing is ever dated on or before the lock. A correction to a locked month, or a late
   arrival for one, is dated the first open day.
-- **QuickBooks-posted history is frozen.** Once a transaction's batch is posted, its entry
-  describes the frozen snapshot QuickBooks holds. Changing the source's balancing account, location,
-  vendor or feed start does not rewrite it. Unposting the batch (a void) resyncs it to the current
-  facts.
+- **History is frozen while an approval snapshot is live** (batch `approved` or `posted`).
+  QuickBooks receives exactly that snapshot, so changing the source's balancing account, location,
+  vendor or feed start does not rewrite SILO's entry for it.
+  - Marking a post unposted keeps the snapshot, so it stays frozen.
+  - Reopening the batch discards the approval and resyncs it to the current facts.
+- **The connection is stored on each entry.** When neither the source nor the batch names a
+  QuickBooks connection, the company's one active connection is used and stored, so Books → Ledger
+  (which filters by connection) shows it.
 - **Locking:** recording takes a per-company advisory lock shared, and `set_accounting_period_lock`
   takes it exclusive. A recording that overlaps a lock change waits, then reads the new lock. The
   lock row's upsert only ever advances the date.
@@ -126,13 +135,16 @@ No edge function changes; no secrets.
 ## Tests
 
 - `node scripts/tests/silo-ledger-database.test.mjs`: 23 checks. Mutations
-  `SILO_LEDGER_MUTATION=no-start-check|edit-in-place|ignore-lock|read-ungated|cosmetic-rerecord|no-validation|posted-not-frozen|no-books-start-sync|lock-unshared`
+  `SILO_LEDGER_MUTATION=no-start-check|edit-in-place|ignore-lock|read-ungated|cosmetic-rerecord|no-validation|posted-not-frozen|no-books-start-sync|lock-unshared|connection-not-stored|approved-not-frozen`
   must each fail it, and run in CI.
 - `SILO_PG_CONN=... node scripts/tests/silo-ledger-concurrency.test.mjs`: two real PostgreSQL
   sessions.
   - Race 1: recording while finance locks the month lands on the first open day.
   - Race 2: two first locks at once cannot reopen a closed month.
-  - Mutations `LEDGER_RACE_MUTATION=lock-unshared|period-unlocked` must each fail it
-    (`period-unlocked` with `LEDGER_RACE_ONLY=2` as well). Runs in the CI PostgreSQL job.
+  - Races 3 and 4: accepting opening balances while a categorization commits, in both orders,
+    records it.
+  - Mutations `LEDGER_RACE_MUTATION=lock-unshared|period-unlocked|books-unlocked` must each fail
+    it (`period-unlocked` with `LEDGER_RACE_ONLY=2`, `books-unlocked` with `LEDGER_RACE_ONLY=3` and
+    `4`). Runs in the CI PostgreSQL job.
 - `node --test scripts/tests/accounting-ledger.test.mjs`: Ledger tab, 12 tests.
 - `node scripts/tests/on-deck-coding-database.test.mjs` (23) and the On Deck browser suites.

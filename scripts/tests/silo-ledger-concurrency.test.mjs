@@ -15,8 +15,14 @@
 //      the earlier date can land last and reopen a closed month. The advisory
 //      lock serialises them and the upsert only ever advances the date.
 //
+//   3./4. Accepting opening balances vs. a coding save in flight, both orders.
+//      Acceptance takes the company lock EXCLUSIVE before it enumerates coded
+//      rows, so the save is either seen by it or waits and then reads the
+//      books as started. Without it both commit and nothing is recorded.
+//
 // Mutations (each must make the suite fail, for the right reason):
 //   LEDGER_RACE_MUTATION=lock-unshared    (the recorder's shared lock removed)
+//   LEDGER_RACE_MUTATION=books-unlocked   (acceptance's exclusive lock removed)
 //   LEDGER_RACE_MUTATION=period-unlocked  (the period lock's advisory lock AND
 //                                          its forward-only upsert removed;
 //                                          run with LEDGER_RACE_ONLY=2 too)
@@ -36,7 +42,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 const mutation = process.env.LEDGER_RACE_MUTATION || '';
-assert.ok(['', 'lock-unshared', 'period-unlocked'].includes(mutation), `Unknown race mutation: ${mutation}`);
+assert.ok(['', 'lock-unshared', 'period-unlocked', 'books-unlocked'].includes(mutation), `Unknown race mutation: ${mutation}`);
 
 const root = new URL('../../', import.meta.url);
 const BASE = process.env.SILO_PG_CONN || process.env.DATABASE_URL || '';
@@ -134,6 +140,9 @@ try {
   if (mutation === 'lock-unshared') {
     cut("  perform pg_advisory_xact_lock_shared(hashtextextended('silo_ledger:company:' || v_company::text, 0));");
   }
+  if (mutation === 'books-unlocked') {
+    cut("  perform pg_advisory_xact_lock(hashtextextended('silo_ledger:company:' || new.company_entity_id::text, 0));\n");
+  }
   if (mutation === 'period-unlocked') {
     cut("  perform pg_advisory_xact_lock(hashtextextended('silo_ledger:company:' || v_company::text, 0));\n");
     cut('\n    where accounting_period_locks.locked_through < excluded.locked_through;   -- forward only, even under a race', ';');
@@ -165,6 +174,25 @@ try {
     insert into card_transactions(id,company_entity_id,batch_id,row_no,txn_date,description,merchant,clean_merchant,card_name,amount,currency,status)
       values ('${txn}','${co}','${batch}',1,'2026-09-15','OFFICE DEPOT','OFFICE DEPOT','Office Depot','Supplies',42,'USD','uncoded');
   `;
+  // Two companies whose opening balances are still DRAFT, one per race order.
+  const late = [0, 1].map(() => ({ co: randomUUID(), conn: randomUUID(), card: randomUUID(), batch: randomUUID(), txn: randomUUID(), ob: randomUUID() }));
+  const lateSeed = late.map((c, i) => `
+    insert into entities(id,title) values ('${c.co}','Late ${i}');
+    insert into quickbooks_connections(id,company_entity_id,realm_id,access_token) values ('${c.conn}','${c.co}','rl${i}','x');
+    insert into quickbooks_accounts(company_entity_id,connection_id,qbo_account_id,name,account_type,is_active) values
+      ('${c.co}','${c.conn}','supplies','supplies','Expense',true),('${c.co}','${c.conn}','cc','cc','Credit Card',true);
+    insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,credit_qbo_account_id,credit_qbo_account_name,is_active)
+      values ('${c.card}','${c.co}','${c.conn}','card','Card','card','cc','cc',true);
+    with r as (insert into quickbooks_report_runs(company_entity_id,connection_id,report_name,status)
+               values ('${c.co}','${c.conn}','TrialBalance','ok') returning id)
+    insert into accounting_opening_balances(id,company_entity_id,report_run_id,snapshot,snapshot_hash,status)
+      select '${c.ob}', '${c.co}', id, '{}'::jsonb, 'h', 'draft' from r;
+    insert into accounting_settings(company_entity_id,qbo_connection_id,base_currency,fiscal_year_start_month,accounting_start_date,accounting_basis)
+      values ('${c.co}','${c.conn}','USD',1,'2026-08-01','Accrual');
+    insert into card_import_batches(id,company_entity_id,source_id,label,entry_date,period_start,period_end,status,origin,qbo_connection_id)
+      values ('${c.batch}','${c.co}','${c.card}','B','2026-09-30','2026-09-01','2026-09-30','draft','csv','${c.conn}');
+    insert into card_transactions(id,company_entity_id,batch_id,row_no,txn_date,description,merchant,clean_merchant,card_name,amount,currency,status)
+      values ('${c.txn}','${c.co}','${c.batch}',1,'2026-09-15','OFFICE DEPOT','OFFICE DEPOT','Office Depot','Supplies',42,'USD','uncoded');`).join('\n');
   const stubs = `create or replace function public.attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;
                  create or replace function public.silo_business_today() returns date language sql stable as $$ select date '2026-10-04' $$;`;
   run(dbConn, ['-f', await file('00-bootstrap.sql', bootstrap)]);
@@ -173,7 +201,7 @@ try {
   }
   run(dbConn, ['-f', await file('20-stubs.sql', stubs)]);
   run(dbConn, ['-f', await file('30-ledger.sql', ledger)]);
-  run(dbConn, ['-f', await file('40-seed.sql', seed)]);
+  run(dbConn, ['-f', await file('40-seed.sql', seed + lateSeed)]);
 
   const ctl = session('silo-ctl');
   const scalar = async (s, sqlText) => (await s.send(sqlText)).split('\n').pop().trim();
@@ -235,6 +263,50 @@ try {
     const through = await scalar(ctl, `reset role; select locked_through::text from accounting_period_locks where company_entity_id='${co2}';`);
     assert.equal(through, '2026-09-30', `the books were left locked through ${through}: September reopened`);
     assert.match(second, /already locked/, 'the earlier lock was refused, not applied');
+  });
+
+  const codeSql = (c) => `update card_transactions set status='coded', qbo_account_id='supplies', qbo_account_name='supplies', coding_source='manual' where id='${c.txn}';`;
+  const acceptSql = (c) => `update accounting_opening_balances set status='accepted', accepted_at=now() where id='${c.ob}';`;
+  const recorded = async (c) => scalar(ctl, `reset role; select count(*) from ledger_entries where source_id='${c.txn}';`);
+
+  await test('opening balances accepted while a categorization commits: the categorization is recorded (acceptance first)', async () => {
+    const c = late[0];
+    const s1 = session('silo-s1');
+    const s2 = session('silo-s2');
+    try {
+      await s1.send('begin;');
+      await s1.send(acceptSql(c));          // holds the company lock exclusively
+      await s2.send('begin;');
+      await s2.send(codeSql(c));
+      const inflight = s2.send('commit;');  // its deferred recorder must wait
+      await waitUntilBlocked('silo-s2');
+      await s1.send('commit;');
+      await inflight;
+    } finally {
+      await s1.end(); await s2.end();
+    }
+    assert.equal(await recorded(c), '1', 'neither side recorded it: the categorization fell between acceptance and its own recorder');
+  });
+
+  await test('a categorization recorded while opening balances are accepted is recorded (categorization first)', async () => {
+    const c = late[1];
+    const s1 = session('silo-s1');
+    const s2 = session('silo-s2');
+    try {
+      await s2.send('begin;');
+      await s2.send(codeSql(c));
+      // Run the deferred recorder now: it finds no books yet and holds the lock shared.
+      await s2.send('set constraints silo_ledger_card_transaction immediate;');
+      await s1.send('begin;');
+      const inflight = s1.send(acceptSql(c)); // must wait, then see the committed row
+      await waitUntilBlocked('silo-s1');
+      await s2.send('commit;');
+      await inflight;
+      await s1.send('commit;');
+    } finally {
+      await s1.end(); await s2.end();
+    }
+    assert.equal(await recorded(c), '1', 'neither side recorded it: acceptance enumerated before the categorization was visible');
   });
 
   await ctl.end();

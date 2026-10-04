@@ -21,7 +21,7 @@
 //   SILO_LEDGER_MUTATION=ignore-lock
 //   SILO_LEDGER_MUTATION=read-ungated
 //   SILO_LEDGER_MUTATION=cosmetic-rerecord
-//   SILO_LEDGER_MUTATION=no-validation|posted-not-frozen|no-books-start-sync|lock-unshared
+//   SILO_LEDGER_MUTATION=no-validation|posted-not-frozen|no-books-start-sync|lock-unshared|connection-not-stored|approved-not-frozen
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -39,10 +39,16 @@ const MUTATIONS = {
   // Let a source remap rewrite QuickBooks-posted history.
   // Both guards: the writer's freeze and the remap's posted-batch filter overlap.
   'posted-not-frozen': [
-    ["    select 1 from public.card_import_batches pb where pb.id = t.batch_id and pb.status = 'posted') then", "    select 1 where false) then"],
-    ["              where b.source_id = new.id and b.status <> 'posted' loop", "              where b.source_id = new.id loop"]],
+    ["    select 1 from public.card_import_batches pb where pb.id = t.batch_id and pb.status in ('approved', 'posted')) then", "    select 1 where false) then"],
+    ["              where b.source_id = new.id and b.status not in ('approved', 'posted') loop", "              where b.source_id = new.id loop"]],
   // Forget to record what was coded before the books started.
   'no-books-start-sync': ["  if tg_table_name = 'accounting_opening_balances' then", "  if true then return null; end if;\n  if tg_table_name = 'accounting_opening_balances' then"],
+  // Store the source/batch binding instead of the resolved connection.
+  'connection-not-stored': ["  v_conn := case when t.id is null then null\n                 else coalesce(public.silo_ledger_connection(t.batch_id),", "  v_conn := case when t.id is null then null\n                 else coalesce(null,"],
+  // Freeze only posted batches, as before cycle 2.
+  'approved-not-frozen': [
+    ["pb.status in ('approved', 'posted')) then", "pb.status = 'posted') then"],
+    ["b.status not in ('approved', 'posted') loop", "b.status <> 'posted' loop"]],
   // Record without the company lock.
   'lock-unshared': ["  perform pg_advisory_xact_lock_shared(hashtextextended('silo_ledger:company:' || v_company::text, 0));", ''],
   'cosmetic-rerecord': ["(select jsonb_agg(x.value - 'description' order by x.ordinality)", "(select jsonb_agg(x.value order by x.ordinality)"],
@@ -329,11 +335,46 @@ try {
     assert.ok((await latest(live)).includes('cc2'), 'unposted history follows the remap');
     const v = await as(finance, () => q(`select bool_and(in_quickbooks) ok from silo_ledger_lines_v v join card_transactions t on t.id=v.source_id where t.batch_id=$1`, [batch]));
     assert.equal(v[0].ok, true, 'what QuickBooks holds is still what SILO says it holds');
-    // A void moves the batch off posted: the freeze lifts and the remap applies.
+    // Marking the post unposted keeps the approval snapshot: still frozen.
     await q("update card_import_batches set status='approved' where id=$1", [batch]);
-    assert.ok(await countFor(postedTxns) > before, 'unposting resynced the batch');
+    assert.equal(await countFor(postedTxns), before, 'posted -> approved keeps the snapshot, so stays frozen');
+    // Reopening discards the approval: the freeze lifts and the remap applies.
+    await q("update card_import_batches set status='categorized' where id=$1", [batch]);
+    assert.ok(await countFor(postedTxns) > before, 'reopening resynced the batch');
     assert.ok((await latest(postedTxns[0])).includes('cc2'));
     await q("update card_sources set credit_qbo_account_id='cc', credit_qbo_account_name='cc' where id=$1", [card]);
+  });
+
+  await test('an approved snapshot freezes SILO too: approve, remap the source, post -- SILO says what QuickBooks got', async () => {
+    const b = await newBatch(card);
+    const t = await newTxn(b, 18, { status: 'coded', account: 'supplies', date: '2026-09-18' });
+    const linesOf = async () => (await q(`select l.qbo_account_id from ledger_lines l join ledger_entries e on e.id=l.entry_id
+      where e.source_id=$1 and e.kind='original' order by e.recorded_at desc, l.line_no`, [t])).map((r) => r.qbo_account_id);
+    assert.deepEqual(await linesOf(), ['supplies', 'cc']);
+    await db.exec('alter table card_import_batches disable trigger user');
+    await q("update card_import_batches set status='approved' where id=$1", [b]);
+    await db.exec('alter table card_import_batches enable trigger user');
+    await q("update card_sources set credit_qbo_account_id='cc2', credit_qbo_account_name='cc2' where id=$1", [card]);
+    assert.deepEqual(await linesOf(), ['supplies', 'cc'], 'an approved batch is not rewritten by a remap');
+    await db.exec('alter table card_import_batches disable trigger user');
+    await q("update card_import_batches set status='posted' where id=$1", [b]);
+    await db.exec('alter table card_import_batches enable trigger user');
+    const v = await as(finance, () => q('select qbo_account_id, in_quickbooks from silo_ledger_lines_v where source_id=$1', [t]));
+    assert.ok(v.every((r) => r.in_quickbooks) && v.some((r) => r.qbo_account_id === 'cc') && !v.some((r) => r.qbo_account_id === 'cc2'),
+      'what SILO marks as in QuickBooks is the snapshot QuickBooks received');
+    await q("update card_sources set credit_qbo_account_id='cc', credit_qbo_account_name='cc' where id=$1", [card]);
+  });
+
+  await test('with no connection on the source or batch, the company\'s one connection is stored on the entry, so Books can read it', async () => {
+    const loose = randomUUID();
+    await q(`insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,credit_qbo_account_id,credit_qbo_account_name,is_active)
+             values($1,$2,null,'loose','Loose card','card','cc','cc',true)`, [loose, co]);
+    const b = await newBatch(loose, co, null);
+    const t = await newTxn(b, 9, { status: 'coded', account: 'supplies', date: '2026-09-19' });
+    const e = await entries(t);
+    assert.equal(e.length, 1); assert.equal(e[0].qbo_connection_id, conn);
+    const v = await as(finance, () => q('select count(*)::int n from silo_ledger_lines_v where source_id=$1 and qbo_connection_id=$2', [t, conn]));
+    assert.equal(v[0].n, 2);
   });
 
   await test('accepting opening balances later records everything already categorized', async () => {

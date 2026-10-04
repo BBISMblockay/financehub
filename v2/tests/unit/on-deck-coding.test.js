@@ -97,4 +97,15 @@ r.test('coded rows the ledger refused turn a recorded import into needs input; r
   r.eq(C.applyLedgerStatus(items, null).length, 5);
 });
 
+r.test('without the ledger installed, nothing is shown as recorded and the monthly entry is still pending', () => {
+  const items = [{ batch_id: 'a', stage: 'approve', txn_count: 2, excluded_count: 0, coded_amount: 10 }, { batch_id: 'b', stage: 'code' },
+    { batch_id: 'c', stage: 'posted' }, { batch_id: 'd', stage: 'needs_input', stage_reason: 'posting_disabled' }];
+  const out = C.applyLedgerStatus(items, null);
+  r.ok('approve is not a receipt', !C.isRecorded(out[0]) && C.isPending(out[0]));
+  r.eq(C.cardModel(out[0]).action, 'Review');
+  r.ok('a card that does not post is in no ledger', !C.isRecorded(out[3]) && C.cardModel(out[3]).stage === 'needs_input');
+  r.ok('posted stays a receipt (it is in QuickBooks)', C.isRecorded(out[2]));
+  r.eq(out[1].stage, 'code');
+});
+
 r.summary();

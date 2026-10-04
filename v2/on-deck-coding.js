@@ -72,6 +72,16 @@
   function cardModel(item) {
     const where = [item.source_name, item.label].filter(Boolean).join(' · ');
     const base = { stage: item.stage, subtitle: where, reviewable: REVIEWABLE.includes(item.stage), currency: item.currency };
+    // Before the ledger migration nothing is recorded by SILO, so a categorized
+    // import is still waiting on its monthly entry -- never a receipt.
+    if (item.ledger_unavailable) {
+      const off = item.stage_reason === 'posting_disabled';
+      return { ...base, stage: off ? 'needs_input' : 'approve', pill: 'Not in a ledger yet', title: 'Not recorded in SILO yet',
+        detail: off ? 'SILO\u2019s daily ledger is not switched on yet, and this card\u2019s monthly entry is turned off (its \u201cposting enabled\u201d switch), so these transactions are in no ledger.'
+                    : 'SILO\u2019s daily ledger is not switched on yet, so these transactions are recorded only once the monthly entry is approved.',
+        figure: off ? null : money(item.coded_amount, item.currency), caption: off ? null : `${plural(item.txn_count - item.excluded_count, 'categorized transaction')}`,
+        action: off ? 'Open in Transactions' : 'Review', reviewable: !off };
+    }
     switch (item.stage) {
       case 'code':
         return { ...base, pill: 'Prepared', title: `Code ${plural(item.open_suggestions, 'transaction')}`,
@@ -128,6 +138,11 @@
      done: such an import is needs input, whatever its QuickBooks stage, unless
      it still has suggestions to review (that card comes first) or is posted. */
   function applyLedgerStatus(items, status) {
+    // status === null: the ledger is not installed (the RPC does not exist).
+    if (status === null) {
+      return (items || []).map((i) => (i.stage === 'approve' || i.stage === 'approved' || i.stage_reason === 'posting_disabled')
+        ? { ...i, ledger_unavailable: true } : i);
+    }
     const byBatch = new Map((status || []).map((s) => [s.batch_id, s]));
     return (items || []).map((i) => {
       const s = byBatch.get(i.batch_id);
@@ -137,9 +152,11 @@
   }
 
   // Done as far as SILO is concerned: shown under "After approval", never as pending work.
-  const isRecorded = (item) => RECORDED.includes(item.stage) || item.stage_reason === 'posting_disabled';
+  const isRecorded = (item) => !item.ledger_unavailable && (RECORDED.includes(item.stage) || item.stage_reason === 'posting_disabled');
+  // Counts as waiting for a person (Ready's count).
+  const isPending = (item) => REVIEWABLE.includes(item.stage) || (item.ledger_unavailable && item.stage === 'approve');
 
-  const API = { money, cardModel, mixSegments, defaultSelected, postOutcome, transactionsHref, dayRange, isRecorded, applyLedgerStatus, REVIEWABLE, RECORDED, LOW_CONFIDENCE };
+  const API = { money, cardModel, mixSegments, defaultSelected, postOutcome, transactionsHref, dayRange, isRecorded, isPending, applyLedgerStatus, REVIEWABLE, RECORDED, LOW_CONFIDENCE };
 
   // ───────────────────────────────────────────────────────────── UI ──
   function el(tag, text, className) {
@@ -163,11 +180,11 @@
     async function load() {
       st.items = ctx.access.review ? (await rpc('on_deck_coding_items')) || [] : [];
       if (st.items.length) {
-        // Before the ledger migration the function does not exist: nothing is
-        // recorded by SILO then, so there is nothing to flag.
+          // A missing function means the ledger migration is not applied yet:
+        // nothing is in SILO's books, so nothing may be shown as recorded.
         let status = [];
         try { status = (await rpc('silo_ledger_batch_status')) || []; }
-        catch (e) { if (!['42883', 'PGRST202'].includes(e.code)) throw e; }
+        catch (e) { if (!['42883', 'PGRST202'].includes(e.code)) throw e; status = null; }
         st.items = applyLedgerStatus(st.items, status);
       }
       if (st.active && !st.items.some((i) => i.batch_id === st.active)) close();

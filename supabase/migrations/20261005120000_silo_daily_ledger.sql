@@ -39,13 +39,18 @@
 --     totals, and for a bank feed USD data, a known treatment, direction and
 --     clearing-account type). A coded row that fails stays OUT of the ledger
 --     and On Deck shows it as needs input (silo_ledger_batch_status()).
---   * QuickBooks-posted history is frozen: once a transaction's batch is posted
---     its entry describes what QuickBooks holds, so source remaps do not
---     rewrite it. Unposting (void) resyncs it.
+--   * History is frozen while an approval snapshot is live (batch 'approved' or
+--     'posted'): QuickBooks receives exactly that frozen snapshot, so a source
+--     remap must not rewrite SILO's entry for it. Reopening the batch (which
+--     discards the approval) resyncs it; marking a post unposted keeps the
+--     snapshot and stays frozen.
+--   * The connection is resolved once (silo_ledger_connection) and stored on
+--     the entry, so Books -> Ledger (which filters by connection) can read it.
 --   * One per-company advisory lock orders recording against the period lock:
 --     recording takes it SHARED, set_accounting_period_lock takes it EXCLUSIVE.
 --   * Accepting opening balances (or moving the start date) records every
---     already-coded transaction for that company.
+--     already-coded transaction for that company, under the company lock taken
+--     EXCLUSIVE so a coding save in flight cannot slip between the two.
 --
 -- Clients cannot write any of this. Read: finance population, active company.
 
@@ -332,8 +337,13 @@ begin
   -- Fingerprint the ACCOUNTING facts only (date, accounts, sides, amounts,
   -- locations, entities). Descriptions are labels: renaming a card or fixing a
   -- merchant name must not reverse and re-record every transaction.
+  v_conn := case when t.id is null then null
+                 else coalesce(public.silo_ledger_connection(t.batch_id),
+                   (select coalesce(s2.qbo_connection_id, b2.qbo_connection_id)
+                      from public.card_import_batches b2 join public.card_sources s2 on s2.id = b2.source_id
+                     where b2.id = t.batch_id)) end;
   v_fp := case when v_lines is null then null
-               else md5(t.txn_date::text || '|' ||
+               else md5(t.txn_date::text || '|' || coalesce(v_conn::text, '') || '|' ||
                  (select jsonb_agg(x.value - 'description' order by x.ordinality)
                     from jsonb_array_elements(v_lines) with ordinality x)::text) end;
 
@@ -344,11 +354,11 @@ begin
    order by e.recorded_at desc limit 1;
 
   if v_active.id is not null and v_fp is not distinct from v_active.fingerprint then return; end if;
-  -- QuickBooks-posted history is frozen: the entry describes what QuickBooks
-  -- holds (the batch's frozen snapshot). A later source remap must not rewrite
-  -- it; unposting the batch resyncs it (silo_ledger_on_batch).
+  -- Frozen while an approval snapshot is live: QuickBooks receives (or holds)
+  -- exactly that snapshot, so a later source remap must not rewrite SILO's
+  -- entry for it. Reopening the batch resyncs it (silo_ledger_on_batch).
   if v_active.id is not null and exists (
-    select 1 from public.card_import_batches pb where pb.id = t.batch_id and pb.status = 'posted') then
+    select 1 from public.card_import_batches pb where pb.id = t.batch_id and pb.status in ('approved', 'posted')) then
     return;
   end if;
   if v_active.id is null and v_lines is null then return; end if;
@@ -372,8 +382,6 @@ begin
   end if;
 
   if v_lines is not null then
-    select coalesce(s.qbo_connection_id, b.qbo_connection_id) into v_conn
-      from public.card_import_batches b join public.card_sources s on s.id = b.source_id where b.id = t.batch_id;
     v_date := greatest(t.txn_date, coalesce(v_lock + 1, t.txn_date));
     insert into public.ledger_entries(company_entity_id, entry_date, source, source_id, kind, fingerprint,
       qbo_connection_id, memo, recorded_by)
@@ -427,7 +435,7 @@ begin
     return null;
   end if;
   for v_id in select t.id from public.card_transactions t join public.card_import_batches b on b.id = t.batch_id
-              where b.source_id = new.id and b.status <> 'posted' loop
+              where b.source_id = new.id and b.status not in ('approved', 'posted') loop
     perform public.silo_ledger_sync_card_transaction(v_id);
   end loop;
   return null;
@@ -436,12 +444,14 @@ drop trigger if exists silo_ledger_source on public.card_sources;
 create trigger silo_ledger_source after update on public.card_sources
   for each row execute function public.silo_ledger_on_source();
 
--- Unposting a batch (a void) lifts the freeze: record its current state.
+-- Reopening a batch (approved/posted -> draft/categorized) discards its approval
+-- snapshot and lifts the freeze: record its current state. Marking a post
+-- unposted (posted -> approved) keeps the snapshot, so it stays frozen.
 create or replace function public.silo_ledger_on_batch()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_id uuid;
 begin
-  if old.status = 'posted' and new.status <> 'posted' then
+  if old.status in ('approved', 'posted') and new.status in ('draft', 'categorized') then
     for v_id in select id from public.card_transactions where batch_id = new.id order by txn_date, id loop
       perform public.silo_ledger_sync_card_transaction(v_id);
     end loop;
@@ -463,6 +473,9 @@ begin
   elsif tg_op = 'UPDATE' and new.accounting_start_date is not distinct from old.accounting_start_date then
     return null;
   end if;
+  -- EXCLUSIVE before enumerating: a coding save in flight either committed
+  -- first (and is seen below) or waits here and then reads the books as started.
+  perform pg_advisory_xact_lock(hashtextextended('silo_ledger:company:' || new.company_entity_id::text, 0));
   for v_id in select id from public.card_transactions
               where company_entity_id = new.company_entity_id and status = 'coded' order by txn_date, id loop
     perform public.silo_ledger_sync_card_transaction(v_id);
@@ -577,7 +590,10 @@ begin
   return query
   select x.batch_id, count(*)::int, min(x.reason)
   from (
-    select t.batch_id, public.silo_ledger_blocker(t.id) as reason
+    select t.batch_id,
+           coalesce(public.silo_ledger_blocker(t.id),
+                    case when public.silo_ledger_desired_lines(t.id) is not null
+                         then 'Categorized but not yet in the SILO ledger' end) as reason
     from public.card_transactions t
     join public.card_import_batches b on b.id = t.batch_id
     where t.company_entity_id = v_co and b.company_entity_id = v_co and t.status = 'coded' and b.status <> 'posted'

@@ -291,6 +291,17 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
     });
     await page.close();
 
+    page = await open(tables(), { silo_ledger_batch_status: () => ({ __error: { message: 'Could not find the function public.silo_ledger_batch_status', code: 'PGRST202' } }) });
+    await test('before the ledger migration, a categorized import is still waiting on its monthly entry, never "recorded"', async () => {
+      const card = page.locator('#ready-cards [data-batch=b-approve]');
+      assert.equal(await card.count(), 1, 'it stays in Ready');
+      assert.match(await card.textContent(), /Not recorded in SILO yet.*daily ledger is not switched on/);
+      assert.doesNotMatch(await page.locator('main').textContent(), /In SILO ledger/);
+      assert.equal(await page.locator('#ready-count').textContent(), '2', 'and it counts as waiting');
+      assert.equal(await card.getByRole('button', { name: /Review/ }).count(), 1, 'the approval review is still reachable');
+    });
+    await page.close();
+
     page = await open();
     await test('narrow mobile keeps the cards and the review inside the viewport', async () => {
       await page.setViewportSize({ width: 390, height: 844 });
