@@ -85,12 +85,24 @@ as $$
     select public.active_company_id() as co,
            coalesce(public.can_manage_journal_entries() or public.is_exec_or_owner(), false) as ok
   ), batches as (
-    select b.* from public.card_import_batches_v b, gate
-    where gate.ok and b.company_entity_id = gate.co and coalesce(b.txn_count, 0) > 0
-      and (b.status in ('draft', 'categorized', 'approved')
-           or (b.status = 'posted' and b.updated_at > now() - interval '14 days'))
-    order by b.updated_at desc
-    limit 40
+    -- Work that still needs a person is selected on its own, so receipts can
+    -- never crowd it out of the queue or out of Home's count (cycle-1 review).
+    (select b.* from public.card_import_batches_v b, gate
+     where gate.ok and b.company_entity_id = gate.co and coalesce(b.txn_count, 0) > 0
+       and (b.status in ('draft', 'categorized')
+            or (b.status = 'approved' and b.posting_status in ('submitting', 'unknown')))
+     order by b.updated_at desc
+     limit 500)
+    union all
+    -- Receipts (approved in SILO, or also sent to QuickBooks): a bounded,
+    -- recent history only.
+    (select b.* from public.card_import_batches_v b, gate
+     where gate.ok and b.company_entity_id = gate.co and coalesce(b.txn_count, 0) > 0
+       and b.updated_at > now() - interval '14 days'
+       and (b.status = 'posted'
+            or (b.status = 'approved' and b.posting_status is distinct from 'submitting' and b.posting_status is distinct from 'unknown'))
+     order by b.updated_at desc
+     limit 12)
   ), sugg as (
     -- Only live, current suggestions on rows still waiting for a category --
     -- the same rule the Transactions page applies (SiloCodingSuggestions.applies).
@@ -305,6 +317,42 @@ begin
   return v_result;
 end;
 $$;
+
+-- ── A QuickBooks claim must match the approval at the moment it is taken ────
+-- quickbooks-post-journal reads the batch, does token and recovery work, and
+-- only then inserts its 'submitting' claim. Without this guard another finance
+-- user could reopen and reapprove in that gap, and the request would claim and
+-- send the snapshot it read first -- an entry nobody now approves (cycle-1
+-- review). plaid_guard_new_posting_claim already closes this for bank-feed
+-- sources only; this closes it for every card import. The row lock serialises
+-- with reopen_card_import_batch, which refuses once an active claim exists.
+-- Named to fire AFTER plaid_new_posting_claim (alphabetical), so a bank-feed
+-- source keeps that trigger's lock order (plaid_accounts, then the batch).
+create or replace function public.card_import_claim_matches_approval()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare v_batch public.card_import_batches%rowtype;
+begin
+  if new.source <> 'card_import' or new.status <> 'submitting' then return new; end if;
+  select * into v_batch from public.card_import_batches where id = new.source_ref::uuid for update;
+  if not found then raise exception 'Card batch not found for posting claim'; end if;
+  if v_batch.status <> 'approved'
+     or new.company_entity_id is distinct from v_batch.company_entity_id
+     or new.connection_id is distinct from v_batch.qbo_connection_id
+     or new.payload_hash is null or new.payload_hash is distinct from v_batch.approval_hash then
+    raise exception 'The approved entry changed before it could be sent. Review the current version.'
+      using errcode = 'P0OD1';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.card_import_claim_matches_approval() from public, anon, authenticated;
+drop trigger if exists qbo_card_claim_matches_approval on public.quickbooks_journal_postings;
+create trigger qbo_card_claim_matches_approval before insert on public.quickbooks_journal_postings
+  for each row execute function public.card_import_claim_matches_approval();
 
 -- ── The compact count on Home ───────────────────────────────────────────────
 -- Counts only work waiting for a decision. An entry approved in SILO is done:

@@ -78,6 +78,9 @@ function fixture(options = {}) {
         if (options.bankExceptionAtClaim && this.table === 'quickbooks_journal_postings') {
           return { data: null, error: { code: 'PBF01', message: 'Resolve the bank feed change before a new posting attempt' } };
         }
+        if (options.claimRefused && this.table === 'quickbooks_journal_postings') {
+          return { data: null, error: { code: options.claimRefused, message: 'The approved entry changed before it could be sent.' } };
+        }
         if (options.concurrentClaim && this.table === 'quickbooks_journal_postings') {
           return { data: null, error: { code: '23505', message: 'active claim already exists' } };
         }
@@ -281,6 +284,15 @@ for (const postFailure of ['network', 503, 400, 'missing-id']) {
   assert.equal(out.status, 200); assert.equal(f.posts(), 1, 'the reviewed approval posts once');
   const again = await f.request({ expected_approval_hash: hash });
   assert.equal(again.status, 409); assert.equal(f.posts(), 1, 'a repeated click never posts twice');
+  scenarios++;
+}
+// The database guard refuses a claim whose batch was reopened or reapproved
+// after the function read it (card_import_claim_matches_approval).
+{
+  const f = fixture({ kind: 'card', claimRefused: 'P0OD1' });
+  const out = await f.request({ expected_approval_hash: hash });
+  assert.equal(out.status, 409); assert.equal(out.body.code, 'APPROVAL_CHANGED');
+  assert.equal(f.posts(), 0, 'a refused claim never reaches QuickBooks');
   scenarios++;
 }
 console.log(`finance-v1-posting-handler: ${scenarios} executed request scenarios passed`);

@@ -57,7 +57,7 @@ jobs:
               exit 1
             fi
           done
-          for mutation in no-hash-check preview-commits items-ungated preview-ungated; do
+          for mutation in no-hash-check preview-commits items-ungated preview-ungated claim-unguarded receipts-crowd-work; do
             if ON_DECK_CODING_MUTATION="$mutation" node scripts/tests/on-deck-coding-database.test.mjs > /tmp/mutation.log 2>&1; then
               cat /tmp/mutation.log
               echo "Survived coding mutation: $mutation"

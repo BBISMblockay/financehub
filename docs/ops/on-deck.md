@@ -242,6 +242,17 @@ confirm). Approved entries are never counted as pending.
    (the existing claim prevents a double post) with a link to the Transactions
    recovery flow. Only finance (`can_manage_journal_entries`) may post, as before.
 
+**Cycle-1 review fixes.** (a) `qbo_card_claim_matches_approval`, a BEFORE INSERT
+trigger on `quickbooks_journal_postings`, locks the batch and refuses (P0OD1 →
+409 `APPROVAL_CHANGED`) a card-import claim whose batch is no longer approved
+with the hash the function read — closing the gap between the function's read
+and its claim for every card source, not only bank feeds. (b) A save is bound
+to the batch and selection at the click, before any await, and another item
+cannot be opened while an action is in flight. (c) Pending work (draft,
+categorized, or an unresolved send) is selected separately from receipts, which
+are a bounded 14-day history, so receipts never push pending work out of the
+queue or Home's count.
+
 Editing stays in Transactions (deep link `?batch=&company=`). Any edit changes
 the hash, so the next approval or post requires a fresh review. Reopening an
 approved batch discards its approval as before. Creating or approving here never

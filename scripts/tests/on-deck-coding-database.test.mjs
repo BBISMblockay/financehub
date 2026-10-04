@@ -21,6 +21,8 @@
 //   ON_DECK_CODING_MUTATION=preview-commits
 //   ON_DECK_CODING_MUTATION=items-ungated
 //   ON_DECK_CODING_MUTATION=preview-ungated
+//   ON_DECK_CODING_MUTATION=claim-unguarded
+//   ON_DECK_CODING_MUTATION=receipts-crowd-work
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -33,6 +35,9 @@ const MUTATIONS = {
   'items-ungated': ['where gate.ok and b.company_entity_id = gate.co', 'where b.company_entity_id = gate.co'],
   'preview-ungated': ["     or not coalesce(public.can_manage_journal_entries() or public.is_exec_or_owner(), false) then\n    raise exception 'Finance access required' using errcode = '42501';", " then\n    raise exception 'Finance access required' using errcode = '42501';"],
 };
+MUTATIONS['claim-unguarded'] = ["  if new.source <> 'card_import' or new.status <> 'submitting' then return new; end if;", '  return new;'];
+// Put the receipts and the pending work back under one shared limit.
+MUTATIONS['receipts-crowd-work'] = ['     limit 500)', '     limit 0)'];
 const mutation = process.env.ON_DECK_CODING_MUTATION || '';
 assert.ok(!mutation || MUTATIONS[mutation], 'Unknown On Deck coding mutation');
 
@@ -253,6 +258,28 @@ try {
     assert.equal((await one('select status from card_import_batches where id=$1', [codedBatch])).status, 'categorized');
   });
 
+  // The cycle-1 race: the posting function reads the approval, someone reopens
+  // and reapproves, and only then is the claim inserted. The claim carries the
+  // hash that was READ; the guard compares it to the batch as it is NOW.
+  await test('a QuickBooks claim for an approval that changed after it was read is refused', async () => {
+    const stale = (await preview(finance, codedBatch)).hash; // categorized now; approve it
+    await approveReviewed(finance, codedBatch, stale);
+    const read = (await one('select approval_hash from card_import_batches where id=$1', [codedBatch])).approval_hash;
+    await as(finance, () => rpc('reopen_card_import_batch', [codedBatch, 'Race window']));
+    await q("update card_transactions set amount = 12.00 where batch_id=$1 and qbo_account_id='meals'", [codedBatch]);
+    const fresh = (await preview(finance, codedBatch)).hash;
+    await approveReviewed(finance, codedBatch, fresh);
+    const claim = (hash) => as(null, () => q(`insert into quickbooks_journal_postings(company_entity_id,connection_id,source,source_ref,payload,status,payload_hash,attempt_count)
+      values($1,$2,'card_import',$3,'{}'::jsonb,'submitting',$4,1) returning id`, [co, conn, codedBatch, hash]), 'service_role');
+    await assert.rejects(() => claim(read), (e) => e.code === 'P0OD1', 'the hash read before the reapproval cannot be claimed');
+    const ok = await claim(fresh);
+    assert.equal(ok.length, 1, 'the current approval can be claimed');
+    await assert.rejects(() => as(finance, () => rpc('reopen_card_import_batch', [codedBatch, 'too late'])), /Resolve the active QuickBooks posting/,
+      'once claimed, the approval cannot be reopened underneath the send');
+    await q("delete from quickbooks_journal_postings where source_ref=$1", [codedBatch]);
+    await as(finance, () => rpc('reopen_card_import_batch', [codedBatch, 'Back to draft for the count test']));
+  });
+
   await test('Home count reflects only real reviewable coding work and ready proposals', async () => {
     await q("insert into on_deck_proposals(company_entity_id,status) values($1,'ready'),($1,'completed'),($2,'ready')", [co, other]);
     const fin = await as(finance, () => rpc('on_deck_ready_count'));
@@ -261,6 +288,19 @@ try {
     assert.equal(fin.proposals, 0, 'a finance member who is not an admin sees no proposals');
     const adm = await as(admin, () => rpc('on_deck_ready_count'));
     assert.deepEqual([adm.coding, adm.proposals], [0, 1]);
+  });
+
+  await test('recent receipts never crowd older pending work out of the queue or the count', async () => {
+    const before = await as(finance, () => rpc('on_deck_ready_count'));
+    await q("update card_import_batches set updated_at = now() - interval '10 days' where id=$1", [codeBatch]);
+    for (let n = 0; n < 45; n++) {
+      const b = await newBatch(source); await newTxn(b, 1, { coded: true });
+      await q("update card_import_batches set status='approved', approval_hash=repeat('b',64), updated_at=now() where id=$1", [b]);
+    }
+    const rows = await items(finance);
+    assert.ok(rows.some((r) => r.batch_id === codeBatch && r.stage === 'code'), 'the older batch waiting on coding is still listed');
+    assert.ok(rows.filter((r) => r.stage === 'approved').length <= 12, 'receipts are a bounded history');
+    assert.equal((await as(finance, () => rpc('on_deck_ready_count'))).coding, before.coding, 'the count is unchanged by receipts');
   });
 
   await test('no function in this migration is executable by anon', async () => {

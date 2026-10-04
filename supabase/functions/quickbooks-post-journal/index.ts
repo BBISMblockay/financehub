@@ -369,6 +369,14 @@ Deno.serve(async (req) => {
     }).select('*').single();
   if (claimError) {
     if ((claimError as any).code === 'PBF01') return bankChangeRequired();
+    // card_import_claim_matches_approval: the batch was reopened or reapproved
+    // after it was read. Nothing was sent; the person must review again.
+    if ((claimError as any).code === 'P0OD1') {
+      return json({
+        error: 'The approved entry changed before it could be sent. Review the current version.',
+        code: 'APPROVAL_CHANGED',
+      }, 409);
+    }
     if ((claimError as any).code === '23505') {
       return json({
         error: 'Another posting attempt already owns this entry; retry to recover it',

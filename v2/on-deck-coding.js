@@ -185,6 +185,9 @@
     function close() { st.active = null; markActive(); st.preview = null; st.receipt = null; ctx.reviewEl.hidden = true; ctx.reviewEl.replaceChildren(); }
 
     async function open(batchId, keepReceipt) {
+      // One action at a time: switching batches mid-request would let the
+      // request's follow-up render (or a selection) belong to the wrong batch.
+      if (st.busy && batchId !== st.active) { ctx.message('Wait for the current action to finish before opening another item.'); return; }
       st.active = batchId; st.preview = null; st.rows = []; if (!keepReceipt) st.receipt = null; markActive();
       const token = ++st.token;
       ctx.reviewEl.hidden = false; ctx.reviewEl.replaceChildren(el('div', 'Loading the prepared output…', 'od-empty'));
@@ -291,10 +294,17 @@
     }
 
     async function saveCoding(i, button) {
-      if (st.busy) return; st.busy = true; button.disabled = true; button.textContent = 'Saving…';
+      if (st.busy) return;
+      // Bind the request to what was on screen at the click, BEFORE any await:
+      // the selection and the open batch are shared state (cycle-1 review).
+      const ids = st.rows.filter((r) => st.selected.has(r.s.id)).map((r) => r.s.id);
+      const batch = st.active;
+      if (batch !== i.batch_id || !ids.length) return;
+      st.busy = true; button.disabled = true; button.textContent = 'Saving…';
       try {
         await ctx.stillActive();
-        const ids = [...st.selected]; const accepted = []; const refused = [];
+        if (st.active !== batch) throw new Error('The open item changed. Nothing was saved.');
+        const accepted = []; const refused = [];
         for (let n = 0; n < ids.length; n += ACCEPT_BATCH) {
           const out = await window.SiloCodingSuggestions.accept(ctx.db, ids.slice(n, n + ACCEPT_BATCH));
           accepted.push(...out.accepted); refused.push(...out.refused);

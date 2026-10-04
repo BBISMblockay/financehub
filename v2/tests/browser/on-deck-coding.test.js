@@ -136,6 +136,25 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
     await page.close();
 
     page = await open();
+    await test('a save is bound to the batch and selection at the click, even if the page changes while it waits', async () => {
+      await page.locator('[data-batch=b-code] button').click();
+      await page.waitForSelector('#coding-review .od-review-table');
+      await page.locator('#coding-review tbody tr').nth(1).locator('input').check();
+      // Hold the company check open so the request is in flight.
+      await page.evaluate(() => { const c = window.__SILO_CONFIG__, orig = c.ensureActiveCompany.bind(c);
+        c.ensureActiveCompany = (...a) => new Promise(r => setTimeout(() => r(orig(...a)), 400)); });
+      await page.getByRole('button', { name: 'Save 2 categorizations' }).click();
+      await page.locator('#coding-review tbody tr').nth(0).locator('input').uncheck().catch(() => {});
+      await page.locator('#ready-cards [data-batch=b-approve] button').click();
+      assert.match(await page.locator('#status').textContent(), /Wait for the current action to finish/);
+      await page.waitForSelector('.od-receipt');
+      const sent = await calls(page, 'accept_card_coding_suggestions');
+      assert.equal(sent.length, 1); assert.deepEqual(sent[0].args.p_ids.sort(), ['s1', 's2'], 'exactly what was selected at the click');
+      assert.equal((await calls(page, 'card_import_batch_preview')).length, 0, 'the other batch never opened mid-save');
+    });
+    await page.close();
+
+    page = await open();
     await test('the journal entry preview shows destination, dates, lines and balanced totals before approval', async () => {
       await page.locator('[data-batch=b-approve] button').click();
       await page.waitForSelector('#coding-review .od-entry');
