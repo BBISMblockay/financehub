@@ -68,5 +68,7 @@ jobs:
         if: always()
         with:
           name: on-deck-screenshots
-          path: .screenshots/on-deck-*.png
+          path: |
+            .screenshots/on-deck-*.png
+            .screenshots/home-ready-link.png
           if-no-files-found: ignore
