@@ -113,9 +113,16 @@ Deno.serve(async (req) => {
   if (authErr || !user) return json({ error: 'Unauthorized' }, 401);
 
   const input = await req.json().catch(() => ({}));
-  const { batch_id, adjustment_id, recovery_action, recovery_note } = input;
+  const { batch_id, adjustment_id, recovery_action, recovery_note, expected_approval_hash } = input;
   if ((!batch_id && !adjustment_id) || (batch_id && adjustment_id)) {
     return json({ error: 'Pass exactly one of batch_id or adjustment_id' }, 400);
+  }
+  // Optional: the approval hash the caller REVIEWED. On Deck always sends it,
+  // so a reopen-and-reapprove by someone else between the review and the click
+  // cannot post a version this person never saw. Absent = previous behaviour.
+  if (expected_approval_hash !== undefined && expected_approval_hash !== null
+      && !(typeof expected_approval_hash === 'string' && /^[0-9a-f]{64}$/.test(expected_approval_hash))) {
+    return json({ error: 'expected_approval_hash must be the 64-character approval hash' }, 400);
   }
   if (recovery_action && recovery_action !== 'confirm_not_posted') {
     return json({ error: 'Unsupported recovery_action' }, 400);
@@ -173,6 +180,12 @@ Deno.serve(async (req) => {
   if (parent.status === 'posted') return json({ error: 'This entry is already posted' }, 409);
   if (parent.status !== 'approved') {
     return json({ error: `Entry must be approved before posting (it is ${parent.status})` }, 409);
+  }
+  if (expected_approval_hash && expected_approval_hash !== parent.approval_hash) {
+    return json({
+      error: 'This journal entry was reapproved after you reviewed it. Review the current version before posting.',
+      code: 'APPROVAL_CHANGED',
+    }, 409);
   }
   const snapshot = parent.approval_snapshot;
   if (!snapshot || !parent.approval_hash || !parent.qbo_connection_id) {
@@ -356,6 +369,18 @@ Deno.serve(async (req) => {
     }).select('*').single();
   if (claimError) {
     if ((claimError as any).code === 'PBF01') return bankChangeRequired();
+    // card_import_claim_matches_approval: the batch was reopened or reapproved
+    // after it was read. Nothing was sent; the person must review again.
+    // plaid_guard_new_posting_claim fires first for bank-feed sources and
+    // raises the default SQLSTATE for the same stale-approval case, so it is
+    // recognised by its message (cycle-2 review). Nothing was sent.
+    if ((claimError as any).code === 'P0OD1'
+        || /Posting claim must match the approved bank batch/.test(String((claimError as any).message || ''))) {
+      return json({
+        error: 'The approved entry changed before it could be sent. Review the current version.',
+        code: 'APPROVAL_CHANGED',
+      }, 409);
+    }
     if ((claimError as any).code === '23505') {
       return json({
         error: 'Another posting attempt already owns this entry; retry to recover it',

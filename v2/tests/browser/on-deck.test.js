@@ -44,9 +44,9 @@ const rpc = {
    assert.match(await page.locator('#rail').textContent(), /Nothing publishes or spends here/);
   });
   await test('approval asks for confirmation and sends exact displayed version once', async () => {
-   await page.getByRole('button', { name: 'Approve copy & create tasks', exact: true }).click();
+   await page.getByRole('button', { name: 'Create launch tasks', exact: true }).click();
    assert.match(await page.locator('#decision-explanation').textContent(), /version 2/);
-   await page.getByRole('button', { name: 'Confirm & create draft work' }).click();
+   await page.getByRole('button', { name: 'Confirm · Create launch tasks' }).click();
    await page.waitForFunction(() => window.__FIXTURE_TABLES__.on_deck_proposals[0].status === 'completed');
    await page.waitForFunction(() => !document.getElementById('decision-dialog').open);
    const calls = await page.evaluate(() => window.__QUERIES__.filter(q => q.table === 'rpc:on_deck_decide'));
@@ -61,7 +61,7 @@ const rpc = {
    await page.waitForFunction(() => window.__FIXTURE_TABLES__.on_deck_proposals[0].status === 'revision');
    await page.locator('[data-view=preparing]').click();
    await page.waitForSelector('.od-card[aria-pressed=true]');
-   assert.equal(await page.getByRole('button', { name: 'Approve copy & create tasks', exact: true }).isDisabled(), true);
+   assert.equal(await page.getByRole('button', { name: 'Create launch tasks', exact: true }).isDisabled(), true);
   });
   await page.close();
   const malicious = tables(); malicious.on_deck_proposals[0].title = '<img src=x onerror="window.__XSS__=true">'; malicious.on_deck_proposals[0].content.body = '<script>window.__XSS__=true</script>'; malicious.on_deck_proposals[0].source.audience = '<svg onload="window.__XSS__=true">';

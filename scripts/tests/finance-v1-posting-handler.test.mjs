@@ -78,6 +78,9 @@ function fixture(options = {}) {
         if (options.bankExceptionAtClaim && this.table === 'quickbooks_journal_postings') {
           return { data: null, error: { code: 'PBF01', message: 'Resolve the bank feed change before a new posting attempt' } };
         }
+        if (options.claimRefused && this.table === 'quickbooks_journal_postings') {
+          return { data: null, error: { code: options.claimRefused, message: options.claimMessage || 'The approved entry changed before it could be sent.' } };
+        }
         if (options.concurrentClaim && this.table === 'quickbooks_journal_postings') {
           return { data: null, error: { code: '23505', message: 'active claim already exists' } };
         }
@@ -258,6 +261,51 @@ for (const postFailure of ['network', 503, 400, 'missing-id']) {
   assert.equal(out.body.recovered, true);
   assert.equal(f.records.quickbooks_journal_postings[0].status, 'posted');
   assert.equal(f.posts(), 0, 'recovering the existing QBO journal does not post again');
+  scenarios++;
+}
+// On Deck binds the post to the approval the person reviewed.
+{
+  const f = fixture({ kind: 'card' });
+  const out = await f.request({ expected_approval_hash: 'f'.repeat(64) });
+  assert.equal(out.status, 409); assert.equal(out.body.code, 'APPROVAL_CHANGED');
+  assert.equal(f.posts(), 0, 'a reapproved entry the caller never reviewed is not posted');
+  assert.equal(f.records.quickbooks_journal_postings.length, 0, 'and no claim is written');
+  scenarios++;
+}
+{
+  const f = fixture({ kind: 'card' });
+  const out = await f.request({ expected_approval_hash: 'not-a-hash' });
+  assert.equal(out.status, 400); assert.equal(f.posts(), 0);
+  scenarios++;
+}
+{
+  const f = fixture({ kind: 'card' });
+  const out = await f.request({ expected_approval_hash: hash });
+  assert.equal(out.status, 200); assert.equal(f.posts(), 1, 'the reviewed approval posts once');
+  const again = await f.request({ expected_approval_hash: hash });
+  assert.equal(again.status, 409); assert.equal(f.posts(), 1, 'a repeated click never posts twice');
+  scenarios++;
+}
+// The database guard refuses a claim whose batch was reopened or reapproved
+// after the function read it (card_import_claim_matches_approval).
+{
+  const f = fixture({ kind: 'card', claimRefused: 'P0OD1' });
+  const out = await f.request({ expected_approval_hash: hash });
+  assert.equal(out.status, 409); assert.equal(out.body.code, 'APPROVAL_CHANGED');
+  assert.equal(f.posts(), 0, 'a refused claim never reaches QuickBooks');
+  scenarios++;
+}
+{
+  const f = fixture({ kind: 'card', claimRefused: 'P0001', claimMessage: 'Posting claim must match the approved bank batch and connection' });
+  const out = await f.request({ expected_approval_hash: hash });
+  assert.equal(out.status, 409, 'the bank-feed trigger refusal is a re-review, not a 500');
+  assert.equal(out.body.code, 'APPROVAL_CHANGED'); assert.equal(f.posts(), 0);
+  scenarios++;
+}
+{
+  const f = fixture({ kind: 'card', claimRefused: 'P0001', claimMessage: 'some other database failure' });
+  const out = await f.request();
+  assert.equal(out.status, 500, 'an unrelated claim failure is still reported as a failure'); assert.equal(f.posts(), 0);
   scenarios++;
 }
 console.log(`finance-v1-posting-handler: ${scenarios} executed request scenarios passed`);

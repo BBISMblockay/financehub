@@ -3,10 +3,12 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const cfg = window.__SILO_CONFIG__ || {};
-  const state = { db: null, co: null, settings: {}, rows: [], selected: null, view: 'review', tab: 'draft', events: [], attempts: [], detailRequest: 0, loading: false };
+  const state = { db: null, co: null, settings: {}, rows: [], selected: null, view: 'review', tab: 'draft', events: [], attempts: [], detailRequest: 0, loading: false, access: { proposals: false, coding: { review: false, post: false } }, coding: null };
   const groups = { review: ['ready'], preparing: ['preparing', 'revision'], needs: ['needs_info', 'failed'], completed: ['completed', 'dismissed', 'screened'] };
   const names = { restock: 'PRODUCT RESTOCK', launch: 'LAUNCH CAMPAIGN', seo: 'SEARCH OPPORTUNITY', ads: 'AD CREATIVE' };
-  const actionLabels = { restock: 'Approve product review & create brief', launch: 'Approve copy & create tasks', seo: 'Approve draft & create SEO task', ads: 'Approve draft & create ad idea' };
+  const actionLabels = { restock: 'Create draft product brief', launch: 'Create launch tasks', seo: 'Create SEO task', ads: 'Create ad idea' };
+  const modules = { restock: 'Purchasing', launch: 'Marketing', seo: 'Marketing', ads: 'Marketing' };
+  const effect = { restock: 'DRAFT BRIEF', launch: 'TASKS', seo: 'SEO TASK', ads: 'AD IDEA' };
   const destinations = { restock: ['Product workflow', '/v3/product-workflow.html', 'A draft brief with the complete product spread. Size quantities and PO approval follow there.'], launch: ['Launch calendar', '/v2/launch-calendar.html', 'Open marketing tasks with the exact approved copy. No publishing or messages.'], seo: ['SEO tasks', '/v2/seo-tasks.html', 'An editable SEO task. Publishing requires separate review.'], ads: ['Ad Studio', '/v2/ad-studio.html', 'An idea with a frozen evidence baseline. No campaign or budget changes.'] };
   const when = v => v ? new Date(v).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Not yet';
   function node(tag, text, className) { const n = document.createElement(tag); if (text != null) n.textContent = text; if (className) n.className = className; return n; }
@@ -25,17 +27,90 @@
     state.loading = true; $('refresh').disabled = true;
     try {
       await companyStillActive();
-      const [settings, active, history] = await Promise.all([
-        state.db.from('on_deck_settings').select('*').eq('company_entity_id', state.co).maybeSingle(),
-        state.db.from('on_deck_proposals').select('*').eq('company_entity_id', state.co).in('status', ['ready', 'preparing', 'revision', 'needs_info', 'failed']).order('created_at'),
-        state.db.from('on_deck_proposals').select('*').eq('company_entity_id', state.co).in('status', groups.completed).order('updated_at', { ascending: false }).limit(100),
-      ]);
-      state.settings = check(settings) || {}; state.rows = [...check(active), ...check(history)];
-      $('workspace').hidden = false; $('prepare').disabled = !state.settings.enabled;
-      renderOverview(); renderQueue(); await select(state.selected);
-      message(state.settings.enabled ? '' : 'Background preparation is off. Enable it in Workspace Settings.');
-    } catch (e) { message(/does not exist|schema cache|could not find/i.test(e.message) ? 'On Deck is not installed in this environment yet. Apply the preview migration before enabling preparation.' : e.message, true); }
+      // Two independent access paths. A failure in one never hides the other.
+      const errors = [];
+      if (state.access.coding.review) { try { await state.coding.load(); } catch (e) { errors.push(installMessage(e, 'Transaction coding review')); } }
+      if (state.access.proposals) {
+        try {
+          const [settings, active, history] = await Promise.all([
+            state.db.from('on_deck_settings').select('*').eq('company_entity_id', state.co).maybeSingle(),
+            state.db.from('on_deck_proposals').select('*').eq('company_entity_id', state.co).in('status', ['ready', 'preparing', 'revision', 'needs_info', 'failed']).order('created_at'),
+            state.db.from('on_deck_proposals').select('*').eq('company_entity_id', state.co).in('status', groups.completed).order('updated_at', { ascending: false }).limit(100),
+          ]);
+          state.settings = check(settings) || {}; state.rows = [...check(active), ...check(history)];
+          $('workspace').hidden = false; $('prepare').disabled = !state.settings.enabled;
+          renderOverview(); renderQueue(); await select(state.selected);
+        } catch (e) { $('workspace').hidden = true; $('prepare').disabled = true; errors.push(installMessage(e, 'On Deck')); }
+      }
+      renderReady(); renderAfter();
+      if (errors.length) message(errors.join(' '), true);
+      else message(state.access.proposals && !state.settings.enabled ? 'Background preparation is off. Enable it in Workspace Settings.' : '');
+    } catch (e) { message(installMessage(e, 'On Deck'), true); }
     finally { state.loading = false; $('refresh').disabled = false; }
+  }
+  function installMessage(e, what) {
+    return /does not exist|schema cache|could not find/i.test(e.message)
+      ? `${what} is not installed in this environment yet. Apply the On Deck migrations before using it.` : e.message;
+  }
+  /* "Ready for your review": real records only -- coding batches from the
+     finance queue and proposals a person must decide. No placeholders. */
+  function proposalCard(p) {
+    const c = node('article', null, 'od-rcard'); c.dataset.proposal = p.id;
+    const ready = p.status === 'ready';
+    const top = node('div', null, 'od-rcard-top');
+    top.append(mark(p.kind), node('span', modules[p.kind] || 'Workflow', 'od-rcard-module'), node('span', ready ? effect[p.kind] : 'NEEDS INPUT', `od-rpill od-rpill--${ready ? 'proposal' : 'needs_input'}`));
+    c.append(top, node('h3', title(p)), node('p', names[p.kind].charAt(0) + names[p.kind].slice(1).toLowerCase(), 'od-rcard-sub'));
+    const missing = p.content?.missing || [];
+    c.append(node('p', ready ? destinations[p.kind][2] : `Resolve before approval: ${missing.join('; ') || 'missing information'}`, 'od-rcard-detail'));
+    const ev = node('details', null, 'od-rcard-evidence'); ev.append(node('summary', `Why it is here · draft v${p.version}`), node('p', p.selection_reason)); c.append(ev);
+    c.append(button('Review →', () => {
+      state.view = ready ? 'review' : 'needs'; state.selected = p.id; state.tab = 'draft'; renderQueue();
+      select(p.id).catch(e => message(e.message, true)); $('workspace').scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }, true));
+    return c;
+  }
+  function renderReady() {
+    const grid = $('ready-cards'); grid.replaceChildren();
+    // Approved entries are done in SILO and belong under "After approval".
+    const coding = state.coding ? state.coding.items().filter(i => !['approved', 'posted'].includes(i.stage)) : [];
+    const proposals = state.access.proposals ? state.rows.filter(p => ['ready', 'needs_info'].includes(p.status)) : [];
+    coding.forEach(i => grid.append(state.coding.card(i)));
+    proposals.forEach(p => grid.append(proposalCard(p)));
+    state.coding?.markActive();
+    const reviewable = coding.filter(i => window.SiloOnDeckCoding.REVIEWABLE.includes(i.stage)).length + proposals.filter(p => p.status === 'ready').length;
+    $('ready-count').textContent = String(reviewable);
+    $('ready-section').hidden = false;
+    if (!grid.children.length) {
+      const empty = node('div', null, 'od-empty');
+      empty.append(node('strong', 'Nothing is waiting for you.'), node('span', 'Prepared work appears here when it is ready for a decision. SILO does not fill this space with weak suggestions.'));
+      grid.append(empty);
+    }
+  }
+  /* "After approval": what actually happened, with the record it created. */
+  function renderAfter() {
+    const box = $('after-cards'); box.replaceChildren(); const att = $('attention'); att.replaceChildren();
+    const posted = state.coding ? state.coding.items().filter(i => ['approved', 'posted'].includes(i.stage)) : [];
+    const done = state.access.proposals ? state.rows.filter(p => p.status === 'completed').slice(0, 3) : [];
+    posted.slice(0, 6).forEach(i => {
+      const c = node('article', null, 'od-after'); c.dataset.batch = i.batch_id;
+      const sent = i.stage === 'posted';
+      c.append(node('span', 'Approved in SILO', 'od-rpill od-rpill--posted'), node('h3', 'Journal entry approved'), node('p', [i.source_name, i.label].filter(Boolean).join(' · '), 'od-rcard-sub'));
+      const dl = node('dl'); evidenceCard(dl, 'OWNER', 'Finance'); evidenceCard(dl, 'RECORD', 'SILO journal register');
+      evidenceCard(dl, 'QUICKBOOKS', sent ? `Also sent · ${i.qbo_doc_number || i.qbo_journal_entry_id || 'entry'}` : 'Not sent (optional)');
+      c.append(dl, button('View entry', () => state.coding.open(i.batch_id))); box.append(c);
+    });
+    done.forEach(p => {
+      const c = node('article', null, 'od-after');
+      c.append(node('span', 'Completed', 'od-rpill od-rpill--posted'), node('h3', title(p)), node('p', p.output?.label || 'Action recorded', 'od-rcard-sub'));
+      const dl = node('dl'); evidenceCard(dl, 'OWNER', modules[p.kind] || 'Workflow'); c.append(dl, receiptLink(p)); box.append(c);
+    });
+    const unresolved = state.coding ? state.coding.items().filter(i => i.stage_reason === 'posting_unresolved').length : 0;
+    const failed = state.access.proposals ? state.rows.filter(p => p.status === 'failed').length : 0;
+    const notes = [];
+    if (unresolved) notes.push(`${unresolved} journal ${unresolved === 1 ? 'entry has' : 'entries have'} an unknown posting outcome. Open ${unresolved === 1 ? 'it' : 'them'} in Transactions to check QuickBooks.`);
+    if (failed) notes.push(`${failed} proposal${failed === 1 ? '' : 's'} could not be prepared. See “Needs you” in Workflow proposals.`);
+    notes.forEach(t => { const n = node('div', null, 'od-attention'); n.setAttribute('role', 'status'); n.append(node('strong', '!', 'od-attention-mark'), node('span', t)); att.append(n); });
+    $('after-section').hidden = !box.children.length && !att.children.length;
   }
   function renderOverview() {
     const s = state.settings;
@@ -135,7 +210,7 @@
     $('minutes-label').hidden = !value; $('minutes').required = value; $('decision-note').required = !approve || dialogProposal.kind === 'restock'; $('decision-note').minLength = approve && dialogProposal.kind === 'restock' ? 12 : 1;
     const checks = $('decision-checks'); checks.replaceChildren();
     if (approve && dialogProposal.kind === 'restock') ['I reviewed whole-product demand, including promotions and stockouts.', 'I verified realized margin, seasonality and supplier lead time.', 'I checked incoming purchases and the cash budget. Size allocation is still undecided.'].forEach(label => { const row = node('label', null, 'od-check'), input = node('input'); input.type = 'checkbox'; input.required = true; row.append(input, node('span', label)); checks.append(row); });
-    $('decision-submit').textContent = approve ? 'Confirm & create draft work' : value ? 'Save observed value' : 'Dismiss for 30 days'; $('decision-dialog').showModal();
+    $('decision-submit').textContent = approve ? `Confirm · ${actionLabels[dialogProposal.kind]}` : value ? 'Save observed value' : 'Dismiss for 30 days'; $('decision-dialog').showModal();
   }
   function openEditor() {
     dialogProposal = selected(); const c = dialogProposal.content || {}; ['subject', 'summary', 'body'].forEach(key => { $(`edit-${key}`).value = c[key] || ''; }); $('edit-note').value = ''; message('', false, 'edit-error');
@@ -156,8 +231,17 @@
       const auth = check(await state.db.auth.getSession()); if (!auth.session) { message('Sign in to SILO to open On Deck.'); $('status').append(' ', safeLink('Sign in', '/pages/login.html')); return; }
       state.co = (await cfg.ensureActiveCompany(state.db))?.id; if (!state.co) throw new Error('Select an active company before opening On Deck.');
       const profile = check(await state.db.from('profiles').select('email,role').eq('id', auth.session.user.id).maybeSingle());
-      window.SiloChrome?.mount({ appEl: '#silo-app', active: '', user: { email: profile?.email || auth.session.user.email || '', role: profile?.role || '' }, crumbs: ['Preview', 'On Deck'], supabaseClient: state.db });
-      if (!await rpc('on_deck_can_review')) throw new Error('On Deck preview requires an active company owner or admin membership.');
+      window.SiloChrome?.mount({ appEl: '#silo-app', active: 'start/on-deck', user: { email: profile?.email || auth.session.user.email || '', role: profile?.role || '' }, crumbs: ['On Deck'], supabaseClient: state.db });
+      // Coding review is gated in the database to the finance population;
+      // proposals to company owner/admin membership. Either one opens the page.
+      const missing = e => /does not exist|schema cache|could not find/i.test(e.message);
+      let absent = 0;
+      try { state.access.proposals = !!(await rpc('on_deck_can_review')); } catch (e) { if (!missing(e)) throw e; absent++; }
+      try { const a = await rpc('on_deck_coding_access'); state.access.coding = { review: !!a?.review, post: !!a?.post }; } catch (e) { if (!missing(e)) throw e; absent++; }
+      if (absent === 2) throw new Error('On Deck is not installed in this environment yet. Apply the On Deck migrations first.');
+      if (!state.access.proposals && !state.access.coding.review) throw new Error('On Deck requires an active company owner or admin membership, or finance access.');
+      if (state.access.coding.review) state.coding = window.SiloOnDeckCoding.mount({ db: state.db, co: state.co, cfg, access: state.access.coding, reviewEl: $('coding-review'), message, stillActive: companyStillActive, onChange: async () => { renderReady(); renderAfter(); } });
+      $('prepare').hidden = !state.access.proposals; $('settings-link').hidden = !state.access.proposals;
       await load();
     } catch (e) { message(/does not exist|schema cache|could not find/i.test(e.message) ? 'On Deck is not installed in this environment yet. Apply the preview migration before enabling preparation.' : e.message, true); }
   }
