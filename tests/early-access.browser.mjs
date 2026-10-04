@@ -120,8 +120,8 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
 
 async function fillInterest(page) {
   await page.getByLabel('Name', { exact: true }).fill('Pat Example');
-  await page.getByLabel('Company Name', { exact: true }).fill('Example Company');
-  await page.getByLabel('Email', { exact: true }).fill('pat@example.test');
+  await page.getByLabel('Company', { exact: true }).fill('Example Company');
+  await page.getByLabel('Work email', { exact: true }).fill('pat@example.test');
 }
 
 async function assertPreserved(page) {
@@ -152,8 +152,8 @@ try {
     assert.equal(await page.locator('#router').count(), 0, 'standalone demo must not contain the homepage auth router');
     assert.equal(await page.locator('#lpDemoVideo').isVisible(), false);
     assert.equal(await page.locator('#lpDemoVideo').getAttribute('src'), null);
-    assert.equal(await page.getByText('Product walkthrough coming soon', { exact: true }).isVisible(), true);
-    assert.equal(await page.getByRole('button', { name: 'Join for early access', exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('Interface image', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: 'Request Redo access', exact: true }).isVisible(), true);
     assert.equal(await page.locator('#lpInterestForm input[required]').count(), 3);
     await assertGeometry(page, name, width);
     await page.screenshot({ path: path.join(screenshots, `${name}.png`), fullPage: true });
@@ -166,6 +166,8 @@ try {
   await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'Sign in');
   assert.equal(await page.locator('.lp-signin').evaluate(a => getComputedStyle(a).outlineStyle), 'solid');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'lpHeroCta');
   for (const id of ['lpName', 'lpCompanyName', 'lpEmail', 'lpJoinButton']) {
     await page.keyboard.press('Tab');
     assert.equal(await page.evaluate(() => document.activeElement.id), id);

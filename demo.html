@@ -3,75 +3,144 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Silo · Early access</title>
-  <meta name="description" content="Silo is the AI business intelligence platform for owners and operators: sales, inventory, purchasing, finance and marketing in one workspace. Request early access." />
+  <title>Silo · Redo Marketing</title>
+  <meta name="description" content="Silo connects to Redo and turns email and SMS into decision-ready reporting beside Shopify sales, ad spend, and margin. Ask Silo for the analysis. Early access for Redo Marketing customers." />
   <link rel="stylesheet" href="/v2/beacon.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/landing/early-access.css?v=5" />
+  <link rel="stylesheet" href="/assets/landing/early-access.css?v=7" />
 </head>
 <body class="lp-demo-page">
   <div id="landing">
     <header class="lp-top">
-      <div class="lp-brand" aria-label="SILO"><span class="lp-mark" aria-hidden="true">S</span>SILO</div>
+      <div class="lp-brand" aria-label="SILO">
+        <span class="lp-mark" aria-hidden="true">S</span>
+        <span class="lp-brand-name">SILO</span>
+        <span class="lp-brand-for">Built for Redo Marketing customers</span>
+      </div>
       <a class="bcn-btn lp-signin" href="/pages/login.html">Sign in</a>
     </header>
+
     <main class="lp-mid">
-      <div class="lp-copy">
-        <p class="lp-eyebrow">Silo · Early access</p>
-        <h1>Run your whole business from one place. <span class="lp-h1-line">Get early access to Silo.</span></h1>
-        <p class="lp-description">Silo is the AI business intelligence platform for owners and operators who are tired of juggling tools and guessing at numbers.</p>
-      </div>
-      <div class="lp-content">
-        <figure class="lp-demo" aria-labelledby="lpDemoCaption">
-          <div class="lp-demo-frame">
-            <div id="lpDemoPlaceholder" class="lp-demo-placeholder">
-              <picture aria-hidden="true">
-                <source type="image/webp" srcset="/assets/landing/silo-hero-1080.webp 1080w, /assets/landing/silo-hero.webp 1800w" sizes="(max-width: 900px) 100vw, 62vw" />
-                <img src="/assets/landing/silo-hero.jpg" width="1800" height="1100" alt="" fetchpriority="high" decoding="async" />
-              </picture>
-              <p class="lp-demo-note">Product walkthrough coming soon</p>
-            </div>
-            <!-- A real walkthrough is enabled only when LANDING_DEMO_VIDEO_URL
-                 is configured. The existing artwork is not a playable demo. -->
-            <video id="lpDemoVideo" width="1800" height="1100" controls playsinline preload="none"
-              poster="/assets/landing/silo-hero.jpg" aria-label="Silo product walkthrough" aria-describedby="lpDemoCaption" hidden></video>
-          </div>
-          <figcaption id="lpDemoCaption" class="lp-demo-caption">A guided walkthrough of Silo is on the way.</figcaption>
-        </figure>
-        <section class="bcn-card lp-access" id="lpAccess" aria-labelledby="lpAccessHeading">
-          <h2 id="lpAccessHeading">Join for early access</h2>
-          <p class="lp-access-intro">Workspaces are invitation-only while we bring on our first companies.</p>
-          <form id="lpInterestForm" method="post" aria-describedby="lpPrivacyNote">
-            <div class="bcn-field-group">
-              <label class="bcn-label" for="lpName">Name</label>
-              <input class="bcn-field" id="lpName" name="name" type="text" autocomplete="name" maxlength="120" required />
-            </div>
-            <div class="bcn-field-group">
-              <label class="bcn-label" for="lpCompanyName">Company Name</label>
-              <input class="bcn-field" id="lpCompanyName" name="company_name" type="text" autocomplete="organization" maxlength="200" required />
-            </div>
-            <div class="bcn-field-group">
-              <label class="bcn-label" for="lpEmail">Email</label>
-              <input class="bcn-field" id="lpEmail" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" required />
-            </div>
-            <div class="lp-honeypot" aria-hidden="true" inert>
-              <label for="lpWebsite">Leave this field empty</label>
-              <input id="lpWebsite" name="website" type="text" autocomplete="off" tabindex="-1" maxlength="200" />
-            </div>
-            <button class="bcn-btn bcn-btn--primary lp-join" id="lpJoinButton" type="submit" disabled>Join for early access</button>
-            <p class="lp-privacy" id="lpPrivacyNote">We’ll use these details to contact you about Silo onboarding. <a href="/legal/privacy.html">Privacy policy</a></p>
-            <div class="bcn-status" id="lpFormStatus" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></div>
-            <noscript><p class="lp-form-fallback">Enable JavaScript to send your request, or <a href="mailto:support@get-silo.com">contact us</a>.</p></noscript>
-          </form>
-        </section>
-      </div>
+      <section class="lp-hero">
+        <div class="lp-copy">
+          <p class="lp-eyebrow">Silo × Redo Marketing</p>
+          <h1>See what your Redo marketing is actually doing for your business.</h1>
+          <p class="lp-description">Silo connects directly to Redo and turns your email and SMS data into deeper, decision-ready reporting — alongside Shopify sales, customers, ad spend, and financial data.</p>
+          <p class="lp-reassure">No migration. No change to Redo.<br />Just better intelligence.</p>
+          <a class="lp-cta" id="lpHeroCta" href="#lpAccess">See my Redo data in Silo <span aria-hidden="true">→</span></a>
+          <p class="lp-note">Early access for select Redo Marketing customers.</p>
+        </div>
+        <div class="lp-orbit" aria-hidden="true">
+          <svg class="lp-orbit-lines" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <line x1="50" y1="50" x2="18" y2="18" />
+            <line x1="50" y1="50" x2="82" y2="18" />
+            <line x1="50" y1="50" x2="18" y2="50" />
+            <line x1="50" y1="50" x2="82" y2="50" />
+            <line x1="50" y1="50" x2="18" y2="82" />
+            <line x1="50" y1="50" x2="82" y2="82" />
+          </svg>
+          <div class="lp-node lp-node--redo"><span class="lp-marklet"></span>Redo</div>
+          <div class="lp-node lp-node--shopify"><span class="lp-marklet"></span>Shopify</div>
+          <div class="lp-node lp-node--meta"><span class="lp-marklet"></span>Meta Ads</div>
+          <div class="lp-hub"><span>S</span></div>
+          <div class="lp-node lp-node--google"><span class="lp-marklet"></span>Google Ads</div>
+          <div class="lp-node lp-node--tiktok"><span class="lp-marklet"></span>TikTok</div>
+          <div class="lp-node lp-node--qbo"><span class="lp-marklet"></span>QuickBooks</div>
+        </div>
+      </section>
 
       <div class="lp-connects">
-        <span class="lp-connects-label">Connects to</span>
+        <span class="lp-connects-label">Works with</span>
         <ul class="lp-connects-list" role="list">
-          <li>Shopify</li><li>QuickBooks</li><li>Google &amp; Meta ads</li><li>TikTok ads</li><li>Bank feeds</li>
+          <li>Redo Marketing</li>
+          <li>Shopify</li>
+          <li>TikTok</li>
+          <li>Meta Ads</li>
+          <li>QuickBooks</li>
+          <li>Google Ads</li>
         </ul>
       </div>
+
+      <section class="lp-understand" aria-labelledby="lpUnderstandHeading">
+        <div class="lp-section-head">
+          <h2 id="lpUnderstandHeading">Redo runs your marketing. Silo helps you understand it.</h2>
+          <p>Go beyond opens, clicks and basic attribution. Understand which campaigns create valuable customers, repeat purchases, margin, and real business growth.</p>
+        </div>
+        <article class="lp-board" aria-labelledby="lpBoardTitle">
+          <header class="lp-board-head">
+            <h3 id="lpBoardTitle">Redo Marketing Performance</h3>
+            <span class="lp-board-range">Sample · Last 30 days</span>
+          </header>
+          <div class="lp-board-hero">
+            <div>
+              <p class="lp-kpi-label">Email &amp; SMS Revenue</p>
+              <p class="lp-kpi-value">$382,451 <span class="lp-delta">+27%</span></p>
+            </div>
+            <figure class="lp-demo">
+              <div class="lp-demo-frame">
+                <div id="lpDemoPlaceholder" class="lp-demo-placeholder">
+                  <picture aria-hidden="true">
+                    <source type="image/webp" srcset="/assets/landing/silo-hero-1080.webp 1080w, /assets/landing/silo-hero.webp 1800w" sizes="240px" />
+                    <img src="/assets/landing/silo-hero.jpg" width="1800" height="1100" alt="" decoding="async" />
+                  </picture>
+                  <div class="lp-bars" aria-hidden="true">
+                    <span style="--h:38%"><i>Oct 1</i></span>
+                    <span style="--h:46%"></span>
+                    <span style="--h:42%"><i>Oct 7</i></span>
+                    <span style="--h:58%"></span>
+                    <span style="--h:52%"><i>Oct 14</i></span>
+                    <span style="--h:70%"></span>
+                    <span style="--h:64%"><i>Oct 21</i></span>
+                    <span style="--h:88%"><i>Oct 28</i></span>
+                  </div>
+                  <p class="lp-demo-note">Interface image</p>
+                </div>
+                <!-- A real walkthrough replaces this frame only when LANDING_DEMO_VIDEO_URL
+                     is configured. The bars are a sample, not a live account. -->
+                <video id="lpDemoVideo" width="1800" height="1100" controls playsinline preload="none"
+                  poster="/assets/landing/silo-hero.jpg" aria-label="Silo product walkthrough" aria-describedby="lpDemoCaption" hidden></video>
+              </div>
+              <figcaption id="lpDemoCaption" class="lp-demo-caption">Sample chart. A Redo performance screen can replace this frame.</figcaption>
+            </figure>
+          </div>
+          <ul class="lp-kpi-grid" role="list">
+            <li><p class="lp-kpi-label">Revenue / Recipient</p><p class="lp-kpi-value">$1.82 <span class="lp-delta">+18%</span></p></li>
+            <li><p class="lp-kpi-label">Campaign Revenue</p><p class="lp-kpi-value">$214,830 <span class="lp-delta">+32%</span></p></li>
+            <li><p class="lp-kpi-label">Automation Revenue</p><p class="lp-kpi-value">$167,621 <span class="lp-delta">+24%</span></p></li>
+            <li><p class="lp-kpi-label">New Customer Revenue</p><p class="lp-kpi-value">$91,204 <span class="lp-delta">+40%</span></p></li>
+            <li><p class="lp-kpi-label">Repeat Customer Revenue</p><p class="lp-kpi-value">$291,247 <span class="lp-delta">+23%</span></p></li>
+            <li><p class="lp-kpi-label">Contribution Margin</p><p class="lp-kpi-value">$128,442 <span class="lp-delta">+28%</span></p></li>
+          </ul>
+          <div class="lp-board-foot">
+            <span class="lp-trophy" aria-hidden="true">★</span>
+            <span><span class="lp-kpi-label">Top campaign</span> Opening Day Drop</span>
+            <strong class="lp-kpi-value">$52,340 <span class="lp-kpi-unit">revenue</span> <span class="lp-delta">+48%</span></strong>
+          </div>
+        </article>
+      </section>
+
+      <section class="lp-ask" aria-labelledby="lpAskHeading">
+        <div class="lp-ask-copy">
+          <p class="lp-eyebrow">Ask Silo analysis</p>
+          <h2 id="lpAskHeading">Your Redo data. Now you can talk to it.</h2>
+          <p>Ask Silo what a campaign did for the business. The answer uses Redo, Shopify, ads, and margin together — what changed, why it moved, and what to do next.</p>
+          <ul class="lp-ask-points" role="list">
+            <li><strong>What changed</strong> Revenue, recipients, and which campaign moved.</li>
+            <li><strong>Why it moved</strong> Email against SMS, new against repeat, Redo against paid.</li>
+            <li><strong>What to do next</strong> A recommendation tied to those numbers, for a person to decide.</li>
+          </ul>
+        </div>
+        <ol class="lp-asks">
+          <li>Which Redo campaigns drove the most new customer revenue?</li>
+          <li>How did SMS perform vs Meta last quarter?</li>
+          <li>Which campaign produced the highest contribution margin?</li>
+          <li>Why did email revenue decline last week?</li>
+        </ol>
+        <div class="lp-iface">
+          <p class="lp-iface-kicker"><span class="lp-iface-mark" aria-hidden="true">S</span> Ask Silo · sample analysis</p>
+          <p class="lp-iface-answer">Opening Day Drop led the window: $52,340 in attributed revenue, up 48%, and the highest contribution margin. SMS brought in more new-customer revenue than email. Last week’s email dip was a smaller send; repeat purchases held. Keep the drop structure, and check the Wednesday email segment before the next one.</p>
+          <p class="lp-iface-tag">Ask Silo screen</p>
+        </div>
+      </section>
 
       <section class="lp-features" aria-labelledby="lpFeaturesHeading">
         <div class="lp-section-head">
@@ -79,59 +148,69 @@
         </div>
         <ul class="lp-feature-grid" role="list">
           <li class="lp-feature">
-            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/></svg></span>
-            <h3>One workspace</h3>
-            <p>Sales, inventory, purchasing, finance and marketing side by side, pulled from the systems you already use.</p>
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16"/><path d="M8 16v-5M12 16V8M16 16v-3"/></svg></span>
+            <h3>Better Redo reporting</h3>
+            <p>Deeper email and SMS analytics using your Redo data.</p>
           </li>
           <li class="lp-feature">
-            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/></svg></span>
-            <h3>A part-time CFO</h3>
-            <p>AI guidance on cash, margins and what to do next, built on your own books rather than rules of thumb.</p>
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></span>
+            <h3>Marketing + sales in one view</h3>
+            <p>See Redo, Shopify, and ad channels side by side.</p>
           </li>
           <li class="lp-feature">
-            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h12m0 0-3-3m3 3-3 3"/><path d="M20 17H8m0 0 3-3m-3 3 3 3"/></svg></span>
-            <h3>Operational workflows</h3>
-            <p>Payment requests, mail, tasks and team reviews routed to the right person, with every step on record.</p>
-          </li>
-          <li class="lp-feature">
-            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4.5 12.6 9l4.4 1.6-4.4 1.6L11 16.7l-1.6-4.5L5 10.6 9.4 9Z"/><path d="M18 15v5M15.5 17.5h5"/></svg></span>
-            <h3>AI actions and suggestions</h3>
-            <p>Silo suggests what to do next and drafts it for your approval: campaign ideas built from your best ads, SEO fixes for the pages that matter, and coded card transactions.</p>
-          </li>
-          <li class="lp-feature">
-            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
-            <h3>Marketing and SEO</h3>
-            <p>See what your ad spend actually returns in sales, and where your pages rank in search.</p>
-          </li>
-          <li class="lp-feature">
-            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg></span>
-            <h3>Purchase orders</h3>
-            <p>Build orders, see landed cost per unit, and follow every PO through to delivery.</p>
-          </li>
-          <li class="lp-feature">
-            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span>
-            <h3>Launch calendar</h3>
-            <p>Plan product drops against inventory on hand and stock on the way, in one view.</p>
-          </li>
-          <li class="lp-feature lp-feature--ask">
             <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg></span>
-            <h3>Ask Silo</h3>
-            <p>Ask about your business in plain language and get an answer with the numbers behind it.</p>
-            <p class="lp-ask-example"><span class="lp-ask-label">Try asking</span>“Which products sold through fastest last month, and are we restocking them?”</p>
+            <h3>Ask your data questions</h3>
+            <p>Get plain-English analysis backed by your numbers.</p>
+          </li>
+          <li class="lp-feature">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M4.9 6.5l2.8 2.8M16.3 14.7l2.8 2.8M3 12h4M17 12h4M4.9 17.5l2.8-2.8M16.3 9.3l2.8-2.8"/></svg></span>
+            <h3>Know what to do next</h3>
+            <p>Silo surfaces opportunities and recommendations.</p>
           </li>
         </ul>
       </section>
+
+      <section class="bcn-card lp-access" id="lpAccess" aria-labelledby="lpAccessHeading">
+        <h2 id="lpAccessHeading">Get early access for your Redo account</h2>
+        <p class="lp-access-intro">We’re opening Silo to a small group of Redo Marketing customers.</p>
+        <form id="lpInterestForm" method="post" aria-describedby="lpPrivacyNote">
+          <div class="lp-fields">
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="lpName">Name</label>
+              <input class="bcn-field" id="lpName" name="name" type="text" autocomplete="name" maxlength="120" placeholder="Your name" required />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="lpCompanyName">Company</label>
+              <input class="bcn-field" id="lpCompanyName" name="company_name" type="text" autocomplete="organization" maxlength="200" placeholder="Company" required />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="lpEmail">Work email</label>
+              <input class="bcn-field" id="lpEmail" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" placeholder="you@company.com" required />
+            </div>
+          </div>
+          <div class="lp-honeypot" aria-hidden="true" inert>
+            <label for="lpWebsite">Leave this field empty</label>
+            <input id="lpWebsite" name="website" type="text" autocomplete="off" tabindex="-1" maxlength="200" />
+          </div>
+          <button class="bcn-btn bcn-btn--primary lp-join" id="lpJoinButton" type="submit" disabled>Request Redo access</button>
+          <p class="lp-privacy" id="lpPrivacyNote">We’ll use these details to contact you about Silo onboarding. <a href="/legal/privacy.html">Privacy policy</a></p>
+          <div class="bcn-status" id="lpFormStatus" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></div>
+          <noscript><p class="lp-form-fallback">Enable JavaScript to send your request, or <a href="mailto:support@get-silo.com">contact us</a>.</p></noscript>
+        </form>
+      </section>
     </main>
+
     <footer class="lp-foot">
-      <span>&copy; <span id="lpYear">2026</span> SILO</span>
+      <span>Inventory, purchasing, finance, and workflows are already part of Silo.</span>
       <nav aria-label="Legal and contact">
         <a href="/legal/privacy.html">Privacy</a>
         <a href="mailto:support@get-silo.com">Contact</a>
       </nav>
+      <span class="lp-copyline">&copy; <span id="lpYear">2026</span> SILO</span>
     </footer>
   </div>
 
   <script src="/pages/config.js"></script>
-  <script src="/assets/landing/early-access.js?v=1" defer></script>
+  <script src="/assets/landing/early-access.js?v=2" defer></script>
 </body>
 </html>

@@ -8,9 +8,13 @@ subscription or payment, and does not send email. Existing sign-in, invite and
 password-recovery routing remains in place. The existing homepage is unchanged, and no
 new homepage or navigation link is added.
 
-The demo page keeps SILO's existing logo, Plus Jakarta Sans and hero assets. The
-product video is not yet supplied. `LANDING_DEMO_VIDEO_URL` is intentionally unconfigured, so the page displays an honest preview placeholder
-without a play button. Once approved, configure that optional property with the final supported
+For now the page is the Redo Marketing landing: poster layout, Ask Silo analysis
+as its own section, and framed spots (`Interface image`, `Ask Silo screen`) where
+a real product screen can replace the sample chart and sample analysis. The
+hero artwork file stays in the performance frame only as the unloaded-video
+fallback; it is not the picture visitors see. `LANDING_DEMO_VIDEO_URL` is
+intentionally unconfigured, so that frame stays a sample chart without a play
+button. Once approved, configure that optional property with the final supported
 media URL; native video controls are used, without autoplay or an iframe.
 
 ## Boundaries

@@ -118,7 +118,7 @@
       pending = false;
       form.removeAttribute('aria-busy');
       button.disabled = submitted;
-      button.textContent = 'Join for early access';
+      button.textContent = 'Request Redo access';
       fields.forEach(field => { field.readOnly = submitted; });
     }
   });

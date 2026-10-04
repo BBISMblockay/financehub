@@ -48,7 +48,7 @@ function fixture({ mode = 'landing', config = {}, controllerSource = source, fet
     return el;
   }
   element('lpInterestForm', { reportValidity() { return ['lpName', 'lpCompanyName', 'lpEmail'].every(id => elements[id].value); } });
-  element('lpJoinButton', { disabled: true, textContent: 'Join for early access' });
+  element('lpJoinButton', { disabled: true, textContent: 'Request Redo access' });
   element('lpFormStatus', { hidden: true });
   element('lpName', { value: ' Test Person ' });
   element('lpCompanyName', { value: ' Example Company ' });
@@ -132,7 +132,7 @@ test('successful POST sends only intake fields, public apikey, and no session cr
   assert.match(f.elements.lpFormStatus.textContent, /request has been received/);
   assert.equal(f.elements.lpFormStatus.focused, true);
   assert.equal(f.elements.lpJoinButton.disabled, true);
-  assert.equal(f.elements.lpJoinButton.textContent, 'Join for early access');
+  assert.equal(f.elements.lpJoinButton.textContent, 'Request Redo access');
   assert.equal(f.elements.lpName.readOnly, true);
   assert.equal(f.timers.size, 0);
   await f.submit();
@@ -244,7 +244,7 @@ test('absent demo stays an honest still with no fake active play or old animatio
   assert.equal(f.elements.lpDemoVideo.src, undefined);
   assert.equal(f.elements.lpDemoPlaceholder.hidden, false);
   const landing = html;
-  assert.match(landing, /Product walkthrough coming soon/);
+  assert.match(landing, /Interface image/);
   assert.doesNotMatch(landing, /<iframe|autoplay|\bloop\b|Play animation|Watch animation|lpMotionToggle|lpMotionFallback/);
   assert.doesNotMatch(html, /<script[^>]*silo-hero-motion/);
 });
