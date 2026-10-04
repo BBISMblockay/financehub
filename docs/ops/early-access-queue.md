@@ -9,10 +9,11 @@ password-recovery routing remains in place. The existing homepage is unchanged, 
 new homepage or navigation link is added.
 
 For now the page is the Redo Marketing landing. The hero uses the existing
-Blender rendering (`silo-hero`). The workspace frame uses `silo-web-flow.png`,
-the sales-review screenshot, with the sidebar and the internal role chip cropped off. Ask Silo analysis
-is its own section. `LANDING_DEMO_VIDEO_URL` is intentionally unconfigured, so
-that frame stays the screenshot without a play button. Once approved, configure
+Blender rendering (`silo-hero`). The performance board follows the poster
+layout with sample Redo figures and a chart frame that can be swapped for a
+real Redo performance screen. Ask Silo analysis is its own section.
+`LANDING_DEMO_VIDEO_URL` is intentionally unconfigured, so the chart frame stays
+the sample bars without a play button. Once approved, configure
 that optional property with the final supported media URL; native video controls
 are used, without autoplay or an iframe.
 

@@ -245,9 +245,10 @@ test('absent demo stays an honest still with no fake active play or old animatio
   assert.equal(f.elements.lpDemoPlaceholder.hidden, false);
   const landing = html;
   assert.match(landing, /assets\/landing\/silo-hero\.jpg/);
-  assert.match(landing, /assets\/landing\/silo-web-flow\.png/);
-  assert.match(landing, /Silo workspace/);
-  assert.doesNotMatch(landing, /\$382,451|lp-bars|Opening Day Drop/);
+  assert.match(landing, /Redo Marketing Performance/);
+  assert.match(landing, /Sample · Last 30 days/);
+  assert.match(landing, /lp-bars/);
+  assert.doesNotMatch(landing, /silo-web-flow\.png|Silo workspace/);
   assert.doesNotMatch(landing, /<iframe|autoplay|\bloop\b|Play animation|Watch animation|lpMotionToggle|lpMotionFallback/);
   assert.doesNotMatch(html, /<script[^>]*silo-hero-motion/);
 });

@@ -105,7 +105,7 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
     const relative = url.pathname.slice(1);
     const allowed = ['demo.html', 'pages/login.html', 'v2/beacon.css', 'v2/silo-brand.css',
       'legal/privacy.html', 'assets/landing/early-access.js', 'assets/landing/early-access.css'];
-    if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative) && relative !== 'assets/landing/silo-web-flow.png') {
+    if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative)) {
       failures.push('Unexpected fixture path: ' + relative);
       return route.abort();
     }
@@ -147,12 +147,12 @@ try {
     await page.setViewportSize({ width, height });
     await page.goto('https://get-silo.com/demo.html');
     await page.evaluate(() => document.fonts.ready);
-    await page.locator('#lpDemoPlaceholder img').evaluate(image => image.decode());
+    await page.locator('.lp-render img').evaluate(image => image.decode());
     assert.equal(await page.locator('html').getAttribute('data-mode'), 'landing');
     assert.equal(await page.locator('#router').count(), 0, 'standalone demo must not contain the homepage auth router');
     assert.equal(await page.locator('#lpDemoVideo').isVisible(), false);
     assert.equal(await page.locator('#lpDemoVideo').getAttribute('src'), null);
-    assert.equal(await page.getByText('Silo workspace', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole('heading', { name: 'Redo Marketing Performance' }).isVisible(), true);
     assert.equal(await page.getByRole('button', { name: 'Request Redo access', exact: true }).isVisible(), true);
     assert.equal(await page.locator('#lpInterestForm input[required]').count(), 3);
     await assertGeometry(page, name, width);
