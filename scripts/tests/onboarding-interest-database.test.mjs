@@ -1,10 +1,9 @@
 // Isolated PostgreSQL permissions and transaction tests. PGlite is one connection;
-// overlapping queued calls are NOT evidence of real multiconnection interleaving.
+// queued calls are NOT evidence of real multiconnection interleaving.
 // Run: node scripts/tests/onboarding-interest-database.test.mjs
-// Optional mutation: ONBOARDING_DB_MUTATION=wide-policy|wide-grants|overwrite|no-rate-limit
+// Optional mutation: ONBOARDING_DB_MUTATION=wide-policy|wide-grants|overwrite|no-rate-limit|extra-bucket|removal
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 const db = new PGlite();
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
@@ -18,8 +17,13 @@ const swaps = {
   'wide-grants': ['grant update (status) on public.onboarding_interest_queue to authenticated;', 'grant update on public.onboarding_interest_queue to authenticated;'],
   overwrite: ['on conflict (email) do nothing;', 'on conflict (email) do update set name = excluded.name;'],
   'no-rate-limit': ['if v_retry > 0 then', 'if false then'],
+  'extra-bucket': ["bucket_key in ('global:minute', 'global:day')", "bucket_key in ('global:minute', 'global:day', 'extra')"],
+  removal: ['  v_now := clock_timestamp();', '  v_now := clock_timestamp();\n  delete from public.onboarding_interest_rate_buckets;'],
 };
 if (mutation) { assert.ok(swaps[mutation]); const [a,b] = swaps[mutation]; assert.ok(sql.includes(a)); sql = sql.replaceAll(a,b); }
+// Whole migration, including nested PL/pgSQL bodies: no destructive operations
+// or removal authority. This deliberately also rejects those words in comments.
+assert.doesNotMatch(sql, /\b(?:drop|delete|truncate)\b/i, 'migration must be additive and contain no removal statements or grants');
 await db.exec(`
 create role anon nologin;
 create role authenticated nologin;
@@ -38,22 +42,33 @@ grant execute on function public.is_platform_admin() to authenticated;
 insert into platform_admins values ('00000000-0000-0000-0000-000000000001');
 insert into profiles values ('00000000-0000-0000-0000-000000000002','owner');
 `);
-await db.exec(sql); await db.exec(sql);
+await db.exec(sql);
+const policyOids = await q("select oid,polname from pg_policy where polrelid='public.onboarding_interest_queue'::regclass order by polname");
+await db.exec(sql);
+assert.deepEqual(await q("select oid,polname from pg_policy where polrelid='public.onboarding_interest_queue'::regclass order by polname"), policyOids,
+  'idempotent policy creation must preserve existing policy identities');
 let passed = 0;
-async function test(name, fn) { await fn(); console.log(`ok ${++passed} - ${name}`); }
+async function test(name, fn) {
+  // Fixture state is discarded by rollback; no table cleanup statement is run.
+  await db.exec('begin');
+  try { await fn(); console.log(`ok ${++passed} - ${name}`); }
+  finally { await db.exec('rollback'); }
+}
 async function as(role, uid, fn) {
-  await db.exec(`set role ${role}`);
-  await q("select set_config('request.jwt.claim.sub',$1,false)", [uid || '']);
+  await db.exec(`set local role ${role}`);
+  await q("select set_config('request.jwt.claim.sub',$1,true)", [uid || '']);
   try { return await fn(); } finally { await db.exec('reset role'); }
 }
 const service = fn => as('service_role', '', fn);
 const admin = fn => as('authenticated', '00000000-0000-0000-0000-000000000001', fn);
 const ordinary = fn => as('authenticated', '00000000-0000-0000-0000-000000000002', fn);
-const digest = text => createHash('sha256').update(text).digest('hex');
-const submit = (email='lead@example.com', name='First person', company='First company', key=digest(email)) =>
-  one('select public.submit_onboarding_interest($1,$2,$3,$4) as result', [name,company,email,key]).then(r=>r.result);
-const clean = () => db.exec('truncate public.onboarding_interest_rate_buckets, public.onboarding_interest_queue');
-async function denied(fn) { await assert.rejects(fn, /permission denied|row-level security|check constraint|Invalid interest request/); }
+const submit = (email='lead@example.com', name='First person', company='First company') =>
+  one('select public.submit_onboarding_interest($1,$2,$3) as result', [name,company,email]).then(r=>r.result);
+async function denied(fn, pattern=/permission denied|row-level security|check constraint|Invalid interest request/) {
+  await db.exec('savepoint expected_refusal');
+  try { await assert.rejects(fn, pattern); }
+  finally { await db.exec('rollback to savepoint expected_refusal'); }
+}
 await test('poisoned default grants removed: anon cannot access either table or RPC', async()=>{
   for (const table of ['onboarding_interest_queue','onboarding_interest_rate_buckets']) {
     await as('anon','', ()=>denied(()=>q(`select * from ${table}`)));
@@ -70,17 +85,19 @@ await test('service inserts durably; duplicate preserves ALL original lead field
   assert.deepEqual(await one('select * from onboarding_interest_queue'),before);
 });
 await test('ordinary company owner sees no leads and updates zero rows',async()=>{
+  await service(()=>submit());
   assert.equal((await ordinary(()=>q('select * from onboarding_interest_queue'))).length,0);
   assert.equal((await ordinary(()=>q("update onboarding_interest_queue set status='closed' returning id"))).length,0);
 });
 await test('platform admin can select and change status only',async()=>{
+  await service(()=>submit());
   assert.equal((await admin(()=>q('select * from onboarding_interest_queue'))).length,1);
   assert.equal((await admin(()=>q("update onboarding_interest_queue set status='closed' returning id"))).length,1);
   for (const assignment of ["name='changed'","company_name='changed'","email='x@example.com'","source='other'","created_at=now()","id=gen_random_uuid()"])
     await admin(()=>denied(()=>q(`update onboarding_interest_queue set ${assignment}`)));
   await admin(()=>denied(()=>q("update onboarding_interest_queue set status='approved'")));
   await admin(()=>denied(()=>q("insert into onboarding_interest_queue(name,company_name,email) values('X','Y','x@example.com')")));
-  await admin(()=>denied(()=>q('delete from onboarding_interest_queue')));
+  assert.equal((await one("select has_table_privilege('authenticated','onboarding_interest_queue','DELETE,TRUNCATE') as allowed")).allowed,false);
   await admin(()=>denied(()=>q('select * from onboarding_interest_rate_buckets')));
 });
 await test('RPC input validation rejects missing, malformed, non-normalized, and oversized values',async()=>{
@@ -88,7 +105,7 @@ await test('RPC input validation rejects missing, malformed, non-normalized, and
     ['x@example.com',null,'Company'], ['x@example.com','','Company'], ['x@example.com','x'.repeat(121),'Company'],
     ['x@example.com','Name','x'.repeat(201)], ['x@example.com','Name','bad\ncompany'], ['UPPER@example.com'],
     [' a@example.com'], ['bad'], ['a..b@example.com'], ['a@-example.com'], ['a@one'], ['a@'+'x'.repeat(64)+'.com'],
-    ['x@example.com','Name','Company',null], ['x@example.com','Name','Company','ip-address'],
+    [null], ['x@example.com','Name',null],
   ];
   for (const args of bad) await service(()=>denied(()=>submit(...args)));
 });
@@ -98,48 +115,56 @@ await test('table constraints backstop direct service inserts',async()=>{
       [column==='name'?value:'Name',column==='company_name'?value:'Company',column==='email'?value:'fresh@example.com', ['name','company_name','email'].includes(column)?'pending':value])));
   }
 });
-await test('per-email quota checks before dedup and survives separate handler invocations',async()=>{
-  await clean();
-  for(let i=0;i<3;i++) assert.equal((await service(()=>submit())).accepted,true);
+await test('duplicate attempts consume the same durable global quota without per-email state',async()=>{
+  for(let i=0;i<30;i++) assert.equal((await service(()=>submit())).accepted,true);
   const result=await service(()=>submit()); assert.equal(result.accepted,false); assert.ok(result.retry_after_seconds > 0);
   assert.equal((await one('select count(*)::int as n from onboarding_interest_queue')).n,1);
+  assert.deepEqual((await q('select bucket_key from onboarding_interest_rate_buckets order by bucket_key')).map(r=>r.bucket_key),['global:day','global:minute']);
 });
-await test('global minute cap denies new addresses without creating rate buckets or leads',async()=>{
-  await clean();
+await test('global minute cap denies new addresses without changing rate state or leads',async()=>{
   for(let i=0;i<30;i++) assert.equal((await service(()=>submit(`lead${i}@example.com`))).accepted,true);
-  const before = await one('select count(*)::int as n from onboarding_interest_rate_buckets');
+  const before = await q('select * from onboarding_interest_rate_buckets order by bucket_key');
   assert.equal((await service(()=>submit('blocked@example.com'))).accepted,false);
-  assert.equal((await one('select count(*)::int as n from onboarding_interest_rate_buckets')).n,before.n);
+  assert.deepEqual(await q('select * from onboarding_interest_rate_buckets order by bucket_key'),before);
   assert.equal((await one('select count(*)::int as n from onboarding_interest_queue')).n,30);
 });
-await test('global day cap applies even with a fresh minute; expired windows reset',async()=>{
-  await clean();
-  await q("insert into onboarding_interest_rate_buckets values ('global:day',300,now()+interval '1 day')");
-  assert.equal((await service(()=>submit())).accepted,false);
-  await q("update onboarding_interest_rate_buckets set expires_at=now()-interval '1 second'");
-  assert.equal((await service(()=>submit())).accepted,true);
+await test('300 unique emails fit exactly two reusable quota rows; the day cap and reset work',async()=>{
+  for(let i=0;i<300;i++) {
+    if(i && i%30===0) await q("update onboarding_interest_rate_buckets set expires_at=clock_timestamp()-interval '1 second' where bucket_key='global:minute'");
+    assert.equal((await service(()=>submit(`lead${i}@example.com`))).accepted,true);
+    assert.equal((await one('select count(*)::int as n from onboarding_interest_rate_buckets')).n,2);
+  }
+  await q("update onboarding_interest_rate_buckets set expires_at=clock_timestamp()-interval '1 second' where bucket_key='global:minute'");
+  for(let i=300;i<400;i++) assert.equal((await service(()=>submit(`lead${i}@example.com`))).accepted,false);
+  assert.equal((await one('select count(*)::int as n from onboarding_interest_queue')).n,300);
+  assert.equal((await one('select count(*)::int as n from onboarding_interest_rate_buckets')).n,2);
+  const keys=await q('select bucket_key from onboarding_interest_rate_buckets order by bucket_key');
+  await q("update onboarding_interest_rate_buckets set expires_at=clock_timestamp()-interval '1 second'");
+  assert.equal((await service(()=>submit('next-day@example.com'))).accepted,true);
+  assert.deepEqual(await q('select bucket_key from onboarding_interest_rate_buckets order by bucket_key'),keys);
+  assert.ok((await q('select hits from onboarding_interest_rate_buckets')).every(r=>r.hits===1));
 });
-await test('cleanup removes at most 100 expired rows, never lead data',async()=>{
-  await clean();
-  for(let i=0;i<150;i++) await q("insert into onboarding_interest_rate_buckets values ($1,1,now()-interval '1 second')",['email:'+digest('stale'+i)]);
-  assert.equal((await service(()=>submit())).accepted,true);
-  assert.equal((await one("select count(*)::int as n from onboarding_interest_rate_buckets where expires_at < now()")).n,50);
+await test('bucket key constraint and service permissions prevent unbounded state or removal',async()=>{
+  await service(()=>denied(()=>q("insert into onboarding_interest_rate_buckets values('extra',1,now()+interval '1 hour')")));
+  for(const table of ['onboarding_interest_queue','onboarding_interest_rate_buckets'])
+    assert.equal((await one('select has_table_privilege($1,$2,$3) as allowed',['service_role',table,'DELETE,TRUNCATE'])).allowed,false);
 });
 await test('a persistence exception rolls back quota admission',async()=>{
-  await clean();
   await db.exec(`create function public.reject_fixture() returns trigger language plpgsql as $$ begin raise exception 'fixture persistence failed'; end $$;
     create trigger reject_fixture before insert on public.onboarding_interest_queue for each row execute function public.reject_fixture();`);
-  await assert.rejects(()=>service(()=>submit()),/fixture persistence failed/);
+  await service(()=>denied(()=>submit(),/fixture persistence failed/));
   assert.equal((await one('select count(*)::int as n from onboarding_interest_rate_buckets')).n,0);
-  await db.exec('drop trigger reject_fixture on public.onboarding_interest_queue; drop function public.reject_fixture()');
 });
-await test('RPC remains invoker/service-only and queue ACLs retain no broad UPDATE',async()=>{
-  const f=await one("select prosecdef,prosrc from pg_proc where oid='public.submit_onboarding_interest(text,text,text,text)'::regprocedure");
-  assert.equal(f.prosecdef,false); assert.match(f.prosrc,/pg_advisory_xact_lock/);
+await test('only the three-argument invoker RPC exists, with no removal statements in its stored body',async()=>{
+  const functions=await q("select pronargs,prosecdef,prosrc from pg_proc where pronamespace='public'::regnamespace and proname='submit_onboarding_interest'");
+  assert.equal(functions.length,1); const [f]=functions;
+  assert.equal(f.pronargs,3); assert.equal(f.prosecdef,false); assert.match(f.prosrc,/pg_advisory_xact_lock/);
+  assert.doesNotMatch(f.prosrc,/\b(?:drop|delete|truncate)\b/i);
   assert.equal((await one("select has_table_privilege('authenticated','public.onboarding_interest_queue','UPDATE') as allowed")).allowed,false);
+  assert.equal(policyOids.length,2);
 });
 await test('read-only deployment verifier reports both queue checks ok',async()=>{
-  const full=await readFile(new URL('../../supabase/verify_v2_schema.sql',import.meta.url),'utf8');
+  const full=await readFile(new URL('../../supabase/queries/verify_onboarding_interest_queue.sql',import.meta.url),'utf8');
   const fragment=full.split('-- Begin onboarding interest checks.')[1].split('-- End onboarding interest checks.')[0];
   const result=await db.exec(fragment);
   assert.equal(result.length,2);

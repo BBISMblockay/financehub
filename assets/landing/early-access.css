@@ -1,4 +1,12 @@
-/* Public landing only. Auth/router styling and routing stay in index.html. */
+/* Standalone demo page only. The existing home and auth router are untouched. */
+.lp-demo-page {
+  margin: 0;
+  min-width: 0;
+  background: #02070c;
+  color: var(--bcn-band-ink);
+  font-family: var(--bcn-font);
+}
+.lp-demo-page, .lp-demo-page *, .lp-demo-page *::before, .lp-demo-page *::after { box-sizing: border-box; }
 #landing {
   position: relative;
   min-height: 100vh;

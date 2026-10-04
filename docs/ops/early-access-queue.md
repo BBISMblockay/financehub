@@ -2,15 +2,15 @@
 
 ## Scope
 
-The public `get-silo.com` landing page collects Name, Company Name and Email for
+The standalone `/demo.html` page collects Name, Company Name and Email for
 personal early-access follow-up. It does not create an account, tenant, invitation,
 subscription or payment, and does not send email. Existing sign-in, invite and
-password-recovery routing remains in place.
+password-recovery routing remains in place. The existing homepage is unchanged, and no
+new homepage or navigation link is added.
 
-The landing keeps SILO's existing logo, Plus Jakarta Sans and hero assets. The
-product video is not yet supplied. `pages/config.js` intentionally leaves
-`LANDING_DEMO_VIDEO_URL` empty, so the page displays an honest preview placeholder
-without a play button. Once approved, set that property to the final supported
+The demo page keeps SILO's existing logo, Plus Jakarta Sans and hero assets. The
+product video is not yet supplied. `LANDING_DEMO_VIDEO_URL` is intentionally unconfigured, so the page displays an honest preview placeholder
+without a play button. Once approved, configure that optional property with the final supported
 media URL; native video controls are used, without autoplay or an iframe.
 
 ## Boundaries
@@ -32,14 +32,31 @@ media URL; native video controls are used, without autoplay or an iframe.
   client requires both a successful HTTP status and `ok: true` before displaying
   an acknowledgement.
 
+## Durable intake bounds
+
+The service-only RPC takes name, company name and normalized email. It admits
+at most 30 requests per minute and 300 per day, using exactly two permitted
+reusable global counter keys. Duplicate requests consume the same quota as new
+requests and never overwrite the original lead. Expired counters reset in place.
+No IP address, email hash, per-email bucket, or cleanup operation is used.
+A sender can exhaust the shared intake quota temporarily; this is the availability
+tradeoff for a small public intake without a trusted client-IP contract.
+
+Before first application, migration `20261003221720_onboarding_interest_queue.sql`
+was revised on 2026-10-04 after read-only verification that its objects and
+migration history entry were absent. It contains no DROP, DELETE or TRUNCATE operations,
+creates policies only if absent, and grants no removal privilege on either table.
+
 ## Release order
 
 1. Review the additive migration, isolated database privilege tests, endpoint
    tests and browser fixtures with the PR.
 2. Apply only the reviewed new queue migration to the Silo project. Do not run
    the repository-wide apply-all script as part of this change.
-3. Verify the new tables, RLS policies, column/function privileges and existing
-   schema checks using read-only queries. Do not create fake production leads.
+3. Run `supabase/queries/verify_onboarding_interest_queue.sql` to verify the new
+   tables, RLS policies and column/function privileges using read-only queries.
+   Both checks must report `ok`. Existing broad schema checks remain unchanged.
+   Do not create fake production leads.
 4. After deployment is separately approved, deploy the `onboarding-interest`
    function with JWT verification disabled for this intentionally public intake.
    The existing manual Deploy Edge Function workflow records the exact commit.

@@ -12,6 +12,8 @@
   const video = document.getElementById('lpDemoVideo');
   const placeholder = document.getElementById('lpDemoPlaceholder');
   const caption = document.getElementById('lpDemoCaption');
+  const year = document.getElementById('lpYear');
+  if (year) year.textContent = String(new Date().getFullYear());
 
   // A config entry must be a direct media file, never HTML, an embed, a
   // credential-bearing URL, or an executable scheme. HTTPS CDNs and local

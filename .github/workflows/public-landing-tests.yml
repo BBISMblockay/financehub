@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths: &landing_paths
       - 'index.html'
+      - 'demo.html'
       - 'v2/company-onboarding.html'
       - 'v2/platform-admin.html'
       - 'pages/config.js'
@@ -12,6 +13,7 @@ on:
       - 'pages/login.html'
       - 'legal/privacy.html'
       - 'supabase/migrations/*_onboarding_interest_queue.sql'
+      - 'supabase/queries/verify_onboarding_interest_queue.sql'
       - 'scripts/tests/onboarding-interest-*.test.mjs'
       - 'scripts/tests/finance-db/package*.json'
       - 'assets/landing/**'
@@ -31,7 +33,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Check public entry, form states, admin queue, auth routing, and legacy motion
+      - name: Check existing home, standalone demo form, admin queue, and auth routing
         run: node --test tests/public-landing.test.mjs tests/landing-motion.test.mjs tests/early-access-ui.test.mjs tests/platform-interest.test.mjs
       - name: Check real public endpoint validation and CORS
         run: node scripts/tests/onboarding-interest-handler.test.mjs
@@ -45,7 +47,7 @@ jobs:
       - name: Install Chromium for browser tests
         working-directory: tests
         run: npx playwright install --with-deps chromium
-      - name: Verify guest navigation, interest submissions, configurable video, responsive layout, and admin queue
+      - name: Verify existing home, standalone demo, interest submissions, and admin queue
         working-directory: tests
         run: npm run test:browser
       - name: Upload local-fixture screenshots

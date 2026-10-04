@@ -5,9 +5,6 @@ window.__SILO_CONFIG__ = {
   REDIRECT_TO: "/v2/finance.html",
   EXPECT_EMAIL_CONFIRMATION: true,
 
-  // Optional product-demo media URL. Leave empty until the final video is approved.
-  LANDING_DEMO_VIDEO_URL: "",
-
   // Returns the active company object stored after login, or null.
   // Shape: { id, title, entity_key, meta, role }
   getActiveCompany() {

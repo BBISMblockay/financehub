@@ -1,10 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../assets/landing/early-access.js', import.meta.url), 'utf8');
-const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const html = readFileSync(new URL('../demo.html', import.meta.url), 'utf8');
+const css = readFileSync(new URL('../assets/landing/early-access.css', import.meta.url), 'utf8');
+
+test('existing home and shared config stay byte-identical to main c2b6f1e', () => {
+  // Pin the reviewed main bytes so shallow CI needs no git history. A demo
+  // change must never silently replace the user's existing homepage/router.
+  const unchanged = {
+    'index.html': '9a4c9b997ef349698fc572a7769622a89afffeb21c6fb5988d9c11403ce9673e',
+    'pages/config.js': 'ee67cc20e8f76d35e1ea818674a24bb0a04f70ac025c14b0ede5ec8830bc6ea5',
+  };
+  for (const [file, hash] of Object.entries(unchanged)) {
+    const bytes = readFileSync(new URL('../' + file, import.meta.url));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), hash, file);
+  }
+});
+
+test('demo is standalone for all visitors, with no auth/session router or home redirect', () => {
+  assert.match(html, /<html[^>]*data-mode="landing"/);
+  assert.match(html, /<body class="lp-demo-page">/);
+  assert.match(html, /href="\/pages\/login\.html">Sign in<\/a>/);
+  assert.doesNotMatch(html, /id="router"|type="module"|getSession|createClient|location\.replace|location\.href|http-equiv="refresh"/);
+  assert.doesNotMatch(source, /getSession|createClient|location\.replace|localStorage|sessionStorage/);
+  assert.match(css, /\.lp-demo-page\s*\{[^}]*margin:\s*0;/);
+  assert.match(css, /\.lp-demo-page[^}]*box-sizing:\s*border-box;/);
+  assert.match(html, /\/pages\/config\.js[\s\S]*\/assets\/landing\/early-access\.js/);
+});
 
 function fixture({ mode = 'landing', config = {}, controllerSource = source, fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }) } = {}) {
   const listeners = {};
@@ -36,7 +62,7 @@ function fixture({ mode = 'landing', config = {}, controllerSource = source, fet
   const requests = [];
   const window = {
     __SILO_CONFIG__: { SUPABASE_URL: 'https://fixture.supabase.co', SUPABASE_ANON_KEY: 'public-fixture-key', ...config },
-    location: { href: 'https://get-silo.com/', origin: 'https://get-silo.com' },
+    location: { href: 'https://get-silo.com/demo.html', origin: 'https://get-silo.com' },
     fetch(url, options) { requests.push({ url, options }); return fetch(url, options); },
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -217,7 +243,7 @@ test('absent demo stays an honest still with no fake active play or old animatio
   assert.equal(f.elements.lpDemoVideo.hidden, true);
   assert.equal(f.elements.lpDemoVideo.src, undefined);
   assert.equal(f.elements.lpDemoPlaceholder.hidden, false);
-  const landing = html.slice(html.indexOf('<div id="landing">'), html.indexOf('<div class="card" id="router">'));
+  const landing = html;
   assert.match(landing, /Product walkthrough coming soon/);
   assert.doesNotMatch(landing, /<iframe|autoplay|\bloop\b|Play animation|Watch animation|lpMotionToggle|lpMotionFallback/);
   assert.doesNotMatch(html, /<script[^>]*silo-hero-motion/);

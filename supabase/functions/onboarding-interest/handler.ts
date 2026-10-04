@@ -86,13 +86,6 @@ async function readBody(req: Request): Promise<unknown> {
   }
 }
 
-async function emailKey(email: string, secret: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`silo:onboarding-interest:email:v1:${email}`));
-  return Array.from(new Uint8Array(signature), b => b.toString(16).padStart(2, '0')).join('');
-}
-
 export function createHandler(deps: Dependencies) {
   const fetcher = deps.fetch ?? globalThis.fetch;
   return async function handler(req: Request): Promise<Response> {
@@ -135,7 +128,6 @@ export function createHandler(deps: Dependencies) {
           p_name: lead.name,
           p_company_name: lead.company_name,
           p_email: lead.email,
-          p_email_key: await emailKey(lead.email, deps.serviceRoleKey),
         }),
         signal: AbortSignal.timeout(8000),
       });
@@ -150,7 +142,7 @@ export function createHandler(deps: Dependencies) {
       }
       return reply({ error: UNAVAILABLE }, 503);
     } catch {
-      // Deliberately do not log request data, hashes, credentials, or DB errors.
+      // Deliberately do not log request data, credentials, or DB errors.
       return reply({ error: UNAVAILABLE }, 503);
     }
   };
