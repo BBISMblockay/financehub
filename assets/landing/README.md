@@ -19,12 +19,14 @@ frame on the same navy field as the board.
 
 | File | Slot |
 |------|------|
-| `redo-demo-chart.png` | Daily Redo marketing spend chart (960×285 crop) |
-| `redo-demo-dashboard.png` | Marketing overview table + top campaigns (1200×633) |
-| `redo-demo-ask-silo.png` | Ask Silo Redo campaign recommendation (1200×633) |
+| `redo-demo-chart.png` | Redo attributed revenue, spend, and daily trend (1100×592) |
+| `redo-demo-dashboard.png` | Marketing overview table + top campaigns (1200×629) |
 
-Shipped from dark-mode Silo captures on the welcome branch. The board no longer
-shows duplicate placeholder KPIs beside these frames.
+Ask Silo on the welcome page is an HTML preview (readable recommendation +
+evidence cards), not a screenshot — the product chat is too dense at poster size.
+
+Shipped from dark-mode Silo captures. Gradient frames mark live product UI vs
+poster copy.
 
 ## Still fallback (unchanged)
 
