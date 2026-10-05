@@ -913,6 +913,18 @@
     // ── Auth + Chrome ──────────────────────────────────────────────
     let _session = null;
     let _co = null;
+
+    // The bearer token for an edge-function call, read at call time. _session
+    // is the page-load snapshot and its access token dies after an hour while
+    // supabase-js keeps refreshing its own copy, so a tab left open sent an
+    // expired token and every Test read "Unauthorized" before Meta or Google
+    // was ever asked (2026-10-05, Bat Nutz). getSession() returns the current,
+    // refreshed session.
+    async function currentAccessToken() {
+      const { data: { session } } = await db.auth.getSession();
+      if (session) _session = session;
+      return session?.access_token || '';
+    }
     let _navProfile = 'standard';
 
     // Whether to draw the Integrations controls. The database's answer wins;
@@ -2371,7 +2383,7 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${_session.access_token}`,
+            Authorization: `Bearer ${await currentAccessToken()}`,
           },
           body: JSON.stringify({ connection_id: id }),
         });
@@ -2448,7 +2460,7 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${_session.access_token}`,
+            Authorization: `Bearer ${await currentAccessToken()}`,
           },
           body: JSON.stringify({ connection_id: id }),
         });
@@ -2519,7 +2531,7 @@
       try {
         const res = await fetch(`${FUNCTIONS_URL}/test-ad-platform-connection`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${_session.access_token}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await currentAccessToken()}` },
           body: JSON.stringify({ connection_id: id, list_accounts: true }),
         });
         data = await res.json();
@@ -2571,7 +2583,7 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${_session.access_token}`,
+            Authorization: `Bearer ${await currentAccessToken()}`,
           },
           body: JSON.stringify(body),
         });

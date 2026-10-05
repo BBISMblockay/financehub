@@ -137,6 +137,21 @@ await test('Integrations: loads the picker, Reconnect on Google rows only, lists
   assert.match(page, /afterAdOauth\(oauthPlatform, urlParams\.get\('connection_id'\)/);
 });
 
+await test('Integrations: edge calls send the CURRENT session token, never the page-load snapshot', async () => {
+  // A tab open past the token's hour sent the expired load-time token, so
+  // Test read "Unauthorized" before Meta was asked (Bat Nutz, 2026-10-05).
+  const page = read('v2/integrations.html');
+  assert.doesNotMatch(page, /Bearer \$\{_session\.access_token\}/);
+  const calls = page.match(/Bearer \$\{await currentAccessToken\(\)\}/g) || [];
+  assert.ok(calls.length >= 4, `expected Test, Sync now, picker and OAuth start to use currentAccessToken, found ${calls.length}`);
+  const src = page.match(/async function currentAccessToken\(\) \{[\s\S]*?\n    \}/)[0];
+  const ctx = { _session: { access_token: 'expired-at-load' }, db: { auth: {
+    getSession: async () => ({ data: { session: { access_token: 'refreshed' } } }) } } };
+  vm.runInNewContext(`${src}; result = currentAccessToken();`, ctx);
+  assert.equal(await ctx.result, 'refreshed');
+  assert.equal(ctx._session.access_token, 'refreshed');
+});
+
 const pglite = join(ROOT, 'scripts/tests/finance-db/node_modules/@electric-sql/pglite/dist/index.js');
 if (!existsSync(pglite)) {
   console.log('# skip: database checks (npm ci --prefix scripts/tests/finance-db)');
