@@ -6,7 +6,7 @@
   <title>Silo · Redo Marketing</title>
   <meta name="description" content="Silo connects to Redo and turns email and SMS into decision-ready reporting beside Shopify sales, ad spend, and margin. Ask Silo for the analysis. Early access for Redo Marketing customers." />
   <link rel="stylesheet" href="/v2/beacon.css" />
-  <link rel="stylesheet" href="/assets/landing/redo-welcome.css?v=12" />
+  <link rel="stylesheet" href="/assets/landing/redo-welcome.css?v=13" />
 </head>
 <body class="lp-demo-page">
   <svg xmlns="http://www.w3.org/2000/svg" class="lp-svg-defs" aria-hidden="true" focusable="false">
@@ -48,7 +48,7 @@
           <h1>See what your Redo marketing is doing for the business.</h1>
           <p class="lp-description">Redo email and SMS beside Shopify, ads, and margin — with Ask Silo on top.</p>
           <p class="lp-reassure">No migration. No change to Redo.</p>
-          <a class="lp-cta" id="lpHeroCta" href="#lpAccess">Request early access <span aria-hidden="true">→</span></a>
+          <a class="bcn-btn bcn-btn--primary lp-hero-cta" id="lpHeroCta" href="#lpAccess">Request early access <span aria-hidden="true">→</span></a>
         </div>
         <div class="lp-hub" role="img" aria-label="SILO connected to Redo Marketing, Shopify, Meta Ads, and Google Ads">
           <svg class="lp-hub-spokes" viewBox="0 0 420 340" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
@@ -97,8 +97,9 @@
         </div>
       </section>
 
-      <div class="lp-connects">
-        <span class="lp-connects-label">Works with</span>
+      <div class="bcn-card lp-connects">
+        <div class="bcn-card-body lp-connects-body">
+        <span class="lp-connects-label bcn-mono">Works with</span>
         <ul class="lp-connects-list" role="list">
           <li class="lp-int-chip">
             <svg class="lp-int-icon lp-int-icon--redo" viewBox="0 0 56 20" aria-hidden="true"><use href="#icon-redo"/></svg>
@@ -125,22 +126,24 @@
             <span>QuickBooks</span>
           </li>
         </ul>
+        </div>
       </div>
 
       <section class="lp-understand" aria-labelledby="lpUnderstandHeading">
         <h2 id="lpUnderstandHeading" class="lp-section-title">Reporting that connects to Redo</h2>
-        <article class="lp-board lp-board--dark" aria-labelledby="lpBoardTitle">
-          <header class="lp-board-head">
-            <h3 id="lpBoardTitle">Redo Marketing Performance</h3>
-            <span class="lp-board-range">Sample · Last 30 days</span>
+        <article class="bcn-card lp-board" aria-labelledby="lpBoardTitle">
+          <header class="bcn-card-header">
+            <h2 id="lpBoardTitle">Redo Marketing Performance</h2>
+            <span class="bcn-card-meta bcn-mono lp-board-range">Sample · Last 30 days</span>
           </header>
+          <div class="bcn-card-body lp-board-body">
           <div class="lp-slideshow" id="lpProductSlideshow" tabindex="0" aria-roledescription="carousel" aria-label="Redo marketing views in Silo">
             <div class="lp-slideshow-viewport">
               <ul class="lp-slideshow-track" role="list">
                 <li class="lp-slideshow-slide" id="lpSlideshowSlide0" aria-label="1 of 2: Trends">
                   <figure class="lp-demo">
                     <div class="lp-intel-frame">
-                      <span class="lp-intel-badge">Live</span>
+                      <span class="bcn-pill bcn-pill--dark lp-intel-badge">Live</span>
                       <div class="lp-demo-frame">
                         <div id="lpDemoPlaceholder" class="lp-shot lp-shot--chart" data-asset="redo-demo-chart.png" data-alt="Redo attributed revenue, spend, and daily trends">
                           <p class="lp-shot-label">Interface image</p>
@@ -154,7 +157,7 @@
                 </li>
                 <li class="lp-slideshow-slide" aria-label="2 of 2: Campaigns">
                   <div class="lp-intel-frame">
-                    <span class="lp-intel-badge">Campaigns</span>
+                    <span class="bcn-pill bcn-pill--dark lp-intel-badge">Campaigns</span>
                     <figure class="lp-shot lp-shot--wide lp-shot--slide" data-asset="redo-demo-dashboard.png" data-alt="Redo marketing overview and top campaigns">
                       <p class="lp-shot-label">Interface image</p>
                     </figure>
@@ -163,53 +166,66 @@
               </ul>
             </div>
             <div class="lp-slideshow-nav">
-              <button type="button" class="lp-slideshow-btn lp-slideshow-btn--prev" aria-controls="lpProductSlideshow" aria-label="Previous view">
+              <button type="button" class="bcn-btn bcn-btn--ghost lp-slideshow-btn lp-slideshow-btn--prev" aria-controls="lpProductSlideshow" aria-label="Previous view">
                 <span aria-hidden="true">←</span>
               </button>
               <div class="lp-slideshow-dots" role="tablist" aria-label="Choose view">
                 <button type="button" class="lp-slideshow-dot lp-slideshow-dot--active" role="tab" aria-selected="true" aria-label="Trends" data-lp-slide="0"></button>
                 <button type="button" class="lp-slideshow-dot" role="tab" aria-selected="false" aria-label="Campaigns" data-lp-slide="1"></button>
               </div>
-              <button type="button" class="lp-slideshow-btn lp-slideshow-btn--next" aria-controls="lpProductSlideshow" aria-label="Next view">
+              <button type="button" class="bcn-btn bcn-btn--ghost lp-slideshow-btn lp-slideshow-btn--next" aria-controls="lpProductSlideshow" aria-label="Next view">
                 <span aria-hidden="true">→</span>
               </button>
             </div>
-            <p class="lp-slideshow-caption" id="lpSlideshowCaption" aria-live="polite">Attributed revenue, spend, and daily trend</p>
+            <p class="lp-slideshow-caption bcn-mono" id="lpSlideshowCaption" aria-live="polite">Attributed revenue, spend, and daily trend</p>
+          </div>
           </div>
         </article>
         <section class="lp-workflows" aria-labelledby="lpWorkflowsHeading">
           <h2 id="lpWorkflowsHeading" class="lp-workflows-title">More Silo workflows</h2>
           <p class="lp-workflows-lead">Same workspace after Redo connects — marketing, finance, and purchasing.</p>
           <ul class="lp-workflows-track" role="list">
-            <li class="lp-workflow">
-              <span class="lp-workflow-tag">Marketing</span>
+            <li class="bcn-card lp-workflow">
+              <div class="bcn-card-body">
+              <span class="bcn-pill bcn-pill--accent lp-workflow-tag">Marketing</span>
               <h3>Redo reporting</h3>
               <p>Attributed revenue, spend, and campaigns beside Shopify and ads.</p>
+              </div>
             </li>
-            <li class="lp-workflow">
-              <span class="lp-workflow-tag">Marketing</span>
+            <li class="bcn-card lp-workflow">
+              <div class="bcn-card-body">
+              <span class="bcn-pill bcn-pill--accent lp-workflow-tag">Marketing</span>
               <h3>Ask what to send</h3>
               <p>Next campaign ideas from SMS and email performance.</p>
+              </div>
             </li>
-            <li class="lp-workflow">
-              <span class="lp-workflow-tag">Finance</span>
+            <li class="bcn-card lp-workflow">
+              <div class="bcn-card-body">
+              <span class="bcn-pill bcn-pill--pos lp-workflow-tag">Finance</span>
               <h3>Accounting with AI</h3>
               <p>Code transactions, review the ledger, ask Silo about the books.</p>
+              </div>
             </li>
-            <li class="lp-workflow">
-              <span class="lp-workflow-tag">Finance</span>
+            <li class="bcn-card lp-workflow">
+              <div class="bcn-card-body">
+              <span class="bcn-pill bcn-pill--pos lp-workflow-tag">Finance</span>
               <h3>On Deck review</h3>
               <p>Approve coded spend before it posts — AI suggestions you confirm.</p>
+              </div>
             </li>
-            <li class="lp-workflow">
-              <span class="lp-workflow-tag">Purchasing</span>
+            <li class="bcn-card lp-workflow">
+              <div class="bcn-card-body">
+              <span class="bcn-pill bcn-pill--warn lp-workflow-tag">Purchasing</span>
               <h3>PO management</h3>
               <p>Build POs, landed costing, and incoming inventory in one place.</p>
+              </div>
             </li>
-            <li class="lp-workflow">
-              <span class="lp-workflow-tag">Purchasing</span>
+            <li class="bcn-card lp-workflow">
+              <div class="bcn-card-body">
+              <span class="bcn-pill bcn-pill--warn lp-workflow-tag">Purchasing</span>
               <h3>Product Studio + AI</h3>
               <p>Draft buys in Ask Silo, mark ready, open in PO Builder.</p>
+              </div>
             </li>
           </ul>
         </section>
