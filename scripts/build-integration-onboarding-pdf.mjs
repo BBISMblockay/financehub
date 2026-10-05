@@ -6,16 +6,17 @@
  * Writes docs/ops/integration-setup-guides.html always. PDF needs Playwright:
  *   cd tests && npm install && npx playwright install chromium
  *
- * Re-run after changing v2/integration-guides.js and commit both artifacts. */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+ * Re-run after changing v2/integration-guides.js and commit both PDF copies
+ * (docs/ops for ops docs, v2/ for Integrations.html). */
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT_DIR = join(ROOT, 'docs', 'ops');
-const HTML_PATH = join(OUT_DIR, 'integration-setup-guides.html');
-const PDF_PATH = join(OUT_DIR, 'integration-setup-guides.pdf');
+const HTML_PATH = join(ROOT, 'docs', 'ops', 'integration-setup-guides.html');
+const PDF_OPS = join(ROOT, 'docs', 'ops', 'integration-setup-guides.pdf');
+const PDF_V2 = join(ROOT, 'v2', 'integration-setup-guides.pdf');
 
 function loadGuides() {
   const src = readFileSync(join(ROOT, 'v2/integration-guides.js'), 'utf8');
@@ -46,7 +47,7 @@ async function main() {
   const G = loadGuides();
   const generatedOn = new Date().toISOString().slice(0, 10);
   const html = G.renderOnboardingDocument({}, { generatedOn });
-  mkdirSync(OUT_DIR, { recursive: true });
+  mkdirSync(dirname(HTML_PATH), { recursive: true });
   writeFileSync(HTML_PATH, html, 'utf8');
   console.log('Wrote', HTML_PATH);
 
@@ -62,12 +63,14 @@ async function main() {
     await page.setContent(html, { waitUntil: 'load' });
     await page.emulateMedia({ media: 'print' });
     await page.pdf({
-      path: PDF_PATH,
+      path: PDF_OPS,
       format: 'Letter',
       printBackground: true,
       preferCSSPageSize: true,
     });
-    console.log('Wrote', PDF_PATH);
+    copyFileSync(PDF_OPS, PDF_V2);
+    console.log('Wrote', PDF_OPS);
+    console.log('Wrote', PDF_V2);
   } finally {
     await browser.close();
   }

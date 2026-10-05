@@ -391,7 +391,7 @@
     <p class="ig-print-brand">SILO</p>
     <h1>Integration setup guides</h1>
     <p class="ig-print-lead">Step-by-step instructions for connections that need work in Shopify, Meta, or Redo before credentials land in SILO. Same content as the setup drawers on the Integrations page.</p>
-    <p class="ig-print-meta">Generated ${esc(generated)} · <a href="https://get-silo.com/v2/integrations.html">get-silo.com/v2/integrations.html</a></p>
+    <p class="ig-print-meta">Generated ${esc(generated)} · SILO Integrations: <a href="/v2/integrations.html">/v2/integrations.html</a></p>
     <section class="ig-print-toc">
       <h2 class="ig-section-label">Contents</h2>
       <ol>${ONBOARDING_PRINT_ORDER.map(({ key, section }) =>

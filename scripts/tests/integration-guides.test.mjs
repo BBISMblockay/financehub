@@ -111,6 +111,8 @@ t('Integrations loads the guides and every opener names a real guide', () => {
   const page = read('v2/integrations.html');
   assert.ok(page.includes('<script src="integration-guides.js"></script>'));
   assert.ok(page.includes('href="integration-guides.css"'));
+  assert.match(page, /href="integration-setup-guides\.pdf"/, 'setup guide PDF linked from header');
+  assert.match(page, /download="SILO-integration-setup-guides\.pdf"/, 'download filename set');
   const keys = [...page.matchAll(/data-guide="([^"]+)"/g)].map((m) => m[1]);
   assert.ok(keys.length >= 5, 'openers present');
   for (const k of keys) assert.ok(G.GUIDES[k], `guide ${k} exists`);
