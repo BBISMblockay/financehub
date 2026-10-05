@@ -1160,13 +1160,96 @@ export function orderPaymentTerms(order) {
 }
 
 /**
+ * When an order was actually PAID, from Shopify's payment transactions
+ * (20261005130000). payment_terms_completed_at cannot answer it: Shopify left
+ * it blank on all 18 paid Klein / Daniel Gottsch wholesale orders (measured
+ * 2026-10-05), and the order's created/updated dates are not payment dates.
+ *
+ * Only orders paid AFTER they were placed need this -- draft orders and
+ * orders with payment terms (wholesale invoices). A checkout order is paid
+ * at checkout, so fetching its transactions would be one REST call per web
+ * and POS order for no information. Those orders are never written here, so
+ * their paid_at stays NULL ("not looked up"), and paid_at_checked_at says
+ * which orders were looked at.
+ */
+export const PAID_DATE_KEYS = ['paid_at', 'paid_at_checked_at'];
+const SETTLED_FINANCIAL_STATUSES = new Set(['paid', 'partially_refunded', 'refunded']);
+
+export function orderNeedsPaidDate(order) {
+  if (!order || typeof order !== 'object' || order.test) return false;
+  return order.source_name === 'shopify_draft_order'
+    || (order.payment_terms != null && typeof order.payment_terms === 'object');
+}
+
+/**
+ * The processed_at of the successful sale/capture that brought the money
+ * collected up to the order total -- the moment the order was settled. If
+ * the payments never reach total_price (an order edited down after payment)
+ * but Shopify calls the order paid, the last successful payment settled it.
+ * NULL when the order is not settled (pending, partially_paid, authorized,
+ * voided) or no successful payment exists. Refunds are not payments and
+ * never move this date.
+ */
+export function settledPaidAt(order, transactions) {
+  if (!SETTLED_FINANCIAL_STATUSES.has(order?.financial_status)) return null;
+  const at = (t) => t?.processed_at || t?.created_at || null;
+  const payments = (Array.isArray(transactions) ? transactions : [])
+    .filter((t) => t && (t.kind === 'sale' || t.kind === 'capture') && t.status === 'success'
+      && at(t) && Number.isFinite(Date.parse(at(t))))
+    .sort((a, b) => Date.parse(at(a)) - Date.parse(at(b)));
+  if (!payments.length) return null;
+  const total = Number(order.total_price);
+  let collected = 0;
+  for (const t of payments) {
+    collected += Number(t.amount || 0);
+    if (Number.isFinite(total) && collected >= total - 0.005) return at(t);
+  }
+  return at(payments[payments.length - 1]);
+}
+
+/**
+ * paid_at for every order in `orders` that needs one, keyed by order id.
+ * An order Shopify does not call settled is answered without an API call
+ * (paid_at NULL). A settled one costs one /orders/{id}/transactions.json
+ * call (getAll follows pagination; fetchWithRetry retries 429s and network
+ * errors). A failed lookup is COUNTED and left out of the map, so the
+ * stored paid_at is left as it was rather than overwritten with NULL, and
+ * the next sync or backfill tries again.
+ */
+export async function fetchOrderPaidDates(headers, base, orders, { checkedAt = new Date().toISOString() } = {}) {
+  const paid = new Map();
+  const stats = { candidates: 0, not_settled: 0, looked_up: 0, settled: 0, no_payment_found: 0, failed: 0 };
+  for (const order of orders || []) {
+    if (!orderNeedsPaidDate(order)) continue;
+    stats.candidates += 1;
+    const id = String(order.id);
+    if (!SETTLED_FINANCIAL_STATUSES.has(order.financial_status)) {
+      stats.not_settled += 1;
+      paid.set(id, { paid_at: null, paid_at_checked_at: checkedAt });
+      continue;
+    }
+    try {
+      const transactions = await getAll(headers, `${base}/orders/${encodeURIComponent(id)}/transactions.json?limit=250`);
+      stats.looked_up += 1;
+      const paidAt = settledPaidAt(order, transactions);
+      if (paidAt) stats.settled += 1; else stats.no_payment_found += 1;
+      paid.set(id, { paid_at: paidAt, paid_at_checked_at: checkedAt });
+    } catch (err) {
+      stats.failed += 1;
+      console.warn(`[paid-date] ${order.name || id}: transactions lookup failed: ${String(err?.message || err).slice(0, 200)}`);
+    }
+  }
+  return { paid, stats };
+}
+
+/**
  * Order-level and line-item-level facts, derived from the same order
  * objects ordersToSalesRows() flattens into sales_by_day -- see
  * 20260817210000_shopify_order_level_analytics.sql for why this exists
  * alongside (not instead of) the flattened aggregate. No extra Shopify API
  * calls: `orders` here is the exact array already fetched for sales rows.
  */
-export function ordersToOrderRows({ orders, connection, skuMeta, syncedAt, batchId }) {
+export function ordersToOrderRows({ orders, connection, skuMeta, syncedAt, batchId, paidDates = null }) {
   const domain = connection.shop_domain;
   const orderRows = [];
   const lineRows = [];
@@ -1205,6 +1288,8 @@ export function ordersToOrderRows({ orders, connection, skuMeta, syncedAt, batch
       shopify_processed_at: order.processed_at || null,
       shopify_updated_at: order.updated_at || null,
       ...orderPaymentTerms(order),
+      // Only when looked up: an absent key leaves the stored paid_at alone.
+      ...(paidDates?.has(String(order.id)) ? paidDates.get(String(order.id)) : {}),
       synced_at: syncedAt,
       sync_batch_id: batchId || null,
     });
@@ -1247,8 +1332,16 @@ export function ordersToOrderRows({ orders, connection, skuMeta, syncedAt, batch
  * disappear entirely from an edited order, and upsert alone can't remove a
  * row that's no longer in the incoming set.
  */
-export async function upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId }) {
-  const { orderRows, lineRows } = ordersToOrderRows({ orders, connection, skuMeta, syncedAt, batchId });
+export async function upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId, shopify = null }) {
+  // With Shopify credentials, look up paid dates for the draft / terms
+  // orders in this batch (fetchOrderPaidDates). Without them (the on-demand
+  // copy, tests), paid_at is simply not written.
+  const paidLookup = shopify?.headers && shopify?.base
+    ? await fetchOrderPaidDates(shopify.headers, shopify.base, orders, { checkedAt: syncedAt })
+    : null;
+  const { orderRows, lineRows } = ordersToOrderRows({
+    orders, connection, skuMeta, syncedAt, batchId, paidDates: paidLookup?.paid || null,
+  });
   if (!orderRows.length) return { orders_upserted: 0, order_lines_upserted: 0 };
 
   const orderIds = [...new Set(orderRows.map((r) => r.order_id))];
@@ -1268,17 +1361,27 @@ export async function upsertOrderFacts(supabase, connection, { orders, skuMeta, 
   // records that terms were skipped.
   let ordersUpserted;
   let termsSkipped = null;
+  let paidSkipped = null;
   try {
-    ordersUpserted = await upsertInChunks(supabase, 'shopify_orders', orderRows, 'shop_domain,order_id');
+    ordersUpserted = await upsertOrderRows(supabase, orderRows);
   } catch (err) {
-    if (!PAYMENT_TERMS_COLUMN_ERROR.test(err?.message || '')) throw err;
-    termsSkipped = 'shopify_orders has no payment-terms columns yet: apply 20260930150000_shopify_order_payment_terms.sql';
-    const stripped = orderRows.map((r) => {
-      const row = { ...r };
-      for (const k of PAYMENT_TERMS_KEYS) delete row[k];
-      return row;
-    });
-    ordersUpserted = await upsertInChunks(supabase, 'shopify_orders', stripped, 'shop_domain,order_id');
+    const message = err?.message || '';
+    if (PAID_DATE_COLUMN_ERROR.test(message)) {
+      // 20261005130000 not applied yet: write everything else.
+      paidSkipped = 'shopify_orders has no paid_at columns yet: apply 20261005130000_shopify_order_paid_at.sql';
+      try {
+        ordersUpserted = await upsertOrderRows(supabase, stripKeys(orderRows, PAID_DATE_KEYS));
+      } catch (err2) {
+        if (!PAYMENT_TERMS_COLUMN_ERROR.test(err2?.message || '')) throw err2;
+        termsSkipped = 'shopify_orders has no payment-terms columns yet: apply 20260930150000_shopify_order_payment_terms.sql';
+        ordersUpserted = await upsertOrderRows(supabase, stripKeys(orderRows, [...PAID_DATE_KEYS, ...PAYMENT_TERMS_KEYS]));
+      }
+    } else if (PAYMENT_TERMS_COLUMN_ERROR.test(message)) {
+      termsSkipped = 'shopify_orders has no payment-terms columns yet: apply 20260930150000_shopify_order_payment_terms.sql';
+      ordersUpserted = await upsertOrderRows(supabase, stripKeys(orderRows, [...PAID_DATE_KEYS, ...PAYMENT_TERMS_KEYS]));
+    } else {
+      throw err;
+    }
   }
   const linesUpserted = await upsertInChunks(supabase, 'shopify_order_lines', lineRows, 'shop_domain,order_id,line_item_id');
 
@@ -1292,7 +1395,48 @@ export async function upsertOrderFacts(supabase, connection, { orders, skuMeta, 
     orders_upserted: ordersUpserted, order_lines_upserted: linesUpserted,
     payment_terms: termsSkipped ? null : terms,
     ...(termsSkipped ? { payment_terms_skipped: termsSkipped } : {}),
+    ...(paidLookup ? { paid_dates: paidSkipped ? null : paidLookup.stats } : {}),
+    ...(paidSkipped ? { paid_dates_skipped: paidSkipped } : {}),
   };
+}
+
+const PAID_DATE_COLUMN_ERROR = new RegExp(
+  `(${PAID_DATE_KEYS.join('|')}).*(schema cache|does not exist)|(schema cache|does not exist).*(${PAID_DATE_KEYS.join('|')})`);
+
+function stripKeys(rows, keys) {
+  return rows.map((r) => {
+    const row = { ...r };
+    for (const k of keys) delete row[k];
+    return row;
+  });
+}
+
+/**
+ * Upserts order rows in groups that share a key set. A PostgREST bulk upsert
+ * names the UNION of the rows' keys as its columns and writes NULL where a
+ * row lacks one, so mixing rows with and without paid_at in one request
+ * would blank the stored paid_at of every order not looked up this run.
+ */
+async function upsertOrderRows(supabase, rows) {
+  const groups = new Map();
+  for (const r of rows) {
+    const sig = Object.keys(r).sort().join(',');
+    if (!groups.has(sig)) groups.set(sig, []);
+    groups.get(sig).push(r);
+  }
+  let n = 0;
+  for (const group of groups.values()) {
+    n += await upsertInChunks(supabase, 'shopify_orders', group, 'shop_domain,order_id');
+  }
+  return n;
+}
+
+/** Adds one upsertOrderFacts() paid_dates tally into a running total. */
+export function addPaidDatesTally(total, part) {
+  if (!part) return total || null;
+  const t = total || { candidates: 0, not_settled: 0, looked_up: 0, settled: 0, no_payment_found: 0, failed: 0 };
+  for (const k of Object.keys(t)) t[k] += Number(part[k] || 0);
+  return t;
 }
 
 /** Sorted unique YYYY-MM-DD dates → contiguous [{start, end}] runs. */
@@ -1424,7 +1568,7 @@ export async function runHistoryChunk(supabase, connection, {
       && (isFinalWindow ? r.day_date <= win.window_end : r.day_date < win.window_end)));
 
   const upserted = await upsertInChunks(supabase, 'sales_by_day', keepRows, 'row_hash');
-  const orderFacts = await upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId });
+  const orderFacts = await upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId, shopify: { headers, base } });
 
   const nextState = computeBackfillProgress({
     ...state,
@@ -1454,6 +1598,8 @@ export async function runHistoryChunk(supabase, connection, {
       order_lines_upserted: orderFacts.order_lines_upserted,
       payment_terms: orderFacts.payment_terms,
       ...(orderFacts.payment_terms_skipped ? { payment_terms_skipped: orderFacts.payment_terms_skipped } : {}),
+      ...(orderFacts.paid_dates !== undefined ? { paid_dates: orderFacts.paid_dates } : {}),
+      ...(orderFacts.paid_dates_skipped ? { paid_dates_skipped: orderFacts.paid_dates_skipped } : {}),
     },
     caches: { locationContext, skuMeta },
   };
@@ -2047,6 +2193,8 @@ export async function runIncrementalSales(supabase, connection, {
   let orderLinesUpserted = 0;
   let paymentTerms = addPaymentTermsTally(null, null);
   let paymentTermsSkipped = null;
+  let paidDates = null;
+  let paidDatesSkipped = null;
   const skippedTotals = { cancelled_orders: 0, gift_card_lines: 0, no_location_lines: 0 };
 
   // Rebuild every affected order-date in full: day aggregates can't be patched
@@ -2092,11 +2240,13 @@ export async function runIncrementalSales(supabase, connection, {
       (new Date(`${run.end}T00:00:00Z`) - new Date(`${run.start}T00:00:00Z`)) / 86400000,
     ) + 1;
 
-    const orderFacts = await upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId });
+    const orderFacts = await upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId, shopify: { headers, base } });
     ordersUpserted += orderFacts.orders_upserted;
     orderLinesUpserted += orderFacts.order_lines_upserted;
     paymentTerms = addPaymentTermsTally(paymentTerms, orderFacts.payment_terms);
     paymentTermsSkipped = paymentTermsSkipped || orderFacts.payment_terms_skipped || null;
+    paidDates = addPaidDatesTally(paidDates, orderFacts.paid_dates);
+    paidDatesSkipped = paidDatesSkipped || orderFacts.paid_dates_skipped || null;
   }
 
   return {
@@ -2109,6 +2259,8 @@ export async function runIncrementalSales(supabase, connection, {
     order_lines_upserted: orderLinesUpserted,
     payment_terms: paymentTerms,
     ...(paymentTermsSkipped ? { payment_terms_skipped: paymentTermsSkipped } : {}),
+    ...(paidDates ? { paid_dates: paidDates } : {}),
+    ...(paidDatesSkipped ? { paid_dates_skipped: paidDatesSkipped } : {}),
     rows_skipped: skippedTotals,
     newest_order_stamp: newestOrderStamp,
     last_order_sync_at: newestUpdatedStamp || syncedAt,

@@ -26,6 +26,7 @@ on:
       - 'supabase/migrations/*generate_po_from_concept*.sql'
       - 'v3/product-workflow-model.js'
       - 'supabase/migrations/*canned_report_accuracy.sql'
+      - 'supabase/migrations/*shopify_order_paid_at.sql'
       # The SILO report catalog seeds and the migration that re-asserts the
       # 2026-09-22 cleanup after them (report-catalog-cleanup-database.test.mjs).
       - 'supabase/migrations/*seed_system_reports.sql'
@@ -1353,3 +1354,10 @@ jobs:
       # derived only when terms were returned (NULL, never false, otherwise).
       - name: Shopify order payment terms -- view and overdue
         run: node scripts/tests/shopify-order-terms-database.test.mjs
+
+      # Shopify order paid date (20261005130000): paid_at from payment
+      # transactions, the lookup scoped to draft / terms orders, no mixed
+      # upsert batch (which would blank stored paid dates), and the migration
+      # applied to real Postgres with shopify_orders_v's columns kept in place.
+      - name: Shopify order paid date -- transactions and view
+        run: node scripts/tests/shopify-order-paid-at.test.mjs

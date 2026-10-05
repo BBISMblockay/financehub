@@ -938,6 +938,22 @@ select
     else 'ok'
   end as shopify_order_payment_terms;
 
+-- 25c. Shopify order paid date (20261005130000). paid_at comes from payment
+-- transactions; shopify_orders_v must carry it, and stay security_invoker.
+select
+  case
+    when (select count(*) from information_schema.columns where table_schema='public'
+          and table_name='shopify_orders' and column_name in ('paid_at','paid_at_checked_at')) <> 2
+      then 'MISSING — run 20261005130000_shopify_order_paid_at.sql'
+    when (select count(*) from information_schema.columns where table_schema='public'
+          and table_name='shopify_orders_v' and column_name in ('paid_at','paid_at_checked_at')) <> 2
+      then 'MISSING — shopify_orders_v paid_at columns'
+    when not coalesce((select 'security_invoker=true' = any(reloptions) from pg_class
+                       where oid = 'public.shopify_orders_v'::regclass), false)
+      then 'CRITICAL — shopify_orders_v is no longer security_invoker'
+    else 'ok'
+  end as shopify_order_paid_at;
+
 -- 26. Ask SILO saved reports (migration 20260818050000)
 select
   case

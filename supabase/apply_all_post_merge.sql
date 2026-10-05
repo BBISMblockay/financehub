@@ -19161,6 +19161,7 @@ $c$select (select count(*) from v_po_header_summary
 
 -- SILO daily ledger: categorized, settled transactions recorded per transaction, append-only.
 \i migrations/20261005120000_silo_daily_ledger.sql
+\i migrations/20261005130000_shopify_order_paid_at.sql
 
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above

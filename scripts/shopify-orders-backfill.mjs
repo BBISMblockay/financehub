@@ -27,6 +27,7 @@ import {
   planHistoryWindows,
   upsertOrderFacts,
   addPaymentTermsTally,
+  addPaidDatesTally,
 } from './lib/shopify-sync-core.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -140,16 +141,20 @@ async function backfillConnection(connection) {
   let ordersFetched = 0;
   let paymentTerms = addPaymentTermsTally(null, null);
   let paymentTermsSkipped = null;
+  let paidDates = null;
+  let paidDatesSkipped = null;
   try {
     for (const [i, win] of windows.entries()) {
       const orders = await fetchOrdersInWindow(headers, base, win.window_start, win.window_end);
-      const facts = await upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId: BATCH_ID });
+      const facts = await upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId: BATCH_ID, shopify: { headers, base } });
       ordersFetched += orders.length;
       ordersTotal += facts.orders_upserted;
       linesTotal += facts.order_lines_upserted;
       paymentTerms = addPaymentTermsTally(paymentTerms, facts.payment_terms);
       paymentTermsSkipped = paymentTermsSkipped || facts.payment_terms_skipped || null;
-      console.log(`[orders-backfill] ${connection.shop_domain} window ${i + 1}/${windows.length} (${win.window_start}→${win.window_end}): ${facts.orders_upserted} orders, ${facts.order_lines_upserted} lines, payment terms ${JSON.stringify(facts.payment_terms)}`);
+      paidDates = addPaidDatesTally(paidDates, facts.paid_dates);
+      paidDatesSkipped = paidDatesSkipped || facts.paid_dates_skipped || null;
+      console.log(`[orders-backfill] ${connection.shop_domain} window ${i + 1}/${windows.length} (${win.window_start}→${win.window_end}): ${facts.orders_upserted} orders, ${facts.order_lines_upserted} lines, payment terms ${JSON.stringify(facts.payment_terms)}, paid dates ${JSON.stringify(facts.paid_dates ?? null)}`);
     }
     const result = {
       job_type: 'orders_backfill',
@@ -161,6 +166,8 @@ async function backfillConnection(connection) {
       order_lines_upserted: linesTotal,
       payment_terms: paymentTerms,
       ...(paymentTermsSkipped ? { payment_terms_skipped: paymentTermsSkipped } : {}),
+      paid_dates: paidDates,
+      ...(paidDatesSkipped ? { paid_dates_skipped: paidDatesSkipped } : {}),
     };
     await finishJob(jobId, 'success', result);
     return result;
