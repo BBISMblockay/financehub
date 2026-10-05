@@ -57,7 +57,7 @@ const MUTATIONS = {
   // Forget to record what was coded before the books started.
   'no-books-start-sync': ["  if tg_table_name = 'accounting_opening_balances' then", "  if true then return null; end if;\n  if tg_table_name = 'accounting_opening_balances' then"],
   // Store the source/batch binding instead of the resolved connection.
-  'connection-not-stored': ["  v_conn := case when t.id is null then null\n                 else coalesce(public.silo_ledger_connection(t.batch_id),", "  v_conn := case when t.id is null then null\n                 else coalesce(null,"],
+  'connection-not-stored': ['                   public.silo_ledger_connection(t.batch_id),', '                   null,'],
   // Freeze only posted batches, as before cycle 2.
   'approved-not-frozen': [
     ["pb.status in ('approved', 'posted')) then", "pb.status = 'posted') then"],

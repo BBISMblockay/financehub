@@ -373,7 +373,10 @@ begin
   -- locations, entities). Descriptions are labels: renaming a card or fixing a
   -- merchant name must not reverse and re-record every transaction.
   v_conn := case when t.id is null then null
-                 else coalesce(public.silo_ledger_connection(t.batch_id),
+                 else coalesce((select nullif(fb.approval_snapshot->>'qbo_connection_id', '')::uuid
+                                  from public.card_import_batches fb
+                                 where fb.id = t.batch_id and fb.status in ('approved', 'posted')),
+                   public.silo_ledger_connection(t.batch_id),
                    (select coalesce(s2.qbo_connection_id, b2.qbo_connection_id)
                       from public.card_import_batches b2 join public.card_sources s2 on s2.id = b2.source_id
                      where b2.id = t.batch_id)) end;
