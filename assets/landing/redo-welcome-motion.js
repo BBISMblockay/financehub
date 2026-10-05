@@ -17,7 +17,7 @@
 
     const labels = [
       'Attributed revenue, spend, and daily trend',
-      'Channel overview and top campaigns',
+      'Attributed revenue, spend, and top campaigns in Silo',
       'Returns outcomes, weekly trends, and top reasons',
     ];
     let index = 0;
