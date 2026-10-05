@@ -105,7 +105,17 @@ r.test('without the ledger installed, nothing is shown as recorded and the month
   r.eq(C.cardModel(out[0]).action, 'Review');
   r.ok('a card that does not post is in no ledger', !C.isRecorded(out[3]) && C.cardModel(out[3]).stage === 'needs_input');
   r.ok('posted stays a receipt (it is in QuickBooks)', C.isRecorded(out[2]));
+  r.ok('and is described by QuickBooks, not a SILO ledger', !/SILO/.test(C.cardModel(out[2]).pill + C.cardModel(out[2]).title));
   r.eq(out[1].stage, 'code');
+});
+
+r.test('without the ledger installed, an approved import stays under After approval, as before the ledger', () => {
+  const out = C.applyLedgerStatus([{ batch_id: 'e', stage: 'approved', coded_amount: 9 }], null);
+  r.ok('not pending', !C.isPending(out[0]));
+  r.ok('a receipt', C.isRecorded(out[0]));
+  const m = C.cardModel(out[0]);
+  r.eq(m.title, 'QuickBooks entry approved');
+  r.ok('claims nothing about a SILO ledger', !/SILO|ledger/i.test(m.pill + m.title + m.caption));
 });
 
 r.summary();

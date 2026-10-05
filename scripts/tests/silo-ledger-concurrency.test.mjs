@@ -19,10 +19,15 @@
 //      Acceptance takes the company lock EXCLUSIVE before it enumerates coded
 //      rows, so the save is either seen by it or waits and then reads the
 //      books as started. Without it both commit and nothing is recorded.
+//   5. Accepting opening balances vs. re-saving an ALREADY-categorized row.
+//      Both paths take the company lock before the transaction lock; taking
+//      the transaction lock first deadlocked against acceptance, which holds
+//      the company lock and then records that same row.
 //
 // Mutations (each must make the suite fail, for the right reason):
 //   LEDGER_RACE_MUTATION=lock-unshared    (the recorder's shared lock removed)
 //   LEDGER_RACE_MUTATION=books-unlocked   (acceptance's exclusive lock removed)
+//   LEDGER_RACE_MUTATION=txn-lock-first   (the recorder locks the row before the company)
 //   LEDGER_RACE_MUTATION=period-unlocked  (the period lock's advisory lock AND
 //                                          its forward-only upsert removed;
 //                                          run with LEDGER_RACE_ONLY=2 too)
@@ -42,7 +47,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 const mutation = process.env.LEDGER_RACE_MUTATION || '';
-assert.ok(['', 'lock-unshared', 'period-unlocked', 'books-unlocked'].includes(mutation), `Unknown race mutation: ${mutation}`);
+assert.ok(['', 'lock-unshared', 'period-unlocked', 'books-unlocked', 'txn-lock-first'].includes(mutation), `Unknown race mutation: ${mutation}`);
 
 const root = new URL('../../', import.meta.url);
 const BASE = process.env.SILO_PG_CONN || process.env.DATABASE_URL || '';
@@ -140,6 +145,11 @@ try {
   if (mutation === 'lock-unshared') {
     cut("  perform pg_advisory_xact_lock_shared(hashtextextended('silo_ledger:company:' || v_company::text, 0));");
   }
+  if (mutation === 'txn-lock-first') {
+    const company = "  perform pg_advisory_xact_lock_shared(hashtextextended('silo_ledger:company:' || v_company::text, 0));\n";
+    const row = "  perform pg_advisory_xact_lock(hashtextextended('silo_ledger:card_transaction:' || p_txn::text, 0));\n";
+    cut(company + row, row + company);
+  }
   if (mutation === 'books-unlocked') {
     cut("  perform pg_advisory_xact_lock(hashtextextended('silo_ledger:company:' || new.company_entity_id::text, 0));\n");
   }
@@ -174,8 +184,9 @@ try {
     insert into card_transactions(id,company_entity_id,batch_id,row_no,txn_date,description,merchant,clean_merchant,card_name,amount,currency,status)
       values ('${txn}','${co}','${batch}',1,'2026-09-15','OFFICE DEPOT','OFFICE DEPOT','Office Depot','Supplies',42,'USD','uncoded');
   `;
-  // Two companies whose opening balances are still DRAFT, one per race order.
-  const late = [0, 1].map(() => ({ co: randomUUID(), conn: randomUUID(), card: randomUUID(), batch: randomUUID(), txn: randomUUID(), ob: randomUUID() }));
+  // Companies whose opening balances are still DRAFT: one per race order, and a
+  // third whose row is already categorized (race 5).
+  const late = [0, 1, 2].map(() => ({ co: randomUUID(), conn: randomUUID(), card: randomUUID(), batch: randomUUID(), txn: randomUUID(), ob: randomUUID() }));
   const lateSeed = late.map((c, i) => `
     insert into entities(id,title) values ('${c.co}','Late ${i}');
     insert into quickbooks_connections(id,company_entity_id,realm_id,access_token) values ('${c.conn}','${c.co}','rl${i}','x');
@@ -192,7 +203,8 @@ try {
     insert into card_import_batches(id,company_entity_id,source_id,label,entry_date,period_start,period_end,status,origin,qbo_connection_id)
       values ('${c.batch}','${c.co}','${c.card}','B','2026-09-30','2026-09-01','2026-09-30','draft','csv','${c.conn}');
     insert into card_transactions(id,company_entity_id,batch_id,row_no,txn_date,description,merchant,clean_merchant,card_name,amount,currency,status)
-      values ('${c.txn}','${c.co}','${c.batch}',1,'2026-09-15','OFFICE DEPOT','OFFICE DEPOT','Office Depot','Supplies',42,'USD','uncoded');`).join('\n');
+      values ('${c.txn}','${c.co}','${c.batch}',1,'2026-09-15','OFFICE DEPOT','OFFICE DEPOT','Office Depot','Supplies',42,'USD','uncoded');
+    ${i === 2 ? `update card_transactions set status='coded', qbo_account_id='supplies', qbo_account_name='supplies', coding_source='manual' where id='${c.txn}';` : ''}`).join('\n');
   const stubs = `create or replace function public.attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;
                  create or replace function public.silo_business_today() returns date language sql stable as $$ select date '2026-10-04' $$;`;
   run(dbConn, ['-f', await file('00-bootstrap.sql', bootstrap)]);
@@ -307,6 +319,29 @@ try {
       await s1.end(); await s2.end();
     }
     assert.equal(await recorded(c), '1', 'neither side recorded it: acceptance enumerated before the categorization was visible');
+  });
+
+  await test('re-saving a categorized row while opening balances are accepted does not deadlock, and records it once', async () => {
+    const c = late[2];
+    const s1 = session('silo-s1');
+    const s2 = session('silo-s2');
+    let accepted = '', saved = '';
+    try {
+      // Acceptance has taken the company lock and is about to record this row.
+      await s1.send('begin;');
+      await s1.send(`select pg_advisory_xact_lock(hashtextextended('silo_ledger:company:${c.co}', 0));`);
+      await s2.send('begin;');
+      await s2.send(`update card_transactions set memo='re-saved' where id='${c.txn}';`);
+      const inflight = s2.send('commit;');   // its recorder waits on the company lock
+      await waitUntilBlocked('silo-s2');
+      accepted = await s1.send(acceptSql(c));
+      await s1.send(/ERROR/.test(accepted) ? 'rollback;' : 'commit;');
+      saved = await inflight;
+    } finally {
+      await s1.end(); await s2.end();
+    }
+    assert.doesNotMatch(accepted + saved, /deadlock|ERROR/, `a session failed: ${accepted} ${saved}`);
+    assert.equal(await recorded(c), '1');
   });
 
   await ctl.end();

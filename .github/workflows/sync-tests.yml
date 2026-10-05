@@ -774,6 +774,10 @@ jobs:
               exit 1
             fi
           done
+          if LEDGER_RACE_ONLY=5 LEDGER_RACE_MUTATION=txn-lock-first node scripts/tests/silo-ledger-concurrency.test.mjs; then
+            echo "::error::race 5 does not catch the row-before-company lock order deadlocking acceptance"
+            exit 1
+          fi
 
       # Product Studio Ready for PO: one PO per concept across Generate PO and
       # the Studio handoff, and one ready brief per concept, under genuinely
@@ -902,7 +906,7 @@ jobs:
       - name: Execute SILO daily ledger regressions
         run: |
           node scripts/tests/silo-ledger-database.test.mjs
-          for mutation in no-start-check edit-in-place ignore-lock read-ungated cosmetic-rerecord no-validation posted-not-frozen no-books-start-sync lock-unshared connection-not-stored approved-not-frozen; do
+          for mutation in no-start-check edit-in-place ignore-lock read-ungated cosmetic-rerecord no-validation posted-not-frozen no-books-start-sync lock-unshared connection-not-stored approved-not-frozen held-reverses no-chart-resync no-source-resync snapshot-ignored no-active-correction-resync no-connection-resync zero-net-uses-today connection-token-resyncs no-freeze-note; do
             if SILO_LEDGER_MUTATION="$mutation" node scripts/tests/silo-ledger-database.test.mjs > /tmp/ledger-mutation.log 2>&1; then
               cat /tmp/ledger-mutation.log; echo "Survived ledger mutation: $mutation"; exit 1
             fi

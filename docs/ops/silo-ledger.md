@@ -32,9 +32,19 @@ Migration: `20261005120000_silo_daily_ledger.sql`.
   - for a bank feed: USD data, a known treatment, direction, the clearing-account type (a card
     payment belongs on the card or payable account), and no open feed exception.
 
-  A coded row that fails stays out of the ledger. On Deck shows its import as "needs input" with the
-  reason (`silo_ledger_batch_status()`), and fixing it in Transactions records it on save. A
-  QuickBooks-posted batch is never blocked, because QuickBooks already accepted it.
+  A coded row that fails is **held**: nothing new is written for it, and an entry already recorded
+  for it stays (a temporary problem never reverses a correct entry). On Deck shows its import as
+  "needs input" with the reason (`silo_ledger_batch_status()`).
+- **Held rows catch up on their own** when the problem clears (`silo_ledger_resync_held()`):
+  switching a source back on or changing its QuickBooks connection, resolving or removing a bank-feed
+  exception, or a chart account, location, customer or vendor becoming active (statement-level
+  triggers, one resync per company per statement). Fixing the coding in Transactions records it on
+  save, as before.
+- A QuickBooks-posted batch, or an approved one with its snapshot, is never blocked, and is recorded
+  **from that frozen snapshot**: its balancing account, location, entity and connection come from the
+  snapshot's settlement line, not from the card source as it is today. (Measured 2026-10-05: the
+  approved Operating batch's snapshot names a different balancing account than the source now does.)
+  Posted batches from before snapshots existed (4) use the source as it is.
 - **Opening balances accepted later:** accepting them, or moving `accounting_start_date`, records
   every already-categorized transaction for that company (a trigger on each table). It takes the
   company lock exclusive before it looks, so a categorization saved at the same moment is either seen
@@ -65,8 +75,9 @@ owner's included.
 - **The connection is stored on each entry.** When neither the source nor the batch names a
   QuickBooks connection, the company's one active connection is used and stored, so Books → Ledger
   (which filters by connection) shows it.
-- **Locking:** recording takes a per-company advisory lock shared, and `set_accounting_period_lock`
-  takes it exclusive. A recording that overlaps a lock change waits, then reads the new lock. The
+- **Locking:** recording takes a per-company advisory lock shared, then the transaction's own lock
+  (always in that order: the reverse deadlocked against opening-balance acceptance, which holds the
+  company lock and then records rows). `set_accounting_period_lock` takes the company lock exclusive. A recording that overlaps a lock change waits, then reads the new lock. The
   lock row's upsert only ever advances the date.
 - Every entry balances to the cent. The writer checks it, and a deferred constraint trigger checks it
   again, so a direct write cannot dodge it.
@@ -89,7 +100,9 @@ owner's included.
   - Not yet in QuickBooks: lines not sent, or sent on a date after the trial balance;
   - Other activity in QuickBooks: closing − opening − (recorded − not yet in QuickBooks);
   - Closing.
-- Card-batch postings are not counted a second time, because they are the same transactions.
+- A posted card batch is counted from its QuickBooks posting (what QuickBooks holds, including rows
+  dated before the ledger's start), and the ledger's in-QuickBooks lines for that batch are skipped,
+  so each transaction counts once. `silo_ledger_lines_v.batch_id` is what pairs them.
 - Without the migration, the tab behaves exactly as before.
 
 ## On Deck
@@ -134,11 +147,13 @@ No edge function changes; no secrets.
 
 ## Tests
 
-- `node scripts/tests/silo-ledger-database.test.mjs`: 23 checks. Mutations
-  `SILO_LEDGER_MUTATION=no-start-check|edit-in-place|ignore-lock|read-ungated|cosmetic-rerecord|no-validation|posted-not-frozen|no-books-start-sync|lock-unshared|connection-not-stored|approved-not-frozen`
+- `node scripts/tests/silo-ledger-database.test.mjs`: 27 checks. Mutations
+  `SILO_LEDGER_MUTATION=no-start-check|edit-in-place|ignore-lock|read-ungated|cosmetic-rerecord|no-validation|posted-not-frozen|no-books-start-sync|lock-unshared|connection-not-stored|approved-not-frozen|held-reverses|no-chart-resync|no-source-resync|snapshot-ignored`
   must each fail it, and run in CI.
 - `SILO_PG_CONN=... node scripts/tests/silo-ledger-concurrency.test.mjs`: two real PostgreSQL
   sessions.
+  - Race 5: re-saving an already-categorized row while opening balances are accepted does not
+    deadlock (mutation `txn-lock-first`, `LEDGER_RACE_ONLY=5`).
   - Race 1: recording while finance locks the month lands on the first open day.
   - Race 2: two first locks at once cannot reopen a closed month.
   - Races 3 and 4: accepting opening balances while a categorization commits, in both orders,

@@ -94,7 +94,9 @@
   // SILO ledger lines per account, dated after the opening date and on or
   // before the closing date. `pending` is what QuickBooks cannot hold yet as
   // of `through`: lines not sent, or sent on a later date than the trial balance.
-  function ledgerActivity(lines, { after, through }) {
+  // `inPostings` names the card batches whose QuickBooks posting is already
+  // counted: their in-QuickBooks lines are skipped here, so they count once.
+  function ledgerActivity(lines, { after, through, inPostings = new Set() }) {
     const byAccount = new Map();
     for (const l of lines || []) {
       const date = String(l.entry_date || '').slice(0, 10);
@@ -102,6 +104,10 @@
       if (through && date > through) continue;
       const amount = cents(l.signed_amount);
       const inQbo = !!l.in_quickbooks && (!through || (l.quickbooks_date && String(l.quickbooks_date).slice(0, 10) <= through));
+      // A confirmed posting is authoritative: skip the batch's ledger lines even if
+      // the parent batch's status never caught up with it (the posting is written
+      // first, so a failed second write leaves the batch 'approved').
+      if (l.batch_id && inPostings.has(String(l.batch_id))) continue;
       const entry = byAccount.get(String(l.qbo_account_id)) || { net: 0, pending: 0, lines: [] };
       entry.net += amount;
       if (!inQbo) entry.pending += amount;
@@ -126,16 +132,22 @@
       r.opening += cents(l.debit) - cents(l.credit);
     }
     const hasLedger = Array.isArray(ledgerLines);
-    // With the ledger, a card batch's posting is the same transactions the
-    // ledger already holds: count them once, from the ledger.
-    const posted = hasLedger ? (postings || []).filter((p) => p.source !== 'card_import') : postings;
-    const activity = siloActivity(posted, { after, through: closingDate || null });
+    // A posted card batch is counted from its QuickBooks posting, which is
+    // what QuickBooks holds -- including any rows dated before the ledger's
+    // start, which the ledger skips -- and the ledger's in-QuickBooks lines for
+    // that batch are then skipped, so each transaction counts once.
+    const through = closingDate || null;
+    const activity = siloActivity(postings, { after, through });
+    const inPostings = new Set((postings || [])
+      .filter((p) => p.source === 'card_import' && p.status === 'posted' && p.source_ref != null)
+      .filter((p) => { const d = p.payload?.TxnDate || p.period_end || ''; return d && d > after && (!through || d <= through); })
+      .map((p) => String(p.source_ref)));
     for (const [id, a] of activity.byAccount) {
       const r = row(id);
       r.silo += a.net; r.lines = r.lines.concat(a.lines);
     }
     if (hasLedger) {
-      for (const [id, a] of ledgerActivity(ledgerLines, { after, through: closingDate || null })) {
+      for (const [id, a] of ledgerActivity(ledgerLines, { after, through, inPostings })) {
         const r = row(id);
         r.silo += a.net; r.pending += a.pending; r.lines = r.lines.concat(a.lines);
       }
@@ -279,7 +291,7 @@
       const rows = [];
       for (let offset = 0; ; ) {
         const page = await read(db.from('quickbooks_journal_postings')
-          .select('id,source,status,payload,period_end,memo,qbo_doc_number,qbo_journal_entry_id,connection_id')
+          .select('id,source,source_ref,status,payload,period_end,memo,qbo_doc_number,qbo_journal_entry_id,connection_id')
           .eq('company_entity_id', companyId).eq('connection_id', connection).eq('status', 'posted')
           .order('id').range(offset, offset + POSTING_PAGE - 1));
         if (!page.length) return rows;
@@ -293,7 +305,7 @@
       const rows = [];
       for (let offset = 0; ; ) {
         const r = await db.from('silo_ledger_lines_v')
-          .select('id,entry_date,kind,memo,description,qbo_account_id,signed_amount,in_quickbooks,quickbooks_date')
+          .select('id,entry_date,kind,memo,description,qbo_account_id,signed_amount,in_quickbooks,quickbooks_date,batch_id')
           // Account ids are local to one QuickBooks connection: read the
           // books' own, exactly as the postings are read.
           .eq('company_entity_id', companyId).eq('qbo_connection_id', connection).gt('entry_date', after)
