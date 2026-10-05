@@ -81,17 +81,33 @@
     const userEl = preview.querySelector('.lp-ask-user [data-lp-ask-type="user"]');
     const recEl = preview.querySelector('[data-lp-ask-type="recommend"]');
     const whyEl = preview.querySelector('[data-lp-ask-type="why"]');
+    const whenEl = preview.querySelector('[data-lp-ask-type="when"]');
+    const draftSmsEl = preview.querySelector('[data-lp-ask-type="draft-sms"]');
+    const draftSubjectEl = preview.querySelector('[data-lp-ask-type="draft-subject"]');
+    const draftPreEl = preview.querySelector('[data-lp-ask-type="draft-pre"]');
+    const draftLeadEl = preview.querySelector('[data-lp-ask-type="draft-lead"]');
     const agent = preview.querySelector('.lp-ask-agent');
     const thinking = preview.querySelector('.lp-ask-thinking');
-    const evidence = preview.querySelector('.lp-ask-evidence-line');
+    const evidence = preview.querySelector('.lp-ask-evidence-line:not(.lp-ask-timing)');
+    const timing = preview.querySelector('.lp-ask-timing');
+    const drafts = preview.querySelector('.lp-ask-drafts');
     const meta = preview.querySelector('.lp-ask-ai-meta');
     const caret = preview.querySelector('.lp-ask-caret');
     if (!userEl || !recEl || !whyEl || !agent) return;
 
+    function text(el) {
+      return el ? el.textContent.trim() : '';
+    }
+
     const copy = {
-      user: userEl.textContent.trim(),
-      rec: recEl.textContent.trim(),
-      why: whyEl.textContent.trim(),
+      user: text(userEl),
+      rec: text(recEl),
+      why: text(whyEl),
+      when: text(whenEl),
+      draftSms: text(draftSmsEl),
+      draftSubject: text(draftSubjectEl),
+      draftPre: text(draftPreEl),
+      draftLead: text(draftLeadEl),
     };
     const metaDone = meta ? meta.textContent.trim() : '';
 
