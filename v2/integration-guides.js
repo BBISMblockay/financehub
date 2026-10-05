@@ -144,7 +144,7 @@
 
     meta_ads: {
       title: 'Connect Meta Ads with a System User token',
-      summary: 'Meta has no one-click connect for this. You create a "system user" in your Meta Business portfolio, give it read access to the ad account, and generate a token that never expires.',
+      summary: 'Meta has no one-click connect for this. Confirm a Business app in your portfolio, create a system user, assign your ad account, and generate a long-lived token.',
       time: 'About 15 minutes',
       needs: [
         '<strong>Admin</strong> access to the Meta Business portfolio that owns the ad account',
