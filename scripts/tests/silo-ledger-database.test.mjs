@@ -23,7 +23,7 @@
 //   SILO_LEDGER_MUTATION=cosmetic-rerecord
 //   SILO_LEDGER_MUTATION=no-validation|posted-not-frozen|no-books-start-sync|lock-unshared|connection-not-stored|approved-not-frozen
 //   SILO_LEDGER_MUTATION=held-reverses|no-chart-resync|no-source-resync|snapshot-ignored
-//   SILO_LEDGER_MUTATION=no-active-correction-resync|no-connection-resync|zero-net-uses-today
+//   SILO_LEDGER_MUTATION=no-active-correction-resync|no-connection-resync|zero-net-uses-today|connection-token-resyncs|no-freeze-note
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -47,15 +47,16 @@ const MUTATIONS = {
   // Wake held rows only on inactive -> active, as before cycle 1: an active account corrected from AP to Expense stays held.
   'no-active-correction-resync': ["  -- Any update to a row that is active afterwards, not only inactive -> active:\n  -- correcting an active account's type (AP -> Expense) clears a blocker too.\n  for v_co in select distinct n.company_entity_id from new_rows n where n.is_active loop", "  for v_co in select distinct n.company_entity_id from new_rows n join old_rows o on o.id = n.id\n              where n.is_active and not coalesce(o.is_active, false) loop"],
   // A reactivated QuickBooks connection does not wake the rows it held.
-  'no-connection-resync': ["'quickbooks_vendors', 'quickbooks_connections']", "'quickbooks_vendors']"],
-  // Rebuild a zero-net frozen batch from today's source instead of holding it.
+  'no-connection-resync': ["  for each statement execute function public.silo_ledger_on_connection_update();", "  for each statement when (false) execute function public.silo_ledger_on_connection_update();"],
+  // A token refresh on an active connection replays the whole company's ledger.
+  'connection-token-resyncs': ["  for v_co in select distinct n.company_entity_id from new_rows n join old_rows o on o.id = n.id\n              where n.is_active and not coalesce(o.is_active, false) loop\n    perform public.silo_ledger_resync_held(v_co);\n  end loop;\n  return null;\nend $$;\ndrop trigger if exists silo_ledger_connection_update",
+    "  for v_co in select distinct n.company_entity_id from new_rows n where n.is_active loop\n    perform public.silo_ledger_resync_held(v_co);\n  end loop;\n  return null;\nend $$;\ndrop trigger if exists silo_ledger_connection_update"],
+  // Rebuild a zero-net frozen batch from today's source instead of the note taken at approval, or holding it.
   'zero-net-uses-today': [
-    ["    if v_settle is null then return null; end if;\n", ""],
+    ["      if not found then return null; end if;\n      v_def_loc := v_bal_loc;", "      v_bal_acct := s.credit_qbo_account_id; v_bal_loc := s.default_qbo_location_id; v_bal_ent := s.credit_vendor_qbo_id; v_conn := coalesce(public.silo_ledger_connection(b.id), b.qbo_connection_id);\n      v_def_loc := v_bal_loc;"],
     ["    then return 'This approved import netted to zero, so its approval did not record the balancing account'; end if;", "    then return null; end if;"]],
-  // Switching a source back on does not re-record what it held.
-  'no-source-resync': [
-    ['      new.is_active, new.qbo_connection_id)', '      new.qbo_connection_id)'],
-    ['      old.is_active, old.qbo_connection_id)', '      old.qbo_connection_id)']],
+  // Never note the balancing account at approval: a newly approved zero-net batch cannot be rebuilt.
+  'no-freeze-note': ["    if s.credit_qbo_account_id is not null then\n      insert into public.silo_ledger_freeze", "    if false then\n      insert into public.silo_ledger_freeze"],
   // Record an approved batch from today's source instead of its frozen snapshot.
   'snapshot-ignored': ["  if b.status in ('approved', 'posted') and b.approval_snapshot is not null then\n    v_conn", '  if false then\n    v_conn'],
   // Let a source remap rewrite QuickBooks-posted history.
@@ -458,6 +459,49 @@ try {
     assert.match(status[0]?.reason || '', /active QuickBooks connection/);
     await q('update quickbooks_connections set is_active=true where id=$1', [conn]);
     assert.equal((await entries(t)).length, 1, 'reactivating the connection recorded it with no edit');
+  });
+
+  await test('a token refresh on an active connection does not replay the ledger; reactivation still does', async () => {
+    await q("update quickbooks_accounts set is_active=false where company_entity_id=$1 and qbo_account_id='meals'", [co]);
+    const b = await newBatch(card);
+    const t = await newTxn(b, 11, { status: 'coded', account: 'meals', date: '2026-09-24' });
+    assert.equal((await entries(t)).length, 0, 'held: the account is inactive');
+    // The account becomes usable again with nothing to wake the held row.
+    await db.exec('alter table quickbooks_accounts disable trigger user');
+    await q("update quickbooks_accounts set is_active=true where company_entity_id=$1 and qbo_account_id='meals'", [co]);
+    await db.exec('alter table quickbooks_accounts enable trigger user');
+    assert.equal((await entries(t)).length, 0, 'still unrecorded: nothing has woken it');
+    await q("update quickbooks_connections set access_token='refreshed' where id=$1", [conn]);
+    assert.equal((await entries(t)).length, 0, 'a token refresh on an active connection replays nothing');
+    await q('update quickbooks_connections set is_active=false where id=$1', [conn]);
+    await q('update quickbooks_connections set is_active=true where id=$1', [conn]);
+    assert.equal((await entries(t)).length, 1, 'activation does');
+  });
+
+  await test('a zero-net batch approved after this migration is rebuilt from the account noted at approval, not today\'s source', async () => {
+    const b = await newBatch(card);
+    const up = await newTxn(b, 100, { date: '2026-09-25' });
+    const down = await newTxn(b, -100, { date: '2026-09-25' });
+    const snapshot = { schema_version: 1, kind: 'card_batch', qbo_connection_id: conn, payload: { TxnDate: '2026-09-30', Line: [
+      { DetailType: 'JournalEntryLineDetail', Amount: 100, JournalEntryLineDetail: { PostingType: 'Debit', AccountRef: { value: 'supplies' } } },
+      { DetailType: 'JournalEntryLineDetail', Amount: 100, JournalEntryLineDetail: { PostingType: 'Credit', AccountRef: { value: 'supplies' } } }] } };
+    // Approve with the ledger's own trigger on, as production does (other guards off, as in the tests above).
+    await db.exec('alter table card_import_batches disable trigger user');
+    await db.exec('alter table card_import_batches enable trigger silo_ledger_batch');
+    await q("update card_import_batches set status='approved', approval_snapshot=$2, approval_hash='h' where id=$1", [b, JSON.stringify(snapshot)]);
+    await db.exec('alter table card_import_batches enable trigger user');
+    assert.equal((await one('select qbo_account_id from silo_ledger_freeze where batch_id=$1', [b])).qbo_account_id, 'cc', 'noted at approval');
+    await q("update card_sources set credit_qbo_account_id='cc3', credit_qbo_account_name='cc3' where id=$1", [card]);
+    await db.exec('alter table card_transactions disable trigger plaid_transaction_integrity');
+    await q("update card_transactions set status='coded', qbo_account_id='supplies', qbo_account_name='supplies', coding_source='manual' where id = any($1::uuid[])", [[up, down]]);
+    await db.exec('alter table card_transactions enable trigger plaid_transaction_integrity');
+    for (const t of [up, down]) {
+      const es = await entries(t);
+      assert.equal(es.length, 1, 'recorded, not held');
+      assert.ok((await lines(es[0].id)).some((l) => l.qbo_account_id === 'cc'), 'against the account QuickBooks was approved with');
+      assert.ok(!(await lines(es[0].id)).some((l) => l.qbo_account_id === 'cc3'), 'never today\'s remapped account');
+    }
+    await q("update card_sources set credit_qbo_account_id='cc', credit_qbo_account_name='cc' where id=$1", [card]);
   });
 
   await test('correcting an ACTIVE account from payable to expense records the row it held', async () => {

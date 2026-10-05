@@ -165,6 +165,26 @@ begin
   return v_conn;
 end $$;
 
+-- ── The balancing account a batch had when it was approved ─────────────────
+-- A snapshot records the balancing account only inside its settlement line, and
+-- approve_card_import_batch omits that line when the batch nets to zero. So the
+-- moment a batch is approved, the ledger notes the source's balancing account,
+-- location, entity and connection as the approval read them (same transaction,
+-- same values), and a zero-net frozen batch is rebuilt from that note. A batch
+-- approved before this existed has no note: it stays held, and reopening and
+-- re-approving it records one. Closed to clients; written only by the trigger.
+create table if not exists public.silo_ledger_freeze (
+  batch_id uuid primary key references public.card_import_batches(id) on delete cascade,
+  company_entity_id uuid not null references public.entities(id),
+  qbo_account_id text not null,
+  qbo_location_id text,
+  entity_qbo_id text,
+  qbo_connection_id uuid,
+  frozen_at timestamptz not null default now()
+);
+alter table public.silo_ledger_freeze enable row level security;
+revoke all on public.silo_ledger_freeze from public, anon, authenticated;
+
 -- ── The balancing line a frozen batch's approval snapshot carries ───────────
 -- approve_card_import_batch appends ONE settlement line (the card or bank
 -- account's side) after one line per non-zero effective line, and only when the
@@ -205,6 +225,7 @@ begin
     -- rebuilt faithfully (today's source may have been remapped since) and is
     -- held rather than recorded against the wrong account.
     if public.silo_ledger_snapshot_settlement(b.id) is null
+       and not exists (select 1 from public.silo_ledger_freeze f where f.batch_id = b.id)
        and not exists (select 1 from public.ledger_entries e
                         where e.company_entity_id = t.company_entity_id and e.source = 'card_transaction'
                           and e.source_id = t.id and e.kind = 'original'
@@ -328,12 +349,22 @@ begin
     -- No settlement line (a zero-net batch) means the snapshot does not record
     -- the balancing account: record nothing rather than use today's source.
     v_settle := public.silo_ledger_snapshot_settlement(b.id);
-    if v_settle is null then return null; end if;
-    v_bal_acct := v_settle->'AccountRef'->>'value';
-    v_bal_loc := v_settle->'DepartmentRef'->>'value';
-    v_def_loc := v_bal_loc;
-    v_bal_ent := v_settle->'Entity'->'EntityRef'->>'value';
-    v_bal_ent_type := v_settle->'Entity'->>'Type';
+    if v_settle is not null then
+      v_bal_acct := v_settle->'AccountRef'->>'value';
+      v_bal_loc := v_settle->'DepartmentRef'->>'value';
+      v_def_loc := v_bal_loc;
+      v_bal_ent := v_settle->'Entity'->'EntityRef'->>'value';
+      v_bal_ent_type := v_settle->'Entity'->>'Type';
+    else
+      -- A zero-net batch: the snapshot carries no balancing account. Use what the
+      -- approval read, noted at that moment; with no note (a batch approved before
+      -- this existed) record nothing rather than use today's source.
+      select f.qbo_account_id, f.qbo_location_id, f.entity_qbo_id, coalesce(f.qbo_connection_id, v_conn)
+        into v_bal_acct, v_bal_loc, v_bal_ent, v_conn
+        from public.silo_ledger_freeze f where f.batch_id = b.id;
+      if not found then return null; end if;
+      v_def_loc := v_bal_loc;
+    end if;
   end if;
   if v_bal_acct is null then return null; end if;
 
@@ -569,6 +600,22 @@ begin
   end loop;
   return null;
 end $$;
+-- A QuickBooks connection resyncs only when it BECOMES active (a token refresh or
+-- any other update to an already-active row does not).
+create or replace function public.silo_ledger_on_connection_update()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_co uuid;
+begin
+  for v_co in select distinct n.company_entity_id from new_rows n join old_rows o on o.id = n.id
+              where n.is_active and not coalesce(o.is_active, false) loop
+    perform public.silo_ledger_resync_held(v_co);
+  end loop;
+  return null;
+end $$;
+drop trigger if exists silo_ledger_connection_update on public.quickbooks_connections;
+create trigger silo_ledger_connection_update after update on public.quickbooks_connections
+  referencing old table as old_rows new table as new_rows
+  for each statement execute function public.silo_ledger_on_connection_update();
 do $$
 declare tbl text;
 begin
@@ -576,6 +623,10 @@ begin
     execute format('drop trigger if exists silo_ledger_chart_insert on public.%I', tbl);
     execute format('create trigger silo_ledger_chart_insert after insert on public.%I referencing new table as new_rows '
                    'for each statement execute function public.silo_ledger_on_chart_insert()', tbl);
+  end loop;
+  -- A connection is NOT in this loop: its token refreshes update an active row on
+  -- the posting path, and that must never replay the company's ledger.
+  foreach tbl in array array['quickbooks_accounts', 'quickbooks_locations', 'quickbooks_customers', 'quickbooks_vendors'] loop
     execute format('drop trigger if exists silo_ledger_chart_update on public.%I', tbl);
     execute format('create trigger silo_ledger_chart_update after update on public.%I referencing old table as old_rows new table as new_rows '
                    'for each statement execute function public.silo_ledger_on_chart_update()', tbl);
@@ -587,9 +638,22 @@ end $$;
 -- unposted (posted -> approved) keeps the snapshot, so it stays frozen.
 create or replace function public.silo_ledger_on_batch()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_id uuid;
+declare v_id uuid; s public.card_sources%rowtype;
 begin
+  -- Approval: note the balancing account the approval just read (see silo_ledger_freeze).
+  if new.status = 'approved' and old.status in ('draft', 'categorized') then
+    select * into s from public.card_sources where id = new.source_id;
+    if s.credit_qbo_account_id is not null then
+      insert into public.silo_ledger_freeze(batch_id, company_entity_id, qbo_account_id, qbo_location_id, entity_qbo_id, qbo_connection_id)
+      values (new.id, new.company_entity_id, s.credit_qbo_account_id, s.default_qbo_location_id, s.credit_vendor_qbo_id,
+              public.silo_ledger_connection(new.id))
+      on conflict (batch_id) do update set company_entity_id = excluded.company_entity_id,
+        qbo_account_id = excluded.qbo_account_id, qbo_location_id = excluded.qbo_location_id,
+        entity_qbo_id = excluded.entity_qbo_id, qbo_connection_id = excluded.qbo_connection_id, frozen_at = now();
+    end if;
+  end if;
   if old.status in ('approved', 'posted') and new.status in ('draft', 'categorized') then
+    delete from public.silo_ledger_freeze where batch_id = new.id;
     for v_id in select id from public.card_transactions where batch_id = new.id order by txn_date, id loop
       perform public.silo_ledger_sync_card_transaction(v_id);
     end loop;
@@ -709,7 +773,7 @@ begin
     'public.silo_ledger_on_card_transaction()', 'public.silo_ledger_on_split()', 'public.silo_ledger_on_source()',
     'public.silo_ledger_on_batch()', 'public.silo_ledger_on_books_start()',
     'public.silo_ledger_resync_held(uuid, uuid)', 'public.silo_ledger_on_feed_exception()',
-    'public.silo_ledger_on_chart_insert()', 'public.silo_ledger_on_chart_update()',
+    'public.silo_ledger_on_chart_insert()', 'public.silo_ledger_on_chart_update()', 'public.silo_ledger_on_connection_update()',
     'public.silo_ledger_connection(uuid)', 'public.silo_ledger_blocker(uuid)', 'public.silo_ledger_snapshot_settlement(uuid)',
     'public.ledger_entry_must_balance()', 'public.ledger_deny_mutation()'] loop
     execute format('revoke all on function %s from public, anon, authenticated', f);
