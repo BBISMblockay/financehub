@@ -289,6 +289,9 @@ test('redo-welcome is its own page with its own stylesheet; demo.html is untouch
     assert.match(welcome, new RegExp('data-asset="' + file.replace('.', '\\.') + '"'));
   }
   assert.match(welcome, /lp-ask-preview/);
+  assert.match(welcome, /ac-log/);
+  assert.match(welcome, /ac-msg--user/);
+  assert.match(welcome, /ac-bubble--md/);
   assert.match(welcome, /lp-slideshow/);
   assert.match(welcome, /lp-workflows/);
   assert.match(welcome, /Accounting with AI/);
