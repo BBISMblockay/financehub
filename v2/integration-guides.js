@@ -148,9 +148,15 @@
       time: 'About 15 minutes',
       needs: [
         '<strong>Admin</strong> access to the Meta Business portfolio that owns the ad account',
-        'A Meta app of type <strong>Business</strong> (step 3 creates one if you have none)',
+        'A Meta app of type <strong>Business</strong> (step 1 creates one if you have none)',
       ],
       steps: [
+        {
+          title: 'Make sure you have a Business app',
+          body: 'If the portfolio already has an app, skip this. Otherwise create one of type <strong>Business</strong>, connected to the same portfolio. You need the app before a system user can generate a token.',
+          link: { href: 'https://developers.facebook.com/apps', label: 'Open Meta for Developers' },
+          note: 'After step 2, in Business settings → <strong>Accounts → Apps</strong>, assign the system user to this app — you pick that app when generating the token.',
+        },
         {
           title: 'Create a system user',
           body: 'In Business settings go to <strong>Users → System users → Add</strong>. Name it <code>SILO</code>; the Admin role is fine.',
@@ -159,11 +165,6 @@
         {
           title: 'Give it the ad account',
           body: 'On the system user choose <strong>Assign assets → Ad accounts</strong>, pick your ad account and grant view-performance (read) access. Repeat for each ad account SILO should report on.',
-        },
-        {
-          title: 'Make sure you have a Business app',
-          body: 'If the portfolio already has an app, skip this. Otherwise create one of type <strong>Business</strong>, connected to the same portfolio. Then in Business settings → <strong>Accounts → Apps</strong>, assign the system user to it.',
-          link: { href: 'https://developers.facebook.com/apps', label: 'Open Meta for Developers' },
         },
         {
           title: 'Generate the token',
@@ -191,7 +192,7 @@
       },
       troubleshooting: [
         { q: 'I regenerated the token — where does the new one go?', a: 'Use <strong>Replace token</strong> on the existing Meta row. Do not use Add Meta Ads token again; that creates a second connection for the same account.' },
-        { q: 'Test lists no ad accounts', a: 'The ad account isn\'t assigned to the system user (step 2), or the token was generated without <code>ads_read</code>.' },
+        { q: 'Test lists no ad accounts', a: 'The ad account isn\'t assigned to the system user (step 3), or the token was generated without <code>ads_read</code>.' },
         { q: '"Could not derive a Page access token" / error #190', a: 'The Page isn\'t assigned to the system user. Assign it (organic step 2); no new token is needed.' },
       ],
       action: { id: 'meta_form', label: 'Go to the Meta form' },

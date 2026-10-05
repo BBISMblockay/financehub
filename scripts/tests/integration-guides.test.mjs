@@ -42,6 +42,14 @@ t('Shopify scopes equal PUBLIC_SCOPES', () => {
   for (const s of PUBLIC_SCOPES) assert.ok(G.SHOPIFY_OWN_APP_SCOPES.includes(s), `own-app route includes ${s}`);
 });
 
+t('Meta Ads guide runs Business app before system user', () => {
+  const steps = G.resolve('meta_ads', {}).steps;
+  assert.match(steps[0].title, /Business app/i);
+  assert.match(steps[1].title, /system user/i);
+  assert.match(steps[2].title, /ad account/i);
+  assert.match(G.resolve('meta_ads', {}).needs[1], /step 1 creates/);
+});
+
 t('Meta organic scopes include pages_show_list (Test lists Pages via /me/accounts)', () => {
   for (const s of ['pages_show_list', 'pages_read_engagement', 'instagram_basic', 'instagram_manage_insights']) {
     assert.ok(G.META_ORGANIC_SCOPES.includes(s), `organic scope ${s}`);
