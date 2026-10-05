@@ -10,7 +10,7 @@ const {startSuite}=require('../lib/harness');
     page.on('dialog',d=>d.accept());
     await page.goto(suite.BASE+'/v3/product-workflow.html');
     await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Choose a source'));
-    assert.equal(await page.locator('.silo-sidebar a[href^="/v3/product-workflow"]').count(),1,'Product Studio is in the Purchasing nav');
+    assert.equal(await page.locator('.silo-sidebar a[href^="/v3/product-workflow"]').count(),0,'Product Studio is hidden from the menu (2026-10-05); the page itself still loads by URL');
     // Default view is Ready for PO; nothing is ready yet, and the concept sits in Ideas / drafts.
     assert.equal(await page.locator('#stage-ready_for_po').getAttribute('aria-selected'),'true');
     assert.match(await page.locator('#stage-list').innerText(),/Nothing is ready for PO yet/);
