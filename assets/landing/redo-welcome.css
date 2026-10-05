@@ -748,6 +748,69 @@
   letter-spacing: .08em;
   text-transform: uppercase;
 }
+#landing .lp-ask-timing { margin-top: 8px; }
+#landing .lp-ask-drafts {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity .45s ease, transform .45s ease;
+}
+#landing .lp-ask-drafts.lp-ask-reveal--in,
+#landing .lp-ask-preview--done .lp-ask-drafts {
+  opacity: 1;
+  transform: none;
+}
+#landing .lp-ask-preview--motion:not(.lp-ask-preview--done) .lp-ask-timing:not(.lp-ask-reveal--in) {
+  opacity: 0;
+  transform: translateY(4px);
+}
+#landing .lp-ask-timing.lp-ask-reveal--in,
+#landing .lp-ask-preview--done .lp-ask-timing {
+  opacity: 1;
+  transform: none;
+  transition: opacity .35s ease, transform .35s ease;
+}
+#landing .lp-ask-draft {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(6, 16, 48, .5);
+  border: 1px solid #243352;
+}
+#landing .lp-ask-draft-label {
+  display: block;
+  margin-bottom: 6px;
+  color: #9eb6ff;
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+#landing .lp-ask-draft-body {
+  margin: 0;
+  color: #eef3ff;
+  font-size: 13px;
+  line-height: 1.45;
+}
+#landing .lp-ask-draft--email .lp-ask-draft-row {
+  margin: 0 0 6px;
+  color: #c8d4ec;
+  font-size: 13px;
+  line-height: 1.45;
+}
+#landing .lp-ask-draft--email .lp-ask-draft-row:last-child { margin-bottom: 0; }
+#landing .lp-ask-draft-k {
+  display: inline-block;
+  min-width: 4.5rem;
+  color: #93a0b8;
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+#landing .lp-ask-draft-row--lead { margin-top: 8px; padding-top: 8px; border-top: 1px solid #243352; }
 #landing .lp-ask-evidence {
   display: grid;
   gap: 8px;
@@ -1018,6 +1081,7 @@
   #landing .lp-ask-caret,
   #landing .lp-ask-thinking span { animation: none; }
   #landing .lp-ask-preview--motion .lp-ask-agent--pending { opacity: 1; transform: none; }
-  #landing .lp-ask-preview--motion .lp-ask-evidence-line { opacity: 1; transform: none; }
+  #landing .lp-ask-preview--motion .lp-ask-evidence-line,
+  #landing .lp-ask-preview--motion .lp-ask-drafts { opacity: 1; transform: none; }
   #landing .bcn-btn, #landing .lp-cta { transition: none; }
 }
