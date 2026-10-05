@@ -25,8 +25,11 @@ frame on the same navy field as the board.
 Ask Silo on the welcome page is an HTML preview (readable recommendation +
 evidence cards), not a screenshot — the product chat is too dense at poster size.
 
-Shipped from dark-mode Silo captures. Gradient frames mark live product UI vs
-poster copy.
+The two captures sit in a **left/right slideshow** on the board (arrows, dots,
+optional auto-advance). A **Silo workflows** strip below highlights connect →
+read → ask → save → plan.
+
+Shipped from dark-mode Silo captures. Gradient frames mark live product UI.
 
 ## Still fallback (unchanged)
 
