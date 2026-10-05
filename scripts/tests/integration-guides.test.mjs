@@ -42,6 +42,28 @@ t('Shopify scopes equal PUBLIC_SCOPES', () => {
   for (const s of PUBLIC_SCOPES) assert.ok(G.SHOPIFY_OWN_APP_SCOPES.includes(s), `own-app route includes ${s}`);
 });
 
+t('Meta Ads guide runs Business app before system user hub', () => {
+  const steps = G.resolve('meta_ads', {}).steps;
+  assert.match(steps[0].title, /Business app/i);
+  assert.ok(steps[0].links && steps[0].links.length >= 2, 'app step links to Developers + portfolio Apps');
+  assert.match(steps[1].title, /System users/i);
+  assert.match(steps[3].title, /Assign the app and ad account/i);
+  assert.match(steps[4].title, /Generate and copy/i);
+});
+
+t('Meta Ads guide uses verified Business settings deep links', () => {
+  const html = G.render('meta_ads', {});
+  for (const u of [
+    G.META_SYSTEM_USERS,
+    G.META_PORTFOLIO_APPS,
+    G.META_DEVELOPERS_APPS,
+    G.META_BUSINESS_SETTINGS,
+    G.META_SYSTEM_USER_HELP,
+  ]) {
+    assert.ok(html.includes(u), `render includes ${u}`);
+  }
+});
+
 t('Meta organic scopes include pages_show_list (Test lists Pages via /me/accounts)', () => {
   for (const s of ['pages_show_list', 'pages_read_engagement', 'instagram_basic', 'instagram_manage_insights']) {
     assert.ok(G.META_ORGANIC_SCOPES.includes(s), `organic scope ${s}`);
@@ -58,7 +80,10 @@ t('every guide renders with steps and https-only links', () => {
     assert.ok(html.includes('class="ig-steps"'), `${key} renders steps`);
     for (const m of html.matchAll(/href="([^"]+)"/g)) assert.match(m[1], /^https:\/\//, `${key} link ${m[1]}`);
     const all = g.steps.concat(g.extra ? g.extra.steps : []);
-    for (const s of all) if (s.link) assert.match(s.link.href, /^https:\/\//);
+    for (const s of all) {
+      if (s.link) assert.match(s.link.href, /^https:\/\//);
+      for (const L of s.links || []) assert.match(L.href, /^https:\/\//);
+    }
   }
   assert.equal(G.render('nope', {}), '');
   assert.equal(G.resolve('nope'), null);
