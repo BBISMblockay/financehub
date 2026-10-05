@@ -1,21 +1,20 @@
-/* Standalone demo page only. The existing home and auth router are untouched.
-   Visual direction: the early-access poster. Flat navy, royal blue, square
-   corners, open sections rather than boxed cards. */
+/* Standalone /demo.html — Beacon tokens + components (beacon.css). */
 .lp-demo-page {
   margin: 0;
   min-width: 0;
-  background: #0a0e1a;
-  color: var(--bcn-band-ink);
+  background: var(--bcn-bg);
+  color: var(--bcn-ink);
   font-family: var(--bcn-font);
 }
 .lp-demo-page, .lp-demo-page *, .lp-demo-page *::before, .lp-demo-page *::after { box-sizing: border-box; }
+
 #landing {
   position: relative;
   min-height: 100vh;
   min-height: 100svh;
-  color: #fff;
+  color: var(--bcn-ink);
   font-family: var(--bcn-font);
-  background: #0a0e1a;
+  background: var(--bcn-bg);
   display: flex;
   flex-direction: column;
   padding: 36px clamp(24px, 5.6vw, 96px) 20px;
@@ -26,51 +25,56 @@
   max-width: 1280px;
   margin-inline: auto;
 }
-#landing .lp-top, #landing .lp-brand {
+#landing .lp-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+#landing .lp-brand {
   display: flex;
   align-items: center;
   gap: 12px;
   font-size: 22px;
   font-weight: 800;
   letter-spacing: -.03em;
+  font-family: var(--bcn-mono);
 }
-#landing .lp-top { justify-content: space-between; }
 #landing .lp-mark {
   width: 40px;
   height: 40px;
-  border-radius: 4px;
+  border-radius: var(--bcn-radius);
   display: grid;
   place-items: center;
   font-size: 19px;
-  background: #121a2e;
-  border: 1px solid #2a3550;
+  font-weight: 800;
+  background: var(--bcn-surface);
+  border: 1px solid var(--bcn-border-strong);
+  box-shadow: var(--bcn-shadow);
+  color: var(--bcn-ink);
 }
 #landing .lp-signin {
   min-height: 44px;
   padding: 11px 22px;
-  border-radius: 3px;
-  color: #fff;
-  border: 1px solid #3a4560;
-  background: transparent;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
 }
-#landing .lp-signin:hover { background: #121a2e; border-color: #7a86a0; }
 
 /* Hero */
 #landing .lp-mid { flex: 1; padding-block: 64px 80px; }
 #landing .lp-eyebrow {
   margin: 0 0 14px;
-  color: #7290f2;
-  font-size: 13px;
-  font-weight: 700;
+  color: var(--bcn-accent);
+  font-family: var(--bcn-mono);
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: .12em;
   text-transform: uppercase;
 }
 #landing h1 {
   max-width: 1100px;
   margin: 0 0 22px;
-  color: #fff;
+  color: var(--bcn-ink);
   font-size: clamp(38px, 4.6vw, 66px);
   font-weight: 800;
   line-height: 1.06;
@@ -81,7 +85,7 @@
 #landing .lp-description {
   max-width: 760px;
   margin: 0;
-  color: #c3cad8;
+  color: var(--bcn-ink-2);
   font-size: 19px;
   line-height: 1.6;
 }
@@ -95,12 +99,20 @@
 
 /* Walkthrough */
 #landing .lp-demo { margin: 0; min-width: 0; }
+#landing .lp-demo-card {
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
 #landing .lp-demo-frame {
   position: relative;
   aspect-ratio: 794 / 462;
   overflow: hidden;
-  border-radius: 2px;
-  background: #03060c;
+  border-radius: var(--bcn-radius);
+  background: var(--bcn-sunken);
+  border: 1px solid var(--bcn-border-strong);
 }
 #landing .lp-demo-placeholder { height: 100%; }
 #landing .lp-demo-placeholder picture { display: block; height: 100%; }
@@ -119,101 +131,118 @@
   width: fit-content;
   max-width: calc(100% - 40px);
   margin: 0 auto;
-  padding: 10px 16px;
-  color: #fff;
-  background: #0a0e1aee;
-  border: 1px solid #2a3550;
-  border-radius: 2px;
-  font-size: 13px;
-  line-height: 1.5;
-  text-align: center;
 }
 #landing .lp-demo-frame video {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #03060c;
+  background: var(--bcn-sunken);
 }
 #landing .lp-demo-frame [hidden] { display: none; }
-#landing .lp-demo-caption { margin: 14px 0 0; color: #8a94aa; font-size: 13px; line-height: 1.5; }
+#landing .lp-demo-caption {
+  margin: 14px 0 0;
+  color: var(--bcn-ink-3);
+  font-family: var(--bcn-mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
 
-/* Form */
+/* Form — bcn-card + default Beacon fields */
 #landing .lp-access {
   min-width: 0;
   overflow: visible;
-  padding: 30px 30px 28px;
-  border: 1px solid #222b40;
-  border-radius: 4px;
-  background: #0f1526;
+  padding: 18px;
 }
 #landing .lp-access h2 {
   margin: 0 0 8px;
-  color: #fff;
-  font-size: 25px;
-  font-weight: 800;
+  color: var(--bcn-ink);
+  font-size: clamp(22px, 2.4vw, 26px);
+  font-weight: 700;
   line-height: 1.25;
-  letter-spacing: -.03em;
+  letter-spacing: -.02em;
 }
-#landing .lp-access-intro { margin: 0 0 24px; color: #aab4c8; font-size: 14px; line-height: 1.6; }
-#landing .bcn-field-group { gap: 9px; margin-bottom: 20px; }
-#landing .bcn-label { font-size: 13px; font-weight: 700; color: #fff; }
-#landing .bcn-field {
-  height: 47px;
-  padding: 10px 12px;
-  border: 1px solid #2c3650;
-  border-radius: 3px;
-  background: #0a0e1a;
-  font-size: 16px;
-  font-weight: 400;
-  line-height: 1.4;
+#landing .lp-access-intro {
+  margin: 0 0 20px;
+  color: var(--bcn-ink-2);
+  font-size: 14px;
+  line-height: 1.6;
 }
-#landing .bcn-field:focus { border-color: #3b63e6; }
+#landing .bcn-field-group { margin-bottom: 14px; }
 #landing .lp-join {
-  min-height: 50px;
-  padding: 12px 22px;
-  border: 1px solid #3b63e6;
-  border-radius: 3px;
-  background: #3b63e6;
-  color: #fff;
-  font-size: 15px;
-  font-weight: 800;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
   white-space: normal;
 }
-#landing .lp-join { width: 100%; margin-top: 4px; }
-#landing .lp-join:hover { background: #4a70ee; border-color: #4a70ee; }
-#landing .lp-join[disabled] { cursor: default; }
-#landing .lp-privacy, #landing .lp-form-fallback { margin: 16px 0 0; color: #aab4c8; font-size: 11px; line-height: 1.65; }
-#landing .lp-privacy a, #landing .lp-form-fallback a { color: #fff; text-underline-offset: 3px; }
-#landing .lp-honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-#landing #lpFormStatus { margin-top: 16px; padding: 12px; border-radius: 3px; line-height: 1.6; overflow-wrap: anywhere; }
-#landing a:focus-visible, #landing button:focus-visible, #landing input:focus-visible, #landing video:focus-visible {
-  outline: 3px solid var(--bcn-accent);
-  outline-offset: 4px;
+#landing .lp-privacy, #landing .lp-form-fallback {
+  margin: 16px 0 0;
+  color: var(--bcn-ink-3);
+  font-size: 11px;
+  line-height: 1.65;
+}
+#landing .lp-privacy a, #landing .lp-form-fallback a {
+  color: var(--bcn-accent);
+  text-underline-offset: 3px;
+}
+#landing .lp-honeypot {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+#landing #lpFormStatus {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: var(--bcn-radius);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
-/* What Silo connects to: plain text, never logos or links. */
-#landing .lp-connects {
+/* Connects */
+#landing .lp-connects { margin-top: 36px; }
+#landing .lp-connects-body {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 12px 14px;
+}
+#landing .lp-connects-label {
+  color: var(--bcn-ink-3);
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+#landing .lp-connects-list {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 16px;
-  margin-top: 36px;
-  color: #8a94aa;
-  font-size: 14px;
+  gap: 4px 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
-#landing .lp-connects-label { color: #7290f2; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-#landing .lp-connects-list { display: flex; flex-wrap: wrap; gap: 4px 0; margin: 0; padding: 0; list-style: none; }
-#landing .lp-connects-list li { color: #c3cad8; }
-#landing .lp-connects-list li:not(:last-child)::after { content: "·"; margin: 0 10px; color: #4a5570; }
+#landing .lp-connects-list li { color: var(--bcn-ink-2); font-size: 14px; font-weight: 500; }
+#landing .lp-connects-list li:not(:last-child)::after {
+  content: "·";
+  margin: 0 10px;
+  color: var(--bcn-ink-4);
+}
 
-/* What you get: the poster's open two-column list, no card boxes. */
-#landing .lp-features { margin-top: 112px; max-width: 1100px; }
-#landing .lp-section-head { margin-bottom: 40px; }
+/* What you get */
+#landing .lp-features { margin-top: 96px; max-width: 1100px; }
+#landing .lp-section-head { margin-bottom: 28px; }
 #landing .lp-section-head h2 {
   margin: 0;
-  color: #fff;
-  font-size: clamp(32px, 3.4vw, 48px);
+  color: var(--bcn-ink);
+  font-size: clamp(28px, 3.2vw, 40px);
   font-weight: 800;
   line-height: 1.1;
   letter-spacing: -.04em;
@@ -222,45 +251,82 @@
 #landing .lp-feature-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 40px;
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-#landing .lp-feature {
+#landing .lp-feature { min-height: 0; }
+#landing .lp-feature .bcn-card-body {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  column-gap: 18px;
-  row-gap: 8px;
+  grid-template-columns: 44px minmax(0, 1fr);
+  column-gap: 14px;
+  row-gap: 6px;
   align-content: start;
-  min-width: 0;
-  padding: 26px 28px 30px 0;
+  padding: 14px;
 }
 #landing .lp-icon {
   grid-row: 1 / span 3;
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
-  border: 1px solid #c3cad8;
-  color: #fff;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--bcn-radius);
+  border: 1px solid var(--bcn-border-strong);
+  background: var(--bcn-sunken);
+  color: var(--bcn-ink);
 }
-#landing .lp-icon svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-#landing .lp-feature h3 { margin: 10px 0 0; color: #fff; font-size: 24px; font-weight: 800; letter-spacing: -.025em; line-height: 1.2; }
-#landing .lp-feature p { margin: 0; color: #c3cad8; font-size: 17px; line-height: 1.55; }
-#landing .lp-feature--ask { padding: 26px 28px 30px; background: #2c50d4; }
-#landing .lp-feature--ask .lp-icon { border-color: #fff; }
-#landing .lp-feature--ask p { color: #fff; }
+#landing .lp-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#landing .lp-feature h3 {
+  margin: 4px 0 0;
+  color: var(--bcn-ink);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: 1.25;
+}
+#landing .lp-feature p {
+  margin: 0;
+  color: var(--bcn-ink-2);
+  font-size: 14px;
+  line-height: 1.55;
+}
+#landing .lp-feature--ask {
+  border-color: var(--bcn-accent-border);
+  background: color-mix(in oklab, var(--bcn-accent) 10%, var(--bcn-surface));
+}
+#landing .lp-feature--ask .lp-icon {
+  border-color: var(--bcn-accent-border);
+  color: var(--bcn-accent);
+}
 #landing .lp-feature--ask .lp-ask-example {
-  margin-top: 10px;
-  padding: 12px 14px;
-  border-left: 3px solid #fff;
-  background: rgba(10, 14, 26, .28);
-  font-size: 15px;
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--bcn-accent);
+  background: var(--bcn-sunken);
+  font-size: 13.5px;
   line-height: 1.5;
+  color: var(--bcn-ink);
 }
-#landing .lp-ask-label { display: block; margin-bottom: 4px; color: #dbe3ff; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-
+#landing .lp-ask-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--bcn-ink-3);
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
 
 #landing .lp-foot {
   display: flex;
@@ -269,33 +335,35 @@
   flex-wrap: wrap;
   gap: 8px 24px;
   padding-top: 20px;
-  border-top: 1px solid #1a2236;
+  border-top: 1px solid var(--bcn-border-strong);
   font-size: 12px;
-  color: #8a94aa;
+  color: var(--bcn-ink-3);
 }
 #landing .lp-foot nav { display: flex; gap: 26px; flex-wrap: wrap; }
-#landing .lp-foot a { display: inline-flex; align-items: center; min-height: 44px; color: #8a94aa; text-decoration: none; }
-#landing .lp-foot a:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+#landing .lp-foot a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--bcn-ink-3);
+  text-decoration: none;
+}
+#landing .lp-foot a:hover { color: var(--bcn-ink); text-decoration: underline; text-underline-offset: 3px; }
 
 @media (max-width: 1100px) {
   #landing .lp-content { grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); gap: 28px; }
-  #landing .lp-access { padding: 26px 24px; }
-  #landing .lp-access h2 { font-size: 23px; }
 }
 @media (max-width: 900px) {
   #landing { padding: 28px 28px 20px; }
   #landing .lp-mid { padding-block: 44px 56px; }
   #landing .lp-content { grid-template-columns: minmax(0, 1fr); gap: 32px; margin-top: 32px; }
-  #landing .lp-access { width: 100%; max-width: 560px; justify-self: center; padding: 30px; }
-  #landing .lp-features { margin-top: 80px; }
+  #landing .lp-access { width: 100%; max-width: 560px; justify-self: center; }
+  #landing .lp-features { margin-top: 72px; }
   #landing .lp-description { font-size: 17px; }
 }
 @media (max-width: 680px) {
   #landing .lp-feature-grid { grid-template-columns: minmax(0, 1fr); }
-  #landing .lp-feature { padding-right: 0; }
-  #landing .lp-feature--ask { padding: 24px 20px 26px; }
-  #landing .lp-feature h3 { font-size: 21px; }
-  #landing .lp-feature p { font-size: 16px; }
+  #landing .lp-feature h3 { font-size: 17px; }
+  #landing .lp-feature p { font-size: 13.5px; }
 }
 @media (max-width: 420px) {
   #landing { padding-inline: 20px; }
@@ -303,10 +371,9 @@
   #landing .lp-brand { font-size: 20px; }
   #landing .lp-signin { padding-inline: 16px; }
   #landing h1 { font-size: 34px; }
-  #landing .lp-access { padding: 24px 20px; }
-  #landing .lp-feature { grid-template-columns: 44px minmax(0, 1fr); column-gap: 14px; }
-  #landing .lp-icon { width: 44px; height: 44px; }
-  #landing .lp-demo-note { left: 12px; right: 12px; bottom: 12px; max-width: calc(100% - 24px); padding: 8px 12px; font-size: 11px; }
+  #landing .lp-feature .bcn-card-body { grid-template-columns: 40px minmax(0, 1fr); column-gap: 12px; }
+  #landing .lp-icon { width: 40px; height: 40px; }
+  #landing .lp-demo-note { left: 12px; right: 12px; bottom: 12px; max-width: calc(100% - 24px); }
 }
 @media (prefers-reduced-motion: reduce) {
   #landing .bcn-btn { transition: none; }
