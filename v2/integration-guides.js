@@ -306,6 +306,150 @@
     </li>`;
   }
 
+  const ONBOARDING_PRINT_ORDER = [
+    { key: 'shopify_dev_app', section: 'Shopify — store-owned app (recommended)' },
+    { key: 'shopify_token', section: 'Shopify — legacy Admin API token' },
+    { key: 'meta_ads', section: 'Meta Ads — system user token' },
+    { key: 'redo', section: 'Redo — returns & marketing' },
+  ];
+
+  function stepHtmlPrint(s, i) {
+    const links = stepLinks(s);
+    const scopes = s.scopes && s.scopes.length
+      ? `<div class="ig-scopes">${s.scopes.map((x) => `<code>${esc(x)}</code>`).join('')}</div>` : '';
+    const linkLines = links.map((L) =>
+      `<p class="ig-print-url"><span class="ig-print-url-label">${esc(L.label)}</span> `
+      + `<a href="${esc(L.href)}">${esc(L.href)}</a></p>`).join('');
+    const copies = (s.copy || []).filter((c) => c && c.value).map((c) =>
+      `<p class="ig-print-copy"><span class="ig-print-copy-label">${esc(c.label)}</span> `
+      + `<code class="ig-print-code">${esc(c.value)}</code></p>`).join('');
+    return `<li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">${i + 1}</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">${esc(s.title)}</div>
+        <div class="ig-step-body">${s.body || ''}</div>
+        ${scopes}
+        ${linkLines}${copies}
+        ${s.note ? `<div class="ig-step-note">${s.note}</div>` : ''}
+      </div>
+    </li>`;
+  }
+
+  function renderGuidePrint(key, ctx) {
+    const g = resolve(key, ctx);
+    if (!g) return '';
+    let n = 0;
+    const main = g.steps.map((s) => stepHtmlPrint(s, n++)).join('');
+    const extra = g.extra
+      ? `<section class="ig-print-extra">
+          <h3 class="ig-print-extra-title">${esc(g.extra.title)}</h3>
+          <ol class="ig-print-steps">${g.extra.steps.map((s) => stepHtmlPrint(s, n++)).join('')}</ol>
+        </section>` : '';
+    const trouble = g.troubleshooting && g.troubleshooting.length
+      ? `<section class="ig-print-trouble">
+          <h3 class="ig-section-label">If something goes wrong</h3>
+          ${g.troubleshooting.map((t) => `<div class="ig-print-faq"><p class="ig-print-q">${esc(t.q)}</p><div class="ig-print-a">${t.a}</div></div>`).join('')}
+        </section>` : '';
+    return `<article class="ig-print-guide" id="guide-${esc(key)}">
+      <header class="ig-print-guide-head">
+        <p class="ig-kicker">Setup guide · ${esc(g.time)}</p>
+        <h2 class="ig-print-guide-title">${esc(g.title)}</h2>
+        <p class="ig-summary">${g.summary}</p>
+      </header>
+      ${g.needs && g.needs.length ? `<section class="ig-needs ig-needs--print">
+        <div class="ig-section-label">Before you start</div>
+        <ul>${g.needs.map((item) => `<li>${item}</li>`).join('')}</ul>
+      </section>` : ''}
+      <ol class="ig-print-steps">${main}</ol>
+      ${extra}
+      ${trouble}
+      <p class="ig-fineprint">Button names on the other site can shift slightly as they update their dashboards.</p>
+      <p class="ig-print-silo">In SILO: Workspace → Settings → <strong>Integrations</strong> (<code>/v2/integrations.html</code>).</p>
+    </article>`;
+  }
+
+  function renderOnboardingDocument(ctx, opts) {
+    const o = opts || {};
+    const generated = o.generatedOn || new Date().toISOString().slice(0, 10);
+    const sections = ONBOARDING_PRINT_ORDER.map(({ key, section }) => {
+      const body = renderGuidePrint(key, ctx);
+      if (!body) return '';
+      return `<section class="ig-print-part">
+        <h2 class="ig-print-part-title">${esc(section)}</h2>
+        ${body}
+      </section>`;
+    }).join('');
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>SILO — Integration setup guides</title>
+  <style>${ONBOARDING_PRINT_CSS}</style>
+</head>
+<body>
+  <header class="ig-print-cover">
+    <p class="ig-print-brand">SILO</p>
+    <h1>Integration setup guides</h1>
+    <p class="ig-print-lead">Step-by-step instructions for connections that need work in Shopify, Meta, or Redo before credentials land in SILO. Same content as the setup drawers on the Integrations page.</p>
+    <p class="ig-print-meta">Generated ${esc(generated)} · <a href="https://get-silo.com/v2/integrations.html">get-silo.com/v2/integrations.html</a></p>
+    <section class="ig-print-toc">
+      <h2 class="ig-section-label">Contents</h2>
+      <ol>${ONBOARDING_PRINT_ORDER.map(({ key, section }) =>
+        `<li><a href="#guide-${esc(key)}">${esc(section)}</a></li>`).join('')}</ol>
+    </section>
+    <p class="ig-print-oauth">One-click in SILO (no separate guide): Google Ads, GA4, TikTok Ads, QuickBooks Online, Shopify OAuth, and Stripe Connect.</p>
+  </header>
+  ${sections}
+</body>
+</html>`;
+  }
+
+  const ONBOARDING_PRINT_CSS = `
+    @page { margin: 0.72in; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0 0 48px; font-family: "Helvetica Neue", Arial, sans-serif; font-size: 11pt; line-height: 1.45; color: #0f172a; }
+    a { color: #2563eb; word-break: break-all; }
+    code { font-family: ui-monospace, "IBM Plex Mono", monospace; font-size: 9.5pt; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 4px; padding: 0 4px; }
+    .ig-print-cover { page-break-after: always; padding: 0 0 24px; border-bottom: 2px solid #0f172a; margin-bottom: 28px; }
+    .ig-print-brand { margin: 0 0 8px; font-family: ui-monospace, monospace; font-size: 10pt; letter-spacing: .12em; font-weight: 700; }
+    .ig-print-cover h1 { margin: 0 0 12px; font-size: 22pt; letter-spacing: -.02em; }
+    .ig-print-lead { margin: 0 0 12px; color: #334155; max-width: 42em; }
+    .ig-print-meta { margin: 0 0 18px; font-size: 9.5pt; color: #64748b; }
+    .ig-print-oauth { margin: 16px 0 0; font-size: 10pt; color: #475569; }
+    .ig-section-label { margin: 0 0 8px; font-family: ui-monospace, monospace; font-size: 9pt; letter-spacing: .08em; text-transform: uppercase; color: #64748b; }
+    .ig-print-toc ol { margin: 0; padding-left: 20px; }
+    .ig-print-part { page-break-before: always; }
+    .ig-print-part-title { margin: 0 0 16px; font-size: 14pt; color: #1e293b; }
+    .ig-print-guide-head { margin-bottom: 14px; }
+    .ig-kicker { margin: 0 0 4px; font-family: ui-monospace, monospace; font-size: 9pt; letter-spacing: .06em; text-transform: uppercase; color: #64748b; }
+    .ig-print-guide-title { margin: 0 0 8px; font-size: 16pt; }
+    .ig-summary { margin: 0; color: #334155; }
+    .ig-needs--print { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; margin: 14px 0; }
+    .ig-needs--print ul { margin: 0; padding-left: 18px; }
+    .ig-print-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+    .ig-step--print { display: flex; gap: 10px; break-inside: avoid; page-break-inside: avoid; }
+    .ig-step-num { flex: 0 0 22px; height: 22px; border-radius: 50%; background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; font-family: ui-monospace, monospace; font-size: 10pt; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+    .ig-step-main { flex: 1; min-width: 0; }
+    .ig-step-title { font-weight: 700; margin-bottom: 2px; }
+    .ig-step-body { color: #334155; }
+    .ig-step-body ul { margin: 4px 0 0; padding-left: 18px; }
+    .ig-scopes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .ig-step-note { margin-top: 6px; font-size: 10pt; color: #64748b; }
+    .ig-print-url { margin: 6px 0 0; font-size: 10pt; }
+    .ig-print-url-label { font-weight: 600; display: block; color: #0f172a; }
+    .ig-print-copy { margin: 6px 0 0; }
+    .ig-print-copy-label { font-weight: 600; display: block; margin-bottom: 2px; }
+    .ig-print-code { display: block; white-space: pre-wrap; word-break: break-all; padding: 6px 8px; margin-top: 2px; }
+    .ig-print-extra { margin-top: 16px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
+    .ig-print-extra-title { margin: 0 0 10px; font-size: 12pt; }
+    .ig-print-trouble { margin-top: 18px; }
+    .ig-print-faq { margin-top: 10px; break-inside: avoid; }
+    .ig-print-q { margin: 0 0 4px; font-weight: 700; }
+    .ig-print-a { margin: 0; color: #334155; }
+    .ig-fineprint { margin: 16px 0 0; font-size: 9pt; color: #64748b; }
+    .ig-print-silo { margin: 8px 0 0; font-size: 10pt; color: #475569; }
+  `;
+
   function render(key, ctx) {
     const g = resolve(key, ctx);
     if (!g) return '';
@@ -392,7 +536,9 @@
     GUIDES, SHOPIFY_SCOPES, SHOPIFY_OWN_APP_SCOPES,
     META_BUSINESS_SETTINGS, META_SYSTEM_USERS, META_PORTFOLIO_APPS, META_DEVELOPERS_APPS, META_SYSTEM_USER_HELP,
     META_ADS_SCOPES, META_ORGANIC_SCOPES, REDO_MARKETING_SCOPES,
-    resolve, render, copyValues, open, keys: () => Object.keys(GUIDES),
+    ONBOARDING_PRINT_ORDER,
+    resolve, render, renderGuidePrint, renderOnboardingDocument, copyValues, open,
+    keys: () => Object.keys(GUIDES),
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.SiloIntegrationGuides = api;

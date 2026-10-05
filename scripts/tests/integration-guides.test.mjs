@@ -117,4 +117,22 @@ t('Integrations loads the guides and every opener names a real guide', () => {
   for (const k of ['shopify_dev_app', 'shopify_token', 'meta_ads', 'redo']) assert.ok(keys.includes(k), `${k} reachable`);
 });
 
+t('onboarding print document includes every side-drawer guide', () => {
+  assert.equal(G.ONBOARDING_PRINT_ORDER.length, 4);
+  const html = G.renderOnboardingDocument({}, { generatedOn: '2026-10-05' });
+  assert.match(html, /Integration setup guides/);
+  assert.ok(html.includes('ig-print-cover'), 'print layout');
+  assert.ok(!html.includes('data-copy'), 'print uses text, not copy chips');
+  for (const { key, section } of G.ONBOARDING_PRINT_ORDER) {
+    assert.ok(html.includes(`id="guide-${key}"`), `guide anchor ${key}`);
+    const needle = section.includes('&') ? section.replace(/&/g, '&amp;') : section;
+    assert.ok(html.includes(needle), `section ${section}`);
+  }
+  for (const key of G.keys()) {
+    const g = G.resolve(key, {});
+    const chunk = G.renderGuidePrint(key, {});
+    assert.ok(chunk.includes(g.title), `${key} print renders title`);
+  }
+});
+
 console.log(`\n${passed} passed`);
