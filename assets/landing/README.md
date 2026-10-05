@@ -5,6 +5,12 @@ Ads, Finance and Inventory connected to the SILO badge. The optional video is
 an independently animated reconstruction of that scene in Blender, not a pan
 or zoom of the still. It contains no application screenshots or account data.
 
+Integration logos on `/redo-welcome.html` use an inline SVG sprite (duplicate
+reference copy in `integration-icons.svg`). Redo uses the official wordmark
+(white field, bold **REDO**); source reference: `redo-logo-reference.jpg`. The
+hero is an HTML hub (SILO cube plus four branded tiles and connector lines),
+not the generic SALES/ADS Blender still. The Works with row reuses the same marks.
+
 ## Redo welcome page (`/redo-welcome.html`) — optional interface captures
 
 Drop dark-mode PNGs here; the page probes each path on load and fills the
