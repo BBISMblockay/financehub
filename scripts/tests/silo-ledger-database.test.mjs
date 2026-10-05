@@ -23,6 +23,7 @@
 //   SILO_LEDGER_MUTATION=cosmetic-rerecord
 //   SILO_LEDGER_MUTATION=no-validation|posted-not-frozen|no-books-start-sync|lock-unshared|connection-not-stored|approved-not-frozen
 //   SILO_LEDGER_MUTATION=held-reverses|no-chart-resync|no-source-resync|snapshot-ignored
+//   SILO_LEDGER_MUTATION=no-active-correction-resync|no-connection-resync|zero-net-uses-today
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -42,7 +43,15 @@ const MUTATIONS = {
   // Treat a blocked row as "posts nothing": a temporary problem reverses a good entry.
   'held-reverses': ['  if t.id is not null and public.silo_ledger_blocker(p_txn) is not null then return; end if;\n', ''],
   // Nothing re-records a held row when an account becomes active again.
-  'no-chart-resync': ['              where n.is_active and not coalesce(o.is_active, false) loop', '              where false loop'],
+  'no-chart-resync': ["  -- Any update to a row that is active afterwards, not only inactive -> active:\n  -- correcting an active account's type (AP -> Expense) clears a blocker too.\n  for v_co in select distinct n.company_entity_id from new_rows n where n.is_active loop", "  for v_co in select distinct n.company_entity_id from new_rows n where false loop"],
+  // Wake held rows only on inactive -> active, as before cycle 1: an active account corrected from AP to Expense stays held.
+  'no-active-correction-resync': ["  -- Any update to a row that is active afterwards, not only inactive -> active:\n  -- correcting an active account's type (AP -> Expense) clears a blocker too.\n  for v_co in select distinct n.company_entity_id from new_rows n where n.is_active loop", "  for v_co in select distinct n.company_entity_id from new_rows n join old_rows o on o.id = n.id\n              where n.is_active and not coalesce(o.is_active, false) loop"],
+  // A reactivated QuickBooks connection does not wake the rows it held.
+  'no-connection-resync': ["'quickbooks_vendors', 'quickbooks_connections']", "'quickbooks_vendors']"],
+  // Rebuild a zero-net frozen batch from today's source instead of holding it.
+  'zero-net-uses-today': [
+    ["    if v_settle is null then return null; end if;\n", ""],
+    ["    then return 'This approved import netted to zero, so its approval did not record the balancing account'; end if;", "    then return null; end if;"]],
   // Switching a source back on does not re-record what it held.
   'no-source-resync': [
     ['      new.is_active, new.qbo_connection_id)', '      new.qbo_connection_id)'],
@@ -416,6 +425,50 @@ try {
     assert.equal(es.length, 1);
     assert.deepEqual((await lines(es[0].id)).map((l) => l.qbo_account_id), ['supplies', 'cc'], 'the account QuickBooks received, not today\'s cc3');
     await q("update card_sources set credit_qbo_account_id='cc', credit_qbo_account_name='cc' where id=$1", [card]);
+  });
+
+  await test('a zero-net approved batch is held, never rebuilt against a source remapped since', async () => {
+    // +100 / -100: the snapshot has no settlement line, so it does not record the balancing account.
+    const b = await newBatch(card);
+    const up = await newTxn(b, 100, { date: '2026-09-21' });
+    const down = await newTxn(b, -100, { date: '2026-09-21' });
+    const snapshot = { schema_version: 1, kind: 'card_batch', qbo_connection_id: conn, payload: { TxnDate: '2026-09-30', Line: [
+      { DetailType: 'JournalEntryLineDetail', Amount: 100, JournalEntryLineDetail: { PostingType: 'Debit', AccountRef: { value: 'supplies' } } },
+      { DetailType: 'JournalEntryLineDetail', Amount: 100, JournalEntryLineDetail: { PostingType: 'Credit', AccountRef: { value: 'supplies' } } }] } };
+    await db.exec('alter table card_import_batches disable trigger user');
+    await q("update card_import_batches set status='approved', approval_snapshot=$2, approval_hash='h' where id=$1", [b, JSON.stringify(snapshot)]);
+    await db.exec('alter table card_import_batches enable trigger user');
+    await q("update card_sources set credit_qbo_account_id='cc3', credit_qbo_account_name='cc3' where id=$1", [card]);
+    await db.exec('alter table card_transactions disable trigger plaid_transaction_integrity');
+    // One statement: a frozen batch's coding is complete, so its effective lines match the snapshot's.
+    await q("update card_transactions set status='coded', qbo_account_id='supplies', qbo_account_name='supplies', coding_source='manual' where id = any($1::uuid[])", [[up, down]]);
+    await db.exec('alter table card_transactions enable trigger plaid_transaction_integrity');
+    assert.equal((await entries(up)).length + (await entries(down)).length, 0, 'nothing is recorded against today\'s cc3');
+    const status = await as(finance, () => q('select * from silo_ledger_batch_status() where batch_id=$1', [b]));
+    assert.equal(status.length, 1); assert.equal(status[0].unrecorded, 2); assert.match(status[0].reason, /netted to zero/);
+    await q("update card_sources set credit_qbo_account_id='cc', credit_qbo_account_name='cc' where id=$1", [card]);
+  });
+
+  await test('reactivating a QuickBooks connection records the rows it held', async () => {
+    const b = await newBatch(card);
+    await q('update quickbooks_connections set is_active=false where id=$1', [conn]);
+    const t = await newTxn(b, 14, { status: 'coded', account: 'supplies', date: '2026-09-22' });
+    assert.equal((await entries(t)).length, 0, 'no active connection: held');
+    const status = await as(finance, () => q('select * from silo_ledger_batch_status() where batch_id=$1', [b]));
+    assert.match(status[0]?.reason || '', /active QuickBooks connection/);
+    await q('update quickbooks_connections set is_active=true where id=$1', [conn]);
+    assert.equal((await entries(t)).length, 1, 'reactivating the connection recorded it with no edit');
+  });
+
+  await test('correcting an ACTIVE account from payable to expense records the row it held', async () => {
+    await q("insert into quickbooks_accounts(company_entity_id,connection_id,qbo_account_id,name,account_type,is_active) values($1,$2,'apx','apx','Accounts Payable',true)", [co, conn]);
+    const b = await newBatch(card);
+    const t = await newTxn(b, 16, { status: 'coded', account: 'apx', date: '2026-09-23' });
+    assert.equal((await entries(t)).length, 0, 'a payable line with no vendor is held');
+    const status = await as(finance, () => q('select * from silo_ledger_batch_status() where batch_id=$1', [b]));
+    assert.match(status[0]?.reason || '', /customer or vendor/);
+    await q("update quickbooks_accounts set account_type='Expense' where company_entity_id=$1 and qbo_account_id='apx'", [co]);
+    assert.equal((await entries(t)).length, 1, 'still active, but no longer a payable: recorded');
   });
 
   await test('with no connection on the source or batch, the company\'s one connection is stored on the entry, so Books can read it', async () => {

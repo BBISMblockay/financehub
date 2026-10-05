@@ -165,6 +165,22 @@ begin
   return v_conn;
 end $$;
 
+-- ── The balancing line a frozen batch's approval snapshot carries ───────────
+-- approve_card_import_batch appends ONE settlement line (the card or bank
+-- account's side) after one line per non-zero effective line, and only when the
+-- whole batch nets to non-zero. A batch that nets to zero (+100 / -100) has no
+-- settlement line, so its snapshot says nothing about the balancing account:
+-- NULL here means "the snapshot does not record it", never "there was none".
+create or replace function public.silo_ledger_snapshot_settlement(p_batch uuid)
+returns jsonb language sql stable security definer set search_path = public, pg_temp as $$
+  select b.approval_snapshot->'payload'->'Line'->-1->'JournalEntryLineDetail'
+    from public.card_import_batches b
+   where b.id = p_batch and b.approval_snapshot is not null
+     and jsonb_array_length(coalesce(b.approval_snapshot->'payload'->'Line', '[]'::jsonb)) >
+         (select count(*) from public.card_coding_effective_lines e
+           where e.batch_id = b.id and round(e.amount, 2) <> 0);
+$$;
+
 -- ── Why a coded transaction cannot be recorded (NULL = it can, or it is not
 --    the ledger's to record) ─────────────────────────────────────────────────
 -- The per-transaction form of approve_card_import_batch's checks and of the
@@ -183,7 +199,22 @@ begin
   if not found or t.status <> 'coded' then return null; end if;
   if t.origin = 'plaid' and t.provider_status is distinct from 'posted' then return null; end if;
   select * into b from public.card_import_batches where id = t.batch_id;
-  if b.status = 'posted' or (b.status = 'approved' and b.approval_snapshot is not null) then return null; end if;
+  if b.status in ('approved', 'posted') and b.approval_snapshot is not null then
+    -- Frozen: recorded from the snapshot. A zero-net batch's snapshot does not
+    -- record the balancing account, so a transaction with no entry yet cannot be
+    -- rebuilt faithfully (today's source may have been remapped since) and is
+    -- held rather than recorded against the wrong account.
+    if public.silo_ledger_snapshot_settlement(b.id) is null
+       and not exists (select 1 from public.ledger_entries e
+                        where e.company_entity_id = t.company_entity_id and e.source = 'card_transaction'
+                          and e.source_id = t.id and e.kind = 'original'
+                          and not exists (select 1 from public.ledger_entries r where r.reverses_entry_id = e.id))
+       and (select coalesce(round(sum(round(x.amount, 2)), 2), 0) from public.card_coding_effective_lines x
+             where x.transaction_id = t.id and round(x.amount, 2) <> 0) <> 0
+    then return 'This approved import netted to zero, so its approval did not record the balancing account'; end if;
+    return null;
+  end if;
+  if b.status = 'posted' then return null; end if;
   select * into s from public.card_sources where id = b.source_id;
   if s.id is null then return 'The card or bank account for this import is missing'; end if;
   v_start := public.silo_ledger_start(s);
@@ -277,7 +308,7 @@ declare
   t public.card_transactions%rowtype; b public.card_import_batches%rowtype; s public.card_sources%rowtype;
   v_start date; v_conn uuid; v_lines jsonb; v_net numeric(14,2); v_bal_type text;
   v_bal_acct text; v_bal_loc text; v_def_loc text; v_bal_ent text; v_bal_ent_type text;
-  v_settle jsonb; v_n integer;
+  v_settle jsonb;
 begin
   select * into t from public.card_transactions where id = p_txn;
   if not found or t.status <> 'coded' then return null; end if;
@@ -294,18 +325,15 @@ begin
   v_def_loc := s.default_qbo_location_id; v_bal_ent := s.credit_vendor_qbo_id;
   if b.status in ('approved', 'posted') and b.approval_snapshot is not null then
     v_conn := coalesce(nullif(b.approval_snapshot->>'qbo_connection_id', '')::uuid, v_conn);
-    -- The settlement line is appended after one line per non-zero effective
-    -- line, and only when the batch nets to non-zero.
-    select count(*) into v_n from public.card_coding_effective_lines e
-     where e.batch_id = b.id and round(e.amount, 2) <> 0;
-    if jsonb_array_length(coalesce(b.approval_snapshot->'payload'->'Line', '[]'::jsonb)) > v_n then
-      v_settle := b.approval_snapshot->'payload'->'Line'->-1->'JournalEntryLineDetail';
-      v_bal_acct := v_settle->'AccountRef'->>'value';
-      v_bal_loc := v_settle->'DepartmentRef'->>'value';
-      v_def_loc := v_bal_loc;
-      v_bal_ent := v_settle->'Entity'->'EntityRef'->>'value';
-      v_bal_ent_type := v_settle->'Entity'->>'Type';
-    end if;
+    -- No settlement line (a zero-net batch) means the snapshot does not record
+    -- the balancing account: record nothing rather than use today's source.
+    v_settle := public.silo_ledger_snapshot_settlement(b.id);
+    if v_settle is null then return null; end if;
+    v_bal_acct := v_settle->'AccountRef'->>'value';
+    v_bal_loc := v_settle->'DepartmentRef'->>'value';
+    v_def_loc := v_bal_loc;
+    v_bal_ent := v_settle->'Entity'->'EntityRef'->>'value';
+    v_bal_ent_type := v_settle->'Entity'->>'Type';
   end if;
   if v_bal_acct is null then return null; end if;
 
@@ -517,8 +545,8 @@ drop trigger if exists silo_ledger_feed_exception on public.plaid_sync_exception
 create trigger silo_ledger_feed_exception after update or delete on public.plaid_sync_exceptions
   for each row execute function public.silo_ledger_on_feed_exception();
 
--- A chart account, location, customer or vendor becoming active (or appearing)
--- can clear a blocker. Statement-level with transition tables: the QuickBooks
+-- A chart account, location, customer, vendor or QuickBooks connection becoming
+-- active (or appearing, or changing while active) can clear a blocker. Statement-level with transition tables: the QuickBooks
 -- list sync writes hundreds of rows in one statement, and this resyncs each
 -- affected company once, only when a row actually became usable.
 create or replace function public.silo_ledger_on_chart_insert()
@@ -534,8 +562,9 @@ create or replace function public.silo_ledger_on_chart_update()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_co uuid;
 begin
-  for v_co in select distinct n.company_entity_id from new_rows n join old_rows o on o.id = n.id
-              where n.is_active and not coalesce(o.is_active, false) loop
+  -- Any update to a row that is active afterwards, not only inactive -> active:
+  -- correcting an active account's type (AP -> Expense) clears a blocker too.
+  for v_co in select distinct n.company_entity_id from new_rows n where n.is_active loop
     perform public.silo_ledger_resync_held(v_co);
   end loop;
   return null;
@@ -543,7 +572,7 @@ end $$;
 do $$
 declare tbl text;
 begin
-  foreach tbl in array array['quickbooks_accounts', 'quickbooks_locations', 'quickbooks_customers', 'quickbooks_vendors'] loop
+  foreach tbl in array array['quickbooks_accounts', 'quickbooks_locations', 'quickbooks_customers', 'quickbooks_vendors', 'quickbooks_connections'] loop
     execute format('drop trigger if exists silo_ledger_chart_insert on public.%I', tbl);
     execute format('create trigger silo_ledger_chart_insert after insert on public.%I referencing new table as new_rows '
                    'for each statement execute function public.silo_ledger_on_chart_insert()', tbl);
@@ -681,7 +710,7 @@ begin
     'public.silo_ledger_on_batch()', 'public.silo_ledger_on_books_start()',
     'public.silo_ledger_resync_held(uuid, uuid)', 'public.silo_ledger_on_feed_exception()',
     'public.silo_ledger_on_chart_insert()', 'public.silo_ledger_on_chart_update()',
-    'public.silo_ledger_connection(uuid)', 'public.silo_ledger_blocker(uuid)',
+    'public.silo_ledger_connection(uuid)', 'public.silo_ledger_blocker(uuid)', 'public.silo_ledger_snapshot_settlement(uuid)',
     'public.ledger_entry_must_balance()', 'public.ledger_deny_mutation()'] loop
     execute format('revoke all on function %s from public, anon, authenticated', f);
   end loop;

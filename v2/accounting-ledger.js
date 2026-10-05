@@ -104,7 +104,10 @@
       if (through && date > through) continue;
       const amount = cents(l.signed_amount);
       const inQbo = !!l.in_quickbooks && (!through || (l.quickbooks_date && String(l.quickbooks_date).slice(0, 10) <= through));
-      if (inQbo && l.batch_id && inPostings.has(String(l.batch_id))) continue;
+      // A confirmed posting is authoritative: skip the batch's ledger lines even if
+      // the parent batch's status never caught up with it (the posting is written
+      // first, so a failed second write leaves the batch 'approved').
+      if (l.batch_id && inPostings.has(String(l.batch_id))) continue;
       const entry = byAccount.get(String(l.qbo_account_id)) || { net: 0, pending: 0, lines: [] };
       entry.net += amount;
       if (!inQbo) entry.pending += amount;

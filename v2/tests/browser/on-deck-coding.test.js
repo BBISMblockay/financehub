@@ -302,6 +302,30 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
     });
     await page.close();
 
+    {
+      // Without the ledger, approved and posted imports stay under After approval
+      // but must not claim a SILO ledger record, on the card or in the entry detail.
+      const t = tables();
+      t.coding_items = [item({ batch_id: 'b-approve', stage: 'approved', status: 'approved', approval_hash: HASH, account_mix: [] }),
+        item({ batch_id: 'b-posted', label: 'June', stage: 'posted', status: 'posted', qbo_doc_number: 'SILO-1234', account_mix: [] })];
+      t.previews['b-approve'].status = 'approved';
+      page = await open(t, { silo_ledger_batch_status: () => ({ __error: { message: 'Could not find the function public.silo_ledger_batch_status', code: 'PGRST202' } }) });
+      await test('without the ledger, approved and posted cards describe QuickBooks alone, never a SILO ledger record', async () => {
+        const approved = await page.locator('#after-cards [data-batch=b-approve]').textContent();
+        const posted = await page.locator('#after-cards [data-batch=b-posted]').textContent();
+        assert.match(approved, /QuickBooks entry approved.*Approved, not sent yet/);
+        assert.match(posted, /Posted to QuickBooks.*Posted · SILO-1234/);
+        assert.doesNotMatch(approved + posted, /In SILO ledger|Transactions recorded|Not sent \(optional\)/);
+      });
+      await test('and the entry detail says the ledger is not switched on, not "Already recorded"', async () => {
+        await page.locator('#after-cards [data-batch=b-approve] button').click();
+        await page.waitForSelector('#coding-review .od-entry');
+        const text = await page.locator('#coding-review').textContent();
+        assert.match(text, /Not switched on yet/); assert.doesNotMatch(text, /Already recorded, day by day/);
+      });
+      await page.close();
+    }
+
     page = await open();
     await test('narrow mobile keeps the cards and the review inside the viewport', async () => {
       await page.setViewportSize({ width: 390, height: 844 });

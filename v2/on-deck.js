@@ -94,9 +94,15 @@
     posted.slice(0, 6).forEach(i => {
       const c = node('article', null, 'od-after'); c.dataset.batch = i.batch_id;
       const sent = i.stage === 'posted';
-      c.append(node('span', 'In SILO ledger', 'od-rpill od-rpill--posted'), node('h3', 'Transactions recorded'), node('p', [i.source_name, i.label].filter(Boolean).join(' · '), 'od-rcard-sub'));
-      const dl = node('dl'); evidenceCard(dl, 'OWNER', 'Finance'); evidenceCard(dl, 'RECORD', 'SILO ledger');
-      evidenceCard(dl, 'QUICKBOOKS', sent ? `Also sent · ${i.qbo_doc_number || i.qbo_journal_entry_id || 'entry'}` : 'Not sent (optional)');
+      // Without the ledger installed (ledger_legacy) nothing is recorded in SILO's
+      // books: the card describes the QuickBooks entry alone, never a ledger record.
+      const legacy = !!i.ledger_legacy;
+      const doc = i.qbo_doc_number || i.qbo_journal_entry_id || 'entry';
+      c.append(node('span', legacy ? (sent ? 'In QuickBooks' : 'Approved') : 'In SILO ledger', 'od-rpill od-rpill--posted'),
+        node('h3', legacy ? (sent ? 'Posted to QuickBooks' : 'QuickBooks entry approved') : 'Transactions recorded'),
+        node('p', [i.source_name, i.label].filter(Boolean).join(' · '), 'od-rcard-sub'));
+      const dl = node('dl'); evidenceCard(dl, 'OWNER', 'Finance'); evidenceCard(dl, 'RECORD', legacy ? 'QuickBooks entry' : 'SILO ledger');
+      evidenceCard(dl, 'QUICKBOOKS', legacy ? (sent ? `Posted · ${doc}` : 'Approved, not sent yet') : (sent ? `Also sent · ${doc}` : 'Not sent (optional)'));
       c.append(dl);
       if (i.stage_reason !== 'posting_disabled') c.append(button('View entry', () => state.coding.open(i.batch_id)));
       box.append(c);

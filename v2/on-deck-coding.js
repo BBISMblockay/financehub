@@ -410,7 +410,7 @@
       const facts = el('dl', null, 'od-evidence');
       const fact = (k, v) => { const d = el('div'); d.append(el('dt', k), el('dd', v == null || v === '' ? 'Unknown' : String(v))); facts.append(d); };
       const dest = p.destination || {};
-      fact('SILO LEDGER', 'Already recorded, day by day, as each transaction was categorized');
+      fact('SILO LEDGER', i.ledger_legacy ? 'Not switched on yet: these transactions are not recorded in SILO\u2019s ledger' : 'Already recorded, day by day, as each transaction was categorized');
       fact('CHART OF ACCOUNTS', dest.company_name ? `${dest.company_name}${dest.environment === 'sandbox' ? ' (sandbox)' : ''} · from QuickBooks` : 'QuickBooks connection unknown');
       fact('ENTRY DATE', p.entry_date);
       fact('SOURCE DATES', dayRange(p.facts?.first_txn, p.facts?.last_txn));

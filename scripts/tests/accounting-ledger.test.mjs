@@ -227,6 +227,17 @@ test('a card batch already posted to QuickBooks is counted once', () => {
   assert.equal(Object.fromEntries(early.rows.map((r) => [r.id, r]))['163'].pending, 4000);
 });
 
+test('a confirmed posting wins over a parent batch whose status never caught up', () => {
+  // The posting row is written first; if the batch update then fails, the batch
+  // stays approved and its ledger lines read in_quickbooks = false.
+  const postings = [posting('card', '2026-08-31', [line('163', 'Debit', 40), line('83', 'Credit', 40)], { source: 'card_import', source_ref: 'b4' })];
+  const ledgerLines = [lline('163', '2026-08-12', 40, { in_quickbooks: false, batch_id: 'b4' }), lline('83', '2026-08-12', -40, { in_quickbooks: false, batch_id: 'b4' })];
+  const m = L.rollForward({ opening, postings, trialBalance: L.parseTrialBalance(trialBalance), closingDate: '2026-09-22', ledgerLines });
+  const by = Object.fromEntries(m.rows.map((r) => [r.id, r]));
+  assert.equal(by['163'].silo, 4000, 'counted once, from the posting');
+  assert.equal(by['163'].pending, 0, 'not counted again as pending');
+});
+
 test('a posted batch with rows from before the ledger start counts what QuickBooks received, not only what the ledger holds', () => {
   // QuickBooks got 60 (40 recorded by the ledger + 20 dated before its start, which the ledger skips).
   const postings = [posting('card', '2026-08-31', [line('163', 'Debit', 60), line('83', 'Credit', 60)], { source: 'card_import', source_ref: 'b2' })];
