@@ -126,8 +126,11 @@
 #landing .lp-cta:hover { background: #3d78ff; }
 #landing .lp-note { margin: 12px 0 0; color: #8b97ad; font-size: 13px; }
 
-/* Existing Blender rendering. Fade the still's black field into the page. */
-#landing .lp-render { margin: 0; }
+.lp-svg-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* Hero hub: Blender render + logo cards like the poster mockup */
+#landing .lp-hero-visual { position: relative; margin: 0; }
+#landing .lp-render { margin: 0; position: relative; z-index: 0; }
 #landing .lp-render img {
   display: block;
   width: 100%;
@@ -135,6 +138,48 @@
   -webkit-mask-image: radial-gradient(ellipse 86% 78% at 50% 46%, #000 46%, transparent 76%);
   mask-image: radial-gradient(ellipse 86% 78% at 50% 46%, #000 46%, transparent 76%);
 }
+#landing .lp-hub-cards {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: none;
+}
+#landing .lp-hub-card {
+  position: absolute;
+  display: grid;
+  gap: 2px;
+  width: min(148px, 34%);
+  padding: 10px 11px;
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(22, 34, 58, .92), rgba(10, 16, 30, .88));
+  border: 1px solid rgba(72, 110, 180, .45);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .06);
+  backdrop-filter: blur(8px);
+}
+#landing .lp-hub-card strong {
+  color: #eef2fb;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+#landing .lp-hub-card span {
+  color: #93a4c4;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+#landing .lp-hub-icon {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 2px;
+}
+#landing .lp-hub-card--tl { top: 4%; left: 0; }
+#landing .lp-hub-card--tr { top: 6%; right: 0; }
+#landing .lp-hub-card--bl { bottom: 14%; left: 2%; }
+#landing .lp-hub-card--br { bottom: 10%; right: 0; }
 
 /* Works with */
 #landing .lp-connects {
@@ -155,8 +200,30 @@
   letter-spacing: .14em;
   text-transform: uppercase;
 }
-#landing .lp-connects-list { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; padding: 0; list-style: none; }
-#landing .lp-connects-list li { color: #d5ddec; font-size: 14px; font-weight: 700; }
+#landing .lp-connects-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+#landing .lp-int-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #d5ddec;
+  font-size: 14px;
+  font-weight: 700;
+}
+#landing .lp-int-icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+#landing .lp-int-chip--tiktok { color: #eef2fb; }
+#landing .lp-int-chip--tiktok .lp-int-icon { color: #fff; }
 
 /* Sections */
 #landing .lp-section-head { max-width: 760px; margin: 0 0 22px; }
@@ -443,6 +510,7 @@
 #landing .lp-foot a:hover { color: #fff; }
 
 @media (max-width: 900px) {
+  #landing .lp-hub-cards { display: none; }
   #landing .lp-hero, #landing .lp-ask, #landing .lp-board-hero { grid-template-columns: minmax(0, 1fr); }
   #landing .lp-fields, #landing .lp-kpi-grid { grid-template-columns: 1fr 1fr; }
   #landing .lp-board-head { flex-wrap: wrap; }
