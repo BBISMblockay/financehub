@@ -298,6 +298,9 @@ test('redo-welcome is its own page with its own stylesheet; demo.html is untouch
   assert.match(welcome, /ac-msg--user/);
   assert.match(welcome, /ac-bubble--md/);
   assert.match(welcome, /bcn-btn--primary[^>]*id="lpHeroCta"/);
+  assert.match(welcome, /href="#lpAsk"/);
+  assert.match(welcome, /id="lpAsk"/);
+  assert.match(welcome, /lp-ask[\s\S]*lp-understand/);
   assert.match(welcome, /bcn-card lp-board/);
   assert.match(welcome, /bcn-pill/);
   assert.match(welcome, /lp-slideshow/);

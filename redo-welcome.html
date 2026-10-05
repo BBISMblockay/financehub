@@ -6,7 +6,7 @@
   <title>Silo · Redo Marketing</title>
   <meta name="description" content="Silo connects to Redo and turns email and SMS into decision-ready reporting beside Shopify sales, ad spend, and margin. Ask Silo for the analysis. Early access for Redo Marketing customers." />
   <link rel="stylesheet" href="/v2/beacon.css" />
-  <link rel="stylesheet" href="/assets/landing/redo-welcome.css?v=13" />
+  <link rel="stylesheet" href="/assets/landing/redo-welcome.css?v=14" />
 </head>
 <body class="lp-demo-page">
   <svg xmlns="http://www.w3.org/2000/svg" class="lp-svg-defs" aria-hidden="true" focusable="false">
@@ -48,7 +48,10 @@
           <h1>See what your Redo marketing is doing for the business.</h1>
           <p class="lp-description">Redo email and SMS beside Shopify, ads, and margin — with Ask Silo on top.</p>
           <p class="lp-reassure">No migration. No change to Redo.</p>
-          <a class="bcn-btn bcn-btn--primary lp-hero-cta" id="lpHeroCta" href="#lpAccess">Request early access <span aria-hidden="true">→</span></a>
+          <div class="lp-hero-actions">
+            <a class="bcn-btn bcn-btn--primary lp-hero-cta" id="lpHeroCta" href="#lpAccess">Request early access <span aria-hidden="true">→</span></a>
+            <a class="bcn-btn bcn-btn--ghost lp-hero-ask" href="#lpAsk">See Ask Silo</a>
+          </div>
         </div>
         <div class="lp-hub" role="img" aria-label="SILO connected to Redo Marketing, Shopify, Meta Ads, and Google Ads">
           <svg class="lp-hub-spokes" viewBox="0 0 420 340" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
@@ -128,6 +131,44 @@
         </ul>
         </div>
       </div>
+
+      <section class="lp-ask" id="lpAsk" aria-labelledby="lpAskHeading">
+        <div class="lp-ask-copy">
+          <p class="lp-eyebrow">Ask Silo</p>
+          <h2 id="lpAskHeading">Ask what to send next.</h2>
+          <p class="lp-ask-lead">Grounded in your Redo sends, launch calendar, and Shopify sales — same chat as in Silo.</p>
+        </div>
+        <article class="bcn-card lp-ask-card lp-ask-preview" aria-label="Example Ask Silo answer grounded in Redo data">
+          <div class="ac-log lp-ac-log">
+            <div class="ac-msg ac-msg--user">
+              <div class="ac-avatar" aria-hidden="true">You</div>
+              <div class="ac-bubble">
+                <span data-lp-ask-type="user">Give me the next Redo campaign based on SMS and email performance.</span><span class="lp-ask-caret" aria-hidden="true" hidden></span>
+              </div>
+            </div>
+            <div class="ac-msg ac-msg--assistant lp-ask-assistant lp-ask-assistant--pending">
+              <div class="ac-avatar" aria-hidden="true">S</div>
+              <div class="ac-bubble ac-bubble--md">
+                <p><strong>Recommend:</strong> <span data-lp-ask-type="recommend">For upcoming launch calendar event Dugout Chatter — twin email + SMS same day.</span></p>
+                <p><strong>Why:</strong> <span data-lp-ask-type="why">Twin drops led on past collections; SMS clicks ~20× email in the sample window.</span></p>
+                <p><strong>When:</strong> <span data-lp-ask-type="when">Email at 9:00 AM local; SMS ~2 hours later to catch clickers who didn’t buy.</span></p>
+                <div class="lp-ask-drafts">
+                  <p class="lp-ask-draft-title">SMS draft</p>
+                  <p class="lp-ask-draft-block"><span data-lp-ask-type="draft-sms">Dugout Chatter is live — shop the full drop before sizes go: [link]</span></p>
+                  <p class="lp-ask-draft-title">Email draft</p>
+                  <p><span class="lp-ask-draft-k">Subject</span> <span data-lp-ask-type="draft-subject">Just dropped: Dugout Chatter</span></p>
+                  <p><span class="lp-ask-draft-k">Preheader</span> <span data-lp-ask-type="draft-pre">The capsule is live — shop the full Dugout Chatter collection.</span></p>
+                  <p><span class="lp-ask-draft-k">Lead</span> <span data-lp-ask-type="draft-lead">Fresh Dugout Chatter pieces are in the shop. Tap through for the full drop — SMS goes out right after this send.</span></p>
+                </div>
+                <details class="ac-queries">
+                  <summary>5 queries run</summary>
+                  <pre>redo_marketing_daily_v · launch_calendar · sales_by_day · …</pre>
+                </details>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
 
       <section class="lp-understand" aria-labelledby="lpUnderstandHeading">
         <h2 id="lpUnderstandHeading" class="lp-section-title">Reporting that connects to Redo</h2>
@@ -222,44 +263,6 @@
             </li>
           </ul>
         </section>
-      </section>
-
-      <section class="lp-ask" aria-labelledby="lpAskHeading">
-        <div class="lp-ask-copy">
-          <p class="lp-eyebrow">Ask Silo</p>
-          <h2 id="lpAskHeading">Ask what to send next.</h2>
-          <p class="lp-ask-lead">Grounded in your Redo sends, launch calendar, and Shopify sales — same chat as in Silo.</p>
-        </div>
-        <article class="bcn-card lp-ask-card lp-ask-preview" aria-label="Example Ask Silo answer grounded in Redo data">
-          <div class="ac-log lp-ac-log">
-            <div class="ac-msg ac-msg--user">
-              <div class="ac-avatar" aria-hidden="true">You</div>
-              <div class="ac-bubble">
-                <span data-lp-ask-type="user">Give me the next Redo campaign based on SMS and email performance.</span><span class="lp-ask-caret" aria-hidden="true" hidden></span>
-              </div>
-            </div>
-            <div class="ac-msg ac-msg--assistant lp-ask-assistant lp-ask-assistant--pending">
-              <div class="ac-avatar" aria-hidden="true">S</div>
-              <div class="ac-bubble ac-bubble--md">
-                <p><strong>Recommend:</strong> <span data-lp-ask-type="recommend">For upcoming launch calendar event Dugout Chatter — twin email + SMS same day.</span></p>
-                <p><strong>Why:</strong> <span data-lp-ask-type="why">Twin drops led on past collections; SMS clicks ~20× email in the sample window.</span></p>
-                <p><strong>When:</strong> <span data-lp-ask-type="when">Email at 9:00 AM local; SMS ~2 hours later to catch clickers who didn’t buy.</span></p>
-                <div class="lp-ask-drafts">
-                  <p class="lp-ask-draft-title">SMS draft</p>
-                  <p class="lp-ask-draft-block"><span data-lp-ask-type="draft-sms">Dugout Chatter is live — shop the full drop before sizes go: [link]</span></p>
-                  <p class="lp-ask-draft-title">Email draft</p>
-                  <p><span class="lp-ask-draft-k">Subject</span> <span data-lp-ask-type="draft-subject">Just dropped: Dugout Chatter</span></p>
-                  <p><span class="lp-ask-draft-k">Preheader</span> <span data-lp-ask-type="draft-pre">The capsule is live — shop the full Dugout Chatter collection.</span></p>
-                  <p><span class="lp-ask-draft-k">Lead</span> <span data-lp-ask-type="draft-lead">Fresh Dugout Chatter pieces are in the shop. Tap through for the full drop — SMS goes out right after this send.</span></p>
-                </div>
-                <details class="ac-queries">
-                  <summary>5 queries run</summary>
-                  <pre>redo_marketing_daily_v · launch_calendar · sales_by_day · …</pre>
-                </details>
-              </div>
-            </div>
-          </div>
-        </article>
       </section>
 
       <section class="bcn-card lp-access" id="lpAccess" aria-labelledby="lpAccessHeading">
