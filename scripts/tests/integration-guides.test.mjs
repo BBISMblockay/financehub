@@ -111,10 +111,30 @@ t('Integrations loads the guides and every opener names a real guide', () => {
   const page = read('v2/integrations.html');
   assert.ok(page.includes('<script src="integration-guides.js"></script>'));
   assert.ok(page.includes('href="integration-guides.css"'));
+  assert.match(page, /href="integration-setup-guides\.pdf"/, 'setup guide PDF linked from header');
+  assert.match(page, /download="SILO-integration-setup-guides\.pdf"/, 'download filename set');
   const keys = [...page.matchAll(/data-guide="([^"]+)"/g)].map((m) => m[1]);
   assert.ok(keys.length >= 5, 'openers present');
   for (const k of keys) assert.ok(G.GUIDES[k], `guide ${k} exists`);
   for (const k of ['shopify_dev_app', 'shopify_token', 'meta_ads', 'redo']) assert.ok(keys.includes(k), `${k} reachable`);
+});
+
+t('onboarding print document includes every side-drawer guide', () => {
+  assert.equal(G.ONBOARDING_PRINT_ORDER.length, 4);
+  const html = G.renderOnboardingDocument({}, { generatedOn: '2026-10-05' });
+  assert.match(html, /Integration setup guides/);
+  assert.ok(html.includes('ig-print-cover'), 'print layout');
+  assert.ok(!html.includes('data-copy'), 'print uses text, not copy chips');
+  for (const { key, section } of G.ONBOARDING_PRINT_ORDER) {
+    assert.ok(html.includes(`id="guide-${key}"`), `guide anchor ${key}`);
+    const needle = section.includes('&') ? section.replace(/&/g, '&amp;') : section;
+    assert.ok(html.includes(needle), `section ${section}`);
+  }
+  for (const key of G.keys()) {
+    const g = G.resolve(key, {});
+    const chunk = G.renderGuidePrint(key, {});
+    assert.ok(chunk.includes(g.title), `${key} print renders title`);
+  }
 });
 
 console.log(`\n${passed} passed`);

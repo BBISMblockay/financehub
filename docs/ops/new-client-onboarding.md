@@ -173,6 +173,15 @@ Validate before syncing: **Test connection** in Integrations
 (`test-ad-platform-connection` / `test-shopify-connection`) hits the live API
 and, where no account is configured yet, returns the pickable account list.
 
+**Printable setup guides:** step-by-step instructions for Shopify (own app and
+legacy token), Meta Ads, and Redo — the same content as the setup drawers on
+Integrations — live in
+[`integration-setup-guides.pdf`](./integration-setup-guides.pdf) (also served at
+`/v2/integration-setup-guides.pdf` — **Open setup guide PDF** on Integrations).
+Source HTML: [`integration-setup-guides.html`](./integration-setup-guides.html).
+Regenerate after editing `v2/integration-guides.js` with
+`node scripts/build-integration-onboarding-pdf.mjs`.
+
 ## 5. Backfill history, then let the nightly take over
 
 Backfills are manual workflows, each now **requiring** the company id (they used

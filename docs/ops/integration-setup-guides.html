@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>SILO — Integration setup guides</title>
+  <style>
+    @page { margin: 0.72in; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0 0 48px; font-family: "Helvetica Neue", Arial, sans-serif; font-size: 11pt; line-height: 1.45; color: #0f172a; }
+    a { color: #2563eb; word-break: break-all; }
+    code { font-family: ui-monospace, "IBM Plex Mono", monospace; font-size: 9.5pt; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 4px; padding: 0 4px; }
+    .ig-print-cover { page-break-after: always; padding: 0 0 24px; border-bottom: 2px solid #0f172a; margin-bottom: 28px; }
+    .ig-print-brand { margin: 0 0 8px; font-family: ui-monospace, monospace; font-size: 10pt; letter-spacing: .12em; font-weight: 700; }
+    .ig-print-cover h1 { margin: 0 0 12px; font-size: 22pt; letter-spacing: -.02em; }
+    .ig-print-lead { margin: 0 0 12px; color: #334155; max-width: 42em; }
+    .ig-print-meta { margin: 0 0 18px; font-size: 9.5pt; color: #64748b; }
+    .ig-print-oauth { margin: 16px 0 0; font-size: 10pt; color: #475569; }
+    .ig-section-label { margin: 0 0 8px; font-family: ui-monospace, monospace; font-size: 9pt; letter-spacing: .08em; text-transform: uppercase; color: #64748b; }
+    .ig-print-toc ol { margin: 0; padding-left: 20px; }
+    .ig-print-part { page-break-before: always; }
+    .ig-print-part-title { margin: 0 0 16px; font-size: 14pt; color: #1e293b; }
+    .ig-print-guide-head { margin-bottom: 14px; }
+    .ig-kicker { margin: 0 0 4px; font-family: ui-monospace, monospace; font-size: 9pt; letter-spacing: .06em; text-transform: uppercase; color: #64748b; }
+    .ig-print-guide-title { margin: 0 0 8px; font-size: 16pt; }
+    .ig-summary { margin: 0; color: #334155; }
+    .ig-needs--print { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; margin: 14px 0; }
+    .ig-needs--print ul { margin: 0; padding-left: 18px; }
+    .ig-print-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+    .ig-step--print { display: flex; gap: 10px; break-inside: avoid; page-break-inside: avoid; }
+    .ig-step-num { flex: 0 0 22px; height: 22px; border-radius: 50%; background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; font-family: ui-monospace, monospace; font-size: 10pt; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+    .ig-step-main { flex: 1; min-width: 0; }
+    .ig-step-title { font-weight: 700; margin-bottom: 2px; }
+    .ig-step-body { color: #334155; }
+    .ig-step-body ul { margin: 4px 0 0; padding-left: 18px; }
+    .ig-scopes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .ig-step-note { margin-top: 6px; font-size: 10pt; color: #64748b; }
+    .ig-print-url { margin: 6px 0 0; font-size: 10pt; }
+    .ig-print-url-label { font-weight: 600; display: block; color: #0f172a; }
+    .ig-print-copy { margin: 6px 0 0; }
+    .ig-print-copy-label { font-weight: 600; display: block; margin-bottom: 2px; }
+    .ig-print-code { display: block; white-space: pre-wrap; word-break: break-all; padding: 6px 8px; margin-top: 2px; }
+    .ig-print-extra { margin-top: 16px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
+    .ig-print-extra-title { margin: 0 0 10px; font-size: 12pt; }
+    .ig-print-trouble { margin-top: 18px; }
+    .ig-print-faq { margin-top: 10px; break-inside: avoid; }
+    .ig-print-q { margin: 0 0 4px; font-weight: 700; }
+    .ig-print-a { margin: 0; color: #334155; }
+    .ig-fineprint { margin: 16px 0 0; font-size: 9pt; color: #64748b; }
+    .ig-print-silo { margin: 8px 0 0; font-size: 10pt; color: #475569; }
+  </style>
+</head>
+<body>
+  <header class="ig-print-cover">
+    <p class="ig-print-brand">SILO</p>
+    <h1>Integration setup guides</h1>
+    <p class="ig-print-lead">Step-by-step instructions for connections that need work in Shopify, Meta, or Redo before credentials land in SILO. Same content as the setup drawers on the Integrations page.</p>
+    <p class="ig-print-meta">Generated 2026-10-05 · SILO Integrations: <a href="/v2/integrations.html">/v2/integrations.html</a></p>
+    <section class="ig-print-toc">
+      <h2 class="ig-section-label">Contents</h2>
+      <ol><li><a href="#guide-shopify_dev_app">Shopify — store-owned app (recommended)</a></li><li><a href="#guide-shopify_token">Shopify — legacy Admin API token</a></li><li><a href="#guide-meta_ads">Meta Ads — system user token</a></li><li><a href="#guide-redo">Redo — returns &amp; marketing</a></li></ol>
+    </section>
+    <p class="ig-print-oauth">One-click in SILO (no separate guide): Google Ads, GA4, TikTok Ads, QuickBooks Online, Shopify OAuth, and Stripe Connect.</p>
+  </header>
+  <section class="ig-print-part">
+        <h2 class="ig-print-part-title">Shopify — store-owned app (recommended)</h2>
+        <article class="ig-print-guide" id="guide-shopify_dev_app">
+      <header class="ig-print-guide-head">
+        <p class="ig-kicker">Setup guide · About 10 minutes</p>
+        <h2 class="ig-print-guide-title">Connect a Shopify store with its own app</h2>
+        <p class="ig-summary">You create a small private app in Shopify, give it read-only access, and paste its Client ID and Client secret into SILO. SILO never sees your Shopify password.</p>
+      </header>
+      <section class="ig-needs ig-needs--print">
+        <div class="ig-section-label">Before you start</div>
+        <ul><li>The <strong>store owner</strong> login (or a staff account allowed to develop apps)</li><li>The store's <code>.myshopify.com</code> address</li></ul>
+      </section>
+      <ol class="ig-print-steps"><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">1</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Find the store&#39;s Shopify address</div>
+        <div class="ig-step-body">Open the store's Shopify admin. The address bar reads <code>admin.shopify.com/store/<strong>your-store</strong>/…</code> — the store address is <code><strong>your-store</strong>.myshopify.com</code>. It often differs from the store's public name.</div>
+        
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">2</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Open Shopify&#39;s Dev Dashboard</div>
+        <div class="ig-step-body">Sign in with the <strong>same account that owns the store</strong>. The app must be created in the store's own Shopify organization — an app made under a different organization is refused when SILO asks for access.</div>
+        
+        <p class="ig-print-url"><span class="ig-print-url-label">Open Dev Dashboard</span> <a href="https://dev.shopify.com/dashboard">https://dev.shopify.com/dashboard</a></p>
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">3</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Create an app</div>
+        <div class="ig-step-body">Choose <strong>Create app</strong> and name it anything (e.g. <code>SILO</code>).</div>
+        
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">4</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Give it read-only access, then release</div>
+        <div class="ig-step-body">Create a new <strong>version</strong> of the app. Under access scopes, add each of these, then <strong>Release</strong> the version. All are read-only; SILO cannot change anything in your store.</div>
+        <div class="ig-scopes"><code>read_orders</code><code>read_products</code><code>read_inventory</code><code>read_locations</code><code>read_shopify_payments_payouts</code><code>read_draft_orders</code><code>read_reports</code><code>read_publications</code><code>read_all_orders</code></div>
+        <p class="ig-print-copy"><span class="ig-print-copy-label">Copy all scopes</span> <code class="ig-print-code">read_orders,read_products,read_inventory,read_locations,read_shopify_payments_payouts,read_draft_orders,read_reports,read_publications,read_all_orders</code></p>
+        <div class="ig-step-note"><strong>Don't skip <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders, so SILO cannot import your sales history. If Shopify asks you to request access to it, submit the request before releasing.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">5</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Install the app on the store</div>
+        <div class="ig-step-body">From the app's overview choose <strong>Install app</strong> and pick this store. Approve the access prompt.</div>
+        
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">6</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Copy the Client ID and Client secret</div>
+        <div class="ig-step-body">In the app's <strong>Settings</strong>, copy the <strong>Client ID</strong> and the <strong>Client secret</strong>.</div>
+        
+        
+        <div class="ig-step-note">Treat the secret like a password. SILO checks the pair with Shopify before saving and stores the secret where only SILO's servers can read it.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">7</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Paste them into SILO</div>
+        <div class="ig-step-body">In <strong>Add Shopify store</strong>, enter the store address, Client ID and Client secret, then click <strong>Connect store</strong>.</div>
+        
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">8</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Finish setup in SILO</div>
+        <div class="ig-step-body">On the new store row: <strong>Test</strong> (confirms every scope is granted), map its locations, then switch on <strong>Nightly sync</strong> and start the history import.</div>
+        
+        
+        
+      </div>
+    </li></ol>
+      
+      <section class="ig-print-trouble">
+          <h3 class="ig-section-label">If something goes wrong</h3>
+          <div class="ig-print-faq"><p class="ig-print-q">Shopify refused the app / &quot;shop and app must belong to the same organization&quot;</p><div class="ig-print-a">The app was created while signed in to a different Shopify organization. Sign in as the store owner, create the app again from the Dev Dashboard, and use the new Client ID and secret.</div></div><div class="ig-print-faq"><p class="ig-print-q">The store row warns about missing scopes</p><div class="ig-print-a">Add the missing scope in a new app version, release it, approve the update in the store admin if Shopify asks, then click <strong>Re-test</strong> in SILO.</div></div><div class="ig-print-faq"><p class="ig-print-q">The store row says order history is limited to 60 days</p><div class="ig-print-a">The app is missing <code>read_all_orders</code>. In the Dev Dashboard, add it to a new app version (request access if Shopify asks), release it, approve the update in the store admin, then click <strong>Re-test</strong> in SILO. Run the history import <em>after</em> the warning is gone — an import started without it only reaches 60 days back.</div></div>
+        </section>
+      <p class="ig-fineprint">Button names on the other site can shift slightly as they update their dashboards.</p>
+      <p class="ig-print-silo">In SILO: Workspace → Settings → <strong>Integrations</strong> (<code>/v2/integrations.html</code>).</p>
+    </article>
+      </section><section class="ig-print-part">
+        <h2 class="ig-print-part-title">Shopify — legacy Admin API token</h2>
+        <article class="ig-print-guide" id="guide-shopify_token">
+      <header class="ig-print-guide-head">
+        <p class="ig-kicker">Setup guide · About 3 minutes</p>
+        <h2 class="ig-print-guide-title">Use an existing Shopify Admin API token</h2>
+        <p class="ig-summary">Only for stores that created a "Develop apps" custom app in their admin before 2026. Shopify no longer lets stores create new ones — use the store's own app instead if you don't already have a token.</p>
+      </header>
+      <section class="ig-needs ig-needs--print">
+        <div class="ig-section-label">Before you start</div>
+        <ul><li>The store owner login</li><li>An existing custom app in the store admin</li></ul>
+      </section>
+      <ol class="ig-print-steps"><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">1</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Open the custom app</div>
+        <div class="ig-step-body">In the store admin go to <strong>Settings → Apps and sales channels → Develop apps</strong> and open the existing app.</div>
+        
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">2</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Check its access</div>
+        <div class="ig-step-body">Under <strong>Configuration</strong>, the Admin API access should include these read scopes:</div>
+        <div class="ig-scopes"><code>read_orders</code><code>read_products</code><code>read_inventory</code><code>read_locations</code><code>read_shopify_payments_payouts</code><code>read_draft_orders</code><code>read_reports</code><code>read_publications</code></div>
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">3</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Copy the Admin API access token</div>
+        <div class="ig-step-body">Under <strong>API credentials</strong>, the token starts with <code>shpat_</code>. Shopify shows it only once; if it was never saved, it cannot be revealed again — use the store's own app route instead.</div>
+        
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">4</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Paste it into SILO</div>
+        <div class="ig-step-body">In <strong>Add Shopify store</strong>, enter the store address, open <strong>Already have an Admin API token?</strong>, paste it and click <strong>Save token</strong>. Then Test the row.</div>
+        
+        
+        
+      </div>
+    </li></ol>
+      
+      <section class="ig-print-trouble">
+          <h3 class="ig-section-label">If something goes wrong</h3>
+          <div class="ig-print-faq"><p class="ig-print-q">&quot;Develop apps&quot; is missing from the admin</p><div class="ig-print-a">The store has no legacy custom app and can no longer create one. Use <strong>Connect with your store's own app</strong>.</div></div>
+        </section>
+      <p class="ig-fineprint">Button names on the other site can shift slightly as they update their dashboards.</p>
+      <p class="ig-print-silo">In SILO: Workspace → Settings → <strong>Integrations</strong> (<code>/v2/integrations.html</code>).</p>
+    </article>
+      </section><section class="ig-print-part">
+        <h2 class="ig-print-part-title">Meta Ads — system user token</h2>
+        <article class="ig-print-guide" id="guide-meta_ads">
+      <header class="ig-print-guide-head">
+        <p class="ig-kicker">Setup guide · About 15 minutes</p>
+        <h2 class="ig-print-guide-title">Connect Meta Ads with a System User token</h2>
+        <p class="ig-summary">Meta splits this across two sites: create/register a <strong>Business app</strong> once, then do everything else in <strong>Business settings → System users</strong> (create user, assign assets, generate token) without leaving that screen.</p>
+      </header>
+      <section class="ig-needs ig-needs--print">
+        <div class="ig-section-label">Before you start</div>
+        <ul><li><strong>Admin</strong> access to the Meta Business portfolio that owns the ad account</li><li>After each link opens, confirm the <strong>correct business portfolio</strong> is selected (top-left on Business settings)</li><li>A Meta app of type <strong>Business</strong> linked to that portfolio (step 1 — Meta requires this before system users)</li></ul>
+      </section>
+      <ol class="ig-print-steps"><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">1</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Register a Business app on the portfolio</div>
+        <div class="ig-step-body"><strong>A — Create (only if you have no app yet):</strong> In Meta for Developers, <strong>Create app</strong> → type <strong>Business</strong> → connect it to the same Business portfolio that owns your ad account.<br><br><strong>B — Add it to the portfolio (required either way):</strong> In Business settings go to <strong>Accounts → Apps → Add</strong>, and connect the app. SILO needs the app to appear here before a system user can generate a token.</div>
+        
+        <p class="ig-print-url"><span class="ig-print-url-label">Meta for Developers (create app)</span> <a href="https://developers.facebook.com/apps">https://developers.facebook.com/apps</a></p><p class="ig-print-url"><span class="ig-print-url-label">Business settings → Apps</span> <a href="https://business.facebook.com/settings/apps">https://business.facebook.com/settings/apps</a></p>
+        <div class="ig-step-note">If the app already shows under Accounts → Apps, skip A and continue to step 2.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">2</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Open System users (your home base for the rest)</div>
+        <div class="ig-step-body">Go to <strong>Users → System users</strong> in the left sidebar. The next three steps all happen on the <strong>same system user</strong> record — you should not need another Meta product tab until you paste the token into SILO.</div>
+        
+        <p class="ig-print-url"><span class="ig-print-url-label">Open System users</span> <a href="https://business.facebook.com/settings/system-users">https://business.facebook.com/settings/system-users</a></p><p class="ig-print-url"><span class="ig-print-url-label">Business settings home</span> <a href="https://business.facebook.com/settings">https://business.facebook.com/settings</a></p>
+        <div class="ig-step-note">Pick the correct business portfolio in the top-left if Meta prompts you.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">3</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Create the system user</div>
+        <div class="ig-step-body">Click <strong>Add new system user</strong> (or <strong>Add</strong>), name it <code>SILO</code>, and create it. Meta’s <strong>Admin</strong> system user role is fine for setup.</div>
+        
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">4</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Assign the app and ad account (same user)</div>
+        <div class="ig-step-body">With <code>SILO</code> selected, use <strong>Assign assets</strong> (or <strong>Add assets</strong> / the <strong>⋯</strong> menu) twice:<ul><li><strong>Apps</strong> → your Business app → enable <strong>Develop app</strong> (or full app access). Without this, token generation will not list the app.</li><li><strong>Ad accounts</strong> → each account SILO should report → <strong>View performance</strong> (read) access.</li></ul></div>
+        
+        <p class="ig-print-url"><span class="ig-print-url-label">Meta’s official walkthrough</span> <a href="https://www.facebook.com/business/help/503306463479099">https://www.facebook.com/business/help/503306463479099</a></p>
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">5</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Generate and copy the token</div>
+        <div class="ig-step-body">Still on that system user, choose <strong>Generate new token</strong> → select the Business app from step 1 → expiration <strong>Never</strong> → tick:</div>
+        <div class="ig-scopes"><code>ads_read</code><code>business_management</code></div>
+        
+        <div class="ig-step-note">Want organic Instagram and Facebook Page reporting too? Also tick the permissions in "Optional: organic insights" below before generating. Meta shows the token (starts with <code>EAA</code>) <strong>once</strong> — copy it before closing the dialog.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">6</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Paste it into SILO</div>
+        <div class="ig-step-body">Click <strong>Add Meta Ads token…</strong> (or <strong>Replace token</strong> on an existing row), paste the token, and save. Leave the ad account ID blank if unsure — <strong>Test</strong> lists accounts the token can see. Then switch on <strong>Nightly sync</strong>.</div>
+        
+        
+        
+      </div>
+    </li></ol>
+      <section class="ig-print-extra">
+          <h3 class="ig-print-extra-title">Optional: organic insights (Instagram posts, Facebook Page)</h3>
+          <ol class="ig-print-steps"><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">7</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Add four permissions to the token</div>
+        <div class="ig-step-body">Regenerate the token with these added alongside the two above:</div>
+        <div class="ig-scopes"><code>pages_show_list</code><code>pages_read_engagement</code><code>instagram_basic</code><code>instagram_manage_insights</code></div>
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">8</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Assign the Page to the system user</div>
+        <div class="ig-step-body">Back in Business settings → <strong>Users → System users</strong>, open the same <code>SILO</code> user → <strong>Assign assets → Pages</strong> → your Page with at least Analyst access. Token permissions alone do not grant Page access.</div>
+        
+        <p class="ig-print-url"><span class="ig-print-url-label">Open System users</span> <a href="https://business.facebook.com/settings/system-users">https://business.facebook.com/settings/system-users</a></p>
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">9</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Link Instagram to the Page</div>
+        <div class="ig-step-body">The Instagram professional account must be linked to that Facebook Page.</div>
+        
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">10</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Fill in the two IDs</div>
+        <div class="ig-step-body">Click <strong>Test</strong> on the Meta row — it lists the Pages the token can see with their linked Instagram account. Enter the <strong>Facebook Page ID</strong> and <strong>Instagram Business Account ID</strong> on the row.</div>
+        
+        
+        
+      </div>
+    </li></ol>
+        </section>
+      <section class="ig-print-trouble">
+          <h3 class="ig-section-label">If something goes wrong</h3>
+          <div class="ig-print-faq"><p class="ig-print-q">I regenerated the token — where does the new one go?</p><div class="ig-print-a">Use <strong>Replace token</strong> on the existing Meta row. Do not use Add Meta Ads token again; that creates a second connection for the same account.</div></div><div class="ig-print-faq"><p class="ig-print-q">Test lists no ad accounts</p><div class="ig-print-a">The ad account is not assigned to the system user (step 4), or the token was generated without <code>ads_read</code>.</div></div><div class="ig-print-faq"><p class="ig-print-q">Generate token does not list my app</p><div class="ig-print-a">The app is missing under Accounts → Apps (step 1B), or the system user does not have <strong>Develop app</strong> on that app (step 4).</div></div><div class="ig-print-faq"><p class="ig-print-q">Links open the wrong business</p><div class="ig-print-a">Use the portfolio picker (top-left in Business settings) before continuing. Every deep link keeps you in Business settings once signed in.</div></div><div class="ig-print-faq"><p class="ig-print-q">&quot;Could not derive a Page access token&quot; / error #190</p><div class="ig-print-a">The Page isn't assigned to the system user. Assign it (organic step 2); no new token is needed.</div></div>
+        </section>
+      <p class="ig-fineprint">Button names on the other site can shift slightly as they update their dashboards.</p>
+      <p class="ig-print-silo">In SILO: Workspace → Settings → <strong>Integrations</strong> (<code>/v2/integrations.html</code>).</p>
+    </article>
+      </section><section class="ig-print-part">
+        <h2 class="ig-print-part-title">Redo — returns &amp; marketing</h2>
+        <article class="ig-print-guide" id="guide-redo">
+      <header class="ig-print-guide-head">
+        <p class="ig-kicker">Setup guide · About 5 minutes</p>
+        <h2 class="ig-print-guide-title">Connect Redo returns and marketing</h2>
+        <p class="ig-summary">Redo pushes every return to SILO through a webhook you add in Redo. An optional API token adds campaign and automation reporting.</p>
+      </header>
+      <section class="ig-needs ig-needs--print">
+        <div class="ig-section-label">Before you start</div>
+        <ul><li>Admin access to your Redo merchant dashboard</li></ul>
+      </section>
+      <ol class="ig-print-steps"><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">1</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Create the connection in SILO</div>
+        <div class="ig-step-body">Click <strong>Connect Redo…</strong>. SILO creates a webhook URL and a secret just for your company and shows them on the Redo row.</div>
+        
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">2</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Add a webhook in Redo</div>
+        <div class="ig-step-body">In Redo's merchant dashboard, add a webhook subscription:<ul><li><strong>URL</strong> — the webhook URL from SILO</li><li><strong>Event</strong> — Return event (all statuses)</li><li><strong>Auth secret</strong> — the webhook secret from SILO (use its Copy button)</li></ul></div>
+        
+        
+        <div class="ig-step-note">If you ever click Regenerate on the secret in SILO, paste the new one into Redo too, or deliveries stop.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">3</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Optional: API token for marketing reporting</div>
+        <div class="ig-step-body">In Redo's merchant admin, open the API settings and create a token with these <strong>read</strong> scopes, then paste it into the API secret field on the Redo row:</div>
+        <div class="ig-scopes"><code>Campaigns</code><code>Marketing automations</code><code>Campaign analytics</code><code>Marketing automation analytics</code><code>Marketing templates</code></div>
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">4</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Check it&#39;s working</div>
+        <div class="ig-step-body"><strong>Last event</strong> on the Redo row updates on the next return status change. Redo may also resend recent returns right after the webhook is added.</div>
+        
+        
+        
+      </div>
+    </li></ol>
+      
+      <section class="ig-print-trouble">
+          <h3 class="ig-section-label">If something goes wrong</h3>
+          <div class="ig-print-faq"><p class="ig-print-q">Last event never updates</p><div class="ig-print-a">The URL or secret in Redo doesn't match SILO's. Copy both again from the Redo row.</div></div><div class="ig-print-faq"><p class="ig-print-q">Marketing numbers are missing</p><div class="ig-print-a">The API token is missing the marketing read scopes; the nightly records the sync as skipped. Create a token with all five scopes and paste it in.</div></div>
+        </section>
+      <p class="ig-fineprint">Button names on the other site can shift slightly as they update their dashboards.</p>
+      <p class="ig-print-silo">In SILO: Workspace → Settings → <strong>Integrations</strong> (<code>/v2/integrations.html</code>).</p>
+    </article>
+      </section>
+</body>
+</html>
