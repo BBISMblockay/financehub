@@ -119,7 +119,8 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
       'legal/privacy.html', 'assets/landing/early-access.js', P.css,
       'assets/landing/redo-welcome-motion.js'];
     if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative)
-      && !/^assets\/landing\/redo-demo-(?:chart|dashboard|ask-silo)\.png$/.test(relative)) {
+      && !/^assets\/landing\/redo-demo-(?:chart|dashboard|ask-silo)\.png$/.test(relative)
+      && !/^assets\/landing\/redo-demo-(?:returns-marketing|marketing)\.jpg$/.test(relative)) {
       failures.push('Unexpected fixture path: ' + relative);
       return route.abort();
     }

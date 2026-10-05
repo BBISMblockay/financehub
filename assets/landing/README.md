@@ -20,12 +20,14 @@ frame on the same navy field as the board.
 | File | Slot |
 |------|------|
 | `redo-demo-chart.png` | Redo attributed revenue, spend, and daily trend (1100×592) |
-| `redo-demo-dashboard.png` | Marketing overview table + top campaigns (1200×629) |
+| `redo-demo-marketing.jpg` | Marketing dashboard — attributed revenue/spend, daily trend, top campaigns (1363×936) |
+| `redo-demo-dashboard.png` | Legacy capture (superseded by `redo-demo-marketing.jpg` on the welcome page) |
+| `redo-demo-returns-marketing.jpg` | Returns & Marketing dashboard — weekly outcomes, top reasons (1363×936) |
 
 Ask Silo on the welcome page is an HTML preview (readable recommendation +
 evidence cards), not a screenshot — the product chat is too dense at poster size.
 
-The two captures sit in a **left/right slideshow** on the board (arrows, dots,
+Three captures sit in a **slideshow** on the board (arrows, dots,
 optional auto-advance). A **More Silo workflows** strip tags Marketing, Finance,
 and Purchasing (accounting + AI, On Deck, PO / Product Studio).
 
