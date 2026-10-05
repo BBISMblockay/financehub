@@ -75,41 +75,14 @@
   function initAskMotion() {
     const preview = document.querySelector('.lp-ask-preview');
     if (!preview) return;
-    preview.classList.add('lp-ask-preview--motion');
     if (typeof IntersectionObserver === 'undefined') return;
 
-    const userEl = preview.querySelector('.lp-ask-user [data-lp-ask-type="user"]');
-    const recEl = preview.querySelector('[data-lp-ask-type="recommend"]');
-    const whyEl = preview.querySelector('[data-lp-ask-type="why"]');
-    const whenEl = preview.querySelector('[data-lp-ask-type="when"]');
-    const draftSmsEl = preview.querySelector('[data-lp-ask-type="draft-sms"]');
-    const draftSubjectEl = preview.querySelector('[data-lp-ask-type="draft-subject"]');
-    const draftPreEl = preview.querySelector('[data-lp-ask-type="draft-pre"]');
-    const draftLeadEl = preview.querySelector('[data-lp-ask-type="draft-lead"]');
-    const agent = preview.querySelector('.lp-ask-agent');
-    const thinking = preview.querySelector('.lp-ask-thinking');
-    const evidence = preview.querySelector('.lp-ask-evidence-line:not(.lp-ask-timing)');
-    const timing = preview.querySelector('.lp-ask-timing');
-    const drafts = preview.querySelector('.lp-ask-drafts');
-    const meta = preview.querySelector('.lp-ask-ai-meta');
+    const userEl = preview.querySelector('[data-lp-ask-type="user"]');
+    const assistant = preview.querySelector('.lp-ask-assistant');
     const caret = preview.querySelector('.lp-ask-caret');
-    if (!userEl || !recEl || !whyEl || !agent) return;
+    if (!userEl || !assistant) return;
 
-    function text(el) {
-      return el ? el.textContent.trim() : '';
-    }
-
-    const copy = {
-      user: text(userEl),
-      rec: text(recEl),
-      why: text(whyEl),
-      when: text(whenEl),
-      draftSms: text(draftSmsEl),
-      draftSubject: text(draftSubjectEl),
-      draftPre: text(draftPreEl),
-      draftLead: text(draftLeadEl),
-    };
-    const metaDone = meta ? meta.textContent.trim() : '';
+    const copy = { user: userEl.textContent.trim() };
 
     function delay(ms) {
       return new Promise((resolve) => { window.setTimeout(resolve, ms); });
@@ -145,44 +118,24 @@
 
     function revealDone() {
       userEl.textContent = copy.user;
-      recEl.textContent = copy.rec;
-      whyEl.textContent = copy.why;
-      agent.classList.remove('lp-ask-agent--pending');
-      if (thinking) thinking.hidden = true;
-      if (evidence) evidence.classList.add('lp-ask-reveal--in');
-      if (meta) meta.textContent = metaDone;
+      assistant.classList.remove('lp-ask-assistant--pending');
       preview.classList.add('lp-ask-preview--done');
       setCaret(false);
     }
 
     async function play() {
       if (preview.classList.contains('lp-ask-preview--done')) return;
-      preview.classList.add('lp-ask-preview--playing');
+      preview.classList.add('lp-ask-preview--motion', 'lp-ask-preview--playing');
       if (reduced) {
         revealDone();
         return;
       }
 
       userEl.textContent = '';
-      recEl.textContent = '';
-      whyEl.textContent = '';
-      agent.classList.add('lp-ask-agent--pending');
-      if (evidence) evidence.classList.remove('lp-ask-reveal--in');
-      if (thinking) thinking.hidden = true;
-
-      await typeInto(userEl, copy.user, 22);
-      await delay(350);
-      if (thinking) thinking.hidden = false;
-      if (meta) meta.textContent = 'Querying…';
-      await delay(850);
-      if (thinking) thinking.hidden = true;
-      agent.classList.remove('lp-ask-agent--pending');
-      await delay(120);
-      await typeInto(recEl, copy.rec, 18);
-      if (evidence) evidence.classList.add('lp-ask-reveal--in');
-      await delay(200);
-      await typeInto(whyEl, copy.why, 14);
-      if (meta) meta.textContent = metaDone;
+      assistant.classList.add('lp-ask-assistant--pending');
+      await typeInto(userEl, copy.user, 20);
+      await delay(450);
+      assistant.classList.remove('lp-ask-assistant--pending');
       preview.classList.add('lp-ask-preview--done');
       setCaret(false);
     }
