@@ -6,7 +6,7 @@
   <title>Silo · Redo Marketing</title>
   <meta name="description" content="Silo connects to Redo and turns email and SMS into decision-ready reporting beside Shopify sales, ad spend, and margin. Ask Silo for the analysis. Early access for Redo Marketing customers." />
   <link rel="stylesheet" href="/v2/beacon.css" />
-  <link rel="stylesheet" href="/assets/landing/redo-welcome.css?v=8" />
+  <link rel="stylesheet" href="/assets/landing/redo-welcome.css?v=10" />
 </head>
 <body class="lp-demo-page">
   <svg xmlns="http://www.w3.org/2000/svg" class="lp-svg-defs" aria-hidden="true" focusable="false">
@@ -134,29 +134,85 @@
             <h3 id="lpBoardTitle">Redo Marketing Performance</h3>
             <span class="lp-board-range">Sample · Last 30 days</span>
           </header>
-          <div class="lp-board-hero">
-            <figure class="lp-demo">
-              <div class="lp-intel-frame">
-                <span class="lp-intel-badge">Live</span>
-                <div class="lp-demo-frame">
-                  <div id="lpDemoPlaceholder" class="lp-shot lp-shot--chart" data-asset="redo-demo-chart.png" data-alt="Redo attributed revenue, spend, and daily trends">
-                    <p class="lp-shot-label">Interface image</p>
+          <div class="lp-slideshow" id="lpProductSlideshow" tabindex="0" aria-roledescription="carousel" aria-label="Redo marketing views in Silo">
+            <div class="lp-slideshow-viewport">
+              <ul class="lp-slideshow-track" role="list">
+                <li class="lp-slideshow-slide" id="lpSlideshowSlide0" aria-label="1 of 2: Trends">
+                  <figure class="lp-demo">
+                    <div class="lp-intel-frame">
+                      <span class="lp-intel-badge">Live</span>
+                      <div class="lp-demo-frame">
+                        <div id="lpDemoPlaceholder" class="lp-shot lp-shot--chart" data-asset="redo-demo-chart.png" data-alt="Redo attributed revenue, spend, and daily trends">
+                          <p class="lp-shot-label">Interface image</p>
+                        </div>
+                        <video id="lpDemoVideo" width="960" height="540" controls playsinline preload="none"
+                          aria-label="Silo product walkthrough" aria-describedby="lpDemoCaption" hidden></video>
+                      </div>
+                    </div>
+                    <figcaption id="lpDemoCaption" class="lp-demo-caption visually-hidden">Product walkthrough video when configured.</figcaption>
+                  </figure>
+                </li>
+                <li class="lp-slideshow-slide" aria-label="2 of 2: Campaigns">
+                  <div class="lp-intel-frame">
+                    <span class="lp-intel-badge">Campaigns</span>
+                    <figure class="lp-shot lp-shot--wide lp-shot--slide" data-asset="redo-demo-dashboard.png" data-alt="Redo marketing overview and top campaigns">
+                      <p class="lp-shot-label">Interface image</p>
+                    </figure>
                   </div>
-                  <!-- A real walkthrough replaces this frame only when LANDING_DEMO_VIDEO_URL is configured. -->
-                  <video id="lpDemoVideo" width="960" height="540" controls playsinline preload="none"
-                    aria-label="Silo product walkthrough" aria-describedby="lpDemoCaption" hidden></video>
-                </div>
+                </li>
+              </ul>
+            </div>
+            <div class="lp-slideshow-nav">
+              <button type="button" class="lp-slideshow-btn lp-slideshow-btn--prev" aria-controls="lpProductSlideshow" aria-label="Previous view">
+                <span aria-hidden="true">←</span>
+              </button>
+              <div class="lp-slideshow-dots" role="tablist" aria-label="Choose view">
+                <button type="button" class="lp-slideshow-dot lp-slideshow-dot--active" role="tab" aria-selected="true" aria-label="Trends" data-lp-slide="0"></button>
+                <button type="button" class="lp-slideshow-dot" role="tab" aria-selected="false" aria-label="Campaigns" data-lp-slide="1"></button>
               </div>
-              <figcaption id="lpDemoCaption" class="lp-demo-caption visually-hidden">Product walkthrough video when configured.</figcaption>
-            </figure>
-          </div>
-          <div class="lp-intel-frame lp-intel-frame--wide">
-            <span class="lp-intel-badge">Campaigns</span>
-            <figure class="lp-shot lp-shot--wide" data-asset="redo-demo-dashboard.png" data-alt="Redo marketing overview and top campaigns">
-              <p class="lp-shot-label">Interface image</p>
-            </figure>
+              <button type="button" class="lp-slideshow-btn lp-slideshow-btn--next" aria-controls="lpProductSlideshow" aria-label="Next view">
+                <span aria-hidden="true">→</span>
+              </button>
+            </div>
+            <p class="lp-slideshow-caption" id="lpSlideshowCaption" aria-live="polite">Attributed revenue, spend, and daily trend</p>
           </div>
         </article>
+        <section class="lp-workflows" aria-labelledby="lpWorkflowsHeading">
+          <h2 id="lpWorkflowsHeading" class="lp-workflows-title">More Silo workflows</h2>
+          <p class="lp-workflows-lead">Same workspace after Redo connects — marketing, finance, and purchasing.</p>
+          <ul class="lp-workflows-track" role="list">
+            <li class="lp-workflow">
+              <span class="lp-workflow-tag">Marketing</span>
+              <h3>Redo reporting</h3>
+              <p>Attributed revenue, spend, and campaigns beside Shopify and ads.</p>
+            </li>
+            <li class="lp-workflow">
+              <span class="lp-workflow-tag">Marketing</span>
+              <h3>Ask what to send</h3>
+              <p>Next campaign ideas from SMS and email performance.</p>
+            </li>
+            <li class="lp-workflow">
+              <span class="lp-workflow-tag">Finance</span>
+              <h3>Accounting with AI</h3>
+              <p>Code transactions, review the ledger, ask Silo about the books.</p>
+            </li>
+            <li class="lp-workflow">
+              <span class="lp-workflow-tag">Finance</span>
+              <h3>On Deck review</h3>
+              <p>Approve coded spend before it posts — AI suggestions you confirm.</p>
+            </li>
+            <li class="lp-workflow">
+              <span class="lp-workflow-tag">Purchasing</span>
+              <h3>PO management</h3>
+              <p>Build POs, landed costing, and incoming inventory in one place.</p>
+            </li>
+            <li class="lp-workflow">
+              <span class="lp-workflow-tag">Purchasing</span>
+              <h3>Product Studio + AI</h3>
+              <p>Draft buys in Ask Silo, mark ready, open in PO Builder.</p>
+            </li>
+          </ul>
+        </section>
       </section>
 
       <section class="lp-ask" aria-labelledby="lpAskHeading">
@@ -172,7 +228,7 @@
           </header>
           <div class="lp-ask-thread">
             <div class="lp-ask-user">
-              <p><span data-lp-ask-type="user">Next Redo campaign from last month’s SMS and email?</span><span class="lp-ask-caret" aria-hidden="true"></span></p>
+              <p><span data-lp-ask-type="user">Give me the next Redo campaign based on SMS and email performance.</span><span class="lp-ask-caret" aria-hidden="true"></span></p>
             </div>
             <p class="lp-ask-thinking" hidden aria-hidden="true"><span></span><span></span><span></span></p>
             <article class="lp-ask-agent lp-ask-agent--pending">
@@ -227,6 +283,6 @@
 
   <script src="/pages/config.js"></script>
   <script src="/assets/landing/early-access.js?v=4" defer></script>
-  <script src="/assets/landing/redo-welcome-motion.js?v=1" defer></script>
+  <script src="/assets/landing/redo-welcome-motion.js?v=2" defer></script>
 </body>
 </html>
