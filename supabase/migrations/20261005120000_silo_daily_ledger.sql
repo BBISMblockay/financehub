@@ -170,7 +170,9 @@ end $$;
 -- The per-transaction form of approve_card_import_batch's checks and of the
 -- bank-feed approval trigger's treatment/direction checks, so recording is held
 -- to the same standard the QuickBooks approval is. Reasons are the sentence
--- On Deck shows. A posted batch is never blocked: QuickBooks accepted it.
+-- On Deck shows. A posted batch, or an approved one with its snapshot, is
+-- never blocked: its entry was validated when it was frozen, and it is
+-- recorded from that frozen entry (silo_ledger_desired_lines).
 create or replace function public.silo_ledger_blocker(p_txn uuid)
 returns text language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -181,7 +183,7 @@ begin
   if not found or t.status <> 'coded' then return null; end if;
   if t.origin = 'plaid' and t.provider_status is distinct from 'posted' then return null; end if;
   select * into b from public.card_import_batches where id = t.batch_id;
-  if b.status = 'posted' then return null; end if;
+  if b.status = 'posted' or (b.status = 'approved' and b.approval_snapshot is not null) then return null; end if;
   select * into s from public.card_sources where id = b.source_id;
   if s.id is null then return 'The card or bank account for this import is missing'; end if;
   v_start := public.silo_ledger_start(s);
@@ -265,30 +267,54 @@ end $$;
 -- jsonb array of {posting_type, amount, qbo_account_id, qbo_location_id,
 -- entity_type, entity_qbo_id, description}, or NULL when it should post
 -- nothing. Mirrors approve_card_import_batch line for line, for one row.
+-- A batch frozen by an approval snapshot takes its balancing account, location,
+-- entity and connection FROM THAT SNAPSHOT, not from the card source as it is
+-- today: QuickBooks receives (or received) the snapshot, and the source may
+-- have been remapped since. Its coding cannot change while frozen.
 create or replace function public.silo_ledger_desired_lines(p_txn uuid)
 returns jsonb language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
   t public.card_transactions%rowtype; b public.card_import_batches%rowtype; s public.card_sources%rowtype;
   v_start date; v_conn uuid; v_lines jsonb; v_net numeric(14,2); v_bal_type text;
+  v_bal_acct text; v_bal_loc text; v_def_loc text; v_bal_ent text; v_bal_ent_type text;
+  v_settle jsonb; v_n integer;
 begin
   select * into t from public.card_transactions where id = p_txn;
   if not found or t.status <> 'coded' then return null; end if;
   if t.origin = 'plaid' and t.provider_status is distinct from 'posted' then return null; end if;
   select * into b from public.card_import_batches where id = t.batch_id;
   select * into s from public.card_sources where id = b.source_id;
-  if s.id is null or s.credit_qbo_account_id is null then return null; end if;
+  if s.id is null then return null; end if;
   v_start := public.silo_ledger_start(s);
   if v_start is null or t.txn_date is null or t.txn_date < v_start then return null; end if;
   -- Invalid coding is not recorded; it waits in On Deck (silo_ledger_batch_status).
   if public.silo_ledger_blocker(p_txn) is not null then return null; end if;
   v_conn := coalesce(public.silo_ledger_connection(b.id), s.qbo_connection_id, b.qbo_connection_id);
+  v_bal_acct := s.credit_qbo_account_id; v_bal_loc := s.default_qbo_location_id;
+  v_def_loc := s.default_qbo_location_id; v_bal_ent := s.credit_vendor_qbo_id;
+  if b.status in ('approved', 'posted') and b.approval_snapshot is not null then
+    v_conn := coalesce(nullif(b.approval_snapshot->>'qbo_connection_id', '')::uuid, v_conn);
+    -- The settlement line is appended after one line per non-zero effective
+    -- line, and only when the batch nets to non-zero.
+    select count(*) into v_n from public.card_coding_effective_lines e
+     where e.batch_id = b.id and round(e.amount, 2) <> 0;
+    if jsonb_array_length(coalesce(b.approval_snapshot->'payload'->'Line', '[]'::jsonb)) > v_n then
+      v_settle := b.approval_snapshot->'payload'->'Line'->-1->'JournalEntryLineDetail';
+      v_bal_acct := v_settle->'AccountRef'->>'value';
+      v_bal_loc := v_settle->'DepartmentRef'->>'value';
+      v_def_loc := v_bal_loc;
+      v_bal_ent := v_settle->'Entity'->'EntityRef'->>'value';
+      v_bal_ent_type := v_settle->'Entity'->>'Type';
+    end if;
+  end if;
+  if v_bal_acct is null then return null; end if;
 
   select coalesce(round(sum(round(e.amount, 2)), 2), 0),
          jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
            'posting_type', case when e.amount >= 0 then 'Debit' else 'Credit' end,
            'amount', abs(round(e.amount, 2)),
            'qbo_account_id', e.qbo_account_id,
-           'qbo_location_id', coalesce(e.qbo_location_id, s.default_qbo_location_id),
+           'qbo_location_id', coalesce(e.qbo_location_id, v_def_loc),
            'entity_type', e.entity_type, 'entity_qbo_id', e.entity_qbo_id,
            'description', left(concat_ws(' · ', e.txn_date::text, e.description,
              case when e.is_split then coalesce(nullif(e.memo, ''), 'split ' || e.line_no::text) end), 4000)))
@@ -299,15 +325,15 @@ begin
   if v_lines is null or v_net = 0 then return null; end if;
 
   select account_type into v_bal_type from public.quickbooks_accounts
-   where company_entity_id = s.company_entity_id and connection_id = v_conn and qbo_account_id = s.credit_qbo_account_id;
+   where company_entity_id = s.company_entity_id and connection_id = v_conn and qbo_account_id = v_bal_acct;
   return v_lines || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
     'posting_type', case when v_net >= 0 then 'Credit' else 'Debit' end,
     'amount', abs(v_net),
-    'qbo_account_id', s.credit_qbo_account_id,
-    'qbo_location_id', s.default_qbo_location_id,
-    'entity_type', case when s.credit_vendor_qbo_id is not null then
-      case when v_bal_type = 'Accounts Receivable' then 'Customer' else 'Vendor' end end,
-    'entity_qbo_id', s.credit_vendor_qbo_id,
+    'qbo_account_id', v_bal_acct,
+    'qbo_location_id', v_bal_loc,
+    'entity_type', case when v_bal_ent is not null then coalesce(v_bal_ent_type,
+      case when v_bal_type = 'Accounts Receivable' then 'Customer' else 'Vendor' end) end,
+    'entity_qbo_id', v_bal_ent,
     'description', left(trim(s.display_name || ' · ' || coalesce(t.description, '')), 4000))));
 end $$;
 
@@ -321,18 +347,27 @@ declare
   v_active public.ledger_entries%rowtype; v_lock date; v_date date; v_entry uuid; v_line jsonb; v_n integer;
   v_conn uuid;
 begin
-  perform pg_advisory_xact_lock(hashtextextended('silo_ledger:card_transaction:' || p_txn::text, 0));
-  select * into t from public.card_transactions where id = p_txn;
-  v_company := t.company_entity_id;
+  -- The company never changes on a transaction, so it can be read unlocked.
+  select company_entity_id into v_company from public.card_transactions where id = p_txn;
   if v_company is null then
     select company_entity_id into v_company from public.ledger_entries
      where source = 'card_transaction' and source_id = p_txn limit 1;
     if v_company is null then return; end if;
   end if;
-  -- Shared per-company lock: recording never interleaves with a period-lock
-  -- change (set_accounting_period_lock takes it EXCLUSIVE), so the lock read
-  -- below is the lock this write commits under.
+  -- Lock order is ALWAYS company, then transaction. The company lock is shared
+  -- here and exclusive in set_accounting_period_lock and silo_ledger_on_books_start
+  -- (which then calls back into this function), so taking the transaction lock
+  -- first would deadlock against an opening-balance acceptance. Shared also
+  -- means the period lock read below is the lock this write commits under.
   perform pg_advisory_xact_lock_shared(hashtextextended('silo_ledger:company:' || v_company::text, 0));
+  perform pg_advisory_xact_lock(hashtextextended('silo_ledger:card_transaction:' || p_txn::text, 0));
+  select * into t from public.card_transactions where id = p_txn;
+  -- A coded row that fails validation (an open feed exception, an inactive
+  -- account, a source switched off) is HELD: whatever is recorded for it stays,
+  -- and nothing new is written, until the blocker clears and it resyncs
+  -- (silo_ledger_resync_held). Treating "blocked" as "posts nothing" would
+  -- reverse a correct entry over a temporary problem.
+  if t.id is not null and public.silo_ledger_blocker(p_txn) is not null then return; end if;
   v_lines := case when t.id is null then null else public.silo_ledger_desired_lines(p_txn) end;
   -- Fingerprint the ACCOUNTING facts only (date, accounts, sides, amounts,
   -- locations, entities). Descriptions are labels: renaming a card or fixing a
@@ -424,14 +459,33 @@ drop trigger if exists silo_ledger_split on public.card_transaction_splits;
 create constraint trigger silo_ledger_split after insert or update or delete on public.card_transaction_splits
   deferrable initially deferred for each row execute function public.silo_ledger_on_split();
 
--- A source's balancing account, default location or feed start changes what
--- every one of its transactions posts.
+-- Resync every coded transaction of a company (optionally one source) whose
+-- batch is not frozen. Used when something a blocker depends on changes, so a
+-- held transaction is recorded the moment the problem clears. Idempotent.
+create or replace function public.silo_ledger_resync_held(p_company uuid, p_source uuid default null)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_id uuid;
+begin
+  for v_id in select t.id from public.card_transactions t
+              join public.card_import_batches b on b.id = t.batch_id
+              where t.company_entity_id = p_company and t.status = 'coded'
+                and (p_source is null or b.source_id = p_source)
+                and b.status <> 'posted' and not (b.status = 'approved' and b.approval_snapshot is not null)
+              order by t.txn_date, t.id loop
+    perform public.silo_ledger_sync_card_transaction(v_id);
+  end loop;
+end $$;
+
+-- A source's balancing account, default location, vendor, feed start, on/off
+-- switch or QuickBooks connection changes what (or whether) its transactions post.
 create or replace function public.silo_ledger_on_source()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_id uuid;
 begin
-  if (new.credit_qbo_account_id, new.default_qbo_location_id, new.credit_vendor_qbo_id, new.authoritative_from)
-     is not distinct from (old.credit_qbo_account_id, old.default_qbo_location_id, old.credit_vendor_qbo_id, old.authoritative_from) then
+  if (new.credit_qbo_account_id, new.default_qbo_location_id, new.credit_vendor_qbo_id, new.authoritative_from,
+      new.is_active, new.qbo_connection_id)
+     is not distinct from (old.credit_qbo_account_id, old.default_qbo_location_id, old.credit_vendor_qbo_id, old.authoritative_from,
+      old.is_active, old.qbo_connection_id) then
     return null;
   end if;
   for v_id in select t.id from public.card_transactions t join public.card_import_batches b on b.id = t.batch_id
@@ -443,6 +497,58 @@ end $$;
 drop trigger if exists silo_ledger_source on public.card_sources;
 create trigger silo_ledger_source after update on public.card_sources
   for each row execute function public.silo_ledger_on_source();
+
+-- Resolving (or removing) a bank-feed exception clears that source's blocker.
+create or replace function public.silo_ledger_on_feed_exception()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_src uuid; v_co uuid;
+begin
+  if tg_op = 'UPDATE' and new.status is not distinct from old.status then return null; end if;
+  select a.source_id, s.company_entity_id into v_src, v_co
+    from public.plaid_accounts a join public.card_sources s on s.id = a.source_id
+   where a.id = old.account_id;
+  if v_src is not null then perform public.silo_ledger_resync_held(v_co, v_src); end if;
+  return null;
+end $$;
+drop trigger if exists silo_ledger_feed_exception on public.plaid_sync_exceptions;
+create trigger silo_ledger_feed_exception after update or delete on public.plaid_sync_exceptions
+  for each row execute function public.silo_ledger_on_feed_exception();
+
+-- A chart account, location, customer or vendor becoming active (or appearing)
+-- can clear a blocker. Statement-level with transition tables: the QuickBooks
+-- list sync writes hundreds of rows in one statement, and this resyncs each
+-- affected company once, only when a row actually became usable.
+create or replace function public.silo_ledger_on_chart_insert()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_co uuid;
+begin
+  for v_co in select distinct n.company_entity_id from new_rows n where n.is_active loop
+    perform public.silo_ledger_resync_held(v_co);
+  end loop;
+  return null;
+end $$;
+create or replace function public.silo_ledger_on_chart_update()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_co uuid;
+begin
+  for v_co in select distinct n.company_entity_id from new_rows n join old_rows o on o.id = n.id
+              where n.is_active and not coalesce(o.is_active, false) loop
+    perform public.silo_ledger_resync_held(v_co);
+  end loop;
+  return null;
+end $$;
+do $$
+declare tbl text;
+begin
+  foreach tbl in array array['quickbooks_accounts', 'quickbooks_locations', 'quickbooks_customers', 'quickbooks_vendors'] loop
+    execute format('drop trigger if exists silo_ledger_chart_insert on public.%I', tbl);
+    execute format('create trigger silo_ledger_chart_insert after insert on public.%I referencing new table as new_rows '
+                   'for each statement execute function public.silo_ledger_on_chart_insert()', tbl);
+    execute format('drop trigger if exists silo_ledger_chart_update on public.%I', tbl);
+    execute format('create trigger silo_ledger_chart_update after update on public.%I referencing old table as old_rows new table as new_rows '
+                   'for each statement execute function public.silo_ledger_on_chart_update()', tbl);
+  end loop;
+end $$;
 
 -- Reopening a batch (approved/posted -> draft/categorized) discards its approval
 -- snapshot and lifts the freeze: record its current state. Marking a post
@@ -549,7 +655,8 @@ select l.id, l.company_entity_id, e.qbo_connection_id, e.id as entry_id, e.entry
        coalesce(b.status = 'posted', false) as in_quickbooks,
        -- The date QuickBooks carries it on: the batch's single entry date. A
        -- trial balance through an earlier day does not contain it yet.
-       case when b.status = 'posted' then b.entry_date end as quickbooks_date
+       case when b.status = 'posted' then b.entry_date end as quickbooks_date,
+       t.batch_id
   from public.ledger_lines l
   join public.ledger_entries e on e.id = l.entry_id
   left join public.card_transactions t on e.source = 'card_transaction' and t.id = e.source_id
@@ -569,6 +676,8 @@ begin
     'public.silo_ledger_desired_lines(uuid)', 'public.silo_ledger_sync_card_transaction(uuid)',
     'public.silo_ledger_on_card_transaction()', 'public.silo_ledger_on_split()', 'public.silo_ledger_on_source()',
     'public.silo_ledger_on_batch()', 'public.silo_ledger_on_books_start()',
+    'public.silo_ledger_resync_held(uuid, uuid)', 'public.silo_ledger_on_feed_exception()',
+    'public.silo_ledger_on_chart_insert()', 'public.silo_ledger_on_chart_update()',
     'public.silo_ledger_connection(uuid)', 'public.silo_ledger_blocker(uuid)',
     'public.ledger_entry_must_balance()', 'public.ledger_deny_mutation()'] loop
     execute format('revoke all on function %s from public, anon, authenticated', f);
@@ -576,8 +685,10 @@ begin
 end $$;
 
 -- ── Coded but not recorded: what On Deck must show as needs input ───────────
--- One row per non-posted import that has coded transactions the ledger refused,
--- with how many and the first reason. Finance only, active company.
+-- One row per unfrozen import that has coded transactions the ledger is
+-- holding (a blocker, whether or not an earlier entry is still recorded for
+-- it) or has not recorded, with how many and the first reason. Finance only,
+-- active company.
 create or replace function public.silo_ledger_batch_status()
 returns table(batch_id uuid, unrecorded integer, reason text)
 language plpgsql stable security definer set search_path = public, pg_temp as $$
@@ -592,15 +703,15 @@ begin
   from (
     select t.batch_id,
            coalesce(public.silo_ledger_blocker(t.id),
-                    case when public.silo_ledger_desired_lines(t.id) is not null
+                    case when not exists (select 1 from public.ledger_entries e
+                                          where e.company_entity_id = v_co and e.source = 'card_transaction' and e.source_id = t.id
+                                            and e.kind = 'original'
+                                            and not exists (select 1 from public.ledger_entries r where r.reverses_entry_id = e.id))
+                          and public.silo_ledger_desired_lines(t.id) is not null
                          then 'Categorized but not yet in the SILO ledger' end) as reason
     from public.card_transactions t
     join public.card_import_batches b on b.id = t.batch_id
     where t.company_entity_id = v_co and b.company_entity_id = v_co and t.status = 'coded' and b.status <> 'posted'
-      and not exists (select 1 from public.ledger_entries e
-                      where e.company_entity_id = v_co and e.source = 'card_transaction' and e.source_id = t.id
-                        and e.kind = 'original'
-                        and not exists (select 1 from public.ledger_entries r where r.reverses_entry_id = e.id))
   ) x
   where x.reason is not null
   group by x.batch_id;

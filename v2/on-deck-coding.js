@@ -82,6 +82,16 @@
         figure: off ? null : money(item.coded_amount, item.currency), caption: off ? null : `${plural(item.txn_count - item.excluded_count, 'categorized transaction')}`,
         action: off ? 'Open in Transactions' : 'Review', reviewable: !off };
     }
+    // Approved or posted before the ledger exists: still "after approval", as it
+    // always was, but described by QuickBooks alone -- SILO's books hold nothing.
+    if (item.ledger_legacy && item.stage === 'approved') {
+      return { ...base, pill: 'Approved', title: 'QuickBooks entry approved',
+        figure: money(item.coded_amount, item.currency), caption: 'not sent to QuickBooks yet', action: 'View' };
+    }
+    if (item.ledger_legacy && item.stage === 'posted') {
+      return { ...base, pill: 'In QuickBooks', title: 'Posted to QuickBooks',
+        figure: item.qbo_doc_number || item.qbo_journal_entry_id || '\u2014', caption: 'QuickBooks journal entry', action: 'View' };
+    }
     switch (item.stage) {
       case 'code':
         return { ...base, pill: 'Prepared', title: `Code ${plural(item.open_suggestions, 'transaction')}`,
@@ -139,9 +149,13 @@
      it still has suggestions to review (that card comes first) or is posted. */
   function applyLedgerStatus(items, status) {
     // status === null: the ledger is not installed (the RPC does not exist).
+    // An approved or posted import stays under "After approval", where it was
+    // before the ledger; only one still waiting on its monthly entry is pending.
     if (status === null) {
-      return (items || []).map((i) => (i.stage === 'approve' || i.stage === 'approved' || i.stage_reason === 'posting_disabled')
-        ? { ...i, ledger_unavailable: true } : i);
+      return (items || []).map((i) => {
+        if (i.stage === 'approved' || i.stage === 'posted') return { ...i, ledger_legacy: true };
+        return (i.stage === 'approve' || i.stage_reason === 'posting_disabled') ? { ...i, ledger_unavailable: true } : i;
+      });
     }
     const byBatch = new Map((status || []).map((s) => [s.batch_id, s]));
     return (items || []).map((i) => {

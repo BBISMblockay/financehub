@@ -22,6 +22,7 @@
 //   SILO_LEDGER_MUTATION=read-ungated
 //   SILO_LEDGER_MUTATION=cosmetic-rerecord
 //   SILO_LEDGER_MUTATION=no-validation|posted-not-frozen|no-books-start-sync|lock-unshared|connection-not-stored|approved-not-frozen
+//   SILO_LEDGER_MUTATION=held-reverses|no-chart-resync|no-source-resync|snapshot-ignored
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -35,7 +36,19 @@ const MUTATIONS = {
   'ignore-lock': ['    v_date := greatest(t.txn_date, coalesce(v_lock + 1, t.txn_date));', '    v_date := t.txn_date;'],
   // Fingerprint the labels too: a card rename then re-records every transaction.
   // Record whatever was coded, valid or not.
-  'no-validation': ['  if public.silo_ledger_blocker(p_txn) is not null then return null; end if;\n', ''],
+  'no-validation': [
+    ['  if public.silo_ledger_blocker(p_txn) is not null then return null; end if;\n', ''],
+    ['  if t.id is not null and public.silo_ledger_blocker(p_txn) is not null then return; end if;\n', '']],
+  // Treat a blocked row as "posts nothing": a temporary problem reverses a good entry.
+  'held-reverses': ['  if t.id is not null and public.silo_ledger_blocker(p_txn) is not null then return; end if;\n', ''],
+  // Nothing re-records a held row when an account becomes active again.
+  'no-chart-resync': ['              where n.is_active and not coalesce(o.is_active, false) loop', '              where false loop'],
+  // Switching a source back on does not re-record what it held.
+  'no-source-resync': [
+    ['      new.is_active, new.qbo_connection_id)', '      new.qbo_connection_id)'],
+    ['      old.is_active, old.qbo_connection_id)', '      old.qbo_connection_id)']],
+  // Record an approved batch from today's source instead of its frozen snapshot.
+  'snapshot-ignored': ["  if b.status in ('approved', 'posted') and b.approval_snapshot is not null then\n    v_conn", '  if false then\n    v_conn'],
   // Let a source remap rewrite QuickBooks-posted history.
   // Both guards: the writer's freeze and the remap's posted-batch filter overlap.
   'posted-not-frozen': [
@@ -316,8 +329,27 @@ try {
     status = await as(finance, () => q('select * from silo_ledger_batch_status() where batch_id=$1', [cb]));
     assert.match(status[0].reason, /not an active account/);
     await q("update quickbooks_accounts set is_active=true where company_entity_id=$1 and qbo_account_id='meals'", [co]);
-    await code(stale, 'supplies');
-    assert.equal((await entries(stale)).length, 1);
+    const es = await entries(stale);
+    assert.equal(es.length, 1, 'reactivating the account recorded the held row with no edit');
+    assert.deepEqual((await lines(es[0].id)).map((l) => l.qbo_account_id), ['meals', 'cc']);
+    assert.equal((await as(finance, () => q('select * from silo_ledger_batch_status() where batch_id=$1', [cb]))).length, 0);
+  });
+
+  await test('a temporary problem holds a recorded transaction instead of reversing it, and clearing it catches up', async () => {
+    const b = await newBatch(card);
+    const t = await newTxn(b, 33, { status: 'coded', account: 'supplies', date: '2026-09-14' });
+    assert.equal((await entries(t)).length, 1);
+    await q('update card_sources set is_active=false where id=$1', [card]);
+    await q("update card_transactions set description='TOUCHED BY SYNC' where id=$1", [t]);
+    assert.deepEqual((await entries(t)).map((e) => e.kind), ['original'], 'switching the source off reverses nothing');
+    await code(t, 'meals');
+    assert.deepEqual((await entries(t)).map((e) => e.kind), ['original'], 'a change while held waits');
+    let status = await as(finance, () => q('select * from silo_ledger_batch_status() where batch_id=$1', [b]));
+    assert.match(status[0]?.reason || '', /switched off/, 'and On Deck says why');
+    await q('update card_sources set is_active=true where id=$1', [card]);
+    const es = await entries(t);
+    assert.deepEqual(es.map((e) => e.kind), ['original', 'reversal', 'original'], 'switching it back on records the change');
+    assert.deepEqual((await lines(es[2].id)).map((l) => l.qbo_account_id), ['meals', 'cc']);
   });
 
   await test('a source remap never rewrites QuickBooks-posted history; unposting brings it up to date', async () => {
@@ -362,6 +394,27 @@ try {
     const v = await as(finance, () => q('select qbo_account_id, in_quickbooks from silo_ledger_lines_v where source_id=$1', [t]));
     assert.ok(v.every((r) => r.in_quickbooks) && v.some((r) => r.qbo_account_id === 'cc') && !v.some((r) => r.qbo_account_id === 'cc2'),
       'what SILO marks as in QuickBooks is the snapshot QuickBooks received');
+    await q("update card_sources set credit_qbo_account_id='cc', credit_qbo_account_name='cc' where id=$1", [card]);
+  });
+
+  await test('an approved batch is recorded from its frozen snapshot, not from a source remapped since', async () => {
+    await q("insert into quickbooks_accounts(company_entity_id,connection_id,qbo_account_id,name,account_type,is_active) values($1,$2,'cc3','cc3','Credit Card',true) on conflict do nothing", [co, conn]);
+    const b = await newBatch(card);
+    const t = await newTxn(b, 21, { date: '2026-09-20' });
+    const snapshot = { schema_version: 1, kind: 'card_batch', qbo_connection_id: conn, payload: { TxnDate: '2026-09-30', Line: [
+      { DetailType: 'JournalEntryLineDetail', Amount: 21, JournalEntryLineDetail: { PostingType: 'Debit', AccountRef: { value: 'supplies' } } },
+      { DetailType: 'JournalEntryLineDetail', Amount: 21, JournalEntryLineDetail: { PostingType: 'Credit', AccountRef: { value: 'cc' } } }] } };
+    await db.exec('alter table card_import_batches disable trigger user');
+    await q("update card_import_batches set status='approved', approval_snapshot=$2, approval_hash='h' where id=$1", [b, JSON.stringify(snapshot)]);
+    await db.exec('alter table card_import_batches enable trigger user');
+    await q("update card_sources set credit_qbo_account_id='cc3', credit_qbo_account_name='cc3' where id=$1", [card]);
+    // As the backfill meets it: a frozen batch whose rows were never recorded.
+    await db.exec('alter table card_transactions disable trigger plaid_transaction_integrity');
+    await code(t, 'supplies');
+    await db.exec('alter table card_transactions enable trigger plaid_transaction_integrity');
+    const es = await entries(t);
+    assert.equal(es.length, 1);
+    assert.deepEqual((await lines(es[0].id)).map((l) => l.qbo_account_id), ['supplies', 'cc'], 'the account QuickBooks received, not today\'s cc3');
     await q("update card_sources set credit_qbo_account_id='cc', credit_qbo_account_name='cc' where id=$1", [card]);
   });
 
