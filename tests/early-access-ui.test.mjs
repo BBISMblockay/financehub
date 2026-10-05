@@ -24,11 +24,15 @@ test('existing home and shared config stay byte-identical to main c2b6f1e', () =
 test('demo is standalone for all visitors, with no auth/session router or home redirect', () => {
   assert.match(html, /<html[^>]*data-mode="landing"/);
   assert.match(html, /<body class="lp-demo-page">/);
+  assert.match(html, /bcn-card lp-connects/);
+  assert.match(html, /bcn-card lp-feature/);
+  assert.doesNotMatch(html, /fonts\.googleapis\.com/);
   assert.match(html, /href="\/pages\/login\.html">Sign in<\/a>/);
   assert.doesNotMatch(html, /id="router"|type="module"|getSession|createClient|location\.replace|location\.href|http-equiv="refresh"/);
   assert.doesNotMatch(source, /getSession|createClient|location\.replace|localStorage|sessionStorage/);
   assert.match(css, /\.lp-demo-page\s*\{[^}]*margin:\s*0;/);
   assert.match(css, /\.lp-demo-page[^}]*box-sizing:\s*border-box;/);
+  assert.match(css, /background:\s*var\(--bcn-bg\)/);
   assert.match(html, /\/pages\/config\.js[\s\S]*\/assets\/landing\/early-access\.js/);
 });
 
