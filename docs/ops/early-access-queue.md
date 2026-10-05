@@ -8,16 +8,18 @@ subscription or payment, and does not send email. Existing sign-in, invite and
 password-recovery routing remains in place. The existing homepage is unchanged, and no
 new homepage or navigation link is added.
 
-For now the page is the Redo Marketing landing. The hero uses the existing
-Blender rendering (`silo-hero`). The performance board follows the poster
-layout with sample Redo figures and dark-mode **interface slots** that load
-automatically when PNGs are added under `assets/landing/` (see that folder’s
-README). Ask Silo has its own slot plus the question list. Sample KPI copy
-stays until a full dashboard capture replaces the wide slot.
-`LANDING_DEMO_VIDEO_URL` is intentionally unconfigured, so the chart slot stays
-an image placeholder without a play button. Once approved, configure
-that optional property with the final supported media URL; native video controls
-are used, without autoplay or an iframe.
+The demo page keeps SILO's existing logo, Plus Jakarta Sans and hero assets. The
+product video is not yet supplied. `LANDING_DEMO_VIDEO_URL` is intentionally unconfigured, so the page displays an honest preview placeholder
+without a play button. Once approved, configure that optional property with the final supported
+media URL; native video controls are used, without autoplay or an iframe.
+
+`/redo-welcome.html` is a separate Redo Marketing welcome page beside `/demo.html`, which is
+unchanged. It uses the Blender hero (`silo-hero`), a performance board in the poster layout with
+sample Redo figures, and dark-mode **interface slots** that fill automatically when PNGs are added
+under `assets/landing/` (see that folder's README). It has its own stylesheet
+(`assets/landing/redo-welcome.css`) and shares the early-access form controller, which restores
+each page's own button label. Until the captures are saved, each slot shows a labelled empty frame,
+and the page requests the three missing images (404s) on every view.
 
 ## Boundaries
 

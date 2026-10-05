@@ -6,6 +6,8 @@
   const config = window.__SILO_CONFIG__ || {};
   const form = document.getElementById('lpInterestForm');
   const button = document.getElementById('lpJoinButton');
+  // Each page names its own call to action; a reset restores that label.
+  const buttonLabel = button ? button.textContent : '';
   const status = document.getElementById('lpFormStatus');
   const fields = ['lpName', 'lpCompanyName', 'lpEmail'].map(id => document.getElementById(id));
   const website = document.getElementById('lpWebsite');
@@ -135,7 +137,7 @@
       pending = false;
       form.removeAttribute('aria-busy');
       button.disabled = submitted;
-      button.textContent = 'Request Redo access';
+      button.textContent = buttonLabel;
       fields.forEach(field => { field.readOnly = submitted; });
     }
   });

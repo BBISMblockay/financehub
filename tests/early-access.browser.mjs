@@ -1,4 +1,4 @@
-// Execute the standalone /demo.html page/controller using local fixtures. The only allowed POST
+// Execute a standalone landing page (/demo.html, or LANDING_PAGE=redo-welcome.html) and its controller using local fixtures. The only allowed POST
 // is intercepted below and answered in-process: no production database, account,
 // invite, payment or real interest entry is touched by this suite.
 import { chromium } from 'playwright';
@@ -9,7 +9,18 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const screenshots = fileURLToPath(new URL('./screenshots/early-access/', import.meta.url));
+// What differs between the two pages that share the early-access controller.
+const PROFILES = {
+  'demo.html': { css: 'assets/landing/early-access.css', image: '#lpDemoPlaceholder img', button: 'Join for early access',
+    company: 'Company Name', email: 'Email', heroCta: false, marker: (page) => page.getByText('Product walkthrough coming soon', { exact: true }) },
+  'redo-welcome.html': { css: 'assets/landing/redo-welcome.css', image: '.lp-render img', button: 'Request Redo access',
+    company: 'Company', email: 'Work email', heroCta: true, marker: (page) => page.getByRole('heading', { name: 'Redo Marketing Performance' }) },
+};
+const PAGE = process.env.LANDING_PAGE || 'demo.html';
+const P = PROFILES[PAGE];
+assert.ok(P, 'Unknown LANDING_PAGE ' + PAGE);
+const PAGE_URL = 'https://get-silo.com/' + PAGE;
+const screenshots = fileURLToPath(new URL('./screenshots/early-access/' + PAGE.replace('.html', '') + '/', import.meta.url));
 await mkdir(screenshots, { recursive: true });
 const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
   ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {});
@@ -104,8 +115,8 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
       return fulfillVideo(route, await readFile(path.join(root, 'assets/landing/silo-hero-motion.mp4')));
     }
     const relative = url.pathname.slice(1);
-    const allowed = ['demo.html', 'pages/login.html', 'v2/beacon.css', 'v2/silo-brand.css',
-      'legal/privacy.html', 'assets/landing/early-access.js', 'assets/landing/early-access.css'];
+    const allowed = [PAGE, 'pages/login.html', 'v2/beacon.css', 'v2/silo-brand.css',
+      'legal/privacy.html', 'assets/landing/early-access.js', P.css];
     if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative)
       && !/^assets\/landing\/redo-demo-(?:chart|dashboard|ask-silo)\.png$/.test(relative)) {
       failures.push('Unexpected fixture path: ' + relative);
@@ -124,8 +135,8 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
 
 async function fillInterest(page) {
   await page.getByLabel('Name', { exact: true }).fill('Pat Example');
-  await page.getByLabel('Company', { exact: true }).fill('Example Company');
-  await page.getByLabel('Work email', { exact: true }).fill('pat@example.test');
+  await page.getByLabel(P.company, { exact: true }).fill('Example Company');
+  await page.getByLabel(P.email, { exact: true }).fill('pat@example.test');
 }
 
 async function assertPreserved(page) {
@@ -149,15 +160,15 @@ try {
   const { context, page, mediaRequests } = await fixture();
   for (const [name, width, height] of viewports) {
     await page.setViewportSize({ width, height });
-    await page.goto('https://get-silo.com/demo.html');
+    await page.goto(PAGE_URL);
     await page.evaluate(() => document.fonts.ready);
-    await page.locator('.lp-render img').evaluate(image => image.decode());
+    await page.locator(P.image).evaluate(image => image.decode());
     assert.equal(await page.locator('html').getAttribute('data-mode'), 'landing');
     assert.equal(await page.locator('#router').count(), 0, 'standalone demo must not contain the homepage auth router');
     assert.equal(await page.locator('#lpDemoVideo').isVisible(), false);
     assert.equal(await page.locator('#lpDemoVideo').getAttribute('src'), null);
-    assert.equal(await page.getByRole('heading', { name: 'Redo Marketing Performance' }).isVisible(), true);
-    assert.equal(await page.getByRole('button', { name: 'Request Redo access', exact: true }).isVisible(), true);
+    assert.equal(await P.marker(page).isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: P.button, exact: true }).isVisible(), true);
     assert.equal(await page.locator('#lpInterestForm input[required]').count(), 3);
     await assertGeometry(page, name, width);
     await page.screenshot({ path: path.join(screenshots, `${name}.png`), fullPage: true });
@@ -166,12 +177,14 @@ try {
   assert.deepEqual(mediaRequests(), [], 'no configured walkthrough means no media downloads');
 
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('https://get-silo.com/demo.html');
+  await page.goto(PAGE_URL);
   await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'Sign in');
   assert.equal(await page.locator('.lp-signin').evaluate(a => getComputedStyle(a).outlineStyle), 'solid');
-  await page.keyboard.press('Tab');
-  assert.equal(await page.evaluate(() => document.activeElement.id), 'lpHeroCta');
+  if (P.heroCta) {
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'lpHeroCta');
+  }
   for (const id of ['lpName', 'lpCompanyName', 'lpEmail', 'lpJoinButton']) {
     await page.keyboard.press('Tab');
     assert.equal(await page.evaluate(() => document.activeElement.id), id);
@@ -183,17 +196,17 @@ try {
     await page.waitForURL('**/pages/login.html');
     assert.equal(await page.locator('#formPassword').isVisible(), true);
     assert.equal(await page.locator('#btnGoSignup').isVisible(), false);
-    await page.goBack(); await page.waitForURL('https://get-silo.com/demo.html');
+    await page.goBack(); await page.waitForURL(PAGE_URL);
   }
   await page.goForward(); await page.waitForURL('**/pages/login.html');
-  await page.goBack(); await page.waitForURL('https://get-silo.com/demo.html');
+  await page.goBack(); await page.waitForURL(PAGE_URL);
   pass('Sign in, repeated navigation and Back/Forward preserve the guest flow');
 
   await context.close();
 
   let releaseSubmit;
   const submitted = await fixture({ respond: async () => new Promise(resolve => { releaseSubmit = resolve; }) });
-  await submitted.page.goto('https://get-silo.com/demo.html');
+  await submitted.page.goto(PAGE_URL);
   await submitted.page.locator('#lpJoinButton').click();
   assert.equal(submitted.submissions.length, 0);
   assert.equal(await submitted.page.locator('#lpName').evaluate(input => input.validity.valueMissing), true);
@@ -220,7 +233,7 @@ try {
   pass('required validation, exact payload, in-flight duplicate protection and accessible non-enumerating success');
 
   const repeat = await fixture();
-  await repeat.page.goto('https://get-silo.com/demo.html'); await fillInterest(repeat.page);
+  await repeat.page.goto(PAGE_URL); await fillInterest(repeat.page);
   await repeat.page.locator('#lpJoinButton').click();
   await repeat.page.waitForFunction(() => document.getElementById('lpFormStatus').textContent.includes('received'));
   assert.equal(await repeat.page.locator('#lpFormStatus').textContent(), acknowledgement);
@@ -235,7 +248,7 @@ try {
     ['network interruption', { abort: true }],
   ]) {
     const failed = await fixture({ respond: async count => count === 1 ? response : { status: 200, body: { ok: true } } });
-    await failed.page.goto('https://get-silo.com/demo.html'); await fillInterest(failed.page);
+    await failed.page.goto(PAGE_URL); await fillInterest(failed.page);
     await failed.page.locator('#lpJoinButton').click();
     await failed.page.waitForFunction(() => document.getElementById('lpFormStatus').textContent.includes('try again'));
     assert.equal(await failed.page.locator('#lpJoinButton').isEnabled(), true);
@@ -252,7 +265,7 @@ try {
   }
 
   const missing = await fixture({ missingConfig: true });
-  await missing.page.goto('https://get-silo.com/demo.html'); await fillInterest(missing.page);
+  await missing.page.goto(PAGE_URL); await fillInterest(missing.page);
   assert.equal(await missing.page.locator('#lpJoinButton').isDisabled(), true);
   await missing.page.waitForFunction(() => document.getElementById('lpFormStatus').textContent.length > 0);
   await assertPreserved(missing.page); assert.equal(missing.submissions.length, 0);
@@ -261,7 +274,7 @@ try {
 
   for (const url of ['', 'javascript:alert(1)', 'https://example.test/embed', 'http://example.test/demo.mp4']) {
     const invalid = await fixture({ videoUrl: url });
-    await invalid.page.goto('https://get-silo.com/demo.html');
+    await invalid.page.goto(PAGE_URL);
     assert.equal(await invalid.page.locator('#lpDemoVideo').isVisible(), false);
     assert.equal(await invalid.page.locator('#lpDemoVideo').getAttribute('src'), null);
     assert.equal(await invalid.page.locator('#lpDemoPlaceholder').isVisible(), true);
@@ -271,7 +284,7 @@ try {
   pass('empty/invalid/unsafe walkthrough configuration leaves the honest placeholder and downloads no video');
 
   const demo = await fixture({ videoUrl: 'https://get-silo.com' + videoPath, reducedMotion: 'reduce' });
-  await demo.page.goto('https://get-silo.com/demo.html');
+  await demo.page.goto(PAGE_URL);
   assert.equal(await demo.page.locator('#lpDemoVideo').isVisible(), true);
   assert.equal(await demo.page.locator('#lpDemoPlaceholder').isVisible(), false);
   const videoState = await demo.page.locator('#lpDemoVideo').evaluate(video => ({ controls: video.controls, preload: video.preload, paused: video.paused, autoplay: video.autoplay }));
@@ -285,20 +298,20 @@ try {
   await demo.context.close(); pass('configured walkthrough uses real decoded, manually controlled video without autoplay or preload');
 
   const signedIn = await fixture({ session: { user: { id: 'fixture-user' } } });
-  await signedIn.page.goto('https://get-silo.com/demo.html');
-  assert.equal(signedIn.page.url(), 'https://get-silo.com/demo.html');
+  await signedIn.page.goto(PAGE_URL);
+  assert.equal(signedIn.page.url(), PAGE_URL);
   assert.equal(await signedIn.page.locator('#lpInterestForm').isVisible(), true);
   assert.equal(await signedIn.page.locator('#lpJoinButton').isEnabled(), true);
   assert.equal(signedIn.submissions.length, 0);
   assert.ok(!signedIn.requests.some(request => request.origin.includes('jsdelivr') || request.origin.includes('supabase')),
     'demo visibility must never depend on auth SDK/session reads');
-  await signedIn.page.goto('https://get-silo.com/demo.html#access_token=fixture&type=recovery');
-  assert.equal(signedIn.page.url(), 'https://get-silo.com/demo.html#access_token=fixture&type=recovery');
+  await signedIn.page.goto(PAGE_URL + '#access_token=fixture&type=recovery');
+  assert.equal(signedIn.page.url(), PAGE_URL + '#access_token=fixture&type=recovery');
   assert.equal(await signedIn.page.locator('#lpInterestForm').isVisible(), true);
   await signedIn.context.close(); pass('standalone demo remains viewable with an existing session and makes no auth reads or redirects');
 
   const offline = await fixture({ unavailable: true });
-  await offline.page.goto('https://get-silo.com/demo.html');
+  await offline.page.goto(PAGE_URL);
   assert.equal(await offline.page.getByRole('link', { name: 'Sign in', exact: true }).isVisible(), true);
   await fillInterest(offline.page); await offline.page.locator('#lpJoinButton').click();
   await offline.page.waitForFunction(() => document.getElementById('lpFormStatus').textContent.includes('received'));

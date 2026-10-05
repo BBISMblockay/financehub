@@ -5,7 +5,7 @@ Ads, Finance and Inventory connected to the SILO badge. The optional video is
 an independently animated reconstruction of that scene in Blender, not a pan
 or zoom of the still. It contains no application screenshots or account data.
 
-## Redo demo page (`/demo.html`) — optional interface captures
+## Redo welcome page (`/redo-welcome.html`) — optional interface captures
 
 Drop dark-mode PNGs here; the page probes each path on load and fills the
 matching slot when the file exists. Until then, visitors see a labeled empty
