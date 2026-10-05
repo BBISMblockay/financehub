@@ -285,9 +285,10 @@ test('redo-welcome is its own page with its own stylesheet; demo.html is untouch
   assert.match(welcome, /id="icon-redo"/);
   assert.match(welcome, /lp-hub-cards/);
   assert.match(welcome, /Sample · Last 30 days/);
-  for (const file of ['redo-demo-chart.png', 'redo-demo-dashboard.png', 'redo-demo-ask-silo.png']) {
+  for (const file of ['redo-demo-chart.png', 'redo-demo-dashboard.png']) {
     assert.match(welcome, new RegExp('data-asset="' + file.replace('.', '\\.') + '"'));
   }
+  assert.match(welcome, /lp-ask-preview/);
   assert.match(source, /\.lp-shot\[data-asset\]/);
   assert.doesNotMatch(welcome, /<iframe|autoplay|\bloop\b|Play animation|Watch animation|lpMotionToggle|lpMotionFallback/);
 });
