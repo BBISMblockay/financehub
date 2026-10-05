@@ -2686,6 +2686,23 @@ Verified by `scripts/tests/shopify-order-terms.test.mjs` (14) and
 `shopify-order-terms-database.test.mjs` (10), and the
 `shopify_order_payment_terms` verify row.
 
+## Shopify order paid date — `20261005130000_shopify_order_paid_at.sql`
+
+Adds `paid_at` and `paid_at_checked_at` to `shopify_orders` (and, appended at
+the end, to `shopify_orders_v`). `paid_at` is when Shopify's payment
+TRANSACTIONS settled the order: the successful sale/capture that brought
+payments up to the order total (`settledPaidAt()` in
+`scripts/lib/shopify-sync-core.mjs`). `payment_terms_completed_at` is not a
+paid date: Shopify left it blank on every paid wholesale order measured.
+Looked up only for draft orders and orders with payment terms, one
+`/orders/{id}/transactions.json` call per settled order; checkout orders are
+never looked up, so `paid_at_checked_at` NULL means "not looked up" and
+`paid_at` NULL then means nothing. A failed lookup writes neither column.
+Existing orders fill on their next sync; older ones via
+`shopify-orders-backfill.yml`. Verified by
+`scripts/tests/shopify-order-paid-at.test.mjs` and the `shopify_order_paid_at`
+verify row.
+
 ## AI credit billing — `20261001120000_ai_credit_billing.sql`
 
 Apply after `20260919120000` (Stripe billing) and `20260929074429` (On Deck,
