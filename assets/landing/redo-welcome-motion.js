@@ -15,7 +15,11 @@
     const caption = document.getElementById('lpSlideshowCaption');
     if (!root || !track || slides.length < 2 || !prev || !next) return;
 
-    const labels = ['Attributed revenue, spend, and daily trend', 'Channel overview and top campaigns'];
+    const labels = [
+      'Attributed revenue, spend, and daily trend',
+      'Channel overview and top campaigns',
+      'Returns outcomes, weekly trends, and top reasons',
+    ];
     let index = 0;
     let timer;
     let paused = false;

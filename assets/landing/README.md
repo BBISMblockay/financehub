@@ -21,6 +21,7 @@ frame on the same navy field as the board.
 |------|------|
 | `redo-demo-chart.png` | Redo attributed revenue, spend, and daily trend (1100×592) |
 | `redo-demo-dashboard.png` | Marketing overview table + top campaigns (1200×629) |
+| `redo-demo-returns-marketing.jpg` | Returns & Marketing dashboard — weekly outcomes, top reasons (1363×936) |
 
 Ask Silo on the welcome page is an HTML preview (readable recommendation +
 evidence cards), not a screenshot — the product chat is too dense at poster size.
