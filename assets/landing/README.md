@@ -5,6 +5,32 @@ Ads, Finance and Inventory connected to the SILO badge. The optional video is
 an independently animated reconstruction of that scene in Blender, not a pan
 or zoom of the still. It contains no application screenshots or account data.
 
+Integration logos on `/redo-welcome.html` use an inline SVG sprite (duplicate
+reference copy in `integration-icons.svg`). Redo uses the official wordmark
+(white field, bold **REDO**); source reference: `redo-logo-reference.jpg`. The
+hero is an HTML hub (SILO cube plus four branded tiles and connector lines),
+not the generic SALES/ADS Blender still. The Works with row reuses the same marks.
+
+## Redo welcome page (`/redo-welcome.html`) — optional interface captures
+
+Drop dark-mode PNGs here; the page probes each path on load and fills the
+matching slot when the file exists. Until then, visitors see a labeled empty
+frame on the same navy field as the board.
+
+| File | Slot |
+|------|------|
+| `redo-demo-chart.png` | Redo attributed revenue, spend, and daily trend (1100×592) |
+| `redo-demo-dashboard.png` | Marketing overview table + top campaigns (1200×629) |
+
+Ask Silo on the welcome page is an HTML preview (readable recommendation +
+evidence cards), not a screenshot — the product chat is too dense at poster size.
+
+The two captures sit in a **left/right slideshow** on the board (arrows, dots,
+optional auto-advance). A **More Silo workflows** strip tags Marketing, Finance,
+and Purchasing (accounting + AI, On Deck, PO / Product Studio).
+
+Shipped from dark-mode Silo captures. Gradient frames mark live product UI.
+
 ## Still fallback (unchanged)
 
 - `silo-hero.webp`: 1800 × 1100, desktop/high-density source

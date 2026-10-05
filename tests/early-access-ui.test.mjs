@@ -32,7 +32,7 @@ test('demo is standalone for all visitors, with no auth/session router or home r
   assert.match(html, /\/pages\/config\.js[\s\S]*\/assets\/landing\/early-access\.js/);
 });
 
-function fixture({ mode = 'landing', config = {}, controllerSource = source, fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }) } = {}) {
+function fixture({ mode = 'landing', config = {}, label = 'Join for early access', controllerSource = source, fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }) } = {}) {
   const listeners = {};
   const elements = {};
   function element(id, extra = {}) {
@@ -48,7 +48,7 @@ function fixture({ mode = 'landing', config = {}, controllerSource = source, fet
     return el;
   }
   element('lpInterestForm', { reportValidity() { return ['lpName', 'lpCompanyName', 'lpEmail'].every(id => elements[id].value); } });
-  element('lpJoinButton', { disabled: true, textContent: 'Join for early access' });
+  element('lpJoinButton', { disabled: true, textContent: label });
   element('lpFormStatus', { hidden: true });
   element('lpName', { value: ' Test Person ' });
   element('lpCompanyName', { value: ' Example Company ' });
@@ -268,4 +268,40 @@ test('only safe direct media URLs enable native controls and errors restore the 
     assert.equal(f.elements.lpDemoPlaceholder.hidden, false, url);
   }
   assert.match(html, /<video[^>]*id="lpDemoVideo"[^>]*controls[^>]*playsinline[^>]*preload="none"/);
+});
+
+// /redo-welcome.html: the Redo layout, kept beside /demo.html rather than replacing it.
+const welcome = readFileSync(new URL('../redo-welcome.html', import.meta.url), 'utf8');
+
+test('redo-welcome is its own page with its own stylesheet; demo.html is untouched', () => {
+  assert.match(welcome, /assets\/landing\/redo-welcome\.css/);
+  assert.doesNotMatch(welcome, /early-access\.css/);
+  assert.match(html, /assets\/landing\/early-access\.css/);
+  assert.doesNotMatch(html, /redo-welcome\.css|Redo Marketing Performance/);
+  assert.match(welcome, /lp-hub-core/);
+  assert.doesNotMatch(welcome, /class="lp-render"/);
+  assert.match(welcome, /Redo Marketing Performance/);
+  assert.match(welcome, /lp-int-chip/);
+  assert.match(welcome, /id="icon-redo"/);
+  assert.match(welcome, /lp-hub-cards/);
+  assert.match(welcome, /Sample · Last 30 days/);
+  for (const file of ['redo-demo-chart.png', 'redo-demo-dashboard.png']) {
+    assert.match(welcome, new RegExp('data-asset="' + file.replace('.', '\\.') + '"'));
+  }
+  assert.match(welcome, /lp-ask-preview/);
+  assert.match(welcome, /lp-slideshow/);
+  assert.match(welcome, /lp-workflows/);
+  assert.match(welcome, /Accounting with AI/);
+  assert.match(welcome, /PO management/);
+  assert.match(welcome, /based on SMS and email performance/);
+  assert.match(welcome, /redo-welcome-motion\.js/);
+  assert.doesNotMatch(welcome, /What you get/);
+  assert.match(source, /\.lp-shot\[data-asset\]/);
+  assert.doesNotMatch(welcome, /<iframe|autoplay|\bloop\b|Play animation|Watch animation|lpMotionToggle|lpMotionFallback/);
+});
+
+test('each page keeps its own button label after a submission', async () => {
+  const f = fixture({ label: 'Request Redo access' });
+  await f.submit();
+  assert.equal(f.elements.lpJoinButton.textContent, 'Request Redo access');
 });

@@ -13,6 +13,14 @@ product video is not yet supplied. `LANDING_DEMO_VIDEO_URL` is intentionally unc
 without a play button. Once approved, configure that optional property with the final supported
 media URL; native video controls are used, without autoplay or an iframe.
 
+`/redo-welcome.html` is a separate Redo Marketing welcome page beside `/demo.html`, which is
+unchanged. It uses the Blender hero (`silo-hero`), a performance board in the poster layout with
+sample Redo figures, and dark-mode **interface slots** that fill automatically when PNGs are added
+under `assets/landing/` (see that folder's README). It has its own stylesheet
+(`assets/landing/redo-welcome.css`) and shares the early-access form controller, which restores
+each page's own button label. Until the captures are saved, each slot shows a labelled empty frame,
+and the page requests the three missing images (404s) on every view.
+
 ## Boundaries
 
 - The browser submits only to the `onboarding-interest` Edge Function.
