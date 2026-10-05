@@ -304,7 +304,7 @@
 #landing .lp-understand { margin-top: 72px; }
 #landing .lp-features { margin-top: 64px; }
 
-/* Redo performance board (poster layout; figures are sample, not live data) */
+/* Redo performance board — live captures when PNGs ship in assets/landing/ */
 #landing .lp-board {
   padding: 18px 18px 14px;
   border-radius: 16px;
@@ -326,14 +326,16 @@
   font-weight: 500;
   white-space: nowrap;
 }
-#landing .lp-board-hero {
-  display: grid;
-  grid-template-columns: minmax(220px, .8fr) minmax(0, 1.2fr);
-  gap: 18px;
-  align-items: center;
-  margin-top: 16px;
+#landing .lp-board-note {
+  margin: 10px 0 0;
+  color: #8b97ad;
+  font-size: 12px;
+  line-height: 1.45;
 }
-#landing .lp-board-hero .lp-kpi-value { font-size: 40px; }
+#landing .lp-board-note--tight { margin: 10px 0 0; }
+#landing .lp-board-hero {
+  margin-top: 14px;
+}
 #landing .lp-kpi-label { margin: 0; color: #93a0b8; font-size: 12px; font-weight: 600; }
 #landing .lp-kpi-value {
   margin: 4px 0 0;
@@ -582,7 +584,7 @@
 #landing .lp-foot a:hover { color: #fff; }
 
 @media (max-width: 900px) {
-  #landing .lp-hero, #landing .lp-ask, #landing .lp-board-hero { grid-template-columns: minmax(0, 1fr); }
+  #landing .lp-hero, #landing .lp-ask { grid-template-columns: minmax(0, 1fr); }
   #landing .lp-hub { max-width: min(100%, 360px); }
   #landing .lp-fields, #landing .lp-kpi-grid { grid-template-columns: 1fr 1fr; }
   #landing .lp-board-head { flex-wrap: wrap; }

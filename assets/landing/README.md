@@ -19,13 +19,12 @@ frame on the same navy field as the board.
 
 | File | Slot |
 |------|------|
-| `redo-demo-chart.png` | Revenue chart beside the headline KPI (≈960×540) |
-| `redo-demo-dashboard.png` | Full-width dashboard under the hero row (≈1200×720) |
-| `redo-demo-ask-silo.png` | Ask Silo analysis panel (≈640×480) |
+| `redo-demo-chart.png` | Daily Redo marketing spend chart (960×285 crop) |
+| `redo-demo-dashboard.png` | Marketing overview table + top campaigns (1200×633) |
+| `redo-demo-ask-silo.png` | Ask Silo Redo campaign recommendation (1200×633) |
 
-Use dark-mode Silo captures so the frame matches the landing. The sample dollar
-figures in the HTML are poster placeholders only; replace or hide them when a
-capture carries the real numbers.
+Shipped from dark-mode Silo captures on the welcome branch. The board no longer
+shows duplicate placeholder KPIs beside these frames.
 
 ## Still fallback (unchanged)
 
