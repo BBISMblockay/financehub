@@ -317,7 +317,13 @@
 }
 #landing .lp-board .bcn-card-header h2 { font-size: 13px; font-weight: 600; }
 #landing .lp-board-range { margin-left: auto; white-space: nowrap; }
-#landing .lp-board-body { padding: 10px 12px 12px; gap: 0; }
+#landing .lp-board.bcn-card { min-height: auto; }
+#landing .lp-board-body {
+  padding: 10px 12px 12px;
+  gap: 0;
+  overflow: visible;
+  min-height: auto;
+}
 #landing .lp-board-foot {
   display: flex;
   align-items: center;
@@ -333,7 +339,8 @@
 #landing .lp-board-note--tight { margin: 10px 0 0; }
 #landing .lp-board .lp-slideshow { margin-top: 0; }
 #landing .lp-slideshow-viewport {
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
   border-radius: var(--bcn-radius-sm);
   border: 1px solid var(--bcn-border);
   background: #060b14;
@@ -351,7 +358,12 @@
   min-width: 0;
   box-sizing: border-box;
 }
-#landing .lp-shot--slide { min-height: 0; margin: 0; padding: 0; }
+#landing .lp-slideshow .lp-shot--slide,
+#landing .lp-slideshow .lp-shot--wide {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
 #landing .lp-slideshow .lp-intel-frame {
   border: none;
   background: transparent;
@@ -359,11 +371,10 @@
 }
 #landing .lp-slideshow .lp-shot--filled { border: none; border-radius: 0; }
 #landing .lp-slideshow .lp-shot-img {
+  display: block;
   width: 100%;
   height: auto;
-  max-height: min(46vh, 380px);
-  object-fit: cover;
-  object-position: top center;
+  max-height: none;
   border-radius: 0;
 }
 #landing .lp-slideshow-nav {
@@ -533,7 +544,8 @@
 #landing .lp-ask-card {
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
+  min-height: auto;
   border-color: var(--bcn-border-strong);
   box-shadow: var(--bcn-shadow);
 }
