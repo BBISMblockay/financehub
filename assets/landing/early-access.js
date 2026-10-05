@@ -6,6 +6,8 @@
   const config = window.__SILO_CONFIG__ || {};
   const form = document.getElementById('lpInterestForm');
   const button = document.getElementById('lpJoinButton');
+  // Each page names its own call to action; a reset restores that label.
+  const buttonLabel = button ? button.textContent : '';
   const status = document.getElementById('lpFormStatus');
   const fields = ['lpName', 'lpCompanyName', 'lpEmail'].map(id => document.getElementById(id));
   const website = document.getElementById('lpWebsite');
@@ -14,6 +16,23 @@
   const caption = document.getElementById('lpDemoCaption');
   const year = document.getElementById('lpYear');
   if (year) year.textContent = String(new Date().getFullYear());
+
+  if (typeof document.querySelectorAll === 'function') {
+    document.querySelectorAll('.lp-shot[data-asset]').forEach(slot => {
+      const file = slot.getAttribute('data-asset');
+      if (!file || /[^a-z0-9._-]/i.test(file)) return;
+      const img = new Image();
+      img.className = 'lp-shot-img';
+      img.decoding = 'async';
+      img.alt = slot.getAttribute('data-alt') || '';
+      img.addEventListener('load', () => {
+        slot.classList.add('lp-shot--filled');
+        slot.insertBefore(img, slot.firstChild);
+        if (slot.id === 'lpDemoPlaceholder' && video) video.poster = img.currentSrc || img.src;
+      }, { once: true });
+      img.src = '/assets/landing/' + file;
+    });
+  }
 
   // A config entry must be a direct media file, never HTML, an embed, a
   // credential-bearing URL, or an executable scheme. HTTPS CDNs and local
@@ -118,7 +137,7 @@
       pending = false;
       form.removeAttribute('aria-busy');
       button.disabled = submitted;
-      button.textContent = 'Join for early access';
+      button.textContent = buttonLabel;
       fields.forEach(field => { field.readOnly = submitted; });
     }
   });

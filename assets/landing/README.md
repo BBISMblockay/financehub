@@ -5,6 +5,22 @@ Ads, Finance and Inventory connected to the SILO badge. The optional video is
 an independently animated reconstruction of that scene in Blender, not a pan
 or zoom of the still. It contains no application screenshots or account data.
 
+## Redo welcome page (`/redo-welcome.html`) — optional interface captures
+
+Drop dark-mode PNGs here; the page probes each path on load and fills the
+matching slot when the file exists. Until then, visitors see a labeled empty
+frame on the same navy field as the board.
+
+| File | Slot |
+|------|------|
+| `redo-demo-chart.png` | Revenue chart beside the headline KPI (≈960×540) |
+| `redo-demo-dashboard.png` | Full-width dashboard under the hero row (≈1200×720) |
+| `redo-demo-ask-silo.png` | Ask Silo analysis panel (≈640×480) |
+
+Use dark-mode Silo captures so the frame matches the landing. The sample dollar
+figures in the HTML are poster placeholders only; replace or hide them when a
+capture carries the real numbers.
+
 ## Still fallback (unchanged)
 
 - `silo-hero.webp`: 1800 × 1100, desktop/high-density source
