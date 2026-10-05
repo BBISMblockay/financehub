@@ -16,7 +16,6 @@
     if (!root || !track || slides.length < 2 || !prev || !next) return;
 
     const labels = [
-      'Attributed revenue, spend, and daily trend',
       'Attributed revenue, spend, and top campaigns in Silo',
       'Returns outcomes, weekly trends, and top reasons',
     ];

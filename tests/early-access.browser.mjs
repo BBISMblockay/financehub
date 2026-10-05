@@ -169,8 +169,10 @@ try {
     });
     assert.equal(await page.locator('html').getAttribute('data-mode'), 'landing');
     assert.equal(await page.locator('#router').count(), 0, 'standalone demo must not contain the homepage auth router');
-    assert.equal(await page.locator('#lpDemoVideo').isVisible(), false);
-    assert.equal(await page.locator('#lpDemoVideo').getAttribute('src'), null);
+    if (await page.locator('#lpDemoVideo').count()) {
+      assert.equal(await page.locator('#lpDemoVideo').isVisible(), false);
+      assert.equal(await page.locator('#lpDemoVideo').getAttribute('src'), null);
+    }
     assert.equal(await P.marker(page).isVisible(), true);
     assert.equal(await page.getByRole('button', { name: P.button, exact: true }).isVisible(), true);
     assert.equal(await page.locator('#lpInterestForm input[required]').count(), 3);
