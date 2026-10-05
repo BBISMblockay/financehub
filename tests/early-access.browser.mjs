@@ -190,6 +190,10 @@ try {
   if (P.heroCta) {
     await page.keyboard.press('Tab');
     assert.equal(await page.evaluate(() => document.activeElement.id), 'lpHeroCta');
+    if (PAGE === 'redo-welcome.html') {
+      await page.keyboard.press('Tab');
+      assert.match(await page.evaluate(() => document.activeElement.hash), /^#lpAsk$/);
+    }
   }
   for (const id of ['lpName', 'lpCompanyName', 'lpEmail', 'lpJoinButton']) {
     await page.keyboard.press('Tab');

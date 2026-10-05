@@ -101,14 +101,22 @@
 #landing h1 { font-size: clamp(36px, 4.4vw, 58px); }
 #landing .lp-description { max-width: 540px; margin: 18px 0 0; color: var(--bcn-ink-2); font-size: 17px; line-height: 1.55; }
 #landing .lp-reassure { margin: 18px 0 0; color: var(--bcn-ink); font-size: 15px; font-weight: 700; line-height: 1.45; }
-#landing .lp-hero-cta {
+#landing .lp-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
   margin-top: 22px;
+}
+#landing .lp-hero-cta,
+#landing .lp-hero-ask {
   min-height: 44px;
   padding: 10px 18px;
   font-size: 14px;
   font-weight: 600;
   text-decoration: none;
 }
+#landing .lp-hero-ask { color: var(--bcn-ink-2); }
 #landing .lp-note { margin: 12px 0 0; color: var(--bcn-ink-3); font-size: 13px; }
 
 .lp-svg-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
@@ -298,7 +306,7 @@
   font-weight: 800;
   letter-spacing: -.03em;
 }
-#landing .lp-understand { margin-top: 56px; }
+#landing .lp-understand { margin-top: 44px; }
 #landing .lp-features { margin-top: 64px; }
 
 /* Redo performance board — Beacon card + live captures */
@@ -309,7 +317,7 @@
 }
 #landing .lp-board .bcn-card-header h2 { font-size: 13px; font-weight: 600; }
 #landing .lp-board-range { margin-left: auto; white-space: nowrap; }
-#landing .lp-board-body { padding: 14px; gap: 0; }
+#landing .lp-board-body { padding: 10px 12px 12px; gap: 0; }
 #landing .lp-board-foot {
   display: flex;
   align-items: center;
@@ -323,8 +331,13 @@
   line-height: 1.45;
 }
 #landing .lp-board-note--tight { margin: 10px 0 0; }
-#landing .lp-slideshow { margin-top: 14px; }
-#landing .lp-slideshow-viewport { overflow: hidden; border-radius: var(--bcn-radius); border: 1px solid var(--bcn-border); }
+#landing .lp-board .lp-slideshow { margin-top: 0; }
+#landing .lp-slideshow-viewport {
+  overflow: hidden;
+  border-radius: var(--bcn-radius-sm);
+  border: 1px solid var(--bcn-border);
+  background: #060b14;
+}
 #landing .lp-slideshow-track {
   display: flex;
   margin: 0;
@@ -338,13 +351,27 @@
   min-width: 0;
   box-sizing: border-box;
 }
-#landing .lp-shot--slide { min-height: 280px; margin: 0; }
+#landing .lp-shot--slide { min-height: 0; margin: 0; padding: 0; }
+#landing .lp-slideshow .lp-intel-frame {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+}
+#landing .lp-slideshow .lp-shot--filled { border: none; border-radius: 0; }
+#landing .lp-slideshow .lp-shot-img {
+  width: 100%;
+  height: auto;
+  max-height: min(46vh, 380px);
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 0;
+}
 #landing .lp-slideshow-nav {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  margin-top: 12px;
+  gap: 8px;
+  margin-top: 8px;
 }
 #landing .lp-slideshow-btn {
   width: 40px;
@@ -495,16 +522,20 @@
 }
 #landing .lp-intel-badge {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 8px;
+  right: 8px;
   z-index: 2;
   pointer-events: none;
+  font-size: 10px;
+  padding: 3px 8px;
 }
 /* Ask Silo preview — mirrors v2/silo-chat.html ac-* layout on the landing page */
 #landing .lp-ask-card {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  border-color: var(--bcn-border-strong);
+  box-shadow: var(--bcn-shadow);
 }
 #landing .lp-ac-log {
   flex: none;
@@ -681,17 +712,21 @@
 #landing .lp-trophy { color: #f5c451; font-size: 16px; }
 #landing .lp-board-foot .lp-kpi-value { margin: 0 0 0 auto; font-size: 18px; }
 
-/* Ask Silo — the major feature */
+/* Ask Silo — primary story (above reporting captures) */
 #landing .lp-ask {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 20px;
-  margin-top: 36px;
-  padding: 0;
+  gap: 18px;
+  margin-top: 32px;
+  padding: 20px 18px 22px;
+  border-radius: var(--bcn-radius);
+  background: linear-gradient(165deg, rgba(47, 99, 255, .12) 0%, rgba(8, 14, 28, .55) 42%, rgba(6, 10, 18, .35) 100%);
+  border: 1px solid rgba(59, 108, 246, .35);
   align-items: start;
+  scroll-margin-top: 16px;
 }
 #landing .lp-ask-copy { padding: 0; }
-#landing .lp-ask-copy h2 { margin: 0; font-size: clamp(26px, 3vw, 34px); }
+#landing .lp-ask-copy h2 { margin: 0; font-size: clamp(28px, 3.2vw, 38px); }
 #landing .lp-ask-lead {
   margin: 12px 0 0;
   max-width: 36rem;
@@ -803,8 +838,9 @@
 
 @media (min-width: 901px) {
   #landing .lp-ask {
-    grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
-    gap: 28px 32px;
+    grid-template-columns: minmax(0, .78fr) minmax(0, 1.22fr);
+    gap: 24px 28px;
+    padding: 24px 22px 26px;
   }
 }
 
@@ -825,7 +861,9 @@
   #landing .lp-kpi-grid { grid-template-columns: 1fr 1fr; }
   #landing .lp-board-hero .lp-kpi-value { font-size: 34px; }
   #landing .lp-asks li { margin-left: 0; }
-  #landing .lp-hero-cta { width: 100%; }
+  #landing .lp-hero-actions { flex-direction: column; align-items: stretch; }
+  #landing .lp-hero-cta,
+  #landing .lp-hero-ask { width: 100%; justify-content: center; }
   #landing .lp-kpi-value { font-size: 24px; }
 }
 @media (max-width: 400px) {
