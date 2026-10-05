@@ -37,6 +37,13 @@
   // Admin API returns just the last 60 days of orders, silently, so a history
   // import looks complete and is not. The own-app route therefore asks for it.
   const SHOPIFY_OWN_APP_SCOPES = SHOPIFY_SCOPES.concat(['read_all_orders']);
+  // Deep links verified 2026-10-05: each resolves to Meta login with ?next= pointing
+  // at the same path (business.facebook.com/settings/*, developers.facebook.com/apps).
+  const META_BUSINESS_SETTINGS = 'https://business.facebook.com/settings';
+  const META_SYSTEM_USERS = 'https://business.facebook.com/settings/system-users';
+  const META_PORTFOLIO_APPS = 'https://business.facebook.com/settings/apps';
+  const META_DEVELOPERS_APPS = 'https://developers.facebook.com/apps';
+  const META_SYSTEM_USER_HELP = 'https://www.facebook.com/business/help/503306463479099';
   const META_ADS_SCOPES = ['ads_read', 'business_management'];
   // pages_show_list is what lets Test's /me/accounts lookup list the Pages;
   // without it Meta refuses that call and the tester shows no Pages at all.
@@ -144,55 +151,73 @@
 
     meta_ads: {
       title: 'Connect Meta Ads with a System User token',
-      summary: 'Meta has no one-click connect for this. Confirm a Business app in your portfolio, create a system user, assign your ad account, and generate a long-lived token.',
+      summary: 'Meta splits this across two sites: create/register a <strong>Business app</strong> once, then do everything else in <strong>Business settings → System users</strong> (create user, assign assets, generate token) without leaving that screen.',
       time: 'About 15 minutes',
       needs: [
         '<strong>Admin</strong> access to the Meta Business portfolio that owns the ad account',
-        'A Meta app of type <strong>Business</strong> (step 1 creates one if you have none)',
+        'After each link opens, confirm the <strong>correct business portfolio</strong> is selected (top-left on Business settings)',
+        'A Meta app of type <strong>Business</strong> linked to that portfolio (step 1 — Meta requires this before system users)',
       ],
       steps: [
         {
-          title: 'Make sure you have a Business app',
-          body: 'If the portfolio already has an app, skip this. Otherwise create one of type <strong>Business</strong>, connected to the same portfolio. You need the app before a system user can generate a token.',
-          link: { href: 'https://developers.facebook.com/apps', label: 'Open Meta for Developers' },
-          note: 'After step 2, in Business settings → <strong>Accounts → Apps</strong>, assign the system user to this app — you pick that app when generating the token.',
+          title: 'Register a Business app on the portfolio',
+          body: '<strong>A — Create (only if you have no app yet):</strong> In Meta for Developers, <strong>Create app</strong> → type <strong>Business</strong> → connect it to the same Business portfolio that owns your ad account.<br><br>'
+            + '<strong>B — Add it to the portfolio (required either way):</strong> In Business settings go to <strong>Accounts → Apps → Add</strong>, and connect the app. SILO needs the app to appear here before a system user can generate a token.',
+          links: [
+            { href: META_DEVELOPERS_APPS, label: 'Meta for Developers (create app)' },
+            { href: META_PORTFOLIO_APPS, label: 'Business settings → Apps' },
+          ],
+          note: 'If the app already shows under Accounts → Apps, skip A and continue to step 2.',
         },
         {
-          title: 'Create a system user',
-          body: 'In Business settings go to <strong>Users → System users → Add</strong>. Name it <code>SILO</code>; the Admin role is fine.',
-          link: { href: 'https://business.facebook.com/settings/system-users', label: 'Open System users' },
+          title: 'Open System users (your home base for the rest)',
+          body: 'Go to <strong>Users → System users</strong> in the left sidebar. The next three steps all happen on the <strong>same system user</strong> record — you should not need another Meta product tab until you paste the token into SILO.',
+          links: [
+            { href: META_SYSTEM_USERS, label: 'Open System users' },
+            { href: META_BUSINESS_SETTINGS, label: 'Business settings home' },
+          ],
+          note: 'Pick the correct business portfolio in the top-left if Meta prompts you.',
         },
         {
-          title: 'Give it the ad account',
-          body: 'On the system user choose <strong>Assign assets → Ad accounts</strong>, pick your ad account and grant view-performance (read) access. Repeat for each ad account SILO should report on.',
+          title: 'Create the system user',
+          body: 'Click <strong>Add new system user</strong> (or <strong>Add</strong>), name it <code>SILO</code>, and create it. Meta’s <strong>Admin</strong> system user role is fine for setup.',
         },
         {
-          title: 'Generate the token',
-          body: 'Back on the system user choose <strong>Generate new token</strong>, pick the app, set expiration to <strong>Never</strong>, and tick these permissions:',
+          title: 'Assign the app and ad account (same user)',
+          body: 'With <code>SILO</code> selected, use <strong>Assign assets</strong> (or <strong>Add assets</strong> / the <strong>⋯</strong> menu) twice:<ul>'
+            + '<li><strong>Apps</strong> → your Business app → enable <strong>Develop app</strong> (or full app access). Without this, token generation will not list the app.</li>'
+            + '<li><strong>Ad accounts</strong> → each account SILO should report → <strong>View performance</strong> (read) access.</li></ul>',
+          link: { href: META_SYSTEM_USER_HELP, label: 'Meta’s official walkthrough' },
+        },
+        {
+          title: 'Generate and copy the token',
+          body: 'Still on that system user, choose <strong>Generate new token</strong> → select the Business app from step 1 → expiration <strong>Never</strong> → tick:',
           scopes: META_ADS_SCOPES,
-          note: 'Want organic Instagram and Facebook Page reporting too? Also tick the permissions in "Optional: organic insights" below before generating.',
-        },
-        {
-          title: 'Copy the token',
-          body: 'Meta shows the token (it starts with <code>EAA</code>) only once. Copy it now.',
+          note: 'Want organic Instagram and Facebook Page reporting too? Also tick the permissions in "Optional: organic insights" below before generating. Meta shows the token (starts with <code>EAA</code>) <strong>once</strong> — copy it before closing the dialog.',
         },
         {
           title: 'Paste it into SILO',
-          body: 'Click <strong>Add Meta Ads token…</strong>, paste the token and save. Leave the ad account ID blank if unsure — <strong>Test</strong> lists the accounts the token can see so you can pick one. Then switch on Nightly sync.',
+          body: 'Click <strong>Add Meta Ads token…</strong> (or <strong>Replace token</strong> on an existing row), paste the token, and save. Leave the ad account ID blank if unsure — <strong>Test</strong> lists accounts the token can see. Then switch on <strong>Nightly sync</strong>.',
         },
       ],
       extra: {
         title: 'Optional: organic insights (Instagram posts, Facebook Page)',
         steps: [
           { title: 'Add four permissions to the token', body: 'Regenerate the token with these added alongside the two above:', scopes: META_ORGANIC_SCOPES },
-          { title: 'Assign the Page to the system user', body: 'System user → <strong>Assign assets → Pages</strong> → your Page, at least Analyst access. Permissions alone don\'t grant Page access.' },
+          {
+            title: 'Assign the Page to the system user',
+            body: 'Back in Business settings → <strong>Users → System users</strong>, open the same <code>SILO</code> user → <strong>Assign assets → Pages</strong> → your Page with at least Analyst access. Token permissions alone do not grant Page access.',
+            link: { href: META_SYSTEM_USERS, label: 'Open System users' },
+          },
           { title: 'Link Instagram to the Page', body: 'The Instagram professional account must be linked to that Facebook Page.' },
           { title: 'Fill in the two IDs', body: 'Click <strong>Test</strong> on the Meta row — it lists the Pages the token can see with their linked Instagram account. Enter the <strong>Facebook Page ID</strong> and <strong>Instagram Business Account ID</strong> on the row.' },
         ],
       },
       troubleshooting: [
         { q: 'I regenerated the token — where does the new one go?', a: 'Use <strong>Replace token</strong> on the existing Meta row. Do not use Add Meta Ads token again; that creates a second connection for the same account.' },
-        { q: 'Test lists no ad accounts', a: 'The ad account isn\'t assigned to the system user (step 3), or the token was generated without <code>ads_read</code>.' },
+        { q: 'Test lists no ad accounts', a: 'The ad account is not assigned to the system user (step 4), or the token was generated without <code>ads_read</code>.' },
+        { q: 'Generate token does not list my app', a: 'The app is missing under Accounts → Apps (step 1B), or the system user does not have <strong>Develop app</strong> on that app (step 4).' },
+        { q: 'Links open the wrong business', a: 'Use the portfolio picker (top-left in Business settings) before continuing. Every deep link keeps you in Business settings once signed in.' },
         { q: '"Could not derive a Page access token" / error #190', a: 'The Page isn\'t assigned to the system user. Assign it (organic step 2); no new token is needed.' },
       ],
       action: { id: 'meta_form', label: 'Go to the Meta form' },
@@ -249,21 +274,33 @@
     return { ...g, key, steps: typeof g.steps === 'function' ? g.steps(c) : g.steps };
   }
 
+  function stepLinks(s) {
+    const out = [];
+    const push = (L) => {
+      if (!L || !L.href || !L.label) return;
+      const href = safeHref(L.href);
+      if (href && !out.some((x) => x.href === href)) out.push({ href, label: L.label });
+    };
+    push(s.link);
+    (s.links || []).forEach(push);
+    return out;
+  }
+
   function stepHtml(s, i) {
-    const href = s.link && safeHref(s.link.href);
+    const links = stepLinks(s);
     const scopes = s.scopes && s.scopes.length
       ? `<div class="ig-scopes">${s.scopes.map((x) => `<code>${esc(x)}</code>`).join('')}</div>` : '';
     const copies = (s.copy || []).filter((c) => c && c.value).map((c, j) =>
       `<button type="button" class="ig-copy" data-copy="${i}:${j}">${esc(c.label)}</button>`).join('');
+    const linkHtml = links.map((L) =>
+      `<a class="ig-link" href="${esc(L.href)}" target="_blank" rel="noopener noreferrer">${esc(L.label)} ↗</a>`).join('');
     return `<li class="ig-step">
       <div class="ig-step-num" aria-hidden="true">${i + 1}</div>
       <div class="ig-step-main">
         <div class="ig-step-title">${esc(s.title)}</div>
         <div class="ig-step-body">${s.body || ''}</div>
         ${scopes}
-        ${(href || copies) ? `<div class="ig-step-actions">
-          ${href ? `<a class="ig-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(s.link.label)} ↗</a>` : ''}
-          ${copies}</div>` : ''}
+        ${(linkHtml || copies) ? `<div class="ig-step-actions">${linkHtml}${copies}</div>` : ''}
         ${s.note ? `<div class="ig-step-note">${s.note}</div>` : ''}
       </div>
     </li>`;
@@ -351,7 +388,12 @@
     return true;
   }
 
-  const api = { GUIDES, SHOPIFY_SCOPES, SHOPIFY_OWN_APP_SCOPES, META_ADS_SCOPES, META_ORGANIC_SCOPES, REDO_MARKETING_SCOPES, resolve, render, copyValues, open, keys: () => Object.keys(GUIDES) };
+  const api = {
+    GUIDES, SHOPIFY_SCOPES, SHOPIFY_OWN_APP_SCOPES,
+    META_BUSINESS_SETTINGS, META_SYSTEM_USERS, META_PORTFOLIO_APPS, META_DEVELOPERS_APPS, META_SYSTEM_USER_HELP,
+    META_ADS_SCOPES, META_ORGANIC_SCOPES, REDO_MARKETING_SCOPES,
+    resolve, render, copyValues, open, keys: () => Object.keys(GUIDES),
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.SiloIntegrationGuides = api;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

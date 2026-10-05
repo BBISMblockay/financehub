@@ -41,6 +41,7 @@ dialog.ig-drawer::backdrop { background: rgba(0, 0, 0, .35); }
 .ig-step-title { font-weight: 700; margin-bottom: 2px; }
 .ig-step-body { color: var(--bcn-ink-2); }
 .ig-step-body ul { margin: 4px 0 0; padding-left: 18px; }
+.ig-step-body br + br { display: block; content: ''; margin-top: 6px; }
 .ig-body code { font-family: var(--bcn-mono); font-size: 11.5px; background: var(--bcn-sunken); border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius-sm); padding: 0 4px; overflow-wrap: anywhere; }
 .ig-scopes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .ig-step-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
