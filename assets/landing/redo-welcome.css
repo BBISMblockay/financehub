@@ -216,6 +216,12 @@
   height: 22px;
   margin-bottom: 2px;
 }
+#landing .lp-hub-icon--redo,
+#landing .lp-int-icon--redo {
+  width: auto;
+  min-width: 52px;
+  height: 18px;
+}
 #landing .lp-hub-card--tl { grid-column: 1; grid-row: 1; justify-self: end; }
 #landing .lp-hub-card--tr { grid-column: 3; grid-row: 1; justify-self: start; }
 #landing .lp-hub-card--bl { grid-column: 1; grid-row: 3; justify-self: end; }
