@@ -6,8 +6,9 @@ an independently animated reconstruction of that scene in Blender, not a pan
 or zoom of the still. It contains no application screenshots or account data.
 
 Integration logos on `/redo-welcome.html` use an inline SVG sprite (duplicate
-reference copy in `integration-icons.svg`). Hero hub cards and the Works with
-row both draw from those marks.
+reference copy in `integration-icons.svg`). The hero is an HTML hub (SILO cube
+plus four branded tiles and connector lines), not the generic SALES/ADS Blender
+still. The Works with row reuses the same marks.
 
 ## Redo welcome page (`/redo-welcome.html`) — optional interface captures
 

@@ -278,7 +278,8 @@ test('redo-welcome is its own page with its own stylesheet; demo.html is untouch
   assert.doesNotMatch(welcome, /early-access\.css/);
   assert.match(html, /assets\/landing\/early-access\.css/);
   assert.doesNotMatch(html, /redo-welcome\.css|Redo Marketing Performance/);
-  assert.match(welcome, /assets\/landing\/silo-hero\.jpg/);
+  assert.match(welcome, /lp-hub-core/);
+  assert.doesNotMatch(welcome, /class="lp-render"/);
   assert.match(welcome, /Redo Marketing Performance/);
   assert.match(welcome, /lp-int-chip/);
   assert.match(welcome, /id="icon-redo"/);

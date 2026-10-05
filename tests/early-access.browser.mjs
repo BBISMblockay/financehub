@@ -13,7 +13,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const PROFILES = {
   'demo.html': { css: 'assets/landing/early-access.css', image: '#lpDemoPlaceholder img', button: 'Join for early access',
     company: 'Company Name', email: 'Email', heroCta: false, marker: (page) => page.getByText('Product walkthrough coming soon', { exact: true }) },
-  'redo-welcome.html': { css: 'assets/landing/redo-welcome.css', image: '.lp-render img', button: 'Request Redo access',
+  'redo-welcome.html': { css: 'assets/landing/redo-welcome.css', image: '.lp-hub-core', button: 'Request Redo access',
     company: 'Company', email: 'Work email', heroCta: true, marker: (page) => page.getByRole('heading', { name: 'Redo Marketing Performance' }) },
 };
 const PAGE = process.env.LANDING_PAGE || 'demo.html';
@@ -162,7 +162,9 @@ try {
     await page.setViewportSize({ width, height });
     await page.goto(PAGE_URL);
     await page.evaluate(() => document.fonts.ready);
-    await page.locator(P.image).evaluate(image => image.decode());
+    await page.locator(P.image).evaluate(el => {
+      if (el instanceof HTMLImageElement) return el.decode();
+    });
     assert.equal(await page.locator('html').getAttribute('data-mode'), 'landing');
     assert.equal(await page.locator('#router').count(), 0, 'standalone demo must not contain the homepage auth router');
     assert.equal(await page.locator('#lpDemoVideo').isVisible(), false);
