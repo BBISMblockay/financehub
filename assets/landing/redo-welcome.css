@@ -427,12 +427,19 @@
 }
 #landing .lp-workflows { margin-top: 22px; }
 #landing .lp-workflows-title {
-  margin: 0 0 12px;
+  margin: 0 0 6px;
   font-size: 13px;
   font-weight: 800;
   letter-spacing: .06em;
   text-transform: uppercase;
   color: #9aa8c2;
+}
+#landing .lp-workflows-lead {
+  margin: 0 0 12px;
+  max-width: 36em;
+  color: #8b97ad;
+  font-size: 13px;
+  line-height: 1.45;
 }
 #landing .lp-workflows-track {
   display: flex;
@@ -453,18 +460,30 @@
   background: rgba(12, 20, 36, .85);
   border: 1px solid #243352;
 }
-#landing .lp-workflow-step {
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
+#landing .lp-workflow-tag {
+  display: inline-block;
   margin-bottom: 8px;
-  border-radius: 6px;
-  background: #1a3058;
-  color: #9eb6ff;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(26, 48, 88, .85);
+  border: 1px solid #3458b0;
+  color: #b9ccff;
   font-family: var(--bcn-mono);
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+#landing .lp-workflow-tag:empty { display: none; }
+#landing .lp-workflow:nth-child(n+3) .lp-workflow-tag {
+  border-color: #2a6b4a;
+  background: rgba(20, 48, 36, .75);
+  color: #9ef0c8;
+}
+#landing .lp-workflow:nth-child(n+5) .lp-workflow-tag {
+  border-color: #6b4a2a;
+  background: rgba(48, 36, 20, .75);
+  color: #f0d49e;
 }
 #landing .lp-workflow h3 {
   margin: 0;

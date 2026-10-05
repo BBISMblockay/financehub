@@ -26,8 +26,8 @@ Ask Silo on the welcome page is an HTML preview (readable recommendation +
 evidence cards), not a screenshot — the product chat is too dense at poster size.
 
 The two captures sit in a **left/right slideshow** on the board (arrows, dots,
-optional auto-advance). A **Silo workflows** strip below highlights connect →
-read → ask → save → plan.
+optional auto-advance). A **More Silo workflows** strip tags Marketing, Finance,
+and Purchasing (accounting + AI, On Deck, PO / Product Studio).
 
 Shipped from dark-mode Silo captures. Gradient frames mark live product UI.
 
