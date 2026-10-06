@@ -382,6 +382,7 @@
       productRows: [],
       shipments: [],
       shipmentLines: [],
+      mapCountryGroups: new Map(),
       factories: [],
       shipDrawerPoId: null,
       scope: 'open',
@@ -578,18 +579,17 @@
 
     function renderMapLand(){
       if(!el.mapLand) return;
-      let land = '';
-      const cell = MAP_DOT_SPACING - 1;
+      let dots = '';
       for(let r = 0; r < WORLD_GRID.rows; r++){
         const row = WORLD_GRID.data[r];
         for(let c = 0; c < WORLD_GRID.cols; c++){
           if(row[c] !== '1') continue;
-          const x = c * MAP_DOT_SPACING + 0.5;
-          const y = r * MAP_DOT_SPACING + 0.5;
-          land += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="1" fill="#e2e8f0" />`;
+          const x = c * MAP_DOT_SPACING + MAP_DOT_SPACING / 2;
+          const y = r * MAP_DOT_SPACING + MAP_DOT_SPACING / 2;
+          dots += `<circle cx="${x}" cy="${y}" r="1.8" fill="#cbd5e1" />`;
         }
       }
-      el.mapLand.innerHTML = land;
+      el.mapLand.innerHTML = dots;
     }
 
     function renderMapDestination(){
@@ -598,25 +598,65 @@
       if(!us) { el.mapDest.innerHTML = ''; return; }
       const [x, y] = projectPoint(us[0], us[1]);
       el.mapDest.innerHTML = `
-        <circle cx="${x}" cy="${y}" r="5" fill="var(--bcn-accent,#3b82f6)" opacity="0.25" />
-        <circle cx="${x}" cy="${y}" r="3.2" fill="var(--bcn-accent,#3b82f6)" stroke="#fff" stroke-width="1.2" />
+        <circle cx="${x}" cy="${y}" r="5" fill="#3b82f6" opacity="0.25" />
+        <circle cx="${x}" cy="${y}" r="3.2" fill="#3b82f6" stroke="#fff" stroke-width="1.2" />
         <text x="${x}" y="${y - 8}" text-anchor="middle" font-size="7" font-weight="800" fill="#475569">HQ</text>
       `;
     }
 
+    function mapPinCountry(pinEl){
+      return pinEl?.getAttribute?.('data-country') || pinEl?.dataset?.country || '';
+    }
+
     function setMapHighlight(country){
       state.mapHighlightCountry = country || null;
-      if(!el.mapPins) return;
-      el.mapPins.querySelectorAll('.po-map-pin').forEach(pin => {
-        const pinCountry = pin.dataset.country;
-        pin.classList.toggle('is-highlight', Boolean(state.mapHighlightCountry && pinCountry === state.mapHighlightCountry));
-        pin.classList.toggle('is-dimmed', Boolean(state.mapHighlightCountry && pinCountry !== state.mapHighlightCountry));
-      });
-      if(el.mapRegionItems){
-        el.mapRegionItems.querySelectorAll('[data-map-country]').forEach(btn => {
-          btn.classList.toggle('is-active', btn.dataset.mapCountry === state.mapHighlightCountry);
+      applyMapHighlightVisuals();
+    }
+
+    function applyMapHighlightVisuals(){
+      const highlight = state.mapHighlightCountry;
+      if(el.mapPins){
+        el.mapPins.querySelectorAll('.po-map-pin').forEach(pin => {
+          const pinCountry = mapPinCountry(pin);
+          pin.classList.toggle('is-highlight', Boolean(highlight && pinCountry === highlight));
+          pin.classList.toggle('is-dimmed', Boolean(highlight && pinCountry !== highlight));
         });
       }
+      if(el.mapRoutes){
+        el.mapRoutes.querySelectorAll('line[data-country]').forEach(line => {
+          const dimmed = highlight && line.getAttribute('data-country') !== highlight;
+          line.setAttribute('stroke-opacity', dimmed ? '0.08' : '0.22');
+        });
+      }
+      if(el.mapRegionItems){
+        el.mapRegionItems.querySelectorAll('[data-map-country]').forEach(btn => {
+          const c = btn.getAttribute('data-map-country') || btn.dataset.mapCountry || '';
+          btn.classList.toggle('is-active', c === highlight);
+        });
+      }
+    }
+
+    function buildCountryGroups(){
+      const countryGroups = new Map();
+      const unmapped = [];
+
+      for(const s of state.shipments){
+        const po = state.poRows.find(p => String(p.id) === String(s.po_header_id));
+        const country = factoryCountryFor(s.po_header_id);
+        const centroid = country ? COUNTRY_CENTROIDS[country] : null;
+
+        if(!centroid){
+          unmapped.push({ shipment: s, po, country });
+          continue;
+        }
+
+        if(!countryGroups.has(country)){
+          countryGroups.set(country, { country, lat: centroid[0], lng: centroid[1], items: [] });
+        }
+        countryGroups.get(country).items.push({ shipment: s, po });
+      }
+
+      return { countryGroups, unmapped };
     }
 
     const MAP_STATUS_COLOR = {
@@ -642,128 +682,114 @@
     function renderShipmentMap(){
       if(!el.mapPins) return;
 
-      const groups = new Map();
-      const unmapped = [];
+      try {
+        const { countryGroups, unmapped } = buildCountryGroups();
+        state.mapCountryGroups = countryGroups;
 
-      for(const s of state.shipments){
-        const po = state.poRows.find(p => String(p.id) === String(s.po_header_id));
-        const country = factoryCountryFor(s.po_header_id);
-        const centroid = country ? COUNTRY_CENTROIDS[country] : null;
-
-        if(!centroid){
-          unmapped.push({ shipment: s, po, country });
-          continue;
+        const usCentroid = COUNTRY_CENTROIDS['United States'];
+        if(usCentroid && el.mapRoutes){
+          const [hx, hy] = projectPoint(usCentroid[0], usCentroid[1]);
+          el.mapRoutes.innerHTML = [...countryGroups.values()].map(g => {
+            const [x, y] = projectPoint(g.lat, g.lng);
+            const statuses = g.items.map(it => it.shipment.shipment_status);
+            const repStatus = pickRepresentativeStatus(statuses);
+            const color = MAP_STATUS_COLOR[repStatus] || '#94a3b8';
+            return `<line data-country="${escapeHtml(g.country)}" x1="${x}" y1="${y}" x2="${hx}" y2="${hy}" stroke="${color}" stroke-width="1" stroke-opacity="0.22" stroke-dasharray="3 4" />`;
+          }).join('');
+        } else if(el.mapRoutes){
+          el.mapRoutes.innerHTML = '';
         }
 
-        if(!groups.has(country)){
-          groups.set(country, { country, lat: centroid[0], lng: centroid[1], items: [] });
-        }
-        groups.get(country).items.push({ shipment: s, po });
-      }
-
-      const usCentroid = COUNTRY_CENTROIDS['United States'];
-      let routes = '';
-      if(usCentroid && el.mapRoutes){
-        const [hx, hy] = projectPoint(usCentroid[0], usCentroid[1]);
-        routes = [...groups.values()].map(g => {
+        el.mapPins.innerHTML = [...countryGroups.values()].map(g => {
           const [x, y] = projectPoint(g.lat, g.lng);
           const statuses = g.items.map(it => it.shipment.shipment_status);
           const repStatus = pickRepresentativeStatus(statuses);
           const color = MAP_STATUS_COLOR[repStatus] || '#94a3b8';
-          const dimmed = state.mapHighlightCountry && state.mapHighlightCountry !== g.country;
-          return `<line x1="${x}" y1="${y}" x2="${hx}" y2="${hy}" stroke="${color}" stroke-width="1" stroke-opacity="${dimmed ? 0.08 : 0.22}" stroke-dasharray="3 4" />`;
+          const count = g.items.length;
+          const isDelayed = repStatus === 'Delayed';
+          const radius = count > 4 ? 9 : count > 1 ? 8 : 7;
+
+          return `
+            <g class="po-map-pin" data-country="${escapeHtml(g.country)}" aria-label="${escapeHtml(g.country)}, ${count} shipment${count === 1 ? '' : 's'}">
+              ${isDelayed ? `<circle class="pin-pulse" cx="${x}" cy="${y}" r="${radius + 4}" fill="${color}"><animate attributeName="r" values="${radius};${radius + 6};${radius}" dur="1.8s" repeatCount="indefinite" /><animate attributeName="opacity" values=".35;0;.35" dur="1.8s" repeatCount="indefinite" /></circle>` : ''}
+              <circle class="pin-dot" cx="${x}" cy="${y}" r="${radius}" fill="${color}" stroke="#fff" stroke-width="1.8" />
+              ${count > 1 ? `<text x="${x}" y="${y + 3}" text-anchor="middle">${count}</text>` : ''}
+            </g>
+          `;
         }).join('');
-        el.mapRoutes.innerHTML = routes;
-      }
 
-      el.mapPins.innerHTML = [...groups.values()].map(g => {
-        const [x, y] = projectPoint(g.lat, g.lng);
-        const statuses = g.items.map(it => it.shipment.shipment_status);
-        const repStatus = pickRepresentativeStatus(statuses);
-        const color = MAP_STATUS_COLOR[repStatus] || '#94a3b8';
-        const count = g.items.length;
-        const isDelayed = repStatus === 'Delayed';
-        const radius = count > 4 ? 9 : count > 1 ? 8 : 7;
-
-        return `
-          <g class="po-map-pin" data-country="${escapeHtml(g.country)}" tabindex="0" role="button" aria-label="${escapeHtml(g.country)}, ${count} shipment${count === 1 ? '' : 's'}">
-            ${isDelayed ? `<circle class="pin-pulse" cx="${x}" cy="${y}" r="${radius + 4}" fill="${color}"><animate attributeName="r" values="${radius};${radius + 6};${radius}" dur="1.8s" repeatCount="indefinite" /><animate attributeName="opacity" values=".35;0;.35" dur="1.8s" repeatCount="indefinite" /></circle>` : ''}
-            <circle class="pin-dot" cx="${x}" cy="${y}" r="${radius}" fill="${color}" stroke="#fff" stroke-width="1.8" />
-            ${count > 1 ? `<text x="${x}" y="${y + 3}" text-anchor="middle">${count}</text>` : ''}
-          </g>
-        `;
-      }).join('');
-
-      el.mapPins.querySelectorAll('.po-map-pin').forEach(pinEl => {
-        const country = pinEl.dataset.country;
-        const group = groups.get(country);
-        const activate = () => {
-          const next = state.mapHighlightCountry === country ? null : country;
-          setMapHighlight(next);
-          renderShipmentMap();
-        };
-        pinEl.addEventListener('mouseenter', (e) => showMapTooltip(e, group));
-        pinEl.addEventListener('mousemove', (e) => positionMapTooltip(e));
-        pinEl.addEventListener('mouseleave', hideMapTooltip);
-        pinEl.addEventListener('click', activate);
-        pinEl.addEventListener('keydown', (e) => {
-          if(e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
-        });
-      });
-
-      if(el.mapRegionItems){
-        const sorted = [...groups.values()].sort((a, b) => b.items.length - a.items.length);
-        if(!sorted.length){
-          el.mapRegionItems.innerHTML = '<li class="po-map-region-empty">No mapped shipments yet. Open a PO and add a shipment to populate this list.</li>';
-        } else {
-          el.mapRegionItems.innerHTML = sorted.map(g => {
-            const statuses = g.items.map(it => it.shipment.shipment_status);
-            const repStatus = pickRepresentativeStatus(statuses);
-            const color = MAP_STATUS_COLOR[repStatus] || '#94a3b8';
-            return `
-              <li>
-                <button type="button" class="po-map-region-item${state.mapHighlightCountry === g.country ? ' is-active' : ''}" data-map-country="${escapeHtml(g.country)}">
-                  <span class="po-map-region-name">${escapeHtml(g.country)}</span>
-                  <span class="po-map-region-meta">
-                    <span class="po-map-legend-dot" style="background:${color};"></span>
-                    <span class="po-map-region-count">${g.items.length}</span>
-                  </span>
-                </button>
-              </li>
-            `;
-          }).join('');
-          el.mapRegionItems.querySelectorAll('[data-map-country]').forEach(btn => {
-            btn.addEventListener('click', () => {
-              const c = btn.dataset.mapCountry;
-              setMapHighlight(state.mapHighlightCountry === c ? null : c);
-              renderShipmentMap();
-            });
+        el.mapPins.querySelectorAll('.po-map-pin').forEach(pinEl => {
+          const country = mapPinCountry(pinEl);
+          const group = countryGroups.get(country);
+          pinEl.addEventListener('mouseenter', (e) => showMapTooltip(e, group));
+          pinEl.addEventListener('mousemove', (e) => positionMapTooltip(e));
+          pinEl.addEventListener('mouseleave', hideMapTooltip);
+          pinEl.addEventListener('click', () => {
+            setMapHighlight(state.mapHighlightCountry === country ? null : country);
           });
+        });
+
+        if(el.mapRegionItems){
+          const sorted = [...countryGroups.values()].sort((a, b) => b.items.length - a.items.length);
+          if(!sorted.length){
+            const msg = state.shipments.length
+              ? 'Shipments exist but none are mapped — set factory countries to plot pins.'
+              : 'No mapped shipments yet. Open a PO and add a shipment to populate this list.';
+            el.mapRegionItems.innerHTML = `<li class="po-map-region-empty">${msg}</li>`;
+          } else {
+            el.mapRegionItems.innerHTML = sorted.map(g => {
+              const statuses = g.items.map(it => it.shipment.shipment_status);
+              const repStatus = pickRepresentativeStatus(statuses);
+              const color = MAP_STATUS_COLOR[repStatus] || '#94a3b8';
+              return `
+                <li>
+                  <button type="button" class="po-map-region-item${state.mapHighlightCountry === g.country ? ' is-active' : ''}" data-map-country="${escapeHtml(g.country)}">
+                    <span class="po-map-region-name">${escapeHtml(g.country)}</span>
+                    <span class="po-map-region-meta">
+                      <span class="po-map-legend-dot" style="background:${color};"></span>
+                      <span class="po-map-region-count">${g.items.length}</span>
+                    </span>
+                  </button>
+                </li>
+              `;
+            }).join('');
+          }
+        }
+
+        if(el.mapEmptyOverlay){
+          const showEmpty = !state.shipments.length;
+          el.mapEmptyOverlay.classList.toggle('hidden-safe', !showEmpty);
+          if(showEmpty){
+            el.mapEmptyOverlay.textContent = 'Log shipments on a PO to see pins here.';
+          }
+        }
+
+        if(unmapped.length){
+          const missingFactories = [...new Set(unmapped.map(u => u.po?.factory_name).filter(Boolean))];
+          el.mapUnmapped.classList.remove('hidden-safe');
+          el.mapUnmapped.innerHTML = `
+            <span>${unmapped.length} shipment${unmapped.length === 1 ? '' : 's'} not shown — factory country not set${missingFactories.length ? ' (' + escapeHtml(missingFactories.slice(0,4).join(', ')) + (missingFactories.length > 4 ? ', …' : '') + ')' : ''}.</span>
+            <a href="/v2/factories.html" target="_blank" rel="noopener">Set factory countries →</a>
+          `;
+        } else if(el.mapUnmapped){
+          el.mapUnmapped.classList.add('hidden-safe');
+          el.mapUnmapped.innerHTML = '';
+        }
+
+        if(el.mapSummaryPill){
+          const shipmentCount = state.shipments.length;
+          el.mapSummaryPill.textContent = shipmentCount
+            ? `${shipmentCount.toLocaleString()} shipment${shipmentCount === 1 ? '' : 's'} · ${countryGroups.size.toLocaleString()} countr${countryGroups.size === 1 ? 'y' : 'ies'}`
+            : 'No shipments logged yet';
+        }
+
+        applyMapHighlightVisuals();
+      } catch(err){
+        console.error('renderShipmentMap failed', err);
+        if(el.mapSummaryPill){
+          el.mapSummaryPill.textContent = 'Map unavailable — refresh or check console';
         }
       }
-
-      if(el.mapEmptyOverlay){
-        el.mapEmptyOverlay.classList.toggle('hidden-safe', state.shipments.length > 0);
-      }
-
-      if(unmapped.length){
-        const missingFactories = [...new Set(unmapped.map(u => u.po?.factory_name).filter(Boolean))];
-        el.mapUnmapped.classList.remove('hidden-safe');
-        el.mapUnmapped.innerHTML = `
-          <span>${unmapped.length} shipment${unmapped.length === 1 ? '' : 's'} not shown — factory country not set${missingFactories.length ? ' (' + escapeHtml(missingFactories.slice(0,4).join(', ')) + (missingFactories.length > 4 ? ', …' : '') + ')' : ''}.</span>
-          <a href="/v2/factories.html" target="_blank" rel="noopener">Set factory countries →</a>
-        `;
-      } else {
-        el.mapUnmapped.classList.add('hidden-safe');
-        el.mapUnmapped.innerHTML = '';
-      }
-
-      const shipmentCount = state.shipments.length;
-      el.mapSummaryPill.textContent = shipmentCount
-        ? `${shipmentCount.toLocaleString()} shipment${shipmentCount === 1 ? '' : 's'} · ${groups.size.toLocaleString()} countr${groups.size === 1 ? 'y' : 'ies'}`
-        : 'No shipments logged yet';
-
-      setMapHighlight(state.mapHighlightCountry);
     }
 
     function setMapCollapsed(collapsed){
