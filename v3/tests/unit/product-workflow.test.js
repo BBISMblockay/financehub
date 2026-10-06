@@ -35,8 +35,16 @@ assert.equal(M.spreadRestock(spread)[1].qty,null);assert.throws(()=>M.validate(s
 spread.decision_note='Deliberately skip the unknown small size';assert.equal(M.validate(spread,'restock',true).lines.length,2);
 // Promoted 2026-09-30: Product Studio is the Purchasing destination and the
 // old Product Concepts URL forwards to it (keeping ?concept=).
-// Hidden from the menu 2026-10-05: the row stays in the file, commented out, so restoring it is one line.
-assert.match(fs.readFileSync(path.join(root,'v2/nav-config.js'),'utf8'),/^\s*\/\/ \{ id: 'purchasing\/product-studio'[^\n]*href: '\/v3\/product-workflow\.html'/m);
+// Hidden from the menu 2026-10-05; back on 2026-10-06 for STANDARD workspaces
+// only (Product & inventory). Baseballism's (grandfathered) menu stays without it.
+{
+  const navSrc=fs.readFileSync(path.join(root,'v2/nav-config.js'),'utf8');
+  assert.match(navSrc,/^\s*\{ id: 'purchasing\/product-studio', section: 'Product & inventory'[^\n]*href: '\/v3\/product-workflow\.html', profiles: \['standard'\] \}/m);
+  const win={};new Function('window',navSrc)(win);
+  const ids=(profile)=>win.SiloNav.navSectionsForProfile(profile,'exec','owner_admin',new Set()).flatMap((sec)=>sec.items.map((i)=>i.id));
+  assert.ok(ids('standard').includes('purchasing/product-studio'),'standard workspaces see Product Studio');
+  assert.ok(!ids('grandfathered').includes('purchasing/product-studio'),'Baseballism does not, for now');
+}
 const legacy=fs.readFileSync(path.join(root,'v2/product-concepts.html'),'utf8');
 assert.match(legacy,/location\.replace\('\/v3\/product-workflow\.html'/);assert.match(legacy,/next\.set\('concept'/);
 // Ready for PO: an Ask SILO proposal never arrives confirmed.
