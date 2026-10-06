@@ -180,6 +180,50 @@ r.ok('the standalone Create account action is hidden in the shipped markup',
 r.ok('only the company-onboarding path gate reveals that action',
   /if \(isCompanyOnboardingPath\(safeNextPath\(\)\)\) \{\s*btnGoSignup\.classList\.remove\("hidden"\)/.test(LOGIN));
 
+/* ── 2c. A founder invite opens "Create your owner account" on arrival ──────
+ *
+ * The invite goes to someone who usually has no SILO account, so the dialog
+ * opens by itself instead of waiting behind a "Finish company setup" link.
+ * It must NOT open over a session (bootstrap is redirecting), an org invite
+ * (that has its own join panel), or an emailed auth callback (whose code or
+ * tokens are about to sign the visitor in). */
+
+const ownerSrc = extract(LOGIN, 'function shouldOpenOwnerSignup(');
+r.ok('login defines shouldOpenOwnerSignup()', !!ownerSrc);
+
+if (ownerSrc && founderPathSrc) {
+  const ctx = vm.createContext({
+    URL,
+    URLSearchParams,
+    window: { location: { origin: 'https://get-silo.com' } },
+  });
+  vm.runInContext(founderPathSrc + ';' + ownerSrc + '; shouldOpenOwnerSignup;', ctx);
+  const open = (o) => vm.runInContext(`shouldOpenOwnerSignup(${JSON.stringify(o)})`, ctx);
+  const FOUNDER = '/v2/company-onboarding.html?invite=founder-token';
+  const base = { next: FOUNDER, hasSession: false, orgInvite: false,
+    search: '?next=' + encodeURIComponent(FOUNDER), hash: '' };
+
+  r.ok('a signed-out visitor from a founder invite gets the dialog', open(base) === true);
+  r.ok('not over an existing session', open({ ...base, hasSession: true }) === false);
+  r.ok('not on an org invite, which has its own join panel', open({ ...base, orgInvite: true }) === false);
+  r.ok('not on a plain login', open({ ...base, next: null, search: '' }) === false);
+  r.ok('not for any other destination', open({ ...base, next: '/v2/finance.html' }) === false);
+  r.ok('not on a PKCE email-confirmation callback',
+    open({ ...base, search: base.search + '&code=abc' }) === false);
+  r.ok('not on an implicit-flow confirmation callback',
+    open({ ...base, hash: '#access_token=x&refresh_token=y&type=signup' }) === false);
+  r.ok('not on an auth error callback',
+    open({ ...base, search: base.search + '&error=access_denied&error_description=expired' }) === false);
+}
+
+r.ok('bootstrap opens the dialog only through shouldOpenOwnerSignup()',
+  /if \(!dlgSignup\.open && shouldOpenOwnerSignup\(\{/.test(LOGIN));
+r.ok('bootstrap returns after redirecting a signed-in visitor, before the dialog check',
+  /await resolveAndRedirect\(data\.session\.user\.id\);[\s\S]{0,200}?\}\s*return;\s*\}\s*if \(!dlgSignup\.open/.test(LOGIN));
+r.ok('the dialog offers a way back to sign in for an existing account',
+  /id="btnSignupToLogin"[\s\S]{0,300}Sign in instead/.test(LOGIN));
+r.ok('signing in closes the dialog', /event === "SIGNED_IN"[^\n]*\n\s*if \(dlgSignup\.open\) dlgSignup\.close\(\);/.test(LOGIN));
+
 /* ── 3. The onboarding page never offers what the RPC will reject ─────────── */
 
 const ONBOARD = fs.readFileSync(path.join(REPO, 'v2', 'company-onboarding.html'), 'utf8');
