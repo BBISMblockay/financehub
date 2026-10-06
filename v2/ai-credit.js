@@ -38,9 +38,6 @@
     }
     var base = {
       state: summary.state,
-      // Whether this viewer is the one who pays (owner-admin, who may buy
-      // top-ups). Only they are shown what each answer cost; see costsVisible.
-      canTopUp: summary.can_top_up === true,
       planIncluded: summary.plan_included_micros,
       available: summary.available_micros,
       included: summary.included_micros,
@@ -97,13 +94,6 @@
     return 'ok';
   }
 
-  // Per-answer cost is shown to the person who pays, not to everyone: a
-  // price under every answer reads as a meter and makes people ration the
-  // questions Ask SILO is most useful for.
-  function costsVisible(d) {
-    return !!d && d.canTopUp === true;
-  }
-
   async function load(sb) {
     try {
       var res = await sb.rpc('ai_credit_summary');
@@ -114,7 +104,7 @@
     }
   }
 
-  var api = { fmtMicros: fmtMicros, describe: describe, describeCharge: describeCharge, level: level, costsVisible: costsVisible, load: load };
+  var api = { fmtMicros: fmtMicros, describe: describe, describeCharge: describeCharge, level: level, load: load };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.SiloAICredit = api;
 })(typeof window !== 'undefined' ? window : globalThis);

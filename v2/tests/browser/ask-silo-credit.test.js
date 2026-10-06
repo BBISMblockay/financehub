@@ -45,8 +45,6 @@ const summaryRpc = (summary) => ({ ai_credit_summary: summary === 'error'
   };
 
   const pillClass = (page) => page.evaluate(() => document.getElementById('creditPill').className);
-  // The owner-admin pays, so only they see the balance at all times and what
-  // each answer cost.
   const OWNER = { can_top_up: true, plan_included_micros: 30000000 };
   let page = await open({ state: 'active', available_micros: 64800000, included_micros: 14800000, purchased_micros: 50000000, pending_micros: 0, ...OWNER });
   { const v = await pill(page); r.ok('balance pill', v === 'AI credit $64.80', 'got ' + v); }
@@ -87,26 +85,20 @@ const summaryRpc = (summary) => ({ ai_credit_summary: summary === 'error'
   r.ok('owner, very low: red', /bcn-pill--neg/.test(await pillClass(page)));
   await page.close();
 
-  // A member: no balance and no per-answer cost while there is plenty.
-  const MEMBER = { can_top_up: false, plan_included_micros: 30000000 };
-  page = await open({ state: 'active', available_micros: 64800000, ...MEMBER });
-  { const v = await pill(page); r.ok('member, plenty left: no pill', v === null, 'got ' + v); }
+  // Anyone who uses Ask SILO sees the same pill and costs (Blake, 2026-10-06):
+  // can_top_up does not change what the page shows.
+  page = await open({ state: 'active', available_micros: 5000000, can_top_up: false, plan_included_micros: 30000000 });
+  { const v = await pill(page); r.ok('non-owner, getting low: the same yellow balance', v === 'AI credit $5.00', 'got ' + v); }
+  r.ok('non-owner, getting low: yellow', /ac-credit-pill--warn/.test(await pillClass(page)));
   script = [{ answer: 'Sales were $10.', ai_credit: { status: 'charged', charged_micros: 420000 } }];
   await ask(page, 'sales last week?');
-  r.ok('member: no per-answer cost', !/AI credit|\$0\.42/.test(await page.textContent('#log')));
+  r.ok('non-owner: the cost is shown, inside the answer\'s details',
+    (await page.locator('#log details.ac-queries .ac-credit-note').count()) === 1
+    && /\$0\.42 AI credit/.test(await page.textContent('#log details.ac-queries .ac-credit-note')));
   await page.close();
-  page = await open({ state: 'active', available_micros: 5000000, ...MEMBER });
-  { const v = await pill(page); r.ok('member, getting low: a yellow warning without the amount', v === 'AI credit low', 'got ' + v); }
-  r.ok('member, getting low: yellow', /ac-credit-pill--warn/.test(await pillClass(page)));
-  await page.close();
-  page = await open({ state: 'active', available_micros: 1000000, ...MEMBER });
-  r.ok('member, very low: red', /bcn-pill--neg/.test(await pillClass(page)));
-  await page.close();
-  page = await open({ state: 'active', available_micros: 0, ...MEMBER });
-  { const v = await pill(page); r.ok('member, out', v === 'AI credit: out', 'got ' + v); }
-  await page.close();
-  page = await open({ state: 'preview', available_micros: 0, ...MEMBER });
-  { const v = await pill(page); r.ok('member, preview: nothing shown', v === null, 'got ' + v); }
+  page = await open({ state: 'active', available_micros: 0, plan_included_micros: 30000000 });
+  { const v = await pill(page); r.ok('out: red, $0.00', v === 'AI credit $0.00', 'got ' + v); }
+  r.ok('out: red', /bcn-pill--neg/.test(await pillClass(page)));
   await page.close();
 
   page = await open({ state: 'unconfigured' });
@@ -120,11 +112,8 @@ const summaryRpc = (summary) => ({ ai_credit_summary: summary === 'error'
   { const v = await pill(page); r.ok('migration not applied: no pill', v === null, 'got ' + v); }
   await page.close();
 
-  // An unreadable summary does not say who is asking, so the pill stays out
-  // of a member's way; an owner who cannot see their balance is told so on
-  // the Billing page.
   page = await open('error');
-  { const v = await pill(page); r.ok('unreadable: nothing shown rather than a guessed balance', v === null, 'got ' + v); }
+  { const v = await pill(page); r.ok('unreadable: unavailable, not $0', v === 'AI credit: unavailable', 'got ' + v); }
   await page.close();
 
   page = await open({ state: 'active', available_micros: null, ...OWNER });

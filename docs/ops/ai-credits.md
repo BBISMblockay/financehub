@@ -115,19 +115,18 @@ beside customer-priced credit would reveal the multiplier.
 ## What people see (Ask SILO)
 
 Decided 2026-10-06 (Blake): a price under every answer reads as a meter and
-makes people ration the questions Ask SILO is most useful for, so cost is
-shown to the person who pays and kept out of everyone else's way.
+makes people ration the questions Ask SILO is most useful for. So every Ask SILO
+user sees the same two things:
 
-| Viewer | Balance pill | Per-answer cost |
-|---|---|---|
-| Owner-admin (`ai_credit_summary().can_top_up`) | Always: green, **yellow** when getting low, **red** when very low or out | Inside the answer's "N queries run" details (or an "AI credit" details when no query ran) |
-| Everyone else | Hidden until credit is low: yellow "AI credit low", red when very low, "AI credit: out" | Never |
+- **Balance pill:** green, **yellow** when getting low, **red** when very low or out.
+- **Per-answer cost:** inside the answer's "N queries run" details, or an "AI
+  credit" details when no query ran. It is never printed under every answer.
 
 Levels (`SiloAICredit.level` in `v2/ai-credit.js`), on an enforced balance only:
 - **Yellow:** under 25% of the plan's monthly included credit or under $10, whichever is higher.
 - **Red:** under 10% or under $2, whichever is higher, or nothing left.
 
-A preview deducts nothing and has no level. An unreadable summary hides the pill, because it does not say who is asking. Billing shows "unavailable" to owners.
+A preview deducts nothing and has no level.
 
 ## Rollout (in order)
 

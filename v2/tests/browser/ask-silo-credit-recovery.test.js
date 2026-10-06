@@ -38,7 +38,7 @@ const r = createReporter('ask-silo-credit-recovery');
         }
         if (next.balance != null) {
           const b = next.balance;
-          window.__FIXTURE_RPC__.ai_credit_summary = () => ({ state: 'active', available_micros: b, included_micros: 0, purchased_micros: b, pending_micros: 0, can_top_up: true });
+          window.__FIXTURE_RPC__.ai_credit_summary = () => ({ state: 'active', available_micros: b, included_micros: 0, purchased_micros: b, pending_micros: 0 });
         }
       }, { rid: body.request_id, next: next.drop || next.deferred });
       if (next.drop) return route.abort('connectionreset');
@@ -48,7 +48,7 @@ const r = createReporter('ask-silo-credit-recovery');
   });
 
   page = await suite.open('/v2/silo-chat.html', {}, {
-    rpc: { ai_credit_summary: () => ({ state: 'active', available_micros: 64800000, included_micros: 14800000, purchased_micros: 50000000, pending_micros: 0, can_top_up: true }) },
+    rpc: { ai_credit_summary: () => ({ state: 'active', available_micros: 64800000, included_micros: 14800000, purchased_micros: 50000000, pending_micros: 0 }) },
     ready: () => !!document.getElementById('input'),
   });
   const pill = () => page.evaluate(() => { const p = document.getElementById('creditPill'); return p.hidden ? null : p.textContent; });

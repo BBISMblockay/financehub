@@ -931,11 +931,9 @@
   // (or the database has no credit yet), so nothing changes for a workspace
   // that is not metered; an unreadable balance says so rather than guessing.
   //
-  // The person who pays (owner-admin) sees the balance at all times, coloured
-  // green / yellow (getting low) / red (very low or out), and what each answer
-  // cost. Everyone else sees nothing until credit is low -- then a yellow or
-  // red pill, so a refused answer is never a surprise.
-  let creditCostsVisible = false;
+  // Everyone who uses Ask SILO sees the balance, coloured green / yellow
+  // (getting low) / red (very low or out), so a refused answer is never a
+  // surprise (Blake, 2026-10-06).
   async function refreshCreditPill() {
     const pill = el('creditPill');
     const AI = window.SiloAICredit;
@@ -943,21 +941,14 @@
     const { summary, error } = await AI.load(sb);
     const missing = error && (error.code === 'PGRST202' || error.code === '42883');
     const d = AI.describe(summary, error);
-    creditCostsVisible = AI.costsVisible(d);
-    const lvl = AI.level(d);
-    const payer = creditCostsVisible;
     if (missing || d.state === 'unconfigured') { pill.hidden = true; return; }
-    if (!payer && !(lvl === 'caution' || lvl === 'low' || lvl === 'out')) { pill.hidden = true; return; }
     pill.hidden = false;
     pill.className = 'bcn-pill ac-credit-pill';
-    pill.title = payer ? 'Workspace AI credit — opens Billing' : 'Workspace AI credit is running low — your workspace owner can add more';
     if (d.state === 'unavailable') { pill.textContent = 'AI credit: unavailable'; return; }
     if (d.state === 'preview') { pill.textContent = 'AI credit: preview'; pill.classList.add('bcn-pill--accent'); return; }
     if (d.neverGranted) { pill.textContent = 'AI credit: none yet'; return; }
-    const amount = AI.fmtMicros(Math.max(0, Number(d.available)), { exact: true });
-    pill.textContent = payer
-      ? 'AI credit ' + amount
-      : (lvl === 'out' ? 'AI credit: out' : 'AI credit low');
+    const lvl = AI.level(d);
+    pill.textContent = 'AI credit ' + AI.fmtMicros(Math.max(0, Number(d.available)), { exact: true });
     pill.classList.add(lvl === 'ok' ? 'bcn-pill--pos' : lvl === 'caution' ? 'ac-credit-pill--warn' : 'bcn-pill--neg');
     pill.dataset.level = lvl || '';
   }
@@ -972,9 +963,9 @@
     const imagesHtml = images && images.length
       ? `<div class="ac-msg-images">${images.map(u => `<img src="${esc(u)}" alt="Reference image">`).join('')}</div>`
       : '';
-    // What this answer cost in AI credit, for the person who pays only, and
-    // tucked into the details rather than printed under every answer.
-    const charge = creditCostsVisible ? window.SiloAICredit?.describeCharge?.(credit) : null;
+    // What this answer cost in AI credit, tucked into the details rather than
+    // printed under every answer: a price on every reply reads as a meter.
+    const charge = window.SiloAICredit?.describeCharge?.(credit);
     const creditHtml = charge ? `<div class="ac-credit-note">${esc(charge.text)}</div>` : '';
     let queriesHtml = '';
     if (queries && queries.length) {
@@ -2173,9 +2164,7 @@
         supabaseClient: sb,
       });
     }
-    // Before any restored answer renders, so it knows whether to include costs.
-    // Bounded: a slow summary never holds the page up for more than a moment.
-    await Promise.race([refreshCreditPill(), new Promise((resolve) => setTimeout(resolve, 1500))]);
+    refreshCreditPill();
 
     // Product Concepts shipped to everyone 2026-09-30 -- the RLS boundary on
     // product_concepts is what was ever real here; this just restores the
