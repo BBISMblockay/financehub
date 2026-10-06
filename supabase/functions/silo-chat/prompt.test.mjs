@@ -480,7 +480,11 @@ test('every tool the model is actually given is named in the no-vocabulary list'
   // in an answer. TOOLS is a plain array literal, so the names can be read
   // straight out of the source.
   const block = SRC.slice(SRC.indexOf('const TOOLS = ['), SRC.indexOf('const STRUCTURED_CONCEPT_FIELDS'));
-  const declared = [...block.matchAll(/^\s*name: '([a-z_0-9]+)',/gm)].map((m) => m[1]);
+  // run_silo_report is offered only when SILO reports are readable, so it is
+  // named and counted in the per-request reports section instead
+  // (silo-reports.test.mjs), never in the always-sent core.
+  const declared = [...block.matchAll(/^\s*name: '([a-z_0-9]+)',/gm)].map((m) => m[1])
+    .filter((n) => n !== 'run_silo_report');
   assert(declared.length >= 5, `only found ${declared.length} tool names in TOOLS`);
   for (const name of declared) has(GENERAL, name);
   const counted = GENERAL.match(/You have (\w+) tools\./);
@@ -488,6 +492,11 @@ test('every tool the model is actually given is named in the no-vocabulary list'
   assert(counted, 'the prompt no longer states how many tools there are');
   eq(WORDS[counted[1]], declared.length,
     `the prompt says "${counted[1]}" tools; TOOLS declares ${declared.length}`);
+});
+
+test('the always-sent core never names run_silo_report: it is not always offered', () => {
+  lacks(GENERAL, 'run_silo_report');
+  lacks(CONCEPT, 'run_silo_report');
 });
 
 test('the schema index tells the model its slice is a slice', () => {
@@ -967,10 +976,10 @@ test('prompt sizes', () => {
   // (company-wide reviews, configured channel mapping, "the store"). A
   // deliberate, reviewed addition to every question -- the ceiling exists to
   // catch SILENT regrowth, so raise it only with a reason written here.
-  // Raised 4,500 -> 4,600 on 2026-10-06 for run_silo_report's line in the
-  // tool list. The list of SILO reports itself is per-request (built from the
-  // database, ~1k words for 21 reports) and is not counted here.
-  assert(sizes.ORDINARY < 4600, `ordinary prompt regrew to ${sizes.ORDINARY} words`);
+  // The list of SILO reports (and run_silo_report's description) is
+  // per-request -- built from the database, ~1k words for 21 reports -- and is
+  // not counted here.
+  assert(sizes.ORDINARY < 4500, `ordinary prompt regrew to ${sizes.ORDINARY} words`);
   assert(sizes.MARKETING < 5100, `marketing prompt regrew to ${sizes.MARKETING} words`);
   // SEO carries the full core plus its own module; after the store/channel
   // rules it sits ~2% above the pre-split base (6,844). SEO is the one request

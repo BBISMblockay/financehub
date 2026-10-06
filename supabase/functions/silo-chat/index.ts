@@ -1508,7 +1508,11 @@ Deno.serve(withKeepAlive(async (req: Request) => {
     // buildDiagnostics.
     const queryLog: Array<Record<string, unknown>> = [];
     // Which SILO reports this answer drew on, for the reply and the page.
-    const siloReportsUsed: Array<{ id: string; title: string; parameters: Record<string, unknown> }> = [];
+    // One entry per distinct report AND parameter set (an August-vs-September
+    // comparison runs the same report twice and both feed the answer), and
+    // only for a run that returned something: a report whose every query
+    // failed is not a source.
+    const siloReportsUsed: Array<{ id: string; title: string; parameters: Record<string, unknown>; status: 'complete' | 'partial' }> = [];
     // Which relations the model was given full cards for up front (keyword
     // ranking on the opening question) versus which it had to ask for
     // mid-investigation. A mismatch between the two IS the diagnosis when an
@@ -2495,8 +2499,17 @@ Deno.serve(withKeepAlive(async (req: Request) => {
                   ? shapeReportResult(run.resultId, run.content)
                   : { result_id: run.resultId, error: run.content });
               }
-              if (!siloReportsUsed.some((u) => u.id === report.id)) {
-                siloReportsUsed.push({ id: report.id, title: report.title, parameters: prepared.parameters_used as Record<string, unknown> });
+              const succeeded = results.filter((r) => !('error' in r)).length;
+              const usedParams = prepared.parameters_used as Record<string, unknown>;
+              const sameRun = (u: { id: string; parameters: Record<string, unknown> }) =>
+                u.id === report.id && JSON.stringify(u.parameters) === JSON.stringify(usedParams);
+              if (succeeded && !siloReportsUsed.some(sameRun)) {
+                siloReportsUsed.push({
+                  id: report.id,
+                  title: report.title,
+                  parameters: usedParams,
+                  status: succeeded === results.length ? 'complete' : 'partial',
+                });
               }
               resultContent = JSON.stringify({
                 silo_report: { id: report.id, title: report.title, parameters_used: prepared.parameters_used },

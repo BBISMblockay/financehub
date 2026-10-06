@@ -2386,6 +2386,9 @@ await test('with no SILO reports the tool is not offered and nothing is listed',
   await ask(BASIC, { siloReports: [] });
   assert(!model.sent[0].tools.some((t) => t.name === 'run_silo_report'), 'no tool');
   assert(!systemText(model.sent[0]).includes('SILO reports -- answer from these FIRST'), 'no list');
+  // Not named anywhere either: a prompt that tells the model to use a tool it
+  // was not given wastes a round (review, cycle 1).
+  assert(!systemText(model.sent[0]).includes('run_silo_report'), 'the tool is not named in any part of the prompt');
 });
 
 await test('run_silo_report runs the stored SQL with typed parameters, under the caller, and says where the figure came from', async () => {
@@ -2400,7 +2403,7 @@ await test('run_silo_report runs the stored SQL with typed parameters, under the
   assert(sql.includes("between date '2026-09-01' and ((select public.silo_business_today()) - 1)"), `substituted on the company calendar: ${sql}`);
   assert(!sql.includes('{{'), 'no token left');
   eq(json.queries_run, [sql], 'the run SQL is what a saved report would keep');
-  eq(json.silo_reports_used, [{ id: REPORT_DAILY.id, title: 'Daily Sales', parameters: { date_from: '2026-09-01', date_to: 'today-1d' } }], 'provenance in the reply');
+  eq(json.silo_reports_used, [{ id: REPORT_DAILY.id, title: 'Daily Sales', parameters: { date_from: '2026-09-01', date_to: 'today-1d' }, status: 'complete' }], 'provenance in the reply');
   const result = JSON.parse(toolResultsSeen(model.sent)[0]);
   eq(result.silo_report.title, 'Daily Sales', 'the model is told which report');
   eq(result.results.length, 1, 'one result set');
@@ -2465,7 +2468,29 @@ await test('a report query that fails is reported in its result, and the report 
   const result = JSON.parse(toolResultsSeen(model.sent)[0]);
   eq(result.results.length, 3, 'all three reported');
   assert(/^Error: canceling statement due to statement timeout/.test(result.results[1].error), JSON.stringify(result.results[1]));
-  eq(json.silo_reports_used.length, 1, 'cited');
+  eq(json.silo_reports_used, [{ id: REPORT_INVENTORY.id, title: 'Inventory Summary', parameters: {}, status: 'partial' }], 'cited as partial');
+});
+
+await test('a report whose every query failed is not cited as a source', async () => {
+  installModel([reportCall({ report: REPORT_DAILY.id }), say('ok')]);
+  const { json } = await ask(BASIC, { siloReports: REPORTS, rpcError: { message: 'canceling statement due to statement timeout' } });
+  assert(!json.silo_reports_used, `cited a report that returned nothing: ${JSON.stringify(json.silo_reports_used)}`);
+});
+
+await test('the same report for two windows is two sources; the same call twice is one', async () => {
+  installModel([
+    {
+      stop_reason: 'tool_use',
+      content: [
+        { type: 'tool_use', id: 'tu_a', name: 'run_silo_report', input: { report: REPORT_DAILY.id, parameters: { date_from: '2026-08-01', date_to: '2026-08-31' } } },
+        { type: 'tool_use', id: 'tu_b', name: 'run_silo_report', input: { report: REPORT_DAILY.id, parameters: { date_from: '2026-09-01', date_to: '2026-09-30' } } },
+        { type: 'tool_use', id: 'tu_c', name: 'run_silo_report', input: { report: REPORT_DAILY.id, parameters: { date_from: '2026-09-01', date_to: '2026-09-30' } } },
+      ],
+    },
+    say('August vs September.'),
+  ]);
+  const { json } = await ask(BASIC, { siloReports: REPORTS, rpcResults: [[{ n: 1 }], [{ n: 2 }], [{ n: 3 }]] });
+  eq(json.silo_reports_used.map((u) => u.parameters.date_from), ['2026-08-01', '2026-09-01'], 'both windows kept, the repeat collapsed');
 });
 
 console.log(`\n${run - failures}/${run} passed`);

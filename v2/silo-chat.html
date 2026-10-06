@@ -984,7 +984,16 @@
     // Which SILO reports the answer ran: those figures are SILO's own
     // definitions, with independent checks behind them, and the reader should
     // be able to tell them apart from a query written for this question.
-    const reportNames = Array.isArray(siloReports) ? siloReports.map((r) => r && r.title).filter(Boolean) : [];
+    // One pill per report title (the same report run for two windows is still
+    // one source to a reader); "partial" when any run of it lost a query.
+    const reportNames = [];
+    for (const r of Array.isArray(siloReports) ? siloReports : []) {
+      if (!r || !r.title) continue;
+      const label = r.status === 'partial' ? `${r.title} (partial)` : r.title;
+      const seen = reportNames.findIndex((t) => t === r.title || t === `${r.title} (partial)`);
+      if (seen === -1) reportNames.push(label);
+      else if (r.status === 'partial') reportNames[seen] = label;
+    }
     const reportsHtml = reportNames.length
       ? `<div class="ac-silo-reports">From SILO report${reportNames.length === 1 ? '' : 's'}: ${reportNames.map((t) => `<span class="bcn-pill">${esc(t)}</span>`).join(' ')}</div>`
       : '';

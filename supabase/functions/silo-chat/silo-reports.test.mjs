@@ -83,6 +83,7 @@ test('the section leads with the rule, then one line per report with its paramet
   const lines = text.split('\n');
   assert(lines[0].startsWith('SILO reports -- answer from these FIRST.'), lines[0]);
   assert(lines[0].includes('call run_silo_report before writing any SQL of your own'), 'run it first');
+  assert(lines[0].includes('You also have a run_silo_report tool for this request'), 'the tool is introduced here, not in the core');
   assert(lines[0].includes('never present two numbers for one measure without saying which is SILO\'s'), 'the disagreement rule');
   eq(lines[1], `- ${DAILY.id} — Daily Sales: Daily canonical net sales, units and orders. Parameters: date_from (date, default today-60d); date_to (date, default today-1d).`, 'daily line');
   eq(lines[2], `- ${LOW_STOCK.id} — Low Stock: Types under N weeks of cover. Parameters: cover_weeks (number, default 26).`, 'low stock line');
