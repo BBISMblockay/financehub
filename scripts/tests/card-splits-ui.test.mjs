@@ -174,7 +174,11 @@ test('effectiveLines mirrors card_coding_effective_lines: split lines, or the ro
 
 // ── the drawer ──────────────────────────────────────────────────────────
 class El {
-  constructor() { this.value = ''; this.events = {}; this.hidden = false; this.disabled = false; this.checked = false; this._html = ''; this.textContent = ''; }
+  constructor() { this.value = ''; this.events = {}; this.hidden = false; this.disabled = false; this.checked = false; this._html = ''; this.textContent = '';
+    // #900 marks the problems box as a hint with classList.
+    const classes = new Set(); this.classes = classes;
+    this.classList = { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c), toggle: (c, on) => ((on ?? !classes.has(c)) ? classes.add(c) : classes.delete(c), classes.has(c)) };
+  }
   set innerHTML(v) { this._html = v; }
   get innerHTML() { return this._html; }
   addEventListener(name, fn) { this.events[name] = fn; }
