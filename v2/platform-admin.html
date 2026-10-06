@@ -6,7 +6,7 @@
   <title>SILO · Silo Admin</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
-  <link rel="stylesheet" href="workspace-settings.css" />
+  <link rel="stylesheet" href="platform-admin.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -15,134 +15,182 @@
   <script src="silo-chrome.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
-  <style>
-    /* This page borrows Workspace Settings' card furniture and NOT its tab
-       strip: Silo Admin is a different scope, and putting it inside a
-       customer-facing settings area is exactly the mixing this separates. */
-    .plat-warn { border-left: 3px solid var(--bcn-warn); }
-    .plat-gate { padding: 64px 20px; text-align: center; color: var(--bcn-ink-2); max-width: 60ch; margin: 0 auto; line-height: 1.6; }
-  </style>
+  <style>[hidden] { display: none !important; }</style>
 </head>
 <body>
   <div class="silo-app" id="silo-app">
-    <main class="silo-main workspace-settings">
+    <main class="silo-main platform-admin">
       <header class="bcn-header">
         <div class="bcn-header-title">
           <div>Silo Admin</div>
           <div class="bcn-header-sub bcn-header-sub--trimmed">Platform scope — every tenant, not this workspace.</div>
         </div>
         <div class="bcn-header-actions">
-          <button class="bcn-btn bcn-btn--ghost" id="btnReload" hidden>Reload</button>
+          <button class="bcn-btn bcn-btn--ghost" id="btnReload" hidden type="button">Reload</button>
         </div>
       </header>
 
-      <div class="ws-page">
-        <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
-
-        <div class="plat-gate" id="gate" hidden>
-          <p><strong>This area is for SILO platform administrators.</strong></p>
-          <p>Owning a company does not grant platform access, and nothing here can be unlocked from
-          the product — membership of <code>platform_admins</code> takes a migration or a
-          service-role write. If you are looking for your own company's settings, they are in
-          <a href="/v2/settings-company.html">Workspace settings</a>.</p>
+      <div class="bcn-kpi-band plat-kpi-band" id="platKpis" hidden>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">Companies</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiCompanies">—</div>
         </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">Without owner admin</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiNoOwner">—</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">Open founding invites</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiOpenInvites">—</div>
+        </div>
+      </div>
 
-        <div id="admin" hidden>
-          <div class="ws-card" style="max-width:none;">
-            <div class="ws-card-head">
-              <div class="ws-title">Early-access interest</div>
-              <div class="ws-sub">Prospects awaiting personal follow-up</div>
-            </div>
-            <div class="ws-body">
-              <p class="ws-note">This queue records interest only. Changing a status does not send a message,
-                create an account, or issue an invitation.</p>
-              <div class="ws-actions" style="margin-top:14px;">
-                <label for="interestFilter">Status</label>
-                <select id="interestFilter" class="bcn-field">
-                  <option value="pending">Pending</option><option value="contacted">Contacted</option>
-                  <option value="closed">Closed</option><option value="all">All</option>
-                </select>
-                <button class="bcn-btn" id="interestPrevious" disabled>Previous</button>
-                <button class="bcn-btn" id="interestNext" disabled>Next</button>
-                <span id="interestPage" role="status" aria-live="polite"></span>
+      <div class="plat-page">
+        <div class="plat-inner">
+          <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
+
+          <div class="plat-gate" id="gate" hidden>
+            <p><strong>This area is for SILO platform administrators.</strong></p>
+            <p>Owning a company does not grant platform access, and nothing here can be unlocked from
+            the product — membership of <code>platform_admins</code> takes a migration or a
+            service-role write. If you are looking for your own company's settings, they are in
+            <a href="/v2/settings-company.html">Workspace settings</a>.</p>
+          </div>
+
+          <div id="admin" hidden>
+            <div class="plat-tabs-wrap">
+              <div class="bcn-tabs plat-tabs" role="tablist" aria-label="Silo Admin sections">
+                <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true"
+                  data-plat-tab="queue" id="tabBtnQueue">Work queue</button>
+                <button type="button" class="bcn-tab" role="tab" aria-selected="false"
+                  data-plat-tab="companies" id="tabBtnCompanies">Companies</button>
+                <button type="button" class="bcn-tab" role="tab" aria-selected="false"
+                  data-plat-tab="founding" id="tabBtnFounding">Founding</button>
+                <button type="button" class="bcn-tab" role="tab" aria-selected="false"
+                  data-plat-tab="support" id="tabBtnSupport">Support</button>
               </div>
             </div>
-            <div style="overflow-x:auto;">
-              <table class="ws-table" id="tblInterest">
-                <thead><tr><th>Received</th><th>Name</th><th>Company</th><th>Email</th><th>Status</th><th></th></tr></thead>
-                <tbody><tr><td colspan="6" class="ws-empty">Loading…</td></tr></tbody>
-              </table>
-            </div>
-          </div>
 
-          <div class="ws-card" style="max-width:none;">
-            <div class="ws-card-head">
-              <div class="ws-title">Companies</div>
-              <div class="ws-sub" id="companyCount"></div>
-            </div>
-            <table class="ws-table" id="tblCompanies">
-              <thead><tr>
-                <th>Company</th><th>Members</th><th>Owners</th><th>Settings</th>
-                <th>Subscription</th><th>Last sync</th><th>Created</th>
-              </tr></thead>
-              <tbody><tr><td colspan="7" class="ws-empty">Loading…</td></tr></tbody>
-            </table>
-          </div>
+            <section class="plat-panel" id="panelQueue" role="tabpanel" aria-labelledby="tabBtnQueue">
+              <div class="plat-alert" id="platOwnerAlert" hidden>
+                <strong id="platOwnerAlertTitle">Some companies have no owner admin.</strong>
+                <span id="platOwnerAlertDetail"> They cannot manage billing or workspace settings until someone holds owner_admin.</span>
+              </div>
 
-          <div class="ws-card" style="max-width:none;">
-            <div class="ws-card-head">
-              <div class="ws-title">Onboard a new company</div>
-              <div class="ws-sub">Founding is invite-gated</div>
-            </div>
-            <div class="ws-body">
-              <p class="ws-note" style="margin-bottom:14px;">
-                Mints a link that lets someone found their own SILO company. They become its owner;
-                nothing of your companies is visible to them, and nothing of theirs to you. This is
-                a different act from inviting a teammate, which adds someone to an existing
-                workspace.
+              <div class="plat-split">
+                <div>
+                  <div class="plat-block-head">
+                    <h2>Early-access interest</h2>
+                    <span class="ws-you">Prospects awaiting personal follow-up</span>
+                  </div>
+                  <p class="plat-note">This queue records interest only. Changing a status does not send a message,
+                    create an account, or issue an invitation.</p>
+                  <div class="plat-toolbar">
+                    <label class="bcn-filter" for="interestFilter">
+                      <span class="bcn-label">Status</span>
+                      <select id="interestFilter" class="bcn-field">
+                        <option value="pending">Pending</option>
+                        <option value="contacted">Contacted</option>
+                        <option value="closed">Closed</option>
+                        <option value="all">All</option>
+                      </select>
+                    </label>
+                    <span class="plat-page-label" id="interestPage" role="status" aria-live="polite"></span>
+                    <div class="plat-toolbar-spacer"></div>
+                    <button type="button" class="bcn-btn bcn-btn--ghost" id="interestPrevious" disabled>Previous</button>
+                    <button type="button" class="bcn-btn bcn-btn--ghost" id="interestNext" disabled>Next</button>
+                  </div>
+                  <div id="tblInterest" role="list" aria-label="Early-access interest">
+                    <div class="plat-empty">Loading…</div>
+                  </div>
+                </div>
+
+                <aside class="plat-rail" aria-label="Founding shortcuts">
+                  <div class="plat-rail-card">
+                    <div class="plat-rail-head">Mint founding invite</div>
+                    <div class="plat-rail-body">
+                      <p class="plat-note" style="margin-bottom:10px">Invite-gated company creation — not a teammate invite.</p>
+                      <label class="plat-field">
+                        <span class="plat-label">Founder email</span>
+                        <input id="pfEmail" class="bcn-field" type="email" placeholder="founder@theircompany.com" autocomplete="email" />
+                      </label>
+                      <label class="plat-field">
+                        <span class="plat-label">Company name (optional)</span>
+                        <input id="pfCompany" class="bcn-field" type="text" placeholder="their company name" />
+                      </label>
+                      <button type="button" class="bcn-btn bcn-btn--primary" id="pfCreate" style="width:100%">Create invite</button>
+                      <div id="pfLinkBox" class="plat-link-box" hidden>
+                        <span class="plat-label">Company-creation link — copy now, shown once</span>
+                        <div class="plat-link-row">
+                          <input id="pfLink" class="bcn-field" readonly />
+                          <button type="button" class="bcn-btn" id="pfCopy">Copy</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="plat-rail-card">
+                    <div class="plat-rail-head">Pending founding links</div>
+                    <div class="plat-rail-body" style="padding:0">
+                      <div id="listInvitesPending" class="plat-inv-pending">
+                        <div class="plat-empty" style="border:none;margin:0;border-radius:0">Loading…</div>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </section>
+
+            <section class="plat-panel" id="panelCompanies" role="tabpanel" aria-labelledby="tabBtnCompanies" hidden>
+              <div class="plat-block-head">
+                <h2>All companies</h2>
+                <span class="ws-you" id="companyCount"></span>
+              </div>
+              <p class="plat-note">Directory of every tenant on this SILO project. Rows with no owner admin are flagged.</p>
+              <div id="tblCompanies" role="list" aria-label="Companies"></div>
+            </section>
+
+            <section class="plat-panel" id="panelFounding" role="tabpanel" aria-labelledby="tabBtnFounding" hidden>
+              <p class="plat-note">
+                Mint new founding links on the <button type="button" class="bcn-btn bcn-btn--ghost" data-plat-tab-jump="queue" style="display:inline;padding:2px 8px;vertical-align:baseline;font-size:12px">Work queue</button> tab.
+                Founding is invite-gated and separate from inviting a teammate into an existing workspace.
               </p>
-              <div class="ws-grid">
-                <label class="ws-field"><span class="ws-label">Founder email</span>
-                  <input id="pfEmail" class="bcn-field" type="email" placeholder="founder@theircompany.com" /></label>
-                <label class="ws-field"><span class="ws-label">Company name (optional)</span>
-                  <input id="pfCompany" class="bcn-field" type="text" placeholder="their company name" /></label>
-              </div>
-              <div class="ws-actions" style="margin-top:14px;">
-                <button class="bcn-btn bcn-btn--primary" id="pfCreate">Create invite</button>
-              </div>
-              <div id="pfLinkBox" hidden style="margin-top:12px;">
-                <div class="ws-label">Company-creation link — copy it now, it is shown once</div>
-                <div class="ws-actions" style="margin-top:6px;">
-                  <input id="pfLink" class="bcn-field" readonly style="flex:1;min-width:260px;" />
-                  <button class="bcn-btn" id="pfCopy">Copy</button>
+              <div class="bcn-card" style="margin-top:12px">
+                <div class="bcn-card-header"><h2>Platform invitations</h2></div>
+                <div class="bcn-card-body" style="padding:0">
+                  <div id="tblPlatformInvites" role="list" aria-label="Platform invitations">
+                    <div class="plat-empty">Loading…</div>
+                  </div>
                 </div>
               </div>
-            </div>
-            <table class="ws-table" id="tblPlatformInvites">
-              <thead><tr><th>Email</th><th>Company</th><th>Status</th><th>Expires</th><th></th></tr></thead>
-              <tbody><tr><td colspan="5" class="ws-empty">Loading…</td></tr></tbody>
-            </table>
-          </div>
+            </section>
 
-          <div class="ws-card" style="max-width:none;">
-            <div class="ws-card-head"><div class="ws-title">Support &amp; troubleshooting</div></div>
-            <div class="ws-body">
-              <p class="ws-note">
-                These are scoped to whichever company you are currently signed into, not to the
-                platform — every query behind them runs under your own RLS.
-              </p>
-              <ul class="ws-note" style="margin-top:8px;padding-left:18px;line-height:1.9;">
-                <li><a href="/v2/backend.html">Backend hub</a> — profiles, departments, Ask SILO grants and this company's sync/mail ops status.</li>
-                <li><a href="/v2/integrations.html">Integrations</a> — this company's connections and their last run.</li>
-                <li><a href="/v2/setup-checklist.html">Setup checklist</a> — what a new tenant still has to do.</li>
-              </ul>
-              <p class="ws-note" style="margin-top:12px;">
-                Plan and subscription changes are made in Stripe, which owns proration and
-                cancellation; SILO mirrors what Stripe reports and never authors a subscription row.
-                Schema and edge-function drift is reported daily by
-                <code>deployment-drift-check.yml</code>.
-              </p>
-            </div>
+            <section class="plat-panel" id="panelSupport" role="tabpanel" aria-labelledby="tabBtnSupport" hidden>
+              <div class="bcn-card">
+                <div class="bcn-card-header"><h2>Support &amp; troubleshooting</h2></div>
+                <div class="bcn-card-body">
+                  <p class="plat-note">
+                    These are scoped to whichever company you are currently signed into, not to the
+                    platform — every query behind them runs under your own RLS.
+                  </p>
+                  <nav class="plat-support-links" aria-label="Support shortcuts">
+                    <a href="/v2/backend.html">Backend hub</a>
+                    <a href="/v2/integrations.html">Integrations</a>
+                    <a href="/v2/setup-checklist.html">Setup checklist</a>
+                  </nav>
+                  <p class="plat-note" style="margin-top:14px">
+                    <strong>Backend hub</strong> — profiles, departments, Ask SILO grants and this company's sync/mail ops status.<br />
+                    <strong>Integrations</strong> — this company's connections and their last run.<br />
+                    <strong>Setup checklist</strong> — what a new tenant still has to do after founding.
+                  </p>
+                  <p class="plat-note" style="margin-top:12px">
+                    Plan and subscription changes are made in Stripe, which owns proration and
+                    cancellation; SILO mirrors what Stripe reports and never authors a subscription row.
+                    Schema and edge-function drift is reported daily by
+                    <code class="bcn-mono">deployment-drift-check.yml</code>.
+                  </p>
+                </div>
+              </div>
+            </section>
           </div>
         </div>
       </div>
@@ -165,6 +213,23 @@
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const day = (v) => (v ? new Date(v).toLocaleDateString() : '—');
 
+  function initials(name) {
+    const parts = String(name || '?').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
+  function subPill(status, planKey) {
+    if (!status) return '<span class="bcn-pill">none</span>';
+    const s = esc(status);
+    const plan = planKey ? ' · ' + esc(planKey) : '';
+    let cls = 'bcn-pill';
+    if (status === 'active' || status === 'trialing') cls += ' bcn-pill--pos';
+    else if (status === 'incomplete' || status === 'past_due') cls += ' bcn-pill--accent';
+    return `<span class="${cls}">${s}${plan}</span>`;
+  }
+
   function setStatus(msg, type = 'info', ms = 0) {
     const n = el('status');
     n.className = `bcn-status bcn-status--${type}`;
@@ -176,6 +241,8 @@
   let interestPage = 0;
   let interestBusy = false;
   let interestHasNext = false;
+  let lastInviteRows = [];
+  let lastCompanyRows = [];
 
   function setInterestBusy(busy) {
     interestBusy = busy;
@@ -185,10 +252,48 @@
     el('tblInterest').querySelectorAll('button, select').forEach(n => { n.disabled = busy; });
   }
 
+  function refreshKpis(companyRows, inviteRows) {
+    if (companyRows) lastCompanyRows = companyRows;
+    if (inviteRows) lastInviteRows = inviteRows;
+    const companies = companyRows || lastCompanyRows || [];
+    const invites = inviteRows || lastInviteRows || [];
+    const noOwner = companies.filter((c) => Number(c.owner_admin_count || 0) === 0).length;
+    const openInv = invites.filter((i) => i.status === 'pending').length;
+    el('kpiCompanies').textContent = String(companies.length);
+    el('kpiNoOwner').textContent = String(noOwner);
+    el('kpiOpenInvites').textContent = String(openInv);
+    if (noOwner > 0) {
+      el('platOwnerAlert').hidden = false;
+      el('platOwnerAlertTitle').textContent = noOwner === 1
+        ? '1 company has no owner admin.'
+        : `${noOwner} companies have no owner admin.`;
+    } else {
+      el('platOwnerAlert').hidden = true;
+    }
+  }
+
+  function renderPendingInvites(rows) {
+    const pending = (rows || []).filter((i) => i.status === 'pending');
+    const box = el('listInvitesPending');
+    if (!pending.length) {
+      box.innerHTML = '<div class="plat-empty" style="border:none;margin:0;border-radius:0">No pending invitations.</div>';
+      return;
+    }
+    box.innerHTML = pending.map((i) => `<div class="plat-inv-row" style="grid-template-columns:1fr auto">
+      <div>
+        <div class="plat-inv-email">${esc(i.email)}</div>
+        <div class="plat-inv-sub">${esc(i.company_title || i.suggested_company || '—')} · exp ${esc(day(i.expires_at))}</div>
+      </div>
+      <div class="plat-inv-actions">
+        <button type="button" class="bcn-btn bcn-btn--danger" data-revoke="${esc(i.id)}">Revoke</button>
+      </div>
+    </div>`).join('');
+  }
+
   async function loadInterest() {
     if (interestBusy) return;
     setInterestBusy(true);
-    const body = el('tblInterest').querySelector('tbody');
+    const root = el('tblInterest');
     try {
       let query = db.from('onboarding_interest_queue')
         .select('id, name, company_name, email, created_at, status')
@@ -201,58 +306,101 @@
       const rows = data || [];
       interestHasNext = rows.length > interestPageSize;
       el('interestPage').textContent = `Page ${interestPage + 1}`;
-      body.innerHTML = rows.slice(0, interestPageSize).map(row => `<tr>
-        <td>${esc(day(row.created_at))}</td><td>${esc(row.name)}</td>
-        <td>${esc(row.company_name)}</td><td>${esc(row.email)}</td>
-        <td><select class="bcn-field" aria-label="Status for ${esc(row.name)}" data-interest-status="${esc(row.id)}">
-          ${['pending', 'contacted', 'closed'].map(value => `<option value="${value}"${value === row.status ? ' selected' : ''}>${value}</option>`).join('')}
-        </select></td>
-        <td><button class="bcn-btn" data-interest-save="${esc(row.id)}" data-original-status="${esc(row.status)}">Save</button></td>
-      </tr>`).join('') || '<tr><td colspan="6" class="ws-empty">No interest in this view.</td></tr>';
+      root.innerHTML = rows.slice(0, interestPageSize).map((row) => `<article class="plat-inbox-item" role="listitem" data-interest-row>
+        <div class="plat-inbox-av" aria-hidden="true">${esc(initials(row.name))}</div>
+        <div class="plat-inbox-body">
+          <div class="plat-inbox-title">${esc(row.name)} · ${esc(row.company_name)}</div>
+          <div class="plat-inbox-meta">Received <span class="bcn-mono">${esc(day(row.created_at))}</span> · <span class="bcn-mono">${esc(row.email)}</span></div>
+        </div>
+        <div class="plat-inbox-actions">
+          <select class="bcn-field" aria-label="Status for ${esc(row.name)}" data-interest-status="${esc(row.id)}">
+            ${['pending', 'contacted', 'closed'].map((value) => `<option value="${value}"${value === row.status ? ' selected' : ''}>${value}</option>`).join('')}
+          </select>
+          <button type="button" class="bcn-btn bcn-btn--ghost" data-interest-save="${esc(row.id)}" data-original-status="${esc(row.status)}">Save</button>
+        </div>
+      </article>`).join('') || '<div class="plat-empty">No interest in this view.</div>';
     } catch (_) {
       interestHasNext = false;
       el('interestPage').textContent = '';
-      body.innerHTML = '<tr><td colspan="6" class="ws-empty">Could not load the queue. Use Reload to retry.</td></tr>';
+      root.innerHTML = '<div class="plat-empty">Could not load the queue. Use Reload to retry.</div>';
     } finally { setInterestBusy(false); }
   }
 
   async function loadCompanies() {
     const { data, error } = await db.rpc('platform_list_companies');
-    const body = el('tblCompanies').querySelector('tbody');
-    if (error) { body.innerHTML = `<tr><td colspan="7" class="ws-empty">${esc(error.message)}</td></tr>`; return; }
+    const root = el('tblCompanies');
+    if (error) {
+      root.innerHTML = `<div class="plat-empty">${esc(error.message)}</div>`;
+      refreshKpis([], lastInviteRows);
+      return;
+    }
     const rows = data || [];
     el('companyCount').textContent = rows.length + (rows.length === 1 ? ' company' : ' companies');
-    body.innerHTML = rows.length ? rows.map((c) => {
-      // A company with no owner_admin cannot edit its own settings or manage
-      // its subscription, and nothing in the product can put one back. That is
-      // a platform-level problem, so it is flagged here rather than counted.
+    root.innerHTML = rows.length ? rows.map((c) => {
       const noOwner = Number(c.owner_admin_count || 0) === 0;
-      return `<tr${noOwner ? ' class="plat-warn"' : ''}>
-        <td><div>${esc(c.title || '(untitled)')}</div><div class="ws-you">${esc(c.entity_key || '')}</div></td>
-        <td>${esc(c.member_count)} <span class="ws-you">(${esc(c.active_member_count)} active)</span></td>
-        <td>${noOwner ? '<strong>none</strong>' : esc(c.owner_admin_count)}</td>
-        <td>${c.business_timezone ? esc(c.business_timezone) + ' · ' + esc(c.default_currency)
-          : '<span class="ws-you">no settings row</span>'}</td>
-        <td>${c.subscription_status
-          ? esc(c.subscription_status) + (c.plan_key ? ' · ' + esc(c.plan_key) : '')
-          : '<span class="ws-you">none</span>'}</td>
-        <td>${c.last_sync_at ? day(c.last_sync_at) : '<span class="ws-you">never</span>'}</td>
-        <td>${day(c.created_at)}</td></tr>`;
-    }).join('') : '<tr><td colspan="7" class="ws-empty">No companies.</td></tr>';
+      const settings = c.business_timezone
+        ? esc(c.business_timezone) + ' · ' + esc(c.default_currency)
+        : '<span class="ws-you">no settings row</span>';
+      const sub = c.subscription_status
+        ? subPill(c.subscription_status, c.plan_key)
+        : '<span class="bcn-pill">none</span>';
+      const syncLabel = c.last_sync_at ? esc(day(c.last_sync_at)) : '<span class="ws-you">never</span>';
+      const owners = noOwner ? '<strong>none</strong>' : esc(c.owner_admin_count);
+      return `<div class="plat-co-row${noOwner ? ' plat-warn' : ''}" role="listitem">
+        <div>
+          <div class="plat-co-title">${esc(c.title || '(untitled)')}</div>
+          <div class="plat-co-slug">${esc(c.entity_key || '')}</div>
+        </div>
+        <div class="plat-co-meta">
+          <span>${esc(c.member_count)} members (${esc(c.active_member_count)} active) · owners ${owners}</span>
+          <span class="ws-you">${settings} · last sync ${syncLabel}</span>
+        </div>
+        <div class="plat-co-end">${sub}<div class="ws-you">created ${esc(day(c.created_at))}</div></div>
+      </div>`;
+    }).join('') : '<div class="plat-empty">No companies.</div>';
+    refreshKpis(rows, lastInviteRows);
+    return rows;
   }
 
   async function loadInvites() {
     const { data, error } = await db.rpc('list_platform_invites');
-    const body = el('tblPlatformInvites').querySelector('tbody');
-    if (error) { body.innerHTML = `<tr><td colspan="5" class="ws-empty">${esc(error.message)}</td></tr>`; return; }
+    const root = el('tblPlatformInvites');
+    if (error) {
+      root.innerHTML = `<div class="plat-empty">${esc(error.message)}</div>`;
+      renderPendingInvites([]);
+      lastInviteRows = [];
+      refreshKpis([], []);
+      return;
+    }
     const rows = data || [];
-    body.innerHTML = rows.length ? rows.map((i) => `<tr>
-      <td>${esc(i.email)}</td><td>${esc(i.company_title || i.suggested_company || '—')}</td><td>${esc(i.status)}</td>
-      <td>${day(i.expires_at)}</td>
-      <td style="text-align:right;">${i.status === 'pending'
-        ? `<button class="bcn-btn bcn-btn--danger" data-revoke="${esc(i.id)}">Revoke</button>` : ''}</td>
-      </tr>`).join('') : '<tr><td colspan="5" class="ws-empty">No platform invitations.</td></tr>';
+    lastInviteRows = rows;
+    renderPendingInvites(rows);
+    root.innerHTML = rows.length ? rows.map((i) => `<div class="plat-inv-row" role="listitem">
+      <div class="plat-inv-email">${esc(i.email)}</div>
+      <div class="plat-inv-sub">${esc(i.company_title || i.suggested_company || '—')}</div>
+      <div>${esc(i.status)}</div>
+      <div class="bcn-mono" style="font-size:11px">${esc(day(i.expires_at))}</div>
+      <div class="plat-inv-actions">${i.status === 'pending'
+        ? `<button type="button" class="bcn-btn bcn-btn--danger" data-revoke="${esc(i.id)}">Revoke</button>` : ''}</div>
+    </div>`).join('') : '<div class="plat-empty">No platform invitations.</div>';
+    refreshKpis(undefined, rows);
   }
+
+  function showPlatTab(name) {
+    const panels = {
+      queue: el('panelQueue'),
+      companies: el('panelCompanies'),
+      founding: el('panelFounding'),
+      support: el('panelSupport'),
+    };
+    document.querySelectorAll('[data-plat-tab]').forEach((btn) => {
+      const on = btn.dataset.platTab === name;
+      btn.classList.toggle('bcn-tab--active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    Object.entries(panels).forEach(([key, node]) => { node.hidden = key !== name; });
+  }
+
 
   (async function boot() {
     const sess = await db.auth.getSession();
@@ -270,14 +418,21 @@
       crumbs: ['Platform', 'Silo Admin'], supabaseClient: db,
     });
 
-    // This decides what is DRAWN. It is not the boundary: is_platform_admin()
-    // is re-checked inside existing admin RPCs and in the interest queue's
-    // SELECT/UPDATE RLS policies. Reaching this URL does not grant access.
     const { data: isPlatform } = await db.rpc('is_platform_admin');
     if (isPlatform !== true) { el('gate').hidden = false; return; }
 
     el('admin').hidden = false;
     el('btnReload').hidden = false;
+    el('platKpis').hidden = false;
+    showPlatTab('queue');
+
+    document.querySelectorAll('[data-plat-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => showPlatTab(btn.dataset.platTab));
+    });
+    document.querySelectorAll('[data-plat-tab-jump]').forEach((btn) => {
+      btn.addEventListener('click', () => showPlatTab(btn.dataset.platTabJump));
+    });
+
     await Promise.all([loadCompanies(), loadInvites(), loadInterest()]);
 
     el('btnReload').addEventListener('click', () => Promise.all([loadCompanies(), loadInvites(), loadInterest()]));
@@ -285,10 +440,12 @@
     el('interestFilter').addEventListener('change', () => { interestPage = 0; loadInterest(); });
     el('interestPrevious').addEventListener('click', () => { if (!interestBusy && interestPage > 0) { interestPage--; loadInterest(); } });
     el('interestNext').addEventListener('click', () => { if (!interestBusy && interestHasNext) { interestPage++; loadInterest(); } });
+
     el('tblInterest').addEventListener('click', async (event) => {
       const button = event.target.closest('[data-interest-save]');
       if (!button || interestBusy) return;
-      const select = button.closest('tr').querySelector('[data-interest-status]');
+      const row = button.closest('[data-interest-row]');
+      const select = row.querySelector('[data-interest-status]');
       const nextStatus = select.value;
       if (!['pending', 'contacted', 'closed'].includes(nextStatus)) return;
       setInterestBusy(true);
@@ -335,7 +492,7 @@
       setStatus('Link copied.', 'pos', 4000);
     });
 
-    el('tblPlatformInvites').addEventListener('click', async (ev) => {
+    async function onRevoke(ev) {
       const btn = ev.target.closest('[data-revoke]');
       if (!btn) return;
       if (!confirm('Revoke this company-creation invitation?')) return;
@@ -345,7 +502,9 @@
         setStatus('Invitation revoked.', 'pos', 6000);
         await loadInvites();
       } catch (e) { setStatus(e?.message || String(e), 'neg', 12000); }
-    });
+    }
+    el('tblPlatformInvites').addEventListener('click', onRevoke);
+    el('listInvitesPending').addEventListener('click', onRevoke);
   })().catch((e) => {
     console.error(e);
     setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
