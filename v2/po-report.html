@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="po-workbench.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
-  <link rel="stylesheet" href="po-report.css?v=20261006-map" />
+  <link rel="stylesheet" href="po-report.css?v=20261006-filters" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="silo-chrome.js"></script>
@@ -70,52 +70,11 @@
 
       <div class="po-report-main">
 
-        <!-- Shipment status map -->
-        <section class="bcn-card po-map-card">
-          <button class="po-map-card-head" id="mapToggle" type="button" aria-expanded="true">
-            <div>
-              <div class="po-map-card-title">
-                Shipment status map
-                <span class="po-rpt-pill" id="mapSummaryPill"></span>
-              </div>
-              <div class="po-map-card-sub">Each pin is a factory country from logged shipments (not live carrier GPS). Use the list to focus a region; open a PO card to edit shipments.</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:12px;">
-              <div class="po-map-legend">
-                <span class="po-map-legend-item"><span class="po-map-legend-dot" style="background:#94a3b8;"></span>Not shipped</span>
-                <span class="po-map-legend-item"><span class="po-map-legend-dot" style="background:#6366f1;"></span>Booked / in transit</span>
-                <span class="po-map-legend-item"><span class="po-map-legend-dot" style="background:#ef4444;"></span>Delayed</span>
-                <span class="po-map-legend-item"><span class="po-map-legend-dot" style="background:#16a34a;"></span>Delivered / received</span>
-              </div>
-              <span class="po-map-chevron" id="mapChevron" aria-hidden="true">▾</span>
-            </div>
-          </button>
-          <div id="mapBody" class="po-map-body">
-            <div class="po-map-layout">
-              <div class="po-map-svg-wrap" id="mapSvgWrap">
-                <svg id="mapSvg" viewBox="0 0 880 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="World map with shipment pins by factory country">
-                  <g id="mapLand"></g>
-                  <g id="mapDest"></g>
-                  <g id="mapRoutes"></g>
-                  <g id="mapPins"></g>
-                </svg>
-                <div class="po-map-overlay-empty hidden-safe" id="mapEmptyOverlay">Log shipments on a PO to see pins here.</div>
-                <div class="po-map-tooltip hidden-safe" id="mapTooltip"></div>
-              </div>
-              <aside class="po-map-region-list" aria-label="Shipments by factory country">
-                <div class="po-map-region-head">By factory country</div>
-                <ul class="po-map-region-items" id="mapRegionItems"></ul>
-              </aside>
-            </div>
-            <div class="po-map-unmapped hidden-safe" id="mapUnmapped"></div>
-          </div>
-        </section>
-
-        <section class="bcn-card po-report-filters">
+        <section class="bcn-card po-report-filters" aria-label="Report filters">
           <div class="po-report-filters-grid">
             <div class="po-report-field po-report-field--search">
               <label class="bcn-label" for="searchInput">Search</label>
-              <input id="searchInput" class="bcn-field" type="search" placeholder="PO, factory, product, SKU…" />
+              <input id="searchInput" class="bcn-field" type="search" placeholder="PO, factory, product, SKU…" autocomplete="off" />
             </div>
             <div class="po-report-field">
               <label class="bcn-label" for="statusFilter">Status</label>
@@ -152,6 +111,47 @@
                 <button type="button" class="po-report-seg-btn" data-scope="arriving">Arriving</button>
               </div>
             </div>
+          </div>
+        </section>
+
+        <!-- Shipment status map (below filters so search/status are never covered) -->
+        <section class="bcn-card po-map-card">
+          <button class="po-map-card-head" id="mapToggle" type="button" aria-expanded="true">
+            <div>
+              <div class="po-map-card-title">
+                Shipment status map
+                <span class="po-rpt-pill" id="mapSummaryPill"></span>
+              </div>
+              <div class="po-map-card-sub">Pins are factory countries from logged shipments (not live GPS). Dashed lines end at your Workspace ship-to address. Use the list to focus a region; open a PO card to edit shipments.</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div class="po-map-legend">
+                <span class="po-map-legend-item"><span class="po-map-legend-dot" style="background:#94a3b8;"></span>Not shipped</span>
+                <span class="po-map-legend-item"><span class="po-map-legend-dot" style="background:#6366f1;"></span>Booked / in transit</span>
+                <span class="po-map-legend-item"><span class="po-map-legend-dot" style="background:#ef4444;"></span>Delayed</span>
+                <span class="po-map-legend-item"><span class="po-map-legend-dot" style="background:#16a34a;"></span>Delivered / received</span>
+              </div>
+              <span class="po-map-chevron" id="mapChevron" aria-hidden="true">▾</span>
+            </div>
+          </button>
+          <div id="mapBody" class="po-map-body">
+            <div class="po-map-layout">
+              <div class="po-map-svg-wrap" id="mapSvgWrap">
+                <svg id="mapSvg" viewBox="0 0 880 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="World map with shipment pins by factory country">
+                  <g id="mapLand"></g>
+                  <g id="mapDest"></g>
+                  <g id="mapRoutes"></g>
+                  <g id="mapPins"></g>
+                </svg>
+                <div class="po-map-overlay-empty hidden-safe" id="mapEmptyOverlay">Log shipments on a PO to see pins here.</div>
+                <div class="po-map-tooltip hidden-safe" id="mapTooltip"></div>
+              </div>
+              <aside class="po-map-region-list" aria-label="Shipments by factory country">
+                <div class="po-map-region-head">By factory country</div>
+                <ul class="po-map-region-items" id="mapRegionItems"></ul>
+              </aside>
+            </div>
+            <div class="po-map-unmapped hidden-safe" id="mapUnmapped"></div>
           </div>
         </section>
 
@@ -370,6 +370,67 @@
       'United States': [39.8, -98.6], 'Vietnam': [21.0, 105.8]
     };
 
+    /** Approximate lat/lng for US/CA states & provinces (ship-to routing, not geocoding). */
+    const US_REGION_CENTROIDS = {
+      'al': [32.8, -86.9], 'alabama': [32.8, -86.9],
+      'ak': [64.2, -149.5], 'alaska': [64.2, -149.5],
+      'az': [33.7, -111.6], 'arizona': [33.7, -111.6],
+      'ar': [34.8, -92.2], 'arkansas': [34.8, -92.2],
+      'ca': [36.8, -119.5], 'california': [36.8, -119.5],
+      'co': [39.0, -105.5], 'colorado': [39.0, -105.5],
+      'ct': [41.6, -72.7], 'connecticut': [41.6, -72.7],
+      'de': [39.0, -75.5], 'delaware': [39.0, -75.5],
+      'dc': [38.9, -77.0], 'district of columbia': [38.9, -77.0],
+      'fl': [28.6, -81.5], 'florida': [28.6, -81.5],
+      'ga': [33.4, -84.4], 'georgia': [33.4, -84.4],
+      'hi': [21.3, -157.8], 'hawaii': [21.3, -157.8],
+      'id': [44.2, -114.5], 'idaho': [44.2, -114.5],
+      'il': [40.0, -89.0], 'illinois': [40.0, -89.0],
+      'in': [39.8, -86.1], 'indiana': [39.8, -86.1],
+      'ia': [42.0, -93.2], 'iowa': [42.0, -93.2],
+      'ks': [38.5, -98.0], 'kansas': [38.5, -98.0],
+      'ky': [37.8, -85.7], 'kentucky': [37.8, -85.7],
+      'la': [31.0, -92.0], 'louisiana': [31.0, -92.0],
+      'me': [45.3, -69.0], 'maine': [45.3, -69.0],
+      'md': [39.0, -76.7], 'maryland': [39.0, -76.7],
+      'ma': [42.4, -71.4], 'massachusetts': [42.4, -71.4],
+      'mi': [43.3, -84.5], 'michigan': [43.3, -84.5],
+      'mn': [46.3, -94.2], 'minnesota': [46.3, -94.2],
+      'ms': [32.7, -89.7], 'mississippi': [32.7, -89.7],
+      'mo': [38.5, -92.4], 'missouri': [38.5, -92.4],
+      'mt': [47.0, -109.6], 'montana': [47.0, -109.6],
+      'ne': [41.5, -99.7], 'nebraska': [41.5, -99.7],
+      'nv': [39.3, -116.6], 'nevada': [39.3, -116.6],
+      'nh': [43.5, -71.5], 'new hampshire': [43.5, -71.5],
+      'nj': [40.1, -74.5], 'new jersey': [40.1, -74.5],
+      'nm': [34.5, -106.0], 'new mexico': [34.5, -106.0],
+      'ny': [43.0, -75.5], 'new york': [43.0, -75.5],
+      'nc': [35.5, -79.4], 'north carolina': [35.5, -79.4],
+      'nd': [47.5, -100.5], 'north dakota': [47.5, -100.5],
+      'oh': [40.4, -82.8], 'ohio': [40.4, -82.8],
+      'ok': [35.5, -97.5], 'oklahoma': [35.5, -97.5],
+      'or': [45.52, -122.68], 'oregon': [45.52, -122.68],
+      'pa': [40.9, -77.2], 'pennsylvania': [40.9, -77.2],
+      'ri': [41.7, -71.5], 'rhode island': [41.7, -71.5],
+      'sc': [33.9, -81.0], 'south carolina': [33.9, -81.0],
+      'sd': [44.4, -100.2], 'south dakota': [44.4, -100.2],
+      'tn': [35.8, -86.4], 'tennessee': [35.8, -86.4],
+      'tx': [31.0, -99.0], 'texas': [31.0, -99.0],
+      'ut': [39.3, -111.7], 'utah': [39.3, -111.7],
+      'vt': [44.0, -72.7], 'vermont': [44.0, -72.7],
+      'va': [37.5, -78.7], 'virginia': [37.5, -78.7],
+      'wa': [47.4, -120.5], 'washington': [47.4, -120.5],
+      'wv': [38.6, -80.6], 'west virginia': [38.6, -80.6],
+      'wi': [44.6, -89.8], 'wisconsin': [44.6, -89.8],
+      'wy': [43.0, -107.5], 'wyoming': [43.0, -107.5]
+    };
+
+    const US_CITY_COORDS = {
+      'beaverton': [45.487, -122.803],
+      'portland': [45.515, -122.678],
+      'hillsboro': [45.522, -122.989]
+    };
+
     const MAP_DOT_SPACING = 8;
     const MAP_W = WORLD_GRID.cols * MAP_DOT_SPACING;
     const MAP_H = WORLD_GRID.rows * MAP_DOT_SPACING;
@@ -387,7 +448,9 @@
       shipDrawerPoId: null,
       scope: 'open',
       shipDrawerExpandedGroups: new Set(),
-      mapHighlightCountry: null
+      mapHighlightCountry: null,
+      /** { lat, lng, label, title } from company_settings ship-to; illustrative only */
+      mapHq: null
     };
 
     const el = {
@@ -532,10 +595,82 @@
       if(factoryError) throw factoryError;
       state.factories = factoryData || [];
 
+      await loadCompanyShipTo();
       await loadShipments();
 
       populateFilters();
       applyFilters();
+    }
+
+    function normRegionKey(value){
+      return String(value || '').trim().toLowerCase().replace(/\./g, '');
+    }
+
+    function normCountryKey(value){
+      const k = String(value || '').trim().toLowerCase();
+      if(k === 'us' || k === 'usa' || k === 'u.s.' || k === 'u.s.a.') return 'united states';
+      return k;
+    }
+
+    function resolveMapHqFromSettings(settings){
+      if(!settings) return null;
+      const countryRaw = settings.country || 'United States';
+      const countryKey = normCountryKey(countryRaw);
+      const regionKey = normRegionKey(settings.region);
+      const cityKey = normRegionKey(settings.city);
+
+      let lat = null;
+      let lng = null;
+
+      if(cityKey && US_CITY_COORDS[cityKey]){
+        [lat, lng] = US_CITY_COORDS[cityKey];
+      } else if(regionKey && US_REGION_CENTROIDS[regionKey]){
+        [lat, lng] = US_REGION_CENTROIDS[regionKey];
+      } else if(countryKey === 'united states' || countryKey === 'united states of america'){
+        lat = COUNTRY_CENTROIDS['United States'][0];
+        lng = COUNTRY_CENTROIDS['United States'][1];
+      } else {
+        const match = Object.entries(COUNTRY_CENTROIDS).find(([name]) => normCountryKey(name) === countryKey);
+        if(match) [lat, lng] = match[1];
+      }
+
+      if(lat == null || lng == null) return null;
+
+      const label = (settings.region && String(settings.region).trim().slice(0, 12))
+        || (settings.city && String(settings.city).trim().slice(0, 10))
+        || 'HQ';
+      const titleParts = [settings.city, settings.region, settings.country].map(s => String(s || '').trim()).filter(Boolean);
+      return { lat, lng, label, title: titleParts.join(', ') || 'Ship-to address' };
+    }
+
+    async function loadCompanyShipTo(){
+      try {
+        const co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+        if(!co?.id){
+          state.mapHq = null;
+          renderMapDestination();
+          return;
+        }
+        const { data, error } = await sb
+          .from('company_settings')
+          .select('city, region, postal_code, country')
+          .eq('company_entity_id', co.id)
+          .maybeSingle();
+        if(error) throw error;
+        state.mapHq = resolveMapHqFromSettings(data);
+        renderMapDestination();
+      } catch(err){
+        console.warn('loadCompanyShipTo', err);
+        state.mapHq = null;
+        renderMapDestination();
+      }
+    }
+
+    function getMapHqLatLng(){
+      if(state.mapHq && Number.isFinite(state.mapHq.lat) && Number.isFinite(state.mapHq.lng)){
+        return [state.mapHq.lat, state.mapHq.lng];
+      }
+      return COUNTRY_CENTROIDS['United States'];
     }
 
     async function loadShipments(){
@@ -594,13 +729,15 @@
 
     function renderMapDestination(){
       if(!el.mapDest) return;
-      const us = COUNTRY_CENTROIDS['United States'];
-      if(!us) { el.mapDest.innerHTML = ''; return; }
-      const [x, y] = projectPoint(us[0], us[1]);
+      const [lat, lng] = getMapHqLatLng();
+      const [x, y] = projectPoint(lat, lng);
+      const label = escapeHtml(state.mapHq?.label || 'HQ');
+      const title = escapeHtml(state.mapHq?.title || 'United States (default)');
       el.mapDest.innerHTML = `
         <circle cx="${x}" cy="${y}" r="5" fill="#3b82f6" opacity="0.25" />
         <circle cx="${x}" cy="${y}" r="3.2" fill="#3b82f6" stroke="#fff" stroke-width="1.2" />
-        <text x="${x}" y="${y - 8}" text-anchor="middle" font-size="7" font-weight="800" fill="#475569">HQ</text>
+        <text x="${x}" y="${y - 8}" text-anchor="middle" font-size="7" font-weight="800" fill="#475569">${label}</text>
+        <title>${title}</title>
       `;
     }
 
@@ -686,9 +823,9 @@
         const { countryGroups, unmapped } = buildCountryGroups();
         state.mapCountryGroups = countryGroups;
 
-        const usCentroid = COUNTRY_CENTROIDS['United States'];
-        if(usCentroid && el.mapRoutes){
-          const [hx, hy] = projectPoint(usCentroid[0], usCentroid[1]);
+        const [hqLat, hqLng] = getMapHqLatLng();
+        if(el.mapRoutes){
+          const [hx, hy] = projectPoint(hqLat, hqLng);
           el.mapRoutes.innerHTML = [...countryGroups.values()].map(g => {
             const [x, y] = projectPoint(g.lat, g.lng);
             const statuses = g.items.map(it => it.shipment.shipment_status);
@@ -696,8 +833,6 @@
             const color = MAP_STATUS_COLOR[repStatus] || '#94a3b8';
             return `<line data-country="${escapeHtml(g.country)}" x1="${x}" y1="${y}" x2="${hx}" y2="${hy}" stroke="${color}" stroke-width="1" stroke-opacity="0.22" stroke-dasharray="3 4" />`;
           }).join('');
-        } else if(el.mapRoutes){
-          el.mapRoutes.innerHTML = '';
         }
 
         el.mapPins.innerHTML = [...countryGroups.values()].map(g => {
