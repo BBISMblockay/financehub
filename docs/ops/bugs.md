@@ -47,6 +47,27 @@ own diff and are in a file this PR does not touch either.
 
 ---
 
+## Seven SILO report tie-outs have been STALE since 2026-09-25 (P2)
+
+Found 2026-10-06 building the nightly tie-out run (`report-tieouts-nightly.yml`).
+**Inventory Summary** (4 checks) and **Creative Performance** (3 checks) were
+edited on 2026-09-25, but their tie-outs pin a fingerprint of the report's old
+SQL (`md5(queries_run || parameters)`). A check whose pin no longer matches
+blanks its own left side, and `run_report_tieouts()` calls that **NO DATA** —
+so since that date these seven have tested nothing while reading exactly like
+an empty company. Measured on production, as Baseballism: the other 24 checks
+reconcile to the cent; these seven return a blank report side against 517,495
+on-hand units, 406,508 on-order units, $265,721.39 of paid spend and
+$572,364.76 of Meta-credited revenue.
+
+The nightly run reports them as **STALE** and stays red until they are
+regenerated. **Fix:** a migration that rebuilds those seven checks from the
+reports' CURRENT `queries_run` (the `report` CTE and the pinned md5 both), the
+same way `20260920075344` / `20260925150000` generated them. Until then, the
+numbers on those two reports are unreconciled, not known to be wrong.
+
+---
+
 ## Renaming a PO line mid-typing can leave a stray Pipeline item (P3)
 
 `/v2/po-builder.html` autosaves a line 650ms after typing stops, and on a

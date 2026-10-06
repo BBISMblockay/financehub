@@ -130,7 +130,7 @@ async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'pl
   vm.runInNewContext(filtersSource, { window });
   vm.runInNewContext(suggestionsSource, { window, fetch: (...args) => fetchCalls(...args) });
   const testable = inlineSource.slice(0, inlineSource.lastIndexOf('  boot().catch('))
-    + 'window.testPage = { state, suggestions, openLinkedJournal, acceptSuggestion, dismissSuggestion, retrySuggestion, loadSuggestions, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches, browseDates, setWorkspace(v){workspace=v;}, dateState(){return {dateBrowse,dateRows,dateLoading,dateError};} };\n})();';
+    + 'window.testPage = { state, suggestions, openLinkedJournal, acceptSuggestion, dismissSuggestion, retrySuggestion, loadSuggestions, doImport, parseCsv, renderSourceSelect, buildEntry, setCompany(v) { _co = v; }, applyRules, aiCategorise, saveCoding, learnRules, ruleMatches, renderCoding, renderEntry, openBatch, discardBatch, loadTxns, loadBatches, browseDates, setWorkspace(v){workspace=v;}, openDetail(id){expandedTransaction=id;renderCoding();}, setFilters(p){filters=TF.normalize(p);}, dateState(){return {dateBrowse,dateRows,dateLoading,dateError};} };\n})();';
   vm.runInNewContext(testable, { window, URL, crypto:webcrypto,TextEncoder, document: d.document, console, setTimeout() {}, clearTimeout() {},
     fetch: fetchCalls,
     confirm() { if(confirmImpl)return confirmImpl();throw new Error('Unexpected destructive confirmation'); }, prompt() { throw new Error('Unexpected prompt'); } });
@@ -140,6 +140,10 @@ async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'pl
     batch: { id: 'batch-one', source_id: source.id, status, source_name: 'Checking', entry_date: '2026-09-30' },
     txns: [{ ...transaction, origin, amount, accounting_treatment: treatment }] });
   d.el('codeFilter').value = 'all';
+  // These suites were written against the "All" queue. Since #900 the page
+  // opens on "Needs categorizing", which hides pending and coded rows, so
+  // the harness selects All explicitly instead of relying on the default.
+  page.setFilters({ status: 'all' });
   return { ...d, page, db, data, calls, writes, fetches, window };
 }
 // A suggestion as card_coding_suggestions_v returns it.
@@ -164,12 +168,19 @@ async function attemptConcurrentCoding(h) {
   await h.page.learnRules();
   await h.el('btnReloadCoding').fire('click');
 }
+// The row's detail drawer is open AND showing this transaction.
+function drawerShows(h, id) {
+  return h.el('txnDetailDrawer').hidden === false && h.el('txnDetailBody').innerHTML.includes(`data-txn="${id}"`);
+}
 function assertCodingLocked(h) {
   for (const id of ['btnApplyRules', 'btnSaveCoding', 'btnAiCode', 'btnLearnRules', 'btnReloadCoding',
     'bulkAccount', 'bulkLocation', 'bulkEntity', 'btnBulkInclude', 'btnBulkExclude', 'codeAll']) {
     assert.equal(h.el(id).disabled, true, `${id} must be disabled while coding is pending`);
   }
-  assert.match(h.el('tblCoding').innerHTML, /data-field="treatment"[^>]*disabled/);
+  // The transaction-type control lives in the row's detail drawer since the
+  // Transactions layout change (#900); it must be disabled there too.
+  h.page.openDetail('txn-one');
+  assert.match(h.el('txnDetailBody').innerHTML, /data-field="treatment"[^>]*disabled/);
   assert.match(h.el('codeSub').textContent, /Coding in progress/);
 }
 
@@ -486,15 +497,15 @@ await test('expanded review is read-only and retains access to secondary dimensi
     const h=await pageHarness({status});h.page.renderCoding();
     const before=clone(h.page.state.txns),row=new Element();row.dataset.txn='txn-one';
     const click={target:{closest:s=>s==='[data-txn]'?row:s==='[data-review]'?{}:null,matches:()=>false}};
-    assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" hidden/);
+    assert.ok(!drawerShows(h,'txn-one'),'the detail drawer is closed');
     await h.el('tblCoding').fire('click',click);
-    assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" >/);
-    assert.match(h.el('tblCoding').innerHTML,/data-cell="location"/);
-    assert.match(h.el('tblCoding').innerHTML,/data-cell="entity"/);
+    assert.ok(drawerShows(h,'txn-one'),'the detail drawer shows this transaction');
+    assert.match(h.el('txnDetailBody').innerHTML,/data-cell="location"/);
+    assert.match(h.el('txnDetailBody').innerHTML,/data-cell="entity"/);
     assert.deepEqual(clone(h.page.state.txns),before);assert.equal(h.page.state.dirty.size,0);
     assert.equal(h.calls.length,0);assert.equal(h.fetches.length,0);
     await h.el('tblCoding').fire('click',click);
-    assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" hidden/);
+    assert.ok(!drawerShows(h,'txn-one'),'the detail drawer is closed');
   }
 });
 await test('money direction and required entities stay visible in compact rows',async()=>{
@@ -726,9 +737,11 @@ await test('prepared suggestions survive a reload: they are read back from the d
  await h.page.loadTxns('batch-one');
  assert.equal(h.page.suggestions.get(row.id).kind,'ready');
  h.page.renderCoding();
- assert.match(h.el('tblCoding').innerHTML,/History: CONSISTENT: Expense \[4 confirmed SILO codings/);
- assert.match(h.el('tblCoding').innerHTML,/Prepared by Claude .* in the background/);
  assert.match(h.el('tblCoding').innerHTML,/data-accept-suggestion/);
+ // The evidence and who prepared it are review details: in the drawer since #900.
+ h.page.openDetail(row.id);
+ assert.match(h.el('txnDetailBody').innerHTML,/History: CONSISTENT: Expense \[4 confirmed SILO codings/);
+ assert.match(h.el('txnDetailBody').innerHTML,/Prepared by Claude .* in the background/);
 });
 await test('dismissing persists through the RPC; a failed preparation offers a retry that asks again',async()=>{
  const h=await pageHarness({fetchImpl:async()=>({ok:true,json:async()=>({ok:true,run_id:'run-1',suggested:1})})});const row=h.page.state.txns[0];
@@ -738,8 +751,10 @@ await test('dismissing persists through the RPC; a failed preparation offers a r
  assert.equal(h.page.suggestions.has(row.id),false);assert.match(h.el('status').textContent,/will not come back unless the transaction changes/);
  h.data.card_coding_suggestions_v.push(prepared(row,{id:'sugg-failed',outcome:'failed',qbo_account_id:null,qbo_account_name:null,error_code:'anthropic_529',attempt:2}));
  await h.page.loadSuggestions([row]);h.page.renderCoding();
- assert.match(h.el('tblCoding').innerHTML,/Preparation did not finish/);assert.match(h.el('tblCoding').innerHTML,/data-retry-suggestion/);
  assert.ok(!h.el('tblCoding').innerHTML.includes('data-accept-suggestion'));
+ h.page.openDetail(row.id);
+ assert.match(h.el('txnDetailBody').innerHTML,/Preparation did not finish/);assert.match(h.el('txnDetailBody').innerHTML,/data-retry-suggestion/);
+ assert.ok(!h.el('txnDetailBody').innerHTML.includes('data-accept-suggestion'));
  await h.page.retrySuggestion(row.id);
  assert.equal(h.fetches.at(-1).body.retry,true);assert.deepEqual(h.fetches.at(-1).body.transaction_ids,[row.id]);
 });
@@ -871,8 +886,10 @@ await test('a payment-type-only response is never accepted or displayed as a COA
  const h=await pageHarness();const row=h.page.state.txns[0];
  h.data.card_coding_suggestions_v.push(prepared(row,{outcome:'needs_judgment',qbo_account_id:null,qbo_account_name:null,accounting_treatment:'card_payment',reasoning:'Card payment detected'}));
  await h.page.loadSuggestions([row]);
- h.page.renderCoding();assert.match(h.el('tblCoding').innerHTML,/No category suggested/);
+ h.page.renderCoding();
  assert.ok(!h.el('tblCoding').innerHTML.includes('data-accept-suggestion'));
+ h.page.openDetail(row.id);assert.match(h.el('txnDetailBody').innerHTML,/No category suggested/);
+ assert.ok(!h.el('txnDetailBody').innerHTML.includes('data-accept-suggestion'));
  assert.match(h.el('tblCoding').innerHTML,/data-edit="account"/);
  const before=JSON.stringify(row);await h.page.acceptSuggestion([row.id]);assert.equal(JSON.stringify(row),before);assert.equal(h.page.state.dirty.size,0);
  assert.equal(h.calls.some(c=>c.name==='accept_card_coding_suggestions'),false);
@@ -884,21 +901,23 @@ await test('a suggestion shows its historical evidence, and the accepted row kee
  const evidence='History sample capped, treat as partial. History agrees. CONSISTENT: Expense [5000 confirmed SILO codings; last 2026-08-01] (SILO sample capped).';
  h.data.card_coding_suggestions_v.push(prepared(row,{confidence:.55,reasoning:'Synthetic premium.',history_status:'consistent',evidence}));
  await h.page.loadSuggestions([row]);
- h.page.renderCoding();assert.match(h.el('tblCoding').innerHTML,/History: History sample capped, treat as partial\./);
- assert.match(h.el('tblCoding').innerHTML,/55% confidence/);
+ h.page.openDetail(row.id);assert.match(h.el('txnDetailBody').innerHTML,/History: History sample capped, treat as partial\./);
+ assert.match(h.el('txnDetailBody').innerHTML,/55% confidence/);
  await h.page.acceptSuggestion([row.id]);const saved=h.page.state.txns[0];
  assert.equal(saved.qbo_account_id,'2');assert.equal(saved.confidence,.55);
  assert.equal(saved.ai_reasoning,'Synthetic premium. History: '+evidence);
  h.page.renderCoding();assert.match(h.el('codeFilterSegments').innerHTML,/Low confidence <span>1/);
 });
 // Blake, 2026-09-23: approve a prepared category from the row without opening
-// it. The panel always renders (hidden), so these read the ROW, not the table.
-const rowHtml=(h,id)=>{const html=h.el('tblCoding').innerHTML,start=html.indexOf(`<tr class="txn-row`);return html.slice(start,html.indexOf(`id="txn-detail-${id}"`,start));};
+// it. Since the Transactions layout change (#900) a row's details open in ONE
+// shared drawer (#txnDetailBody) instead of a hidden panel per row, so these
+// read the ROW itself, and "not opened" means the drawer is not showing it.
+const rowHtml=(h,id)=>{const html=h.el('tblCoding').innerHTML,start=html.indexOf(`data-txn="${id}"`);return start<0?'':html.slice(start,html.indexOf('</tr>',start));};
 await test('a ready suggestion can be used from the collapsed row with one click',async()=>{
  const h=await pageHarness();const row=h.page.state.txns[0];
  h.data.card_coding_suggestions_v.push(prepared(row));await h.page.loadSuggestions([row]);h.page.renderCoding();
  const collapsed=rowHtml(h,row.id);
- assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" hidden/);
+ assert.ok(!drawerShows(h,'txn-one'),'the detail drawer is closed');
  assert.match(collapsed,/data-accept-suggestion(?! disabled)/);assert.match(collapsed,/Expense · 90%/);
  const tr=new Element();tr.dataset.txn=row.id;
  await h.el('tblCoding').fire('click',{target:{closest:s=>s==='[data-txn]'?tr:s==='[data-accept-suggestion]'?{}:null,matches:()=>false}});
@@ -906,7 +925,7 @@ await test('a ready suggestion can be used from the collapsed row with one click
  assert.deepEqual(h.calls.find(c=>c.name==='accept_card_coding_suggestions').args.p_ids,[`sugg-${row.id}`]);
  assert.equal(h.page.state.txns[0].qbo_account_id,'2');
  // Accepting did not open the row.
- assert.match(h.el('tblCoding').innerHTML,/id="txn-detail-txn-one" hidden/);
+ assert.ok(!drawerShows(h,'txn-one'),'the detail drawer is closed');
  assert.ok(!rowHtml(h,row.id).includes('data-accept-suggestion'));
 });
 // Blake, 2026-09-23: "No category suggested" is not an AI result to clear.
@@ -920,9 +939,10 @@ await test('a declined suggestion stays out of the AI queue and needs no dismiss
  assert.match(collapsed,/Needs category/);assert.ok(!/Needs your choice|Suggestion ready/.test(collapsed));
  assert.match(collapsed,/data-edit="account"/);
  // Claude's note is still readable in the details, with no Dismiss to clear.
- assert.match(h.el('tblCoding').innerHTML,/No category suggested/);
- assert.ok(!h.el('tblCoding').innerHTML.includes('data-dismiss-suggestion'));
- assert.match(h.el('tblCoding').innerHTML,/data-retry-suggestion/);
+ h.page.openDetail(row.id);
+ assert.match(h.el('txnDetailBody').innerHTML,/No category suggested/);
+ assert.ok(!h.el('txnDetailBody').innerHTML.includes('data-dismiss-suggestion'));
+ assert.match(h.el('txnDetailBody').innerHTML,/data-retry-suggestion/);
  // A ready one next to it still counts.
  const other={...row,id:'txn-two'};h.page.state.txns.push(other);
  h.data.card_coding_suggestions_v.push(prepared(other));await h.page.loadSuggestions([row,other]);h.page.renderCoding();
