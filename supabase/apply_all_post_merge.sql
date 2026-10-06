@@ -19163,6 +19163,13 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261005120000_silo_daily_ledger.sql
 \i migrations/20261005130000_shopify_order_paid_at.sql
 
+-- The two 2026-09-25 semicolon fixes were never included here, so a rebuild
+-- from this file kept the ';' the read-only runner rejects. They run before
+-- the tie-out refresh, which pins the reports as they are AFTER the fixes.
+\i migrations/20260925193100_creative_report_semicolon.sql
+\i migrations/20260925193200_inventory_summary_semicolon.sql
+\i migrations/20261006120000_refresh_stale_report_tieouts.sql
+
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above
 -- upsert the catalog, so re-running this file without it re-creates the four

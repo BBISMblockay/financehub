@@ -314,6 +314,38 @@ await test('every edited or new report has a reconciliation tie-out, and every t
   }
 });
 
+// What actually happened on 2026-09-25: two later migrations removed a
+// semicolon from a status label in Creative Performance and Inventory Summary.
+// That moved both reports' fingerprints, so their seven checks blanked
+// themselves; 20261006120000 rebuilds them against the reports as they are.
+const tieoutsFor = async (ids) => q(`select report_id, name, check_sql, tolerance from silo_report_tieouts
+  where report_id in (${ids.map((i) => `'${i}'`).join(',')}) order by report_id, name`);
+const reconciles = async (c) => {
+  const [r] = await q(c.check_sql);
+  return r.left_value !== null && Math.abs(num(r.left_value) - num(r.right_value)) <= num(c.tolerance);
+};
+await test('the 2026-09-25 semicolon fixes leave Creative Performance and Inventory Summary checks STALE', async () => {
+  const before = await tieoutsFor([CREATIVE, INV]);
+  assert.equal(before.length, 7, 'seven checks on the two reports');
+  await db.exec(readFileSync('supabase/migrations/20260925193100_creative_report_semicolon.sql', 'utf8'));
+  await db.exec(readFileSync('supabase/migrations/20260925193200_inventory_summary_semicolon.sql', 'utf8'));
+  for (const c of before) {
+    assert.equal((await q(c.check_sql))[0].left_value, null, `${c.name} should read as stale after the edit`);
+  }
+});
+await test('20261006120000 rebuilds exactly those seven, and they reconcile again', async () => {
+  const others = await tieoutsFor([ATTR, OVER]);
+  const refresh = readFileSync('supabase/migrations/20261006120000_refresh_stale_report_tieouts.sql', 'utf8');
+  await db.exec(refresh);
+  const after = await tieoutsFor([CREATIVE, INV]);
+  assert.equal(after.length, 7, 'the same seven checks');
+  for (const c of after) assert.ok(await reconciles(c), `${c.name} does not reconcile`);
+  assert.ok(after.some((c) => c.check_sql.includes('Thumbnail link expired - re-sync needed')), 'embeds the current Creative SQL');
+  assert.deepEqual(await tieoutsFor([ATTR, OVER]), others, 'the other reports\' checks are untouched');
+  await db.exec(refresh);
+  assert.equal((await tieoutsFor([CREATIVE, INV])).length, 7, 're-running is idempotent');
+});
+
 await test('a changed definition turns its tie-outs to NO DATA', async () => {
   await db.exec(`update silo_chat_saved_reports set queries_run = queries_run || array['select 2'] where id = '${OVER}'`);
   const c = checks.find((x) => x.report_id === OVER);
