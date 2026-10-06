@@ -28,7 +28,7 @@ profile was changed. External bookmarks and third-party links remain unknown.
 | `executive.html` | Removed | Old cockpit; its archived menu entry is removed, with no invented replacement |
 | `inventory.html` | Removed | Root only; `/v2/inventory.html` is unchanged |
 | `mailroom.html` | Removed | Root only; `/v2/mailroom.html` is unchanged |
-| `checkwriter.html` | **Retained pending decision** | Keepsake saved; surviving unlisted `v2/checkwriter.html` still embeds it |
+| `checkwriter.html` | Removed 2026-10-06 | Keepsake saved; removed with its wrapper `v2/checkwriter.html` (see below) |
 | `legacy/ops.html` | Removed | Archived entry; no surviving consumer |
 | `projections.html` | Removed | Root only; `/v2/projections.html` is unchanged |
 | `silo-pitch.html` | Removed | Standalone unused pitch page |
@@ -53,8 +53,8 @@ profile was changed. External bookmarks and third-party links remain unknown.
 | `legacy/app-status.html` | Removed | Historical static architecture snapshot; no agent/tool/workflow dependency |
 
 Missing targets: **none**. Removed: **27**. Retained from the requested list: **1**.
-Also retained: `v2/checkwriter.html`, pending a decision on retiring both checkwriter
-entry points together. No replacement check-printing workflow was found.
+`v2/checkwriter.html` was retained at the time, pending a decision on retiring both
+checkwriter entry points together; both went on 2026-10-06 (see the follow-up below). No replacement check-printing workflow was found.
 
 ## Surviving reference changes
 
@@ -72,6 +72,15 @@ v1” links were already absent on `main`; they are not repaired in this request
 Current login, auth callbacks, navigation definitions, company/role checks,
 current purchase orders, inventory, and mailroom files are byte-identical to the
 baseline. No compatibility redirects or new entry points are introduced.
+
+## Follow-up, 2026-10-06
+
+Root `buyer.html`, root `checkwriter.html` and the unlisted wrapper
+`v2/checkwriter.html` were removed on Blake's decision, ahead of due
+diligence: both root pages loaded for anyone with no sign-in. Copies are kept
+privately (the checkwriter keepsake below, plus Blake's own saves). No runtime
+source, nav entry or workflow referenced any of the three; the retirement test
+now lists them as retired.
 
 ## Keepsakes and recovery
 

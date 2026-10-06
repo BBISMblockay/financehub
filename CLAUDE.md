@@ -68,8 +68,7 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 │   └── [legacy-tool].html     ← factories, wholesale, baseballismwholesale, sales-verification
 │                                — some iframed by v2 wrappers, some linked directly
 ├── *.html (repo root)         ← Legacy standalone tools / iframe targets
-│                                (buyer retained, checkwriter still wrapped). UNAUTHENTICATED —
-│                                see "Repo drift" note below.
+│                                (buyer and checkwriter retired 2026-10-06).
 │                                Superseded originals were retired 2026-10-01; see retirement runbook
 ├── legacy/                    ← DO NOT TOUCH — old pages, kept for reference only
 ├── supabase/
@@ -170,8 +169,9 @@ window.SiloChrome.mount({
 ```
 
 ### Pattern 2: Tool shell (iframe wrapper for legacy pages)
-2 pages remain: `baseballismwholesale`, `checkwriter`.
-The `buyer` and `wholesale` wrappers were retired 2026-10-01; their unlisted iframe targets remain.
+1 page remains: `baseballismwholesale`.
+The `buyer` and `wholesale` wrappers were retired 2026-10-01, and `checkwriter` (wrapper and target)
+plus the root `buyer.html` target on 2026-10-06.
 (`sales-verification.html` was rebuilt as Pattern 1 and is no longer a wrapper. `allocation`,
 `aprio`, `cashflow`, `modelapps`, `recon`, `travel` and `wpvaccounts` were retired 2026-08-16 —
 stale Google Sheets flows.)
@@ -982,18 +982,14 @@ Not bugs to fix blind — context so you don't mistake leftovers for live code:
 - **Superseded originals were retired 2026-10-01:** root `inventory.html`, `projections.html`,
   `mailroom.html`, `executive.html`, and `employeehub.html`. Current inventory, mailroom, projections
   and Finance pages remain under `/v2/`. See `docs/ops/legacy-page-retirement.md` for exact scope.
-- **Root iframe targets are directly reachable and unauthenticated.** `buyer.html` and
-  `checkwriter.html` ship no auth check of their own, so
-  `https://silo-baseballism.com/checkwriter.html` loads for anyone. The v2 wrapper's auth gate does
-  not cover them
+- **Root iframe targets are directly reachable and ship no auth of their own.** The two that
+  loaded for anyone, `buyer.html` and `checkwriter.html`, were deleted 2026-10-06 (keepsakes saved
+  privately). A v2 wrapper's auth gate never covers its target's own URL
 - **Payroll BI was retired 2026-08-17** (`payroll.html` + `v2/hidden/payroll.html`) — a bad flow, per
   Blake. The payroll TABLES remain in Postgres and are still referenced elsewhere: `live-schedule.html`
   files host payouts as `request_type = 'payroll_payment'`, and `calendar_events_v` projects
   `payroll_import_batches.check_date` as payday events. **That calendar branch still deep-links to
   `/payroll.html`, which no longer exists** — see the note in `docs/ops/org-calendar.md`
-- **`checkwriter` is kept on purpose** as an internal tool, even though it has no nav entry today and
-  its wrapper's `finance/checkwriter` active id no longer exists in `nav-config.js`. Do not sweep it
-  up as an orphan
 - **`v2/profile.html`'s `LANDING_OPTIONS` offered `/finance.html` and `/ops.html` until 2026-09-10** —
   neither file exists, so picking either set a `profiles.default_page` that 404'd on next login. Fixed:
   the list now holds only pages that exist, and a stored value that is no longer offered renders as a
