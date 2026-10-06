@@ -32,10 +32,12 @@ export function planMetaHistory(connection, { skipOrganic = false, daysBack = nu
 /**
  * Did every part of the import land? The campaign totals are already known
  * to have (a failure there throws before this is asked); ad-level and
- * organic report their own failure as `{ error }` without throwing.
+ * organic report their own failure as `{ error }` without throwing, and the
+ * organic sync catches a Facebook Page Insights failure separately as
+ * `page_error` (Instagram may still have landed), which is just as missing.
  */
 export function metaHistoryComplete(result) {
-  return !result?.ad_level?.error && !result?.organic?.error;
+  return !result?.ad_level?.error && !result?.organic?.error && !result?.organic?.page_error;
 }
 
 /** The connection's `meta` after a run, given whether it was an import and how it went. Pure. */

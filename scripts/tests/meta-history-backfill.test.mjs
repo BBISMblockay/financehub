@@ -47,6 +47,15 @@ await test('complete only when ad-level AND organic landed', () => {
   assert.equal(metaHistoryComplete({ ad_level: { ad_rows_upserted: 3 }, organic: { configured: false } }), true);
   assert.equal(metaHistoryComplete({ ad_level: { error: 'x' }, organic: {} }), false);
   assert.equal(metaHistoryComplete({ ad_level: {}, organic: { error: 'x' } }), false);
+  assert.equal(metaHistoryComplete({ ad_level: {}, organic: { media_upserted: 4, page_error: 'Page Insights 500' } }), false,
+    'a failed Page Insights pull is caught inside organic, not thrown, and still leaves history missing');
+});
+
+await test('a Page Insights failure keeps the flag and counts the attempt', () => {
+  const result = { ad_level: { ad_rows_upserted: 3 }, organic: { media_upserted: 4, page_error: 'Page Insights 500' } };
+  const after = metaAfterHistory({ history_backfill_pending: true },
+    { backfill: true, succeeded: metaHistoryComplete(result), at: 'T' });
+  assert.deepEqual(after, { history_backfill_pending: true, history_backfill_attempts: 1 });
 });
 
 await test('success clears the flag, records when, and keeps the rest of meta', () => {
