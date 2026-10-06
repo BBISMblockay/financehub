@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="po-workbench.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
-  <link rel="stylesheet" href="po-report.css?v=20261006-hq" />
+  <link rel="stylesheet" href="po-report.css?v=20261006-filters" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="silo-chrome.js"></script>
@@ -70,7 +70,51 @@
 
       <div class="po-report-main">
 
-        <!-- Shipment status map -->
+        <section class="bcn-card po-report-filters" aria-label="Report filters">
+          <div class="po-report-filters-grid">
+            <div class="po-report-field po-report-field--search">
+              <label class="bcn-label" for="searchInput">Search</label>
+              <input id="searchInput" class="bcn-field" type="search" placeholder="PO, factory, product, SKU…" autocomplete="off" />
+            </div>
+            <div class="po-report-field">
+              <label class="bcn-label" for="statusFilter">Status</label>
+              <select id="statusFilter" class="bcn-field bcn-field--mono">
+                <option value="">All statuses</option>
+              </select>
+            </div>
+            <div class="po-report-field">
+              <label class="bcn-label" for="factoryFilter">Factory</label>
+              <select id="factoryFilter" class="bcn-field bcn-field--mono">
+                <option value="">All factories</option>
+              </select>
+            </div>
+            <div class="po-report-field">
+              <label class="bcn-label" for="bucketFilter">Bucket</label>
+              <select id="bucketFilter" class="bcn-field bcn-field--mono">
+                <option value="">All buckets</option>
+              </select>
+            </div>
+            <div class="po-report-field">
+              <label class="bcn-label" for="arrivalFrom">Arrival from</label>
+              <input id="arrivalFrom" class="bcn-field bcn-field--mono" type="date" />
+            </div>
+            <div class="po-report-field">
+              <label class="bcn-label" for="arrivalTo">Arrival to</label>
+              <input id="arrivalTo" class="bcn-field bcn-field--mono" type="date" />
+            </div>
+            <div class="po-report-field po-report-field--scope">
+              <label class="bcn-label">Scope</label>
+              <div class="po-report-seg" id="scopeSeg" role="group" aria-label="PO scope">
+                <button type="button" class="po-report-seg-btn is-active" data-scope="open">Open incoming</button>
+                <button type="button" class="po-report-seg-btn" data-scope="all">All POs</button>
+                <button type="button" class="po-report-seg-btn" data-scope="production">Production</button>
+                <button type="button" class="po-report-seg-btn" data-scope="arriving">Arriving</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Shipment status map (below filters so search/status are never covered) -->
         <section class="bcn-card po-map-card">
           <button class="po-map-card-head" id="mapToggle" type="button" aria-expanded="true">
             <div>
@@ -108,50 +152,6 @@
               </aside>
             </div>
             <div class="po-map-unmapped hidden-safe" id="mapUnmapped"></div>
-          </div>
-        </section>
-
-        <section class="bcn-card po-report-filters">
-          <div class="po-report-filters-grid">
-            <div class="po-report-field po-report-field--search">
-              <label class="bcn-label" for="searchInput">Search</label>
-              <input id="searchInput" class="bcn-field" type="search" placeholder="PO, factory, product, SKU…" />
-            </div>
-            <div class="po-report-field">
-              <label class="bcn-label" for="statusFilter">Status</label>
-              <select id="statusFilter" class="bcn-field bcn-field--mono">
-                <option value="">All statuses</option>
-              </select>
-            </div>
-            <div class="po-report-field">
-              <label class="bcn-label" for="factoryFilter">Factory</label>
-              <select id="factoryFilter" class="bcn-field bcn-field--mono">
-                <option value="">All factories</option>
-              </select>
-            </div>
-            <div class="po-report-field">
-              <label class="bcn-label" for="bucketFilter">Bucket</label>
-              <select id="bucketFilter" class="bcn-field bcn-field--mono">
-                <option value="">All buckets</option>
-              </select>
-            </div>
-            <div class="po-report-field">
-              <label class="bcn-label" for="arrivalFrom">Arrival from</label>
-              <input id="arrivalFrom" class="bcn-field bcn-field--mono" type="date" />
-            </div>
-            <div class="po-report-field">
-              <label class="bcn-label" for="arrivalTo">Arrival to</label>
-              <input id="arrivalTo" class="bcn-field bcn-field--mono" type="date" />
-            </div>
-            <div class="po-report-field po-report-field--scope">
-              <label class="bcn-label">Scope</label>
-              <div class="po-report-seg" id="scopeSeg" role="group" aria-label="PO scope">
-                <button type="button" class="po-report-seg-btn is-active" data-scope="open">Open incoming</button>
-                <button type="button" class="po-report-seg-btn" data-scope="all">All POs</button>
-                <button type="button" class="po-report-seg-btn" data-scope="production">Production</button>
-                <button type="button" class="po-report-seg-btn" data-scope="arriving">Arriving</button>
-              </div>
-            </div>
           </div>
         </section>
 

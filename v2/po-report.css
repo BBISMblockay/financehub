@@ -38,26 +38,43 @@
 
 .po-report-page .bcn-kpi-delta { display: none; }
 
-.po-report-main {
+/*
+ * po-workbench.css sets body.v2-mirror--po .silo-main { overflow: hidden } and
+ * .po-report-main { flex:1; min-height:0 }. Nested flex + overflow:hidden let the
+ * map card paint over the filters row (overflow:visible) and steal clicks, and
+ * let the filters flex item shrink to ~0 height. One page scroll; filters first.
+ */
+body.po-report-page.v2-mirror--po .silo-main {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.po-report-page .po-report-main {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  /* po-workbench.css sets flex:1 + min-height:0; keep this column scrollable
-     but never shrink the map or filters row to zero height. */
   flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
+  min-height: auto;
+  overflow: visible;
 }
 
 .po-report-page .po-report-main > .po-map-card,
 .po-report-page .po-report-main > .po-report-filters,
-.po-report-page .po-report-main > .po-report-tabs {
+.po-report-page .po-report-main > .po-report-tabs,
+.po-report-page .po-report-main > .po-report-panel {
   flex-shrink: 0;
 }
 
 /* Filters */
 .po-report-filters.bcn-card {
   padding: 12px 14px;
+  min-height: auto;
+  overflow: visible;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--bcn-bg, #f8fafc);
+  box-shadow: 0 1px 0 var(--bcn-line, #e2e8f0);
 }
 
 .po-report-filters-grid {
@@ -65,6 +82,14 @@
   grid-template-columns: minmax(160px, 1.4fr) repeat(3, minmax(110px, 0.9fr)) repeat(2, minmax(112px, 0.7fr)) minmax(240px, 1.2fr);
   gap: 10px 12px;
   align-items: end;
+  position: relative;
+  z-index: 1;
+}
+
+.po-report-filters .bcn-field,
+.po-report-filters select.bcn-field,
+.po-report-filters .po-report-seg-btn {
+  pointer-events: auto;
 }
 
 @media (max-width: 1200px) {
@@ -394,6 +419,9 @@
   padding: 14px 16px;
   position: relative;
   min-height: auto;
+  overflow: hidden;
+  isolation: isolate;
+  z-index: 1;
 }
 
 .po-map-card-head {
