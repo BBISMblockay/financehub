@@ -37,9 +37,17 @@
 #codeKpis .cc-kpi-value {font:600 12px var(--bcn-mono);background:var(--bcn-sunken);padding:3px 7px;border-radius:6px;}
 .transaction-list {border-radius:8px;}
 .transaction-list .cc-card-head {padding:9px 13px;gap:11px;}
+.txn-card-head {flex-direction:column;align-items:stretch;gap:8px;}
+.txn-card-head__row {display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:10px 16px;width:100%;}
+.txn-card-head__title {min-width:0;flex:1 1 240px;}
+.txn-card-head__actions {display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;flex:1 1 300px;}
+.txn-card-head__meta {display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin-top:4px;font-size:11px;line-height:1.45;}
+.txn-card-head__meta .cc-note:empty {display:none;}
+.txn-card-head__meta #codeShowRemoved {font-size:11px;padding:2px 8px;min-height:0;}
+.txn-card-head__queues {width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
 .transaction-list .cc-title {font-size:13.5px;letter-spacing:-.02em;}
-.transaction-list .cc-sub {font-family:inherit;font-size:12px;margin-top:3px;}
-.transaction-list #codeSearch {width:260px!important;font-family:inherit;font-size:13px;border-radius:8px;}
+.transaction-list .cc-sub {font-family:inherit;font-size:12px;margin-top:3px;max-width:56ch;line-height:1.45;}
+.transaction-list #codeSearch {width:min(340px,100%);flex:1 1 200px;font-family:inherit;font-size:13px;border-radius:8px;}
 .transaction-list #codeFilter {font-family:inherit;font-size:13px;border-radius:8px;}
 .transaction-list .cc-foot {padding:8px 13px;gap:8px;background:var(--bcn-sunken);}
 .transaction-list .cc-foot .bcn-btn {border-radius:8px;min-height:36px;font-size:12px;}
@@ -353,8 +361,7 @@
 #codeKpis .cc-kpi-label {font-size:9px;}
 #codeKpis .cc-kpi-value {font-size:13px;}
 .transaction-list .cc-card-head {padding:6px 9px;gap:7px;flex-wrap:wrap;}
-.transaction-list .cc-card-head > div:first-child {display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;}
-.transaction-list .cc-card-head > div:last-child {flex:1;justify-content:flex-end;gap:5px!important;}
+.transaction-list .txn-card-head__row {align-items:center;}
 .transaction-list #codeSearch {width:190px!important;font-size:11px;height:28px;}
 .txn-filters button {padding:5px 6px;font-size:10px;}
 #codeStatus {flex-basis:100%;font-size:9px;margin:0;}
@@ -364,7 +371,7 @@
 @media(max-width:1000px) {
  .cc-content {padding:6px;}
  .silo-main > .bcn-header {padding:6px 10px;}
- .transaction-list .cc-card-head > div:last-child {justify-content:flex-start;}
+ .transaction-list .txn-card-head__actions {justify-content:flex-start;}
  .transaction-list #codeSearch {width:100%!important;}
 }
 
@@ -389,10 +396,9 @@
 .txn-presets .bcn-btn:hover {background:var(--bcn-surface);border-color:var(--bcn-border);}
 .transaction-list {border-radius:7px;box-shadow:none;}
 .transaction-list .cc-card-head {padding:9px 10px;}
-.transaction-list .cc-card-head > div:first-child {flex-basis:auto;gap:7px;}
 .transaction-list .cc-title {font-size:14px;letter-spacing:-.025em;}
 .transaction-list .cc-sub {font-size:10px;color:var(--bcn-ink-3);margin:0;}
-.transaction-list .cc-card-head > div:last-child {justify-content:flex-start;}
+.transaction-list .txn-card-head__actions {justify-content:flex-start;}
 .transaction-list #codeSearch {margin-right:auto;}
 .txn-filters {border:0;gap:2px;}
 .txn-filters button {border:0;border-radius:4px;padding:6px 7px;background:transparent;}
@@ -425,7 +431,6 @@
  #tblCoding > tbody > .txn-row > td {height:auto;padding:0;}
  #tblCoding .txn-category {grid-row:3;}
  #tblCoding .txn-row--selected > td:first-child {box-shadow:none;}
- .transaction-list .cc-card-head > div:first-child {gap:4px;}
  .transaction-list #codeSearch {flex-basis:100%;}
  .txn-filters {flex-wrap:nowrap;overflow:auto;width:100%;}
  .txn-filters button {min-height:34px;flex-shrink:0;}
