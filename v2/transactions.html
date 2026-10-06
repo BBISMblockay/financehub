@@ -33,9 +33,31 @@
     .workspace-selectors {display:flex;gap:16px;align-items:end;flex-wrap:wrap;}
     .workspace-selectors label {flex:1;min-width:200px;}
     #workspaceSummary {flex:none;}
-    .cc-pane[data-pane="coding"] {overflow:auto;}
-    .cc-pane[data-pane="coding"] > * {flex-shrink:0;}
-    .cc-pane[data-pane="coding"] .cc-card--grow {min-height:300px;}
+    .cc-pane[data-pane="coding"] { overflow: hidden; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+    .cc-pane[data-pane="coding"] > * { flex-shrink: 0; }
+    .cc-pane[data-pane="coding"] .transaction-list { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .cc-pane[data-pane="coding"] .transaction-list .cc-body { flex: 1; min-height: 0; overflow: auto; }
+    .cc-pane[data-pane="coding"] .cc-card--grow { min-height: 0; }
+    .txn-context-collapse { flex: none; }
+    .txn-context-collapse > summary {
+      cursor: pointer; font-size: 12px; font-weight: 650; color: var(--bcn-ink-2);
+      padding: 6px 2px; list-style: none;
+    }
+    .txn-context-collapse > summary::-webkit-details-marker { display: none; }
+    .txn-context-collapse[open] > summary { margin-bottom: 6px; }
+    .txn-detail-drawer { width: min(560px, 94vw); z-index: 55; }
+    .txn-list-scope { margin-top: 4px; max-width: 72ch; line-height: 1.45; }
+    #txnDetailBody .txn-detail-panel { display: flex; flex-direction: column; gap: 22px; padding: 4px 2px 16px; }
+    #txnDetailBody .txn-detail-panel h3 { font-size: 12px; font-weight: 650; margin: 0 0 10px; }
+    #txnDetailBody .txn-detail-description { font-size: 13px; line-height: 1.55; word-break: break-word; margin: 0 0 12px; color: var(--bcn-ink); }
+    #txnDetailBody .txn-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    #txnDetailBody .txn-dimensions { width: 100%; margin: 8px 0 0; }
+    #txnDetailBody .txn-dimensions th { position: static; background: none; padding: 8px 0; font-family: inherit; text-transform: none; font-size: 12px; width: 88px; border: 0; }
+    #txnDetailBody .txn-dimensions td { border: 0; padding: 8px 0; font-size: 12px; }
+    #txnDetailBody .txn-treatment-detail { display: block; margin-bottom: 10px; font-size: 12px; }
+    #txnDetailBody .txn-treatment-detail select { margin-top: 6px; min-height: 38px; font-size: 13px; }
+    .txn-split-problems--hint { color: var(--bcn-ink-3); }
+    .txn-split-problems-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--bcn-ink-3); }
     @media(max-width:700px) {
       .workspace-facts {grid-template-columns:repeat(2,minmax(0,1fr));}
       .cc-content {padding:10px;}
@@ -202,7 +224,10 @@
     .txn-split-head { display: flex; align-items: flex-start; justify-content: space-between;
       gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--bcn-border); }
     .txn-split-body { padding: 14px 16px; }
-    .txn-split-body table { width: 100%; }
+    .txn-split-body table { width: 100%; table-layout: auto; }
+    .txn-split-body .bcn-field { min-height: 38px; font-size: 13px; padding: 8px 10px; }
+    .txn-split-body .bcn-table th { padding: 8px 10px; }
+    .txn-split-body .bcn-table td { padding: 8px 10px; vertical-align: middle; }
     .txn-split-no { font-family: var(--bcn-mono); color: var(--bcn-ink-3); width: 28px; }
     .txn-split-amount { text-align: right; }
     .txn-split-acts { white-space: nowrap; }
@@ -220,7 +245,7 @@
     .cc-chip--split { background: rgba(37,99,235,.12); border-color: var(--bcn-accent); }
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
-  <link rel="stylesheet" href="./transactions-workspace.css?v=6c88609aa9f1" />
+  <link rel="stylesheet" href="./transactions-workspace.css?v=bb495a18e059" />
   <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -337,25 +362,28 @@
             <label class="cc-field">Account<select id="workspaceAccount" class="bcn-field" aria-label="Account"></select></label>
             <label class="cc-field">Period<select id="workspacePeriod" class="bcn-field" aria-label="Period"></select></label>
           </div>
-          <div class="wsec">
-            <p class="wsec-lbl">Account
-              <span class="wsec-meta" id="workspaceAccountMeta"></span>
-              <button type="button" class="wsec-expand" id="workspaceAccountExpand" aria-expanded="false" hidden>Show all</button>
-            </p>
-            <div class="wtiles" id="workspaceTiles" role="radiogroup" aria-label="Account"></div>
-          </div>
-          <form class="txn-dates" id="dateForm">
-            <div class="txn-presets" aria-label="Date shortcuts">
-              <button type="button" class="bcn-btn" data-date-preset="month">This month</button>
-              <button type="button" class="bcn-btn" data-date-preset="last">Last month</button>
-              <button type="button" class="bcn-btn" data-date-preset="quarter">Quarter</button>
-              <button type="button" class="bcn-btn" data-date-preset="year">Year to date</button>
+          <details class="txn-context-collapse" id="txnContextCollapse">
+            <summary>Account &amp; dates</summary>
+            <div class="wsec">
+              <p class="wsec-lbl">Account
+                <span class="wsec-meta" id="workspaceAccountMeta"></span>
+                <button type="button" class="wsec-expand" id="workspaceAccountExpand" aria-expanded="false" hidden>Show all</button>
+              </p>
+              <div class="wtiles" id="workspaceTiles" role="radiogroup" aria-label="Account"></div>
             </div>
-            <label>From <input class="bcn-field" type="date" id="dateStart" required aria-label="Start date"></label>
-            <label>To <input class="bcn-field" type="date" id="dateEnd" required aria-label="End date"></label>
-            <button class="bcn-btn" type="submit">Apply dates</button>
-          </form>
-          <div id="workspacePeriodBar" hidden></div>
+            <form class="txn-dates" id="dateForm">
+              <div class="txn-presets" aria-label="Date shortcuts">
+                <button type="button" class="bcn-btn" data-date-preset="month">This month</button>
+                <button type="button" class="bcn-btn" data-date-preset="last">Last month</button>
+                <button type="button" class="bcn-btn" data-date-preset="quarter">Quarter</button>
+                <button type="button" class="bcn-btn" data-date-preset="year">Year to date</button>
+              </div>
+              <label>From <input class="bcn-field" type="date" id="dateStart" required aria-label="Start date"></label>
+              <label>To <input class="bcn-field" type="date" id="dateEnd" required aria-label="End date"></label>
+              <button class="bcn-btn" type="submit">Apply dates</button>
+            </form>
+            <div id="workspacePeriodBar" hidden></div>
+          </details>
           <dialog id="accountInfo" class="txn-account-dialog"><form method="dialog"><button class="bcn-btn">Close</button></form><div id="workspaceSummary"></div></dialog>
           <div class="cc-kpis" id="codeKpis" hidden></div>
           <div class="cc-card cc-card--grow transaction-list">
@@ -363,6 +391,7 @@
               <div>
                 <div class="cc-title" id="codeTitle">Transactions</div>
                 <div class="cc-sub" id="codeSub">Choose an account and dates above</div>
+                <div class="cc-note txn-list-scope" id="txnListScope" role="status"></div>
                 <button class="bcn-btn bcn-btn--ghost" id="codeShowRemoved" type="button" hidden></button>
                 <div class="cc-note" id="codeStatus" role="status"></div>
                 <div class="cc-note txn-freshness" id="codeFreshness" aria-live="polite"></div>
@@ -374,6 +403,7 @@
                 <select id="codeFilter" hidden aria-hidden="true" tabindex="-1">
                   <option value="all">All rows</option>
                   <option value="uncoded">Needs categorizing</option>
+                  <option value="pending">Pending at bank</option>
                   <option value="treatment">Needs transaction type</option>
                   <option value="entity">Needs entity</option>
                   <option value="conflict">Card vs merchant</option>
@@ -611,6 +641,17 @@
   <!-- Every column of the original row, not just the ones SILO mapped. The
        import keeps the whole CSV line in `raw` precisely so a column nobody
        thought to map is still readable here. -->
+  <aside class="cc-drawer txn-detail-drawer" id="txnDetailDrawer" hidden>
+    <div class="cc-drawer-head">
+      <div style="min-width:0">
+        <div class="cc-title" id="txnDetailTitle">Transaction</div>
+        <div class="cc-sub" id="txnDetailSub">Review and edit accounting details</div>
+      </div>
+      <button type="button" class="bcn-btn" id="btnTxnDetailClose">Close</button>
+    </div>
+    <div class="cc-drawer-body" id="txnDetailBody"></div>
+  </aside>
+
   <aside class="cc-drawer" id="rawDrawer" hidden>
     <div class="cc-drawer-head">
       <div>
@@ -674,8 +715,8 @@
 <script src="transaction-dates.js?v=539c17689a07"></script>
 <script src="coding-suggestions.js?v=08bc45603fb5"></script>
 <script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
-<script src="card-splits.js?v=050d8f3d5bed"></script>
-<script src="transaction-filters.js?v=afa2cf64ec50"></script>
+<script src="card-splits.js?v=4dafacad07fc"></script>
+<script src="transaction-filters.js?v=77d363b2abec"></script>
 <script>
 (function () {
   'use strict';
@@ -1794,9 +1835,10 @@
     missingEntity,
     accountName: (id) => acctName(id) || state.allAccounts.find((a) => a.id === id)?.name || id,
     typeLabel: (v) => TREATMENTS[v] || v,
-    statusLabel: (v) => ({ uncoded: 'Needs categorizing', treatment: 'Needs transaction type',
-      entity: 'Needs entity', conflict: 'Card vs merchant',
+    statusLabel: (v) => ({ uncoded: 'Needs categorizing', pending: 'Pending at bank',
+      treatment: 'Needs transaction type', entity: 'Needs entity', conflict: 'Card vs merchant',
       low: 'Low confidence', ai: 'AI-suggested', excluded: 'Excluded' }[v] || v),
+    isBankPending: (t) => t.origin === 'plaid' && t.provider_status === 'pending',
   });
 
   function codingRows() {
@@ -1814,22 +1856,75 @@
     event.preventDefault(); event.returnValue = '';
   });
   let expandedTransaction = null;
-  function renderFilterSegments(rows) {
-    const counts={all:rows.length,uncoded:0,treatment:0,entity:0,conflict:0,low:0,ai:0,excluded:0};
-    for(const t of rows) {
-      if(t.status==='uncoded')counts.uncoded++;
-      if(TF.needsTreatment(t))counts.treatment++;
-      if(t.status!=='excluded' && missingEntity(t))counts.entity++;
-      if(t.coding_conflict)counts.conflict++;
-      if(t.status!=='excluded' && (t.confidence??1)<.6)counts.low++;
-      if(t.coding_source==='ai' || readySuggestion(t))counts.ai++;
-      if(t.status==='excluded')counts.excluded++;
+
+  function accountingStateLine(t) {
+    if (t.status === 'excluded') return 'Excluded from this import’s journal';
+    if (t.origin === 'plaid' && filterCtx().isBankPending(t)) return 'Pending at bank — not editable until posted';
+    if (t.status === 'uncoded') return 'Needs categorizing in SILO (not in ledger until coded and saved)';
+    if (isSplit(t)) return `Categorized · split across ${(splitsFor(t) || []).length} accounts`;
+    return t.coding_source === 'ai'
+      ? `Categorized in SILO · AI suggestion · ${Math.round((t.confidence || 0) * 100)}% confidence`
+      : 'Categorized in SILO · saved on this import';
+  }
+
+  function transactionDetailInner(t) {
+    const suggestion = liveSuggestion(t);
+    const suggestedCategory = suggestion?.kind === 'ready' && resolveSuggestedAccount(t, suggestion);
+    const importCount = dateBrowse ? reviewDateRows().length : (state.txns?.length || 0);
+    const journalLabel = dateBrowse ? 'Review import journal' : `Review full import journal (${importCount} rows)`;
+    return `<section class="txn-explanation"><h3>${suggestedCategory ? 'Suggested category' : 'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p class="txn-detail-description">${t.origin === 'plaid' && !bank.isAvailable(t) ? esc(providerNote(t)) + ' · ' : ''}${esc(t.description)}</p><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-raw>Source details</button><button class="bcn-btn" type="button" data-journal title="Opens the Journal entry preview for this entire import — every row in the batch, not just this transaction">${esc(journalLabel)}</button><button class="bcn-btn" type="button" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></div></section>
+        <section><h3>Accounting details</h3>${t.origin === 'plaid' ? `<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>${(g => g ? `<p class="cc-note">${esc(g.reason)}.${g.choices.length ? ' Approval accepts: ' + esc(g.choices.map(c => TREATMENTS[c]).join(', ')) + '.' : ''}</p>` : '')(treatmentGapFor(t))}` : ''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : cellButton(t.qbo_location_name, 'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : entityCell(t)}</td></tr></tbody></table><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-toggle-exclude>${t.status === 'excluded' ? 'Include transaction' : 'Exclude transaction'}</button><button class="bcn-btn" type="button" data-split title="Code this transaction across several accounts">${isSplit(t) ? 'Edit split' : 'Split across accounts'}</button></div></section>`;
+  }
+
+  function renderTxnDetailDrawer() {
+    const drawer = el('txnDetailDrawer');
+    if (!expandedTransaction) {
+      drawer.hidden = true;
+      el('txnDetailBody').innerHTML = '';
+      return;
     }
-    // The two "Entry will refuse this" segments appear only when something is
-    // in them (or one is selected), so a card feed with neither is unchanged.
-    const segments=[['all','All'],['uncoded','Needs categorizing'],['treatment','Needs type'],['entity','Needs entity'],['conflict','Conflicts'],['ai','AI'],['low','Low confidence'],['excluded','Excluded']]
-      .filter(([value])=>!['treatment','entity'].includes(value) || counts[value] || filters.status===value);
-    el('codeFilterSegments').innerHTML=segments.map(([value,label])=>`<button type="button" data-code-filter="${value}" aria-pressed="${filters.status===value}">${label} <span>${counts[value]}</span></button>`).join('');
+    const t = workingRows().find((x) => x.id === expandedTransaction);
+    if (!t) {
+      expandedTransaction = null;
+      drawer.hidden = true;
+      el('txnDetailBody').innerHTML = '';
+      return;
+    }
+    drawer.hidden = false;
+    el('txnDetailTitle').textContent = t.description || 'Transaction';
+    el('txnDetailSub').textContent = `${t.txn_date || '—'} · ${money(Math.abs(Number(t.amount)))} · ${accountingStateLine(t)}`;
+    el('txnDetailBody').innerHTML = `<div class="txn-detail-panel" data-txn="${esc(t.id)}">${transactionDetailInner(t)}</div>`;
+    for (const control of el('txnDetailBody').querySelectorAll('[data-edit], [data-toggle-exclude], [data-accept-suggestion], [data-dismiss-suggestion], [data-retry-suggestion], select')) {
+      if (!rowEditable(t)) control.disabled = true;
+    }
+  }
+
+  function renderFilterSegments(rows) {
+    const ctx = filterCtx();
+    const counts = { all: rows.length, uncoded: 0, pending: 0, treatment: 0, entity: 0,
+      conflict: 0, low: 0, ai: 0, excluded: 0 };
+    for (const t of rows) {
+      if (t.status === 'uncoded' && !ctx.isBankPending(t)) counts.uncoded++;
+      if (ctx.isBankPending(t)) counts.pending++;
+      if (TF.needsTreatment(t)) counts.treatment++;
+      if (t.status !== 'excluded' && missingEntity(t)) counts.entity++;
+      if (t.coding_conflict) counts.conflict++;
+      if (t.status !== 'excluded' && (t.confidence ?? 1) < 0.6) counts.low++;
+      if (t.coding_source === 'ai' || readySuggestion(t)) counts.ai++;
+      if (t.status === 'excluded') counts.excluded++;
+    }
+    // Pending at the bank is its own queue — not mixed with work you can code.
+    const segments = [
+      ['all', 'All'], ['uncoded', 'Needs categorizing'], ['pending', 'Pending at bank'],
+      ['treatment', 'Needs type'], ['entity', 'Needs entity'], ['conflict', 'Conflicts'],
+      ['ai', 'AI'], ['low', 'Low confidence'], ['excluded', 'Excluded'],
+    ].filter(([value]) => {
+      if (value === 'pending') return counts.pending || filters.status === 'pending';
+      if (['treatment', 'entity'].includes(value)) return counts[value] || filters.status === value;
+      return true;
+    });
+    el('codeFilterSegments').innerHTML = segments.map(([value, label]) =>
+      `<button type="button" data-code-filter="${value}" aria-pressed="${filters.status === value}">${label} <span>${counts[value]}</span></button>`).join('');
   }
   /* What Entry will refuse, said here while tagging. Same predicates as the
      Entry blockers (TF.needsTreatment, missingEntity), so the counts agree. */
@@ -1932,15 +2027,19 @@
       el('codeSub').textContent = 'Choose an account and dates above';
       el('tblCoding').innerHTML = `<tr><td class="cc-empty">${esc(dateBrowse?(dateError || 'Loading transactions…'):'Connect an account or import a statement to begin.')}</td></tr>`;
       el('codeKpis').innerHTML = '';
+      el('txnListScope').textContent = '';
       el('codeBulk').hidden = true;
+      renderTxnDetailDrawer();
       return;
     }
 
     el('codeTitle').textContent = batchSource()?.display_name || 'Activity';
+    const inDates = reviewDateRows().length;
+    const inImport = dateBrowse ? inDates : state.txns.length;
     el('codeSub').textContent = dateBrowse
-      ? `${reviewDateRows().length} transactions`
-      : `${reviewDateRows().length} in dates · ${state.txns.length} in journal review · ${state.batch.label || 'Import'}`;
-    if(state.codingBusy)el('codeSub').textContent+=' · Coding in progress';
+      ? `${inDates} transaction${inDates === 1 ? '' : 's'} in selected dates`
+      : `${inDates} in selected dates · ${inImport} in this import (Journal entry tab) · ${state.batch.label || 'Import'}`;
+    if (state.codingBusy) el('codeSub').textContent += ' · Coding in progress';
     el('codeStatus').textContent=prepareProgress || (state.codingBusy?'Working…':'');
 
     const coded = reviewDateRows().filter((t) => t.status === 'coded').length;
@@ -1960,6 +2059,10 @@
     renderVariants();
 
     const rows = filteredRows;
+    const queueLabel = TF.describe(filters, filterCtx()).find((c) => c.key === 'status')?.label
+      || (filters.status === 'uncoded' ? 'Needs categorizing' : filters.status === 'all' ? 'All rows' : filterCtx().statusLabel(filters.status));
+    el('txnListScope').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} in this table · ${inDates} loaded for these dates · ${inImport} in the import journal`;
+    el('txnListScope').title = `The table respects your queue (“${queueLabel}”) and any filters. Journal entry preview always uses the full import (${inImport} rows).`;
 
     // Selecting rows that a filter has since hidden would apply a bulk change
     // to things nobody can see, so the selection is trimmed to what is shown.
@@ -1970,6 +2073,7 @@
     if (!rows.length) {
       el('tblCoding').innerHTML =
         `<tr><td class="cc-empty">No transaction in these dates matches ${TF.isActive(filters) ? 'the filters above' : 'this view'}.${TF.isActive(filters) ? ' Clear filters to see all ' + reviewDateRows().length + '.' : ''}</td></tr>`;
+      renderTxnDetailDrawer();
       return;
     }
 
@@ -1989,20 +2093,18 @@
       return `<tr class="txn-row ${t.status === 'excluded' ? 'cc-row--excluded' : ''} ${expanded?'txn-row--open':''} ${state.selected.has(t.id)?'txn-row--selected':''}" data-txn="${esc(t.id)}">
         <td class="txn-select"><input type="checkbox" class="cc-check" data-pick ${!rowEditable(t)?'disabled title="This transaction is locked or unavailable"':''} aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
         <td class="txn-date">${esc(t.txn_date || '—')}</td>
-        <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${esc(t.description)}</button>
+        <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txnDetailDrawer">${esc(t.description)}</button>
           <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestedCategory?'Suggestion ready':suggestion?.kind==='failed'?'Preparation failed':t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':treatmentGapFor(t)?'Needs transaction type: '+esc(treatmentGapFor(t).reason):state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-merchant">${merchantCell(t)}</td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
         <td class="txn-category" data-cell="account">${suggestedCategory?quickAccept(t,suggestion,suggestedCategory,expanded):isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}${treatmentLine(t)}${entityLine(t)}</td>
-        <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close':'Review'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txn-detail-${esc(t.id)}">${expanded?'−':'↗'}</button></td>
-      </tr>
-      <tr class="txn-detail-row" data-txn="${esc(t.id)}" id="txn-detail-${esc(t.id)}" ${expanded?'':'hidden'}><td colspan="7"><div class="txn-detail-panel">
-        <section class="txn-explanation"><h3>${suggestedCategory?'Suggested category':'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p>${t.origin==='plaid' && !bank.isAvailable(t)?esc(providerNote(t))+' · ':''}${esc(t.description)}</p><button class="bcn-btn" data-raw>Source details</button><button class="bcn-btn" data-journal>Review journal</button><button class="bcn-btn" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></section>
-        <section><h3>Accounting details</h3>${t.origin==='plaid'?`<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t)?'disabled':''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>${(g=>g?`<p class="cc-note">${esc(g.reason)}.${g.choices.length?' Approval accepts: '+esc(g.choices.map(c=>TREATMENTS[c]).join(', '))+'.':''}</p>`:'')(treatmentGapFor(t))}`:''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t)?'<span class="cc-note">set per split line</span>':cellButton(t.qbo_location_name,'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t)?'<span class="cc-note">set per split line</span>':entityCell(t)}</td></tr></tbody></table><button class="bcn-btn" data-toggle-exclude>${t.status==='excluded'?'Include transaction':'Exclude transaction'}</button><button class="bcn-btn" data-split title="Code this transaction across several accounts">${isSplit(t)?'Edit split':'Split across accounts'}</button></section>
-      </div></td></tr>`;
+        <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close detail panel':'Open detail panel for'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txnDetailDrawer">${expanded?'−':'↗'}</button></td>
+      </tr>`;
     }).join('') + '</tbody>';
 
-    for (const row of el('tblCoding').querySelectorAll('[data-txn]')) {
+    renderTxnDetailDrawer();
+
+    for (const row of el('tblCoding').querySelectorAll('tr.txn-row[data-txn]')) {
       const transaction = workingRows().find((value) => value.id === row.dataset.txn);
       if (!rowEditable(transaction)) {
         for (const control of row.querySelectorAll('[data-edit], [data-toggle-exclude], [data-pick], [data-accept-suggestion], [data-dismiss-suggestion], [data-retry-suggestion], select')) control.disabled = true;
@@ -2427,7 +2529,7 @@
       ? `Filters apply to all ${all.length} loaded transaction${all.length === 1 ? '' : 's'} for this account and period, not only the rows on screen.`
       : 'No transactions are loaded for this account and period yet.';
     if (!chips.length) { el('filterChips').innerHTML = ''; el('filterCount').textContent = ''; return; }
-    el('filterCount').textContent = `Showing ${shown} of ${all.length}`;
+    el('filterCount').textContent = `Showing ${shown} of ${all.length} in selected dates (table only — not the import journal)`;
     el('filterChips').innerHTML = chips.map((chip) =>
       `<button type="button" class="txn-chip" data-clear-filter="${esc(chip.key)}"
         aria-label="Remove filter: ${esc(chip.label)}">${esc(chip.label)}<span aria-hidden="true">×</span></button>`).join('');
@@ -2625,7 +2727,7 @@
     renderCoding();
   });
 
-  el('tblCoding').addEventListener('change', (e) => {
+  function onTxnFieldChange(e) {
     // Checkbox change events are selection, not accounting edits.
     const field = e.target.dataset.field;
     if (!['treatment', 'account', 'location', 'entity'].includes(field)) return;
@@ -2664,9 +2766,16 @@
     state.dirty.add(t.id);
     renderCoding();
     renderEntry();
+  }
+  el('tblCoding').addEventListener('change', onTxnFieldChange);
+  el('txnDetailBody').addEventListener('change', onTxnFieldChange);
+
+  el('btnTxnDetailClose').addEventListener('click', () => {
+    expandedTransaction = null;
+    renderCoding();
   });
 
-  el('tblCoding').addEventListener('click', async (e) => {
+  async function onTxnTableClick(e) {
     if (e.target.id === 'codeAll') {
       if (!requireEditable()) return;
       const rows = codingRows().filter(rowEditable);
@@ -2713,7 +2822,8 @@
     if (e.target.closest('[data-review]')) {
       expandedTransaction = expandedTransaction === t0.id ? null : t0.id;
       renderCoding();
-      const button = el('tblCoding').querySelector('[data-txn="'+t0.id+'"] [data-review]');
+      const button = el('tblCoding').querySelector('[data-txn="' + t0.id + '"] [data-review]')
+        || el('txnDetailBody').querySelector('[data-review]');
       button?.focus();
       return;
     }
@@ -2777,7 +2887,9 @@
     state.dirty.add(t.id);
     renderCoding();
     renderEntry();
-  });
+  }
+  el('tblCoding').addEventListener('click', onTxnTableClick);
+  el('txnDetailBody').addEventListener('click', onTxnTableClick);
 
   // Shows the ORIGINAL row alongside what SILO derived from it, so a value
   // that looks wrong can be traced to the column it came from without
@@ -3014,12 +3126,14 @@
     if (state.dirty.size) return setStatus('Save or discard your edits before asking again.', 'neg', 6000);
     await prepareRows([t], { retry: true, batchOf: (row) => (dateBrowse ? row.batch_id : state.batch?.id) });
   }
-  el('tblCoding').addEventListener('click', event=>{
-    const row=event.target.closest('[data-txn]'); if(!row)return;
-    if(event.target.closest('[data-accept-suggestion]')) acceptSuggestion([row.dataset.txn]);
-    if(event.target.closest('[data-dismiss-suggestion]')) dismissSuggestion([row.dataset.txn]);
-    if(event.target.closest('[data-retry-suggestion]')) retrySuggestion(row.dataset.txn);
-  });
+  function onTxnSuggestionClick(event) {
+    const row = event.target.closest('[data-txn]'); if (!row) return;
+    if (event.target.closest('[data-accept-suggestion]')) acceptSuggestion([row.dataset.txn]);
+    if (event.target.closest('[data-dismiss-suggestion]')) dismissSuggestion([row.dataset.txn]);
+    if (event.target.closest('[data-retry-suggestion]')) retrySuggestion(row.dataset.txn);
+  }
+  el('tblCoding').addEventListener('click', onTxnSuggestionClick);
+  el('txnDetailBody').addEventListener('click', onTxnSuggestionClick);
   el('btnBulkAccept').addEventListener('click', () => acceptSuggestion([...state.selected]));
   async function aiCategorise() {
     if(dateBrowse)return suggestDateCategories();
@@ -3274,9 +3388,10 @@
     ].map(([l, v]) => `<div class="cc-kpi">
         <div class="cc-kpi-label">${l}</div><div class="cc-kpi-value">${esc(v)}</div></div>`).join('');
 
+    const dateSpan = reviewDateRows().length;
     el('entrySub').textContent = state.batch.entry_date
-      ? `Dated ${state.batch.entry_date} · ${e.included} of ${state.txns.length} rows included`
-      : `${e.included} of ${state.txns.length} rows included`;
+      ? `Full import journal · dated ${state.batch.entry_date} · ${e.included} of ${state.txns.length} rows included in the QuickBooks entry (${dateSpan} of those fall in your Transactions date filter)`
+      : `Full import journal · ${e.included} of ${state.txns.length} rows included in the QuickBooks entry (${dateSpan} in your Transactions date filter)`;
 
     el('tblEntry').innerHTML = `<thead><tr>
         <th>Account</th><th>Location</th><th>Entity</th><th>Description</th>
