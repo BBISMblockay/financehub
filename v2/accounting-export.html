@@ -713,6 +713,8 @@
     return sign + '$' + fmt(Math.abs(v));
   };
 
+  const AR_CUSTOMER_KEY = 'accounts_receivable_customer';
+
   const MAP_KEYS = [
     ['freight',             'Shipping income'],
     ['discounts',           'Discounts'],
@@ -734,6 +736,13 @@
     qboIds: {},
     // Chart of accounts pulled from QBO by quickbooks-accounts-sync.
     qboAccounts: [],
+    // QuickBooks customers, for the Receivable customer mapping and the
+    // merchant-name match on AR lines.
+    qboCustomers: [],
+    // { id, name } -- company-wide default customer for AR lines. Stored in
+    // accounting_coa_map under AR_CUSTOMER_KEY: qbo_account_id holds the QBO
+    // Customer.Id and account_name its display name.
+    arCustomer: null,
     // QBO locations (its Department entity) and their SILO mapping.
     qboLocations: [],
     locationTracking: null,
@@ -914,6 +923,7 @@
           amount: l.dr || l.cr,
           locationId: locId,
           description: `Shopify Sales Summary — ${loc}`,
+          arHint: loc,
         });
       }
     }
@@ -927,11 +937,24 @@
       if (!fee.unmapped && !clr.unmapped) {
         const desc = `Shopify Payout Fees — ${prettyStore(domain)}`;
         lines.push({ accountId: fee.id, postingType: 'Debit', amount: v.fees, description: desc });
-        lines.push({ accountId: clr.id, postingType: 'Credit', amount: v.fees, description: desc });
+        lines.push({ accountId: clr.id, postingType: 'Credit', amount: v.fees, description: desc,
+          arHint: prettyStore(domain) });
       }
     }
 
     return { lines, unmapped };
+  }
+
+  // QuickBooks refuses a journal line on an Accounts Receivable account with
+  // no customer. Each AR line is resolved to one: a QuickBooks customer whose
+  // name is exactly the line's store / location (the merchant), else the
+  // company-wide Receivable customer from the Account mapping tab. Exact
+  // match only -- a guessed customer on a receivable is worse than a blank.
+  function arCustomerFor(hint) {
+    const n = normName(hint);
+    const hit = n && state.qboCustomers.find((c) => normName(c.display_name) === n);
+    if (hit) return { id: hit.qbo_customer_id, name: hit.display_name };
+    return state.arCustomer;
   }
 
   function buildAndPostJournal() {
@@ -951,22 +974,23 @@
       return;
     }
 
-    // Accounts Receivable is an AR-typed account today (not a plain clearing
-    // account), and QuickBooks refuses a journal-entry line on an AR/AP
-    // account with no Entity. Aggregate Shopify revenue has no single real
-    // customer to assign, so every line hitting it WILL block at the review
-    // step until someone picks one -- said up front, with the real count,
-    // rather than left as a silent surprise two clicks later.
     const clr = coa('accounts_receivable');
-    if (!clr.unmapped) {
-      const arLines = lines.filter((l) => l.accountId === clr.id).length;
-      if (arLines) {
-        setStatus(`${clr.name} is an Accounts Receivable-type account — QuickBooks requires a `
-          + `customer on every line that hits it. ${arLines} of ${lines.length} lines do. Fix the `
-          + 'mapping to a non-AR clearing account, or assign a customer to each on the review step.',
-          'info', 15000);
+    const clrType = state.qboAccounts.find((x) => x.qbo_account_id === clr.id)?.account_type;
+    if (clrType === 'Accounts Receivable') {
+      const missing = [];
+      for (const l of lines) {
+        if (l.accountId !== clr.id) continue;
+        const c = arCustomerFor(l.arHint);
+        if (c) l.entity = `Customer:${c.id}`; else missing.push(l.arHint);
+      }
+      if (missing.length) {
+        setStatus(`${clr.name} is an Accounts Receivable account, so QuickBooks needs a customer `
+          + `on every line. ${missing.length} line${missing.length === 1 ? ' has' : 's have'} none — `
+          + 'set "Receivable customer" on the Account mapping tab.', 'neg', 15000);
+        return;
       }
     }
+    for (const l of lines) delete l.arHint;
 
     openComposer({
       entryDate: periodEntryDate(),
@@ -1122,7 +1146,28 @@
            ${missingOpt}${options}
          </select></td>
         <td class="ax-map-note">—</td></tr>`;
-    }).join('');
+    }).join('') + arCustomerRow();
+  }
+
+  // Not an account: the QuickBooks customer every Accounts Receivable line
+  // carries, unless a customer named exactly like the line's store or
+  // location exists, which wins for that line.
+  function arCustomerRow() {
+    if (!state.qboAccounts.length) return '';
+    const sel = state.arCustomer?.id || '';
+    const known = state.qboCustomers.some(c => c.qbo_customer_id === sel);
+    const opts = state.qboCustomers.map(c =>
+      `<option value="${esc(c.qbo_customer_id)}"${c.qbo_customer_id === sel ? ' selected' : ''}>${
+        esc(c.display_name)}</option>`).join('');
+    const missingOpt = sel && !known
+      ? `<option value="${esc(sel)}" selected>⚠ ${esc(state.arCustomer.name || sel)} — not in QuickBooks</option>`
+      : '';
+    return `<tr><td class="ax-loc-name">Receivable customer`
+      + `<div class="ax-map-note">every AR line — a customer named like the store or location wins</div></td>`
+      + `<td class="ax-map-note">—</td>`
+      + `<td><select class="bcn-field bcn-field--mono" data-map-key="${AR_CUSTOMER_KEY}" data-kind="customer">`
+      + `<option value=""${sel ? '' : ' selected'}>— not mapped —</option>${missingOpt}${opts}</select></td>`
+      + `<td class="ax-map-note">—</td></tr>`;
   }
 
   function csvEscape(v) {
@@ -1232,6 +1277,10 @@
     }
 
     for (const r of data || []) {
+      if (r.map_key === AR_CUSTOMER_KEY) {
+        state.arCustomer = r.qbo_account_id ? { id: r.qbo_account_id, name: r.account_name } : null;
+        continue;
+      }
       if (r.account_name) state.coa[r.map_key] = r.account_name;
       if (r.qbo_account_id) state.qboIds[r.map_key] = r.qbo_account_id;
     }
@@ -1255,6 +1304,15 @@
     }
     state.qboAccounts = data || [];
     _allAccountOptionsHtml = null;
+
+    let cq = sb.from('quickbooks_customers')
+      .select('qbo_customer_id, display_name')
+      .eq('is_active', true)
+      .order('display_name');
+    if (_co?.id) cq = cq.eq('company_entity_id', _co.id);
+    const cr = await cq;
+    if (cr.error) console.warn('QBO customer load failed', cr.error);
+    else state.qboCustomers = cr.data || [];
   }
 
   // QBO locations, plus whether location tracking is even switched on in
@@ -1627,6 +1685,20 @@
     const rows = fields.map(f => {
       const key = f.dataset.mapKey;
 
+      if (f.dataset.kind === 'customer') {
+        const c = state.qboCustomers.find(x => x.qbo_customer_id === f.value);
+        const keep = !c && f.value && state.arCustomer?.id === f.value ? state.arCustomer : null;
+        const name = c ? c.display_name : keep?.name || null;
+        return {
+          company_entity_id: _co.id,
+          map_key: key,
+          account_name: name,
+          qbo_account_id: name ? f.value : null,
+          qbo_account_name: name,
+          updated_at: new Date().toISOString(),
+        };
+      }
+
       if (f.dataset.kind === 'qbo') {
         const id = f.value || null;
         const acct = state.qboAccounts.find(a => a.qbo_account_id === id);
@@ -1676,11 +1748,16 @@
     }
 
     for (const r of toSave) {
+      if (r.map_key === AR_CUSTOMER_KEY) {
+        state.arCustomer = { id: r.qbo_account_id, name: r.account_name };
+        continue;
+      }
       state.coa[r.map_key] = r.account_name;
       if (r.qbo_account_id) state.qboIds[r.map_key] = r.qbo_account_id;
       else delete state.qboIds[r.map_key];
     }
     for (const k of toClear) {
+      if (k === AR_CUSTOMER_KEY) { state.arCustomer = null; continue; }
       delete state.coa[k];
       delete state.qboIds[k];
     }
