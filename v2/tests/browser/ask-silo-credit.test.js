@@ -44,12 +44,20 @@ const summaryRpc = (summary) => ({ ai_credit_summary: summary === 'error'
     return page.evaluate(() => { const p = document.getElementById('creditPill'); return p.hidden ? null : p.textContent; });
   };
 
-  let page = await open({ state: 'active', available_micros: 64800000, included_micros: 14800000, purchased_micros: 50000000, pending_micros: 0 });
+  const pillClass = (page) => page.evaluate(() => document.getElementById('creditPill').className);
+  // The owner-admin pays, so only they see the balance at all times and what
+  // each answer cost.
+  const OWNER = { can_top_up: true, plan_included_micros: 30000000 };
+  let page = await open({ state: 'active', available_micros: 64800000, included_micros: 14800000, purchased_micros: 50000000, pending_micros: 0, ...OWNER });
   { const v = await pill(page); r.ok('balance pill', v === 'AI credit $64.80', 'got ' + v); }
+  r.ok('plenty left is green', /bcn-pill--pos/.test(await pillClass(page)));
 
   script = [{ answer: 'Sales were $10.', ai_credit: { status: 'charged', charged_micros: 420000 } }];
   await ask(page, 'sales last week?');
   r.ok('the answer shows what it cost', /\$0\.42 AI credit/.test(await page.textContent('#log')));
+  r.ok('the cost sits inside the answer\'s details, not under every answer',
+    (await page.locator('#log details.ac-queries .ac-credit-note').count()) === 1
+    && (await page.locator('#log > .ac-msg > div > .ac-credit-note').count()) === 0);
 
   script = [{ answer: 'Hello.', ai_credit: { status: 'charged', charged_micros: 3000 } }];
   await ask(page, 'hi');
@@ -70,6 +78,37 @@ const summaryRpc = (summary) => ({ ai_credit_summary: summary === 'error'
   await page.screenshot({ path: path.join(dir, 'ask-silo-credit-mobile.png'), fullPage: false });
   await page.close();
 
+  // Owner: yellow when getting low, red when very low.
+  page = await open({ state: 'active', available_micros: 5000000, ...OWNER });
+  { const v = await pill(page); r.ok('owner, getting low: the balance', v === 'AI credit $5.00', 'got ' + v); }
+  r.ok('owner, getting low: yellow', /ac-credit-pill--warn/.test(await pillClass(page)));
+  await page.close();
+  page = await open({ state: 'active', available_micros: 1500000, ...OWNER });
+  r.ok('owner, very low: red', /bcn-pill--neg/.test(await pillClass(page)));
+  await page.close();
+
+  // A member: no balance and no per-answer cost while there is plenty.
+  const MEMBER = { can_top_up: false, plan_included_micros: 30000000 };
+  page = await open({ state: 'active', available_micros: 64800000, ...MEMBER });
+  { const v = await pill(page); r.ok('member, plenty left: no pill', v === null, 'got ' + v); }
+  script = [{ answer: 'Sales were $10.', ai_credit: { status: 'charged', charged_micros: 420000 } }];
+  await ask(page, 'sales last week?');
+  r.ok('member: no per-answer cost', !/AI credit|\$0\.42/.test(await page.textContent('#log')));
+  await page.close();
+  page = await open({ state: 'active', available_micros: 5000000, ...MEMBER });
+  { const v = await pill(page); r.ok('member, getting low: a yellow warning without the amount', v === 'AI credit low', 'got ' + v); }
+  r.ok('member, getting low: yellow', /ac-credit-pill--warn/.test(await pillClass(page)));
+  await page.close();
+  page = await open({ state: 'active', available_micros: 1000000, ...MEMBER });
+  r.ok('member, very low: red', /bcn-pill--neg/.test(await pillClass(page)));
+  await page.close();
+  page = await open({ state: 'active', available_micros: 0, ...MEMBER });
+  { const v = await pill(page); r.ok('member, out', v === 'AI credit: out', 'got ' + v); }
+  await page.close();
+  page = await open({ state: 'preview', available_micros: 0, ...MEMBER });
+  { const v = await pill(page); r.ok('member, preview: nothing shown', v === null, 'got ' + v); }
+  await page.close();
+
   page = await open({ state: 'unconfigured' });
   { const v = await pill(page); r.ok('not switched on: no pill', v === null, 'got ' + v); }
   script = [{ answer: 'Sales were $10.', ai_credit: { status: 'not_metered' } }];
@@ -81,18 +120,21 @@ const summaryRpc = (summary) => ({ ai_credit_summary: summary === 'error'
   { const v = await pill(page); r.ok('migration not applied: no pill', v === null, 'got ' + v); }
   await page.close();
 
+  // An unreadable summary does not say who is asking, so the pill stays out
+  // of a member's way; an owner who cannot see their balance is told so on
+  // the Billing page.
   page = await open('error');
-  { const v = await pill(page); r.ok('unreadable: unavailable, not $0', v === 'AI credit: unavailable', 'got ' + v); }
+  { const v = await pill(page); r.ok('unreadable: nothing shown rather than a guessed balance', v === null, 'got ' + v); }
   await page.close();
 
-  page = await open({ state: 'active', available_micros: null });
+  page = await open({ state: 'active', available_micros: null, ...OWNER });
   { const v = await pill(page); r.ok('never granted', v === 'AI credit: none yet', 'got ' + v); }
   script = [{ answer: 'Failed politely.', ai_credit: { status: 'free', charged_micros: 0 } }];
   await ask(page, 'x');
   r.ok('a free answer says No charge', /No charge/.test(await page.textContent('#log')));
   await page.close();
 
-  page = await open({ state: 'preview', available_micros: 0 });
+  page = await open({ state: 'preview', available_micros: 0, ...OWNER });
   { const v = await pill(page); r.ok('preview', v === 'AI credit: preview', 'got ' + v); }
   script = [{ answer: 'Sales were $10.', ai_credit: { status: 'preview', charged_micros: 420000 } }];
   await ask(page, 'sales?');
