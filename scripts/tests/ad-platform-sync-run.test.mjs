@@ -1,4 +1,4 @@
-/** "Sync now" for Google Ads / GA4 (supabase/functions/ad-platform-sync-run).
+/** "Sync now" for Google Ads / GA4 / Meta Ads (supabase/functions/ad-platform-sync-run).
  *
  * Runs the REAL handler wired to the REAL sync core (the function's own copy),
  * with Google answered by a fake fetch and Supabase by an in-memory fake, so
@@ -7,7 +7,8 @@
  * Run: node scripts/tests/ad-platform-sync-run.test.mjs
  * Mutations (each must fail the suite): AD_SYNC_RUN_MUTATION=
  *   no-rls-check | no-account-check | no-clamp | job-not-failed |
- *   unchecked-token | unchecked-meta | unchecked-job-success | silent-unrecorded
+ *   unchecked-token | unchecked-meta | unchecked-job-success | silent-unrecorded |
+ *   no-act-prefix | google-env-for-meta
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -27,6 +28,8 @@ const MUTATIONS = {
   'unchecked-meta': ["check(await service.from('ad_platform_connections')\n        .update({ meta", "(await service.from('ad_platform_connections')\n        .update({ meta"],
   'unchecked-job-success': ["check(await service.from('sync_jobs')\n        .update({ status: 'success'", "(await service.from('sync_jobs')\n        .update({ status: 'success'"],
   'silent-unrecorded': ["const unrecorded = res?.error", "const unrecorded = false"],
+  'no-act-prefix': ["meta_ad_account_id: metaAccountId(conn.meta_ad_account_id)", "meta_ad_account_id: conn.meta_ad_account_id"],
+  'google-env-for-meta': ["if (GOOGLE_PLATFORMS.includes(conn.platform) && (!googleEnv.GOOGLE_CLIENT_ID", "if (true && (!googleEnv.GOOGLE_CLIENT_ID"],
 };
 assert.ok(mutation === '' || MUTATIONS[mutation], `Unknown mutation ${mutation}`);
 
@@ -91,6 +94,11 @@ const ENV = { GOOGLE_CLIENT_ID: 'cid', GOOGLE_CLIENT_SECRET: 'sec', GOOGLE_ADS_D
 const adsConn = (over = {}) => ({
   id: 'c-ads', company_entity_id: CO, platform: 'google_ads', is_active: true, sync_enabled: true,
   refresh_token: 'rt', google_customer_id: '123-456-7890', days_back: null, meta: { keep: 1 }, ...over,
+});
+const metaConn = (over = {}) => ({
+  id: 'c-meta', company_entity_id: CO, platform: 'meta_ads', is_active: true, sync_enabled: true,
+  access_token: 'EAAtoken', meta_ad_account_id: '28476042445410282', days_back: null,
+  meta: { history_backfill_pending: true }, ...over,
 });
 const req = (body, jwt = 'good-jwt') => new Request('https://x/functions/v1/ad-platform-sync-run', {
   method: 'POST', headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -173,8 +181,10 @@ await test('no or bad token is 401', async () => {
 
 await test('refusals name what to do, and record no job', async () => {
   const cases = [
-    [adsConn({ platform: 'search_console' }), 400, /Google Ads and GA4/],
-    [adsConn({ platform: 'meta_ads' }), 400, /Google Ads and GA4/],
+    [adsConn({ platform: 'search_console' }), 400, /Google Ads, GA4 and Meta Ads/],
+    [adsConn({ platform: 'tiktok_ads' }), 400, /Google Ads, GA4 and Meta Ads/],
+    [metaConn({ access_token: null }), 409, /Replace token/],
+    [metaConn({ meta_ad_account_id: null }), 409, /Choose a Meta ad account/],
     [adsConn({ is_active: false }), 409, /inactive/],
     [adsConn({ refresh_token: null }), 409, /Reconnect/],
     [adsConn({ google_customer_id: null }), 409, /Choose a Google Ads account/],
@@ -259,9 +269,69 @@ await test('when the failure itself cannot be recorded, the answer says the job 
   assert.match(body.error, /could not be recorded.*may still read as running/);
 });
 
-await test('Integrations offers Sync now on Google Ads and GA4 rows only, calling this function', () => {
+// Meta's Graph insights, in the shape fetchMetaAdsRows reads: one campaign row
+// per day in the first chunk, empty after.
+const metaCalls = [];
+function fakeMeta({ status = 200 } = {}) {
+  metaCalls.length = 0;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    metaCalls.push(u);
+    if (!u.startsWith('https://graph.facebook.com/')) throw new Error(`unexpected fetch ${u}`);
+    if (status !== 200) return new Response('{"error":{"message":"(#200) no ads_read","code":200}}', { status });
+    const range = JSON.parse(new URL(u).searchParams.get('time_range'));
+    const data = range.since === '2026-08-31' ? [
+      { account_id: '28476042445410282', account_name: 'Bat Nutz', campaign_id: '9', campaign_name: 'Launch',
+        date_start: '2026-08-31', date_stop: '2026-08-31', impressions: '1000', clicks: '20', spend: '12.50' },
+    ] : [];
+    return new Response(JSON.stringify({ data }), { status: 200 });
+  };
+}
+
+await test('Meta: a click syncs the daily campaign totals, with no Google configuration needed', async () => {
+  fakeMeta();
+  const db = makeDb({ rows: [metaConn()], visibleIds: ['c-meta'] });
+  const res = await handlerFor(db, { GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '', GOOGLE_ADS_DEVELOPER_TOKEN: '' })(req({ connection_id: 'c-meta' }));
+  const body = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(body.kpi_rows_upserted, 1);
+  assert.equal(body.scope, 'campaign_totals');
+  assert.deepEqual(body.nightly_only, ['ad-level rows', 'creative images', 'Page posts']);
+  assert.ok(metaCalls.length > 0 && metaCalls.every((u) => u.includes('/act_28476042445410282/insights?')),
+    'the stored id has no act_ prefix; the request must carry one');
+  assert.ok(metaCalls.every((u) => new URL(u).searchParams.get('level') === 'campaign'), 'campaign totals only, never ad level');
+  const row = db.tables.marketing_kpis_daily[0];
+  assert.equal(row.platform, 'meta_ads');
+  assert.equal(row.company_entity_id, CO);
+  const job = db.tables.sync_jobs[0];
+  assert.equal(job.job_type, 'meta_ads_kpis');
+  assert.equal(job.status, 'success');
+  const conn = db.tables.ad_platform_connections[0];
+  assert.equal(conn.meta_ad_account_id, '28476042445410282', 'the stored id is not rewritten');
+  assert.equal(conn.meta.history_backfill_pending, true, 'Sync now does not consume the nightly history import');
+  assert.ok(conn.meta.last_sync_at);
+});
+
+await test('Meta: an id already carrying act_ is used as is', () => {
+  assert.equal(H.metaAccountId('act_123'), 'act_123');
+  assert.equal(H.metaAccountId('123'), 'act_123');
+  assert.equal(H.metaAccountId(' 123 '), 'act_123');
+  assert.equal(H.metaAccountId(null), '');
+});
+
+await test('Meta: a refusal marks the job failed and says why', async () => {
+  fakeMeta({ status: 403 });
+  const db = makeDb({ rows: [metaConn()], visibleIds: ['c-meta'] });
+  const res = await handlerFor(db)(req({ connection_id: 'c-meta' }));
+  const body = await res.json();
+  assert.equal(res.status, 502);
+  assert.match(body.error, /ads_read/);
+  assert.equal(db.tables.sync_jobs[0].status, 'error');
+});
+
+await test('Integrations offers Sync now on Google Ads, GA4 and Meta rows, calling this function', () => {
   const page = read('v2/integrations.html');
-  assert.match(page, /const SYNC_NOW_PLATFORMS = \['google_ads', 'ga4'\];/);
+  assert.match(page, /const SYNC_NOW_PLATFORMS = \['google_ads', 'ga4', 'meta_ads'\];/);
   assert.match(page, /SYNC_NOW_PLATFORMS\.includes\(row\.platform\) \? `<button[^`]*syncAdConnection\('\$\{row\.id\}', this\)/);
   assert.match(page, /\$\{FUNCTIONS_URL\}\/ad-platform-sync-run`/);
 });

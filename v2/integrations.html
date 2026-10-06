@@ -2286,7 +2286,7 @@
           <td>${test}</td>
           <td style="white-space:nowrap;">
             <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
-            ${SYNC_NOW_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--ghost" onclick="syncAdConnection('${row.id}', this)" title="Pull this account's recent daily figures from Google now, the same sync the nightly runs (read-only)">Sync now</button>` : ''}
+            ${SYNC_NOW_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--ghost" onclick="syncAdConnection('${row.id}', this)" title="${row.platform === 'meta_ads' ? 'Pull this ad account\'s recent daily campaign totals from Meta now (read-only). Ad-level detail and Page posts follow with the nightly sync.' : 'Pull this account\'s recent daily figures from Google now, the same sync the nightly runs (read-only)'}">Sync now</button>` : ''}
             ${GOOGLE_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection('${row.id}', '${row.platform}', this)" title="Sign in to Google again and renew THIS connection's authorization — keeps its property, sync setting and history">Reconnect</button>` : ''}
             ${row.platform === 'meta_ads' ? `<button class="int-btn int-btn--warn" onclick="toggleMetaTokenForm('${row.id}')">Replace token</button>` : ''}
             <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
@@ -2449,7 +2449,9 @@
     const GOOGLE_PLATFORMS = ['google_ads', 'ga4', 'search_console'];
     // Search Console stays nightly: its sync fills three tables and refreshes
     // a rollup, which does not fit an interactive request.
-    const SYNC_NOW_PLATFORMS = ['google_ads', 'ga4'];
+    // Meta's Sync now pulls the daily campaign totals; ad-level rows, images
+    // and Page posts stay with the nightly (ad-platform-sync-run/handler.mjs).
+    const SYNC_NOW_PLATFORMS = ['google_ads', 'ga4', 'meta_ads'];
 
     // Runs the nightly's own sync for ONE connection (ad-platform-sync-run),
     // so connecting an account and seeing its numbers are no longer hours
@@ -2471,7 +2473,8 @@
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
           const w = data.window || {};
-          setStatus(`✓ ${label} synced: ${data.kpi_rows_upserted} daily rows for ${w.startDate} to ${w.endDate}. They now show on the Marketing pages.`, 'pos', 12000);
+          const rest = data.nightly_only?.length ? ` ${data.nightly_only.join(', ')} follow with the nightly sync.` : '';
+          setStatus(`✓ ${label} synced: ${data.kpi_rows_upserted} daily rows for ${w.startDate} to ${w.endDate}. They now show on the Marketing pages.${rest}`, 'pos', 12000);
         } else {
           setStatus('✗ Sync failed: ' + adTestAdvice(data.error || `HTTP ${res.status}`), 'neg');
         }
@@ -2657,6 +2660,9 @@
         meta_ad_account_id: acct || null,
         is_active: true,
         sync_enabled: false,
+        // The next full nightly imports a year of history for this new
+        // connection, then clears the flag (scripts/lib/meta-history-backfill.mjs).
+        meta: { history_backfill_pending: true },
       });
       if (error) { setStatus('Save failed: ' + error.message, 'neg', 8000); return; }
       document.getElementById('meta-token').value = '';

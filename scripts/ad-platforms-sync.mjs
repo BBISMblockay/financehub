@@ -16,6 +16,7 @@ import { makeFinishJob, runConnections } from './lib/ad-sync-client-errors.mjs';
 import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync, fetchMetaJsonOrThrow, META_API_VERSION } from './lib/ad-platforms-sync-core.mjs';
 import { archiveCreativeImages, scrubError } from './lib/creative-image-archive.mjs';
 import { runSearchConsoleSync, SEARCH_CONSOLE_JOB_TYPE } from './lib/search-console-sync-core.mjs';
+import { planMetaHistory, metaHistoryComplete, metaAfterHistory } from './lib/meta-history-backfill.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -164,10 +165,15 @@ async function syncConnection(connection) {
     }
   }
 
+  // A new Meta connection's first full run imports a year (meta-history-backfill.mjs).
+  const history = planMetaHistory(connection, { skipOrganic: SKIP_ORGANIC, daysBack: DAYS_BACK });
+  const runDaysBack = history.daysBack;
+  if (history.backfill) console.log(`[ok] ${label}: importing ${runDaysBack} days of history (new connection)`);
+
   try {
     const result = await runConnectionSync(supabase, GOOGLE_ENV, connection, {
       batchId: BATCH_ID,
-      daysBackOverride: DAYS_BACK,
+      daysBackOverride: runDaysBack,
       onTokenRefresh: async (accessToken, expiresAt) => {
         await supabase
           .from('ad_platform_connections')
@@ -183,7 +189,7 @@ async function syncConnection(connection) {
       try {
         const adResult = await runMetaAdLevelSync(supabase, connection, {
           batchId: BATCH_ID,
-          daysBackOverride: DAYS_BACK,
+          daysBackOverride: runDaysBack,
         });
         result.ad_level = adResult;
         console.log(`[ok] ${label}: ad-level ${adResult.ad_rows_upserted} rows, ${adResult.creatives_upserted} creatives`);
@@ -221,7 +227,7 @@ async function syncConnection(connection) {
           throw new SkipOrganic();
         }
         const organicResult = await runMetaOrganicSync(supabase, connection, {
-          daysBackOverride: DAYS_BACK, igPostLimit: IG_POST_LIMIT,
+          daysBackOverride: runDaysBack, igPostLimit: IG_POST_LIMIT,
         });
         result.organic = organicResult;
         if (organicResult.configured) {
@@ -241,7 +247,16 @@ async function syncConnection(connection) {
       }
     }
 
-    const meta = { ...(connection.meta || {}), last_sync_at: result.synced_at };
+    const meta = {
+      ...metaAfterHistory(connection.meta, {
+        backfill: history.backfill, succeeded: metaHistoryComplete(result), at: result.synced_at,
+      }),
+      last_sync_at: result.synced_at,
+    };
+    if (history.backfill) {
+      result.history_import = { days: runDaysBack, complete: metaHistoryComplete(result) };
+      console.log(`[${result.history_import.complete ? 'ok' : 'warn'}] ${label}: history import ${result.history_import.complete ? 'complete' : 'incomplete, will retry'}`);
+    }
     await supabase
       .from('ad_platform_connections')
       .update({ meta, updated_at: new Date().toISOString() })
@@ -252,6 +267,15 @@ async function syncConnection(connection) {
     return { connection: label, ...result };
   } catch (err) {
     const message = err?.message || String(err);
+    if (history.backfill) {
+      // A failed import still counts as an attempt, so a connection that can
+      // never succeed stops re-pulling a year. Best-effort: the job error is
+      // what matters, and the next run reads the flag again either way.
+      await supabase
+        .from('ad_platform_connections')
+        .update({ meta: metaAfterHistory(connection.meta, { backfill: true, succeeded: false, at: new Date().toISOString() }), updated_at: new Date().toISOString() })
+        .eq('id', connection.id);
+    }
     await finishJob(jobId, 'error', { error: message });
     console.error(`[error] ${label}: ${message}`);
     throw err;

@@ -1,5 +1,5 @@
-// ad-platform-sync-run -- "Sync now" for ONE Google Ads or GA4 connection,
-// from /v2/integrations.html.
+// ad-platform-sync-run -- "Sync now" for ONE Google Ads, GA4 or Meta Ads
+// connection, from /v2/integrations.html.
 //
 // Until this existed, Google data reached SILO only through the scheduled
 // ad-platforms-sync workflow, so connecting an account and seeing its numbers
@@ -12,6 +12,12 @@
 // Read-only against Google: googleAds:search and GA4 runReport. Nothing is
 // ever written to the user's Google account.
 //
+// Meta (2026-10-06): the daily CAMPAIGN totals only (marketing_kpis_daily,
+// read-only Graph insights). Ad-level rows, creative images and Page posts
+// stay nightly -- ad-level fetches one request per day per page and the image
+// archive downloads files, neither of which fits an interactive request. The
+// response says so, so "synced" is never read as "everything synced".
+//
 // Authorization is the page's own: the connection must be readable through
 // the CALLER's RLS, and ad_platform_connections' select policy is
 // `company_entity_id = active_company_id() AND is_admin_user()` -- an active
@@ -22,10 +28,18 @@
 // page by page and refreshes a materialized view, which does not fit an
 // interactive request. It stays nightly.
 
-export const SYNC_RUN_PLATFORMS = ['google_ads', 'ga4'];
-export const JOB_TYPES = { google_ads: 'google_ads_kpis', ga4: 'ga4_kpis' };
-const ACCOUNT_FIELD = { google_ads: 'google_customer_id', ga4: 'ga4_property_id' };
-const ACCOUNT_NOUN = { google_ads: 'Google Ads account', ga4: 'GA4 property' };
+export const SYNC_RUN_PLATFORMS = ['google_ads', 'ga4', 'meta_ads'];
+export const JOB_TYPES = { google_ads: 'google_ads_kpis', ga4: 'ga4_kpis', meta_ads: 'meta_ads_kpis' };
+const ACCOUNT_FIELD = { google_ads: 'google_customer_id', ga4: 'ga4_property_id', meta_ads: 'meta_ad_account_id' };
+const ACCOUNT_NOUN = { google_ads: 'Google Ads account', ga4: 'GA4 property', meta_ads: 'Meta ad account' };
+const GOOGLE_PLATFORMS = ['google_ads', 'ga4'];
+
+/** Meta's Graph API addresses an ad account as act_<id>; the sync core uses
+ * the stored value verbatim, and Integrations accepts it typed either way. */
+export function metaAccountId(value) {
+  const v = String(value || '').trim();
+  return !v || v.startsWith('act_') ? v : `act_${v}`;
+}
 
 // The request must finish inside the gateway's 150s. The nightly default is
 // 30 days; a connection configured wider is clamped rather than refused, and
@@ -46,10 +60,15 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), {
 export function planSyncRun(conn) {
   if (!conn) return { ok: false, status: 404, error: 'Connection not found' };
   if (!SYNC_RUN_PLATFORMS.includes(conn.platform)) {
-    return { ok: false, status: 400, error: 'Sync now is available for Google Ads and GA4 connections' };
+    return { ok: false, status: 400, error: 'Sync now is available for Google Ads, GA4 and Meta Ads connections' };
   }
   if (conn.is_active !== true) return { ok: false, status: 409, error: 'This connection is inactive' };
-  if (!conn.refresh_token) return { ok: false, status: 409, error: 'No Google authorization stored. Click Reconnect on this row.' };
+  if (GOOGLE_PLATFORMS.includes(conn.platform) && !conn.refresh_token) {
+    return { ok: false, status: 409, error: 'No Google authorization stored. Click Reconnect on this row.' };
+  }
+  if (conn.platform === 'meta_ads' && !conn.access_token) {
+    return { ok: false, status: 409, error: 'No Meta token stored. Click Replace token on this row.' };
+  }
   if (!conn[ACCOUNT_FIELD[conn.platform]]) {
     return { ok: false, status: 409, error: `Choose a ${ACCOUNT_NOUN[conn.platform]} on this row first` };
   }
@@ -92,8 +111,8 @@ export function createHandler({ service, userClientFor, googleEnv, runConnection
 
     const plan = planSyncRun(conn);
     if (!plan.ok) return json({ ok: false, error: plan.error }, plan.status);
-    if (!googleEnv.GOOGLE_CLIENT_ID || !googleEnv.GOOGLE_CLIENT_SECRET
-        || (conn.platform === 'google_ads' && !googleEnv.GOOGLE_ADS_DEVELOPER_TOKEN)) {
+    if (GOOGLE_PLATFORMS.includes(conn.platform) && (!googleEnv.GOOGLE_CLIENT_ID || !googleEnv.GOOGLE_CLIENT_SECRET
+        || (conn.platform === 'google_ads' && !googleEnv.GOOGLE_ADS_DEVELOPER_TOKEN))) {
       return json({ ok: false, error: 'Google sync is not configured on the server' }, 503);
     }
 
@@ -128,7 +147,10 @@ export function createHandler({ service, userClientFor, googleEnv, runConnection
 
     let result;
     try {
-      result = await runConnectionSync(service, googleEnv, conn, {
+      const syncConn = conn.platform === 'meta_ads'
+        ? { ...conn, meta_ad_account_id: metaAccountId(conn.meta_ad_account_id) }
+        : conn;
+      result = await runConnectionSync(service, googleEnv, syncConn, {
         batchId: `manual-${job.id}`,
         daysBackOverride: plan.daysBack,
         now: now(),
@@ -162,6 +184,9 @@ export function createHandler({ service, userClientFor, googleEnv, runConnection
       rows_fetched: result.rows_fetched,
       kpi_rows_upserted: result.kpi_rows_upserted,
       synced_at: result.synced_at,
+      ...(conn.platform === 'meta_ads'
+        ? { scope: 'campaign_totals', nightly_only: ['ad-level rows', 'creative images', 'Page posts'] }
+        : {}),
     });
   };
 }
