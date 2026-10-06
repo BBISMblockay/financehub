@@ -112,6 +112,23 @@ unchanged and separate. Billing shows only its state (within / near / paused)
 and the attempt count, never an amount. Showing its provider-dollar amount
 beside customer-priced credit would reveal the multiplier.
 
+## What people see (Ask SILO)
+
+Decided 2026-10-06 (Blake): a price under every answer reads as a meter and
+makes people ration the questions Ask SILO is most useful for, so cost is
+shown to the person who pays and kept out of everyone else's way.
+
+| Viewer | Balance pill | Per-answer cost |
+|---|---|---|
+| Owner-admin (`ai_credit_summary().can_top_up`) | Always: green, **yellow** when getting low, **red** when very low or out | Inside the answer's "N queries run" details (or an "AI credit" details when no query ran) |
+| Everyone else | Hidden until credit is low: yellow "AI credit low", red when very low, "AI credit: out" | Never |
+
+Levels (`SiloAICredit.level` in `v2/ai-credit.js`), on an enforced balance only:
+- **Yellow:** under 25% of the plan's monthly included credit or under $10, whichever is higher.
+- **Red:** under 10% or under $2, whichever is higher, or nothing left.
+
+A preview deducts nothing and has no level. An unreadable summary hides the pill, because it does not say who is asking. Billing shows "unavailable" to owners.
+
 ## Rollout (in order)
 
 1. **Apply** `20261001120000_ai_credit_billing.sql`, then run

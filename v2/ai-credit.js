@@ -38,6 +38,10 @@
     }
     var base = {
       state: summary.state,
+      // Whether this viewer is the one who pays (owner-admin, who may buy
+      // top-ups). Only they are shown what each answer cost; see costsVisible.
+      canTopUp: summary.can_top_up === true,
+      planIncluded: summary.plan_included_micros,
       available: summary.available_micros,
       included: summary.included_micros,
       purchased: summary.purchased_micros,
@@ -71,6 +75,35 @@
     }
   }
 
+  // How close the workspace is to running out, for the pill's colour.
+  //   ok      -- plenty left (green)
+  //   caution -- under 25% of the plan's monthly included credit, or under
+  //              $10, whichever is higher (yellow)
+  //   low     -- under 10%, or under $2, whichever is higher (red)
+  //   out     -- nothing left (red)
+  // Only a real, enforced balance has a level. A preview deducts nothing, and
+  // a workspace that has never been granted credit is not "low", it is new.
+  var CAUTION = { share: 0.25, floor: 10000000 };
+  var LOW = { share: 0.10, floor: 2000000 };
+  function level(d) {
+    if (!d || d.state !== 'active' || d.neverGranted) return null;
+    var available = Number(d.available);
+    if (!isFinite(available)) return null;
+    if (available <= 0) return 'out';
+    var plan = Number(d.planIncluded);
+    var bar = function (t) { return Math.max(t.floor, isFinite(plan) && plan > 0 ? plan * t.share : 0); };
+    if (available < bar(LOW)) return 'low';
+    if (available < bar(CAUTION)) return 'caution';
+    return 'ok';
+  }
+
+  // Per-answer cost is shown to the person who pays, not to everyone: a
+  // price under every answer reads as a meter and makes people ration the
+  // questions Ask SILO is most useful for.
+  function costsVisible(d) {
+    return !!d && d.canTopUp === true;
+  }
+
   async function load(sb) {
     try {
       var res = await sb.rpc('ai_credit_summary');
@@ -81,7 +114,7 @@
     }
   }
 
-  var api = { fmtMicros: fmtMicros, describe: describe, describeCharge: describeCharge, load: load };
+  var api = { fmtMicros: fmtMicros, describe: describe, describeCharge: describeCharge, level: level, costsVisible: costsVisible, load: load };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.SiloAICredit = api;
 })(typeof window !== 'undefined' ? window : globalThis);
