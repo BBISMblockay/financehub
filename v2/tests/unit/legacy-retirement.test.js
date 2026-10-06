@@ -17,6 +17,8 @@ const retired = [
   'legacy/pages/backend.html', 'legacy/executive.html', 'legacy/pages/sales-db.html',
   'legacy/marketing.html', 'v2/licensing/index.html', 'v2/wholesale.html',
   'legacy/pages/po-builder.html', 'legacy/pages/testing.html', 'legacy/app-status.html',
+  // 2026-10-06: the two unauthenticated root iframe targets and checkwriter's wrapper.
+  'buyer.html', 'checkwriter.html', 'v2/checkwriter.html',
 ];
 const protectedPages = [
   'v2/inventory.html', 'v2/mailroom.html', 'v2/projections.html', 'v2/finance.html',
@@ -24,8 +26,8 @@ const protectedPages = [
   'v2/purchase_request.html', 'v2/request_manager.html', 'v2/purchase_request2.html',
   'v2/planning-scenarios.html', 'v2/launch-calendar.html', 'v2/products.html',
   'v2/backend.html', 'v2/employeehub.html', 'v2/product-manager.html',
-  'buyer.html', 'pages/wholesale.html', 'v2/baseballismwholesale.html',
-  'checkwriter.html', 'v2/checkwriter.html', 'index.html', 'pages/login.html',
+  'pages/wholesale.html', 'v2/baseballismwholesale.html',
+  'index.html', 'pages/login.html',
 ];
 for (const file of retired) assert.equal(fs.existsSync(path.join(root, file)), false, `retired page returned: ${file}`);
 for (const file of protectedPages) assert.ok(fs.existsSync(path.join(root, file)), `protected page missing: ${file}`);

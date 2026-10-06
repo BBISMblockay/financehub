@@ -256,8 +256,8 @@ See CLAUDE.md for the full mechanism — this section tracks only what is left.
 
 ## Next (v2 product)
 
-- [ ] Finish Beacon shell migration — 2 iframe wrappers left
-      (`baseballismwholesale`, `checkwriter`; buyer/wholesale wrappers retired 2026-10-01)
+- [ ] Finish Beacon shell migration — 1 iframe wrapper left
+      (`baseballismwholesale`; buyer/wholesale wrappers retired 2026-10-01, checkwriter 2026-10-06)
 - [ ] One canonical URL per tool (`/v2/...` preferred)
 - [ ] Same error/status pattern on all v2 pages
 - [x] `v2/profile.html`'s `LANDING_OPTIONS` offered `/finance.html` and
@@ -329,7 +329,6 @@ These look like oversights and are not. Each was settled deliberately.
   entry — the visibility is the control at this headcount
 - **`/v2/returns-overview.html` stays out of the nav** until its coverage is
   complete (`/v2/product-concepts.html` became Product Studio, 2026-09-30)
-- **`checkwriter` is kept** as an internal tool despite having no nav entry
 
 ---
 

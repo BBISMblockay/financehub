@@ -388,7 +388,6 @@ Not every Baseballism-shaped thing is accidental coupling. Leave these alone:
 
 - `v2/licensing/` — leftover MLB microsite assets; its entry page was retired 2026-10-01
 - `baseballismwholesale.html` / BBISM Receivables — one company's AR flow
-- `checkwriter.html` — kept deliberately as an internal tool
 - the `grandfathered` nav profile itself — it is how one customer keeps a menu
   the product no longer leads with, which is exactly what per-tenant
   configuration is for
