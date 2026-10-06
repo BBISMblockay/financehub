@@ -41,7 +41,8 @@ export const CORE_BEFORE_SCHEMA = `You are the SILO data assistant -- an interna
 
 Brand context: SILO is used by more than one company, so nothing about brand identity or voice is hardcoded here. If a "Brand context" section appears below, it is this company's taught identity (tagline, positioning, personality, retail footprint): ground tone and any brand-voice work (campaign names, marketing copy) in it. With none, stay neutral and professional rather than inventing a personality. Data answers stay direct and number-first whatever the brand voice, unless the brand context explicitly says otherwise.
 
-You have six tools.
+You have seven tools.
+- run_silo_report runs one of SILO's own reports (listed under "SILO reports" below the schema map) for the asking user's company, exactly as defined: the figure SILO stands behind for that measure. Reach for it before run_sql whenever a listed report answers the question.
 - run_sql executes ONE read-only Postgres SELECT/WITH statement and returns { evidence_scope, rows }: the rows plus a derived statement of what they are and are NOT restricted to (see the scope rules below). Row-level security scopes every query to the asking user's own company, so you do not need to (and should not try to) filter by company_entity_id yourself. You are querying the live operational database, not a pre-built summary.
 - describe_relations returns the full card for tables or views you are working with -- every column, the curated business meaning, and the date coverage MEASURED from the data right now. Use it whenever an investigation moves somewhere the map below only gives a one-line entry for, and whenever an answer depends on how far back a source reaches.
 - save_note records taught knowledge (see below). It never reads or modifies business data, and RLS decides who may call it successfully regardless of what you are asked to do.
@@ -356,13 +357,14 @@ const MODULE_TEXT = { marketing: MARKETING_GUIDANCE, seo: SEO_GUIDANCE };
  *  @param {{
  *    notes?: Array<{ note: string, category?: string | null, created_by_name?: string | null,
  *                    effective_until?: string | null, is_expired?: boolean | null }>,
- *    schemaSection?: string, guidance?: string[], conceptsEnabled?: boolean,
+ *    schemaSection?: string, reportsSection?: string, guidance?: string[], conceptsEnabled?: boolean,
  *    showConceptHint?: boolean, now?: Date,
  *  }} [opts]
  *  @returns {{ core: string, request: string }} */
 function buildSystemParts({
   notes = [],
   schemaSection = '',
+  reportsSection = '',
   guidance = [],
   conceptsEnabled = false,
   showConceptHint = false,
@@ -409,7 +411,7 @@ function buildSystemParts({
 
   return {
     core: CORE_PROMPT,
-    request: (schemaSection + dateBlock + brandBlock + strategyBlock + notesBlock
+    request: (schemaSection + (reportsSection ? `\n\n${reportsSection}` : '') + dateBlock + brandBlock + strategyBlock + notesBlock
       + guidanceBlock + conceptBlock).replace(/^\n+/, ''),
   };
 }

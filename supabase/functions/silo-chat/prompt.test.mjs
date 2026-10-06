@@ -773,7 +773,9 @@ test('a tester outside the workflow gets the hint, which offers no tools', () =>
   lacks(p, 'PRODUCT CONCEPTS (in testing');
 });
 test('the handler decides tools from authorization, never from selected guidance', () => {
-  has(SRC, 'const tools = conceptsEnabled ? [...TOOLS, ...PRODUCT_CONCEPT_TOOLS] : TOOLS;', 'index.ts');
+  has(SRC, 'const tools = conceptsEnabled ? [...baseTools, ...PRODUCT_CONCEPT_TOOLS] : baseTools;', 'index.ts');
+  // The one other input to the tool list: whether there is a SILO report to run.
+  has(SRC, "const baseTools = siloReports.length ? TOOLS : TOOLS.filter((t) => t.name !== 'run_silo_report');", 'index.ts');
   has(SRC, "const conceptsEnabled = activeWorkflow === 'product_concept' || actingOnConcept;", 'index.ts');
   const toolsLine = SRC.split('\n').find((l) => l.includes('const tools = '));
   assert(!/guidance/.test(toolsLine), 'the tools line reads the guidance selection');
@@ -965,7 +967,10 @@ test('prompt sizes', () => {
   // (company-wide reviews, configured channel mapping, "the store"). A
   // deliberate, reviewed addition to every question -- the ceiling exists to
   // catch SILENT regrowth, so raise it only with a reason written here.
-  assert(sizes.ORDINARY < 4500, `ordinary prompt regrew to ${sizes.ORDINARY} words`);
+  // Raised 4,500 -> 4,600 on 2026-10-06 for run_silo_report's line in the
+  // tool list. The list of SILO reports itself is per-request (built from the
+  // database, ~1k words for 21 reports) and is not counted here.
+  assert(sizes.ORDINARY < 4600, `ordinary prompt regrew to ${sizes.ORDINARY} words`);
   assert(sizes.MARKETING < 5100, `marketing prompt regrew to ${sizes.MARKETING} words`);
   // SEO carries the full core plus its own module; after the store/channel
   // rules it sits ~2% above the pre-split base (6,844). SEO is the one request

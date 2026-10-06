@@ -78,6 +78,7 @@
       margin-top:8px; font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3);
     }
     .ac-queries summary { cursor:pointer; user-select:none; }
+    .ac-silo-reports { margin-top:8px; font-size:12px; color:var(--bcn-ink-2); display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
     .ac-queries pre {
       margin:6px 0 0; padding:8px 10px; background:var(--bcn-surface); border:1px solid var(--bcn-border);
       border-radius:6px; overflow-x:auto; white-space:pre-wrap; word-break:break-word;
@@ -662,7 +663,7 @@
     history.forEach((m, i) => {
       if (m.role === 'assistant') {
         const question = [...history.slice(0, i)].reverse().find(x => x.role === 'user')?.content || '';
-        renderMessage({ role: 'assistant', content: m.content, queries: m.queries, concepts: m.concepts, sources: m.sources, saveCtx: { question }, credit: m.credit });
+        renderMessage({ role: 'assistant', content: m.content, queries: m.queries, concepts: m.concepts, sources: m.sources, saveCtx: { question }, credit: m.credit, siloReports: m.siloReports });
       } else {
         renderMessage({ role: 'user', content: m.content, images: m.imageUrls });
       }
@@ -945,7 +946,7 @@
     pill.classList.add(d.exhausted ? 'bcn-pill--neg' : 'bcn-pill--pos');
   }
 
-  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts, sources, suggestWorkflow, credit }) {
+  function renderMessage({ role, content, queries, isError, retryable, saveCtx, images, concepts, sources, suggestWorkflow, credit, siloReports }) {
     el('emptyState')?.remove();
     const wrap = document.createElement('div');
     wrap.className = `ac-msg ac-msg--${isError ? 'error' : role}`;
@@ -980,6 +981,13 @@
         }).join('')
       }</ul></details>`;
     }
+    // Which SILO reports the answer ran: those figures are SILO's own
+    // definitions, with independent checks behind them, and the reader should
+    // be able to tell them apart from a query written for this question.
+    const reportNames = Array.isArray(siloReports) ? siloReports.map((r) => r && r.title).filter(Boolean) : [];
+    const reportsHtml = reportNames.length
+      ? `<div class="ac-silo-reports">From SILO report${reportNames.length === 1 ? '' : 's'}: ${reportNames.map((t) => `<span class="bcn-pill">${esc(t)}</span>`).join(' ')}</div>`
+      : '';
     // Only answers that ran real SQL are worth pinning -- a clarification
     // reply with no queries has nothing to re-run later.
     let saveHtml = '';
@@ -1018,6 +1026,7 @@
         <div class="${bubble.cls}">${bubble.html}</div>
         ${conceptsHtml}
         ${suggestHtml}
+        ${reportsHtml}
         ${queriesHtml}
         ${sourcesHtml}
         ${saveHtml}
@@ -1091,6 +1100,7 @@
         concepts: body.concepts,
         sources: body.sources,
         ai_credit: body.ai_credit,
+        silo_reports_used: body.silo_reports_used,
       };
     } catch {
       return null;
@@ -1165,11 +1175,12 @@
     // Only a stored response carries ai_credit; an audit-log recovery has none
     // and shows no cost line rather than a made-up one.
     if (recovered.ai_credit) historyEntry.credit = recovered.ai_credit;
+    if (recovered.silo_reports_used?.length) historyEntry.siloReports = recovered.silo_reports_used;
     history.push(historyEntry);
     saveHistoryToSession();
     const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
     renderMessage({ role: 'assistant', content: recovered.answer, queries: recovered.queries_run, saveCtx: { question },
-      concepts: recovered.concepts, sources: recovered.sources, credit: recovered.ai_credit });
+      concepts: recovered.concepts, sources: recovered.sources, credit: recovered.ai_credit, siloReports: recovered.silo_reports_used });
     // The request ran (and may have been charged) while this tab was not
     // listening, so the balance shown is stale whatever the source was.
     refreshCreditPill();
@@ -1414,11 +1425,12 @@
       // replay can only show what the entry carries.
       if (data.sources && data.sources.length) historyEntry.sources = data.sources;
       if (data.ai_credit) historyEntry.credit = data.ai_credit;
+      if (data.silo_reports_used && data.silo_reports_used.length) historyEntry.siloReports = data.silo_reports_used;
       history.push(historyEntry);
       unansweredEntry = null;
       saveHistoryToSession();
       const question = [...history].reverse().find(m => m.role === 'user')?.content || '';
-      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question }, concepts: data.concepts, sources: data.sources, suggestWorkflow: data.suggest_workflow, credit: data.ai_credit });
+      renderMessage({ role: 'assistant', content: data.answer, queries: data.queries_run, saveCtx: { question }, concepts: data.concepts, sources: data.sources, suggestWorkflow: data.suggest_workflow, credit: data.ai_credit, siloReports: data.silo_reports_used });
       if (data.ai_credit && data.ai_credit.status !== 'not_metered') refreshCreditPill();
       // The edge function only sends this when the audit INSERT was rejected.
       // It means this answer is not in the log, so a later "Try again" cannot

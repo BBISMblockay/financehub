@@ -47,6 +47,8 @@ const PROVIDER_LIB_URL = pathToFileURL(join(HERE, 'provider-lib.mjs')).href;
 const QUERY_SHAPE_LIB_URL = pathToFileURL(join(HERE, 'query-shape-lib.mjs')).href;
 const KEEPALIVE_LIB_URL = pathToFileURL(join(HERE, 'keepalive-lib.mjs')).href;
 const CREDIT_LIB_URL = pathToFileURL(join(HERE, 'ai-credit-lib.mjs')).href;
+const REPORTS_LIB_URL = pathToFileURL(join(HERE, 'silo-reports-lib.mjs')).href;
+const REPORT_PARAMS_LIB_URL = pathToFileURL(join(HERE, 'report-params-lib.mjs')).href;
 
 let failures = 0;
 let run = 0;
@@ -102,10 +104,12 @@ const harnessPath = join(tmpdir(), `silo-chat-harness-${process.pid}.ts`);
     .replace("from './provider-lib.mjs';", `from ${JSON.stringify(PROVIDER_LIB_URL)};`)
     .replace("from './query-shape-lib.mjs';", `from ${JSON.stringify(QUERY_SHAPE_LIB_URL)};`)
     .replace("from './keepalive-lib.mjs';", `from ${JSON.stringify(KEEPALIVE_LIB_URL)};`)
-    .replace("from './ai-credit-lib.mjs';", `from ${JSON.stringify(CREDIT_LIB_URL)};`);
+    .replace("from './ai-credit-lib.mjs';", `from ${JSON.stringify(CREDIT_LIB_URL)};`)
+    .replace("from './silo-reports-lib.mjs';", `from ${JSON.stringify(REPORTS_LIB_URL)};`)
+    .replace("from './report-params-lib.mjs';", `from ${JSON.stringify(REPORT_PARAMS_LIB_URL)};`);
   // A silently-unapplied rewrite would load a file that still imports npm:,
   // which fails with a confusing resolver error 40 lines away from the cause.
-  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, QUERY_SHAPE_LIB_URL, KEEPALIVE_LIB_URL, CREDIT_LIB_URL, 'Buffer.from(bytes)']) {
+  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, QUERY_SHAPE_LIB_URL, KEEPALIVE_LIB_URL, CREDIT_LIB_URL, REPORTS_LIB_URL, REPORT_PARAMS_LIB_URL, 'Buffer.from(bytes)']) {
     if (!rewritten.includes(marker)) {
       throw new Error(`harness rewrite failed: index.ts no longer matches the expected import for ${marker}`);
     }
@@ -138,6 +142,9 @@ function makeClient({
   auditError = null,
   profileErrorOn = [],
   catalog = CATALOG_FIXTURE,
+  // SILO reports (silo_chat_saved_reports, source = 'system'). None by default,
+  // so every older test sees exactly the request it always did.
+  siloReports = [],
   // Queued chat_run_readonly_query results, consumed in call order. A plain
   // array is reused for every call; an array of arrays is a script.
   rpcResults = null,
@@ -150,6 +157,7 @@ function makeClient({
     inserts: [],
     updates: [],
     rpcCalls: [],
+    reportReads: [],
     profileReads: 0,
     auditAttempts: 0,
   };
@@ -164,6 +172,10 @@ function makeClient({
       return { data: null, error: auditError };
     }
     if (b._table === 'silo_chat_schema_catalog') return { data: catalog, error: null };
+    if (b._table === 'silo_chat_saved_reports') {
+      state.reportReads.push({ eq: b._eq, is: b._is });
+      return { data: siloReports, error: null };
+    }
     if (b._table === 'product_concepts') {
       // A SELECT here is the duplicate-title lookup, which uses maybeSingle():
       // it must resolve to null (no duplicate), not to the generic empty ARRAY
@@ -192,8 +204,10 @@ function makeClient({
       _op: 'select',
       _payload: null,
       _eq: [],
+      _is: [],
       select() { return b; },
       eq(col, val) { b._eq.push([col, val]); return b; },
+      is(col, val) { b._is.push([col, val]); return b; },
       ilike() { return b; },
       order() { return b; },
       limit() { return b; },
@@ -2313,6 +2327,145 @@ await test('a settle that fails reports pending, never $0', async () => {
   const { res, json } = await askMetered(BASIC, credit);
   eq(res.status, 200, 'the answer is still delivered');
   eq(json.ai_credit, { status: 'pending' }, 'pending');
+});
+
+
+console.log('\n-- SILO reports are run first, as defined --');
+
+// Shaped like the production rows (2026-10-06): a parameterised single-query
+// report on the company calendar, an enum parameter, and a multi-query report
+// with no parameters at all.
+const REPORT_DAILY = {
+  id: '5110de50-0000-4000-a000-000000000001', title: 'Daily Sales',
+  description: 'Daily canonical net sales, units and distinct non-cancelled orders. Defaults to 60 days.',
+  parameters: [
+    { key: 'date_from', type: 'date', label: 'From', default: 'today-60d', date_basis: 'company' },
+    { key: 'date_to', type: 'date', label: 'To', default: 'today-1d', date_basis: 'company' },
+  ],
+  queries_run: ['select day_date, net_sales from sales_daily_v where day_date between {{date_from}} and {{date_to}} order by day_date'],
+};
+const REPORT_CREATIVE = {
+  id: 'c3000000-0000-4000-a000-00000000000a', title: 'Creative Performance',
+  description: 'Paid spend by platform.',
+  parameters: [{ key: 'platform', type: 'enum', label: 'Platform', default: 'all', options: ['all', 'meta_ads', 'google_ads'] }],
+  queries_run: ["select platform, spend from creative_v where ({{platform}} = 'all' or platform = {{platform}})"],
+};
+const REPORT_INVENTORY = {
+  id: 'c1000000-0000-4000-a000-000000000001', title: 'Inventory Summary',
+  description: 'On-hand and incoming stock.', parameters: null,
+  queries_run: ['select 1 as total', 'select 2 as by_type', 'select 3 as by_product'],
+};
+const REPORTS = [REPORT_CREATIVE, REPORT_DAILY, REPORT_INVENTORY];
+const reportCall = (input, id = 'tu_r') => ({
+  stop_reason: 'tool_use',
+  content: [{ type: 'tool_use', id, name: 'run_silo_report', input }],
+});
+const readonlyCalls = (client) => client.__state.rpcCalls.filter((c) => c.name === 'chat_run_readonly_query');
+const systemText = (body) => (Array.isArray(body.system) ? body.system.map((b) => b.text).join('\n') : String(body.system));
+
+await test('the request lists SILO reports and offers run_silo_report, read as global, live, system rows', async () => {
+  const model = installModel([say('ok')]);
+  const { client } = await ask(BASIC, { siloReports: REPORTS });
+  const body = model.sent[0];
+  const text = systemText(body);
+  assert(text.includes('SILO reports -- answer from these FIRST'), 'the guidance is in the prompt');
+  assert(text.includes(`- ${REPORT_DAILY.id} — Daily Sales:`), 'each report is listed by id and title');
+  assert(text.includes('date_from (date, default today-60d)'), 'parameters are described');
+  assert(text.includes('Returns 3 result sets.'), 'a multi-query report says so');
+  assert(body.tools.some((t) => t.name === 'run_silo_report'), 'the tool is offered');
+  // The report list is per-request: it must never land in the cached core.
+  assert(!body.system[0].text.includes('SILO reports -- answer from these FIRST'), 'not in the cached core block');
+  const read = client.__state.reportReads[0];
+  assert(read, 'the reports were read');
+  eq(read.eq, [['source', 'system']], 'system rows only');
+  eq(read.is, [['company_entity_id', null], ['archived_at', null]], 'global and not archived');
+});
+
+await test('with no SILO reports the tool is not offered and nothing is listed', async () => {
+  const model = installModel([say('ok')]);
+  await ask(BASIC, { siloReports: [] });
+  assert(!model.sent[0].tools.some((t) => t.name === 'run_silo_report'), 'no tool');
+  assert(!systemText(model.sent[0]).includes('SILO reports -- answer from these FIRST'), 'no list');
+});
+
+await test('run_silo_report runs the stored SQL with typed parameters, under the caller, and says where the figure came from', async () => {
+  const model = installModel([
+    reportCall({ report: REPORT_DAILY.id, parameters: { date_from: '2026-09-01', date_to: 'today-1d' } }),
+    say('Per the SILO Daily Sales report, sales were $100.'),
+  ]);
+  const { json, client } = await ask(BASIC, { siloReports: REPORTS, rpcResults: [[{ day_date: '2026-09-01', net_sales: 100 }]] });
+  const calls = readonlyCalls(client);
+  eq(calls.length, 1, 'one statement');
+  const sql = calls[0].args.query;
+  assert(sql.includes("between date '2026-09-01' and ((select public.silo_business_today()) - 1)"), `substituted on the company calendar: ${sql}`);
+  assert(!sql.includes('{{'), 'no token left');
+  eq(json.queries_run, [sql], 'the run SQL is what a saved report would keep');
+  eq(json.silo_reports_used, [{ id: REPORT_DAILY.id, title: 'Daily Sales', parameters: { date_from: '2026-09-01', date_to: 'today-1d' } }], 'provenance in the reply');
+  const result = JSON.parse(toolResultsSeen(model.sent)[0]);
+  eq(result.silo_report.title, 'Daily Sales', 'the model is told which report');
+  eq(result.results.length, 1, 'one result set');
+  eq(result.results[0].result_id, 'R1', 'result id');
+  eq(result.results[0].rows, [{ day_date: '2026-09-01', net_sales: 100 }], 'rows');
+  const audit = client.__state.inserts.find((i) => i.table === 'silo_chat_audit_log');
+  const logged = audit.payload.diagnostics.queries[0];
+  eq(logged.silo_report_id, REPORT_DAILY.id, 'the audit row names the report');
+  eq(logged.ok, true, 'and the outcome');
+});
+
+await test('omitted parameters use the report default, and the title works as well as the id', async () => {
+  installModel([reportCall({ report: 'daily sales' }), say('ok')]);
+  const { json, client } = await ask(BASIC, { siloReports: REPORTS, rpcResults: [[]] });
+  const sql = readonlyCalls(client)[0].args.query;
+  assert(sql.includes('((select public.silo_business_today()) - 60) and ((select public.silo_business_today()) - 1)'), sql);
+  eq(json.silo_reports_used[0].parameters, { date_from: 'today-60d', date_to: 'today-1d' }, 'defaults recorded');
+});
+
+await test('every query of a multi-query report runs, each with its own result id', async () => {
+  const model = installModel([reportCall({ report: REPORT_INVENTORY.id }), say('ok')]);
+  const { json, client } = await ask(BASIC, { siloReports: REPORTS, rpcResults: [[{ total: 1 }], [{ by_type: 2 }], [{ by_product: 3 }]] });
+  eq(readonlyCalls(client).map((c) => c.args.query), REPORT_INVENTORY.queries_run, 'all three, in order');
+  const result = JSON.parse(toolResultsSeen(model.sent)[0]);
+  eq(result.results.map((r) => r.result_id), ['R1', 'R2', 'R3'], 'ids');
+  eq(json.queries_run.length, 3, 'all recorded');
+});
+
+await test('a parameter the report does not declare is refused before anything runs', async () => {
+  const model = installModel([reportCall({ report: REPORT_DAILY.id, parameters: { location: 'online' } }), say('ok')]);
+  const { json, client } = await ask(BASIC, { siloReports: REPORTS });
+  eq(readonlyCalls(client).length, 0, 'nothing ran');
+  const content = toolResultsSeen(model.sent)[0];
+  assert(/^Error: "Daily Sales" has no parameter "location"/.test(content), content);
+  assert(content.includes('Its parameters are: date_from, date_to.'), 'it names what the report takes');
+  assert(!json.silo_reports_used, 'a refused report is not cited');
+});
+
+await test('an enum value outside the declared options is refused, not passed into SQL', async () => {
+  const model = installModel([reportCall({ report: REPORT_CREATIVE.id, parameters: { platform: "x' or 1=1 --" } }), say('ok')]);
+  const { client } = await ask(BASIC, { siloReports: REPORTS });
+  eq(readonlyCalls(client).length, 0, 'nothing ran');
+  assert(/^Error: "Creative Performance":/.test(toolResultsSeen(model.sent)[0]), 'refused with the report named');
+});
+
+await test('an unknown report is refused with the list of real ones', async () => {
+  const model = installModel([reportCall({ report: 'Weekly Magic' }), say('ok')]);
+  const { client } = await ask(BASIC, { siloReports: REPORTS });
+  eq(readonlyCalls(client).length, 0, 'nothing ran');
+  const content = toolResultsSeen(model.sent)[0];
+  assert(content.startsWith('Error: there is no SILO report "Weekly Magic"'), content);
+  assert(content.includes(`${REPORT_DAILY.id} (Daily Sales)`), 'lists the real ones');
+});
+
+await test('a report query that fails is reported in its result, and the report is still named as used', async () => {
+  const model = installModel([reportCall({ report: REPORT_INVENTORY.id }), say('ok')]);
+  const { json } = await ask(BASIC, {
+    siloReports: REPORTS,
+    rpcError: (n) => (n === 2 ? { message: 'canceling statement due to statement timeout' } : null),
+    rpcResults: [[{ total: 1 }], [{ by_product: 3 }]],
+  });
+  const result = JSON.parse(toolResultsSeen(model.sent)[0]);
+  eq(result.results.length, 3, 'all three reported');
+  assert(/^Error: canceling statement due to statement timeout/.test(result.results[1].error), JSON.stringify(result.results[1]));
+  eq(json.silo_reports_used.length, 1, 'cited');
 });
 
 console.log(`\n${run - failures}/${run} passed`);
