@@ -400,6 +400,18 @@
         if (!lineNeedsEntity(l)) l.entity = '';
         tr.children[4].innerHTML = entityCell(l);
       }
+      if (f === 'entity' && l.entity) {
+        // A generated entry (Accounting Export's monthly Shopify journal)
+        // puts the same receivable on dozens of lines. Picking the customer
+        // once fills every other line on that account still left blank --
+        // never overwriting one somebody already set.
+        state.lines.forEach((o, j) => {
+          if (j === i || o.entity || o.accountId !== l.accountId || !lineNeedsEntity(o)) return;
+          o.entity = l.entity;
+          const row = $('jeLines').querySelector(`tr[data-i="${j}"]`);
+          if (row) row.children[4].innerHTML = entityCell(o);
+        });
+      }
       if (f === 'accountId' || f === 'locationId' || f === 'entity') {
         // Collapse this one cell back to a label -- editing in place means
         // the table stays light AFTER the pick too, not just before it.
