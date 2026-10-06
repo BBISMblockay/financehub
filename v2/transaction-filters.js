@@ -40,12 +40,12 @@
   const NO_MERCHANT = '__none__';
   const NO_ACCOUNT = '__none__';
 
-  const STATUSES = ['all', 'uncoded', 'treatment', 'entity', 'conflict', 'low', 'ai', 'excluded'];
+  const STATUSES = ['all', 'uncoded', 'pending', 'treatment', 'entity', 'conflict', 'low', 'ai', 'excluded'];
   const DIRECTIONS = ['any', 'out', 'in'];
   const AMOUNT_MODES = ['any', 'exact', 'range'];
 
   const EMPTY = {
-    status: 'all',
+    status: 'uncoded',
     search: '',
     text: '',
     merchant: '',
@@ -79,8 +79,10 @@
   /** Coerce anything -- a stored position, a partial patch -- into a full state. */
   function normalize(raw) {
     const r = raw && typeof raw === 'object' ? raw : {};
+    const hasStored = raw && typeof raw === 'object';
+    const defaultStatus = hasStored && Object.prototype.hasOwnProperty.call(r, 'status') ? 'all' : 'uncoded';
     const f = {
-      status: oneOf(r.status, STATUSES, 'all'),
+      status: oneOf(r.status, STATUSES, defaultStatus),
       search: trimmed(r.search),
       text: trimmed(r.text),
       // Canonicalised here, not only at the comparison, so a position stored
@@ -218,7 +220,14 @@
 
   function matchesStatus(row, status, ctx) {
     if (status === 'all') return true;
-    if (status === 'uncoded') return row.status === 'uncoded';
+    if (status === 'pending') {
+      return !!(ctx && typeof ctx.isBankPending === 'function' && ctx.isBankPending(row));
+    }
+    if (status === 'uncoded') {
+      if (row.status !== 'uncoded') return false;
+      if (ctx && typeof ctx.isBankPending === 'function' && ctx.isBankPending(row)) return false;
+      return true;
+    }
     if (status === 'treatment') return needsTreatment(row);
     // Which accounts need an entity is QuickBooks chart data the page holds,
     // so the page supplies the test; with none supplied nothing matches.

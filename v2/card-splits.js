@@ -317,9 +317,21 @@
       <div class="txn-split-total"><span>Transaction</span><b>${esc(money(model.parentCents ?? 0))}</b></div>
       <div class="txn-split-total"><span>Lines</span><b>${esc(money(model.enteredCents()))}</b></div>
       <div class="txn-split-total ${remainder === 0 ? 'is-tied' : 'is-open'}"><span>${remainder === 0 ? 'Allocated' : 'Left to allocate'}</span><b>${esc(remainder === 0 ? 'ties' : money(remainder))}</b></div>`;
-    el('splitProblems').innerHTML = problems.length
-      ? '<ul>' + problems.map((p) => `<li>${esc(p)}</li>`).join('') + '</ul>' : '';
-    el('splitProblems').hidden = !problems.length;
+    if (!ctx.validateVisible) {
+      el('splitProblems').innerHTML =
+        '<p class="txn-split-problems-hint">Enter each line’s account and amount from the statement. Issues appear here once you start editing.</p>';
+      el('splitProblems').hidden = false;
+      el('splitProblems').classList.add('txn-split-problems--hint');
+    } else if (problems.length) {
+      el('splitProblems').innerHTML =
+        '<ul>' + problems.map((p) => `<li>${esc(p)}</li>`).join('') + '</ul>';
+      el('splitProblems').hidden = false;
+      el('splitProblems').classList.remove('txn-split-problems--hint');
+    } else {
+      el('splitProblems').innerHTML = '';
+      el('splitProblems').hidden = true;
+      el('splitProblems').classList.remove('txn-split-problems--hint');
+    }
     el('btnSplitSave').disabled = !!ctx.busy || !model.ready();
     el('btnSplitAdd').disabled = !!ctx.busy;
     el('btnSplitClear').disabled = !!ctx.busy || !ctx.hadSplits;
@@ -358,6 +370,7 @@
       hadSplits: !!(config.splits && config.splits.length), busy: false,
     };
     active = ctx;
+    ctx.validateVisible = false;
 
     el('splitDrawer').hidden = false;
     el('splitSub').textContent = `${config.txn.txn_date || ''} · ${config.txn.description || ''} · ${money(toCents(config.txn.amount) ?? 0)}`;
@@ -430,9 +443,15 @@
     if (active === ctx) close(ctx);
   }
 
-  const save = (ctx) => ctx.model.ready()
-    ? write(ctx, ctx.model.payload(), !!ctx.el('splitLearn').checked, ctx.el('splitMatch').value || 'merchant', 'saved')
-    : undefined;
+  const save = (ctx) => {
+    ctx.validateVisible = true;
+    renderTotals(ctx);
+    if (!ctx.model.ready()) {
+      say(ctx, 'Fix the issues listed above before saving.', 'neg');
+      return;
+    }
+    return write(ctx, ctx.model.payload(), !!ctx.el('splitLearn').checked, ctx.el('splitMatch').value || 'merchant', 'saved');
+  };
   const clearSplit = (ctx) => write(ctx, [], false, 'merchant', 'removed');
 
   /* Wire the drawer's fixed controls once. The page calls this after the
@@ -445,6 +464,7 @@
       if (!active) return;
       const row = e.target.closest('[data-line]');
       if (!row || !e.target.dataset.field) return;
+      active.validateVisible = true;
       active.model.set(Number(row.dataset.line), e.target.dataset.field, e.target.value);
       renderTotals(active);
     });
@@ -452,6 +472,7 @@
       if (!active) return;
       const row = e.target.closest('[data-line]');
       if (!row || !e.target.dataset.field) return;
+      active.validateVisible = true;
       active.model.set(Number(row.dataset.line), e.target.dataset.field, e.target.value);
       renderTotals(active);
     });

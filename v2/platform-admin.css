@@ -1,0 +1,317 @@
+/* Silo Admin — platform scope; presentation only. */
+.platform-admin .plat-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bcn-bg);
+  padding: 0 20px 48px;
+}
+.platform-admin .plat-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.platform-admin .plat-gate {
+  padding: 64px 20px;
+  text-align: center;
+  color: var(--bcn-ink-2);
+  max-width: 60ch;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.platform-admin .plat-kpi-band .bcn-kpi-value { font-size: 20px; }
+
+.platform-admin .plat-tabs-wrap {
+  border-bottom: 1px solid var(--bcn-border);
+  margin-bottom: 4px;
+}
+.platform-admin .plat-tabs-wrap .bcn-tab { padding: 10px 14px; font-size: 12px; }
+
+.platform-admin .plat-panel[hidden] { display: none !important; }
+
+.platform-admin .plat-note {
+  font-size: 12px;
+  color: var(--bcn-ink-3);
+  line-height: 1.5;
+  margin: 0;
+  max-width: 68ch;
+}
+
+.platform-admin .plat-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.platform-admin .plat-toolbar .bcn-field { max-width: 150px; min-width: 120px; }
+.platform-admin .plat-toolbar-spacer { flex: 1; min-width: 8px; }
+.platform-admin .plat-page-label {
+  font-family: var(--bcn-mono);
+  font-size: 11px;
+  color: var(--bcn-ink-3);
+}
+
+.platform-admin .plat-split {
+  display: grid;
+  grid-template-columns: 1fr min(320px, 34%);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 960px) {
+  .platform-admin .plat-split { grid-template-columns: 1fr; }
+}
+
+.platform-admin .plat-block-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin-bottom: 6px;
+}
+.platform-admin .plat-block-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.platform-admin .plat-alert {
+  padding: 10px 12px;
+  border-radius: var(--bcn-radius);
+  border: 1px solid oklch(0.72 0.16 75 / 0.45);
+  background: oklch(0.97 0.04 75);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.platform-admin .plat-alert strong { font-weight: 650; }
+
+/* Inbox queue — slim rows */
+.platform-admin #tblInterest {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.platform-admin .plat-inbox-item {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--bcn-surface);
+  border: 1px solid var(--bcn-border);
+  border-radius: var(--bcn-radius);
+  font-size: 12px;
+}
+.platform-admin .plat-inbox-item:hover { border-color: var(--bcn-border-strong); }
+.platform-admin .plat-inbox-av {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--bcn-radius-sm);
+  background: var(--bcn-sunken);
+  font-family: var(--bcn-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--bcn-ink-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.platform-admin .plat-inbox-title { font-weight: 650; font-size: 12.5px; line-height: 1.3; }
+.platform-admin .plat-inbox-meta {
+  font-size: 11px;
+  color: var(--bcn-ink-3);
+  margin-top: 1px;
+}
+.platform-admin .plat-inbox-meta .bcn-mono { font-size: 10px; color: var(--bcn-ink-2); }
+.platform-admin .plat-inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.platform-admin .plat-inbox-actions .bcn-field { min-width: 100px; max-width: 118px; font-size: 12px; }
+.platform-admin .plat-inbox-actions .bcn-btn { padding: 4px 10px; font-size: 12px; }
+
+.platform-admin .plat-empty {
+  padding: 20px 12px;
+  text-align: center;
+  color: var(--bcn-ink-3);
+  font-size: 12px;
+  border: 1px dashed var(--bcn-border);
+  border-radius: var(--bcn-radius);
+  background: var(--bcn-surface);
+}
+
+/* Side rail — founding */
+.platform-admin .plat-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.platform-admin .plat-rail-card {
+  background: var(--bcn-surface);
+  border: 1px solid var(--bcn-border);
+  border-radius: var(--bcn-radius);
+  overflow: hidden;
+}
+.platform-admin .plat-rail-head {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 650;
+  background: var(--bcn-sunken);
+  border-bottom: 1px solid var(--bcn-border);
+}
+.platform-admin .plat-rail-body { padding: 12px; }
+.platform-admin .plat-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.platform-admin .plat-field:last-of-type { margin-bottom: 0; }
+.platform-admin .plat-label {
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bcn-ink-3);
+}
+.platform-admin .plat-link-box {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--bcn-accent-border);
+  background: var(--bcn-accent-soft);
+  border-radius: var(--bcn-radius);
+}
+.platform-admin .plat-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.platform-admin .plat-link-row .bcn-field { flex: 1; min-width: 180px; font-size: 11px; }
+
+/* Company directory — compact rows, not tiles */
+.platform-admin #tblCompanies {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 8px;
+  border: 1px solid var(--bcn-border);
+  border-radius: var(--bcn-radius);
+  background: var(--bcn-surface);
+  overflow: hidden;
+}
+.platform-admin .plat-co-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.2fr) minmax(0, 1.8fr) auto;
+  gap: 10px 14px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--bcn-border);
+  font-size: 12px;
+}
+.platform-admin .plat-co-row:last-child { border-bottom: none; }
+.platform-admin .plat-co-row:hover { background: var(--bcn-sunken); }
+.platform-admin .plat-co-row.plat-warn {
+  box-shadow: inset 3px 0 0 var(--bcn-warn);
+}
+.platform-admin .plat-co-title { font-weight: 650; font-size: 12.5px; line-height: 1.25; }
+.platform-admin .plat-co-slug {
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  color: var(--bcn-ink-3);
+  margin-top: 1px;
+}
+.platform-admin .plat-co-meta {
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  color: var(--bcn-ink-2);
+  line-height: 1.45;
+  min-width: 0;
+}
+.platform-admin .plat-co-meta .ws-you { display: block; color: var(--bcn-ink-3); }
+.platform-admin .plat-co-end {
+  text-align: right;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.platform-admin .plat-co-end .bcn-pill { font-size: 10px; padding: 2px 8px; }
+
+@media (max-width: 720px) {
+  .platform-admin .plat-co-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .platform-admin .plat-co-end { text-align: left; }
+}
+
+/* Invite list — slim */
+.platform-admin #tblPlatformInvites {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 12px;
+  border: 1px solid var(--bcn-border);
+  border-radius: var(--bcn-radius);
+  overflow: hidden;
+}
+.platform-admin .plat-inv-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto auto auto;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 7px 12px;
+  font-size: 12px;
+  background: var(--bcn-surface);
+  border-bottom: 1px solid var(--bcn-border);
+}
+.platform-admin .plat-inv-row:last-child { border-bottom: none; }
+.platform-admin .plat-inv-email {
+  font-family: var(--bcn-mono);
+  font-size: 11px;
+  word-break: break-all;
+}
+.platform-admin .plat-inv-sub { font-size: 11px; color: var(--bcn-ink-3); }
+.platform-admin .plat-inv-actions { text-align: right; }
+.platform-admin .plat-inv-actions .bcn-btn { padding: 3px 8px; font-size: 11px; }
+
+@media (max-width: 800px) {
+  .platform-admin .plat-inv-row {
+    grid-template-columns: 1fr auto;
+  }
+  .platform-admin .plat-inv-sub { grid-column: 1; }
+}
+
+.platform-admin .ws-you {
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  color: var(--bcn-ink-3);
+}
+
+.platform-admin .plat-support-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.platform-admin .plat-support-links a {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--bcn-accent);
+  text-decoration: none;
+  padding: 6px 12px;
+  border: 1px solid var(--bcn-accent-border);
+  border-radius: 999px;
+  background: var(--bcn-accent-soft);
+}
+.platform-admin .plat-support-links a:hover {
+  background: var(--bcn-accent);
+  color: #fff;
+}
