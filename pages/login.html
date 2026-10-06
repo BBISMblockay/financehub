@@ -306,7 +306,7 @@
                   <label class="block text-sm font-semibold text-slate-700 mb-1.5">Name</label>
                   <div class="relative">
                     <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 20.25a7.5 7.5 0 0 1 15 0"/></svg>
-                    <input id="name3" type="text" autocomplete="name"
+                    <input id="name3" type="text" autocomplete="name" autofocus
                            class="w-full rounded-xl border border-slate-300 pl-10 pr-3.5 py-2.5 text-[15px] placeholder:text-slate-400 focus:outline-none"
                            placeholder="full name" />
                   </div>
@@ -337,6 +337,12 @@
 
                 <div class="text-xs text-slate-500 leading-relaxed bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
                   You may need to confirm your email address before you can sign in — check your inbox after creating your account.
+                </div>
+
+                <div class="text-center">
+                  <button id="btnSignupToLogin" type="button" class="text-sm font-semibold text-[oklch(0.55_0.20_245)] hover:underline underline-offset-2">
+                    Already have a SILO account? Sign in instead
+                  </button>
                 </div>
               </form>
             </div>
@@ -663,6 +669,29 @@
       }
       btnGoSignup.addEventListener("click", () => dlgSignup.showModal());
       btnCloseSignup.addEventListener("click", () => dlgSignup.close());
+      document.getElementById("btnSignupToLogin").addEventListener("click", () => {
+        dlgSignup.close();
+        document.getElementById("email1")?.focus();
+      });
+
+      // A company-setup invite is sent to someone who usually has no SILO
+      // account yet, so the page they land on should BE "Create your owner
+      // account" rather than a sign-in form with a small "Finish company
+      // setup" link to hunt for. Opened only for a signed-out visitor on that
+      // path: never with a session (bootstrap is redirecting them), never on
+      // an org invite (that has its own "set password & join" panel), and
+      // never on an emailed auth callback, whose code or tokens are about to
+      // sign the visitor in. An existing account closes it with "Sign in
+      // instead"; a signup against one is still caught after submit.
+      function shouldOpenOwnerSignup(visit) {
+        const { next, hasSession, orgInvite, search, hash } = visit || {};
+        if (hasSession || orgInvite) return false;
+        if (!isCompanyOnboardingPath(next)) return false;
+        const q = new URLSearchParams(search || "");
+        if (q.has("code") || q.has("error") || q.has("error_description") || q.has("token_hash")) return false;
+        if (/(^|[#&])(access_token|refresh_token|error|type)=/.test(hash || "")) return false;
+        return true;
+      }
 
       // Direct calls to the public org-invite-redeem edge function (the
       // token is the auth) — fetch gives us clean error bodies on non-2xx.
@@ -763,6 +792,17 @@
           } catch (err) {
             showStatus(err?.message || "Could not determine user route.", "error");
           }
+          return;
+        }
+
+        if (!dlgSignup.open && shouldOpenOwnerSignup({
+          next: safeNextPath(),
+          hasSession: false,
+          orgInvite: !!getInviteToken(),
+          search: window.location.search,
+          hash: window.location.hash,
+        })) {
+          dlgSignup.showModal();
         }
       }
 
@@ -941,6 +981,7 @@
         // the form. resolveAndRedirect is guarded, so the explicit sign-in
         // handlers calling it too is harmless.
         if (event === "SIGNED_IN" && session?.user) {
+          if (dlgSignup.open) dlgSignup.close();
           resolveAndRedirect(session.user.id).catch((err) => {
             showStatus(err?.message || "Could not determine user route.", "error");
           });
