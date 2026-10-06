@@ -2966,7 +2966,10 @@
     // Escape closes one thing at a time, innermost first: the split editor
     // sits over the row drawer.
     if (window.SiloCardSplits.isOpen()) { window.SiloCardSplits.close(); return; }
-    el('rawDrawer').hidden = true;
+    if (!el('rawDrawer').hidden) { el('rawDrawer').hidden = true; return; }
+    // Then the transaction's detail drawer, which otherwise covers the right
+    // of the page with only a mouse way out.
+    if (!el('txnDetailDrawer').hidden) el('btnTxnDetailClose').click();
   });
   window.SiloCardSplits.mount({});
 

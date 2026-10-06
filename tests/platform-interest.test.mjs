@@ -61,7 +61,7 @@ async function openAdmin(options = {}) {
     },
   };
   const location = { pathname: '/v2/platform-admin.html', origin: 'https://get-silo.com', href: '' };
-  const context = vm.createContext({ document: { getElementById: id => elements.get(id), querySelector: () => new Element() },
+  const context = vm.createContext({ document: { getElementById: id => elements.get(id), querySelector: () => new Element(), querySelectorAll: () => [] },
     window: { location, __SILO_CONFIG__: { SUPABASE_URL: 'https://fixture.invalid', SUPABASE_ANON_KEY: 'inert', ensureActiveCompany: async () => {} },
       supabase: { createClient: () => db }, SiloChrome: { mount() {} } },
     location, console: { error() {} }, setTimeout() {}, encodeURIComponent, confirm: () => false });
@@ -71,7 +71,8 @@ async function openAdmin(options = {}) {
   await tick();
   const queueQueries = () => queries.filter(query => query.table === 'onboarding_interest_queue');
   return { state, elements, queries, rpcs, location, queueQueries,
-    body: () => elements.get('tblInterest').querySelector('tbody').innerHTML,
+    // The queue is a list of rows rendered straight into #tblInterest (#899).
+    body: () => elements.get('tblInterest').innerHTML,
     async changeFilter(value) {
       elements.get('interestFilter').value = value;
       elements.get('interestFilter').handlers.change(); await tick();
