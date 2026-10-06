@@ -308,8 +308,8 @@ try {
   assert.equal(loginUrl.searchParams.get('next'), '/v2/company-onboarding.html?invite=' + encodeURIComponent(token));
   assert.equal(loginUrl.searchParams.get('invite'), null);
   assert.equal(await page.locator('#btnGoSignup').isVisible(), true);
-  await page.locator('#btnGoSignup').click();
-  assert.equal(await page.locator('#dlgSignup').isVisible(), true);
+  // A founder invite opens account creation on arrival (#896).
+  await page.locator('#dlgSignup').waitFor({ state: 'visible' });
   await page.locator('#btnCloseSignup').click();
   assert.equal(await page.locator('#dlgSignup').isVisible(), false);
   assert.equal(page.url(), loginUrl.href);
@@ -317,6 +317,9 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#dlgSignup').isVisible(), false);
   assert.equal(page.url(), loginUrl.href);
+  await page.locator('#btnGoSignup').click();
+  assert.equal(await page.locator('#dlgSignup').isVisible(), true, 'Finish company setup reopens it');
+  await page.locator('#btnCloseSignup').click();
   pass('founder invite survives login and interrupted account-creation dialog');
 
   await page.goto('https://get-silo.com/#access_token=fixture&type=recovery');

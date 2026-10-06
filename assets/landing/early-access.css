@@ -169,6 +169,13 @@
   line-height: 1.6;
 }
 #landing .bcn-field-group { margin-bottom: 14px; }
+/* Beacon's default field is ~30px tall; a public form keeps 44px tap targets. */
+#landing .lp-access .bcn-field { min-height: 44px; }
+/* Keyboard focus stays clearly visible on the public page (dropped in c4361cb). */
+#landing a:focus-visible, #landing button:focus-visible, #landing input:focus-visible, #landing video:focus-visible {
+  outline: 3px solid var(--bcn-accent);
+  outline-offset: 4px;
+}
 #landing .lp-join {
   width: 100%;
   min-height: 44px;

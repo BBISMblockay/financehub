@@ -73,7 +73,7 @@ async function fixture({ authorized = true, rows = [row('fixture-1')], signedIn 
     if (['/v2/v2-shell.js', '/v2/nav-config.js', '/v2/avatar.js', '/v2/silo-chrome.js'].includes(url.pathname)) {
       return route.fulfill({ contentType: 'text/javascript', body: 'window.SiloChrome = {mount(){}};' });
     }
-    const allowed = ['v2/platform-admin.html', 'v2/beacon.css', 'v2/silo-brand.css', 'v2/workspace-settings.css', 'v2/beacon-mirrors-unified.css', 'v2/v2-mobile.css'];
+    const allowed = ['v2/platform-admin.html', 'v2/beacon.css', 'v2/silo-brand.css', 'v2/workspace-settings.css', 'v2/platform-admin.css', 'v2/beacon-mirrors-unified.css', 'v2/v2-mobile.css'];
     const relative = url.pathname.slice(1);
     if (!allowed.includes(relative)) { failures.push('Unexpected file: ' + relative); return route.abort(); }
     return route.fulfill({ contentType: relative.endsWith('.css') ? 'text/css' : 'text/html', body: await readFile(path.join(root, relative)) });
@@ -100,13 +100,14 @@ try {
   const admin = await fixture({ rows: [row('fixture-1', { name: malicious, company_name: malicious }),
     ...Array.from({ length: 26 }, (_, i) => row('fixture-' + (i + 2)))] });
   await admin.page.locator('[data-interest-save="fixture-1"]').waitFor();
-  assert.equal(await admin.page.locator('#tblInterest tbody tr').count(), 25);
+  assert.equal(await admin.page.locator('#tblInterest [data-interest-row]').count(), 25);
   assert.equal(await admin.page.locator('#tblInterest img').count(), 0);
-  assert.equal(await admin.page.locator('#tblInterest tbody tr').first().locator('td').nth(1).textContent(), malicious);
+  // #899 renders the queue as rows of "name · company", not a table.
+  assert.equal(await admin.page.locator('#tblInterest [data-interest-row]').first().locator('.plat-inbox-title').textContent(), malicious + ' · ' + malicious);
   assert.equal(await admin.page.evaluate(() => globalThis.fixtureXSS), undefined);
   await admin.page.locator('#interestNext').click();
   await admin.page.waitForFunction(() => document.getElementById('interestPage').textContent === 'Page 2');
-  assert.equal(await admin.page.locator('#tblInterest tbody tr').count(), 2);
+  assert.equal(await admin.page.locator('#tblInterest [data-interest-row]').count(), 2);
   assert.equal(await admin.page.locator('#interestNext').isDisabled(), true);
   await admin.page.locator('#interestFilter').selectOption('all');
   await admin.page.waitForFunction(() => document.getElementById('interestPage').textContent === 'Page 1');
