@@ -171,7 +171,9 @@
     // applies (on_deck_coding_access). Owner/admins without a finance
     // department still reach workflow proposals from Home's "Ready for review".
     // Hidden from the menu 2026-10-05 (page still reachable by URL).
-    // { departments: FINANCE_DEPTS, id: 'start/on-deck', section: 'Start', label: 'On Deck', href: '/v2/on-deck.html', profiles: ['grandfathered', 'standard'] },
+    // Back for STANDARD workspaces only, under Insights (Blake, 2026-10-06);
+    // Baseballism's menu stays without it for now.
+    { departments: FINANCE_DEPTS, id: 'start/on-deck', section: 'Insights', label: 'On Deck', href: '/v2/on-deck.html', profiles: ['standard'] },
     { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
     { id: 'start/help', section: 'Start', label: 'Help', href: '/v2/help.html', profiles: ['grandfathered', 'standard'] },
     // Standard-profile only, and admin-only within that. Baseballism is years
@@ -247,8 +249,9 @@
     // Concepts page (now a forward). Ungated like PO Builder: reading is
     // company-wide, and every write is refused server-side without
     // po_builder_can_write().
-    // Hidden from the menu 2026-10-05 (page still reachable by URL).
-    // { id: 'purchasing/product-studio', section: 'Purchasing', label: 'Product Studio', href: '/v3/product-workflow.html', profiles: ['grandfathered', 'standard'] },
+    // Hidden from the menu 2026-10-05 (page still reachable by URL). Back
+    // for STANDARD workspaces only, under Product & inventory below (Blake,
+    // 2026-10-06); Baseballism's menu stays without it for now.
     { id: 'purchasing/po-builder', section: 'Purchasing', label: 'PO Builder', href: '/v2/po-builder.html', profiles: ['grandfathered', 'standard'] },
     { id: 'purchasing/po-costing', section: 'Purchasing', label: 'PO Landed Cost', href: '/v2/po-costing.html', profiles: ['grandfathered', 'standard'] },
     { id: 'purchasing/po-report', section: 'Purchasing', label: 'PO Report', href: '/v2/po-report.html', profiles: ['grandfathered', 'standard'] },
@@ -256,6 +259,7 @@
 
     { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory Manager', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'] },
     { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Products', href: '/v2/products.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'purchasing/product-studio', section: 'Product & inventory', label: 'Product Studio', href: '/v3/product-workflow.html', profiles: ['standard'] },
 
     // Three Marketing entries, ordered by how they are used rather than
     // alphabetically: the report you produce, the dashboard you watch, the

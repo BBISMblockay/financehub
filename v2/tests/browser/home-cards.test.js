@@ -70,6 +70,12 @@ async function readHome(page) {
       !home.home.some((h) => /baseballismwholesale|bi-sales-overview|reviews\.html|live-schedule/.test(h)),
       JSON.stringify(home.home));
     r.ok('Home does not link to itself', !home.home.includes('/v2/finance.html'));
+    const insights = home.cards.find((c) => c.title === 'Insights');
+    r.ok('On Deck leads Insights for a finance/exec founder',
+      !!insights && insights.links[0] === '/v2/on-deck.html', JSON.stringify(insights));
+    const products = home.cards.find((c) => c.title === 'Product & inventory');
+    r.ok('Product Studio sits in Product & inventory',
+      !!products && products.links.includes('/v3/product-workflow.html'), JSON.stringify(products));
     await page.close();
 
     console.log('\n── standard member: Home narrows with the sidebar ──');
@@ -84,6 +90,10 @@ async function readHome(page) {
       !home.home.includes('/v2/settings-company.html'), JSON.stringify(home.home));
     r.ok('nor finance-only Request Manager',
       !home.home.includes('/v2/request_manager.html'), JSON.stringify(home.home));
+    r.ok('nor On Deck, which follows the finance gate',
+      !home.home.includes('/v2/on-deck.html'), JSON.stringify(home.home));
+    r.ok('Product Studio is offered to a member (writes are refused server-side)',
+      home.home.includes('/v3/product-workflow.html'), JSON.stringify(home.home));
     await page.close();
 
     console.log('\n── grandfathered workspace: static cards unchanged ──');
@@ -96,6 +106,9 @@ async function readHome(page) {
       home.home.includes('/v2/baseballismwholesale.html'), JSON.stringify(home.home));
     r.ok('the sales reports card is still there',
       home.home.includes('/v2/bi-sales-overview.html'), JSON.stringify(home.home));
+    r.ok('Baseballism\'s sidebar has no On Deck or Product Studio for now',
+      !home.sidebar.includes('/v2/on-deck.html') && !home.sidebar.includes('/v3/product-workflow.html'),
+      JSON.stringify(home.sidebar));
     r.ok('and the cards are the static ones, not the sidebar mirror',
       !(await page.evaluate(() => !!document.querySelector('[data-home-section]'))));
     await page.close();
