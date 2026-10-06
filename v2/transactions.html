@@ -46,7 +46,7 @@
     .txn-context-collapse > summary::-webkit-details-marker { display: none; }
     .txn-context-collapse[open] > summary { margin-bottom: 6px; }
     .txn-detail-drawer { width: min(560px, 94vw); z-index: 55; }
-    .txn-list-scope { margin-top: 4px; max-width: 72ch; line-height: 1.45; }
+    .txn-list-scope[hidden] { display: none !important; }
     #txnDetailBody .txn-detail-panel { display: flex; flex-direction: column; gap: 22px; padding: 4px 2px 16px; }
     #txnDetailBody .txn-detail-panel h3 { font-size: 12px; font-weight: 650; margin: 0 0 10px; }
     #txnDetailBody .txn-detail-description { font-size: 13px; line-height: 1.55; word-break: break-word; margin: 0 0 12px; color: var(--bcn-ink); }
@@ -245,7 +245,7 @@
     .cc-chip--split { background: rgba(37,99,235,.12); border-color: var(--bcn-accent); }
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
-  <link rel="stylesheet" href="./transactions-workspace.css?v=bb495a18e059" />
+  <link rel="stylesheet" href="./transactions-workspace.css?v=513eb9eac98c" />
   <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -387,36 +387,39 @@
           <dialog id="accountInfo" class="txn-account-dialog"><form method="dialog"><button class="bcn-btn">Close</button></form><div id="workspaceSummary"></div></dialog>
           <div class="cc-kpis" id="codeKpis" hidden></div>
           <div class="cc-card cc-card--grow transaction-list">
-            <div class="cc-card-head">
-              <div>
-                <div class="cc-title" id="codeTitle">Transactions</div>
-                <div class="cc-sub" id="codeSub">Choose an account and dates above</div>
-                <div class="cc-note txn-list-scope" id="txnListScope" role="status"></div>
-                <button class="bcn-btn bcn-btn--ghost" id="codeShowRemoved" type="button" hidden></button>
-                <div class="cc-note" id="codeStatus" role="status"></div>
-                <div class="cc-note txn-freshness" id="codeFreshness" aria-live="polite"></div>
+            <div class="cc-card-head txn-card-head">
+              <div class="txn-card-head__row">
+                <div class="txn-card-head__title">
+                  <div class="cc-title" id="codeTitle">Transactions</div>
+                  <div class="cc-sub" id="codeSub">Choose an account and dates above</div>
+                  <div class="txn-card-head__meta">
+                    <span class="cc-note txn-list-scope" id="txnListScope" role="status" hidden></span>
+                    <span class="cc-note" id="codeStatus" role="status"></span>
+                    <span class="cc-note txn-freshness" id="codeFreshness" aria-live="polite"></span>
+                    <button class="bcn-btn bcn-btn--ghost" id="codeShowRemoved" type="button" hidden></button>
+                  </div>
+                </div>
+                <div class="txn-card-head__actions">
+                  <input class="bcn-field bcn-field--mono" id="codeSearch" type="search"
+                         placeholder="Search merchant, account, location, cardholder, card…" />
+                  <select id="codeFilter" hidden aria-hidden="true" tabindex="-1">
+                    <option value="all">All rows</option>
+                    <option value="uncoded">Needs categorizing</option>
+                    <option value="pending">Pending at bank</option>
+                    <option value="treatment">Needs transaction type</option>
+                    <option value="entity">Needs entity</option>
+                    <option value="conflict">Card vs merchant</option>
+                    <option value="low">Low confidence</option>
+                    <option value="ai">AI-suggested</option>
+                    <option value="excluded">Excluded</option>
+                  </select>
+                  <button class="bcn-btn" id="btnFilterToggle" type="button" aria-expanded="false" aria-controls="codeFilterPanel">Filters</button>
+                  <button class="bcn-btn" id="btnDateBack" hidden>All activity in dates</button>
+                  <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from categorized rows</button><button class="bcn-btn" id="btnApplyRules">Apply saved rules</button></div></details>
+                  <button class="bcn-btn" id="btnAiCode" title="Ask Claude about uncategorized rows that have no suggestion yet, and retry any that failed">Prepare coding</button>
+                </div>
               </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                <input class="bcn-field bcn-field--mono" id="codeSearch" type="search"
-                       placeholder="Search merchant, account, location, cardholder, card…"
-                       style="width:340px" />
-                <select id="codeFilter" hidden aria-hidden="true" tabindex="-1">
-                  <option value="all">All rows</option>
-                  <option value="uncoded">Needs categorizing</option>
-                  <option value="pending">Pending at bank</option>
-                  <option value="treatment">Needs transaction type</option>
-                  <option value="entity">Needs entity</option>
-                  <option value="conflict">Card vs merchant</option>
-                  <option value="low">Low confidence</option>
-                  <option value="ai">AI-suggested</option>
-                  <option value="excluded">Excluded</option>
-                </select>
-                <div id="codeFilterSegments" class="txn-filters" role="group" aria-label="Transaction filters"></div>
-                <button class="bcn-btn" id="btnFilterToggle" type="button" aria-expanded="false" aria-controls="codeFilterPanel">Filters</button>
-                <button class="bcn-btn" id="btnDateBack" hidden>All activity in dates</button>
-                <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from categorized rows</button><button class="bcn-btn" id="btnApplyRules">Apply saved rules</button></div></details>
-                <button class="bcn-btn" id="btnAiCode" title="Ask Claude about uncategorized rows that have no suggestion yet, and retry any that failed">Prepare coding</button>
-              </div>
+              <div id="codeFilterSegments" class="txn-filters txn-card-head__queues" role="group" aria-label="Transaction filters"></div>
             </div>
             <!-- Combinable filters over the WHOLE loaded set. The controls are
                  written once here and only their option lists are refreshed:
@@ -2028,6 +2031,7 @@
       el('tblCoding').innerHTML = `<tr><td class="cc-empty">${esc(dateBrowse?(dateError || 'Loading transactions…'):'Connect an account or import a statement to begin.')}</td></tr>`;
       el('codeKpis').innerHTML = '';
       el('txnListScope').textContent = '';
+      el('txnListScope').hidden = true;
       el('codeBulk').hidden = true;
       renderTxnDetailDrawer();
       return;
@@ -2036,9 +2040,13 @@
     el('codeTitle').textContent = batchSource()?.display_name || 'Activity';
     const inDates = reviewDateRows().length;
     const inImport = dateBrowse ? inDates : state.txns.length;
-    el('codeSub').textContent = dateBrowse
-      ? `${inDates} transaction${inDates === 1 ? '' : 's'} in selected dates`
-      : `${inDates} in selected dates · ${inImport} in this import (Journal entry tab) · ${state.batch.label || 'Import'}`;
+    if (dateBrowse) {
+      el('codeSub').textContent = `${inDates} transaction${inDates === 1 ? '' : 's'} in selected dates`;
+    } else if (inImport !== inDates) {
+      el('codeSub').textContent = `${inDates} in dates · ${inImport} in import · ${state.batch.label || 'Import'}`;
+    } else {
+      el('codeSub').textContent = `${inDates} in date range · ${state.batch.label || 'Import'}`;
+    }
     if (state.codingBusy) el('codeSub').textContent += ' · Coding in progress';
     el('codeStatus').textContent=prepareProgress || (state.codingBusy?'Working…':'');
 
@@ -2061,8 +2069,20 @@
     const rows = filteredRows;
     const queueLabel = TF.describe(filters, filterCtx()).find((c) => c.key === 'status')?.label
       || (filters.status === 'uncoded' ? 'Needs categorizing' : filters.status === 'all' ? 'All rows' : filterCtx().statusLabel(filters.status));
-    el('txnListScope').textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} in this table · ${inDates} loaded for these dates · ${inImport} in the import journal`;
-    el('txnListScope').title = `The table respects your queue (“${queueLabel}”) and any filters. Journal entry preview always uses the full import (${inImport} rows).`;
+    const scopeEl = el('txnListScope');
+    const scopeBits = [];
+    if (rows.length !== inDates) scopeBits.push(`${rows.length} shown — ${queueLabel}`);
+    if (!dateBrowse && inImport !== inDates) scopeBits.push(`Journal entry tab uses all ${inImport} import rows`);
+    if (scopeBits.length) {
+      scopeEl.textContent = scopeBits.join(' · ');
+      scopeEl.hidden = false;
+      scopeEl.title = rows.length !== inDates
+        ? `Table count reflects your queue and filters. ${inDates} rows match the date range.`
+        : `Your date filter shows ${inDates} rows; the import holds ${inImport}.`;
+    } else {
+      scopeEl.textContent = '';
+      scopeEl.hidden = true;
+    }
 
     // Selecting rows that a filter has since hidden would apply a bulk change
     // to things nobody can see, so the selection is trimmed to what is shown.
@@ -2529,7 +2549,11 @@
       ? `Filters apply to all ${all.length} loaded transaction${all.length === 1 ? '' : 's'} for this account and period, not only the rows on screen.`
       : 'No transactions are loaded for this account and period yet.';
     if (!chips.length) { el('filterChips').innerHTML = ''; el('filterCount').textContent = ''; return; }
-    el('filterCount').textContent = `Showing ${shown} of ${all.length} in selected dates (table only — not the import journal)`;
+    const importN = dateBrowse ? all.length : (state.txns?.length || all.length);
+    el('filterCount').textContent = `Showing ${shown} of ${all.length} in dates`;
+    el('filterCount').title = importN !== all.length
+      ? `${importN} rows in the full import — Journal entry uses those, not only the date filter.`
+      : '';
     el('filterChips').innerHTML = chips.map((chip) =>
       `<button type="button" class="txn-chip" data-clear-filter="${esc(chip.key)}"
         aria-label="Remove filter: ${esc(chip.label)}">${esc(chip.label)}<span aria-hidden="true">×</span></button>`).join('');
