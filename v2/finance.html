@@ -13,6 +13,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="nav-config.js"></script>
   <script src="silo-chrome.js"></script>
+  <script src="home-nav.js"></script>
   <style>
     :root { color-scheme: light; }
 
@@ -150,7 +151,7 @@
         <span class="fin-ready-go">Open On Deck →</span>
       </a>
 
-      <div class="fin-sections">
+      <div class="fin-sections" id="finSections">
 
         <div class="fin-card" data-nav-profile="grandfathered" data-departments="exec,finance">
           <div class="fin-card-head"><h2>Receivables</h2></div>
@@ -269,6 +270,15 @@
     if (title) title.textContent = company?.title || 'Company home';
     if (sub) sub.textContent = 'Choose a tool from the sidebar or below.';
 
+    // A standard workspace's cards are its sidebar, so Home can never offer
+    // what the sidebar hides or miss what it shows (v2/home-nav.js). The
+    // grandfathered cards above stay as they are for Baseballism.
+    const nav = document.getElementById('siloSbNav');
+    const container = document.getElementById('finSections');
+    if (window.SiloHome && nav && container) {
+      window.SiloHome.mirrorSidebar(nav, container);
+      return;
+    }
     document.querySelectorAll('[data-nav-profile="grandfathered"]').forEach((el) => el.remove());
     document.querySelectorAll('.fin-card').forEach((card) => {
       if (!card.querySelector('.fin-link')) card.remove();
