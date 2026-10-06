@@ -148,13 +148,58 @@ await test('a run that lands on a different company is refused and fails', async
 
 await test('a company whose run errors fails the night; a catalog error stops it', async () => {
   const { query } = fakeQuery({
-    catalog: [],
+    catalog: [{ report_title: 'Daily Sales', check_name: 'Canonical', tolerance: '0', pins: 1, stale: false }],
     runners: [{ company_id: A, title: 'Acme', user_id: U1, membership_role: 'admin' }],
     runs: { [U1]: { error: 'HTTP 500: boom' } },
   });
   const out = await runNightly({ query });
   assert.equal(out.failures, 1);
   await assert.rejects(runNightly({ query: async () => ({ error: 'HTTP 401' }) }), /catalog/);
+});
+
+const CATALOG2 = [
+  { report_title: 'Daily Sales', check_name: 'Canonical', tolerance: '0', pins: 1, stale: false },
+  { report_title: 'Open POs', check_name: 'Count', tolerance: '0', pins: 0, stale: false },
+];
+const ok = (title, name) => ({ company_id: A, report_title: title, check_name: name, left_value: '1', right_value: '1', verdict: 'OK' });
+const one = (rows) => fakeQuery({
+  catalog: CATALOG2,
+  runners: [{ company_id: A, title: 'Acme', user_id: U1, membership_role: 'owner_admin' }],
+  runs: { [U1]: { rows } },
+});
+
+await test('coverage: a run that returns NO rows fails, every check MISSING', async () => {
+  const out = await runNightly({ query: one([]).query });
+  assert.equal(out.failures, 2);
+  assert.equal(out.companies[0].status, 'failing');
+  assert.deepEqual(out.companies[0].counts, { MISSING: 2 });
+  assert.match(summaryMarkdown(out), /\| Acme \| MISSING \| Open POs \| Count \|/);
+});
+
+await test('coverage: a partial result set fails on the check it left out', async () => {
+  const out = await runNightly({ query: one([ok('Daily Sales', 'Canonical')]).query });
+  assert.equal(out.failures, 1);
+  assert.deepEqual(out.companies[0].counts, { OK: 1, MISSING: 1 });
+});
+
+await test('coverage: a duplicated or uncatalogued row is UNEXPECTED and fails', async () => {
+  const dup = await runNightly({ query: one([ok('Daily Sales', 'Canonical'), ok('Daily Sales', 'Canonical'), ok('Open POs', 'Count')]).query });
+  assert.equal(dup.failures, 1);
+  assert.equal(dup.companies[0].counts.UNEXPECTED, 1);
+  const extra = await runNightly({ query: one([ok('Daily Sales', 'Canonical'), ok('Open POs', 'Count'), ok('Ghost', 'Not in catalog')]).query });
+  assert.equal(extra.failures, 1);
+  assert.equal(extra.companies[0].counts.UNEXPECTED, 1);
+});
+
+await test('coverage: a complete run passes', async () => {
+  const out = await runNightly({ query: one([ok('Daily Sales', 'Canonical'), ok('Open POs', 'Count')]).query });
+  assert.equal(out.failures, 0);
+  assert.equal(out.companies[0].status, 'ok');
+});
+
+await test('an empty catalog stops the run instead of certifying nothing', async () => {
+  const { query } = fakeQuery({ catalog: [], runners: [], runs: {} });
+  await assert.rejects(runNightly({ query }), /catalog is empty/);
 });
 
 await test('the workflow runs the script nightly with the Management API token, read-only', () => {

@@ -32,8 +32,11 @@
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Verdicts that turn the run red. NO DATA does not: a company with no
- * source rows yet (a new tenant before its first sync) is not a defect. */
-export const FAILING = new Set(['MISMATCH', 'STALE', 'ERROR']);
+ * source rows yet (a new tenant before its first sync) is not a defect.
+ * MISSING / UNEXPECTED are COVERAGE failures: a check the catalog lists that
+ * the company's run never returned, or a row the catalog does not know. Both
+ * mean the run did not reconcile what it claims to have reconciled. */
+export const FAILING = new Set(['MISMATCH', 'STALE', 'ERROR', 'MISSING', 'UNEXPECTED']);
 
 /** One row per enabled tie-out, with whether its pinned fingerprint still
  * matches the report it pins. A pinned report that no longer exists is
@@ -127,7 +130,10 @@ const key = (title, name) => `${title}\u0000${name}`;
 export async function runNightly({ query, log = () => {} }) {
   const cat = await query(CATALOG_SQL);
   if (cat.error) throw new Error(`could not read the tie-out catalog: ${cat.error}`);
-  const meta = new Map((cat.rows || []).map((m) => [key(m.report_title, m.check_name), m]));
+  // An empty catalog is not "nothing to fail": every SILO report must have a
+  // tie-out, so no enabled checks means the run would certify nothing.
+  if (!Array.isArray(cat.rows) || !cat.rows.length) throw new Error('the tie-out catalog is empty: no enabled checks to run');
+  const meta = new Map(cat.rows.map((m) => [key(m.report_title, m.check_name), m]));
 
   const run = await query(RUNNERS_SQL);
   if (run.error) throw new Error(`could not list companies: ${run.error}`);
@@ -149,6 +155,7 @@ export async function runNightly({ query, log = () => {} }) {
       continue;
     }
     const rows = Array.isArray(res.rows) ? res.rows : [];
+    if (!Array.isArray(res.rows)) log(`- ${c.title}: run returned no row set`);
     // The impersonation must actually have landed on THIS company; anything
     // else (a profile that moved between listing and running) would grade
     // one company's numbers under another's name.
@@ -159,10 +166,21 @@ export async function runNightly({ query, log = () => {} }) {
       log(`- ${c.title}: ran under the wrong company (${landed}); not graded`);
       continue;
     }
+    // Coverage: the company's run must return every catalogued check exactly
+    // once. Zero rows, a partial set (RLS hiding a report, a regressed runner)
+    // or a row the catalog does not know are failures, never a quiet pass.
+    const seen = new Map();
     const results = rows.map((row) => {
-      const m = meta.get(key(row.report_title, row.check_name));
-      return { ...row, final: classify(row, m) };
+      const k = key(row.report_title, row.check_name);
+      seen.set(k, (seen.get(k) || 0) + 1);
+      const m = meta.get(k);
+      return { ...row, final: m ? classify(row, m) : 'UNEXPECTED' };
     });
+    for (const [k, m] of meta) {
+      const n = seen.get(k) || 0;
+      if (n === 0) results.push({ company_id: c.company_id, report_title: m.report_title, check_name: m.check_name, left_value: null, right_value: null, verdict: 'not returned', final: 'MISSING' });
+      else if (n > 1) results.push({ company_id: c.company_id, report_title: m.report_title, check_name: m.check_name, left_value: null, right_value: null, verdict: `returned ${n} times`, final: 'UNEXPECTED' });
+    }
     const bad = results.filter((x) => FAILING.has(x.final));
     failures += bad.length;
     const counts = {};
@@ -182,10 +200,10 @@ export function summaryMarkdown({ companies, failures, catalogStale }) {
   const lines = ['## SILO report tie-outs', ''];
   lines.push(failures ? `**${failures} failing check result(s).**` : '**All checked companies pass.**');
   if (catalogStale) lines.push('', `${catalogStale} check(s) pin a report that has changed since the check was written (STALE): the check needs regenerating against the report's current SQL.`);
-  lines.push('', '| Company | Status | OK | NO DATA | MISMATCH | STALE | ERROR |', '|---|---|---|---|---|---|---|');
+  lines.push('', '| Company | Status | OK | NO DATA | MISMATCH | STALE | ERROR | MISSING | UNEXPECTED |', '|---|---|---|---|---|---|---|---|---|');
   for (const c of companies) {
     const n = (k) => (c.counts && c.counts[k]) || 0;
-    lines.push(`| ${c.title} | ${c.status}${c.reason ? ` (${c.reason})` : ''} | ${n('OK')} | ${n('NO DATA')} | ${n('MISMATCH')} | ${n('STALE')} | ${n('ERROR')} |`);
+    lines.push(`| ${c.title} | ${c.status}${c.reason ? ` (${c.reason})` : ''} | ${n('OK')} | ${n('NO DATA')} | ${n('MISMATCH')} | ${n('STALE')} | ${n('ERROR')} | ${n('MISSING')} | ${n('UNEXPECTED')} |`);
   }
   const bad = companies.flatMap((c) => (c.results || []).filter((x) => FAILING.has(x.final)).map((x) => ({ c, x })));
   if (bad.length) {

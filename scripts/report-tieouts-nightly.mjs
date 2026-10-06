@@ -13,7 +13,7 @@
  */
 import { appendFileSync } from 'node:fs';
 import { queryWithRetry, makePacer, DEFAULT_MIN_GAP_MS } from './lib/management-api.mjs';
-import { runNightly, summaryMarkdown } from './lib/report-tieouts-nightly.mjs';
+import { runNightly, summaryMarkdown, FAILING } from './lib/report-tieouts-nightly.mjs';
 
 const TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
 const REF = process.env.SUPABASE_PROJECT_REF || 'mkquclffrvlzyecnabyf';
@@ -34,7 +34,7 @@ if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMM
 
 for (const c of result.companies) {
   for (const x of c.results || []) {
-    if (['MISMATCH', 'STALE', 'ERROR'].includes(x.final)) {
+    if (FAILING.has(x.final)) {
       console.log(`::error::${c.title}: ${x.final} — ${x.report_title} :: ${x.check_name}`);
     }
   }
