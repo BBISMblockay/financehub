@@ -91,7 +91,7 @@ test('the sidebar carries ONE settings destination, not one row per tab', () => 
 });
 
 test('Silo Admin needs the platform grant — a role, or an unresolved one, is not enough', () => {
-  const ids = (role, grants) => nav.navSectionsForProfile('standard', 'exec', role, grants)
+  const ids = (role, grants) => nav.navSectionsForProfile('grandfathered', 'exec', role, grants)
     .flatMap((s) => s.items.map((i) => i.id));
 
   // The state every deep link starts in: department and role unresolved.
@@ -102,10 +102,16 @@ test('Silo Admin needs the platform grant — a role, or an unresolved one, is n
   assert.ok(!ids('admin', new Set()).includes('platform/admin'));
   // Only the resolved grant reveals it.
   assert.ok(ids('user', new Set(['platform/admin'])).includes('platform/admin'));
-  // ...and it must survive the standard-profile section filter, which DROPS
-  // any section missing from STANDARD_SECTION_ORDER.
-  const sections = nav.navSectionsForProfile('standard', 'exec', 'user', new Set(['platform/admin']));
-  assert.ok(sections.some((s) => s.section === 'Platform'));
+  assert.ok(nav.navSectionsForProfile('grandfathered', 'exec', 'user', new Set(['platform/admin']))
+    .some((s) => s.section === 'Platform'));
+});
+
+test('a STANDARD workspace never shows Platform or Silo Admin, grant or not', () => {
+  for (const role of [null, 'owner', 'owner_admin', 'admin', 'user']) {
+    const sections = nav.navSectionsForProfile('standard', 'exec', role, new Set(['platform/admin']));
+    assert.ok(!sections.some((s) => s.section === 'Platform'), `role ${role}`);
+    assert.ok(!sections.flatMap((s) => s.items.map((i) => i.id)).includes('platform/admin'), `role ${role}`);
+  }
 });
 
 // Every tab page must actually MOUNT the strip, and announce itself with the

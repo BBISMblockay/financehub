@@ -352,7 +352,12 @@
     // in flight, and would flash a platform link at every user on every deep
     // link. The page and every RPC behind it re-check is_platform_admin()
     // server-side; this row only decides who DISCOVERS it.
-    { requiresGrant: true, grantTable: 'platform_admins', id: 'platform/admin', section: 'Platform', label: 'Silo Admin', href: '/v2/platform-admin.html', profiles: ['grandfathered', 'standard'] },
+    //
+    // Grandfathered (Baseballism) only, and absent from STANDARD_SECTION_ORDER
+    // too (Blake, 2026-10-06): a customer workspace's menu never carries the
+    // platform's own controls, even for a platform admin who is a member
+    // there. Silo Admin is run from Baseballism; the URL still works.
+    { requiresGrant: true, grantTable: 'platform_admins', id: 'platform/admin', section: 'Platform', label: 'Silo Admin', href: '/v2/platform-admin.html', profiles: ['grandfathered'] },
 
     // Billing has no sidebar row of its own by design -- it is the Billing tab
     // of Workspace settings above. Changing the plan needs owner_admin, which
@@ -365,7 +370,7 @@
   // appends leftovers; this one does not) -- 'Sales' and 'Marketing' are
   // Sales remains listed as a safe landing place for a future canonical
   // dashboard/page, but no standalone Sales report is exposed today.
-  const STANDARD_SECTION_ORDER = ['Start', 'Insights', 'Finance', 'Marketing', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Settings', 'Platform'];
+  const STANDARD_SECTION_ORDER = ['Start', 'Insights', 'Finance', 'Marketing', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Settings'];
 
   /**
    * @param {'grandfathered' | 'standard'} profile
