@@ -622,18 +622,24 @@ jobs:
             echo "::error::the suite passes when the Shopify guide drops read_all_orders"; exit 1
           fi
 
-      # Sync now: one Google Ads / GA4 connection through the nightly's own
-      # core, authorized by the caller's RLS read of the row.
+      # Sync now: one Google Ads / GA4 / Meta connection through the nightly's
+      # own core, authorized by the caller's RLS read of the row.
       - name: Ad-platform Sync now (handler over the real sync core)
         run: |
           set -u
           node scripts/tests/ad-platform-sync-run.test.mjs
           for m in no-rls-check no-account-check no-clamp job-not-failed \
-                   unchecked-token unchecked-meta unchecked-job-success silent-unrecorded; do
+                   unchecked-token unchecked-meta unchecked-job-success silent-unrecorded \
+                   no-act-prefix google-env-for-meta; do
             if AD_SYNC_RUN_MUTATION="$m" node scripts/tests/ad-platform-sync-run.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi
           done
+
+      # A new Meta connection's first-year history import: only flagged
+      # connections, never on the 2-hourly refresh, bounded retries.
+      - name: Meta history import on a new connection
+        run: node scripts/tests/meta-history-backfill.test.mjs
 
       - name: Each customer onboarding guard, removed one at a time, must break it
         run: |
