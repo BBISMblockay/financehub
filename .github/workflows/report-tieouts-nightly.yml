@@ -1,0 +1,51 @@
+name: Report tie-outs
+
+# Every SILO report's reconciliation checks (silo_report_tieouts), run for
+# EVERY company as that company, every day. A red run emails the repo owner,
+# the same reporting the drift check and the freshness alarm use.
+#
+# Fails on MISMATCH (the report and its independent route disagree), STALE
+# (the report changed after its check was written, so the check has stopped
+# testing it) and ERROR. NO DATA (no source rows yet) does not fail.
+#
+# Read-only: each company's checks run impersonated as one of its own active
+# admins inside a transaction that is ROLLED BACK. See
+# scripts/lib/report-tieouts-nightly.mjs.
+#
+# 13:17 UTC: after the Shopify nightly (08:30), the ad platforms (10:30) and
+# Redo (10:45), so the checks read the day's data, and clear of the drift
+# check at 12:00 (the Management API is rate-limited).
+
+on:
+  schedule:
+    - cron: "17 13 * * *"
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: Supabase project ref (defaults to the Silo production project)
+        required: false
+        default: mkquclffrvlzyecnabyf
+
+permissions:
+  contents: read
+
+concurrency:
+  group: report-tieouts
+  cancel-in-progress: false
+
+jobs:
+  tieouts:
+    name: SILO reports reconcile
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ github.event.inputs.project_ref || 'mkquclffrvlzyecnabyf' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Bare checkout: the runner uses only node:fs and fetch.
+      - name: Run every company's tie-outs
+        run: node scripts/report-tieouts-nightly.mjs

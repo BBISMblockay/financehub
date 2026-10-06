@@ -61,6 +61,8 @@ on:
       # Redo marketing reporting: the sync driver, its workflow and the
       # migration the database suite executes.
       - 'scripts/redo-marketing-sync.mjs'
+      - 'scripts/report-tieouts-nightly.mjs'
+      - '.github/workflows/report-tieouts-nightly.yml'
       - '.github/workflows/redo-marketing-sync.yml'
       - 'supabase/migrations/*redo_marketing_reporting.sql'
       - '.github/workflows/mailroom-backfill.yml'
@@ -665,6 +667,13 @@ jobs:
       # 429 and reported them as "could not run". Pins the retry shape.
       - name: Remote schema verify survives the API rate limit
         run: node scripts/tests/management-api.test.mjs
+
+      # Nightly SILO report tie-outs: a check whose pinned report changed is
+      # STALE (never NO DATA), a blank side against a real number is a
+      # MISMATCH, each company runs as its own admin inside a rolled-back
+      # transaction, and only a bare uuid reaches the SQL.
+      - name: Nightly report tie-outs classify and impersonate safely
+        run: node scripts/tests/report-tieouts-nightly.test.mjs
 
   plaid-typecheck:
     name: Plaid Edge Function typecheck
