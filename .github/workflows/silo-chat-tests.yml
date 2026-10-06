@@ -37,6 +37,9 @@ on:
     branches: [main]
     paths: &prompt_paths
       - 'supabase/functions/silo-chat/**'
+      # silo-chat ships a copy of this file (report-params-lib.mjs); the copy
+      # check must run when the original changes.
+      - 'v3/js/report-params.js'
       - '.github/workflows/silo-chat-tests.yml'
   pull_request:
     paths: *prompt_paths
@@ -75,6 +78,12 @@ jobs:
       # Pure functions: what a statement's evidence scope is derived to be,
       # from the two traced 2026-09-16 failures' real SQL. No model, no
       # database, no network.
+      # SILO reports as the first source: the prompt list, report lookup,
+      # typed parameters, and that report-params-lib.mjs is still a byte-exact
+      # copy of v3/js/report-params.js. Pure, no network.
+      - name: Run SILO report assertions
+        run: node supabase/functions/silo-chat/silo-reports.test.mjs
+
       - name: Run evidence-scope assertions
         run: node supabase/functions/silo-chat/evidence-scope.test.mjs
 

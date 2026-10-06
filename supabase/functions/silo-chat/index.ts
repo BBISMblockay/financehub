@@ -177,6 +177,8 @@ import {
   retryDecision,
   sumUsage,
 } from './provider-lib.mjs';
+import { buildReportsSection, normalizeReports, prepareReportRun, resolveReport, shapeReportResult } from './silo-reports-lib.mjs';
+import { SiloReportParams } from './report-params-lib.mjs';
 
 const TOOLS = [
   {
@@ -188,6 +190,21 @@ const TOOLS = [
         query: { type: 'string', description: 'A single SELECT or WITH statement, no semicolon.' },
       },
       required: ['query'],
+    },
+  },
+  {
+    name: 'run_silo_report',
+    description: "Run one of SILO's own reports (listed under \"SILO reports\" in your instructions) for the asking user's company and get its rows. These are the definitions SILO stands behind: the same queries the Reports page and dashboards run, each reconciled by an independent check. Use this FIRST whenever a listed report produces the figure the question asks for; use run_sql only for what no report covers. Returns { silo_report, results }, where each result carries the same evidence_scope as run_sql. Pass only the parameters the report declares; omitted ones use the report's default.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        report: { type: 'string', description: 'The report id from the SILO reports list (its exact title also works).' },
+        parameters: {
+          type: 'object',
+          description: 'Values for the report\'s declared parameters, keyed by parameter key, e.g. {"date_from": "2026-09-01", "date_to": "today-1d"}.',
+        },
+      },
+      required: ['report'],
     },
   },
   {
@@ -1379,6 +1396,17 @@ Deno.serve(withKeepAlive(async (req: Request) => {
       .select('relname, relkind, columns, description, keywords')
       .eq('is_hidden', false)
       .order('relname');
+    // SILO's own report definitions, read once per request for the same
+    // byte-identical-prompt reason. A failed read yields no list and no
+    // section, so the model is simply not offered them -- never an error.
+    const { data: siloReportRows } = await callerClient
+      .from('silo_chat_saved_reports')
+      .select('id, title, description, parameters, queries_run')
+      .eq('source', 'system')
+      .is('company_entity_id', null)
+      .is('archived_at', null)
+      .order('title');
+    const siloReports = normalizeReports(siloReportRows);
     // Concept capability is now an EXPLICIT mode, not inferred intent.
     // Previously the allowlist alone enabled it, so every question a tester
     // asked carried the concept tools and prompt block -- and a text
@@ -1454,6 +1482,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
     const systemPrompt = buildSystemBlocks({
       notes: (notes ?? []) as Note[],
       schemaSection: schemaSlice.text,
+      reportsSection: buildReportsSection(siloReports),
       guidance,
       conceptsEnabled,
       // A caller who has not started the workflow is told it exists
@@ -1464,7 +1493,9 @@ Deno.serve(withKeepAlive(async (req: Request) => {
       // ordinary question's prompt.
       showConceptHint: suggestConceptWorkflow,
     });
-    const tools = conceptsEnabled ? [...TOOLS, ...PRODUCT_CONCEPT_TOOLS] : TOOLS;
+    // run_silo_report is offered only when there is a report to run with it.
+    const baseTools = siloReports.length ? TOOLS : TOOLS.filter((t) => t.name !== 'run_silo_report');
+    const tools = conceptsEnabled ? [...baseTools, ...PRODUCT_CONCEPT_TOOLS] : baseTools;
 
     queriesRun = [];
     let sawTimeout = false;
@@ -1476,6 +1507,12 @@ Deno.serve(withKeepAlive(async (req: Request) => {
     // Per-query outcomes, for the audit row. Never result rows -- see
     // buildDiagnostics.
     const queryLog: Array<Record<string, unknown>> = [];
+    // Which SILO reports this answer drew on, for the reply and the page.
+    // One entry per distinct report AND parameter set (an August-vs-September
+    // comparison runs the same report twice and both feed the answer), and
+    // only for a run that returned something: a report whose every query
+    // failed is not a source.
+    const siloReportsUsed: Array<{ id: string; title: string; parameters: Record<string, unknown>; status: 'complete' | 'partial' }> = [];
     // Which relations the model was given full cards for up front (keyword
     // ranking on the opening question) versus which it had to ask for
     // mid-investigation. A mismatch between the two IS the diagnosis when an
@@ -1625,6 +1662,9 @@ Deno.serve(withKeepAlive(async (req: Request) => {
       return reply({
         answer,
         queries_run: queriesRun,
+        // The SILO reports the answer ran, so the page can say where the
+        // figures came from. Absent when none were used.
+        ...(siloReportsUsed.length ? { silo_reports_used: siloReportsUsed } : {}),
         // Customer-priced, settled cost of THIS answer (or why there is none).
         ai_credit: aiCredit,
         // Only when something was flagged. A consumer that wants to render the
@@ -1668,6 +1708,75 @@ Deno.serve(withKeepAlive(async (req: Request) => {
     // Rounds actually consumed, so the audit row reports the real number
     // when a deadline stop cuts the loop short of MAX_TOOL_ROUNDS.
     let roundsUsed = 0;
+
+    // ONE way a statement is executed, scoped and logged, shared by run_sql
+    // and run_silo_report so a report's rows carry the same evidence_scope and
+    // the same audit entry as anything else. `query` is what the scope is
+    // derived from; the value-identical fast shape (query-shape-lib.mjs) is
+    // what runs AND what is stored, so a saved report re-running it gets the
+    // fast shape too. `extra` is merged into the audit entry.
+    // Captured while callerClient is known non-null, so the closure keeps that.
+    const queryClient = callerClient;
+    const runReadonly = async (query: string, extra: Record<string, unknown> = {}) => {
+      const { sql: executed, rewrites } = rewriteSlowShapes(query);
+      queriesRun.push(executed);
+      const resultId = `R${queriesRun.length}`;
+      const startedQueryAt = Date.now();
+      try {
+        const { data: rows, error } = await queryClient.rpc('chat_run_readonly_query', { query: executed });
+        if (error) throw new Error(error.message);
+        // The rows no longer travel alone. What they are -- and are not --
+        // restricted to is derived here and returned WITH them, because by
+        // the time the answer is written the model is looking at a dozen
+        // anonymous arrays and cannot tell which was all-platform and
+        // which was per-platform. That is not a hypothetical: it is the
+        // confirmed cause of the 2026-09-16 mislabelling.
+        // Provenance is read BEFORE the harvest, or a statement would
+        // source its own literals from its own result and nothing would
+        // ever be unsourced.
+        const content = renderQueryResult(query, rows, catalogIndex, { resultId, knownDates });
+        harvestDates(rows);
+        queryLog.push({
+          result_id: resultId,
+          round: roundsUsed,
+          sql: query,
+          ...(rewrites.length ? { executed_sql: executed, rewrites } : {}),
+          ...extra,
+          ok: true,
+          row_count: Array.isArray(rows) ? rows.length : (rows == null ? 0 : 1),
+          ms: Date.now() - startedQueryAt,
+          ...(relationsInStatement(query).length
+            ? {
+                scope: describeEvidenceScope(query, catalogIndex, {
+                  resultId,
+                  knownDates,
+                  rowCount: Array.isArray(rows) ? rows.length : (rows == null ? 0 : 1),
+                }),
+              }
+            : {}),
+        });
+        return { ok: true, resultId, content };
+      } catch (err) {
+        const rawMessage = String((err as Error)?.message || err);
+        const content = `Error: ${annotateColumnError(rawMessage, query, catalogIndex)}`;
+        if (/statement timeout/i.test(content)) sawTimeout = true;
+        if (CORRECTABLE_QUERY_ERROR.test(rawMessage)) lastRoundHadCorrectableError = true;
+        queryLog.push({
+          result_id: resultId,
+          // Which round a statement ran in. Absent until now, and its
+          // absence is what made the Sonic trace ambiguous about whether
+          // the failed spend query shared a round with a successful one.
+          round: roundsUsed,
+          sql: query,
+          ...(rewrites.length ? { executed_sql: executed, rewrites } : {}),
+          ...extra,
+          ok: false,
+          ms: Date.now() - startedQueryAt,
+          error: rawMessage,
+        });
+        return { ok: false, resultId, content };
+      }
+    };
 
     // The part of the answer already written before an output-length cutoff.
     //
@@ -2368,66 +2477,48 @@ Deno.serve(withKeepAlive(async (req: Request) => {
               budget: `${MAX_DESCRIBE_CALLS_PER_REQUEST - describeCallsUsed} describe_relations call(s) left on this question`,
             });
           }
-        } else {
-          // `query` is what the model wrote and is what its evidence scope is
-          // derived from; `executed` is the value-identical fast shape (see
-          // query-shape-lib.mjs) and is what runs AND what is stored, so a
-          // saved report or dashboard re-running it gets the fast shape too.
-          const query = String(use.input?.query || '');
-          const { sql: executed, rewrites } = rewriteSlowShapes(query);
-          queriesRun.push(executed);
-          const resultId = `R${queriesRun.length}`;
-          const startedQueryAt = Date.now();
-          try {
-            const { data: rows, error } = await callerClient.rpc('chat_run_readonly_query', { query: executed });
-            if (error) throw new Error(error.message);
-            // The rows no longer travel alone. What they are -- and are not --
-            // restricted to is derived here and returned WITH them, because by
-            // the time the answer is written the model is looking at a dozen
-            // anonymous arrays and cannot tell which was all-platform and
-            // which was per-platform. That is not a hypothetical: it is the
-            // confirmed cause of the 2026-09-16 mislabelling.
-            // Provenance is read BEFORE the harvest, or a statement would
-            // source its own literals from its own result and nothing would
-            // ever be unsourced.
-            resultContent = renderQueryResult(query, rows, catalogIndex, { resultId, knownDates });
-            harvestDates(rows);
-            queryLog.push({
-              result_id: resultId,
-              round: roundsUsed,
-              sql: query,
-              ...(rewrites.length ? { executed_sql: executed, rewrites } : {}),
-              ok: true,
-              row_count: Array.isArray(rows) ? rows.length : (rows == null ? 0 : 1),
-              ms: Date.now() - startedQueryAt,
-              ...(relationsInStatement(query).length
-                ? {
-                    scope: describeEvidenceScope(query, catalogIndex, {
-                      resultId,
-                      knownDates,
-                      rowCount: Array.isArray(rows) ? rows.length : (rows == null ? 0 : 1),
-                    }),
-                  }
-                : {}),
-            });
-          } catch (err) {
-            const rawMessage = String((err as Error)?.message || err);
-            resultContent = `Error: ${annotateColumnError(rawMessage, query, catalogIndex)}`;
-            if (/statement timeout/i.test(resultContent)) sawTimeout = true;
-            if (CORRECTABLE_QUERY_ERROR.test(rawMessage)) lastRoundHadCorrectableError = true;
-            queryLog.push({
-              result_id: resultId,
-              // Which round a statement ran in. Absent until now, and its
-              // absence is what made the Sonic trace ambiguous about whether
-              // the failed spend query shared a round with a successful one.
-              round: roundsUsed,
-              sql: query,
-              ...(rewrites.length ? { executed_sql: executed, rewrites } : {}),
-              ok: false,
-              ms: Date.now() - startedQueryAt,
-              error: rawMessage,
-            });
+        } else if (use.name === 'run_silo_report') {
+          // A SILO report, run exactly as defined: the stored SQL with the
+          // declared parameters substituted by the same typed rules the
+          // dashboards use (report-params-lib.mjs), under the caller's RLS.
+          const report = resolveReport(siloReports, use.input?.report);
+          if (!report) {
+            resultContent = `Error: there is no SILO report "${String(use.input?.report || '')}". `
+              + `Use an id from the SILO reports list: ${siloReports.map((r) => `${r.id} (${r.title})`).join(', ')}.`;
+            queryLog.push({ round: roundsUsed, silo_report: String(use.input?.report || ''), ok: false, error: 'unknown SILO report' });
+          } else {
+            const prepared = prepareReportRun(report, use.input?.parameters, SiloReportParams);
+            if ('error' in prepared) {
+              resultContent = `Error: ${prepared.error}`;
+              queryLog.push({ round: roundsUsed, silo_report_id: report.id, ok: false, error: prepared.error });
+            } else {
+              const results = [];
+              for (const sql of prepared.queries) {
+                const run = await runReadonly(sql, { silo_report_id: report.id });
+                results.push(run.ok
+                  ? shapeReportResult(run.resultId, run.content)
+                  : { result_id: run.resultId, error: run.content });
+              }
+              const succeeded = results.filter((r) => !('error' in r)).length;
+              const usedParams = prepared.parameters_used as Record<string, unknown>;
+              const sameRun = (u: { id: string; parameters: Record<string, unknown> }) =>
+                u.id === report.id && JSON.stringify(u.parameters) === JSON.stringify(usedParams);
+              if (succeeded && !siloReportsUsed.some(sameRun)) {
+                siloReportsUsed.push({
+                  id: report.id,
+                  title: report.title,
+                  parameters: usedParams,
+                  status: succeeded === results.length ? 'complete' : 'partial',
+                });
+              }
+              resultContent = JSON.stringify({
+                silo_report: { id: report.id, title: report.title, parameters_used: prepared.parameters_used },
+                results,
+              });
+            }
           }
+        } else {
+          resultContent = (await runReadonly(String(use.input?.query || ''))).content;
         }
         toolResults.push({ type: 'tool_result', tool_use_id: use.id, content: resultContent });
       }

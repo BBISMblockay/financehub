@@ -356,13 +356,14 @@ const MODULE_TEXT = { marketing: MARKETING_GUIDANCE, seo: SEO_GUIDANCE };
  *  @param {{
  *    notes?: Array<{ note: string, category?: string | null, created_by_name?: string | null,
  *                    effective_until?: string | null, is_expired?: boolean | null }>,
- *    schemaSection?: string, guidance?: string[], conceptsEnabled?: boolean,
+ *    schemaSection?: string, reportsSection?: string, guidance?: string[], conceptsEnabled?: boolean,
  *    showConceptHint?: boolean, now?: Date,
  *  }} [opts]
  *  @returns {{ core: string, request: string }} */
 function buildSystemParts({
   notes = [],
   schemaSection = '',
+  reportsSection = '',
   guidance = [],
   conceptsEnabled = false,
   showConceptHint = false,
@@ -409,7 +410,7 @@ function buildSystemParts({
 
   return {
     core: CORE_PROMPT,
-    request: (schemaSection + dateBlock + brandBlock + strategyBlock + notesBlock
+    request: (schemaSection + (reportsSection ? `\n\n${reportsSection}` : '') + dateBlock + brandBlock + strategyBlock + notesBlock
       + guidanceBlock + conceptBlock).replace(/^\n+/, ''),
   };
 }
