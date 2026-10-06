@@ -182,6 +182,12 @@
           <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[oklch(0.55_0.20_245)] via-[oklch(0.62_0.16_210)] to-[oklch(0.62_0.16_170)]"></div>
 
           <div id="status" class="hidden mb-5 rounded-xl border px-3.5 py-3 text-sm font-medium"></div>
+          <div id="resendRow" class="hidden -mt-3 mb-5">
+            <button id="btnResend" type="button"
+                    class="text-sm font-semibold text-[oklch(0.55_0.20_245)] hover:underline underline-offset-2 disabled:opacity-60">
+              Resend confirmation email
+            </button>
+          </div>
 
           <div id="authTabs" class="mb-6 flex rounded-xl bg-slate-100/80 p-1 ring-1 ring-slate-200/60">
             <button id="tabPassword" class="flex-1 rounded-lg px-3 py-2 text-sm font-semibold bg-white text-slate-900 shadow-sm transition-all duration-150">Password</button>
@@ -384,6 +390,46 @@
       function getInviteToken() { try { return sessionStorage.getItem(INVITE_KEY) || null; } catch { return null; } }
       function clearInviteToken() { try { sessionStorage.removeItem(INVITE_KEY); } catch {} }
 
+      // An emailed link that cannot be used (expired, already used, or opened
+      // by a mail scanner first) does not fail on Supabase's side alone: it
+      // redirects back HERE with the reason in the URL -- in the hash for the
+      // implicit flow, in the query for PKCE. The page used to ignore it, so
+      // the person saw a bare sign-in form for an account they could not sign
+      // in to ("Email not confirmed") and had no way to get a new link. Read
+      // once, before the Supabase client consumes the URL.
+      function readAuthLinkError(hash, search) {
+        const sources = [
+          new URLSearchParams(String(hash || "").replace(/^#/, "")),
+          new URLSearchParams(search || ""),
+        ];
+        for (const p of sources) {
+          const code = p.get("error_code") || p.get("error");
+          if (code) return { code, description: p.get("error_description") || "" };
+        }
+        return null;
+      }
+
+      // The same URL with the error removed, so a reload or a copied address
+      // does not repeat the message. Everything else in the query (next,
+      // invite) is kept: authCallbackUrl() needs `next` for a resent link to
+      // land back on company setup.
+      function withoutAuthLinkError(href) {
+        const url = new URL(href);
+        for (const k of ["error", "error_code", "error_description"]) url.searchParams.delete(k);
+        if (/(^|[#&])(error|error_code|error_description)=/.test(url.hash)) url.hash = "";
+        return url.pathname + url.search + url.hash;
+      }
+
+      // Supabase's answer to a password sign-in for an account whose email
+      // was never confirmed. The code is what newer clients carry; the message
+      // is the fallback for older ones.
+      function isEmailNotConfirmed(err) {
+        if (!err) return false;
+        return err.code === "email_not_confirmed" || /email not confirmed/i.test(err.message || "");
+      }
+
+      const AUTH_LINK_ERROR = readAuthLinkError(window.location.hash, window.location.search);
+
       const statusEl = document.getElementById("status");
       const envInfo = document.getElementById("envInfo");
       const btnSignout = document.getElementById("btnSignout");
@@ -411,6 +457,15 @@
       function clearStatus() {
         statusEl.classList.add("hidden");
         statusEl.textContent = "";
+        document.getElementById("resendRow")?.classList.add("hidden");
+      }
+
+      // Shown under a status message wherever the way forward is a fresh
+      // confirmation link. The button reads the Email field, so prefill it.
+      function offerResend(email) {
+        const email1 = document.getElementById("email1");
+        if (email1 && email) email1.value = email;
+        document.getElementById("resendRow")?.classList.remove("hidden");
       }
 
       function setLoading(btn, loading, textWhenNotLoading) {
@@ -778,6 +833,25 @@
 
       async function bootstrap() {
         const { data, error } = await supabaseClient.auth.getSession();
+
+        // A dead email link, and nobody signed in: say what happened and how
+        // to get a new link, instead of an unexplained sign-in form. Checked
+        // before the getSession error, which can be that same link error. A
+        // visitor who IS signed in falls through and is routed as usual -- an
+        // old link opened again by someone already in has nothing to fix.
+        if (AUTH_LINK_ERROR && !data?.session?.user) {
+          try { history.replaceState(null, "", withoutAuthLinkError(window.location.href)); } catch {}
+          showStatus(
+            "That email link has expired or was already used. " +
+            "If you already confirmed your email, sign in below. " +
+            "Still waiting to confirm? Enter your email and resend the confirmation. " +
+            "Resetting your password? Use \"Forgot password?\" again.",
+            "error"
+          );
+          offerResend("");
+          return;
+        }
+
         if (error) {
           showStatus("Auth error: " + error.message, "error");
           return;
@@ -837,7 +911,16 @@
           showStatus("Signed in. Redirecting…", "success");
           await resolveAndRedirect(data.session.user.id);
         } catch (err) {
-          showStatus(err?.message || "Sign-in failed.", "error");
+          if (isEmailNotConfirmed(err)) {
+            showStatus(
+              "This email hasn't been confirmed yet. Find the \"Confirm your signup\" email from SILO " +
+              "and click its link — it brings you straight back here. Can't find it? Check spam, or resend it.",
+              "error"
+            );
+            offerResend(email);
+          } else {
+            showStatus(err?.message || "Sign-in failed.", "error");
+          }
         } finally {
           setLoading(btnLogin, false, "Sign in");
         }
@@ -923,7 +1006,17 @@
           dlgSignup.close();
 
           if (EXPECT_EMAIL_CONFIRMATION && !data?.session) {
-            showStatus("Account created. Confirm your email, then come back and sign in.", "success");
+            // The old wording ("confirm your email, then come back and sign
+            // in") sent the first invited founder straight to the sign-in form,
+            // where an unconfirmed account can only fail. Say plainly that the
+            // link IS the next step, and give a way to get another one.
+            showStatus(
+              `Almost done. We emailed a confirmation link to ${email}. ` +
+              "Click it and you'll come straight back here to continue — no need to sign in first. " +
+              "Nothing after a few minutes? Check spam, or resend it.",
+              "success"
+            );
+            offerResend(email);
           } else if (data?.user?.id) {
             showStatus("Account created. Redirecting…", "success");
             try {
@@ -957,6 +1050,43 @@
           showStatus("Password reset email sent.", "success");
         } catch (err) {
           showStatus(err?.message || "Could not send reset email.", "error");
+        }
+      });
+
+      // A fresh signup confirmation link, for the cases above. Supabase answers
+      // the same way for an address that is already confirmed or has no
+      // account (it does not reveal which), so the message is worded to be
+      // true in all three. The new link carries the same `next` as the old
+      // one, so it still lands on company setup.
+      const btnResend = document.getElementById("btnResend");
+      btnResend.addEventListener("click", async () => {
+        const email = (document.getElementById("email1").value || "").trim();
+        if (!email) {
+          showStatus("Enter your email in the Email field, then press Resend.", "error");
+          offerResend("");
+          return;
+        }
+        setLoading(btnResend, true, "Resend confirmation email");
+        try {
+          const { error } = await supabaseClient.auth.resend({
+            type: "signup",
+            email,
+            options: { emailRedirectTo: authCallbackUrl() },
+          });
+          if (error) throw error;
+          showStatus(
+            `If ${email} still needs confirming, a new link is on its way — use the newest email. ` +
+            "Already confirmed? Just sign in.",
+            "success"
+          );
+          offerResend(email);
+        } catch (err) {
+          // Includes Supabase's own rate limit ("you can only request this
+          // after N seconds"), which is the honest answer to a second click.
+          showStatus(err?.message || "Could not resend the confirmation email.", "error");
+          offerResend(email);
+        } finally {
+          setLoading(btnResend, false, "Resend confirmation email");
         }
       });
 
