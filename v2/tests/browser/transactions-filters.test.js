@@ -143,10 +143,23 @@ const TABLES = {
        nothing is active -- so clicking it unconditionally waits 30s on an
        invisible button. */
     async function clearAll() {
-      if (await page.$eval('#codeActiveFilters', (n) => n.hidden)) return;
-      await page.click('#btnClearFilters');
+      if (!(await page.$eval('#codeActiveFilters', (n) => n.hidden))) {
+        await page.click('#btnClearFilters');
+        await settle();
+      }
+      await showAll();
+    }
+
+    /* Clear filters returns to the default "Needs categorizing" queue (#900);
+       these checks read the whole set, so step back onto All. */
+    async function showAll() {
+      await page.click('#codeFilterSegments [data-code-filter="all"]');
       await settle();
     }
+
+    // Since #900 a row's details open in ONE shared drawer, not a panel per row.
+    const drawerShows = (id) => page.$eval('#txnDetailDrawer', (d, id) =>
+      !d.hidden && !!d.querySelector(`[data-txn="${id}"]`), id);
 
     /* r.eq() THROWS, so an assertion outside r.test() would abort the suite
        instead of recording a failure -- and an async body cannot be passed to
@@ -157,6 +170,10 @@ const TABLES = {
     }
 
     // ---------------------------------------------------------- the table
+
+    /* Since #900 the register opens on the "Needs categorizing" queue. These
+       checks are about filters over the WHOLE loaded set, so they start on All. */
+    await showAll();
 
     console.log('\n\u2500\u2500 the register renders \u2500\u2500');
     const ALL = await visibleIds();
@@ -213,7 +230,7 @@ const TABLES = {
       await page.selectOption('#fltDirection', 'in');
       await settle();
       r.eq(await visibleIds(), ['t-refund']);
-      r.eq(await countText(), 'Showing 1 of 6');
+      r.eq(await countText(), 'Showing 1 of 6 in dates');
     });
 
     await check('clearing direction restores the whole set', async () => {
@@ -241,7 +258,7 @@ const TABLES = {
       await page.selectOption('#fltAccount', 'acc_int');
       await settle();
       r.eq(await visibleIds(), ['t-loan']);
-      r.eq(await countText(), 'Showing 1 of 6');
+      r.eq(await countText(), 'Showing 1 of 6 in dates');
     });
 
     await check('a split is not counted as uncategorized', async () => {
@@ -285,7 +302,7 @@ const TABLES = {
       r.eq(chips.length, 2, chips.join(' | '));
       r.truthy(chips.some((c) => c.indexOf('comcast') !== -1), chips.join(' | '));
       r.truthy(chips.some((c) => c.indexOf('$100.00') !== -1 && c.indexOf('$400.00') !== -1), chips.join(' | '));
-      r.eq(await countText(), 'Showing 2 of 6', 'both Comcast casings are in range');
+      r.eq(await countText(), 'Showing 2 of 6 in dates', 'both Comcast casings are in range');
     });
 
     await check('removing one chip leaves the other applied', async () => {
@@ -299,6 +316,9 @@ const TABLES = {
     await check('Clear filters resets everything and hides the bar', async () => {
       await page.click('#btnClearFilters');
       await settle();
+      r.eq(await page.$eval('#codeFilterSegments [aria-pressed="true"]', (b) => b.dataset.codeFilter),
+        'uncoded', 'it returns to the default queue');
+      await showAll();
       r.eq(await visibleIds(), ALL);
       r.eq(await page.$eval('#codeActiveFilters', (n) => n.hidden), true);
       r.eq(await page.inputValue('#fltText'), '');
@@ -311,11 +331,12 @@ const TABLES = {
       await settle();
       await page.click('#tblCoding tr[data-txn="t-amazon"] .txn-review-button');
       await page.waitForTimeout(150);
-      r.eq(await page.$eval('#txn-detail-t-amazon', (n) => n.hidden), false, 'the panel opened');
+      r.eq(await drawerShows('t-amazon'), true, 'the detail drawer opened on it');
       r.eq(await page.inputValue('#fltMerchant'), 'amazon');
       r.eq(await visibleIds(), ['t-amazon', 't-refund']);
-      await page.click('#tblCoding tr[data-txn="t-amazon"] .txn-review-button');
+      await page.click('#btnTxnDetailClose');
       await page.waitForTimeout(150);
+      r.eq(await page.$eval('#txnDetailDrawer', (d) => d.hidden), true, 'the drawer closed');
       r.eq(await visibleIds(), ['t-amazon', 't-refund'], 'still applied after closing it');
     });
 
@@ -346,7 +367,7 @@ const TABLES = {
       await page.selectOption('#fltMerchant', comcast[0].value);
       await settle();
       r.eq((await visibleIds()).length, 2);
-      r.eq(await countText(), 'Showing 2 of 6');
+      r.eq(await countText(), 'Showing 2 of 6 in dates');
       await clearAll();
     });
 
@@ -359,6 +380,8 @@ const TABLES = {
 
       // Reload the account over a window that excludes both Comcast rows. The
       // set on screen changes; the filter position must not.
+      // The date range sits in the collapsed "Account & dates" section (#900).
+      await page.$eval('#txnContextCollapse', (d) => { d.open = true; });
       const start = await page.inputValue('#dateStart');
       const narrow = start.slice(0, 8) + '01';
       const before = start.slice(0, 8) + '11';
@@ -484,7 +507,7 @@ const TABLES = {
     await check('the row-detail drawer has a solid background', async () => {
       await page.click('#tblCoding tr[data-txn="t-bare"] .txn-review-button');
       await page.waitForTimeout(150);
-      await page.click('#tblCoding tr[data-txn="t-bare"] [data-raw]');
+      await page.click('#txnDetailBody [data-raw]');
       await page.waitForTimeout(200);
       r.eq(await page.$eval('#rawDrawer', (n) => n.hidden), false, 'the drawer opened');
       const bg = await page.$eval('#rawDrawer', (n) => getComputedStyle(n).backgroundColor);
@@ -545,6 +568,12 @@ const TABLES = {
       await page.keyboard.press('Escape');
       await page.waitForTimeout(150);
       r.eq(await page.$eval('#rawDrawer', (n) => n.hidden), true);
+      r.eq(await page.$eval('#txnDetailDrawer', (n) => n.hidden), false, 'one thing at a time');
+    });
+    await check('a second Escape closes the transaction detail drawer', async () => {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(150);
+      r.eq(await page.$eval('#txnDetailDrawer', (n) => n.hidden), true);
     });
     await check('every destination has an icon and an accessible name', async () => {
       const nav = await page.$$eval('[data-accounting-suite] a', (links) => links.map((a) => ({
