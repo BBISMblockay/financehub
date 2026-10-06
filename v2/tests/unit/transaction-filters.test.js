@@ -67,7 +67,9 @@ const uncoded = txn({
 const rows = [txn(), loan, refund, bare, uncoded];
 
 const ids = (list) => list.map((t) => t.id);
-const applied = (patch) => ids(F.apply(rows, Object.assign({}, F.EMPTY, patch), ctx));
+const filterPos = (patch) => Object.assign({}, F.EMPTY, { status: 'all' }, patch || {});
+
+const applied = (patch) => ids(F.apply(rows, filterPos(patch), ctx));
 
 // --------------------------------------------------------------- merchant
 
@@ -125,7 +127,7 @@ r.test('the picker offers ONE option for two casings, counted together', () => {
 });
 
 r.test('selecting that option matches BOTH casings', () => {
-  const out = F.apply(casings, Object.assign({}, F.EMPTY, { merchant: 'portland general electric' }), ctx);
+  const out = F.apply(casings, filterPos({ merchant: 'portland general electric' }), ctx);
   r.eq(ids(out), ['pge-1', 'pge-2']);
 });
 
@@ -133,7 +135,7 @@ r.test('the count the picker shows equals the rows the choice selects', () => {
   // The bug in one assertion: option count and matched rows must agree.
   const o = F.options(casings, ctx);
   for (const option of o.merchants) {
-    const matched = F.apply(casings, Object.assign({}, F.EMPTY, { merchant: option.key }), ctx);
+    const matched = F.apply(casings, filterPos({ merchant: option.key }), ctx);
     r.eq(matched.length, option.count, `option "${option.name}" says ${option.count}`);
   }
 });
@@ -150,10 +152,10 @@ r.test('a chip names the merchant in its own casing, not the key', () => {
   const labelled = Object.assign({}, ctx, {
     merchantLabel: (key) => ({ 'portland general electric': 'Portland General Electric' }[key] || ''),
   });
-  r.eq(F.describe(Object.assign({}, F.EMPTY, { merchant: 'portland general electric' }), labelled)[0].label,
+  r.eq(F.describe(filterPos({ merchant: 'portland general electric' }), labelled)[0].label,
     'Merchant: Portland General Electric');
   // With no label available the key is shown rather than nothing.
-  r.eq(F.describe(Object.assign({}, F.EMPTY, { merchant: 'wave pro' }), ctx)[0].label, 'Merchant: wave pro');
+  r.eq(F.describe(filterPos({ merchant: 'wave pro' }), ctx)[0].label, 'Merchant: wave pro');
 });
 
 r.test('canonicalMerchant is what the page must store', () => {
@@ -165,7 +167,7 @@ r.test('a position stored with the source\'s casing is canonicalised on read', (
   // sessionStorage may hold a merchant written before the key existed.
   r.eq(F.normalize({ merchant: 'Portland General Electric' }).merchant, 'portland general electric');
   r.eq(F.normalize({ merchant: F.NO_MERCHANT }).merchant, F.NO_MERCHANT, 'the sentinel survives');
-  r.eq(ids(F.apply(casings, { merchant: 'PORTLAND GENERAL ELECTRIC' }, ctx)), ['pge-1', 'pge-2']);
+  r.eq(ids(F.apply(casings, filterPos({ merchant: 'PORTLAND GENERAL ELECTRIC' }), ctx)), ['pge-1', 'pge-2']);
 });
 
 // ----------------------------------------------------------------- splits
@@ -195,7 +197,7 @@ r.test('the parent appears ONCE even when two lines match the filter', () => {
 });
 
 r.test('apply() can never return more rows than it was given', () => {
-  const out = F.apply(rows, Object.assign({}, F.EMPTY, { account: 'acc_int' }), ctx);
+  const out = F.apply(rows, filterPos({ account: 'acc_int' }), ctx);
   r.truthy(out.length <= rows.length, 'filtering must not duplicate');
 });
 
@@ -254,7 +256,7 @@ r.test('an exact amount tolerates $ and thousands separators', () => {
 
 r.test('exact amounts compare in cents, not floats', () => {
   const pennies = [{ id: 'p', amount: 0.1 + 0.2, txn_date: '2026-09-01' }];
-  r.eq(ids(F.apply(pennies, Object.assign({}, F.EMPTY, { amountMode: 'exact', amountExact: '0.30' }), ctx)), ['p']);
+  r.eq(ids(F.apply(pennies, filterPos({ amountMode: 'exact', amountExact: '0.30' }), ctx)), ['p']);
 });
 
 r.test('a range is inclusive at both ends', () => {
@@ -300,7 +302,7 @@ r.test('a reversed date range is read in order', () => {
 r.test('a row with no date is excluded by a date bound, not included by accident', () => {
   const undated = [{ id: 'u', txn_date: null, amount: 5 }];
   r.eq(ids(F.apply(undated, Object.assign({}, F.EMPTY, { dateStart: '2026-01-01' }), ctx)), []);
-  r.eq(ids(F.apply(undated, F.EMPTY, ctx)), ['u']);
+  r.eq(ids(F.apply(undated, Object.assign({}, F.EMPTY, { status: 'all' }), ctx)), ['u']);
 });
 
 r.test('a malformed date bound is ignored rather than dropping every row', () => {
@@ -383,7 +385,7 @@ r.test('filters apply to the WHOLE set given, not a slice of it', () => {
   // The page renders every loaded row, so "the visible page" and "the
   // dataset" are the same array -- this pins that apply() never truncates.
   const many = Array.from({ length: 900 }, (_, i) => txn({ id: 'n' + i, amount: i + 1 }));
-  const out = F.apply(many, Object.assign({}, F.EMPTY, { amountMode: 'range', amountMin: '800' }), ctx);
+  const out = F.apply(many, filterPos({ amountMode: 'range', amountMin: '800' }), ctx);
   r.eq(out.length, 101);
   r.eq(out[0].id, 'n799');
 });
@@ -392,9 +394,12 @@ r.test('filters apply to the WHOLE set given, not a slice of it', () => {
 
 console.log('\n── active filters, counts and clearing ──');
 
-r.test('an empty position is not active and has no chips', () => {
-  r.eq(F.isActive(F.EMPTY), false);
-  r.eq(F.describe(F.EMPTY, ctx), []);
+r.test('the default queue is Needs categorizing; All rows alone is not active', () => {
+  r.eq(F.isActive(F.EMPTY), true);
+  r.eq(F.describe(F.EMPTY, ctx).map((c) => c.label), ['Needs categorizing']);
+  const all = Object.assign({}, F.EMPTY, { status: 'all' });
+  r.eq(F.isActive(all), false);
+  r.eq(F.describe(all, ctx), []);
 });
 
 r.test('each active filter produces one named chip', () => {
@@ -409,18 +414,18 @@ r.test('each active filter produces one named chip', () => {
 });
 
 r.test('chips name the account, not its opaque id', () => {
-  const chip = F.describe(Object.assign({}, F.EMPTY, { account: 'acc_int' }), ctx)[0];
+  const chip = F.describe(filterPos({ account: 'acc_int' }), ctx)[0];
   r.eq(chip.label, 'Account: Interest Expense');
 });
 
 r.test('chips say "no merchant" and "uncategorized" in words', () => {
-  r.eq(F.describe(Object.assign({}, F.EMPTY, { merchant: F.NO_MERCHANT }), ctx)[0].label,
+  r.eq(F.describe(filterPos({ merchant: F.NO_MERCHANT }), ctx)[0].label,
     'No merchant from the source');
-  r.eq(F.describe(Object.assign({}, F.EMPTY, { account: F.NO_ACCOUNT }), ctx)[0].label, 'Uncategorized');
+  r.eq(F.describe(filterPos({ account: F.NO_ACCOUNT }), ctx)[0].label, 'Uncategorized');
 });
 
 r.test('an amount chip prints the money, both bounds and one', () => {
-  const label = (p) => F.describe(Object.assign({}, F.EMPTY, p), ctx)[0].label;
+  const label = (p) => F.describe(filterPos(p), ctx)[0].label;
   r.eq(label({ amountMode: 'exact', amountExact: '45.25' }), 'Amount $45.25');
   r.eq(label({ amountMode: 'range', amountMin: '10', amountMax: '20' }), 'Amount $10.00 – $20.00');
   r.eq(label({ amountMode: 'range', amountMin: '10' }), 'Amount from $10.00');
@@ -469,6 +474,21 @@ r.test('a non-object position normalizes to empty', () => {
   r.eq(F.normalize('{}'), F.EMPTY);
 });
 
+r.test('a fresh position defaults to Needs categorizing, not All', () => {
+  r.eq(F.normalize(null).status, 'uncoded');
+  r.eq(F.EMPTY.status, 'uncoded');
+});
+
+r.test('Needs categorizing excludes bank-pending rows; Pending at bank is separate', () => {
+  const bankCtx = Object.assign({}, ctx, {
+    isBankPending: (t) => t.id === 'pending',
+  });
+  const pending = txn({ id: 'pending', status: 'uncoded', origin: 'plaid', provider_status: 'pending' });
+  const list = [uncoded, pending];
+  r.eq(ids(F.apply(list, { status: 'uncoded' }, bankCtx)), ['uncoded']);
+  r.eq(ids(F.apply(list, { status: 'pending' }, bankCtx)), ['pending']);
+});
+
 r.test('options() offers only values present in the loaded rows', () => {
   const o = F.options(rows, ctx);
   r.eq(o.merchants.map((m) => m.name), ['Amazon', 'Comcast']);
@@ -477,7 +497,7 @@ r.test('options() offers only values present in the loaded rows', () => {
 });
 
 r.test('apply() tolerates a missing splits context', () => {
-  r.eq(ids(F.apply(rows, Object.assign({}, F.EMPTY, { account: 'acc_rent' }), {})), ['x', 'refund', 'bare']);
+  r.eq(ids(F.apply(rows, filterPos({ account: 'acc_rent' }), {})), ['x', 'refund', 'bare']);
 });
 
 process.exit(r.summary().fail ? 1 : 0);
