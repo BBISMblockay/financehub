@@ -513,7 +513,10 @@ await test('money direction and required entities stay visible in compact rows',
   assert.match(h.el('tblCoding').innerHTML,/\+\$45\.00<span>Money in/);
   h.page.state.allAccounts.push({id:'ap',name:'Payables',type:'Accounts Payable',connectionId:'qbo-one'});
   h.page.state.txns[0].qbo_account_id='ap';h.page.renderCoding();
-  assert.match(h.el('tblCoding').innerHTML,/Entity required/);
+  // An Accounts Payable line needs a VENDOR specifically (QuickBooks rejects a
+  // customer there), so the compact row names the kind, not just "entity".
+  assert.match(h.el('tblCoding').innerHTML,/Vendor required/);
+  assert.match(h.el('tblCoding').innerHTML,/needs vendor/);
 });
 
 /* A pending bank row and a removed one both fail isAvailable(), and before this
@@ -1056,7 +1059,7 @@ await test('rows Entry would refuse are called out while tagging, with why and o
   assert.match(box.innerHTML, /2 categorized bank rows have no transaction type/);
   assert.match(box.innerHTML, /2 × Categorized without a type/);
   assert.match(box.innerHTML, /Set suggested type on 2/);
-  assert.match(box.innerHTML, /1 row is on a receivable or payable account with no entity/);
+  assert.match(box.innerHTML, /1 row on Accounts Receivable need a customer/);
   assert.match(h.el('codeFilterSegments').innerHTML, /Needs type <span>2/);
   assert.match(h.el('codeFilterSegments').innerHTML, /Needs entity <span>1/);
   assert.match(h.el('tblCoding').innerHTML, /Needs transaction type: Categorized without a type/);
