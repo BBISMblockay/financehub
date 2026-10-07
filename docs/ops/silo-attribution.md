@@ -13,6 +13,15 @@ connection policies and unique constraints were inspected from pg_catalog.
 No existing policies are changed. Historical availability remains store/scope
 dependent; null journeys and pending journeys never imply Direct.
 
+Capacity gate: the shared ShopifyQL client rejects results at its 1,000-row
+ceiling. This release supports at most 999 order/day rows per day. Dry-run every
+requested day before rollout; a capped day cannot publish and blocks acceptance.
+Stores with larger days require a separately verified partitioned query path
+before enablement. Do not bypass the ceiling or publish partial sales.
+An inaccessible historical Order node is explicit unavailable evidence: its
+reversal still reconciles and remains Unattributed unless a previously stored
+complete journey exists. It does not prevent later days from being processed.
+
 Tests defined before implementation: capped/null analytics fail closed;
 duplicate/missing order IDs reject; cents and reversals conserve revenue;
 moment pagination exhausts cursors; pending journeys retry; failed publication
@@ -49,3 +58,14 @@ revenue. A 60-day window is not a claim of 60-day tracking completeness. Commerc
 channels are distinct from ad credit. Raw landing fields are first-touch
 evidence; they cannot override a later observed visit. Missing evidence stays
 Unattributed. This is observed attribution, not incrementality or causality.
+
+## Apply and verify
+
+Apply the two `*_silo_attribution_evidence.sql` and
+`*_silo_attribution_report.sql` migrations explicitly, in that order. The large
+repository-wide rebuild/verifier files are unchanged; this feature's schema
+checks live in `supabase/verify_attribution_schema.sql`. Run both that verifier
+and the existing general verifier after apply. Snapshot allocation objects are
+persisted for all four windows with `model_version`; a rule change requires a
+version bump and bounded reprocessing. Campaign matching reads only same-company
+catalogs. Assists can overlap and must never be summed into credited revenue.

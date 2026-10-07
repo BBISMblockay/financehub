@@ -43,7 +43,7 @@ export async function fetchJourney(connection, id, { gql, maxPages = 100 } = {})
       } }
     }`, { id:'gid://shopify/Order/'+id, after:cursor });
     order = data.order;
-    if (!order) throw Error('Shopify order unavailable: '+id);
+    if (!order) return {id:'gid://shopify/Order/'+id,name:id,createdAt:null,sourceName:null,customerJourneySummary:null,evidence_status:'unavailable'};
     const j = order.customerJourneySummary;
     if (!j || !j.ready) return { id:order.id,name:order.name,createdAt:order.createdAt,sourceName:order.sourceName,customerJourneySummary:j ? {ready:false} : null };
     first = sanitizeVisit(j.firstVisit); last = sanitizeVisit(j.lastVisit);
@@ -58,7 +58,7 @@ export async function fetchJourney(connection, id, { gql, maxPages = 100 } = {})
   throw Error('Journey pagination limit exceeded');
 }
 export function validateDay(day, sales, control) {
-  if (sales.raw?.table_data_was_null || control.raw?.table_data_was_null || sales.length >= 10000) throw Error('Incomplete ShopifyQL sales');
+  if (sales.raw?.table_data_was_null || control.raw?.table_data_was_null || sales.length >= 1000) throw Error('Incomplete ShopifyQL sales: daily capacity is 999 order/day rows');
   if (control.length !== 1) throw Error('Missing daily control');
   const seen = new Set();
   const ledger = sales.map(r => {
@@ -71,20 +71,22 @@ export function validateDay(day, sales, control) {
   if (ledger.reduce((s,r)=>s+r.net_cents,0) !== net || ledger.reduce((s,r)=>s+r.total_cents,0) !== total) throw Error('Shopify revenue mismatch');
   return {ledger,net,total};
 }
-export async function collectDay(connection, day, { ql, gql, rest, publish, commit=false, now=()=>new Date().toISOString() }) {
+export async function collectDay(connection, day, { ql, gql, rest, publish, decorate=null, commit=false, now=()=>new Date().toISOString() }) {
   // Stamp before reads: a slower old extraction cannot overwrite a newer one.
   const extracted = now();
   const shop = (await gql(connection, 'query AttributionShop { shop { currencyCode ianaTimezone primaryDomain { host } } }')).shop;
   if (!shop?.currencyCode || !shop.ianaTimezone) throw Error('Missing Shopify currency/timezone');
-  const sales = await ql(connection, `FROM sales SHOW net_sales, total_sales GROUP BY order_id, day SINCE ${day} UNTIL ${day} LIMIT 10000`);
+  const sales = await ql(connection, `FROM sales SHOW net_sales, total_sales GROUP BY order_id, day SINCE ${day} UNTIL ${day} LIMIT 1000`);
   const control = await ql(connection, `FROM sales SHOW net_sales, total_sales SINCE ${day} UNTIL ${day}`);
   const {ledger,net,total} = validateDay(day,sales,control);
   const orders=[]; let pending=0;
   for (const row of ledger) {
     const order = await fetchJourney(connection,row.order_id,{gql});
     pending += order.customerJourneySummary?.ready === false ? 1 : 0;
-    const raw = await rest(connection,row.order_id);
-    orders.push({order_id:row.order_id,evidence:{order,raw:landingEvidence(raw?.landing_site),own_hosts:[connection.shop_domain,shop.primaryDomain?.host].filter(Boolean)}});
+    const raw = order.evidence_status === 'unavailable' ? null : await rest(connection,row.order_id);
+    const evidence={order,raw:landingEvidence(raw?.landing_site),own_hosts:[connection.shop_domain,shop.primaryDomain?.host,shop.primaryDomain?.host?.replace(/^www\./,''),'www.'+shop.primaryDomain?.host?.replace(/^www\./,'')].filter(h=>h&&!h.includes('undefined'))};
+    if(decorate)evidence.allocations=decorate(evidence);
+    orders.push({order_id:row.order_id,evidence});
   }
   if (commit) await publish({p_connection:connection.id,p_day:day,p_currency:shop.currencyCode,p_timezone:shop.ianaTimezone,
     p_ledger:ledger,p_orders:orders,p_net:net,p_total:total,p_extracted:extracted});

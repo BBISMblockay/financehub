@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {collectDay,fetchJourney,validateDay,landingEvidence,dayRange} from '../lib/shopify-attribution-evidence.mjs';
+import {shopifyql} from '../lib/shopify-sync-core.mjs';
 const day='2026-09-01',conn={id:'c',shop_domain:'test.myshopify.com'};
 const visit={id:'v1',__typename:'CustomerVisit',occurredAt:'2026-09-01T01:00:00Z',source:'https://facebook.com/?email=secret',utmParameters:{source:'facebook',medium:'paid'},landingPage:'https://shop.test/p?utm_contact=secret'};
 const order={id:'gid://shopify/Order/1',name:'#1',createdAt:'2026-09-01T02:00:00Z',sourceName:'web',customerJourneySummary:{ready:true,firstVisit:visit,lastVisit:visit,moments:{nodes:[visit],pageInfo:{hasNextPage:false}}}};
@@ -23,4 +24,21 @@ const deps={ql:async(c,q)=>q.includes('GROUP BY')?sales:control,gql:async(c,q)=>
 await collectDay(conn,day,deps);assert.equal(published,1);
 await collectDay(conn,day,{...deps,commit:false});assert.equal(published,1);
 await assert.rejects(collectDay(conn,day,{...deps,rest:async()=>{throw Error('interrupted');}}),/interrupted/);assert.equal(published,1);
-console.log('Attribution evidence: 17 integrated and failure-path checks passed');
+// Exercise the real shared parser, including its truncation guard.
+const originalFetch=globalThis.fetch;
+try{
+ for(const size of [999,1000]){
+  globalThis.fetch=async()=>({status:200,json:async()=>({data:{shopifyqlQuery:{parseErrors:[],tableData:{columns:[],rows:Array.from({length:size},(_,i)=>({order_id:String(i+1),day,net_sales:'0',total_sales:'0'}))}}}})});
+  if(size===999)assert.equal((await shopifyql(conn,'FROM sales SHOW net_sales')).length,999);
+  else await assert.rejects(shopifyql(conn,'FROM sales SHOW net_sales'),/ceiling/);
+ }
+}finally{globalThis.fetch=originalFetch;}
+let unavailablePublished=0;
+for(const d of [day,'2026-09-02']){
+ await collectDay(conn,d,{...deps,ql:async(c,q)=>q.includes('GROUP BY')?sales.map(r=>({...r,day:d})):control,
+  gql:async(c,q)=>q.includes('AttributionShop')?{shop:{currencyCode:'USD',ianaTimezone:'UTC'}}:{order:null},
+  rest:async()=>{throw Error('Unavailable order must not fetch landing');},
+  publish:async p=>{unavailablePublished++;assert.equal(p.p_net,-1001);assert.equal(p.p_orders[0].evidence.order.evidence_status,'unavailable');}});
+}
+assert.equal(unavailablePublished,2);
+console.log('Attribution evidence: integrated failure paths, unavailable reversals and actual shared 999/1000 boundary passed');
