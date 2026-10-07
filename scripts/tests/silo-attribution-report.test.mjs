@@ -50,3 +50,13 @@ assert.ok(reportOverview(gapFirst).includes('No observed introductions in this w
 assert.ok(!reportOverview(gapFirst).includes('(0 orders)'));
 assert.ok(reportOverview({...gapFirst,channels:[gapFirst.channels[0]]}).includes('No channel has positive credited net sales yet.'));
 console.log('Attribution report: overview headline excludes evidence gaps');
+// The tail is a labelled total with no bar; it never sets the scale or hides an evidence gap.
+const many={...negative,channels:[...Array.from({length:12},(_,i)=>({channel:`Channel ${i+1}`,net_cents:(20-i)*100,orders:1,introduced_orders:0})),{channel:'Unattributed',net_cents:50,orders:1,introduced_orders:0}]};
+const manyHtml=reportOverview(many);
+assert.ok(!manyHtml.includes('Other channels'));
+assert.ok(manyHtml.includes('4 more channels'));
+assert.ok(manyHtml.includes('data-channel="Channel 12"'));
+assert.ok(manyHtml.includes('attr-bar-gap" data-channel="Unattributed"'));
+assert.equal((manyHtml.match(/width:100%/g)||[]).length,1);
+assert.ok(manyHtml.indexOf('data-channel="Unattributed"')<manyHtml.indexOf('4 more channels'));
+console.log('Attribution report: channel tail collapses without a combined bar');
