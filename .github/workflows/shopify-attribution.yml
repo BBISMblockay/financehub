@@ -6,11 +6,14 @@ on:
         description: One Shopify connection UUID
         required: true
       start_date:
-        description: Inclusive start YYYY-MM-DD, at most 31 days per run
-        required: true
+        description: Required for snapshots; blank for one-order probe. Inclusive YYYY-MM-DD
+        required: false
       end_date:
-        description: Inclusive end YYYY-MM-DD
-        required: true
+        description: Required for snapshots; blank for one-order probe. Inclusive YYYY-MM-DD
+        required: false
+      probe_order_id:
+        description: Optional numeric Shopify order ID. Read-only probe; blank dates and commit=false required
+        required: false
       commit:
         description: Publish verified snapshots (false is read-only)
         type: boolean
@@ -36,10 +39,26 @@ jobs:
       ATTRIBUTION_START: ${{ inputs.start_date }}
       ATTRIBUTION_END: ${{ inputs.end_date }}
       ATTRIBUTION_COMMIT: ${{ inputs.commit }}
+      ATTRIBUTION_PROBE_ORDER_ID: ${{ inputs.probe_order_id }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Validate snapshot dates before credential access
+        run: |
+          node --input-type=module <<'NODE'
+          import {dayRange} from './scripts/lib/shopify-attribution-evidence.mjs';
+          const env=process.env;
+          if (!env.ATTRIBUTION_PROBE_ORDER_ID && env.ATTRIBUTION_MODE !== 'scheduled') {
+            dayRange(env.ATTRIBUTION_START,env.ATTRIBUTION_END);
+          }
+          NODE
       - run: npm ci
-      - run: node scripts/shopify-attribution-sync.mjs
+      - name: Probe one order without writes or token refresh
+        if: inputs.probe_order_id != ''
+        timeout-minutes: 10
+        run: node scripts/shopify-attribution-probe.mjs
+      - name: Collect snapshots
+        if: inputs.probe_order_id == ''
+        run: node scripts/shopify-attribution-sync.mjs
