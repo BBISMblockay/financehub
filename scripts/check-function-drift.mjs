@@ -66,18 +66,7 @@ const KNOWN_UNSOURCED = new Set(['bright-action', 'replace-product-tags', 'oneof
 // else. It expires by itself the moment either side moves.
 //
 // Delete the entry when the difference is reconciled.
-const DEFERRED_DRIFT = new Map([
-  ['card-categorize', {
-    since: '2026-09-10',
-    deployedSha256: '2f4a4bc09f8c688b837841748f34481a752fc5a4023339047f0c23697ff58ba0', // v9
-    repoTree: 'fe96e373c6619839a939d9684d37a57e68e2cc31', // HEAD:supabase/functions/card-categorize
-    why: 'the difference is a prompt RULE, not a merge -- production says a card-name '
-      + 'match should set the location, main says only name a location when the merchant '
-      + 'or card clearly belongs to one store. Deferred until there is enough real card '
-      + 'coding to say which rule suggests better; shipping either one first ends the '
-      + 'comparison.',
-  }],
-]);
+const DEFERRED_DRIFT = new Map([]);
 
 if (!TOKEN) {
   console.error('::error::SUPABASE_ACCESS_TOKEN is not set.');
@@ -228,7 +217,23 @@ if (newlineOnly.length) {
 if (modified.length) {
   failed = true;
   console.log('\nDEPLOYED SOURCE DIFFERS FROM THIS CHECKOUT:');
-  for (const p of modified) { console.log(`  ${p}`); console.log(`::error file=${p}::deployed source differs from main`); }
+  // A file another function imports (`../<slug>/...`) is written once per
+  // bundle that carries it, and the last bundle downloaded wins. So a stale
+  // IMPORTER shows up as drift in the imported function's directory, which
+  // is how a current card-categorize read as stale on 2026-10-07 (the stale
+  // copy was card-coding-prepare-scheduled's). Name the importers.
+  const importersOf = (slug) => execFileSync('git', ['grep', '-l', `\\.\\./${slug}/`, 'HEAD', '--', FN_DIR], { encoding: 'utf8' })
+    .split('\n').filter(Boolean).map((l) => l.split('/')[2]).filter((s) => s && s !== slug);
+  for (const p of modified) {
+    console.log(`  ${p}`);
+    let importers = [];
+    try { importers = [...new Set(importersOf(p.split('/')[2]))]; } catch { /* git grep exits 1 on no match */ }
+    const hint = importers.length
+      ? ` (also bundled by ${importers.join(', ')}; the downloaded copy may be THEIRS -- redeploy them too)`
+      : '';
+    if (hint) console.log(`    ${hint.trim()}`);
+    console.log(`::error file=${p}::deployed source differs from main${hint}`);
+  }
   console.log('\n' + execFileSync('git', ['diff', '--stat', '--', ...modified], { encoding: 'utf8' }));
   // The diff itself, capped: a 2-line change in six functions is a CLI
   // re-emission quirk, an 80-line change in one is a deploy that never
