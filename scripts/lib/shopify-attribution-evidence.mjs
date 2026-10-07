@@ -58,7 +58,7 @@ export async function fetchJourney(connection, id, { gql, maxPages = 100 } = {})
   throw Error('Journey pagination limit exceeded');
 }
 export function validateDay(day, sales, control) {
-  if (sales.raw?.table_data_was_null || control.raw?.table_data_was_null || sales.length >= 1000) throw Error('Incomplete ShopifyQL sales: daily capacity is 999 order/day rows');
+  if (sales.raw?.table_data_was_null || control.raw?.table_data_was_null || sales.length >= 10000) throw Error('Incomplete ShopifyQL sales: daily capacity is 9999 order/day rows');
   if (control.length !== 1) throw Error('Missing daily control');
   const seen = new Set();
   const ledger = sales.map(r => {
@@ -71,12 +71,23 @@ export function validateDay(day, sales, control) {
   if (ledger.reduce((s,r)=>s+r.net_cents,0) !== net || ledger.reduce((s,r)=>s+r.total_cents,0) !== total) throw Error('Shopify revenue mismatch');
   return {ledger,net,total};
 }
+export async function fetchSalesDay(connection,day,ql) {
+  const rows=[];
+  // Stable 500-row pages stay below the shared client's 1,000-row ceiling.
+  for(let offset=0;offset<10000;offset+=500){
+    const page=await ql(connection,`FROM sales SHOW net_sales, total_sales GROUP BY order_id, day SINCE ${day} UNTIL ${day} ORDER BY order_id ASC LIMIT 500 OFFSET ${offset}`);
+    if(page.raw?.table_data_was_null||page.length>500)throw Error('Incomplete ShopifyQL sales page');
+    rows.push(...page);
+    if(page.length<500)return rows;
+  }
+  throw Error('Attribution daily row cap reached; no snapshot published');
+}
 export async function collectDay(connection, day, { ql, gql, rest, publish, decorate=null, commit=false, now=()=>new Date().toISOString() }) {
   // Stamp before reads: a slower old extraction cannot overwrite a newer one.
   const extracted = now();
   const shop = (await gql(connection, 'query AttributionShop { shop { currencyCode ianaTimezone primaryDomain { host } } }')).shop;
   if (!shop?.currencyCode || !shop.ianaTimezone) throw Error('Missing Shopify currency/timezone');
-  const sales = await ql(connection, `FROM sales SHOW net_sales, total_sales GROUP BY order_id, day SINCE ${day} UNTIL ${day} LIMIT 1000`);
+  const sales = await fetchSalesDay(connection,day,ql);
   const control = await ql(connection, `FROM sales SHOW net_sales, total_sales SINCE ${day} UNTIL ${day}`);
   const {ledger,net,total} = validateDay(day,sales,control);
   const orders=[]; let pending=0;

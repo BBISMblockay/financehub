@@ -14,10 +14,13 @@ No existing policies are changed. Historical availability remains store/scope
 dependent; null journeys and pending journeys never imply Direct.
 
 Capacity gate: the shared ShopifyQL client rejects results at its 1,000-row
-ceiling. This release supports at most 999 order/day rows per day. Dry-run every
-requested day before rollout; a capped day cannot publish and blocks acceptance.
-Stores with larger days require a separately verified partitioned query path
-before enablement. Do not bypass the ceiling or publish partial sales.
+ceiling. Attribution uses stable ORDER BY order_id / LIMIT 500 OFFSET pages,
+then validates combined identities and independent daily totals. It supports
+at most 9,999 order/day rows per day. Dry-run every requested day before rollout;
+a capped, overlapping or incomplete page cannot publish and blocks acceptance.
+Shopify's documented LIMIT/OFFSET syntax is used without changing the shared
+parser. Verify the high-volume launch day in the production dry-run before
+enablement: the September 1 pilot includes 2,549 order/day rows.
 An inaccessible historical Order node is explicit unavailable evidence: its
 reversal still reconciles and remains Unattributed unless a previously stored
 complete journey exists. It does not prevent later days from being processed.

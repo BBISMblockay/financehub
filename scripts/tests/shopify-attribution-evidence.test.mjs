@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {collectDay,fetchJourney,validateDay,landingEvidence,dayRange} from '../lib/shopify-attribution-evidence.mjs';
+import {collectDay,fetchJourney,fetchSalesDay,validateDay,landingEvidence,dayRange} from '../lib/shopify-attribution-evidence.mjs';
 import {shopifyql} from '../lib/shopify-sync-core.mjs';
 const day='2026-09-01',conn={id:'c',shop_domain:'test.myshopify.com'};
 const visit={id:'v1',__typename:'CustomerVisit',occurredAt:'2026-09-01T01:00:00Z',source:'https://facebook.com/?email=secret',utmParameters:{source:'facebook',medium:'paid'},landingPage:'https://shop.test/p?utm_contact=secret'};
@@ -32,7 +32,21 @@ try{
   if(size===999)assert.equal((await shopifyql(conn,'FROM sales SHOW net_sales')).length,999);
   else await assert.rejects(shopifyql(conn,'FROM sales SHOW net_sales'),/ceiling/);
  }
+ // A 2,549-row launch day is read through the actual shared parser, not bypassed.
+ const launch=Array.from({length:2549},(_,i)=>({order_id:String(i+1),day,net_sales:'1.00',total_sales:'1.10'}));
+ const offsets=[];
+ globalThis.fetch=async(url,options)=>{
+  const query=JSON.parse(options.body).variables.q,offset=Number(query.match(/OFFSET (\d+)/)?.[1]||0);offsets.push(offset);
+  assert.match(query,/ORDER BY order_id ASC LIMIT 500 OFFSET/);
+  return {status:200,json:async()=>({data:{shopifyqlQuery:{parseErrors:[],tableData:{columns:[],rows:launch.slice(offset,offset+500)}}}})};
+ };
+ const pagedSales=await fetchSalesDay(conn,day,shopifyql);
+ assert.equal(pagedSales.length,2549);assert.deepEqual(offsets,[0,500,1000,1500,2000,2500]);
+ assert.equal(validateDay(day,pagedSales,[{net_sales:'2549.00',total_sales:'2803.90'}]).net,254900);
 }finally{globalThis.fetch=originalFetch;}
+await assert.rejects(fetchSalesDay(conn,day,async()=>Object.assign([],{raw:{table_data_was_null:true}})),/Incomplete/);
+await assert.rejects(fetchSalesDay(conn,day,async()=>Array(500).fill(sales[0])),/cap/);
+assert.throws(()=>validateDay(day,[...sales,...sales],control),/identity/);
 let unavailablePublished=0;
 for(const d of [day,'2026-09-02']){
  await collectDay(conn,d,{...deps,ql:async(c,q)=>q.includes('GROUP BY')?sales.map(r=>({...r,day:d})):control,
