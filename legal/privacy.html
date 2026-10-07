@@ -26,7 +26,7 @@
 </head>
 <body>
   <h1>SILO — Privacy Policy</h1>
-  <p class="meta">Last updated 3 October 2026</p>
+  <p class="meta">Last updated 7 October 2026</p>
 
   <p>SILO is an operations workspace operated by Baseballism (&ldquo;we&rdquo;, &ldquo;us&rdquo;).
   Companies use SILO to bring their sales, inventory, purchasing, finance and marketing data into
@@ -130,6 +130,58 @@
     <li>Disconnecting the integration in SILO deletes the stored tokens and the mirrored
         QuickBooks reference data.</li>
   </ul>
+
+  <h2 id="meta">Meta (Facebook and Instagram) data</h2>
+  <p>A customer company&rsquo;s administrator can choose to connect the company&rsquo;s own Meta
+  business assets with Facebook Login for Business. SILO requests only these permissions, and uses
+  them only to show that company its own reporting inside SILO:</p>
+  <ul>
+    <li><strong>Ads</strong> (<code>ads_read</code>, <code>business_management</code>) &mdash;
+        read-only access to campaign, ad set and ad performance, ad creative and its destination, for
+        the ad accounts the administrator selects. SILO does not create, change, pause or delete
+        campaigns, ads, audiences or budgets.</li>
+    <li><strong>Facebook Pages</strong> (<code>pages_show_list</code>,
+        <code>pages_read_engagement</code>, <code>read_insights</code>) &mdash; the list of Pages
+        the administrator grants, and those Pages&rsquo; post and Page insights.</li>
+    <li><strong>Instagram</strong> (<code>instagram_basic</code>,
+        <code>instagram_manage_insights</code>) &mdash; the connected Instagram professional
+        account&rsquo;s media and its insights. SILO does not publish, comment or message.</li>
+  </ul>
+  <p>SILO does not request or store information about the people who see or interact with
+  those ads and posts beyond the aggregate metrics Meta reports. Meta data is stored in
+  SILO&rsquo;s database, is visible only to users of the company that connected it, and is never
+  sold, used for advertising, or used to build profiles. Access tokens are readable only by
+  SILO&rsquo;s server-side functions and by administrators of the connected company. Removing the
+  connection in SILO&rsquo;s Integrations page deletes the stored token; access can also be
+  removed at any time in Meta Business Settings &rarr; Integrations &rarr; Connected apps.</p>
+
+  <h2 id="shopify">Shopify data</h2>
+  <p>A customer company can install SILO&rsquo;s Shopify app on its own store. SILO reads orders,
+  products, inventory, locations, draft orders, reports, publications and Shopify Payments
+  payouts, read-only, to show that company its sales, inventory and payout reporting. Order
+  records include the customer&rsquo;s name, email address and customer id as Shopify provides
+  them; SILO does not read customer addresses, phone numbers or payment details. SILO does not
+  change anything in the store. SILO honours Shopify&rsquo;s privacy requests automatically: a
+  customer redaction request blanks that customer&rsquo;s name and email on stored orders, and
+  uninstalling the app closes the store&rsquo;s connection and, 48 hours later on Shopify&rsquo;s
+  shop redaction request, blanks the store&rsquo;s customer details.</p>
+
+  <h2 id="data-deletion">Deleting your data</h2>
+  <p>To delete data SILO holds about you or your company:</p>
+  <ol>
+    <li><strong>Disconnect the service.</strong> In SILO, open Settings &rarr; Integrations and
+        remove the connection. This deletes the stored access token immediately and stops all
+        further syncing. You can also remove SILO from the service itself (for Meta: Business
+        Settings &rarr; Integrations &rarr; Connected apps; for Facebook personal settings:
+        Settings &amp; privacy &rarr; Settings &rarr; Business integrations; for Shopify: uninstall
+        the app).</li>
+    <li><strong>Ask us to delete what was synced.</strong> Email
+        <a href="mailto:support@get-silo.com">support@get-silo.com</a> from an address belonging
+        to the connected company, naming the service. We delete the synced records within 30 days
+        and confirm by email, except where we must keep a record by law.</li>
+  </ol>
+  <p>If you are not a SILO user but believe SILO holds data about you through a company that uses
+  it, email the same address; we will identify the company and act on the request with it.</p>
 
   <h2>How data is stored and protected</h2>
   <ul>
