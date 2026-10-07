@@ -3,7 +3,7 @@
 > Moved verbatim from the root `CLAUDE.md` on 2026-10-07 (agent-guide restructure). The root file keeps the rules; this file keeps the detail and history. Update here, not in the root.
 
 ### Edge functions
-Sources live in `supabase/functions/`; deploys are manual (Supabase MCP/CLI), merging a PR does NOT deploy.
+Sources live in `supabase/functions/`; merging a PR does NOT deploy. **Deploys go through the "Deploy Edge Function" workflow from `main` and only with Blake's explicit approval in the session** (corrected 2026-10-07: this line used to say deploys were done by hand through the Supabase MCP/CLI).
 ```
 org-invite-send   -- emails an org invite link; caller must be admin of the invite's entity and present the raw token (JWT-auth)
 org-invite-redeem -- PUBLIC (verify_jwt off): peek shows org/email for a token; redeem creates the invitee's confirmed account with their chosen password (no confirmation email — the invite proved the address) and applies the invite

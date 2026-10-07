@@ -33,7 +33,7 @@ active_company_id()                    -- reads profiles.active_company_id for a
 set_active_company(p_entity_id uuid)   -- validates membership then writes active_company_id
 ```
 
-**Views:** All 30+ views in the public schema have `security_invoker = true` so RLS propagates through views, not just on base tables.
+**Views:** views in the public schema are `security_invoker = true` so RLS propagates through them, not just on base tables. **Correction 2026-10-07:** not ALL of them — the matview/rollup wrappers are deliberately `security_invoker = false` with an explicit `active_company_id()` filter; the list and the rule are in `supabase/CLAUDE.md`.
 
 **JS pattern on every page:**
 ```js
@@ -306,6 +306,6 @@ platform_list_companies()                     -- every tenant, for Silo Admin. i
 - `customer-account-files` — private, wholesale customers' resale certificates. Its policies' `EXISTS` names `customer_account_tax_profiles`, **not** `customer_accounts`, so the object inherits the NARROW gate rather than the directory's. There is deliberately no anon policy: the applicant is unauthenticated and uploads through a service-role-minted signed URL, which bypasses RLS, so an anon policy would be a hole with nothing behind it
 
 ### After any DB change
-Always run `supabase/verify_v2_schema.sql` in the Supabase SQL Editor. All rows must show `ok`. If anything is missing, run `supabase/apply_all_post_merge.sql` then verify again. Since 2026-09-10 `deployment-drift-check.yml` also runs the same file against production daily and on every push to `main` under `supabase/`, and goes red on any non-ok row — so an applied-by-hand step that was forgotten shows up as a failed Actions run rather than waiting for the next person to open the SQL editor.
+Always run `supabase/verify_v2_schema.sql` in the Supabase SQL Editor. All rows must show `ok`. If anything is missing, run `supabase/apply_all_post_merge.sql` then verify again. Since 2026-09-10 `deployment-drift-check.yml` also runs the same file against production daily and on every push to `main` under `supabase/`, and goes red on any non-ok row — so an applied-by-hand step that was forgotten shows up as a failed Actions run rather than waiting for the next person to open the SQL editor. **Applying anything to production (including `apply_all_post_merge.sql`) needs Blake's explicit approval in the session; an agent reports what is owed and asks.**
 
 ---

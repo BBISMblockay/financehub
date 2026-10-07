@@ -148,7 +148,7 @@ function setStatus(msg, type = 'info', ms = 0) {
 - **Do not use `alert()`** for errors — use the `bcn-status` pattern
 - **Do not create new CSS variables** — use existing Beacon tokens from `beacon.css`
 - **Do not push to main directly** — always use a feature branch
-- **Do not treat `/v3/` as the new `/v2/`** — it is one feature (the dashboard runtime), not a
+- **Do not treat `/v3/` as the new `/v2/`** — it holds two features (the dashboard runtime and Product Studio), not a
   successor directory. New tools still go in `v2/` as Pattern 1 pages
 - **Do not build new tools at the repo root** — root `.html` files are legacy iframe targets and
   superseded originals. New pages go in `v2/`

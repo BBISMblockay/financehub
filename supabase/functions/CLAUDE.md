@@ -3,15 +3,17 @@
 Per-function behaviour, secrets and history: [`docs/agents/edge-functions.md`](../../docs/agents/edge-functions.md).
 
 ## Deploying
-- **Merging does not deploy.** Use the "Deploy Edge Function" workflow from `main`. Never paste
+- **Merging does not deploy, and agents do not deploy without Blake's explicit approval in the
+  session.** The approved route is the "Deploy Edge Function" workflow from `main`. Never paste
   source through an API client (it truncated two `silo-chat` deploys).
 - A NEW function whose caller has no Supabase JWT (webhook, OIDC, public form) must be added to
   `NO_JWT_FUNCTIONS` in `deploy-edge-function.yml`, or it rejects its callers before the handler runs.
   The drift check prints each function's `verify_jwt`; confirm it after deploying a public one.
-- The drift check compares every deployed function with `main`. A red run right after a merge means
-  "deploy now".
+- The drift check compares every deployed function with `main`. A red run right after a merge means a
+  deploy is owed: report it and ask, never deploy on the check's word.
 - **A shared import is bundled into each function that imports it.** `card-coding-prepare-scheduled`
-  imports `../card-categorize/prepare.ts`: changing that file means redeploying BOTH.
+  imports `../card-categorize/prepare.ts`: changing that file means BOTH need redeploying
+  (with approval, as above).
 - Not everything deployed has source here (`notify-slack`, `bright-action`, `replace-product-tags`,
   `oneoff-meta-sync`), and some DB triggers call functions by URL. Check `pg_trigger` before adding a
   trigger or notification, or you may double-send.

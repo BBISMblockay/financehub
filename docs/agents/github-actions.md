@@ -1,6 +1,8 @@
 # GitHub Actions and data-sync reference
 
 > Moved verbatim from the root `CLAUDE.md` on 2026-10-07 (agent-guide restructure). The root file keeps the rules; this file keeps the detail and history. Update here, not in the root.
+>
+> A red check means an apply or deploy is OWED. It never authorises an agent to run one: that takes Blake's explicit approval in the session.
 
 ## GitHub Actions / data sync
 

@@ -110,7 +110,7 @@ for (const [idx, s] of statements.entries()) {
 
 console.log(`\n${statements.length} statements, ${okCells} ok cells, ${failed} with a failing row, ${errored} that could not run, ${retried} retried after a rate limit.`);
 if (failed || errored) {
-  console.log('\nProduction does not match what the repo claims. Usually this means a merged migration was never applied: run supabase/apply_all_post_merge.sql (or the named migration) in the SQL editor, then re-run this workflow.');
+  console.log('\nProduction does not match what the repo claims. Usually this means a merged migration was never applied. Owed: applying supabase/apply_all_post_merge.sql (or the named migration) in the SQL editor, by someone with production authority (an agent asks first), then re-running this workflow.');
   process.exit(1);
 }
 console.log('All ok.');

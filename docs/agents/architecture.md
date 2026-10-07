@@ -46,7 +46,7 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 │   ├── hidden/                ← Parked pages, deliberately not in nav (bi-dashboard, bi-returns)
 │   ├── licensing/             ← Retained microsite assets; entry page retired 2026-10-01
 │   └── [page].html            ← One file per tool
-├── v3/                        ← ONE feature, not the new home for pages: the dashboard runtime
+├── v3/                        ← Not the new home for pages. Two features: the dashboard runtime and Product Studio (product-workflow.html)
 │   ├── dashboards.html        ← List / create dashboards
 │   ├── dashboard.html         ← The canvas (?id=<uuid>, &edit=1 to edit)
 │   ├── dashboard.css

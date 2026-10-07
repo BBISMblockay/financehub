@@ -20,12 +20,21 @@ most carry a decision that looks like a bug and is not.
    (the insert backstop; not automatic — verify check 6 fails without it).
 4. Add it to `verify_v2_schema.sql`, `apply_all_post_merge.sql` and `README.md`.
 5. After any public table/view change, re-run `refresh_chat_schema_catalog()` (Ask SILO's map).
-6. Applied directly to production? Open the PR in the same session.
+6. Production changes (applying a migration, running SQL that writes) need Blake's explicit approval
+   in the session. If one was applied directly with that approval, open the PR in the same session.
 7. `20260922170000` must stay the LAST include in `apply_all_post_merge.sql`.
 
 ## Rules that have each caused a real incident
-- **Materialized views have no RLS.** Read them only through their `security_invoker = false` wrapper
-  view, which carries `where company_entity_id = active_company_id()`. Never grant a matview to
+- **Views: `security_invoker = true` by default.** Use `security_invoker = false` ONLY for a wrapper
+  that must read something RLS cannot cover (a matview, or a rollup too slow under the caller's RLS),
+  and then the view MUST filter `company_entity_id = active_company_id()` and expose only the columns
+  it means to disclose. Production's ten such wrappers (2026-10-07): `inventory_on_hand_current_v`,
+  `sales_velocity_by_sku_location_v`, `sales_by_product_title_daily_v`,
+  `sales_monthly_product_type_rollup_v`, `wow_sales_daily_type_v`, `search_console_query_rollup_v`,
+  `search_console_query_rollup_28d_v`, `demand_coverage_base_v`, `product_type_forecastable_v`,
+  `stripe_connect_status_v`. One more, `ar_sync_status_v`, is definer with NO company filter and is
+  readable by `anon` — a known gap, not a pattern to copy.
+- **Materialized views have no RLS.** Read them only through their wrapper view (above). Never grant a matview to
   `authenticated`, and never point a global (`source = 'system'`) report at a matview.
 - **`chat_run_readonly_query` returns `json`, not `jsonb`** — jsonb reorders columns. Leave it.
 - **Business days:** use `silo_business_today()` / `_yesterday()` / `silo_company_timezone()`, never

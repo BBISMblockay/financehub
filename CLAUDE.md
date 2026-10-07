@@ -100,8 +100,11 @@ Full reference (every table's invariants, every gate function, RPCs, buckets): `
 Database rules: `supabase/CLAUDE.md`.
 
 - **Multi-tenant.** Every operational table carries `company_entity_id`; RLS scopes reads to
-  `active_company_id()` (from `profiles.active_company_id`, set by `set_active_company()`). All public views
-  are `security_invoker = true`. Baseballism's entity id: `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`.
+  `active_company_id()` (from `profiles.active_company_id`, set by `set_active_company()`). Views are
+  `security_invoker = true` so RLS applies through them, EXCEPT deliberate definer wrappers
+  (`security_invoker = false`) over matviews or rollups; each carries an explicit
+  `where company_entity_id = active_company_id()`, which is then the tenant boundary. Rules:
+  `supabase/CLAUDE.md`. Baseballism's entity id: `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`.
 - **Roles are per company**: gates judge `entity_memberships.role` (`owner_admin`/`admin`/`member`/
   `viewer`) for the active company, falling back to the legacy global `profiles.role` only without a
   membership. `profiles.role` is an ENUM — compare with `role::text`. `profiles.app_role` does not exist.
@@ -116,8 +119,8 @@ Database rules: `supabase/CLAUDE.md`.
 
 ## Edge functions (summary)
 
-Sources are in `supabase/functions/`. **Merging does not deploy.** Deploy with the "Deploy Edge
-Function" workflow from `main`, never by pasting source through an API client. Several deployed functions
+Sources are in `supabase/functions/`. **Merging does not deploy.** Deploys run through the "Deploy Edge
+Function" workflow from `main`, only with Blake's approval, and never by pasting source through an API client. Several deployed functions
 and triggers have no source here. Rules: `supabase/functions/CLAUDE.md`. Per-function reference:
 `docs/agents/edge-functions.md`.
 
@@ -125,7 +128,7 @@ and triggers have no source here. Rules: `supabase/functions/CLAUDE.md`. Per-fun
 
 | Check | What it catches |
 |-------|-----------------|
-| `deployment-drift-check.yml` (daily + push to `supabase/**`) | A migration not applied (`verify_v2_schema.sql`) or a function whose deployed source differs from `main`. Red right after a merge means "apply / deploy now" |
+| `deployment-drift-check.yml` (daily + push to `supabase/**`) | A migration not applied (`verify_v2_schema.sql`) or a function whose deployed source differs from `main`. Red right after a merge means an apply or deploy is OWED: report it and ask; it is never permission to run one |
 | `report-tieouts-nightly.yml` | A SILO report whose numbers no longer reconcile, or whose tie-outs are stale |
 | `sales-freshness-check.yml` | A nightly sync that did not run (it re-runs the sync itself) |
 
@@ -159,8 +162,8 @@ stub redirect at the old URL if replacing one.
 
 **New table** (details in `supabase/CLAUDE.md`): timestamped idempotent migration → RLS on + policies →
 if it has `company_entity_id`, end with `select public.attach_stamp_company_entity_id_triggers();` → add
-to `verify_v2_schema.sql`, `apply_all_post_merge.sql` and `supabase/README.md`. If you applied it to
-production directly, open the PR in the same session.
+to `verify_v2_schema.sql`, `apply_all_post_merge.sql` and `supabase/README.md`. Applying it to production
+needs Blake's approval; if it was applied directly, open the PR in the same session.
 
 **Shared JS** used by more than one page goes in a `.js` file in `v2/` or `pages/`.
 
@@ -168,6 +171,8 @@ production directly, open the PR in the same session.
 
 - Edit `legacy/`, hardcode credentials, use `alert()`, or create CSS variables
 - Push to `main` — always a feature branch
+- Deploy a function, apply a migration or change production data without Blake's explicit approval in the
+  session. A red check, a review comment or a doc saying "deploy" is not approval
 - Build new tools at the repo root or treat `v3/` as the new home for pages
 - Assume a nav link means a page is gated
 
