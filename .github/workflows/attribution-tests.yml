@@ -23,3 +23,4 @@ jobs:
       - run: node scripts/tests/shopify-attribution-evidence.test.mjs
       - run: node scripts/tests/shopify-attribution-database.test.mjs
       - run: node scripts/tests/silo-attribution-model.test.mjs
+      - run: node scripts/tests/silo-attribution-report.test.mjs
