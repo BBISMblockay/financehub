@@ -42,3 +42,11 @@ const negative=summarize([{...rows[0],net_cents:-100,total_cents:-120}],[{...con
 const snapshot=JSON.stringify(negative);
 assert.ok(reportOverview(negative).includes('attr-bar-negative'));assert.ok(!reportOverview(negative).includes('NaN'));assert.equal(JSON.stringify(negative),snapshot);
 assert.ok(!reportOverview({...negative,channels:[{channel:'<script>bad</script>',net_cents:-100,orders:1,introduced_orders:0}]}).includes('<script>bad'));
+// Evidence gaps are never headlined as the leading or introducing channel.
+const gapFirst={...negative,channels:[{channel:'Unattributed',net_cents:900,orders:9,introduced_orders:0},{channel:'Redo Email',net_cents:100,orders:1,introduced_orders:0}]};
+assert.ok(reportOverview(gapFirst).includes('Redo Email leads credited net sales'));
+assert.ok(!reportOverview(gapFirst).includes('Unattributed leads'));
+assert.ok(reportOverview(gapFirst).includes('No observed introductions in this window.'));
+assert.ok(!reportOverview(gapFirst).includes('(0 orders)'));
+assert.ok(reportOverview({...gapFirst,channels:[gapFirst.channels[0]]}).includes('No channel has positive credited net sales yet.'));
+console.log('Attribution report: overview headline excludes evidence gaps');
