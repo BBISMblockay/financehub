@@ -513,7 +513,10 @@ await test('money direction and required entities stay visible in compact rows',
   assert.match(h.el('tblCoding').innerHTML,/\+\$45\.00<span>Money in/);
   h.page.state.allAccounts.push({id:'ap',name:'Payables',type:'Accounts Payable',connectionId:'qbo-one'});
   h.page.state.txns[0].qbo_account_id='ap';h.page.renderCoding();
-  assert.match(h.el('tblCoding').innerHTML,/Entity required/);
+  // An Accounts Payable line needs a VENDOR specifically (QuickBooks rejects a
+  // customer there), so the compact row names the kind, not just "entity".
+  assert.match(h.el('tblCoding').innerHTML,/Vendor required/);
+  assert.match(h.el('tblCoding').innerHTML,/needs vendor/);
 });
 
 /* A pending bank row and a removed one both fail isAvailable(), and before this
@@ -1038,6 +1041,46 @@ await test('a linked import outside the initial batch list is read with company 
  assert.deepEqual(filters,[['id','older'],['company_entity_id','company-one']]);
  assert.equal(h.page.state.batches.some(b=>b.id==='older'),true);
 });
+/* Review of #924 (2026-10-07): the bulk "Apply suggested customer" must never
+   guess between similar names, and must never advertise a row it will skip. */
+await test('bulk entity fix: no guess between two partial name matches, and never a split row', async () => {
+  const ar = { id: '3', name: 'Due From Meta', type: 'Accounts Receivable', connectionId: 'qbo-one' };
+  const coded = { ...transaction, status: 'coded', coding_source: 'manual', batch_id: 'batch-one',
+    qbo_account_id: '3', qbo_account_name: 'Due From Meta', accounting_treatment: 'purchase' };
+  // Two customers both partly match "Meta": no hint, no bulk button, no row button.
+  let h = await pageHarness();
+  h.page.state.allAccounts = [...chart, ar]; h.page.state.accounts = [...chart, ar];
+  h.page.state.entities = [
+    { id: 'c1', name: 'Meta Platforms', type: 'Customer', connectionId: 'qbo-one' },
+    { id: 'c2', name: 'Meta Shop', type: 'Customer', connectionId: 'qbo-one' },
+  ];
+  h.page.state.txns = [{ ...coded, id: 'ar-meta', vendor_name: 'Meta', description: 'Meta' }];
+  h.page.renderCoding();
+  assert.match(h.el('codeBlockers').innerHTML, /need a customer/);
+  assert.doesNotMatch(h.el('codeBlockers').innerHTML, /Apply suggested customer/, 'two partial matches must not be guessed between');
+  assert.doesNotMatch(h.el('tblCoding').innerHTML, /data-use-entity/);
+
+  // One partial match: offered on the row for a person to confirm, never in bulk.
+  h.page.state.entities = [{ id: 'c1', name: 'Meta Platforms', type: 'Customer', connectionId: 'qbo-one' }];
+  h.page.renderCoding();
+  assert.match(h.el('tblCoding').innerHTML, /data-use-entity[^>]*>Use Meta Platforms/);
+  assert.doesNotMatch(h.el('codeBlockers').innerHTML, /Apply suggested customer/, 'a partial match is per-row only');
+  await h.el('codeBlockers').fire('click', { target: { closest: (sel) => sel === '[data-blocker-fix]' ? { dataset: { blockerFix: 'entity' } } : null } });
+  assert.equal(h.page.state.txns[0].entity_qbo_id, undefined, 'the bulk action applies nothing it did not offer');
+
+  // An exact match on a SPLIT row: the bulk button writes rows, not split lines, so it is not offered.
+  h = await pageHarness();
+  h.page.state.allAccounts = [...chart, ar]; h.page.state.accounts = [...chart, ar];
+  h.page.state.entities = [{ id: 'c3', name: 'Meta', type: 'Customer', connectionId: 'qbo-one' }];
+  h.page.state.txns = [{ ...coded, id: 'ar-split', vendor_name: 'Meta', description: 'Meta', qbo_account_id: null }];
+  h.page.state.splits.set('ar-split', [
+    { line_no: 1, amount: 6, qbo_account_id: '3', qbo_account_name: 'Due From Meta' },
+    { line_no: 2, amount: 4, qbo_account_id: '2', qbo_account_name: 'Expense' },
+  ]);
+  h.page.renderCoding();
+  assert.match(h.el('codeBlockers').innerHTML, /need a customer/);
+  assert.doesNotMatch(h.el('codeBlockers').innerHTML, /Apply suggested customer/, 'a split row is never advertised as bulk-fixable');
+});
 await test('rows Entry would refuse are called out while tagging, with why and one-click fixes', async () => {
   const h = await pageHarness();
   const ar = { id: '3', name: 'Due From LFRE', type: 'Accounts Receivable', connectionId: 'qbo-one' };
@@ -1056,7 +1099,7 @@ await test('rows Entry would refuse are called out while tagging, with why and o
   assert.match(box.innerHTML, /2 categorized bank rows have no transaction type/);
   assert.match(box.innerHTML, /2 × Categorized without a type/);
   assert.match(box.innerHTML, /Set suggested type on 2/);
-  assert.match(box.innerHTML, /1 row is on a receivable or payable account with no entity/);
+  assert.match(box.innerHTML, /1 row on Accounts Receivable need a customer/);
   assert.match(h.el('codeFilterSegments').innerHTML, /Needs type <span>2/);
   assert.match(h.el('codeFilterSegments').innerHTML, /Needs entity <span>1/);
   assert.match(h.el('tblCoding').innerHTML, /Needs transaction type: Categorized without a type/);

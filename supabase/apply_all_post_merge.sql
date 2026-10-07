@@ -19170,6 +19170,9 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260925193200_inventory_summary_semicolon.sql
 \i migrations/20261006120000_refresh_stale_report_tieouts.sql
 
+-- Card import approval: payable lines need a vendor, receivable lines a customer.
+\i migrations/20261007180000_card_import_entity_kind_on_approve.sql
+
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above
 -- upsert the catalog, so re-running this file without it re-creates the four

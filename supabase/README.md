@@ -2734,3 +2734,12 @@ with "DELETE requires a WHERE clause". No other change; grants re-asserted.
 `scripts/tests/no-unqualified-delete.test.mjs` refuses a bare DELETE in the
 latest definition of any function, since PGlite does not load safeupdate.
 
+## Card import approval: entity kind — `20261007180000_card_import_entity_kind_on_approve.sql`
+
+Replaces `approve_card_import_batch()` with production's definition (verified
+equal to `20260915100000` on 2026-10-07) plus ONE check: a line on an Accounts
+Payable account must carry a Vendor and one on Accounts Receivable a Customer,
+or approval refuses. QuickBooks rejects the wrong kind only at post time, so an
+approved batch could not be posted. Grants are unchanged (`create or replace`
+keeps them). Verified by the `card_import_entity_kind` verify row.
+
