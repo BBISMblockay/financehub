@@ -3815,6 +3815,38 @@ select
     else 'ok'
   end as shopify_client_credentials;
 
+-- ── Shopify-initiated install of the public app (20261007120000) ───────────
+-- A parked Admin API token waits in shopify_pending_installs until an admin
+-- claims it, so both install tables must be service-role only, and the claim
+-- function (which writes shopify_connections as definer) must not be
+-- client-callable.
+select
+  case
+    when to_regclass('public.shopify_install_states') is null
+      or to_regclass('public.shopify_pending_installs') is null
+      then 'MISSING — run 20261007120000_shopify_app_install.sql'
+    when not exists (select 1 from pg_class where oid='public.shopify_pending_installs'::regclass and relrowsecurity)
+      or not exists (select 1 from pg_class where oid='public.shopify_install_states'::regclass and relrowsecurity)
+      then 'CRITICAL — a Shopify install table has RLS off'
+    when exists (select 1 from pg_policy where polrelid in ('public.shopify_pending_installs'::regclass, 'public.shopify_install_states'::regclass))
+      then 'CRITICAL — a policy exists on a Shopify install table; they hold unclaimed Admin API tokens and must be service-role only'
+    when has_table_privilege('authenticated', 'public.shopify_pending_installs', 'select')
+      or has_table_privilege('anon', 'public.shopify_pending_installs', 'select')
+      or has_table_privilege('authenticated', 'public.shopify_install_states', 'select')
+      or has_table_privilege('anon', 'public.shopify_install_states', 'select')
+      then 'CRITICAL — a client role can read a Shopify install table'
+    when to_regprocedure('public.shopify_claim_pending_install(text,uuid,uuid)') is null
+      or to_regprocedure('public.shopify_purge_expired_installs()') is null
+      then 'MISSING — shopify_claim_pending_install / shopify_purge_expired_installs'
+    when has_function_privilege('authenticated', 'public.shopify_claim_pending_install(text,uuid,uuid)', 'execute')
+      or has_function_privilege('anon', 'public.shopify_claim_pending_install(text,uuid,uuid)', 'execute')
+      then 'CRITICAL — a client role can execute shopify_claim_pending_install(); it attaches a store to any company'
+    when has_function_privilege('anon', 'public.shopify_purge_expired_installs()', 'execute')
+      or has_function_privilege('authenticated', 'public.shopify_purge_expired_installs()', 'execute')
+      then 'CRITICAL — a client role can execute shopify_purge_expired_installs()'
+    else 'ok'
+  end as shopify_app_install;
+
 -- ── Sidebar badge counts (20260928170000) ──────────────────────────────────
 -- The sidebar calls nav_badge_counts() on every page; without it the SEO row
 -- never shows tasks waiting for approval. INVOKER, and never anon.

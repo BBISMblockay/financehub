@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- Shopify-initiated install, step 2 of 2 (step 1 is the shopify-app-install
+     edge function). Shopify sends the merchant here after they accept SILO's
+     permissions (App Store rule 2.3.3). A signed-in admin chooses which SILO
+     workspace the store belongs to. Chrome-less on purpose, like
+     company-picker.html: the store is not attached to any workspace yet.
+     ADDITIVE: nothing links here except the install callback.
+     Logic: v2/shopify-install.js. -->
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="robots" content="noindex" />
+  <title>Connect Shopify store</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../pages/config.js"></script>
+  <style>
+    body { margin: 0; background: var(--bcn-canvas, #f4f5f7); }
+    .si-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; box-sizing: border-box; }
+    .si-card { width: 100%; max-width: 460px; background: var(--bcn-surface, #fff); border: 1px solid var(--bcn-border, #e2e5ea);
+      border-radius: 14px; padding: 28px 24px; box-shadow: 0 8px 28px rgba(2,6,23,.07); }
+    .si-logo { width: 40px; height: 40px; background: var(--bcn-band, #0f1117); border-radius: 10px; color: #fff;
+      display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; margin-bottom: 18px; }
+    .si-title { font-size: 17px; font-weight: 600; color: var(--bcn-ink, #111827); margin: 0 0 4px; }
+    .si-sub { font-size: 13px; color: var(--bcn-ink-3, #6b7280); margin: 0 0 20px; }
+    .si-store { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--bcn-ink-2, #374151); }
+    .si-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+    .si-option { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1.5px solid var(--bcn-border, #e2e5ea);
+      border-radius: 10px; cursor: pointer; }
+    .si-option input { margin-top: 3px; }
+    .si-option[aria-disabled="true"] { opacity: .6; cursor: default; }
+    .si-option-name { font-weight: 600; font-size: 14px; color: var(--bcn-ink, #111827); }
+    .si-option-note { font-size: 12px; color: var(--bcn-ink-3, #6b7280); margin-top: 2px; }
+    .si-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <main class="si-wrap">
+    <div class="si-card">
+      <div class="si-logo">S</div>
+      <h1 class="si-title" id="siTitle">Connect your Shopify store</h1>
+      <p class="si-sub" id="siSub">Checking the install&hellip;</p>
+      <div class="si-list" id="siList" hidden></div>
+      <div class="si-actions" id="siActions" hidden>
+        <button class="bcn-btn bcn-btn--primary" id="siConnect" type="button" disabled>Connect store</button>
+      </div>
+      <div class="bcn-status" id="status" hidden></div>
+    </div>
+  </main>
+  <script src="shopify-install.js"></script>
+</body>
+</html>

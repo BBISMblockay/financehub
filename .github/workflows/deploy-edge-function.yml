@@ -78,7 +78,9 @@ jobs:
           #     before any DB access.
           #   onboarding-interest -- public contact intake; bounded validation
           #     and atomic service-only quotas, no account or invite creation.
-          NO_JWT_FUNCTIONS="shopify-compliance-webhook plaid-scheduled-sync card-coding-prepare-scheduled onboarding-interest"
+          #   shopify-app-install -- Shopify opens it (App URL + OAuth callback);
+          #     Shopify's HMAC signature is checked before anything is written.
+          NO_JWT_FUNCTIONS="shopify-compliance-webhook plaid-scheduled-sync card-coding-prepare-scheduled onboarding-interest shopify-app-install"
           if [ "${{ inputs.function_name }}" = "all" ]; then
             supabase functions deploy --project-ref "${{ inputs.project_ref }}"
             # A plain deploy applies the default verify_jwt, which would leave

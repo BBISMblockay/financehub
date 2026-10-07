@@ -76,6 +76,13 @@ on:
       - 'supabase/functions/test-shopify-connection/**'
       - 'supabase/functions/shopify-sync-run/**'
       - 'supabase/migrations/*shopify_client_credentials.sql'
+      # Shopify-initiated install of the public app (shopify-install*.test.mjs).
+      - 'scripts/lib/shopify-install-lib.mjs'
+      - 'supabase/functions/shopify-app-install/**'
+      - 'supabase/functions/shopify-install-claim/**'
+      - 'supabase/migrations/*shopify_app_install.sql'
+      - 'v2/shopify-install.html'
+      - 'v2/shopify-install.js'
       - 'scripts/tests/shopify-auth.test.mjs'
       - 'scripts/tests/shopify-credentials-database.test.mjs'
       - 'v2/integrations.html'
@@ -1228,6 +1235,33 @@ jobs:
           set -u
           for m in grant-back token-readable exec-granted; do
             if SHOPIFY_CRED_DB_MUTATION="$m" node scripts/tests/shopify-credentials-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Shopify-initiated install of the public app (20261007120000): both
+      # handlers executed with fakes, then the claim function against Postgres.
+      - name: Shopify install from the App Store (handlers)
+        run: node scripts/tests/shopify-install.test.mjs
+      - name: The Shopify install guards, removed, must break it
+        run: |
+          set -u
+          for m in no-hmac any-claimer stale-ok; do
+            if SHOPIFY_INSTALL_MUTATION="$m" node scripts/tests/shopify-install.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+      - name: Shopify install claim (database)
+        run: node scripts/tests/shopify-install-database.test.mjs
+      - name: The Shopify install claim guards, removed, must break it
+        run: |
+          set -u
+          for m in grant-back exec-granted overwrite; do
+            if SHOPIFY_INSTALL_DB_MUTATION="$m" node scripts/tests/shopify-install-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite"
               exit 1
             fi
