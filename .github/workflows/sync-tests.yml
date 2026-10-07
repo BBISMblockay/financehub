@@ -89,6 +89,11 @@ on:
       - '.github/workflows/deploy-edge-function.yml'
       - 'supabase/functions/google-oauth-start/**'
       - 'supabase/functions/google-oauth-callback/**'
+      # Meta Ads OAuth (meta-oauth.test.mjs).
+      - 'scripts/lib/meta-oauth-lib.mjs'
+      - 'supabase/functions/meta-oauth-start/**'
+      - 'supabase/functions/meta-oauth-callback/**'
+      - 'supabase/migrations/*meta_oauth_states.sql'
       - 'oauth/**'
       - 'supabase/functions/test-ad-platform-connection/**'
       - 'supabase/functions/ad-platform-sync-run/**'
@@ -603,6 +608,20 @@ jobs:
       # origin outside the allowlist is the failure that matters.
       - name: Google OAuth return address (allowlist, both functions, return page)
         run: node scripts/tests/google-oauth-redirect.test.mjs
+      # Meta Ads OAuth (Facebook Login for Business), additive. Mutations:
+      # META_OAUTH_MUTATION=any-admin | no-recheck | keep-short
+      - name: Meta Ads OAuth (handlers + state migration)
+        run: node scripts/tests/meta-oauth.test.mjs
+      - name: The Meta OAuth guards, removed, must break it
+        run: |
+          set -u
+          for m in any-admin no-recheck keep-short; do
+            if META_OAUTH_MUTATION="$m" node scripts/tests/meta-oauth.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
 
       # Click-to-connect: the account picker's stored values, and Reconnect
       # writing fresh tokens only onto the row it was started for.
@@ -1255,6 +1274,8 @@ jobs:
             fi
             echo "$m failed the suite, as it must"
           done
+      - name: Meta Ads OAuth state migration (database; the earlier run skipped it)
+        run: node scripts/tests/meta-oauth.test.mjs | tee /dev/stderr | grep -q '(db) the migration admits meta_ads'
       - name: Shopify install claim (database)
         run: node scripts/tests/shopify-install-database.test.mjs
       - name: The Shopify install claim guards, removed, must break it

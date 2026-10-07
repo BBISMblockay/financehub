@@ -2749,3 +2749,11 @@ made through the public app (sync kept), or a refusal when the workspace
 connects the store another way. Both tables and both functions are service-role
 only. Verified by `scripts/tests/shopify-install-database.test.mjs` and the
 `shopify_app_install` verify row.
+
+## Meta Ads OAuth state — `20261007130000_meta_oauth_states.sql`
+
+ADDITIVE. Adds `meta_ads` to `ad_platform_oauth_states_platform_check` so the
+new `meta-oauth-start` / `meta-oauth-callback` functions (Facebook Login for
+Business) can record their CSRF nonce. The pasted System User token path is
+unchanged. Verified by `scripts/tests/meta-oauth.test.mjs` (PGlite step) and the
+`meta_oauth_states` verify row.

@@ -19173,6 +19173,9 @@ $c$select (select count(*) from v_po_header_summary
 -- Shopify-initiated install of the public app (additive; nothing calls it yet).
 \i migrations/20261007120000_shopify_app_install.sql
 
+-- Meta Ads OAuth state (additive; nothing calls it yet).
+\i migrations/20261007130000_meta_oauth_states.sql
+
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above
 -- upsert the catalog, so re-running this file without it re-creates the four

@@ -3847,6 +3847,25 @@ select
     else 'ok'
   end as shopify_app_install;
 
+-- ── Meta Ads OAuth state (20261007130000) ──────────────────────────────────
+-- meta-oauth-start records its CSRF nonce with platform = meta_ads. The CHECK
+-- is re-typed when extended, so every earlier value must survive too.
+select
+  case
+    when not exists (select 1 from pg_constraint
+                     where conname = 'ad_platform_oauth_states_platform_check'
+                       and pg_get_constraintdef(oid) like '%meta_ads%')
+      then 'MISSING — run 20261007130000_meta_oauth_states.sql (ad_platform_oauth_states rejects meta_ads)'
+    when not exists (select 1 from pg_constraint
+                     where conname = 'ad_platform_oauth_states_platform_check'
+                       and pg_get_constraintdef(oid) like '%google_ads%'
+                       and pg_get_constraintdef(oid) like '%ga4%'
+                       and pg_get_constraintdef(oid) like '%tiktok_ads%'
+                       and pg_get_constraintdef(oid) like '%search_console%')
+      then 'CRITICAL — ad_platform_oauth_states_platform_check lost an earlier platform when meta_ads was added'
+    else 'ok'
+  end as meta_oauth_states;
+
 -- ── Sidebar badge counts (20260928170000) ──────────────────────────────────
 -- The sidebar calls nav_badge_counts() on every page; without it the SEO row
 -- never shows tasks waiting for approval. INVOKER, and never anon.
