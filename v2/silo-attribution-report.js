@@ -1,4 +1,5 @@
 import {classify,journeyVisits} from './silo-attribution-model.js';
+import {reportOverview} from './silo-attribution-visuals.js';
 export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function platformMark(channel) {
   const key=/^Meta/.test(channel)?'meta':/^Redo/.test(channel)?'redo':/^Google Ads/.test(channel)?'google-ads':/^TikTok/.test(channel)?'tiktok':/^Shop/.test(channel)?'shopify':null;
@@ -50,7 +51,8 @@ export function journeyFlow(evidence,allocation,timezone,currency,netCents,windo
   if(!visits.length)steps.push('<li class="attr-step"><div class="attr-node">?</div><div class="attr-step-body">No captured visits. Missing evidence is not Direct.</div></li>');
   if(allocation?.assignment==='first_touch_fallback')steps.push(`<li class="attr-step attr-step--credited"><div class="attr-node">${platformMark(allocation.channel)}</div><div class="attr-step-body"><div class="attr-step-title">${escapeHtml(allocation.channel)} <span class="bcn-pill bcn-pill--accent">Credited first-touch fallback</span></div><div class="attr-time">Order landing evidence · visit time unavailable</div><p>${escapeHtml(allocation.campaign_name||allocation.campaign||'No campaign identified')}</p><details><summary>Landing evidence</summary><div>Source: ${escapeHtml(allocation.source||'Unknown')} · Medium: ${escapeHtml(allocation.medium||'Unknown')}</div><div class="attr-url">${escapeHtml(evidence.raw?.landing_path||'No landing path')}</div></details></div></li>`);
   steps.push(`<li class="attr-step attr-step--purchase"><div class="attr-node">${platformMark('Shopify')}</div><div class="attr-step-body"><strong>Purchase ${escapeHtml(order.name)}</strong><div class="bcn-mono attr-time">${escapeHtml(formatTime(order.createdAt))}</div><p>${escapeHtml(new Intl.NumberFormat('en-US',{style:'currency',currency}).format(netCents/100))} net sales activity in the selected reporting period</p></div></li>`);
-  return `<ol class="attr-flow" aria-label="Customer journey in chronological order">${steps.join('')}</ol>`;
+  const summary=`<div class="attr-journey-summary"><div class="attr-path-stage">${platformMark(allocation?.introduced_channel||'Unknown')}<small>Observed introduction</small><strong>${escapeHtml(allocation?.introduced_channel||'Not identified')}</strong></div><span class="attr-path-arrow">→</span><div class="attr-path-stage">${platformMark(allocation?.channel||'Unattributed')}<small>Revenue credit</small><strong>${escapeHtml(allocation?.channel||'Unattributed')}</strong></div><span class="attr-path-arrow">→</span><div class="attr-path-stage">${platformMark('Shopify')}<small>Purchase</small><strong>${escapeHtml(order.name)}</strong></div></div><p class="attr-context">Role summary for the ${windowDays}-day window. Other observed assists: ${escapeHtml((allocation?.assisting_channels||[]).join(', ')||'None identified')}.</p>`;
+  return summary+`<details class="attr-all-visits"><summary>Explore ${visits.length} observed visits and supporting evidence</summary><ol class="attr-flow" aria-label="Customer journey in chronological order">${steps.join('')}</ol></details>`;
 }
 export async function loadRows(db,companyId,connectionId,start,end,windowDays) {
   if(![companyId,connectionId].every(v=>/^[0-9a-f-]{36}$/i.test(v))||![start,end].every(v=>/^\d{4}-\d{2}-\d{2}$/.test(v))||![7,14,30,60].includes(windowDays))throw Error('Invalid report filters');
@@ -74,12 +76,13 @@ export function mountReport(root,{load,evidence}) {
     if(!report)return;
     const query=$('search').value.toLowerCase(),channel=$('channel').value;
     const rows=report.orders.filter(a=>(!channel||a.channel===channel)&&[a.order_name,a.order_id,a.channel,a.allocation?.campaign_name,a.allocation?.campaign,a.allocation?.reason].join(' ').toLowerCase().includes(query));
-    page=Math.min(page,Math.max(0,Math.ceil(rows.length/50)-1));
-    $('orders').innerHTML=rows.slice(page*50,page*50+50).map(a=>`<tr><td><button class="bcn-btn bcn-btn--ghost" data-order="${escapeHtml(a.order_id)}">${escapeHtml(a.order_name||a.order_id)}</button></td><td>${platformMark(a.channel)} ${escapeHtml(a.channel)}</td><td>${escapeHtml(a.allocation?.introduced_channel||'Not identified')}</td><td>${escapeHtml((a.allocation?.assisting_channels||[]).join(', ')||'None observed')}</td><td class="bcn-mono">${money(a.net_cents)}</td></tr>`).join('');
-    $('count').textContent=`${rows.length.toLocaleString()} orders with sales activity · Page ${page+1} of ${Math.max(1,Math.ceil(rows.length/50))}`;
-    $('previous').disabled=page===0;$('next').disabled=(page+1)*50>=rows.length;
+    page=Math.min(page,Math.max(0,Math.ceil(rows.length/12)-1));
+    $('orders').innerHTML=rows.slice(page*12,page*12+12).map(a=>`<button class="attr-order-card" data-order="${escapeHtml(a.order_id)}"><span class="attr-order-top"><strong>Order ${escapeHtml(a.order_name||a.order_id)}</strong><strong>${money(a.net_cents)}</strong></span><span class="attr-order-path"><span>${platformMark(a.allocation?.introduced_channel||'Unknown')}<small>Introduced</small><strong>${escapeHtml(a.allocation?.introduced_channel||'Not identified')}</strong></span><b>→</b><span>${platformMark(a.channel)}<small>Credited</small><strong>${escapeHtml(a.channel)}</strong></span><b>→</b><span>${platformMark('Shopify')}<small>Purchased</small><strong>Shopify</strong></span></span><span class="attr-order-bottom">${escapeHtml((a.allocation?.assisting_channels||[]).join(', ')||'No other assists observed')}<span>Explore journey ↗</span></span></button>`).join('');
+    $('count').textContent=`${rows.length.toLocaleString()} orders with sales activity · Page ${page+1} of ${Math.max(1,Math.ceil(rows.length/12))}`;
+    $('previous').disabled=page===0;$('next').disabled=(page+1)*12>=rows.length;
   }
   function draw(){
+    $('overview').innerHTML=reportOverview(report);
     $('net').textContent=money(report.net);$('total').textContent=money(report.total);$('ordercount').textContent=report.orders.length.toLocaleString();$('reconciled').textContent=`${report.days} of ${report.days} days matched`;
     const selected=$('channel').value;
     $('channel').innerHTML='<option value="">All credited channels</option>'+report.channels.map(c=>`<option>${escapeHtml(c.channel)}</option>`).join('');$('channel').value=selected;

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {summarize,journeyFlow,escapeHtml,platformMark,loadRows} from '../../v2/silo-attribution-report.js';
+import {reportOverview} from '../../v2/silo-attribution-visuals.js';
 const controls=[{day:'2026-09-01',currency:'USD',shop_timezone:'America/Los_Angeles',net_cents:100,total_cents:120,extracted_at:'snapshot'}];
 const allocation={channel:'Redo Email',window_days:30,visit_id:'r',introduced_channel:'Meta Ads',introduced_visit_id:'m',assisting_channels:['Meta Ads']};
 const rows=[{...controls[0],order_id:'1',order_name:'#1',window_days:30,channel:'Redo Email',allocation,net_cents:100,total_cents:120,evidence_fetched_at:'e'}];
@@ -35,3 +36,9 @@ const missing={order:{name:'#fallback',createdAt:'2026-09-01T10:00:00Z',customer
 const fallbackFlow=journeyFlow(missing,fallback,'UTC','USD',100,30);
 assert.ok(fallbackFlow.includes('Credited first-touch fallback'));assert.ok(fallbackFlow.includes('visit time unavailable'));assert.ok(fallbackFlow.includes('Source: google'));assert.ok(!fallbackFlow.includes('<script>landing'));
 assert.ok(journeyFlow({order:{name:'#old',createdAt:null,customerJourneySummary:null}},null,'UTC','USD',-100,7).includes('Purchase time unavailable'));
+const visual=reportOverview(summarize(rows,controls,30));
+assert.ok(visual.includes('Daily Shopify net sales'));assert.ok(visual.includes('Channels work together'));assert.ok(visual.includes('Meta Ads'));assert.ok(visual.includes('Redo Email'));
+const negative=summarize([{...rows[0],net_cents:-100,total_cents:-120}],[{...controls[0],net_cents:-100,total_cents:-120}],30);
+const snapshot=JSON.stringify(negative);
+assert.ok(reportOverview(negative).includes('attr-bar-negative'));assert.ok(!reportOverview(negative).includes('NaN'));assert.equal(JSON.stringify(negative),snapshot);
+assert.ok(!reportOverview({...negative,channels:[{channel:'<script>bad</script>',net_cents:-100,orders:1,introduced_orders:0}]}).includes('<script>bad'));
