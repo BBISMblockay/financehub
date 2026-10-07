@@ -500,4 +500,20 @@ r.test('apply() tolerates a missing splits context', () => {
   r.eq(ids(F.apply(rows, filterPos({ account: 'acc_rent' }), {})), ['x', 'refund', 'bare']);
 });
 
+console.log('\n── payable / receivable entity queues ──');
+
+r.test('vendor and customer filters call the page predicates', () => {
+  const arApCtx = Object.assign({}, ctx, {
+    rowNeedsVendor: (t) => t.id === 'ap',
+    rowNeedsCustomer: (t) => t.id === 'ar',
+    missingEntity: (t) => t.id === 'ap' || t.id === 'ar',
+  });
+  const ap = txn({ id: 'ap' });
+  const ar = txn({ id: 'ar' });
+  const list = [ap, ar, txn({ id: 'ok' })];
+  r.eq(ids(F.apply(list, filterPos({ status: 'vendor' }), arApCtx)), ['ap']);
+  r.eq(ids(F.apply(list, filterPos({ status: 'customer' }), arApCtx)), ['ar']);
+  r.eq(ids(F.apply(list, filterPos({ status: 'entity' }), arApCtx)), ['ap', 'ar']);
+});
+
 process.exit(r.summary().fail ? 1 : 0);

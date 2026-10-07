@@ -19176,6 +19176,9 @@ $c$select (select count(*) from v_po_header_summary
 -- Meta Ads OAuth state (additive; nothing calls it yet).
 \i migrations/20261007130000_meta_oauth_states.sql
 
+-- Card import approval: payable lines need a vendor, receivable lines a customer.
+\i migrations/20261007180000_card_import_entity_kind_on_approve.sql
+
 -- ── Record the SILO report catalog cleanup (2026-09-22) ──────────────────
 -- MUST STAY THE LAST INCLUDE. The logistics/ownership seed migrations above
 -- upsert the catalog, so re-running this file without it re-creates the four
@@ -19183,4 +19186,5 @@ $c$select (select count(*) from v_po_header_summary
 -- widgets at deleted reports. This re-asserts production as of 2026-09-22.
 -- scripts/tests/report-catalog-cleanup-database.test.mjs fails if anything
 -- is included after it.
+\i migrations/20261007031733_attribution_coverage.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

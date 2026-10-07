@@ -126,7 +126,7 @@ test('a receivable line needs its customer before the round trip, as QuickBooks 
   const m = S.createSplitModel(100, [
     { qbo_account_id: 'ar', amountText: '60' }, { qbo_account_id: 'interest', amountText: '40' },
   ], refs);
-  assert.match(m.problems().join(' '), /receivable or payable account, so QuickBooks needs a customer or vendor/);
+  assert.match(m.problems().join(' '), /Line 1 is on Accounts Receivable, so QuickBooks needs a customer on it/);
   m.set(0, 'entity', 'Customer:sugar');
   assert.deepEqual(m.problems(), []);
   assert.equal(m.lines()[0].entity_name, 'Sugar Hill');

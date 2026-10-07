@@ -22,6 +22,8 @@ jobs:
       - run: npm ci --prefix scripts/tests/finance-db
       - run: node scripts/tests/shopify-attribution-evidence.test.mjs
       - run: node scripts/tests/shopify-attribution-probe.test.mjs
+      - run: node --test scripts/tests/shopify-attribution-coverage.test.mjs
       - run: node scripts/tests/shopify-attribution-database.test.mjs
       - run: node scripts/tests/silo-attribution-model.test.mjs
       - run: node scripts/tests/silo-attribution-report.test.mjs
+      - run: node --test scripts/tests/silo-attribution-access.test.mjs scripts/tests/nav-profile.test.mjs

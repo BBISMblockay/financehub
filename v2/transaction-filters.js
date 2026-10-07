@@ -40,7 +40,7 @@
   const NO_MERCHANT = '__none__';
   const NO_ACCOUNT = '__none__';
 
-  const STATUSES = ['all', 'uncoded', 'pending', 'treatment', 'entity', 'conflict', 'low', 'ai', 'excluded'];
+  const STATUSES = ['all', 'uncoded', 'pending', 'treatment', 'entity', 'vendor', 'customer', 'conflict', 'low', 'ai', 'excluded'];
   const DIRECTIONS = ['any', 'out', 'in'];
   const AMOUNT_MODES = ['any', 'exact', 'range'];
 
@@ -233,6 +233,12 @@
     // so the page supplies the test; with none supplied nothing matches.
     if (status === 'entity') {
       return row.status !== 'excluded' && !!(ctx && typeof ctx.missingEntity === 'function' && ctx.missingEntity(row));
+    }
+    if (status === 'vendor') {
+      return row.status !== 'excluded' && !!(ctx && typeof ctx.rowNeedsVendor === 'function' && ctx.rowNeedsVendor(row));
+    }
+    if (status === 'customer') {
+      return row.status !== 'excluded' && !!(ctx && typeof ctx.rowNeedsCustomer === 'function' && ctx.rowNeedsCustomer(row));
     }
     if (status === 'excluded') return row.status === 'excluded';
     if (status === 'conflict') return !!row.coding_conflict;

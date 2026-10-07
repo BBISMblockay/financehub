@@ -12,6 +12,8 @@
 
 ## Individual migrations (same content, split)
 
+**Attribution coverage (disabled draft):** `migrations/20261007031733_attribution_coverage.sql` adds service-only enrollment/cursor state after the original attribution migrations. It does not backfill customer data or enable scheduling. See [the attribution runbook](../docs/ops/silo-attribution.md).
+
 **On Deck coding review:** `migrations/20261004120000_on_deck_coding_review.sql` adds five authenticated, finance-gated functions and changes no table, policy or existing function: `on_deck_coding_items()` (the finance review queue over existing import batches, with a derived stage), `card_import_batch_preview(batch)` (runs `approve_card_import_batch` inside a rolled-back block, so the previewed entry and hash are exactly what approval freezes; a refusal comes back as the specific blocker), `approve_reviewed_card_import_batch(batch, hash)` (approves in SILO only when the frozen entry hashes to what was reviewed; sending to QuickBooks stays optional), `on_deck_coding_access()` and `on_deck_ready_count()` (Home's compact count), plus one trigger, `qbo_card_claim_matches_approval` on `quickbooks_journal_postings`, which refuses a card-import QuickBooks claim whose batch was reopened or reapproved after the posting function read it. Pair with the `quickbooks-post-journal` redeploy (optional `expected_approval_hash`). Verified by the two "On Deck coding" checks in `verify_v2_schema.sql`; runbook [docs/ops/on-deck.md](../docs/ops/on-deck.md).
 
 **SILO daily ledger:** `migrations/20261005120000_silo_daily_ledger.sql` records every categorized, settled bank or card transaction in SILO's own ledger at commit time (`ledger_entries` / `ledger_lines`, append-only, balanced by a deferred constraint trigger), with corrections written as a reversal plus a new entry and nothing dated on or before `accounting_period_locks.locked_through` (`set_accounting_period_lock`, finance-only, forward-only). Lines come from `card_coding_effective_lines` plus the source's balancing account, never before `greatest(accounting_start_date, authoritative_from)`. Read through `silo_ledger_lines_v` (finance-gated, `in_quickbooks` / `quickbooks_date`). Replaces `on_deck_ready_count()` so only uncategorized transactions count as pending. Backfills existing coded rows. No edge function change. Verified by the three "SILO ledger" checks in `verify_v2_schema.sql`; runbook [docs/ops/silo-ledger.md](../docs/ops/silo-ledger.md).
@@ -2757,3 +2759,13 @@ new `meta-oauth-start` / `meta-oauth-callback` functions (Facebook Login for
 Business) can record their CSRF nonce. The pasted System User token path is
 unchanged. Verified by `scripts/tests/meta-oauth.test.mjs` (PGlite step) and the
 `meta_oauth_states` verify row.
+
+## Card import approval: entity kind — `20261007180000_card_import_entity_kind_on_approve.sql`
+
+Replaces `approve_card_import_batch()` with production's definition (verified
+equal to `20260915100000` on 2026-10-07) plus ONE check: a line on an Accounts
+Payable account must carry a Vendor and one on Accounts Receivable a Customer,
+or approval refuses. QuickBooks rejects the wrong kind only at post time, so an
+approved batch could not be posted. Grants are unchanged (`create or replace`
+keeps them). Verified by the `card_import_entity_kind` verify row.
+

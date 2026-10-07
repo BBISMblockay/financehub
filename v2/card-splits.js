@@ -128,8 +128,11 @@
           l.qbo_account_name = look.accountName ? look.accountName(value) || '' : '';
           // An account that does not take an entity should not keep one that
           // was set while a receivable was selected.
-          if (l.entity_qbo_id && look.accountType && !needsEntity(look.accountType(value))) {
-            l.entity_qbo_id = ''; l.entity_type = ''; l.entity_name = '';
+          if (l.entity_qbo_id && look.accountType) {
+            const req = requiredEntityKind(look.accountType(value));
+            if (!req || l.entity_type !== req) {
+              l.entity_qbo_id = ''; l.entity_type = ''; l.entity_name = '';
+            }
           }
         } else if (field === 'location') {
           l.qbo_location_id = value || '';
@@ -210,8 +213,13 @@
             if (c === null) out.push(`Line ${n}'s amount "${raw}" is not a number SILO can read. Use a figure like 1,234.56.`);
             else if (c === 0) out.push(`Line ${n} is zero. Remove the line instead of coding nothing to it.`);
           }
-          if (l.qbo_account_id && look.accountType && needsEntity(look.accountType(l.qbo_account_id)) && !l.entity_qbo_id) {
-            out.push(`Line ${n} is on a receivable or payable account, so QuickBooks needs a customer or vendor on it.`);
+          if (l.qbo_account_id && look.accountType) {
+            const req = requiredEntityKind(look.accountType(l.qbo_account_id));
+            if (req && !l.entity_qbo_id) {
+              out.push(`Line ${n} is on Accounts ${req === 'Vendor' ? 'Payable' : 'Receivable'}, so QuickBooks needs a ${req.toLowerCase()} on it.`);
+            } else if (req && l.entity_qbo_id && l.entity_type !== req) {
+              out.push(`Line ${n} needs a ${req.toLowerCase()}, not a ${String(l.entity_type || 'entity').toLowerCase()}.`);
+            }
           }
         });
         const remainder = api.remainderCents();
@@ -244,6 +252,11 @@
 
   const NEEDS_ENTITY = new Set(['Accounts Receivable', 'Accounts Payable']);
   const needsEntity = (accountType) => NEEDS_ENTITY.has(accountType || '');
+  const requiredEntityKind = (accountType) => {
+    if (/Accounts Payable/i.test(accountType || '')) return 'Vendor';
+    if (/Accounts Receivable/i.test(accountType || '')) return 'Customer';
+    return null;
+  };
 
   /* The journal lines a transaction contributes to the entry preview: its
    * split lines when it is split, otherwise itself. This mirrors the
@@ -287,7 +300,7 @@
         <td class="txn-split-no">${i + 1}</td>
         <td><select class="bcn-field bcn-field--mono" data-field="account" data-selected="${esc(l.qbo_account_id)}" aria-label="Line ${i + 1} account"><option value="">— choose an account —</option>${options.accounts}</select></td>
         <td><select class="bcn-field" data-field="location" data-selected="${esc(l.qbo_location_id)}" aria-label="Line ${i + 1} location"><option value="">— account default —</option>${options.locations}</select></td>
-        <td><select class="bcn-field" data-field="entity" data-selected="${esc(l.entity_qbo_id ? l.entity_type + ':' + l.entity_qbo_id : '')}" aria-label="Line ${i + 1} customer or vendor"><option value="">— none —</option>${options.entities}</select></td>
+        <td><select class="bcn-field" data-field="entity" data-selected="${esc(l.entity_qbo_id ? l.entity_type + ':' + l.entity_qbo_id : '')}" aria-label="Line ${i + 1} customer or vendor"><option value="">— none —</option>${options.entityOptionsFor ? options.entityOptionsFor(l.qbo_account_id) : (options.entities || '')}</select></td>
         <td><input class="bcn-field" data-field="memo" value="${esc(l.memo)}" placeholder="Memo" aria-label="Line ${i + 1} memo" /></td>
         <td class="num"><input class="bcn-field bcn-field--mono txn-split-amount" data-field="amount" inputmode="decimal" value="${esc(l.amountText)}" placeholder="0.00" aria-label="Line ${i + 1} amount" /></td>
         <td class="txn-split-acts">
