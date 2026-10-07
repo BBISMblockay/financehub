@@ -1,0 +1,24 @@
+name: Attribution tests
+on:
+  pull_request:
+    paths:
+      - 'scripts/*attribution*'
+      - 'scripts/lib/*attribution*'
+      - 'scripts/tests/*attribution*'
+      - 'v2/*attribution*'
+      - 'supabase/migrations/*attribution*'
+      - '.github/workflows/*attribution*'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --prefix scripts/tests/finance-db
+      - run: node scripts/tests/shopify-attribution-evidence.test.mjs
+      - run: node scripts/tests/shopify-attribution-database.test.mjs
