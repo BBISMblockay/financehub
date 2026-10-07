@@ -615,7 +615,7 @@ jobs:
       - name: The Meta OAuth guards, removed, must break it
         run: |
           set -u
-          for m in any-admin no-recheck keep-short; do
+          for m in any-admin no-recheck keep-short loose-consume; do
             if META_OAUTH_MUTATION="$m" node scripts/tests/meta-oauth.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite"
               exit 1
@@ -1267,7 +1267,7 @@ jobs:
       - name: The Shopify install guards, removed, must break it
         run: |
           set -u
-          for m in no-hmac any-claimer stale-ok; do
+          for m in no-hmac any-claimer stale-ok loose-consume append-park; do
             if SHOPIFY_INSTALL_MUTATION="$m" node scripts/tests/shopify-install.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite"
               exit 1
@@ -1281,7 +1281,7 @@ jobs:
       - name: The Shopify install claim guards, removed, must break it
         run: |
           set -u
-          for m in grant-back exec-granted overwrite; do
+          for m in grant-back exec-granted overwrite multi-park no-actor; do
             if SHOPIFY_INSTALL_DB_MUTATION="$m" node scripts/tests/shopify-install-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite"
               exit 1

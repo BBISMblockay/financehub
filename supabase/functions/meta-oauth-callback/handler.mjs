@@ -35,11 +35,14 @@ export function createCallbackHandler({ env, admin, fetchImpl, now = () => Date.
     if (!code || !state) return fail('missing_params');
     if (!env.META_APP_ID || !env.META_APP_SECRET || !env.META_OAUTH_REDIRECT_URI) return fail('server_misconfigured');
 
-    const { data: stateRow } = await admin.from('ad_platform_oauth_states')
-      .select('*').eq('nonce', state).eq('platform', 'meta_ads').maybeSingle();
-    if (!stateRow || new Date(stateRow.expires_at).getTime() <= now()) return fail('invalid_or_expired_state');
-    // Single use, consumed before the code is exchanged.
-    await admin.from('ad_platform_oauth_states').delete().eq('nonce', state);
+    // Consume the state in ONE statement and continue only if this request is
+    // the one that deleted it: a separate read and delete would let a failed
+    // delete, or a second request racing the first, exchange another code.
+    const { data: consumed, error: consumeErr } = await admin.from('ad_platform_oauth_states')
+      .delete().eq('nonce', state).eq('platform', 'meta_ads').gt('expires_at', new Date(now()).toISOString())
+      .select('*');
+    if (consumeErr || !Array.isArray(consumed) || consumed.length !== 1) return fail('invalid_or_expired_state');
+    const stateRow = consumed[0];
 
     let token, expiresAt, tokenType;
     try {

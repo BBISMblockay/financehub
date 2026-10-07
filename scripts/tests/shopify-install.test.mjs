@@ -23,6 +23,8 @@
  *   SHOPIFY_INSTALL_MUTATION=no-hmac       (the install handler skips the signature)
  *   SHOPIFY_INSTALL_MUTATION=any-claimer   (the claim handler skips mayConnect)
  *   SHOPIFY_INSTALL_MUTATION=stale-ok      (launchIsFresh always true)
+ *   SHOPIFY_INSTALL_MUTATION=loose-consume (the callback proceeds without winning the state delete)
+ *   SHOPIFY_INSTALL_MUTATION=append-park   (a reinstall adds a second parked token)
  *
  * No network, no database. Run: node scripts/tests/shopify-install.test.mjs */
 import assert from 'node:assert/strict';
@@ -37,7 +39,7 @@ import vm from 'node:vm';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const mutation = process.env.SHOPIFY_INSTALL_MUTATION || '';
-assert.ok(['', 'no-hmac', 'any-claimer', 'stale-ok'].includes(mutation), `Unknown mutation ${mutation}`);
+assert.ok(['', 'no-hmac', 'any-claimer', 'stale-ok', 'loose-consume', 'append-park'].includes(mutation), `Unknown mutation ${mutation}`);
 
 // Build each function in a temp dir so a mutation never touches the repo.
 const tmp = mkdtempSync(join(tmpdir(), 'shopify-install-'));
@@ -59,6 +61,12 @@ const libEdits = mutation === 'stale-ok'
   ? { 'shopify-install-lib.mjs': [['return ageSec <= LAUNCH_MAX_AGE_SEC && ageSec >= -LAUNCH_MAX_FUTURE_SEC;', 'return true;']] } : {};
 const installEdits = { ...libEdits };
 if (mutation === 'no-hmac') installEdits['handler.mjs'] = [["if (!(await verifyOAuthHmac(params, clientSecret))) return fail('invalid_signature');", '']];
+if (mutation === 'loose-consume') installEdits['handler.mjs'] = [[
+  "if (consumeErr || !Array.isArray(consumed) || consumed.length !== 1) return fail('invalid_or_expired_state');\n    const stateRow = consumed[0];",
+  "const stateRow = consumed?.[0] ?? { shop_domain: shop };"]];
+if (mutation === 'append-park') installEdits['handler.mjs'] = [
+  ["db.from('shopify_pending_installs').upsert({", "db.from('shopify_pending_installs').insert({"],
+  ["}, { onConflict: 'shop_domain' });", "});"]];
 const claimEdits = mutation === 'any-claimer'
   ? { 'handler.mjs': [['if (!mayConnect({ profile, profileError, membership, membershipError, companyId: company })) {', 'if (false) {']] } : {};
 const { createInstallHandler } = await import(stage('shopify-app-install', installEdits));
@@ -70,7 +78,7 @@ let n = 0;
 const test = async (name, fn) => { await fn(); n += 1; console.log(`ok ${n} - ${name}`); };
 
 // ── A tiny fake of the supabase-js query builder ─────────────────────────────
-function fakeDb(tables = {}, rpcs = {}) {
+function fakeDb(tables = {}, rpcs = {}, { failDelete = false } = {}) {
   const log = [];
   const db = {
     log, tables,
@@ -79,26 +87,36 @@ function fakeDb(tables = {}, rpcs = {}) {
     from(table) {
       const rows = (tables[table] ||= []);
       const filters = [];
-      let op = 'select', payload = null;
+      let op = 'select', payload = null, conflict = null;
       const match = (r) => filters.every(([k, v, kind]) => {
         const val = k.includes('.') ? k.split('.').reduce((o, p) => o?.[p], r) : r[k];
-        return kind === 'in' ? v.includes(val) : val === v;
+        if (kind === 'in') return v.includes(val);
+        if (kind === 'gt') return String(val) > String(v);
+        return val === v;
       });
       const run = () => {
         if (op === 'insert') { rows.push(payload); log.push(['insert', table, payload]); return { data: null, error: null }; }
+        if (op === 'upsert') {
+          const i = rows.findIndex((r) => r[conflict] === payload[conflict]);
+          if (i >= 0) rows[i] = { ...rows[i], ...payload }; else rows.push(payload);
+          log.push(['upsert', table, payload, conflict]); return { data: null, error: null };
+        }
         if (op === 'delete') {
-          for (let i = rows.length - 1; i >= 0; i -= 1) if (match(rows[i])) rows.splice(i, 1);
-          log.push(['delete', table, filters]); return { data: null, error: null };
+          if (failDelete) { log.push(['delete-failed', table]); return { data: null, error: { message: 'timeout' } }; }
+          const gone = [];
+          for (let i = rows.length - 1; i >= 0; i -= 1) if (match(rows[i])) gone.push(...rows.splice(i, 1));
+          log.push(['delete', table, filters]); return { data: gone, error: null };
         }
         return { data: rows.filter(match), error: null };
       };
       const b = {
         select() { return b; },
         insert(p) { op = 'insert'; payload = p; return b; },
+        upsert(p, o) { op = 'upsert'; payload = p; conflict = o?.onConflict; return b; },
         delete() { op = 'delete'; return b; },
         eq(k, v) { filters.push([k, v, 'eq']); return b; },
         in(k, v) { filters.push([k, v, 'in']); return b; },
-        gt() { return b; },
+        gt(k, v) { filters.push([k, v, 'gt']); return b; },
         maybeSingle() { const r = run(); return Promise.resolve({ data: r.data?.[0] ?? null, error: null }); },
         then(res, rej) { return Promise.resolve(run()).then(res, rej); },
       };
@@ -224,6 +242,43 @@ await test('install: the callback consumes its state, exchanges the code and par
 
   const replay = await h(get(signed({ shop: 'bat-nutz.myshopify.com', code: 'the-code', state: 'n1', timestamp: ts })));
   assert.match(locationOf(replay), /#error=invalid_or_expired_state$/);
+});
+
+await test('install: the state is consumed atomically; a failed consume exchanges nothing', async () => {
+  const future = new Date(NOW + 60_000).toISOString();
+  const db = fakeDb({ shopify_install_states: [{ nonce: 'n1', shop_domain: 'bat-nutz.myshopify.com', expires_at: future }] },
+    {}, { failDelete: true });
+  const calls = [];
+  const h = createInstallHandler({ env: ENV, db, fetchImpl: async (u) => { calls.push(u); return new Response('{}'); }, now: () => NOW });
+  const res = await h(get(signed({ shop: 'bat-nutz.myshopify.com', code: 'c', state: 'n1', timestamp: ts })));
+  assert.match(locationOf(res), /#error=invalid_or_expired_state$/);
+  assert.equal(calls.length, 0, 'no code exchange when this request did not win the consume');
+  const expiredDb = fakeDb({ shopify_install_states: [{ nonce: 'n1', shop_domain: 'bat-nutz.myshopify.com', expires_at: new Date(NOW - 1).toISOString() }] });
+  const h2 = createInstallHandler({ env: ENV, db: expiredDb, fetchImpl: async (u) => { calls.push(u); return new Response('{}'); }, now: () => NOW });
+  assert.match(locationOf(await h2(get(signed({ shop: 'bat-nutz.myshopify.com', code: 'c', state: 'n1', timestamp: ts })))), /invalid_or_expired_state/);
+  assert.equal(calls.length, 0, 'an expired state exchanges nothing');
+});
+
+await test('install: a reinstall replaces the earlier parked token (newest wins per store)', async () => {
+  const future = new Date(NOW + 60_000).toISOString();
+  const db = fakeDb({ shopify_install_states: [
+    { nonce: 'a', shop_domain: 'bat-nutz.myshopify.com', expires_at: future },
+    { nonce: 'b', shop_domain: 'bat-nutz.myshopify.com', expires_at: future },
+  ] });
+  let n = 0;
+  const fetchImpl = async (url) => url.endsWith('/admin/oauth/access_token')
+    ? new Response(JSON.stringify({ access_token: `tok-${++n}`, scope: 'read_orders' }))
+    : new Response('{}');
+  const h = createInstallHandler({ env: ENV, db, fetchImpl, now: () => NOW });
+  const first = locationOf(await h(get(signed({ shop: 'bat-nutz.myshopify.com', code: 'c1', state: 'a', timestamp: ts }))));
+  const second = locationOf(await h(get(signed({ shop: 'bat-nutz.myshopify.com', code: 'c2', state: 'b', timestamp: ts }))));
+  const rows = db.tables.shopify_pending_installs;
+  assert.equal(rows.length, 1, 'one parked token per store');
+  assert.equal(rows[0].access_token, 'tok-2');
+  assert.equal(rows[0].claim_hash, createHash('sha256').update(second.split('#claim=')[1]).digest('hex'));
+  assert.notEqual(rows[0].claim_hash, createHash('sha256').update(first.split('#claim=')[1]).digest('hex'),
+    'the earlier claim link no longer matches anything');
+  assert.equal(db.log.find((e) => e[0] === 'upsert')[3], 'shop_domain');
 });
 
 // ── 5. shopify-install-claim, executed ───────────────────────────────────────

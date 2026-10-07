@@ -23,10 +23,15 @@ revoke all on public.shopify_install_states from anon, authenticated;
 -- belongs to. claim_hash is sha256 of a one-time token that only the
 -- installing browser ever held (in a URL fragment). Nothing here is
 -- company-scoped yet, so there is no company_entity_id and no stamp trigger.
+-- ONE row per store, newest wins: the install callback upserts on
+-- shop_domain, so a reinstall replaces the earlier parked token and the
+-- earlier claim link stops working. Otherwise an old tab, claimed after a
+-- newer install, would write a token Shopify had already revoked over the
+-- live one (review finding, 2026-10-07).
 create table if not exists public.shopify_pending_installs (
   id             uuid primary key default gen_random_uuid(),
   claim_hash     text not null unique check (claim_hash ~ '^[0-9a-f]{64}$'),
-  shop_domain    text not null,
+  shop_domain    text not null unique,
   access_token   text not null,
   scopes_granted jsonb not null default '[]',
   shop_name      text,
@@ -65,6 +70,12 @@ begin
     return;
   end if;
 
+  -- The existing shopify_connections update trigger stamps updated_by from
+  -- auth.uid(), which is null for this service-role call. Name the admin who
+  -- claimed the install for the rest of THIS transaction only (is_local).
+  -- Before the lookup below: PERFORM resets FOUND.
+  perform set_config('request.jwt.claim.sub', p_user::text, true);
+
   select * into v_c from public.shopify_connections c
    where c.company_entity_id = p_company and c.shop_domain = v_p.shop_domain
    for update;
@@ -89,6 +100,7 @@ begin
       scopes_missing    = '[]',
       scopes_checked_at = now(),
       is_active         = true,
+      updated_by        = p_user,
       -- a reinstall of the same app keeps the workspace's sync choice; a
       -- connection reopened from closed starts with sync off
       sync_enabled      = case when v_c.is_active is true then c.sync_enabled else false end

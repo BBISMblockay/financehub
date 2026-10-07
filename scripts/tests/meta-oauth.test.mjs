@@ -24,6 +24,7 @@
  *   META_OAUTH_MUTATION=any-admin    (start skips mayConnect)
  *   META_OAUTH_MUTATION=no-recheck   (the callback skips mayReconnect)
  *   META_OAUTH_MUTATION=keep-short   (no long-lived swap for a user token)
+ *   META_OAUTH_MUTATION=loose-consume (the callback proceeds without winning the state delete)
  *
  * Run: node scripts/tests/meta-oauth.test.mjs */
 import assert from 'node:assert/strict';
@@ -36,7 +37,7 @@ import { dirname, join } from 'node:path';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const mutation = process.env.META_OAUTH_MUTATION || '';
-assert.ok(['', 'any-admin', 'no-recheck', 'keep-short'].includes(mutation), `Unknown mutation ${mutation}`);
+assert.ok(['', 'any-admin', 'no-recheck', 'keep-short', 'loose-consume'].includes(mutation), `Unknown mutation ${mutation}`);
 
 const tmp = mkdtempSync(join(tmpdir(), 'meta-oauth-'));
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }));
@@ -57,6 +58,9 @@ const startEdits = mutation === 'any-admin'
 const cbEdits = [];
 if (mutation === 'no-recheck') cbEdits.push(['if (!mayReconnect(stateRow, conn)) return fail', 'if (!conn) return fail']);
 if (mutation === 'keep-short') cbEdits.push(['if (expiresAt) {\n', 'if (false) {\n']);
+if (mutation === 'loose-consume') cbEdits.push([
+  "if (consumeErr || !Array.isArray(consumed) || consumed.length !== 1) return fail('invalid_or_expired_state');\n    const stateRow = consumed[0];",
+  "const stateRow = consumed?.[0] ?? { company_entity_id: 'co-a', platform: 'meta_ads', user_id: null };"]);
 const { createStartHandler } = await import(stage('meta-oauth-start', startEdits));
 const { createCallbackHandler } = await import(stage('meta-oauth-callback', cbEdits));
 const M = await import(pathToFileURL(join(tmp, 'meta-oauth-start', 'meta-oauth-lib.mjs')).href);
@@ -65,7 +69,7 @@ const G = await import(pathToFileURL(join(ROOT, 'supabase/functions/google-oauth
 let n = 0;
 const test = async (name, fn) => { await fn(); n += 1; console.log(`ok ${n} - ${name}`); };
 
-function fakeDb(tables = {}) {
+function fakeDb(tables = {}, { failDelete = false } = {}) {
   const log = [];
   const db = {
     log, tables, users: {},
@@ -74,7 +78,7 @@ function fakeDb(tables = {}) {
       const rows = (tables[table] ||= []);
       const filters = [];
       let op = 'select', payload = null;
-      const match = (r) => filters.every(([k, v]) => r[k] === v);
+      const match = (r) => filters.every(([k, v, kind]) => (kind === 'gt' ? String(r[k]) > String(v) : r[k] === v));
       const run = () => {
         if (op === 'insert') {
           const row = { id: `id-${rows.length + 1}`, ...payload };
@@ -86,8 +90,10 @@ function fakeDb(tables = {}) {
           log.push(['update', table, payload, filters.slice()]); return { data: hit.map((r) => ({ id: r.id })), error: null };
         }
         if (op === 'delete') {
-          for (let i = rows.length - 1; i >= 0; i -= 1) if (match(rows[i])) rows.splice(i, 1);
-          log.push(['delete', table]); return { data: null, error: null };
+          if (failDelete) { log.push(['delete-failed', table]); return { data: null, error: { message: 'timeout' } }; }
+          const gone = [];
+          for (let i = rows.length - 1; i >= 0; i -= 1) if (match(rows[i])) gone.push(...rows.splice(i, 1));
+          log.push(['delete', table]); return { data: gone, error: null };
         }
         return { data: rows.filter(match), error: null };
       };
@@ -96,7 +102,8 @@ function fakeDb(tables = {}) {
         insert(p) { op = 'insert'; payload = p; return b; },
         update(p) { op = 'update'; payload = p; return b; },
         delete() { op = 'delete'; return b; },
-        eq(k, v) { filters.push([k, v]); return b; },
+        eq(k, v) { filters.push([k, v, 'eq']); return b; },
+        gt(k, v) { filters.push([k, v, 'gt']); return b; },
         maybeSingle() { const r = run(); return Promise.resolve({ data: r.data?.[0] ?? null, error: null }); },
         single() { const r = run(); return Promise.resolve({ data: r.data?.[0] ?? null, error: null }); },
         then(res, rej) { return Promise.resolve(run()).then(res, rej); },
@@ -188,7 +195,7 @@ await test('start: an admin gets the dialog URL and a meta_ads state', async () 
 
 // ── 4. callback ─────────────────────────────────────────────────────────────
 const future = new Date(NOW + 300_000).toISOString();
-function cbDb(state = {}) {
+function cbDb(state = {}, opts = {}) {
   return fakeDb({
     ad_platform_oauth_states: [{ nonce: 'n1', platform: 'meta_ads', company_entity_id: CO, user_id: 'u-admin', expires_at: future, ...state }],
     ad_platform_connections: [
@@ -196,7 +203,7 @@ function cbDb(state = {}) {
       { id: 'c-theirs', company_entity_id: OTHER, platform: 'meta_ads', access_token: 'theirs' },
       { id: 'c-google', company_entity_id: CO, platform: 'google_ads', access_token: 'google' },
     ],
-  });
+  }, opts);
 }
 function fakeMeta({ expiresIn = null, longLived = true } = {}) {
   const calls = [];
@@ -225,6 +232,15 @@ await test('callback: a denied login and a missing or expired state write nothin
   assert.match((await h(cb({ code: 'c', state: 'n1' }))).headers.get('Location'), /oauth_error=invalid_or_expired_state/);
   assert.equal(calls.length, 0);
   assert.equal(db.log.filter((e) => e[0] !== 'delete').length, 0);
+});
+
+await test('callback: the state is consumed atomically; a failed consume exchanges and writes nothing', async () => {
+  const db = cbDb({}, { failDelete: true });
+  const { fetchImpl, calls } = fakeMeta();
+  const loc = (await createCallbackHandler({ env: ENV, admin: db, fetchImpl, now: () => NOW })(cb({ code: 'c', state: 'n1' }))).headers.get('Location');
+  assert.match(loc, /oauth_error=invalid_or_expired_state/);
+  assert.equal(calls.length, 0, 'no code exchange when this request did not win the consume');
+  assert.equal(db.log.filter((e) => e[0] === 'insert' || e[0] === 'update').length, 0);
 });
 
 await test('callback: a system user token is stored with no expiry and the year of history flagged', async () => {

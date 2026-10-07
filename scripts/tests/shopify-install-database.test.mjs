@@ -21,6 +21,8 @@
 //   SHOPIFY_INSTALL_DB_MUTATION=grant-back     (the table revoke is dropped)
 //   SHOPIFY_INSTALL_DB_MUTATION=exec-granted   (the function revoke is dropped)
 //   SHOPIFY_INSTALL_DB_MUTATION=overwrite      (the other-way refusal is dropped)
+//   SHOPIFY_INSTALL_DB_MUTATION=multi-park     (two parked tokens per store allowed)
+//   SHOPIFY_INSTALL_DB_MUTATION=no-actor       (the claiming admin is not recorded)
 import assert from 'node:assert/strict';
 import { randomUUID, createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -28,7 +30,7 @@ import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/inde
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
 const mutation = process.env.SHOPIFY_INSTALL_DB_MUTATION || '';
-assert.ok(['', 'grant-back', 'exec-granted', 'overwrite'].includes(mutation), `Unknown mutation ${mutation}`);
+assert.ok(['', 'grant-back', 'exec-granted', 'overwrite', 'multi-park', 'no-actor'].includes(mutation), `Unknown mutation ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
 const root = new URL('../../', import.meta.url);
@@ -67,6 +69,12 @@ await db.exec(`
     created_by uuid, updated_by uuid, created_at timestamptz default now(),
     unique (company_entity_id, shop_domain));
   alter table public.shopify_connections enable row level security;
+  -- Production's own update trigger (pg_get_functiondef, 2026-10-07): it
+  -- stamps updated_by from auth.uid() on every update.
+  create function public.set_shopify_connections_updated_at() returns trigger language plpgsql as $$
+  begin new.updated_by = auth.uid(); return new; end; $$;
+  create trigger trg_shopify_connections_updated_at before update on public.shopify_connections
+    for each row execute function public.set_shopify_connections_updated_at();
   create policy shopify_connections_select on public.shopify_connections for select to authenticated
     using (company_entity_id = public.active_company_id());
   create table public.shopify_oauth_states (nonce text primary key, company_entity_id uuid, shop_domain text);
@@ -82,12 +90,16 @@ const cut = (from, to = '') => { assert.ok(migration.includes(from), `mutation a
 if (mutation === 'grant-back') cut('revoke all on public.shopify_pending_installs from anon, authenticated;');
 if (mutation === 'exec-granted') cut('revoke all on function public.shopify_claim_pending_install(text, uuid, uuid) from public, anon, authenticated;');
 if (mutation === 'overwrite') cut('if found and v_c.is_active is true\n     and not', 'if false and not');
+if (mutation === 'multi-park') cut('  shop_domain    text not null unique,', '  shop_domain    text not null,');
+if (mutation === 'no-actor') cut("  perform set_config('request.jwt.claim.sub', p_user::text, true);\n", '');
 await db.exec(migration);
 await db.exec(migration);
 
 const park = async (token, shop, { expired = false } = {}) => q(
   `insert into public.shopify_pending_installs (claim_hash, shop_domain, access_token, scopes_granted, shop_name, expires_at)
-   values ($1, $2, $3, '["read_orders"]', 'Bat Nutz', now() + ($4 || ' minutes')::interval)`,
+   values ($1, $2, $3, '["read_orders"]', 'Bat Nutz', now() + ($4 || ' minutes')::interval)
+   on conflict (shop_domain) do update set claim_hash = excluded.claim_hash, access_token = excluded.access_token,
+     created_at = now(), expires_at = excluded.expires_at`,
   [hash(token), shop, `tok-${token}`, expired ? '-1' : '60']);
 const claim = async (token, company) => (await q('select * from public.shopify_claim_pending_install($1, $2, $3)',
   [hash(token), company, member]))[0];
@@ -142,10 +154,18 @@ await test('a new store is connected with sync off, and the claim is single use'
 await test('a reinstall through the same public app refreshes the token and keeps sync', async () => {
   await q("update public.shopify_connections set sync_enabled = true where company_entity_id = $1", [coA]);
   await park('t2', 'bat-nutz.myshopify.com');
+  // Out of order: install A, reinstall B (newest wins), claim B, then the old
+  // A tab tries to claim. A must find nothing, or it would write a revoked
+  // token over B's.
+  await park('t2a', 'bat-nutz.myshopify.com');
+  await park('t2', 'bat-nutz.myshopify.com');
+  assert.equal((await q("select count(*)::int n from public.shopify_pending_installs where shop_domain = 'bat-nutz.myshopify.com'"))[0].n, 1);
   assert.equal((await claim('t2', coA)).outcome, 'refreshed');
+  assert.equal((await claim('t2a', coA)).outcome, 'expired', 'the superseded claim link is dead');
   const c = await conn(coA, 'bat-nutz.myshopify.com');
   assert.equal(c.access_token, 'tok-t2');
   assert.equal(c.sync_enabled, true, 'a reinstall must not switch sync off');
+  assert.equal(c.updated_by, member, 'the admin who claimed the reinstall is recorded, not erased');
   assert.equal((await q('select count(*)::int n from public.shopify_connections'))[0].n, 1);
 });
 

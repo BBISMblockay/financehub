@@ -14,6 +14,9 @@ import {
   installRequestKind, launchIsFresh, newClaimToken, hashClaim, claimRedirect, errorRedirect,
 } from './shopify-install-lib.mjs';
 
+/** How long a parked install waits for an admin to claim it. */
+export const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
+
 export function createInstallHandler({ env, db, fetchImpl, now = () => Date.now() }) {
   const clientId = env.SHOPIFY_PUBLIC_CLIENT_ID;
   const clientSecret = env.SHOPIFY_PUBLIC_CLIENT_SECRET;
@@ -52,12 +55,14 @@ export function createInstallHandler({ env, db, fetchImpl, now = () => Date.now(
     }
 
     // callback
-    const state = params.get('state');
-    const { data: stateRow } = await db.from('shopify_install_states')
-      .select('nonce, shop_domain, expires_at').eq('nonce', state).maybeSingle();
-    if (!stateRow || new Date(stateRow.expires_at).getTime() <= now()) return fail('invalid_or_expired_state');
-    // Single use, consumed before the code is exchanged.
-    await db.from('shopify_install_states').delete().eq('nonce', state);
+    // Consume the state in ONE statement and continue only if this request
+    // is the one that deleted it: a separate read and delete would let a
+    // failed delete, or a second request racing the first, exchange again.
+    const { data: consumed, error: consumeErr } = await db.from('shopify_install_states')
+      .delete().eq('nonce', params.get('state')).gt('expires_at', new Date(now()).toISOString())
+      .select('nonce, shop_domain');
+    if (consumeErr || !Array.isArray(consumed) || consumed.length !== 1) return fail('invalid_or_expired_state');
+    const stateRow = consumed[0];
     if (stateRow.shop_domain !== shop) return fail('shop_mismatch');
 
     let tokenData;
@@ -82,14 +87,19 @@ export function createInstallHandler({ env, db, fetchImpl, now = () => Date.now(
     } catch { /* the name is cosmetic; the install still proceeds */ }
 
     const claim = newClaimToken();
-    const { error: parkErr } = await db.from('shopify_pending_installs').insert({
+    // One parked token per store, newest wins (shop_domain is unique): a
+    // reinstall replaces the earlier token, so an older claim link cannot
+    // later write a revoked token over the live one.
+    const { error: parkErr } = await db.from('shopify_pending_installs').upsert({
       claim_hash: await hashClaim(claim),
       shop_domain: shop,
       access_token: accessToken,
       scopes_granted: String(tokenData.scope ?? '').split(',').filter(Boolean),
       shop_name: shopInfo.name ?? null,
       shop_currency: shopInfo.currency ?? null,
-    });
+      created_at: new Date(now()).toISOString(),
+      expires_at: new Date(now() + PENDING_TTL_MS).toISOString(),
+    }, { onConflict: 'shop_domain' });
     if (parkErr) return fail('save_failed');
     return go(claimRedirect(appUrl, claim));
   };

@@ -3838,6 +3838,12 @@ select
     when to_regprocedure('public.shopify_claim_pending_install(text,uuid,uuid)') is null
       or to_regprocedure('public.shopify_purge_expired_installs()') is null
       then 'MISSING — shopify_claim_pending_install / shopify_purge_expired_installs'
+    when not exists (select 1 from pg_constraint where conrelid = 'public.shopify_pending_installs'::regclass
+                       and contype = 'u' and pg_get_constraintdef(oid) like '%shop_domain%')
+      then 'CRITICAL — shopify_pending_installs allows two parked tokens per store; an older claim could overwrite a newer token'
+    when not exists (select 1 from pg_proc where proname = 'shopify_claim_pending_install'
+                       and prosrc like '%request.jwt.claim.sub%')
+      then 'STALE — shopify_claim_pending_install no longer records the admin who claimed the install (updated_by)'
     when has_function_privilege('authenticated', 'public.shopify_claim_pending_install(text,uuid,uuid)', 'execute')
       or has_function_privilege('anon', 'public.shopify_claim_pending_install(text,uuid,uuid)', 'execute')
       then 'CRITICAL — a client role can execute shopify_claim_pending_install(); it attaches a store to any company'
