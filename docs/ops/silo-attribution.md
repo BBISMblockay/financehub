@@ -1,5 +1,57 @@
 # Silo Attribution v1
 
+## Coverage scheduler (draft; disabled pending acceptance)
+
+Apply `20261007031733_attribution_coverage.sql` after the original migrations;
+verify the general schema. No edge deploy or OAuth changes. The new workflow
+runs daily at12:25UTC only if `ATTRIBUTION_COVERAGE_ENABLED=true`; leave unset
+during the original pilot. `ATTRIBUTION_COVERAGE_COMPANIES` requires company
+UUIDs for a pilot, or explicit `*` after reviewed all-eligible acceptance.
+New active/sync-enabled connections in that scope enroll automatically each run.
+Existing sync_enabled/is_active opt-outs are respected; optional comma-separated
+`ATTRIBUTION_EXCLUDED_CONNECTIONS` stops only attribution for those connections.
+Missing read_orders/read_reports grants produce logged scope skips, not enrollment.
+
+Initial history freezes the preceding `ATTRIBUTION_INITIAL_DAYS` complete
+store-local days (default31, allowed1–31), NOT lifetime history. The manual
+workflow remains available for separately approved older dates. Without
+read_all_orders, attempts stay within59 completed local days; an enrollment
+floor outside that retention reports permission_limited. Historical reversals
+may still have unavailable journeys. No additional permissions are requested.
+
+Each run attempts up to3 missing historical days plus7 recent refresh days per
+store. Published atomic snapshots are success checkpoints. The frozen floor
+retains outage gaps; a persistent history cursor rotates past failures so later
+gaps can progress before a failed day is retried. Current-day successful refresh
+snapshots skip repeat work. Stores run least-recently-attempted first, sequentially.
+A270-minute admission deadline stops new work within the330-minute job timeout;
+an in-flight day can exceed that deadline. Workflow concurrency serializes the
+manual/pilot/coverage paths. Direct concurrent CLI calls are unsupported. Legacy
+scheduled runs skip while coverage is enabled. API load is up to10 existing day
+collections/store/run (paginated ShopifyQL plus per-order journeys,9999-row/day
+cap unchanged); production capacity is not yet measured.
+
+The service-only shopify_attribution_coverage row records frozen start_day,
+next_day, last_attempt_at, last_status, last_failed_day/at and attempted/succeeded/
+failed counts. Upstream error bodies are never stored. Snapshot rows identify
+completed dates; workflow receipts include daily reconciliation counts. Failures
+continue other stores but fail the workflow. Success describes bounded work,
+not an empty backlog; paused identifies interrupted work. Scope skips stay in
+workflow output. Before enabling, verify grants/RLS, restart recovery, calendar
+boundaries, disconnect, failure isolation and measured pilot API load. Wider
+customer rollout requires separate acceptance. Disabling the flag preserves
+snapshots, mappings, catalogs and user edits.
+
+Checkpoint-read errors skip the affected store and fail the workflow while other
+stores continue. Eligibility, company, store domain and current order-history
+permission are checked again immediately before publication. A disconnect during
+collection therefore prevents that day from publishing. Preparation failures before
+the first enrollment have only a redacted workflow receipt, not a durable attempt
+timestamp; many slow failing new stores can consume the admission deadline before
+healthy stores run. Pilot capacity and this enrollment fairness limit require
+acceptance before widening scope. Existing snapshots older than the trailing-seven
+refresh window are not continually re-extracted for later journey changes.
+
 ## Preflight and release contract
 
 New path: manual/scheduled attribution workflow → dedicated Node worker →
