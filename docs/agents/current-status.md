@@ -2,7 +2,7 @@
 
 > Moved verbatim from the root `CLAUDE.md` on 2026-10-07 (agent-guide restructure). The root file keeps the rules; this file keeps the detail and history. Update here, not in the root.
 >
-> **Some lines below were already stale when moved.** Checked 2026-10-07: Invoicing and Customers ARE in the nav (`v2/nav-config.js`), and `stripe-billing`, `stripe-invoice`, `stripe-connect`, `stripe-webhook` and `customer-onboarding` ARE deployed. Trust the code and `supabase functions list` over this file.
+> The Stripe, Customers and AI-credit entries were corrected on 2026-10-07. Other entries are as of when they were written; trust the code, `v2/nav-config.js` and `supabase functions list` over this file.
 
 ## Current status (as of Aug 2026)
 
@@ -109,36 +109,28 @@ than this section.
   Standard account (the money settles to them, SILO holds no funds and stores no key for them).
   Every table is a read-only mirror of Stripe with no client write policy at all; one webhook
   function receives both surfaces and tells them apart by which signing secret verified the
-  delivery. **Invoicing is still NOT in the nav**: its row sits in `v2/nav-config.js` as a
-  commented line, because a live link to a page whose backend is not deployed opens something that
-  cannot work and cannot say why. Uncommenting it is the activation PR (step 7 of the sequence in
-  `docs/ops/stripe.md`), after the test-mode walkthroughs; gate when restored is `FINANCE_DEPTS`,
-  mirroring `can_manage_client_invoices()`. **Billing is now the Billing tab of Workspace Settings**
-  (2026-09-20) and so is reachable by an admin — the page is unchanged, `stripe-billing` is still
-  undeployed, and until it is deployed the tab renders its own error rather than a plan. That was a
-  deliberate trade, **confirmed by Blake 2026-09-20**: the settings area is coherent or it is not,
-  and a tab that says what is wrong beats a settings area missing the one thing every customer
-  looks for. Do not hide the tab as a tidy-up. Deploying `stripe-billing` remains the fix. Both rows landed alongside the
+  delivery. **Invoicing is in the nav** (checked 2026-10-07): it is one of the Accounting suite's
+  pages (`ACCOUNTING_PAGES` in `v2/nav-config.js`), gated `FINANCE_DEPTS` to mirror
+  `can_manage_client_invoices()`. **Billing is the Billing tab of Workspace Settings** (2026-09-20)
+  and reachable by an admin — a deliberate choice **confirmed by Blake 2026-09-20**: do not hide the
+  tab as a tidy-up. Both rows landed alongside the
   restore of `v2/nav-config.js` itself, which `631ff17` had deleted while every Pattern 1 page
   still loaded it. **The four Edge Function handlers live in `handler.ts` with a two-line
   `index.ts`** — the plaid-finance split — so `scripts/tests/stripe-handlers.test.mjs` can
   execute them under node with fake Stripe and Supabase; `deno check` proves types, not
-  behaviour. **Nothing has run against live Stripe** — the
-  functions are undeployed and the secrets unset, so `deployment-drift-check.yml` is red for them
-  until somebody follows `docs/ops/stripe.md`
-- **AI credit** (2026-10-01, `docs/ops/ai-credits.md`) -- Billing shows the workspace's AI-credit balance, period usage by feature and On Deck's cap STATE (never its provider-dollar amount); Ask SILO shows the balance pill and each answer's settled cost. Implemented and tested locally; **not applied, not deployed, no live Stripe run**. Off until an `ai_billing_settings` row exists. Open decisions (trial allowance, refunds, auto-refill, who may spend, the superseded 2026-09-24 trial/spend-limit decisions) are listed in the runbook
+  behaviour. **Deployed** (checked 2026-10-07 against `supabase functions list`): `stripe-billing`,
+  `stripe-connect`, `stripe-invoice` and `stripe-webhook` are live and match `main`. Setup steps and
+  webhook configuration: `docs/ops/stripe.md`
+- **AI credit** (2026-10-01, `docs/ops/ai-credits.md`) -- Billing shows the workspace's AI-credit balance, period usage by feature and On Deck's cap STATE (never its provider-dollar amount); Ask SILO shows the balance pill and each answer's settled cost. Applied: production has an `ai_billing_settings` row in `shadow` mode (checked 2026-10-07). Without a row, AI credit is off. Open decisions (trial allowance, refunds, auto-refill, who may spend, the superseded 2026-09-24 trial/spend-limit decisions) are listed in the runbook
 - **Customer accounts** (`/v2/customers.html`, `/v2/customer-onboarding.html`, 2026-09-19) — a
   wholesale customer is invited by email, fills in the application themselves on a public
   token-gated page (business identity, contacts, business/ship-to/bill-to addresses, resale
   certificate upload, requested terms), saves a card through Stripe Checkout `mode: 'setup'` on the
   tenant's Connect account, and finance reviews and approves. This is **SILO's first native
   customer master** — see `customer_accounts` above for why none of the four existing
-  customer-shaped tables could hold it. **Deliberately NOT in the nav yet**: the `Customers` row
-  sits commented in `v2/nav-config.js`, because the page's primary action mints a link to a page
-  backed by the undeployed `customer-onboarding` function. Activation is deploy
-  `customer-onboarding`, **redeploy `stripe-webhook`** (it gained the `connect_setup` routing), add
-  `checkout.session.completed` + `checkout.session.expired` to the CONNECT webhook endpoint in
-  Stripe, then uncomment the row. Runbook: `docs/ops/customer-onboarding.md`. Vendor onboarding
+  customer-shaped tables could hold it. **In the nav** (`finance/customers`, `FINANCE_DEPTS`) and
+  `customer-onboarding` is deployed (both checked 2026-10-07). The Connect webhook endpoint must carry
+  `checkout.session.completed` + `checkout.session.expired`; runbook: `docs/ops/customer-onboarding.md`. Vendor onboarding
   (W-9, remit-to, bank/ACH) is deliberately out of scope — a more sensitive record wanting its own
   gate, and `payment_requests` still identifies vendors by four loose text columns
 - **Workspace Settings** (`/v2/settings-company.html`, `settings-team`, `integrations`, `billing`,

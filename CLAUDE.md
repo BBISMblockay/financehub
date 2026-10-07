@@ -29,7 +29,7 @@ exist. Do not assume a headcount — query `profiles` / `entity_memberships`.
 | Path | What it is |
 |------|-----------|
 | `v2/` | **All current pages. Build new tools here.** `nav-config.js` defines the sidebar (`window.SiloNav`) |
-| `v3/` | ONE feature — the dashboard / report runtime. Not a successor to `v2/`. Read `v3/README.md` |
+| `v3/` | Two features — the dashboard / report runtime and Product Studio (`product-workflow.html`). Not a successor to `v2/`. See `v3/CLAUDE.md` |
 | `pages/` | `config.js`, `login.html`, `set-password.html`, public `review.html`, shared libs, a few legacy tools |
 | `*.html` at root | Legacy iframe targets. Several have no auth. Never copy one as a starting point |
 | `legacy/` | Archived. **Do not touch** |
