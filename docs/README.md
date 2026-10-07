@@ -8,7 +8,7 @@ Pick **one** link below. You do not need to read everything.
 
 | Goal | Go here |
 |------|---------|
-| Understand how SILO works (architecture, data flows) | [../CLAUDE.md](../CLAUDE.md) — the current architecture reference. (the historical `legacy/app-status.html` snapshot was retired 2026-10-01; Git history preserves it) |
+| Understand how SILO works (architecture, data flows) | [../CLAUDE.md](../CLAUDE.md) for the rules and [agents/](agents/README.md) for the full reference. (the historical `legacy/app-status.html` snapshot was retired 2026-10-01; Git history preserves it) |
 | Catch up on what shipped recently | [ops/CHANGELOG.md](ops/CHANGELOG.md) |
 | Fix something that is broken right now | [ops/when-something-breaks.md](ops/when-something-breaks.md) |
 | Check a change before merge / deploy | [ops/test-before-release.md](ops/test-before-release.md) |
