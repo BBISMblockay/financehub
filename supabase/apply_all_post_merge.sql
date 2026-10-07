@@ -19170,6 +19170,12 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20260925193200_inventory_summary_semicolon.sql
 \i migrations/20261006120000_refresh_stale_report_tieouts.sql
 
+-- Shopify-initiated install of the public app (additive; nothing calls it yet).
+\i migrations/20261007120000_shopify_app_install.sql
+
+-- Meta Ads OAuth state (additive; nothing calls it yet).
+\i migrations/20261007130000_meta_oauth_states.sql
+
 -- Card import approval: payable lines need a vendor, receivable lines a customer.
 \i migrations/20261007180000_card_import_entity_kind_on_approve.sql
 

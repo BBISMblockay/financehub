@@ -2734,6 +2734,32 @@ with "DELETE requires a WHERE clause". No other change; grants re-asserted.
 `scripts/tests/no-unqualified-delete.test.mjs` refuses a bare DELETE in the
 latest definition of any function, since PGlite does not load safeupdate.
 
+
+## Shopify-initiated install — `20261007120000_shopify_app_install.sql`
+
+ADDITIVE: nothing in the current Integrations flow reads or writes these
+objects. Shopify's App Store review requires OAuth to start the moment Shopify
+opens the app and forbids asking for the store domain, so when Shopify opens
+SILO's public app, the `shopify-app-install` function knows the STORE but not
+the person or the workspace. It keeps OAuth state in `shopify_install_states`
+(store only) and parks the issued token in `shopify_pending_installs` under the
+sha256 of a one-time claim token that only the installing browser holds. An
+admin then picks the workspace on `/v2/shopify-install.html`, and
+`shopify_claim_pending_install()` moves the token onto `shopify_connections` in
+one transaction: a new connection (sync off), a refresh of a connection already
+made through the public app (sync kept), or a refusal when the workspace
+connects the store another way. Both tables and both functions are service-role
+only. Verified by `scripts/tests/shopify-install-database.test.mjs` and the
+`shopify_app_install` verify row.
+
+## Meta Ads OAuth state — `20261007130000_meta_oauth_states.sql`
+
+ADDITIVE. Adds `meta_ads` to `ad_platform_oauth_states_platform_check` so the
+new `meta-oauth-start` / `meta-oauth-callback` functions (Facebook Login for
+Business) can record their CSRF nonce. The pasted System User token path is
+unchanged. Verified by `scripts/tests/meta-oauth.test.mjs` (PGlite step) and the
+`meta_oauth_states` verify row.
+
 ## Card import approval: entity kind — `20261007180000_card_import_entity_kind_on_approve.sql`
 
 Replaces `approve_card_import_batch()` with production's definition (verified

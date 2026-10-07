@@ -76,12 +76,24 @@ on:
       - 'supabase/functions/test-shopify-connection/**'
       - 'supabase/functions/shopify-sync-run/**'
       - 'supabase/migrations/*shopify_client_credentials.sql'
+      # Shopify-initiated install of the public app (shopify-install*.test.mjs).
+      - 'scripts/lib/shopify-install-lib.mjs'
+      - 'supabase/functions/shopify-app-install/**'
+      - 'supabase/functions/shopify-install-claim/**'
+      - 'supabase/migrations/*shopify_app_install.sql'
+      - 'v2/shopify-install.html'
+      - 'v2/shopify-install.js'
       - 'scripts/tests/shopify-auth.test.mjs'
       - 'scripts/tests/shopify-credentials-database.test.mjs'
       - 'v2/integrations.html'
       - '.github/workflows/deploy-edge-function.yml'
       - 'supabase/functions/google-oauth-start/**'
       - 'supabase/functions/google-oauth-callback/**'
+      # Meta Ads OAuth (meta-oauth.test.mjs).
+      - 'scripts/lib/meta-oauth-lib.mjs'
+      - 'supabase/functions/meta-oauth-start/**'
+      - 'supabase/functions/meta-oauth-callback/**'
+      - 'supabase/migrations/*meta_oauth_states.sql'
       - 'oauth/**'
       - 'supabase/functions/test-ad-platform-connection/**'
       - 'supabase/functions/ad-platform-sync-run/**'
@@ -596,6 +608,20 @@ jobs:
       # origin outside the allowlist is the failure that matters.
       - name: Google OAuth return address (allowlist, both functions, return page)
         run: node scripts/tests/google-oauth-redirect.test.mjs
+      # Meta Ads OAuth (Facebook Login for Business), additive. Mutations:
+      # META_OAUTH_MUTATION=any-admin | no-recheck | keep-short
+      - name: Meta Ads OAuth (handlers + state migration)
+        run: node scripts/tests/meta-oauth.test.mjs
+      - name: The Meta OAuth guards, removed, must break it
+        run: |
+          set -u
+          for m in any-admin no-recheck keep-short loose-consume; do
+            if META_OAUTH_MUTATION="$m" node scripts/tests/meta-oauth.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
 
       # Click-to-connect: the account picker's stored values, and Reconnect
       # writing fresh tokens only onto the row it was started for.
@@ -1228,6 +1254,35 @@ jobs:
           set -u
           for m in grant-back token-readable exec-granted; do
             if SHOPIFY_CRED_DB_MUTATION="$m" node scripts/tests/shopify-credentials-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Shopify-initiated install of the public app (20261007120000): both
+      # handlers executed with fakes, then the claim function against Postgres.
+      - name: Shopify install from the App Store (handlers)
+        run: node scripts/tests/shopify-install.test.mjs
+      - name: The Shopify install guards, removed, must break it
+        run: |
+          set -u
+          for m in no-hmac any-claimer stale-ok loose-consume append-park; do
+            if SHOPIFY_INSTALL_MUTATION="$m" node scripts/tests/shopify-install.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+      - name: Meta Ads OAuth state migration (database; the earlier run skipped it)
+        run: node scripts/tests/meta-oauth.test.mjs | tee /dev/stderr | grep -q '(db) the migration admits meta_ads'
+      - name: Shopify install claim (database)
+        run: node scripts/tests/shopify-install-database.test.mjs
+      - name: The Shopify install claim guards, removed, must break it
+        run: |
+          set -u
+          for m in grant-back exec-granted overwrite multi-park no-actor; do
+            if SHOPIFY_INSTALL_DB_MUTATION="$m" node scripts/tests/shopify-install-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite"
               exit 1
             fi

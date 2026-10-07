@@ -3825,6 +3825,63 @@ select
     else 'ok'
   end as shopify_client_credentials;
 
+-- ── Shopify-initiated install of the public app (20261007120000) ───────────
+-- A parked Admin API token waits in shopify_pending_installs until an admin
+-- claims it, so both install tables must be service-role only, and the claim
+-- function (which writes shopify_connections as definer) must not be
+-- client-callable.
+select
+  case
+    when to_regclass('public.shopify_install_states') is null
+      or to_regclass('public.shopify_pending_installs') is null
+      then 'MISSING — run 20261007120000_shopify_app_install.sql'
+    when not exists (select 1 from pg_class where oid='public.shopify_pending_installs'::regclass and relrowsecurity)
+      or not exists (select 1 from pg_class where oid='public.shopify_install_states'::regclass and relrowsecurity)
+      then 'CRITICAL — a Shopify install table has RLS off'
+    when exists (select 1 from pg_policy where polrelid in ('public.shopify_pending_installs'::regclass, 'public.shopify_install_states'::regclass))
+      then 'CRITICAL — a policy exists on a Shopify install table; they hold unclaimed Admin API tokens and must be service-role only'
+    when has_table_privilege('authenticated', 'public.shopify_pending_installs', 'select')
+      or has_table_privilege('anon', 'public.shopify_pending_installs', 'select')
+      or has_table_privilege('authenticated', 'public.shopify_install_states', 'select')
+      or has_table_privilege('anon', 'public.shopify_install_states', 'select')
+      then 'CRITICAL — a client role can read a Shopify install table'
+    when to_regprocedure('public.shopify_claim_pending_install(text,uuid,uuid)') is null
+      or to_regprocedure('public.shopify_purge_expired_installs()') is null
+      then 'MISSING — shopify_claim_pending_install / shopify_purge_expired_installs'
+    when not exists (select 1 from pg_constraint where conrelid = 'public.shopify_pending_installs'::regclass
+                       and contype = 'u' and pg_get_constraintdef(oid) like '%shop_domain%')
+      then 'CRITICAL — shopify_pending_installs allows two parked tokens per store; an older claim could overwrite a newer token'
+    when not exists (select 1 from pg_proc where proname = 'shopify_claim_pending_install'
+                       and prosrc like '%request.jwt.claim.sub%')
+      then 'STALE — shopify_claim_pending_install no longer records the admin who claimed the install (updated_by)'
+    when has_function_privilege('authenticated', 'public.shopify_claim_pending_install(text,uuid,uuid)', 'execute')
+      or has_function_privilege('anon', 'public.shopify_claim_pending_install(text,uuid,uuid)', 'execute')
+      then 'CRITICAL — a client role can execute shopify_claim_pending_install(); it attaches a store to any company'
+    when has_function_privilege('anon', 'public.shopify_purge_expired_installs()', 'execute')
+      or has_function_privilege('authenticated', 'public.shopify_purge_expired_installs()', 'execute')
+      then 'CRITICAL — a client role can execute shopify_purge_expired_installs()'
+    else 'ok'
+  end as shopify_app_install;
+
+-- ── Meta Ads OAuth state (20261007130000) ──────────────────────────────────
+-- meta-oauth-start records its CSRF nonce with platform = meta_ads. The CHECK
+-- is re-typed when extended, so every earlier value must survive too.
+select
+  case
+    when not exists (select 1 from pg_constraint
+                     where conname = 'ad_platform_oauth_states_platform_check'
+                       and pg_get_constraintdef(oid) like '%meta_ads%')
+      then 'MISSING — run 20261007130000_meta_oauth_states.sql (ad_platform_oauth_states rejects meta_ads)'
+    when not exists (select 1 from pg_constraint
+                     where conname = 'ad_platform_oauth_states_platform_check'
+                       and pg_get_constraintdef(oid) like '%google_ads%'
+                       and pg_get_constraintdef(oid) like '%ga4%'
+                       and pg_get_constraintdef(oid) like '%tiktok_ads%'
+                       and pg_get_constraintdef(oid) like '%search_console%')
+      then 'CRITICAL — ad_platform_oauth_states_platform_check lost an earlier platform when meta_ads was added'
+    else 'ok'
+  end as meta_oauth_states;
+
 -- ── Sidebar badge counts (20260928170000) ──────────────────────────────────
 -- The sidebar calls nav_badge_counts() on every page; without it the SEO row
 -- never shows tasks waiting for approval. INVOKER, and never anon.
