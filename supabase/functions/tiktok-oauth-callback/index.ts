@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
   // revokes it.
   const advertiserIds: string[] = Array.isArray(data.advertiser_ids) ? data.advertiser_ids : [];
 
-  const { error: insertErr } = await supabase.from('ad_platform_connections').insert({
+  const { data: inserted, error: insertErr } = await supabase.from('ad_platform_connections').insert({
     company_entity_id: stateRow.company_entity_id,
     platform: 'tiktok_ads',
     display_name: 'TikTok Ads account',
@@ -67,12 +67,14 @@ Deno.serve(async (req) => {
     sync_enabled: false,
     created_by: stateRow.user_id,
     meta: { advertiser_ids: advertiserIds },
-  });
+  }).select('id').single();
 
-  if (insertErr) return errorRedirect(`save_failed: ${insertErr.message}`);
+  if (insertErr || !inserted) return errorRedirect(`save_failed: ${insertErr?.message ?? 'no row'}`);
 
+  // The id lets Integrations act on exactly this row, never on another
+  // TikTok row of whichever workspace the tab has open now.
   return Response.redirect(
-    `${SILO_APP_URL}/v2/integrations.html?oauth_connected=1&platform=tiktok_ads`,
+    `${SILO_APP_URL}/v2/integrations.html?oauth_connected=1&platform=tiktok_ads&connection_id=${encodeURIComponent(inserted.id)}`,
     302,
   );
 });
