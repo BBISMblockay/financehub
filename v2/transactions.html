@@ -1265,10 +1265,27 @@
       if (!q) continue;
       const exact = list.find((e) => e.name.toLowerCase() === q);
       if (exact) return { entity_type: exact.type, entity_qbo_id: exact.id, entity_name: exact.name, n: 0, source: 'name' };
-      const partial = list.find((e) => e.name.toLowerCase().includes(q) || q.includes(e.name.toLowerCase()));
-      if (partial) return { entity_type: partial.type, entity_qbo_id: partial.id, entity_name: partial.name, n: 0, source: 'name' };
+      // A partial match is only a hint when it is the ONLY one: "Meta" against
+      // both "Meta Platforms" and "Meta Shop" would otherwise pick whichever
+      // sorts first, and that entity is active and of the right kind, so
+      // approval would freeze the wrong counterparty. Even a unique partial
+      // match is per-row only (source 'name-partial'), never bulk-applied.
+      const partials = list.filter((e) => e.name.toLowerCase().includes(q) || q.includes(e.name.toLowerCase()));
+      if (partials.length === 1) {
+        const p = partials[0];
+        return { entity_type: p.type, entity_qbo_id: p.id, entity_name: p.name, n: 0, source: 'name-partial' };
+      }
     }
     return null;
+  }
+  /* What the blocker's bulk button may apply to a row: never a split row (the
+     button writes the row, not its split lines) and never a partial-name
+     guess (a person confirms those one row at a time). The count and the click
+     both use this, so the button never offers what it will not do. */
+  function bulkEntitySuggestion(t) {
+    if (isSplit(t)) return null;
+    const hint = entitySuggestion(t);
+    return hint && hint.source !== 'name-partial' ? hint : null;
   }
   function entitySuggestion(t) {
     if (!t || t.status === 'excluded') return null;
@@ -1998,9 +2015,9 @@
     const customerRows = live.filter(rowNeedsCustomer);
     if (!types.length && !entities.length) { box.hidden = true; box.innerHTML = ''; return; }
     const fixable = types.filter((t) => rowEditable(t) && treatmentGapFor(t)?.suggested);
-    const entityFixable = entities.filter((t) => rowEditable(t) && entitySuggestion(t));
-    const vendorFixable = vendorRows.filter((t) => rowEditable(t) && entitySuggestion(t));
-    const customerFixable = customerRows.filter((t) => rowEditable(t) && entitySuggestion(t));
+    const entityFixable = entities.filter((t) => rowEditable(t) && bulkEntitySuggestion(t));
+    const vendorFixable = vendorRows.filter((t) => rowEditable(t) && bulkEntitySuggestion(t));
+    const customerFixable = customerRows.filter((t) => rowEditable(t) && bulkEntitySuggestion(t));
     const reasons = new Map();
     for (const t of types) { const r = treatmentGapFor(t)?.reason || ''; reasons.set(r, (reasons.get(r) || 0) + 1); }
     const parts = [];
@@ -2048,8 +2065,7 @@
         if (!g?.suggested) continue;
         t.accounting_treatment = g.suggested;
       } else {
-        if (isSplit(t)) continue;
-        const hint = missingEntity(t) && entitySuggestion(t);
+        const hint = missingEntity(t) && bulkEntitySuggestion(t);
         if (!hint) continue;
         Object.assign(t, { entity_type: hint.entity_type, entity_qbo_id: hint.entity_qbo_id, entity_name: hint.entity_name });
       }
@@ -2235,7 +2251,7 @@
     const issue = lineEntityIssue(t);
     const hint = entitySuggestion(t);
     const hintBtn = hint
-      ? ` <button class="bcn-btn bcn-btn--ghost txn-hint" data-use-entity title="${hint.source === 'name' ? 'Match from merchant or vendor name' : `Used on ${hint.n} other ${esc(merchantKey(t))} row${hint.n === 1 ? '' : 's'} on this account`}">Use ${esc(hint.entity_name || hint.entity_qbo_id)}</button>`
+      ? ` <button class="bcn-btn bcn-btn--ghost txn-hint" data-use-entity title="${hint.source !== 'history' ? 'Match from merchant or vendor name' : `Used on ${hint.n} other ${esc(merchantKey(t))} row${hint.n === 1 ? '' : 's'} on this account`}">Use ${esc(hint.entity_name || hint.entity_qbo_id)}</button>`
       : '';
     if (t.entity_name && !issue) return `<button class="cc-cell" data-edit="entity">${esc(t.entity_name)}</button>`;
     if (t.entity_name && issue) {
