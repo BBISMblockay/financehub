@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {collectDay,fetchJourney,fetchSalesDay,validateDay,landingEvidence,dayRange} from '../lib/shopify-attribution-evidence.mjs';
-import {shopifyql} from '../lib/shopify-sync-core.mjs';
+import {shopifyql,shopifyGraphql} from '../lib/shopify-sync-core.mjs';
 const day='2026-09-01',conn={id:'c',shop_domain:'test.myshopify.com'};
 const visit={id:'v1',__typename:'CustomerVisit',occurredAt:'2026-09-01T01:00:00Z',source:'https://facebook.com/?email=secret',utmParameters:{source:'facebook',medium:'paid'},landingPage:'https://shop.test/p?utm_contact=secret'};
 const order={id:'gid://shopify/Order/1',name:'#1',createdAt:'2026-09-01T02:00:00Z',sourceName:'web',customerJourneySummary:{ready:true,firstVisit:visit,lastVisit:visit,moments:{nodes:[visit],pageInfo:{hasNextPage:false}}}};
@@ -27,6 +27,39 @@ await assert.rejects(collectDay(conn,day,{...deps,rest:async()=>{throw Error('in
 // Exercise the real shared parser, including its truncation guard.
 const originalFetch=globalThis.fetch;
 try{
+ // CustomerMoment exposes occurredAt, not id; CustomerVisit implements both
+ // CustomerMoment and Node. Validate the actual wire query, not a canned gql
+ // response which would accept the invalid interface selection from production.
+ // https://shopify.dev/docs/api/admin-graphql/2026-07/interfaces/CustomerMoment
+ // https://shopify.dev/docs/api/admin-graphql/latest/objects/CustomerVisit
+ const journeyRequests=[];
+ const lastVisit={...visit,id:'v3'};
+ globalThis.fetch=async(url,options)=>{
+  assert.match(url,/\/admin\/api\/2026-07\/graphql\.json$/);
+  const request=JSON.parse(options.body);journeyRequests.push(request);
+  assert.match(request.query,/query AttributionJourney\(\$id: ID!, \$after: String\)/);
+  assert.match(request.query,/moments\(first:50,after:\$after\)/);
+  // All three uses must keep __typename outside the concrete-type fragment,
+  // with id INSIDE it. The full selection also protects the evidence fields.
+  const selections=[...request.query.matchAll(/(?:firstVisit|lastVisit|nodes)\s*\{([^]*?)\}\s*\}/g)];
+  assert.equal(selections.length,3);
+  for(const [,selection] of selections){
+   assert.match(selection,/^\s*__typename\s+\.\.\.\s+on\s+CustomerVisit\s*\{\s*id\s+occurredAt\s+source\s+sourceType\s+landingPage\s+referrerUrl\s+utmParameters\s*\{\s*source\s+medium\s+campaign\s+content\s+term\s*$/);
+  }
+  const second=request.variables.after!==null;
+  assert.deepEqual(request.variables,{id:'gid://shopify/Order/1',after:second?'journey-page-2':null});
+  return {status:200,json:async()=>({data:{order:{...order,customerJourneySummary:{
+   ready:true,firstVisit:visit,lastVisit,
+   moments:{nodes:second?[{...visit,id:'v2'},lastVisit]:[visit],
+    pageInfo:{hasNextPage:!second,endCursor:second?null:'journey-page-2'}},
+  }}}})};
+ };
+ const journey=await fetchJourney({...conn,api_version:'2026-07'},'1',{gql:shopifyGraphql});
+ assert.equal(journeyRequests.length,2);
+ assert.equal(journey.customerJourneySummary.firstVisit.id,'v1');
+ assert.equal(journey.customerJourneySummary.lastVisit.id,'v3');
+ assert.deepEqual(journey.customerJourneySummary.moments.nodes.map(v=>v.id).sort(),['v1','v2','v3']);
+ assert.ok(!JSON.stringify(journey).includes('secret'));
  for(const size of [999,1000]){
   globalThis.fetch=async()=>({status:200,json:async()=>({data:{shopifyqlQuery:{parseErrors:[],tableData:{columns:[],rows:Array.from({length:size},(_,i)=>({order_id:String(i+1),day,net_sales:'0',total_sales:'0'}))}}}})});
   if(size===999)assert.equal((await shopifyql(conn,'FROM sales SHOW net_sales')).length,999);

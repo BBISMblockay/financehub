@@ -31,7 +31,7 @@ export function sanitizeVisit(v) {
     sourceType:v.sourceType || null, landingPage:safeUrl(v.landingPage), referrerUrl:safeUrl(v.referrerUrl),
     utmParameters:Object.fromEntries(['source','medium','campaign','content','term'].map(k => [k,String(utm[k] || '').slice(0,512)])) };
 }
-const visitFields = `id __typename ... on CustomerVisit { occurredAt source sourceType landingPage referrerUrl utmParameters { source medium campaign content term } }`;
+const visitFields = `__typename ... on CustomerVisit { id occurredAt source sourceType landingPage referrerUrl utmParameters { source medium campaign content term } }`;
 export async function fetchJourney(connection, id, { gql, maxPages = 100 } = {}) {
   let cursor = null, first = null, last = null, order = null;
   const visits = new Map(), cursors = new Set();
