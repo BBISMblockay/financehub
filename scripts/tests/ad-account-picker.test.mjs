@@ -16,7 +16,8 @@
  *   6. The migration applies twice, cascades with the connection, stays
  *      service-role only, and its verify block reads ok (real PostgreSQL).
  *   7. Integrations loads the picker, offers Reconnect on Google rows only,
- *      and asks for the list with list_accounts.
+ *      and asks for the list with list_accounts; after OAuth it never falls
+ *      back to another row when the callback named one not in this workspace.
  *
  * Run: node scripts/tests/ad-account-picker.test.mjs
  * Needs (step 6): npm ci --prefix scripts/tests/finance-db  (skipped without it)
@@ -135,6 +136,54 @@ await test('Integrations: loads the picker, Reconnect on Google rows only, lists
   assert.match(page, /body: JSON\.stringify\(\{ connection_id: id, list_accounts: true \}\)/);
   assert.match(page, /startAdOauth\('google-oauth-start', \{ company_entity_id: _co\.id, platform, connection_id: id \}/);
   assert.match(page, /afterAdOauth\(oauthPlatform, urlParams\.get\('connection_id'\)/);
+});
+
+await test('Integrations: after OAuth, a returned connection id is never guessed past', async () => {
+  // The tab switched workspace mid-OAuth: the id the callback returned is not
+  // in this workspace's rows. Falling back to "newest row of the platform"
+  // tested or opened the picker on a DIFFERENT connection (review, 2026-10-07).
+  const page = read('v2/integrations.html');
+  const src = page.match(/async function afterAdOauth\(platform, connectionId, reconnected\) \{[\s\S]*?\n    \}/)[0];
+  const run = async (rows, platform, id, reconnected = false) => {
+    const calls = [];
+    const ctx = {
+      AD_PLATFORM_LABELS: { ga4: 'GA4', tiktok_ads: 'TikTok Ads' },
+      AD_ACCOUNT_FIELD: { ga4: 'ga4_property_id', tiktok_ads: 'advertiser_id' },
+      _adRows: rows,
+      loadAdConnections: async () => {},
+      setStatus: (msg, type) => calls.push(['status', type, msg]),
+      testAdConnection: (rid) => calls.push(['test', rid]),
+      openAccountPicker: (rid) => calls.push(['picker', rid]),
+    };
+    vm.runInNewContext(`${src}; result = afterAdOauth(${JSON.stringify(platform)}, ${JSON.stringify(id)}, ${reconnected});`, ctx);
+    await ctx.result;
+    return calls;
+  };
+  const here = [{ id: 'other-ga4', platform: 'ga4', ga4_property_id: '123' }];
+  // id from another workspace: no test, no picker, a clear message
+  let calls = await run(here, 'ga4', 'elsewhere');
+  assert.deepEqual(calls.map((c) => c[0]), ['status']);
+  assert.equal(calls[0][1], 'neg');
+  assert.match(calls[0][2], /different workspace/);
+  calls = await run(here, 'ga4', 'elsewhere', true);
+  assert.deepEqual(calls.map((c) => c[0]), ['status'], 'a reconnect is not guessed past either');
+  // id found here: as before
+  calls = await run([{ id: 'new', platform: 'ga4' }, ...here], 'ga4', 'new');
+  assert.deepEqual(calls, [['picker', 'new']]);
+  // no id (a callback deployed before it returned one): nothing is guessed,
+  // even when this workspace has rows of that platform
+  calls = await run([{ id: 't1', platform: 'tiktok_ads' }, { id: 't2', platform: 'tiktok_ads', advertiser_id: '9' }], 'tiktok_ads', null);
+  assert.deepEqual(calls.map((c) => c[0]), ['status']);
+  assert.equal(calls[0][1], 'pos');
+});
+await test('TikTok callback returns the row it inserted, so Integrations need not guess', () => {
+  const cb = read('supabase/functions/tiktok-oauth-callback/index.ts');
+  assert.match(cb, /\}\)\.select\('id'\)\.single\(\);/);
+  assert.match(cb, /oauth_connected=1&platform=tiktok_ads&connection_id=\$\{encodeURIComponent\(inserted\.id\)\}/);
+  for (const f of ['google-oauth-callback', 'meta-oauth-callback']) {
+    const p = `supabase/functions/${f}/index.ts`;
+    if (existsSync(join(ROOT, p))) assert.ok(/connection_id/.test(read(p)) || /connection_id/.test(read(`supabase/functions/${f}/handler.mjs`)), `${f} returns the id`);
+  }
 });
 
 await test('Integrations: edge calls send the CURRENT session token, never the page-load snapshot', async () => {

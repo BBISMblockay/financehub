@@ -78,11 +78,13 @@ jobs:
           #     before any DB access.
           #   onboarding-interest -- public contact intake; bounded validation
           #     and atomic service-only quotas, no account or invite creation.
+          #   tiktok-oauth-callback -- TikTok redirects the browser here with no
+          #     JWT; the single-use state nonce is its auth (live: verify_jwt=false).
           #   shopify-app-install -- Shopify opens it (App URL + OAuth callback);
           #     Shopify's HMAC signature is checked before anything is written.
           #   meta-oauth-callback -- Meta redirects the browser here; the state row
           #     a signed-in admin created is the authorization.
-          NO_JWT_FUNCTIONS="shopify-compliance-webhook plaid-scheduled-sync card-coding-prepare-scheduled onboarding-interest shopify-app-install meta-oauth-callback"
+          NO_JWT_FUNCTIONS="shopify-compliance-webhook plaid-scheduled-sync card-coding-prepare-scheduled onboarding-interest tiktok-oauth-callback shopify-app-install meta-oauth-callback"
           if [ "${{ inputs.function_name }}" = "all" ]; then
             supabase functions deploy --project-ref "${{ inputs.project_ref }}"
             # A plain deploy applies the default verify_jwt, which would leave
