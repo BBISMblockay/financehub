@@ -1,15 +1,15 @@
-# `/v3/` — the dashboard runtime
+# `/v3/` — the dashboard runtime, and Product Studio
 
-**Explicit preview exception (Blake, 2026-09-26):**
-`/v3/product-workflow.html` is an additive product workflow experiment, direct
-link only until promoted. It does not add menu entries or replace a v2 module.
+This README covers the **dashboard runtime**. `/v3/` also holds **Product Studio**
+(`/v3/product-workflow.html`, started as a preview 2026-09-26, in the standard
+menu since 2026-10-06; rules in `v3/CLAUDE.md`).
 Its own `product-workflow-{model,ui}.js` and CSS use a separate version suffix;
 they are not dashboard runtime assets. See
 [`docs/ops/product-workflow-preview.md`](../docs/ops/product-workflow-preview.md)
 for boundaries, review rules, migration and release checks.
 
-This folder is not a rewrite of SILO and not a second app. It is one feature
-that needed its own directory: a **visualization runtime** that renders saved
+This folder is not a rewrite of SILO and not a second app. The dashboard
+runtime is one feature that needed its own directory: a **visualization runtime** that renders saved
 configuration. Pages here load the v2 Beacon shell (`../v2/beacon.css`,
 `nav-config.js`, `silo-chrome.js`) exactly like a v2 Pattern 1 page, and they
 read `window.__SILO_CONFIG__` and talk to Supabase the same way.

@@ -229,7 +229,7 @@ if (modified.length) {
     let importers = [];
     try { importers = [...new Set(importersOf(p.split('/')[2]))]; } catch { /* git grep exits 1 on no match */ }
     const hint = importers.length
-      ? ` (also bundled by ${importers.join(', ')}; the downloaded copy may be THEIRS -- redeploy them too)`
+      ? ` (also bundled by ${importers.join(', ')}; the downloaded copy may be THEIRS -- they need redeploying too)`
       : '';
     if (hint) console.log(`    ${hint.trim()}`);
     console.log(`::error file=${p}::deployed source differs from main${hint}`);
@@ -262,11 +262,11 @@ if (newUnsourced.length) {
 if (notDeployed.length) {
   failed = true;
   console.log(`\nIN REPO BUT NOT DEPLOYED: ${notDeployed.join(', ')}`);
-  for (const s of notDeployed) console.log(`::error::${FN_DIR}/${s} exists on main but is not deployed (run the Deploy Edge Function workflow)`);
+  for (const s of notDeployed) console.log(`::error::${FN_DIR}/${s} exists on main but is not deployed (a deploy is owed)`);
 }
 
 if (failed) {
-  console.log('\nFix: run the "Deploy Edge Function" workflow for the named function(s) from main. Never copy source through an API client by hand -- that is what truncated two silo-chat deploys on 2026-08-25.');
+  console.log('\nOwed: a deploy of the named function(s) from main through the "Deploy Edge Function" workflow, by someone with production authority (an agent asks first). Never copy source through an API client by hand -- that is what truncated two silo-chat deploys on 2026-08-25.');
   process.exit(1);
 }
 console.log(deferredDrift.length
