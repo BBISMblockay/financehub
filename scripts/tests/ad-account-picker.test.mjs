@@ -170,9 +170,20 @@ await test('Integrations: after OAuth, a returned connection id is never guessed
   // id found here: as before
   calls = await run([{ id: 'new', platform: 'ga4' }, ...here], 'ga4', 'new');
   assert.deepEqual(calls, [['picker', 'new']]);
-  // no id (TikTok's older callback): newest row of the platform, as before
-  calls = await run([{ id: 't1', platform: 'tiktok_ads' }, { id: 't2', platform: 'tiktok_ads' }], 'tiktok_ads', null);
-  assert.deepEqual(calls, [['picker', 't2']]);
+  // no id (a callback deployed before it returned one): nothing is guessed,
+  // even when this workspace has rows of that platform
+  calls = await run([{ id: 't1', platform: 'tiktok_ads' }, { id: 't2', platform: 'tiktok_ads', advertiser_id: '9' }], 'tiktok_ads', null);
+  assert.deepEqual(calls.map((c) => c[0]), ['status']);
+  assert.equal(calls[0][1], 'pos');
+});
+await test('TikTok callback returns the row it inserted, so Integrations need not guess', () => {
+  const cb = read('supabase/functions/tiktok-oauth-callback/index.ts');
+  assert.match(cb, /\}\)\.select\('id'\)\.single\(\);/);
+  assert.match(cb, /oauth_connected=1&platform=tiktok_ads&connection_id=\$\{encodeURIComponent\(inserted\.id\)\}/);
+  for (const f of ['google-oauth-callback', 'meta-oauth-callback']) {
+    const p = `supabase/functions/${f}/index.ts`;
+    if (existsSync(join(ROOT, p))) assert.ok(/connection_id/.test(read(p)) || /connection_id/.test(read(`supabase/functions/${f}/handler.mjs`)), `${f} returns the id`);
+  }
 });
 
 await test('Integrations: edge calls send the CURRENT session token, never the page-load snapshot', async () => {

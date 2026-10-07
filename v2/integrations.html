@@ -2500,19 +2500,18 @@
     async function afterAdOauth(platform, connectionId, reconnected) {
       const label = AD_PLATFORM_LABELS[platform] || platform;
       await loadAdConnections();
-      // Older callbacks (TikTok) do not return the id: the newest row of that
-      // platform is the one just made. A callback that DID return an id is
-      // never guessed past: if that row is not in this workspace (the tab
-      // switched company mid-OAuth), another row of the platform here is not
-      // the one just connected, so do not test it or open its picker.
-      const row = connectionId
-        ? _adRows.find((r) => r.id === connectionId)
-        : [..._adRows].reverse().find((r) => r.platform === platform);
-      if (connectionId && !row) {
+      // Act only on the row the callback named. Never guess "the newest row
+      // of the platform": if the tab switched workspace mid-OAuth, that is
+      // another connection, and testing it or picking its account would
+      // configure the wrong workspace. A callback deployed before it returned
+      // the id (TikTok, until redeployed) gets the plain message; the row is
+      // set up from its own buttons.
+      if (!connectionId) { setStatus(`✓ ${label} connected. Choose its account on the row below.`, 'pos', 10000); return; }
+      const row = _adRows.find((r) => r.id === connectionId);
+      if (!row) {
         setStatus(`${label} was connected in a different workspace. Switch to it to finish setup.`, 'neg', 10000);
         return;
       }
-      if (!row) { setStatus(`✓ ${label} connected.`, 'pos', 8000); return; }
       if (reconnected) {
         setStatus(`✓ ${label} reconnected — testing…`, 'info');
         return testAdConnection(row.id);
