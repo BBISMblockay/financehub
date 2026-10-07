@@ -1,0 +1,45 @@
+name: Shopify attribution snapshots
+on:
+  workflow_dispatch:
+    inputs:
+      connection_id:
+        description: One Shopify connection UUID
+        required: true
+      start_date:
+        description: Inclusive start YYYY-MM-DD, at most 31 days per run
+        required: true
+      end_date:
+        description: Inclusive end YYYY-MM-DD
+        required: true
+      commit:
+        description: Publish verified snapshots (false is read-only)
+        type: boolean
+        default: false
+  schedule:
+    - cron: '25 12 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: shopify-attribution
+  cancel-in-progress: false
+jobs:
+  collect:
+    if: github.event_name == 'workflow_dispatch' || vars.ATTRIBUTION_SYNC_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ATTRIBUTION_MODE: ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
+      ATTRIBUTION_SYNC_ENABLED: ${{ vars.ATTRIBUTION_SYNC_ENABLED }}
+      ATTRIBUTION_CONNECTION_ID: ${{ inputs.connection_id || vars.ATTRIBUTION_CONNECTION_ID }}
+      ATTRIBUTION_START: ${{ inputs.start_date }}
+      ATTRIBUTION_END: ${{ inputs.end_date }}
+      ATTRIBUTION_COMMIT: ${{ inputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node scripts/shopify-attribution-sync.mjs
