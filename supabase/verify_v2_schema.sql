@@ -1,4 +1,4 @@
--- Attribution scheduling state is deliberately service-only.
+-- 0. Attribution scheduling state is deliberately service-only.
 select 'shopify_attribution_coverage service-only state' as check_name,
  case when c.relrowsecurity
  and not has_table_privilege('anon',c.oid,'SELECT')
