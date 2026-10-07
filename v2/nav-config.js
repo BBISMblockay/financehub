@@ -279,6 +279,8 @@
     // connect, so standard workspaces can discover them without inheriting
     // Baseballism's standalone Sales pages or the report-building tools.
     { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered', 'standard'] },
+    // Activate after the attribution backfill is verified and SILO_ATTRIBUTION_ENABLED is true.
+    // { id: 'reports/silo-attribution', section: 'Marketing', label: 'Silo Attribution', href: '/v2/silo-attribution.html', profiles: ['grandfathered', 'standard'] },
     { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered', 'standard'] },
     { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered', 'standard'] },
     // Past Meta ads as baselines and an idea bank measured against them
