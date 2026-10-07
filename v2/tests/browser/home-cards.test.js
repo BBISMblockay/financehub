@@ -63,11 +63,11 @@ async function readHome(page) {
     const titles = home.cards.map((c) => c.title);
     r.ok('cards follow the standard sections', titles.includes('Marketing') && titles.includes('Purchasing')
       && titles.includes('Insights'), JSON.stringify(titles));
-    r.ok('Marketing is reachable from Home', home.home.includes('/v2/wow-report.html'));
+    r.ok('Marketing is reachable from Home', home.home.includes('/v2/marketing-overview.html'));
     r.ok('Setup and Accounting are on Home for the founder',
       home.home.includes('/v2/setup-checklist.html') && home.home.includes('/v2/transactions.html'));
     r.ok('no Baseballism-only link leaks onto a standard Home',
-      !home.home.some((h) => /baseballismwholesale|bi-sales-overview|reviews\.html|live-schedule/.test(h)),
+      !home.home.some((h) => /baseballismwholesale|bi-sales-overview|reviews\.html|live-schedule|wow-report|silo-attribution/.test(h)),
       JSON.stringify(home.home));
     r.ok('Home does not link to itself', !home.home.includes('/v2/finance.html'));
     const insights = home.cards.find((c) => c.title === 'Insights');

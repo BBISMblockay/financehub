@@ -90,8 +90,8 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
   // Keywords is where a client switches weekly rank tracking on for THEIR
   // company; the row carries the exec soft-launch gate OR a seo_approvers
   // grant, and every write is approver-gated by RLS.
+  // Marketing Report and Silo Attribution are Baseballism-only (2026-10-07).
   assert.deepEqual(marketing.items.map((item) => item.id), [
-    'reports/wow-report',
     'reports/marketing-overview',
     'reports/marketing-explorer',
     // Ad Studio (2026-09-27): same exec soft-launch gate.
@@ -102,6 +102,24 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
   assert.ok(!sections.some((section) => section.section === 'Sales'));
   assert.ok(!ids.includes('reports/library'));
   assert.ok(!ids.includes('reports/builder'));
+  assert.ok(!ids.includes('reports/wow-report'));
+  assert.ok(!ids.includes('reports/silo-attribution'));
+});
+
+test('Marketing Report and Silo Attribution: Baseballism keeps them, no standard role sees them', () => {
+  const bb = { id: '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7', entity_key: 'baseballism' };
+  const bbIds = globalStub.SiloNav.navSectionsForCompany(bb, 'marketing', 'owner_admin', new Set())
+    .flatMap((s) => s.items.map((i) => i.id));
+  assert.ok(bbIds.includes('reports/wow-report'), 'Baseballism keeps Marketing Report');
+  assert.ok(bbIds.includes('reports/silo-attribution'), 'Baseballism keeps Silo Attribution');
+  for (const role of ['owner', 'owner_admin', 'executive', 'admin', 'member', 'viewer', 'user']) {
+    for (const dept of ['marketing', 'exec', 'finance']) {
+      const ids = navSectionsForProfile('standard', dept, role, new Set(['seo_approvers', 'silo_chat_managers', 'platform_admins']))
+        .flatMap((s) => s.items.map((i) => i.id));
+      assert.ok(!ids.includes('reports/wow-report'), `${role}/${dept} standard sees Marketing Report`);
+      assert.ok(!ids.includes('reports/silo-attribution'), `${role}/${dept} standard sees Silo Attribution`);
+    }
+  }
 });
 
 test('Reports replaces the sales menu for all existing viewers without widening standard discovery', () => {
