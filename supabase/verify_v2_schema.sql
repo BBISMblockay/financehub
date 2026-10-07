@@ -1,3 +1,13 @@
+-- 0. Attribution scheduling state is deliberately service-only.
+select 'shopify_attribution_coverage service-only state' as check_name,
+ case when c.relrowsecurity
+ and not has_table_privilege('anon',c.oid,'SELECT')
+ and not has_table_privilege('authenticated',c.oid,'SELECT')
+ and not has_table_privilege('authenticated',c.oid,'INSERT')
+ and has_table_privilege('service_role',c.oid,'INSERT,UPDATE,SELECT')
+ then 'ok' else 'MISSING' end as status
+from (values(to_regclass('public.shopify_attribution_coverage'))) t(oid)
+left join pg_class c on c.oid=t.oid;
 -- =============================================================================
 -- SILO schema check (run in Supabase SQL Editor after migrations)
 -- All "ok" rows should show status = 'ok'. Anything "missing" needs apply SQL.

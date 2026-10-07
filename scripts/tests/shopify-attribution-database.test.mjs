@@ -7,6 +7,15 @@ create table entities(id uuid primary key); create table shopify_connections(id 
 create function active_company_id() returns uuid language sql as $$ select nullif(current_setting('test.company',true),'')::uuid $$;
 create function attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;`);
 const files=await readdir(new URL('../../supabase/migrations/',import.meta.url));
+const coverageSql=await readFile(new URL('../../supabase/migrations/'+files.find(n=>n.endsWith('_attribution_coverage.sql')),import.meta.url),'utf8');
+await db.exec(coverageSql);await db.exec(coverageSql);
+assert.equal((await db.query("select relrowsecurity from pg_class where oid='shopify_attribution_coverage'::regclass")).rows[0].relrowsecurity,true);
+for(const role of ['anon','authenticated']) {
+ await db.exec('set role '+role);
+ await assert.rejects(db.query('select * from shopify_attribution_coverage'),/permission denied/);
+ await assert.rejects(db.query("insert into shopify_attribution_coverage(connection_id) values(null)"),/permission denied/);
+ await db.exec('reset role');
+}
 let migration=await readFile(new URL('../../supabase/migrations/'+files.find(n=>n.endsWith('_silo_attribution_evidence.sql')),import.meta.url),'utf8');
 if(process.env.ATTRIBUTION_DB_MUTATION==='rls')migration=migration.replaceAll('enable row level security','disable row level security');
 if(process.env.ATTRIBUTION_DB_MUTATION==='reconciliation')migration=migration.replace('n <> p_net or t <> p_total','false');

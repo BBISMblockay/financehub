@@ -1,0 +1,31 @@
+name: Shopify attribution coverage
+on:
+  schedule:
+    - cron: '25 12 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+# Serialize with manual/pilot publication as well as other coverage runs.
+concurrency:
+  group: shopify-attribution
+  cancel-in-progress: false
+jobs:
+  coverage:
+    if: vars.ATTRIBUTION_COVERAGE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ATTRIBUTION_MODE: coverage
+      ATTRIBUTION_COVERAGE_ENABLED: ${{ vars.ATTRIBUTION_COVERAGE_ENABLED }}
+      ATTRIBUTION_COVERAGE_COMPANIES: ${{ vars.ATTRIBUTION_COVERAGE_COMPANIES }}
+      ATTRIBUTION_EXCLUDED_CONNECTIONS: ${{ vars.ATTRIBUTION_EXCLUDED_CONNECTIONS }}
+      ATTRIBUTION_INITIAL_DAYS: ${{ vars.ATTRIBUTION_INITIAL_DAYS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node scripts/shopify-attribution-sync.mjs

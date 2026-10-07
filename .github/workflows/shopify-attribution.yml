@@ -27,7 +27,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   collect:
-    if: github.event_name == 'workflow_dispatch' || vars.ATTRIBUTION_SYNC_ENABLED == 'true'
+    if: github.event_name == 'workflow_dispatch' || (vars.ATTRIBUTION_SYNC_ENABLED == 'true' && vars.ATTRIBUTION_COVERAGE_ENABLED != 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 330
     env:
