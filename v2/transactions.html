@@ -407,7 +407,9 @@
                     <option value="uncoded">Needs categorizing</option>
                     <option value="pending">Pending at bank</option>
                     <option value="treatment">Needs transaction type</option>
-                    <option value="entity">Needs entity</option>
+                    <option value="entity">Needs entity (AR/AP)</option>
+                    <option value="vendor">Needs vendor (payable)</option>
+                    <option value="customer">Needs customer (receivable)</option>
                     <option value="conflict">Card vs merchant</option>
                     <option value="low">Low confidence</option>
                     <option value="ai">AI-suggested</option>
@@ -505,6 +507,7 @@
         <!-- ================= ENTRY ================= -->
         <section class="cc-pane" data-pane="entry" hidden>
           <div class="cc-kpis" id="entryKpis"></div>
+          <div class="bcn-status bcn-status--neg txn-blockers" id="entryBlockers" role="status" hidden></div>
           <div class="cc-card cc-card--grow">
             <div class="cc-card-head">
               <div>
@@ -1217,13 +1220,35 @@
   const NEEDS_ENTITY = new Set(['Accounts Receivable', 'Accounts Payable']);
   const acctType = (id) => refsForConnection(state.allAccounts).find((a) => a.id === id)?.type || null;
   const needsEntity = (t) => NEEDS_ENTITY.has(acctType(t.qbo_account_id) || '');
-  // A row whose journal line(s) will be refused for want of an entity: its own
-  // account, or any split line's -- the same test the Entry blocker counts.
-  function missingEntity(t) {
-    if (!t || !t.qbo_account_id && !isSplit(t)) return false;
-    if (isSplit(t)) return (splitsFor(t) || []).some((l) => NEEDS_ENTITY.has(acctType(l.qbo_account_id) || '') && !l.entity_qbo_id);
-    return needsEntity(t) && !t.entity_qbo_id;
+  function requiredEntityKindForAccount(accountId) {
+    const type = acctType(accountId) || '';
+    if (/Accounts Payable/i.test(type)) return 'Vendor';
+    if (/Accounts Receivable/i.test(type)) return 'Customer';
+    return null;
   }
+  function lineEntityIssue(line) {
+    if (!line?.qbo_account_id) return null;
+    const required = requiredEntityKindForAccount(line.qbo_account_id);
+    if (!required) return null;
+    if (!line.entity_qbo_id) return required === 'Vendor' ? 'vendor' : 'customer';
+    if (line.entity_type !== required) return required === 'Vendor' ? 'vendor' : 'customer';
+    return null;
+  }
+  function entityIssuesOnRow(t) {
+    const issues = new Set();
+    if (!t || t.status === 'excluded') return issues;
+    for (const line of window.SiloCardSplits.effectiveLines(t, splitsFor(t))) {
+      const issue = lineEntityIssue(line);
+      if (issue) issues.add(issue);
+    }
+    return issues;
+  }
+  // A row whose journal line(s) will be refused: missing or wrong-kind entity.
+  function missingEntity(t) {
+    return entityIssuesOnRow(t).size > 0;
+  }
+  const rowNeedsVendor = (t) => entityIssuesOnRow(t).has('vendor');
+  const rowNeedsCustomer = (t) => entityIssuesOnRow(t).has('customer');
   // Why a categorized bank row has no type yet, and what SILO would set.
   const treatmentGapFor = (t) => window.SiloTransactionDates.treatmentGap(t, acctType(t.qbo_account_id),
     batchSource()?.source_type, isSplit(t));
@@ -1233,21 +1258,45 @@
   // Indexed once per render (renderCoding resets it): asking per row by
   // scanning every row would be quadratic on a 400-row table.
   let entityHints = null;
+  function matchEntityByName(requiredKind, names) {
+    const list = refsForConnection(state.entities).filter((e) => e.type === requiredKind);
+    for (const raw of names) {
+      const q = String(raw || '').trim().toLowerCase();
+      if (!q) continue;
+      const exact = list.find((e) => e.name.toLowerCase() === q);
+      if (exact) return { entity_type: exact.type, entity_qbo_id: exact.id, entity_name: exact.name, n: 0, source: 'name' };
+      const partial = list.find((e) => e.name.toLowerCase().includes(q) || q.includes(e.name.toLowerCase()));
+      if (partial) return { entity_type: partial.type, entity_qbo_id: partial.id, entity_name: partial.name, n: 0, source: 'name' };
+    }
+    return null;
+  }
   function entitySuggestion(t) {
-    if (!t || isSplit(t) || t.entity_qbo_id || !needsEntity(t)) return null;
+    if (!t || t.status === 'excluded') return null;
+    const target = window.SiloCardSplits.effectiveLines(t, splitsFor(t)).find((l) => lineEntityIssue(l));
+    if (!target) return null;
+    const required = requiredEntityKindForAccount(target.qbo_account_id);
+    if (!required) return null;
     if (!entityHints) {
       entityHints = new Map();
       for (const r of workingRows()) {
-        if (!r.entity_qbo_id || !r.qbo_account_id) continue;
-        const key = `${r.qbo_account_id}|${merchantKey(r)}`;
-        const seen = entityHints.get(key) || new Map();
-        const k = `${r.entity_type}:${r.entity_qbo_id}`;
-        seen.set(k, { entity_type: r.entity_type, entity_qbo_id: r.entity_qbo_id, entity_name: r.entity_name, n: (seen.get(k)?.n || 0) + 1 });
-        entityHints.set(key, seen);
+        for (const line of window.SiloCardSplits.effectiveLines(r, splitsFor(r))) {
+          if (!line.entity_qbo_id || !line.qbo_account_id) continue;
+          const req = requiredEntityKindForAccount(line.qbo_account_id);
+          if (!req || line.entity_type !== req) continue;
+          const key = `${line.qbo_account_id}|${req}|${merchantKey(r)}`;
+          const seen = entityHints.get(key) || new Map();
+          const k = `${line.entity_type}:${line.entity_qbo_id}`;
+          seen.set(k, {
+            entity_type: line.entity_type, entity_qbo_id: line.entity_qbo_id,
+            entity_name: line.entity_name || r.entity_name, n: (seen.get(k)?.n || 0) + 1, source: 'history',
+          });
+          entityHints.set(key, seen);
+        }
       }
     }
-    const seen = entityHints.get(`${t.qbo_account_id}|${merchantKey(t)}`);
-    return seen && seen.size === 1 ? [...seen.values()][0] : null;
+    const seen = entityHints.get(`${target.qbo_account_id}|${required}|${merchantKey(t)}`);
+    if (seen && seen.size === 1) return [...seen.values()][0];
+    return matchEntityByName(required, [t.vendor_name, TF.merchantOf(t), merchantKey(t)]);
   }
 
   const acctName = (id) => refsForConnection(state.accounts).find((a) => a.id === id)?.name || null;
@@ -1836,10 +1885,13 @@
     sourceName: () => batchSource()?.display_name || '',
     hasSuggestion: (t) => !!readySuggestion(t),
     missingEntity,
+    rowNeedsVendor,
+    rowNeedsCustomer,
     accountName: (id) => acctName(id) || state.allAccounts.find((a) => a.id === id)?.name || id,
     typeLabel: (v) => TREATMENTS[v] || v,
     statusLabel: (v) => ({ uncoded: 'Needs categorizing', pending: 'Pending at bank',
-      treatment: 'Needs transaction type', entity: 'Needs entity', conflict: 'Card vs merchant',
+      treatment: 'Needs transaction type', entity: 'Needs entity', vendor: 'Needs vendor',
+      customer: 'Needs customer', conflict: 'Card vs merchant',
       low: 'Low confidence', ai: 'AI-suggested', excluded: 'Excluded' }[v] || v),
     isBankPending: (t) => t.origin === 'plaid' && t.provider_status === 'pending',
   });
@@ -1904,13 +1956,18 @@
 
   function renderFilterSegments(rows) {
     const ctx = filterCtx();
-    const counts = { all: rows.length, uncoded: 0, pending: 0, treatment: 0, entity: 0,
+    const counts = { all: rows.length, uncoded: 0, pending: 0, treatment: 0, entity: 0, vendor: 0, customer: 0,
       conflict: 0, low: 0, ai: 0, excluded: 0 };
     for (const t of rows) {
       if (t.status === 'uncoded' && !ctx.isBankPending(t)) counts.uncoded++;
       if (ctx.isBankPending(t)) counts.pending++;
       if (TF.needsTreatment(t)) counts.treatment++;
-      if (t.status !== 'excluded' && missingEntity(t)) counts.entity++;
+      if (t.status !== 'excluded') {
+        const issues = entityIssuesOnRow(t);
+        if (issues.size) counts.entity++;
+        if (issues.has('vendor')) counts.vendor++;
+        if (issues.has('customer')) counts.customer++;
+      }
       if (t.coding_conflict) counts.conflict++;
       if (t.status !== 'excluded' && (t.confidence ?? 1) < 0.6) counts.low++;
       if (t.coding_source === 'ai' || readySuggestion(t)) counts.ai++;
@@ -1919,11 +1976,12 @@
     // Pending at the bank is its own queue — not mixed with work you can code.
     const segments = [
       ['all', 'All'], ['uncoded', 'Needs categorizing'], ['pending', 'Pending at bank'],
-      ['treatment', 'Needs type'], ['entity', 'Needs entity'], ['conflict', 'Conflicts'],
+      ['treatment', 'Needs type'], ['vendor', 'Needs vendor'], ['customer', 'Needs customer'],
+      ['entity', 'Needs entity'], ['conflict', 'Conflicts'],
       ['ai', 'AI'], ['low', 'Low confidence'], ['excluded', 'Excluded'],
     ].filter(([value]) => {
       if (value === 'pending') return counts.pending || filters.status === 'pending';
-      if (['treatment', 'entity'].includes(value)) return counts[value] || filters.status === value;
+      if (['treatment', 'entity', 'vendor', 'customer'].includes(value)) return counts[value] || filters.status === value;
       return true;
     });
     el('codeFilterSegments').innerHTML = segments.map(([value, label]) =>
@@ -1936,9 +1994,13 @@
     const live = rows.filter((t) => t.status !== 'excluded');
     const types = live.filter(TF.needsTreatment);
     const entities = live.filter(missingEntity);
+    const vendorRows = live.filter(rowNeedsVendor);
+    const customerRows = live.filter(rowNeedsCustomer);
     if (!types.length && !entities.length) { box.hidden = true; box.innerHTML = ''; return; }
     const fixable = types.filter((t) => rowEditable(t) && treatmentGapFor(t)?.suggested);
     const entityFixable = entities.filter((t) => rowEditable(t) && entitySuggestion(t));
+    const vendorFixable = vendorRows.filter((t) => rowEditable(t) && entitySuggestion(t));
+    const customerFixable = customerRows.filter((t) => rowEditable(t) && entitySuggestion(t));
     const reasons = new Map();
     for (const t of types) { const r = treatmentGapFor(t)?.reason || ''; reasons.set(r, (reasons.get(r) || 0) + 1); }
     const parts = [];
@@ -1949,7 +2011,19 @@
         + (fixable.length ? ` <button class="bcn-btn bcn-btn--primary" type="button" data-blocker-fix="treatment">Set suggested type on ${fixable.length}</button>` : '')
         + '</div>');
     }
-    if (entities.length) {
+    if (vendorRows.length) {
+      parts.push(`<div><b>${vendorRows.length} row${vendorRows.length === 1 ? '' : 's'} on Accounts Payable need a vendor</b> — QuickBooks will not post without one on every payable line.`
+        + ` <button class="bcn-btn" type="button" data-blocker-filter="vendor">Show them</button>`
+        + (vendorFixable.length ? ` <button class="bcn-btn bcn-btn--primary" type="button" data-blocker-fix="entity">Apply suggested vendor on ${vendorFixable.length}</button>` : '')
+        + '</div>');
+    }
+    if (customerRows.length) {
+      parts.push(`<div><b>${customerRows.length} row${customerRows.length === 1 ? '' : 's'} on Accounts Receivable need a customer</b> — QuickBooks will not post without one on every receivable line.`
+        + ` <button class="bcn-btn" type="button" data-blocker-filter="customer">Show them</button>`
+        + (customerFixable.length ? ` <button class="bcn-btn bcn-btn--primary" type="button" data-blocker-fix="entity">Apply suggested customer on ${customerFixable.length}</button>` : '')
+        + '</div>');
+    }
+    if (entities.length && !vendorRows.length && !customerRows.length) {
       parts.push(`<div><b>${entities.length} row${entities.length === 1 ? ' is' : 's are'} on a receivable or payable account with no entity</b> — QuickBooks refuses the whole entry over one.`
         + ` <button class="bcn-btn" type="button" data-blocker-filter="entity">Show them</button>`
         + (entityFixable.length ? ` <button class="bcn-btn bcn-btn--primary" type="button" data-blocker-fix="entity">Use the entity already used for that merchant on ${entityFixable.length}</button>` : '')
@@ -1974,6 +2048,7 @@
         if (!g?.suggested) continue;
         t.accounting_treatment = g.suggested;
       } else {
+        if (isSplit(t)) continue;
         const hint = missingEntity(t) && entitySuggestion(t);
         if (!hint) continue;
         Object.assign(t, { entity_type: hint.entity_type, entity_qbo_id: hint.entity_qbo_id, entity_name: hint.entity_name });
@@ -2109,12 +2184,12 @@
       const expanded = expandedTransaction === t.id;
       const suggestion = liveSuggestion(t);
       const suggestedCategory=suggestion?.kind==='ready' && resolveSuggestedAccount(t,suggestion);
-      const entityMissing = needsEntity(t) && !t.entity_qbo_id;
+      const entityMissing = rowNeedsVendor(t) ? 'Vendor required' : rowNeedsCustomer(t) ? 'Customer required' : missingEntity(t) ? 'Entity required' : null;
       return `<tr class="txn-row ${t.status === 'excluded' ? 'cc-row--excluded' : ''} ${expanded?'txn-row--open':''} ${state.selected.has(t.id)?'txn-row--selected':''}" data-txn="${esc(t.id)}">
         <td class="txn-select"><input type="checkbox" class="cc-check" data-pick ${!rowEditable(t)?'disabled title="This transaction is locked or unavailable"':''} aria-label="Select ${esc(t.description)}" ${state.selected.has(t.id) ? 'checked' : ''} /></td>
         <td class="txn-date">${esc(t.txn_date || '—')}</td>
         <td class="txn-description"><button class="txn-description-button" data-review aria-expanded="${expanded}" aria-controls="txnDetailDrawer">${esc(t.description)}</button>
-          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestedCategory?'Suggestion ready':suggestion?.kind==='failed'?'Preparation failed':t.status==='excluded'?'Excluded':entityMissing?'Entity required':t.coding_conflict?'Rule conflict':treatmentGapFor(t)?'Needs transaction type: '+esc(treatmentGapFor(t).reason):state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
+          <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestedCategory?'Suggestion ready':suggestion?.kind==='failed'?'Preparation failed':t.status==='excluded'?'Excluded':entityMissing?esc(entityMissing):t.coding_conflict?'Rule conflict':treatmentGapFor(t)?'Needs transaction type: '+esc(treatmentGapFor(t).reason):state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-merchant">${merchantCell(t)}</td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
         <td class="txn-category" data-cell="account">${suggestedCategory?quickAccept(t,suggestion,suggestedCategory,expanded):isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}${treatmentLine(t)}${entityLine(t)}</td>
@@ -2153,12 +2228,20 @@
   }
 
   function entityCell(t) {
+    if (isSplit(t)) return '<span class="cc-note">per split line</span>';
     if (!t.qbo_account_id) return '<span class="cc-note">—</span>';
-    if (t.entity_name) return `<button class="cc-cell" data-edit="entity">${esc(t.entity_name)}</button>`;
-    if (!needsEntity(t)) return '<span class="cc-note">not needed</span>';
+    const required = requiredEntityKindForAccount(t.qbo_account_id);
+    if (!required) return '<span class="cc-note">not needed</span>';
+    const issue = lineEntityIssue(t);
     const hint = entitySuggestion(t);
-    return '<button class="cc-cell cc-cell--req" data-edit="entity">needs entity</button>'
-      + (hint ? ` <button class="bcn-btn bcn-btn--ghost txn-hint" data-use-entity title="Used on ${hint.n} other ${esc(merchantKey(t))} row${hint.n === 1 ? '' : 's'} on this account">Use ${esc(hint.entity_name || hint.entity_qbo_id)}</button>` : '');
+    const hintBtn = hint
+      ? ` <button class="bcn-btn bcn-btn--ghost txn-hint" data-use-entity title="${hint.source === 'name' ? 'Match from merchant or vendor name' : `Used on ${hint.n} other ${esc(merchantKey(t))} row${hint.n === 1 ? '' : 's'} on this account`}">Use ${esc(hint.entity_name || hint.entity_qbo_id)}</button>`
+      : '';
+    if (t.entity_name && !issue) return `<button class="cc-cell" data-edit="entity">${esc(t.entity_name)}</button>`;
+    if (t.entity_name && issue) {
+      return `<button class="cc-cell cc-cell--req" data-edit="entity">wrong — need ${required === 'Vendor' ? 'vendor' : 'customer'}</button>${hintBtn}`;
+    }
+    return `<button class="cc-cell cc-cell--req" data-edit="entity">needs ${required === 'Vendor' ? 'vendor' : 'customer'}</button>${hintBtn}`;
   }
   // Under the category in the register, so an AR/AP row's entity is visible
   // while tagging rather than only inside the review panel.
@@ -2222,7 +2305,17 @@
       db: sb,
       txn: t,
       splits: splitsFor(t) || [],
-      options: { accounts: _acctOptions, locations: _locOptions, entities: _entityOptions },
+      options: {
+        accounts: _acctOptions,
+        locations: _locOptions,
+        entityOptionsFor: (accountId) => {
+          const required = requiredEntityKindForAccount(accountId);
+          return refsForConnection(state.entities, connectionId)
+            .filter((e) => !required || e.type === required)
+            .map((e) => `<option value="${esc(e.type)}:${esc(e.id)}">${esc(e.name)}</option>`)
+            .join('');
+        },
+      },
       refs: {
         accountName: (id) => refsForConnection(state.allAccounts, connectionId).find((a) => a.id === id)?.name || '',
         accountType: (id) => refsForConnection(state.allAccounts, connectionId).find((a) => a.id === id)?.type || null,
@@ -2284,9 +2377,13 @@
       : isAcct ? (txn.qbo_account_id || '') : (txn.qbo_location_id || '');
     const label = isEntity ? (txn.entity_name || '')
       : isAcct ? (txn.qbo_account_name || '') : (txn.qbo_location_name || '');
+    const entityRequired = isEntity ? requiredEntityKindForAccount(txn.qbo_account_id) : null;
+    const entityList = isEntity
+      ? refsForConnection(state.entities, connectionId).filter((item) => !entityRequired || item.type === entityRequired)
+      : [];
     td.innerHTML = `<select class="bcn-field bcn-field--mono" data-field="${field}">
         <option value="">${isAcct || isEntity ? '— none —' : '— account default —'}</option>
-        ${(isEntity ? refsForConnection(state.entities, connectionId) : isAcct ? refsForConnection(state.accounts, connectionId) : refsForConnection(state.locations, connectionId)).map((item) => `<option value="${esc(isEntity ? `${item.type}:${item.id}` : item.id)}">${esc(item.name)}</option>`).join('')}
+        ${(isEntity ? entityList : isAcct ? refsForConnection(state.accounts, connectionId) : refsForConnection(state.locations, connectionId)).map((item) => `<option value="${esc(isEntity ? `${item.type}:${item.id}` : item.id)}">${esc(item.name)}</option>`).join('')}
       </select>`;
     const sel = td.querySelector('select');
     sel.value = selected;
@@ -3319,6 +3416,7 @@
       entity_name: line.entity_name,
       entity_type: line.entity_type,
       needs_entity: NEEDS_ENTITY.has(acctType(line.qbo_account_id) || ''),
+      account_type: acctType(line.qbo_account_id) || null,
       location_id: line.qbo_location_id || src?.default_qbo_location_id || null,
       location_name: line.qbo_location_name || src?.default_qbo_location_name || null,
       // A charge debits the expense; a refund credits it.
@@ -3349,12 +3447,17 @@
     const net = lines.reduce((n, l) => n + l.debit - l.credit, 0);
 
     // The balancing leg: the card liability. Net spend credits it.
+    const creditBalKind = requiredEntityKindForAccount(src?.credit_qbo_account_id);
     const creditLine = {
       account_id: src?.credit_qbo_account_id || null,
       account_name: src?.credit_qbo_account_name || null,
       account_type: src?.credit_qbo_account_type || null,
+      entity_id: src?.credit_vendor_qbo_id || null,
+      entity_name: src?.credit_vendor_name || null,
+      entity_type: creditBalKind && src?.credit_vendor_qbo_id ? creditBalKind : null,
       vendor_id: src?.credit_vendor_qbo_id || null,
       vendor_name: src?.credit_vendor_name || null,
+      needs_entity: !!creditBalKind,
       location_id: src?.default_qbo_location_id || null,
       location_name: src?.default_qbo_location_name || null,
       debit: net < 0 ? -net : 0,
@@ -3388,6 +3491,7 @@
       for(const id of ['btnApprove','btnPost','btnEntryCsv'])el(id).disabled=true;
       for(const id of ['btnReopen','btnVoid'])el(id).hidden=true;
       el('entryStatus').textContent='Choose an import to review its complete journal.';
+      el('entryBlockers').hidden = true;
       return;
     }
     const e = buildEntry();
@@ -3397,6 +3501,7 @@
       for(const id of ['btnApprove','btnPost','btnEntryCsv'])el(id).disabled=true;
       for(const id of ['btnReopen','btnVoid'])el(id).hidden=true;
       el('entryStatus').textContent='Choose an import to review its complete journal.';
+      el('entryBlockers').hidden = true;
       return;
     }
 
@@ -3427,7 +3532,7 @@
         <td>${l.account_name ? esc(l.account_name) : '<span class="cc-chip cc-chip--none">card account not set</span>'}</td>
         <td class="cc-note">${esc(l.location_name || '—')}</td>
         <td class="cc-note">${l.entity_name ? esc(l.entity_name)
-          : l.needs_entity ? '<span class="cc-chip cc-chip--none">needs entity</span>' : '—'}</td>
+          : l.needs_entity ? `<span class="cc-chip cc-chip--none">needs ${/Payable/i.test(l.account_type || acctType(l.account_id) || '') ? 'vendor' : 'customer'}</span>` : '—'}</td>
         <td class="cc-desc" title="${esc(l.description)}">${esc(l.description)}</td>
         <td class="num">${l.debit ? money(l.debit) : ''}</td>
         <td class="num">${l.credit ? money(l.credit) : ''}</td>
@@ -3442,24 +3547,38 @@
     if (treatments) blockers.push(`${treatments} bank row${treatments === 1 ? '' : 's'} need${treatments === 1 ? 's' : ''} a transaction type — `
       + 'Transactions › Needs type shows which and why');
     if (!e.src?.credit_qbo_account_id) blockers.push('choose a balancing account in Accounts');
-    if (/Accounts (Payable|Receivable)/i.test(e.src?.credit_qbo_account_type || '')
-        && !e.src?.credit_vendor_qbo_id) {
-      blockers.push(e.src?.credit_vendor_name
-        ? `the balancing account needs a ${/Receivable/i.test(e.src.credit_qbo_account_type || '')
-            ? 'customer' : 'vendor'} record — “${e.src.credit_vendor_name}” is stored as typed text, `
-          + 'so re-pick it from the list in Accounts'
-        : `the balancing account is ${e.src?.credit_qbo_account_type}, which QuickBooks requires an entity on`);
-    }
     if (uncoded) blockers.push(`${uncoded} row${uncoded === 1 ? ' is' : 's are'} still uncoded`);
     // QuickBooks refuses the WHOLE entry over one AR/AP line with no entity, so
     // it is caught here rather than after a person has approved it.
     // Counted over the LINES the entry will post, not over the rows: a split
     // row has no account of its own, so a row-level check would pass a split
     // line sitting on a receivable with nobody on it.
-    const noEntity = e.lines.filter((l) => l.needs_entity && !l.entity_id).length;
-    if (noEntity) {
-      blockers.push(`${noEntity} journal line${noEntity === 1 ? '' : 's'} on a receivable or payable `
-        + `account ${noEntity === 1 ? 'has' : 'have'} no entity — QuickBooks requires one`);
+    const vendorLines = e.lines.filter((l) => {
+      const req = requiredEntityKindForAccount(l.account_id);
+      return req === 'Vendor' && (!l.entity_id || l.entity_type !== 'Vendor');
+    }).length;
+    const customerLines = e.lines.filter((l) => {
+      const req = requiredEntityKindForAccount(l.account_id);
+      return req === 'Customer' && (!l.entity_id || l.entity_type !== 'Customer');
+    }).length;
+    if (vendorLines) {
+      blockers.push(`${vendorLines} journal line${vendorLines === 1 ? '' : 's'} on Accounts Payable `
+        + `${vendorLines === 1 ? 'needs' : 'need'} a vendor — fix on Transactions (Needs vendor) before approving`);
+    }
+    if (customerLines) {
+      blockers.push(`${customerLines} journal line${customerLines === 1 ? '' : 's'} on Accounts Receivable `
+        + `${customerLines === 1 ? 'needs' : 'need'} a customer — fix on Transactions (Needs customer) before approving`);
+    }
+    const balKind = requiredEntityKindForAccount(e.src?.credit_qbo_account_id);
+    if (balKind === 'Vendor' && !e.src?.credit_vendor_qbo_id) {
+      blockers.push(e.src?.credit_vendor_name
+        ? `balancing payable line: “${e.src.credit_vendor_name}” was typed, not picked — choose the vendor on the Accounts tab`
+        : 'the card balancing account is Accounts Payable but has no vendor — set it on the Accounts tab');
+    }
+    if (balKind === 'Customer' && !e.src?.credit_vendor_qbo_id) {
+      blockers.push(e.src?.credit_vendor_name
+        ? `balancing receivable line: “${e.src.credit_vendor_name}” was typed, not picked — choose the customer on the Accounts tab`
+        : 'the card balancing account is Accounts Receivable but has no customer — set it on the Accounts tab');
     }
     // The preview is built from the split lines that were read. If they could
     // not be read, it is missing lines and must not be approved.
@@ -3477,6 +3596,28 @@
     el('btnPost').disabled = posted || !approved || blockers.length > 0
       || !e.src?.posting_enabled;
 
+    const entryBox = el('entryBlockers');
+    const entryParts = [];
+    if (vendorLines) {
+      entryParts.push(`<div><b>${vendorLines} payable line${vendorLines === 1 ? '' : 's'} still need a vendor.</b> `
+        + `<button class="bcn-btn" type="button" data-entry-filter="vendor">Show on Transactions</button></div>`);
+    }
+    if (customerLines) {
+      entryParts.push(`<div><b>${customerLines} receivable line${customerLines === 1 ? '' : 's'} still need a customer.</b> `
+        + `<button class="bcn-btn" type="button" data-entry-filter="customer">Show on Transactions</button></div>`);
+    }
+    if (balKind && !e.src?.credit_vendor_qbo_id) {
+      entryParts.push(`<div><b>Balancing ${balKind === 'Vendor' ? 'payable' : 'receivable'} account needs a ${balKind === 'Vendor' ? 'vendor' : 'customer'}.</b> `
+        + `<button class="bcn-btn" type="button" data-entry-go="accounts">Open Accounts tab</button></div>`);
+    }
+    if (entryParts.length) {
+      entryBox.innerHTML = entryParts.join('');
+      entryBox.hidden = false;
+    } else {
+      entryBox.hidden = true;
+      entryBox.innerHTML = '';
+    }
+
     el('entryStatus').textContent = posted
       ? `Posted as JE ${state.batch.qbo_doc_number || state.batch.qbo_journal_entry_id || ''}.`
         + ' If it was deleted in QuickBooks, mark it unposted so it can be posted again.'
@@ -3485,6 +3626,21 @@
       : !e.src?.posting_enabled ? 'Approved. Posting is off for this account — enable it in Accounts when ready.'
       : 'Approved and ready to post.';
   }
+
+  el('entryBlockers').addEventListener('click', (e) => {
+    const filterBtn = e.target.closest('[data-entry-filter]');
+    if (filterBtn) {
+      filters.status = filterBtn.dataset.entryFilter;
+      el('codeFilter').value = filters.status;
+      state.selected.clear();
+      saveFilters();
+      showPane('coding');
+      writeFilterInputs();
+      renderCoding();
+      return;
+    }
+    if (e.target.closest('[data-entry-go="accounts"]')) showPane('cards');
+  });
 
   el('entryGroup').addEventListener('change', renderEntry);
 
@@ -3647,10 +3803,24 @@
       renderEntry();
       setStatus(`Posted as journal entry ${out.doc_number || out.qbo_journal_entry_id}.`, 'pos', 9000);
     } catch (err) {
-      setStatus(`Post failed — ${err.message}`, 'neg', 12000);
+      setStatus(`Post failed — ${friendlyQboPostError(err.message)}`, 'neg', 12000);
       renderEntry();
     }
   });
+
+  function friendlyQboPostError(raw) {
+    const text = String(raw || '');
+    const detail = text.match(/"Detail":"((?:\\.|[^"\\])*)"/);
+    if (detail) {
+      return detail[1].replace(/\\"/g, '"').replace(/\\n/g, ' ')
+        + ( /Accounts Payable/i.test(detail[1]) && /vendor/i.test(detail[1])
+          ? ' — open Transactions → Needs vendor (or Accounts if it is the balancing line).' : '');
+    }
+    if (/payable/i.test(text) && /vendor/i.test(text)) {
+      return 'QuickBooks needs a vendor on every Accounts Payable line. Use Transactions → Needs vendor.';
+    }
+    return text;
+  }
 
   // -------------------------------------------------------------- rules
 
@@ -4032,9 +4202,8 @@
           + esc(unset.map((s) => s.display_name).join(', ')) + '. An entry cannot be built without it.'
         : '',
       apNoVendor.length
-        ? `<b>Needs a vendor:</b> ${esc(apNoVendor.map((s) => s.display_name).join(', '))}. `
-          + 'QuickBooks rejects a journal entry line on an Accounts Payable account unless the line '
-          + 'names a vendor, so the post would fail without one.'
+        ? `<b>Needs a ${apNoVendor.some((s) => /Receivable/i.test(s.credit_qbo_account_type || '')) && apNoVendor.some((s) => /Payable/i.test(s.credit_qbo_account_type || '')) ? 'customer or vendor' : apNoVendor.some((s) => /Receivable/i.test(s.credit_qbo_account_type || '')) ? 'customer' : 'vendor'}:</b> ${esc(apNoVendor.map((s) => s.display_name).join(', '))}. `
+          + 'QuickBooks requires the right Name on every receivable or payable balancing line.'
         : '',
       'Posting stays off for a card until you turn it on here — a new card cannot reach the ledger by accident.',
     ].filter(Boolean).join('<br /><br />');
