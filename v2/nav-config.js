@@ -37,6 +37,12 @@
     return 'standard';
   }
 
+  // Pilot visibility only. Server RLS remains the data authorization boundary.
+  function isSiloAttributionEnabled(company) {
+    return company?.id === '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'
+      && !company._staleReconcile && resolveNavProfile(company) === 'grandfathered';
+  }
+
   // Departments that see finance-sensitive links. Employee-facing forms
   // (Payment Request) are NOT gated — everyone submits those. Nav hiding is
   // UX only; the data itself is gated by department-aware RLS.
@@ -279,8 +285,7 @@
     // connect, so standard workspaces can discover them without inheriting
     // Baseballism's standalone Sales pages or the report-building tools.
     { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered', 'standard'] },
-    // Activate after the attribution backfill is verified and SILO_ATTRIBUTION_ENABLED is true.
-    // { id: 'reports/silo-attribution', section: 'Marketing', label: 'Silo Attribution', href: '/v2/silo-attribution.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'reports/silo-attribution', section: 'Marketing', label: 'Silo Attribution', href: '/v2/silo-attribution.html', profiles: ['grandfathered'], companyGate: isSiloAttributionEnabled },
     { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered', 'standard'] },
     { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered', 'standard'] },
     // Past Meta ads as baselines and an idea bank measured against them
@@ -378,13 +383,14 @@
    * @param {'grandfathered' | 'standard'} profile
    * @returns {{ section: string, items: typeof NAV_ITEMS }[]}
    */
-  function navSectionsForProfile(profile, department, role, grantIds) {
+  function navSectionsForProfile(profile, department, role, grantIds, company) {
     const dept = department ? String(department).toLowerCase() : null;
     const userRole = role ? String(role).toLowerCase() : null;
     const hasGrant = (id) => !!(grantIds && grantIds.has && grantIds.has(id));
     const rolesFor = (item) => profile === 'standard' && item.rolesStandard ? item.rolesStandard : item.roles;
     const visible = NAV_ITEMS.filter((item) =>
       item.profiles.includes(profile)
+      && (!item.companyGate || item.companyGate(company))
       && (!item.requiresGrant || hasGrant(item.id))
       && (!item.departments || !dept || item.departments.includes(dept))
       && (!rolesFor(item) || !userRole || rolesFor(item).includes(userRole)
@@ -423,7 +429,7 @@
    * @param {SiloCompany | null | undefined} company
    */
   function navSectionsForCompany(company, department, role, grantIds) {
-    return navSectionsForProfile(resolveNavProfile(company), department, role, grantIds);
+    return navSectionsForProfile(resolveNavProfile(company), department, role, grantIds, company);
   }
 
   global.SiloNav = {
@@ -432,6 +438,7 @@
     WORKSPACE_SETTINGS_PAGES,
     SEO_SUITE_PAGES,
     resolveNavProfile,
+    isSiloAttributionEnabled,
     navSectionsForProfile,
     navSectionsForCompany,
     NAV_ITEMS,
