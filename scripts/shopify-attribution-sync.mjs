@@ -5,6 +5,9 @@ import { shopifyGraphql,shopifyql,fetchWithRetry } from './lib/shopify-sync-core
 import { normalizeShopDomain } from './lib/shopify-auth-lib.mjs';
 import { collectDay,dayRange } from './lib/shopify-attribution-evidence.mjs';
 
+import {allocationWindows} from '../v2/silo-attribution-model.js';
+import {loadCatalog} from './lib/silo-attribution-catalog.mjs';
+
 const env=process.env, scheduled=env.ATTRIBUTION_MODE === 'scheduled';
 if (scheduled && env.ATTRIBUTION_SYNC_ENABLED !== 'true') {
   console.log('Attribution scheduled sync disabled'); process.exit(0);
@@ -25,11 +28,12 @@ if(scheduled){
   const shift=n=>new Date(Date.parse(today)-n*86400000).toISOString().slice(0,10);
   start=shift(7);end=shift(1);
 }
+const catalog=await loadCatalog(db,connection.company_entity_id);
 const days=dayRange(start,end),commit=scheduled || env.ATTRIBUTION_COMMIT === 'true';
 for(const day of days){
   console.log(JSON.stringify({day,status:'collecting',commit}));
   const result=await collectDay(connection,day,{
-    ql:shopifyql,gql:shopifyGraphql,commit,
+    ql:shopifyql,gql:shopifyGraphql,commit,decorate:evidence=>allocationWindows(evidence,catalog),
     rest:async(c,id)=>{
       const response=await fetchWithRetry(`https://${c.shop_domain}/admin/api/${c.api_version}/orders/${id}.json?fields=id,landing_site`,{headers:{'X-Shopify-Access-Token':c.access_token}});
       if(!response.ok)throw Error('Order landing fetch failed: '+response.status);
