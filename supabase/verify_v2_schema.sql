@@ -6297,6 +6297,25 @@ select 'Coding evidence and saved rules' as check_name,
 -- report MISSING for them), so they are covered by their own database suites.
 -- Keep this line exactly as written: the test locates it by text.
 
+-- ── Card import approval: entity KIND on AR/AP lines (20261007180000) ──────
+-- QuickBooks rejects a payable line whose entity is a customer (and the
+-- reverse) at POST time; approval refuses it first so an approved entry
+-- always posts.
+select
+  case
+    when not exists (select 1 from pg_proc where proname = 'approve_card_import_batch'
+                       and prosrc like '%Payable lines need a vendor and receivable lines need a customer%')
+      then 'MISSING — run 20261007180000_card_import_entity_kind_on_approve.sql'
+    when not exists (select 1 from pg_proc where proname = 'approve_card_import_batch'
+                       and prosrc like '%card_coding_effective_lines%'
+                       and prosrc like '%does not total its own amount%')
+      then 'CRITICAL — approve_card_import_batch lost the split-line checks (replaced from an older copy?)'
+    when has_function_privilege('anon', 'public.approve_card_import_batch(uuid)', 'execute')
+      then 'CRITICAL — anon can execute approve_card_import_batch()'
+    else 'ok'
+  end as card_import_entity_kind;
+
+
 -- AI credit billing (20261001120000). The ledger a tenant's balance is
 -- charged against: closed to clients (no table read, no metering or grant
 -- RPC), append-only, and RECONCILED -- the balances and open holds must equal
@@ -6346,21 +6365,3 @@ select 'AI credit ledger' as check_name,
          'select count(*) as n from public.ai_credit_reconcile() where not ok', false, true, '')))[1]::text <> '0'
   then 'CRITICAL: AI credit balances do not reconcile with the ledger -- select * from ai_credit_reconcile() where not ok'
  else 'ok' end as status;
-
--- ── Card import approval: entity KIND on AR/AP lines (20261007180000) ──────
--- QuickBooks rejects a payable line whose entity is a customer (and the
--- reverse) at POST time; approval refuses it first so an approved entry
--- always posts.
-select
-  case
-    when not exists (select 1 from pg_proc where proname = 'approve_card_import_batch'
-                       and prosrc like '%Payable lines need a vendor and receivable lines need a customer%')
-      then 'MISSING — run 20261007180000_card_import_entity_kind_on_approve.sql'
-    when not exists (select 1 from pg_proc where proname = 'approve_card_import_batch'
-                       and prosrc like '%card_coding_effective_lines%'
-                       and prosrc like '%does not total its own amount%')
-      then 'CRITICAL — approve_card_import_batch lost the split-line checks (replaced from an older copy?)'
-    when has_function_privilege('anon', 'public.approve_card_import_batch(uuid)', 'execute')
-      then 'CRITICAL — anon can execute approve_card_import_batch()'
-    else 'ok'
-  end as card_import_entity_kind;
