@@ -169,6 +169,9 @@
    * sectionStandard: optional section label for standard profile
    * labelStandard: optional link label for standard profile
    * rolesStandard: optional role gate for standard profile, overriding roles
+   * featured: optional; a section whose only visible row is featured is drawn
+   *           as one accented direct link instead of an expandable group
+   *           (presentation only, silo-chrome.js)
    */
   const NAV_ITEMS = [
     { id: 'finance/menu', section: 'Start', label: 'Home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
@@ -181,7 +184,10 @@
     // reports/silo-chat so the page's active marker keeps working. Its place
     // in the grandfathered menu comes from this row's position (that order is
     // first-seen), and in the standard menu from STANDARD_SECTION_ORDER.
-    { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Ask SILO', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
+    // featured: the sidebar draws this one-row section as a single accented
+    // link (no expand step) so it stands out (Blake, 2026-10-08). Styling
+    // only -- the same visibility filter applies.
+    { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Ask SILO', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'], featured: true },
     // On Deck: prepared work waiting for a decision. Its first module is
     // transaction coding, so the row follows the finance gate the database
     // applies (on_deck_coding_access). Owner/admins without a finance

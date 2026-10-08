@@ -193,6 +193,23 @@
     const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === active))?.section || null;
 
     return NAV_SECTIONS.map(sec => {
+      // A featured one-row section (Ask SILO) is drawn as a single accented
+      // link: one click opens it, no expand step. Presentation only -- the
+      // row already passed the same visibility filter as every other row.
+      if (sec.items.length === 1 && sec.items[0].featured) {
+        const item = sec.items[0];
+        const isActive = item.id === active;
+        return `
+        <div class="silo-sb-section silo-sb-section--featured" data-section="${escHtml(sec.section)}">
+          <a class="silo-sb-feature${isActive ? ' silo-sb-feature--active' : ''}" href="${escHtml(item.href)}" data-nav-id="${escHtml(item.id)}"${isActive ? ' aria-current="page"' : ''} title="${escHtml(item.label)}">
+            <svg class="silo-sb-feature-icon" viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
+            <span class="silo-sb-feature-label">${escHtml(item.label)}</span>
+            ${badgeHtml(navBadges[item.id], 'waiting')}
+            <svg class="silo-sb-feature-arrow" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+          </a>
+        </div>
+      `;
+      }
       const isOpen = sec.section === activeSection;
       const links = sec.items.map(item => {
         const isActive = item.id === active;
@@ -834,7 +851,7 @@
         }
         return;
       }
-      if (e.target.closest('.silo-sb-link')) {
+      if (e.target.closest('.silo-sb-link, .silo-sb-feature')) {
         setNavOpen(false);
       }
     });

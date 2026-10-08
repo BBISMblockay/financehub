@@ -29,10 +29,11 @@
     navEl.querySelectorAll('.silo-sb-section').forEach((section) => {
       const title = section.getAttribute('data-section') || '';
       const links = [];
-      section.querySelectorAll('a.silo-sb-link').forEach((a) => {
+      // A featured section (Ask SILO) is one a.silo-sb-feature, not a list.
+      section.querySelectorAll('a.silo-sb-link, a.silo-sb-feature').forEach((a) => {
         const id = a.getAttribute('data-nav-id') || '';
         if (SKIP_IDS.has(id)) return;
-        const labelEl = a.querySelector('.silo-sb-link-label');
+        const labelEl = a.querySelector('.silo-sb-link-label, .silo-sb-feature-label');
         const label = (labelEl ? labelEl.textContent : a.textContent).trim();
         const href = a.getAttribute('href') || '';
         if (!label || !href) return;

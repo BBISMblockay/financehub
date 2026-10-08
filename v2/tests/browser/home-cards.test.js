@@ -31,7 +31,7 @@ const ready = () => !!document.querySelector('#siloSbNav .silo-sb-link');
 async function readHome(page) {
   await page.waitForTimeout(900); // department, grants and role repaint the sidebar
   return page.evaluate(() => {
-    const sidebar = [...document.querySelectorAll('#siloSbNav a.silo-sb-link')]
+    const sidebar = [...document.querySelectorAll('#siloSbNav a.silo-sb-link, #siloSbNav a.silo-sb-feature')]
       .map((a) => a.getAttribute('href'))
       .filter((h) => h !== '/v2/finance.html');
     const cards = [...document.querySelectorAll('#finSections .fin-card')].map((c) => ({
