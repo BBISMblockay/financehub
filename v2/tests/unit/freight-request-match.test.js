@@ -99,8 +99,10 @@ r.test('page wiring: module loaded, routed through it, no exact-match lookup lef
   r.ok('no exact match on internal_po_number', !/\.eq\(\s*'internal_po_number'/.test(html));
   r.ok('still company-scoped', /prefillFreightFromPaymentRequest[\s\S]{0,1500}eq\('company_entity_id', _co\.id\)/.test(html));
   r.ok('notice element', html.includes('id="freightShareNote"'));
-  r.ok('stale answer for another PO is dropped', html.includes("ctx?.header?.po_name !== poName"));
-  r.ok('a failed lookup is shown for the open PO', /catch \(err\)[\s\S]{0,400}ctx\?\.header\?\.po_name === poName[\s\S]{0,200}SiloFreightMatch\.LOOKUP_FAILED/.test(html));
+  r.ok('a lookup belongs to the fill that started it', html.includes("seq === freightLookupSeq && ctx?.header?.po_name === poName"));
+  r.ok('every form fill retires the lookup in flight', /const freightSeq = \+\+freightLookupSeq;[\s\S]{0,300}prefillFreightFromPaymentRequest\(ctx\.header\.po_name, freightSeq\)/.test(html));
+  r.ok('a stale answer is dropped', /if \(!current\(\)\) return;/.test(html));
+  r.ok('a failed lookup is shown only for the current fill', /catch \(err\)[\s\S]{0,300}if \(current\(\) && note\)[\s\S]{0,200}SiloFreightMatch\?\.LOOKUP_FAILED/.test(html));
 });
 
 r.test('the failure message says nothing was prefilled', () => {

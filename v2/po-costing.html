@@ -679,26 +679,47 @@
     // until one names this PO or the rows run out -- never a fixed window,
     // which would read "older than the window" as "no request".
     const FREIGHT_REQUEST_PAGE = 500;
-    async function prefillFreightFromPaymentRequest(poName) {
+    // One number per form fill. Every fillFormFromCtx() -- opening a PO,
+    // reopening the same one, saving -- takes a new one, so a lookup still in
+    // flight from an earlier fill is stale even when it is for the SAME PO
+    // name: its answer must not paint a prefill or an error over what the
+    // newer fill (or a save) put on screen.
+    let freightLookupSeq = 0;
+    async function prefillFreightFromPaymentRequest(poName, seq) {
+      const current = () => seq === freightLookupSeq && ctx?.header?.po_name === poName;
       const note = document.getElementById('freightShareNote');
       if (note) { note.hidden = true; note.textContent = ''; delete note.dataset.state; }
       if (!poName) return;
+      const fetchPage = (from, to) => {
+        let _q = db.from('payment_requests')
+          .select('amount_due, invoice_number, vendor_name, internal_po_number')
+          .eq('request_type', 'inventory_freight')
+          .not('internal_po_number', 'is', null)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, to);
+        if (_co?.id) _q = _q.eq('company_entity_id', _co.id);
+        return _q;
+      };
+      let match;
       try {
-        const fetchPage = (from, to) => {
-          let _q = db.from('payment_requests')
-            .select('amount_due, invoice_number, vendor_name, internal_po_number')
-            .eq('request_type', 'inventory_freight')
-            .not('internal_po_number', 'is', null)
-            .order('created_at', { ascending: false })
-            .order('id', { ascending: false })
-            .range(from, to);
-          if (_co?.id) _q = _q.eq('company_entity_id', _co.id);
-          return _q;
-        };
-        const { match } = await window.SiloFreightMatch.findFreightRequest(fetchPage, poName, FREIGHT_REQUEST_PAGE);
-        // The PO may have been switched while this was in flight; its answer
-        // belongs to the PO that asked, never to the one now on screen.
-        if (ctx?.header?.po_name !== poName) return;
+        ({ match } = await window.SiloFreightMatch.findFreightRequest(fetchPage, poName, FREIGHT_REQUEST_PAGE));
+      } catch (err) {
+        console.error('Freight request lookup failed:', err);
+        // Visible, or a failed lookup reads exactly like "no request exists".
+        // Only for the fill that asked: a stale lookup's failure is moot.
+        if (current() && note) {
+          note.textContent = window.SiloFreightMatch?.LOOKUP_FAILED
+            || 'Could not check freight requests for this PO, so nothing was prefilled.';
+          note.dataset.state = 'error';
+          note.hidden = false;
+        }
+        return;
+      }
+      // The PO may have been switched, reopened or saved while this was in
+      // flight; its answer belongs to the fill that asked, never a later one.
+      if (!current()) return;
+      try {
         const plan = window.SiloFreightMatch.prefillPlan(match, {
           freight: els.inFreight.value, ref: els.inFreightRef.value, carrier: els.inFreightCarrier.value,
         });
@@ -709,13 +730,6 @@
         if (plan.freight != null) recalc();
       } catch (err) {
         console.error('Freight prefill from payment request failed:', err);
-        // Visible, or a failed lookup reads exactly like "no request exists".
-        // Only for the PO still open: a failure for one already left is moot.
-        if (ctx?.header?.po_name === poName && note) {
-          note.textContent = window.SiloFreightMatch.LOOKUP_FAILED;
-          note.dataset.state = 'error';
-          note.hidden = false;
-        }
       }
     }
 
@@ -731,9 +745,12 @@
       els.inFreight.value = ctx.headerInputs.freight ?? '';
       const shareNote = document.getElementById('freightShareNote');
       if (shareNote) { shareNote.hidden = true; shareNote.textContent = ''; delete shareNote.dataset.state; }
+      // Retires any lookup still in flight, including when none starts below
+      // (freight just saved): its late answer must not land on this fill.
+      const freightSeq = ++freightLookupSeq;
       // If no freight amount saved yet, check for a linked freight payment request
       if (!Number(els.inFreight.value) && ctx.header?.po_name) {
-        prefillFreightFromPaymentRequest(ctx.header.po_name);
+        prefillFreightFromPaymentRequest(ctx.header.po_name, freightSeq);
       }
       els.inDutyPct.value = ctx.headerInputs.duty_pct ?? '';
       els.inMisc.value = ctx.headerInputs.misc ?? '';

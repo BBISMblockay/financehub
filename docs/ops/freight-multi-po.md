@@ -40,8 +40,10 @@ meta, detail drawer), the `payment-request-forward-melio` email, and Costing.
   dropped.
 - The lookup pages through every freight request; there is no row cap. If a page fails, the PO
   still open shows "Could not check freight requests for this PO, so nothing was prefilled", so a
-  failure never looks like "no request exists". A failure for a PO already left stays silent.
-  Covered by `v2/tests/browser/po-costing-freight.test.js`.
+  failure never looks like "no request exists". Each form fill (opening a PO, reopening the same
+  one, saving) retires any lookup still in flight, so a late answer never paints an error over a
+  prefill, a prefill under an error, or anything after freight was saved. Covered by
+  `v2/tests/browser/po-costing-freight.test.js`.
 - The query stays company-scoped (`company_entity_id`, plus RLS), and the page writes nothing new.
 
 What phase 1 does **not** do:

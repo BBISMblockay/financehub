@@ -1,9 +1,10 @@
 /* /v2/po-costing.html freight prefill, in the real page (v2/freight-request-match.js).
  *
  * The lookup pages through the company's freight requests. A page that fails
- * must be VISIBLE for the PO still open -- otherwise it reads exactly like "no
- * request exists" and someone saves freight without it -- and must stay silent
- * for a PO the user has already left.
+ * must be VISIBLE for the form fill that asked -- otherwise it reads exactly
+ * like "no request exists" and someone saves freight without it. A lookup a
+ * later fill has replaced (another PO, the same PO reopened, freight saved)
+ * must paint nothing at all: neither its error nor its prefill.
  */
 'use strict';
 const assert = require('node:assert/strict');
@@ -14,10 +15,18 @@ const PAGE = 500; // the page's FREIGHT_REQUEST_PAGE
 (async () => {
   const suite = await startSuite();
   let passed = 0;
-  const check = async (name, fn) => { await fn(); console.log(`  PASS ${name}`); passed++; };
+  let failed = 0;
+  // Each check stands alone, so one failure does not hide the rest.
+  const check = async (name, fn) => {
+    try { await fn(); console.log(`  PASS ${name}`); passed++; }
+    catch (err) { console.error(`  FAIL ${name}: ${err.message}`); failed++; }
+  };
 
-  // Later pages of payment_requests can be held (__LATER_GATE__) and/or fail
-  // (__FAIL_LATER__). Page one is always served from the fixture.
+  // Requests for payment_requests pages after the first are controllable:
+  //   window.__HOLD_EACH__  each one waits in window.__HELD__ until released
+  //                         with 'ok' or 'fail', in whatever order a test picks
+  //   window.__FAIL_LATER__ otherwise, each one fails (else it is served)
+  // Page one is always served from the fixture.
   const ANCHOR = "if (broken()) return Promise.resolve({ data: null, error: { message: 'fixture: ' + table + ' is unreadable' } }).then(res, rej);";
   const script = fakeSupabaseScript();
   assert.equal(script.split(ANCHOR).length, 2, 'harness anchor moved; update this suite');
@@ -25,12 +34,14 @@ const PAGE = 500; // the page's FREIGHT_REQUEST_PAGE
     contentType: 'text/javascript',
     body: script.replace(ANCHOR, ANCHOR + `
         if (table === 'payment_requests' && q.range && q.range[0] > 0) {
-          var later = Promise.resolve(window.__LATER_GATE__).then(function () {
-            return window.__FAIL_LATER__
+          var how = window.__HOLD_EACH__
+            ? new Promise(function (r) { (window.__HELD__ = window.__HELD__ || []).push(r); })
+            : Promise.resolve(window.__FAIL_LATER__ ? 'fail' : 'ok');
+          return how.then(function (h) {
+            return h === 'fail'
               ? { data: null, error: { message: 'fixture: later page failed' } }
               : { data: rows(), error: null };
-          });
-          return later.then(res, rej);
+          }).then(res, rej);
         }`),
   }));
 
@@ -65,12 +76,29 @@ const PAGE = 500; // the page's FREIGHT_REQUEST_PAGE
       noteHidden: n.hidden, note: n.textContent, state: n.dataset.state || null,
     };
   });
-  const failedText = async (page) => page.evaluate(() => window.SiloFreightMatch.LOOKUP_FAILED);
+  const failedText = (page) => page.evaluate(() => window.SiloFreightMatch.LOOKUP_FAILED);
+  const reopen = (page, id) => page.evaluate((poId) => document.querySelector(`[data-po-id="${poId}"]`)?.click(), id);
+  const heldCount = (page, n) => page.waitForFunction((k) => (window.__HELD__ || []).length === k, n, { timeout: 5000 });
+  const release = (page, i, how) => page.evaluate(([k, h]) => window.__HELD__[k](h), [i, how]);
+  const settle = (page) => page.waitForTimeout(300);
+  // Old-1 open with its boot lookup finished, so nothing from the boot is in flight.
+  const openOld = async () => {
+    const page = await suite.open('/v2/po-costing.html?po_id=po-old', fixture, { ready: opened('Old-1') });
+    await page.waitForFunction(() => document.getElementById('inFreightRef').value === 'FX-OLD', null, { timeout: 5000 });
+    return page;
+  };
+  // Two overlapping lookups for the SAME PO: reopen it twice, both held.
+  const twoLookups = async () => {
+    const page = await openOld();
+    await page.evaluate(() => { window.__HOLD_EACH__ = true; window.__HELD__ = []; });
+    await reopen(page, 'po-old'); await heldCount(page, 1);
+    await reopen(page, 'po-old'); await heldCount(page, 2);
+    return page;
+  };
 
   try {
     await check('a request on a later page is found and prefilled', async () => {
-      const page = await suite.open('/v2/po-costing.html?po_id=po-old', fixture, { ready: opened('Old-1') });
-      await page.waitForFunction(() => document.getElementById('inFreightRef').value === 'FX-OLD', null, { timeout: 5000 });
+      const page = await openOld();
       const v = await read(page);
       assert.equal(v.freight, '55.00');
       assert.equal(v.noteHidden, true);
@@ -78,52 +106,93 @@ const PAGE = 500; // the page's FREIGHT_REQUEST_PAGE
     });
 
     await check('a failed later page is shown for the open PO, never read as "no request"', async () => {
-      const p2 = await suite.open('/v2/po-costing.html?po_id=po-old', fixture, { ready: opened('Old-1') });
-      await p2.evaluate(() => { window.__FAIL_LATER__ = true; });
-      // The boot lookup may already have finished page two; reopen the PO so
-      // the failure is the one under test.
-      await p2.evaluate(() => document.querySelector('[data-po-id="po-old"]')?.click());
-      await p2.waitForFunction(() => !document.getElementById('freightShareNote').hidden, null, { timeout: 5000 });
-      const v = await read(p2);
-      assert.equal(v.note, await failedText(p2));
+      const page = await openOld();
+      await page.evaluate(() => { window.__FAIL_LATER__ = true; });
+      await reopen(page, 'po-old');
+      await page.waitForFunction(() => !document.getElementById('freightShareNote').hidden, null, { timeout: 5000 });
+      const v = await read(page);
+      assert.equal(v.note, await failedText(page));
       assert.equal(v.state, 'error');
       assert.equal(v.ref, '', 'nothing prefilled');
       assert.ok(['', '0'].includes(v.freight), 'no amount prefilled');
-      const color = await p2.evaluate(() => getComputedStyle(document.getElementById('freightShareNote')).color);
-      const plain = await p2.evaluate(() => {
+      const color = await page.evaluate(() => getComputedStyle(document.getElementById('freightShareNote')).color);
+      const plain = await page.evaluate(() => {
         const p = document.createElement('p'); p.className = 'cost-hint'; document.body.appendChild(p);
         const c = getComputedStyle(p).color; p.remove(); return c;
       });
       assert.notEqual(color, plain, 'error note is styled differently from a hint');
-      await p2.close();
+      await page.close();
     });
 
     await check('a failure for a PO already left stays silent', async () => {
       const page = await suite.open('/v2/po-costing.html?po_id=po-new', fixture, { ready: opened('New-2') });
       await page.waitForFunction(() => document.getElementById('inFreightRef').value === 'FX-NEW', null, { timeout: 5000 });
-      await page.evaluate(() => {
-        window.__FAIL_LATER__ = true;
-        window.__LATER_GATE__ = new Promise((r) => { window.__RELEASE_LATER__ = r; });
-      });
+      await page.evaluate(() => { window.__HOLD_EACH__ = true; window.__HELD__ = []; });
       // Old-1's lookup stops on page two, held; then the user moves to New-2.
-      await page.evaluate(() => document.querySelector('[data-po-id="po-old"]')?.click());
-      await page.waitForFunction(opened('Old-1'));
-      await page.evaluate(() => document.querySelector('[data-po-id="po-new"]')?.click());
-      await page.waitForFunction(opened('New-2'));
+      await reopen(page, 'po-old'); await heldCount(page, 1);
+      await reopen(page, 'po-new');
       await page.waitForFunction(() => document.getElementById('inFreightRef').value === 'FX-NEW', null, { timeout: 5000 });
-      await page.evaluate(() => window.__RELEASE_LATER__());
-      await page.waitForTimeout(300);
+      await release(page, 0, 'fail'); await settle(page);
       const v = await read(page);
       assert.equal(v.po, 'New-2');
       assert.equal(v.noteHidden, true, 'no error note for the PO left behind');
       assert.equal(v.freight, '240.00');
       await page.close();
     });
-  } catch (err) {
-    console.error('  FAIL', err.message);
-    process.exitCode = 1;
+
+    await check('same PO reopened: an older failure never paints over the newer prefill', async () => {
+      const page = await twoLookups();
+      await release(page, 1, 'ok');
+      await page.waitForFunction(() => document.getElementById('inFreightRef').value === 'FX-OLD', null, { timeout: 5000 });
+      await release(page, 0, 'fail'); await settle(page);
+      const v = await read(page);
+      assert.equal(v.freight, '55.00');
+      assert.equal(v.noteHidden, true, 'no "nothing was prefilled" over prefilled values');
+      assert.equal(v.state, null);
+      await page.close();
+    });
+
+    await check('same PO reopened: an older success never prefills under the newer failure', async () => {
+      const page = await twoLookups();
+      await release(page, 1, 'fail');
+      await page.waitForFunction(() => !document.getElementById('freightShareNote').hidden, null, { timeout: 5000 });
+      await release(page, 0, 'ok'); await settle(page);
+      const v = await read(page);
+      assert.equal(v.state, 'error', 'the newer failure stands');
+      assert.equal(v.ref, '', 'the older answer did not prefill');
+      assert.ok(['', '0'].includes(v.freight));
+      await page.close();
+    });
+
+    await check('a lookup in flight when freight is saved paints nothing afterwards', async () => {
+      const page = await openOld();
+      await page.evaluate(() => { window.__HOLD_EACH__ = true; window.__HELD__ = []; });
+      await reopen(page, 'po-old'); await heldCount(page, 1);
+      // What a save does: the page refills the form from the saved costing.
+      // Freight is now non-zero, so this fill starts no lookup of its own.
+      await page.evaluate(() => { ctx.headerInputs.freight = 99; fillFormFromCtx(); });
+      await release(page, 0, 'fail'); await settle(page);
+      const v = await read(page);
+      assert.equal(v.freight, '99');
+      assert.equal(v.noteHidden, true, 'no "reopen before saving" after the save');
+      await page.close();
+    });
+
+    await check('refilling the form clears a shown error, including its error state', async () => {
+      const page = await openOld();
+      await page.evaluate(() => { window.__FAIL_LATER__ = true; });
+      await reopen(page, 'po-old');
+      await page.waitForFunction(() => document.getElementById('freightShareNote').dataset.state === 'error', null, { timeout: 5000 });
+      // Saved freight: this fill starts no lookup, so only the fill can clear it.
+      await page.evaluate(() => { ctx.headerInputs.freight = 99; fillFormFromCtx(); });
+      const v = await read(page);
+      assert.equal(v.noteHidden, true);
+      assert.equal(v.state, null, 'no leftover error styling');
+      await page.close();
+    });
   } finally {
     await suite.close();
   }
-  console.log(`po-costing-freight: ${passed} passed`);
+  console.log(`po-costing-freight: ${passed} passed, ${failed} failed`);
+  if (failed) process.exitCode = 1;
 })();
