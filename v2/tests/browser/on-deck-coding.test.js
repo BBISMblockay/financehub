@@ -110,7 +110,8 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
 
     await test('briefing action opens actual suggestions; low confidence starts unticked; untrusted text stays text', async () => {
       await page.getByRole('button', { name: 'Briefing', exact: true }).click();
-      await page.locator('.od-hero').getByRole('button', { name: 'Review transactions' }).click();
+      assert.equal(await page.locator('.od-hero').count(), 0, 'routine bookkeeping cannot be the growth hero');
+      await page.locator('.od-secondary').getByRole('button', { name: 'Review transactions' }).click();
       await page.waitForSelector('#coding-review .od-review-table');
       const rows = page.locator('#coding-review tbody tr');
       assert.equal(await rows.count(), 2);

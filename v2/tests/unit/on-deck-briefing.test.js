@@ -15,7 +15,7 @@ test('one feature and two secondary actions, no arbitrary cross-domain score com
   const result = run(Array.from({ length: 6 }, (_, i) => ads({ id: `ad${i}`, score: i * 1000 })));
   assert.equal(result.featured.id, 'ad0'); assert.equal(result.secondary.length, 2); assert.equal(result.eligible, 6);
 });
-for (const status of ['needs_info', 'preparing', 'revision', 'failed', 'completed', 'dismissed', 'screened']) test(`${status} never becomes a recommendation`, () => assert.equal(run([ads({ status })]).featured, null));
+for (const status of [ 'preparing', 'revision', 'failed', 'completed', 'dismissed', 'screened']) test(`${status} never becomes a recommendation`, () => assert.equal(run([ads({ status })]).featured, null));
 test('missing, declined, blank and malformed drafts stay off briefing', () => {
   for (const content of [{ recommend: false, body: 'Draft', missing: [] }, { recommend: true, body: '', missing: [] }, { recommend: true, body: 'Draft', missing: ['Benchmark'] }, { recommend: true, body: 'Draft' }]) assert.equal(run([ads({ content })]).featured, null);
 });
@@ -38,8 +38,8 @@ test('independent workflow ranks cannot override cross-workflow policy', () => {
 });
 test('automatically discovered evidence precedes employee-prepared launch', () => {
   const launch = ads({ id: 'launch', kind: 'launch', source: { launch_date: '2026-10-08', audience: 'Fans' } });
-  const result = run([launch, seo(), ads()]); assert.equal(result.featured.kind, 'ads'); assert.equal(result.secondary[1].kind, 'launch');
-  assert.match(result.secondary[1].caveat, /employee/);
+  const result = run([launch, seo(), ads()]); assert.equal(result.featured.kind, 'ads'); assert.equal(result.upkeep[0].kind, 'launch');
+  assert.match(result.upkeep[0].caveat, /employee/);
 });
 test('stock timing changes urgency without predicting demand or purchase quantities', () => {
   const restock = ads({ id: 'stock', kind: 'restock', source: { vetting: { days_cover: 12, lead_days: 21, units30: 100 } } });
@@ -57,14 +57,31 @@ test('invalid metrics and unsupported kinds fail conservatively', () => {
   for (const value of [null, '', -1, 40000]) assert.equal(run([seo({ source: { ...seo().source, clicks: value } })]).featured, null);
 });
 test('finance recommendation counts reviewed suggestions, not financial gain', () => {
-  const result = build({ now, coding: [{ batch_id: 'b', stage: 'code', open_suggestions: 30, source_name: 'Bank', suggested_amount: 263147 }] }).featured;
+  const result = build({ now, coding: [{ batch_id: 'b', stage: 'code', open_suggestions: 30, source_name: 'Bank', suggested_amount: 263147 }] }).upkeep[0];
   assert.match(result.headline, /30 suggested/); assert.match(result.caveat, /not a saving/); assert.ok(!JSON.stringify(result).includes('263147'));
 });
 test('ledger legacy and input-only coding remain in all work', () => {
   for (const coding of [[{ stage: 'code', ledger_unavailable: true, open_suggestions: 30 }], [{ stage: 'needs_input', open_suggestions: 30 }]]) assert.equal(build({ coding, now }).featured, null);
 });
 test('monitoring counts do not call preparations completed', () => {
-  const result = run([ads({ status: 'preparing' }), ads({ id: 'b', status: 'needs_info' })]);
+  const result = run([ads({ status: 'preparing' }), ads({ id: 'b', status: 'needs_info', source: { ...ads().source, evidence: 'weak' } })]);
   assert.equal(result.preparing, 1); assert.equal(result.needsInput, 1); assert.equal(result.eligible, 0);
+});
+test('routine coding and employee launch never become the growth hero', () => {
+  const coding = [{ batch_id: 'b', stage: 'code', open_suggestions: 30 }];
+  const result = build({ now, coding }); assert.equal(result.featured, null); assert.equal(result.upkeep[0].type, 'coding');
+  assert.equal(run([ads({ kind: 'launch', source: { launch_date: '2026-10-08', audience: 'Fans' } })]).featured, null);
+});
+test('screened ad evidence invites investigation while ready growth drafts take precedence', () => {
+  const blocked = ads({ status: 'needs_info', content: { recommend: true, missing: ['Audience'], body: 'Draft' } });
+  assert.equal(run([blocked]).featured.readiness, 'investigate');
+  assert.equal(run([blocked, seo()]).featured.kind, 'seo');
+  assert.equal(run([ads({ ...blocked, source: { ...blocked.source, evidence: 'weak' } })]).featured, null);
+});
+test('screened search evidence can invite investigation without promoting a blocked draft', () => {
+  const blocked = seo({ status: 'needs_info', content: { recommend: true, missing: ['CTR benchmark'], body: 'Unapproved draft' } });
+  const item = run([blocked]).featured; assert.equal(item.readiness, 'investigate'); assert.match(item.prepared, /needs context/);
+  assert.equal(item.action, 'Investigate search opportunity'); assert.match(item.caveat, /No click-through benchmark/);
+  for (const patch of [{ valid_until: '2020-01-01' }, { content: { recommend: false } }, { content: { recommend: true, body: '' } }, { source: { ...blocked.source, impressions: null } }, { status: 'failed' }]) assert.equal(run([{ ...blocked, ...patch }]).featured, null);
 });
 console.log(`${checks} briefing checks passed`);
