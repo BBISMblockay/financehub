@@ -29,6 +29,13 @@ test('future refresh timestamps and versions never promote an item', () => {
 test('source rank remains meaningful within the qualified shortlist', () => {
   assert.equal(run([ads({ id: 'a', selection_reason: 'Selected #2 of 2 eligible ads opportunities.' }), ads({ id: 'b' })]).featured.id, 'b');
 });
+test('independent workflow ranks cannot override cross-workflow policy', () => {
+  const ad = ads({ selection_reason: 'Selected #2 of 2 eligible ads opportunities.' });
+  const search = seo({ selection_reason: 'Selected #1 of 2 eligible seo opportunities.' });
+  for (const rows of [[search, ad], [ad, search]]) {
+    const result = run(rows); assert.equal(result.featured.kind, 'ads'); assert.equal(result.secondary[0].kind, 'seo');
+  }
+});
 test('automatically discovered evidence precedes employee-prepared launch', () => {
   const launch = ads({ id: 'launch', kind: 'launch', source: { launch_date: '2026-10-08', audience: 'Fans' } });
   const result = run([launch, seo(), ads()]); assert.equal(result.featured.kind, 'ads'); assert.equal(result.secondary[1].kind, 'launch');

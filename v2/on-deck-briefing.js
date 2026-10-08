@@ -94,7 +94,7 @@
         metrics: [['Suggested classifications', fmt(i.open_suggestions)], ['Source', i.source_name || 'Bank feed']], evidence: 'Review accounts and transaction details before saving.' });
     }
     const order = { ads: 0, seo: 1, restock: 2, coding: 3, launch: 4 };
-    candidates.sort((a, b) => a.priority - b.priority || a.rank - b.rank || order[a.kind] - order[b.kind] || String(a.id).localeCompare(String(b.id)));
+    candidates.sort((a, b) => a.priority - b.priority || (a.kind === b.kind ? a.rank - b.rank : order[a.kind] - order[b.kind]) || String(a.id).localeCompare(String(b.id)));
     return { featured: candidates[0] || null, secondary: candidates.slice(1, 3), eligible: candidates.length,
       watching: rows.filter(p => ['ready', 'needs_info', 'preparing', 'revision', 'failed'].includes(p.status) && !candidates.some(c => c.type === 'proposal' && c.id === p.id)).length,
       needsInput: rows.filter(p => p.status === 'needs_info').length + coding.filter(i => i.stage === 'needs_input').length,
