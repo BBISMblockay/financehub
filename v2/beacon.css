@@ -296,6 +296,34 @@ table { border-collapse: collapse; }
 .silo-sb-section--open > .silo-sb-section-label .silo-sb-badge { display: none; }
 .silo-app[data-collapsed="true"] .silo-sb-badge { display: none; }
 
+/* Featured one-row section (Ask SILO): one accented direct link in place of
+   an expandable group. Existing tokens only. */
+.silo-sb-feature {
+  display: flex; align-items: center; gap: 8px;
+  margin: 2px 0 6px; padding: 8px 10px;
+  border-radius: 4px;
+  font-family: var(--bcn-mono); font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: color-mix(in oklab, var(--bcn-accent) 65%, #fff);
+  background: color-mix(in oklab, var(--bcn-accent) 16%, transparent);
+  border: 1px solid color-mix(in oklab, var(--bcn-accent) 40%, transparent);
+  text-decoration: none;
+  transition: background .15s, color .15s;
+}
+.silo-sb-feature:hover {
+  color: #fff;
+  background: color-mix(in oklab, var(--bcn-accent) 28%, transparent);
+}
+.silo-sb-feature--active { color: #fff; background: var(--bcn-accent); border-color: var(--bcn-accent); }
+.silo-sb-feature-icon { flex-shrink: 0; }
+.silo-sb-feature-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.silo-sb-feature-arrow { flex-shrink: 0; opacity: .7; }
+.silo-sb-feature .silo-sb-badge { margin-left: 0; }
+/* Collapsed sidebar: keep the sparkle as the one visible way in. */
+.silo-app[data-collapsed="true"] .silo-sb-feature { justify-content: center; padding: 8px 4px; }
+.silo-app[data-collapsed="true"] .silo-sb-feature-label,
+.silo-app[data-collapsed="true"] .silo-sb-feature-arrow { display: none; }
+
 .silo-app[data-collapsed="true"] .silo-sb-link-label,
 .silo-app[data-collapsed="true"] .silo-sb-link-ext { display: none; }
 .silo-app[data-collapsed="true"] .silo-sb-link {

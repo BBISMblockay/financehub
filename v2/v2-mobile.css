@@ -129,6 +129,16 @@
     display: inline;
   }
 
+  .silo-app[data-collapsed="true"] .silo-sb-feature-label,
+  .silo-app[data-collapsed="true"] .silo-sb-feature-arrow {
+    display: inline;
+  }
+
+  .silo-app[data-collapsed="true"] .silo-sb-feature {
+    justify-content: flex-start;
+    padding: 8px 10px;
+  }
+
   .silo-nav-backdrop {
     display: block;
     position: fixed;
@@ -170,6 +180,10 @@
   .silo-sb-section-label {
     font-size: 10px;
     padding-top: 10px;
+  }
+
+  .silo-sb-feature {
+    min-height: 44px;
   }
 
   .silo-utility {
