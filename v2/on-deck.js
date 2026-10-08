@@ -6,7 +6,7 @@
   const state = { db: null, co: null, settings: {}, rows: [], selected: null, view: 'review', tab: 'draft', events: [], attempts: [], detailRequest: 0, loading: false, loaded: false, codingLoaded: false, proposalsLoaded: false, desk: 'briefing', access: { proposals: false, coding: { review: false, post: false } }, coding: null };
   const groups = { review: ['ready'], preparing: ['preparing', 'revision'], needs: ['needs_info', 'failed'], completed: ['completed', 'dismissed', 'screened'] };
   const names = { restock: 'PRODUCT RESTOCK', launch: 'LAUNCH CAMPAIGN', seo: 'SEARCH OPPORTUNITY', ads: 'AD CREATIVE' };
-  const actionLabels = { restock: 'Create draft product brief', launch: 'Create launch tasks', seo: 'Create SEO task', ads: 'Create ad idea' };
+  const actionLabels = { restock: 'Create draft product brief', launch: 'Create launch tasks', seo: 'Create draft SEO task', ads: 'Create ad idea' };
   const modules = { restock: 'Purchasing', launch: 'Marketing', seo: 'Marketing', ads: 'Marketing' };
   const effect = { restock: 'DRAFT BRIEF', launch: 'TASKS', seo: 'SEO TASK', ads: 'AD IDEA' };
   const destinations = { restock: ['Product workflow', '/v3/product-workflow.html', 'A draft brief with the complete product spread. Size quantities and PO approval follow there.'], launch: ['Launch calendar', '/v2/launch-calendar.html', 'Open marketing tasks with the exact approved copy. No publishing or messages.'], seo: ['SEO tasks', '/v2/seo-tasks.html', 'An editable SEO task. Publishing requires separate review.'], ads: ['Ad Studio', '/v2/ad-studio.html', 'An idea with a frozen evidence baseline. No campaign or budget changes.'] };
@@ -249,8 +249,22 @@
   function renderDetail() {
     const detail = $('detail'), rail = $('rail'), p = selected(); detail.replaceChildren(); rail.replaceChildren();
     if (!p) { const empty = node('div', null, 'od-empty'); empty.append(node('strong', 'Good decisions start with good evidence.'), node('span', 'Your strongest opportunities will appear here with a draft, a reason to act, and a clear destination.')); detail.append(empty); return; }
-    const c = p.content || {}, s = p.source || {}, expired = new Date(p.valid_until) < new Date();
+    const c = p.content || {}, s = p.source || {}, expired = !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= Date.now();
     const head = node('div', null, 'od-detail-head'); head.append(node('span', names[p.kind], 'od-pill'), node('h2', title(p)), node('p', `Draft ${p.version} · ${p.status.replaceAll('_', ' ')}`, 'od-meta')); detail.append(head);
+    if (!['completed', 'dismissed', 'screened'].includes(p.status)) {
+      const step = node('section', null, 'od-next-step'); step.append(node('h3', 'Your next step'));
+      if (expired) step.append(node('p', 'The saved evidence expired. Refresh evidence before preparing or creating a task.'));
+      else if (['preparing', 'revision'].includes(p.status)) step.append(node('p', 'Preparation is running. Review the new version when it is ready.'));
+      else if ((c.missing || []).length) {
+        step.append(node('p', 'Before task creation, the saved draft needs this context. Here is exactly what is outstanding.'));
+        const inputs = node('ul', null, 'od-input-list');
+        window.SiloOnDeckBriefing.inputPlan(p).forEach(i => { const li = node('li'); li.append(node('span', i.research ? 'Research for the draft task' : 'Required input', i.research ? 'od-input-label od-input-label--research' : 'od-input-label'), node('span', i.label)); inputs.append(li); }); step.append(inputs);
+        step.append(node('p', 'Research questions can be carried into an unpublished task without pretending they are answered. Required inputs need your information.'));
+        const prep = button('Prepare draft task', openHandoff, true); prep.disabled = !c.body; step.append(prep);
+      } else if (p.status === 'ready') step.append(node('p', 'Context is ready. Review the prepared copy, then use ' + actionLabels[p.kind] + ' below. Publishing and implementation happen separately.'));
+      else step.append(node('p', 'A usable prepared draft is not ready yet. Refresh evidence or request a revision to continue.'));
+      detail.append(step);
+    }
     const tabs = node('nav', null, 'od-tabs'); tabs.setAttribute('aria-label', 'Proposal detail');
     [['draft', 'Prepared draft'], ['brief', 'Evidence'], ['impact', 'Outcome'], ['activity', 'History']].forEach(([key, label]) => { const b = button(label, () => { state.tab = key; renderDetail(); }); b.setAttribute('aria-pressed', state.tab === key); tabs.append(b); }); detail.append(tabs);
     const panel = node('div', null, 'od-panel');
@@ -261,7 +275,7 @@
       else if (p.kind === 'seo') { evidenceCard(metrics, 'SEARCH IMPRESSIONS', s.impressions); evidenceCard(metrics, 'CLICKS', s.clicks); evidenceCard(metrics, 'WEIGHTED POSITION', Number(s.position).toFixed(1)); evidenceCard(metrics, 'OBSERVED DAYS', s.days); panel.append(metrics, safeLink(s.url, s.url), node('p', `Current title: ${s.inspection?.title || 'Unknown'}\nCurrent description: ${s.inspection?.meta_description || 'Not present'}`)); }
       else if (p.kind === 'ads') { evidenceCard(metrics, 'OBJECTIVE', s.objective); evidenceCard(metrics, 'EVIDENCE', s.evidence); evidenceCard(metrics, 'METRIC', s.baseline?.metric_label || s.metric); evidenceCard(metrics, 'VS OBJECTIVE BASELINE', `${Number(s.index).toFixed(2)}×`); panel.append(metrics, node('p', s.current_copy), node('p', 'Meta-reported performance is observational. The variation is a test hypothesis, not a forecast.')); }
       else { evidenceCard(metrics, 'LAUNCH', s.launch_date); evidenceCard(metrics, 'AUDIENCE', s.audience); panel.append(metrics, node('p', s.design_intent)); const list = node('ul'); (s.readiness || []).forEach(r => list.append(node('li', `${r.product}: ${r.status || 'Readiness unknown'}`))); panel.append(node('h3', 'Product readiness'), list); }
-      if ((c.missing || []).length) { panel.append(node('h3', 'Resolve before approval')); const list = node('ul'); c.missing.forEach(m => list.append(node('li', m))); panel.append(list); }
+
       if (expired && p.status !== 'completed') panel.append(node('div', 'Evidence window expired. Refresh preparation and review the updated draft before approving.', 'od-warning'));
       const source = node('details'); source.append(node('summary', 'Inspect saved source evidence'), node('pre', JSON.stringify(s, null, 2), 'od-source')); panel.append(source);
     } else if (state.tab === 'draft') {
@@ -309,14 +323,34 @@
     if (approve && dialogProposal.kind === 'restock') ['I reviewed whole-product demand, including promotions and stockouts.', 'I verified realized margin, seasonality and supplier lead time.', 'I checked incoming purchases and the cash budget. Size allocation is still undecided.'].forEach(label => { const row = node('label', null, 'od-check'), input = node('input'); input.type = 'checkbox'; input.required = true; row.append(input, node('span', label)); checks.append(row); });
     $('decision-submit').textContent = approve ? `Confirm · ${actionLabels[dialogProposal.kind]}` : value ? 'Save observed value' : 'Dismiss for 30 days'; $('decision-dialog').showModal();
   }
+  function openHandoff() {
+    dialogProposal = selected(); const box = $('handoff-inputs'); box.replaceChildren(); message('', false, 'handoff-error');
+    window.SiloOnDeckBriefing.inputPlan(dialogProposal).forEach((item, i) => {
+      const label = node('label', null, 'od-handoff-input'); label.dataset.index = i;
+      if (item.research) { const checkbox = node('input'); checkbox.type = 'checkbox'; label.append(checkbox, node('span', 'Carry into draft task: ' + item.label)); }
+      else { label.append(node('span', item.label + ' — required')); const value = node('textarea'); value.rows = 3; value.maxLength = 1200; value.placeholder = 'Add the information needed to prepare this task'; value.setAttribute('aria-label', item.label); label.append(value); }
+      box.append(label);
+    }); $('handoff-dialog').showModal();
+  }
   function openEditor() {
     dialogProposal = selected(); const c = dialogProposal.content || {}; ['subject', 'summary', 'body'].forEach(key => { $(`edit-${key}`).value = c[key] || ''; }); $('edit-note').value = ''; message('', false, 'edit-error');
     const tasks = $('edit-tasks'); tasks.replaceChildren(); (c.tasks || []).forEach((t, i) => { const label = node('label', `Task ${i + 1}`), title = node('input'), detail = node('textarea'); title.className = detail.className = 'bcn-field'; title.value = t.title; title.maxLength = 200; title.required = true; title.setAttribute('aria-label', `Task ${i + 1} title`); detail.value = t.detail; detail.maxLength = 1500; detail.rows = 3; detail.setAttribute('aria-label', `Task ${i + 1} detail`); label.append(title, detail); tasks.append(label); });
     const missing = $('edit-missing'); missing.replaceChildren(); (c.missing || []).forEach(item => { const label = node('label', null, 'od-check'), checkbox = node('input'); checkbox.type = 'checkbox'; label.append(checkbox, node('span', `Resolved: ${item}`)); missing.append(label); }); $('edit-dialog').showModal();
   }
   async function submit(form, errorId, fn, dialog) { const b = form.querySelector('[type=submit]'); b.disabled = true; try { await fn(); $(dialog).close(); await load(); } catch (e) { message(e.message, true, errorId); } finally { b.disabled = false; } }
-  $('decision-form').addEventListener('submit', e => { e.preventDefault(); submit(e.target, 'decision-error', () => mutate(dialogProposal, dialogAction, { p_note: $('decision-note').value.trim(), p_minutes: dialogAction === 'value' ? Number($('minutes').value) : null }), 'decision-dialog'); });
-  $('edit-form').addEventListener('submit', e => { e.preventDefault(); const original = dialogProposal.content, content = { ...original, recommend: true }; ['subject', 'summary', 'body'].forEach(k => { content[k] = $(`edit-${k}`).value; }); content.tasks = [...$('edit-tasks').querySelectorAll('label')].map(l => ({ title: l.querySelector('input').value, detail: l.querySelector('textarea').value })); const checks = [...$('edit-missing').querySelectorAll('input')]; content.missing = (original.missing || []).filter((_, i) => !checks[i].checked); submit(e.target, 'edit-error', () => mutate(dialogProposal, 'edit', { p_content: content, p_note: $('edit-note').value }), 'edit-dialog'); });
+  $('handoff-dialog').querySelector('[data-handoff-close]').addEventListener('click', () => $('handoff-dialog').close());
+  $('handoff-form').addEventListener('input', () => message('', false, 'handoff-error'));
+  $('handoff-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      const answers = [...$('handoff-inputs').querySelectorAll('label')].map(l => ({ carry: !!l.querySelector('input')?.checked, value: l.querySelector('textarea')?.value || '' }));
+      const patch = window.SiloOnDeckBriefing.prepareHandoff(dialogProposal, answers);
+      await submit(e.target, 'handoff-error', async () => { await mutate(dialogProposal, 'edit', { p_content: patch.content, p_note: patch.note }); state.view = patch.content.missing.length ? 'needs' : 'review'; state.selected = dialogProposal.id; state.tab = 'draft'; }, 'handoff-dialog');
+      if (!$('handoff-dialog').open && state.proposalsLoaded && selected()?.id === dialogProposal.id) message(patch.content.missing.length ? 'Task prep saved. The remaining inputs are listed above.' : 'Task prep saved. Review the copy below, then confirm draft task creation.');
+    } catch (error) { message(error.message, true, 'handoff-error'); }
+  });
+  $('decision-form').addEventListener('submit', e => { e.preventDefault(); submit(e.target, 'decision-error', async () => { await mutate(dialogProposal, dialogAction, { p_note: $('decision-note').value.trim(), p_minutes: dialogAction === 'value' ? Number($('minutes').value) : null }); if (['approve', 'dismiss'].includes(dialogAction)) { state.view = 'completed'; state.selected = dialogProposal.id; state.tab = 'impact'; } }, 'decision-dialog'); });
+  $('edit-form').addEventListener('submit', e => { e.preventDefault(); const original = dialogProposal.content, content = { ...original, recommend: true }; ['subject', 'summary', 'body'].forEach(k => { content[k] = $(`edit-${k}`).value; }); content.tasks = [...$('edit-tasks').querySelectorAll('label')].map(l => ({ title: l.querySelector('input').value, detail: l.querySelector('textarea').value })); const checks = [...$('edit-missing').querySelectorAll('input')]; content.missing = (original.missing || []).filter((_, i) => !checks[i].checked); submit(e.target, 'edit-error', async () => { await mutate(dialogProposal, 'edit', { p_content: content, p_note: $('edit-note').value }); state.view = content.missing.length ? 'needs' : 'review'; state.selected = dialogProposal.id; state.tab = 'draft'; }, 'edit-dialog'); });
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close()));
   $('refresh').addEventListener('click', load);
   $('desk-views').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { if (b.dataset.desk === 'briefing') renderBriefing(); setDesk(b.dataset.desk); }));

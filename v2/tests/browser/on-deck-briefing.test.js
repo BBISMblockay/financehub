@@ -86,8 +86,56 @@ const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '
       await page.locator('.od-hero').getByRole('button', { name: 'Investigate search opportunity' }).click();
       assert.match(await page.locator('.od-card[aria-pressed=true]').textContent(), /Men’s T-Shirts/);
       assert.equal(await page.getByRole('button', { name: 'Evidence', exact: true }).getAttribute('aria-pressed'), 'true');
-      assert.equal(await page.getByRole('button', { name: 'Create SEO task', exact: true }).isDisabled(), true);
+      assert.equal(await page.getByRole('button', { name: 'Create draft SEO task', exact: true }).isDisabled(), true);
       assert.equal(await page.evaluate(() => window.__QUERIES__.some(q => /decide|request_preparation/.test(q.table))), false);
+    }); await page.close();
+    const handoffTables = fixtures();
+    handoffTables.on_deck_proposals = [{ ...investigation.on_deck_proposals[0], version: 2, content: { ...investigation.on_deck_proposals[0].content, missing: ['Current ranking keywords driving the 175 clicks', 'Click-through rate benchmark for position ~7.3 in this vertical', 'Any prior SEO test history for this page'] } }];
+    page = await open(handoffTables, { rpc: { ...rpc, on_deck_decide: args => {
+      const p = window.__FIXTURE_TABLES__.on_deck_proposals[0];
+      if (window.__REJECT_HANDOFF__) return { __error: { message: 'Evidence changed. Request a fresh preparation first' } };
+      if (args.p_version !== p.version) return { __error: { message: 'Stale proposal version' } };
+      if (args.p_action === 'edit') { p.content = args.p_content; p.status = p.content.missing.length ? 'needs_info' : 'ready'; }
+      if (args.p_action === 'approve') {
+        if (p.status !== 'ready' || p.content.missing.length) return { __error: { message: 'Resolve missing information first' } };
+        window.__CREATED_TASK__ = { status: 'draft', body: p.content.body };
+        p.status = 'completed'; p.output = { label: 'SEO draft created — publishing requires separate review', url: '/v2/seo-tasks.html' };
+      } p.version++; return p;
+    } } });
+    await test('explicit research handoff closes the loop from blocked opportunity to separately confirmed draft task', async () => {
+      await page.locator('.od-hero').getByRole('button', { name: 'Investigate search opportunity' }).click();
+      await page.getByRole('button', { name: 'Prepared draft', exact: true }).click();
+      assert.equal(await page.getByRole('button', { name: 'Create draft SEO task', exact: true }).isDisabled(), true);
+      assert.match(await page.locator('.od-next-step').textContent(), /175 clicks/);
+      await page.setViewportSize({ width: 1440, height: 1100 });
+      await page.locator('.od-next-step').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(shots, 'on-deck-task-handoff-desktop.png'), fullPage: true });
+      await page.getByRole('button', { name: 'Prepare draft task', exact: true }).click();
+      await page.getByRole('button', { name: 'Save task prep', exact: true }).click();
+      assert.match(await page.locator('#handoff-error').textContent(), /choose a research question/);
+      for (const box of await page.locator('#handoff-inputs input').all()) await box.check();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right <= 0);
+      assert.ok(await page.locator('#handoff-dialog').evaluate(el => el.getBoundingClientRect().right <= innerWidth));
+      await page.screenshot({ path: path.join(shots, 'on-deck-task-prep-mobile.png'), fullPage: true });
+      await page.evaluate(() => { window.__REJECT_HANDOFF__ = true; });
+      await page.getByRole('button', { name: 'Save task prep', exact: true }).click();
+      assert.match(await page.locator('#handoff-error').textContent(), /Evidence changed/);
+      assert.equal(await page.locator('#handoff-dialog').evaluate(el => el.open), true);
+      assert.equal(await page.evaluate(() => window.__FIXTURE_TABLES__.on_deck_proposals[0].status), 'needs_info');
+      await page.evaluate(() => { window.__REJECT_HANDOFF__ = false; });
+      await page.getByRole('button', { name: 'Save task prep', exact: true }).click();
+      await page.waitForFunction(() => !document.getElementById('handoff-dialog').open);
+      assert.match(await page.locator('.od-paper').textContent(), /Research to complete before publishing/);
+      assert.match(await page.locator('.od-card[aria-pressed=true]').textContent(), /Men’s T-Shirts/);
+      assert.equal(await page.evaluate(() => window.__QUERIES__.filter(q => q.table === 'rpc:on_deck_decide').length), 2);
+      await page.getByRole('button', { name: 'Create draft SEO task', exact: true }).click();
+      assert.match(await page.locator('#decision-explanation').textContent(), /version 3/);
+      await page.getByRole('button', { name: 'Confirm · Create draft SEO task', exact: true }).click();
+      await page.waitForFunction(() => !document.getElementById('decision-dialog').open);
+      assert.match(await page.locator('#detail').textContent(), /SEO draft created/);
+      assert.equal(await page.evaluate(() => window.__CREATED_TASK__.status), 'draft');
+      assert.match(await page.evaluate(() => window.__CREATED_TASK__.body), /prior SEO test history/);
     }); await page.close();
     const empty = fixtures(); empty.on_deck_proposals = [ad({ status: 'needs_info', source: { ...ad().source, evidence: 'weak' } }), ad({ id: 'old', valid_until: '2020-01-01' })];
     page = await open(empty);
