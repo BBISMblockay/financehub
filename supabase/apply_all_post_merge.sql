@@ -19187,4 +19187,5 @@ $c$select (select count(*) from v_po_header_summary
 -- scripts/tests/report-catalog-cleanup-database.test.mjs fails if anything
 -- is included after it.
 \i migrations/20261007031733_attribution_coverage.sql
+\i migrations/20261008212803_on_deck_action_loop.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

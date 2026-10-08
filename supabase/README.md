@@ -2769,3 +2769,5 @@ or approval refuses. QuickBooks rejects the wrong kind only at post time, so an
 approved batch could not be posted. Grants are unchanged (`create or replace`
 keeps them). Verified by the `card_import_entity_kind` verify row.
 
+
+On Deck action loop: `20261008212803_on_deck_action_loop.sql` adds assigned context work and findings, freshness readout, saved-evidence enrichment, structured SEO handoff and launch-task reuse. Deploy `on-deck-prepare` after applying; merge alone does not deploy. See `docs/ops/on-deck-action-loop.md`.

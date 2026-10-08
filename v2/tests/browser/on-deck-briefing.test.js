@@ -19,6 +19,10 @@ const ready = () => !document.getElementById('briefing').hidden;
 const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '../../../.screenshots');
 (async () => {
   const suite = await startSuite({ secureContext: true });
+  if (process.env.HANDOFF_MUTATE === 'dialog-lock') {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../on-deck.js'), 'utf8').replace('controls.forEach(b => { b.disabled = true; });', '');
+    await suite.context.route('**/v2/on-deck.js', route => route.fulfill({ contentType: 'text/javascript', body: source }));
+  }
   await suite.context.route('**/v2/lib/supabase-js.min.js', route => route.fulfill({ contentType: 'text/javascript', body: fakeSupabaseScript().replace('all = all(args) || [];', 'all = all(args);') }));
   let n = 0;
   const test = async (label, fn) => { await fn(); console.log(`ok ${++n} - ${label}`); };
@@ -90,7 +94,7 @@ const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '
       assert.equal(await page.evaluate(() => window.__QUERIES__.some(q => /decide|request_preparation/.test(q.table))), false);
     }); await page.close();
     const handoffTables = fixtures();
-    handoffTables.on_deck_proposals = [{ ...investigation.on_deck_proposals[0], version: 2, content: { ...investigation.on_deck_proposals[0].content, missing: ['Current ranking keywords driving the 175 clicks', 'Click-through rate benchmark for position ~7.3 in this vertical', 'Any prior SEO test history for this page'] } }];
+    handoffTables.on_deck_proposals = [{ ...investigation.on_deck_proposals[0], version: 2, content: { ...investigation.on_deck_proposals[0].content, proposed_title: 'Baseball tees', proposed_meta_description: 'Explore baseball tees.', missing: ['Current ranking keywords driving the 175 clicks', 'Click-through rate benchmark for position ~7.3 in this vertical', 'Any prior SEO test history for this page'] } }];
     page = await open(handoffTables, { rpc: { ...rpc, on_deck_decide: args => {
       const p = window.__FIXTURE_TABLES__.on_deck_proposals[0];
       if (window.__REJECT_HANDOFF__) return { __error: { message: 'Evidence changed. Request a fresh preparation first' } };
@@ -136,6 +140,37 @@ const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '
       assert.match(await page.locator('#detail').textContent(), /SEO draft created/);
       assert.equal(await page.evaluate(() => window.__CREATED_TASK__.status), 'draft');
       assert.match(await page.evaluate(() => window.__CREATED_TASK__.body), /prior SEO test history/);
+    }); await page.close();
+    page = await open(handoffTables);
+    await test('task prep rejects evidence that expires while the dialog is open', async () => {
+      await page.locator('.od-hero').getByRole('button', { name: 'Investigate search opportunity' }).click();
+      await page.getByRole('button', { name: 'Prepare draft task', exact: true }).click();
+      for (const box of await page.locator('#handoff-inputs input').all()) await box.check();
+      await page.evaluate(() => { Date.now = () => Date.parse('2100-01-01'); });
+      await page.getByRole('button', { name: 'Save task prep', exact: true }).click();
+      await page.waitForFunction(() => /expired/.test(document.getElementById('handoff-error').textContent));
+      assert.equal(await page.locator('#handoff-dialog').evaluate(el => el.open), true);
+      assert.equal(await page.evaluate(() => window.__QUERIES__.some(q => q.table === 'rpc:on_deck_decide')), false);
+    }); await page.close();
+    page = await open(handoffTables);
+    await test('pending save blocks Close and Escape and retains submitted proposal identity', async () => {
+      await page.locator('.od-hero').getByRole('button', { name: 'Investigate search opportunity' }).click();
+      await page.getByRole('button', { name: 'Prepare draft task', exact: true }).click();
+      for (const box of await page.locator('#handoff-inputs input').all()) await box.check();
+      await page.evaluate(() => {
+        // Hold the real save at the company check; no provider/network work occurs.
+        const original = window.__SILO_CONFIG__.ensureActiveCompany;
+        window.__SILO_CONFIG__.ensureActiveCompany = async (...args) => { await new Promise(resolve => { window.__RELEASE_SAVE__=resolve; }); window.__SILO_CONFIG__.ensureActiveCompany=original; return original(...args); };
+      });
+      await page.getByRole('button', { name: 'Save task prep', exact: true }).click();
+      await page.waitForFunction(() => !!window.__RELEASE_SAVE__);
+      assert.equal(await page.locator('[data-handoff-close]').isDisabled(), true);
+      await page.keyboard.press('Escape');
+      assert.equal(await page.locator('#handoff-dialog').evaluate(el => el.open), true);
+      await page.evaluate(() => window.__RELEASE_SAVE__());
+      await page.waitForFunction(() => !document.getElementById('handoff-dialog').open);
+      const writes=await page.evaluate(() => window.__QUERIES__.filter(q => q.table === 'rpc:on_deck_decide'));
+      assert.equal(writes.length,1); assert.equal(writes[0].args.p_id, handoffTables.on_deck_proposals[0].id);
     }); await page.close();
     const empty = fixtures(); empty.on_deck_proposals = [ad({ status: 'needs_info', source: { ...ad().source, evidence: 'weak' } }), ad({ id: 'old', valid_until: '2020-01-01' })];
     page = await open(empty);

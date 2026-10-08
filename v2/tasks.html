@@ -376,7 +376,7 @@
   }
 
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+  const _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(db) || null;
 
   /* ── Status helper (forward declared so config error can use it) ── */
   function setStatus(msg, type = 'info', ms = 0) {
@@ -1033,6 +1033,8 @@
       document.getElementById('fParent').value = (l === 'evergreen') ? '__evergreen__' : ('L:' + l);
       applyFilters();
     }
+    const linkedTask = qp.get('task');
+    if (linkedTask) { const task = allTasks.find(t => t.id === linkedTask); if (task) openDrawer(task); else setStatus('Task unavailable in this company.', 'neg'); }
     const a = qp.get('assignee');
     if (a) { document.getElementById('fAssignee').value = (a === 'me') ? '__me__' : a; applyFilters(); }
   }

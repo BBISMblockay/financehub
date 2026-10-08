@@ -41,6 +41,9 @@ jobs:
       - run: node scripts/tests/on-deck-worker.test.mjs
       - run: node scripts/tests/on-deck-edge.test.mjs
       - run: node scripts/tests/on-deck-database.test.mjs
+      - run: node scripts/tests/on-deck-action-loop.test.mjs
+      - run: node scripts/tests/on-deck-action-contract.test.mjs
+      - run: node v2/tests/browser/on-deck-action-loop.test.js
       - run: node v2/tests/run.js --unit
       - run: node v2/tests/browser/on-deck.test.js
       # Transaction coding on On Deck: finance-only queue, preview = rolled-back
@@ -50,6 +53,13 @@ jobs:
       - run: node v2/tests/browser/on-deck-coding.test.js
       - name: Mutations must be caught
         run: |
+          for mutation in context-company seo-fields launch-reuse edit-expiry linked-context; do
+            if LOOP_MUTATE="$mutation" node scripts/tests/on-deck-action-loop.test.mjs > /tmp/loop-mutation.log 2>&1; then
+              cat /tmp/loop-mutation.log
+              echo "Survived action-loop mutation: $mutation"
+              exit 1
+            fi
+          done
           for mutation in budget version source company-read idempotency active-user; do
             if MUTATE="$mutation" node scripts/tests/on-deck-database.test.mjs > /tmp/mutation.log 2>&1; then
               cat /tmp/mutation.log
