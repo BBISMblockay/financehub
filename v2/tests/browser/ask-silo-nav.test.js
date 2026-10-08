@@ -63,6 +63,15 @@ async function readNav(page) {
         r.ok('standard Home still offers Ask SILO (Home mirrors the sidebar)',
           nav.home.includes('/v2/silo-chat.html'), JSON.stringify(nav.home));
       }
+      // Clicking it lands on Ask SILO with a breadcrumb that matches the
+      // menu: no stale "Reports /" parent (review on #932).
+      await Promise.all([page.waitForURL(/\/v2\/silo-chat\.html/), page.click('#siloSbNav a.silo-sb-feature')]);
+      await page.waitForSelector('.silo-crumbs .crumb-last', { timeout: 10000 });
+      const crumbs = await page.$$eval('.silo-crumbs > span:not(.crumb-sep)', (els) => els.map((e) => e.textContent.trim()));
+      r.ok(`${name}: the Ask SILO page's breadcrumb is just "Ask SILO"`,
+        JSON.stringify(crumbs) === JSON.stringify(['Ask SILO']), JSON.stringify(crumbs));
+      r.ok(`${name}: the featured link shows as active there`,
+        await page.$eval('#siloSbNav a.silo-sb-feature', (a) => a.classList.contains('silo-sb-feature--active')));
       await page.close();
     }
 
