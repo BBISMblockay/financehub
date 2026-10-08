@@ -3,7 +3,8 @@
 Goal: a tenant connects Shopify and Meta with one click, with no Dev Dashboard app and no
 pasted System User token. Both need a public listing approved by the platform.
 
-**Status (2026-10-08).** Meta: **live, verified and submitted for App Review** (Part 2, 2.8).
+**Status (2026-10-08, 19:24 UTC evidence).** Meta: **callback deployment missing;
+App Review reported submitted, approval pending** (Part 2, 2.4 and 2.8).
 Shopify: implementation complete, verification pending (unchanged since 2026-10-07). Everything below is
 ADDITIVE. The current flows (typed shop domain, store-owned Dev Dashboard app, pasted
 `shpat_` / System User token) are untouched and keep working. The new code is not linked
@@ -11,8 +12,9 @@ from Integrations. Activating it is a separate small PR (see the end of this fil
 both reviews pass.
 
 **Deployment state differs by platform.** Shopify: nothing is configured, applied or deployed.
-Meta: migration applied, functions deployed and secrets set on 2026-10-08 (2.4), and submitted to
-App Review (2.8). Each step marked **[Blake]** needs your approval in the session, or is something
+Meta: migration and secrets were reported configured earlier on 2026-10-08, but the latest
+deployment evidence does not support calling the OAuth flow live (2.4). Submission is not
+approval (2.8). Each step marked **[Blake]** needs your approval in the session, or is something
 only you can do in a platform dashboard.
 
 | | Shopify | Meta |
@@ -206,15 +208,51 @@ Keep these as they are:
 
 Adding a product or a configuration does not change existing connections or tokens.
 
-### 2.4 Secrets, migration, deploy — done 2026-10-08 (Blake)
+### 2.4 Callback deployment gap - 2026-10-08
 
-Applied, deployed and set on 2026-10-08. Live check: `meta-oauth-callback` answers an
-unauthenticated GET with its own `302 …oauth_error=missing_params` (public, as required);
-`meta-oauth-start` and `meta-oauth-review` are JWT-verified. #934's `meta-oauth-review` change is
-live too: a Page-only save succeeded on the test page after it was merged and redeployed.
-`META_REVIEW_COMPANY_IDS` = the "Meta App Review" workspace (`757562df-52b9-43d1-a27a-13a7dc44367e`).
-Note: the Supabase function list did not show `meta-oauth-callback` right after its deploy;
-probe the URL rather than trusting the list.
+The earlier rollout report recorded a successful callback and review-page connection (2.8).
+That is historical evidence, not proof of current availability. At 19:24 UTC, the production
+project `mkquclffrvlzyecnabyf` function inventory omitted `meta-oauth-callback`, and fetching
+that function returned `NotFoundException`. `meta-oauth-start` was ACTIVE v3 and
+`meta-oauth-review` ACTIVE v4. The
+[18:17 UTC drift job](https://github.com/BBISMblockay/financehub/actions/runs/37823011412/job/113468595533)
+also explicitly reports the callback as not deployed. Its separate `CLAUDE.md` false positive
+does not explain the missing callback. The cause and timing of the absence are unknown;
+these observations do not establish that anyone deleted it.
+
+Source inspection at `103a42465c1cf555028191e82739e9a8d8107753` found the callback entrypoint,
+handler and local library present. `deploy-edge-function.yml` already includes the callback
+in `NO_JWT_FUNCTIONS` on both single-function and `all` paths. Deploys are manual; merging
+does not deploy. No code or packaging defect explaining the absence was identified.
+Restoration requires a separately authorized deployment, not a product-code change.
+
+**Recovery checklist [Blake; separate deployment authorization required]:**
+
+1. Recheck the production inventory and callback source metadata. Record project, UTC time,
+   deployed version and the intended `main` commit. If already restored, reconcile that
+   evidence before redeploying. Do not infer availability from the earlier screenshots.
+2. Deploy only `meta-oauth-callback` from the reviewed `main` commit through **Deploy Edge
+   Function**, with `function_name=meta-oauth-callback` and
+   `project_ref=mkquclffrvlzyecnabyf`. Do not use `all` for this recovery.
+3. Confirm the callback is ACTIVE, its deployed source matches that commit, and
+   `verify_jwt=false`; start/review must retain `verify_jwt=true`.
+4. As a separately authorized verification step, GET the callback URL with **no query
+   parameters or Authorization header**, and do not follow redirects. Expect HTTP 302,
+   `Location: <SILO_APP_URL>/v2/integrations.html?oauth_error=missing_params&platform=meta_ads`
+   (default origin `https://silo-baseballism.com`). This early-return probe must not consume
+   state, contact Meta or modify connections. A gateway 404/401, generic redirect or inventory
+   entry alone is not a pass. The local regression test checks the handler side of this probe;
+   it cannot prove deployment, credentials or a full OAuth exchange.
+5. Recheck drift for this function. Report unrelated drift separately. Keep public approval
+   pending until Meta confirms it; do not start OAuth, reconnect, sync, select assets, rotate
+   secrets, reapply migrations or change review access as part of this recovery.
+
+Legacy pasted System User tokens and existing connections remain intact. Integrations and
+navigation are unchanged. The known raw `getGraph` error exposure in
+`meta-oauth-review/handler.mjs` is a separate issue, not a dependency of callback deployment.
+
+**Original setup reference (not instructions to repeat during callback recovery):**
+
 
 1. Edge-function secrets:
    - `META_APP_ID=1809676850412480`
@@ -309,7 +347,10 @@ Per https://developers.facebook.com/docs/app-review/submission-guide/screen-reco
 - [ ] Optionally, a Reconnect, showing the same connection renewed in place.
 - [ ] No secrets, tokens or reviewer passwords on screen. The page never displays a token.
 
-### 2.8 Live verification and submission (2026-10-08)
+### 2.8 Historical verification and reported submission (2026-10-08)
+
+The following preserves the earlier engineering rollout report. It does not supersede the
+later missing-callback evidence in 2.4 and does not establish public App Review approval.
 
 **Test connection** (review workspace only): one row, made through Facebook Login for Business,
 `token_type = system_user`, `token_expires_at` null, `meta.oauth.review_test = true`,
