@@ -10,8 +10,10 @@ ADDITIVE. The current flows (typed shop domain, store-owned Dev Dashboard app, p
 from Integrations. Activating it is a separate small PR (see the end of this file), after
 both reviews pass.
 
-Nothing here is deployed or applied. Each step marked **[Blake]** needs your approval in
-the session, or is something only you can do in a platform dashboard.
+**Deployment state differs by platform.** Shopify: nothing is configured, applied or deployed.
+Meta: migration applied, functions deployed and secrets set on 2026-10-08 (2.4), and submitted to
+App Review (2.8). Each step marked **[Blake]** needs your approval in the session, or is something
+only you can do in a platform dashboard.
 
 | | Shopify | Meta |
 |---|---|---|
@@ -155,6 +157,16 @@ Sources: `scripts/lib/ad-platforms-sync-core.mjs` (nightly / Sync now) and
 https://developers.facebook.com/documentation/development/permissions and each endpoint's
 reference page.
 
+Two different lists, not to be confused:
+- **The Facebook Login for Business configuration** (2293747398051309) requests the six reporting
+  permissions only: `ads_read`, `pages_show_list`, `pages_read_engagement`, `read_insights`,
+  `instagram_basic`, `instagram_manage_insights`. That is what a connecting business grants.
+- **The App Review request** (submitted 2026-10-08) also listed `ads_management`,
+  `business_management`, `public_profile` and the Marketing API Access Tier (2.8).
+  `ads_management` and `business_management` are **submitted but unused**: expect them to be
+  rejected, which blocks nothing; if Meta asks, answer that SILO does not use them and they can be
+  disregarded. Leave them out of any resubmission.
+
 | Permission | SILO's actual calls | Text for the review form |
 |---|---|---|
 | `ads_read` | `GET /{ad-account}/insights` (daily campaign and ad-level performance); `GET /{ad-account}/ads?fields=id`; batched `GET /{ad-id}?fields=creative…` (ad creative); `GET /me/adaccounts` (listing); `GET /{ad-account}?fields=id,name,currency,account_status` (Test). Meta's Instagram media-insights reference also lists `ads_read` when the Page role comes through Business Manager. | Reads performance (spend, impressions, clicks, conversions) and ad creative for the ad accounts the business selects, and shows them beside the business's sales in SILO's marketing reports. Read-only. SILO never creates or edits ads. |
@@ -163,12 +175,12 @@ reference page.
 | `read_insights` | `GET /{page}/insights?metric=page_media_view,page_total_media_view_unique,page_post_engagements&period=day` (with the Page token). | Reads daily Page insights (media views, unique media views, post engagements) for the selected Page, for SILO's organic marketing report. |
 | `instagram_basic` | `GET /{ig-user}/media?fields=id,media_type,caption,permalink,thumbnail_url,timestamp,like_count,comments_count`. | Reads the connected Instagram professional account's recent media list (type, caption, link, date, likes, comments). |
 | `instagram_manage_insights` | `GET /{ig-media}/insights?metric=views,reach,shares,saved`. | Reads views, reach, shares and saves for that media, for SILO's organic report. |
-| `business_management` | **No SILO call uses the Business Manager API, and the configuration (2026-10-08) does not request it.** Meta's references note a possible need: IG User Media — *"If the app user was granted a role on the Page via the Business Manager, you will also need one of: ads_management business_management"*; Page — *"If using a business system user in your request, the business_management permission may be required."* | **Not needed (settled live 2026-10-08):** with the six-permission configuration, the Page token, follower count, Page insights, Instagram media and media insights all returned ok. Not used by SILO; if Meta asks, say so. The existing app permission is not removed. |
-| `ads_management` | **Not used. Not requested.** Meta lists it only as an alternative to `business_management` for Instagram media, and SILO writes nothing. | — |
+| `business_management` | **No SILO call uses the Business Manager API. Not in the login configuration; was included in the App Review request (submitted but unused).** Meta's references note a possible need: IG User Media — *"If the app user was granted a role on the Page via the Business Manager, you will also need one of: ads_management business_management"*; Page — *"If using a business system user in your request, the business_management permission may be required."* | **Not needed (settled live 2026-10-08):** with the six-permission configuration, the Page token, follower count, Page insights, Instagram media and media insights all returned ok. Not used by SILO; if Meta asks, say so. The existing app permission is not removed. |
+| `ads_management` | **Not used. Not in the login configuration; was included in the App Review request (submitted but unused).** Meta lists it only as an alternative to `business_management` for Instagram media, and SILO writes nothing. | If Meta asks: "SILO does not use ads_management; it never creates or edits ads. Please disregard it." Expect rejection; leave it out of any resubmission. |
 
 *Ads Management Standard Access* is a Marketing API **feature** (rate-limit tier), not the
-`ads_management` permission. Whether to request it is a separate call; nothing in the test flow
-needs it.
+`ads_management` permission. It was requested in the 2026-10-08 submission as the "Marketing API
+Access Tier"; nothing in the test flow depends on it.
 
 The "Verify permissions" button on the test page runs each call above once: one ad account,
 one Page, the first Instagram media item, seven days. It stores nothing and never returns a
