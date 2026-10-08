@@ -279,12 +279,14 @@
     // The other two drop their 'Marketing' prefix: the section header above
     // them already says MARKETING, so repeating it three times crowded out the
     // word that actually distinguishes each one.
-    // These three pages are the customer-ready marketing surface: a prepared
-    // report, an executive performance view, and the drill-down explorer.
-    // Their queries are company-scoped and their empty states explain what to
-    // connect, so standard workspaces can discover them without inheriting
-    // Baseballism's standalone Sales pages or the report-building tools.
-    { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered', 'standard'] },
+    // Performance and Explorer are the customer-ready marketing surface: an
+    // executive performance view and the drill-down explorer. Their queries
+    // are company-scoped and their empty states explain what to connect, so
+    // standard workspaces can discover them without inheriting Baseballism's
+    // standalone Sales pages or the report-building tools.
+    // Marketing Report and Silo Attribution stay Baseballism's (grandfathered)
+    // only: standard workspaces do not see them (Blake, 2026-10-07).
+    { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered'] },
     { id: 'reports/silo-attribution', section: 'Marketing', label: 'Silo Attribution', href: '/v2/silo-attribution.html', profiles: ['grandfathered'], companyGate: isSiloAttributionEnabled },
     { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered', 'standard'] },
     { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered', 'standard'] },
