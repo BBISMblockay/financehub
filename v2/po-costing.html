@@ -12,6 +12,7 @@
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
   <script src="../pages/po-costing-lib.js"></script>
+  <script src="freight-request-match.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <style>
     .bcn-header-sub { display: none; }
@@ -346,6 +347,7 @@
                   </select>
                 </div>
               </div>
+              <p class="cost-hint" id="freightShareNote" hidden></p>
               <div class="cost-notes bcn-field-group">
                 <label class="bcn-label">Notes</label>
                 <textarea class="bcn-field" id="inFreightNotes" rows="1" placeholder="Container #, carrier, BL number…"></textarea>
@@ -666,22 +668,41 @@
       return 'manual';
     }
 
+    // A freight request can name several POs ("PO-A, PO-B"): one forwarder
+    // invoice shared by a consolidated shipment. Matching rules and what may
+    // be prefilled live in freight-request-match.js -- a shared invoice never
+    // prefills its full amount into one PO (that would overstate landed cost
+    // once per PO); it fills ref/carrier and asks for this PO's share.
+    // Freight requests per company are few (15 in all on 2026-10-08), so the
+    // page reads the newest FREIGHT_REQUEST_SCAN and matches here rather than
+    // building a LIKE pattern from a PO name.
+    const FREIGHT_REQUEST_SCAN = 500;
     async function prefillFreightFromPaymentRequest(poName) {
+      const note = document.getElementById('freightShareNote');
+      if (note) { note.hidden = true; note.textContent = ''; }
       if (!poName) return;
       try {
-        let _q = db.from('payment_requests').select('amount_due, invoice_number, vendor_name').eq('request_type', 'inventory_freight').eq('internal_po_number', poName).order('created_at', { ascending: false }).limit(1);
+        let _q = db.from('payment_requests')
+          .select('amount_due, invoice_number, vendor_name, internal_po_number')
+          .eq('request_type', 'inventory_freight')
+          .not('internal_po_number', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(FREIGHT_REQUEST_SCAN);
         if (_co?.id) _q = _q.eq('company_entity_id', _co.id);
-        const { data } = await _q.maybeSingle();
-        if (data?.amount_due != null) {
-          els.inFreight.value = Number(data.amount_due).toFixed(2);
-          if (data.invoice_number && !els.inFreightRef.value) {
-            els.inFreightRef.value = data.invoice_number;
-          }
-          if (data.vendor_name && !els.inFreightCarrier.value) {
-            els.inFreightCarrier.value = data.vendor_name;
-          }
-          recalc();
-        }
+        const { data, error } = await _q;
+        if (error) throw error;
+        // The PO may have been switched while this was in flight; its answer
+        // belongs to the PO that asked, never to the one now on screen.
+        if (ctx?.header?.po_name !== poName) return;
+        const match = window.SiloFreightMatch.pickFreightRequest(data || [], poName);
+        const plan = window.SiloFreightMatch.prefillPlan(match, {
+          freight: els.inFreight.value, ref: els.inFreightRef.value, carrier: els.inFreightCarrier.value,
+        });
+        if (plan.freight != null) els.inFreight.value = plan.freight;
+        if (plan.ref != null) els.inFreightRef.value = plan.ref;
+        if (plan.carrier != null) els.inFreightCarrier.value = plan.carrier;
+        if (plan.notice && note) { note.textContent = plan.notice; note.hidden = false; }
+        if (plan.freight != null) recalc();
       } catch (err) {
         console.error('Freight prefill from payment request failed:', err);
       }
@@ -697,6 +718,8 @@
       els.inFreightCarrier.value = pc?.freight_carrier || '';
       els.inFreightNotes.value = pc?.freight_notes || ctx.saved?.notes || '';
       els.inFreight.value = ctx.headerInputs.freight ?? '';
+      const shareNote = document.getElementById('freightShareNote');
+      if (shareNote) { shareNote.hidden = true; shareNote.textContent = ''; }
       // If no freight amount saved yet, check for a linked freight payment request
       if (!Number(els.inFreight.value) && ctx.header?.po_name) {
         prefillFreightFromPaymentRequest(ctx.header.po_name);
