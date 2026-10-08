@@ -93,7 +93,12 @@ on:
       - 'scripts/lib/meta-oauth-lib.mjs'
       - 'supabase/functions/meta-oauth-start/**'
       - 'supabase/functions/meta-oauth-callback/**'
+      - 'supabase/functions/meta-oauth-review/**'
       - 'supabase/migrations/*meta_oauth_states.sql'
+      # Meta App Review test page (meta-oauth-review.test.mjs).
+      - 'testing/**'
+      - 'v2/nav-config.js'
+      - 'v2/silo-chrome.js'
       - 'oauth/**'
       - 'supabase/functions/test-ad-platform-connection/**'
       - 'supabase/functions/ad-platform-sync-run/**'
@@ -609,14 +614,29 @@ jobs:
       - name: Google OAuth return address (allowlist, both functions, return page)
         run: node scripts/tests/google-oauth-redirect.test.mjs
       # Meta Ads OAuth (Facebook Login for Business), additive. Mutations:
-      # META_OAUTH_MUTATION=any-admin | no-recheck | keep-short
+      # META_OAUTH_MUTATION=any-admin | no-recheck | keep-short | loose-consume
+      # | review-open-start | review-open-callback | review-any-row
       - name: Meta Ads OAuth (handlers + state migration)
         run: node scripts/tests/meta-oauth.test.mjs
       - name: The Meta OAuth guards, removed, must break it
         run: |
           set -u
-          for m in any-admin no-recheck keep-short loose-consume; do
+          for m in any-admin no-recheck keep-short loose-consume review-open-start review-open-callback review-any-row; do
             if META_OAUTH_MUTATION="$m" node scripts/tests/meta-oauth.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+      # The App Review test page's gateway: allow-listed active workspace,
+      # review-marked rows only, server-side asset re-listing.
+      - name: Meta App Review test page (gateway + page guards)
+        run: node scripts/tests/meta-oauth-review.test.mjs
+      - name: The Meta App Review guards, removed, must break it
+        run: |
+          set -u
+          for m in open-gate any-row trust-selection; do
+            if META_REVIEW_MUTATION="$m" node scripts/tests/meta-oauth-review.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite"
               exit 1
             fi
