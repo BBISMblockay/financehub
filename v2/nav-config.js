@@ -172,6 +172,13 @@
    */
   const NAV_ITEMS = [
     { id: 'finance/menu', section: 'Start', label: 'Home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
+    // Ask SILO is promoted to its own row right under Home, on both profiles
+    // (Blake, 2026-10-08); it used to sit inside Reports / Insights. Same
+    // people see it as before: exec/owner, or a silo_chat_managers grant.
+    // Nav is discovery only -- silo-chat checks company membership and AI
+    // credits itself. The id stays reports/silo-chat so the page's active
+    // marker keeps working.
+    { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Start', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
     // On Deck: prepared work waiting for a decision. Its first module is
     // transaction coding, so the row follows the finance gate the database
     // applies (on_deck_coding_access). Owner/admins without a finance
@@ -303,10 +310,9 @@
     // discovery only; every read is RLS, every approver write re-checked.
     { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo', section: 'Marketing', label: 'SEO', href: '/v2/seo-studio.html', profiles: ['grandfathered', 'standard'] },
 
-    // Standard workspaces get a small Insights surface: curated dashboards
-    // plus Ask SILO. Baseballism keeps the established Reports label. Access
-    // to Ask SILO remains exec/owner or an explicit grant; nav is discovery only.
-    { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Reports', sectionStandard: 'Insights', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
+    // Standard workspaces get a small Insights surface: curated dashboards.
+    // Baseballism keeps the established Reports label. (Ask SILO moved to
+    // its own row under Home, 2026-10-08.)
     // Reports is the shared library; the builder retains its own exec gate.
     // Grandfathered users all see Reports now: it replaces six ungated sales
     // links. Standard workspaces keep their existing exec-only Dashboards
