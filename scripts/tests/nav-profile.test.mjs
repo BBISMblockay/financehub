@@ -122,23 +122,23 @@ test('Marketing Report and Silo Attribution: Baseballism keeps them, no standard
   }
 });
 
-test('Ask SILO is its own row right under Home, on both profiles, for the same people as before', () => {
+test('Ask SILO is its own section right after Start, on both profiles, for the same people as before', () => {
   for (const profile of ['grandfathered', 'standard']) {
     const sections = navSectionsForProfile(profile, 'marketing', 'owner_admin', new Set());
-    const start = sections.find((s) => s.section === 'Start');
-    assert.equal(sections[0].section, 'Start', `${profile}: Start leads the menu`);
-    assert.deepEqual(start.items.slice(0, 2).map((i) => i.id), ['finance/menu', 'reports/silo-chat'], profile);
-    const elsewhere = sections.filter((s) => s.section !== 'Start')
+    assert.deepEqual(sections.slice(0, 2).map((s) => s.section), ['Start', 'Ask SILO'], profile);
+    assert.deepEqual(sections[1].items.map((i) => [i.id, i.label]), [['reports/silo-chat', 'Ask SILO']], profile);
+    const elsewhere = sections.slice(2).concat(sections[0])
       .some((s) => s.items.some((i) => i.id === 'reports/silo-chat'));
     assert.ok(!elsewhere, `${profile}: Ask SILO appears once`);
-    // Visibility unchanged: exec/owner, or a silo_chat_managers grant.
+    // Visibility unchanged: exec/owner, or a silo_chat_managers grant. A
+    // person who cannot see the row gets no empty Ask SILO section either.
     for (const role of ['owner', 'owner_admin', 'executive']) {
       const ids = navSectionsForProfile(profile, 'marketing', role, new Set()).flatMap((s) => s.items.map((i) => i.id));
       assert.ok(ids.includes('reports/silo-chat'), `${profile}/${role} sees Ask SILO`);
     }
     for (const role of ['admin', 'member', 'viewer', 'user']) {
-      const ids = navSectionsForProfile(profile, 'marketing', role, new Set()).flatMap((s) => s.items.map((i) => i.id));
-      assert.ok(!ids.includes('reports/silo-chat'), `${profile}/${role} without a grant does not see Ask SILO`);
+      const without = navSectionsForProfile(profile, 'marketing', role, new Set());
+      assert.ok(!without.some((s) => s.section === 'Ask SILO'), `${profile}/${role} without a grant has no Ask SILO section`);
       const granted = navSectionsForProfile(profile, 'marketing', role, new Set(['reports/silo-chat'])).flatMap((s) => s.items.map((i) => i.id));
       assert.ok(granted.includes('reports/silo-chat'), `${profile}/${role} with the grant sees Ask SILO`);
     }
