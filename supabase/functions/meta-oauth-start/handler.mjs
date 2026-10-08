@@ -2,7 +2,15 @@
 // company. Returns { url } for the browser to open. Logic here so node can
 // execute it; index.ts wires the real collaborators. ADDITIVE: nothing in
 // Integrations calls this yet.
-import { authorizeUrl, mayConnect, mayReconnect } from './meta-oauth-lib.mjs';
+//
+// return_to: 'review_test' is the App Review test page's mode. It only ever
+// ADDS checks (allow-listed active workspace; a reconnect only of a review
+// row) and returns to /testing/meta-oauth.html. Without it, behaviour is the
+// original one, unchanged.
+import {
+  authorizeUrl, mayConnect, mayReconnect,
+  REVIEW_RETURN_TO, reviewCompanyIds, reviewNonce, mayUseReviewWorkspace, isReviewConnection,
+} from './meta-oauth-lib.mjs';
 
 export const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -31,6 +39,11 @@ export function createStartHandler({ env, admin }) {
     const companyId = body?.company_entity_id;
     const connectionId = body?.connection_id ?? null;
     if (!companyId) return json({ error: 'company_entity_id required' }, 400);
+    const returnTo = body?.return_to ?? null;
+    if (returnTo !== null && returnTo !== REVIEW_RETURN_TO) return json({ error: 'Unknown return_to' }, 400);
+    const review = returnTo === REVIEW_RETURN_TO;
+    const allowlist = review ? reviewCompanyIds(env.META_REVIEW_COMPANY_IDS) : [];
+    if (review && !allowlist.length) return json({ error: 'App Review test mode is not configured' }, 503);
 
     const { data: profile, error: profileError } = await admin.from('profiles')
       .select('role, active_company_id, is_active').eq('id', user.id).maybeSingle();
@@ -39,16 +52,20 @@ export function createStartHandler({ env, admin }) {
     if (!mayConnect({ profile, profileError, membership, membershipError, companyId })) {
       return json({ error: 'Admin access required for this company' }, 403);
     }
+    if (review && !mayUseReviewWorkspace({ allowlist, companyId, profile, profileError, membership, membershipError })) {
+      return json({ error: 'This workspace is not an App Review test workspace' }, 403);
+    }
 
     if (connectionId) {
       const { data: conn } = await admin.from('ad_platform_connections')
-        .select('id, company_entity_id, platform').eq('id', connectionId).maybeSingle();
+        .select('id, company_entity_id, platform, meta').eq('id', connectionId).maybeSingle();
       if (!mayReconnect({ connection_id: connectionId, company_entity_id: companyId, platform: 'meta_ads' }, conn)) {
         return json({ error: 'Connection not found' }, 404);
       }
+      if (review && !isReviewConnection(conn, companyId)) return json({ error: 'Connection not found' }, 404);
     }
 
-    const nonce = crypto.randomUUID();
+    const nonce = review ? reviewNonce(crypto.randomUUID()) : crypto.randomUUID();
     const { error } = await admin.from('ad_platform_oauth_states').insert({
       nonce, company_entity_id: companyId, user_id: user.id, platform: 'meta_ads',
       ...(connectionId ? { connection_id: connectionId } : {}),

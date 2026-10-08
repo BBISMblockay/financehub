@@ -9,6 +9,7 @@ const handle = createCallbackHandler({
     META_OAUTH_REDIRECT_URI: Deno.env.get('META_OAUTH_REDIRECT_URI')
       ?? `${Deno.env.get('SUPABASE_URL')}/functions/v1/meta-oauth-callback`,
     SILO_APP_URL: Deno.env.get('SILO_APP_URL'),
+    META_REVIEW_COMPANY_IDS: Deno.env.get('META_REVIEW_COMPANY_IDS'),
   },
   admin: createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!),
   fetchImpl: fetch,

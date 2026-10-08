@@ -1,0 +1,75 @@
+<!doctype html>
+<!-- Meta App Review test page. Chrome-less on purpose (no sidebar, no nav
+     entry): it exists only to exercise Facebook Login for Business end to end
+     in an allow-listed App Review workspace. Signing in is required, and every
+     action is authorized by the meta-oauth-review / meta-oauth-start edge
+     functions (allow-listed ACTIVE workspace + admin + review-marked
+     connection). The page itself writes nothing to the database. -->
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>SILO — Meta connection test</title>
+  <link rel="stylesheet" href="../v2/beacon.css" />
+  <link rel="stylesheet" href="../v2/silo-brand.css" />
+  <style>
+    body { background: var(--bcn-canvas); margin: 0; }
+    /* .bcn-card sets display:flex, which beats the hidden attribute. */
+    .bcn-card[hidden] { display: none; }
+    .mo-wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; display: flex; flex-direction: column; gap: 16px; }
+    .mo-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .mo-choice { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; }
+    .mo-choice small { display: block; color: var(--bcn-ink-3); }
+    .mo-muted { color: var(--bcn-ink-3); font-size: 13px; }
+    .mo-pre { white-space: pre-wrap; word-break: break-word; font-family: var(--bcn-mono); font-size: 12px; margin: 0; }
+    table.bcn-table td.mo-wrapcell { white-space: normal; text-align: left; overflow-wrap: anywhere; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../pages/config.js"></script>
+</head>
+<body>
+  <div class="mo-wrap">
+    <header class="bcn-header">
+      <h1>Meta connection test</h1>
+      <p class="mo-muted" id="mo-workspace">Checking access…</p>
+    </header>
+    <div class="bcn-status" id="status" hidden></div>
+
+    <section class="bcn-card" id="mo-connect-card" hidden>
+      <div class="bcn-card-header"><h2>1. Connect Meta</h2></div>
+      <div class="bcn-card-body">
+        <p class="mo-muted">Opens Facebook Login for Business. Choose the business, then the ad account, Page and
+          Instagram account to share with SILO. SILO only reads data.</p>
+        <div class="mo-actions"><button class="bcn-btn bcn-btn--primary" id="mo-connect">Connect Meta</button></div>
+      </div>
+    </section>
+
+    <section class="bcn-card" id="mo-conns-card" hidden>
+      <div class="bcn-card-header"><h2>2. Test connections in this workspace</h2></div>
+      <div class="bcn-card-body">
+        <table class="bcn-table">
+          <thead><tr><th class="bcn-th-left">Connection</th><th class="bcn-th-left">Assets</th><th class="bcn-th-left">Actions</th></tr></thead>
+          <tbody id="mo-conns"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="bcn-card" id="mo-assets-card" hidden>
+      <div class="bcn-card-header"><h2>3. Choose assets</h2></div>
+      <div class="bcn-card-body">
+        <div id="mo-assets"></div>
+        <div class="mo-actions"><button class="bcn-btn bcn-btn--primary" id="mo-save-assets">Save selection</button>
+          <button class="bcn-btn bcn-btn--ghost" id="mo-cancel-assets">Cancel</button></div>
+      </div>
+    </section>
+
+    <section class="bcn-card" id="mo-result-card" hidden>
+      <div class="bcn-card-header"><h2 id="mo-result-title">Result</h2></div>
+      <div class="bcn-card-body" id="mo-result"></div>
+    </section>
+  </div>
+  <script src="meta-oauth-client.js"></script>
+  <script src="meta-oauth.js"></script>
+</body>
+</html>

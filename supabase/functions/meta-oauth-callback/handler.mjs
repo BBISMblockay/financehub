@@ -11,15 +11,23 @@
 // The Integrations return handler (afterAdOauth) then opens the ad-account
 // picker, which already lists accounts for any Meta token. Logic here so node
 // can execute it; index.ts wires the real collaborators.
+//
+// App Review test mode: a state row whose nonce meta-oauth-start minted as
+// 'rt_<uuid>' returns to /testing/meta-oauth.html instead, and must ALSO pass,
+// before any code is exchanged, the same review checks start made (allow-
+// listed workspace, still the caller's active one, still an admin of it); a
+// reconnect may only target a review row. The prefix chooses the page and
+// adds those checks; the consumed database row stays the authorization.
 import {
   codeExchangeUrl, longLivedExchangeUrl, tokenExpiry, mayReconnect, newConnectionMeta,
   callbackError, META_GRAPH_VERSION,
+  isReviewState, reviewCompanyIds, mayUseReviewWorkspace, isReviewConnection, REVIEW_PAGE_PATH,
 } from './meta-oauth-lib.mjs';
 
 export function createCallbackHandler({ env, admin, fetchImpl, now = () => Date.now() }) {
   const appUrl = env.SILO_APP_URL || 'https://silo-baseballism.com';
   const go = (location) => new Response(null, { status: 302, headers: { Location: location, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
-  const fail = (code) => go(`${appUrl}/v2/integrations.html?oauth_error=${callbackError(code)}&platform=meta_ads`);
+  const pageFor = (review) => `${appUrl}${review ? REVIEW_PAGE_PATH : '/v2/integrations.html'}`;
   const getJson = async (url) => {
     const res = await fetchImpl(url);
     const data = await res.json().catch(() => ({}));
@@ -29,6 +37,10 @@ export function createCallbackHandler({ env, admin, fetchImpl, now = () => Date.
   return async function handle(req) {
     if (req.method !== 'GET') return new Response('Method not allowed', { status: 405 });
     const params = new URL(req.url).searchParams;
+    // Which page shows the outcome. Before the state is consumed this is only
+    // a display choice; afterwards it comes from the consumed row.
+    let back = pageFor(isReviewState(params.get('state')));
+    const fail = (code) => go(`${back}?oauth_error=${callbackError(code)}&platform=meta_ads`);
     if (params.get('error')) return fail('access_denied');
     const code = params.get('code');
     const state = params.get('state');
@@ -43,6 +55,19 @@ export function createCallbackHandler({ env, admin, fetchImpl, now = () => Date.
       .select('*');
     if (consumeErr || !Array.isArray(consumed) || consumed.length !== 1) return fail('invalid_or_expired_state');
     const stateRow = consumed[0];
+    const review = isReviewState(stateRow.nonce);
+    back = pageFor(review);
+
+    if (review) {
+      const allowlist = reviewCompanyIds(env.META_REVIEW_COMPANY_IDS);
+      const { data: profile, error: profileError } = await admin.from('profiles')
+        .select('role, active_company_id, is_active').eq('id', stateRow.user_id).maybeSingle();
+      const { data: membership, error: membershipError } = await admin.from('entity_memberships')
+        .select('role').eq('entity_id', stateRow.company_entity_id).eq('user_id', stateRow.user_id).maybeSingle();
+      if (!mayUseReviewWorkspace({ allowlist, companyId: stateRow.company_entity_id, profile, profileError, membership, membershipError })) {
+        return fail('review_not_allowed');
+      }
+    }
 
     let token, expiresAt, tokenType;
     try {
@@ -72,13 +97,14 @@ export function createCallbackHandler({ env, admin, fetchImpl, now = () => Date.
     } catch { /* informational only */ }
 
     const nowIso = new Date(now()).toISOString();
-    const done = (id, reconnected) => go(`${appUrl}/v2/integrations.html?oauth_connected=1&platform=meta_ads&connection_id=${id}${reconnected ? '&reconnected=1' : ''}`);
+    const done = (id, reconnected) => go(`${back}?oauth_connected=1&platform=meta_ads&connection_id=${id}${reconnected ? '&reconnected=1' : ''}`);
 
     if (stateRow.connection_id) {
       const { data: conn } = await admin.from('ad_platform_connections')
         .select('id, company_entity_id, platform, meta').eq('id', stateRow.connection_id).maybeSingle();
       if (!mayReconnect(stateRow, conn)) return fail('reconnect_target_missing');
-      const meta = { ...(conn.meta || {}), oauth: newConnectionMeta({ clientBusinessId, tokenType, nowIso }).oauth };
+      if (review && !isReviewConnection(conn, stateRow.company_entity_id)) return fail('reconnect_target_missing');
+      const meta = { ...(conn.meta || {}), oauth: newConnectionMeta({ clientBusinessId, tokenType, nowIso, reviewTest: review }).oauth };
       const { data: updated, error } = await admin.from('ad_platform_connections')
         .update({
           access_token: token, token_expires_at: expiresAt, is_active: true, meta,
@@ -95,13 +121,13 @@ export function createCallbackHandler({ env, admin, fetchImpl, now = () => Date.
       .insert({
         company_entity_id: stateRow.company_entity_id,
         platform: 'meta_ads',
-        display_name: 'Meta Ads account',
+        display_name: review ? 'Meta Ads (App Review test)' : 'Meta Ads account',
         access_token: token,
         token_expires_at: expiresAt,
         is_active: true,
         sync_enabled: false,
         created_by: stateRow.user_id,
-        meta: newConnectionMeta({ clientBusinessId, tokenType, nowIso }),
+        meta: newConnectionMeta({ clientBusinessId, tokenType, nowIso, reviewTest: review }),
       })
       .select('id').single();
     if (error || !inserted) return fail('save_failed');

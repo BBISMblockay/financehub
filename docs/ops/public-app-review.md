@@ -16,7 +16,7 @@ the session, or is something only you can do in a platform dashboard.
 |---|---|---|
 | New code | `shopify-app-install`, `shopify-install-claim`, `/v2/shopify-install.html`, migration `20261007120000` | `meta-oauth-start`, `meta-oauth-callback`, migration `20261007130000` |
 | Pricing on the platform | **Free** (decision 2026-10-07: SILO bills on Stripe) | n/a |
-| Owner | Baseballism's Shopify Partner organization | A separate **SILO** app inside Baseballism's Meta business portfolio (decision 2026-10-07) |
+| Owner | Baseballism's Shopify Partner organization | The existing app **1809676850412480** in Baseballism's business portfolio (decision 2026-10-08; replaces the 2026-10-07 "separate app" plan) |
 | Privacy policy | `https://get-silo.com/legal/privacy.html` (Shopify section) | same, Meta section; deletion: `#data-deletion` |
 | Tests | `shopify-install.test.mjs`, `shopify-install-database.test.mjs` | `meta-oauth.test.mjs` |
 
@@ -118,90 +118,182 @@ of the full order history"), once the app is approved.
 
 ## Part 2 — Meta app (Facebook Login for Business)
 
-### 2.1 Create the app [Blake]
+**Decision 2026-10-08:** reuse the existing Meta app **1809676850412480**, owned by Baseballism's
+business portfolio (business verification complete; Tech Provider access verification in review).
+This replaces the 2026-10-07 plan of a separate app. App Review is saved as a draft.
 
-1. developers.facebook.com → Create app → type **Business**. Name **SILO**, owned by
-   Baseballism's business portfolio, separate from the existing internal app.
-2. Add the products **Facebook Login for Business** and **Marketing API**.
-3. App settings → Basic:
-   - Privacy Policy URL `https://get-silo.com/legal/privacy.html`.
-   - User data deletion: choose **Data deletion instructions URL** and enter
-     `https://get-silo.com/legal/privacy.html#data-deletion`.
-   - Add an app icon, choose a category, and verify the domain `get-silo.com`.
-4. Facebook Login for Business → Settings → Valid OAuth Redirect URIs:
-   `https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/meta-oauth-callback`.
-5. Facebook Login for Business → **Configurations → Create**:
-   - Token type: **System-user access token**, which never expires.
-   - Assets: Ad accounts, Pages, Instagram accounts.
-   - Permissions: `ads_read, business_management, pages_show_list, pages_read_engagement,
-     read_insights, instagram_basic, instagram_manage_insights` (`META_PERMISSIONS`).
-   - Copy the **Configuration ID**.
-6. Leave **"Require App Secret" OFF**. The nightly sync does not send `appsecret_proof`.
-7. **Business Verification** for Baseballism's portfolio, if it isn't verified already
-   (Business Settings → Security Center).
+**Status (2026-10-08): implementation complete, verification pending.** A test flow exists at
+`/testing/meta-oauth.html`. It is not linked from Integrations or the nav, and Integrations, the
+nav and the pasted System User token path are unchanged. Nothing is deployed, applied or
+configured. Every **[Blake]** step needs your approval in the session.
 
-### 2.2 Secrets and deploy [Blake — approval needed]
+### 2.1 How the test flow is isolated
 
-1. Edge-function secrets: `META_APP_ID`, `META_APP_SECRET`, `META_LOGIN_CONFIG_ID`.
-2. Apply `20261007130000_meta_oauth_states.sql`, then run verify. The `meta_oauth_states`
-   row must read `ok`.
-3. Deploy `meta-oauth-start` and `meta-oauth-callback`. The callback deploys public.
-4. Test while the app is in Development mode, using an account with a role on the app.
-   Run, from a signed-in SILO admin's browser console on Integrations:
-   `fetch(SUPABASE_URL + '/functions/v1/meta-oauth-start', {method:'POST', headers:{Authorization:'Bearer '+token, apikey}, body: JSON.stringify({company_entity_id})})`.
-   Open the returned URL and approve. You should land back on Integrations with the account
-   picker open. Check that the row's `meta->oauth->token_type` is `system_user` and that
-   `token_expires_at` is null.
-
-### 2.3 App Review submission
-
-Request **Advanced Access** for each permission below, plus Marketing API **Ads Management
-Standard Access**. Use one screencast covering all of them.
-
-| Permission | How SILO uses it (paste into the review form) |
+| Layer | What enforces it |
 |---|---|
-| `ads_read` | Reads campaign, ad set and ad performance and ad creative for the ad accounts the business selects, to show them their own ad spend and results beside their sales in SILO. Read-only; SILO never creates or edits ads. |
-| `business_management` | Required by Facebook Login for Business to read the assets the business granted (its ad accounts and Pages) and to issue the system user token the overnight sync uses. |
-| `pages_show_list` | Lists the Pages the business granted so the admin can pick which Page's insights to show. |
-| `pages_read_engagement` | Reads the selected Page's posts and their engagement for SILO's organic marketing report. |
-| `read_insights` | Reads Page insights (reach, views, engagement) for the selected Page. |
-| `instagram_basic` | Reads the connected Instagram professional account's media list. |
-| `instagram_manage_insights` | Reads insights for that media (views, reach, engagement) for SILO's organic report. |
+| Sign-in | The page sends a signed-out visitor to `/pages/login.html?next=/testing/meta-oauth.html`. Each function verifies the JWT itself. |
+| Workspace | `META_REVIEW_COMPANY_IDS` (edge-function secret, uuids). If it is unset or empty, review mode refuses everything (503). The listed workspace must be the caller's **active** workspace, and the caller must be its admin (`mayUseReviewWorkspace`). `meta-oauth-start` checks this. `meta-oauth-callback` checks it **again before exchanging the code**. `meta-oauth-review` checks it on **every** action. |
+| Connection | A connection made through the page is marked `meta.oauth.review_test = true`. Every connection-level action, and a review reconnect, act only on a marked `meta_ads` row of that workspace (`isReviewConnection`). A pasted-token row never carries the mark, so the page cannot read, test, sync or change one, in any workspace. |
+| State | The nonce is `rt_` + `crypto.randomUUID()`. It is stored in `ad_platform_oauth_states` and consumed once by the callback, exactly like other states. The prefix only picks the return page and adds the checks above; a forged `rt_` state finds no row. |
+| Writes | The page writes nothing to the database. Asset selection goes through `meta-oauth-review`, which **re-lists** the token's assets server-side and accepts only an ad account, Page and linked Instagram account that the token can reach. It never switches `sync_enabled` on. |
+| Sync | "Sync now" goes through `meta-oauth-review`, which forwards to `ad-platform-sync-run` with the caller's own JWT (RLS re-checked there). It stores daily campaign totals only. The nightly sync, which writes ad-level rows, Page insights and Instagram media, stays off for a test connection unless it is switched on separately **[Blake]**. |
 
-**Screencast (about 3 minutes, English UI, show the URL bar):**
+Tests: `scripts/tests/meta-oauth.test.mjs` (start/callback, review mode) and
+`scripts/tests/meta-oauth-review.test.mjs` (gateway, page guards). Each guard has a mutation
+that must fail the suite, and CI runs them.
 
-1. Sign in to SILO as an admin. Open Settings → Integrations and click **Connect Meta**.
-   *(This button is part of the activation PR. For the recording, use a review build where it
-   is visible, or tell the reviewer the start URL.)*
-2. On the Facebook Login for Business dialog, choose the business and select an ad account,
-   a Page and an Instagram account. Approve.
-3. Back in SILO, pick the ad account in the account picker and click Test, which shows
-   "connected".
-4. Show the Marketing Report or Ad Studio using the ad data (`ads_read`).
-5. Show the organic section: the Page posts and insights, then the Instagram media and
-   insights.
-6. Show Integrations → Remove connection, and the privacy policy's deletion section.
+### 2.2 Permissions, reconciled with the code (2026-10-08)
 
-**Reviewer access:** a SILO demo workspace login (the same one as Shopify), plus a Meta test
-user or a Business Manager that has an ad account and Page with some activity. Meta rejects
-reviews that show empty data.
+Every Graph call SILO makes is a read. The only POSTs are Graph batch requests that wrap GETs.
+Sources: `scripts/lib/ad-platforms-sync-core.mjs` (nightly / Sync now) and
+`supabase/functions/test-ad-platform-connection` (discovery). Meta's requirements are quoted from
+https://developers.facebook.com/documentation/development/permissions and each endpoint's
+reference page.
 
-### 2.4 Known limits
+| Permission | SILO's actual calls | Text for the review form |
+|---|---|---|
+| `ads_read` | `GET /{ad-account}/insights` (daily campaign and ad-level performance); `GET /{ad-account}/ads?fields=id`; batched `GET /{ad-id}?fields=creative…` (ad creative); `GET /me/adaccounts` (listing); `GET /{ad-account}?fields=id,name,currency,account_status` (Test). Meta's Instagram media-insights reference also lists `ads_read` when the Page role comes through Business Manager. | Reads performance (spend, impressions, clicks, conversions) and ad creative for the ad accounts the business selects, and shows them beside the business's sales in SILO's marketing reports. Read-only. SILO never creates or edits ads. |
+| `pages_show_list` | `GET /me/accounts?fields=id,name,instagram_business_account{id,username}`, which lists the granted Pages and each Page's linked Instagram account so the admin can choose one. | Lists the Pages the business granted, so the admin can choose which Page and linked Instagram account SILO reports on. |
+| `pages_read_engagement` | `GET /{page}?fields=access_token`, which gets the Page access token that Page Insights requires; `GET /{page}?fields=fan_count`, the follower count. Meta's references also list it for `GET /{ig-user}/media` and `GET /{ig-media}/insights`, and as a dependency of `read_insights`. **SILO does not read Page posts.** | Reads the selected Page's follower count and gets the Page access token used to read that Page's insights. It is also required for reading the linked Instagram account's media and media insights. |
+| `read_insights` | `GET /{page}/insights?metric=page_media_view,page_total_media_view_unique,page_post_engagements&period=day` (with the Page token). | Reads daily Page insights (media views, unique media views, post engagements) for the selected Page, for SILO's organic marketing report. |
+| `instagram_basic` | `GET /{ig-user}/media?fields=id,media_type,caption,permalink,thumbnail_url,timestamp,like_count,comments_count`. | Reads the connected Instagram professional account's recent media list (type, caption, link, date, likes, comments). |
+| `instagram_manage_insights` | `GET /{ig-media}/insights?metric=views,reach,shares,saved`. | Reads views, reach, shares and saves for that media, for SILO's organic report. |
+| `business_management` | **No SILO call uses the Business Manager API, and the configuration (2026-10-08) does not request it.** Meta's references note a possible need: IG User Media — *"If the app user was granted a role on the Page via the Business Manager, you will also need one of: ads_management business_management"*; Page — *"If using a business system user in your request, the business_management permission may be required."* | Not requested. The first live **Verify permissions** run settles it: if `instagram_basic` or the Page calls fail with a permission error, add it to the configuration (and the review) with: "Required by Meta for a business system user token to read the Instagram media and Page fields of assets granted through Business Manager. SILO does not create, edit or claim business assets." The existing app permission is not removed. |
+| `ads_management` | **Not used. Not requested.** Meta lists it only as an alternative to `business_management` for Instagram media, and SILO writes nothing. | — |
 
-- If the configuration is ever switched to a user token, the callback stores a roughly
-  60-day token, records its expiry and marks `meta.oauth.token_type = 'user'`. Nothing
-  refreshes it. Keep the configuration on the system user token type.
-- Advanced Access is subject to Meta's ongoing review. Keep the privacy policy and the
-  deletion URL live.
+*Ads Management Standard Access* is a Marketing API **feature** (rate-limit tier), not the
+`ads_management` permission. Whether to request it is a separate call; nothing in the test flow
+needs it.
 
----
+The "Verify permissions" button on the test page runs each call above once: one ad account,
+one Page, the first Instagram media item, seven days. It stores nothing and never returns a
+token. Its metrics and fields are pinned equal to the sync's and the tester's by test.
+
+### 2.3 Meta app configuration — done 2026-10-08 (Blake)
+
+Done and verified by Blake on 2026-10-08:
+- App 1809676850412480.
+- Facebook Login for Business configuration **2293747398051309**: system-user token with no
+  expiration, ANALYZE access (which Page Insights requires), and the six reporting permissions
+  (no `business_management`).
+- The callback URL `https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/meta-oauth-callback`
+  passes Meta's validator.
+
+Keep these as they are:
+
+- Leave **"Require App Secret" OFF**: the nightly sync does not send `appsecret_proof`.
+- Do **not** reset the app secret. The callback needs the current secret, and a reset may affect
+  tokens this app already issued.
+- Privacy policy `https://get-silo.com/legal/privacy.html`. Data deletion instructions:
+   `https://get-silo.com/legal/privacy.html#data-deletion`.
+
+Adding a product or a configuration does not change existing connections or tokens.
+
+### 2.4 Secrets, migration, deploy [Blake — each needs approval]
+
+1. Edge-function secrets:
+   - `META_APP_ID=1809676850412480`
+   - `META_APP_SECRET`: the app's **existing** secret, not rotated. Enter it in the dashboard; never in chat or Git.
+   - `META_LOGIN_CONFIG_ID=2293747398051309` (not a secret; it appears in the dialog URL)
+   - `META_REVIEW_COMPANY_IDS=<review workspace id>`
+   - `SILO_APP_URL`: optional, defaults to `https://silo-baseballism.com`, where `/testing/` is served.
+2. Apply `20261007130000_meta_oauth_states.sql` (adds `meta_ads` to an allowed-values list),
+   then run `verify_v2_schema.sql`.
+3. Deploy `meta-oauth-start`, `meta-oauth-callback` (public, already in `NO_JWT_FUNCTIONS`) and
+   `meta-oauth-review` (JWT) through the Deploy Edge Function workflow from `main`. No other
+   function changes. Until all three are deployed, the drift check reports them as owed.
+
+### 2.5 Reviewer access (decisions open)
+
+What Meta's docs say (fetched 2026-10-08):
+- Reviewers test the app themselves: *"We will test your app using our own test accounts. Do not
+  include your personal Meta Technologies app account's credentials."* and *"If we are unable to
+  access your app to test it, your entire submission will be rejected."*
+  (submission-guide, app-review/introduction)
+- *"Make sure your app is in Development mode or is a Business app type."* Business apps
+  *"do not have app modes and instead rely on access levels."*
+- Facebook Login for Business: *"To test the business integration system user access token flow,
+  the tester must have a role on the app and full control of the client business."* The docs do
+  not say how a reviewer without an app role completes that flow (**unsourced; open**).
+- Test users: *"We are temporarily removing the ability for apps to create new test users"*
+  (test-users page, updated 2026-04-17). Whether test users work with Business apps or Facebook
+  Login for Business is not documented.
+- A sandbox ad account: one per app. Meta's 2023 note says Insights are not supported in the
+  sandbox. The current page says it can show *"mock ad performance data."* The two conflict;
+  **unverified**.
+- There is no documented rule that a recording showing empty data is rejected. The permission
+  screencast requirements do say, e.g. for `ads_read`: *"Showcase that the ads performance data,
+  such as Impressions, Conversions, Spend, Clicks, and Reach, are displayed successfully"*, and for
+  `read_insights`: *"Showcase that the insight metrics are successfully displayed."*
+
+SILO side (verified 2026-10-08):
+- A workspace needs no subscription. No page access is gated on billing, AI credit is in
+  `shadow` mode, and 5 of 7 workspaces (including "Google Verification") have none.
+- The precedent is the "Google Verification" workspace (`meta.isolated_review_workspace = true`),
+  whose only member is one admin with no other workspace.
+
+Proposed setup **[Blake: approve before anything is created]**:
+1. Create a workspace "Meta App Review" on the Google Verification pattern.
+2. Invite one reviewer login as its only member, `admin`, with no other memberships.
+3. Put the workspace's id in `META_REVIEW_COMPANY_IDS`.
+4. Enter the email and password **only** in App Review → Platform Settings / testing
+   instructions. Never in chat, Git or a screenshot.
+
+Decisions still open:
+1. **Which Meta assets the recording and the reviewer use.**
+   - (a) A non-Baseballism business with a Page, an Instagram account and an ad account that
+     has some delivery.
+   - (b) A sandbox ad account (insights support unverified) plus a Page and Instagram account.
+   - (c) Baseballism's own assets, which **would copy live Baseballism ad and organic data into
+     the review workspace**. Not without your explicit approval.
+2. **How reviewers complete the system-user login** without an app role (see above). Ask Meta
+   (developer support or the App Review notes) before submitting, or record the full flow and
+   state in the testing instructions which test business to use.
+3. **Nightly sync for the test connection.** It is off by default. Turning it on fills Page and
+   Instagram tables for the "Stored data" view; without it, the page shows them through
+   "Verify permissions" only.
+
+### 2.6 Reviewer instructions (draft for Platform Settings)
+
+> SILO is a web app for operations and finance teams. Open
+> https://silo-baseballism.com/testing/meta-oauth.html and sign in with the SILO account
+> provided in these notes. It opens a dedicated test workspace with no customer data.
+> 1. Click **Connect Meta**. Facebook Login for Business opens. Choose the business, then the ad
+>    account, Page and Instagram account, and approve.
+> 2. Back in SILO, under **Choose assets**, select the ad account and the Page (its linked
+>    Instagram account is included) and click **Save selection**.
+> 3. Click **Verify permissions**. Each row is one permission, the Graph call SILO makes for it
+>    and what came back: ad account and 30-day spend/impressions/clicks (`ads_read`), the Page
+>    list (`pages_show_list`), the Page token and follower count (`pages_read_engagement`), daily
+>    Page insights (`read_insights`), Instagram media (`instagram_basic`) and media insights
+>    (`instagram_manage_insights`).
+> 4. Click **Sync now**, then **Stored data**, to see the daily campaign performance SILO stored.
+> SILO only reads data. It never creates, edits or pauses ads, campaigns, budgets or assets.
+
+### 2.7 Recording checklist
+
+Per https://developers.facebook.com/docs/app-review/submission-guide/screen-recordings/:
+- [ ] English UI. 1080p or better; set the monitor to 1440 px wide or less. Mouse, not
+      keyboard; a large cursor. No audio. Annotate each permission.
+- [ ] Start **logged out** of SILO and Facebook, and show the URL bar.
+- [ ] Sign in to SILO → `/testing/meta-oauth.html` → **Connect Meta**.
+- [ ] The full Facebook Login for Business dialog: business, assets, the permission list, approve.
+- [ ] The return to SILO, then choosing the ad account, Page and Instagram account → Save.
+- [ ] For **each** permission, the row in **Verify permissions** with real values (annotated):
+      `ads_read`, `pages_show_list`, `pages_read_engagement` (Page token issued, follower
+      count), `read_insights`, `instagram_basic`, `instagram_manage_insights`, plus
+      `business_management` only if 2.2's live check shows it is needed.
+- [ ] `ads_read` in the product: Sync now → Stored data (impressions, clicks, spend by day).
+- [ ] Optionally, a Reconnect, showing the same connection renewed in place.
+- [ ] No secrets, tokens or reviewer passwords on screen. The page never displays a token.
 
 ## Part 3 — Activation (a later, separate PR; only after both approvals)
 
 - **Integrations / Shopify:** add a **"Install from Shopify"** button that opens the App Store
   listing URL. Leave the typed-domain and Dev Dashboard forms in place for stores already
   connected that way.
-- **Integrations / Meta:** add **"Connect Meta"** next to "Add Meta Ads token…". It calls
+- **Integrations / Meta:** (only after review passes, and a separate approval) add **"Connect
+  Meta"** next to "Add Meta Ads token…". It calls
   `startAdOauth('meta-oauth-start', { company_entity_id })`, the same helper Google uses. For
   `meta_ads` rows, add a **Reconnect** button that passes `connection_id`.
 - Update `v2/integration-guides.js`, `docs/ops/shopify-sync.md` and

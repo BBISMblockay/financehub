@@ -19,12 +19,22 @@
  *   5. The deploy workflow keeps the callback public and start JWT-verified.
  *   6. (PGlite) the migration admits meta_ads, keeps every earlier platform,
  *      applies twice, and its verify row reads ok.
+ *   7. App Review test mode (return_to: 'review_test'): start refuses an
+ *      unconfigured allow-list, a workspace not on it, one that is not the
+ *      caller's active workspace, and a reconnect of a pasted-token row; the
+ *      nonce is 'rt_' + a full random uuid. The callback re-checks all of it
+ *      BEFORE exchanging a code, a forged 'rt_' state finds nothing, a review
+ *      connection is marked review_test and returns to /testing/meta-oauth.html,
+ *      and a review reconnect never touches a pasted-token row.
  *
  * Mutations (each must make this file FAIL):
  *   META_OAUTH_MUTATION=any-admin    (start skips mayConnect)
  *   META_OAUTH_MUTATION=no-recheck   (the callback skips mayReconnect)
  *   META_OAUTH_MUTATION=keep-short   (no long-lived swap for a user token)
  *   META_OAUTH_MUTATION=loose-consume (the callback proceeds without winning the state delete)
+ *   META_OAUTH_MUTATION=review-open-start    (start skips the review-workspace check)
+ *   META_OAUTH_MUTATION=review-open-callback (the callback skips its review re-check)
+ *   META_OAUTH_MUTATION=review-any-row       (a review reconnect may target any meta_ads row)
  *
  * Run: node scripts/tests/meta-oauth.test.mjs */
 import assert from 'node:assert/strict';
@@ -37,7 +47,8 @@ import { dirname, join } from 'node:path';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const mutation = process.env.META_OAUTH_MUTATION || '';
-assert.ok(['', 'any-admin', 'no-recheck', 'keep-short', 'loose-consume'].includes(mutation), `Unknown mutation ${mutation}`);
+assert.ok(['', 'any-admin', 'no-recheck', 'keep-short', 'loose-consume', 'review-open-start', 'review-open-callback', 'review-any-row']
+  .includes(mutation), `Unknown mutation ${mutation}`);
 
 const tmp = mkdtempSync(join(tmpdir(), 'meta-oauth-'));
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }));
@@ -55,12 +66,15 @@ function stage(fn, edits = []) {
 }
 const startEdits = mutation === 'any-admin'
   ? [['if (!mayConnect({ profile, profileError, membership, membershipError, companyId })) {', 'if (false) {']] : [];
+if (mutation === 'review-open-start') startEdits.push(['if (review && !mayUseReviewWorkspace(', 'if (false && !mayUseReviewWorkspace(']);
 const cbEdits = [];
 if (mutation === 'no-recheck') cbEdits.push(['if (!mayReconnect(stateRow, conn)) return fail', 'if (!conn) return fail']);
 if (mutation === 'keep-short') cbEdits.push(['if (expiresAt) {\n', 'if (false) {\n']);
 if (mutation === 'loose-consume') cbEdits.push([
   "if (consumeErr || !Array.isArray(consumed) || consumed.length !== 1) return fail('invalid_or_expired_state');\n    const stateRow = consumed[0];",
-  "const stateRow = consumed?.[0] ?? { company_entity_id: 'co-a', platform: 'meta_ads', user_id: null };"]);
+  "const stateRow = consumed?.[0] ?? { company_entity_id: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', platform: 'meta_ads', user_id: null };"]);
+if (mutation === 'review-open-callback') cbEdits.push(['if (!mayUseReviewWorkspace({ allowlist, companyId: stateRow', 'if (false && !mayUseReviewWorkspace({ allowlist, companyId: stateRow']);
+if (mutation === 'review-any-row') cbEdits.push(['if (review && !isReviewConnection(conn, stateRow.company_entity_id))', 'if (false)']);
 const { createStartHandler } = await import(stage('meta-oauth-start', startEdits));
 const { createCallbackHandler } = await import(stage('meta-oauth-callback', cbEdits));
 const M = await import(pathToFileURL(join(tmp, 'meta-oauth-start', 'meta-oauth-lib.mjs')).href);
@@ -114,7 +128,8 @@ function fakeDb(tables = {}, { failDelete = false } = {}) {
   return db;
 }
 
-const CO = 'co-a', OTHER = 'co-b';
+// uuids: the review allow-list accepts nothing else. OTHER is Baseballism's id.
+const CO = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', OTHER = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7';
 const ENV = {
   META_APP_ID: 'app-1', META_APP_SECRET: 'sec-1', META_LOGIN_CONFIG_ID: 'cfg-1',
   META_OAUTH_REDIRECT_URI: 'https://x.supabase.co/functions/v1/meta-oauth-callback', SILO_APP_URL: 'https://get-silo.com',
@@ -123,7 +138,7 @@ const NOW = 1_800_000_000_000;
 
 // ── 1-2. lib ────────────────────────────────────────────────────────────────
 await test('lib copies identical; mayConnect / mayReconnect match google-oauth-lib exactly', () => {
-  for (const fn of ['meta-oauth-start', 'meta-oauth-callback']) {
+  for (const fn of ['meta-oauth-start', 'meta-oauth-callback', 'meta-oauth-review']) {
     assert.equal(read(`supabase/functions/${fn}/meta-oauth-lib.mjs`), read('scripts/lib/meta-oauth-lib.mjs'), `${fn} drifted`);
   }
   const profiles = [null, { is_active: false, role: 'owner', active_company_id: CO },
@@ -295,6 +310,128 @@ await test('callback: a reconnect updates only the named row of its own company'
   const loc3 = (await createCallbackHandler({ env: ENV, admin: db3, fetchImpl, now: () => NOW })(cb({ code: 'c', state: 'n1' }))).headers.get('Location');
   assert.match(loc3, /oauth_error=reconnect_target_missing/);
   assert.equal(db3.tables.ad_platform_connections.find((r) => r.id === 'c-google').access_token, 'google');
+});
+
+// ── 7. App Review test mode ─────────────────────────────────────────────────
+const RT = (u) => `rt_${u}`;
+const UUID1 = '0b7c6a52-3a8e-4d55-9c1e-2f4d6e8a9b10';
+const RENV = { ...ENV, META_REVIEW_COMPANY_IDS: ` ${CO} , not-a-uuid` };
+function reviewStartDb({ active = CO } = {}) {
+  const db = fakeDb({
+    profiles: [{ id: 'u-admin', role: 'user', active_company_id: active, is_active: true },
+      { id: 'u-member', role: 'user', active_company_id: CO, is_active: true }],
+    entity_memberships: [{ entity_id: CO, user_id: 'u-admin', role: 'admin' }, { entity_id: CO, user_id: 'u-member', role: 'member' },
+      { entity_id: OTHER, user_id: 'u-admin', role: 'admin' }],
+    ad_platform_connections: [
+      { id: 'c-manual', company_entity_id: CO, platform: 'meta_ads', meta: { history_backfilled_at: 'x' } },
+      { id: 'c-review', company_entity_id: CO, platform: 'meta_ads', meta: { oauth: { review_test: true } } }],
+  });
+  db.users = { 'jwt-admin': { id: 'u-admin' }, 'jwt-member': { id: 'u-member' } };
+  return db;
+}
+const rv = (extra = {}) => ({ company_entity_id: CO, return_to: 'review_test', ...extra });
+
+await test('review start: unknown return_to, unset allow-list, outside workspace, inactive workspace, member -> no state', async () => {
+  const db = reviewStartDb();
+  const h = createStartHandler({ env: RENV, admin: db });
+  assert.equal((await h(post(rv({ return_to: 'https://evil' }), 'jwt-admin'))).status, 400);
+  assert.equal((await createStartHandler({ env: ENV, admin: db })(post(rv(), 'jwt-admin'))).status, 503, 'no allow-list, no review mode');
+  assert.equal((await createStartHandler({ env: { ...ENV, META_REVIEW_COMPANY_IDS: 'not-a-uuid' }, admin: db })(post(rv(), 'jwt-admin'))).status, 503,
+    'a malformed allow-list narrows to nothing');
+  assert.equal((await h(post(rv({ company_entity_id: OTHER }), 'jwt-admin'))).status, 403, 'an admin of a workspace NOT on the list (e.g. Baseballism)');
+  assert.equal((await h(post(rv(), 'jwt-member'))).status, 403);
+  assert.equal((await createStartHandler({ env: RENV, admin: reviewStartDb({ active: OTHER }) })(post(rv(), 'jwt-admin'))).status, 403,
+    'the allow-listed workspace must be the caller\'s ACTIVE one');
+  assert.equal((await h(post(rv({ connection_id: 'c-manual' }), 'jwt-admin'))).status, 404, 'a pasted-token row is never a review reconnect target');
+  assert.equal((db.tables.ad_platform_oauth_states || []).length, 0);
+});
+
+await test('review start: the state is rt_ + a full random uuid, stored like any other', async () => {
+  for (const extra of [{}, { connection_id: 'c-review' }]) {
+    const db = reviewStartDb();
+    const res = await createStartHandler({ env: RENV, admin: db })(post(rv(extra), 'jwt-admin'));
+    assert.equal(res.status, 200);
+    const st = db.tables.ad_platform_oauth_states[0];
+    assert.match(st.nonce, /^rt_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.equal(new URL((await res.json()).url).searchParams.get('state'), st.nonce);
+    assert.equal(st.company_entity_id, CO);
+    assert.equal(st.connection_id, extra.connection_id);
+  }
+  // Without return_to nothing changes: a plain uuid, as before.
+  const db = reviewStartDb();
+  await createStartHandler({ env: RENV, admin: db })(post({ company_entity_id: CO }, 'jwt-admin'));
+  assert.match(db.tables.ad_platform_oauth_states[0].nonce, /^[0-9a-f-]{36}$/);
+  assert.throws(() => M.reviewNonce('short'), /random uuid/);
+  assert.equal(M.isReviewState('rt_x'), false);
+});
+
+function reviewCbDb(state = {}, { active = CO, role = 'admin' } = {}) {
+  const db = cbDb({ nonce: RT(UUID1), ...state });
+  db.tables.profiles = [{ id: 'u-admin', role: 'user', active_company_id: active, is_active: true }];
+  db.tables.entity_memberships = [{ entity_id: CO, user_id: 'u-admin', role }];
+  db.tables.ad_platform_connections.push({ id: 'c-review', company_entity_id: CO, platform: 'meta_ads', access_token: 'rev-old',
+    meta: { oauth: { review_test: true, token_type: 'system_user' }, keep: 1 } });
+  return db;
+}
+const TEST_PAGE = /^https:\/\/get-silo\.com\/testing\/meta-oauth\.html\?/;
+
+await test('review callback: a review connection is marked review_test and returns to the test page', async () => {
+  const db = reviewCbDb();
+  const { fetchImpl } = fakeMeta();
+  const loc = (await createCallbackHandler({ env: RENV, admin: db, fetchImpl, now: () => NOW })(cb({ code: 'c', state: RT(UUID1) }))).headers.get('Location');
+  assert.match(loc, TEST_PAGE);
+  assert.match(loc, /oauth_connected=1&platform=meta_ads&connection_id=id-5$/);
+  const row = db.tables.ad_platform_connections.find((r) => r.id === 'id-5');
+  assert.equal(row.company_entity_id, CO);
+  assert.equal(row.meta.oauth.review_test, true);
+  assert.equal(row.sync_enabled, false, 'nightly sync stays off');
+  assert.equal(db.tables.ad_platform_connections.find((r) => r.id === 'c-mine').access_token, 'old', 'the pasted-token row is untouched');
+});
+
+await test('review callback: allow-list removed, admin demoted or workspace switched -> no code exchange, no write', async () => {
+  for (const [env, opts, why] of [[ENV, {}, 'allow-list unset'], [RENV, { role: 'member' }, 'no longer admin'], [RENV, { active: OTHER }, 'switched workspace'],
+    [{ ...ENV, META_REVIEW_COMPANY_IDS: OTHER }, {}, 'workspace taken off the list']]) {
+    const db = reviewCbDb({}, opts);
+    const { fetchImpl, calls } = fakeMeta();
+    const loc = (await createCallbackHandler({ env, admin: db, fetchImpl, now: () => NOW })(cb({ code: 'c', state: RT(UUID1) }))).headers.get('Location');
+    assert.match(loc, TEST_PAGE, why);
+    assert.match(loc, /oauth_error=review_not_allowed/, why);
+    assert.equal(calls.length, 0, `${why}: no code exchanged`);
+    assert.equal(db.log.filter((e) => e[0] === 'insert' || e[0] === 'update').length, 0, why);
+  }
+});
+
+await test('review callback: a forged rt_ state grants nothing; the error still lands on the test page', async () => {
+  const db = reviewCbDb();
+  const { fetchImpl, calls } = fakeMeta();
+  const h = createCallbackHandler({ env: RENV, admin: db, fetchImpl, now: () => NOW });
+  const loc = (await h(cb({ code: 'c', state: RT('11111111-2222-4333-8444-555555555555') }))).headers.get('Location');
+  assert.match(loc, TEST_PAGE);
+  assert.match(loc, /oauth_error=invalid_or_expired_state/);
+  assert.equal(calls.length, 0);
+  assert.equal(db.tables.ad_platform_oauth_states.length, 1, 'the real state is still unconsumed');
+  // An ordinary state is NOT turned into a review one by anything in the URL.
+  const db2 = reviewCbDb({ nonce: 'n1' });
+  const loc2 = (await createCallbackHandler({ env: RENV, admin: db2, fetchImpl: fakeMeta().fetchImpl, now: () => NOW })(cb({ code: 'c', state: 'n1' }))).headers.get('Location');
+  assert.match(loc2, /^https:\/\/get-silo\.com\/v2\/integrations\.html\?oauth_connected=1/);
+  assert.equal(db2.tables.ad_platform_connections.at(-1).meta.oauth.review_test, undefined);
+});
+
+await test('review callback: a reconnect touches only a review row, and keeps its mark', async () => {
+  const db = reviewCbDb({ connection_id: 'c-mine' });
+  const loc = (await createCallbackHandler({ env: RENV, admin: db, fetchImpl: fakeMeta().fetchImpl, now: () => NOW })(cb({ code: 'c', state: RT(UUID1) }))).headers.get('Location');
+  assert.match(loc, /oauth_error=reconnect_target_missing/);
+  assert.equal(db.tables.ad_platform_connections.find((r) => r.id === 'c-mine').access_token, 'old', 'pasted-token row untouched');
+
+  const db2 = reviewCbDb({ connection_id: 'c-review' });
+  const loc2 = (await createCallbackHandler({ env: RENV, admin: db2, fetchImpl: fakeMeta().fetchImpl, now: () => NOW })(cb({ code: 'c', state: RT(UUID1) }))).headers.get('Location');
+  assert.match(loc2, TEST_PAGE);
+  assert.match(loc2, /connection_id=c-review&reconnected=1$/);
+  const r = db2.tables.ad_platform_connections.find((x) => x.id === 'c-review');
+  assert.equal(r.access_token, 'code-token');
+  assert.equal(r.meta.oauth.review_test, true);
+  assert.equal(r.meta.keep, 1);
+  assert.equal(db2.tables.ad_platform_connections.length, 4, 'no new row');
 });
 
 // ── 5. deploy ───────────────────────────────────────────────────────────────
