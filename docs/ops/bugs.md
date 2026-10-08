@@ -24,6 +24,18 @@ redeploy.
 
 ---
 
+## Shared freight invoices are not linked to their POs (P2)
+
+Found 2026-10-08. A freight payment request covering several POs stores them as one comma-joined
+text value (`payment_requests.internal_po_number`), and nothing links it to `po_headers`. Phase 1
+(Costing finds a shared request on each of its POs and never prefills the full shared amount into
+one PO) is in `docs/ops/freight-multi-po.md`. Still open: there is no record of which request a PO's
+freight came from, and nothing checks that the shares saved across a shared invoice's POs add up to
+the invoice. Phase 2 (a link table, allocation and approval) is planned in the same file and needs
+decisions and a migration approval first.
+
+---
+
 ## `company-onboarding-database.test.mjs` fails on `main` right now (P1)
 
 Found 2026-09-30 reviewing PR #830 (unrelated diff — pure UX/permission fix,
