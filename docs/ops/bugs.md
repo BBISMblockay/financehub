@@ -12,6 +12,18 @@ See below.
 
 ---
 
+## Integrations' ad-account picker lists only the first 50 Meta ad accounts / Pages (P3)
+
+Found 2026-10-08 (PR #933 review, cycle 1). `test-ad-platform-connection`
+lists `me/adaccounts` and `me/accounts` with `limit=50` and ignores
+`paging.next`, so a Meta token that reaches more than 50 ad accounts or Pages
+shows only the first 50 in Integrations' picker. Workaround: type the account
+id into the row. The App Review test page's own discovery (`meta-oauth-review`)
+follows paging; porting the same walk here needs a `test-ad-platform-connection`
+redeploy.
+
+---
+
 ## `company-onboarding-database.test.mjs` fails on `main` right now (P1)
 
 Found 2026-09-30 reviewing PR #830 (unrelated diff — pure UX/permission fix,

@@ -21,6 +21,12 @@
  *   6. sync forwards to ad-platform-sync-run with the caller's own JWT.
  *   7. The probe's metrics and discovery fields equal the sync's and
  *      test-ad-platform-connection's (so a recording shows the real calls).
+ *   9. Discovery follows paging.next (an asset on page 2 is listed AND
+ *      selectable) and never sends the token to a non-Graph host.
+ *  10. The page's request plumbing (testing/meta-oauth-client.js, run in a vm):
+ *      a rejected fetch becomes { status: 0, data.ok false }; an out-of-order
+ *      asset list is dropped so Save targets the connection shown; busy
+ *      buttons are restored on success and on failure.
  *   8. Static: the page writes nothing to the database itself and calls only
  *      meta-oauth-start / meta-oauth-review; it is not in the nav, and
  *      v2/integrations.html and v2/nav-config.js do not reference it; the
@@ -30,9 +36,13 @@
  *   META_REVIEW_MUTATION=open-gate        (skip the review-workspace check)
  *   META_REVIEW_MUTATION=any-row          (skip the review-row check)
  *   META_REVIEW_MUTATION=trust-selection  (accept an ad account without re-listing)
+ *   META_REVIEW_MUTATION=no-paging        (discovery stops at the first page)
+ *   META_REVIEW_MUTATION=stale-accept     (the chooser accepts any response)
+ *   META_REVIEW_MUTATION=no-catch         (a rejected fetch escapes callFunction)
  *
  * Run: node scripts/tests/meta-oauth-review.test.mjs */
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -42,7 +52,7 @@ import { dirname, join } from 'node:path';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const mutation = process.env.META_REVIEW_MUTATION || '';
-assert.ok(['', 'open-gate', 'any-row', 'trust-selection'].includes(mutation), `Unknown mutation ${mutation}`);
+assert.ok(['', 'open-gate', 'any-row', 'trust-selection', 'no-paging', 'stale-accept', 'no-catch'].includes(mutation), `Unknown mutation ${mutation}`);
 
 const tmp = mkdtempSync(join(tmpdir(), 'meta-review-'));
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }));
@@ -53,6 +63,7 @@ const edit = (from, to) => { assert.ok(src.includes(from), `mutation anchor miss
 if (mutation === 'open-gate') edit('if (!mayUseReviewWorkspace({ allowlist, companyId,', 'if (false && !mayUseReviewWorkspace({ allowlist, companyId,');
 if (mutation === 'any-row') edit('if (connErr || !isReviewConnection(conn, companyId))', 'if (connErr || !conn)');
 if (mutation === 'trust-selection') edit('if (!assets.ad_accounts.some((a) => a.id === adAccountId))', 'if (false)');
+if (mutation === 'no-paging') edit('      url = safe;\n', '      url = null;\n');
 writeFileSync(join(tmp, 'fn', 'handler.mjs'), src);
 const { META_PERMISSIONS } = await import(pathToFileURL(join(tmp, 'fn', 'meta-oauth-lib.mjs')).href);
 const { createReviewHandler, PROBE_PAGE_METRICS, PROBE_IG_METRICS, AD_ACCOUNT_FIELDS, PAGE_FIELDS, REVIEW_ACTIONS } =
@@ -126,7 +137,7 @@ function world({ active = CO, role = 'admin' } = {}) {
   return db;
 }
 
-function fakeGraph() {
+function fakeGraph({ paged = false, evilNext = false } = {}) {
   const calls = [];
   const ok = (body) => new Response(JSON.stringify(body));
   const fetchImpl = async (url, opts) => {
@@ -135,6 +146,15 @@ function fakeGraph() {
     if (u.host === 'x.supabase.co') return ok({ ok: true, kpi_rows_upserted: 30, window: { startDate: 'a', endDate: 'b' } });
     const path = u.pathname.replace(/^\/v[\d.]+\//, '');
     const fields = u.searchParams.get('fields');
+    if (u.host !== 'graph.facebook.com') throw new Error(`token sent to ${u.host}`);
+    const after = u.searchParams.get('after');
+    const next = (cursor) => ({ next: `${u.origin}${u.pathname}?${new URLSearchParams({ ...Object.fromEntries(u.searchParams), after: cursor })}` });
+    if (path === 'me/adaccounts' && paged && !after) return ok({ data: [{ id: 'act_1', name: 'Demo ads', currency: 'USD' }], paging: next('A2') });
+    if (path === 'me/adaccounts' && after === 'A2') return ok({ data: [{ id: 'act_2', name: 'Page-two ads', currency: 'EUR' }], ...(evilNext ? { paging: { next: 'https://evil.example/steal?x=1' } } : {}) });
+    if (path === 'me/adaccounts') return ok({ data: [{ id: 'act_1', name: 'Demo ads', currency: 'USD' }] });
+    if (path === 'me/accounts' && paged && !after && !fields.includes('instagram')) return ok({ data: [{ id: 'p1', name: 'Demo Page' }] });
+    if (path === 'me/accounts' && paged && !after) return ok({ data: [{ id: 'p1', name: 'Demo Page', instagram_business_account: { id: 'ig1', username: 'demo' } }], paging: next('P2') });
+    if (path === 'me/accounts' && after === 'P2') return ok({ data: [{ id: 'p3', name: 'Page-two Page', instagram_business_account: { id: 'ig3', username: 'two' } }] });
     if (path === 'me/adaccounts') return ok({ data: [{ id: 'act_1', name: 'Demo ads', currency: 'USD' }] });
     if (path === 'me/accounts') return ok({ data: [{ id: 'p1', name: 'Demo Page', instagram_business_account: { id: 'ig1', username: 'demo' } }, { id: 'p2', name: 'Other Page' }] });
     if (path === 'act_1') return ok({ id: 'act_1', name: 'Demo ads', currency: 'USD', account_status: 1 });
@@ -300,6 +320,92 @@ await test('the probe\'s metrics and discovery fields are the sync\'s and the te
   const tester = read('supabase/functions/test-ad-platform-connection/index.ts');
   assert.ok(tester.includes(`me/adaccounts?fields=${AD_ACCOUNT_FIELDS}&`), 'ad account discovery fields');
   assert.ok(tester.includes(`fields: '${PAGE_FIELDS}'`), 'Page discovery fields');
+});
+
+// ── 9. pagination ───────────────────────────────────────────────────────────
+await test('discovery follows paging.next: a page-two ad account and Page are listed and selectable', async () => {
+  const db = world();
+  const { fetchImpl } = fakeGraph({ paged: true });
+  const h = createReviewHandler({ env: ENV, admin: db, fetchImpl, now: () => NOW });
+  const list = await call(h, { action: 'list_assets', connection_id: 'c-rev' });
+  assert.deepEqual(list.body.ad_accounts.map((a) => a.id), ['act_1', 'act_2']);
+  assert.deepEqual(list.body.pages.map((p) => p.page_id), ['p1', 'p3']);
+  assert.equal(list.body.truncated, false);
+  const r = await call(h, { action: 'select_assets', connection_id: 'c-rev', ad_account_id: 'act_2', page_id: 'p3', instagram_business_account_id: 'ig3' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const row = db.tables.ad_platform_connections.find((x) => x.id === 'c-rev');
+  assert.deepEqual([row.meta_ad_account_id, row.facebook_page_id, row.instagram_business_account_id], ['act_2', 'p3', 'ig3']);
+});
+
+await test('discovery never follows a paging.next off graph.facebook.com (the token is in it)', async () => {
+  const { fetchImpl, calls } = fakeGraph({ paged: true, evilNext: true });
+  const r = await call(createReviewHandler({ env: ENV, admin: world(), fetchImpl }), { action: 'list_assets', connection_id: 'c-rev' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.truncated, true, 'reported, not silently cut');
+  assert.deepEqual(r.body.ad_accounts.map((a) => a.id), ['act_1', 'act_2']);
+  assert.ok(calls.every((c) => new URL(c.url).host === 'graph.facebook.com'));
+});
+
+// ── 10. the page's request plumbing ─────────────────────────────────────────
+let clientSrc = read('testing/meta-oauth-client.js');
+const editClient = (from, to) => { assert.ok(clientSrc.includes(from), `client mutation anchor missing: ${from}`); clientSrc = clientSrc.replace(from, to); };
+if (mutation === 'stale-accept') editClient('if (!current || current.token !== token) return false;', 'if (!current) return false;');
+if (mutation === 'no-catch') editClient('} catch (err) {\n      return { status: 0,', '} finally {\n      if (0) return { status: 0,');
+const sandbox = {};
+vm.runInNewContext(clientSrc, sandbox);
+const C = sandbox.SiloMetaReviewClient;
+
+await test('client: a rejected fetch or a non-JSON answer still yields { status, data } with an error', async () => {
+  const down = await C.callFunction(async () => { throw new TypeError('Failed to fetch'); }, 'u', {});
+  assert.equal(down.status, 0);
+  assert.equal(down.data.ok, false);
+  assert.match(down.data.error, /Network error: Failed to fetch/);
+  const html = await C.callFunction(async () => new Response('<html>502</html>', { status: 502 }), 'u', {});
+  assert.equal(html.status, 502);
+  assert.equal(html.data.ok, false);
+  assert.match(html.data.error, /HTTP 502/);
+});
+
+await test('client: an out-of-order asset list is dropped; Save targets the connection whose list is shown', () => {
+  const s = C.createAssetSession();
+  const a = s.begin('conn-A');
+  const b = s.begin('conn-B');
+  assert.equal(s.accept(b, { ad_accounts: [{ id: 'act_B' }] }), true, 'B answers first');
+  assert.equal(s.accept(a, { ad_accounts: [{ id: 'act_A' }] }), false, "A's slower answer is ignored");
+  assert.equal(s.isCurrent(a), false);
+  const active = s.active();
+  assert.equal(active.connectionId, 'conn-B');
+  assert.equal(active.data.ad_accounts[0].id, 'act_B', 'list and connection travel together');
+  s.clear(a);
+  assert.ok(s.active(), "clearing for a stale request leaves the newer chooser");
+  s.clear(b);
+  assert.equal(s.active(), null);
+  const c = s.begin('conn-C');
+  assert.equal(s.active(), null, 'nothing to save until the list loads');
+  s.accept(c, { ad_accounts: [] });
+  assert.equal(s.active().connectionId, 'conn-C');
+});
+
+await test('client: busy buttons are restored after success and after failure', async () => {
+  const btn = { disabled: false, textContent: 'Sync now' };
+  let seen;
+  await C.withBusy(btn, 'Syncing…', async () => { seen = [btn.disabled, btn.textContent]; return 1; });
+  assert.deepEqual(seen, [true, 'Syncing…']);
+  assert.deepEqual([btn.disabled, btn.textContent], [false, 'Sync now']);
+  await assert.rejects(C.withBusy(btn, 'Syncing…', async () => { throw new Error('boom'); }), /boom/);
+  assert.deepEqual([btn.disabled, btn.textContent], [false, 'Sync now']);
+});
+
+await test('page: every call goes through callFunction, every busy button through withBusy, stale lists are checked', () => {
+  const js = read('testing/meta-oauth.js');
+  const html = read('testing/meta-oauth.html');
+  assert.ok(html.indexOf('meta-oauth-client.js') > 0 && html.indexOf('meta-oauth-client.js') < html.indexOf('src="meta-oauth.js"'), 'client loads first');
+  assert.equal((js.match(/\bfetch\(/g) || []).length, 0, 'no raw fetch( call; callFunction is handed fetch');
+  assert.match(js, /return callFunction\(fetch,/);
+  assert.doesNotMatch(js, /btn\.disabled\s*=|btn\.textContent\s*=/, 'buttons are only toggled by withBusy');
+  assert.match(js, /if \(!assets\.isCurrent\(token\)\) return;/);
+  assert.match(js, /connection_id: active\.connectionId/);
+  assert.doesNotMatch(js, /assetConn|assetData/);
 });
 
 // ── 8. static guards ────────────────────────────────────────────────────────

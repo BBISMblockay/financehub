@@ -13,7 +13,8 @@
 //
 // Actions (POST { action, connection_id?, ... }):
 //   status         the workspace and its review connections (never a token)
-//   list_assets    ad accounts and Pages (+ linked Instagram) the token reaches
+//   list_assets    ad accounts and Pages (+ linked Instagram) the token reaches,
+//                  every page (paging.next, capped at MAX_DISCOVERY_PAGES)
 //   select_assets  save the chosen ad account / Page / Instagram account, after
 //                  re-listing server-side: only an asset the token can reach is
 //                  accepted. sync_enabled is NOT switched on (no nightly sync)
@@ -47,6 +48,9 @@ const CONNECTION_COLUMNS = 'id, company_entity_id, platform, display_name, is_ac
   + 'meta_ad_account_id, facebook_page_id, instagram_business_account_id, '
   + 'last_tested_at, last_test_success, last_test_error, meta, created_at';
 
+/** Discovery follows paging.next up to this many pages (100 items each). */
+export const MAX_DISCOVERY_PAGES = 10;
+
 const graph = (path, params) => `https://graph.facebook.com/${META_GRAPH_VERSION}/${path}?${new URLSearchParams(params)}`;
 const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
 
@@ -77,14 +81,34 @@ export function createReviewHandler({ env, admin, fetchImpl, now = () => Date.no
     return { ok: true, data };
   };
 
+  // Every page of a Graph list. paging.next carries the token, so it is
+  // followed only to graph.facebook.com over https; anything else stops the
+  // walk and is reported as truncated rather than sent the token.
+  const getAllPages = async (firstUrl) => {
+    const items = [];
+    let url = firstUrl;
+    for (let page = 0; url && page < MAX_DISCOVERY_PAGES; page += 1) {
+      const r = await getGraph(url);
+      if (!r.ok) return page === 0 ? r : { ok: true, items, truncated: true, error: r.error };
+      items.push(...(r.data.data ?? []));
+      const next = r.data.paging?.next;
+      let safe = null;
+      try { const u = new URL(next); if (u.protocol === 'https:' && u.hostname === 'graph.facebook.com') safe = u.toString(); } catch { /* none */ }
+      if (next && !safe) return { ok: true, items, truncated: true };
+      url = safe;
+    }
+    return { ok: true, items, truncated: Boolean(url) };
+  };
+
   async function listAssets(token) {
-    const accts = await getGraph(graph('me/adaccounts', { fields: AD_ACCOUNT_FIELDS, limit: '50', access_token: token }));
+    const accts = await getAllPages(graph('me/adaccounts', { fields: AD_ACCOUNT_FIELDS, limit: '100', access_token: token }));
     if (!accts.ok) return { ok: false, error: `Meta adaccounts: ${accts.error}` };
-    const pages = await getGraph(graph('me/accounts', { fields: PAGE_FIELDS, limit: '50', access_token: token }));
+    const pages = await getAllPages(graph('me/accounts', { fields: PAGE_FIELDS, limit: '100', access_token: token }));
     return {
       ok: true,
-      ad_accounts: (accts.data.data ?? []).map((a) => ({ id: String(a.id), name: a.name ?? null, currency: a.currency ?? null })),
-      pages: pages.ok ? (pages.data.data ?? []).map((p) => ({
+      truncated: Boolean(accts.truncated || pages.truncated),
+      ad_accounts: accts.items.map((a) => ({ id: String(a.id), name: a.name ?? null, currency: a.currency ?? null })),
+      pages: pages.ok ? pages.items.map((p) => ({
         page_id: String(p.id), page_name: p.name ?? null,
         instagram_business_account_id: p.instagram_business_account?.id ? String(p.instagram_business_account.id) : null,
         instagram_username: p.instagram_business_account?.username ?? null,

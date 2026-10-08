@@ -635,7 +635,7 @@ jobs:
       - name: The Meta App Review guards, removed, must break it
         run: |
           set -u
-          for m in open-gate any-row trust-selection; do
+          for m in open-gate any-row trust-selection no-paging stale-accept no-catch; do
             if META_REVIEW_MUTATION="$m" node scripts/tests/meta-oauth-review.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite"
               exit 1
