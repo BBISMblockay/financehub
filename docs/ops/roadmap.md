@@ -266,6 +266,19 @@ See CLAUDE.md for the full mechanism — this section tracks only what is left.
       signed-in router (ops / planning / marketing / retail departments
       sent to root pages that do not exist) went with it
 
+- [ ] **Meta one-click connect (Facebook Login for Business).** Submitted to
+      Meta App Review 2026-10-08 ("Review in progress", up to ~20 days). The
+      isolated test flow is live and every reporting permission verified ok
+      on a real non-Baseballism business; status and next steps in
+      `docs/ops/public-app-review.md` Part 2 (2.8). Waiting on Meta. Then: if
+      `ads_read` is rejected, resubmit it with a clip from an ad account with
+      delivery; publish the app; the activation PR (Connect Meta in
+      Integrations, Part 3). Until then, pasted System User tokens stay the
+      only live path. Keep the reviewer login, test connection and
+      `/testing/meta-oauth.html` in place until Meta decides
+- [ ] **Shopify public app** — code merged (#927), not yet configured,
+      deployed or submitted (`docs/ops/public-app-review.md` Part 1)
+
 ### Built but not surfaced (audited 2026-09-10)
 
 A ledger, not a to-do list. Each item has a documented reason for being

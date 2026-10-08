@@ -3,7 +3,8 @@
 Goal: a tenant connects Shopify and Meta with one click, with no Dev Dashboard app and no
 pasted System User token. Both need a public listing approved by the platform.
 
-**Status (2026-10-07): implementation complete, verification pending.** Everything below is
+**Status (2026-10-08).** Meta: **live, verified and submitted for App Review** (Part 2, 2.8).
+Shopify: implementation complete, verification pending (unchanged since 2026-10-07). Everything below is
 ADDITIVE. The current flows (typed shop domain, store-owned Dev Dashboard app, pasted
 `shpat_` / System User token) are untouched and keep working. The new code is not linked
 from Integrations. Activating it is a separate small PR (see the end of this file), after
@@ -120,12 +121,16 @@ of the full order history"), once the app is approved.
 
 **Decision 2026-10-08:** reuse the existing Meta app **1809676850412480**, owned by Baseballism's
 business portfolio (business verification complete; Tech Provider access verification in review).
-This replaces the 2026-10-07 plan of a separate app. App Review is saved as a draft.
+This replaces the 2026-10-07 plan of a separate app.
 
-**Status (2026-10-08): implementation complete, verification pending.** A test flow exists at
-`/testing/meta-oauth.html`. It is not linked from Integrations or the nav, and Integrations, the
-nav and the pasted System User token path are unchanged. Nothing is deployed, applied or
-configured. Every **[Blake]** step needs your approval in the session.
+**Status (2026-10-08, end of day): submitted to App Review, "Review in progress"** (Meta: most
+reviews within 20 days). The test flow at `/testing/meta-oauth.html` is live and was verified end
+to end against a real business (2.8). It is not linked from Integrations or the nav; Integrations,
+the nav and every pasted System User token connection are unchanged. Code: #933, #934.
+
+**Keep in place until Meta decides:** the reviewer login, the test connection in the "Meta App
+Review" workspace, and the test page. Watch the app's Alert Inbox and `support@get-silo.com`;
+answer Meta the same day.
 
 ### 2.1 How the test flow is isolated
 
@@ -158,7 +163,7 @@ reference page.
 | `read_insights` | `GET /{page}/insights?metric=page_media_view,page_total_media_view_unique,page_post_engagements&period=day` (with the Page token). | Reads daily Page insights (media views, unique media views, post engagements) for the selected Page, for SILO's organic marketing report. |
 | `instagram_basic` | `GET /{ig-user}/media?fields=id,media_type,caption,permalink,thumbnail_url,timestamp,like_count,comments_count`. | Reads the connected Instagram professional account's recent media list (type, caption, link, date, likes, comments). |
 | `instagram_manage_insights` | `GET /{ig-media}/insights?metric=views,reach,shares,saved`. | Reads views, reach, shares and saves for that media, for SILO's organic report. |
-| `business_management` | **No SILO call uses the Business Manager API, and the configuration (2026-10-08) does not request it.** Meta's references note a possible need: IG User Media — *"If the app user was granted a role on the Page via the Business Manager, you will also need one of: ads_management business_management"*; Page — *"If using a business system user in your request, the business_management permission may be required."* | Not requested. The first live **Verify permissions** run settles it: if `instagram_basic` or the Page calls fail with a permission error, add it to the configuration (and the review) with: "Required by Meta for a business system user token to read the Instagram media and Page fields of assets granted through Business Manager. SILO does not create, edit or claim business assets." The existing app permission is not removed. |
+| `business_management` | **No SILO call uses the Business Manager API, and the configuration (2026-10-08) does not request it.** Meta's references note a possible need: IG User Media — *"If the app user was granted a role on the Page via the Business Manager, you will also need one of: ads_management business_management"*; Page — *"If using a business system user in your request, the business_management permission may be required."* | **Not needed (settled live 2026-10-08):** with the six-permission configuration, the Page token, follower count, Page insights, Instagram media and media insights all returned ok. Not used by SILO; if Meta asks, say so. The existing app permission is not removed. |
 | `ads_management` | **Not used. Not requested.** Meta lists it only as an alternative to `business_management` for Instagram media, and SILO writes nothing. | — |
 
 *Ads Management Standard Access* is a Marketing API **feature** (rate-limit tier), not the
@@ -189,7 +194,15 @@ Keep these as they are:
 
 Adding a product or a configuration does not change existing connections or tokens.
 
-### 2.4 Secrets, migration, deploy [Blake — each needs approval]
+### 2.4 Secrets, migration, deploy — done 2026-10-08 (Blake)
+
+Applied, deployed and set on 2026-10-08. Live check: `meta-oauth-callback` answers an
+unauthenticated GET with its own `302 …oauth_error=missing_params` (public, as required);
+`meta-oauth-start` and `meta-oauth-review` are JWT-verified. #934's `meta-oauth-review` change is
+live too: a Page-only save succeeded on the test page after it was merged and redeployed.
+`META_REVIEW_COMPANY_IDS` = the "Meta App Review" workspace (`757562df-52b9-43d1-a27a-13a7dc44367e`).
+Note: the Supabase function list did not show `meta-oauth-callback` right after its deploy;
+probe the URL rather than trusting the list.
 
 1. Edge-function secrets:
    - `META_APP_ID=1809676850412480`
@@ -203,7 +216,7 @@ Adding a product or a configuration does not change existing connections or toke
    `meta-oauth-review` (JWT) through the Deploy Edge Function workflow from `main`. No other
    function changes. Until all three are deployed, the drift check reports them as owed.
 
-### 2.5 Reviewer access (decisions open)
+### 2.5 Reviewer access (resolved 2026-10-08; background kept below)
 
 What Meta's docs say (fetched 2026-10-08):
 - Reviewers test the app themselves: *"We will test your app using our own test accounts. Do not
@@ -232,26 +245,23 @@ SILO side (verified 2026-10-08):
 - The precedent is the "Google Verification" workspace (`meta.isolated_review_workspace = true`),
   whose only member is one admin with no other workspace.
 
-Proposed setup **[Blake: approve before anything is created]**:
-1. Create a workspace "Meta App Review" on the Google Verification pattern.
-2. Invite one reviewer login as its only member, `admin`, with no other memberships.
-3. Put the workspace's id in `META_REVIEW_COMPANY_IDS`.
-4. Enter the email and password **only** in App Review → Platform Settings / testing
-   instructions. Never in chat, Git or a screenshot.
-
-Decisions still open:
-1. **Which Meta assets the recording and the reviewer use.**
-   - (a) A non-Baseballism business with a Page, an Instagram account and an ad account that
-     has some delivery.
-   - (b) A sandbox ad account (insights support unverified) plus a Page and Instagram account.
-   - (c) Baseballism's own assets, which **would copy live Baseballism ad and organic data into
-     the review workspace**. Not without your explicit approval.
-2. **How reviewers complete the system-user login** without an app role (see above). Ask Meta
-   (developer support or the App Review notes) before submitting, or record the full flow and
-   state in the testing instructions which test business to use.
-3. **Nightly sync for the test connection.** It is off by default. Turning it on fills Page and
-   Instagram tables for the "Stored data" view; without it, the page shows them through
-   "Verify permissions" only.
+What was set up (2026-10-08):
+1. Workspace **"Meta App Review"** (`757562df-52b9-43d1-a27a-13a7dc44367e`), created through Silo
+   Admin → Platform invitations. Its only member is the reviewer login `meta-review@get-silo.com`
+   (`owner_admin`, no other membership, verified in the database). The password lives only in
+   Meta's reviewer-instructions field.
+2. **Assets: a non-Baseballism business** (Meta business `293325484884218`): Page "Reclaimed Hair
+   Salon & Spa", its Instagram account, and a new ad account `act_1656703769362753` with no
+   delivery. Baseballism's assets were deliberately not connected (they would have put live
+   Baseballism data in front of the reviewer login, and granted a new system user on
+   Baseballism's business).
+3. **Reviewer path:** the reviewer instructions point at
+   `https://silo-baseballism.com/pages/login.html?next=/testing/meta-oauth.html` and say a
+   connection to the sample business is already set up, so a reviewer whose own test account has
+   no Page can still run **Verify permissions** on it. Whether Meta's reviewers can complete the
+   system-user login themselves remains **unknown** (Meta documents no path for a tester without
+   an app role).
+4. **Nightly sync for the test connection: off** (`sync_enabled = false`); not switched on.
 
 ### 2.6 Reviewer instructions (draft for Platform Settings)
 
@@ -286,6 +296,45 @@ Per https://developers.facebook.com/docs/app-review/submission-guide/screen-reco
 - [ ] `ads_read` in the product: Sync now → Stored data (impressions, clicks, spend by day).
 - [ ] Optionally, a Reconnect, showing the same connection renewed in place.
 - [ ] No secrets, tokens or reviewer passwords on screen. The page never displays a token.
+
+### 2.8 Live verification and submission (2026-10-08)
+
+**Test connection** (review workspace only): one row, made through Facebook Login for Business,
+`token_type = system_user`, `token_expires_at` null, `meta.oauth.review_test = true`,
+`sync_enabled = false`. Reconnect renewed the same row (no second row). The three other Meta
+connections (Baseballism, Test Company, Bat Nutz; pasted tokens) were not touched.
+
+**Verify permissions** on that connection, all **ok**:
+
+| Permission | Result |
+|---|---|
+| `ads_read` | Ad account read (name, USD, status active). Insights call succeeds with **no rows**: the ad account has never delivered |
+| `pages_show_list` | 1 Page; the chosen Page is listed |
+| `pages_read_engagement` | Page token issued; follower count 669 |
+| `read_insights` | Daily series for all three Page metrics |
+| `instagram_basic` | Recent media listed |
+| `instagram_manage_insights` | Views / reach / shares / saves returned for a post |
+
+**Found and fixed during the live run:**
+- An asset the login cannot grant ("sellerdummyaccount") makes Meta's own dialog fail with
+  "business assets were not granted the requested permissions". Leave it unselected.
+- A login with Pages but no ad account could not save (`ad_account_id required`). #934 makes an
+  ad account or a Page sufficient.
+
+**Submitted 2026-10-08** with one screen recording (attached to each permission with timestamp
+notes) and a reviewer-guide PDF. Meta's request list as submitted: `pages_show_list`,
+`pages_read_engagement`, `read_insights`, `instagram_basic`, `instagram_manage_insights`,
+`ads_read`, plus `ads_management`, `business_management`, `public_profile` and the Marketing API
+Access Tier, which were left in the request. Expected per item:
+- The five Page/Instagram permissions: shown granted and used with real data.
+- `ads_read`: access shown, no performance data (no delivery). May be rejected; the fix is a few
+  dollars of delivery on `act_1656703769362753`, Verify → Sync now → Stored data, and a short
+  clip resubmitted for `ads_read` alone.
+- `ads_management`, `business_management`: **not used by SILO**; expect rejection, which blocks
+  nothing. If asked: "SILO does not use these; it is read-only and its token works without them."
+- `public_profile`: normally granted by default.
+
+**After approval:** publish the app (Publish shows "Unpublished"), then Part 3's activation PR.
 
 ## Part 3 — Activation (a later, separate PR; only after both approvals)
 
