@@ -62,7 +62,7 @@ let src = read('supabase/functions/meta-oauth-review/handler.mjs');
 const edit = (from, to) => { assert.ok(src.includes(from), `mutation anchor missing: ${from.slice(0, 60)}`); src = src.replace(from, to); };
 if (mutation === 'open-gate') edit('if (!mayUseReviewWorkspace({ allowlist, companyId,', 'if (false && !mayUseReviewWorkspace({ allowlist, companyId,');
 if (mutation === 'any-row') edit('if (connErr || !isReviewConnection(conn, companyId))', 'if (connErr || !conn)');
-if (mutation === 'trust-selection') edit('if (!assets.ad_accounts.some((a) => a.id === adAccountId))', 'if (false)');
+if (mutation === 'trust-selection') edit('if (adAccountId && !assets.ad_accounts.some((a) => a.id === adAccountId))', 'if (false)');
 if (mutation === 'no-paging') edit('      url = safe;\n', '      url = null;\n');
 writeFileSync(join(tmp, 'fn', 'handler.mjs'), src);
 const { META_PERMISSIONS } = await import(pathToFileURL(join(tmp, 'fn', 'meta-oauth-lib.mjs')).href);
@@ -248,7 +248,8 @@ await test('select_assets: only reachable assets; Instagram only via its Page; s
     [{ ad_account_id: 'act_1', page_id: 'p9' }, 'a Page the token cannot reach'],
     [{ ad_account_id: 'act_1', page_id: 'p2', instagram_business_account_id: 'ig1' }, 'Instagram not linked to that Page'],
     [{ ad_account_id: 'act_1', instagram_business_account_id: 'ig1' }, 'Instagram without its Page'],
-    [{}, 'no ad account'],
+    [{}, 'neither an ad account nor a Page'],
+    [{ page_id: 'p2', instagram_business_account_id: 'ig1' }, 'Page-only: Instagram not linked to that Page'],
   ]) {
     const db = world();
     const r = await call(createReviewHandler({ env: ENV, admin: db, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }), { action: 'select_assets', connection_id: 'c-rev', ...body });
@@ -264,6 +265,22 @@ await test('select_assets: only reachable assets; Instagram only via its Page; s
   assert.equal(row.sync_enabled, false, 'choosing assets does not switch on the nightly sync');
   assert.equal(writes(db).length, 1);
   assert.ok(!('sync_enabled' in writes(db)[0][2]));
+});
+
+await test('select_assets: a login with Pages and no ad account saves Page + Instagram alone', async () => {
+  const db = world();
+  const r = await call(createReviewHandler({ env: ENV, admin: db, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }),
+    { action: 'select_assets', connection_id: 'c-rev', ad_account_id: null, page_id: 'p1', instagram_business_account_id: 'ig1' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const row = db.tables.ad_platform_connections.find((x) => x.id === 'c-rev');
+  assert.deepEqual([row.meta_ad_account_id, row.facebook_page_id, row.instagram_business_account_id], [null, 'p1', 'ig1']);
+  assert.equal(row.sync_enabled, false);
+  // A Page the token cannot reach is still refused without an ad account.
+  const db2 = world();
+  const r2 = await call(createReviewHandler({ env: ENV, admin: db2, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }),
+    { action: 'select_assets', connection_id: 'c-rev', page_id: 'p9' });
+  assert.equal(r2.status, 400);
+  assert.equal(writes(db2).length, 0);
 });
 
 // ── 5. verify ───────────────────────────────────────────────────────────────
