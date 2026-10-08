@@ -97,8 +97,13 @@
     }
   }
 
+  /** What the page shows when the lookup fails for the PO still open. Without
+   *  it a failed page reads exactly like "no request exists". */
+  const LOOKUP_FAILED = 'Could not check freight requests for this PO, so nothing was prefilled. '
+    + 'Reopen the PO to try again before saving freight.';
+
   root.SiloFreightMatch = {
     poNamesOf: poNamesOf, pickFreightRequest: pickFreightRequest, prefillPlan: prefillPlan,
-    findFreightRequest: findFreightRequest,
+    findFreightRequest: findFreightRequest, LOOKUP_FAILED: LOOKUP_FAILED,
   };
 })(typeof window !== 'undefined' ? window : this);

@@ -38,6 +38,10 @@ meta, detail drawer), the `payment-request-forward-melio` email, and Costing.
   across POs (FOB-proportional, per unit or by weight), previews each share and saves on Apply.
 - Nothing typed is overwritten, and an answer that arrives after the user has switched PO is
   dropped.
+- The lookup pages through every freight request; there is no row cap. If a page fails, the PO
+  still open shows "Could not check freight requests for this PO, so nothing was prefilled", so a
+  failure never looks like "no request exists". A failure for a PO already left stays silent.
+  Covered by `v2/tests/browser/po-costing-freight.test.js`.
 - The query stays company-scoped (`company_entity_id`, plus RLS), and the page writes nothing new.
 
 What phase 1 does **not** do:

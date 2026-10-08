@@ -78,6 +78,7 @@
     }
     .cost-check input { margin: 0; cursor: pointer; }
     .cost-hint { font-size: 11px; color: var(--bcn-ink-2, #475569); line-height: 1.45; margin: 0 0 8px; }
+    .cost-hint[data-state="error"] { color: var(--bcn-neg); }
     .cost-shipped-state { font-size: 12px; font-weight: 700; color: var(--bcn-ink, #0f172a); margin: 0 0 10px; }
     #status:not(:empty) {
       margin-top: 0; padding: 7px 10px; border-radius: 6px;
@@ -680,7 +681,7 @@
     const FREIGHT_REQUEST_PAGE = 500;
     async function prefillFreightFromPaymentRequest(poName) {
       const note = document.getElementById('freightShareNote');
-      if (note) { note.hidden = true; note.textContent = ''; }
+      if (note) { note.hidden = true; note.textContent = ''; delete note.dataset.state; }
       if (!poName) return;
       try {
         const fetchPage = (from, to) => {
@@ -708,6 +709,13 @@
         if (plan.freight != null) recalc();
       } catch (err) {
         console.error('Freight prefill from payment request failed:', err);
+        // Visible, or a failed lookup reads exactly like "no request exists".
+        // Only for the PO still open: a failure for one already left is moot.
+        if (ctx?.header?.po_name === poName && note) {
+          note.textContent = window.SiloFreightMatch.LOOKUP_FAILED;
+          note.dataset.state = 'error';
+          note.hidden = false;
+        }
       }
     }
 
@@ -722,7 +730,7 @@
       els.inFreightNotes.value = pc?.freight_notes || ctx.saved?.notes || '';
       els.inFreight.value = ctx.headerInputs.freight ?? '';
       const shareNote = document.getElementById('freightShareNote');
-      if (shareNote) { shareNote.hidden = true; shareNote.textContent = ''; }
+      if (shareNote) { shareNote.hidden = true; shareNote.textContent = ''; delete shareNote.dataset.state; }
       // If no freight amount saved yet, check for a linked freight payment request
       if (!Number(els.inFreight.value) && ctx.header?.po_name) {
         prefillFreightFromPaymentRequest(ctx.header.po_name);

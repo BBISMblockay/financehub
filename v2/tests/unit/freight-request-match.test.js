@@ -100,6 +100,12 @@ r.test('page wiring: module loaded, routed through it, no exact-match lookup lef
   r.ok('still company-scoped', /prefillFreightFromPaymentRequest[\s\S]{0,1500}eq\('company_entity_id', _co\.id\)/.test(html));
   r.ok('notice element', html.includes('id="freightShareNote"'));
   r.ok('stale answer for another PO is dropped', html.includes("ctx?.header?.po_name !== poName"));
+  r.ok('a failed lookup is shown for the open PO', /catch \(err\)[\s\S]{0,400}ctx\?\.header\?\.po_name === poName[\s\S]{0,200}SiloFreightMatch\.LOOKUP_FAILED/.test(html));
+});
+
+r.test('the failure message says nothing was prefilled', () => {
+  r.ok('names the failure', /Could not check freight requests/.test(F.LOOKUP_FAILED));
+  r.ok('says nothing was prefilled', /nothing was prefilled/.test(F.LOOKUP_FAILED));
 });
 
 // ── paging (async) ──────────────────────────────────────────────────────────
