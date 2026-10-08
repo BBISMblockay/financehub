@@ -81,8 +81,8 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
   const marketing = sections.find((section) => section.section === 'Marketing');
   const ids = sections.flatMap((section) => section.items.map((item) => item.id));
 
+  // Ask SILO left Insights for its own row under Home (2026-10-08).
   assert.deepEqual(insights.items.map((item) => item.id), [
-    'reports/silo-chat',
     'reports/dashboards',
   ]);
   // SEO (2026-09-27) is ONE row: Studio, Search performance and Keywords are
@@ -102,6 +102,29 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
   assert.ok(!sections.some((section) => section.section === 'Sales'));
   assert.ok(!ids.includes('reports/library'));
   assert.ok(!ids.includes('reports/builder'));
+});
+
+test('Ask SILO is its own row right under Home, on both profiles, for the same people as before', () => {
+  for (const profile of ['grandfathered', 'standard']) {
+    const sections = navSectionsForProfile(profile, 'marketing', 'owner_admin', new Set());
+    const start = sections.find((s) => s.section === 'Start');
+    assert.equal(sections[0].section, 'Start', `${profile}: Start leads the menu`);
+    assert.deepEqual(start.items.slice(0, 2).map((i) => i.id), ['finance/menu', 'reports/silo-chat'], profile);
+    const elsewhere = sections.filter((s) => s.section !== 'Start')
+      .some((s) => s.items.some((i) => i.id === 'reports/silo-chat'));
+    assert.ok(!elsewhere, `${profile}: Ask SILO appears once`);
+    // Visibility unchanged: exec/owner, or a silo_chat_managers grant.
+    for (const role of ['owner', 'owner_admin', 'executive']) {
+      const ids = navSectionsForProfile(profile, 'marketing', role, new Set()).flatMap((s) => s.items.map((i) => i.id));
+      assert.ok(ids.includes('reports/silo-chat'), `${profile}/${role} sees Ask SILO`);
+    }
+    for (const role of ['admin', 'member', 'viewer', 'user']) {
+      const ids = navSectionsForProfile(profile, 'marketing', role, new Set()).flatMap((s) => s.items.map((i) => i.id));
+      assert.ok(!ids.includes('reports/silo-chat'), `${profile}/${role} without a grant does not see Ask SILO`);
+      const granted = navSectionsForProfile(profile, 'marketing', role, new Set(['reports/silo-chat'])).flatMap((s) => s.items.map((i) => i.id));
+      assert.ok(granted.includes('reports/silo-chat'), `${profile}/${role} with the grant sees Ask SILO`);
+    }
+  }
 });
 
 test('Reports replaces the sales menu for all existing viewers without widening standard discovery', () => {
