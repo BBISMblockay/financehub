@@ -92,7 +92,9 @@ r.test('no match, or no amount, prefills nothing it does not have', () => {
 r.test('page wiring: module loaded, routed through it, no exact-match lookup left', () => {
   const html = fs.readFileSync(path.join(V2, 'po-costing.html'), 'utf8');
   r.ok('script tag', html.includes('<script src="freight-request-match.js"></script>'));
-  r.ok('uses pickFreightRequest', html.includes('SiloFreightMatch.pickFreightRequest('));
+  r.ok('pages through requests', html.includes('SiloFreightMatch.findFreightRequest(') && html.includes('.range(from, to)'));
+  r.ok('no fixed scan window', !/FREIGHT_REQUEST_SCAN|\.limit\(\s*FREIGHT/.test(html));
+  r.ok('stable order for paging', /order\('created_at'[^)]*\)\s*\.order\('id'/.test(html));
   r.ok('uses prefillPlan', html.includes('SiloFreightMatch.prefillPlan('));
   r.ok('no exact match on internal_po_number', !/\.eq\(\s*'internal_po_number'/.test(html));
   r.ok('still company-scoped', /prefillFreightFromPaymentRequest[\s\S]{0,1500}eq\('company_entity_id', _co\.id\)/.test(html));
@@ -100,4 +102,36 @@ r.test('page wiring: module loaded, routed through it, no exact-match lookup lef
   r.ok('stale answer for another PO is dropped', html.includes("ctx?.header?.po_name !== poName"));
 });
 
-process.exit(r.summary().fail ? 1 : 0);
+// ── paging (async) ──────────────────────────────────────────────────────────
+(async () => {
+  const OTHER = (i) => ({ amount_due: 1, invoice_number: 'X' + i, vendor_name: 'v', internal_po_number: 'Other-' + i });
+  // 1,203 requests newest first; the only one naming Old-1 is the 1,201st.
+  const ALL = Array.from({ length: 1203 }, (_, i) => OTHER(i));
+  ALL[1200] = { amount_due: 55, invoice_number: 'OLD', vendor_name: 'v', internal_po_number: 'Old-1' };
+  const calls = [];
+  const fetchPage = async (from, to) => { calls.push([from, to]); return { data: ALL.slice(from, to + 1), error: null }; };
+
+  try {
+    const res = await F.findFreightRequest(fetchPage, 'Old-1', 500);
+    r.ok('a request beyond the first pages is still found', res.match && res.match.request.invoice_number === 'OLD');
+    r.eq(calls, [[0, 499], [500, 999], [1000, 1499]], 'pages requested in order, stopping at the match');
+
+    calls.length = 0;
+    const none = await F.findFreightRequest(fetchPage, 'Nope', 500);
+    r.ok('no match: walks to the end and stops on the short page', none.match === null && calls.length === 3);
+
+    // An exact multiple of the page size ends on an empty page, not a loop.
+    const EXACT = Array.from({ length: 1000 }, (_, i) => OTHER(i));
+    let n = 0;
+    const exact = await F.findFreightRequest(async (a, b) => { n += 1; return { data: EXACT.slice(a, b + 1), error: null }; }, 'Nope', 500);
+    r.ok('exact multiple of the page ends on the empty page', exact.match === null && n === 3);
+
+    let threw = false;
+    try { await F.findFreightRequest(async () => ({ data: null, error: new Error('boom') }), 'X', 500); }
+    catch (e) { threw = /boom/.test(e.message); }
+    r.ok('a page error rejects (never read as "no request")', threw);
+  } catch (e) {
+    r.ok('paging tests threw: ' + e.message, false);
+  }
+  process.exit(r.summary().fail ? 1 : 0);
+})();

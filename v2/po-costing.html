@@ -673,28 +673,31 @@
     // be prefilled live in freight-request-match.js -- a shared invoice never
     // prefills its full amount into one PO (that would overstate landed cost
     // once per PO); it fills ref/carrier and asks for this PO's share.
-    // Freight requests per company are few (15 in all on 2026-10-08), so the
-    // page reads the newest FREIGHT_REQUEST_SCAN and matches here rather than
-    // building a LIKE pattern from a PO name.
-    const FREIGHT_REQUEST_SCAN = 500;
+    // The match is done here (exact names, never a LIKE pattern built from a
+    // PO name), paging newest-first through the company's freight requests
+    // until one names this PO or the rows run out -- never a fixed window,
+    // which would read "older than the window" as "no request".
+    const FREIGHT_REQUEST_PAGE = 500;
     async function prefillFreightFromPaymentRequest(poName) {
       const note = document.getElementById('freightShareNote');
       if (note) { note.hidden = true; note.textContent = ''; }
       if (!poName) return;
       try {
-        let _q = db.from('payment_requests')
-          .select('amount_due, invoice_number, vendor_name, internal_po_number')
-          .eq('request_type', 'inventory_freight')
-          .not('internal_po_number', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(FREIGHT_REQUEST_SCAN);
-        if (_co?.id) _q = _q.eq('company_entity_id', _co.id);
-        const { data, error } = await _q;
-        if (error) throw error;
+        const fetchPage = (from, to) => {
+          let _q = db.from('payment_requests')
+            .select('amount_due, invoice_number, vendor_name, internal_po_number')
+            .eq('request_type', 'inventory_freight')
+            .not('internal_po_number', 'is', null)
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
+            .range(from, to);
+          if (_co?.id) _q = _q.eq('company_entity_id', _co.id);
+          return _q;
+        };
+        const { match } = await window.SiloFreightMatch.findFreightRequest(fetchPage, poName, FREIGHT_REQUEST_PAGE);
         // The PO may have been switched while this was in flight; its answer
         // belongs to the PO that asked, never to the one now on screen.
         if (ctx?.header?.po_name !== poName) return;
-        const match = window.SiloFreightMatch.pickFreightRequest(data || [], poName);
         const plan = window.SiloFreightMatch.prefillPlan(match, {
           freight: els.inFreight.value, ref: els.inFreightRef.value, carrier: els.inFreightCarrier.value,
         });

@@ -78,5 +78,27 @@
     return plan;
   }
 
-  root.SiloFreightMatch = { poNamesOf: poNamesOf, pickFreightRequest: pickFreightRequest, prefillPlan: prefillPlan };
+  /** Page through a company's freight requests, newest first, until one names
+   *  poName or the rows run out. fetchPage(from, to) resolves to the rows in
+   *  that inclusive range ({ data, error } as supabase-js returns it). A cap
+   *  would turn "beyond the cap" into "no request exists", silently, for every
+   *  older PO -- so there is none: a short page ends the walk, not a count.
+   *  Resolves to { match, pages }; a page error rejects. */
+  async function findFreightRequest(fetchPage, poName, pageSize) {
+    const size = Math.max(1, Number(pageSize) || 500);
+    let pages = 0;
+    for (let from = 0; ; from += size) {
+      const res = await fetchPage(from, from + size - 1);
+      pages += 1;
+      if (res && res.error) throw res.error;
+      const rows = (res && res.data) || [];
+      const match = pickFreightRequest(rows, poName);
+      if (match || rows.length < size) return { match: match, pages: pages };
+    }
+  }
+
+  root.SiloFreightMatch = {
+    poNamesOf: poNamesOf, pickFreightRequest: pickFreightRequest, prefillPlan: prefillPlan,
+    findFreightRequest: findFreightRequest,
+  };
 })(typeof window !== 'undefined' ? window : this);
