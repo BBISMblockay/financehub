@@ -17,8 +17,9 @@ PO column other than that text (checked against `information_schema` and every m
 `v2/po-costing.html` prefilled freight with `.eq('internal_po_number', poName)`. That is an exact
 match on the whole string, so a shared request never matched any of its POs.
 
-Read-only production counts (2026-10-08): **15** `inventory_freight` requests, **2** naming more than
-one PO.
+Read-only production counts (2026-10-08): **15** `inventory_freight` requests, **2** listing more than
+one name: one names two POs (`MasterCap-82, MasterCap-78-S`); the other is one PO followed by a typed
+description after a comma, which the manual fallback allows.
 
 Readers of `internal_po_number` that any change must keep working: Request Manager (search, list
 meta, detail drawer), the `payment-request-forward-melio` email, and Costing.
@@ -32,13 +33,20 @@ meta, detail drawer), the `payment-request-forward-melio` email, and Costing.
   `PO-33` never matches a request for `PO-330`.
 - A request naming **only this PO** behaves as before: it prefills the amount, the reference and the
   carrier.
-- A request naming **this PO and others** prefills the reference and carrier only. It never fills in
-  the amount, which would overstate landed cost once per PO. It shows a notice naming the other POs
-  and pointing to the page's existing **Combined shipment** wizard. That wizard splits one bill
-  across POs (FOB-proportional, per unit or by weight), previews each share and saves on Apply.
+- A request naming **this PO and more** prefills the reference and carrier only. It never fills in
+  the amount, which would overstate landed cost once per PO. It shows a notice quoting what else the
+  request lists, because the manual fallback allows free text after a comma (one production request
+  is a PO followed by a description). The notice offers both readings: split it with the page's
+  existing **Combined shipment** wizard, or enter the full amount if it covers only this PO. That
+  wizard splits one bill across POs (FOB-proportional, per unit or by weight), previews each share
+  and saves on Apply.
+- The **newest** request naming the PO wins, as before. If a newer request lists more than this PO
+  and an older one names only it, Costing now shows the notice and no amount, where it used to
+  prefill the older single-PO amount. No such pair exists in production today.
 - Nothing typed is overwritten, and an answer that arrives after the user has switched PO is
   dropped.
-- The lookup pages through every freight request; there is no row cap. If a page fails, the PO
+- The lookup pages through every freight request; there is no row cap. Only an empty page ends it,
+  so a server that returns fewer rows than asked cannot cut it short. If a page fails, the PO
   still open shows "Could not check freight requests for this PO, so nothing was prefilled", so a
   failure never looks like "no request exists". Each form fill (opening a PO, reopening the same
   one, saving) retires any lookup still in flight, so a late answer never paints an error over a
@@ -86,7 +94,8 @@ What phase 1 does **not** do:
   - Link each existing request whose names match `po_headers.po_name` exactly within its own
     company.
   - Single-PO requests (13 of 15) get the full amount, recorded as approved by the backfill.
-  - The 2 shared requests get links with **no** amount, for a person to allocate.
+  - Requests listing more than one name (2 of 15; one is a PO plus typed text) get links only for
+    names that match a PO, with **no** amount, for a person to allocate or confirm.
   - Names that match no PO are reported, never guessed.
 
 ### Acceptance criteria (proposed)

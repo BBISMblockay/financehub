@@ -14,8 +14,8 @@
  * every PO on it and overstate landed cost N times. So:
  *
  *   - a request naming only this PO      -> prefill amount, ref and carrier
- *   - a request naming this PO and others -> prefill ref and carrier only,
- *     and say the invoice is shared; the amount is this PO's SHARE, which a
+ *   - a request naming this PO and more -> prefill ref and carrier only,
+ *     and quote what else it lists; the amount is this PO's SHARE, which a
  *     person sets -- with the page's existing Combined shipment wizard (it
  *     splits one bill across POs and previews each share before saving) or
  *     by hand. Nothing records which request an allocation came from yet.
@@ -72,8 +72,12 @@
       const amount = req.amount_due != null && isFinite(Number(req.amount_due))
         ? ' ($' + Number(req.amount_due).toFixed(2) + ')' : '';
       const ref = req.invoice_number ? ' ' + req.invoice_number : '';
-      plan.notice = 'Freight invoice' + ref + amount + ' is shared with ' + match.others.join(', ')
-        + '. Split it with Combined shipment (it previews each PO’s share before saving), or enter this PO’s share here. The amount is not filled in automatically.';
+      // "others" is whatever else the text lists -- usually POs, but the
+      // manual fallback lets a person type a description after a comma
+      // (seen in production). So the notice quotes what is listed and offers
+      // both readings rather than asserting the invoice is shared.
+      plan.notice = 'Freight invoice' + ref + amount + ' also lists: ' + match.others.join(', ')
+        + '. If it covers those POs, split it with Combined shipment (it previews each PO’s share before saving) or enter this PO’s share here. If it covers only this PO, enter the full amount. The amount is not filled in automatically.';
     }
     return plan;
   }
@@ -82,18 +86,22 @@
    *  poName or the rows run out. fetchPage(from, to) resolves to the rows in
    *  that inclusive range ({ data, error } as supabase-js returns it). A cap
    *  would turn "beyond the cap" into "no request exists", silently, for every
-   *  older PO -- so there is none: a short page ends the walk, not a count.
+   *  older PO -- so there is none. Only an EMPTY page ends the walk, and the
+   *  next page starts after the rows actually returned: the server may return
+   *  fewer than asked (the API's max-rows setting), and reading a short page
+   *  as the end would stop early with no error.
    *  Resolves to { match, pages }; a page error rejects. */
   async function findFreightRequest(fetchPage, poName, pageSize) {
     const size = Math.max(1, Number(pageSize) || 500);
     let pages = 0;
-    for (let from = 0; ; from += size) {
+    for (let from = 0; ;) {
       const res = await fetchPage(from, from + size - 1);
       pages += 1;
       if (res && res.error) throw res.error;
       const rows = (res && res.data) || [];
       const match = pickFreightRequest(rows, poName);
-      if (match || rows.length < size) return { match: match, pages: pages };
+      if (match || rows.length === 0) return { match: match, pages: pages };
+      from += rows.length;
     }
   }
 

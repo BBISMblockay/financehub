@@ -3,7 +3,8 @@
  * The bug: both payment-request intake pages store the POs a freight invoice
  * covers as ONE text value joined with ", ", and Costing matched that value
  * with = against one PO name -- so a request shared by several POs never
- * prefilled any of them (2 of 15 freight requests on 2026-10-08).
+ * prefilled any of them (2 of 15 freight requests list more than one name on
+ * 2026-10-08: one names two POs, one is a PO plus a typed description).
  *
  * What must hold:
  *   - a request naming several POs is found from each of them
@@ -69,7 +70,9 @@ r.test('a shared request never prefills the amount; it says the invoice is share
   r.ok('no amount', !('freight' in plan));
   r.eq(plan.ref, 'FX-77');
   r.eq(plan.carrier, 'Andes Logistics');
-  r.ok('notice names the other POs', /Creytex-329-s, Creytex-331/.test(plan.notice));
+  r.ok('notice quotes what else the request lists', /also lists: Creytex-329-s, Creytex-331/.test(plan.notice));
+  r.ok('notice offers the only-this-PO reading too', /covers only this PO, enter the full amount/.test(plan.notice));
+  r.ok('notice never asserts the invoice is shared', !/is shared with/.test(plan.notice));
   r.ok('notice names the invoice and total', /FX-77/.test(plan.notice) && /\$3000\.00/.test(plan.notice));
   r.ok('notice asks for this PO\'s share', /share/.test(plan.notice));
   r.ok('notice points to Combined shipment', /Combined shipment/.test(plan.notice));
@@ -126,7 +129,16 @@ r.test('the failure message says nothing was prefilled', () => {
 
     calls.length = 0;
     const none = await F.findFreightRequest(fetchPage, 'Nope', 500);
-    r.ok('no match: walks to the end and stops on the short page', none.match === null && calls.length === 3);
+    r.ok('no match: walks to the end and stops on the empty page', none.match === null && calls.length === 4);
+    r.eq(calls[3], [1203, 1702], 'the next page starts after the rows actually returned');
+
+    // A server capping pages below the asked size (PostgREST max-rows) must
+    // not read as the end: every page here is "short".
+    const capped = [];
+    const cappedFetch = async (from, to) => { capped.push(from); return { data: ALL.slice(from, Math.min(to + 1, from + 100)), error: null }; };
+    const deep = await F.findFreightRequest(cappedFetch, 'Old-1', 500);
+    r.ok('a request beyond a server cap is still found', deep.match && deep.match.request.invoice_number === 'OLD');
+    r.eq(capped.slice(0, 3), [0, 100, 200], 'pages advance by the rows returned');
 
     // An exact multiple of the page size ends on an empty page, not a loop.
     const EXACT = Array.from({ length: 1000 }, (_, i) => OTHER(i));

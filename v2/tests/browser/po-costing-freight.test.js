@@ -48,12 +48,16 @@ const PAGE = 500; // the page's FREIGHT_REQUEST_PAGE
   const POS = [
     { id: 'po-old', po_name: 'Old-1', factory_name: 'Creytex', status: 'shipped' },
     { id: 'po-new', po_name: 'New-2', factory_name: 'Andes', status: 'shipped' },
+    { id: 'po-shared', po_name: 'Shared-3', factory_name: 'Andes', status: 'shipped' },
   ];
   const filler = Array.from({ length: PAGE }, (_, i) => ({
     request_type: 'inventory_freight', amount_due: 1, invoice_number: 'Z' + i, vendor_name: 'z', internal_po_number: 'Filler-' + i,
   }));
   // New-2's request is on page one; Old-1's is the first row of page two.
   filler[0] = { request_type: 'inventory_freight', amount_due: 240, invoice_number: 'FX-NEW', vendor_name: 'Andes Logistics', internal_po_number: 'New-2' };
+  // Shared-3's request lists more than the PO -- here typed text, as the
+  // manual fallback allows (one production request has exactly this shape).
+  filler[1] = { request_type: 'inventory_freight', amount_due: 2369.39, invoice_number: 'FX-SH', vendor_name: 'Air Tiger', internal_po_number: 'Shared-3, Air freight & service fees' };
   const requests = filler.concat([
     { request_type: 'inventory_freight', amount_due: 55, invoice_number: 'FX-OLD', vendor_name: 'Creytex Freight', internal_po_number: 'Old-1' },
   ]);
@@ -102,6 +106,19 @@ const PAGE = 500; // the page's FREIGHT_REQUEST_PAGE
       const v = await read(page);
       assert.equal(v.freight, '55.00');
       assert.equal(v.noteHidden, true);
+      await page.close();
+    });
+
+    await check('a request listing more than this PO fills ref/carrier, never the amount, and quotes what it lists', async () => {
+      const page = await suite.open('/v2/po-costing.html?po_id=po-shared', fixture, { ready: opened('Shared-3') });
+      await page.waitForFunction(() => !document.getElementById('freightShareNote').hidden, null, { timeout: 5000 });
+      const v = await read(page);
+      assert.ok(['', '0'].includes(v.freight), 'no amount prefilled');
+      assert.equal(v.ref, 'FX-SH');
+      assert.match(v.note, /also lists: Air freight & service fees/);
+      assert.match(v.note, /Combined shipment/);
+      assert.match(v.note, /covers only this PO, enter the full amount/);
+      assert.equal(v.state, null, 'a notice, not an error');
       await page.close();
     });
 
