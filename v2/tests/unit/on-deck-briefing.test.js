@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('assert/strict');
 const { loadV2 } = require('../lib/load');
-const { build } = loadV2(['on-deck-briefing.js']).SiloOnDeckBriefing;
+const { build, inputPlan, prepareHandoff } = loadV2(['on-deck-briefing.js']).SiloOnDeckBriefing;
 const now = Date.parse('2026-10-08T12:00:00Z');
 const ads = (over = {}) => ({ id: 'ad1', kind: 'ads', status: 'ready', title: 'Draft creative · Classic tee', valid_until: '2026-10-10',
   selection_reason: 'Strong evidence. Selected #1 of 2 eligible ads opportunities.',
@@ -83,5 +83,24 @@ test('screened search evidence can invite investigation without promoting a bloc
   const item = run([blocked]).featured; assert.equal(item.readiness, 'investigate'); assert.match(item.prepared, /needs context/);
   assert.equal(item.action, 'Investigate search opportunity'); assert.match(item.caveat, /No click-through benchmark/);
   for (const patch of [{ valid_until: '2020-01-01' }, { content: { recommend: false } }, { content: { recommend: true, body: '' } }, { source: { ...blocked.source, impressions: null } }, { status: 'failed' }]) assert.equal(run([{ ...blocked, ...patch }]).featured, null);
+});
+test('SEO research is explicitly carried into task copy, never claimed answered', () => {
+  const p = seo({ content: { ...seo().content, missing: ['Current ranking keywords driving the 175 clicks', 'Click-through rate benchmark for position ~7.3 in this vertical', 'Any prior SEO test history for this page'] } });
+  assert.ok(inputPlan(p).every(x => x.research));
+  const patch = prepareHandoff(p, [{ carry: true }, { carry: true }, { carry: true }]);
+  assert.deepEqual(Array.from(patch.content.missing), []); assert.match(patch.content.body, /Research to complete before publishing/); assert.match(patch.content.body, /175 clicks/); assert.match(patch.note, /not claimed resolved/);
+  assert.equal(p.content.missing.length, 3);
+});
+test('unknown and essential inputs remain blockers until supplied; partial research choice preserves the rest', () => {
+  const p = seo({ content: { ...seo().content, missing: ['Required destination URL', 'Any prior SEO test history for this page'] } });
+  assert.equal(inputPlan(p)[0].research, false);
+  const partial = prepareHandoff(p, [{}, { carry: true }]); assert.equal(partial.content.missing[0], 'Required destination URL');
+  const supplied = prepareHandoff(p, [{ value: 'https://store.example/tees' }, { carry: true }]); assert.equal(supplied.content.missing.length, 0); assert.match(supplied.content.body, /Confirmed task context/);
+  assert.throws(() => prepareHandoff(p, [{ carry: true }, {}]), /Add a required input/);
+  assert.equal(inputPlan({ ...p, kind: 'ads' })[1].research, false);
+});
+test('handoff refuses absent draft and excessive context without truncation', () => {
+  assert.throws(() => prepareHandoff(seo({ content: { body: '', missing: ['Anything'] } }), []), /prepared draft/);
+  assert.throws(() => prepareHandoff(seo({ content: { body: 'x'.repeat(5000), missing: ['Input'] } }), [{ value: 'Confirmed fact' }]), /draft limit/);
 });
 console.log(`${checks} briefing checks passed`);

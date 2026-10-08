@@ -133,7 +133,26 @@
       needsInput: rows.filter(p => p.status === 'needs_info').length + coding.filter(i => i.stage === 'needs_input').length,
       preparing: rows.filter(p => ['preparing', 'revision'].includes(p.status)).length };
   }
-  const api = { build, seoChange };
+  function inputPlan(p) {
+    const optional = new Set(['any prior seo test history for this page']);
+    return (p.content?.missing || []).map(label => ({ label, research: p.kind === 'seo' && (optional.has(clean(label)) || /^current ranking keywords driving the \d[\d,]* clicks$/.test(clean(label)) || /^click-through rate benchmark for position ~\d+(?:\.\d+)? in this vertical$/.test(clean(label))) }));
+  }
+  function prepareHandoff(p, answers) {
+    const c = p.content || {}, pending = [], supplied = [], research = [];
+    if (!text(c.body)) throw new Error('A prepared draft is needed first.');
+    inputPlan(p).forEach((item, i) => {
+      const answer = answers[i] || {};
+      if (item.research && answer.carry === true) research.push(item.label);
+      else if (!item.research && text(answer.value).length >= 4) supplied.push(item.label + ': ' + text(answer.value));
+      else pending.push(item.label);
+    });
+    if (!supplied.length && !research.length) throw new Error('Add a required input or choose a research question to carry into the draft task.');
+    const added = [supplied.length ? 'Confirmed task context:\n' + supplied.join('\n') : '', research.length ? 'Research to complete before publishing or implementing:\n' + research.map(x => '- ' + x).join('\n') : ''].filter(Boolean).join('\n\n');
+    const body = c.body + '\n\n' + added;
+    if (body.length > 5000) throw new Error('This context would exceed the draft limit. Shorten the draft or supplied context first.');
+    return { content: { ...c, recommend: true, body, missing: pending }, note: 'Task handoff: ' + (supplied.length ? 'Added supplied context. ' : '') + (research.length ? 'Carried unanswered research into the draft; it is not claimed resolved. ' : '') + (pending.length ? pending.length + ' required or unselected inputs remain.' : 'Ready for separate draft-task creation review.') };
+  }
+  const api = { build, seoChange, inputPlan, prepareHandoff };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.SiloOnDeckBriefing = api;
 })();

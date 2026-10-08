@@ -302,3 +302,6 @@ table.bcn-table.od-review-table{table-layout:auto}
 .od-signal-status[data-status=context]:before{background:var(--bcn-warn)}
 
 .od-secondary{align-self:start}
+
+.od-next-step{padding:20px 22px;margin:16px 0;border:1px solid var(--bcn-accent-border);border-left:3px solid var(--bcn-accent);background:var(--bcn-accent-soft);border-radius:var(--bcn-radius)}
+.od-next-step h3{margin:0 0 10px;font-size:18px}.od-next-step p{font-size:13px;line-height:1.7;color:var(--bcn-ink-2);margin:10px 0}.od-input-list{list-style:none;padding:0;margin:16px 0;display:flex;flex-direction:column;gap:12px}.od-input-list li{display:flex;flex-direction:column;gap:6px;font-size:13px}.od-input-label{font:10px var(--bcn-mono);text-transform:uppercase;color:var(--bcn-neg)}.od-input-label--research{color:var(--bcn-accent)}.od-handoff-input{display:flex;gap:10px;padding:14px 0;border-bottom:1px solid var(--bcn-border);font-size:13px;line-height:1.6}.od-handoff-input:has(textarea){flex-direction:column}.od-handoff-input textarea{width:100%;box-sizing:border-box}.od-handoff-input input{align-self:flex-start;margin-top:4px}#handoff-form>p{font-size:13px;line-height:1.7;color:var(--bcn-ink-2)}
