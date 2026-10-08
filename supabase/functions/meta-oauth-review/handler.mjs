@@ -15,7 +15,7 @@
 //   status         the workspace and its review connections (never a token)
 //   list_assets    ad accounts and Pages (+ linked Instagram) the token reaches,
 //                  every page (paging.next, capped at MAX_DISCOVERY_PAGES)
-//   select_assets  save the chosen ad account / Page / Instagram account, after
+//   select_assets  save the chosen ad account and/or Page (+ linked Instagram), after
 //                  re-listing server-side: only an asset the token can reach is
 //                  accepted. sync_enabled is NOT switched on (no nightly sync)
 //   verify         read-only probe of each reporting permission, with the same
@@ -249,12 +249,14 @@ export function createReviewHandler({ env, admin, fetchImpl, now = () => Date.no
       const adAccountId = pick('ad_account_id');
       const pageId = pick('page_id');
       const igId = pick('instagram_business_account_id');
-      if (!adAccountId) return json({ error: 'ad_account_id required' }, 400);
+      // Either asset may be left out (a login can reach Pages and no ad
+      // account, or the reverse); choosing nothing at all is not a selection.
+      if (!adAccountId && !pageId) return json({ error: 'Choose an ad account or a Page' }, 400);
       if (igId && !pageId) return json({ error: 'Choose the Page the Instagram account is linked to' }, 400);
       // Re-listed here, never trusted from the page: only what this token reaches.
       const assets = await listAssets(conn.access_token);
       if (!assets.ok) return json({ ok: false, error: assets.error }, 502);
-      if (!assets.ad_accounts.some((a) => a.id === adAccountId)) return json({ error: 'That ad account is not available to this connection' }, 400);
+      if (adAccountId && !assets.ad_accounts.some((a) => a.id === adAccountId)) return json({ error: 'That ad account is not available to this connection' }, 400);
       const pageRow = pageId ? assets.pages.find((p) => p.page_id === pageId) : null;
       if (pageId && !pageRow) return json({ error: 'That Page is not available to this connection' }, 400);
       if (igId && pageRow.instagram_business_account_id !== igId) return json({ error: 'That Instagram account is not linked to the chosen Page' }, 400);

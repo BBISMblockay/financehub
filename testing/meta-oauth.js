@@ -128,16 +128,17 @@
     if (!data.ok) { $('mo-assets').innerHTML = `<p>✗ ${esc(data.error || 'Could not list assets')}</p>`; return; }
     assets.accept(token, data);
     const conn = connections.find((c) => c.id === id) || {};
-    const accts = data.ad_accounts.map((a, i) => `<label class="mo-choice"><input type="radio" name="mo-acct" value="${esc(a.id)}"
+    const accts = [`<label class="mo-choice"><input type="radio" name="mo-acct" value="" ${conn.meta_ad_account_id || data.ad_accounts.length ? '' : 'checked'}><span>No ad account</span></label>`]
+      .concat(data.ad_accounts.map((a, i) => `<label class="mo-choice"><input type="radio" name="mo-acct" value="${esc(a.id)}"
         ${a.id === conn.meta_ad_account_id || (!conn.meta_ad_account_id && i === 0) ? 'checked' : ''}>
-        <span>${esc(a.name || a.id)}<small class="bcn-mono">${esc(a.id)} · ${esc(a.currency || '')}</small></span></label>`).join('');
+        <span>${esc(a.name || a.id)}<small class="bcn-mono">${esc(a.id)} · ${esc(a.currency || '')}</small></span></label>`)).join('');
     const pages = [`<label class="mo-choice"><input type="radio" name="mo-page" value="" ${conn.facebook_page_id ? '' : 'checked'}><span>No Page</span></label>`]
       .concat(data.pages.map((p) => `<label class="mo-choice"><input type="radio" name="mo-page" value="${esc(p.page_id)}"
         ${p.page_id === conn.facebook_page_id ? 'checked' : ''}>
         <span>${esc(p.page_name || p.page_id)}<small>${p.instagram_business_account_id
           ? `Instagram: @${esc(p.instagram_username || p.instagram_business_account_id)}` : 'no linked Instagram account'}</small></span></label>`)).join('');
     $('mo-assets').innerHTML = `${data.truncated ? '<p class="mo-muted">Meta has more assets than SILO lists here (1,000 per type). Only the listed ones can be chosen.</p>' : ''}
-      <h3>Ad account</h3>${accts || '<p>This login reaches no ad account.</p>'}
+      <h3>Ad account</h3>${data.ad_accounts.length ? '' : '<p class="mo-muted">This login reaches no ad account. Page and Instagram can still be saved and verified; ads_read needs an ad account (reconnect and grant one).</p>'}${accts}
       <h3>Facebook Page</h3>${pages}${data.pages_error ? `<p class="mo-muted">Pages could not be listed: ${esc(data.pages_error)}</p>` : ''}
       <label class="mo-choice"><input type="checkbox" id="mo-include-ig" ${conn.instagram_business_account_id || !conn.facebook_page_id ? 'checked' : ''}>
         <span>Include the Page's linked Instagram account</span></label>`;
@@ -152,7 +153,7 @@
     const pageRow = (active.data.pages || []).find((p) => p.page_id === page);
     const ig = $('mo-include-ig')?.checked && pageRow?.instagram_business_account_id ? pageRow.instagram_business_account_id : null;
     const { data } = await withBusy(btn, 'Saving…', () => review('select_assets', {
-      connection_id: active.connectionId, ad_account_id: acct, page_id: page || null, instagram_business_account_id: ig,
+      connection_id: active.connectionId, ad_account_id: acct || null, page_id: page || null, instagram_business_account_id: ig,
     }));
     if (!data.ok) { setStatus('Not saved: ' + (data.error || 'unknown error'), 'neg', 10000); return; }
     setStatus('✓ Assets saved to this test connection. Next: Verify permissions.', 'pos', 8000);
