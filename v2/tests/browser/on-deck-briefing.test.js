@@ -66,10 +66,33 @@ const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '
       await page.screenshot({ path: path.join(shots, 'on-deck-briefing-mobile.png'), fullPage: true });
     });
     await page.close();
-    const empty = fixtures(); empty.on_deck_proposals = [ad({ status: 'needs_info' }), ad({ id: 'old', valid_until: '2020-01-01' })];
+    const investigation = fixtures();
+    investigation.on_deck_proposals = [{ ...ad(), id: 'search-context', kind: 'seo', status: 'needs_info', title: "Men’s T-Shirts | Baseballism Online",
+      source: { impressions: 29972, clicks: 175, days: 26, position: 7.3, inspection: { title: 'Men’s T-Shirts', meta_description: 'Current copy' } },
+      content: { recommend: true, body: 'Initial SEO draft', missing: ['Ranking keywords', 'CTR benchmark', 'Prior SEO tests'], tasks: [] } }];
+    page = await open(investigation, { rpc: { ...rpc, on_deck_coding_access: () => ({ review: true, post: false }), on_deck_coding_items: () => [{ batch_id: 'b', source_name: 'Bank feed', stage: 'code', open_suggestions: 30 }], silo_ledger_batch_status: () => [] } });
+    await test('blocked search evidence leads the briefing; bookkeeping remains quiet; investigation preserves approval gate', async () => {
+      assert.match(await page.locator('.od-hero').textContent(), /29,972/);
+      assert.equal(await page.locator('.od-hero .od-signal-status').textContent(), 'Needs context');
+      assert.match(await page.locator('.od-secondary').textContent(), /BOOKKEEPING/);
+      await page.setViewportSize({ width: 1600, height: 1000 });
+      await page.screenshot({ path: path.join(shots, 'on-deck-investigation-desktop.png'), fullPage: true });
+      await page.getByRole('button', { name: 'Toggle theme' }).click();
+      await page.screenshot({ path: path.join(shots, 'on-deck-investigation-dark.png'), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right <= 0);
+      await page.screenshot({ path: path.join(shots, 'on-deck-investigation-mobile.png'), fullPage: true });
+      await page.locator('.od-hero').getByRole('button', { name: 'Investigate search opportunity' }).click();
+      assert.match(await page.locator('.od-card[aria-pressed=true]').textContent(), /Men’s T-Shirts/);
+      assert.equal(await page.getByRole('button', { name: 'Evidence', exact: true }).getAttribute('aria-pressed'), 'true');
+      assert.equal(await page.getByRole('button', { name: 'Create SEO task', exact: true }).isDisabled(), true);
+      assert.equal(await page.evaluate(() => window.__QUERIES__.some(q => /decide|request_preparation/.test(q.table))), false);
+    }); await page.close();
+    const empty = fixtures(); empty.on_deck_proposals = [ad({ status: 'needs_info', source: { ...ad().source, evidence: 'weak' } }), ad({ id: 'old', valid_until: '2020-01-01' })];
     page = await open(empty);
     await test('no weak recommendation is invented for blocked or expired work', async () => {
-      assert.equal(await page.locator('.od-hero').count(), 0); assert.match(await page.locator('#briefing').textContent(), /No new action/);
+      assert.equal(await page.locator('.od-hero').count(), 0); assert.match(await page.locator('#briefing').textContent(), /No growth opportunity/);
       await page.getByRole('button', { name: 'View all work' }).click();
       await page.locator('[data-view=needs]').click(); assert.equal(await page.locator('.od-card').count(), 1);
     }); await page.close();
@@ -104,10 +127,10 @@ const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '
       assert.equal(await page.evaluate(() => document.body.dataset.desk), 'briefing');
     }); await page.close();
     page = await open(fixtures(), { rpc: { ...rpc, on_deck_can_review: () => false, on_deck_coding_access: () => ({ review: true, post: false }), on_deck_coding_items: () => [{ batch_id: 'b', source_name: 'Bank feed', stage: 'code', open_suggestions: 30 }], silo_ledger_batch_status: () => [] } });
-    await test('finance-only session sees coding benefit, no proposal query', async () => {
+    await test('finance-only session gets quiet bookkeeping without a growth hero or proposal query', async () => {
       assert.match(await page.locator('#briefing').textContent(), /30 suggested/);
       assert.equal(await page.evaluate(() => window.__QUERIES__.some(q => q.table === 'on_deck_proposals')), false);
-      assert.equal(await page.locator('.od-secondary').count(), 0);
+      assert.equal(await page.locator('.od-hero').count(), 0); assert.equal(await page.locator('.od-secondary').count(), 1);
     }); await page.close();
     page = await open();
     await test('changed company invalidates the briefing on refresh', async () => {

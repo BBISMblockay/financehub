@@ -77,8 +77,39 @@
     }
     return null;
   }
+  function discovery(p, now) {
+    const s = p.source || {}, expires = Date.parse(p.valid_until);
+    if (p.status !== 'needs_info' || p.content?.recommend !== true || !text(p.content?.body) ||
+        !text(p.selection_reason) || !Number.isFinite(expires) || expires <= now) return null;
+    if (p.kind === 'ads') {
+      if (!positive(s.index) || !['moderate', 'strong'].includes(s.evidence) || !text(s.objective) || !text(s.current_copy)) return null;
+      return { id: p.id, type: 'proposal', kind: 'ads', name: name(p), category: 'Marketing', priority: 2,
+        rank: Number((p.selection_reason.match(/Selected #(\d+)/) || [])[1]) || 99, readiness: 'investigate',
+        headline: 'Find your next creative test', finding: name(p) + ' has ' + s.evidence + ' evidence and a ' + Number(s.index).toFixed(2) + '× index against its pooled objective baseline.',
+        why: 'Inspect a measured creative as a starting point for a new message or angle.',
+        benefit: 'Could help identify a focused creative test for this campaign objective.',
+        prepared: 'Performance evidence and an initial draft are saved. The draft still needs context before approval.',
+        caveat: 'Performance is observational. A stronger index does not guarantee that a variation will improve sales.',
+        measure: 'Resolve the missing context before choosing a test, then compare results against the saved objective baseline.',
+        sources: 'Ad performance + saved creative', action: 'Investigate creative opportunity', evidence: p.selection_reason,
+        metrics: [['Objective', s.objective], ['Performance index', Number(s.index).toFixed(2) + '×'], ['Evidence', s.evidence]] };
+    }
+    if (p.kind !== 'seo' || !positive(s.impressions) || number(s.clicks) === null || s.clicks < 0 || s.clicks > s.impressions ||
+        !positive(s.position) || !positive(s.days) || !text(s.inspection?.title)) return null;
+    return { id: p.id, type: 'proposal', kind: 'seo', name: name(p), category: 'Search', priority: 2,
+      rank: Number((p.selection_reason.match(/Selected #(\d+)/) || [])[1]) || 99, readiness: 'investigate',
+      headline: 'Investigate a search opportunity',
+      finding: name(p) + ' appeared ' + fmt(s.impressions) + ' times in search and received ' + fmt(s.clicks) + ' clicks over ' + fmt(s.days) + ' observed days.',
+      why: 'People already find this page in search. Inspect the queries and search snippet before choosing a change.',
+      benefit: 'Could reveal a useful search-copy or content test. These numbers alone do not establish underperformance.',
+      prepared: 'Search evidence and an initial draft are saved. The draft still needs context before approval.',
+      caveat: 'No click-through benchmark or traffic lift is assumed. Query mix, search position and prior tests matter.',
+      measure: 'Confirm a specific change from the evidence, then compare clicks and CTR while accounting for query mix and position.',
+      sources: 'Search Console + inspected website', action: 'Investigate search opportunity', evidence: p.selection_reason,
+      metrics: [['Search impressions', fmt(s.impressions)], ['Observed CTR', (s.clicks / s.impressions * 100).toFixed(2) + '%'], ['Average position', fmt(s.position)]] };
+  }
   function build({ rows = [], coding = [], now = Date.now() } = {}) {
-    const time = Number(now), candidates = rows.map(p => proposal(p, time)).filter(Boolean);
+    const time = Number(now), candidates = rows.map(p => proposal(p, time) || discovery(p, time)).filter(Boolean);
     for (const i of coding) {
       // Daily-ledger coding only. Legacy approvals stay in the existing reviewer.
       if (i.stage !== 'code' || i.ledger_unavailable || !positive(i.open_suggestions)) continue;
@@ -95,7 +126,9 @@
     }
     const order = { ads: 0, seo: 1, restock: 2, coding: 3, launch: 4 };
     candidates.sort((a, b) => a.priority - b.priority || (a.kind === b.kind ? a.rank - b.rank : order[a.kind] - order[b.kind]) || String(a.id).localeCompare(String(b.id)));
-    return { featured: candidates[0] || null, secondary: candidates.slice(1, 3), eligible: candidates.length,
+    const growth = candidates.filter(i => ['ads', 'seo', 'restock'].includes(i.kind));
+    const upkeep = candidates.filter(i => !growth.includes(i));
+    return { featured: growth[0] || null, secondary: growth.slice(1, 3), upkeep: upkeep.slice(0, 1), opportunities: growth.length, eligible: candidates.length,
       watching: rows.filter(p => ['ready', 'needs_info', 'preparing', 'revision', 'failed'].includes(p.status) && !candidates.some(c => c.type === 'proposal' && c.id === p.id)).length,
       needsInput: rows.filter(p => p.status === 'needs_info').length + coding.filter(i => i.stage === 'needs_input').length,
       preparing: rows.filter(p => ['preparing', 'revision'].includes(p.status)).length };

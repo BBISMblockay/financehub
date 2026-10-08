@@ -70,10 +70,10 @@
       await companyStillActive();
       // Recheck expiry at click time, including a page left open overnight.
       const current = window.SiloOnDeckBriefing.build({ rows: state.proposalsLoaded ? state.rows : [], coding: state.codingLoaded ? state.coding.items() : [] });
-      if (![current.featured, ...current.secondary].some(i => i && i.id === item.id && i.type === item.type)) { renderBriefing(); throw new Error('This recommendation is no longer available. Refresh to review current evidence.'); }
+      if (![current.featured, ...current.secondary, ...current.upkeep].some(i => i && i.id === item.id && i.type === item.type)) { renderBriefing(); throw new Error('This recommendation is no longer available. Refresh to review current evidence.'); }
       setDesk('work');
       if (item.type === 'coding') { await state.coding.open(item.id); $('coding-review').scrollIntoView({ block: 'start' }); $('coding-review').tabIndex = -1; $('coding-review').focus(); }
-      else { state.view = 'review'; state.selected = item.id; state.tab = evidence ? 'brief' : 'draft'; renderQueue(); await select(item.id); $('detail').tabIndex = -1; $('detail').focus(); $('workspace').scrollIntoView({ block: 'start' }); }
+      else { state.view = item.readiness === 'investigate' ? 'needs' : 'review'; state.selected = item.id; state.tab = evidence || item.readiness === 'investigate' ? 'brief' : 'draft'; renderQueue(); await select(item.id); $('detail').tabIndex = -1; $('detail').focus(); $('workspace').scrollIntoView({ block: 'start' }); }
     } catch (e) { message(e.message, true); }
   }
   function renderBriefing() {
@@ -84,10 +84,13 @@
     checked.append(node('span', state.proposalsLoaded && state.settings.last_screen_at ? `Screened ${when(state.settings.last_screen_at)}` : 'Connected work reviewed', 'od-meta'));
     if ((!state.proposalsLoaded && state.access.proposals) || (!state.codingLoaded && state.access.coding.review)) checked.append(node('span', 'Some connected work could not be loaded. See the notice above.'));
     box.append(checked);
+    const layout = node('div', null, 'od-briefing-layout'); box.append(layout);
     const item = model.featured;
     if (item) {
       const hero = node('article', null, 'bcn-card od-hero'); hero.dataset.recommendation = item.id;
-      const head = node('div', null, 'bcn-card-header bcn-card-header--dark'); head.append(node('span', '01 / WORTH YOUR ATTENTION', 'bcn-mono'), node('span', item.category, 'bcn-mono')); hero.append(head);
+      const head = node('div', null, 'bcn-card-header od-opportunity-head');
+      head.append(signalIcon(item.kind), node('span', `TODAY’S OPPORTUNITY · ${item.category}`, 'bcn-mono'));
+      const label = node('span', item.readiness === 'investigate' ? 'Needs context' : 'Draft ready', 'od-signal-status'); label.dataset.status = item.readiness === 'investigate' ? 'context' : 'ready'; head.append(label); hero.append(head);
       const body = node('div', null, 'bcn-card-body'); body.append(node('h2', item.headline), node('p', item.finding, 'od-finding'));
       const metrics = node('dl', null, 'od-briefing-metrics'); item.metrics.forEach(([label, value]) => evidenceCard(metrics, label, value)); body.append(metrics);
       const reasons = node('div', null, 'od-briefing-reasons');
@@ -95,22 +98,29 @@
       const assumptions = node('details', null, 'od-briefing-assumptions'); assumptions.append(node('summary', 'Assumptions and how to check the outcome'), node('p', item.caveat), node('p', item.measure)); body.append(assumptions); hero.append(body);
       const foot = node('div', null, 'bcn-card-foot od-prepared'); foot.append(node('p', item.prepared), button(item.action, () => openBriefingAction(item), true));
       if (item.type === 'proposal') foot.append(button('See evidence', () => openBriefingAction(item, true))); hero.append(foot);
-      const sources = node('div', null, 'od-briefing-sources'); sources.append(node('span', 'Review first. Nothing publishes, orders or changes your budget automatically.'), node('span', item.sources, 'bcn-mono')); hero.append(sources); box.append(hero);
+      const sources = node('div', null, 'od-briefing-sources'); sources.append(node('span', 'Review first. Nothing publishes, orders or changes your budget automatically.'), node('span', item.sources, 'bcn-mono')); hero.append(sources); layout.append(hero);
     } else {
       const empty = node('section', null, 'bcn-card od-briefing-empty');
-      empty.append(node('h2', 'No new action is ready for your attention.'), node('p', model.watching ? 'Some opportunities are still being prepared or need stronger evidence or input. They remain available in All work.' : 'Prepared recommendations will appear when your connected evidence supports a useful next step.'));
+      empty.append(node('h2', 'No growth opportunity to recommend yet.'), node('p', model.watching ? 'Some opportunities are still being prepared or need stronger evidence or input. They remain available in All work.' : 'Prepared recommendations will appear when your connected evidence supports a useful next step.'));
       empty.append(button('View all work', () => setDesk('work', true)));
       if (state.access.proposals && state.proposalsLoaded && !state.settings.enabled) empty.append(safeLink('Set up background preparation', '/v2/settings-company.html#on-deck-settings'));
-      box.append(empty);
+      layout.append(empty);
     }
-    if (model.secondary.length) {
-      const more = node('section', null, 'bcn-card od-secondary'); const head = node('div', null, 'bcn-card-header'); head.append(node('h2', '02 / ALSO WORTH A LOOK', 'bcn-mono')); more.append(head);
-      model.secondary.forEach(i => { const row = node('div', null, 'od-briefing-row'); row.dataset.recommendation = i.id; const words = node('div'); words.append(node('span', i.category, 'bcn-pill'), node('h3', i.headline), node('p', i.sources)); row.append(words, button(i.action, () => openBriefingAction(i))); more.append(row); }); box.append(more);
+    const supporting = [...model.secondary, ...model.upkeep].slice(0, 2);
+    if (supporting.length) {
+      const more = node('section', null, 'bcn-card od-secondary'); const head = node('div', null, 'bcn-card-header'); head.append(node('h2', 'ALSO WORTH A LOOK', 'bcn-mono')); more.append(head);
+      supporting.forEach(i => {
+        const row = node('div', null, 'od-briefing-row'); row.dataset.recommendation = i.id;
+        row.dataset.role = i.type === 'coding' || i.kind === 'launch' ? 'upkeep' : 'opportunity';
+        const words = node('div'); const caption = node('div', null, 'od-row-caption'); caption.append(signalIcon(i.kind), node('span', i.type === 'coding' ? 'BOOKKEEPING' : i.category, 'bcn-mono'));
+        words.append(caption, node('h3', i.type === 'coding' ? 'Keep your books current' : i.headline), node('p', i.type === 'coding' ? `${i.metrics[0][1]} suggested classifications · routine upkeep.` : i.sources));
+        row.append(words, button(i.action, () => openBriefingAction(i))); more.append(row);
+      }); layout.append(more);
     }
     const watch = node('section', null, 'bcn-card od-watch'); const words = node('div');
     const monitoring = state.proposalsLoaded && state.settings.enabled;
-    words.append(node('h2', monitoring ? 'Background preparation is enabled' : 'Your connected work'), node('p', `${model.eligible} prepared ${model.eligible === 1 ? 'action' : 'actions'} · ${model.preparing} preparing · ${model.needsInput} needing input. Evidence, revisions and all remaining work are available in All work.`));
-    watch.append(words, button('All work →', () => setDesk('work', true))); box.append(watch);
+    words.append(node('h2', monitoring ? 'Background watch' : 'Your connected work'), node('p', `${model.opportunities} growth ${model.opportunities === 1 ? 'opportunity' : 'opportunities'} · ${model.preparing} preparing · ${model.needsInput} needing input. Evidence, revisions and all remaining work are available in All work.`));
+    watch.append(signalIcon('watch'), words, button('All work →', () => setDesk('work', true))); box.append(watch);
     const recent = state.proposalsLoaded ? state.rows.find(p => p.status === 'completed' && p.output) : null;
     if (recent) {
       const result = node('section', null, 'bcn-card od-watch'); const copy = node('div');
@@ -199,6 +209,12 @@
     const box = $('screening'); box.replaceChildren(); const d = s.diagnostics || {};
     box.append(node('p', `${d.qualified || 0} qualified · ${d.shortlisted || 0} shortlisted. Up to six active proposals; strongest candidates first.`));
     const list = node('ul'); Object.entries(d.held || {}).forEach(([reason, count]) => list.append(node('li', `${count} · ${reason}`))); box.append(list);
+  }
+  function signalIcon(kind) {
+    const el = node('span', null, 'od-signal-icon'); el.dataset.kind = kind; el.setAttribute('aria-hidden', 'true');
+    const shapes = { seo: '<circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/>', ads: '<path d="M4 18V11M10 18V7M16 18V3M3 21h18"/>', restock: '<path d="m3 7 9-4 9 4-9 4-9-4v10l9 4 9-4V7M12 11v10"/>', coding: '<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/>', launch: '<path d="M5 19 19 5M6 5h13v13"/>', watch: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/>' };
+    el.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' + (shapes[kind] || shapes.watch) + '</svg>';
+    return el;
   }
   function mark(kind) {
     const el = node('span', { launch: '↗', seo: '⌕', restock: '▦', ads: '✦' }[kind] || '◇', 'od-mark');
