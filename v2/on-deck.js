@@ -3,7 +3,7 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const cfg = window.__SILO_CONFIG__ || {};
-  const state = { db: null, co: null, settings: {}, rows: [], selected: null, view: 'review', tab: 'draft', events: [], attempts: [], detailRequest: 0, loading: false, access: { proposals: false, coding: { review: false, post: false } }, coding: null };
+  const state = { db: null, co: null, settings: {}, rows: [], selected: null, view: 'review', tab: 'draft', events: [], attempts: [], detailRequest: 0, loading: false, loaded: false, codingLoaded: false, proposalsLoaded: false, desk: 'briefing', access: { proposals: false, coding: { review: false, post: false } }, coding: null };
   const groups = { review: ['ready'], preparing: ['preparing', 'revision'], needs: ['needs_info', 'failed'], completed: ['completed', 'dismissed', 'screened'] };
   const names = { restock: 'PRODUCT RESTOCK', launch: 'LAUNCH CAMPAIGN', seo: 'SEARCH OPPORTUNITY', ads: 'AD CREATIVE' };
   const actionLabels = { restock: 'Create draft product brief', launch: 'Create launch tasks', seo: 'Create SEO task', ads: 'Create ad idea' };
@@ -21,15 +21,24 @@
     const a = node('a', label); try { const u = new URL(href, location.origin); if (['http:', 'https:'].includes(u.protocol) && !u.username && !u.password) { a.href = u.href; a.rel = 'noopener noreferrer'; } } catch { /* render plain text */ } return a;
   }
   function receiptLink(p) { const url = p.output?.url; return url && /^\/v[23]\/[a-z-]+\.html(?:\?brief=[a-f0-9-]+)?$/.test(url) ? safeLink(p.output.label, url) : node('p', 'Action recorded. Open the destination workspace to continue.'); }
-  async function companyStillActive() { if ((await cfg.ensureActiveCompany(state.db))?.id !== state.co) throw new Error('Active company changed. Reload On Deck before continuing.'); }
+  async function companyStillActive() {
+    if ((await cfg.ensureActiveCompany(state.db))?.id !== state.co) {
+      state.loaded = state.proposalsLoaded = state.codingLoaded = false;
+      state.rows = []; state.settings = {}; state.coding?.close();
+      $('briefing').hidden = $('all-work-top').hidden = $('workspace').hidden = true;
+      $('prepare').disabled = true;
+      throw new Error('Active company changed. Reload On Deck before continuing.');
+    }
+  }
   async function load() {
     if (state.loading) return;
-    state.loading = true; $('refresh').disabled = true;
+    state.loading = true; $('refresh').disabled = true; $('briefing').setAttribute('aria-busy', 'true');
     try {
       await companyStillActive();
       // Two independent access paths. A failure in one never hides the other.
       const errors = [];
-      if (state.access.coding.review) { try { await state.coding.load(); } catch (e) { errors.push(installMessage(e, 'Transaction coding review')); } }
+      state.codingLoaded = false; state.proposalsLoaded = false;
+      if (state.access.coding.review) { try { await state.coding.load(); state.codingLoaded = true; } catch (e) { state.coding.close(); errors.push(installMessage(e, 'Transaction coding review')); } }
       if (state.access.proposals) {
         try {
           const [settings, active, history] = await Promise.all([
@@ -37,16 +46,80 @@
             state.db.from('on_deck_proposals').select('*').eq('company_entity_id', state.co).in('status', ['ready', 'preparing', 'revision', 'needs_info', 'failed']).order('created_at'),
             state.db.from('on_deck_proposals').select('*').eq('company_entity_id', state.co).in('status', groups.completed).order('updated_at', { ascending: false }).limit(100),
           ]);
-          state.settings = check(settings) || {}; state.rows = [...check(active), ...check(history)];
+          state.settings = check(settings) || {}; state.rows = [...check(active), ...check(history)]; state.proposalsLoaded = true;
           $('workspace').hidden = false; $('prepare').disabled = !state.settings.enabled;
           renderOverview(); renderQueue(); await select(state.selected);
-        } catch (e) { $('workspace').hidden = true; $('prepare').disabled = true; errors.push(installMessage(e, 'On Deck')); }
+        } catch (e) { state.rows = []; state.settings = {}; state.proposalsLoaded = false; $('workspace').hidden = true; $('prepare').disabled = true; errors.push(installMessage(e, 'On Deck')); }
       }
-      renderReady(); renderAfter();
+      state.loaded = true; renderReady(); renderAfter(); renderBriefing();
       if (errors.length) message(errors.join(' '), true);
       else message(state.access.proposals && !state.settings.enabled ? 'Background preparation is off. Enable it in Workspace Settings.' : '');
-    } catch (e) { message(installMessage(e, 'On Deck'), true); }
-    finally { state.loading = false; $('refresh').disabled = false; }
+    } catch (e) { state.loaded = false; state.proposalsLoaded = false; state.codingLoaded = false; $('briefing').hidden = true; $('all-work-top').hidden = true; $('workspace').hidden = true; message(installMessage(e, 'On Deck'), true); }
+    finally { state.loading = false; $('refresh').disabled = false; $('briefing').setAttribute('aria-busy', 'false'); }
+  }
+  function setDesk(desk, focus = false) {
+    state.desk = desk; document.body.dataset.desk = desk;
+    for (const b of $('desk-views').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.desk === desk));
+    $('desk-title').textContent = desk === 'briefing' ? 'Your next move.' : 'All work.';
+    $('desk-subtitle').textContent = desk === 'briefing' ? 'One useful action, backed by your connected business.' : 'Prepared drafts, evidence, items needing input and recorded actions.';
+    if (desk === 'briefing') state.coding?.close();
+    if (focus) { $('desk-title').tabIndex = -1; $('desk-title').focus(); $('desk-title').scrollIntoView({ block: 'start' }); }
+  }
+  async function openBriefingAction(item, evidence = false) {
+    try {
+      await companyStillActive();
+      // Recheck expiry at click time, including a page left open overnight.
+      const current = window.SiloOnDeckBriefing.build({ rows: state.proposalsLoaded ? state.rows : [], coding: state.codingLoaded ? state.coding.items() : [] });
+      if (![current.featured, ...current.secondary].some(i => i && i.id === item.id && i.type === item.type)) { renderBriefing(); throw new Error('This recommendation is no longer available. Refresh to review current evidence.'); }
+      setDesk('work');
+      if (item.type === 'coding') { await state.coding.open(item.id); $('coding-review').scrollIntoView({ block: 'start' }); $('coding-review').tabIndex = -1; $('coding-review').focus(); }
+      else { state.view = 'review'; state.selected = item.id; state.tab = evidence ? 'brief' : 'draft'; renderQueue(); await select(item.id); $('detail').tabIndex = -1; $('detail').focus(); $('workspace').scrollIntoView({ block: 'start' }); }
+    } catch (e) { message(e.message, true); }
+  }
+  function renderBriefing() {
+    if (!state.loaded) return;
+    const box = $('briefing'); box.replaceChildren(); box.hidden = false;
+    const model = window.SiloOnDeckBriefing.build({ rows: state.proposalsLoaded ? state.rows : [], coding: state.codingLoaded ? state.coding.items() : [] });
+    const checked = node('p', null, 'od-briefing-status bcn-mono');
+    checked.append(node('span', state.proposalsLoaded && state.settings.last_screen_at ? `Screened ${when(state.settings.last_screen_at)}` : 'Connected work reviewed', 'od-meta'));
+    if ((!state.proposalsLoaded && state.access.proposals) || (!state.codingLoaded && state.access.coding.review)) checked.append(node('span', 'Some connected work could not be loaded. See the notice above.'));
+    box.append(checked);
+    const item = model.featured;
+    if (item) {
+      const hero = node('article', null, 'bcn-card od-hero'); hero.dataset.recommendation = item.id;
+      const head = node('div', null, 'bcn-card-header bcn-card-header--dark'); head.append(node('span', '01 / WORTH YOUR ATTENTION', 'bcn-mono'), node('span', item.category, 'bcn-mono')); hero.append(head);
+      const body = node('div', null, 'bcn-card-body'); body.append(node('h2', item.headline), node('p', item.finding, 'od-finding'));
+      const metrics = node('dl', null, 'od-briefing-metrics'); item.metrics.forEach(([label, value]) => evidenceCard(metrics, label, value)); body.append(metrics);
+      const reasons = node('div', null, 'od-briefing-reasons');
+      [['Why act', item.why], ['Potential benefit', item.benefit]].forEach(([label, value]) => { const col = node('div'); col.append(node('h3', label, 'bcn-mono'), node('p', value)); reasons.append(col); }); body.append(reasons);
+      const assumptions = node('details', null, 'od-briefing-assumptions'); assumptions.append(node('summary', 'Assumptions and how to check the outcome'), node('p', item.caveat), node('p', item.measure)); body.append(assumptions); hero.append(body);
+      const foot = node('div', null, 'bcn-card-foot od-prepared'); foot.append(node('p', item.prepared), button(item.action, () => openBriefingAction(item), true));
+      if (item.type === 'proposal') foot.append(button('See evidence', () => openBriefingAction(item, true))); hero.append(foot);
+      const sources = node('div', null, 'od-briefing-sources'); sources.append(node('span', 'Review first. Nothing publishes, orders or changes your budget automatically.'), node('span', item.sources, 'bcn-mono')); hero.append(sources); box.append(hero);
+    } else {
+      const empty = node('section', null, 'bcn-card od-briefing-empty');
+      empty.append(node('h2', 'No new action is ready for your attention.'), node('p', model.watching ? 'Some opportunities are still being prepared or need stronger evidence or input. They remain available in All work.' : 'Prepared recommendations will appear when your connected evidence supports a useful next step.'));
+      empty.append(button('View all work', () => setDesk('work', true)));
+      if (state.access.proposals && state.proposalsLoaded && !state.settings.enabled) empty.append(safeLink('Set up background preparation', '/v2/settings-company.html#on-deck-settings'));
+      box.append(empty);
+    }
+    if (model.secondary.length) {
+      const more = node('section', null, 'bcn-card od-secondary'); const head = node('div', null, 'bcn-card-header'); head.append(node('h2', '02 / ALSO WORTH A LOOK', 'bcn-mono')); more.append(head);
+      model.secondary.forEach(i => { const row = node('div', null, 'od-briefing-row'); row.dataset.recommendation = i.id; const words = node('div'); words.append(node('span', i.category, 'bcn-pill'), node('h3', i.headline), node('p', i.sources)); row.append(words, button(i.action, () => openBriefingAction(i))); more.append(row); }); box.append(more);
+    }
+    const watch = node('section', null, 'bcn-card od-watch'); const words = node('div');
+    const monitoring = state.proposalsLoaded && state.settings.enabled;
+    words.append(node('h2', monitoring ? 'Background preparation is enabled' : 'Your connected work'), node('p', `${model.eligible} prepared ${model.eligible === 1 ? 'action' : 'actions'} · ${model.preparing} preparing · ${model.needsInput} needing input. Evidence, revisions and all remaining work are available in All work.`));
+    watch.append(words, button('All work →', () => setDesk('work', true))); box.append(watch);
+    const recent = state.proposalsLoaded ? state.rows.find(p => p.status === 'completed' && p.output) : null;
+    if (recent) {
+      const result = node('section', null, 'bcn-card od-watch'); const copy = node('div');
+      copy.append(node('h2', 'Recent action recorded'), node('p', `${title(recent)} · ${recent.output.label || 'Draft work created'}. Approval is not proof of business lift.`));
+      result.append(copy, button('View recorded action', () => { setDesk('work'); state.view = 'completed'; state.selected = recent.id; state.tab = 'impact'; renderQueue(); select(recent.id).catch(e => message(e.message, true)); $('workspace').scrollIntoView({ block: 'start' }); })); box.append(result);
+    }
+    // Keep consequential unknown posting outcomes visible even in the briefing.
+    const unresolved = state.codingLoaded ? state.coding.items().filter(i => i.stage_reason === 'posting_unresolved') : [];
+    if (unresolved.length) { const warning = node('p', `${unresolved.length} QuickBooks posting outcome${unresolved.length === 1 ? '' : 's'} need checking. Open All work to inspect the entry.`, 'od-attention'); warning.setAttribute('role', 'status'); box.append(warning); }
   }
   function installMessage(e, what) {
     return /does not exist|schema cache|could not find/i.test(e.message)
@@ -61,10 +134,10 @@
     top.append(mark(p.kind), node('span', modules[p.kind] || 'Workflow', 'od-rcard-module'), node('span', ready ? effect[p.kind] : 'NEEDS INPUT', `od-rpill od-rpill--${ready ? 'proposal' : 'needs_input'}`));
     c.append(top, node('h3', title(p)), node('p', names[p.kind].charAt(0) + names[p.kind].slice(1).toLowerCase(), 'od-rcard-sub'));
     const missing = p.content?.missing || [];
-    c.append(node('p', ready ? destinations[p.kind][2] : `Resolve before approval: ${missing.join('; ') || 'missing information'}`, 'od-rcard-detail'));
+    c.append(node('p', ready ? destinations[p.kind][2] : 'Additional input is needed before approval. Open the proposal to inspect what is missing.', 'od-rcard-detail'));
     const ev = node('details', null, 'od-rcard-evidence'); ev.append(node('summary', `Why it is here · draft v${p.version}`), node('p', p.selection_reason)); c.append(ev);
     c.append(button('Review →', () => {
-      state.view = ready ? 'review' : 'needs'; state.selected = p.id; state.tab = 'draft'; renderQueue();
+      setDesk('work'); state.view = ready ? 'review' : 'needs'; state.selected = p.id; state.tab = 'draft'; renderQueue();
       select(p.id).catch(e => message(e.message, true)); $('workspace').scrollIntoView({ block: 'start', behavior: 'smooth' });
     }, true));
     return c;
@@ -72,8 +145,8 @@
   function renderReady() {
     const grid = $('ready-cards'); grid.replaceChildren();
     // Recorded entries are done in SILO and belong under "After approval".
-    const coding = state.coding ? state.coding.items().filter(i => !window.SiloOnDeckCoding.isRecorded(i)) : [];
-    const proposals = state.access.proposals ? state.rows.filter(p => ['ready', 'needs_info'].includes(p.status)) : [];
+    const coding = state.codingLoaded ? state.coding.items().filter(i => !window.SiloOnDeckCoding.isRecorded(i)) : [];
+    const proposals = state.proposalsLoaded ? state.rows.filter(p => ['ready', 'needs_info'].includes(p.status)) : [];
     coding.forEach(i => grid.append(state.coding.card(i)));
     proposals.forEach(p => grid.append(proposalCard(p)));
     state.coding?.markActive();
@@ -89,7 +162,7 @@
   /* "After approval": what actually happened, with the record it created. */
   function renderAfter() {
     const box = $('after-cards'); box.replaceChildren(); const att = $('attention'); att.replaceChildren();
-    const posted = state.coding ? state.coding.items().filter(i => window.SiloOnDeckCoding.isRecorded(i)) : [];
+    const posted = state.codingLoaded ? state.coding.items().filter(i => window.SiloOnDeckCoding.isRecorded(i)) : [];
     const done = state.access.proposals ? state.rows.filter(p => p.status === 'completed').slice(0, 3) : [];
     posted.slice(0, 6).forEach(i => {
       const c = node('article', null, 'od-after'); c.dataset.batch = i.batch_id;
@@ -112,7 +185,7 @@
       c.append(node('span', 'Completed', 'od-rpill od-rpill--posted'), node('h3', title(p)), node('p', p.output?.label || 'Action recorded', 'od-rcard-sub'));
       const dl = node('dl'); evidenceCard(dl, 'OWNER', modules[p.kind] || 'Workflow'); c.append(dl, receiptLink(p)); box.append(c);
     });
-    const unresolved = state.coding ? state.coding.items().filter(i => i.stage_reason === 'posting_unresolved').length : 0;
+    const unresolved = state.codingLoaded ? state.coding.items().filter(i => i.stage_reason === 'posting_unresolved').length : 0;
     const failed = state.access.proposals ? state.rows.filter(p => p.status === 'failed').length : 0;
     const notes = [];
     if (unresolved) notes.push(`${unresolved} journal ${unresolved === 1 ? 'entry has' : 'entries have'} an unknown posting outcome. Open ${unresolved === 1 ? 'it' : 'them'} in Transactions to check QuickBooks.`);
@@ -230,6 +303,7 @@
   $('edit-form').addEventListener('submit', e => { e.preventDefault(); const original = dialogProposal.content, content = { ...original, recommend: true }; ['subject', 'summary', 'body'].forEach(k => { content[k] = $(`edit-${k}`).value; }); content.tasks = [...$('edit-tasks').querySelectorAll('label')].map(l => ({ title: l.querySelector('input').value, detail: l.querySelector('textarea').value })); const checks = [...$('edit-missing').querySelectorAll('input')]; content.missing = (original.missing || []).filter((_, i) => !checks[i].checked); submit(e.target, 'edit-error', () => mutate(dialogProposal, 'edit', { p_content: content, p_note: $('edit-note').value }), 'edit-dialog'); });
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close()));
   $('refresh').addEventListener('click', load);
+  $('desk-views').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { if (b.dataset.desk === 'briefing') renderBriefing(); setDesk(b.dataset.desk); }));
   $('prepare').addEventListener('click', async () => { $('prepare').disabled = true; try { await companyStillActive(); await rpc('on_deck_request_preparation'); await load(); message('Screening requested for the next hourly scheduler run. There is no charge until a qualified proposal is drafted.'); } catch (e) { message(e.message, true); $('prepare').disabled = !state.settings.enabled; } });
   $('views').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { state.view = b.dataset.view; state.tab = 'draft'; renderQueue(); select(state.selected).catch(e => message(e.message, true)); }));
   async function init() {
@@ -248,7 +322,7 @@
       try { const a = await rpc('on_deck_coding_access'); state.access.coding = { review: !!a?.review, post: !!a?.post }; } catch (e) { if (!missing(e)) throw e; absent++; }
       if (absent === 2) throw new Error('On Deck is not installed in this environment yet. Apply the On Deck migrations first.');
       if (!state.access.proposals && !state.access.coding.review) throw new Error('On Deck requires an active company owner or admin membership, or finance access.');
-      if (state.access.coding.review) state.coding = window.SiloOnDeckCoding.mount({ db: state.db, co: state.co, cfg, access: state.access.coding, reviewEl: $('coding-review'), message, stillActive: companyStillActive, onChange: async () => { renderReady(); renderAfter(); } });
+      if (state.access.coding.review) state.coding = window.SiloOnDeckCoding.mount({ db: state.db, co: state.co, cfg, access: state.access.coding, reviewEl: $('coding-review'), message, stillActive: companyStillActive, onChange: async () => { renderReady(); renderAfter(); renderBriefing(); } });
       $('prepare').hidden = !state.access.proposals; $('settings-link').hidden = !state.access.proposals;
       await load();
     } catch (e) { message(/does not exist|schema cache|could not find/i.test(e.message) ? 'On Deck is not installed in this environment yet. Apply the preview migration before enabling preparation.' : e.message, true); }

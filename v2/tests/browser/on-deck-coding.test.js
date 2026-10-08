@@ -89,7 +89,7 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
   let checks = 0;
   const test = async (name, fn) => { await fn(); console.log(`ok ${++checks} - ${name}`); };
   const ready = () => !!document.querySelector('#ready-cards .od-rcard, #after-cards .od-after') || /requires|not installed/.test(document.getElementById('status').textContent);
-  const open = (t = tables(), extraRpc = {}) => suite.open('/v2/on-deck.html', t, { rpc: { ...rpc, ...extraRpc }, ready });
+  const open = async (t = tables(), extraRpc = {}) => { const p = await suite.open('/v2/on-deck.html', t, { rpc: { ...rpc, ...extraRpc }, ready }); await p.getByRole('button', { name: 'All work', exact: true }).click(); return p; };
   try {
     let page = await open();
     await test('finance sees real coding cards; proposals, preparation and settings stay hidden', async () => {
@@ -108,8 +108,9 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
       await page.screenshot({ path: path.join(shots, 'on-deck-coding-cards.png'), fullPage: true });
     });
 
-    await test('Review opens the actual suggestions; low confidence starts unticked; untrusted text stays text', async () => {
-      await page.locator('[data-batch=b-code] button').click();
+    await test('briefing action opens actual suggestions; low confidence starts unticked; untrusted text stays text', async () => {
+      await page.getByRole('button', { name: 'Briefing', exact: true }).click();
+      await page.locator('.od-hero').getByRole('button', { name: 'Review transactions' }).click();
       await page.waitForSelector('#coding-review .od-review-table');
       const rows = page.locator('#coding-review tbody tr');
       assert.equal(await rows.count(), 2);

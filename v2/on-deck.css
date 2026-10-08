@@ -1,4 +1,57 @@
-/* Direct-link Beacon preview. No navigation registration. */
+/* Beacon briefing and the existing review workspace. */
+.on-deck [hidden]{display:none!important}
+.on-deck .bcn-btn--ghost{color:var(--bcn-ink-2)}
+.on-deck[data-desk=briefing] #all-work-top,.on-deck[data-desk=briefing] #workspace,.on-deck[data-desk=briefing] #prepare{display:none!important}
+.on-deck[data-desk=work] #briefing{display:none!important}
+.od-briefing{max-width:1320px;display:flex;flex-direction:column;gap:16px}
+.od-briefing .bcn-card{margin:0;border-radius:var(--bcn-radius);min-width:0;overflow:hidden}
+.od-briefing-status{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:0;font-size:11px;color:var(--bcn-ink-3)}
+.od-hero .bcn-card-header{justify-content:space-between;gap:12px;padding:13px 22px;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.od-hero .bcn-card-body{padding:24px;gap:16px;overflow:visible}
+.od-hero h2{font-size:26px;line-height:1.3;letter-spacing:-.7px;margin:0;overflow-wrap:anywhere}
+.od-hero p{margin:0;font-size:13px;line-height:1.7;color:var(--bcn-ink-2)}
+.od-hero .od-finding{font-size:14px;max-width:900px}
+.od-briefing-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:4px 0 0;padding:0 0 18px;border-bottom:1px solid var(--bcn-border);gap:18px}
+.od-briefing-metrics div{min-width:0;border-right:1px solid var(--bcn-border);padding-right:18px}
+.od-briefing-metrics div:last-child{border:0}
+.od-briefing-metrics dt,.od-briefing-reasons h3{font:500 10px var(--bcn-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--bcn-ink-3);margin:0 0 8px}
+.od-briefing-metrics dd{font:600 23px var(--bcn-mono);letter-spacing:-.5px;margin:0;overflow-wrap:anywhere}
+.od-briefing-reasons{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.od-briefing-reasons>div+div{border-left:1px solid var(--bcn-border);padding-left:24px}
+.od-briefing-assumptions{font-size:11px;color:var(--bcn-ink-3)}
+.od-briefing-assumptions summary{cursor:pointer;width:fit-content}
+.od-briefing-assumptions p{font-size:12px;margin-top:10px}
+.od-prepared{align-items:center;flex-wrap:wrap;padding:16px 24px;gap:8px}
+.od-prepared p{flex:1 1 320px;color:var(--bcn-ink);font-weight:600}
+.od-briefing-sources{padding:12px 24px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:10px;line-height:1.6;color:var(--bcn-ink-3)}
+.od-secondary .bcn-card-header h2{font:500 10px var(--bcn-mono);letter-spacing:.06em}
+.od-briefing-row{padding:16px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid var(--bcn-border)}
+.od-briefing-row:first-of-type{border-top:0}
+.od-briefing-row>div{min-width:0}
+.od-briefing-row h3{display:inline;font-size:13px;line-height:1.6;margin:0 0 0 12px;overflow-wrap:anywhere}
+.od-briefing-row p{font-size:11px;color:var(--bcn-ink-3);margin:6px 0 0}
+.od-briefing-row .bcn-btn{flex-shrink:0}
+.od-briefing .od-watch{padding:16px 22px;display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:20px}
+.od-watch h2{font-size:13px;margin:0 0 6px}
+.od-watch p{font-size:11px;line-height:1.6;color:var(--bcn-ink-3);margin:0}
+.od-watch .bcn-btn{flex-shrink:0}
+.od-briefing-empty{padding:36px 24px}
+.od-briefing-empty h2{font-size:23px;margin:0 0 12px}
+.od-briefing-empty p{font-size:13px;color:var(--bcn-ink-2);line-height:1.7;max-width:700px}
+.od-briefing-empty a{color:var(--bcn-accent);font-size:12px;margin-left:12px}
+@media(max-width:700px){
+  .od-hero .bcn-card-body{padding:18px}.od-hero h2{font-size:23px}
+  .od-hero .bcn-card-header{padding:12px 18px;flex-wrap:wrap}
+  .od-briefing-metrics{grid-template-columns:1fr;gap:12px}
+  .od-briefing-metrics div{border:0;padding:0;display:flex;justify-content:space-between;gap:12px;align-items:center}
+  .od-briefing-metrics dd{font-size:18px}.od-briefing-metrics dt{margin:0}
+  .od-briefing-reasons{grid-template-columns:1fr;gap:16px}
+  .od-briefing-reasons>div+div{border-left:0;padding-left:0}
+  .od-prepared,.od-briefing-row,.od-briefing .od-watch{padding:16px 18px;align-items:flex-start;flex-direction:column}
+  .od-prepared p{flex:auto}.od-prepared .bcn-btn{width:100%}
+  .od-briefing-sources{padding:12px 18px}.od-briefing-row h3{display:block;margin:8px 0 0}
+  .od-watch .bcn-btn,.od-briefing-row .bcn-btn{min-height:40px;padding-left:0}
+}
 .od-wrap{padding:0 24px 32px;width:100%;min-width:0;box-sizing:border-box;max-width:1700px;margin:0 auto}
 .bcn-header{padding:24px;gap:20px;align-items:center;flex-wrap:wrap}
 .bcn-header h1{font-size:34px;letter-spacing:-1.3px;line-height:1.15;margin:8px 0}

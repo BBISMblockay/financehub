@@ -21,6 +21,8 @@ const rpc = {
 };
 (async () => {
  const suite = await startSuite({ secureContext: true });
+ const originalOpen = suite.open;
+ suite.open = async (...args) => { const page = await originalOpen(...args); if (args[0] === '/v2/on-deck.html') await page.getByRole('button', { name: 'All work', exact: true }).click(); return page; };
  // This preview has boolean RPCs. Preserve false; the older gallery harness
  // converts every falsy fixture result to an array. Scope this fix to this suite.
  await suite.context.route('**/v2/lib/supabase-js.min.js', route => route.fulfill({ contentType: 'text/javascript', body: fakeSupabaseScript().replace('all = all(args) || [];', 'all = all(args);') }));
