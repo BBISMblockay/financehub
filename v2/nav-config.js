@@ -172,13 +172,16 @@
    */
   const NAV_ITEMS = [
     { id: 'finance/menu', section: 'Start', label: 'Home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
-    // Ask SILO is promoted to its own row right under Home, on both profiles
-    // (Blake, 2026-10-08); it used to sit inside Reports / Insights. Same
-    // people see it as before: exec/owner, or a silo_chat_managers grant.
-    // Nav is discovery only -- silo-chat checks company membership and AI
-    // credits itself. The id stays reports/silo-chat so the page's active
-    // marker keeps working.
-    { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Start', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
+    // Ask SILO is its own top-level section, right after Start, on both
+    // profiles (Blake, 2026-10-08) -- the same shape as Accounting: a section
+    // whose one row carries its name. It used to sit inside Reports /
+    // Insights. Same people see it as before: exec/owner, or a
+    // silo_chat_managers grant. Nav is discovery only -- silo-chat checks
+    // company membership and AI credits itself. The id stays
+    // reports/silo-chat so the page's active marker keeps working. Its place
+    // in the grandfathered menu comes from this row's position (that order is
+    // first-seen), and in the standard menu from STANDARD_SECTION_ORDER.
+    { roles: EXEC_ROLES, grantTable: 'silo_chat_managers', id: 'reports/silo-chat', section: 'Ask SILO', label: 'Ask SILO', href: '/v2/silo-chat.html', profiles: ['grandfathered', 'standard'] },
     // On Deck: prepared work waiting for a decision. Its first module is
     // transaction coding, so the row follows the finance gate the database
     // applies (on_deck_coding_access). Owner/admins without a finance
@@ -385,7 +388,7 @@
   // appends leftovers; this one does not) -- 'Sales' and 'Marketing' are
   // Sales remains listed as a safe landing place for a future canonical
   // dashboard/page, but no standalone Sales report is exposed today.
-  const STANDARD_SECTION_ORDER = ['Start', 'Insights', 'Finance', 'Marketing', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Settings'];
+  const STANDARD_SECTION_ORDER = ['Start', 'Ask SILO', 'Insights', 'Finance', 'Marketing', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Settings'];
 
   /**
    * @param {'grandfathered' | 'standard'} profile
