@@ -238,6 +238,25 @@ function fakeMeta({ expiresIn = null, longLived = true } = {}) {
 }
 const cb = (q) => new Request(`https://x/functions/v1/meta-oauth-callback?${new URLSearchParams(q)}`);
 
+await test('callback rollout probe: bare GET redirects before any database or Meta access', async () => {
+  for (const appUrl of [undefined, 'https://get-silo.com']) {
+    let dbCalls = 0, metaCalls = 0;
+    const h = createCallbackHandler({
+      env: { ...ENV, SILO_APP_URL: appUrl },
+      admin: { from() { dbCalls++; throw new Error('probe must not access the database'); } },
+      fetchImpl: async () => { metaCalls++; throw new Error('probe must not contact Meta'); },
+    });
+    const res = await h(new Request('https://x/functions/v1/meta-oauth-callback'));
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get('Location'),
+      `${appUrl || 'https://silo-baseballism.com'}/v2/integrations.html?oauth_error=missing_params&platform=meta_ads`);
+    assert.equal(res.headers.get('Cache-Control'), 'no-store');
+    assert.equal(res.headers.get('Referrer-Policy'), 'no-referrer');
+    assert.equal(dbCalls, 0);
+    assert.equal(metaCalls, 0);
+  }
+});
+
 await test('callback: a denied login and a missing or expired state write nothing', async () => {
   const db = cbDb({ expires_at: new Date(NOW - 1).toISOString() });
   const { fetchImpl, calls } = fakeMeta();
