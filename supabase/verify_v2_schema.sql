@@ -5998,6 +5998,12 @@ select 'SILO ledger entries balance' as check_name,
   else 'ok' end as status;
 -- End SILO ledger checks.
 
+-- On Deck fingerprint cutoff caches the company-local date outside the scan.
+select 'On Deck source date cache' as check_name, case when
+ position('day_date>=company_today-90' in pg_get_functiondef('public.on_deck_source_version(uuid,text)'::regprocedure))>0
+ and position('company_today::text' in pg_get_functiondef('public.on_deck_source_version(uuid,text)'::regprocedure))>0
+ then 'ok' else 'MISSING' end as status;
+
 -- On Deck action loop (read-only).
 select 'On Deck action loop' as check_name, case when
  exists(select 1 from information_schema.columns where table_schema='public' and table_name='on_deck_proposals' and column_name='context_work')

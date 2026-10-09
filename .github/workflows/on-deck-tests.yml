@@ -39,6 +39,7 @@ jobs:
       - run: cd v2/tests && npx playwright install --with-deps chromium
       - run: node scripts/tests/on-deck-core.test.mjs
       - run: node scripts/tests/on-deck-worker.test.mjs
+      - run: node scripts/tests/on-deck-source-date.test.mjs
       - run: node scripts/tests/on-deck-edge.test.mjs
       - run: node scripts/tests/on-deck-database.test.mjs
       - run: node scripts/tests/on-deck-action-loop.test.mjs
@@ -53,6 +54,10 @@ jobs:
       - run: node v2/tests/browser/on-deck-coding.test.js
       - name: Mutations must be caught
         run: |
+          if DATE_MUTATE=per-row node scripts/tests/on-deck-source-date.test.mjs > /tmp/date-mutation.log 2>&1; then
+            cat /tmp/date-mutation.log
+            exit 1
+          fi
           for mutation in context-company seo-fields launch-reuse edit-expiry linked-context request-evidence task-touch context-freshness evidence-recency duplicate-titles; do
             if LOOP_MUTATE="$mutation" node scripts/tests/on-deck-action-loop.test.mjs > /tmp/loop-mutation.log 2>&1; then
               cat /tmp/loop-mutation.log

@@ -25,7 +25,9 @@ const rpc = {
  suite.open = async (...args) => { const page = await originalOpen(...args); if (args[0] === '/v2/on-deck.html') await page.getByRole('button', { name: 'All work', exact: true }).click(); return page; };
  // This preview has boolean RPCs. Preserve false; the older gallery harness
  // converts every falsy fixture result to an array. Scope this fix to this suite.
- await suite.context.route('**/v2/lib/supabase-js.min.js', route => route.fulfill({ contentType: 'text/javascript', body: fakeSupabaseScript().replace('all = all(args) || [];', 'all = all(args);') }));
+ // Settings uses the CDN URL; persist its saved currency in both fixture routes.
+ const fixtureScript = fakeSupabaseScript().replace('all = all(args) || [];', 'all = all(args);').replace('q.patch = patch;', 'q.patch = patch; if (table === '+JSON.stringify('company_settings')+') Object.assign(window.__FIXTURE_TABLES__.company_settings[0], patch);');
+ for (const url of ['**/v2/lib/supabase-js.min.js','https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2']) await suite.context.route(url, route => route.fulfill({contentType:'text/javascript',body:fixtureScript}));
  let checks = 0;
  const test = async (name, fn) => { await fn(); console.log(`ok ${++checks} - ${name}`); };
  const ready = () => document.getElementById('workspace') && !document.getElementById('workspace').hidden;
@@ -99,15 +101,33 @@ const rpc = {
   await test('unavailable data leaves mutations disabled', async () => { assert.equal(await page.locator('#prepare').isDisabled(), true); assert.equal(await page.locator('#workspace').isHidden(), true); });
   await page.close();
   const settingsReady = () => document.getElementById('on-deck-settings') && !document.getElementById('on-deck-settings').hidden;
-  page = await suite.open('/v2/settings-company.html#on-deck-settings', tables(), { rpc: { ...rpc, on_deck_configure: args => { Object.assign(window.__FIXTURE_TABLES__.on_deck_settings[0], { enabled: args.p_enabled, monthly_cap_usd: args.p_cap, buy_budget: args.p_buy_budget, workflows: args.p_workflows }); return true; } }, ready: settingsReady });
+  const settingTables=tables();settingTables.entities=[{id:company,title:'Test company'}];settingTables.company_settings=[{company_entity_id:company,default_currency:'CAD',business_timezone:'America/New_York'}];
+  page = await suite.open('/v2/settings-company.html#on-deck-settings', settingTables, { rpc: { ...rpc, on_deck_review_state: () => ({proposals:window.__FIXTURE_TABLES__.on_deck_proposals.map(p=>({id:p.id,source_current:true}))}), on_deck_configure: args => { Object.assign(window.__FIXTURE_TABLES__.on_deck_settings[0], { enabled: args.p_enabled, monthly_cap_usd: args.p_cap, buy_budget: args.p_buy_budget, workflows: args.p_workflows }); return true; } }, ready: settingsReady });
   await test('Workspace Settings owns cap, usage and persisted preparation controls', async () => {
    await page.waitForFunction(() => !document.getElementById('od-cap').disabled);
    await page.getByText('Usage & cost records', { exact: true }).click();
    assert.match(await page.locator('#od-usage').textContent(), /3.42/);
+   assert.match(await page.locator('#od-budget-label').textContent(),/Per-product restock cost ceiling \(CAD\)/);
+   assert.match(await page.locator('#od-budget-help').textContent(),/authorizes no purchase/);
+   assert.equal(await page.locator('#od-budget').inputValue(),'25000');
+   const readinessQuery = await page.evaluate(() => window.__QUERIES__.find(q => q.table === 'on_deck_proposals'));
+   assert.match(readinessQuery.columns,/\bkind\b/);
+   assert.match(await page.locator('#od-current-status').textContent(),/^1 actionable drafts/);
+   await page.locator('#od-budget').fill('');assert.equal(await page.locator('#od-budget-warning').isVisible(),true);
+   assert.match(await page.locator('#od-budget-warning').textContent(),/No restock suggestions/);
+   await page.locator('#od-budget').fill('25000');assert.equal(await page.locator('#od-budget-warning').isVisible(),false);
    await page.locator('#od-cap').fill('45'); await page.getByRole('button', { name: 'Save On Deck settings', exact: true }).click();
    await page.waitForFunction(() => document.getElementById('od-settings-status').textContent === 'On Deck settings saved.');
    const call = await page.evaluate(() => window.__QUERIES__.find(q => q.table === 'rpc:on_deck_configure'));
    assert.equal(call.args.p_cap, 45); assert.equal(call.args.p_enabled, true);
+   assert.equal(call.args.p_buy_budget,25000);assert.deepEqual(call.args.p_workflows,['restock','launch','seo','ads']);
+   await page.locator('#fldName').fill('Test company');
+   await page.locator('#fldCurrency').fill('EUR');
+   assert.match(await page.locator('#od-budget-label').textContent(),/\(CAD\)/);
+   await page.locator('#btnSave').click();
+   await page.waitForFunction(() => document.getElementById('od-budget-label').textContent.includes('(EUR)'));
+   assert.equal(await page.locator('#od-budget').inputValue(),'25000');
+   assert.equal(await page.evaluate(() => window.__FIXTURE_TABLES__.company_settings[0].default_currency),'EUR');
    await page.screenshot({ path: path.resolve(__dirname, '../../../.screenshots/on-deck-settings.png'), fullPage: true });
   });
   await page.close();

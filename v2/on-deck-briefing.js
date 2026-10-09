@@ -6,6 +6,16 @@
   const positive = v => number(v) !== null && number(v) > 0;
   const fmt = v => Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 });
   const clean = v => text(v).replace(/\s+/g, ' ').toLowerCase();
+  function currentStatus(rows = [], now = Date.now()) {
+    const active = rows.filter(p => ['ready','needs_info','failed','preparing','revision'].includes(p.status));
+    const stale = p => p.source_current === false || !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= now;
+    const ready = active.filter(p => p.status === 'ready' && p.source_current === true && !stale(p) && p.content?.recommend === true && text(p.content?.body) && Array.isArray(p.content?.missing) && !p.content.missing.length && (p.kind !== 'seo' || (text(p.content?.proposed_title) && text(p.content?.proposed_meta_description)))).length;
+    const needs = active.filter(p => p.status === 'needs_info').length, failed = active.filter(p => p.status === 'failed').length;
+    const expired = active.filter(stale).length, preparing = active.filter(p => ['preparing','revision'].includes(p.status)).length;
+    const unknown = active.filter(p => typeof p.source_current !== 'boolean').length;
+    return { ready, needs, failed, stale: expired, preparing, unknown,
+      text: `${ready} actionable drafts; ${needs} need context; ${failed} failed; ${preparing} preparing. ${expired} active drafts have stale evidence and cannot be approved.${unknown ? ` Freshness unavailable for ${unknown} drafts; reload before review.` : ''}` };
+  }
   const name = p => text(p.title).split(' · ').slice(1).join(' · ') || text(p.title) || 'Prepared opportunity';
   // The current draft contract stores copy, not structured SEO fields. Fail
   // conservatively when a changed title/description cannot be identified.
@@ -152,7 +162,7 @@
     if (body.length > 5000) throw new Error('This context would exceed the draft limit. Shorten the draft or supplied context first.');
     return { content: { ...c, recommend: true, body, missing: pending }, note: 'Task handoff: ' + (supplied.length ? 'Added supplied context. ' : '') + (research.length ? 'Carried unanswered research into the draft; it is not claimed resolved. ' : '') + (pending.length ? pending.length + ' required or unselected inputs remain.' : 'Ready for separate draft-task creation review.') };
   }
-  const api = { build, seoChange, inputPlan, prepareHandoff };
+  const api = { build, seoChange, inputPlan, prepareHandoff, currentStatus };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.SiloOnDeckBriefing = api;
 })();
