@@ -76,3 +76,19 @@ and pending-save controls (15 briefing browser checks). Deliberately removing th
 expiry guard, linked-task exclusion, or dialog button lock makes these tests fail.
 The backend and integrated frontend received separate independent local review;
 automation review markers and exact-head CI are reported separately in the PR.
+
+## Cycle 1 corrections
+
+Context creation/linking stores a hash of the initial task notes. Unchanged request
+instructions cannot become resolved findings, and the dialog leaves them out of
+the findings field. New assignments require current unexpired evidence; retries
+of an existing assignment create nothing and resolution may still queue refresh.
+Unlinked campaign work can make a stale launch ineligible after refresh; it must
+not be kept alive by assigning obsolete context. Linked context work is excluded
+from campaign screening through its durable proposal link.
+
+Evidence samples are ordered by update time, disclose omitted collections, and
+withhold long notes rather than presenting an excerpt as complete. The prompt
+treats withheld evidence as unknown. Duplicate normalized launch task titles are
+rejected by provider and database validation before destination writes.
+Regression cases cover each finding; removing each SQL guard causes a failure.

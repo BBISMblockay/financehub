@@ -82,6 +82,16 @@ const rpc = {
   await test('truncated task notes require reading full task, never import partial findings',async()=>{
    await page.getByRole('button',{name:'Record findings and refresh draft'}).click(); assert.match(await page.locator('#context-explanation').textContent(),/exceed the import limit/); assert.equal(await page.getByLabel('Findings and supporting evidence').inputValue(),'');
   }); await page.close();
+
+  for(const mode of ['stale','expired']) {
+   const blocked=tables();if(mode==='stale')blocked.on_deck_proposals[0].source_version='old';else blocked.on_deck_proposals[0].valid_until='2000-01-01';
+   page=await suite.open('/v2/on-deck.html?proposal=search',blocked,{rpc,ready});
+   await test(mode+' context cannot be newly assigned',async()=>{assert.equal(await page.getByRole('button',{name:'Create or link context task'}).isDisabled(),true);assert.equal(await page.evaluate(()=>window.__QUERIES__.some(q=>q.table==='rpc:on_deck_context')),false);});await page.close();
+  }
+  const untouched=tables();untouched.on_deck_proposals[0].context_work={state:'open',task_id:'created',title:'Resolve claim'};
+  const requestRpc={...rpc,on_deck_review_state:()=>({seo:true,proposals:[{id:'search',source_current:false}],assignees:[],tasks:[],context_tasks:[{id:'created',notes:'Required findings: generated request only',notes_are_request:true}]})};
+  page=await suite.open('/v2/on-deck.html?proposal=search',untouched,{rpc:requestRpc,ready});
+  await test('original request is not prefilled as findings; existing stale work can be resolved',async()=>{await page.getByRole('button',{name:'Record findings and refresh draft'}).click();assert.equal(await page.getByLabel('Findings and supporting evidence').inputValue(),'');assert.match(await page.locator('#context-explanation').textContent(),/only its original request/);});await page.close();
   console.log(`${checks} action-loop browser checks passed`);
  } finally { await suite.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

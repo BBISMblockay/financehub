@@ -7,7 +7,7 @@ declare co uuid:=public.active_company_id(); begin
  if auth.uid() is null or not coalesce(public.on_deck_can_review(),false) then raise exception 'Company admin required' using errcode='42501'; end if;
  return jsonb_build_object(
  'seo',coalesce(public.can_approve_seo_tasks(),false),
- 'context_tasks',(select coalesce(jsonb_agg(jsonb_build_object('id',t.id,'notes',left(t.notes,4000),'notes_truncated',length(coalesce(t.notes,''))>4000,'status',t.status,'owner',coalesce(u.name,u.email))),'[]') from public.on_deck_proposals p join public.launch_tasks t on t.id=nullif(p.context_work->>'task_id','')::uuid and t.company_entity_id=co and not t.is_private left join public.profiles u on u.id=t.assigned_to_user_id where p.company_entity_id=co and p.status not in ('completed','dismissed','screened')),
+ 'context_tasks',(select coalesce(jsonb_agg(jsonb_build_object('id',t.id,'notes',left(t.notes,4000),'notes_truncated',length(coalesce(t.notes,''))>4000,'notes_are_request',md5(btrim(coalesce(t.notes,'')))=p.context_work->>'request_notes_hash','status',t.status,'owner',coalesce(u.name,u.email))),'[]') from public.on_deck_proposals p join public.launch_tasks t on t.id=nullif(p.context_work->>'task_id','')::uuid and t.company_entity_id=co and not t.is_private left join public.profiles u on u.id=t.assigned_to_user_id where p.company_entity_id=co and p.status not in ('completed','dismissed','screened')),
  'proposals',(select coalesce(jsonb_agg(jsonb_build_object('id',p.id,'source_current',p.source_version=public.on_deck_source_version(co,p.kind),'expired',p.valid_until<now())),'[]') from public.on_deck_proposals p where p.company_entity_id=co and p.status not in ('completed','dismissed','screened')),
  'assignees',(select coalesce(jsonb_agg(jsonb_build_object('id',p.id,'name',coalesce(p.name,p.email)) order by coalesce(p.name,p.email)),'[]') from public.profiles p join public.entity_memberships m on m.user_id=p.id and m.entity_id=co where p.is_active and m.role in ('owner_admin','admin','member')),
  'tasks',(select coalesce(jsonb_agg(to_jsonb(t)),'[]') from (select t.id,t.task_title,t.assigned_to_user_id,t.status from public.launch_tasks t where t.company_entity_id=co and not t.is_private and t.status<>'done' and exists(select 1 from public.profiles p join public.entity_memberships m on m.user_id=p.id where p.id=t.assigned_to_user_id and p.is_active and m.entity_id=co and m.role in ('owner_admin','admin','member')) order by t.updated_at desc,t.id limit 100) t));
@@ -29,6 +29,7 @@ declare r public.on_deck_proposals; t public.launch_tasks; work jsonb; begin
  if r.version is distinct from p_version then raise exception 'Proposal changed. Reload before deciding' using errcode='40001'; end if;
  if r.status not in ('needs_info','failed','ready') then raise exception 'Wait for preparation or open an active decision'; end if;
  if p_action in ('create','link') then
+  if r.valid_until<=now() or r.source_version is distinct from public.on_deck_source_version(r.company_entity_id,r.kind) then raise exception 'Evidence changed or expired. Refresh before assigning context work'; end if;
   if jsonb_array_length(coalesce(r.content->'missing','[]'))=0 then raise exception 'No required context to assign'; end if;
   if p_action='link' then
    select * into t from public.launch_tasks where id=p_task and company_entity_id=r.company_entity_id and not is_private and status<>'done' for update;
@@ -41,14 +42,15 @@ declare r public.on_deck_proposals; t public.launch_tasks; work jsonb; begin
   end if;
   if not exists(select 1 from public.profiles p join public.entity_memberships m on m.user_id=p.id where p.id=t.assigned_to_user_id and p.is_active and m.entity_id=r.company_entity_id and m.role in ('owner_admin','admin','member')) then raise exception 'Task needs an active company owner'; end if;
   if p_action='link' then
-   update public.launch_tasks set notes=concat_ws(E'\n',notes,'On Deck context request: '||r.id::text,'Required findings:',(select string_agg(value,E'\n') from jsonb_array_elements_text(r.content->'missing')),'Record findings and sources in task notes for an On Deck reviewer.','/v2/on-deck.html?proposal='||r.id::text) where id=t.id;
+   update public.launch_tasks set notes=concat_ws(E'\n',notes,'On Deck context request: '||r.id::text,'Required findings:',(select string_agg(value,E'\n') from jsonb_array_elements_text(r.content->'missing')),'Record findings and sources in task notes for an On Deck reviewer.','/v2/on-deck.html?proposal='||r.id::text) where id=t.id returning * into t;
   end if;
-  work:=jsonb_build_object('state','open','task_id',t.id,'title',t.task_title,'assigned_to',t.assigned_to_user_id,'missing',r.content->'missing','created_by',auth.uid(),'created_at',now());
+  work:=jsonb_build_object('state','open','task_id',t.id,'title',t.task_title,'assigned_to',t.assigned_to_user_id,'missing',r.content->'missing','created_by',auth.uid(),'created_at',now(),'request_notes_hash',md5(btrim(coalesce(t.notes,''))));
  elsif p_action='resolve' then
   if r.context_work->>'state' is distinct from 'open' then raise exception 'Create or link an owned context task first'; end if;
   select * into t from public.launch_tasks where id=(r.context_work->>'task_id')::uuid and company_entity_id=r.company_entity_id and not is_private for update;
   if not found then raise exception 'Linked task unavailable'; end if;
   if coalesce(length(btrim(p_note)),0) not between 12 and 4000 then raise exception 'Record findings and their evidence (12–4000 characters)'; end if;
+  if md5(btrim(p_note))=r.context_work->>'request_notes_hash' then raise exception 'Replace the original request instructions with actual findings and supporting evidence'; end if;
   work:=r.context_work||jsonb_build_object('state','resolved','resolution',btrim(p_note),'resolved_by',auth.uid(),'resolved_at',now());
   -- Findings are durable input, not an assertion that the next draft is safe.
   update public.on_deck_settings set requested_at=now() where company_entity_id=r.company_entity_id;
@@ -65,10 +67,12 @@ end $$;
 create or replace function public.on_deck_context_evidence(p_company uuid,p_kind text,p_source jsonb) returns jsonb
 language sql stable security definer set search_path='' as $$
  select jsonb_build_object(
- 'seo_work',case when p_kind='seo' then (select coalesce(jsonb_agg(to_jsonb(x)),'[]') from (select id,title,approval_status,proposed_title,proposed_meta_description from public.seo_tasks where company_entity_id=p_company and target_url=p_source->>'url' order by id limit 10)x) else '[]'::jsonb end,
- 'launch_work',case when p_kind='launch' then (select coalesce(jsonb_agg(to_jsonb(x)),'[]') from (select id,task_title,status,left(notes,1000) notes from public.launch_tasks where company_entity_id=p_company and launch_id=(p_source->>'id')::uuid and not is_private order by id limit 20)x) else '[]'::jsonb end,
+ 'seo_work',case when p_kind='seo' then (select coalesce(jsonb_agg(to_jsonb(x)),'[]') from (select id,title,approval_status,proposed_title,proposed_meta_description,updated_at from public.seo_tasks where company_entity_id=p_company and target_url=p_source->>'url' order by updated_at desc nulls last,id limit 10)x) else '[]'::jsonb end,
+ 'launch_work',case when p_kind='launch' then (select coalesce(jsonb_agg(to_jsonb(x)),'[]') from (select id,task_title,status,updated_at,case when length(coalesce(notes,''))<=1000 then notes end notes,length(coalesce(notes,''))>1000 notes_truncated from public.launch_tasks where company_entity_id=p_company and launch_id=(p_source->>'id')::uuid and not is_private order by updated_at desc nulls last,id limit 20)x) else '[]'::jsonb end,
+ 'seo_work_truncated',p_kind='seo' and (select count(*)>10 from public.seo_tasks where company_entity_id=p_company and target_url=p_source->>'url'),
+ 'launch_work_truncated',p_kind='launch' and (select count(*)>20 from public.launch_tasks where company_entity_id=p_company and launch_id=(p_source->>'id')::uuid and not is_private),
  'destination_inspection',case when p_kind='ads' then (select jsonb_build_object('title',title,'meta_description',meta_description,'fetched_at',fetched_at,'http_status',http_status) from public.page_inspections where company_entity_id=p_company and requested_url=p_source->>'url' order by fetched_at desc limit 1) else null end,
- 'limits','SEO work is saved copy, not proof of publication or a test. Missing history is unknown. Page and query metrics cannot be joined. Old inspections are historical evidence only.');
+ 'limits','Collections are newest-first bounded samples, not complete history. Truncated notes are withheld entirely; they may contain decisive corrections. Never infer findings or absence of contradictions from withheld notes or omitted work. Request owned context when that missing evidence is necessary. SEO work is saved copy, not proof of publication or a test. Missing history is unknown. Page and query metrics cannot be joined. Old inspections are historical evidence only.');
 $$;
 
 revoke all on function public.on_deck_review_state() from public,anon,authenticated;
@@ -216,6 +220,7 @@ declare field text; item jsonb; begin
   if jsonb_typeof(item)<>'string' or length(item#>>'{}')>500 then return false; end if;
  end loop;
  if p_kind='launch' and p_content->>'recommend'='true' and jsonb_array_length(p_content->'tasks')<1 then return false; end if;
+ if p_kind='launch' and exists(select 1 from jsonb_array_elements(p_content->'tasks') t group by lower(btrim(t->>'title')) having count(*)>1) then return false; end if;
  for item in select value from jsonb_array_elements(p_content->'tasks') loop
   if jsonb_typeof(item->'title') is distinct from 'string' or coalesce(length(btrim(item->>'title')),0) not between 1 and 200 or jsonb_typeof(item->'detail') is distinct from 'string' or length(item->>'detail')>1500 then return false; end if;
  end loop;

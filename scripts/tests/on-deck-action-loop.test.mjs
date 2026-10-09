@@ -51,6 +51,10 @@ const changes = {
  'context-company': ["where id=p_id and company_entity_id=public.active_company_id() for update", "where id=p_id for update"],
  'context-owner': ["if not exists(select 1 from public.profiles p join public.entity_memberships m on m.user_id=p.id where p.id=p_assignee", "if false and not exists(select 1 from public.profiles p join public.entity_memberships m on m.user_id=p.id where p.id=p_assignee"],
  'seo-fields': ["r.content->>'proposed_title',r.content->>'proposed_meta_description'", "r.content->>'subject',r.content->>'summary'"],
+ 'request-evidence': ["if md5(btrim(p_note))=r.context_work->>'request_notes_hash' then", 'if false then'],
+ 'context-freshness': ["if r.valid_until<=now() or r.source_version is distinct from public.on_deck_source_version(r.company_entity_id,r.kind) then", 'if false then'],
+ 'evidence-recency': ['order by updated_at desc nulls last,id limit 10', 'order by id limit 10'],
+ 'duplicate-titles': ["if p_kind='launch' and exists(select 1 from jsonb_array_elements(p_content->'tasks') t group by lower(btrim(t->>'title')) having count(*)>1) then", 'if false then'],
  'edit-expiry': ["if r.valid_until<=now() or r.source_version<>", "if r.source_version<>"],
  'linked-context': ["and not exists(select 1 from public.on_deck_proposals p where p.company_entity_id=p_company and p.context_work->>'task_id'=t.id::text and p.status not in ('completed','dismissed','screened'))", ""],
  'launch-reuse': ["if oid is null then", "if true then"]
@@ -151,11 +155,68 @@ await test('expired edit is rejected atomically even when the source fingerprint
 });
 await test('linked launch research survives resolution and campaign screening',async()=>{
  await root(); await db.query('delete from public.launch_tasks where launch_id=$1',[LAUNCH]);
- let p=await ready('launch'); await user(); p=await decide(p,'edit','Campaign audience evidence needed.',{...draft,missing:['Confirm campaign audience']});
- await root(); const task=await one("insert into public.launch_tasks(company_entity_id,launch_id,task_title,task_type,status,assigned_to_user_id) values($1,$2,'Research campaign audience','marketing','open',$3) returning id",[A,LAUNCH,ADMIN]); await user();
- p=await context(p,'link',null,task.id); p=await context(p,'resolve',null,null,'Approved brief confirms baseball fans as the audience.'); await service();
+ const task=await one("insert into public.launch_tasks(company_entity_id,launch_id,task_title,task_type,status,assigned_to_user_id) values($1,$2,'Audience evidence','marketing','open',$3) returning id",[A,LAUNCH,ADMIN]); await service();
+ const initialFacts=(await db.query('select * from public.on_deck_launch_facts($1,0)',[A])).rows.map(x=>x.on_deck_launch_facts);
+ const initial=curate({launches:initialFacts,settings:{workflows:['launch']}}).shortlist[0];assert.ok(initial);
+ const id=await rpc('on_deck_stage',[A,initial,await epoch('launch')]);assert.ok(id);const claim=await reserve(await get(id));await finish(claim.run);
+ let p=await get(id); await user(); p=await decide(p,'edit','Campaign audience evidence needed.',{...draft,missing:['Confirm campaign audience']});
+ p=await context(p,'link',null,task.id); await root();await db.query("update public.launch_tasks set task_title='Research campaign audience' where id=$1",[task.id]);await user();
+ p=await context(p,'resolve',null,null,'Approved brief confirms baseball fans as the audience.'); await service();
  const facts=(await db.query('select * from public.on_deck_launch_facts($1,0)',[A])).rows.map(x=>x.on_deck_launch_facts);
  const shortlist=curate({launches:facts,settings:{workflows:['launch']}}).shortlist; assert.equal(shortlist.length,1);
  const candidate=shortlist[0]; candidate.key=p.source_key; assert.equal(await rpc('on_deck_stage',[A,candidate,await epoch('launch')]),p.id);
 });
+
+await test('new campaign work makes stale pre-link proposals requalify instead of assigning obsolete work',async()=>{
+ await root();await db.query('delete from public.launch_tasks where launch_id=$1',[LAUNCH]);
+ let p=await ready('launch');await user();p=await decide(p,'edit','Missing campaign audience.',{...draft,missing:['Confirm campaign audience']});await root();
+ const task=await one("insert into public.launch_tasks(company_entity_id,launch_id,task_title,status,assigned_to_user_id) values($1,$2,'Research campaign audience','open',$3) returning id",[A,LAUNCH,ADMIN]);await user();
+ await assert.rejects(()=>context(p,'link',null,task.id),/Evidence changed/);p=await decide(p,'refresh');assert.equal(p.user_edited,false);assert.deepEqual(p.context_work,{});await service();
+ const facts=(await db.query('select * from public.on_deck_launch_facts($1,0)',[A])).rows.map(x=>x.on_deck_launch_facts);
+ assert.equal(curate({launches:facts,settings:{workflows:['launch']}}).shortlist.length,0); // worker retires unedited unqualified proposals
+});
+
+await test('unchanged request notes cannot resolve created or linked context work',async()=>{
+ await root(); await db.exec("update public.on_deck_proposals set status='dismissed'");
+ for(const action of ['create','link']) {
+  let p=await ready('ads'); await user(); p=await decide(p,'edit','Need verified evidence.',{...draft,missing:['Verify audience evidence']});
+  let id=null; if(action==='link'){await root(); id=(await one("insert into public.launch_tasks(company_entity_id,task_title,status,notes,assigned_to_user_id) values($1,'Existing research','open','Prior request text',$2) returning id",[A,ADMIN])).id;await user();}
+  const work=await context(p,action,action==='create'?ADMIN:null,id); const task=await one('select notes from public.launch_tasks where id=$1',[work.context_work.task_id]);
+  const state=await rpc('on_deck_review_state'); assert.equal(state.context_tasks.find(t=>t.id===work.context_work.task_id).notes_are_request,true);
+  await assert.rejects(()=>context(work,'resolve',null,null,'  '+task.notes+'  '),/actual findings/);
+  assert.equal((await get(p.id)).context_work.state,'open');
+  const resolved=await context(work,'resolve',null,null,'Approved brief revision 5 confirms the audience and documents its source.'); assert.equal(resolved.context_work.state,'resolved');
+  await decide(resolved,'dismiss','Fixture finished its evidence check.');
+ }
+});
+await test('new context assignment rejects expired and changed evidence without writes',async()=>{
+ let p=await ready('ads'); await user(); p=await decide(p,'edit','Need verified evidence.',{...draft,missing:['Verify current claim']}); await root();
+ const task=await one("insert into public.launch_tasks(company_entity_id,task_title,status,assigned_to_user_id) values($1,'Existing evidence','open',$2) returning id",[A,ADMIN]);
+ const before=(await one('select count(*) n from public.launch_tasks')).n;
+ await db.query("update public.on_deck_proposals set valid_until=now()-interval '1 second' where id=$1",[p.id]); await user();
+ for(const action of ['create','link']) await assert.rejects(()=>context(p,action,ADMIN,task.id),/expired/);
+ await root(); await db.query("update public.on_deck_proposals set valid_until=now()+interval '1 day',source_version='obsolete' where id=$1",[p.id]); await user();
+ for(const action of ['create','link']) await assert.rejects(()=>context(p,action,ADMIN,task.id),/Evidence changed/);
+ assert.equal((await one('select count(*) n from public.launch_tasks')).n,before); assert.deepEqual((await get(p.id)).context_work,{});
+ await root(); await db.query('update public.on_deck_proposals set source_version=$1 where id=$2',[await epoch('ads'),p.id]);await user();
+ const work=await context(p,'create',ADMIN); await root();await db.query("update public.on_deck_proposals set valid_until=now()-interval '1 second' where id=$1",[p.id]); await user();
+ assert.equal((await context(p,'create',ADMIN)).context_work.task_id,work.context_work.task_id); // unknown-outcome replay creates nothing
+ const resolved=await context(work,'resolve',null,null,'Verified current claim from the approved source document.'); assert.equal(resolved.context_work.state,'resolved'); await decide(resolved,'dismiss','Fixture complete.');
+});
+await test('bounded evidence prioritizes newest records and discloses omitted collections and notes',async()=>{
+ await root(); await db.query('delete from public.launch_tasks where launch_id=$1',[LAUNCH]);
+ for(let i=0;i<22;i++) await db.query("insert into public.launch_tasks(id,company_entity_id,launch_id,task_title,status,notes,updated_at) values($1,$2,$3,$4,'open',$5,$6)",['eeeeeeee-0000-4000-8000-'+String(i).padStart(12,'0'),A,LAUNCH,'Research '+i,i===21?'Old request '.repeat(100)+'DECISIVE CORRECTION':'Complete note',new Date(Date.UTC(2026,0,i+1)).toISOString()]);
+ for(let i=0;i<12;i++) await db.query("insert into public.seo_tasks(id,company_entity_id,title,target_url,approval_status,updated_at) values($1,$2,$3,'https://example.test/recency','draft',$4)",['dddddddd-0000-4000-8000-'+String(i).padStart(12,'0'),A,'Saved SEO '+i,new Date(Date.UTC(2026,0,i+1)).toISOString()]);
+ await service(); const seo=await rpc('on_deck_context_evidence',[A,'seo',{url:'https://example.test/recency'}]); assert.equal(seo.seo_work.length,10);assert.equal(seo.seo_work[0].title,'Saved SEO 11');assert.equal(seo.seo_work_truncated,true);
+ const launch=await rpc('on_deck_context_evidence',[A,'launch',{id:LAUNCH}]);assert.equal(launch.launch_work.length,20);assert.equal(launch.launch_work[0].task_title,'Research 21');assert.equal(launch.launch_work_truncated,true);assert.equal(launch.launch_work[0].notes_truncated,true);assert.equal(launch.launch_work[0].notes,null);assert.match(launch.limits,/withheld/);
+ const empty=await rpc('on_deck_context_evidence',[B,'launch',{id:LAUNCH}]);assert.equal(empty.launch_work.length,0);assert.equal(empty.launch_work_truncated,false);
+});
+await test('duplicate normalized launch titles are refused before writes or receipts',async()=>{
+ await root();await db.exec("update public.on_deck_proposals set status='dismissed'");
+ const duplicate={...draft,tasks:[{title:'Write email',detail:'A'},{title:' write email ',detail:'B'}]};
+ const p=await ready('launch');await user();await assert.rejects(()=>decide(p,'edit','Review duplicate title fixture.',duplicate),/Invalid draft/);
+ await root();await db.query('update public.on_deck_proposals set content=$1 where id=$2',[duplicate,p.id]);await user();
+ const count=(await one('select count(*) n from public.launch_tasks')).n;await assert.rejects(()=>decide(p,'approve'),/missing information/);assert.equal((await one('select count(*) n from public.launch_tasks')).n,count);assert.equal((await get(p.id)).output,null);
+});
+
 console.log(checks + " action-loop database checks passed"); await db.close();

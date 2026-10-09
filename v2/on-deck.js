@@ -331,7 +331,9 @@
     }
     if (!state.reviewState) return;
     if (!['preparing', 'revision'].includes(p.status) && ((p.content?.missing || []).length || work.state === 'open')) {
-      panel.append(button(work.state === 'open' ? 'Record findings and refresh draft' : 'Create or link context task', () => openContext(p)));
+      const assign = button(work.state === 'open' ? 'Record findings and refresh draft' : 'Create or link context task', () => openContext(p));
+      assign.disabled = work.state !== 'open' && (p.source_current === false || !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= Date.now());
+      panel.append(assign);
     }
   }
   let contextProposal, contextResolving;
@@ -343,7 +345,8 @@
     $('context-missing').replaceChildren(); (p.content?.missing || []).forEach(x => $('context-missing').append(node('li', x)));
     $('context-assignment').hidden = contextResolving; $('context-findings-label').hidden = !contextResolving;
     const task = state.reviewState?.context_tasks?.find(t => t.id === p.context_work?.task_id);
-    $('context-findings').value = contextResolving && !task?.notes_truncated ? task?.notes || '' : ''; $('context-findings').required = contextResolving;
+    $('context-findings').value = contextResolving && !task?.notes_truncated && !task?.notes_are_request ? task?.notes || '' : ''; $('context-findings').required = contextResolving;
+    if (contextResolving && task?.notes_are_request) $('context-explanation').textContent += ' - This task still contains only its original request. Enter actual findings and supporting evidence.';
     if (contextResolving && task?.notes_truncated) $('context-explanation').textContent += ' - Task notes exceed the import limit. Open the context task to read all notes, then enter the findings and evidence here. No partial notes were imported.';
       if (contextResolving) $('context-explanation').textContent += ' — Review the imported task notes below. Replace request text with the actual findings and supporting evidence before saving.';
     $('context-findings').minLength = contextResolving ? 12 : 0;
@@ -359,6 +362,7 @@
     submit(e.target, 'context-error', async () => {
       await companyStillActive();
       const task = $('context-task').value, owner = $('context-owner').value;
+      if (!contextResolving && (contextProposal.source_current === false || !Number.isFinite(Date.parse(contextProposal.valid_until)) || Date.parse(contextProposal.valid_until) <= Date.now())) throw new Error('Evidence changed or expired. Refresh before assigning context work.');
       if (!contextResolving && !task && !owner) throw new Error('Choose an owner or an existing owned task.');
       await rpc('on_deck_context', { p_id: contextProposal.id, p_version: contextProposal.version,
         p_action: contextResolving ? 'resolve' : task ? 'link' : 'create', p_assignee: owner || null,

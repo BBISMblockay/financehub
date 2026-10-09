@@ -3,6 +3,7 @@ import { promptFor, validateDraft } from '../../supabase/functions/on-deck-prepa
 import { run, preparationSummary } from '../on-deck-prepare.mjs';
 import { prepareOne } from '../../supabase/functions/on-deck-prepare/provider.mjs';
 const copy = { recommend: true, subject: 'Review search copy', summary: 'A hypothesis.', body: 'Prepared copy.', reason: 'Page exposure.', missing: [], optional_context: ['No test history is recorded.'], proposed_title: 'Classic tees | Example', proposed_meta_description: 'Explore classic tees.', tasks: [] };
+assert.throws(() => validateDraft({...copy,tasks:[{title:'Write email',detail:'A'},{title:' write email ',detail:'B'}]},'launch'),/duplicate_task_titles/);
 const accepted = validateDraft(copy, 'seo');
 assert.equal(accepted.proposed_title, copy.proposed_title);
 assert.equal(accepted.missing.length, 0);
@@ -17,7 +18,7 @@ await prepareOne({ proposal: { id: 'p', version: 1, company_entity_id: 'company'
  fetcher:async()=>({ok:true,json:async()=>({stop_reason:'end_turn',usage:{input_tokens:100,output_tokens:100},content:[{type:'text',text:JSON.stringify(blocked)}]})}) });
 assert.equal(stored.p_error,null); assert.deepEqual(stored.p_content.missing,blocked.missing);
 const prompt = promptFor({ kind: 'seo', source: { context_evidence: { seo_work: [{ title: 'Saved earlier draft' }] } }, context_work: { state: 'resolved', resolution: 'Approved brief revision 3 confirms the material.' } });
-assert.match(prompt, /Saved earlier draft/); assert.match(prompt, /revision 3/);
+assert.match(prompt, /withheld, not empty/); assert.match(prompt, /Saved earlier draft/); assert.match(prompt, /revision 3/);
 assert.match(prompt, /not automatically required/); assert.match(prompt, /Only facts whose absence prevents a safe/);
 assert.equal(preparationSummary([{ status: 'needs_info' }, { status: 'ready' }, { status: 'failed' }]), 'Preparation: 1 ready, 1 need context, 1 failed, 0 queued');
 
