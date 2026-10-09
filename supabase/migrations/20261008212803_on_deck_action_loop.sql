@@ -1,13 +1,37 @@
 -- Context work is not approval. Existing Tasks owns assignment and execution.
 alter table public.on_deck_proposals add column if not exists context_work jsonb not null default '{}';
 
+-- Every task writer participates in evidence freshness, including Task Manager.
+create or replace function public.on_deck_touch_launch_task() returns trigger
+language plpgsql set search_path='' as $$
+begin new.updated_at:=now(); return new; end $$;
+revoke all on function public.on_deck_touch_launch_task() from public,anon,authenticated;
+drop trigger if exists on_deck_touch_launch_task on public.launch_tasks;
+create trigger on_deck_touch_launch_task before update on public.launch_tasks
+for each row execute function public.on_deck_touch_launch_task();
+
+-- Store only a digest and length of the immutable request, never a large notes snapshot.
+-- Preview and save use the same extraction; reviewers still verify factual adequacy.
+create or replace function public.on_deck_context_findings(p_note text,p_work jsonb) returns text
+language plpgsql immutable set search_path='' as $$
+declare note text:=btrim(replace(coalesce(p_note,''),E'\r\n',E'\n'),E' \n\r\t'); prefix_length integer:=coalesce((p_work->>'request_notes_length')::integer,0); words text; begin
+ if md5(note)=p_work->>'request_notes_hash' then return ''; end if;
+ if prefix_length>0 and md5(left(note,prefix_length))=p_work->>'request_notes_hash' then note:=btrim(substr(note,prefix_length+1),E' \n\r\t'); end if;
+ -- Edited request templates cannot silently become evidence. Enter clean findings instead.
+ if note ~* '(On Deck (proposal|context request):|/v2/on-deck[.]html[?]proposal=)' then return ''; end if;
+ words:=btrim(regexp_replace(lower(note),'[^[:alnum:]]+',' ','g'));
+ if length(regexp_replace(words,' ','','g'))<12 or words ~ '^(tbd|todo|pending|awaiting|still|review|in|progress|not|yet|done|complete|completed|status|update|updated|waiting|for|the|evidence|findings|sources|to|be|confirmed|unknown)( (tbd|todo|pending|awaiting|still|review|in|progress|not|yet|done|complete|completed|status|update|updated|waiting|for|the|evidence|findings|sources|to|be|confirmed|unknown))*$' then return ''; end if;
+ return note;
+end $$;
+revoke all on function public.on_deck_context_findings(text,jsonb) from public,anon,authenticated;
+
 create or replace function public.on_deck_review_state() returns jsonb
 language plpgsql stable security definer set search_path='' as $$
 declare co uuid:=public.active_company_id(); begin
  if auth.uid() is null or not coalesce(public.on_deck_can_review(),false) then raise exception 'Company admin required' using errcode='42501'; end if;
  return jsonb_build_object(
  'seo',coalesce(public.can_approve_seo_tasks(),false),
- 'context_tasks',(select coalesce(jsonb_agg(jsonb_build_object('id',t.id,'notes',left(t.notes,4000),'notes_truncated',length(coalesce(t.notes,''))>4000,'notes_are_request',md5(btrim(coalesce(t.notes,'')))=p.context_work->>'request_notes_hash','status',t.status,'owner',coalesce(u.name,u.email))),'[]') from public.on_deck_proposals p join public.launch_tasks t on t.id=nullif(p.context_work->>'task_id','')::uuid and t.company_entity_id=co and not t.is_private left join public.profiles u on u.id=t.assigned_to_user_id where p.company_entity_id=co and p.status not in ('completed','dismissed','screened')),
+ 'context_tasks',(select coalesce(jsonb_agg(jsonb_build_object('id',t.id,'notes',left(public.on_deck_context_findings(t.notes,p.context_work),4000),'notes_truncated',length(public.on_deck_context_findings(t.notes,p.context_work))>4000,'notes_are_request',public.on_deck_context_findings(t.notes,p.context_work)='','status',t.status,'owner',coalesce(u.name,u.email))),'[]') from public.on_deck_proposals p join public.launch_tasks t on t.id=nullif(p.context_work->>'task_id','')::uuid and t.company_entity_id=co and not t.is_private left join public.profiles u on u.id=t.assigned_to_user_id where p.company_entity_id=co and p.status not in ('completed','dismissed','screened')),
  'proposals',(select coalesce(jsonb_agg(jsonb_build_object('id',p.id,'source_current',p.source_version=public.on_deck_source_version(co,p.kind),'expired',p.valid_until<now())),'[]') from public.on_deck_proposals p where p.company_entity_id=co and p.status not in ('completed','dismissed','screened')),
  'assignees',(select coalesce(jsonb_agg(jsonb_build_object('id',p.id,'name',coalesce(p.name,p.email)) order by coalesce(p.name,p.email)),'[]') from public.profiles p join public.entity_memberships m on m.user_id=p.id and m.entity_id=co where p.is_active and m.role in ('owner_admin','admin','member')),
  'tasks',(select coalesce(jsonb_agg(to_jsonb(t)),'[]') from (select t.id,t.task_title,t.assigned_to_user_id,t.status from public.launch_tasks t where t.company_entity_id=co and not t.is_private and t.status<>'done' and exists(select 1 from public.profiles p join public.entity_memberships m on m.user_id=p.id where p.id=t.assigned_to_user_id and p.is_active and m.entity_id=co and m.role in ('owner_admin','admin','member')) order by t.updated_at desc,t.id limit 100) t));
@@ -19,6 +43,7 @@ declare r public.on_deck_proposals; t public.launch_tasks; work jsonb; begin
  if auth.uid() is null or not coalesce(public.on_deck_can_review(),false) then raise exception 'Company admin required' using errcode='42501'; end if;
  select * into r from public.on_deck_proposals where id=p_id and company_entity_id=public.active_company_id() for update;
  if not found then raise exception 'Proposal unavailable' using errcode='42501'; end if;
+ if p_action='resolve' then p_note:=public.on_deck_context_findings(p_note,r.context_work); end if;
  -- Durable proposal link survives reloads and unknown client outcomes.
  if p_action in ('create','link') and r.context_work->>'state'='open' then
   select * into t from public.launch_tasks where id=(r.context_work->>'task_id')::uuid and company_entity_id=r.company_entity_id and not is_private;
@@ -44,13 +69,12 @@ declare r public.on_deck_proposals; t public.launch_tasks; work jsonb; begin
   if p_action='link' then
    update public.launch_tasks set notes=concat_ws(E'\n',notes,'On Deck context request: '||r.id::text,'Required findings:',(select string_agg(value,E'\n') from jsonb_array_elements_text(r.content->'missing')),'Record findings and sources in task notes for an On Deck reviewer.','/v2/on-deck.html?proposal='||r.id::text) where id=t.id returning * into t;
   end if;
-  work:=jsonb_build_object('state','open','task_id',t.id,'title',t.task_title,'assigned_to',t.assigned_to_user_id,'missing',r.content->'missing','created_by',auth.uid(),'created_at',now(),'request_notes_hash',md5(btrim(coalesce(t.notes,''))));
+  work:=jsonb_build_object('state','open','task_id',t.id,'title',t.task_title,'assigned_to',t.assigned_to_user_id,'missing',r.content->'missing','created_by',auth.uid(),'created_at',now(),'request_notes_hash',md5(btrim(replace(coalesce(t.notes,''),E'\r\n',E'\n'),E' \n\r\t')),'request_notes_length',length(btrim(replace(coalesce(t.notes,''),E'\r\n',E'\n'),E' \n\r\t')));
  elsif p_action='resolve' then
   if r.context_work->>'state' is distinct from 'open' then raise exception 'Create or link an owned context task first'; end if;
   select * into t from public.launch_tasks where id=(r.context_work->>'task_id')::uuid and company_entity_id=r.company_entity_id and not is_private for update;
   if not found then raise exception 'Linked task unavailable'; end if;
-  if coalesce(length(btrim(p_note)),0) not between 12 and 4000 then raise exception 'Record findings and their evidence (12–4000 characters)'; end if;
-  if md5(btrim(p_note))=r.context_work->>'request_notes_hash' then raise exception 'Replace the original request instructions with actual findings and supporting evidence'; end if;
+  if coalesce(length(btrim(p_note)),0) not between 12 and 4000 then raise exception 'Record actual findings and supporting evidence (12-4000 characters), without request instructions or status-only updates'; end if;
   work:=r.context_work||jsonb_build_object('state','resolved','resolution',btrim(p_note),'resolved_by',auth.uid(),'resolved_at',now());
   -- Findings are durable input, not an assertion that the next draft is safe.
   update public.on_deck_settings set requested_at=now() where company_entity_id=r.company_entity_id;

@@ -51,7 +51,8 @@ const changes = {
  'context-company': ["where id=p_id and company_entity_id=public.active_company_id() for update", "where id=p_id for update"],
  'context-owner': ["if not exists(select 1 from public.profiles p join public.entity_memberships m on m.user_id=p.id where p.id=p_assignee", "if false and not exists(select 1 from public.profiles p join public.entity_memberships m on m.user_id=p.id where p.id=p_assignee"],
  'seo-fields': ["r.content->>'proposed_title',r.content->>'proposed_meta_description'", "r.content->>'subject',r.content->>'summary'"],
- 'request-evidence': ["if md5(btrim(p_note))=r.context_work->>'request_notes_hash' then", 'if false then'],
+ 'request-evidence': ["if p_action='resolve' then p_note:=public.on_deck_context_findings(p_note,r.context_work); end if;", ''],
+ 'task-touch': ['begin new.updated_at:=now(); return new; end', 'begin return new; end'],
  'context-freshness': ["if r.valid_until<=now() or r.source_version is distinct from public.on_deck_source_version(r.company_entity_id,r.kind) then", 'if false then'],
  'evidence-recency': ['order by updated_at desc nulls last,id limit 10', 'order by id limit 10'],
  'duplicate-titles': ["if p_kind='launch' and exists(select 1 from jsonb_array_elements(p_content->'tasks') t group by lower(btrim(t->>'title')) having count(*)>1) then", 'if false then'],
@@ -184,8 +185,20 @@ await test('unchanged request notes cannot resolve created or linked context wor
   const work=await context(p,action,action==='create'?ADMIN:null,id); const task=await one('select notes from public.launch_tasks where id=$1',[work.context_work.task_id]);
   const state=await rpc('on_deck_review_state'); assert.equal(state.context_tasks.find(t=>t.id===work.context_work.task_id).notes_are_request,true);
   await assert.rejects(()=>context(work,'resolve',null,null,'  '+task.notes+'  '),/actual findings/);
+  for(const suffix of ['\nTBD','...!!!!!!!!!!!!!!!!!','\nStill pending review.']) {
+   await root();await db.query('update public.launch_tasks set notes=$1 where id=$2',[task.notes+suffix,work.context_work.task_id]);await user();
+   const preview=await rpc('on_deck_review_state');assert.equal(preview.context_tasks.find(t=>t.id===work.context_work.task_id).notes,'');
+   await assert.rejects(()=>context(work,'resolve',null,null,task.notes+suffix),/actual findings/);
+  }
+  const altered=task.notes.replace('Required findings:','Required findings (pending):')+'\nTBD';
+  await assert.rejects(()=>context(work,'resolve',null,null,altered),/actual findings/);
   assert.equal((await get(p.id)).context_work.state,'open');
-  const resolved=await context(work,'resolve',null,null,'Approved brief revision 5 confirms the audience and documents its source.'); assert.equal(resolved.context_work.state,'resolved');
+  const findings='Approved brief revision 5 confirms the audience and documents its source.';
+  const appended=task.notes.replaceAll('\n','\r\n')+'\r\n'+findings;
+  await root();await db.query('update public.launch_tasks set notes=$1 where id=$2',[appended,work.context_work.task_id]);await user();
+  const preview=await rpc('on_deck_review_state');assert.equal(preview.context_tasks.find(t=>t.id===work.context_work.task_id).notes,findings);
+  const resolved=await context(work,'resolve',null,null,appended); assert.equal(resolved.context_work.state,'resolved');assert.equal(resolved.context_work.resolution,findings);
+  assert.equal((await context(work,'resolve',null,null,appended)).version,resolved.version);
   await decide(resolved,'dismiss','Fixture finished its evidence check.');
  }
 });
@@ -210,6 +223,10 @@ await test('bounded evidence prioritizes newest records and discloses omitted co
  await service(); const seo=await rpc('on_deck_context_evidence',[A,'seo',{url:'https://example.test/recency'}]); assert.equal(seo.seo_work.length,10);assert.equal(seo.seo_work[0].title,'Saved SEO 11');assert.equal(seo.seo_work_truncated,true);
  const launch=await rpc('on_deck_context_evidence',[A,'launch',{id:LAUNCH}]);assert.equal(launch.launch_work.length,20);assert.equal(launch.launch_work[0].task_title,'Research 21');assert.equal(launch.launch_work_truncated,true);assert.equal(launch.launch_work[0].notes_truncated,true);assert.equal(launch.launch_work[0].notes,null);assert.match(launch.limits,/withheld/);
  const empty=await rpc('on_deck_context_evidence',[B,'launch',{id:LAUNCH}]);assert.equal(empty.launch_work.length,0);assert.equal(empty.launch_work_truncated,false);
+ const oldId='eeeeeeee-0000-4000-8000-000000000000',before=await epoch('launch');assert.equal(launch.launch_work.some(t=>t.id===oldId),false);
+ await root();await db.query('update public.launch_tasks set notes=$1 where id=$2',['Owner correction: approved brief revision 6 replaces the earlier audience.',oldId]);
+ await service();assert.notEqual(await epoch('launch'),before);
+ const edited=await rpc('on_deck_context_evidence',[A,'launch',{id:LAUNCH}]);assert.equal(edited.launch_work[0].id,oldId);assert.match(edited.launch_work[0].notes,/revision 6/);
 });
 await test('duplicate normalized launch titles are refused before writes or receipts',async()=>{
  await root();await db.exec("update public.on_deck_proposals set status='dismissed'");

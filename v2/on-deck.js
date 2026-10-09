@@ -346,9 +346,9 @@
     $('context-assignment').hidden = contextResolving; $('context-findings-label').hidden = !contextResolving;
     const task = state.reviewState?.context_tasks?.find(t => t.id === p.context_work?.task_id);
     $('context-findings').value = contextResolving && !task?.notes_truncated && !task?.notes_are_request ? task?.notes || '' : ''; $('context-findings').required = contextResolving;
-    if (contextResolving && task?.notes_are_request) $('context-explanation').textContent += ' - This task still contains only its original request. Enter actual findings and supporting evidence.';
+    if (contextResolving && task?.notes_are_request) $('context-explanation').textContent += ' - This task has no importable findings beyond its original request or status updates. Enter actual findings and supporting evidence.';
     if (contextResolving && task?.notes_truncated) $('context-explanation').textContent += ' - Task notes exceed the import limit. Open the context task to read all notes, then enter the findings and evidence here. No partial notes were imported.';
-      if (contextResolving) $('context-explanation').textContent += ' — Review the imported task notes below. Replace request text with the actual findings and supporting evidence before saving.';
+      if (contextResolving) $('context-explanation').textContent += ' — Review the imported findings below. Request instructions are excluded; confirm the findings and supporting evidence before saving.';
     $('context-findings').minLength = contextResolving ? 12 : 0;
     $('context-owner').replaceChildren(new Option('Choose an owner', ''));
     (state.reviewState.assignees || []).forEach(a => $('context-owner').append(new Option(a.name, a.id)));

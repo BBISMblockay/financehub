@@ -53,7 +53,7 @@ jobs:
       - run: node v2/tests/browser/on-deck-coding.test.js
       - name: Mutations must be caught
         run: |
-          for mutation in context-company seo-fields launch-reuse edit-expiry linked-context request-evidence context-freshness evidence-recency duplicate-titles; do
+          for mutation in context-company seo-fields launch-reuse edit-expiry linked-context request-evidence task-touch context-freshness evidence-recency duplicate-titles; do
             if LOOP_MUTATE="$mutation" node scripts/tests/on-deck-action-loop.test.mjs > /tmp/loop-mutation.log 2>&1; then
               cat /tmp/loop-mutation.log
               echo "Survived action-loop mutation: $mutation"

@@ -91,7 +91,7 @@ const rpc = {
   const untouched=tables();untouched.on_deck_proposals[0].context_work={state:'open',task_id:'created',title:'Resolve claim'};
   const requestRpc={...rpc,on_deck_review_state:()=>({seo:true,proposals:[{id:'search',source_current:false}],assignees:[],tasks:[],context_tasks:[{id:'created',notes:'Required findings: generated request only',notes_are_request:true}]})};
   page=await suite.open('/v2/on-deck.html?proposal=search',untouched,{rpc:requestRpc,ready});
-  await test('original request is not prefilled as findings; existing stale work can be resolved',async()=>{await page.getByRole('button',{name:'Record findings and refresh draft'}).click();assert.equal(await page.getByLabel('Findings and supporting evidence').inputValue(),'');assert.match(await page.locator('#context-explanation').textContent(),/only its original request/);});await page.close();
+  await test('original request is not prefilled as findings; existing stale work can be resolved',async()=>{await page.getByRole('button',{name:'Record findings and refresh draft'}).click();assert.equal(await page.getByLabel('Findings and supporting evidence').inputValue(),'');assert.match(await page.locator('#context-explanation').textContent(),/no importable findings/);});await page.close();
   console.log(`${checks} action-loop browser checks passed`);
  } finally { await suite.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

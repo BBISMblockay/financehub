@@ -92,3 +92,17 @@ withhold long notes rather than presenting an excerpt as complete. The prompt
 treats withheld evidence as unknown. Duplicate normalized launch task titles are
 rejected by provider and database validation before destination writes.
 Regression cases cover each finding; removing each SQL guard causes a failure.
+
+## Cycle 2 corrections
+
+A database trigger stamps launch task update times for every writer, including
+ordinary Task Manager notes edits. Tests edit an old task without a timestamp and
+verify that it invalidates the source fingerprint and enters the newest sample.
+
+Context requests retain a normalized digest and length, not a notes snapshot.
+One extraction function removes the immutable request prefix from both reviewer
+preview and resolution, normalizes line endings, and refuses edited request
+templates and placeholder-only remainders. Genuine appended findings and clean
+replacement findings work; retries compare the extracted findings. Input checks
+do not establish factual adequacy: the reviewer must still verify the evidence.
+Both new boundaries are covered by regression and removed-guard mutation tests.
