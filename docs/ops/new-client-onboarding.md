@@ -108,7 +108,7 @@ it is what a prospect sees first. Three things are set outside the repo:
 | Verify `get-silo.com` in Resend | Resend dashboard | Until it is verified, mail can only be sent from the Baseballism domain |
 | `SILO_MAIL_FROM` edge-function secret | Supabase → Edge Functions → Secrets | Ten functions hardcoded `SILO <noreply@silo-baseballism.com>` as the sender. They now read this secret and fall back to the old literal, so nothing changes for Baseballism until it is set. A prospect receiving their team invite from a Baseballism address reads as a mistake, or as a leak of who else uses SILO |
 | `SILO_SITE_URL` edge-function secret | same | The link base. Already env-driven with the Baseballism domain as fallback; no code change was needed |
-| Add `get-silo.com` to the redirect allowlist | Supabase → Authentication → URL Configuration | Otherwise the login round trip and the invite links bounce |
+| Add `https://get-silo.com/**` to the redirect allowlist | Supabase → Authentication → URL Configuration → Redirect URLs | The `/**` matters. Signup asks Supabase to come back to `/pages/login.html?next=/v2/company-onboarding.html?invite=...`; a redirect the allowlist does not match is silently replaced by the Site URL, and until 2026-10-09 every confirmation link on production came back to `https://get-silo.com/` with the invite gone (two founders stranded). `pages/login.html` now recovers in the same browser, but a founder who confirms on another device still depends on this entry |
 
 Those ten functions must be **redeployed** for `SILO_MAIL_FROM` to take effect —
 merging does not deploy. `deployment-drift-check.yml` will be red for them until
