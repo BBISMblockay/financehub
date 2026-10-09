@@ -45,6 +45,24 @@ Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
 
 ---
 
+## Signup confirmation links lose their destination — Supabase redirect allowlist (P2)
+
+Found 2026-10-09. Every signup on production asks Supabase to send the
+confirmation back to `/pages/login.html?next=/v2/company-onboarding.html?invite=...`,
+and every confirmation link in the auth logs (2026-10-07, 2026-10-08) came back
+to the bare Site URL `https://get-silo.com/` instead. That is what Supabase
+does with a `redirect_to` the Redirect URLs allowlist does not match. Two invited
+founders (Joel, Erik) were stranded with an account and no company.
+`pages/login.html` now recovers in the SAME browser (20261009120000's PR), so
+the remaining gap is a founder who confirms on another device. **Fix (dashboard,
+not code):** Supabase → Authentication → URL Configuration → Redirect URLs, add
+`https://get-silo.com/**` (and `https://silo-baseballism.com/**`). Verify by
+signing up from a founding invite and checking that the emailed link's
+`redirect_to` is the login URL, not `https://get-silo.com/`. Silo Admin →
+Accounts lists anyone still stranded.
+
+---
+
 ## Integrations' ad-account picker lists only the first 50 Meta ad accounts / Pages (P3)
 
 Found 2026-10-08 (PR #933 review, cycle 1). `test-ad-platform-connection`

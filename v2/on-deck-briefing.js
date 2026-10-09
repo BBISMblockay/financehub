@@ -15,13 +15,13 @@
       const match = body.match(new RegExp('(?:^|\\n)\\s*(?:Draft|Proposed)\\s+' + label + '\\s*:\\s*([^\\n]+)', 'i'));
       return match ? match[1].replace(/^["“]|["”]$/g, '').trim() : '';
     };
-    const title = field('Title(?: Tag)?'), meta = field('Meta Description');
+    const title = text(p.content?.proposed_title) || field('Title(?: Tag)?'), meta = text(p.content?.proposed_meta_description) || field('Meta Description');
     return (title && clean(title) !== clean(inspected.title)) ||
       (meta && clean(meta) !== clean(inspected.meta_description));
   }
   function proposal(p, now) {
     const c = p.content || {}, s = p.source || {}, expires = Date.parse(p.valid_until);
-    if (p.status !== 'ready' || c.recommend !== true || !text(c.body) || !Array.isArray(c.missing) || c.missing.length ||
+    if (p.source_current === false || p.status !== 'ready' || c.recommend !== true || !text(c.body) || !Array.isArray(c.missing) || c.missing.length ||
         !Number.isFinite(expires) || expires <= now || !text(p.selection_reason)) return null;
     const base = { id: p.id, type: 'proposal', kind: p.kind, name: name(p), priority: 1,
       rank: Number((p.selection_reason.match(/Selected #(\d+)/) || [])[1]) || 99,
@@ -79,7 +79,7 @@
   }
   function discovery(p, now) {
     const s = p.source || {}, expires = Date.parse(p.valid_until);
-    if (p.status !== 'needs_info' || p.content?.recommend !== true || !text(p.content?.body) ||
+    if (p.source_current === false || p.status !== 'needs_info' || p.content?.recommend !== true || !text(p.content?.body) ||
         !text(p.selection_reason) || !Number.isFinite(expires) || expires <= now) return null;
     if (p.kind === 'ads') {
       if (!positive(s.index) || !['moderate', 'strong'].includes(s.evidence) || !text(s.objective) || !text(s.current_copy)) return null;

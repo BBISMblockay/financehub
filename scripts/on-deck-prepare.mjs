@@ -44,13 +44,16 @@ export async function run({ db, now = new Date(), prepare = prepareViaEdge }) {
         const cooling = await pages(offset => db.from('on_deck_proposals').select('kind,source_key').eq('company_entity_id', company).in('status', ['completed', 'dismissed', 'screened']).gt('revisit_at', now.toISOString()).order('id').range(offset, offset + 499));
         facts.excludedKeys = new Set(cooling.map(p => `${p.kind}:${p.source_key}`));
         const result = curate(facts);
-        const open = check(await db.from('on_deck_proposals').select('id,kind,source_key,status,user_edited,version').eq('company_entity_id', company).in('status', ['ready', 'needs_info', 'failed']));
+        const open = check(await db.from('on_deck_proposals').select('id,kind,source_key,status,user_edited,version,context_work').eq('company_entity_id', company).in('status', ['ready', 'needs_info', 'failed']));
         for (const p of open) {
-          if (!p.user_edited && !result.shortlist.some(c => c.kind === p.kind && c.key === p.source_key)) {
+          if (!p.user_edited && p.context_work?.state !== 'open' && !result.shortlist.some(c => c.kind === p.kind && c.key === p.source_key)) {
             check(await db.from('on_deck_proposals').update({ status: 'screened', revisit_at: new Date(+now + 86400000).toISOString(), version: p.version + 1, updated_at: now.toISOString() }).eq('id', p.id).eq('version', p.version));
           }
         }
-        for (const candidate of result.shortlist) await rpc(db, 'on_deck_stage', { p_company: company, p_candidate: candidate, p_source_version: versions[candidate.kind] });
+        for (const candidate of result.shortlist) {
+          candidate.source.context_evidence = await rpc(db, 'on_deck_context_evidence', { p_company: company, p_kind: candidate.kind, p_source: candidate.source });
+          await rpc(db, 'on_deck_stage', { p_company: company, p_candidate: candidate, p_source_version: versions[candidate.kind] });
+        }
         check(await db.from('on_deck_settings').update({ last_screen_at: now.toISOString(), last_status: 'Screened strongest opportunities', diagnostics: result.diagnostics }).eq('company_entity_id', company));
       }
       const pending = check(await db.from('on_deck_proposals').select('*').eq('company_entity_id', company).in('status', ['preparing', 'revision']).order('created_at'));
@@ -59,7 +62,10 @@ export async function run({ db, now = new Date(), prepare = prepareViaEdge }) {
         const outcome = await prepare({ db, proposal: p }); outcomes.push(outcome);
         if (outcome === 'stale') check(await db.from('on_deck_proposals').update({ status: 'failed', version: p.version + 1, updated_at: now.toISOString() }).eq('id', p.id).eq('version', p.version));
       }
-      if (outcomes.length) check(await db.from('on_deck_settings').update({ last_status: outcomes.includes('credit_exhausted') ? 'Paused: workspace AI credit is used up' : outcomes.includes('budget_cap') ? 'Monthly preparation cap reached' : outcomes.includes('daily_cap') ? 'Daily safety cap reached' : `Preparation: ${outcomes.filter(x => x === 'prepared').length} ready, ${outcomes.filter(x => x !== 'prepared').length} held or failed` }).eq('company_entity_id', company));
+      if (outcomes.length) {
+        const current = check(await db.from('on_deck_proposals').select('status').eq('company_entity_id', company).in('status', ['ready', 'needs_info', 'failed', 'preparing', 'revision']));
+        check(await db.from('on_deck_settings').update({ last_status: outcomes.includes('credit_exhausted') ? 'Paused: workspace AI credit is used up' : outcomes.includes('budget_cap') ? 'Monthly preparation cap reached' : outcomes.includes('daily_cap') ? 'Daily safety cap reached' : preparationSummary(current) }).eq('company_entity_id', company));
+      }
       console.log('On Deck company processed');
     } catch {
       failures++;
@@ -77,4 +83,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
     await run({ db });
   }
+}
+
+export function preparationSummary(rows) {
+ const count = status => rows.filter(r => r.status === status).length;
+ return `Preparation: ${count('ready')} ready, ${count('needs_info')} need context, ${count('failed')} failed, ${count('preparing') + count('revision')} queued`;
 }

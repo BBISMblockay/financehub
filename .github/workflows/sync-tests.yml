@@ -136,6 +136,9 @@ on:
       - 'v2/integrations.html'
       - 'v2/billing.html'
       - 'supabase/migrations/*workspace_settings_admin.sql'
+      - 'supabase/migrations/*workspace_admin_member_scope.sql'
+      - 'scripts/tests/workspace-admin-scope-database.test.mjs'
+      - 'v2/backend.html'
       - 'supabase/migrations/*entities_update_lockdown.sql'
       - 'supabase/migrations/*stamp_company_entity_id_on_insert.sql'
       - 'supabase/migrations/*stamp_trigger_idempotent_and_verified.sql'
@@ -1014,6 +1017,13 @@ jobs:
       - name: Execute workspace membership administration regressions
         run: node scripts/tests/workspace-settings-database.test.mjs
 
+      # The Backend hub's Users panel listed, in every tenant, every account
+      # that belonged to no company, and any company's admin could claim one.
+      # The fixture installs production's old definitions and proves the hole
+      # first.
+      - name: Execute backend admin member-scope regressions
+        run: node scripts/tests/workspace-admin-scope-database.test.mjs
+
       # entities took client UPDATE from any member of a company, a viewer
       # included -- title, entity_key, meta.nav_profile and entity_type, which
       # is what decides whose menu a company is served. The fixture BUILDS the
@@ -1156,6 +1166,19 @@ jobs:
                    remove-keeps-invite; do
             echo "--- $m ---"
             if WS_MUTATION="$m" node scripts/tests/workspace-settings-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      - name: Each backend member-scope guard, removed one at a time, must break it
+        run: |
+          set -u
+          for m in list-keeps-unclaimed counts-keeps-unclaimed update-claims-unclaimed \
+                   accounts-any-admin accounts-anon; do
+            echo "--- $m ---"
+            if SCOPE_MUTATION="$m" node scripts/tests/workspace-admin-scope-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

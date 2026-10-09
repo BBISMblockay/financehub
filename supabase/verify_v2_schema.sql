@@ -611,10 +611,15 @@ select
         where n.nspname = 'public'
           and p.proname = 'admin_update_profile'
           and pg_get_functiondef(p.oid) ilike '%entity_memberships%')
-     and not exists (
-        select 1 from public.profiles p
-        where p.is_active
-          and not exists (select 1 from public.entity_memberships em where em.user_id = p.id))
+     -- This used to also require "no active profile without a membership",
+     -- which held while every account was created by a membership-granting
+     -- path. Since 20260918120000 it is a legitimate state: an uninvited
+     -- signup, or a founder between confirming their email and redeeming
+     -- their company-creation invite. Two such founders turned this check
+     -- red on every drift run from 2026-10-06. Those accounts are listed on
+     -- Silo Admin (platform_list_accounts, 20261009120000) instead, and
+     -- admin_update_profile no longer touches anyone outside the caller's
+     -- company, so it cannot be the cause of one.
     then 'ok'
     else 'MISSING — run 20260714180000_admin_update_profile_entity_membership.sql'
   end as admin_update_profile_entity_membership;
@@ -5677,6 +5682,31 @@ select 'Early-access intake permissions' as check_name,
  else 'ok' end as status from objects;
 -- End onboarding interest checks.
 
+-- ── Workspace admin RPCs are member-scoped (20261009120000) ───────────────
+-- The Backend hub's Users panel used to list, and let any company's admin
+-- claim, every account that belonged to no company -- in every tenant. People
+-- with no company are a platform concern, listed only to platform admins.
+select 'Backend admin RPCs see only the active company' as check_name,
+ case
+ when to_regprocedure('public.platform_list_accounts()') is null
+   then 'MISSING: run 20261009120000_workspace_admin_member_scope.sql'
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname in ('admin_list_profiles','admin_counts')
+     and regexp_replace(p.prosrc,'[[:space:]]+',' ','g')
+         ilike '%or not exists (select 1 from public.entity_memberships em where em.user_id = p.id)%')
+   then 'CRITICAL: the backend user list still shows accounts that belong to no company'
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='admin_update_profile'
+     and regexp_replace(p.prosrc,'[[:space:]]+',' ','g')
+         ilike '%if exists (select 1 from public.entity_memberships em where em.user_id = p_user_id)%')
+   then 'CRITICAL: admin_update_profile can pull an account with no company into the caller''s'
+ when (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='platform_list_accounts') not like '%is_platform_admin()%'
+   then 'CRITICAL: platform_list_accounts is not gated by is_platform_admin()'
+ when has_function_privilege('anon','public.platform_list_accounts()','execute')
+   then 'CRITICAL: anon can execute platform_list_accounts'
+ else 'ok' end as status;
+
 -- ── A SECOND claimed region, and it is not obvious ────────────────────────
 -- scripts/tests/company-onboarding-database.test.mjs EXECUTES the checks
 -- between the onboarding marker below and the "Plaid ingestion" marker further
@@ -5957,6 +5987,13 @@ select 'SILO ledger entries balance' as check_name,
   then 'CRITICAL: a SILO ledger entry does not balance'
   else 'ok' end as status;
 -- End SILO ledger checks.
+
+-- On Deck action loop (read-only).
+select 'On Deck action loop' as check_name, case when
+ exists(select 1 from information_schema.columns where table_schema='public' and table_name='on_deck_proposals' and column_name='context_work')
+ and to_regprocedure('public.on_deck_context(uuid,integer,text,uuid,uuid,text)') is not null
+ and to_regprocedure('public.on_deck_review_state()') is not null
+ then 'ok' else 'MISSING' end as status;
 
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
