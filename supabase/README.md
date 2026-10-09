@@ -2771,3 +2771,16 @@ keeps them). Verified by the `card_import_entity_kind` verify row.
 
 
 On Deck action loop: `20261008212803_on_deck_action_loop.sql` adds assigned context work and findings, freshness readout, saved-evidence enrichment, structured SEO handoff and launch-task reuse. Deploy `on-deck-prepare` after applying; merge alone does not deploy. See `docs/ops/on-deck-action-loop.md`.
+
+## Backend admin RPCs are member-scoped — `20261009120000_workspace_admin_member_scope.sql`
+
+`admin_list_profiles()`, `admin_counts()` and `admin_update_profile()` see and
+touch only members of the caller's active company. They used to include every
+profile with no membership anywhere, so each tenant's Backend hub listed every
+stranded signup and any company's admin could claim one into their own company.
+Adds `platform_list_accounts()` (`is_platform_admin()` only, anon revoked) for
+Silo Admin's Accounts tab, which names WHY an account has no company (founder
+invite never redeemed, team invite pending, unconfirmed). Grants on the three
+replaced functions are unchanged (`create or replace` keeps them). Verified by
+`scripts/tests/workspace-admin-scope-database.test.mjs` and the
+"Backend admin RPCs see only the active company" verify row.

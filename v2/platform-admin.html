@@ -43,6 +43,10 @@
           <div class="bcn-kpi-label">Open founding invites</div>
           <div class="bcn-kpi-value bcn-mono" id="kpiOpenInvites">—</div>
         </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">Accounts with no company</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiNoCompany">—</div>
+        </div>
       </div>
 
       <div class="plat-page">
@@ -67,6 +71,8 @@
                 <button type="button" class="bcn-tab" role="tab" aria-selected="false"
                   data-plat-tab="founding" id="tabBtnFounding">Founding</button>
                 <button type="button" class="bcn-tab" role="tab" aria-selected="false"
+                  data-plat-tab="accounts" id="tabBtnAccounts">Accounts</button>
+                <button type="button" class="bcn-tab" role="tab" aria-selected="false"
                   data-plat-tab="support" id="tabBtnSupport">Support</button>
               </div>
             </div>
@@ -75,6 +81,12 @@
               <div class="plat-alert" id="platOwnerAlert" hidden>
                 <strong id="platOwnerAlertTitle">Some companies have no owner admin.</strong>
                 <span id="platOwnerAlertDetail"> They cannot manage billing or workspace settings until someone holds owner_admin.</span>
+              </div>
+              <div class="plat-alert" id="platStuckAlert" hidden>
+                <strong id="platStuckAlertTitle">Invited founders have not finished company setup.</strong>
+                <span id="platStuckAlertDetail"></span>
+                <button type="button" class="bcn-btn bcn-btn--ghost" data-plat-tab-jump="accounts"
+                  style="display:inline;padding:2px 8px;vertical-align:baseline;font-size:12px">See accounts</button>
               </div>
 
               <div class="plat-split">
@@ -164,6 +176,29 @@
               </div>
             </section>
 
+            <section class="plat-panel" id="panelAccounts" role="tabpanel" aria-labelledby="tabBtnAccounts" hidden>
+              <div class="plat-block-head">
+                <h2>Accounts</h2>
+                <span class="ws-you" id="accountCount"></span>
+              </div>
+              <p class="plat-note">Every sign-in on this SILO project. An account with no company is shown only
+                here — a workspace's Backend hub lists its own members and nobody else. A founder whose
+                invite is still pending can finish by reopening their company-setup link and signing in
+                with the password they already chose.</p>
+              <div class="plat-toolbar">
+                <label class="bcn-filter" for="accountFilter">
+                  <span class="bcn-label">Show</span>
+                  <select id="accountFilter" class="bcn-field">
+                    <option value="stranded">No company</option>
+                    <option value="all">All accounts</option>
+                  </select>
+                </label>
+              </div>
+              <div id="tblAccounts" role="list" aria-label="Accounts">
+                <div class="plat-empty">Loading…</div>
+              </div>
+            </section>
+
             <section class="plat-panel" id="panelSupport" role="tabpanel" aria-labelledby="tabBtnSupport" hidden>
               <div class="bcn-card">
                 <div class="bcn-card-header"><h2>Support &amp; troubleshooting</h2></div>
@@ -243,6 +278,17 @@
   let interestHasNext = false;
   let lastInviteRows = [];
   let lastCompanyRows = [];
+  let lastAccountRows = [];
+
+  // Why an account has no company. platform_list_accounts() decides the
+  // state; this only words it.
+  const ACCOUNT_STATE = {
+    founder_invite_pending: { label: 'Founding invite not redeemed', cls: 'bcn-pill bcn-pill--accent' },
+    team_invite_pending: { label: 'Team invite not accepted', cls: 'bcn-pill bcn-pill--accent' },
+    unconfirmed: { label: 'Email not confirmed', cls: 'bcn-pill' },
+    no_company: { label: 'No company', cls: 'bcn-pill' },
+    member: { label: 'Member', cls: 'bcn-pill bcn-pill--pos' },
+  };
 
   function setInterestBusy(busy) {
     interestBusy = busy;
@@ -386,11 +432,67 @@
     refreshKpis(undefined, rows);
   }
 
+  function renderAccounts() {
+    const root = el('tblAccounts');
+    const all = lastAccountRows;
+    const stranded = all.filter((a) => a.state !== 'member');
+    const rows = el('accountFilter').value === 'all' ? all : stranded;
+    el('accountCount').textContent = `${stranded.length} with no company · ${all.length} total`;
+    root.innerHTML = rows.length ? rows.map((a) => {
+      const st = ACCOUNT_STATE[a.state] || { label: a.state, cls: 'bcn-pill' };
+      const companies = (a.companies || []).map((c) => `${esc(c.title || '(untitled)')} <span class="ws-you">${esc(c.role)}</span>`).join(' · ');
+      const detail = a.state === 'founder_invite_pending'
+        ? `invite expires <span class="bcn-mono">${esc(day(a.founder_invite_expires_at))}</span>`
+        : (companies || '<span class="ws-you">no company</span>');
+      const disabled = a.is_active === false ? ' · <strong>deactivated</strong>' : '';
+      return `<div class="plat-co-row${a.state === 'founder_invite_pending' ? ' plat-warn' : ''}" role="listitem">
+        <div>
+          <div class="plat-co-title">${esc(a.name || a.email)}</div>
+          <div class="plat-co-slug bcn-mono">${esc(a.email)}</div>
+        </div>
+        <div class="plat-co-meta">
+          <span>${detail}${disabled}</span>
+          <span class="ws-you">signed up ${esc(day(a.created_at))} · last sign-in ${a.last_sign_in_at ? esc(day(a.last_sign_in_at)) : 'never'}</span>
+        </div>
+        <div class="plat-co-end"><span class="${st.cls}">${esc(st.label)}</span></div>
+      </div>`;
+    }).join('') : `<div class="plat-empty">${all.length ? 'Every account belongs to a company.' : 'No accounts.'}</div>`;
+  }
+
+  async function loadAccounts() {
+    // Never lets a failure escape: boot awaits this alongside the other
+    // panels, and a throw here used to abort boot before the work queue's
+    // handlers were bound.
+    let data = null; let error = null;
+    try { ({ data, error } = await db.rpc('platform_list_accounts')); }
+    catch (e) { error = e; }
+    if (error) {
+      lastAccountRows = [];
+      el('tblAccounts').innerHTML = `<div class="plat-empty">${esc(error.message || String(error))}</div>`;
+      el('kpiNoCompany').textContent = '—';
+      el('platStuckAlert').hidden = true;
+      return;
+    }
+    lastAccountRows = data || [];
+    renderAccounts();
+    el('kpiNoCompany').textContent = String(lastAccountRows.filter((a) => a.state !== 'member').length);
+    const stuck = lastAccountRows.filter((a) => a.state === 'founder_invite_pending');
+    el('platStuckAlert').hidden = !stuck.length;
+    if (stuck.length) {
+      el('platStuckAlertTitle').textContent = stuck.length === 1
+        ? '1 invited founder has an account but no company.'
+        : `${stuck.length} invited founders have an account but no company.`;
+      el('platStuckAlertDetail').textContent = ' ' + stuck.map((a) => a.email).join(', ')
+        + ' — their founding invite is still open; they finish by reopening the link and signing in.';
+    }
+  }
+
   function showPlatTab(name) {
     const panels = {
       queue: el('panelQueue'),
       companies: el('panelCompanies'),
       founding: el('panelFounding'),
+      accounts: el('panelAccounts'),
       support: el('panelSupport'),
     };
     document.querySelectorAll('[data-plat-tab]').forEach((btn) => {
@@ -433,9 +535,10 @@
       btn.addEventListener('click', () => showPlatTab(btn.dataset.platTabJump));
     });
 
-    await Promise.all([loadCompanies(), loadInvites(), loadInterest()]);
+    await Promise.all([loadCompanies(), loadInvites(), loadInterest(), loadAccounts()]);
 
-    el('btnReload').addEventListener('click', () => Promise.all([loadCompanies(), loadInvites(), loadInterest()]));
+    el('btnReload').addEventListener('click', () => Promise.all([loadCompanies(), loadInvites(), loadInterest(), loadAccounts()]));
+    el('accountFilter').addEventListener('change', renderAccounts);
 
     el('interestFilter').addEventListener('change', () => { interestPage = 0; loadInterest(); });
     el('interestPrevious').addEventListener('click', () => { if (!interestBusy && interestPage > 0) { interestPage--; loadInterest(); } });

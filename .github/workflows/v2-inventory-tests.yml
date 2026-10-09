@@ -42,6 +42,8 @@ on:
       # lives inside it). Without this path a login-only change runs nothing,
       # and the suite guarding it would be silent exactly when it mattered.
       - 'pages/login.html'
+      # login-founder-invite-recovery drives a signup confirmation through it.
+      - 'pages/set-password.html'
       - '.github/workflows/v2-inventory-tests.yml'
   pull_request:
     paths:
@@ -56,6 +58,8 @@ on:
       # lives inside it). Without this path a login-only change runs nothing,
       # and the suite guarding it would be silent exactly when it mattered.
       - 'pages/login.html'
+      # login-founder-invite-recovery drives a signup confirmation through it.
+      - 'pages/set-password.html'
       - '.github/workflows/v2-inventory-tests.yml'
   workflow_dispatch:
 

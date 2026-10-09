@@ -150,7 +150,9 @@ than this section.
   `v2/backend.html` (which is now workspace-scoped, with a gated pointer here), every tenant via
   `platform_list_companies()`, and platform invite management. **A company owner is not a platform
   admin**: the nav row is `requiresGrant` + `grantTable: 'platform_admins'` so it appears only once
-  that row is read back, and every RPC behind the page re-checks `is_platform_admin()`
+  that row is read back, and every RPC behind the page re-checks `is_platform_admin()`. Its **Accounts** tab
+  (2026-10-09, `platform_list_accounts()`) is the only place an account with no company is listed;
+  the work queue flags an invited founder who has an account but never redeemed the invite
 - **On Deck** (`/v2/on-deck.html`, Start nav for finance, 2026-10-04) — approval-first: Ready for your review → review of the actual output → After approval. First module is transaction coding over the existing card-coding chain: `on_deck_coding_items()` (finance-gated queue), `card_import_batch_preview()` (runs `approve_card_import_batch` and ROLLS IT BACK, so the preview is exactly what approval freezes — do not replace it with a rebuilt entry), `approve_reviewed_card_import_batch(batch, hash)` — sending a copy to QuickBooks is optional and deliberately takes extra steps (`expected_approval_hash`). **Since `20261005120000` a saved categorization is the finish line**: the transaction is already in the SILO daily ledger, On Deck counts only uncategorized transactions as pending, and "Approve QuickBooks entry" is an optional monthly step (approval still requires the card's `posting_enabled` switch, which now governs only the QuickBooks entry). Home shows only a compact count (`on_deck_ready_count()`). Restock/projection → draft PO is a separate PR. Runbook: `docs/ops/on-deck.md`
 - **Ask SILO** (`/v2/silo-chat.html`) — agentic chat with taught notes (`silo_chat_notes`) and a
   dedicated access grant (`silo_chat_managers`); exec-only in the sidebar during soft launch
