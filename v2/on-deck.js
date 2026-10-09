@@ -87,6 +87,11 @@
     checked.append(node('span', state.proposalsLoaded && state.settings.last_screen_at ? `Screened ${when(state.settings.last_screen_at)}` : 'Connected work reviewed', 'od-meta'));
     if ((!state.proposalsLoaded && state.access.proposals) || (!state.codingLoaded && state.access.coding.review)) checked.append(node('span', 'Some connected work could not be loaded. See the notice above.'));
     box.append(checked);
+    if (state.proposalsLoaded) {
+      box.append(node('p', window.SiloOnDeckBriefing.currentStatus(state.rows).text, 'od-attention'));
+      if (/^Preparation failed/.test(state.settings.last_status || '')) box.append(node('p', state.settings.last_status, 'od-attention'));
+      if (state.settings.requested_at && new Date(state.settings.requested_at) > new Date(state.settings.last_screen_at || 0)) box.append(node('p', 'Refresh requested. Waiting for the next scheduler run; this is not a completed preparation.'));
+    }
     const layout = node('div', null, 'od-briefing-layout'); box.append(layout);
     const item = model.featured;
     if (item) {
@@ -106,8 +111,17 @@
       const empty = node('section', null, 'bcn-card od-briefing-empty');
       empty.append(node('h2', 'No growth opportunity to recommend yet.'), node('p', model.watching ? 'Some opportunities are still being prepared or need stronger evidence or input. They remain available in All work.' : 'Prepared recommendations will appear when your connected evidence supports a useful next step.'));
       empty.append(button('View all work', () => setDesk('work', true)));
+      if (state.access.proposals && state.proposalsLoaded && state.settings.enabled) empty.append(button('Request refreshed opportunities', requestPreparation, true));
       if (state.access.proposals && state.proposalsLoaded && !state.settings.enabled) empty.append(safeLink('Set up background preparation', '/v2/settings-company.html#on-deck-settings'));
       layout.append(empty);
+      if (state.proposalsLoaded) {
+        const diagnostics = node('details'); diagnostics.append(node('summary', `Last successful screening: ${when(state.settings.last_screen_at)}`));
+        const held = Object.entries(state.settings.diagnostics?.held || {});
+        if (held.length) held.forEach(([reason,count]) => diagnostics.append(node('p', `${count} held: ${reason}`)));
+        else diagnostics.append(node('p', 'No saved screening reasons are available yet.'));
+        diagnostics.append(node('p', 'These are prior screening results, not current ready drafts. Restock gates check identity and product policy before the cost ceiling.'));
+        empty.append(diagnostics);
+      }
     }
     const supporting = [...model.secondary, ...model.upkeep].slice(0, 2);
     if (supporting.length) {
@@ -142,15 +156,16 @@
      finance queue and proposals a person must decide. No placeholders. */
   function proposalCard(p) {
     const c = node('article', null, 'od-rcard'); c.dataset.proposal = p.id;
-    const ready = p.status === 'ready';
+    const stale = p.source_current === false || !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= Date.now();
+    const ready = p.status === 'ready' && !stale;
     const top = node('div', null, 'od-rcard-top');
-    top.append(mark(p.kind), node('span', modules[p.kind] || 'Workflow', 'od-rcard-module'), node('span', ready ? effect[p.kind] : 'NEEDS INPUT', `od-rpill od-rpill--${ready ? 'proposal' : 'needs_input'}`));
+    top.append(mark(p.kind), node('span', modules[p.kind] || 'Workflow', 'od-rcard-module'), node('span', stale ? 'STALE EVIDENCE' : p.status === 'failed' ? 'PREPARATION FAILED' : ready ? effect[p.kind] : 'NEEDS INPUT', `od-rpill od-rpill--${ready ? 'proposal' : 'needs_input'}`));
     c.append(top, node('h3', title(p)), node('p', names[p.kind].charAt(0) + names[p.kind].slice(1).toLowerCase(), 'od-rcard-sub'));
     const missing = p.content?.missing || [];
     c.append(node('p', ready ? destinations[p.kind][2] : 'Additional input is needed before approval. Open the proposal to inspect what is missing.', 'od-rcard-detail'));
     const ev = node('details', null, 'od-rcard-evidence'); ev.append(node('summary', `Why it is here · draft v${p.version}`), node('p', p.selection_reason)); c.append(ev);
     c.append(button('Review →', () => {
-      setDesk('work'); state.view = ready ? 'review' : 'needs'; state.selected = p.id; state.tab = 'draft'; renderQueue();
+      setDesk('work'); state.view = p.status === 'ready' ? 'review' : 'needs'; state.selected = p.id; state.tab = 'draft'; renderQueue();
       select(p.id).catch(e => message(e.message, true)); $('workspace').scrollIntoView({ block: 'start', behavior: 'smooth' });
     }, true));
     return c;
@@ -159,7 +174,7 @@
     const grid = $('ready-cards'); grid.replaceChildren();
     // Recorded entries are done in SILO and belong under "After approval".
     const coding = state.codingLoaded ? state.coding.items().filter(i => !window.SiloOnDeckCoding.isRecorded(i)) : [];
-    const proposals = state.proposalsLoaded ? state.rows.filter(p => ['ready', 'needs_info'].includes(p.status)) : [];
+    const proposals = state.proposalsLoaded ? state.rows.filter(p => ['ready', 'needs_info', 'failed'].includes(p.status)) : [];
     coding.forEach(i => grid.append(state.coding.card(i)));
     proposals.forEach(p => grid.append(proposalCard(p)));
     state.coding?.markActive();
@@ -427,7 +442,8 @@
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => { if (!dialogBusy) b.closest('dialog').close(); }));
   $('refresh').addEventListener('click', load);
   $('desk-views').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { if (b.dataset.desk === 'briefing') renderBriefing(); setDesk(b.dataset.desk); }));
-  $('prepare').addEventListener('click', async () => { $('prepare').disabled = true; try { await companyStillActive(); await rpc('on_deck_request_preparation'); await load(); message('Screening requested for the next hourly scheduler run. There is no charge until a qualified proposal is drafted.'); } catch (e) { message(e.message, true); $('prepare').disabled = !state.settings.enabled; } });
+  async function requestPreparation() { $('prepare').disabled = true; try { await companyStillActive(); await rpc('on_deck_request_preparation'); await load(); message('Screening requested for the next hourly scheduler run. There is no charge until a qualified proposal is drafted.'); } catch (e) { message(e.message, true); $('prepare').disabled = !state.settings.enabled; } }
+  $('prepare').addEventListener('click', requestPreparation);
   $('views').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { state.view = b.dataset.view; state.tab = 'draft'; renderQueue(); select(state.selected).catch(e => message(e.message, true)); }));
   async function init() {
     try {

@@ -19190,4 +19190,5 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261008212803_on_deck_action_loop.sql
 -- Backend admin RPCs: members of the active company only; Silo Admin lists accounts with no company.
 \i migrations/20261009120000_workspace_admin_member_scope.sql
+\i migrations/20261009171424_on_deck_source_date_once.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

@@ -12,6 +12,8 @@
 
 ## Individual migrations (same content, split)
 
+**On Deck date caching:** `migrations/20261009171424_on_deck_source_date_once.sql` caches the company-local date once per source fingerprint call without changing cutoff semantics, grants or timeouts.
+
 **Attribution coverage (disabled draft):** `migrations/20261007031733_attribution_coverage.sql` adds service-only enrollment/cursor state after the original attribution migrations. It does not backfill customer data or enable scheduling. See [the attribution runbook](../docs/ops/silo-attribution.md).
 
 **On Deck coding review:** `migrations/20261004120000_on_deck_coding_review.sql` adds five authenticated, finance-gated functions and changes no table, policy or existing function: `on_deck_coding_items()` (the finance review queue over existing import batches, with a derived stage), `card_import_batch_preview(batch)` (runs `approve_card_import_batch` inside a rolled-back block, so the previewed entry and hash are exactly what approval freezes; a refusal comes back as the specific blocker), `approve_reviewed_card_import_batch(batch, hash)` (approves in SILO only when the frozen entry hashes to what was reviewed; sending to QuickBooks stays optional), `on_deck_coding_access()` and `on_deck_ready_count()` (Home's compact count), plus one trigger, `qbo_card_claim_matches_approval` on `quickbooks_journal_postings`, which refuses a card-import QuickBooks claim whose batch was reopened or reapproved after the posting function read it. Pair with the `quickbooks-post-journal` redeploy (optional `expected_approval_hash`). Verified by the two "On Deck coding" checks in `verify_v2_schema.sql`; runbook [docs/ops/on-deck.md](../docs/ops/on-deck.md).

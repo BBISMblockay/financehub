@@ -104,3 +104,15 @@ test('handoff refuses absent draft and excessive context without truncation', ()
   assert.throws(() => prepareHandoff(seo({ content: { body: 'x'.repeat(5000), missing: ['Input'] } }), [{ value: 'Confirmed fact' }]), /draft limit/);
 });
 console.log(`${checks} briefing checks passed`);
+
+const { currentStatus } = loadV2(['on-deck-briefing.js']).SiloOnDeckBriefing;
+test('current readiness distinguishes six stale drafts from old ready summaries',()=>{
+ const rows=[...Array.from({length:5},(_,i)=>ads({id:String(i),status:'needs_info',source_current:false})),ads({id:'failed',status:'failed',source_current:false})];
+ const result=currentStatus(rows,now);assert.equal(result.ready,0);assert.equal(result.needs,5);assert.equal(result.failed,1);assert.equal(result.stale,6);
+ assert.equal(currentStatus([ads({source_current:false}),ads({valid_until:'bad'}),ads({content:{recommend:true,body:'text',missing:['Need facts']}})],now).ready,0);
+ assert.equal(currentStatus([ads({source_current:true})],now).ready,1);assert.equal(currentStatus([],now).ready,0);
+ assert.equal(currentStatus([ads()],now).ready,0);assert.equal(currentStatus([ads()],now).unknown,1);
+ assert.match(currentStatus([ads()],now).text,/Freshness unavailable/);
+ assert.equal(currentStatus([seo({source_current:true})],now).ready,0);
+ assert.equal(currentStatus([seo({source_current:true,content:{recommend:true,body:'Draft',missing:[],proposed_title:'Title',proposed_meta_description:'Description'}})],now).ready,1);
+});

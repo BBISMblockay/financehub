@@ -3,7 +3,13 @@ import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { curate } from './lib/on-deck-core.mjs';
-const check = r => { if (r.error) throw new Error(r.error.message); return r.data; };
+const check = r => { if (r.error) throw Object.assign(new Error('database_request_failed'), { code: r.error.code }); return r.data; };
+export function failureDiagnostic(error, stage, workflow) {
+  const stages = ['reconcile', 'source_version', 'facts', 'mappings', 'source_recheck', 'screen', 'stage', 'screen_record', 'prepare', 'summary'];
+  const known = ['source_limit_reached', 'source_changed_during_screening', 'edge_preparation_failed'];
+  return { stage: stages.includes(stage) ? stage : 'unknown', workflow: ['restock','launch','seo','ads'].includes(workflow) ? workflow : null,
+    code: /^[0-9A-Z]{5}$/.test(error?.code || '') ? error.code : known.includes(error?.message) ? error.message : 'unknown_error' };
+}
 const rpc = async (db, name, args) => check(await db.rpc(name, args));
 async function pages(fetchPage) {
   const result = [];
@@ -27,6 +33,7 @@ export async function run({ db, now = new Date(), prepare = prepareViaEdge }) {
   let failures = 0;
   for (const setting of settings) {
     const company = setting.company_entity_id;
+    let stage = 'reconcile', workflow = null;
     try {
       // A timed-out process is never treated as a free request. No provider retry.
       const abandoned = check(await db.from('on_deck_attempts').select('id').eq('company_entity_id', company).eq('state', 'reserved').lt('created_at', new Date(+now - 30 * 60000).toISOString()));
@@ -35,12 +42,17 @@ export async function run({ db, now = new Date(), prepare = prepareViaEdge }) {
       if (due) {
         const facts = { products: [], mappings: [], launches: [], seo: [], ads: [], settings: setting, now }, versions = {};
         for (const kind of setting.workflows) {
+          workflow = kind; stage = 'source_version';
           versions[kind] = await rpc(db, 'on_deck_source_version', { p_company: company, p_kind: kind });
           const endpoint = { restock: 'product', launch: 'launch', seo: 'seo', ads: 'ad' }[kind];
+          stage = 'facts';
           facts[{ restock: 'products', launch: 'launches', seo: 'seo', ads: 'ads' }[kind]] = await pages(offset => db.rpc(`on_deck_${endpoint}_facts`, { p_company: company, p_offset: offset }));
+          stage = 'mappings';
           if (kind === 'restock') facts.mappings = await pages(offset => db.from('shopify_product_skus').select('shop_domain,shopify_product_id,shopify_variant_id,sku,product_title,status:shopify_status').eq('company_entity_id', company).order('shop_domain').order('shopify_product_id').order('shopify_variant_id').range(offset, offset + 499));
+          stage = 'source_recheck';
           if (versions[kind] !== await rpc(db, 'on_deck_source_version', { p_company: company, p_kind: kind })) throw new Error('source_changed_during_screening');
         }
+        stage = 'screen'; workflow = null;
         const cooling = await pages(offset => db.from('on_deck_proposals').select('kind,source_key').eq('company_entity_id', company).in('status', ['completed', 'dismissed', 'screened']).gt('revisit_at', now.toISOString()).order('id').range(offset, offset + 499));
         facts.excludedKeys = new Set(cooling.map(p => `${p.kind}:${p.source_key}`));
         const result = curate(facts);
@@ -51,26 +63,34 @@ export async function run({ db, now = new Date(), prepare = prepareViaEdge }) {
           }
         }
         for (const candidate of result.shortlist) {
+          stage = 'stage'; workflow = candidate.kind;
           candidate.source.context_evidence = await rpc(db, 'on_deck_context_evidence', { p_company: company, p_kind: candidate.kind, p_source: candidate.source });
           await rpc(db, 'on_deck_stage', { p_company: company, p_candidate: candidate, p_source_version: versions[candidate.kind] });
         }
+        stage = 'screen_record'; workflow = null;
         check(await db.from('on_deck_settings').update({ last_screen_at: now.toISOString(), last_status: 'Screened strongest opportunities', diagnostics: result.diagnostics }).eq('company_entity_id', company));
       }
+      stage = 'prepare'; workflow = null;
       const pending = check(await db.from('on_deck_proposals').select('*').eq('company_entity_id', company).in('status', ['preparing', 'revision']).order('created_at'));
       const outcomes = [];
       for (const p of pending) {
+        workflow = p.kind;
         const outcome = await prepare({ db, proposal: p }); outcomes.push(outcome);
         if (outcome === 'stale') check(await db.from('on_deck_proposals').update({ status: 'failed', version: p.version + 1, updated_at: now.toISOString() }).eq('id', p.id).eq('version', p.version));
       }
       if (outcomes.length) {
+        stage = 'summary'; workflow = null;
         const current = check(await db.from('on_deck_proposals').select('status').eq('company_entity_id', company).in('status', ['ready', 'needs_info', 'failed', 'preparing', 'revision']));
         check(await db.from('on_deck_settings').update({ last_status: outcomes.includes('credit_exhausted') ? 'Paused: workspace AI credit is used up' : outcomes.includes('budget_cap') ? 'Monthly preparation cap reached' : outcomes.includes('daily_cap') ? 'Daily safety cap reached' : preparationSummary(current) }).eq('company_entity_id', company));
       }
       console.log('On Deck company processed');
-    } catch {
+    } catch (error) {
       failures++;
-      await db.from('on_deck_settings').update({ last_status: 'Preparation failed; prior drafts and spend holds retained. Retry after resolving source access or freshness.' }).eq('company_entity_id', company);
-      console.error('On Deck company preparation failed');
+      const diagnostic = failureDiagnostic(error, stage, workflow);
+      const summary = `Preparation failed at ${diagnostic.stage}${diagnostic.workflow ? '/' + diagnostic.workflow : ''} (${diagnostic.code}); prior drafts and spend holds retained.`;
+      console.error('On Deck preparation failed', JSON.stringify(diagnostic));
+      try { check(await db.from('on_deck_settings').update({ last_status: summary }).eq('company_entity_id', company)); }
+      catch { console.error('On Deck failure status could not be saved'); }
     }
   }
   if (failures) throw new Error(`${failures} company preparation run(s) failed`);
