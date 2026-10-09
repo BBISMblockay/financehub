@@ -25,7 +25,7 @@ async function fixture({ authorized = true, rows = [row('fixture-1')], signedIn 
       auth: { getSession: async () => ({ data: { session: state.signedIn ? { user: { id: 'fixture-admin' } } : null } }) },
       rpc: async name => {
         state.rpcs.push(name);
-        if (!['is_platform_admin', 'platform_list_companies', 'list_platform_invites'].includes(name)) throw new Error('Unexpected RPC: ' + name);
+        if (!['is_platform_admin', 'platform_list_companies', 'list_platform_invites', 'platform_list_accounts'].includes(name)) throw new Error('Unexpected RPC: ' + name);
         return { data: name === 'is_platform_admin' ? state.authorized : [], error: null };
       },
       from(table) {

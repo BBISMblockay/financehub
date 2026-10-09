@@ -460,10 +460,15 @@
   }
 
   async function loadAccounts() {
-    const { data, error } = await db.rpc('platform_list_accounts');
+    // Never lets a failure escape: boot awaits this alongside the other
+    // panels, and a throw here used to abort boot before the work queue's
+    // handlers were bound.
+    let data = null; let error = null;
+    try { ({ data, error } = await db.rpc('platform_list_accounts')); }
+    catch (e) { error = e; }
     if (error) {
       lastAccountRows = [];
-      el('tblAccounts').innerHTML = `<div class="plat-empty">${esc(error.message)}</div>`;
+      el('tblAccounts').innerHTML = `<div class="plat-empty">${esc(error.message || String(error))}</div>`;
       el('kpiNoCompany').textContent = '—';
       el('platStuckAlert').hidden = true;
       return;

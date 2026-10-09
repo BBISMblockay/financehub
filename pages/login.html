@@ -667,7 +667,17 @@
           return saved.next;
         } catch { return null; }
       }
-      function forgetFounderNext() { try { localStorage.removeItem(FOUNDER_NEXT_KEY); } catch {} }
+      // Only the signed-in account's OWN entry. A teammate signing in on the
+      // same browser between a founder's signup and confirmation must not
+      // erase the founder's way back to setup.
+      function forgetFounderNext(email) {
+        const who = String(email || "").trim().toLowerCase();
+        if (!who) return;
+        try {
+          const saved = JSON.parse(localStorage.getItem(FOUNDER_NEXT_KEY) || "null");
+          if (saved && saved.email === who) localStorage.removeItem(FOUNDER_NEXT_KEY);
+        } catch {}
+      }
       async function sessionEmail() {
         try {
           const { data } = await supabaseClient.auth.getSession();
@@ -706,7 +716,7 @@
         const profile = await getUserProfile(userId);
         const result = await resolveCompany(userId);
         // Somebody with a company has nothing left to recover.
-        if (result === 'redirect' || (result && typeof result === 'object')) forgetFounderNext();
+        if (result === 'redirect' || (result && typeof result === 'object')) forgetFounderNext(await sessionEmail());
         if (result === 'redirect') return; // picker handles the rest
 
         // A signed-in account that belongs to NO company is a real state since

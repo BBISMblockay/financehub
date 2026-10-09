@@ -26,8 +26,9 @@ const ACCOUNTS = [
     companies: [{ entity_id: 'c1', title: 'Suti', role: 'owner_admin' }], state: 'member', founder_invite_expires_at: null },
 ];
 
-const FAKE = `
+const fake = (accountsThrows) => `
 (function () {
+  var ACCOUNTS_THROWS = ${JSON.stringify(!!accountsThrows)};
   var RPC = {
     is_platform_admin: true,
     platform_list_companies: [],
@@ -51,6 +52,9 @@ const FAKE = `
     },
     from: function () { return chain([]); },
     rpc: function (name) {
+      // A transport failure (supabase-js rejects rather than resolving with
+      // an error) -- what an unknown RPC in another suite's stand-in does.
+      if (name === 'platform_list_accounts' && ACCOUNTS_THROWS) return Promise.reject(new Error('network down'));
       if (!(name in RPC)) return Promise.resolve({ data: null, error: null });
       return Promise.resolve({ data: RPC[name], error: null });
     },
@@ -58,10 +62,12 @@ const FAKE = `
   }; } };
 })();`;
 
+let accountsThrows = false;
+
 (async () => {
   const suite = await startSuite();
   await suite.context.route('**/cdn.jsdelivr.net/**supabase**', (route) =>
-    route.fulfill({ contentType: 'text/javascript', body: FAKE }));
+    route.fulfill({ contentType: 'text/javascript', body: fake(accountsThrows) }));
 
   const page = await suite.context.newPage();
   page.on('pageerror', (e) => { console.log('  [pageerror] ' + e.message); });
@@ -106,6 +112,25 @@ const FAKE = `
       await phone.screenshot({ path: path.join(process.env.SHOT_DIR, 'platform-admin-accounts-mobile.png'), fullPage: true });
       await phone.close();
     }
+
+    // A failure loading accounts stays inside the Accounts tab. It used to
+    // reject boot's Promise.all and leave every later handler unbound
+    // (public-landing's platform-interest suite, PR #942 CI).
+    accountsThrows = true;
+    const broken = await suite.context.newPage();
+    const errors = [];
+    broken.on('pageerror', (e) => errors.push(e.message));
+    await broken.goto(suite.base + '/v2/platform-admin.html', { waitUntil: 'domcontentloaded' });
+    await broken.waitForSelector('#admin:not([hidden])', { timeout: 5000 });
+    await broken.waitForTimeout(300);
+    await broken.click('#tabBtnCompanies');
+    R.ok('with accounts failing, the rest of the page still works (tabs are bound)',
+      await broken.isVisible('#panelCompanies'));
+    await broken.click('#tabBtnAccounts');
+    R.ok('...and the Accounts tab says what failed', /network down/.test(await broken.textContent('#tblAccounts')),
+      await broken.textContent('#tblAccounts'));
+    R.ok('...without an uncaught error', errors.length === 0, errors.join('; '));
+    await broken.close();
   } finally {
     await page.close();
     await suite.close();

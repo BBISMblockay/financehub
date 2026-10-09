@@ -122,6 +122,21 @@ const CONFIG = `window.__SILO_CONFIG__ = {
       await page.close();
     }
 
+    // 1b. A teammate who HAS a company signs in on the same browser before the
+    //     founder confirms. Their sign-in must not erase the founder's entry
+    //     (cycle-1 review, PR #942: the cleanup ran for any account with a
+    //     company, without checking whose entry it was).
+    {
+      world.email = 'teammate@baseballism.com';
+      world.memberships = [{ role: 'admin', entity: { id: 'c0', title: 'Baseballism', entity_key: 'baseballism', meta: {} } }];
+      const page = await open('/pages/login.html');
+      await page.waitForURL((u) => !u.pathname.startsWith('/pages/login'), { timeout: 3000 }).catch(() => {});
+      const saved = JSON.parse((await stored(page)) || 'null');
+      R.ok('a different member signing in leaves the founder\'s entry in place',
+        saved && saved.email === 'erik@misefootwear.com' && saved.next === NEXT, JSON.stringify(saved));
+      await page.close();
+    }
+
     // 2. The confirmation link lands on set-password with type=signup: no
     //    second password, straight on to login.
     {
