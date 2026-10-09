@@ -20,6 +20,10 @@
 //   5. The retired `using (true)` PO / Launch policies are dropped even after the
 //      migrations that create them have run (the apply_all_post_merge order).
 //   6. anon cannot execute generate_next_po_name; authenticated still can.
+//   7. sample-notify (review cycles 1-2): notify_sample_events() signs every
+//      call with the Vault secret and a per-transition event_id, fires on
+//      exactly the transitions it did before, and sample_notification_claims
+//      is service-only with a primary key that lets exactly one claim win.
 //
 // Mutations (each must make a specific assertion fail):
 //   INVITE_MUTATION=no-owner-guard   (the owner-role check removed)
@@ -27,6 +31,9 @@
 //   INVITE_MUTATION=dept-case        (the department compared without lower())
 //   INVITE_MUTATION=keep-open-policy (the policy drop removed)
 //   INVITE_MUTATION=keep-anon-po     (the generate_next_po_name revoke removed)
+//   INVITE_MUTATION=unsigned-trigger (the trigger stops sending the secret header)
+//   INVITE_MUTATION=claims-no-pk     (the claims table loses its primary key)
+//   INVITE_MUTATION=claims-readable  (the claims revoke removed)
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e && e.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
@@ -36,7 +43,8 @@ import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/inde
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
 const mutation = process.env.INVITE_MUTATION || '';
-assert.ok(['', 'no-owner-guard', 'no-dept-guard', 'dept-case', 'keep-open-policy', 'keep-anon-po'].includes(mutation),
+assert.ok(['', 'no-owner-guard', 'no-dept-guard', 'dept-case', 'keep-open-policy', 'keep-anon-po',
+  'unsigned-trigger', 'claims-no-pk', 'claims-readable'].includes(mutation),
   `Unknown invite mutation: ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -74,6 +82,20 @@ await db.exec(`
     using (company_entity_id = public.active_company_id());
   create function public.generate_next_po_name(p_factory_id uuid) returns text language sql as $$ select 'X-1' $$;
   grant execute on function public.generate_next_po_name(uuid) to public;
+
+  -- pg_net and Vault as the trigger sees them: http_post records each call.
+  create schema net;
+  create table net.calls (id serial primary key, url text, body jsonb, headers jsonb);
+  create function net.http_post(url text, body jsonb default '{}'::jsonb, params jsonb default '{}'::jsonb,
+    headers jsonb default '{"Content-Type": "application/json"}'::jsonb, timeout_milliseconds integer default 5000)
+  returns bigint language plpgsql as $f$
+  begin insert into net.calls(url, body, headers) values (url, body, headers); return 1; end $f$;
+  create schema vault;
+  create table vault.decrypted_secrets (name text, decrypted_secret text);
+  insert into vault.decrypted_secrets values ('sample_notify_trigger_secret', 's3cret');
+  create table public.product_samples (
+    id uuid primary key default gen_random_uuid(), company_entity_id uuid, product_title text,
+    sample_status text, size_requests text, request_source text, assigned_to uuid);
 `);
 
 await db.exec(await readFile(new URL('supabase/migrations/20260714200000_org_invites.sql', root), 'utf8'));
@@ -88,6 +110,9 @@ if (mutation === 'no-dept-guard') mutate("if lower(v_department) in ('finance', 
 if (mutation === 'dept-case') mutate("if lower(v_department) in ('finance', 'exec', 'admin')", "if v_department in ('finance', 'exec', 'admin')");
 if (mutation === 'keep-open-policy') mutate("execute format('drop policy if exists %I on public.%I', t || '_select_auth', t);", 'null;');
 if (mutation === 'keep-anon-po') mutate('revoke all on function public.generate_next_po_name(uuid) from public, anon;', '');
+if (mutation === 'unsigned-trigger') mutate("'x-silo-trigger-secret', coalesce(", "'x-unsigned', coalesce(");
+if (mutation === 'claims-no-pk') mutate('  created_at timestamptz not null default now(),\n  primary key (sample_id, event_type, claim_key)\n', '  created_at timestamptz not null default now()\n');
+if (mutation === 'claims-readable') mutate('revoke all on public.sample_notification_claims from public, anon, authenticated;', '');
 await db.exec(migration);
 
 // ── Cast ─────────────────────────────────────────────────────────────────────
@@ -162,6 +187,54 @@ await test('anon cannot execute generate_next_po_name; authenticated can', async
   const r = await one(`select has_function_privilege('anon','public.generate_next_po_name(uuid)','execute') as anon,
                               has_function_privilege('authenticated','public.generate_next_po_name(uuid)','execute') as auth`);
   assert.equal(r.anon, false); assert.equal(r.auth, true);
+});
+
+// ── 7. sample-notify trigger and claims ─────────────────────────────────────
+await db.exec(`create trigger trg_sample_notify after insert or update on public.product_samples
+               for each row execute function public.notify_sample_events();`);
+const calls = async () => (await q('select body, headers from net.calls order by id')).map((r) => r);
+await test('the trigger signs each call and sends a per-transition event_id', async () => {
+  await q(`insert into public.product_samples(company_entity_id, product_title, sample_status, assigned_to)
+           values ($1, 'Tee', 'requested', $2)`, [co, admin]);
+  await q(`insert into public.product_samples(company_entity_id, product_title, sample_status, request_source, size_requests)
+           values ($1, 'Cap', 'received', 'catalog_photo_request', 'M, L')`, [co]);
+  const c = await calls();
+  assert.deepEqual(c.map((x) => x.body.type), ['SAMPLE_REQUESTED', 'SAMPLE_SIZE_REQUEST']);
+  for (const x of c) {
+    assert.equal(x.headers['x-silo-trigger-secret'], 's3cret');
+    assert.match(String(x.body.event_id), /^[0-9a-f-]{36}$/);
+  }
+  assert.notEqual(c[0].body.event_id, c[1].body.event_id);
+});
+await test('the trigger still fires only on the same transitions as before', async () => {
+  await q('delete from net.calls');
+  await q(`update public.product_samples set product_title = 'Cap 2' where product_title = 'Cap'`);
+  assert.equal((await calls()).length, 0, 'a non-size edit sends nothing');
+  await q(`update public.product_samples set size_requests = 'M, L, XL' where product_title = 'Cap 2'`);
+  const c = await calls();
+  assert.deepEqual(c.map((x) => x.body.type), ['SAMPLE_SIZE_REQUEST'], 'a size change sends one size request');
+  await q(`insert into public.product_samples(company_entity_id, product_title, sample_status) values ($1, 'Unrouted', 'requested')`, [co]);
+  assert.equal((await calls()).length, 1, 'an unrouted insert sends nothing');
+});
+await test('with no Vault secret the header is empty, never absent or null', async () => {
+  await q('delete from net.calls'); await q('delete from vault.decrypted_secrets');
+  await q(`insert into public.product_samples(company_entity_id, product_title, sample_status, assigned_to) values ($1, 'NoSecret', 'requested', $2)`, [co, admin]);
+  const [c] = await calls();
+  assert.equal(c.headers['x-silo-trigger-secret'], '');
+  assert.equal(c.headers['Content-Type'], 'application/json');
+});
+await test('sample_notification_claims: service-only, and exactly one claim per key wins', async () => {
+  const r = await one(`select relrowsecurity as rls,
+      has_table_privilege('anon','public.sample_notification_claims','select') as anon_sel,
+      has_table_privilege('authenticated','public.sample_notification_claims','select') as auth_sel,
+      has_table_privilege('authenticated','public.sample_notification_claims','insert') as auth_ins
+    from pg_class where oid = 'public.sample_notification_claims'::regclass`);
+  assert.deepEqual(r, { rls: true, anon_sel: false, auth_sel: false, auth_ins: false });
+  const sid = randomUUID();
+  await q(`insert into public.sample_notification_claims(sample_id, event_type, claim_key) values ($1,'SAMPLE_REQUESTED','insert')`, [sid]);
+  await assert.rejects(
+    () => q(`insert into public.sample_notification_claims(sample_id, event_type, claim_key) values ($1,'SAMPLE_REQUESTED','insert')`, [sid]),
+    (e) => e.code === '23505', 'a second claim for the same delivery must fail with a unique violation');
 });
 
 // ── The migration is idempotent ─────────────────────────────────────────────

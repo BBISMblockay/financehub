@@ -38,10 +38,6 @@ Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
 - **No CSP on any page; CDN scripts are unpinned** (`@supabase/supabase-js@2`, `marked@12`,
   `dompurify@3`) with no SRI. Any XSS is account takeover while the session sits in `localStorage`.
 - **`chat_run_readonly_query`** was not reviewed for read-only bypasses in this audit.
-- **`sample-notify` has no trigger secret.** An unsigned call can only deliver an event the row's
-  current state supports, once (INSERT events: fresh row, never logged before; size requests: 10-minute
-  cooldown), so it cannot announce a false transition or repeat one. It can still race the trigger to
-  send that same first notification. A signed trigger (vault secret + header) would close that.
 
 ---
 

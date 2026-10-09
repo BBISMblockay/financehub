@@ -33,13 +33,14 @@
 // here. The body is therefore only a pointer: the sample is re-read by id with
 // the service role and every field the message uses comes from that row, never
 // from the request. Two callers, two rules:
-//   - Unsigned = the trigger (it sends no Authorization). Only the three events
-//     notify_sample_events() sends, only when the row's CURRENT state is the one
-//     that event announces, and only once: an INSERT event (requested /
-//     received) needs a row created in the last 15 minutes and no earlier log
-//     row for it; a size request is refused within 10 minutes of the last one
-//     for that sample. So an unsigned caller can never announce a transition
-//     that did not happen, or repeat one.
+//   - Unsigned = the trigger (no user JWT). It signs with x-silo-trigger-secret;
+//     once SAMPLE_NOTIFY_TRIGGER_SECRET is set, a call without it is refused.
+//     Only the three events notify_sample_events() sends, only when the row's
+//     CURRENT state is the one that event announces, and exactly once: an
+//     atomic claim in sample_notification_claims is inserted BEFORE anything
+//     is sent, and only the request that wins it proceeds (requested /
+//     received: once per sample; a size request: once per trigger transition,
+//     or per size list before the secret is set).
 //   - Signed in = "Notify now" on v2/products.html, which sends SAMPLE_ASSIGNED
 //     only. The caller must read the sample under RLS, and may pick the
 //     drawer's unsaved assignee -- but only an active member of the sample's
@@ -55,11 +56,16 @@
 // was actually reached. Logging is best-effort: wrapped so a logging
 // failure never turns a real send into an error response.
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { callerMaySend, rowSupportsTriggerEvent, unsignedEventIsFresh } from './trigger-events.mjs';
+import { callerMaySend, claimKeyFor, insertEventIsFresh, rowSupportsTriggerEvent } from './trigger-events.mjs';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
+// Shared with notify_sample_events() through Vault secret
+// 'sample_notify_trigger_secret' (20261008120000). Set it LAST, after the
+// Vault secret exists and the migration is applied: once set, an unsigned call
+// without the matching x-silo-trigger-secret header is refused.
+const TRIGGER_SECRET = Deno.env.get('SAMPLE_NOTIFY_TRIGGER_SECRET') || '';
 // SLACK_SAMPLES_WEBHOOK_URL posts into Baseballism's own Slack. Another
 // tenant's sample titles and factories must never land there.
 const SLACK_CHANNEL_COMPANY_ID = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7';
@@ -288,6 +294,20 @@ function slackEsc(s: string | null | undefined): string {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Constant-time compare of two secrets (equal-length digests).
+async function secretsMatch(given: string, expected: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(given)),
+    crypto.subtle.digest('SHA-256', enc.encode(expected)),
+  ]);
+  const x = new Uint8Array(a);
+  const y = new Uint8Array(b);
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
 // Who is calling: 'unsigned' (no bearer, or the anon key -- the trigger sends
 // none), 'user' (a valid session), or 'invalid' (any other bearer, refused).
 async function callerIdentity(req: Request): Promise<{ kind: 'unsigned' | 'user' | 'invalid'; jwt: string | null }> {
@@ -345,11 +365,25 @@ Deno.serve(async (req: Request) => {
     // Unsigned (trigger) events must describe what actually happened, once.
     if (!jwt) {
       const quiet = () => new Response(JSON.stringify({ ok: true }), { headers: CORS });
+      const verifiedTrigger = !!TRIGGER_SECRET;
+      if (verifiedTrigger && !(await secretsMatch(req.headers.get('x-silo-trigger-secret') || '', TRIGGER_SECRET))) {
+        return new Response(JSON.stringify({ error: 'Not authenticated' }), { status: 401, headers: CORS });
+      }
       if (!rowSupportsTriggerEvent(type, record)) return quiet();
-      const { data: prior } = await db.from('sample_notification_log').select('created_at')
-        .eq('sample_id', record.id).eq('event_type', type)
-        .order('created_at', { ascending: false }).limit(1);
-      if (!unsignedEventIsFresh(type, record.created_at, prior?.[0]?.created_at ?? null)) return quiet();
+      if (!verifiedTrigger && type !== 'SAMPLE_SIZE_REQUEST' && !insertEventIsFresh(record.created_at)) return quiet();
+      const claimKey = claimKeyFor(type, { verifiedTrigger, eventId: body?.event_id, row: record });
+      if (!claimKey) return quiet();
+      // The claim is the once-only guarantee: a primary-key insert BEFORE any
+      // send, so of any number of concurrent or replayed requests exactly one
+      // proceeds.
+      const { error: claimErr } = await db.from('sample_notification_claims').insert({
+        sample_id: record.id, event_type: type, claim_key: claimKey, company_entity_id: record.company_entity_id,
+      });
+      if (claimErr) {
+        if (claimErr.code === '23505') return quiet();
+        console.error('[sample-notify] claim failed', claimErr.message);
+        return new Response(JSON.stringify({ error: 'claim failed' }), { status: 500, headers: CORS });
+      }
     }
 
     // "Notify now" sends the drawer's CURRENT assignee, which may not be saved

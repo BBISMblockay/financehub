@@ -35,6 +35,24 @@
 --    never revoked from PUBLIC). It is SECURITY INVOKER, so RLS bounds it, but
 --    it writes po_sequences and nothing anonymous calls it. The PO builder
 --    calls it signed in, so `authenticated` keeps EXECUTE.
+--
+-- 4. sample-notify is a public edge function (the trigger cannot present a
+--    JWT), so anyone who knew a sample id could make it email and post as if
+--    the trigger had fired, and concurrent calls could all slip past a
+--    "sent already?" read. Two parts here (review cycles 1-2):
+--    a. notify_sample_events() now SIGNS its calls: header
+--       x-silo-trigger-secret, read from Vault secret
+--       'sample_notify_trigger_secret', plus a per-transition event_id in the
+--       body. Once the function's SAMPLE_NOTIFY_TRIGGER_SECRET is set to the
+--       same value, an unsigned call is refused. Logic is otherwise exactly
+--       20260910160000 (production's definition, checked 2026-10-09).
+--    b. sample_notification_claims: the function inserts a claim (unique per
+--       sample, event and transition) BEFORE it sends anything; only the
+--       insert that wins proceeds. Service-role only.
+--    ROLLOUT ORDER (so notifications never stop): create the Vault secret,
+--    apply this migration, deploy sample-notify, THEN set the function secret
+--    to the same value. Until the function secret is set the function keeps
+--    its state-and-once rules.
 -- ============================================================
 
 -- ── 1. create_org_invite ─────────────────────────────────────
@@ -164,5 +182,79 @@ begin
   if to_regprocedure('public.generate_next_po_name(uuid)') is not null then
     revoke all on function public.generate_next_po_name(uuid) from public, anon;
     grant execute on function public.generate_next_po_name(uuid) to authenticated;
+  end if;
+end $$;
+
+-- ── 4a. sample-notify claims (atomic once-only) ──────────────
+create table if not exists public.sample_notification_claims (
+  sample_id uuid not null,
+  event_type text not null,
+  claim_key text not null,
+  company_entity_id uuid,
+  created_at timestamptz not null default now(),
+  primary key (sample_id, event_type, claim_key)
+);
+alter table public.sample_notification_claims enable row level security;
+-- deliberately no policies: written and read only by sample-notify's service role
+revoke all on public.sample_notification_claims from public, anon, authenticated;
+
+-- ── 4b. notify_sample_events(): signed calls ────────────────
+create or replace function public.notify_sample_events()
+ returns trigger
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare
+  v_headers jsonb;
+begin
+  -- Read only when a call is about to be made. A missing Vault secret sends an
+  -- empty header: the function then refuses it once its own secret is set
+  -- (see the rollout order above), and accepts it until then.
+  if (tg_op = 'INSERT'
+        and (new.assigned_to is not null or new.request_source is not null)
+        and (new.size_requests is null or btrim(new.size_requests) = ''))
+     or (new.request_source = 'catalog_photo_request'
+        and new.size_requests is not null and btrim(new.size_requests) <> ''
+        and (tg_op = 'INSERT' or old.size_requests is distinct from new.size_requests)) then
+    v_headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'x-silo-trigger-secret', coalesce(
+        (select decrypted_secret from vault.decrypted_secrets where name = 'sample_notify_trigger_secret' limit 1), ''));
+  end if;
+
+  if tg_op = 'INSERT'
+     and (new.assigned_to is not null or new.request_source is not null)
+     and (new.size_requests is null or btrim(new.size_requests) = '') then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object(
+        'type', case when coalesce(new.sample_status,'') in ('received','pps_received','full_run_received')
+                     then 'SAMPLE_RECEIVED' else 'SAMPLE_REQUESTED' end,
+        'record', row_to_json(new),
+        'event_id', gen_random_uuid()
+      ),
+      headers := v_headers
+    );
+  end if;
+
+  if new.request_source = 'catalog_photo_request'
+     and new.size_requests is not null and btrim(new.size_requests) <> ''
+     and (tg_op = 'INSERT' or old.size_requests is distinct from new.size_requests) then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/sample-notify',
+      body := jsonb_build_object('type', 'SAMPLE_SIZE_REQUEST', 'record', row_to_json(new), 'event_id', gen_random_uuid()),
+      headers := v_headers
+    );
+  end if;
+
+  return new;
+end;
+$function$;
+
+do $$
+begin
+  if to_regprocedure('public.attach_stamp_company_entity_id_triggers()') is not null then
+    perform public.attach_stamp_company_entity_id_triggers();
   end if;
 end $$;
