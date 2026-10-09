@@ -283,8 +283,10 @@ await test('deploy workflow: the public webhook stays public on EVERY path, "all
   writeFileSync(join(bin, 'supabase'), `#!/bin/sh\necho "$*" >> "${log}"\n`, { mode: 0o755 });
   const run = (fn) => {
     writeFileSync(log, '');
-    const body = script.replaceAll('${{ inputs.function_name }}', fn).replaceAll('${{ inputs.project_ref }}', 'ref');
-    execFileSync('bash', ['-c', body], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, SUPABASE_ACCESS_TOKEN: 't' } });
+    // The job passes the dispatch inputs as FN / PROJECT_REF env (never
+    // ${{ }} inside run:), so they are supplied the same way here.
+    assert.doesNotMatch(script, /\$\{\{\s*inputs\./, 'inputs must reach the Deploy script through env, not ${{ }}');
+    execFileSync('bash', ['-c', script], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, SUPABASE_ACCESS_TOKEN: 't', FN: fn, PROJECT_REF: 'ref' } });
     return readFileSync(log, 'utf8').trim().split('\n');
   };
   try {

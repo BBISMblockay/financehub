@@ -4,6 +4,12 @@
 !.claude/skills/
 data/legacy-payment-requests*.csv
 data/legacy-payment-requests*.tsv
+# Import files carry vendor bank details and the repo root is served by GitHub
+# Pages: only the README is tracked here (security audit 2026-10-08).
+data/imports/*
+!data/imports/README.md
+.env
+.env.*
 node_modules/
 package-lock.json
 !/package-lock.json

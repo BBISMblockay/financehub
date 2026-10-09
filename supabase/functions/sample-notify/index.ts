@@ -29,6 +29,17 @@
 // or the lookup/open/post fails, same optional-secret posture as
 // RESEND_API_KEY / SLACK_SAMPLES_WEBHOOK_URL.
 //
+// Trust (security audit 2026-10-08): verify_jwt is off, so ANYONE can POST
+// here. The body is therefore only a pointer: the sample is re-read by id with
+// the service role and every field the message uses comes from that row, never
+// from the request. An unsigned call (the trigger) can only re-announce a real
+// sample to the people the row already names. A signed-in caller ("Notify now"
+// on v2/products.html) must be able to read the sample under RLS, and may pick
+// the assignee from the drawer's unsaved dropdown -- but only an active member
+// of the sample's company. The #samples Slack webhook is Baseballism's own
+// channel, so only Baseballism samples are posted there, and Slack mrkdwn in
+// sample text is escaped so a title cannot ping @channel or plant a link.
+//
 // Every attempt is also logged to sample_notification_log (20260818150000)
 // — this trigger's net.http_post is fire-and-forget from Postgres, so
 // without a row somewhere the browser has no way to know whether anyone
@@ -38,6 +49,13 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
+// SLACK_SAMPLES_WEBHOOK_URL posts into Baseballism's own Slack. Another
+// tenant's sample titles and factories must never land there.
+const SLACK_CHANNEL_COMPANY_ID = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SAMPLE_COLUMNS =
+  'id, company_entity_id, product_title, sample_ref, factory_name, size_requests, sample_status, request_source, created_by, assigned_to';
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
 const SLACK_WEBHOOK = Deno.env.get('SLACK_SAMPLES_WEBHOOK_URL') || '';
 const SLACK_BOT_TOKEN = Deno.env.get('SLACK_BOT_TOKEN') || '';
@@ -251,18 +269,69 @@ function esc(s: string | null | undefined): string {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m] as string));
 }
 
+// Slack mrkdwn control characters. Without this a sample title of
+// `<!channel>` pings the whole channel and `<https://x|text>` plants a link.
+function slackEsc(s: string | null | undefined): string {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// The signed-in user behind the Authorization header, or null for an unsigned
+// call (the DB trigger sends none; the anon key is not a user).
+async function callerJwt(req: Request): Promise<string | null> {
+  const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  if (!jwt || jwt === ANON_KEY) return null;
+  const { data, error } = await db.auth.getUser(jwt);
+  return error || !data?.user ? null : jwt;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   try {
     const body = await req.json().catch(() => null);
     const type = body?.type as EventType | undefined;
-    const record = body?.record as SampleRecord | undefined;
+    const claimed = body?.record as Partial<SampleRecord> | undefined;
 
     if (!type || !KNOWN_TYPES.includes(type)) {
       return new Response(JSON.stringify({ error: `type must be one of ${KNOWN_TYPES.join(', ')}` }), { status: 400, headers: CORS });
     }
-    if (!record?.id || !record?.company_entity_id) {
+    if (!claimed?.id || !claimed?.company_entity_id || !UUID_RE.test(String(claimed.id))) {
       return new Response(JSON.stringify({ error: 'record with id and company_entity_id is required' }), { status: 400, headers: CORS });
+    }
+
+    // A signed-in caller must be able to see the sample under RLS (its own
+    // active company). An unsigned caller is the trigger; it gets no say in
+    // anything but which real sample to announce.
+    const jwt = await callerJwt(req);
+    if (jwt) {
+      const caller = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: `Bearer ${jwt}` } } });
+      const { data: visible } = await caller.from('product_samples').select('id').eq('id', claimed.id).maybeSingle();
+      if (!visible) {
+        return new Response(JSON.stringify({ error: 'Sample not found' }), { status: 404, headers: CORS });
+      }
+    }
+
+    // Everything below reads THIS row, never the request body.
+    const { data: row, error: rowErr } = await db
+      .from('product_samples')
+      .select(SAMPLE_COLUMNS)
+      .eq('id', claimed.id)
+      .maybeSingle();
+    if (rowErr || !row || row.company_entity_id !== claimed.company_entity_id) {
+      return new Response(JSON.stringify({ error: 'Sample not found' }), { status: 404, headers: CORS });
+    }
+    const record = row as SampleRecord;
+
+    // "Notify now" sends the drawer's CURRENT assignee, which may not be saved
+    // yet. Honour it for a signed-in caller only, and only for an active member
+    // of the sample's company -- otherwise the stored assignee stands.
+    if (jwt && claimed.assigned_to && claimed.assigned_to !== record.assigned_to && UUID_RE.test(String(claimed.assigned_to))) {
+      const { data: member } = await db
+        .from('entity_memberships')
+        .select('user_id')
+        .eq('entity_id', record.company_entity_id)
+        .eq('user_id', claimed.assigned_to)
+        .maybeSingle();
+      if (member) record.assigned_to = claimed.assigned_to;
     }
 
     let toEmails: string[] = [];
@@ -359,7 +428,7 @@ Deno.serve(async (req: Request) => {
           link,
           imageUrl: photoUrl,
         });
-        slackText = `:camera: *${who} requested a photo sample* — ${title}${ref}\n${link}`;
+        slackText = `:camera: *${slackEsc(who)} requested a photo sample* — ${slackEsc(title)}${slackEsc(ref)}\n${link}`;
       } else {
         subject = `Sample requested: ${title}`;
         html = emailHtml({
@@ -368,7 +437,7 @@ Deno.serve(async (req: Request) => {
           link,
           imageUrl: photoUrl,
         });
-        slackText = `:memo: *Sample requested* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
+        slackText = `:memo: *Sample requested* — ${slackEsc(title)}${slackEsc(ref)}${record.factory_name ? ` from ${slackEsc(record.factory_name)}` : ''}\n${link}`;
       }
     } else if (type === 'SAMPLE_RECEIVED') {
       // PPS (pre-production sample) and the full production run are two
@@ -396,7 +465,7 @@ Deno.serve(async (req: Request) => {
           link,
           imageUrl: photoUrl,
         });
-        slackText = `:camera: *${who} logged a photo sample as received* (bulk/on-hand pull) — ${title}${ref}\n${link}`;
+        slackText = `:camera: *${slackEsc(who)} logged a photo sample as received* (bulk/on-hand pull) — ${slackEsc(title)}${slackEsc(ref)}\n${link}`;
       } else {
         subject = `${stageLabel}: ${title}`;
         html = emailHtml({
@@ -405,7 +474,7 @@ Deno.serve(async (req: Request) => {
           link,
           imageUrl: photoUrl,
         });
-        slackText = `:package: *${stageLabel}* — ${title}${ref}${record.factory_name ? ` from ${record.factory_name}` : ''}\n${link}`;
+        slackText = `:package: *${stageLabel}* — ${slackEsc(title)}${slackEsc(ref)}${record.factory_name ? ` from ${slackEsc(record.factory_name)}` : ''}\n${link}`;
       }
     } else if (type === 'SAMPLE_WAREHOUSE_READY') {
       subject = `Sample ready: ${title}`;
@@ -415,7 +484,7 @@ Deno.serve(async (req: Request) => {
         link,
         imageUrl: photoUrl,
       });
-      slackText = `:white_check_mark: *Sample ready for pickup* — ${title}${ref}\n${link}`;
+      slackText = `:white_check_mark: *Sample ready for pickup* — ${slackEsc(title)}${slackEsc(ref)}\n${link}`;
     } else if (type === 'SAMPLE_ASSIGNED') {
       const who = assignerName || 'Someone';
       subject = `Sample assigned to you: ${title}`;
@@ -425,7 +494,7 @@ Deno.serve(async (req: Request) => {
         link,
         imageUrl: photoUrl,
       });
-      slackText = `:inbox_tray: *${who} assigned a sample to a teammate* — ${title}${ref}\n${link}`;
+      slackText = `:inbox_tray: *${slackEsc(who)} assigned a sample to a teammate* — ${slackEsc(title)}${slackEsc(ref)}\n${link}`;
     } else if (record.request_source === 'catalog_photo_request') {
       // Distinct phrasing per Chris: this is a pull from existing bulk/
       // on-hand stock for a photo shoot, not a pre-production sample
@@ -439,7 +508,7 @@ Deno.serve(async (req: Request) => {
         link,
         imageUrl: photoUrl,
       });
-      slackText = `:camera: *${who} requested photo samples from bulk/on-hand inventory* — ${title}${ref}: *${record.size_requests}*\n${link}`;
+      slackText = `:camera: *${slackEsc(who)} requested photo samples from bulk/on-hand inventory* — ${slackEsc(title)}${slackEsc(ref)}: *${slackEsc(record.size_requests)}*\n${link}`;
     } else {
       subject = `Sizes requested: ${title}`;
       html = emailHtml({
@@ -448,7 +517,7 @@ Deno.serve(async (req: Request) => {
         link,
         imageUrl: photoUrl,
       });
-      slackText = `:straight_ruler: *Sizes requested* — ${title}${ref}: *${record.size_requests}*\n${link}`;
+      slackText = `:straight_ruler: *Sizes requested* — ${slackEsc(title)}${slackEsc(ref)}: *${slackEsc(record.size_requests)}*\n${link}`;
     }
 
     // Slack blocks (not just plain text) so the photo actually renders
@@ -473,6 +542,8 @@ Deno.serve(async (req: Request) => {
       sendEmail(sender, toEmails, subject, html),
       type === 'SAMPLE_ASSIGNED'
         ? Promise.resolve<SendResult>({ sent: false, reason: 'assignment kept private — DM/email only' })
+        : record.company_entity_id !== SLACK_CHANNEL_COMPANY_ID
+        ? Promise.resolve<SendResult>({ sent: false, reason: 'no #samples channel for this company' })
         : sendSlack(slackText, slackBlocks),
       sendSlackDM(assigneeEmail, slackText, slackBlocks),
     ]);
@@ -500,6 +571,10 @@ Deno.serve(async (req: Request) => {
       console.error('[sample-notify] log insert error', logErr);
     }
 
+    // Delivery detail is for the signed-in "Notify now" caller. An unsigned
+    // caller (the trigger, which ignores the body) learns nothing about who is
+    // in a company or on Slack.
+    if (!jwt) return new Response(JSON.stringify({ ok: true }), { headers: CORS });
     return new Response(JSON.stringify({
       ok: true,
       email_sent: emailResult.sent,

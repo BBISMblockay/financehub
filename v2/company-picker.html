@@ -137,6 +137,12 @@
       function safeNext() {
         const raw = new URLSearchParams(window.location.search).get('next') || '';
         if (!raw.startsWith('/') || raw.startsWith('//')) return null;
+        // Browsers read "\" as "/" and drop tabs and newlines, so "/\evil.com"
+        // and "/<tab>/evil.com" both leave the site (security audit 2026-10-08).
+        if (/[\\\u0000-\u001F\u007F]/.test(raw)) return null;
+        try {
+          if (new URL(raw, 'https://silo.invalid').host !== 'silo.invalid') return null;
+        } catch (_) { return null; }
         if (raw.startsWith('/pages/login') || raw.startsWith('/v2/company-picker')) return null;
         return raw;
       }

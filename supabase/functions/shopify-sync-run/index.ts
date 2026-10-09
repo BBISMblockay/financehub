@@ -12,7 +12,7 @@ import {
   serializeSkuMetaCache,
 } from './lib/shopify-sync-core.mjs';
 import { connectionReadyForSync } from './lib/shopify-scopes.mjs';
-import { ensureShopifyAccessToken } from './lib/shopify-auth-lib.mjs';
+import { ensureShopifyAccessToken, mayConnect } from './lib/shopify-auth-lib.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,35 +41,55 @@ function json(data: unknown, status = 200) {
   });
 }
 
+// Admin of the connection's OWN company, judged the way every other connect
+// path judges it (mayConnect: active account, membership owner_admin/admin
+// there, legacy global role only without a membership). The global
+// profiles.role alone is not enough: it admits a plain member of this company
+// who is an admin elsewhere, and a deactivated admin whose JWT still
+// refreshes -- and start_history_backfill PURGES the store's sales history.
+async function assertCompanyAdmin(
+  userClient: SupabaseClient,
+  admin: SupabaseClient,
+  userId: string,
+  connectionId: string,
+) {
+  // The caller's read proves the connection is in their active company.
+  const { data: visible, error: visErr } = await userClient
+    .from('shopify_connections')
+    .select('id, company_entity_id')
+    .eq('id', connectionId)
+    .single();
+  if (visErr || !visible) throw new Error('Connection not found');
+  const { data: profile, error: profileError } = await admin
+    .from('profiles')
+    .select('role, active_company_id, is_active')
+    .eq('id', userId)
+    .maybeSingle();
+  const { data: membership, error: membershipError } = await admin
+    .from('entity_memberships')
+    .select('role')
+    .eq('entity_id', visible.company_entity_id)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (!mayConnect({ profile, profileError, membership, membershipError, companyId: visible.company_entity_id })) {
+    throw new Error('Admin access required');
+  }
+  return visible.id as string;
+}
+
 async function assertAdminWithConnection(
   userClient: SupabaseClient,
   admin: SupabaseClient,
   userId: string,
   connectionId: string,
 ) {
-  const { data: profile } = await userClient
-    .from('profiles')
-    .select('role')
-    .eq('id', userId)
-    .single();
-
-  if (!profile || !['owner', 'admin'].includes(String(profile.role))) {
-    throw new Error('Admin access required');
-  }
-
-  // The caller's read proves the connection is in their company; the full
-  // row (access_token is not a column members may select) comes from the
-  // service role, by that same id.
-  const { data: visible, error: visErr } = await userClient
-    .from('shopify_connections')
-    .select('id')
-    .eq('id', connectionId)
-    .single();
-  if (visErr || !visible) throw new Error('Connection not found');
+  // The full row (access_token is not a column members may select) comes
+  // from the service role, by the id the caller's own read returned.
+  const visibleId = await assertCompanyAdmin(userClient, admin, userId, connectionId);
   const { data: conn, error } = await admin
     .from('shopify_connections')
     .select('*')
-    .eq('id', visible.id)
+    .eq('id', visibleId)
     .single();
 
   if (error || !conn) throw new Error('Connection not found');
@@ -87,29 +107,13 @@ async function assertAdminConnection(
   userId: string,
   connectionId: string,
 ) {
-  const { data: profile } = await userClient
-    .from('profiles')
-    .select('role')
-    .eq('id', userId)
-    .single();
-
-  if (!profile || !['owner', 'admin'].includes(String(profile.role))) {
-    throw new Error('Admin access required');
-  }
-
-  // The caller's read proves the connection is in their company; the full
-  // row (access_token is not a column members may select) comes from the
-  // service role, by that same id.
-  const { data: visible, error: visErr } = await userClient
-    .from('shopify_connections')
-    .select('id')
-    .eq('id', connectionId)
-    .single();
-  if (visErr || !visible) throw new Error('Connection not found');
+  // The full row (access_token is not a column members may select) comes
+  // from the service role, by the id the caller's own read returned.
+  const visibleId = await assertCompanyAdmin(userClient, admin, userId, connectionId);
   const { data: conn, error } = await admin
     .from('shopify_connections')
     .select('*')
-    .eq('id', visible.id)
+    .eq('id', visibleId)
     .single();
 
   if (error || !conn) throw new Error('Connection not found');
@@ -157,12 +161,19 @@ async function createJob(
   return data.id as string;
 }
 
+// Scoped to the connection being worked: the job id can arrive from the
+// request body, and an unscoped service-role update would let it name another
+// company's job.
 async function updateJob(
   admin: SupabaseClient,
+  connection: Record<string, unknown>,
   jobId: string,
   update: Record<string, unknown>,
 ) {
-  const { error } = await admin.from('sync_jobs').update(update).eq('id', jobId);
+  const { error } = await admin.from('sync_jobs').update(update)
+    .eq('id', jobId)
+    .eq('connection_id', connection.id)
+    .eq('company_entity_id', connection.company_entity_id);
   if (error) throw new Error(`sync_jobs update failed: ${error.message}`);
 }
 
@@ -258,7 +269,7 @@ async function handleStartHistoryBackfill(
   const progress = buildProgress(nextState);
 
   if (chunkResult.done) {
-    await updateJob(admin, jobId, {
+    await updateJob(admin, connection, jobId, {
       status: 'success',
       finished_at: new Date().toISOString(),
       result: { ...progress, chunks: [chunkResult.chunk], completed: true },
@@ -268,7 +279,7 @@ async function handleStartHistoryBackfill(
     });
     await admin.rpc('refresh_sales_verification_store_comp_summary');
   } else {
-    await updateJob(admin, jobId, {
+    await updateJob(admin, connection, jobId, {
       result: { ...progress, last_chunk: chunkResult.chunk },
     });
   }
@@ -311,7 +322,7 @@ async function handleHistoryChunk(
 
   if (activeJobId) {
     if (chunkResult.done) {
-      await updateJob(admin, activeJobId, {
+      await updateJob(admin, connection, activeJobId, {
         status: 'success',
         finished_at: new Date().toISOString(),
         result: { ...progress, last_chunk: chunkResult.chunk, completed: true },
@@ -321,7 +332,7 @@ async function handleHistoryChunk(
       });
       await admin.rpc('refresh_sales_verification_store_comp_summary');
     } else {
-      await updateJob(admin, activeJobId, {
+      await updateJob(admin, connection, activeJobId, {
         result: { ...progress, last_chunk: chunkResult.chunk },
       });
     }
@@ -356,7 +367,7 @@ async function handleCancelHistoryBackfill(
 
   const jobId = state.job_id as string | undefined;
   if (jobId) {
-    await updateJob(admin, jobId, {
+    await updateJob(admin, connection, jobId, {
       status: 'error',
       finished_at: new Date().toISOString(),
       error: 'Cancelled by user',
@@ -376,7 +387,7 @@ async function handleInventorySnapshot(
 
   try {
     const result = await runInventorySnapshot(admin, connection, { batchId });
-    await updateJob(admin, jobId, {
+    await updateJob(admin, connection, jobId, {
       status: 'success',
       finished_at: new Date().toISOString(),
       result,
@@ -384,7 +395,7 @@ async function handleInventorySnapshot(
     await admin.rpc('refresh_inventory_current_mv');
     return { ok: true, job_id: jobId, result };
   } catch (err) {
-    await updateJob(admin, jobId, {
+    await updateJob(admin, connection, jobId, {
       status: 'error',
       finished_at: new Date().toISOString(),
       error: String(err).slice(0, 2000),

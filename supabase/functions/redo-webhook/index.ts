@@ -51,6 +51,19 @@ function personName(name: { given?: string; surname?: string } | undefined): str
   return full || null;
 }
 
+async function secretsMatch(given: string, expected: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(given)),
+    crypto.subtle.digest('SHA-256', enc.encode(expected)),
+  ]);
+  const x = new Uint8Array(a);
+  const y = new Uint8Array(b);
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return reply({ error: 'POST only' }, 405);
@@ -66,12 +79,12 @@ Deno.serve(async (req: Request) => {
       .eq('company_entity_id', companyEntityId)
       .single();
 
-    if (!connection || !connection.is_active) {
-      return reply({ error: 'No active Redo connection for this company' }, 404);
-    }
-
+    // One answer for "no such company", "not active" and "wrong secret", and a
+    // constant-time compare: neither the status code nor the timing tells a
+    // caller which company ids use Redo or how much of a secret matched.
     const authHeader = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-    if (!connection.webhook_secret || authHeader !== connection.webhook_secret) {
+    if (!connection || !connection.is_active || !connection.webhook_secret
+        || !(await secretsMatch(authHeader, connection.webhook_secret))) {
       return reply({ error: 'Not authenticated' }, 401);
     }
 

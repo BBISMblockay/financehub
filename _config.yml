@@ -1,0 +1,33 @@
+# GitHub Pages (Jekyll) build settings for silo-baseballism.com.
+#
+# Pages serves this branch's root, so without this file EVERYTHING tracked was
+# public: import data, server and sync code, migrations, runbooks and the open
+# bug list (security audit 2026-10-08 found a vendor's bank details downloadable
+# at /data/…). Only the app itself is published: index.html and the other root
+# pages, v2/, v3/, pages/, assets/, legal/, oauth/, legacy/ (still-linked iframe
+# targets), CNAME.
+#
+# Setting `exclude` replaces Jekyll's default list, so its defaults are restated
+# at the end. A new top-level folder is PUBLIC unless it is added here.
+exclude:
+  - data
+  - server
+  - scripts
+  - supabase
+  - docs
+  - tests
+  - testing
+  - config
+  - config.json
+  - package.json
+  - package-lock.json
+  - deno.lock
+  - CLAUDE.md
+  # Jekyll's own defaults
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor/bundle/
+  - vendor/cache/
+  - vendor/gems/
+  - vendor/ruby/

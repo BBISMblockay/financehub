@@ -487,8 +487,10 @@
       return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Lib.num(n));
     }
 
+    // Quote-safe: esc() output is used inside title="…" attributes, where an
+    // unescaped " broke out of the attribute (security audit 2026-10-08).
     function esc(s) {
-      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
     }
 
     function headerInputs() {

@@ -12,6 +12,36 @@ See below.
 
 ---
 
+## Security audit 2026-10-08: items not fixed in the fix PR (P2)
+
+Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
+
+- **Published Google Sheets with customer and AR data.** `server/ar-sync.mjs`, `pages/wholesale.html`
+  (in the browser) and `config/silo-sources.mjs` read "publish to web" / "anyone with the link" CSV
+  URLs. Anyone with a URL reads the data. Fix needs the sheets unpublished and a service-account read;
+  `pages/wholesale.html` must move to Supabase first or it breaks.
+- **CI secrets have no environment protection.** `SUPABASE_ACCESS_TOKEN` (full DB control) and the
+  service-role key are repo-level secrets any branch's workflow can read. Create a `production`
+  environment (branches: `main`, reviewer: Blake), move both secrets into it, add
+  `environment: production` to the jobs that use them. Repo settings, not code.
+- **`ar_sync_status_v`** is definer, unfiltered and readable by anon (documented in
+  `supabase/CLAUDE.md`). Needs a company filter that keeps the wholesale freshness banner working.
+- **`quickbooks-oauth-start` / `quickbooks-accounts-sync` skip `is_active`.** A deactivated admin can
+  connect a QuickBooks company. Use `mayConnect`.
+- **`plaid-finance/handler.ts:44`** compares the service-role key with `===` (timing).
+- **Notification emails still interpolating raw fields:** `review-portal`, `review-finish`,
+  `mail-item-notify`, `org-invite-send`. Low (email clients do not run script), but phishing-shaped
+  HTML is possible.
+- **`customer-onboarding` open form** has no per-company rate limit and returns raw DB / Stripe errors
+  to anonymous callers.
+- **No CSP on any page; CDN scripts are unpinned** (`@supabase/supabase-js@2`, `marked@12`,
+  `dompurify@3`) with no SRI. Any XSS is account takeover while the session sits in `localStorage`.
+- **`chat_run_readonly_query`** was not reviewed for read-only bypasses in this audit.
+- **`sample-notify` unsigned path** can still re-announce a REAL sample (UUID needed) to the people its
+  row names. Closing it needs a trigger secret (migration + vault secret).
+
+---
+
 ## Integrations' ad-account picker lists only the first 50 Meta ad accounts / Pages (P3)
 
 Found 2026-10-08 (PR #933 review, cycle 1). `test-ad-platform-connection`

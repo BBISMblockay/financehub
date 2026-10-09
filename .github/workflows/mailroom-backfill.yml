@@ -66,5 +66,5 @@ jobs:
           MAILROOM_COMPANY_ENTITY_ID: ${{ inputs.company_entity_id }}
           MAILROOM_BACKFILL_DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          echo "dry_run=${{ inputs.dry_run }} sheet_id=${{ inputs.sheet_id }} gid=${{ inputs.gid }}"
+          echo "dry_run=$MAILROOM_BACKFILL_DRY_RUN sheet_id=$MAILROOM_SHEET_ID gid=$MAILROOM_GID"
           node scripts/backfill-mailroom-from-sheet.mjs

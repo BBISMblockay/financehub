@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { mayConnect } from './google-oauth-lib.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -37,6 +38,28 @@ Deno.serve(async (req) => {
   if (!company_entity_id) {
     return new Response(JSON.stringify({ error: 'company_entity_id required' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Verify the caller administers the company they named rather than trusting
+  // the id the browser sent: this function runs with the service-role key, so
+  // RLS is not doing it. Same rule as the Google, Meta, Shopify and QuickBooks
+  // start functions (mayConnect: active account, admin of THAT company). The
+  // callback trusts the state's company, so this is the only gate.
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('role, active_company_id, is_active')
+    .eq('id', user.id)
+    .maybeSingle();
+  const { data: membership, error: membershipError } = await supabase
+    .from('entity_memberships')
+    .select('role')
+    .eq('entity_id', company_entity_id)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (!mayConnect({ profile, profileError, membership, membershipError, companyId: company_entity_id })) {
+    return new Response(JSON.stringify({ error: 'Admin access required for this company' }), {
+      status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 

@@ -1317,6 +1317,9 @@ let launchFormExisting = null;   // the stored row the launch form is editing, o
 
 const $ = id => document.getElementById(id);
 const esc = v => String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+// Only http(s) links are rendered as links: a stored URL is free text, and a
+// javascript: URL in an href runs on click (security audit 2026-10-08).
+const safeUrl = v => { try { const p = new URL(String(v ?? ''), location.href).protocol; return (p === 'http:' || p === 'https:') ? String(v) : '#'; } catch { return '#'; } };
 const money = v => Number(v||0).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
 const iso = d => { d=startOfDay(new Date(d)); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const fmt = d => d ? new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
@@ -1875,7 +1878,7 @@ function renderOverview(prods,chans,tsks){
         <span class="bcn-pill">${chans.length} initiatives</span>
         <span class="bcn-pill">${tsks.filter(t=>!['done','complete'].includes(t.status)).length} open tasks</span>
       </div>
-      ${x.designer||x.marketing_channel?`<div class="dp-item-meta" style="margin-top:8px;">${[x.designer?`Designer: ${x.designer}`:null,x.marketing_channel?`Channel: ${x.marketing_channel}`:null].filter(Boolean).join(' · ')}</div>`:''}
+      ${x.designer||x.marketing_channel?`<div class="dp-item-meta" style="margin-top:8px;">${[x.designer?`Designer: ${esc(x.designer)}`:null,x.marketing_channel?`Channel: ${esc(x.marketing_channel)}`:null].filter(Boolean).join(' · ')}</div>`:''}
       ${x.details||x.notes?`<div style="margin-top:8px;font-size:13px;white-space:pre-wrap;">${esc(x.details||x.notes)}</div>`:''}
     </div>`;
   const oeBtn=document.getElementById('overviewEditBtn');
@@ -1947,7 +1950,7 @@ function renderChannels(rows){
       ? `<span class="bcn-pill" style="font-size:9px;margin-left:6px;" title="Tasks on this initiative">`
         + `${openN} open${mine.length>openN?` · ${mine.length-openN} done`:''}</span>`
       : '';
-    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(x.item_title)}${taskTag}</div><div class="dp-item-meta">${esc([when,x.owner].filter(Boolean).join(' · '))}</div>${x.notes?`<div class="dp-item-meta">${esc(x.notes)}</div>`:''}${x.link_url?`<div style="margin-top:3px;"><a href="${esc(x.link_url)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--bcn-accent)">${esc(x.link_url.length>60?x.link_url.slice(0,57)+'…':x.link_url)}</a></div>`:''}</div><div class="dp-row-actions"><span class="bcn-pill pill-ch ${chClass(x.channel)}">${esc(x.channel||'other')}</span><span class="bcn-pill">${esc(x.status||'planned')}</span><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-ch="${x.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-ch="${x.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(x.item_title)}${taskTag}</div><div class="dp-item-meta">${esc([when,x.owner].filter(Boolean).join(' · '))}</div>${x.notes?`<div class="dp-item-meta">${esc(x.notes)}</div>`:''}${x.link_url?`<div style="margin-top:3px;"><a href="${esc(safeUrl(x.link_url))}" target="_blank" rel="noopener" style="font-size:11px;color:var(--bcn-accent)">${esc(x.link_url.length>60?x.link_url.slice(0,57)+'…':x.link_url)}</a></div>`:''}</div><div class="dp-row-actions"><span class="bcn-pill pill-ch ${chClass(x.channel)}">${esc(x.channel||'other')}</span><span class="bcn-pill">${esc(x.status||'planned')}</span><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-ch="${x.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-ch="${x.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
     list.appendChild(div);
   });
   list.querySelectorAll('[data-edit-ch]').forEach(btn=>{ const row=rows.find(r=>String(r.id)===String(btn.dataset.editCh)); if(row) btn.onclick=()=>openChannelForm(row); });
@@ -1982,7 +1985,7 @@ function renderAssets(rows){
   list.innerHTML='';
   rows.forEach(a=>{
     const div=document.createElement('div'); div.className='dp-item';
-    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(a.asset_name||a.asset_type||'Asset')}</div>${a.asset_type?`<div class="dp-item-meta">${esc(a.asset_type)}</div>`:''}${a.asset_url?`<div style="margin-top:3px;"><a href="${esc(a.asset_url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--bcn-accent)">${esc(a.asset_url.length>60?a.asset_url.slice(0,57)+'…':a.asset_url)}</a></div>`:''}${a.notes?`<div class="dp-item-meta">${esc(a.notes)}</div>`:''}</div><div class="dp-row-actions"><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-asset="${a.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-asset="${a.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(a.asset_name||a.asset_type||'Asset')}</div>${a.asset_type?`<div class="dp-item-meta">${esc(a.asset_type)}</div>`:''}${a.asset_url?`<div style="margin-top:3px;"><a href="${esc(safeUrl(a.asset_url))}" target="_blank" rel="noopener" style="font-size:12px;color:var(--bcn-accent)">${esc(a.asset_url.length>60?a.asset_url.slice(0,57)+'…':a.asset_url)}</a></div>`:''}${a.notes?`<div class="dp-item-meta">${esc(a.notes)}</div>`:''}</div><div class="dp-row-actions"><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-asset="${a.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-asset="${a.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
     list.appendChild(div);
   });
   list.querySelectorAll('[data-edit-asset]').forEach(btn=>{ const row=rows.find(r=>String(r.id)===String(btn.dataset.editAsset)); if(row) btn.onclick=()=>openAssetForm(row); });
@@ -1994,7 +1997,7 @@ function renderSystemLinks(rows){
   list.innerHTML='';
   rows.forEach(l=>{
     const div=document.createElement('div'); div.className='dp-item';
-    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(l.ref_label||l.link_type||'Link')}</div><div class="dp-item-meta">${esc([l.link_type,l.ref_table,l.ref_id].filter(Boolean).join(' · '))}</div>${l.ref_url?`<div style="margin-top:3px;"><a href="${esc(l.ref_url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--bcn-accent)">${esc(l.ref_url.length>60?l.ref_url.slice(0,57)+'…':l.ref_url)}</a></div>`:''}${l.notes?`<div class="dp-item-meta">${esc(l.notes)}</div>`:''}</div><div class="dp-row-actions"><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-link="${l.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-link="${l.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(l.ref_label||l.link_type||'Link')}</div><div class="dp-item-meta">${esc([l.link_type,l.ref_table,l.ref_id].filter(Boolean).join(' · '))}</div>${l.ref_url?`<div style="margin-top:3px;"><a href="${esc(safeUrl(l.ref_url))}" target="_blank" rel="noopener" style="font-size:12px;color:var(--bcn-accent)">${esc(l.ref_url.length>60?l.ref_url.slice(0,57)+'…':l.ref_url)}</a></div>`:''}${l.notes?`<div class="dp-item-meta">${esc(l.notes)}</div>`:''}</div><div class="dp-row-actions"><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-link="${l.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-link="${l.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
     list.appendChild(div);
   });
   list.querySelectorAll('[data-edit-link]').forEach(btn=>{ const row=rows.find(r=>String(r.id)===String(btn.dataset.editLink)); if(row) btn.onclick=()=>openLinkForm(row); });
@@ -2168,7 +2171,7 @@ function renderReleaseDocument(x, prods, chans, assetRows, linkRows){
   // are noise on paper — a printed brief was ~15 lines of "—". Tagging them
   // here lets the print stylesheet drop them without changing the screen view.
   const row=(k,v)=>`<div class="reldoc-row${v?'':' reldoc-row--empty'}"><span class="reldoc-k">${esc(k)}</span><span class="reldoc-v">${v?v:'<span class="reldoc-empty">—</span>'}</span></div>`;
-  const linkRow=(label,url)=> url ? `<div class="reldoc-row"><span class="reldoc-k">${esc(label)}</span><span class="reldoc-v"><a href="${esc(url)}" target="_blank" rel="noopener">${esc(url.length>50?url.slice(0,47)+'…':url)}</a></span></div>` : '';
+  const linkRow=(label,url)=> url ? `<div class="reldoc-row"><span class="reldoc-k">${esc(label)}</span><span class="reldoc-v"><a href="${esc(safeUrl(url))}" target="_blank" rel="noopener">${esc(url.length>50?url.slice(0,47)+'…':url)}</a></span></div>` : '';
   const block=(label,text)=> text ? `<div class="reldoc-block"><div class="reldoc-block-label">${esc(label)}</div>${esc(text)}</div>` : '';
 
   const invWorth=(prods||[]).reduce((s,p)=>s+Number(p.expected_retail_value||0),0)+Number(x.expected_retail_value||0);

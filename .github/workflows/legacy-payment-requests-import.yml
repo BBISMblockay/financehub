@@ -9,9 +9,8 @@ on:
         default: true
         type: boolean
       file_path:
-        description: "Path to import file in this repo (raw sheet format or AP Workbench Export CSV — auto-detected)"
+        description: "Path under data/imports/ on the selected branch (raw sheet format or AP Workbench Export CSV — auto-detected). Never commit an import file to main; see data/imports/README.md"
         required: true
-        default: "data/legacy-payment-requests-pilot.csv"
         type: string
       unpaid_only:
         description: "Only import unpaid rows (New + Hold queues)"
@@ -47,10 +46,17 @@ jobs:
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY repo secret" && exit 1)
           echo "Supabase env vars present"
 
-      - name: Verify import file exists
+      # Inputs reach the shell through env, never ${{ }} inside run:, and are
+      # validated: a dispatcher-typed value must not become shell syntax in a
+      # step that holds the service-role key (security audit 2026-10-08).
+      - name: Verify import file and inputs
+        env:
+          FILE: ${{ inputs.file_path }}
+          COMPANY: ${{ inputs.company_entity_id }}
         run: |
-          FILE="${{ inputs.file_path }}"
-          test -f "$FILE" || (echo "File not found in repo: $FILE" && exit 1)
+          [[ "$FILE" =~ ^data/imports/[A-Za-z0-9._-]+\.(csv|tsv)$ ]] || { echo "::error::file_path must be data/imports/<name>.csv or .tsv"; exit 1; }
+          [[ -z "$COMPANY" || "$COMPANY" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || { echo "::error::company_entity_id must be a UUID"; exit 1; }
+          test -f "$FILE" || { echo "File not found on this branch: $FILE"; exit 1; }
           echo "Import file: $FILE"
 
       - name: Install dependencies
@@ -60,16 +66,20 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FILE: ${{ inputs.file_path }}
+          COMPANY: ${{ inputs.company_entity_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          UNPAID_ONLY: ${{ inputs.unpaid_only }}
         run: |
-          echo "dry_run=${{ inputs.dry_run }} file_path=${{ inputs.file_path }} unpaid_only=${{ inputs.unpaid_only }}"
-          ARGS=(--file "${{ inputs.file_path }}")
-          if [ "${{ inputs.unpaid_only }}" = "true" ]; then
+          echo "dry_run=$DRY_RUN file_path=$FILE unpaid_only=$UNPAID_ONLY"
+          ARGS=(--file "$FILE")
+          if [ "$UNPAID_ONLY" = "true" ]; then
             ARGS+=(--unpaid-only)
           fi
-          if [ -n "${{ inputs.company_entity_id }}" ]; then
-            ARGS+=(--company "${{ inputs.company_entity_id }}")
+          if [ -n "$COMPANY" ]; then
+            ARGS+=(--company "$COMPANY")
           fi
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             ARGS+=(--dry-run)
           fi
           node scripts/import-payment-requests-legacy.mjs "${ARGS[@]}"

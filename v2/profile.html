@@ -177,8 +177,9 @@
 
     let attentionItems = [];
 
+    // Quote-safe, so it is also safe inside an attribute.
     function esc(s) {
-      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
     }
 
     function pickRole(p) {

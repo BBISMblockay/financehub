@@ -124,12 +124,19 @@ function shell(bodyHtml: string, footer: string): string {
   </div>`;
 }
 
+// Every value interpolated into the email HTML comes from a stored row a
+// person typed (employee name, notes, requester name), so it is escaped.
+function esc(s: unknown): string {
+  return String(s ?? '').replace(/[&<>"']/g, (m) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m] as string));
+}
+
 function detailRows(rows: Array<[string, string]>): string {
   return `<table style="width:100%;border-collapse:collapse;margin-top:12px">` +
     rows.map(([label, value]) => `
       <tr>
-        <td style="color:#7f8b96;font-size:12px;padding:6px 0;border-top:1px solid #2a2f36">${label}</td>
-        <td style="color:#fff;font-size:13px;padding:6px 0;border-top:1px solid #2a2f36;text-align:right">${value}</td>
+        <td style="color:#7f8b96;font-size:12px;padding:6px 0;border-top:1px solid #2a2f36">${esc(label)}</td>
+        <td style="color:#fff;font-size:13px;padding:6px 0;border-top:1px solid #2a2f36;text-align:right">${esc(value)}</td>
       </tr>`).join('') +
     `</table>`;
 }
@@ -193,8 +200,8 @@ Deno.serve(async (req: Request) => {
       const html = shell(`
         <div style="margin-top:18px;font-size:16px;font-weight:700">New compensation request to review</div>
         <p style="color:#b8c0c9;font-size:14px;line-height:1.6">
-          ${reqRow.requested_by_name || reqRow.requested_by_email || 'A manager'} submitted a ${typeLabel.toLowerCase()} request for
-          <strong style="color:#fff">${reqRow.employee_name}</strong>.
+          ${esc(reqRow.requested_by_name || reqRow.requested_by_email || 'A manager')} submitted a ${esc(typeLabel.toLowerCase())} request for
+          <strong style="color:#fff">${esc(reqRow.employee_name)}</strong>.
         </p>
         ${detailRows([
           ['Type', typeLabel],
@@ -229,6 +236,19 @@ Deno.serve(async (req: Request) => {
     if (permErr || !canManage) {
       return new Response(JSON.stringify({ error: 'Not authorized to send a decision notification' }), { status: 403, headers: CORS });
     }
+    // current_user_can_manage_comp_requests() answers for the caller's OWN
+    // active company, and reqRow was read with the service role by a caller-
+    // supplied id. Without this, a finance user of one company could send a
+    // forged decision email (with salary detail) into another. The caller's
+    // RLS read is the proof the request is theirs to decide.
+    const { data: visible } = await callerClient
+      .from('comp_adjustment_requests')
+      .select('id')
+      .eq('id', comp_adjustment_request_id)
+      .maybeSingle();
+    if (!visible) {
+      return new Response(JSON.stringify({ error: 'Request not found' }), { status: 404, headers: CORS });
+    }
     if (!reqRow.requested_by_email) {
       return new Response(JSON.stringify({ error: 'No requester email on file for this request' }), { status: 400, headers: CORS });
     }
@@ -237,12 +257,12 @@ Deno.serve(async (req: Request) => {
     const decisionColor = reqRow.status === 'approved' ? '#3ddc84' : reqRow.status === 'denied' ? '#ff6b6b' : '#f2c94c';
     const html = shell(`
       <div style="margin-top:18px;font-size:16px;font-weight:700">
-        Your comp request was <span style="color:${decisionColor}">${statusLabel.toLowerCase()}</span>
+        Your comp request was <span style="color:${decisionColor}">${esc(statusLabel.toLowerCase())}</span>
       </div>
       <p style="color:#b8c0c9;font-size:14px;line-height:1.6">
-        The ${typeLabel.toLowerCase()} request for <strong style="color:#fff">${reqRow.employee_name}</strong> is now
-        <strong style="color:#fff">${statusLabel.toLowerCase()}</strong>.
-        ${reqRow.finance_notes ? `<br/><br/>Note from finance: "${reqRow.finance_notes}"` : ''}
+        The ${esc(typeLabel.toLowerCase())} request for <strong style="color:#fff">${esc(reqRow.employee_name)}</strong> is now
+        <strong style="color:#fff">${esc(statusLabel.toLowerCase())}</strong>.
+        ${reqRow.finance_notes ? `<br/><br/>Note from finance: "${esc(reqRow.finance_notes)}"` : ''}
       </p>
       ${detailRows([
         ['Type', typeLabel],

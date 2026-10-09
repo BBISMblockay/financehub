@@ -35,6 +35,9 @@ on:
       - 'supabase/migrations/*ownership_reports.sql'
       - 'supabase/migrations/*ownership_dashboard.sql'
       - 'supabase/migrations/*record_report_catalog_cleanup.sql'
+      # Invite authority and retired open policies (org-invite-authority-database.test.mjs).
+      - 'supabase/migrations/*org_invites.sql'
+      - 'supabase/migrations/*security_audit_db_hardening.sql'
       - 'supabase/migrations/*silo_dashboards.sql'
       - 'supabase/migrations/*saved_report_archive.sql'
       - 'supabase/apply_all_post_merge.sql'
@@ -89,6 +92,8 @@ on:
       - '.github/workflows/deploy-edge-function.yml'
       - 'supabase/functions/google-oauth-start/**'
       - 'supabase/functions/google-oauth-callback/**'
+      - 'supabase/functions/tiktok-oauth-start/**'
+      - 'supabase/functions/tiktok-oauth-callback/**'
       # Meta Ads OAuth (meta-oauth.test.mjs).
       - 'scripts/lib/meta-oauth-lib.mjs'
       - 'supabase/functions/meta-oauth-start/**'
@@ -260,6 +265,7 @@ on:
       - 'supabase/functions/review-finish/**'
       - 'supabase/functions/review-portal/**'
       - 'supabase/functions/payment-request-forward-melio/**'
+      - 'supabase/functions/redo-webhook/**'
       # legacy-slack-pause.test.mjs executes this migration and reads the
       # inert endpoint; an edit to either must re-run it.
       - 'supabase/migrations/*pause_legacy_slack_notifications.sql'
@@ -613,6 +619,8 @@ jobs:
       # origin outside the allowlist is the failure that matters.
       - name: Google OAuth return address (allowlist, both functions, return page)
         run: node scripts/tests/google-oauth-redirect.test.mjs
+      - name: Security audit 2026-10-08 edge-function guards
+        run: node scripts/tests/security-audit-edge-guards.test.mjs
       # Meta Ads OAuth (Facebook Login for Business), additive. Mutations:
       # META_OAUTH_MUTATION=any-admin | no-recheck | keep-short | loose-consume
       # | review-open-start | review-open-callback | review-any-row
@@ -921,6 +929,15 @@ jobs:
           for mutation in save-readiness handoff-ready fingerprint confirmation totals guard one-size existing-po claim-mutable link-deletable lookup-links-only launch-first; do
             if MUTATE="$mutation" node scripts/tests/product-studio-ready-for-po-database.test.mjs; then
               echo "::error::$mutation did not fail the Ready for PO suite"
+              exit 1
+            fi
+          done
+      - name: Execute invite authority and retired open-policy regressions
+        run: |
+          node scripts/tests/org-invite-authority-database.test.mjs
+          for mutation in no-owner-guard no-dept-guard dept-case keep-open-policy keep-anon-po; do
+            if INVITE_MUTATION="$mutation" node scripts/tests/org-invite-authority-database.test.mjs; then
+              echo "::error::$mutation did not fail the invite authority suite"
               exit 1
             fi
           done

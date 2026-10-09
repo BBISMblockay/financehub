@@ -1,5 +1,4 @@
 import express from "express";
-import cors from "cors";
 import fetch from "node-fetch";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
@@ -25,6 +24,11 @@ const {
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
 
+  // Bearer secret every /api route requires (>= 32 chars). Unset = the sync
+  // routes answer 503: this process holds the service-role key and every
+  // store's admin token, so it never runs a sync for an anonymous caller.
+  SYNC_SHARED_SECRET = "",
+
   // Sync behavior
   SHOPIFY_PULL_MODE = "created", // created | updated
   SHOPIFY_DAYS_BACK = "2",
@@ -35,8 +39,44 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 const app = express();
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: "10mb" }));
+// No CORS: nothing in the browser calls this service (docs/agents/architecture.md),
+// and the old origin-reflecting CORS let any web page drive it.
+app.use(express.json({ limit: "64kb" }));
+
+// ── Access (security audit 2026-10-08) ──────────────────────────────────────
+// Every /api route was public, including a state-changing GET, so anyone who
+// found the URL -- or any web page a signed-in person opened -- could run a
+// service-role sync with caller-chosen windows (a partial window overwrites
+// historical sales_by_day rows) or page every order since 1970 into memory.
+const sha256 = (s) => crypto.createHash("sha256").update(String(s)).digest();
+function requireSyncSecret(req, res, next) {
+  if (!SYNC_SHARED_SECRET || SYNC_SHARED_SECRET.length < 32) {
+    return res.status(503).json({ ok: false, error: "sync disabled: SYNC_SHARED_SECRET is not configured" });
+  }
+  const given = String(req.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!crypto.timingSafeEqual(sha256(given), sha256(SYNC_SHARED_SECRET))) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+  return next();
+}
+
+// Caller-chosen windows are bounded: at most 31 days back, a known mode.
+const MAX_WINDOW_DAYS = 31;
+function boundedSyncOptions(body = {}) {
+  const mode = body.mode === "updated" ? "updated" : "created";
+  const n = Number(body.days_back);
+  const days_back = Number.isInteger(n) && n >= 1 && n <= MAX_WINDOW_DAYS ? n : Number(SHOPIFY_DAYS_BACK) || 2;
+  let since = null;
+  if (body.since) {
+    const t = Date.parse(body.since);
+    if (Number.isNaN(t) || Date.now() - t > MAX_WINDOW_DAYS * 864e5 || t > Date.now()) {
+      throw Object.assign(new Error(`since must be a date within the last ${MAX_WINDOW_DAYS} days`), { status: 400 });
+    }
+    since = new Date(t).toISOString();
+  }
+  return { mode, days_back, since };
+}
+let syncRunning = false;
 
 const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -487,44 +527,33 @@ async function runShopifySync(body = {}) {
 }
 
 app.get("/", (_req, res) => {
-  res.json({
-    ok: true,
-    service: "silo-shopify-sync",
-    routes: ["/health", "/api/sync/shopify", "/api/sync/shopify/run"],
-  });
+  res.json({ ok: true, service: "silo-shopify-sync" });
 });
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/sync/shopify", async (req, res) => {
+// POST only: the former GET /api/sync/shopify/run changed state, which any
+// <img> tag could trigger. One run at a time. Errors are logged here and
+// answered generically -- they carried Shopify and database detail.
+app.post("/api/sync/shopify", requireSyncSecret, async (req, res) => {
+  let options;
   try {
-    const result = await runShopifySync(req.body || {});
-    return res.json(result);
+    options = boundedSyncOptions(req.body || {});
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    return res.status(error.status || 400).json({ ok: false, error: error.message });
   }
-});
-
-app.get("/api/sync/shopify/run", async (req, res) => {
+  if (syncRunning) return res.status(409).json({ ok: false, error: "a sync is already running" });
+  syncRunning = true;
   try {
-    const result = await runShopifySync({
-      days_back: req.query.days_back ? Number(req.query.days_back) : 2,
-      mode: req.query.mode || "created",
-      since: req.query.since || null,
-    });
+    const result = await runShopifySync(options);
     return res.json(result);
   } catch (error) {
     console.error(error);
-    return res.status(500).json({
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    return res.status(500).json({ ok: false, error: "sync failed; see the service log" });
+  } finally {
+    syncRunning = false;
   }
 });
 

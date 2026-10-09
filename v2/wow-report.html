@@ -519,7 +519,9 @@
   });
 
   const el = id => document.getElementById(id);
-  const esc = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+  // Quote-safe: esc() output is used inside value="…" attributes, where an
+  // unescaped " broke out of the attribute (security audit 2026-10-08).
+  const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 
   // Every figure on this page is scoped to the ONLINE channel, which is
   // derived from locations.store_type (silo_channel_location_tags). A
