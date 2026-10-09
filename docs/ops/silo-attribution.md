@@ -1,5 +1,54 @@
 # Silo Attribution v1
 
+## Overview, observed rollups and model sensitivity
+
+The existing page opens on Overview; Journeys retains order search and evidence
+drilldown. Revenue charts, controls and model comparisons are disclosures. The
+overview uses unique orders from the reconciled day ledger, including older
+orders with refunds. It never counts a refund day as another journey.
+
+Timed rollups require ready, fully paginated captured visits, valid chronology,
+matching evidence timestamps and reproducible published introduction/assist/close
+labels. Missing, pending, unknown-source, stale and historically unmappable
+evidence is disclosed, not inferred. Consecutive channel repeats collapse; later
+returns remain separate. Timing uses the first touch of each channel run. Median
+elapsed-to-purchase and each step median have their own sample count; medians
+need not add. Role counts overlap and do not add revenue. These are orders with
+sales activity, not a purchase-date acquisition cohort or proof of incrementality.
+
+Comparisons never modify stored `silo-last-non-direct-v1.1` allocations:
+
+- Equal-share gives each distinct eligible non-direct channel one equal weight.
+- Time-decay uses each channel's latest eligible visit and
+  `2^(-days before purchase / halfLifeDays)`, default seven-day half-life,
+  configurable 1–60. The selected lookback is the horizon. Repeats do not increase
+  a channel's weight simply by volume.
+- Role weights default 40/20/40 for first touch, intermediate distinct channels,
+  and last touch. Intermediate channels divide the assist weight; a channel can
+  hold several roles. Absent assists are omitted and remaining weights normalize.
+  Single-touch journeys get 100%. If all available roles have zero weight (e.g.
+  assist-only settings on two touches), distinct channels share equally. Negative,
+  nonfinite and all-zero settings are rejected.
+- Excluded orders retain baseline credit in every model. Net and total cents
+  allocate separately per unique order via largest remainder, lexical channel
+  tie-breaks, with negative amounts mirroring positive allocations. Aggregation
+  remains in the report's single currency and store timezone.
+
+Suggestions separate observation, hypothesis and proposed test/investigation.
+Saving requires an owner from the active company's membership and a review date.
+The result is a private evergreen `launch_tasks` item with status `open`, titled
+`Review draft:` and explicitly unapproved in its notes. Task Manager can edit it.
+There is no new draft status or approval pipeline. A deterministic UUID scoped
+to creator/company/store/reporting dates/lookback/suggestion prevents repeated
+clicks and concurrent retries from creating duplicates; retries retain edits.
+No ad-platform write occurs. Supporting IDs (up to 50 in the note) and report
+filters are retained; current evidence must be rechecked at review time.
+
+No migration, edge deployment, secret or scheduler change is required for this
+add-on. Existing attribution ingestion prerequisites remain. A draft PR does not
+make the feature live. The approved concept image could not be downloaded (HTTP
+403); exact image matching is unverified. Preview screenshots use synthetic data.
+
 ## Coverage scheduler (draft; disabled pending acceptance)
 
 Apply `20261007031733_attribution_coverage.sql` after the original migrations;

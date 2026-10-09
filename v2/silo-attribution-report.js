@@ -1,5 +1,6 @@
 import {classify,journeyVisits} from './silo-attribution-model.js';
 import {reportOverview} from './silo-attribution-visuals.js';
+import {mountOverview} from './silo-attribution-overview-ui.js';
 export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function platformMark(channel) {
   const key=/^Meta/.test(channel)?'meta':/^Redo/.test(channel)?'redo':/^Google Ads/.test(channel)?'google-ads':/^TikTok/.test(channel)?'tiktok':/^Shop/.test(channel)?'shopify':null;
@@ -68,7 +69,7 @@ export async function loadRows(db,companyId,connectionId,start,end,windowDays) {
   }
   throw Error('Report row limit reached; choose a smaller period');
 }
-export function mountReport(root,{load,evidence}) {
+export function mountReport(root,{load,evidence,journeys,owners=[],saveDraft}) {
   let report=null,page=0,sequence=0;
   const $=id=>root.querySelector('#'+id),money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:report.currency}).format(n/100);
   function status(message,type='info'){$('status').textContent=message;$('status').className='bcn-status bcn-status--'+type;$('status').hidden=!message;}
@@ -82,7 +83,7 @@ export function mountReport(root,{load,evidence}) {
     $('previous').disabled=page===0;$('next').disabled=(page+1)*12>=rows.length;
   }
   function draw(){
-    $('overview').innerHTML=reportOverview(report);
+    $('legacy-overview').innerHTML=reportOverview(report);
     $('net').textContent=money(report.net);$('total').textContent=money(report.total);$('ordercount').textContent=report.orders.length.toLocaleString();$('reconciled').textContent=`${report.days} of ${report.days} days matched`;
     const selected=$('channel').value;
     $('channel').innerHTML='<option value="">All credited channels</option>'+report.channels.map(c=>`<option>${escapeHtml(c.channel)}</option>`).join('');$('channel').value=selected;
@@ -90,12 +91,28 @@ export function mountReport(root,{load,evidence}) {
     $('daily').innerHTML=report.reconciliation.map(d=>`<tr><td>${escapeHtml(d.day)}</td><td class="bcn-mono">${money(Number(d.net_cents))}</td><td class="bcn-mono">${money(Number(d.total_cents))}</td><td class="bcn-mono">${money(0)}</td><td class="bcn-mono">${money(0)}</td></tr>`).join('');
     $('results').hidden=false;drawOrders();
   }
-  async function refresh(){const current=++sequence;report=null;$('results').hidden=true;status('Loading verified snapshots…');try{const result=await load({start:$('start').value,end:$('end').value,windowDays:Number($('window').value),connectionId:$('store').value});if(current!==sequence)return;report=result;page=0;draw();status('');}catch(e){if(current===sequence)status(e.message||String(e),'neg');}}
+  const filters=()=>({start:$('start').value,end:$('end').value,windowDays:Number($('window').value),connectionId:$('store').value});
+  function showJourneys(show){$('ordersection').hidden=!show;$('overview').hidden=show;for(const [id,on] of [['overview-tab',!show],['journeys-tab',show]]){$(id).classList.toggle('bcn-tab--active',on);$(id).setAttribute('aria-pressed',String(on));}}
+  $('overview-tab').onclick=()=>showJourneys(false);$('journeys-tab').onclick=()=>showJourneys(true);
+  async function refresh(){
+    const current=++sequence,args=filters();report=null;$('results').hidden=true;$('journey').close();
+    root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Loading verified snapshots.');
+    try{
+      const result=await load(args);if(current!==sequence)return;report=result;page=0;draw();
+      $('overview').textContent='Loading captured journeys…';
+      try {
+        const records=await journeys(result.orders,args);if(current!==sequence)return;
+        mountOverview($('overview'),{report:result,records,context:args,owners,saveDraft:fields=>saveDraft({...fields,context:args}),isCurrent:()=>current===sequence&&JSON.stringify(args)===JSON.stringify(filters())});
+      } catch(e){if(current!==sequence)return;$('overview').textContent='Journey overview unavailable: '+e.message+'. Published sales remain available below.';}
+      status('');
+    }catch(e){if(current===sequence)status(e.message||String(e),'neg');}
+  }
+  for(const id of ['start','end','store'])$(id).onchange=()=>{++sequence;report=null;$('results').hidden=true;$('journey').close();root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Filters changed. Load report to view verified results.');};
   $('load').onclick=refresh;$('window').onchange=refresh;$('search').oninput=()=>{page=0;drawOrders();};$('channel').onchange=()=>{page=0;drawOrders();};$('previous').onclick=()=>{page--;drawOrders();};$('next').onclick=()=>{page++;drawOrders();};$('close').onclick=()=>$('journey').close();
   root.addEventListener('click',async event=>{
-    const channel=event.target.closest('[data-channel]');if(channel){$('channel').value=channel.dataset.channel;page=0;drawOrders();$('ordersection').scrollIntoView({behavior:'smooth'});}
+    const channel=event.target.closest('[data-channel]');if(channel){showJourneys(true);$('channel').value=channel.dataset.channel;page=0;drawOrders();$('ordersection').scrollIntoView({behavior:'smooth'});}
     const button=event.target.closest('[data-order]');if(!button||!report)return;
-    const a=report.orders.find(r=>r.order_id===button.dataset.order),stamp=sequence;
+    const a=report.orders.find(r=>r.order_id===button.dataset.order),stamp=sequence;if(!a)return;
     button.disabled=true;
     try{
       const e=await evidence(a);

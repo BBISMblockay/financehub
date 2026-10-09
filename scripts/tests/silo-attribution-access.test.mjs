@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 const base=new URL('../../',import.meta.url);
 const navSource=await readFile(new URL('v2/nav-config.js',base),'utf8');
-const pageSource=(await readFile(new URL('v2/silo-attribution-page.js',base),'utf8')).replace(/^import[^\n]+\n/,'').replace('boot().catch(e=>fail(e.message||String(e)));','globalThis.start=boot;');
+const pageSource=(await readFile(new URL('v2/silo-attribution-page.js',base),'utf8')).replace(/^import[^\n]+\n/gm,'').replace('boot().catch(e=>fail(e.message||String(e)));','globalThis.start=boot;');
 const bb={id:'3bd934c9-4cdd-429b-9076-f8f6b45d4eb7',entity_key:'baseballism'};
 const other={id:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',meta:{nav_profile:'grandfathered'}};
 function nav(){const w={};new Function('window',navSource)(w);return w.SiloNav;}
@@ -20,7 +20,7 @@ function harness(company=bb,active=company?.id){
  const nodes=new Map();const node=id=>{if(!nodes.has(id))nodes.set(id,{hidden:true,value:'',append(){},close(){}});return nodes.get(id);};
  const db={auth:{getSession:async()=>({data:{session:{user:{id:'user'}}}})},from(table){const q={select(){return q;},eq(){return q;},order(){return table==='shopify_connections'?Promise.resolve({data:[{id:'store',shop_domain:'baseballism'}]}):q;},limit:async()=>({data:[{day:'2026-09-30'}]}),single:async()=>table==='profiles'?{data:{active_company_id:activeId,role:'admin'},error:profileError}:{data:{evidence:{}}}};return q;}};
  const w={SiloNav:nav(),__SILO_CONFIG__:{SUPABASE_URL:'test',SUPABASE_ANON_KEY:'test',SILO_ATTRIBUTION_ENABLED:true,ensureActiveCompany:async()=>company},supabase:{createClient:()=>db}};
- const context={window:w,document:{querySelector:()=>({querySelector:node}),createElement:()=>({})},mountReport:(root,c)=>{callbacks=c;return {refresh:async()=>{}};},loadRows:async()=>{reads++;afterLoad();return 'rows';}};
+ const context={URLSearchParams,location:{search:""},window:w,document:{querySelector:()=>({querySelector:node}),createElement:()=>({})},mountReport:(root,c)=>{callbacks=c;return {refresh:async()=>{}};},loadRows:async()=>{reads++;afterLoad();return 'rows';}};
  vm.createContext(context);vm.runInContext(pageSource,context);
  return {start:()=>context.start(),node,setActive:id=>activeId=id,setError:err=>profileError=err,setAfterLoad:fn=>afterLoad=fn,get callbacks(){return callbacks;},get reads(){return reads;}};
 }
