@@ -550,7 +550,15 @@
       }
 
       function isSafeInternalPath(raw) {
-        if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return false;
+        if (typeof raw !== "string" || !raw.startsWith("/") || raw.startsWith("//")) return false;
+        // Browsers read "\" as "/" and drop tabs and newlines, so "/\evil.com"
+        // and "/<tab>/evil.com" both leave the site (security audit
+        // 2026-10-08). Refuse them, then confirm the URL resolves to the same
+        // host -- against a placeholder origin, so this stays pure.
+        if (/[\\\u0000-\u001F\u007F]/.test(raw)) return false;
+        try {
+          if (new URL(raw, "https://silo.invalid").host !== "silo.invalid") return false;
+        } catch (_) { return false; }
         if (raw.startsWith("/pages/login")) return false;
         return true;
       }

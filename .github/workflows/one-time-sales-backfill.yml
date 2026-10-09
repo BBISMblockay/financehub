@@ -34,7 +34,7 @@ jobs:
           SILO_SKIP_INVENTORY: "true"
           SILO_SKIP_SALES: "false"
         run: |
-          echo "Requested location_tag=${{ inputs.location_tag }}"
+          echo "Requested location_tag=$SILO_ONLY_SOURCE"
           echo "SILO_SALES_SYNC_MODE=$SILO_SALES_SYNC_MODE"
           echo "SILO_ONLY_SOURCE=$SILO_ONLY_SOURCE"
           echo "SILO_SKIP_INVENTORY=$SILO_SKIP_INVENTORY"

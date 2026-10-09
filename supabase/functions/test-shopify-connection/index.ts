@@ -5,7 +5,7 @@ import {
   missingForSync,
   normalizeGranted,
 } from './shopify-scopes.ts';
-import { ensureShopifyAccessToken, hasFullOrderHistory, ShopifyTokenError } from './shopify-auth-lib.mjs';
+import { ensureShopifyAccessToken, hasFullOrderHistory, normalizeShopDomain, ShopifyTokenError } from './shopify-auth-lib.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -60,8 +60,21 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    let { shop_domain, access_token } = body as { shop_domain: string; access_token: string };
+    let shop_domain = '';
+    let access_token = '';
     const connectionId = String((body as { connection_id?: string }).connection_id ?? '').trim();
+
+    // Only a stored connection is tested (security audit 2026-10-08). The old
+    // body path took shop_domain and access_token from the request and fetched
+    // https://{shop_domain}/... -- any signed-in user could aim this function at
+    // any host and read the response back. v2/integrations.html only ever sends
+    // connection_id, so nothing used that path.
+    if (!connectionId) {
+      return new Response(JSON.stringify({ error: 'connection_id is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // By connection id: read the row as the CALLER (RLS scopes it to their
     // active company), then get its token with the service role -- which is
@@ -110,7 +123,15 @@ Deno.serve(async (req) => {
       });
     }
 
-    const domain = shop_domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    // Admins can write shop_domain through RLS, so the stored value is checked
+    // too: only ever a *.myshopify.com host.
+    const domain = normalizeShopDomain(shop_domain);
+    if (!domain) {
+      return new Response(JSON.stringify({ ok: false, error: 'Stored shop domain is not a myshopify.com domain' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     const shopRes = await shopifyAdminGet(domain, access_token, '/shop.json');
     if (!shopRes.ok) {

@@ -113,6 +113,10 @@ async function fetchSubmittedAttachments(paymentRequestId: string): Promise<Emai
   const attachments: EmailAttachment[] = [];
   for (const file of files) {
     if (!file.file_path) continue;
+    // Only this request's own objects. The bucket is shared by every tenant and
+    // the service role ignores storage RLS, so a stored path outside
+    // {requestId}/ must never be downloaded and mailed out.
+    if (!file.file_path.startsWith(`${paymentRequestId}/`) || file.file_path.includes('..')) continue;
     const { data: blob, error: dlErr } = await db.storage.from(BUCKET).download(file.file_path);
     if (dlErr || !blob) {
       console.error('[payment-request-submitted-notify] failed to download file', file.file_path, dlErr);
@@ -130,6 +134,13 @@ async function fetchSubmittedAttachments(paymentRequestId: string): Promise<Emai
   return attachments;
 }
 
+// Stored, person-typed values (vendor, invoice #) go into the email HTML, so
+// they are escaped.
+function esc(s: unknown): string {
+  return String(s ?? '').replace(/[&<>"']/g, (m) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m] as string));
+}
+
 function emailHtml(opts: {
   vendorName: string;
   amount: number | null;
@@ -138,7 +149,10 @@ function emailHtml(opts: {
   submittedAt: string | null;
   attachmentCount: number;
 }): string {
-  const { vendorName, amount, requestTypeLabel, invoiceNumber, submittedAt, attachmentCount } = opts;
+  const { amount, submittedAt, attachmentCount } = opts;
+  const vendorName = esc(opts.vendorName);
+  const requestTypeLabel = esc(opts.requestTypeLabel);
+  const invoiceNumber = esc(opts.invoiceNumber);
   return `
   <div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:560px;margin:0 auto;padding:24px">
     <div style="background:#14181d;border-radius:12px;padding:28px;color:#fff">
@@ -195,6 +209,33 @@ Deno.serve(async (req: Request) => {
     }
     if (!pr.requester_email) {
       return new Response(JSON.stringify({ error: 'No requester email on file for this request' }), { status: 400, headers: CORS });
+    }
+
+    // requester_email is a free-text form field, and this sends a branded email
+    // from the tenant's own sender with the request's files attached. Unchecked,
+    // any member could aim it at any address on the internet. The receipt goes
+    // only to a person in the request's company (the filer, or a colleague they
+    // filed for -- every receipt in the 60 days before 2026-10-08 was one).
+    const requesterEmail = String(pr.requester_email).trim().toLowerCase();
+    const { data: members } = await db
+      .from('entity_memberships')
+      .select('user_id')
+      .eq('entity_id', pr.company_entity_id);
+    const memberIds = (members || []).map((m) => m.user_id).filter(Boolean);
+    // Exact (case-insensitive) match in code, not ILIKE: % and _ are wildcards
+    // there, and the address is free text. ACTIVE people only: deactivation
+    // keeps the membership row, and an offboarded address must not receive
+    // the request and its attachments.
+    const { data: memberProfiles } = memberIds.length
+      ? await db.from('profiles').select('email').in('id', memberIds).eq('is_active', true)
+      : { data: [] as { email: string | null }[] };
+    const isMember = (memberProfiles || [])
+      .some((p) => String(p.email || '').trim().toLowerCase() === requesterEmail);
+    if (!isMember) {
+      return new Response(
+        JSON.stringify({ error: 'Receipts are only sent to people in this workspace. Check the requester email.' }),
+        { status: 400, headers: CORS },
+      );
     }
 
     const vendorName = pr.vendor_name_manual || pr.vendor_name || 'Vendor';

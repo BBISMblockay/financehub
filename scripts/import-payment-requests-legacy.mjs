@@ -18,7 +18,8 @@
 // --unpaid-only keeps only rows whose Completed column is NOT paid/submitted
 // (i.e. the New + Hold queues) — the open AP backlog.
 //
-// Default file (when --file omitted): data/legacy-payment-requests-pilot.csv
+// --file is required. Import files carry vendor bank details: never commit one
+// to main (GitHub Pages serves the branch publicly). See data/imports/README.md.
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -448,7 +449,12 @@ async function main() {
     return;
   }
 
-  const filePath = args.file || path.join(ROOT, "data/legacy-payment-requests-pilot.csv");
+  if (!args.file) {
+    console.error('Missing --file <path>: name the import file explicitly; there is no default.');
+    process.exitCode = 1;
+    return;
+  }
+  const filePath = args.file;
   let rows = readExportRows(filePath);
   console.log(`Read ${rows.length} row(s) from ${path.resolve(filePath)}`);
 

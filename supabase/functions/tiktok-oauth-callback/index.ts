@@ -23,15 +23,19 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
-  const { data: stateRow, error: stateErr } = await supabase
+  // Consume the state in ONE statement, scoped to this platform: a read-then-
+  // delete lets two callbacks race on one nonce, and an unscoped read would
+  // accept a Google or Meta state here. Same shape as meta-oauth-callback.
+  const { data: consumed, error: stateErr } = await supabase
     .from('ad_platform_oauth_states')
-    .select('*')
+    .delete()
     .eq('nonce', state)
+    .eq('platform', 'tiktok_ads')
     .gt('expires_at', new Date().toISOString())
-    .single();
+    .select('*');
 
-  if (stateErr || !stateRow) return errorRedirect('invalid_or_expired_state');
-  await supabase.from('ad_platform_oauth_states').delete().eq('nonce', state);
+  if (stateErr || !Array.isArray(consumed) || consumed.length !== 1) return errorRedirect('invalid_or_expired_state');
+  const stateRow = consumed[0];
 
   const tokenRes = await fetch('https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/', {
     method: 'POST',

@@ -4774,6 +4774,40 @@ select 'Definer functions reachable by anon' as check_name,
    then 'CRITICAL: a SECURITY DEFINER function is executable by anon and is not on the reviewed allowlist'
  else 'ok' end as status;
 
+-- Security audit 2026-10-08 (20261008120000). An invite must not grant more
+-- than its sender holds, and the retired `using (true)` PO / Launch policies
+-- must stay gone (permissive policies OR together, so one of them back would
+-- reopen cross-tenant reads whatever the *_active_* policies say).
+select 'Security audit 2026-10-08: invites, retired open policies, PO naming, signed sample-notify' as check_name,
+ case
+ when pg_get_functiondef('public.create_org_invite(text,text,text)'::regprocedure)
+        not like '%only an owner can invite another owner%'
+   or pg_get_functiondef('public.create_org_invite(text,text,text)'::regprocedure)
+        not like '%only an owner can invite into the %'
+   then 'MISSING: create_org_invite lets any admin grant owner or a finance/exec/admin department; apply 20261008120000'
+ when exists (
+   select 1 from pg_policy
+   where polrelid in (select oid from pg_class
+                       where relnamespace = 'public'::regnamespace
+                         and relname in ('factories','po_headers','po_lines','po_costing','po_costing_lines',
+                                         'launch_tasks','launch_assets','launch_comments','launch_system_links'))
+     and coalesce(pg_get_expr(polqual, polrelid), pg_get_expr(polwithcheck, polrelid), '')
+         not ilike '%active_company_id()%')
+   then 'CRITICAL: a PO / costing / Launch policy is not scoped to active_company_id() (cross-tenant); apply 20261008120000'
+ when has_function_privilege('anon', 'public.generate_next_po_name(uuid)', 'EXECUTE')
+   then 'MISSING: anon can execute generate_next_po_name; apply 20261008120000'
+ -- sample-notify is public; the trigger must sign its calls and the function's
+ -- once-only claims must be service-only.
+ when to_regclass('public.sample_notification_claims') is null
+   or pg_get_functiondef('public.notify_sample_events()'::regprocedure) not like '%x-silo-trigger-secret%'
+   then 'MISSING: sample-notify claims table or signed notify_sample_events(); apply 20261008120000'
+ when not (select relrowsecurity from pg_class where oid = to_regclass('public.sample_notification_claims'))
+   or has_table_privilege('anon', 'public.sample_notification_claims', 'select')
+   or has_table_privilege('authenticated', 'public.sample_notification_claims', 'select')
+   or has_table_privilege('authenticated', 'public.sample_notification_claims', 'insert')
+   then 'CRITICAL: sample_notification_claims is readable or writable from a browser session'
+ else 'ok' end as status;
+
 -- The four closed by 20260917210000, asserted individually. The allowlist check
 -- above would catch an anon re-grant; this one also catches an `authenticated`
 -- re-grant, which is the likelier accident (a `create or replace` restores the

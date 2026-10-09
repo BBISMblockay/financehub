@@ -368,6 +368,9 @@
   // ── helpers ───────────────────────────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  // Only http(s) links are rendered as links: an event URL is free text, and a
+  // javascript: URL in an href runs on click (security audit 2026-10-08).
+  const safeUrl = (v) => { try { const p = new URL(String(v ?? ''), location.href).protocol; return (p === 'http:' || p === 'https:') ? String(v) : '#'; } catch { return '#'; } };
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
   const addMonths = (d, n) => new Date(d.getFullYear(), d.getMonth()+n, 1);
@@ -580,12 +583,12 @@
 
     const actions = [];
     if (e.source_type === 'manual') {
-      if (e.url) actions.push(`<a class="ed-ghost-btn" style="display:inline-flex;align-items:center;text-decoration:none;" href="${esc(e.url)}" target="_blank" rel="noopener">OPEN LINK ↗</a>`);
+      if (e.url) actions.push(`<a class="ed-ghost-btn" style="display:inline-flex;align-items:center;text-decoration:none;" href="${esc(safeUrl(e.url))}" target="_blank" rel="noopener">OPEN LINK ↗</a>`);
       if (currentUser && (e.owner_id === currentUser.id || isAdmin())) {
         actions.push(`<button class="ed-ghost-btn" type="button" data-act="edit" data-id="${esc(e.source_id)}" style="background:var(--bcn-accent);color:#fff;border-color:var(--bcn-accent);">✏ EDIT</button>`);
       }
     } else if (e.url) {
-      actions.push(`<a class="ed-ghost-btn" style="display:inline-flex;align-items:center;text-decoration:none;background:var(--bcn-accent);color:#fff;border-color:var(--bcn-accent);" href="${esc(e.url)}">${esc(SOURCE_OPEN_LABELS[e.source_type] || 'OPEN SOURCE')} →</a>`);
+      actions.push(`<a class="ed-ghost-btn" style="display:inline-flex;align-items:center;text-decoration:none;background:var(--bcn-accent);color:#fff;border-color:var(--bcn-accent);" href="${esc(safeUrl(e.url))}">${esc(SOURCE_OPEN_LABELS[e.source_type] || 'OPEN SOURCE')} →</a>`);
     }
     $('drawerActions').innerHTML = actions.join('');
 

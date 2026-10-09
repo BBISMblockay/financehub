@@ -696,12 +696,16 @@
         formatter: (params) => {
           const arr = Array.isArray(params) ? params : [params];
           if (!arr.length) return '';
-          const head = `<div style="font-size:11px;opacity:.7">${arr[0].name}</div>`;
+          // ECharts renders a formatter's return value as HTML, and the category
+          // name is a raw query value (a product, vendor or customer name), so
+          // every interpolation here is escaped -- as the heatmap and
+          // waterfall formatters below already were.
+          const head = `<div style="font-size:11px;opacity:.7">${esc(arr[0].name)}</div>`;
           // Every series at that x, each formatted by its OWN semantic --
           // dollars as dollars and a ratio as a ratio, in one tooltip.
           return head + arr.map((p) => `<div style="display:flex;gap:8px;justify-content:space-between">
               <span>${p.marker || ''}${multi ? esc(p.seriesName) : ''}</span>
-              <span style="font-weight:700">${formatValue(p.value, semanticByField[p.seriesName] || shaped.semantic)}</span>
+              <span style="font-weight:700">${esc(formatValue(p.value, semanticByField[p.seriesName] || shaped.semantic))}</span>
             </div>`).join('');
         },
       },
@@ -742,8 +746,8 @@
       ...baseOption(t),
       tooltip: {
         ...baseOption(t).tooltip,
-        formatter: (p) => `<div style="font-size:11px;opacity:.7">${p.name}</div>
-          <div style="font-weight:700">${formatValue(p.value, shaped.format)} · ${p.percent}%</div>`,
+        formatter: (p) => `<div style="font-size:11px;opacity:.7">${esc(p.name)}</div>
+          <div style="font-weight:700">${esc(formatValue(p.value, shaped.format))} · ${esc(p.percent)}%</div>`,
       },
       // Abbreviated, never the full figure: this sits inside the hole and
       // a tile is often three grid columns wide. The tooltip and any KPI
@@ -1866,6 +1870,13 @@
   // queries and never reduced to one dataset. Same rendering Ask SILO's own
   // chat bubbles and saved-report detail view already use (marked +
   // DOMPurify), so an answer reads identically wherever it is shown.
+  // A saved answer is model text, and the model reads data outsiders can write
+  // (onboarding forms, Shopify order notes). DOMPurify's defaults keep
+  // <img src="https://…"> and style="background:url(…)", either of which a
+  // planted instruction could use to send report data to another host the
+  // moment the answer renders. Answers never need either (security audit
+  // 2026-10-08). Same options as v2/silo-chat.html.
+  const ANSWER_PURIFY = { FORBID_TAGS: ['img', 'style', 'svg', 'video', 'audio', 'picture', 'source', 'iframe', 'object', 'embed', 'form'], FORBID_ATTR: ['style', 'srcset', 'background', 'poster'] };
   let delTokenizerPatched = false;
   function answerHtml(text) {
     if (!text) return '<div class="dw-empty">No answer text saved.</div>';
@@ -1884,7 +1895,7 @@
       global.marked.use({ tokenizer: { del: () => undefined } });
       delTokenizerPatched = true;
     }
-    return `<div class="dw-answer">${global.DOMPurify.sanitize(global.marked.parse(text))}</div>`;
+    return `<div class="dw-answer">${global.DOMPurify.sanitize(global.marked.parse(text), ANSWER_PURIFY)}</div>`;
   }
 
   global.SiloChart = {

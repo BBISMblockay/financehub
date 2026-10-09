@@ -139,6 +139,10 @@ async function fetchSubmittedAttachments(paymentRequestId: string, pr: Record<st
       continue;
     }
     if (!file.file_path) continue;
+    // Only this request's own objects. The bucket is shared by every tenant and
+    // the service role ignores storage RLS, so a stored path outside
+    // {requestId}/ must never be downloaded and mailed out.
+    if (!file.file_path.startsWith(`${String(pr.id)}/`) || file.file_path.includes('..')) continue;
 
     const { data: blob, error: dlErr } = await db.storage.from(BUCKET).download(file.file_path);
     if (dlErr || !blob) {
@@ -158,6 +162,18 @@ async function fetchSubmittedAttachments(paymentRequestId: string, pr: Record<st
   return { attachments, externalLinks };
 }
 
+// Stored, person-typed values (vendor, invoice #, PO #, links) go into the email HTML, so
+// they are escaped.
+function esc(s: unknown): string {
+  return String(s ?? '').replace(/[&<>"']/g, (m) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m] as string));
+}
+
+// A link is only ever http(s); anything else renders as text.
+function safeHref(u: string): string | null {
+  try { const p = new URL(u).protocol; return p === 'https:' || p === 'http:' ? esc(u) : null; } catch { return null; }
+}
+
 function emailHtml(opts: {
   vendorName: string;
   amount: number | null;
@@ -167,7 +183,10 @@ function emailHtml(opts: {
   attachmentCount: number;
   externalLinks: string[];
 }): string {
-  const { vendorName, amount, invoiceNumber, dueDate, poNumber, attachmentCount, externalLinks } = opts;
+  const { amount, dueDate, attachmentCount, externalLinks } = opts;
+  const vendorName = esc(opts.vendorName);
+  const invoiceNumber = esc(opts.invoiceNumber);
+  const poNumber = esc(opts.poNumber);
   return `
   <div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:560px;margin:0 auto;padding:24px">
     <div style="background:#14181d;border-radius:12px;padding:28px;color:#fff">
@@ -195,7 +214,7 @@ function emailHtml(opts: {
       ${externalLinks.length ? `
       <p style="color:#7f8b96;font-size:12px;margin-top:16px">
         Legacy attachment${externalLinks.length > 1 ? 's' : ''} could not be attached automatically — open in SILO Request Manager instead:<br/>
-        ${externalLinks.map(l => `<a href="${l}" style="color:#8fb4ff">${l}</a>`).join('<br/>')}
+        ${externalLinks.map(l => { const h = safeHref(l); return h ? `<a href="${h}" style="color:#8fb4ff">${esc(l)}</a>` : esc(l); }).join('<br/>')}
       </p>` : ''}
     </div>
     <p style="color:#9aa3ad;font-size:11px;text-align:center;margin-top:14px">Sent by SILO Accounts Payable.</p>

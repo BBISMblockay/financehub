@@ -32,8 +32,9 @@
 (function () {
   'use strict';
 
-  const esc = (s) => String(s ?? '')
-    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  // Quote-safe: esc() output is used inside title="…" and data-* attributes,
+  // and the values are model-written (security audit 2026-10-08).
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 
   // The four evidence classes. Keys are matched case-insensitively against
   // whatever the model wrote, so a lowercase "data" still badges correctly.

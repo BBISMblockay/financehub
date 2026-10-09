@@ -449,8 +449,13 @@
       setStatus('You can see who is in this workspace. Changing roles or inviting needs admin access.', 'info');
     }
     if (!_isOwner) {
+      // create_org_invite refuses both server-side (20261008120000): the
+      // finance and exec departments carry journal-entry, comp and payment
+      // authority on their own, so only an owner may hand them out.
       el('invRole').querySelector('option[value="owner"]').disabled = true;
-      el('inviteHint').textContent = 'Only an owner can invite another owner.';
+      el('invDept').querySelectorAll('option[value="finance"], option[value="exec"]')
+        .forEach((o) => { o.disabled = true; });
+      el('inviteHint').textContent = 'Only an owner can invite another owner, or into finance or exec.';
     }
 
     await reload();

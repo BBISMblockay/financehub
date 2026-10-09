@@ -115,6 +115,10 @@ async function fetchConfirmationAttachments(paymentRequestId: string): Promise<E
   const attachments: EmailAttachment[] = [];
   for (const file of files) {
     if (!file.file_path) continue;
+    // Only this request's own objects. The bucket is shared by every tenant and
+    // the service role ignores storage RLS, so a stored path outside
+    // {requestId}/ must never be downloaded and mailed out.
+    if (!file.file_path.startsWith(`${paymentRequestId}/`) || file.file_path.includes('..')) continue;
     const { data: blob, error: dlErr } = await db.storage.from(BUCKET).download(file.file_path);
     if (dlErr || !blob) {
       console.error('[payment-request-notify] failed to download confirmation file', file.file_path, dlErr);
@@ -132,6 +136,13 @@ async function fetchConfirmationAttachments(paymentRequestId: string): Promise<E
   return attachments;
 }
 
+// Stored, person-typed values (vendor, invoice #, payment detail) go into the
+// email HTML, so they are escaped; a link is only ever http(s).
+function esc(s: unknown): string {
+  return String(s ?? '').replace(/[&<>"']/g, (m) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m] as string));
+}
+
 function emailHtml(opts: {
   vendorName: string;
   amount: number | null;
@@ -141,7 +152,11 @@ function emailHtml(opts: {
   invoiceNumber: string | null;
   attachmentCount: number;
 }): string {
-  const { vendorName, amount, paymentTypeLabel, paymentDetail, dateCompleted, invoiceNumber, attachmentCount } = opts;
+  const { amount, dateCompleted, attachmentCount } = opts;
+  const vendorName = esc(opts.vendorName);
+  const paymentTypeLabel = esc(opts.paymentTypeLabel);
+  const paymentDetail = esc(opts.paymentDetail);
+  const invoiceNumber = esc(opts.invoiceNumber);
   return `
   <div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:560px;margin:0 auto;padding:24px">
     <div style="background:#14181d;border-radius:12px;padding:28px;color:#fff">
@@ -201,11 +216,17 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'Not authorized to notify requesters' }), { status: 403, headers: CORS });
     }
 
-    const { data: pr, error: prErr } = await db
+    // Read the request AS THE CALLER. The permission above answers for the
+    // caller's own active company only; a service-role read by a caller-
+    // supplied id would let a manager in one company email another company's
+    // requester with that company's confirmation documents. RLS scopes this
+    // read to the active company; the service role is used only for the
+    // storage download and the writes below.
+    const { data: pr, error: prErr } = await callerClient
       .from('payment_requests')
       .select('*')
       .eq('id', payment_request_id)
-      .single();
+      .maybeSingle();
     if (prErr || !pr) {
       return new Response(JSON.stringify({ error: 'Payment request not found' }), { status: 404, headers: CORS });
     }
@@ -246,7 +267,8 @@ Deno.serve(async (req: Request) => {
     const now = new Date().toISOString();
     await db.from('payment_requests')
       .update({ paid_notification_sent_at: now, paid_notification_sent_by: userData.user.id })
-      .eq('id', payment_request_id);
+      .eq('id', payment_request_id)
+      .eq('company_entity_id', pr.company_entity_id);
 
     await db.from('payment_request_activity').insert({
       payment_request_id,

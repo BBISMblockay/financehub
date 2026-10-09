@@ -30,12 +30,19 @@
       .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  // A URL inside style="background-image:url('…')". HTML entities are decoded
+  // before CSS parses, so escAttr alone cannot stop a ' or ) from closing the
+  // url(); percent-encode the characters that end it (security audit 2026-10-08).
+  function cssUrl(u) {
+    return String(u).replace(/['"()\\\s<>]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
+  }
+
   function html(person, size, extraClass) {
     const p = person || {};
     const cls = ['bcn-avatar', 'bcn-avatar--' + (size || 'sm'), extraClass || ''].filter(Boolean).join(' ');
     const label = escAttr(p.name || p.email || 'User');
     if (p.avatarUrl) {
-      return `<span class="${cls}" style="background-image:url('${escAttr(p.avatarUrl)}')" role="img" aria-label="${label}"></span>`;
+      return `<span class="${cls}" style="background-image:url('${escAttr(cssUrl(p.avatarUrl))}')" role="img" aria-label="${label}"></span>`;
     }
     return `<span class="${cls}" aria-hidden="true">${escAttr(initials(p.name, p.email))}</span>`;
   }

@@ -54,6 +54,7 @@ async function resolveSender(
 }
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -123,9 +124,21 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'Review is already finished' }), { status: 400, headers: CORS });
     }
 
-    const { data: caller } = await db.from('profiles').select('id, name, email, role, active_company_id').eq('id', uid).single();
-    const role = String(caller?.role || '').toLowerCase();
-    const isExec = ['owner', 'executive'].includes(role);
+    const { data: caller } = await db.from('profiles').select('id, name, email, role, active_company_id, is_active').eq('id', uid).single();
+    // A deactivated account keeps a refreshable session and its manager
+    // assignments; it must not mint a fresh review link either way.
+    if (caller?.is_active !== true) {
+      return new Response(JSON.stringify({ error: 'Not authorized for this review' }), { status: 403, headers: CORS });
+    }
+    // Exec/owner authority for the ACTIVE company, judged by is_exec_or_owner()
+    // as the caller -- the same gate the reviews RLS uses. The global
+    // profiles.role alone admitted a user who is an owner of some other company
+    // but a plain member here (security audit 2026-10-08).
+    const callerClient = createClient(SUPABASE_URL, ANON_KEY, {
+      global: { headers: { Authorization: `Bearer ${jwt}` } },
+    });
+    const { data: execOrOwner, error: execErr } = await callerClient.rpc('is_exec_or_owner');
+    const isExec = !execErr && execOrOwner === true;
     const isManager = review.manager_user_id === uid;
     const sameCompany = caller?.active_company_id === review.company_entity_id;
     if (!sameCompany || (!isManager && !isExec)) {

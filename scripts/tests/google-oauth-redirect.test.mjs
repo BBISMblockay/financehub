@@ -47,8 +47,21 @@ test('acceptReturnOrigin refuses anything outside the list', () => {
   }
   assert.equal(lib.returnUrl('https://get-silo.com'), 'https://get-silo.com/oauth/google.html');
 });
-test('the two lib copies are identical', () => {
+test('the lib copies are identical', () => {
   assert.equal(read('supabase/functions/google-oauth-callback/google-oauth-lib.mjs'), read('supabase/functions/google-oauth-start/google-oauth-lib.mjs'));
+  // tiktok-oauth-start ships the same copy for mayConnect (security audit 2026-10-08).
+  assert.equal(read('supabase/functions/tiktok-oauth-start/google-oauth-lib.mjs'), read('supabase/functions/google-oauth-start/google-oauth-lib.mjs'));
+});
+test('tiktok start: the named company is authorised with mayConnect before any state is written', () => {
+  const s = read('supabase/functions/tiktok-oauth-start/index.ts');
+  assert.match(s, /import \{ mayConnect \} from '\.\/google-oauth-lib\.mjs';/);
+  const gate = s.indexOf('if (!mayConnect({ profile, profileError, membership, membershipError, companyId: company_entity_id }))');
+  const write = s.indexOf(".from('ad_platform_oauth_states').insert(");
+  assert.ok(gate > 0 && write > 0 && gate < write, 'mayConnect must run before the state insert');
+});
+test('tiktok callback: the state is consumed in one platform-scoped, unexpired delete', () => {
+  const s = read('supabase/functions/tiktok-oauth-callback/index.ts');
+  assert.match(s, /\.from\('ad_platform_oauth_states'\)\s*\.delete\(\)\s*\.eq\('nonce', state\)\s*\.eq\('platform', 'tiktok_ads'\)\s*\.gt\('expires_at', new Date\(\)\.toISOString\(\)\)\s*\.select\(/);
 });
 test('start: redirect_uri comes from the lib or the legacy URL, and admin access is checked', () => {
   const s = read('supabase/functions/google-oauth-start/index.ts');

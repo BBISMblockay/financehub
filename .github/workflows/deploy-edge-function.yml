@@ -31,9 +31,20 @@ on:
         required: false
         default: mkquclffrvlzyecnabyf
 
+# Inputs reach the shell only through env and are validated first: a typed
+# value must never become shell syntax in a step holding SUPABASE_ACCESS_TOKEN.
+# And production deploys come from main only (CLAUDE.md), enforced here rather
+# than left to whoever picks the branch in the Run dialog (security audit
+# 2026-10-08).
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FN: ${{ inputs.function_name }}
+      PROJECT_REF: ${{ inputs.project_ref }}
     steps:
       - uses: actions/checkout@v4
 
@@ -42,16 +53,22 @@ jobs:
         with:
           version: latest
 
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          [[ "$FN" == all || "$FN" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || { echo "::error::function_name must be a function slug or 'all'"; exit 1; }
+          [[ "$PROJECT_REF" =~ ^[a-z]{20}$ ]] || { echo "::error::project_ref must be a 20-letter Supabase project ref"; exit 1; }
+
       - name: Show what will be deployed
         run: |
           set -euo pipefail
-          echo "Project ref : ${{ inputs.project_ref }}"
-          echo "Function    : ${{ inputs.function_name }}"
+          echo "Project ref : $PROJECT_REF"
+          echo "Function    : $FN"
           echo "Commit      : $(git rev-parse HEAD)"
-          if [ "${{ inputs.function_name }}" = "all" ]; then
+          if [ "$FN" = "all" ]; then
             ls -1 supabase/functions
           else
-            f="supabase/functions/${{ inputs.function_name }}/index.ts"
+            f="supabase/functions/$FN/index.ts"
             test -f "$f" || { echo "::error::$f not found"; exit 1; }
             echo "Bytes       : $(wc -c < "$f")"
             echo "SHA256      : $(sha256sum "$f" | cut -d' ' -f1)"
@@ -85,18 +102,18 @@ jobs:
           #   meta-oauth-callback -- Meta redirects the browser here; the state row
           #     a signed-in admin created is the authorization.
           NO_JWT_FUNCTIONS="shopify-compliance-webhook plaid-scheduled-sync card-coding-prepare-scheduled onboarding-interest tiktok-oauth-callback shopify-app-install meta-oauth-callback"
-          if [ "${{ inputs.function_name }}" = "all" ]; then
-            supabase functions deploy --project-ref "${{ inputs.project_ref }}"
+          if [ "$FN" = "all" ]; then
+            supabase functions deploy --project-ref "$PROJECT_REF"
             # A plain deploy applies the default verify_jwt, which would leave
             # these rejecting their callers before the handler runs. Redeploy
             # each one public, from the same checkout.
             for fn in $NO_JWT_FUNCTIONS; do
-              supabase functions deploy "$fn" --no-verify-jwt --project-ref "${{ inputs.project_ref }}"
+              supabase functions deploy "$fn" --no-verify-jwt --project-ref "$PROJECT_REF"
             done
-          elif [[ " $NO_JWT_FUNCTIONS " == *" ${{ inputs.function_name }} "* ]]; then
-            supabase functions deploy "${{ inputs.function_name }}" --no-verify-jwt --project-ref "${{ inputs.project_ref }}"
+          elif [[ " $NO_JWT_FUNCTIONS " == *" $FN "* ]]; then
+            supabase functions deploy "$FN" --no-verify-jwt --project-ref "$PROJECT_REF"
           else
-            supabase functions deploy "${{ inputs.function_name }}" --project-ref "${{ inputs.project_ref }}"
+            supabase functions deploy "$FN" --project-ref "$PROJECT_REF"
           fi
 
       - name: Confirm deployed version
@@ -104,4 +121,4 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          supabase functions list --project-ref "${{ inputs.project_ref }}" || true
+          supabase functions list --project-ref "$PROJECT_REF" || true

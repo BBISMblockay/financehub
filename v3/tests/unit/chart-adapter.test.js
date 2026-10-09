@@ -249,5 +249,22 @@ ok('a ONE-point line series still draws its symbol, or the tile is blank',
 ok('a long line series does not dot every point',
    C.optionFor('line', C.shape(ts, { x_field: 'day_date', y_field: 'net_sales', sort: 'x_asc' })).series[0].showSymbol === false);
 
+// Security audit 2026-10-08: ECharts renders a tooltip formatter's return value
+// as HTML, and category names are raw query values (product, vendor, customer
+// names -- some typed by outsiders). Every HTML tooltip must escape them.
+{
+  const evil = '<img src=x onerror=alert(1)>';
+  const rows = [{ product_name: evil, net_sales: 10 }, { product_name: 'Tee', net_sales: 5 }];
+  const sh = C.shape(rows, { x_field: 'product_name', y_field: 'net_sales', sort: 'none' }, { net_sales: 'currency' });
+  const call = (type, params) => C.optionFor(type, sh).tooltip.formatter(params);
+  const p0 = { name: evil, value: 10, seriesName: 'net_sales', marker: '', percent: 66.7, dataIndex: 0 };
+  for (const type of ['bar', 'line']) {
+    const html = call(type, [p0]);
+    ok(`${type} tooltip escapes the category name`, !html.includes('<img') && html.includes('&lt;img'));
+  }
+  const donut = call('donut', p0);
+  ok('donut tooltip escapes the category name', !donut.includes('<img') && donut.includes('&lt;img'));
+}
+
 console.log(fails? `\n${fails} FAILURES`:'\nall passed');
 process.exit(fails?1:0);

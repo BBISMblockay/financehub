@@ -2784,3 +2784,7 @@ invite never redeemed, team invite pending, unconfirmed). Grants on the three
 replaced functions are unchanged (`create or replace` keeps them). Verified by
 `scripts/tests/workspace-admin-scope-database.test.mjs` and the
 "Backend admin RPCs see only the active company" verify row.
+
+## Security audit hardening — `20261008120000_security_audit_db_hardening.sql`
+
+`create_org_invite` lets only an owner invite an owner or into the finance / exec / admin department. Drops the retired `using (true)` PO / costing / Launch policies that older includes re-create, and revokes `generate_next_po_name` from anon. New table `sample_notification_claims` (service-only, primary key `(sample_id, event_type, claim_key)`): `sample-notify` inserts a claim before it sends, so each trigger delivery happens once. `notify_sample_events()` now signs its calls with Vault secret `sample_notify_trigger_secret` (header `x-silo-trigger-secret`) and a per-transition `event_id`. **Rollout order:** create the Vault secret, apply, deploy `sample-notify`, then set its `SAMPLE_NOTIFY_TRIGGER_SECRET` to the same value. Tests: `scripts/tests/org-invite-authority-database.test.mjs`, `scripts/tests/sample-notify-trigger-events.test.mjs`.

