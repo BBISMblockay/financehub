@@ -5934,6 +5934,13 @@ select 'SILO ledger entries balance' as check_name,
   else 'ok' end as status;
 -- End SILO ledger checks.
 
+-- On Deck action loop (read-only).
+select 'On Deck action loop' as check_name, case when
+ exists(select 1 from information_schema.columns where table_schema='public' and table_name='on_deck_proposals' and column_name='context_work')
+ and to_regprocedure('public.on_deck_context(uuid,integer,text,uuid,uuid,text)') is not null
+ and to_regprocedure('public.on_deck_review_state()') is not null
+ then 'ok' else 'MISSING' end as status;
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))
