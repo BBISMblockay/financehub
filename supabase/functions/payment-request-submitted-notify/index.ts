@@ -223,9 +223,11 @@ Deno.serve(async (req: Request) => {
       .eq('entity_id', pr.company_entity_id);
     const memberIds = (members || []).map((m) => m.user_id).filter(Boolean);
     // Exact (case-insensitive) match in code, not ILIKE: % and _ are wildcards
-    // there, and the address is free text.
+    // there, and the address is free text. ACTIVE people only: deactivation
+    // keeps the membership row, and an offboarded address must not receive
+    // the request and its attachments.
     const { data: memberProfiles } = memberIds.length
-      ? await db.from('profiles').select('email').in('id', memberIds)
+      ? await db.from('profiles').select('email').in('id', memberIds).eq('is_active', true)
       : { data: [] as { email: string | null }[] };
     const isMember = (memberProfiles || [])
       .some((p) => String(p.email || '').trim().toLowerCase() === requesterEmail);

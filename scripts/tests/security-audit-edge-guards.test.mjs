@@ -67,6 +67,8 @@ test('submitted-notify only mails a person in the request\'s company', () => {
     'the recipient check must run before the send');
   assert.match(s, /String\(p\.email \|\| ''\)\.trim\(\)\.toLowerCase\(\) === requesterEmail/);
   assert.doesNotMatch(s, /\.ilike\('email'/, 'ILIKE treats % and _ in a typed address as wildcards');
+  assert.match(s, /\.select\('email'\)\.in\('id', memberIds\)\.eq\('is_active', true\)/,
+    'a deactivated member keeps their membership row and must not receive receipts');
 });
 for (const fn of ['payment-request-notify', 'payment-request-submitted-notify', 'payment-request-forward-melio']) {
   test(`${fn}: attachments only from {requestId}/ and the email body is escaped`, () => {
@@ -108,6 +110,8 @@ test('review-send judges exec authority with is_exec_or_owner(), as the caller',
   const s = read('supabase/functions/review-send/index.ts');
   assert.match(s, /await callerClient\.rpc\('is_exec_or_owner'\)/);
   assert.doesNotMatch(s, /\['owner', 'executive'\]\.includes\(role\)/);
+  before(s, "if (caller?.is_active !== true) {", 'const isManager = review.manager_user_id === uid;',
+    'a deactivated manager must be refused before either authorization branch');
 });
 test('redo-webhook: constant-time secret compare and one 401 for every refusal', () => {
   const s = read('supabase/functions/redo-webhook/index.ts');

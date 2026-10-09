@@ -621,6 +621,8 @@ jobs:
         run: node scripts/tests/google-oauth-redirect.test.mjs
       - name: Security audit 2026-10-08 edge-function guards
         run: node scripts/tests/security-audit-edge-guards.test.mjs
+      - name: sample-notify accepts only real, first-time trigger events
+        run: node scripts/tests/sample-notify-trigger-events.test.mjs
       # Meta Ads OAuth (Facebook Login for Business), additive. Mutations:
       # META_OAUTH_MUTATION=any-admin | no-recheck | keep-short | loose-consume
       # | review-open-start | review-open-callback | review-any-row

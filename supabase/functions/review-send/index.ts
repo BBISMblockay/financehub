@@ -124,7 +124,12 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'Review is already finished' }), { status: 400, headers: CORS });
     }
 
-    const { data: caller } = await db.from('profiles').select('id, name, email, role, active_company_id').eq('id', uid).single();
+    const { data: caller } = await db.from('profiles').select('id, name, email, role, active_company_id, is_active').eq('id', uid).single();
+    // A deactivated account keeps a refreshable session and its manager
+    // assignments; it must not mint a fresh review link either way.
+    if (caller?.is_active !== true) {
+      return new Response(JSON.stringify({ error: 'Not authorized for this review' }), { status: 403, headers: CORS });
+    }
     // Exec/owner authority for the ACTIVE company, judged by is_exec_or_owner()
     // as the caller -- the same gate the reviews RLS uses. The global
     // profiles.role alone admitted a user who is an owner of some other company

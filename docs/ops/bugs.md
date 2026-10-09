@@ -16,10 +16,11 @@ See below.
 
 Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
 
-- **Published Google Sheets with customer and AR data.** `server/ar-sync.mjs`, `pages/wholesale.html`
-  (in the browser) and `config/silo-sources.mjs` read "publish to web" / "anyone with the link" CSV
-  URLs. Anyone with a URL reads the data. Fix needs the sheets unpublished and a service-account read;
-  `pages/wholesale.html` must move to Supabase first or it breaks.
+- **Published Google Sheets with customer and AR data (legacy).** `server/ar-sync.mjs`,
+  `pages/wholesale.html` and `config/silo-sources.mjs` read "publish to web" / "anyone with the link"
+  CSV URLs; anyone with a URL reads the data. These are legacy sources (Blake, 2026-10-09), so the fix
+  is to stop publishing the sheets in Google ("Publish to web" → Stop publishing, and remove "anyone
+  with the link"), then delete the URLs and the legacy readers from the repo.
 - **CI secrets have no environment protection.** `SUPABASE_ACCESS_TOKEN` (full DB control) and the
   service-role key are repo-level secrets any branch's workflow can read. Create a `production`
   environment (branches: `main`, reviewer: Blake), move both secrets into it, add
@@ -37,8 +38,10 @@ Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
 - **No CSP on any page; CDN scripts are unpinned** (`@supabase/supabase-js@2`, `marked@12`,
   `dompurify@3`) with no SRI. Any XSS is account takeover while the session sits in `localStorage`.
 - **`chat_run_readonly_query`** was not reviewed for read-only bypasses in this audit.
-- **`sample-notify` unsigned path** can still re-announce a REAL sample (UUID needed) to the people its
-  row names. Closing it needs a trigger secret (migration + vault secret).
+- **`sample-notify` has no trigger secret.** An unsigned call can only deliver an event the row's
+  current state supports, once (INSERT events: fresh row, never logged before; size requests: 10-minute
+  cooldown), so it cannot announce a false transition or repeat one. It can still race the trigger to
+  send that same first notification. A signed trigger (vault secret + header) would close that.
 
 ---
 

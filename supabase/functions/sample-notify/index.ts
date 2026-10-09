@@ -32,11 +32,20 @@
 // Trust (security audit 2026-10-08): verify_jwt is off, so ANYONE can POST
 // here. The body is therefore only a pointer: the sample is re-read by id with
 // the service role and every field the message uses comes from that row, never
-// from the request. An unsigned call (the trigger) can only re-announce a real
-// sample to the people the row already names. A signed-in caller ("Notify now"
-// on v2/products.html) must be able to read the sample under RLS, and may pick
-// the assignee from the drawer's unsaved dropdown -- but only an active member
-// of the sample's company. The #samples Slack webhook is Baseballism's own
+// from the request. Two callers, two rules:
+//   - Unsigned = the trigger (it sends no Authorization). Only the three events
+//     notify_sample_events() sends, only when the row's CURRENT state is the one
+//     that event announces, and only once: an INSERT event (requested /
+//     received) needs a row created in the last 15 minutes and no earlier log
+//     row for it; a size request is refused within 10 minutes of the last one
+//     for that sample. So an unsigned caller can never announce a transition
+//     that did not happen, or repeat one.
+//   - Signed in = "Notify now" on v2/products.html, which sends SAMPLE_ASSIGNED
+//     only. The caller must read the sample under RLS, and may pick the
+//     drawer's unsaved assignee -- but only an active member of the sample's
+//     company.
+// A bearer that is neither the anon key nor a valid user is refused, never
+// downgraded to "unsigned". The #samples Slack webhook is Baseballism's own
 // channel, so only Baseballism samples are posted there, and Slack mrkdwn in
 // sample text is escaped so a title cannot ping @channel or plant a link.
 //
@@ -46,6 +55,7 @@
 // was actually reached. Logging is best-effort: wrapped so a logging
 // failure never turns a real send into an error response.
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { callerMaySend, rowSupportsTriggerEvent, unsignedEventIsFresh } from './trigger-events.mjs';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -55,7 +65,8 @@ const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
 const SLACK_CHANNEL_COMPANY_ID = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SAMPLE_COLUMNS =
-  'id, company_entity_id, product_title, sample_ref, factory_name, size_requests, sample_status, request_source, created_by, assigned_to';
+  'id, company_entity_id, product_title, sample_ref, factory_name, size_requests, sample_status, request_source, created_by, assigned_to, created_at';
+
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
 const SLACK_WEBHOOK = Deno.env.get('SLACK_SAMPLES_WEBHOOK_URL') || '';
 const SLACK_BOT_TOKEN = Deno.env.get('SLACK_BOT_TOKEN') || '';
@@ -123,7 +134,9 @@ type SampleRecord = {
   request_source: string | null;
   created_by: string | null;
   assigned_to: string | null;
+  created_at?: string | null;
 };
+
 
 const KNOWN_TYPES = [
   'SAMPLE_REQUESTED',
@@ -275,13 +288,13 @@ function slackEsc(s: string | null | undefined): string {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// The signed-in user behind the Authorization header, or null for an unsigned
-// call (the DB trigger sends none; the anon key is not a user).
-async function callerJwt(req: Request): Promise<string | null> {
+// Who is calling: 'unsigned' (no bearer, or the anon key -- the trigger sends
+// none), 'user' (a valid session), or 'invalid' (any other bearer, refused).
+async function callerIdentity(req: Request): Promise<{ kind: 'unsigned' | 'user' | 'invalid'; jwt: string | null }> {
   const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
-  if (!jwt || jwt === ANON_KEY) return null;
+  if (!jwt || jwt === ANON_KEY) return { kind: 'unsigned', jwt: null };
   const { data, error } = await db.auth.getUser(jwt);
-  return error || !data?.user ? null : jwt;
+  return error || !data?.user ? { kind: 'invalid', jwt: null } : { kind: 'user', jwt };
 }
 
 Deno.serve(async (req: Request) => {
@@ -301,7 +314,15 @@ Deno.serve(async (req: Request) => {
     // A signed-in caller must be able to see the sample under RLS (its own
     // active company). An unsigned caller is the trigger; it gets no say in
     // anything but which real sample to announce.
-    const jwt = await callerJwt(req);
+    const who = await callerIdentity(req);
+    if (who.kind === 'invalid') {
+      return new Response(JSON.stringify({ error: 'Not authenticated' }), { status: 401, headers: CORS });
+    }
+    const jwt = who.jwt;
+    // Each caller may send only its own events.
+    if (!callerMaySend(!!jwt, type)) {
+      return new Response(JSON.stringify({ error: 'event not accepted from this caller' }), { status: 403, headers: CORS });
+    }
     if (jwt) {
       const caller = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: `Bearer ${jwt}` } } });
       const { data: visible } = await caller.from('product_samples').select('id').eq('id', claimed.id).maybeSingle();
@@ -320,6 +341,16 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'Sample not found' }), { status: 404, headers: CORS });
     }
     const record = row as SampleRecord;
+
+    // Unsigned (trigger) events must describe what actually happened, once.
+    if (!jwt) {
+      const quiet = () => new Response(JSON.stringify({ ok: true }), { headers: CORS });
+      if (!rowSupportsTriggerEvent(type, record)) return quiet();
+      const { data: prior } = await db.from('sample_notification_log').select('created_at')
+        .eq('sample_id', record.id).eq('event_type', type)
+        .order('created_at', { ascending: false }).limit(1);
+      if (!unsignedEventIsFresh(type, record.created_at, prior?.[0]?.created_at ?? null)) return quiet();
+    }
 
     // "Notify now" sends the drawer's CURRENT assignee, which may not be saved
     // yet. Honour it for a signed-in caller only, and only for an active member
