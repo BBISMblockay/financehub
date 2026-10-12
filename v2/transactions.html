@@ -2040,6 +2040,7 @@
     }
     box.innerHTML = parts.join('');
     box.hidden = false;
+    syncFilterPanelVisibility();
   }
   el('codeBlockers').addEventListener('click', (e) => {
     const show = e.target.closest('[data-blocker-filter]');
@@ -2187,7 +2188,8 @@
         <th class="txn-select"><input type="checkbox" class="cc-check" id="codeAll" ${!pickable.length?'disabled':''} ${allChecked ? 'checked' : ''} aria-label="Select editable transactions" title="Select everything shown" /></th>
         <th class="txn-date">Date</th><th class="txn-description">Transaction</th>
         <th class="txn-merchant">Merchant</th><th class="txn-amount num">Amount</th>
-        <th class="txn-category">Category</th><th class="txn-review"><span class="txn-sr-only">Review transaction</span></th>
+        <th class="txn-treatment">Type</th><th class="txn-category">Category</th><th class="txn-entity">Entity</th>
+        <th class="txn-review"><span class="txn-sr-only">Review</span></th>
       </tr></thead><tbody>` + rows.map((t) => {
       const expanded = expandedTransaction === t.id;
       const suggestion = liveSuggestion(t);
@@ -2200,7 +2202,9 @@
           <div class="txn-secondary">${t.card_name?esc(t.card_name)+' · ':''}${!bank.isAvailable(t)?esc(providerNote(t))+' · ':!bank.canEditBatch(batchFor(t))?esc(batchFor(t)?.status || 'Read-only')+' · ':''}${suggestedCategory?'Suggestion ready':suggestion?.kind==='failed'?'Preparation failed':t.status==='excluded'?'Excluded':entityMissing?esc(entityMissing):t.coding_conflict?'Rule conflict':treatmentGapFor(t)?'Needs transaction type: '+esc(treatmentGapFor(t).reason):state.dirty.has(t.id)?'Unsaved changes':t.status==='uncoded'?'Needs category':isSplit(t)?'Split across '+(splitsFor(t)||[]).length+' accounts':t.coding_source==='ai'?'AI · '+Math.round((t.confidence || 0)*100)+'% confidence':'Categorized'}</div></td>
         <td class="txn-merchant">${merchantCell(t)}</td>
         <td class="txn-amount num ${Number(t.amount)<0?'txn-inflow':''}">${Number(t.amount)<0?'+':''}${money(Math.abs(Number(t.amount)))}<span>${Number(t.amount)<0?'Money in':'Money out'}</span></td>
-        <td class="txn-category" data-cell="account">${suggestedCategory?quickAccept(t,suggestion,suggestedCategory,expanded):isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}${treatmentLine(t)}${entityLine(t)}</td>
+        <td class="txn-treatment" data-cell="treatment">${treatmentCell(t)}</td>
+        <td class="txn-category" data-cell="account">${suggestedCategory?quickAccept(t,suggestion,suggestedCategory,expanded):isSplit(t)?splitCell(t):cellButton(t.qbo_account_name, 'account')}</td>
+        <td class="txn-entity" data-cell="entity">${entityColumn(t)}</td>
         <td class="txn-review"><button class="txn-review-button" data-review aria-label="${expanded?'Close detail panel':'Open detail panel for'} ${esc(t.description)}" aria-expanded="${expanded}" aria-controls="txnDetailDrawer">${expanded?'−':'↗'}</button></td>
       </tr>`;
     }).join('') + '</tbody>';
@@ -2247,20 +2251,31 @@
       : '';
     if (t.entity_name && !issue) return `<button class="cc-cell" data-edit="entity">${esc(t.entity_name)}</button>`;
     if (t.entity_name && issue) {
-      return `<button class="cc-cell cc-cell--req" data-edit="entity">wrong — need ${required === 'Vendor' ? 'vendor' : 'customer'}</button>${hintBtn}`;
+      return `<button class="cc-cell cc-cell--req" data-edit="entity" title="Need ${required === 'Vendor' ? 'vendor' : 'customer'} on this account">wrong ${required === 'Vendor' ? 'vendor' : 'customer'}</button>${hintBtn}`;
     }
-    return `<button class="cc-cell cc-cell--req" data-edit="entity">needs ${required === 'Vendor' ? 'vendor' : 'customer'}</button>${hintBtn}`;
+    return `<button class="cc-cell cc-cell--req" data-edit="entity" title="QuickBooks requires a ${required === 'Vendor' ? 'vendor' : 'customer'}">`
+      + `${required === 'Vendor' ? 'vendor' : 'customer'}</button>${hintBtn}`;
   }
-  // Under the category in the register, so an AR/AP row's entity is visible
-  // while tagging rather than only inside the review panel.
-  const entityLine = (t) => !isSplit(t) && t.qbo_account_id && (t.entity_name || needsEntity(t))
-    ? `<div class="txn-entity-line" data-entity-slot><span class="cc-note">Entity</span> ${entityCell(t)}</div>` : '';
-  function treatmentLine(t) {
+
+  function entityColumn(t) {
+    if (isSplit(t)) {
+      return `<button class="cc-cell txn-entity-split" data-split title="Customer or vendor on each split line">Split lines</button>`;
+    }
+    if (!needsEntity(t) && !t.entity_name) return '<span class="txn-col-empty">—</span>';
+    return `<div class="txn-entity-col">${entityCell(t)}</div>`;
+  }
+
+  function treatmentCell(t) {
+    if (t.origin !== 'plaid') return '<span class="txn-col-empty">—</span>';
+    if (!rowEditable(t)) {
+      const label = TREATMENTS[t.accounting_treatment] || t.accounting_treatment || '—';
+      return `<span class="txn-type-label" title="${esc(label)}">${esc(label)}</span>`;
+    }
     const gap = treatmentGapFor(t);
-    if (!gap) return '';
-    return `<div class="txn-entity-line"><span class="cc-chip cc-chip--none">needs type</span> `
-      + (gap.suggested ? `<button class="bcn-btn bcn-btn--ghost txn-hint" data-use-treatment="${esc(gap.suggested)}">Set ${esc(TREATMENTS[gap.suggested] || gap.suggested)}</button>`
-        : `<button class="bcn-btn bcn-btn--ghost txn-hint" data-review>Choose type</button>`) + '</div>';
+    const hint = gap?.suggested
+      ? ` <button type="button" class="bcn-btn bcn-btn--ghost txn-hint txn-hint--inline" data-use-treatment="${esc(gap.suggested)}" title="Set ${esc(TREATMENTS[gap.suggested] || gap.suggested)}">↵</button>`
+      : '';
+    return `<select class="bcn-field txn-type-select" data-field="treatment" aria-label="Transaction type">${treatmentOptions(t.accounting_treatment || 'unknown')}</select>${hint}`;
   }
 
   // Every distinct card name in the file, with its row count and total. This
@@ -2547,6 +2562,15 @@
   const initialDates=window.SiloTransactionDates.preset('month');
   el('dateStart').value=initialDates.start;el('dateEnd').value=initialDates.end;
   el('dateForm').addEventListener('submit',event=>{event.preventDefault();browseDates();});
+  let _dateBrowseTimer = null;
+  function scheduleBrowseDates() {
+    if (state.dirty.size || state.codingBusy) return;
+    clearTimeout(_dateBrowseTimer);
+    _dateBrowseTimer = setTimeout(() => browseDates(), 400);
+  }
+  for (const id of ['dateStart', 'dateEnd']) {
+    el(id).addEventListener('change', scheduleBrowseDates);
+  }
   el('dateForm').addEventListener('click',event=>{
     const button=event.target.closest('[data-date-preset]');if(!button)return;
     if(state.dirty.size || state.codingBusy)return setStatus('Save or discard your edits before changing dates.','neg');
@@ -2662,6 +2686,17 @@
     el('filterChips').innerHTML = chips.map((chip) =>
       `<button type="button" class="txn-chip" data-clear-filter="${esc(chip.key)}"
         aria-label="Remove filter: ${esc(chip.label)}">${esc(chip.label)}<span aria-hidden="true">×</span></button>`).join('');
+    syncFilterPanelVisibility();
+  }
+
+  function syncFilterPanelVisibility() {
+    const queue = ['vendor', 'customer', 'treatment', 'entity', 'conflict', 'pending'].includes(filters.status);
+    const adv = TF.describe(filters, filterCtx()).some((c) => c.key !== 'status');
+    const blockers = !el('codeBlockers').hidden;
+    if (queue || adv || blockers) {
+      el('codeFilterPanel').hidden = false;
+      el('btnFilterToggle').setAttribute('aria-expanded', 'true');
+    }
   }
 
   el('btnFilterToggle').addEventListener('click', () => {
