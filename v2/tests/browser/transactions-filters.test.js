@@ -380,8 +380,6 @@ const TABLES = {
 
       // Reload the account over a window that excludes both Comcast rows. The
       // set on screen changes; the filter position must not.
-      // The date range sits in the collapsed "Account & dates" section (#900).
-      await page.$eval('#txnContextCollapse', (d) => { d.open = true; });
       const start = await page.inputValue('#dateStart');
       const narrow = start.slice(0, 8) + '01';
       const before = start.slice(0, 8) + '11';
