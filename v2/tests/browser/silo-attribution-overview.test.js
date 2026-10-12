@@ -35,7 +35,7 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
      if(window.spendFail&&table==='marketing_kpis_daily')return resolve({data:null,error:{message:'spend read refused'}});
      if(table==='marketing_kpis_daily')data=[{platform:'meta_ads',day_date:'2026-09-30',spend:300},{platform:'google_ads',day_date:'2026-09-30',spend:50}];
      if(table==='redo_marketing_daily')data=[{channel:'SMS',day_date:'2026-09-30',spend:12.5,spend_currency:'USD'}];
-     resolve({data});}};return q;}})};` }));
+     resolve({data,count:Array.isArray(data)?data.length:null});}};return q;}})};` }));
   const url=`http://127.0.0.1:${server.address().port}/v2/silo-attribution.html?start=2026-09-30&end=2026-09-30`;
   await page.goto(url);await page.waitForSelector('.attr-together',{timeout:10000}).catch(async e=>{console.error(await page.locator('body').innerText(),errors);throw e;});
   // Lead with money and teamwork: KPIs (incl. spend) and the headline are visible without opening anything.
@@ -68,7 +68,7 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   }
   await page.setViewportSize({width:390,height:844});await page.waitForTimeout(250);await page.evaluate(()=>{document.querySelector('.silo-main').scrollTop=0;window.scrollTo(0,0);});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));if(process.env.SILO_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SILO_SCREENSHOT_DIR,'attribution-mobile.png'),fullPage:true});
   await page.locator('#start').fill('2026-09-29');await page.locator('#start').dispatchEvent('change');assert.equal(await page.locator('#results').isVisible(),false);
-  await page.locator('#start').fill('2026-09-30');await page.evaluate(()=>window.staleFixture=true);await page.locator('#load').click();await page.waitForFunction(()=>document.querySelector('#overview').textContent.includes('refreshed since'));assert.equal(await page.locator('#results').isVisible(),true);
+  await page.locator('#start').fill('2026-09-30');await page.evaluate(()=>window.staleFixture=true);await page.locator('#load').click();await page.waitForFunction(()=>document.querySelector('#overview').textContent.includes('refreshed since'));assert.ok(await page.locator('.attr-scorecard').isVisible(),'stale journeys keep the scorecard');assert.equal(await page.locator('#spend').innerText(),'$362.50');assert.equal(await page.locator('#results').isVisible(),true);
   // Spend failing never blanks the attribution; it says spend is unavailable.
   await page.evaluate(()=>{window.staleFixture=false;window.spendFail=true;});await page.locator('#load').click();await page.waitForSelector('.attr-scorecard');
   assert.equal(await page.locator('#spend').innerText(),'Unavailable');assert.match(await page.locator('#spendnote').innerText(),/spend read refused/);assert.match(await page.locator('.attr-together').innerText(),/100% of orders/);

@@ -35,12 +35,21 @@ test('loader scopes every query to the company, pages past 1,000 rows and surfac
   const db=(fail)=>({from(table){const q={table,eq:{},range:null};const chain={select(){return chain;},eq(k,v){q.eq[k]=v;return chain;},in(){return chain;},gte(){return chain;},lte(){return chain;},order(){return chain;},
     limit(){calls.push(q);return Promise.resolve({data:[{day_date:'2026-10-01'}],error:null});},
     range(a,b){q.range=[a,b];calls.push(q);if(fail&&table==='redo_marketing_daily')return Promise.resolve({data:null,error:Error('denied')});
-      const n=table==='redo_marketing_daily'?Math.max(0,Math.min(1000,1500-a)):0;return Promise.resolve({data:Array.from({length:n},()=>({channel:'SMS',day_date:'2026-09-02',spend:1,spend_currency:'USD'})),error:null});}};return chain;}});
+      // The server caps pages at 400 rows, below the 1,000 asked for.
+      const total=table==='redo_marketing_daily'?1500:0,n=Math.max(0,Math.min(400,b-a+1,total-a));return Promise.resolve({data:Array.from({length:n},()=>({channel:'SMS',day_date:'2026-09-02',spend:1,spend_currency:'USD'})),error:null,count:total});}};return chain;}});
   const raw=await loadSpend(db(false),company,'2026-09-01','2026-09-30');
-  assert.equal(raw.redo.length,1500);assert.deepEqual(calls.filter(c=>c.table==='redo_marketing_daily'&&c.range).map(c=>c.range[0]),[0,1000]);
+  assert.equal(raw.redo.length,1500);assert.deepEqual(calls.filter(c=>c.table==='redo_marketing_daily'&&c.range).map(c=>c.range[0]),[0,400,800,1200]);
   assert.ok(calls.length>0&&calls.every(c=>c.eq.company_entity_id===company));
   assert.equal(summarizeSpend(raw,period).get('Redo SMS').cents,150000);
   await assert.rejects(loadSpend(db(true),company,'2026-09-01','2026-09-30'),/denied/);
   await assert.rejects(loadSpend(db(false),'not-a-company','2026-09-01','2026-09-30'),/Invalid/);
   await assert.rejects(loadSpend(db(false),company,'2026-09-30','2026-09-01'),/Invalid/);
+});
+test('a row count that moves or a read that stops short fails instead of undercounting',async()=>{
+  const db=(pagesOut)=>({from(table){const chain={select(){return chain;},eq(){return chain;},in(){return chain;},gte(){return chain;},lte(){return chain;},order(){return chain;},
+    limit:()=>Promise.resolve({data:[],error:null}),range(a){const r=table==='redo_marketing_daily'?pagesOut(a):{data:[],count:0};return Promise.resolve({error:null,...r});}};return chain;}});
+  const row={channel:'SMS',day_date:'2026-09-02',spend:1,spend_currency:'USD'};
+  await assert.rejects(loadSpend(db(a=>({data:Array(400).fill(row),count:a?900:800})),company,'2026-09-01','2026-09-30'),/changed while loading/);
+  await assert.rejects(loadSpend(db(a=>({data:a?[]:Array(400).fill(row),count:800})),company,'2026-09-01','2026-09-30'),/ended early/);
+  await assert.rejects(loadSpend(db(()=>({data:[row],count:undefined})),company,'2026-09-01','2026-09-30'),/Unexpected/);
 });

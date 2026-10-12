@@ -10,12 +10,17 @@ export const SPEND_SOURCES=[
 ];
 const PAGE=1000,LIMIT=50000,uuid=/^[0-9a-f-]{36}$/i,isoDay=/^\d{4}-\d{2}-\d{2}$/;
 
+// Pages against an exact count, so a server row cap below PAGE cannot end the
+// read early and undercount spend.
 async function pages(query){
-  const rows=[];
-  for(let offset=0;offset<LIMIT;offset+=PAGE){
-    const {data,error}=await query().range(offset,offset+PAGE-1);
-    if(error)throw error;if(!Array.isArray(data))throw Error('Unexpected spend response');
-    rows.push(...data);if(data.length<PAGE)return rows;
+  const rows=[];let count=null;
+  while(rows.length<LIMIT){
+    const {data,error,count:total}=await query().range(rows.length,rows.length+PAGE-1);
+    if(error)throw error;if(!Array.isArray(data)||!Number.isSafeInteger(total))throw Error('Unexpected spend response');
+    if(count===null)count=total;else if(total!==count)throw Error('Spend changed while loading; reload');
+    rows.push(...data);
+    if(rows.length>=count)return rows.length===count?rows:Promise.reject(Error('Spend changed while loading; reload'));
+    if(!data.length)throw Error('Spend read ended early; reload');
   }
   throw Error('Spend row limit reached; choose a smaller period');
 }
@@ -24,8 +29,8 @@ export async function loadSpend(db,companyId,start,end){
   if(!uuid.test(companyId)||![start,end].every(v=>isoDay.test(v))||start>end)throw Error('Invalid spend filters');
   const of=table=>SPEND_SOURCES.filter(s=>s.table===table).map(s=>s.key);
   const [kpi,redo,latest]=await Promise.all([
-    pages(()=>db.from('marketing_kpis_daily').select('platform,day_date,spend').eq('company_entity_id',companyId).in('platform',of('marketing_kpis_daily')).gte('day_date',start).lte('day_date',end).order('id')),
-    pages(()=>db.from('redo_marketing_daily').select('channel,day_date,spend,spend_currency').eq('company_entity_id',companyId).in('channel',of('redo_marketing_daily')).gte('day_date',start).lte('day_date',end).order('id')),
+    pages(()=>db.from('marketing_kpis_daily').select('platform,day_date,spend',{count:'exact'}).eq('company_entity_id',companyId).in('platform',of('marketing_kpis_daily')).gte('day_date',start).lte('day_date',end).order('id')),
+    pages(()=>db.from('redo_marketing_daily').select('channel,day_date,spend,spend_currency',{count:'exact'}).eq('company_entity_id',companyId).in('channel',of('redo_marketing_daily')).gte('day_date',start).lte('day_date',end).order('id')),
     // How far each source has synced decides whether "no rows" means $0 or unknown.
     Promise.all(SPEND_SOURCES.map(async s=>{
       const {data,error}=await db.from(s.table).select('day_date').eq('company_entity_id',companyId).eq(s.column,s.key).order('day_date',{ascending:false}).limit(1);

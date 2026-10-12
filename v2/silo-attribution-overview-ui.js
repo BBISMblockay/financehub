@@ -14,7 +14,8 @@ export function multiChannelShare(report){
 // root: the Overview tab. trustRoot: coverage and model comparison inside
 // "Trust & method". records/spend are null when their load failed.
 export function mountOverview(root,trustRoot,{report,records=null,journeyError=null,spend=null,spendError=null}){
-  let analysis=records?analyzeJourneys(report,records):null;
+  // Stale or inconsistent journeys drop shared credit and paths, not the scorecard or spend.
+  let analysis=null;if(records){try{analysis=analyzeJourneys(report,records);}catch(e){journeyError=e.message;}}
   const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:report.currency,maximumFractionDigits:0}).format(n/100);
   // A spend source with no spend and no orders in the period is listed under Trust & method only.
   const rows=channelTeamwork(report,analysis,spend).filter(r=>r.orders||r.touched||r.started||r.assisted||r.spend?.cents),items=findings(report,rows,analysis,money),paths=analysis?pathRevenue(report,analysis.paths):[];

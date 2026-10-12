@@ -60,3 +60,23 @@ rows reconcile (credited and shared credit each sum to net); ROAS edge cases
 (zero/negative/missing spend); findings never headline Unattributed/Pending;
 access test: spend read denied after a company switch; browser: desktop/mobile,
 light/dark, tabs, path drilldown, journeys role filter, spend-unavailable state.
+
+## Verification record (2026-10-12)
+
+- All nine `attribution-tests.yml` steps pass, plus all 33 v2 unit suites and
+  `home-cards` 19/19.
+- Browser suite on the real page and shell with synthetic data, light and dark,
+  1440px and 390px (no horizontal scroll). It covers KPIs with spend, the
+  teamwork headline and findings, scorecard values, channel drilldown and the
+  role filter, Trust & method, stale journeys (scorecard and spend remain), spend
+  failure (attribution remains) and the empty period.
+- Mutation checks, each caught by a test: never-synced spend shown as $0, partial
+  sync treated as complete, unscoped KPI query, paging stopping after one page or
+  on a short page, Redo currency unchecked, per-row rounding, spend read skipping
+  the company re-check, introducer double-counted as an assist, an evidence gap
+  counted as a closer, missing shared credit, wrong path revenue, spend failure
+  blanking the overview, spend error not shown, stale journeys blanking the overview.
+- Review fixes found during it: stale journey evidence no longer removes the
+  scorecard; spend pages against an exact row count so a server row cap below
+  1,000 cannot undercount.
+- Not done: an authenticated render against production snapshots and spend.
