@@ -238,7 +238,7 @@
     .cc-chip--split { background: rgba(37,99,235,.12); border-color: var(--bcn-accent); }
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
-  <link rel="stylesheet" href="./transactions-workspace.css?v=55a4480e724c" />
+  <link rel="stylesheet" href="./transactions-workspace.css?v=999a1ae498b6" />
   <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -1244,6 +1244,21 @@
   // Why a categorized bank row has no type yet, and what SILO would set.
   const treatmentGapFor = (t) => window.SiloTransactionDates.treatmentGap(t, acctType(t.qbo_account_id),
     batchSource()?.source_type, isSplit(t));
+  // Label for the Type column: stored value, chart-aware infer, then money in/out.
+  function effectiveTreatment(t) {
+    if (t.accounting_treatment && t.accounting_treatment !== 'unknown') return t.accounting_treatment;
+    const inferred = window.SiloTransactionDates.inferTreatment(
+      { ...t, accounting_treatment: 'unknown' },
+      acctType(t.qbo_account_id),
+      batchSource()?.source_type,
+    );
+    if (inferred !== 'unknown') return inferred;
+    if (t.origin !== 'plaid' || isSplit(t)) return 'unknown';
+    const n = Number(t.amount);
+    if (n > 0) return 'purchase';
+    if (n < 0) return 'deposit';
+    return 'unknown';
+  }
   /* An entity this company has already used for the same merchant on the same
      account, among the rows loaded. A suggestion a person applies, never an
      automatic fill: two entities on one merchant+account suggest nothing. */
@@ -2283,18 +2298,20 @@
 
   function treatmentCell(t) {
     if (t.origin !== 'plaid') return '<span class="txn-col-empty">—</span>';
-    const label = TREATMENTS[t.accounting_treatment] || t.accounting_treatment || '—';
     const gap = treatmentGapFor(t);
-    if (!rowEditable(t) || !gap) {
-      if (t.accounting_treatment && t.accounting_treatment !== 'unknown') {
-        return `<span class="txn-type-label" title="${esc(label)}">${esc(label)}</span>`;
-      }
-      return '<span class="txn-col-empty">—</span>';
+    if (rowEditable(t) && gap) {
+      const hint = gap.suggested
+        ? ` <button type="button" class="bcn-btn bcn-btn--ghost txn-hint txn-hint--inline" data-use-treatment="${esc(gap.suggested)}" title="Set ${esc(TREATMENTS[gap.suggested] || gap.suggested)}">↵</button>`
+        : ` <button type="button" class="bcn-btn bcn-btn--ghost txn-hint txn-hint--inline" data-review title="Choose transaction type in the detail panel">…</button>`;
+      return `<select class="bcn-field txn-type-select" data-field="treatment" aria-label="Transaction type">${treatmentOptions(t.accounting_treatment || 'unknown')}</select>${hint}`;
     }
-    const hint = gap.suggested
-      ? ` <button type="button" class="bcn-btn bcn-btn--ghost txn-hint txn-hint--inline" data-use-treatment="${esc(gap.suggested)}" title="Set ${esc(TREATMENTS[gap.suggested] || gap.suggested)}">↵</button>`
-      : ` <button type="button" class="bcn-btn bcn-btn--ghost txn-hint txn-hint--inline" data-review title="Choose transaction type in the detail panel">…</button>`;
-    return `<select class="bcn-field txn-type-select" data-field="treatment" aria-label="Transaction type">${treatmentOptions(t.accounting_treatment || 'unknown')}</select>${hint}`;
+    const key = effectiveTreatment(t);
+    if (key === 'unknown') return '<span class="txn-col-empty">—</span>';
+    const label = TREATMENTS[key] || key;
+    const stored = t.accounting_treatment && t.accounting_treatment !== 'unknown';
+    const title = stored ? label : `${label} · from ${Number(t.amount) < 0 ? 'money in' : 'money out'}${t.qbo_account_id ? ' and category' : ''}`;
+    const cls = stored ? 'txn-type-label' : 'txn-type-label txn-type-label--implied';
+    return `<span class="${cls}" title="${esc(title)}">${esc(label)}</span>`;
   }
 
   // Every distinct card name in the file, with its row count and total. This
