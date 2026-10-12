@@ -12,6 +12,30 @@ See below.
 
 ---
 
+## WoW report: the cohort card is still too slow to render (P2)
+
+Found 2026-10-12 while measuring `/v2/wow-report.html`.
+
+`wow_cohorts(12)` measures ~11.0s on production as `authenticated`, against that role's 8s
+statement timeout, so the Retention card renders as unavailable. This is NOT the resolver
+problem `20261012180000` fixed -- it calls neither `silo_channel_location_tags` nor
+`wow_online_shop_domains`. Its `o_all` CTE is every order the company has ever taken with no
+date bound (597,543 rows after the source filter, 353,340 distinct customers), and it joins
+that to itself to compute each customer's month offset from their first order. The plan spends
+7.3s before the retention arithmetic starts, with the `firsts` HashAggregate spilling to disk
+(21 batches, 15,888kB). No index fixes this: the work is proportional to the whole history and
+is recomputed on every page load.
+
+Bounding the scan does not help, because `firsts` needs the full history to know which month a
+customer belongs to. The fix is a rollup refreshed nightly -- cohort month, size and the m1/m2/m3/m4+
+counts, which change once a day at most -- read through a `security_invoker = false` wrapper
+carrying its own `company_entity_id = active_company_id()` filter, like the other matview
+wrappers. That would put the card at well under a second. Needs a migration and Blake's
+go-ahead; the retention numbers themselves are correct today for anyone willing to wait, and
+the card already says when it is unavailable rather than showing a wrong curve.
+
+---
+
 ## SEO SERP sync: a failed post strands the keywords already posted (P2)
 
 Found 2026-10-12 while explaining why the week's SEO sync had no mobile data.

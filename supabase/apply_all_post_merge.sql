@@ -19197,4 +19197,9 @@ $c$select (select count(*) from v_po_header_summary
 -- Backend admin RPCs: members of the active company only; Silo Admin lists accounts with no company.
 \i migrations/20261009120000_workspace_admin_member_scope.sql
 \i migrations/20261009171424_on_deck_source_date_once.sql
+-- Hoists the channel resolver out of the seven row filters 20260920180000
+-- introduced: STABLE is not cached, so the bare call re-ran once per scanned
+-- row (14,960ms vs 110ms on one predicate). Must come AFTER 20260920180000,
+-- which is what puts the bare calls there.
+\i migrations/20261012180000_wow_channel_tags_hoist.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

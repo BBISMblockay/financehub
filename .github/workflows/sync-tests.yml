@@ -38,6 +38,13 @@ on:
       # Invite authority and retired open policies (org-invite-authority-database.test.mjs).
       - 'supabase/migrations/*org_invites.sql'
       - 'supabase/migrations/*security_audit_db_hardening.sql'
+      # The channel resolver and the migration that hoists it out of the row
+      # filters (wow-channel-hoist-database.test.mjs), plus the verify check
+      # that test lifts its regex from.
+      - 'supabase/migrations/*location_channel_resolver.sql'
+      - 'supabase/migrations/*wow_channel_resolver.sql'
+      - 'supabase/migrations/*wow_channel_tags_hoist.sql'
+      - 'supabase/verify_v2_schema.sql'
       - 'supabase/migrations/*silo_dashboards.sql'
       - 'supabase/migrations/*saved_report_archive.sql'
       - 'supabase/apply_all_post_merge.sql'
@@ -1070,6 +1077,14 @@ jobs:
       # member's "save a copy". Mutation-tested: SILO_DASH_MUTATION.
       - name: Execute SILO dashboards regressions
         run: node scripts/tests/silo-dashboards-database.test.mjs
+
+      # 20261012180000: hoists silo_channel_location_tags() out of the seven row
+      # filters 20260920180000 left it bare in. Proves the rewrite hoists every
+      # site it claims, returns the same rows, counts one resolver call per
+      # statement instead of one per row, keeps an unconfigured channel empty,
+      # is idempotent, and raises rather than guessing on a drifted body.
+      - name: Execute channel resolver hoist regressions
+        run: node scripts/tests/wow-channel-hoist-database.test.mjs
 
       # 20260925150000: marketing and inventory SILO reports. Runs the deployed
       # report SQL over fixtures (grain, totals, missing days, expired Meta
