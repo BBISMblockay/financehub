@@ -516,7 +516,12 @@ await test('money direction and required entities stay visible in compact rows',
   // An Accounts Payable line needs a VENDOR specifically (QuickBooks rejects a
   // customer there), so the compact row names the kind, not just "entity".
   assert.match(h.el('tblCoding').innerHTML,/Vendor required/);
-  assert.match(h.el('tblCoding').innerHTML,/needs vendor/);
+  // The entity cell names the kind, not just "entity", and is marked required.
+  // It used to read "needs vendor"; the Transactions UI work now renders a
+  // cc-cell--req button labelled "vendor". Same fact, different wording -- the
+  // assertion is on the cell and the word, not the old phrasing.
+  assert.match(h.el('tblCoding').innerHTML,/data-edit="entity"[^>]*>vendor</);
+  assert.match(h.el('tblCoding').innerHTML,/cc-cell--req/);
 });
 
 /* A pending bank row and a removed one both fail isAvailable(), and before this
