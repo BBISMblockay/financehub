@@ -138,6 +138,31 @@
 .txn-tools summary {font-size:12px;cursor:pointer;padding:8px;color:var(--bcn-ink-2);}
 .txn-tools[open] > div {position:absolute;bottom:100%;right:0;z-index:6;padding:10px;min-width:210px;background:var(--bcn-surface);border:1px solid var(--bcn-border);border-radius:10px;box-shadow:var(--bcn-shadow);}
 
+/* Account + date context: always visible on Transactions (no collapse). */
+.txn-context {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--bcn-border);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--bcn-bg) 35%, var(--bcn-surface));
+}
+.txn-context .wsec { min-width: 0; }
+.txn-context .txn-dates { flex: none; }
+@media (min-width: 960px) {
+  .txn-context {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px 14px;
+  }
+  .txn-context .wsec { flex: 1 1 280px; min-width: 0; }
+  .txn-context .txn-dates { flex: 1 1 360px; margin-left: auto; justify-content: flex-end; }
+  .txn-context #workspacePeriodBar { width: 100%; }
+}
+
 /* ======================================================================
    Account tiles + period bar (transactions-tiles.js)
    Presentation only; the two <select>s remain the state. Beacon tokens
