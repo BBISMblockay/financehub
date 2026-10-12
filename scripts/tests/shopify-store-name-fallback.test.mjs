@@ -256,5 +256,27 @@ await test('an explicit mapping still splits the store into its own locations', 
   } finally { restore(); }
 });
 
+// Two MAPPED locations that share one SILO code keep their own rows, as they
+// do today. The collapse is the fallback grain only: changing the mapped grain
+// would alter the row shape of every store someone has already mapped, which
+// is outside what this fix is for.
+await test('two mapped locations sharing a SILO code stay separate rows', async () => {
+  const supabase = createFakeSupabase();
+  for (const shopifyId of ['1', '2']) {
+    supabase.from('shopify_location_mappings').insert({
+      company_entity_id: 'co-1', connection_id: 'c-inv', shopify_location_id: shopifyId,
+      silo_location_code: 'main_wh', location_id: null,
+    });
+  }
+  const restore = stubShopify(invFixture);
+  try {
+    const res = await runInventorySnapshot(supabase, { ...invConn }, { batchId: 'b4' });
+    const rows = supabase.calls.upserts.filter((u) => u.table === 'inventory_on_hand').flatMap((u) => u.rows);
+    deepEq([rows.length, res.locations_unmapped], [2, 0], 'one row per physical location, nothing fell back');
+    deepEq(rows.map((r) => r.total_available_quantity).sort(), [3, 7], 'quantities not merged');
+    deepEq(rows.map((r) => r.location).sort(), ['Main Warehouse', 'Retail Floor'], 'each keeps its own Shopify name');
+  } finally { restore(); }
+});
+
 console.log(`\n${count - failures}/${count} passed`);
 if (failures) process.exit(1);
