@@ -160,11 +160,13 @@ await test('bare runs the resolver once per scanned row; hoisted runs it once pe
 
 await test('an empty channel still selects no rows, never every row', async () => {
   const { db, q } = await fresh();
-  // wow_data_through alone: it is the one the migration expects to carry a
-  // single site, so it can stand in for a channel nobody has configured
-  // without tripping the site-count assertion meant for wow_report.
-  await db.exec(`create function wow_data_through() returns bigint language sql stable
-    as $$ select count(*) from public.sales_by_day s
+  await withFunctions(db);
+  // wow_data_through stands in for the unconfigured channel: it is the target
+  // the migration expects to carry a single site, so swapping its body keeps
+  // every other assertion satisfied. All five must stay present -- the
+  // migration refuses a database missing one.
+  await db.exec(`create or replace function wow_data_through() returns numeric language sql stable
+    as $$ select count(*)::numeric from public.sales_by_day s
           where s.location_tag = any(public.silo_channel_location_tags('wholesale')) $$;`);
   const before = (await q(`select wow_data_through() n`))[0].n;
   await db.exec(MIGRATION);
@@ -196,6 +198,27 @@ await test('a function that resolves no channel at all is refused', async () => 
   await db.exec(`create or replace function wow_data_through() returns numeric language sql stable
     as $$ select coalesce(sum(total_net_sales), 0) from public.sales_by_day $$;`);
   await assert.rejects(() => db.exec(MIGRATION), /resolves no channel at all/);
+});
+
+await test('a database missing one of the five targets is refused', async () => {
+  const { db, q } = await fresh();
+  await withFunctions(db);
+  await db.exec('drop function wow_data_through()');
+  await assert.rejects(() => db.exec(MIGRATION),
+    /public\.wow_data_through matched 0 function\(s\), expected exactly 1/);
+  // And nothing was recorded against the four that are present.
+  assert.equal(await hoistedSites(q), 0);
+  assert.equal(await bareCount(q), 4);
+});
+
+await test('a second signature of a target is refused rather than half-rewritten', async () => {
+  const { db } = await fresh();
+  await withFunctions(db);
+  await db.exec(`create function wow_data_through(p_unused text) returns numeric language sql stable
+    as $$ select coalesce(sum(s.total_net_sales), 0) from public.sales_by_day s
+          where lower(btrim(s.location_tag)) = any(public.silo_channel_location_tags('online')) $$;`);
+  await assert.rejects(() => db.exec(MIGRATION),
+    /public\.wow_data_through matched 2 function\(s\), expected exactly 1/);
 });
 
 await test('a refusal leaves every body as it was', async () => {

@@ -47,6 +47,7 @@ declare
   rewrote int := 0;
   skipped int := 0;
   found   int := 0;
+  n_this  int;
 begin
   for want in
     -- (function, how many bare sites it must carry). A count that has moved
@@ -59,6 +60,7 @@ begin
       ('wow_paid_media_reality', 1)
     ) as t(proname, expected)
   loop
+    n_this := 0;
     for fn in
       select p.oid, pg_get_function_identity_arguments(p.oid) as args
       from pg_proc p
@@ -68,6 +70,7 @@ begin
         and p.proname = want.proname
     loop
       found := found + 1;
+      n_this := n_this + 1;
       def := pg_get_functiondef(fn.oid);
 
       n_bare := (select count(*) from regexp_matches(
@@ -110,12 +113,24 @@ begin
       rewrote := rewrote + 1;
       raise notice 'wow hoist: %(%) hoisted (% site(s))', want.proname, fn.args, n_bare;
     end loop;
+
+    -- EVERY named function must be present, and exactly once. A missing one
+    -- used to iterate zero times in silence: the other four would be rewritten
+    -- and this migration recorded as applied, so if that function were later
+    -- restored from an older definition it would keep its per-row resolver call
+    -- and nothing would rewrite it again. The whole point of rewriting live
+    -- bodies is that these definitions are known to drift, so a target that is
+    -- not there is drift, not a no-op. A second signature is drift too -- there
+    -- has only ever been one of each -- and rewriting one while ignoring the
+    -- other would leave the page calling whichever the planner picked.
+    if n_this <> 1 then
+      raise exception
+        'wow hoist: public.% matched % function(s), expected exactly 1 -- refusing to record this migration against a database missing a target',
+        want.proname, n_this;
+    end if;
   end loop;
 
-  if found = 0 then
-    raise exception 'wow hoist: none of the five functions were found -- nothing was rewritten';
-  end if;
-
-  raise notice 'wow hoist: % function(s) rewritten, % already hoisted', rewrote, skipped;
+  raise notice 'wow hoist: % function(s) seen, % rewritten, % already hoisted',
+    found, rewrote, skipped;
 end;
 $mig$;

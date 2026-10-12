@@ -1274,26 +1274,41 @@
       // like one report.
       const d = el('reportDate').value, gr = GRAIN;
 
-      // ONE BATCH. This was two sequential batches, because firing everything
-      // at once meant several concurrent readers of the same large tables
-      // contending for CPU and buffers against `authenticated`'s 8s
-      // statement_timeout -- the Postgres log for a single load showed seven
-      // cancellations inside forty seconds. The contention was real but the
-      // cause was not the fan-out: six of these RPCs re-ran
-      // silo_channel_location_tags() once per scanned row (67,563 calls on the
-      // inventory matview alone), so wow_report measured 19.3s and
-      // wow_discount_codes 26.9s. Migration 20261012180000 hoists that call;
-      // every one of them is now sub-second and there is nothing left to
-      // sequence, so the ~1s the split cost is given back.
+      // TWO BATCHES, NOT ONE Promise.all. `authenticated` carries
+      // statement_timeout = 8s, and firing all of these at once meant several
+      // concurrent readers of the same large tables contending for CPU and
+      // buffers: at YTD the Postgres log for a single load showed SEVEN
+      // cancellations inside forty seconds, three of them within 21
+      // milliseconds of each other.
       //
-      // wow_cohorts is the one remaining long pole (~11s, so still cancelled
-      // at the 8s cap): it aggregates the whole order history and wants a
-      // nightly rollup, not sequencing -- putting it in its own batch never
-      // helped it. The funnel-and-friends error handling below renders that
-      // section as unavailable rather than failing the report.
-      const [main, kpi, funnel, paid, reality, landing, codes, cohorts, organic, creatives] = await Promise.all([
+      // The CAUSE of that contention is now known and fixed in the database,
+      // not here: six of these RPCs called silo_channel_location_tags() bare in
+      // a row filter, and STABLE is not cached, so it re-ran once per scanned
+      // row -- 67,563 calls on the inventory matview inside wow_report alone,
+      // which is why wow_report measured 19.3s and wow_discount_codes 26.9s
+      // (measured on production 2026-10-12). Migration 20261012180000 hoists
+      // every one of those calls and takes them all under a second.
+      //
+      // THE SPLIT STAYS UNTIL THAT MIGRATION IS LIVE. This page is statically
+      // hosted and the migration is applied by hand, so the page can go live
+      // first; collapsing the batches in the same change would, for that
+      // window, fire ten RPCs at once against functions still taking 12-27s
+      // and recreate exactly the cancellation burst above. The ~1s the split
+      // costs is worth far less than that, and removing it is a one-hunk
+      // follow-up once the migration is confirmed applied.
+      //
+      // Meanwhile the ordering still earns its keep: wow_report goes first on
+      // its own -- it feeds the KPI band, so the headline lands sooner -- with
+      // wow_kpi_compare (~0.8s) alongside it, then everything else follows.
+      // wow_cohorts (~11s) is the second batch's long pole and a separate
+      // problem: it aggregates the whole order history and wants a nightly
+      // rollup, not sequencing. The error handling below renders that section
+      // as unavailable rather than failing the report.
+      const [main, kpi] = await Promise.all([
         sb.rpc('wow_report', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_kpi_compare', { p_report_date: d, p_grain: gr }),
+      ]);
+      const [funnel, paid, reality, landing, codes, cohorts, organic, creatives] = await Promise.all([
         sb.rpc('wow_funnel', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_paid_media', { p_report_date: d, p_grain: gr }),
         // Sub-second: six date-bounded aggregates over one window.
