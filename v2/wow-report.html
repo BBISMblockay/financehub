@@ -1343,6 +1343,13 @@
         setStatus('The report query timed out. Retrying once\u2026', 'warn');
         main = await sb.rpc('wow_report', { p_report_date: d, p_grain: gr });
       }
+      // THROWN HERE, not after the second batch. There is no report without
+      // wow_report, so once both attempts have failed the eight calls below
+      // cannot put anything on the screen -- they would only add 8 more
+      // expensive readers to a database that just cancelled two statements,
+      // and push the user's wait from two attempts to three timeouts before
+      // the same banner. Failing now is the whole point of containing this.
+      if (main.error) throw main.error;
       const [funnel, paid, reality, landing, codes, cohorts, organic, creatives] = await Promise.all([
         sb.rpc('wow_funnel', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_paid_media', { p_report_date: d, p_grain: gr }),
@@ -1359,7 +1366,6 @@
         // ship a megabyte of ad copy to render ten rows.
         sb.rpc('wow_creatives', { p_report_date: d, p_grain: gr, p_limit: 50 }),
       ]);
-      if (main.error) throw main.error;
       DATA = main.data;
       // The funnel is additive -- a failure here must not take down the sales
       // figures the rest of the report is built on.

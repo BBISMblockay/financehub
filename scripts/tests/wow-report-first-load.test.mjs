@@ -20,6 +20,7 @@
  *   WOW_FIRST_LOAD_MUTATION=no-failed-clear (FAILED survives across loads)
  *   WOW_FIRST_LOAD_MUTATION=retry-everything (the retry re-fires every RPC)
  *   WOW_FIRST_LOAD_MUTATION=silent-retry     (the retry says nothing to the user)
+ *   WOW_FIRST_LOAD_MUTATION=late-throw       (gives up only after the second batch)
  *
  * Run:  node scripts/tests/wow-report-first-load.test.mjs
  */
@@ -29,7 +30,7 @@ import vm from 'node:vm';
 
 const PAGE = new URL('../../v2/wow-report.html', import.meta.url);
 const mutation = process.env.WOW_FIRST_LOAD_MUTATION || '';
-assert.ok(['', 'no-retry', 'no-failed-clear', 'retry-everything', 'silent-retry'].includes(mutation),
+assert.ok(['', 'no-retry', 'no-failed-clear', 'retry-everything', 'silent-retry', 'late-throw'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 const pristine = await readFile(PAGE, 'utf8');
@@ -38,14 +39,20 @@ if (mutation === 'no-retry') {
   html = html.replace(
     `      if (main.error) {
         console.warn('wow_report failed, retrying once:', main.error.message);
+        setStatus('The report query timed out. Retrying once\\u2026', 'warn');
         main = await sb.rpc('wow_report', { p_report_date: d, p_grain: gr });
-      }`,
-    '      // retry removed by mutation');
+      }\n`,
+    '');
 } else if (mutation === 'no-failed-clear') {
   html = html.replace('      FAILED.clear();\n', '');
 } else if (mutation === 'silent-retry') {
   html = html.replace(
     "        setStatus('The report query timed out. Retrying once\\u2026', 'warn');\n", '');
+} else if (mutation === 'late-throw') {
+  // Move the fatal check back after the second batch, as it was on 34917eb.
+  html = html.replace(
+    `      if (main.error) throw main.error;\n`, '')
+    .replace('      DATA = main.data;', '      if (main.error) throw main.error;\n      DATA = main.data;');
 } else if (mutation === 'retry-everything') {
   html = html.replace(
     `        main = await sb.rpc('wow_report', { p_report_date: d, p_grain: gr });`,
@@ -150,6 +157,23 @@ function runLoad({ reportAttempts, seedFailed = [] }) {
   assert.equal(r.lastStatus.type, 'neg', 'two failures must surface as the error banner');
   assert.match(r.lastStatus.msg, /statement timeout/,
     'the banner should carry the underlying message, which is what names the cause');
+
+  // And it gives up BEFORE the second batch. There is no report without
+  // wow_report, so those eight calls cannot put anything on the screen: they
+  // would add eight expensive readers to a database that just cancelled two
+  // statements, and push the wait from two attempts to three timeouts before
+  // the same banner. Caught in review on 34917eb, where the throw sat after
+  // the second batch instead of before it.
+  for (const fn of ['wow_funnel', 'wow_paid_media', 'wow_paid_media_reality',
+                    'wow_landing_pages', 'wow_discount_codes', 'wow_cohorts',
+                    'wow_organic_posts', 'wow_creatives']) {
+    assert.equal(r.calls.filter((c) => c === fn).length, 0,
+      `${fn} must not be issued once wow_report has failed twice`);
+  }
+  // wow_kpi_compare is the exception: it was already in flight alongside the
+  // first wow_report attempt, so it is fired once and not re-fired.
+  assert.equal(r.calls.filter((c) => c === 'wow_kpi_compare').length, 1,
+    'wow_kpi_compare rides the first batch, so exactly one call is expected');
 }
 
 // 4. The retry is wow_report ONLY. Re-firing the whole batch would double the
