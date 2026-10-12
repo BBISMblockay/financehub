@@ -2839,3 +2839,10 @@ chaining keeps that true -- including on the hourly sales cron, which refreshes 
 deliberately skips the inventory refresh. A failure of the derived refresh is raised, with its own name
 in the message so the caller's log does not blame the source refresh that succeeded.
 `verify_v2_schema.sql` fails BROKEN if either source function is later replaced without the call.
+
+Because the source refresh and the derived refresh are one statement, a derived-refresh failure aborts it
+and the source refresh rolls back with it. That is deliberate -- the two can never disagree -- and it
+means a caller must read the RPC's error. `scripts/shopify-sync.mjs` and the workflow retry step already
+did; `handleInventorySnapshot` in `shopify-sync-run` did not, and marked its job `success` before the
+call, so an on-demand snapshot could roll both matviews back and still answer `ok: true`. Fixed in the
+same PR, which is why **`shopify-sync-run` needs deploying** -- merging does not deploy it.
