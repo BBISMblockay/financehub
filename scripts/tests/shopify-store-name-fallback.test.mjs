@@ -183,18 +183,44 @@ const invFixture = {
   },
 };
 
-await test('runInventorySnapshot writes rows for a store with no mappings at all', async () => {
+// The demand grain, and why this is ONE row and not two.
+//
+// inventory_workboard_v joins sales_velocity_by_sku_location_v on
+// (location_tag, variant_sku, product_name) and gives that aggregate to EVERY
+// inventory row carrying the pair; v2/bi-top-sellers.html then SUMS qty and
+// avg/day across rows. Two rows under one fallback tag would therefore each
+// claim the store's whole 30-day demand: 30 sales would report as 60, and 10
+// units on hand would read as 5 days of cover instead of 10. The fallback is
+// the store as one place -- the same way its unmapped sales are recorded -- so
+// its locations sum into one row per SKU (cycle-1 P1 on PR #954).
+await test('fallback locations collapse into one row per SKU, quantities summed', async () => {
   const supabase = createFakeSupabase();
   const restore = stubShopify(invFixture);
   try {
     const res = await runInventorySnapshot(supabase, { ...invConn }, { batchId: 'b1' });
     const rows = supabase.calls.upserts.filter((u) => u.table === 'inventory_on_hand').flatMap((u) => u.rows);
-    if (res.inventory_rows_upserted !== 2 || rows.length !== 2) {
-      throw new Error(`expected 2 inventory rows, got ${res.inventory_rows_upserted} / ${rows.length}`);
+    if (res.inventory_rows_upserted !== 1 || rows.length !== 1) {
+      throw new Error(`expected 1 collapsed inventory row, got ${res.inventory_rows_upserted} / ${rows.length}`);
     }
-    deepEq([...new Set(rows.map((r) => r.location_tag))], ['shopify_hhoutfitter'], 'both rows carry the store tag');
-    deepEq(rows.map((r) => r.total_available_quantity).sort(), [3, 7], 'per-location quantities kept');
+    deepEq(rows[0].location_tag, 'shopify_hhoutfitter', 'carries the store tag');
+    deepEq(rows[0].total_available_quantity, 10, 'both locations summed (7 + 3)');
+    // Each row the workboard hands the store's demand to is one row here, so
+    // summing across rows counts that demand once.
+    deepEq(rows.filter((r) => r.variant_sku === 'SKU-1').length, 1, 'one row per (tag, sku)');
+    deepEq(rows[0].location, 'STLHD GEAR', 'not named after one arbitrary physical location');
     deepEq([res.locations, res.locations_unmapped, res.locations_skipped], [2, 2, 0], 'result reports the fallback');
+  } finally { restore(); }
+});
+
+await test('the collapsed row is stable across snapshots of the same stock', async () => {
+  const supabase = createFakeSupabase();
+  const restore = stubShopify(invFixture);
+  try {
+    await runInventorySnapshot(supabase, { ...invConn }, { batchId: 'b1a' });
+    const first = supabase.calls.upserts.filter((u) => u.table === 'inventory_on_hand').flatMap((u) => u.rows);
+    // A second location's stock must not land in a second row on a later run
+    // either: the key is the tag, not the physical location it was seen at.
+    deepEq([first.length, first[0].total_available_quantity], [1, 10], 'one row, full quantity');
   } finally { restore(); }
 });
 
@@ -205,6 +231,7 @@ await test('a typed default_location_code labels the snapshot instead', async ()
     await runInventorySnapshot(supabase, { ...invConn, default_location_code: 'online' }, { batchId: 'b2' });
     const rows = supabase.calls.upserts.filter((u) => u.table === 'inventory_on_hand').flatMap((u) => u.rows);
     deepEq([...new Set(rows.map((r) => r.location_tag))], ['online'], 'typed default wins');
+    deepEq([rows.length, rows[0].total_available_quantity], [1, 10], 'and collapses the same way');
   } finally { restore(); }
 });
 
@@ -220,6 +247,12 @@ await test('an explicit mapping still splits the store into its own locations', 
     const rows = supabase.calls.upserts.filter((u) => u.table === 'inventory_on_hand').flatMap((u) => u.rows);
     deepEq([...new Set(rows.map((r) => r.location_tag))].sort(), ['main_wh', 'shopify_hhoutfitter'], 'mapped keeps its tag, the rest fall back');
     deepEq([res.locations_unmapped, res.locations_skipped], [1, 0], 'only the unmapped one counted');
+    // A MAPPED location keeps its own row and its own Shopify name -- the
+    // collapse applies to the fallback grain only, so nothing changes for a
+    // store someone has mapped.
+    const mappedRow = rows.find((r) => r.location_tag === 'main_wh');
+    deepEq([mappedRow.total_available_quantity, mappedRow.location], [7, 'Main Warehouse'], 'mapped row untouched');
+    deepEq(rows.find((r) => r.location_tag === 'shopify_hhoutfitter').total_available_quantity, 3, 'fallback row holds the rest');
   } finally { restore(); }
 });
 

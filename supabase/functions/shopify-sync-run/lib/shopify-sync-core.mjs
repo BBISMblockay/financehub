@@ -1482,11 +1482,25 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
     });
   }
 
-  // Collapse by (locId, sku, product_id) — the same product can legitimately
-  // have more than one inventory item tracking the same SKU at a location
-  // (those should sum), but two DIFFERENT products sharing a SKU must not:
-  // including product_id keeps them as separate rows instead of one merged,
-  // mislabeled row.
+  // Collapse by (locId, sku, product_id) for a MAPPED location — the same
+  // product can legitimately have more than one inventory item tracking the
+  // same SKU at a location (those should sum), but two DIFFERENT products
+  // sharing a SKU must not: including product_id keeps them as separate rows
+  // instead of one merged, mislabeled row.
+  //
+  // A location resolved by FALLBACK collapses by (location_tag, sku,
+  // product_id) instead, because every unmapped location of a store resolves
+  // to the SAME tag and the demand side is keyed on that tag, not on the
+  // physical location: inventory_workboard_v joins
+  // sales_velocity_by_sku_location_v on (location_tag, variant_sku,
+  // product_name) and attaches that aggregate to EVERY row carrying the pair,
+  // and v2/bi-top-sellers.html sums qty and avg/day across rows. Keeping one
+  // row per physical location would hand each of them the store's whole
+  // 30-day demand, so a store with 16 unmapped locations would report 16x its
+  // real sales and a sixteenth of its real days of cover (cycle-1 P1 on
+  // PR #954). Summing the quantities into one row per tag is also what the
+  // tag means: the store as one place, which is exactly how its unmapped
+  // SALES are already recorded.
   const invByKey = new Map();
 
   // How many locations got their tag from the fallback rather than a mapping.
@@ -1520,7 +1534,10 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
       const qty = Number(lvl.available ?? 0);
       const lineRetail = Math.round(qty * unitPrice * 100) / 100;
 
-      const rowHash = await hashRow([connection.company_entity_id, locId, sku, productId || '', snapshotAt]);
+      // The grain: the physical location when it is mapped, the fallback tag
+      // when it is not (see the comment above the map).
+      const grainKey = mapped ? locId : locationTag;
+      const rowHash = await hashRow([connection.company_entity_id, grainKey, sku, productId || '', snapshotAt]);
       const existing = invByKey.get(rowHash);
       if (existing) {
         existing.total_available_quantity += qty;
@@ -1533,7 +1550,10 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
         location_tag: locationTag,
         location_name: locationName,
         source: SOURCE,
-        location: loc.name || null,
+        // Shopify's own name for the location, which a collapsed fallback row
+        // spans: naming one of them would be arbitrary, so it carries the
+        // fallback's name instead.
+        location: (mapped ? loc.name : locationName) || null,
         product_title: invItem.product_title || sku,
         variant_title: invItem.variant_title || null,
         variant_sku: sku,
