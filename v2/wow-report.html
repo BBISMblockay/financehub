@@ -1260,31 +1260,50 @@
     await load();
   }
 
-  async function load(){
+  // `companyResolved` is passed only by the very first load, which boot() calls
+  // immediately after resolving the active company itself. Every other caller
+  // (date change, grain change, Refresh) may be minutes or hours later and
+  // re-resolves, because a company switched in another tab must not leave this
+  // page querying the previous tenant. Each resolve is two round trips.
+  async function load(opts){
     setStatus('Loading…');
     try {
-      await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+      if (opts?.companyResolved !== true) await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
       // One grain for every call. If these were allowed to drift, the KPI band
       // and the funnel below it would describe different periods while looking
       // like one report.
       const d = el('reportDate').value, gr = GRAIN;
 
-      // TWO BATCHES, NOT ONE Promise.all -- this is a correctness fix, not a
-      // tidy-up. `authenticated` carries statement_timeout = 8s, and firing all
-      // seven at once meant seven concurrent readers of the same large tables
-      // contending for CPU and buffers. At YTD the Postgres log for a single
-      // load showed SEVEN cancellations inside forty seconds, three of them
-      // within 21 milliseconds of each other: wow_report measures ~3.1s alone
-      // and still lost that race, and wow_cohorts (~3.7s) failed alongside it.
+      // TWO BATCHES, NOT ONE Promise.all. `authenticated` carries
+      // statement_timeout = 8s, and firing all of these at once meant several
+      // concurrent readers of the same large tables contending for CPU and
+      // buffers: at YTD the Postgres log for a single load showed SEVEN
+      // cancellations inside forty seconds, three of them within 21
+      // milliseconds of each other.
       //
-      // The two heavy calls are therefore kept out of each other's way.
-      // wow_report goes first on its own -- it feeds the KPI band, so the
-      // headline also lands sooner -- with wow_kpi_compare (~0.8s) alongside
-      // it, then everything else follows. Every other call is sub-second, so
-      // the second batch's long pole is wow_cohorts running essentially alone.
+      // The CAUSE of that contention is now known and fixed in the database,
+      // not here: six of these RPCs called silo_channel_location_tags() bare in
+      // a row filter, and STABLE is not cached, so it re-ran once per scanned
+      // row -- 67,563 calls on the inventory matview inside wow_report alone,
+      // which is why wow_report measured 19.3s and wow_discount_codes 26.9s
+      // (measured on production 2026-10-12). Migration 20261012180000 hoists
+      // every one of those calls and takes them all under a second.
       //
-      // Sequencing costs about a second of wall clock at YTD and is the
-      // difference between a slow report and no report.
+      // THE SPLIT STAYS UNTIL THAT MIGRATION IS LIVE. This page is statically
+      // hosted and the migration is applied by hand, so the page can go live
+      // first; collapsing the batches in the same change would, for that
+      // window, fire ten RPCs at once against functions still taking 12-27s
+      // and recreate exactly the cancellation burst above. The ~1s the split
+      // costs is worth far less than that, and removing it is a one-hunk
+      // follow-up once the migration is confirmed applied.
+      //
+      // Meanwhile the ordering still earns its keep: wow_report goes first on
+      // its own -- it feeds the KPI band, so the headline lands sooner -- with
+      // wow_kpi_compare (~0.8s) alongside it, then everything else follows.
+      // wow_cohorts (~11s) is the second batch's long pole and a separate
+      // problem: it aggregates the whole order history and wants a nightly
+      // rollup, not sequencing. The error handling below renders that section
+      // as unavailable rather than failing the report.
       const [main, kpi] = await Promise.all([
         sb.rpc('wow_report', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_kpi_compare', { p_report_date: d, p_grain: gr }),
@@ -2125,7 +2144,11 @@
     const sess = await sb.auth.getSession();
     if (!sess.data.session){ location.href = '/pages/login.html'; return; }
     const user = sess.data.session.user;
-    await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+    // Resolved ONCE, and before the chrome mounts -- the sidebar's own queries
+    // need the active company set. This used to run again right after the
+    // mount, and load() ran it a third time, for six round trips before the
+    // first report query left the browser.
+    _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
     if (window.SiloChrome){
       window.SiloChrome.mount({
         appEl:'#silo-app', active:'reports/wow-report',
@@ -2134,22 +2157,33 @@
         supabaseClient:sb,
       });
     }
-    _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
 
     // Default to the last COMPLETE sales day, not today. The Shopify sync runs
     // at 08:30 UTC and covers only up to its own run time, so today -- and
     // usually yesterday -- are partial. Defaulting to today silently
     // understated the week by roughly two days, which is exactly the
     // "I show 259, the report shows 193k" confusion.
+    //
+    // Both of these gate the first paint and neither feeds the other, so they
+    // go together. Each is still handled on its own: an unavailable
+    // wow_data_through must not cost the page its channel banner, which is the
+    // only thing that can say "this channel is not configured" rather than
+    // drawing a configured-but-quiet $0.
     let through = null;
-    try {
-      const { data } = await sb.rpc('wow_data_through');
-      through = data?.complete_through || null;
-    } catch (e) { console.warn('data_through unavailable:', e.message); }
-    try {
-      const { data: chan } = await sb.rpc('wow_channel_status', { p_channel: 'online' });
-      renderChannelBanner(chan);
-    } catch (e) { console.warn('channel status unavailable:', e.message); }
+    const [dt, cs] = await Promise.allSettled([
+      sb.rpc('wow_data_through'),
+      sb.rpc('wow_channel_status', { p_channel: 'online' }),
+    ]);
+    if (dt.status === 'fulfilled' && !dt.value.error) {
+      through = dt.value.data?.complete_through || null;
+    } else {
+      console.warn('data_through unavailable:', dt.reason?.message || dt.value?.error?.message);
+    }
+    if (cs.status === 'fulfilled' && !cs.value.error) {
+      renderChannelBanner(cs.value.data);
+    } else {
+      console.warn('channel status unavailable:', cs.reason?.message || cs.value?.error?.message);
+    }
     DATA_THROUGH = through;
     el('reportDate').value = through || iso(new Date());
     // Cap the picker at today, NOT at the last complete day. Capping at
@@ -2202,7 +2236,9 @@
       if ((ev.metaKey || ev.ctrlKey) && ev.key === 's'){ ev.preventDefault(); saveEntry(); }
     });
 
-    await load();
+    // The active company was resolved at the top of boot() and nothing since
+    // then could have changed it, so this first load skips its own resolve.
+    await load({ companyResolved: true });
   }
   boot();
 </script>

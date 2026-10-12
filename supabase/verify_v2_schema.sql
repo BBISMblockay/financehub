@@ -5270,6 +5270,20 @@ select 'Channel scope resolves from locations, not a literal' as check_name,
    where n.nspname = 'public' and p.prokind = 'f'
      and pg_get_functiondef(p.oid) ~ 'location_tag\)* = ''online'''
  ) then 'CRITICAL: a public function has reintroduced a hardcoded location_tag = online; it will return no rows for any tenant that did not name their store "online"'
+ -- The resolver called BARE in a row filter. Same class as the literal above
+ -- and the reason the fix for it has to be hoisted: silo_channel_location_tags
+ -- is STABLE, so the planner will not fold it to a constant and re-runs it once
+ -- per scanned row. Measured on production 2026-10-12, the inventory predicate
+ -- in wow_report: 14,960ms and 276,762 buffer hits bare, 110ms hoisted, for
+ -- byte-identical rows -- and `authenticated`'s 8s timeout turned that into
+ -- cancelled queries and empty sections on /v2/wow-report.html rather than a
+ -- slow page. Ask SILO's rewriteSlowShapes() already repairs this shape in
+ -- generated SQL; a stored function has nobody to repair it.
+ when exists (
+   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prokind = 'f'
+     and pg_get_functiondef(p.oid) ~ '(=\s*any|<>\s*all)\s*\(\s*(public\.)?silo_channel_location_tags\('
+ ) then 'CRITICAL: a public function calls silo_channel_location_tags() bare in a row filter; hoist it -- any((select public.silo_channel_location_tags(...))::text[]) -- or it re-runs once per scanned row'
  -- And the five that were fixed must still be resolving.
  when (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.prokind = 'f'
