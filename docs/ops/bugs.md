@@ -16,10 +16,13 @@ See below.
 
 Found 2026-10-12 while measuring `/v2/wow-report.html`.
 
-`wow_cohorts(12)` measures ~11.0s on production as `authenticated`, against that role's 8s
-statement timeout, so the Retention card renders as unavailable. This is NOT the resolver
-problem `20261012180000` fixed -- it calls neither `silo_channel_location_tags` nor
-`wow_online_shop_domains`. Its `o_all` CTE is every order the company has ever taken with no
+`wow_cohorts(12)` measured ~11.0s on production as `authenticated` before
+`20261012180000`, and a steady 4.1s after it (re-measured three times, 4.16 / 4.08 / 4.09),
+against that role's 8s statement timeout. So the Retention card now usually renders and is no
+longer the page's worst problem, but it has little headroom and it is the long pole of the
+report's second batch. This is NOT the resolver problem `20261012180000` fixed -- it calls
+neither `silo_channel_location_tags` nor `wow_online_shop_domains`, and it sped up only because
+it stopped competing with five functions that each took tens of seconds. Its `o_all` CTE is every order the company has ever taken with no
 date bound (597,543 rows after the source filter, 353,340 distinct customers), and it joins
 that to itself to compute each customer's month offset from their first order. The plan spends
 7.3s before the retention arithmetic starts, with the `firsts` HashAggregate spilling to disk
@@ -33,6 +36,24 @@ carrying its own `company_entity_id = active_company_id()` filter, like the othe
 wrappers. That would put the card at well under a second. Needs a migration and Blake's
 go-ahead; the retention numbers themselves are correct today for anyone willing to wait, and
 the card already says when it is unavailable rather than showing a wrong curve.
+
+---
+
+## WoW report: wow_report is 1.9s warm and is the page's single point of failure (P2)
+
+Found 2026-10-12, after `20261012180000` was applied and the first load still failed sometimes.
+
+`wow_report` is the one RPC on `/v2/wow-report.html` whose failure is fatal: the window dates,
+the KPI band and every sales table are built from it, so `load()` throws on its error while the
+other nine degrade to an "unavailable" card. It is also the call with the least headroom --
+measured 4.6s on its first run against a cold cache versus 1.9s warm, under the 8s cap.
+
+The retry added the same day turns the common cold-cache case into a slower load rather than a
+red banner, and that is a floor, not a fix: 1.9s warm for a KPI band and a handful of sales
+tables is still high, and nothing has yet measured WHERE inside the function that goes. Next
+step is to time its constituent statements and look for a remaining hot spot, the same way the
+resolver hoist was found. Until then the page's worst case is two attempts, so up to 16s before
+the banner.
 
 ---
 

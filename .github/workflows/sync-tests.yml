@@ -45,6 +45,10 @@ on:
       - 'supabase/migrations/*wow_channel_resolver.sql'
       - 'supabase/migrations/*wow_channel_tags_hoist.sql'
       - 'supabase/verify_v2_schema.sql'
+      # Both Marketing Report suites lift their subject out of this page's
+      # shipped source text, so a change to the page alone has to run them --
+      # it did not, until 2026-10-12.
+      - 'v2/wow-report.html'
       - 'supabase/migrations/*silo_dashboards.sql'
       - 'supabase/migrations/*saved_report_archive.sql'
       - 'supabase/apply_all_post_merge.sql'
@@ -503,6 +507,13 @@ jobs:
 
       - name: Marketing Report destination rendering
         run: node scripts/tests/wow-report-destination.test.mjs
+
+      # wow_report is the only RPC on that page whose failure is fatal to it,
+      # and the one closest to the 8s authenticated cap on a cold cache, which
+      # is why the failures were on the FIRST load. Guards the one retry, that
+      # it is wow_report alone, and that FAILED is reset per load.
+      - name: Marketing Report first load
+        run: node scripts/tests/wow-report-first-load.test.mjs
 
       # The backfill that reaches ads the nightly never asks about (it fetches
       # creatives only for ad ids inside its trailing window, which is why 126
