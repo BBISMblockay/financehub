@@ -820,6 +820,32 @@ async function refreshSalesVelocityMv() {
   console.log("sales_velocity_by_sku_location_mv refreshed.");
 }
 
+// inventory_workboard_mv is DERIVED from inventory_on_hand_current_mv and
+// sales_velocity_by_sku_location_mv, so it has to be refreshed after both of
+// them -- it is the last refresh in this script for that reason.
+//
+// Unlike the two refreshes above, a failure here is NOT tolerated. Those two
+// failing leaves the page showing yesterday's snapshot, which is stale but
+// self-consistent. This one failing leaves inventory_workboard_v describing
+// yesterday while inventory_on_hand_current_v describes today -- two different
+// answers to "what is on hand" -- and the report tie-out at 20260904300000
+// reconciles exactly those two figures nightly, so it would go red with no
+// indication that a refresh was the cause. The sync's data is already written
+// by the time this runs, so throwing loses nothing and makes the workflow red,
+// which is the correct signal for a derived view that no longer agrees with
+// its source.
+async function refreshInventoryWorkboardMv() {
+  console.log("Refreshing inventory_workboard_mv...");
+
+  const { error } = await supabase.rpc("refresh_inventory_workboard_mv");
+
+  if (error) {
+    throw new Error(`inventory workboard mv refresh failed: ${error.message}`);
+  }
+
+  console.log("inventory_workboard_mv refreshed.");
+}
+
 async function purgeBetterReportsOverlap(companyEntityId) {
   const { data, error } = await supabase.rpc("purge_better_reports_overlap", {
     p_company_entity_id: companyEntityId,
@@ -863,6 +889,7 @@ async function main() {
 
   let salesSummaryRefreshed = false;
   let salesSummaryRefreshError = null;
+  let inventoryWorkboardRefreshed = false;
 
   if (SKIP_SUMMARY_REFRESH) {
     console.log("Sales verification summary refresh skipped.");
@@ -887,6 +914,14 @@ async function main() {
     }
   }
 
+  // Last, and outside the block above, because it depends on BOTH matviews:
+  // whichever of them this run refreshed, the derived one has to follow. If
+  // neither input was touched there is nothing to propagate.
+  if (!SKIP_INVENTORY || !SKIP_SUMMARY_REFRESH) {
+    await refreshInventoryWorkboardMv();
+    inventoryWorkboardRefreshed = true;
+  }
+
   const result = {
     batch_id: BATCH_ID,
     snapshot_at: SNAPSHOT_AT,
@@ -896,6 +931,7 @@ async function main() {
     sales,
     sales_summary_refreshed: salesSummaryRefreshed,
     sales_summary_refresh_error: salesSummaryRefreshError,
+    inventory_workboard_refreshed: inventoryWorkboardRefreshed,
   };
 
   console.log("Silo sync complete:");

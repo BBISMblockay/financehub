@@ -2790,3 +2790,38 @@ replaced functions are unchanged (`create or replace` keeps them). Verified by
 ## Security audit hardening — `20261008120000_security_audit_db_hardening.sql`
 
 `create_org_invite` lets only an owner invite an owner or into the finance / exec / admin department. Drops the retired `using (true)` PO / costing / Launch policies that older includes re-create, and revokes `generate_next_po_name` from anon. New table `sample_notification_claims` (service-only, primary key `(sample_id, event_type, claim_key)`): `sample-notify` inserts a claim before it sends, so each trigger delivery happens once. `notify_sample_events()` now signs its calls with Vault secret `sample_notify_trigger_secret` (header `x-silo-trigger-secret`) and a per-transition `event_id`. **Rollout order:** create the Vault secret, apply, deploy `sample-notify`, then set its `SAMPLE_NOTIFY_TRIGGER_SECRET` to the same value. Tests: `scripts/tests/org-invite-authority-database.test.mjs`, `scripts/tests/sample-notify-trigger-events.test.mjs`.
+
+
+## Inventory workboard is materialized — `20261012210000_inventory_workboard_matview.sql`
+
+`inventory_workboard_v` keeps its name, its 40 columns and their order, and now
+reads a new `inventory_workboard_mv` instead of joining
+`inventory_on_hand_current_v` to `sales_velocity_by_sku_location_v` on every
+request. Speed only: `/v2/inventory.html` fetches the view in seven
+10,000-row pages and each one rebuilt the whole 67,605-row join plus a
+57,330-group aggregate before honouring its offset, so the cost climbed with the
+offset (454ms at offset 0, 2,123ms at offset 60,000) for ~8.6s of database time
+per page load. Rows were proved identical on production first: same count, same
+totals, same per-row md5 of every velocity-derived column.
+
+The matview is built across EVERY company, because it has no caller to scope it,
+so `company_entity_id` is part of both velocity join keys — without it one
+tenant's inventory matches another's velocity, and
+`sales_velocity_mv_co_loc_sku_name` is UNIQUE on
+`(company_entity_id, location_tag, variant_sku, product_name)`, so dropping
+company from the key matches on three of four columns. The migration refuses to
+record itself if that structure is missing, and separately checks row counts per
+company; the structural check is the load-bearing one, because a cross-tenant
+join only changes the row count where the borrowed key exists in more than one
+company's velocity rows.
+
+`inventory_workboard_v` is therefore `security_invoker = false` with its own
+`company_entity_id = active_company_id()` filter — the eleventh such wrapper,
+same pattern as `20260708060000` — and the matview is granted to `service_role`
+only. `refresh_inventory_workboard_mv()` is service-role only and is called by
+`scripts/sync-silo-inventory-sales.mjs` after both input matviews refresh; a
+failure there throws rather than being logged and swallowed, because a stale
+workboard disagrees with `inventory_on_hand_current_v` and would turn the
+nightly dead-stock tie-out red with no sign of the cause. Tests:
+`scripts/tests/inventory-workboard-matview-database.test.mjs` (14) and the
+`inventory_workboard_mv` verify row.
