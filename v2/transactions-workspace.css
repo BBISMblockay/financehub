@@ -71,6 +71,7 @@
 #tblCoding .txn-review {width:34px;}
 #tblCoding .txn-col-empty {color:var(--bcn-ink-4);}
 #tblCoding .txn-type-label {display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#tblCoding .txn-type-label--implied {color:var(--bcn-ink-3);}
 #tblCoding .txn-type-select {width:100%;min-width:0;height:26px;padding:2px 4px;font-size:10.5px;}
 #tblCoding .txn-entity-col {display:flex;align-items:center;gap:3px;min-width:0;max-width:100%;}
 #tblCoding .txn-entity-col .cc-cell {max-width:100%;}
