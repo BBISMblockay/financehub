@@ -34,15 +34,8 @@ Comparisons never modify stored `silo-last-non-direct-v1.1` allocations:
   tie-breaks, with negative amounts mirroring positive allocations. Aggregation
   remains in the report's single currency and store timezone.
 
-Suggestions separate observation, hypothesis and proposed test/investigation.
-Saving requires an owner from the active company's membership and a review date.
-The result is a private evergreen `launch_tasks` item with status `open`, titled
-`Review draft:` and explicitly unapproved in its notes. Task Manager can edit it.
-There is no new draft status or approval pipeline. A deterministic UUID scoped
-to creator/company/store/reporting dates/lookback/suggestion prevents repeated
-clicks and concurrent retries from creating duplicates; retries retain edits.
-No ad-platform write occurs. Supporting IDs (up to 50 in the note) and report
-filters are retained; current evidence must be rechecked at review time.
+The review-task suggestions this section originally described were removed on
+2026-10-12 (see above); findings now open their supporting orders.
 
 No migration, edge deployment, secret or scheduler change is required for this
 add-on. Existing attribution ingestion prerequisites remain. A draft PR does not

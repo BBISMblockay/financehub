@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {allocate} from '../../v2/silo-attribution-model.js';
 import {analyzeJourneys,observedJourney,splitCents,touchWeights,loadJourneyRecords} from '../../v2/silo-attribution-overview.js';
-import {draftId,saveReviewTask,suggestions} from '../../v2/silo-attribution-actions.js';
+import {channelTeamwork,findings,pathRevenue} from '../../v2/silo-attribution-together.js';
 const company='00000000-0000-0000-0000-000000000001',store='00000000-0000-0000-0000-000000000002';
 export function fixture(){
   const sources=[['facebook','paid'],['facebook','paid'],['redo','sms'],['google','cpc'],['direct','']];
@@ -21,7 +21,10 @@ test('synthetic repeated touches, medians, overlapping roles and signed cent con
   for(const m of Object.values(a.models)){assert.equal([...m.values()].reduce((s,c)=>s+c.net_cents,0),10001);assert.equal([...m.values()].reduce((s,c)=>s+c.total_cents,0),11003);}
   const reversed=analyzeJourneys({...report,net:-10001,total:-11003,orders:[{...row,net_cents:-10001,total_cents:-11003}]},[record]);
   for(const name of Object.keys(a.models))for(const [c,x] of a.models[name])assert.equal(reversed.models[name].get(c).net_cents,-x.net_cents);
-  assert.equal(suggestions(report,a).length,2);assert.throws(()=>analyzeJourneys({...report,orders:[row,row]},[record]),/unique orders/);
+  const rows=channelTeamwork(report,a,null);
+  assert.equal(rows.reduce((t,r)=>t+r.net_cents,0),10001);assert.equal(rows.reduce((t,r)=>t+r.shared_cents,0),10001);
+  assert.equal(rows.find(r=>r.channel==='Meta Ads').shared_cents,3334);assert.equal(pathRevenue(report,a.paths)[0].net_cents,10001);
+  assert.ok(findings(report,rows,a,n=>String(n)).some(f=>f.key==='path'&&f.text.includes('1 order,')));assert.throws(()=>analyzeJourneys({...report,orders:[row,row]},[record]),/unique orders/);
 });
 test('stale, tenant, pending, unknown, incomplete and future evidence fail honestly',()=>{
   const {row,record,report}=fixture();
@@ -57,20 +60,4 @@ test('loader enforces tenant/store scope and batches',async()=>{
   const db={from(){const filters={};const chain={select(){return chain;},eq(k,v){filters[k]=v;return chain;},in(k,v){calls.push({...filters,[k]:v});return Promise.resolve({data:[record]});}};return chain;}};
   assert.equal((await loadJourneyRecords(db,company,store,[row])).length,1);assert.equal(calls[0].company_entity_id,company);assert.equal(calls[0].connection_id,store);
   await assert.rejects(loadJourneyRecords(db,'other',store,[row]),/scope/);
-});
-test('draft repeated/concurrent clicks, uncertain insert, owner and tenant checks',async()=>{
-  const {report,record}=fixture(),suggestion=suggestions(report,analyzeJourneys(report,[record]))[0];
-  const context={companyId:company,connectionId:store,start:'2026-09-01',end:'2026-09-30',windowDays:30,userId:'user'};
-  const saved=new Map();let insertions=0,checks=0;
-  const db={from(table){const filters={};const q={select(){return q;},eq(k,v){filters[k]=v;return q;},maybeSingle:async()=>({data:table==='entity_memberships'?{user_id:'owner'}:saved.get(filters.id)||null}),insert:async payload=>{insertions++;assert.equal(payload.company_entity_id,company);assert.equal(payload.is_private,true);assert.equal(payload.launch_id,null);assert.match(payload.notes,/Hypothesis \(unproven\)/);if(saved.has(payload.id))return {error:{code:'23505'}};saved.set(payload.id,payload);return {error:{message:'simulated lost response'}};}};return q;}};
-  const args={db,context,suggestion,owner:{id:'owner',name:'Synthetic owner'},reviewDate:'2026-10-20',now:new Date('2026-10-09'),checkCompany:async()=>{checks++;}};
-  const [a,b]=await Promise.all([saveReviewTask(args),saveReviewTask(args)]);assert.equal(a.id,b.id);assert.equal(saved.size,1);assert.ok(checks>=4);
-  const count=insertions;await saveReviewTask(args);assert.equal(insertions,count);
-  assert.notEqual(await draftId(context,suggestion.key),await draftId({...context,companyId:'other'},suggestion.key));
-  assert.notEqual(await draftId(context,suggestion.key),await draftId({...context,userId:'other'},suggestion.key));
-  await assert.rejects(saveReviewTask({...args,owner:null}),/Select/);
-  await assert.rejects(saveReviewTask({...args,checkCompany:async()=>{throw Error('Company changed');}}),/Company changed/);
-  const before=insertions;
-  await assert.rejects(saveReviewTask({...args,suggestion:{...suggestion,key:'new-stale'},assertCurrent:()=>{throw Error('Report changed');}}),/Report changed/);
-  assert.equal(insertions,before);
 });

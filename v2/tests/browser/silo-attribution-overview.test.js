@@ -23,31 +23,56 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   await page.route('**/*',route=>route.request().url().startsWith('http://127.0.0.1:')?route.continue():route.abort());
   await page.route('**/pages/config.js',r=>r.fulfill({contentType:'text/javascript',body:`window.__SILO_CONFIG__={SUPABASE_URL:'synthetic',SUPABASE_ANON_KEY:'synthetic',ensureActiveCompany:async()=>({id:'${company}',entity_key:'baseballism'})};`}));
   await page.route('**/lib/supabase-js.min.js',r=>r.fulfill({contentType:'text/javascript',body:`
-   window.fixture=${JSON.stringify({rows,records,controls,company,store})};window.savedTasks=[];
+   window.fixture=${JSON.stringify({rows,records,controls,company,store})};
    window.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{user:{id:'synthetic-user',email:'fixture@example.test'}}}})},rpc:async(name)=>({data:name==='nav_badge_counts'?{}:window.emptyFixture?[]:fixture.rows}),from(table){const filters={};let mode='select',payload;
-    const q={select(){return q;},eq(k,v){filters[k]=v;return q;},gte(){return q;},lte(){return q;},in(k,v){filters[k]=v;return q;},order(){return q;},limit(){return q;},single(){return q;},maybeSingle(){return q;},insert(p){mode='insert';payload=p;return q;},then(resolve){
-     if(mode==='insert'){const prior=savedTasks.find(x=>x.id===payload.id);if(prior)return resolve({error:{code:'23505'}});savedTasks.push(payload);return resolve({data:null});}
+    const q={select(){return q;},range(){return q;},eq(k,v){filters[k]=v;return q;},gte(){return q;},lte(){return q;},in(k,v){filters[k]=v;return q;},order(){return q;},limit(){return q;},single(){return q;},maybeSingle(){return q;},insert(p){mode='insert';payload=p;return q;},then(resolve){
+     if(mode==='insert')return resolve({error:{message:'unexpected write'}});
      let data=[];if(table==='profiles')data=typeof filters.id==='string'?{role:'admin',active_company_id:fixture.company}:[{id:'synthetic-user',name:'Synthetic reviewer'}];
      if(table==='entity_memberships')data=filters.user_id?{user_id:'synthetic-user'}:[{user_id:'synthetic-user'}];
      if(table==='shopify_connections')data=[{id:fixture.store,shop_domain:'synthetic.example.test'}];
      if(table==='shopify_attribution_days')data=window.emptyFixture?fixture.controls.map(c=>({...c,net_cents:0,total_cents:0})):fixture.controls;
      if(table==='shopify_attribution_orders')data=typeof filters.order_id==='string'?fixture.records.find(r=>r.order_id===filters.order_id):window.staleFixture?fixture.records.map(r=>({...r,fetched_at:'changed'})):fixture.records;
-     if(table==='launch_tasks')data=savedTasks.find(t=>t.id===filters.id)||null;
+     if(window.spendFail&&table==='marketing_kpis_daily')return resolve({data:null,error:{message:'spend read refused'}});
+     if(table==='marketing_kpis_daily')data=[{platform:'meta_ads',day_date:'2026-09-30',spend:300},{platform:'google_ads',day_date:'2026-09-30',spend:50}];
+     if(table==='redo_marketing_daily')data=[{channel:'SMS',day_date:'2026-09-30',spend:12.5,spend_currency:'USD'}];
      resolve({data});}};return q;}})};` }));
   const url=`http://127.0.0.1:${server.address().port}/v2/silo-attribution.html?start=2026-09-30&end=2026-09-30`;
-  await page.goto(url);await page.waitForSelector('.attr-takeaway',{timeout:10000}).catch(async e=>{console.error(await page.locator('body').innerText(),errors);throw e;});
-  assert.match(await page.locator('.attr-takeaway').innerText(),/7 orders/);
-  assert.equal(await page.locator('#overview').count(),1);assert.equal(await page.locator('#legacy-overview').count(),1);
+  await page.goto(url);await page.waitForSelector('.attr-together',{timeout:10000}).catch(async e=>{console.error(await page.locator('body').innerText(),errors);throw e;});
+  // Lead with money and teamwork: KPIs (incl. spend) and the headline are visible without opening anything.
+  assert.match(await page.locator('.attr-together h2').innerText(),/100% of orders touched more than one channel/);
+  assert.equal(await page.locator('#spend').innerText(),'$362.50');assert.match(await page.locator('#roas').innerText(),/^2\.3x$/);
+  assert.equal(await page.locator('#trust').evaluate(d=>d.open),false);assert.ok(await page.locator('.attr-scorecard').isVisible());
+  const meta=page.locator('.attr-scorecard tbody tr',{hasText:'Meta Ads'});
+  assert.match(await meta.innerText(),/\$300/);assert.match(await meta.innerText(),/\$300\s+\$0\s+0\.0x\s+\$233\s+0\.8x\s+7\s+0\s+0/);
+  assert.match(await page.locator('.attr-scorecard tbody tr',{hasText:'Redo SMS'}).innerText(),/sending cost/);
+  assert.match(await page.locator('.attr-findings').innerText(),/Meta Ads starts more journeys than it closes/);
+  assert.match(await page.locator('.attr-findings').innerText(),/Google Ads mostly closes what others start/);
+  // Paths carry dollars and open their orders, which open a journey.
+  assert.match(await page.locator('.attr-journey-row').first().innerText(),/Meta Ads[\s\S]*Redo SMS[\s\S]*Google Ads[\s\S]*7 orders[\s\S]*\$700/);
   await page.locator('[data-path="0"]').first().click();await page.locator('#path-detail [data-order]').first().click();await page.waitForSelector('#journey[open]');assert.match(await page.locator('#flow').innerText(),/Meta Ads/);await page.locator('#close').click();await page.keyboard.press('Escape');
-  await page.locator('[data-draft="0"]').click();await page.locator('#draft-owner').selectOption('synthetic-user');await page.locator('#draft-date').fill(new Date(Date.now()+7*86400000).toISOString().slice(0,10));await page.locator('#save-review').click();await page.waitForSelector('#draft-status a');await page.locator('#save-review').click();assert.equal(await page.evaluate(()=>savedTasks.length),1);await page.keyboard.press('Escape');
-  await page.getByText('Compare credit models (optional)',{exact:true}).click();await page.locator('#decay-days').fill('0');await page.locator('#compare-models').click();assert.match(await page.locator('#model-error').innerText(),/Half-life/);await page.locator('#decay-days').fill('7');await page.locator('#compare-models').click();assert.equal(await page.locator('#model-error').innerText(),'');await page.getByText('Compare credit models (optional)',{exact:true}).click();
-  await page.locator('#journeys-tab').click();assert.equal(await page.locator('#ordersection').isVisible(),true);await page.locator('#overview-tab').click();
-  await page.evaluate(()=>{document.documentElement.setAttribute('data-theme','dark');document.querySelector('.bcn-header-sub').textContent='SYNTHETIC FIXTURE PREVIEW — no production data';document.querySelector('.silo-main').scrollTop=0;window.scrollTo(0,0);});
-  const output=process.env.SILO_SCREENSHOT_DIR;if(output){fs.mkdirSync(output,{recursive:true});await page.screenshot({path:path.join(output,'attribution-desktop.png'),fullPage:true});}
-  await page.setViewportSize({width:390,height:844});await page.waitForTimeout(250);await page.evaluate(()=>{document.querySelector('.silo-main').scrollTop=0;window.scrollTo(0,0);});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));if(output)await page.screenshot({path:path.join(output,'attribution-mobile.png'),fullPage:true});
+  await page.locator('[data-support="0"]').click();assert.match(await page.locator('#path-title').innerText(),/Meta Ads starts/);await page.keyboard.press('Escape');
+  // A channel opens Journeys filtered to every order it appears in, not only the ones it was credited.
+  await meta.locator('[data-channel]').click();assert.equal(await page.locator('#ordersection').isVisible(),true);assert.equal(await page.locator('#overview').isVisible(),false);
+  assert.match(await page.locator('#count').innerText(),/^7 orders where Meta Ads appears/);
+  await page.locator('#role').selectOption('credited');assert.match(await page.locator('#count').innerText(),/^0 orders/);
+  await page.locator('#role').selectOption('started');assert.match(await page.locator('#count').innerText(),/^7 orders where Meta Ads started/);
+  await page.locator('#overview-tab').click();
+  // Trust & method holds reconciliation, coverage, spend sources and the what-if credit rules.
+  await page.locator('#trust > summary').click();assert.match(await page.locator('#trust').innerText(),/1 of 1 day matched[\s\S]*Journey coverage[\s\S]*Spend sources/);
+  await page.getByText('Try other credit rules',{exact:true}).click();await page.locator('#decay-days').fill('0');await page.locator('#compare-models').click();assert.match(await page.locator('#model-error').innerText(),/Half-life/);await page.locator('#decay-days').fill('7');await page.locator('#compare-models').click();assert.equal(await page.locator('#model-error').innerText(),'');
+  await page.locator('#trust > summary').click();
+  for(const theme of ['light','dark']){
+   await page.evaluate(t=>{document.documentElement.setAttribute('data-theme',t);document.querySelector('.bcn-header-sub').textContent='SYNTHETIC FIXTURE PREVIEW — no production data';document.querySelector('.silo-main').scrollTop=0;window.scrollTo(0,0);},theme);
+   assert.equal(await page.locator('#ordersection').isVisible(),false);
+   const output=process.env.SILO_SCREENSHOT_DIR;if(output){fs.mkdirSync(output,{recursive:true});await page.screenshot({path:path.join(output,`attribution-desktop-${theme}.png`),fullPage:true});}
+  }
+  await page.setViewportSize({width:390,height:844});await page.waitForTimeout(250);await page.evaluate(()=>{document.querySelector('.silo-main').scrollTop=0;window.scrollTo(0,0);});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));if(process.env.SILO_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SILO_SCREENSHOT_DIR,'attribution-mobile.png'),fullPage:true});
   await page.locator('#start').fill('2026-09-29');await page.locator('#start').dispatchEvent('change');assert.equal(await page.locator('#results').isVisible(),false);
   await page.locator('#start').fill('2026-09-30');await page.evaluate(()=>window.staleFixture=true);await page.locator('#load').click();await page.waitForFunction(()=>document.querySelector('#overview').textContent.includes('refreshed since'));assert.equal(await page.locator('#results').isVisible(),true);
-  await page.evaluate(()=>{window.staleFixture=false;window.emptyFixture=true;});await page.locator('#load').click();await page.waitForSelector('.attr-takeaway');assert.match(await page.locator('.attr-takeaway').innerText(),/Not enough/);assert.equal(await page.locator('[data-draft]').count(),0);
-  assert.deepEqual(errors,[]);console.log('Attribution browser: desktop/mobile, dialogs, task retries, model validation, filter/stale/empty states passed');
+  // Spend failing never blanks the attribution; it says spend is unavailable.
+  await page.evaluate(()=>{window.staleFixture=false;window.spendFail=true;});await page.locator('#load').click();await page.waitForSelector('.attr-scorecard');
+  assert.equal(await page.locator('#spend').innerText(),'Unavailable');assert.match(await page.locator('#spendnote').innerText(),/spend read refused/);assert.match(await page.locator('.attr-together').innerText(),/100% of orders/);
+  await page.evaluate(()=>{window.spendFail=false;window.emptyFixture=true;});await page.locator('#load').click();await page.waitForSelector('.attr-together');assert.match(await page.locator('.attr-together').innerText(),/No identified channel journeys/);
+  assert.deepEqual(errors,[]);console.log('Attribution browser: KPIs+spend, teamwork, scorecard drilldown, role filter, trust section, desktop/mobile, light/dark, stale/spend-failure/empty states passed');
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
