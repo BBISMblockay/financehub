@@ -5,12 +5,51 @@ name: SEO SERP Sync
 # (OFF by default per company). See scripts/seo-serp-sync.mjs and
 # scripts/lib/seo-serp-sync-core.mjs.
 #
-# Two crons on the same day: the second is a catch-up. GitHub drops scheduled
-# runs silently (see shopify-sync.yml), and a run whose collection hits the
-# deadline leaves tasks pending at the provider; the catch-up RESUMES from the
-# seo_serp_provider_tasks ledger and posts nothing new, and no-ops on a day
-# whose runs are complete. No `concurrency` group, for the reason recorded in
-# shopify-sync.yml.
+# SIX crons on the same Monday, not two. GitHub drops scheduled runs silently
+# (see shopify-sync.yml) and dropped BOTH of 2026-10-12's, losing the week;
+# it had already delivered 2026-10-05's about nine hours late. Every slot
+# after the first is a catch-up: a run whose collection hits the deadline
+# leaves tasks pending at the provider, and the next slot RESUMES from the
+# seo_serp_provider_tasks ledger, posts nothing new, and no-ops on a day whose
+# runs are complete.
+#
+# WHY EXTRA SLOTS COST NOTHING. A run's identity is (company, provider,
+# observed_on, device), where observed_on is TODAY in the company's business
+# timezone, and the ledger is keyed (run_id, keyword_id): a second run on the
+# same day finds the same run row and posts only keywords the ledger does not
+# already have. Spend is per DAY, not per run.
+#
+# WHY THE WINDOW IS 08:37-23:37 UTC AND MONDAY-ONLY. Those same two facts mean
+# a slot that lands on a DIFFERENT observed_on is a new identity and a second
+# full spend. Baseballism's zone is America/Los_Angeles, so Monday before
+# 08:00 UTC is still Sunday there (Monday 00:00 PST = 08:00 UTC); 08:37 is
+# Monday in both zones year-round, and 23:37 UTC is Monday 15:37/16:37
+# Pacific. Do not widen this window, and do not make the cron daily, without
+# a weekly guard in the core: today the script has none.
+#
+# WHY 3 HOURS APART. A run may take up to `timeout-minutes` (45) once the
+# 20-minute collection wait is spent, so the spacing keeps two SCHEDULED runs
+# off the same ledger on their own.
+#
+# WHY THIS SYNC DOES CARRY A CONCURRENCY GROUP, unlike shopify-sync.yml. The
+# spacing is not a guarantee: GitHub delivered 2026-10-05's 09:15 slot at
+# 18:26, and a slot delivered hours late can land beside the next one or
+# beside a manual dispatch. Two executions on the same run would both read the
+# ledger, both call task_post, and the second upsert would overwrite the
+# first's provider_task_id -- paying twice and orphaning the first set of
+# tasks, because the ledger's unique constraint lands AFTER the external call,
+# so it cannot serialize it (seo-serp-sync-core.mjs: ledger read, task_post,
+# then upsert).
+#
+# shopify-sync.yml rejects a group because `cancel-in-progress: false` lets a
+# QUEUED run be cancelled when another enters the group, and there a dropped
+# scheduled run is unrecoverable (Shopify exposes only current inventory).
+# Here the opposite holds: a cancelled slot is by construction a redundant
+# catch-up -- something can only be queued while a run of this same workflow
+# is already working the day -- and five more slots follow. plaid-sync.yml and
+# on-deck-prepare.yml take the same group for the same reason. At 3h spacing
+# against a 45-minute ceiling, two slots pending at once is unreachable
+# anyway; the group exists for the late delivery and the manual dispatch.
 #
 # Cost: measured $0.0012 per task (depth 20). 300 keywords x 2 devices is
 # $0.72 per week. Bounded per company by max_keywords_per_run and
@@ -26,10 +65,16 @@ on:
         required: false
         default: "20"
   schedule:
-    # Monday 09:15 UTC: after the nightly syncs, before US business hours.
-    - cron: "15 9 * * 1"
-    # Monday 15:15 UTC catch-up: resumes pending collections, no-ops otherwise.
-    - cron: "15 15 * * 1"
+    # Mondays 08:37, 11:37, 14:37, 17:37, 20:37 and 23:37 UTC. The first is
+    # after the nightly syncs and before US business hours; the rest are
+    # catch-ups. An odd minute on purpose: GitHub sheds scheduled runs hardest
+    # at :00 and the other quarter-hours, which is where the dropped
+    # 09:15/15:15 pair sat.
+    - cron: "37 8-23/3 * * 1"
+
+concurrency:
+  group: seo-serp-sync
+  cancel-in-progress: false
 
 jobs:
   seo-serp-sync:

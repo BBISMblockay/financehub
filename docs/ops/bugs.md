@@ -12,6 +12,36 @@ See below.
 
 ---
 
+## SEO SERP sync: a failed post strands the keywords already posted (P2)
+
+Found 2026-10-12 while explaining why the week's SEO sync had no mobile data.
+
+In `syncSerpSchedule` (`scripts/lib/seo-serp-sync-core.mjs`) the per-device loop posts
+BEFORE it collects: `postKeywords(...)` then `collectPending(...)`. When a post throws
+part-way through a device -- on 2026-10-05 DataForSEO answered HTTP 402 / `4020` (out of
+balance) on the third batch -- the throw escapes before `collectPending` runs, so the
+tasks the provider already accepted are never fetched. 100 of that run's 150 mobile
+tasks sat at `status = 'posted'` for a week, and the same-day catch-up re-entered the
+device loop, tried to post the remaining 50 first, and threw on the same 402 again: while
+the account was dry, every retry failed before collecting anything.
+
+Those 100 were recovered on 2026-10-12 by a manual `workflow_dispatch` once the balance
+was restored -- the earlier-day resume path (`RESUME_WINDOW_DAYS` = 21, collect-only) did
+exactly its job, writing 1,606 observations and completing the run. So the resume design
+is right; what is wrong is that the SAME-DAY path has no equivalent, which is why a week
+passed before anything collected them. The 50 keywords that were never posted read as
+never observed for 2026-10-05 mobile, which is correct but permanent. Candidate fix: collect any pending ledger rows before posting, or
+run the post inside a `try` whose `finally` still collects, so a post failure costs only
+the keywords that were never posted. Needs a test that a post throwing mid-run still
+collects what the ledger holds.
+
+Related: `sync_jobs.error_message` is left empty on a failed SEO SERP run (the `finish`
+call writes `error`, and the row's `error_message` column stays null), so the provider's
+own message exists only in the Actions log. Anything reading `error_message` to explain a
+failure sees nothing.
+
+---
+
 ## Security audit 2026-10-08: items not fixed in the fix PR (P2)
 
 Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
