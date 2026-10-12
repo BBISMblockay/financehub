@@ -11,8 +11,7 @@ name: SEO SERP Sync
 # after the first is a catch-up: a run whose collection hits the deadline
 # leaves tasks pending at the provider, and the next slot RESUMES from the
 # seo_serp_provider_tasks ledger, posts nothing new, and no-ops on a day whose
-# runs are complete. No `concurrency` group, for the reason recorded in
-# shopify-sync.yml.
+# runs are complete.
 #
 # WHY EXTRA SLOTS COST NOTHING. A run's identity is (company, provider,
 # observed_on, device), where observed_on is TODAY in the company's business
@@ -29,8 +28,28 @@ name: SEO SERP Sync
 # a weekly guard in the core: today the script has none.
 #
 # WHY 3 HOURS APART. A run may take up to `timeout-minutes` (45) once the
-# 20-minute collection wait is spent, and there is no concurrency group, so
-# the spacing keeps two runs off the same ledger.
+# 20-minute collection wait is spent, so the spacing keeps two SCHEDULED runs
+# off the same ledger on their own.
+#
+# WHY THIS SYNC DOES CARRY A CONCURRENCY GROUP, unlike shopify-sync.yml. The
+# spacing is not a guarantee: GitHub delivered 2026-10-05's 09:15 slot at
+# 18:26, and a slot delivered hours late can land beside the next one or
+# beside a manual dispatch. Two executions on the same run would both read the
+# ledger, both call task_post, and the second upsert would overwrite the
+# first's provider_task_id -- paying twice and orphaning the first set of
+# tasks, because the ledger's unique constraint lands AFTER the external call,
+# so it cannot serialize it (seo-serp-sync-core.mjs: ledger read, task_post,
+# then upsert).
+#
+# shopify-sync.yml rejects a group because `cancel-in-progress: false` lets a
+# QUEUED run be cancelled when another enters the group, and there a dropped
+# scheduled run is unrecoverable (Shopify exposes only current inventory).
+# Here the opposite holds: a cancelled slot is by construction a redundant
+# catch-up -- something can only be queued while a run of this same workflow
+# is already working the day -- and five more slots follow. plaid-sync.yml and
+# on-deck-prepare.yml take the same group for the same reason. At 3h spacing
+# against a 45-minute ceiling, two slots pending at once is unreachable
+# anyway; the group exists for the late delivery and the manual dispatch.
 #
 # Cost: measured $0.0012 per task (depth 20). 300 keywords x 2 devices is
 # $0.72 per week. Bounded per company by max_keywords_per_run and
@@ -52,6 +71,10 @@ on:
     # at :00 and the other quarter-hours, which is where the dropped
     # 09:15/15:15 pair sat.
     - cron: "37 8-23/3 * * 1"
+
+concurrency:
+  group: seo-serp-sync
+  cancel-in-progress: false
 
 jobs:
   seo-serp-sync:

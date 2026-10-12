@@ -9,7 +9,13 @@ Per-table rules for what the syncs write: `docs/agents/database.md`.
 - Every sync write is an idempotent upsert, and the newest completed run wins (enforced by trigger on
   Search Console, SERP and Redo tables). Write a summary/site row LAST, so it never describes detail rows
   that failed to land.
-- **No `concurrency` groups on sync workflows.** A queued run cancels a waiting scheduled nightly.
+- **A `concurrency` group on a sync workflow is the exception, not the default.** With
+  `cancel-in-progress: false` a QUEUED run is cancelled as soon as another enters the group, so a
+  group can silently drop a scheduled run -- which is why `shopify-sync.yml`, `meta-creative-backfill.yml`
+  and `search-console-backfill.yml` refuse one: there a dropped run loses data nothing can recover.
+  Take a group only where a dropped run costs nothing AND concurrent runs cost something, and say which
+  in the workflow header: `plaid-sync.yml`, `on-deck-prepare.yml` and `seo-serp-sync.yml` (whose extra
+  slots are redundant catch-ups by construction, while two overlapping runs would pay DataForSEO twice).
 - **Never schedule the Shopify sync before 08:00 UTC** (still the previous Pacific day).
 - Scripts that reason in Pacific do so as a westernmost BOUND. A zone west of Pacific breaks
   `tests/business-timezone-westmost.test.mjs` on purpose.
