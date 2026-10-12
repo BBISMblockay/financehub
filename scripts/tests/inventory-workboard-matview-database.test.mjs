@@ -215,6 +215,29 @@ function crossTenant(sql) {
   return out;
 }
 
+/* The migration with exactly ONE of the two company predicates removed.
+ * This is the shape review cycle 1 of PR #953 found: the first guard counted
+ * mentions of company_entity_id and accepted anything with four or more, but
+ * the correct definition has seven, so dropping one predicate leaves five and
+ * the guard still said yes -- while that branch borrows another tenant's
+ * velocity. Each predicate therefore has to be asserted on its own, and each
+ * has to be mutated on its own to prove it. */
+function dropOneJoin(sql, alias) {
+  const re = new RegExp(`on ${alias}\\.company_entity_id = i\\.company_entity_id\\n\\s*and `);
+  const out = sql.replace(re, 'on ');
+  assert.notEqual(out, sql, `the ${alias}-join rewrite did not apply to the migration`);
+  // The OTHER predicate must still be there, or this is just crossTenant again
+  // and would pass for the wrong reason.
+  const other = alias === 't' ? 'a' : 't';
+  assert.ok(new RegExp(`${other}\\.company_entity_id = i\\.company_entity_id`).test(out),
+    `dropping the ${alias} join also removed the ${other} join, so this is not a single-predicate test`);
+  // And the mention count must still clear the old, too-weak threshold --
+  // otherwise this fixture would not actually demonstrate the hole.
+  assert.ok((out.match(/company_entity_id/g) || []).length >= 4,
+    'this mutation drops below four mentions, so it would be caught by a mere count and proves nothing');
+  return out;
+}
+
 const VELOCITY_COLS = `qty_7d, sold_30, qty_90d, qty_120d, qty_365d,
   avg_day_7, avg_day_30, avg_day_90, avg_day_120, avg_day_365,
   last_sold_date, days_oos, velocity_basis, velocity_matched, velocity_source`;
@@ -290,7 +313,7 @@ await test('the migration refuses a matview built without company in the join ke
   const naive = crossTenant(MIGRATION);
 
   await assert.rejects(() => db.exec(naive),
-    /does not carry company_entity_id in its velocity join keys/,
+    /does not join the velocity matview on company_entity_id/,
     'the structural guard must refuse the cross-tenant shape');
   await db.close();
 });
@@ -352,9 +375,14 @@ await test('the row-count guard catches the duplicating cross-tenant case', asyn
       values ('${CO_B}', 'online', 'SKU-1', 'Tee', 5, 1);
     refresh materialized view sales_velocity_by_sku_location_mv;`);
 
-  // Strip the structural guard so the row-count guard is the one under test.
+  // Strip the structural guards so the row-count guard is the one under test.
+  // Asserted rather than assumed: if the guards are rewritten again and this
+  // stripper stops matching, the structural guard would reject first and this
+  // test would pass while proving nothing about row counts.
   const noStructural = crossTenant(MIGRATION)
-    .replace(/if \(select count\(\*\) from regexp_matches\(def, 'company_entity_id', 'g'\)\) < 4 then[\s\S]*?end if;/, '');
+    .replace(/if def !~ '\([ta]\\\.company_entity_id[\s\S]*?end if;/g, '');
+  assert.ok(!/if def !~/.test(noStructural),
+    'the structural guards were not stripped, so this would not be testing the row-count guard');
   await assert.rejects(() => db.exec(noStructural),
     /duplicated or dropped rows|differ per company/,
     'the row-count guard must refuse a join that multiplies inventory rows');
@@ -474,7 +502,7 @@ await test('it refuses a pre-existing matview that does not join on company', as
   await db.exec(`create materialized view public.inventory_workboard_mv as
                    select 1::bigint as id, 0::bigint as sold_30;`);
   await assert.rejects(() => db.exec(MIGRATION),
-    /does not carry company_entity_id in its velocity join keys/,
+    /does not join the velocity (matview|fallback aggregate) on company_entity_id/,
     'it must refuse rather than record itself against a foreign definition');
   await db.close();
 });
@@ -559,5 +587,128 @@ await test('the view keeps its 40 columns, in order, with the same types', async
   assert.deepEqual(await cols('inventory_workboard_v'), before);
   await db.close();
 });
+
+// 13. Each company predicate is guarded SEPARATELY. Removing one at a time is
+//     the case the mention-counting guard let through (review cycle 1, P2):
+//     five mentions remain, which the old `>= 4` test accepted, and the
+//     surviving branch still borrows the other tenant's velocity.
+for (const [alias, label, expect] of [
+  ['t', 'the title-match join', /does not join the velocity matview on company_entity_id/],
+  ['a', 'the fallback aggregate join', /does not join the velocity fallback aggregate on company_entity_id/],
+]) {
+  await test(`the migration refuses a build that loses only ${label}`, async () => {
+    const { db } = await fresh();
+    await seed(db);
+    await assert.rejects(() => db.exec(dropOneJoin(MIGRATION, alias)), expect,
+      `losing only ${label} must be refused on its own`);
+    await db.close();
+  });
+}
+
+// 14. And verify reports each of them on production, for the same reason: the
+//     guard only runs at apply time, the drift check runs nightly.
+for (const [alias, label, expect] of [
+  ['t', 'the title-match join', /no longer joins the velocity matview on company_entity_id/],
+  ['a', 'the fallback aggregate join', /no longer joins the velocity fallback aggregate/],
+]) {
+  await test(`verify reports a matview that lost only ${label}`, async () => {
+    const { db, q } = await fresh();
+    await seed(db);
+    await db.exec(MIGRATION);
+    assert.equal((await q(VERIFY_BLOCK))[0].inventory_workboard_mv, 'ok', 'clean first');
+    // Rebuild just the matview with that one predicate missing, leaving every
+    // other object the migration made exactly as it was.
+    const body = dropOneJoin(MIGRATION, alias)
+      .match(/create materialized view public\.inventory_workboard_mv as([\s\S]*?);\n/);
+    assert.ok(body, 'could not lift the matview body out of the mutated migration');
+    // `cascade` takes the wrapper view with it, so it is rebuilt from the real
+    // migration's own text. Without this the matview branch could appear to
+    // fire when what actually fired was the missing-view branch below it --
+    // which is what a mutation run showed when this test was first written.
+    const viewDef = MIGRATION.match(
+      /create or replace view public\.inventory_workboard_v as([\s\S]*?);\n/);
+    assert.ok(viewDef, 'could not lift the wrapper view out of the migration');
+    // The indexes go with the matview, so they are rebuilt from the migration
+    // too. Without them verify's "no unique index" branch fires and this test
+    // passes on branch ordering rather than on the join predicate -- which a
+    // mutation run showed it was doing.
+    const idx = MIGRATION.match(/create (?:unique )?index[^;]*inventory_workboard_mv[^;]*;/g) || [];
+    assert.ok(idx.length >= 1, 'could not lift the matview indexes out of the migration');
+    await db.exec(`drop materialized view public.inventory_workboard_mv cascade;
+      create materialized view public.inventory_workboard_mv as ${body[1]};
+      ${idx.join('\n')}
+      create or replace view public.inventory_workboard_v as ${viewDef[1]};
+      alter view public.inventory_workboard_v set (security_invoker = false);
+      grant select on public.inventory_workboard_v to authenticated;`);
+    const got = (await q(VERIFY_BLOCK))[0].inventory_workboard_mv;
+    assert.match(got, expect, `verify did not catch it, it said: ${got}`);
+    await db.close();
+  });
+}
+
+// 15. P1. The workboard is DERIVED, and the first version of this migration
+//     called its refresh from scripts/sync-silo-inventory-sales.mjs -- the
+//     entry point of a workflow retired on 2026-07-08. So on a scheduled run
+//     nothing refreshed it and the page would have read a frozen snapshot
+//     indefinitely. The ordering now lives in the two source refresh
+//     functions, so every caller gets it: the live orchestrator, the workflow
+//     retry step, and the on-demand edge function that only changes when it is
+//     deployed. These two checks are that wiring, exercised end to end from
+//     the base table a sync actually writes.
+await test('refreshing the inventory snapshot propagates to the derived workboard', async () => {
+  const { db, q } = await fresh();
+  await seed(db);
+  await db.exec(MIGRATION);
+  const qty = async () => (await q(
+    `select total_available_quantity as n from public.inventory_workboard_mv where id = 1`))[0].n;
+  const before = await qty();
+  await db.exec(`update inventory_on_hand_current_mv_src
+                   set total_available_quantity = total_available_quantity + 7 where id = 1;`);
+  // What a Shopify inventory snapshot calls -- scripts/shopify-sync.mjs, the
+  // retry step in shopify-sync.yml and handleInventorySnapshot all call exactly
+  // this and nothing else.
+  await db.exec(`select public.refresh_inventory_current_mv();`);
+  assert.equal(Number(await qty()), Number(before) + 7,
+    'refresh_inventory_current_mv() must carry the new snapshot through to the workboard');
+  await db.close();
+});
+
+await test('refreshing sales velocity propagates to the derived workboard', async () => {
+  const { db, q } = await fresh();
+  await seed(db);
+  await db.exec(MIGRATION);
+  const sold = async () => (await q(
+    `select sold_30 as n from public.inventory_workboard_mv where id = 1`))[0].n;
+  const before = Number(await sold());
+  await db.exec(`update sales_velocity_src set qty_30d = qty_30d + 5
+                   where company_entity_id = '${CO_A}'::uuid and variant_sku = 'SKU-1';`);
+  // The hourly sales cron refreshes velocity and SKIPS the inventory refresh,
+  // so this is the only path keeping sold_30 current between nightly runs.
+  await db.exec(`select public.refresh_sales_velocity_mv();`);
+  assert.equal(Number(await sold()), before + 5,
+    'refresh_sales_velocity_mv() must carry new velocity through to the workboard');
+  await db.close();
+});
+
+// 16. ...and verify fails if either source function is later replaced without
+//     its trailing refresh, which would silently restore the P1 bug with a
+//     stale page as the only symptom.
+for (const [fn, expect] of [
+  ['refresh_inventory_current_mv', /refresh_inventory_current_mv\(\) no longer refreshes/],
+  ['refresh_sales_velocity_mv', /refresh_sales_velocity_mv\(\) no longer refreshes/],
+]) {
+  await test(`verify catches ${fn}() losing its chained workboard refresh`, async () => {
+    const { db, q } = await fresh();
+    await seed(db);
+    await db.exec(MIGRATION);
+    assert.equal((await q(VERIFY_BLOCK))[0].inventory_workboard_mv, 'ok', 'clean first');
+    await db.exec(`create or replace function public.${fn}() returns void
+                     language plpgsql security definer set search_path to 'public'
+                     as $x$ begin null; end; $x$;`);
+    const got = (await q(VERIFY_BLOCK))[0].inventory_workboard_mv;
+    assert.match(got, expect, `verify did not catch it, it said: ${got}`);
+    await db.close();
+  });
+}
 
 console.log(`\n${passed} checks passed`);

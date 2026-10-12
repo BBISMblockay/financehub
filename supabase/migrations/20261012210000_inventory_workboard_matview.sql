@@ -187,17 +187,24 @@ begin
   -- So the join keys are asserted directly, on the definition as Postgres
   -- stored it, whether this run created the matview or found one already there.
   --
-  -- Counted rather than pattern-matched on one join condition, because
-  -- pg_get_viewdef may reorder the operands of an equality. The correct
-  -- definition mentions the column seven times (select list, both velocity join
-  -- keys, the fallback aggregate's select and GROUP BY); the cross-tenant shape
-  -- mentions it once, in the select list. Four separates them with room either
-  -- way. verify_v2_schema.sql carries the same check for the same reason.
+  -- ONE ASSERTION PER JOIN, not a count of mentions. Counting is too weak, and
+  -- the first version of this guard counted: the correct definition mentions
+  -- company_entity_id seven times (select list, both velocity join keys, the
+  -- fallback aggregate's select and GROUP BY), so deleting ONE of the two join
+  -- predicates leaves five and a `>= 4` test still reports success -- while the
+  -- remaining branch happily borrows another tenant's velocity on any key that
+  -- is globally unique, without changing the row count. Found in review cycle 1
+  -- of PR #953. Each predicate is therefore matched on its own, accepting
+  -- either operand order because pg_get_viewdef is free to reorder an equality
+  -- and to reparenthesise. verify_v2_schema.sql carries the same two checks.
   def := pg_get_viewdef('public.inventory_workboard_mv'::regclass, true);
-  if (select count(*) from regexp_matches(def, 'company_entity_id', 'g')) < 4 then
+  if def !~ '(t\.company_entity_id\s*=\s*i\.company_entity_id|i\.company_entity_id\s*=\s*t\.company_entity_id)' then
     raise exception
-      'inventory_workboard_mv does not carry company_entity_id in its velocity join keys (found % mentions, expected at least 4) -- it is built across every company, so one tenant''s inventory would match another tenant''s sales velocity; refusing to wire this up',
-      (select count(*) from regexp_matches(def, 'company_entity_id', 'g'));
+      'inventory_workboard_mv does not join the velocity matview on company_entity_id (the title-match join, alias t) -- it is built across every company, so one tenant''s inventory would take another tenant''s sales velocity on a matching location/sku/title; refusing to wire this up';
+  end if;
+  if def !~ '(a\.company_entity_id\s*=\s*i\.company_entity_id|i\.company_entity_id\s*=\s*a\.company_entity_id)' then
+    raise exception
+      'inventory_workboard_mv does not join the velocity fallback aggregate on company_entity_id (alias a) -- the sku-level fallback would take another tenant''s sales velocity on a matching location/sku; refusing to wire this up';
   end if;
 
   -- The LEFT JOINs must neither duplicate nor drop a row: both unique indexes
@@ -343,6 +350,118 @@ $fn$;
 -- anon/authenticated on new public functions, so both are revoked explicitly.
 revoke all on function public.refresh_inventory_workboard_mv() from anon, authenticated, public;
 grant execute on function public.refresh_inventory_workboard_mv() to service_role;
+
+-- ---------------------------------------------------------------------------
+-- Keep the derived matview consistent with its two sources, wherever they are
+-- refreshed from.
+--
+-- This is the correction from review cycle 1 of PR #953, and the finding was
+-- right. The first version of this migration wired the workboard refresh into
+-- scripts/sync-silo-inventory-sales.mjs, which is the entry point of
+-- nightly-silo-sync.yml -- a workflow RETIRED on 2026-07-08 and left on
+-- workflow_dispatch for emergencies. So on a scheduled run nothing would have
+-- refreshed the workboard at all: the live Shopify sync refreshes both sources
+-- and the stored workboard would have been frozen at whatever this migration
+-- populated, indefinitely, while /v2/inventory.html, the dead-stock report and
+-- Ask SILO all read it.
+--
+-- The invariant to restore is specific, and it is stronger than the one
+-- demand_coverage_base_mv needs. Before this migration inventory_workboard_v
+-- was a live join, so it ALWAYS agreed with inventory_on_hand_current_v and
+-- sales_velocity_by_sku_location_v -- unconditionally, by construction, no
+-- matter who refreshed what. Materializing it is only safe if that stays true.
+-- Three separate call sites refresh those sources today
+-- (scripts/shopify-sync.mjs, the "Refresh inventory mat view" retry step in
+-- .github/workflows/shopify-sync.yml, and handleInventorySnapshot in
+-- supabase/functions/shopify-sync-run/index.ts), and a fourth would be
+-- added by anyone who needs a snapshot later. Hand-wiring each one is three
+-- chances to forget -- this migration already demonstrated what forgetting
+-- looks like -- and one of the three is an edge function, where a source
+-- change does not take effect until it is deployed by hand.
+--
+-- So the ordering lives in the database instead: refreshing either source
+-- refreshes what is derived from it, in the same call, for every caller that
+-- exists now or later, with no client change and no deploy. The bodies below
+-- are the deployed ones read from pg_get_functiondef (not retyped from a
+-- migration file), each with its own statement_timeout and its own fallback
+-- behaviour preserved exactly; the only addition is the trailing refresh.
+--
+-- A failure of the derived refresh is raised, not swallowed, because a stale
+-- workboard disagrees with inventory_on_hand_current_v and would turn the
+-- 20260904300000 dead-stock tie-out red with no indication of the cause. It is
+-- re-raised with its own name in the message so the caller's log does not
+-- blame the source refresh, which did succeed.
+--
+-- The hourly sales cron ('0 */2 * * *') deliberately skips the inventory
+-- refresh, so chaining on velocity as well is what keeps sold_30 current
+-- between nightly runs -- exactly as the live join did.
+--
+-- Two overlapping refreshes serialize on the matview lock rather than
+-- corrupting anything (shopify-sync.yml takes no concurrency group on purpose),
+-- and 300s is the inner timeout.
+
+-- statement_timeout raised from the deployed 120s to 300s, matching
+-- refresh_sales_velocity_mv and refresh_demand_coverage_base_mv (both already
+-- 300s; 120s was the outlier). The reason is this change and nothing else: 120s
+-- was sized for a body that only refreshed the snapshot, and whether a nested
+-- function's own higher SET re-arms the timer for the statement already in
+-- flight is not something worth depending on. The added refresh is seconds on
+-- 67.6k rows, so this is headroom, not an expectation of needing it.
+create or replace function public.refresh_inventory_current_mv()
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+set statement_timeout to '300s'
+as $fn$
+begin
+  refresh materialized view concurrently public.inventory_on_hand_current_mv;
+
+  -- Derived from the snapshot just refreshed; see the note above.
+  begin
+    perform public.refresh_inventory_workboard_mv();
+  exception when others then
+    raise exception
+      'inventory_on_hand_current_mv refreshed, but the derived inventory_workboard_mv refresh failed: % -- /v2/inventory.html and the dead-stock tie-out now disagree with the snapshot',
+      sqlerrm;
+  end;
+end;
+$fn$;
+
+create or replace function public.refresh_sales_velocity_mv()
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+set statement_timeout to '300s'
+as $fn$
+begin
+  begin
+    refresh materialized view concurrently public.sales_velocity_by_sku_location_mv;
+  exception when others then
+    refresh materialized view public.sales_velocity_by_sku_location_mv;
+  end;
+
+  -- Derived from the velocity rows just refreshed; see the note above. This is
+  -- the path that keeps sold_30 and days_oos current on the hourly sales cron,
+  -- which skips the inventory refresh.
+  begin
+    perform public.refresh_inventory_workboard_mv();
+  exception when others then
+    raise exception
+      'sales_velocity_by_sku_location_mv refreshed, but the derived inventory_workboard_mv refresh failed: % -- /v2/inventory.html velocity now disagrees with sales_velocity_by_sku_location_v',
+      sqlerrm;
+  end;
+end;
+$fn$;
+
+-- Unchanged privileges, restated because `create or replace` keeps the old
+-- grants and Supabase re-grants EXECUTE on public functions to anon and
+-- authenticated. Neither of these was ever client-callable.
+revoke all on function public.refresh_inventory_current_mv() from anon, authenticated, public;
+revoke all on function public.refresh_sales_velocity_mv() from anon, authenticated, public;
+grant execute on function public.refresh_inventory_current_mv() to service_role;
+grant execute on function public.refresh_sales_velocity_mv() to service_role;
 
 -- Ask SILO's schema map describes public tables and views; this adds one.
 select public.refresh_chat_schema_catalog();

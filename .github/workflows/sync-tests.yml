@@ -53,7 +53,6 @@ on:
       # (inventory-workboard-matview-database.test.mjs). The test lifts its
       # verify block out of verify_v2_schema.sql, which is already listed above.
       - 'supabase/migrations/*inventory_workboard_matview.sql'
-      - 'scripts/sync-silo-inventory-sales.mjs'
       - 'supabase/migrations/*silo_dashboards.sql'
       - 'supabase/migrations/*saved_report_archive.sql'
       - 'supabase/apply_all_post_merge.sql'

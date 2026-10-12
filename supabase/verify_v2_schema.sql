@@ -1755,18 +1755,21 @@ select
     -- pg_views at all, and the NULL that lookup returns would make this check
     -- fire CRITICAL on a perfectly correct matview.
     --
-    -- Counted rather than pattern-matched on one join condition, because
-    -- pg_get_viewdef is free to reorder the operands of an equality and to
-    -- rename nothing but still reparenthesise. The correct definition mentions
-    -- the column seven times (select list, both velocity join keys, the
-    -- fallback aggregate's select and GROUP BY); the cross-tenant shape this
-    -- guards against mentions it once, in the select list only. Four
-    -- separates them with room to spare either way.
-    when (select count(*) from regexp_matches(
-            coalesce((select definition from pg_matviews
-                      where schemaname='public' and matviewname='inventory_workboard_mv'), ''),
-            'company_entity_id', 'g')) < 4
-      then 'CRITICAL — inventory_workboard_mv no longer joins on company_entity_id; it is built across every company, so one tenant''s inventory is matching another tenant''s sales velocity'
+    -- ONE CHECK PER JOIN. Counting mentions is too weak and this check used to
+    -- count: the correct definition mentions the column seven times, so losing
+    -- ONE of the two join predicates leaves five and a `>= 4` test still says
+    -- ok -- while that branch borrows another tenant's velocity on any globally
+    -- unique key, without changing the row count. Each predicate is matched on
+    -- its own, accepting either operand order because pg_get_viewdef may
+    -- reorder an equality and reparenthesise.
+    when coalesce((select definition from pg_matviews
+                   where schemaname='public' and matviewname='inventory_workboard_mv'), '')
+         !~ '(t\.company_entity_id\s*=\s*i\.company_entity_id|i\.company_entity_id\s*=\s*t\.company_entity_id)'
+      then 'CRITICAL — inventory_workboard_mv no longer joins the velocity matview on company_entity_id (title-match join); it is built across every company, so one tenant''s inventory is taking another tenant''s sales velocity'
+    when coalesce((select definition from pg_matviews
+                   where schemaname='public' and matviewname='inventory_workboard_mv'), '')
+         !~ '(a\.company_entity_id\s*=\s*i\.company_entity_id|i\.company_entity_id\s*=\s*a\.company_entity_id)'
+      then 'CRITICAL — inventory_workboard_mv no longer joins the velocity fallback aggregate on company_entity_id; the sku-level fallback is taking another tenant''s sales velocity'
     when coalesce((select option_value from pg_options_to_table(
                      (select c.reloptions from pg_class c join pg_namespace n on n.oid=c.relnamespace
                        where n.nspname='public' and c.relname='inventory_workboard_v'))
@@ -1796,6 +1799,26 @@ select
     when has_function_privilege('anon', 'public.refresh_inventory_workboard_mv()', 'EXECUTE')
       or has_function_privilege('authenticated', 'public.refresh_inventory_workboard_mv()', 'EXECUTE')
       then 'BROKEN — refresh_inventory_workboard_mv() is executable by anon or authenticated; a browser could kick a 300s refresh'
+    -- The workboard is DERIVED, so a refresh function that exists but is never
+    -- called leaves it frozen. Rather than wire the call into each of the three
+    -- callers that refresh a source (scripts/shopify-sync.mjs, the retry step in
+    -- shopify-sync.yml and handleInventorySnapshot in shopify-sync-run, one of
+    -- them an edge function that only changes when it is deployed), 20261012210000
+    -- chains it inside the two source refresh functions. These two checks are
+    -- what makes that chaining load-bearing instead of a convention: a later
+    -- `create or replace` of either source function that drops the trailing
+    -- refresh silently restores the exact bug review cycle 1 of PR #953 caught,
+    -- and the symptom would be a stale page rather than an error.
+    when not exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname='public' and p.proname='refresh_inventory_current_mv'
+        and pg_get_functiondef(p.oid) ~ 'perform\s+public\.refresh_inventory_workboard_mv')
+      then 'BROKEN — refresh_inventory_current_mv() no longer refreshes the derived inventory_workboard_mv; a Shopify inventory snapshot now leaves /v2/inventory.html and the dead-stock tie-out reading the previous snapshot'
+    when not exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname='public' and p.proname='refresh_sales_velocity_mv'
+        and pg_get_functiondef(p.oid) ~ 'perform\s+public\.refresh_inventory_workboard_mv')
+      then 'BROKEN — refresh_sales_velocity_mv() no longer refreshes the derived inventory_workboard_mv; sold_30 and days_oos on /v2/inventory.html will sit at the last inventory refresh instead of following the hourly sales sync'
     -- The row-count invariant (the velocity join may neither duplicate nor drop
     -- an inventory row) is deliberately NOT checked here. It needs
     -- `select count(*) from public.inventory_workboard_mv`, and a relation

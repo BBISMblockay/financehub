@@ -2825,3 +2825,17 @@ workboard disagrees with `inventory_on_hand_current_v` and would turn the
 nightly dead-stock tie-out red with no sign of the cause. Tests:
 `scripts/tests/inventory-workboard-matview-database.test.mjs` (14) and the
 `inventory_workboard_mv` verify row.
+
+**The refresh is chained, not called.** `refresh_inventory_workboard_mv()` is invoked from inside
+`refresh_inventory_current_mv()` and `refresh_sales_velocity_mv()`, so every caller of either source
+refresh gets it: `scripts/shopify-sync.mjs`, the "Refresh inventory mat view" retry step in
+`.github/workflows/shopify-sync.yml`, and `handleInventorySnapshot` in `shopify-sync-run` (an edge
+function, which would otherwise need a deploy to pick the call up). This was the first review finding on
+PR #953, and it was a real defect: the original version called the refresh from
+`scripts/sync-silo-inventory-sales.mjs`, whose workflow was retired on 2026-07-08, so on a scheduled run
+nothing would have refreshed the workboard at all. It also preserves the property that made
+materializing the view safe: as a live join it always agreed with its two sources, unconditionally, and
+chaining keeps that true -- including on the hourly sales cron, which refreshes velocity and
+deliberately skips the inventory refresh. A failure of the derived refresh is raised, with its own name
+in the message so the caller's log does not blame the source refresh that succeeded.
+`verify_v2_schema.sql` fails BROKEN if either source function is later replaced without the call.
