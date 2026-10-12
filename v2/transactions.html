@@ -2283,14 +2283,17 @@
 
   function treatmentCell(t) {
     if (t.origin !== 'plaid') return '<span class="txn-col-empty">—</span>';
-    if (!rowEditable(t)) {
-      const label = TREATMENTS[t.accounting_treatment] || t.accounting_treatment || '—';
-      return `<span class="txn-type-label" title="${esc(label)}">${esc(label)}</span>`;
-    }
+    const label = TREATMENTS[t.accounting_treatment] || t.accounting_treatment || '—';
     const gap = treatmentGapFor(t);
-    const hint = gap?.suggested
+    if (!rowEditable(t) || !gap) {
+      if (t.accounting_treatment && t.accounting_treatment !== 'unknown') {
+        return `<span class="txn-type-label" title="${esc(label)}">${esc(label)}</span>`;
+      }
+      return '<span class="txn-col-empty">—</span>';
+    }
+    const hint = gap.suggested
       ? ` <button type="button" class="bcn-btn bcn-btn--ghost txn-hint txn-hint--inline" data-use-treatment="${esc(gap.suggested)}" title="Set ${esc(TREATMENTS[gap.suggested] || gap.suggested)}">↵</button>`
-      : '';
+      : ` <button type="button" class="bcn-btn bcn-btn--ghost txn-hint txn-hint--inline" data-review title="Choose transaction type in the detail panel">…</button>`;
     return `<select class="bcn-field txn-type-select" data-field="treatment" aria-label="Transaction type">${treatmentOptions(t.accounting_treatment || 'unknown')}</select>${hint}`;
   }
 
