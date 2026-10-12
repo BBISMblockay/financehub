@@ -459,14 +459,52 @@ export async function purgeShopifyInventoryForConnection(supabase, companyEntity
   if (error) throw new Error(`inventory_on_hand purge failed: ${error.message}`);
 }
 
+/** Does an explicit mapping exist for this Shopify location? Distinguishes a
+ *  tag that came from a mapping from one resolveLocation fell back to. */
+export function isLocationMapped(shopifyLoc, dbMap) {
+  for (const key of shopifyLocationKeys(shopifyLoc?.id)) {
+    if (dbMap.get(normalizeShopifyLocationId(key))) return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve SILO location_tag/name for a Shopify location, with the SAME
+ * precedence the sales path uses (resolveSalesRowLocation): an explicit
+ * mapping, then the connection's typed default_location_code, then the store
+ * itself.
+ *
+ * This used to return null for an unmapped location, and runInventorySnapshot
+ * skipped it. For a store nobody had mapped yet that meant EVERY location was
+ * skipped, so the snapshot wrote zero rows and still reported success -- a
+ * newly connected store showed no inventory at all until someone mapped its
+ * locations one at a time in Integrations (hhoutfitter.myshopify.com, 16
+ * locations, 0 rows, 2026-10-12; i09sb0-6m, 52 "successful" snapshots, 0 rows).
+ * Sales never had that hole: an unmapped sale is labelled with the store
+ * rather than dropped. Inventory now does the same, so mapping is an override
+ * that splits a store into its real locations rather than a precondition for
+ * having any inventory at all.
+ *
+ * null is still possible, and still means skip: a connection with no
+ * shop_domain has nothing to name the fallback after.
+ */
 export function resolveLocation(connection, shopifyLoc, dbMap) {
   for (const key of shopifyLocationKeys(shopifyLoc.id)) {
     const hit = dbMap.get(normalizeShopifyLocationId(key));
     if (hit) return hit;
   }
 
-  // No mapping found — skip this location rather than writing a garbage unknown tag
-  return null;
+  // Fall back to the connection's default_location_code (set per-store in
+  // shopify_connections), exactly as the sales path does.
+  if (connection?.default_location_code) {
+    const tag = slugify(connection.default_location_code);
+    return { location_tag: tag, location_name: connection.default_location_code };
+  }
+
+  // Nothing mapped and nothing typed: label the stock with the Shopify store
+  // itself rather than dropping it. Same tag the store's unmapped SALES carry,
+  // so the two tie out.
+  return storeNameLocation(connection);
 }
 
 export async function buildSalesRow({
@@ -726,7 +764,7 @@ async function loadLocationContext(supabase, connection, headers, base) {
   for (const loc of locations) {
     const info = resolveLocation(connection, loc, dbLocationMap);
     if (!info) {
-      console.warn(`[inventory] No mapping for Shopify location "${loc.name}" (${loc.id}) — skipping`);
+      console.warn(`[inventory] Cannot name Shopify location "${loc.name}" (${loc.id}) — no mapping, no default and no shop domain, skipping`);
       continue;
     }
     locationById.set(String(loc.id), info.location_tag);
@@ -1451,13 +1489,22 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
   // mislabeled row.
   const invByKey = new Map();
 
+  // How many locations got their tag from the fallback rather than a mapping.
+  // Reported so a snapshot that wrote rows under the store's own tag says so,
+  // instead of looking identical to one over fully mapped locations.
+  let locationsUnmapped = 0;
+  let locationsSkipped = 0;
+
   for (const loc of locations) {
     const locId = String(loc.id);
+    const mapped = isLocationMapped(loc, dbLocationMap);
     const resolvedLoc = resolveLocation(connection, loc, dbLocationMap);
     if (!resolvedLoc) {
-      console.warn(`[inventory] No mapping for Shopify location "${loc.name}" (${loc.id}) — skipping`);
+      locationsSkipped++;
+      console.warn(`[inventory] Cannot name Shopify location "${loc.name}" (${loc.id}) — no mapping, no default and no shop domain, skipping`);
       continue;
     }
+    if (!mapped) locationsUnmapped++;
     const { location_tag: locationTag, location_name: locationName } = resolvedLoc;
 
     const levels = await getAll(
@@ -1512,6 +1559,8 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
   return {
     job_type: 'inventory_snapshot',
     locations: locations.length,
+    locations_unmapped: locationsUnmapped,
+    locations_skipped: locationsSkipped,
     inventory_rows_upserted: upserted,
     snapshot_at: snapshotAt,
   };

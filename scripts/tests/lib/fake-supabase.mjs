@@ -13,6 +13,7 @@
  *   from(t).upsert(rows, { onConflict })      -- merges on the conflict key
  *   from(t).update(patch).eq().is().lt().neq() -- filtered, awaited
  *   from(t).delete().eq().not(col,'in',list).select()  -- filtered, returns rows
+ *   from(t).select().eq().not(col,'is',null)   -- rows whose col is set
  *   from(t).select().eq().in().gt()            -- filtered read, awaited
  *
  * Filters are evaluated against stored rows, so a test can assert on the
@@ -56,6 +57,7 @@ export function createFakeSupabase({ beforeWrite = null } = {}) {
     if (f.op === 'eq') return v === f.val;
     if (f.op === 'neq') return v !== f.val;
     if (f.op === 'is') return f.val === null ? (v === null || v === undefined) : v === f.val;
+    if (f.op === 'not_is_null') return v !== null && v !== undefined;
     if (f.op === 'lt') return v != null && v < f.val;
     if (f.op === 'gt') return v != null && v > f.val;
     if (f.op === 'gte') return v != null && v >= f.val;
@@ -87,6 +89,11 @@ export function createFakeSupabase({ beforeWrite = null } = {}) {
       // string form `.not(col, 'in', '(...)')` above.
       in(col, val) { filters.push({ op: 'in', col, val }); return builder; },
       not(col, op, val) {
+        // `.not(col, 'is', null)` is how loadLocationMap asks for rows whose
+        // shopify_location_id is set; it is a different filter from not-in and
+        // silently accepting it as one would make an unfiltered read look
+        // filtered.
+        if (op === 'is' && val === null) { filters.push({ op: 'not_is_null', col }); return builder; }
         if (op !== 'in') throw new Error(`fake-supabase: unsupported not(${op})`);
         filters.push({ op: 'not_in', col, val });
         return builder;
@@ -126,6 +133,14 @@ export function createFakeSupabase({ beforeWrite = null } = {}) {
       gt(col, val) { filters.push({ op: 'gt', col, val }); return builder; },
       lt(col, val) { filters.push({ op: 'lt', col, val }); return builder; },
       is(col, val) { filters.push({ op: 'is', col, val }); return builder; },
+      // loadLocationMap reads `locations` with .not('shopify_location_id','is',null):
+      // only rows whose Shopify id is actually set are legacy direct mappings.
+      not(col, op, val) {
+        if (op === 'is' && val === null) { filters.push({ op: 'not_is_null', col }); return builder; }
+        if (op !== 'in') throw new Error(`fake-supabase: unsupported not(${op})`);
+        filters.push({ op: 'not_in', col, val });
+        return builder;
+      },
       order(col, opts = {}) { orders.push({ col, ascending: opts.ascending ?? true, nullsFirst: opts.nullsFirst }); return builder; },
       range(from, to) { range = [from, to]; return builder; },
       limit(n) { limit = n; return builder; },
