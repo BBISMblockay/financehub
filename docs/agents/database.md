@@ -230,6 +230,46 @@ loop, Ask SILO's "Refresh data" button, and every `/v3/` dashboard widget all ru
 analyst-defined or standard SILO report should too — put new authoring experiences in front of this
 engine rather than building a second one.
 
+**`integration_bootstrap_jobs`** (20261013060000, **first-connect auto sync**) -- one row per
+integration a company has just connected, drained by `scripts/integration-bootstrap.mjs` (the
+"Integration Bootstrap" workflow, every 15 minutes). Why it exists: connecting an integration used to
+leave its data to a button or to a nightly, and Shopify's history import is browser-driven in 7-day
+chunks with "Keep this tab open" printed beside it, so clicking away stopped it -- measured 2026-10-12,
+`hhoutfitter.myshopify.com` had 2,996 sales rows and zero inventory rows.
+
+Three things about it that look like details and are not:
+* **`stages` jsonb is the resume point.** A stage recorded `done` or `skipped` is never run again, which
+  is what makes a retry cheap and what stops a second attempt paying twice for the same API calls. A
+  stage recorded `error` IS owed again; the `attempts` cap (5) is what ends the retrying, not the stage
+  record.
+* **`lease_until`, not a status flag.** `status = 'running'` cannot tell a live drainer from one whose
+  runner was killed -- the first is a reason to leave the row alone, the second a reason to pick it up.
+  `claim_integration_bootstrap_jobs(limit, lease_seconds, max_attempts)` (service-role only) takes the
+  lease inside one `update ... returning`, and the drainer renews it while a stage runs, because a
+  60-day order history can outlive it.
+* **One OPEN job per connection**, via a partial unique index over
+  `(company_entity_id, integration, coalesce(connection_id, zero-uuid))` where status is pending or
+  running. A finished job deliberately does not collide, so a connection can be re-imported later.
+  `'partial'` is a real status, distinct from `'error'`: some stages landed, so the drainer must not
+  start again from the first.
+
+Enqueueing is `is_admin_user()` within `active_company_id()` -- it reads nothing the admin could not
+already read and spends only that company's own quota. The browser writes the row (`v2/integration-bootstrap.js`),
+which is why no edge-function deploy is owed for the feature.
+
+**`connection_id` is NOT a trusted field, and the drainer is where that is enforced.** It carries no
+foreign key (the target table differs per integration), so the insert policy cannot tell that the id
+belongs to the inserting company: an admin of company A can write a job of their own company naming
+company B's store. `scripts/lib/integration-bootstrap-runner.mjs` therefore reads every connection
+filtered by `company_entity_id = job.company_entity_id` and, for the shared
+`ad_platform_connections` table, checks `platform` equals the job's integration; either mismatch
+cancels the job. **Do not "simplify" that read to the id alone** -- the service role bypasses RLS, so
+the filter is the tenant boundary on this path. The same read requires `sync_enabled` (the tables that
+have it): a job queued before somebody switched sync off is cancelled rather than run, because the
+cron is late often enough for that gap to be real. The drainer also claims ONE job at a time
+(`p_limit: 1` in a loop), since a batch is leased when it is claimed and a 55-minute Shopify stage
+would let its siblings' leases expire while they waited in memory.
+
 ### RPC functions (backend admin)
 ```
 admin_counts()

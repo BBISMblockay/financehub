@@ -6668,3 +6668,55 @@ select 'AI credit ledger' as check_name,
          'select count(*) as n from public.ai_credit_reconcile() where not ok', false, true, '')))[1]::text <> '0'
   then 'CRITICAL: AI credit balances do not reconcile with the ledger -- select * from ai_credit_reconcile() where not ok'
  else 'ok' end as status;
+
+-- =============================================================================
+-- First-connect auto sync: the bootstrap queue (20261013060000)
+-- =============================================================================
+-- What each branch is guarding, in the order it would hurt:
+--  * the queue names every connection a tenant has, so a browser grant for
+--    anon, or a missing company filter, discloses one tenant's integrations to
+--    another;
+--  * claim_integration_bootstrap_jobs() must not be client-callable -- a
+--    browser that could claim a job would take work the drainer then never
+--    does, and the import would silently never happen;
+--  * the lease predicate and the attempt cap inside that function are what
+--    stop two drainers paying twice for the same API calls and what stop a
+--    dead credential being retried every fifteen minutes for ever;
+--  * the partial unique index is what makes a double-click or a reconnect one
+--    import rather than two.
+select 'Integration bootstrap queue' as check_name,
+ case when to_regclass('public.integration_bootstrap_jobs') is null
+   or to_regprocedure('public.claim_integration_bootstrap_jobs(integer,integer,integer)') is null
+  then 'MISSING: run 20261013060000_integration_bootstrap_jobs.sql'
+ when not (select relrowsecurity from pg_class where oid = to_regclass('public.integration_bootstrap_jobs'))
+  then 'CRITICAL: RLS is off on integration_bootstrap_jobs -- every tenant can read every other tenant''s connections'
+ when has_table_privilege('anon', to_regclass('public.integration_bootstrap_jobs'), 'SELECT')
+  then 'CRITICAL: anon holds a grant on integration_bootstrap_jobs'
+ when has_function_privilege('authenticated',
+        to_regprocedure('public.claim_integration_bootstrap_jobs(integer,integer,integer)'), 'EXECUTE')
+   or has_function_privilege('anon',
+        to_regprocedure('public.claim_integration_bootstrap_jobs(integer,integer,integer)'), 'EXECUTE')
+  then 'CRITICAL: claim_integration_bootstrap_jobs() is callable from the browser -- a claimed job is work no drainer will do'
+ when pg_get_functiondef(to_regprocedure('public.claim_integration_bootstrap_jobs(integer,integer,integer)'))
+        !~ 'lease_until is null or c\.lease_until < now\(\)'
+  then 'CRITICAL: the bootstrap claim no longer honours the lease -- two drainers would run the same first sync and pay twice'
+ when pg_get_functiondef(to_regprocedure('public.claim_integration_bootstrap_jobs(integer,integer,integer)'))
+        !~ 'attempts < greatest'
+  then 'CRITICAL: the bootstrap claim no longer caps attempts -- a dead credential is retried for ever, each attempt a paid API call'
+ when pg_get_functiondef(to_regprocedure('public.claim_integration_bootstrap_jobs(integer,integer,integer)'))
+        !~ 'for update skip locked'
+  then 'CRITICAL: the bootstrap claim no longer locks the rows it selects -- two simultaneous drainers can pick the same job'
+ when not exists (
+   select 1 from pg_policy p
+   where p.polrelid = to_regclass('public.integration_bootstrap_jobs')
+     and p.polcmd = 'a'
+     and pg_get_expr(p.polwithcheck, p.polrelid) ~ 'active_company_id'
+     and pg_get_expr(p.polwithcheck, p.polrelid) ~ 'is_admin_user')
+  then 'CRITICAL: anyone signed in can queue a sync, or queue it into another company'
+ when not exists (
+   select 1 from pg_index i join pg_class c on c.oid = i.indexrelid
+   where i.indrelid = to_regclass('public.integration_bootstrap_jobs')
+     and i.indisunique
+     and c.relname = 'integration_bootstrap_jobs_open_uniq')
+  then 'CRITICAL: the one-open-job-per-connection index is gone -- a double-click queues two 60-day imports'
+ else 'ok' end as status;

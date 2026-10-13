@@ -19208,6 +19208,10 @@ $c$select (select count(*) from v_po_header_summary
 -- 20260708050000/20260708060000, which create the two matviews it reads and the
 -- wrapper pattern it follows.
 \i migrations/20261012210000_inventory_workboard_matview.sql
+-- First-connect auto sync: the queue a newly connected integration's first
+-- full sync is claimed from, with the lease that stops two drainers running
+-- the same import.
+\i migrations/20261013060000_integration_bootstrap_jobs.sql
 -- The marketing test record (and the schedule's link column). Must come AFTER
 -- 20260927190000_ad_studio.sql, whose ad_ideas it references.
 \i migrations/20261013120000_marketing_tests.sql

@@ -146,6 +146,46 @@ redeploy.
 
 ---
 
+## Two client ad accounts are dead, and one edge-function deploy is owed (P2)
+
+Found 2026-10-13 while clearing the red GitHub Actions. Neither is a code defect; the workflows
+that reported them are fixed, so these are now reported as warnings instead of as failures.
+
+- **Bat Nutz's Meta ad account** has returned `API access blocked.` (OAuthException 200) on every
+  run since 2026-10-07, and **BlockayOps' Google Ads account** has been cancelled
+  (`CUSTOMER_NOT_ENABLED`) since 2026-09-30. Both need the account owner to fix the account with
+  the platform, or the connection switched off in `/v2/integrations.html`. **Neither connection has
+  ever written a row** to `marketing_kpis_daily`, so nothing is being lost by either -- but it is a
+  refusal, not a zero: the APIs decline before any number comes back. Bat Nutz's Google Ads
+  connection is healthy ($186 of spend in the 45 days to 2026-10-13); only its Meta one is blocked.
+  Switching Sync off on those two rows drops them out of the freshness alarm's expected list
+  entirely (`expectedCompanies` skips `sync_enabled = false`), which is cleaner than leaving them
+  to the `client-blocked` path. Until one or the other, BlockayOps' marketing feed stays at
+  2026-10-05 and reads `client-blocked` in the freshness run.
+- **A deploy is owed** for `meta-oauth-callback` (on `main`, never deployed). It is reachable only
+  from `testing/meta-oauth.html` for Meta's App Review, so it matters when that flow is next used --
+  but the Deployment drift check stays red on that row until it ships from `main` through the
+  "Deploy Edge Function" workflow. `check-function-drift.mjs` has no way to defer an "in repo, not
+  deployed" finding the way it defers a content difference, so there is no quiet middle ground yet.
+  (`shopify-sync-run` was the other one; Blake deployed it 2026-10-13 06:24 UTC.)
+
+---
+
+## BBISM Receivables is a frozen book with live collections actions (P2)
+
+Found 2026-10-13 (review cycle 2 on #957). `/v2/baseballismwholesale.html` reads the retired `ar_*`
+tables, which stop at 2026-09-14, and it still computes open and past-due balances and offers a
+collections queue with actions. Its banner now says the book is frozen and that payments after that
+date are missing too, so nobody should act on a balance without checking Shopify first — but the
+actions are still there to click, and the aging KPIs still read as current numbers.
+
+Needs a decision, not a fix: migrate the workbench onto `shopify_orders_v` (where the live wholesale
+terms and paid dates are), or make the page explicitly historical and disable the collections
+actions. Until then the nav row "BBISM Receivables" points at a book that only moves if somebody
+dispatches `ar-sync.yml` by hand.
+
+---
+
 ## Shared freight invoices are not linked to their POs (P2)
 
 Found 2026-10-08. A freight payment request covering several POs stores them as one comma-joined

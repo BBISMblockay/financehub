@@ -1,0 +1,43 @@
+# What GitHub Pages publishes from this branch.
+#
+# _config.yml decides which of this repo's directories reach
+# silo-baseballism.com, and the Meta App Review reviewer page is published out
+# of the otherwise-excluded testing/ directory by an include allowlist. This
+# workflow runs the real Jekyll build (the same 3.10 line GitHub Pages uses) and
+# checks the artifact: the three review assets are there and resolve, and the
+# private directories are not.
+name: Publication tests
+
+on:
+  push:
+    branches: [main]
+    paths: &publication_paths
+      - '_config.yml'
+      - 'testing/**'
+      - 'pages/config.js'
+      - 'v2/beacon.css'
+      - 'v2/silo-brand.css'
+      - 'scripts/tests/pages-publish-allowlist.test.mjs'
+      - '.github/workflows/publication-tests.yml'
+  pull_request:
+    paths: *publication_paths
+
+permissions:
+  contents: read
+
+jobs:
+  publication:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: false
+      - name: Install the Jekyll version GitHub Pages builds with
+        run: gem install jekyll -v 3.10.0 --no-document
+      - name: Check the published artifact against the allowlist
+        run: node scripts/tests/pages-publish-allowlist.test.mjs
