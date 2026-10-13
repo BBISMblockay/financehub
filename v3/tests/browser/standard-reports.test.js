@@ -22,11 +22,19 @@ const { startSuite, FIXTURES } = require('../lib/harness');
     assert.equal((await page.textContent('#hubTitle')).trim(), 'Reports');
     assert.equal((await page.textContent('.silo-sb-link[data-nav-id="reports/dashboards"]')).trim(), 'Reports');
     assert.deepEqual(await page.locator('#libTabs [role="tab"]:visible').evaluateAll(ts => ts.map(t => t.dataset.tab)), ['silo', 'dashboards']);
-    assert.equal(await page.locator('#siloBody .lib-card[data-id^="reports/"]').count(), 0);
+    // Four specialised sales pages are listed for standard workspaces; Daily
+    // Sales Trend and Top Sellers stay grandfathered (SILO system reports cover them).
+    const STANDARD_PAGES = ['reports/product-search', 'reports/product-types', 'reports/sales-overview', 'reports/sales-report'];
+    assert.deepEqual(await page.locator('#siloBody .lib-card[data-id^="reports/"]').evaluateAll(cs => cs.map(c => c.dataset.id).sort()), STANDARD_PAGES);
+    for (const id of STANDARD_PAGES) {
+      const href = await page.locator(`#siloBody .lib-card[data-id="${id}"] .lib-link`).getAttribute('href');
+      assert.equal(href, (await page.evaluate(i => window.SiloNav.SALES_REPORT_PAGES.find(p => p.id === i).href, id)));
+    }
     assert.equal(await page.locator('#siloBody .lib-card[data-id="PRIVATE"], #siloBody .lib-card[data-id="FOREIGN"], #siloBody .lib-card[data-id="R1"]').count(), 0);
     assert.equal(await page.isHidden('#btnNewReport'), true);
     const systemIds = await page.evaluate(() => window.__FAKE_DB__.silo_chat_saved_reports.filter(r => r.source === 'system' && r.company_entity_id == null && !r.archived_at).map(r => r.id).sort());
-    assert.deepEqual(await page.locator('#siloBody .lib-card').evaluateAll(cs => cs.map(c => c.dataset.id).sort()), systemIds);
+    assert.deepEqual(await page.locator('#siloBody .lib-card:not([data-id^="reports/"])').evaluateAll(cs => cs.map(c => c.dataset.id).sort()), systemIds);
+    const expectedCards = systemIds.length + STANDARD_PAGES.length;
     for (let i = 0; i < 3; i++) {
       await page.fill('#librarySearch', 'no-such-report');
       await page.click('#tab-dashboards');
@@ -34,12 +42,12 @@ const { startSuite, FIXTURES } = require('../lib/harness');
       assert.equal(await page.inputValue('#librarySearch'), '');
       assert.equal(await page.isVisible('#btnNew'), true);
       await page.click('#tab-silo');
-      assert.equal(await page.locator('#siloBody .lib-card').count(), systemIds.length);
+      assert.equal(await page.locator('#siloBody .lib-card').count(), expectedCards);
     }
     await page.reload();
     await page.waitForSelector('#siloBody .lib-card');
     await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
-    await page.waitForFunction(n => document.querySelectorAll('#siloBody .lib-card').length === n, systemIds.length);
+    await page.waitForFunction(n => document.querySelectorAll('#siloBody .lib-card').length === n, expectedCards);
     await page.click('#siloBody .lib-card[data-id="S1"] .lib-link');
     await page.waitForSelector('[gs-id="preview-table"] table');
     assert.equal(await page.isHidden('#previewBuilder'), true);
@@ -67,7 +75,10 @@ const { startSuite, FIXTURES } = require('../lib/harness');
     }
     await page.route('**/@supabase/supabase-js**', r => r.fulfill({ contentType: 'text/javascript', body: fake + `window.__FAKE_DB__.silo_chat_saved_reports = [];` }));
     await page.goto(`${suite.BASE}/v3/dashboards.html`);
-    await page.waitForFunction(() => /No SILO reports/.test(document.getElementById('siloBody').textContent));
+    // No saved reports at all: the library still lists the four sales pages
+    // rather than an empty state.
+    await page.waitForFunction(n => document.querySelectorAll('#siloBody .lib-card').length === n, STANDARD_PAGES.length);
+    assert.equal(await page.locator('#siloBody .lib-card:not([data-id^="reports/"])').count(), 0);
     await page.click('#tab-dashboards');
     await page.waitForSelector('#listBody .lib-card');
     // A missing/private report never creates a preview or an authoring route.

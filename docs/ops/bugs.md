@@ -130,6 +130,43 @@ Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
 
 ---
 
+## Shopify order facts are keyed without the company (P2, guarded)
+
+`shopify_orders (shop_domain, order_id)`, `shopify_order_lines (shop_domain, order_id, line_item_id)`,
+`shopify_draft_orders (shop_domain, draft_order_id)` and `shopify_payouts (payout_id)` are unique with
+no `company_entity_id`, and every sync upserts on those keys with the service role. A store connected
+under two companies therefore does not get a copy per company: the second company's sync REWRITES the
+rows' `company_entity_id`, moving the orders between tenants (`sales_by_day` and `inventory_on_hand` hash
+the company into their key and are not affected). Live 2026-10-13: baseballismmlb's orders are held by
+Baseballism and the store is also connected under BlockayOps; baseballismchicago and baseballismdsg are
+connected under Baseballism and Test Company and hold no order facts under either, so the guard below
+does not protect them -- the first company to write their orders owns them.
+
+**Guarded since PR #971**: `scripts/lib/shopify-tenant-guard.mjs` refuses to sync a store whose order
+facts another company already holds -- in the nightly and the first-import job (`scripts/shopify-sync.mjs`),
+the manual orders backfill (`scripts/shopify-orders-backfill.mjs`), and `shopify-sync-run`'s two history
+actions (needs a deploy to take effect there). Two companies importing a never-synced store at the same
+moment can both pass it. The real fix is a
+migration adding `company_entity_id` to those unique keys (and to the sync cores' `onConflict`), which is
+Blake's call.
+
+## support@get-silo.com: cross-tenant access through one mailbox (accepted risk, Blake 2026-10-13)
+
+Raised as P1 by both PR #968 review cycles. Since 2026-10-13 support@get-silo.com is a platform admin and
+`admin` in 14 client companies (plus owner of State Forty Eight), and its department is `finance`, so it
+holds journal-entry authority in all of them. Whoever can read that mailbox can reset its SILO password and
+act in every one of those workspaces, money included, under one identity. SILO has no MFA (no `aal2`/TOTP in the login code).
+
+**Accepted by Blake on 2026-10-13:** he is the only person with access to that mailbox, so in practice
+it is a second login for one named operator, not a shared one. The control is therefore the mailbox
+itself: keep it single-user and protected by its provider's 2-step verification.
+
+**Revisit, and move to the reviewer's fix, the moment any of these is true:** anyone else gets access to
+the mailbox (an alias, a forward, a delegate, a group), support work is handed to another person, or the
+mailbox is suspected compromised. The fix: one named, non-shared SILO login per operator with the same
+memberships, then remove support@'s `platform_admins` row and memberships and keep it as a contact
+alias. MFA in SILO is separate hardening work.
+
 ## Signup confirmation links lose their destination — Supabase redirect allowlist (P2)
 
 Found 2026-10-09. Every signup on production asks Supabase to send the
@@ -160,7 +197,7 @@ redeploy.
 
 ---
 
-## Two client ad accounts are dead, and one edge-function deploy is owed (P2)
+## Two client ad accounts are dead (P2)
 
 Found 2026-10-13 while clearing the red GitHub Actions. Neither is a code defect; the workflows
 that reported them are fixed, so these are now reported as warnings instead of as failures.
@@ -176,12 +213,6 @@ that reported them are fixed, so these are now reported as warnings instead of a
   entirely (`expectedCompanies` skips `sync_enabled = false`), which is cleaner than leaving them
   to the `client-blocked` path. Until one or the other, BlockayOps' marketing feed stays at
   2026-10-05 and reads `client-blocked` in the freshness run.
-- **A deploy is owed** for `meta-oauth-callback` (on `main`, never deployed). It is reachable only
-  from `testing/meta-oauth.html` for Meta's App Review, so it matters when that flow is next used --
-  but the Deployment drift check stays red on that row until it ships from `main` through the
-  "Deploy Edge Function" workflow. `check-function-drift.mjs` has no way to defer an "in repo, not
-  deployed" finding the way it defers a content difference, so there is no quiet middle ground yet.
-  (`shopify-sync-run` was the other one; Blake deployed it 2026-10-13 06:24 UTC.)
 
 ---
 

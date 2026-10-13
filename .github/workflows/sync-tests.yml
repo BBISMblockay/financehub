@@ -40,6 +40,7 @@ on:
       - 'supabase/migrations/*security_audit_db_hardening.sql'
       - 'supabase/migrations/*integration_bootstrap_jobs.sql'
       - 'v2/integration-bootstrap.js'
+      - 'v2/integration-enrolment.js'
       - 'scripts/integration-bootstrap.mjs'
       - 'scripts/lib/integration-bootstrap-*.mjs'
       - 'v2/integrations.html'
@@ -343,6 +344,18 @@ jobs:
       - name: Shopify store-name sales fallback
         run: node scripts/tests/shopify-store-name-fallback.test.mjs
 
+      # A history import deletes only the window it re-imports, resumes the
+      # plan it reports, and stops when cancelled. The purge used to walk from
+      # the shop's oldest row to today, so a 60-day re-import erased nine years.
+      - name: History import preserves sales outside its window
+        run: node --test scripts/tests/shopify-history-preserves-sales.test.mjs
+
+      # Cancel, a re-Start and the incremental sync's watermark all write the
+      # same meta column while a UI import window is fetching. Which writer
+      # wins is the decision in shopify-sync-run/lib/history-chunk-persist.mjs.
+      - name: UI history window does not overwrite a cancel or a newer write
+        run: node --test scripts/tests/shopify-history-chunk-persist.test.mjs
+
       # Freshness alarm: a sync that succeeded after the day ended with nothing
       # new is QUIET, never stale; a dropped or failed sync still alarms.
       - name: Freshness quiet feeds
@@ -387,6 +400,22 @@ jobs:
       # the plan the drainer runs.
       - name: Integration bootstrap plan and resume
         run: node scripts/tests/integration-bootstrap.test.mjs
+
+      # Which stores the Integrations page may offer to enrol. The live
+      # distinction is between a store nobody ever imported (suticompany:
+      # zero sync_jobs, zero sales rows) and one somebody switched off on
+      # purpose (baseballismchicago: ~1,500 jobs), and the row itself cannot
+      # tell them apart -- so an absent or failed sync_jobs probe must read
+      # as paused, never as offerable.
+      - name: Integration enrolment state
+        run: node scripts/tests/integration-enrolment.test.mjs
+
+      # A Shopify store connected under two companies: order facts are keyed
+      # without the company, so a second company's sync would MOVE the first
+      # one's orders. The nightly, the first-import job and shopify-sync-run's
+      # history actions all refuse a store whose orders another company holds.
+      - name: Shopify tenant guard
+        run: node scripts/tests/shopify-tenant-guard.test.mjs
 
       # Running one job: that a connection which had already synced is NOT
       # re-imported, that a job cancelled from the page while a stage runs
@@ -764,6 +793,21 @@ jobs:
           fi
           if GUIDES_MUTATION=no-all-orders node scripts/tests/integration-guides.test.mjs >/dev/null 2>&1; then
             echo "::error::the suite passes when the Shopify guide drops read_all_orders"; exit 1
+          fi
+          if GUIDES_MUTATION=all-orders-first node scripts/tests/integration-guides.test.mjs >/dev/null 2>&1; then
+            echo "::error::the suite passes when the Shopify guide asks for read_all_orders on a brand-new app"; exit 1
+          fi
+          if GUIDES_MUTATION=remedy-ignores-method node scripts/tests/integration-guides.test.mjs >/dev/null 2>&1; then
+            echo "::error::the suite passes when every Shopify connection gets Dev Dashboard advice"; exit 1
+          fi
+          if GUIDES_MUTATION=faq-request-access node scripts/tests/integration-guides.test.mjs >/dev/null 2>&1; then
+            echo "::error::the suite passes when the Shopify guide sends owners to an access request"; exit 1
+          fi
+          if GUIDES_MUTATION=null-is-legacy node scripts/tests/integration-guides.test.mjs >/dev/null 2>&1; then
+            echo "::error::the suite passes when a NULL auth_method is treated as a pasted token"; exit 1
+          fi
+          if GUIDES_MUTATION=token-guide-capped node scripts/tests/integration-guides.test.mjs >/dev/null 2>&1; then
+            echo "::error::the suite passes when the token guide omits read_all_orders"; exit 1
           fi
 
       # Sync now: one Google Ads / GA4 / Meta connection through the nightly's
