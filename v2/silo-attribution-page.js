@@ -1,5 +1,5 @@
 import {loadJourneyRecords} from './silo-attribution-overview.js';
-import {saveReviewTask} from './silo-attribution-actions.js';
+import {loadSpend} from './silo-attribution-spend.js';
 import {mountReport,loadRows} from './silo-attribution-report.js';
 const cfg=window.__SILO_CONFIG__||{},root=document.querySelector('#attribution'),status=root.querySelector('#status');
 function fail(message){status.textContent=message;status.className='bcn-status bcn-status--neg';status.hidden=false;}
@@ -26,11 +26,7 @@ async function boot(){
   const {data:stores,error:storeError}=await db.from('shopify_connections').select('id,shop_domain').eq('company_entity_id',company.id).eq('is_active',true).order('shop_domain');if(storeError)throw storeError;
   for(const store of stores){const option=document.createElement('option');option.value=store.id;option.textContent=store.shop_domain;root.querySelector('#store').append(option);}
   if(!stores.length)throw Error('No active Shopify stores');
-  const membership=await db.from('entity_memberships').select('user_id').eq('entity_id',company.id);
-  const memberIds=(membership.data||[]).map(m=>m.user_id);
-  const people=memberIds.length?await db.from('profiles').select('id,name,email').in('id',memberIds):{data:[]};
-  const owners=(people.data||[]).map(p=>({id:p.id,name:p.name||p.email||p.id}));
-  const app=mountReport(root,{owners,journeys:(orders,args)=>withCompany(()=>loadJourneyRecords(db,company.id,args.connectionId,orders)),saveDraft:fields=>saveReviewTask({db,...fields,context:{...fields.context,companyId:company.id,userId:data.session.user.id},checkCompany:()=>withCompany(async()=>{})}),load:args=>withCompany(()=>loadRows(db,company.id,args.connectionId,args.start,args.end,args.windowDays)),evidence:row=>withCompany(async()=>{
+  const app=mountReport(root,{journeys:(orders,args)=>withCompany(()=>loadJourneyRecords(db,company.id,args.connectionId,orders)),spend:args=>withCompany(()=>loadSpend(db,company.id,args.start,args.end)),load:args=>withCompany(()=>loadRows(db,company.id,args.connectionId,args.start,args.end,args.windowDays)),evidence:row=>withCompany(async()=>{
     const {data,error}=await db.from('shopify_attribution_orders').select('evidence,fetched_at').eq('company_entity_id',company.id).eq('connection_id',row.connection_id).eq('order_id',row.order_id).single();if(error)throw error;return data;
   })});
   const {data:latest,error:latestError}=await db.from('shopify_attribution_days').select('day').eq('company_entity_id',company.id).eq('connection_id',stores[0].id).order('day',{ascending:false}).limit(1);if(latestError)throw latestError;

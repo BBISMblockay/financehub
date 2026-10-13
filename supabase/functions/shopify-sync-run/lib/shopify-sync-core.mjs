@@ -459,14 +459,52 @@ export async function purgeShopifyInventoryForConnection(supabase, companyEntity
   if (error) throw new Error(`inventory_on_hand purge failed: ${error.message}`);
 }
 
+/** Does an explicit mapping exist for this Shopify location? Distinguishes a
+ *  tag that came from a mapping from one resolveLocation fell back to. */
+export function isLocationMapped(shopifyLoc, dbMap) {
+  for (const key of shopifyLocationKeys(shopifyLoc?.id)) {
+    if (dbMap.get(normalizeShopifyLocationId(key))) return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve SILO location_tag/name for a Shopify location, with the SAME
+ * precedence the sales path uses (resolveSalesRowLocation): an explicit
+ * mapping, then the connection's typed default_location_code, then the store
+ * itself.
+ *
+ * This used to return null for an unmapped location, and runInventorySnapshot
+ * skipped it. For a store nobody had mapped yet that meant EVERY location was
+ * skipped, so the snapshot wrote zero rows and still reported success -- a
+ * newly connected store showed no inventory at all until someone mapped its
+ * locations one at a time in Integrations (hhoutfitter.myshopify.com, 16
+ * locations, 0 rows, 2026-10-12; i09sb0-6m, 52 "successful" snapshots, 0 rows).
+ * Sales never had that hole: an unmapped sale is labelled with the store
+ * rather than dropped. Inventory now does the same, so mapping is an override
+ * that splits a store into its real locations rather than a precondition for
+ * having any inventory at all.
+ *
+ * null is still possible, and still means skip: a connection with no
+ * shop_domain has nothing to name the fallback after.
+ */
 export function resolveLocation(connection, shopifyLoc, dbMap) {
   for (const key of shopifyLocationKeys(shopifyLoc.id)) {
     const hit = dbMap.get(normalizeShopifyLocationId(key));
     if (hit) return hit;
   }
 
-  // No mapping found — skip this location rather than writing a garbage unknown tag
-  return null;
+  // Fall back to the connection's default_location_code (set per-store in
+  // shopify_connections), exactly as the sales path does.
+  if (connection?.default_location_code) {
+    const tag = slugify(connection.default_location_code);
+    return { location_tag: tag, location_name: connection.default_location_code };
+  }
+
+  // Nothing mapped and nothing typed: label the stock with the Shopify store
+  // itself rather than dropping it. Same tag the store's unmapped SALES carry,
+  // so the two tie out.
+  return storeNameLocation(connection);
 }
 
 export async function buildSalesRow({
@@ -726,7 +764,7 @@ async function loadLocationContext(supabase, connection, headers, base) {
   for (const loc of locations) {
     const info = resolveLocation(connection, loc, dbLocationMap);
     if (!info) {
-      console.warn(`[inventory] No mapping for Shopify location "${loc.name}" (${loc.id}) — skipping`);
+      console.warn(`[inventory] Cannot name Shopify location "${loc.name}" (${loc.id}) — no mapping, no default and no shop domain, skipping`);
       continue;
     }
     locationById.set(String(loc.id), info.location_tag);
@@ -1444,20 +1482,71 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
     });
   }
 
-  // Collapse by (locId, sku, product_id) — the same product can legitimately
-  // have more than one inventory item tracking the same SKU at a location
-  // (those should sum), but two DIFFERENT products sharing a SKU must not:
-  // including product_id keeps them as separate rows instead of one merged,
-  // mislabeled row.
+  // Collapse by (locId, sku, product_id) for a MAPPED location — the same
+  // product can legitimately have more than one inventory item tracking the
+  // same SKU at a location (those should sum), but two DIFFERENT products
+  // sharing a SKU must not: including product_id keeps them as separate rows
+  // instead of one merged, mislabeled row.
+  //
+  // A location resolved by FALLBACK collapses by (location_tag, sku,
+  // product_id) instead, because every unmapped location of a store resolves
+  // to the SAME tag and the demand side is keyed on that tag, not on the
+  // physical location: inventory_workboard_v joins
+  // sales_velocity_by_sku_location_v on (location_tag, variant_sku,
+  // product_name) and attaches that aggregate to EVERY row carrying the pair,
+  // and v2/bi-top-sellers.html sums qty and avg/day across rows. Keeping one
+  // row per physical location would hand each of them the store's whole
+  // 30-day demand, so a store with 16 unmapped locations would report 16x its
+  // real sales and a sixteenth of its real days of cover (cycle-1 P1 on
+  // PR #954). Summing the quantities into one row per tag is also what the
+  // tag means: the store as one place, which is exactly how its unmapped
+  // SALES are already recorded.
   const invByKey = new Map();
+
+  // How many locations got their tag from the fallback rather than a mapping.
+  // Reported so a snapshot that wrote rows under the store's own tag says so,
+  // instead of looking identical to one over fully mapped locations.
+  // Tags already owned by an explicit mapping in this snapshot. A location with
+  // no mapping falls back to the typed default or the store tag, and that tag
+  // can be one a MAPPED location already uses -- Baseballism maps 15 of its 16
+  // Shopify locations and every mapping, plus default_location_code, is
+  // `online`. Writing the fallback row there would add a SECOND row under a tag
+  // the mapped rows already own, and the demand side attaches the tag's whole
+  // velocity to every row carrying the (tag, sku) pair, so the store would
+  // double-count (cycle-2 P1 on PR #954). Collapsing the mapped rows into the
+  // fallback row instead would rewrite the row shape of every already-mapped
+  // store -- on that store 248 of its 10,101 (tag, sku) groups hold 2-5 mapped
+  // rows today. So the fallback applies only where it adds nothing to an
+  // existing tag: an unmapped location whose tag a mapping already owns is
+  // skipped, exactly as it was before this fallback existed, and counted in
+  // locations_skipped so the mapping gap is visible rather than silent.
+  const mappedTags = new Set();
+  for (const loc of locations) {
+    if (!isLocationMapped(loc, dbLocationMap)) continue;
+    const mappedResolved = resolveLocation(connection, loc, dbLocationMap);
+    if (mappedResolved?.location_tag) mappedTags.add(mappedResolved.location_tag);
+  }
+
+  let locationsUnmapped = 0;
+  let locationsSkipped = 0;
 
   for (const loc of locations) {
     const locId = String(loc.id);
+    const mapped = isLocationMapped(loc, dbLocationMap);
     const resolvedLoc = resolveLocation(connection, loc, dbLocationMap);
     if (!resolvedLoc) {
-      console.warn(`[inventory] No mapping for Shopify location "${loc.name}" (${loc.id}) — skipping`);
+      locationsSkipped++;
+      console.warn(`[inventory] Cannot name Shopify location "${loc.name}" (${loc.id}) — no mapping, no default and no shop domain, skipping`);
       continue;
     }
+    if (!mapped && mappedTags.has(resolvedLoc.location_tag)) {
+      locationsSkipped++;
+      console.warn(
+        `[inventory] Shopify location "${loc.name}" (${loc.id}) has no mapping and its fallback tag "${resolvedLoc.location_tag}" already belongs to a mapped location, skipping — map it to include its stock`,
+      );
+      continue;
+    }
+    if (!mapped) locationsUnmapped++;
     const { location_tag: locationTag, location_name: locationName } = resolvedLoc;
 
     const levels = await getAll(
@@ -1473,7 +1562,10 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
       const qty = Number(lvl.available ?? 0);
       const lineRetail = Math.round(qty * unitPrice * 100) / 100;
 
-      const rowHash = await hashRow([connection.company_entity_id, locId, sku, productId || '', snapshotAt]);
+      // The grain: the physical location when it is mapped, the fallback tag
+      // when it is not (see the comment above the map).
+      const grainKey = mapped ? locId : locationTag;
+      const rowHash = await hashRow([connection.company_entity_id, grainKey, sku, productId || '', snapshotAt]);
       const existing = invByKey.get(rowHash);
       if (existing) {
         existing.total_available_quantity += qty;
@@ -1486,7 +1578,10 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
         location_tag: locationTag,
         location_name: locationName,
         source: SOURCE,
-        location: loc.name || null,
+        // Shopify's own name for the location, which a collapsed fallback row
+        // spans: naming one of them would be arbitrary, so it carries the
+        // fallback's name instead.
+        location: (mapped ? loc.name : locationName) || null,
         product_title: invItem.product_title || sku,
         variant_title: invItem.variant_title || null,
         variant_sku: sku,
@@ -1512,6 +1607,8 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
   return {
     job_type: 'inventory_snapshot',
     locations: locations.length,
+    locations_unmapped: locationsUnmapped,
+    locations_skipped: locationsSkipped,
     inventory_rows_upserted: upserted,
     snapshot_at: snapshotAt,
   };
