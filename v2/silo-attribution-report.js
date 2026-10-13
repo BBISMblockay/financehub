@@ -78,13 +78,13 @@ export function mountReport(root,{load,evidence,journeys,spend}) {
     const rows=report.orders.filter(a=>(!channel||plays(a))&&[a.order_name,a.order_id,a.channel,a.allocation?.campaign_name,a.allocation?.campaign,a.allocation?.reason].join(' ').toLowerCase().includes(query));
     page=Math.min(page,Math.max(0,Math.ceil(rows.length/12)-1));
     $('orders').innerHTML=rows.slice(page*12,page*12+12).map(a=>`<button class="attr-order-card" data-order="${escapeHtml(a.order_id)}"><span class="attr-order-top"><strong>Order ${escapeHtml(a.order_name||a.order_id)}</strong><strong>${money(a.net_cents)}</strong></span><span class="attr-order-path"><span>${platformMark(a.allocation?.introduced_channel||'Unknown')}<small>Introduced</small><strong>${escapeHtml(a.allocation?.introduced_channel||'Not identified')}</strong></span><b>→</b><span>${platformMark(a.channel)}<small>Credited</small><strong>${escapeHtml(a.channel)}</strong></span><b>→</b><span>${platformMark('Shopify')}<small>Purchased</small><strong>Shopify</strong></span></span><span class="attr-order-bottom">${escapeHtml((a.allocation?.assisting_channels||[]).join(', ')||'No other assists observed')}<span>Explore journey ↗</span></span></button>`).join('');
-    $('count').textContent=`${rows.length.toLocaleString()} orders${channel?` where ${channel} ${role==='credited'?'got last-click credit':role==='started'?'started the journey':'appears'}`:' with sales activity'} · Page ${page+1} of ${Math.max(1,Math.ceil(rows.length/12))}`;
+    $('count').textContent=`${rows.length.toLocaleString()} orders${channel?` where ${channel} ${role==='credited'?'was the last click':role==='started'?'started the journey':'appears'}`:''} · Page ${page+1} of ${Math.max(1,Math.ceil(rows.length/12))}`;
     $('previous').disabled=page===0;$('next').disabled=(page+1)*12>=rows.length;
   }
   function draw(){
     $('trend').innerHTML=trendChart(report);
     $('net').textContent=money(report.net);$('total').textContent=money(report.total);$('ordercount').textContent=report.orders.length.toLocaleString();$('reconciled').textContent=`${report.days} of ${report.days} day${report.days===1?'':'s'} matched`;
-    $('proof').textContent=`✓ Matches Shopify net and total sales for ${report.days===1?'the 1 day':`all ${report.days} days`}. Every order is credited once.`;
+    $('proof').textContent=`✓ Matches Shopify for ${report.days===1?'the 1 day':`all ${report.days} days`}.`;
     $('spend').textContent='Loading…';$('spendnote').textContent='';$('roas').textContent='—';
     const selected=$('channel').value,names=new Set(report.channels.map(c=>c.channel));
     for(const o of report.orders)for(const c of [o.allocation?.introduced_channel,...(o.allocation?.assisting_channels||[])])if(c)names.add(c);
@@ -97,16 +97,16 @@ export function mountReport(root,{load,evidence,journeys,spend}) {
     if(error){$('spend').textContent='Unavailable';$('spendnote').textContent=error;return;}
     // Only a complete-period total is "marketing spend" and a valid return denominator.
     const t=spendTotal(summary);
-    $('spend').textContent=t.complete?money(t.cents):t.anyKnown?`${money(t.cents)} known`:'Unknown';
+    $('spend').textContent=t.complete?money(t.cents):t.anyKnown?`${money(t.cents)} so far`:'Unknown';
     $('roas').textContent=t.complete&&t.cents>0?`${(report.net/t.cents).toFixed(1)}x`:'—';
-    $('spendnote').textContent=t.complete?'Company-wide ads + Redo sending':`Incomplete: ${t.gaps.map(g=>g.channel).join(', ')||'no spend source'} · return not shown`;
+    $('spendnote').textContent=t.complete?'All ads + Redo sending costs':`Still missing: ${t.gaps.map(g=>g.channel).join(', ')||'no spend source'}. Return hidden until complete.`;
   }
   const filters=()=>({start:$('start').value,end:$('end').value,windowDays:Number($('window').value),connectionId:$('store').value});
   function showJourneys(show){$('ordersection').hidden=!show;$('overview').hidden=show;$('overview-tables').hidden=show;for(const [id,on] of [['overview-tab',!show],['journeys-tab',show]]){$(id).classList.toggle('bcn-tab--active',on);$(id).setAttribute('aria-pressed',String(on));}}
   $('overview-tab').onclick=()=>showJourneys(false);$('journeys-tab').onclick=()=>showJourneys(true);
   async function refresh(){
     const current=++sequence,args=filters();report=null;$('results').hidden=true;$('journey').close();
-    root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Loading verified snapshots.');
+    root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Loading…');
     try{
       const result=await load(args);if(current!==sequence)return;report=result;page=0;draw();
       $('overview').textContent='Loading journeys and spend…';$('trust-analysis').textContent='';
@@ -119,7 +119,7 @@ export function mountReport(root,{load,evidence,journeys,spend}) {
       status('');
     }catch(e){if(current===sequence)status(e.message||String(e),'neg');}
   }
-  for(const id of ['start','end','store'])$(id).onchange=()=>{++sequence;report=null;$('results').hidden=true;$('journey').close();root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Filters changed. Load report to view verified results.');};
+  for(const id of ['start','end','store'])$(id).onchange=()=>{++sequence;report=null;$('results').hidden=true;$('journey').close();root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Filters changed. Press Load report.');};
   $('load').onclick=refresh;$('window').onchange=refresh;$('search').oninput=()=>{page=0;drawOrders();};$('channel').onchange=$('role').onchange=()=>{page=0;drawOrders();};$('previous').onclick=()=>{page--;drawOrders();};$('next').onclick=()=>{page++;drawOrders();};$('close').onclick=()=>$('journey').close();
   root.addEventListener('click',async event=>{
     const channel=event.target.closest('[data-channel]');if(channel){showJourneys(true);if(![...$('channel').options].some(o=>o.value===channel.dataset.channel))$('channel').append(new Option(channel.dataset.channel));$('channel').value=channel.dataset.channel;$('role').value=channel.dataset.role||'any';page=0;drawOrders();$('ordersection').scrollIntoView({behavior:'smooth'});}

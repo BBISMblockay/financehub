@@ -41,21 +41,21 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   const url=`http://127.0.0.1:${server.address().port}/v2/silo-attribution.html?start=2026-09-30&end=2026-09-30`;
   await page.goto(url);await page.waitForSelector('.attr-together',{timeout:10000}).catch(async e=>{console.error(await page.locator('body').innerText(),errors);throw e;});
   // Lead with money and teamwork: KPIs (incl. spend) and the headline are visible without opening anything.
-  assert.match(await page.locator('.attr-together h2').innerText(),/88% of orders touched more than one channel/);assert.match(await page.locator('.attr-together').innerText(),/7 of all 8 orders\. 7 have identified channel evidence/);
+  assert.match(await page.locator('.attr-together h2').innerText(),/88% of orders touched more than one channel/);assert.match(await page.locator('.attr-together').innerText(),/7 of 8 orders\. 1 had no channel we could identify/);
   assert.equal(await page.locator('#spend').innerText(),'$362.50');assert.match(await page.locator('#roas').innerText(),/^2\.3x$/);
   assert.equal(await page.locator('#trust').evaluate(d=>d.open),false);assert.ok(await page.locator('.attr-scorecard').isVisible());
   const meta=page.locator('.attr-scorecard tbody tr',{hasText:'Meta Ads'});
   assert.match(await meta.innerText(),/\$300/);assert.match(await meta.innerText(),/\$300\s+\$0\s+0\.0x\s+\$233\s+0\.8x\s+7\s+0\s+0/);
   assert.match(await page.locator('.attr-scorecard tbody tr',{hasText:'Redo SMS'}).innerText(),/sending cost/);
-  assert.match(await page.locator('.attr-findings').innerText(),/Meta Ads starts more journeys than it closes/);
-  assert.match(await page.locator('.attr-findings').innerText(),/Google Ads mostly closes what others start/);
+  assert.match(await page.locator('.attr-findings').innerText(),/Meta Ads starts more sales than it gets credit for/);
+  assert.match(await page.locator('.attr-findings').innerText(),/Google Ads mostly finishes what others start/);
   // Paths carry dollars and open their orders, which open a journey.
   const firstPath=page.locator('.attr-journey-path').first();
-  assert.match(await firstPath.innerText(),/7 orders[\s\S]*\$700 net sales[\s\S]*Meta Ads[\s\S]*2\.0 days to next step · n=7[\s\S]*Redo SMS[\s\S]*Google Ads[\s\S]*to purchase · n=7[\s\S]*Purchase/);
+  assert.match(await firstPath.innerText(),/7 orders[\s\S]*\$700 in sales[\s\S]*Meta Ads[\s\S]*2\.0 days to next step · 7 orders[\s\S]*Redo SMS[\s\S]*Google Ads[\s\S]*to purchase · 7 orders[\s\S]*Purchase/);
   assert.equal(await firstPath.locator('.attr-overview-path li').count(),4,'three channel step boxes plus Purchase');
   // Logos stay on the channel tables: scorecard, credit bars, journey steps and the Platform details table.
   for(const sel of ['.attr-scorecard tbody tr','.attr-pair','.attr-journey-path li','#channels tr'])assert.ok(await page.locator(`${sel} .attr-logo`).count()>0,sel+' has logos');
-  assert.match(await page.locator('#overview-tables summary').innerText(),/Platform details · revenue, introductions and assists/);
+  assert.match(await page.locator('#overview-tables summary').innerText(),/^Platform details$/);
   assert.match(await page.locator('#channels tr',{hasText:'Google Ads'}).textContent(),/Google Ads\s*\$700\.06\s*7\s*0\s*0/);
   await page.locator('[data-path="0"]').first().click();await page.locator('#path-detail [data-order]').first().click();await page.waitForSelector('#journey[open]');assert.match(await page.locator('#flow').innerText(),/Meta Ads/);await page.locator('#close').click();await page.keyboard.press('Escape');
   await page.locator('[data-support="0"]').click();assert.match(await page.locator('#path-title').innerText(),/Meta Ads starts/);await page.keyboard.press('Escape');
@@ -66,8 +66,8 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   await page.locator('#role').selectOption('started');assert.match(await page.locator('#count').innerText(),/^7 orders where Meta Ads started/);
   await page.locator('#overview-tab').click();
   // Trust & method holds reconciliation, coverage, spend sources and the what-if credit rules.
-  await page.locator('#trust > summary').click();assert.match(await page.locator('#trust').innerText(),/1 of 1 day matched[\s\S]*Journey coverage[\s\S]*Spend sources/);
-  await page.getByText('Try other credit rules',{exact:true}).click();assert.match(await page.locator('.attr-tip').innerText(),/How to use[\s\S]*Half-life[\s\S]*Start \/ Assist \/ Close weights[\s\S]*Recalculate/);await page.locator('#decay-days').fill('0');await page.locator('#compare-models').click();assert.match(await page.locator('#model-error').innerText(),/Half-life/);await page.locator('#decay-days').fill('7');await page.locator('#compare-models').click();assert.equal(await page.locator('#model-error').innerText(),'');
+  await page.locator('#trust > summary').click();assert.match(await page.locator('#trust').innerText(),/Sales match Shopify[\s\S]*1 of 1 day matched[\s\S]*Journey data[\s\S]*Where spend comes from[\s\S]*How credit is given/);
+  await page.getByText('Try other ways to split credit',{exact:true}).click();assert.match(await page.locator('.attr-tip').innerText(),/How to use[\s\S]*Half-life \(days\)[\s\S]*Start \/ Middle \/ End[\s\S]*Recalculate/);await page.locator('#decay-days').fill('0');await page.locator('#compare-models').click();assert.match(await page.locator('#model-error').innerText(),/Half-life/);await page.locator('#decay-days').fill('7');await page.locator('#compare-models').click();assert.equal(await page.locator('#model-error').innerText(),'');
   await page.locator('#trust > summary').click();
   for(const theme of ['light','dark']){
    await page.evaluate(t=>{document.documentElement.setAttribute('data-theme',t);document.querySelector('.bcn-header-sub').textContent='SYNTHETIC FIXTURE PREVIEW — no production data';document.querySelector('.silo-main').scrollTop=0;window.scrollTo(0,0);},theme);
@@ -79,13 +79,13 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   await page.locator('#start').fill('2026-09-30');await page.evaluate(()=>window.staleFixture=true);await page.locator('#load').click();await page.waitForFunction(()=>document.querySelector('#overview').textContent.includes('refreshed since'));assert.ok(await page.locator('.attr-scorecard').isVisible(),'stale journeys keep the scorecard');assert.equal(await page.locator('#spend').innerText(),'$362.50');assert.equal(await page.locator('#results').isVisible(),true);
   // Spend that does not cover the period is labelled known, and no return is computed from it.
   await page.evaluate(()=>{window.staleFixture=false;window.partialSpend=true;});await page.locator('#load').click();await page.waitForSelector('.attr-scorecard');
-  assert.equal(await page.locator('#spend').innerText(),'$362.50 known');assert.equal(await page.locator('#roas').innerText(),'—');assert.match(await page.locator('#spendnote').innerText(),/Incomplete: Meta Ads, Google Ads/);
-  assert.match(await page.locator('.attr-scorecard tbody tr',{hasText:'Meta Ads'}).innerText(),/\$300 partial\s+\$0\s+—/);assert.match(await page.locator('.attr-scorecard tfoot').innerText(),/\$363 known\s+\$825\s+—/);
+  assert.equal(await page.locator('#spend').innerText(),'$362.50 so far');assert.equal(await page.locator('#roas').innerText(),'—');assert.match(await page.locator('#spendnote').innerText(),/Still missing: Meta Ads, Google Ads[^.]*\. Return hidden until complete/);
+  assert.match(await page.locator('.attr-scorecard tbody tr',{hasText:'Meta Ads'}).innerText(),/\$300 partial\s+\$0\s+—/);assert.match(await page.locator('.attr-scorecard tfoot').innerText(),/\$363 so far\s+\$825\s+—/);
   await page.evaluate(()=>{window.partialSpend=false;});
   // A non-admin cannot see the connection list, so spend cannot be confirmed complete: no return.
   await page.evaluate(()=>{window.nonAdmin=true;});await page.locator('#load').click();await page.waitForSelector('.attr-scorecard');
-  assert.equal(await page.locator('#spend').innerText(),'$362.50 known');assert.equal(await page.locator('#roas').innerText(),'—');
-  assert.match(await page.locator('.attr-scorecard tbody tr',{hasText:'Meta Ads'}).innerText(),/\$300 unverified\s+\$0\s+—/);
+  assert.equal(await page.locator('#spend').innerText(),'$362.50 so far');assert.equal(await page.locator('#roas').innerText(),'—');
+  assert.match(await page.locator('.attr-scorecard tbody tr',{hasText:'Meta Ads'}).innerText(),/\$300 unconfirmed\s+\$0\s+—/);
   await page.evaluate(()=>{window.nonAdmin=false;});
   // Spend failing never blanks the attribution; it says spend is unavailable.
   await page.evaluate(()=>{window.staleFixture=false;window.spendFail=true;});await page.locator('#load').click();await page.waitForSelector('.attr-scorecard');

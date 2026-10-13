@@ -56,9 +56,9 @@ const spend=new Map([['Google Ads',{channel:'Google Ads',cents:5000,status:'comp
 const gapRows=channelTeamwork(gapReport,null,spend),gapFindings=findings(gapReport,gapRows,null,usd);
 assert.equal(gapRows.at(-1).channel,'Unattributed');assert.equal(gapRows[0].channel,'Google Ads');
 assert.ok(gapFindings.every(f=>!f.title.startsWith('Unattributed')));
-assert.ok(gapFindings.some(f=>f.title==='Meta Ads starts more journeys than it closes'));
-assert.ok(gapFindings.some(f=>f.title==='Redo Email mostly closes what others start'&&f.text.includes('100% of the 1 order it')&&f.text.includes('Meta Ads')));
-assert.ok(gapFindings.some(f=>f.title==='Google Ads spent $50 with no credited sales'));
+assert.ok(gapFindings.some(f=>f.title==='Meta Ads starts more sales than it gets credit for'));
+assert.ok(gapFindings.some(f=>f.title==='Redo Email mostly finishes what others start'&&f.text.includes('100% of its 1 order was started')&&f.text.includes('Meta Ads')));
+assert.ok(gapFindings.some(f=>f.title==='Google Ads spent $50 with no sales'));
 // An evidence gap can carry an observed introducer; it still never "closes" or headlines.
 const introGap={...gapReport,orders:[...Array.from({length:3},(_,i)=>({order_id:'g'+i,channel:'Pending',net_cents:10,allocation:{introduced_channel:'Meta Ads',assisting_channels:[]}})),...gapReport.orders]};
 const introRows=channelTeamwork(introGap,null,null);

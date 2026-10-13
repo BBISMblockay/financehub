@@ -38,19 +38,19 @@ export function findings(report,rows,analysis,money){
   const out=[],named=rows.filter(r=>!GAPS.includes(r.channel)),pct=(a,b)=>b?Math.round(a/b*100):0;
   const starter=[...named].filter(r=>r.started>r.closed&&r.started>0).sort((a,b)=>(b.started-b.closed)-(a.started-a.closed)||a.channel.localeCompare(b.channel))[0];
   if(starter){
-    const shared=starter.shared_cents!=null&&starter.shared_cents>starter.net_cents?` Splitting credit across every channel in each journey moves it from ${money(starter.net_cents)} to ${money(starter.shared_cents)}${starter.roas!=null&&starter.shared_roas!=null?`, a ${ratio(starter.roas)} to ${ratio(starter.shared_roas)} return on ${money(starter.spend.cents)} spend`:''}.`:'';
-    out.push({key:'starter',title:`${starter.channel} starts more journeys than it closes`,text:`It starts ${n(starter.started,'order')} but gets last-click credit for ${starter.closed.toLocaleString()}.${shared}`,orderIds:report.orders.filter(o=>o.allocation?.introduced_channel===starter.channel&&o.channel!==starter.channel).map(o=>o.order_id)});
+    const shared=starter.shared_cents!=null&&starter.shared_cents>starter.net_cents?` With shared credit it gets ${money(starter.shared_cents)} instead of ${money(starter.net_cents)}${starter.roas!=null&&starter.shared_roas!=null?` (return ${ratio(starter.shared_roas)} instead of ${ratio(starter.roas)} on ${money(starter.spend.cents)} spent)`:''}.`:'';
+    out.push({key:'starter',title:`${starter.channel} starts more sales than it gets credit for`,text:`It started ${n(starter.started,'order')} but was the last click on ${starter.closed.toLocaleString()}.${shared}`,orderIds:report.orders.filter(o=>o.allocation?.introduced_channel===starter.channel&&o.channel!==starter.channel).map(o=>o.order_id)});
   }
   const closer=[...named].filter(r=>r.closed_after_other>0&&r.channel!==starter?.channel).sort((a,b)=>b.closed_after_other-a.closed_after_other||a.channel.localeCompare(b.channel))[0];
   if(closer){
     const from=new Map();for(const o of report.orders)if(o.channel===closer.channel){const i=o.allocation?.introduced_channel;if(i&&i!==o.channel)from.set(i,(from.get(i)||0)+1);}
     const top=[...from].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0];
-    out.push({key:'closer',title:`${closer.channel} mostly closes what others start`,text:`${pct(closer.closed_after_other,closer.closed)}% of the ${n(closer.closed,'order')} it gets credit for were started by another channel, most often ${top[0]}.`,orderIds:report.orders.filter(o=>o.channel===closer.channel&&o.allocation?.introduced_channel&&o.allocation.introduced_channel!==o.channel).map(o=>o.order_id)});
+    out.push({key:'closer',title:`${closer.channel} mostly finishes what others start`,text:`${pct(closer.closed_after_other,closer.closed)}% of its ${n(closer.closed,'order')} ${closer.closed===1?'was':'were'} started by another channel, mostly ${top[0]}.`,orderIds:report.orders.filter(o=>o.channel===closer.channel&&o.allocation?.introduced_channel&&o.allocation.introduced_channel!==o.channel).map(o=>o.order_id)});
   }
   const path=analysis?pathRevenue(report,analysis.paths).find(p=>p.path.length>1):null;
-  if(path)out.push({key:'path',title:`Most common multi-channel path: ${path.path.join(' → ')}`,text:`${n(path.count,'order')}, ${money(path.net_cents)} net sales, a median ${days(path.medianMs)} from first touch to purchase.`,orderIds:path.orderIds});
+  if(path)out.push({key:'path',title:`Most common path: ${path.path.join(' → ')}`,text:`${n(path.count,'order')}, ${money(path.net_cents)} in sales, about ${days(path.medianMs)} from first visit to purchase.`,orderIds:path.orderIds});
   const idle=named.find(r=>r.spend?.cents>0&&r.net_cents<=0&&!(r.shared_cents>0));
-  if(idle)out.push({key:'idle',title:`${idle.channel} spent ${money(idle.spend.cents)} with no credited sales`,text:'No order in this period gives it last-click or shared credit. Check its tracking (UTMs) before judging the spend.',orderIds:[]});
+  if(idle)out.push({key:'idle',title:`${idle.channel} spent ${money(idle.spend.cents)} with no sales`,text:'No sales were credited to it this period. Check its tracking links (UTMs) before judging the spend.',orderIds:[]});
   return out.slice(0,3);
 }
 export const days=ms=>ms==null?'unavailable':ms<86400000?`${(ms/3600000).toFixed(1)} hours`:`${(ms/86400000).toFixed(1)} days`;

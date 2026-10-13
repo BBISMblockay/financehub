@@ -20,12 +20,12 @@ test('spend sums per channel; a fully synced source with no rows is $0',()=>{
 test('a later row does not prove the period was synced: history before the first sync is unknown, not $0',()=>{
   // Redo connected Oct 1: its only completed window starts after September.
   const out=summarizeSpend({redo:[],windows:[...allJobs.filter(j=>j!=='redo_marketing').map(j=>win(j,'2026-09-01','2026-09-30')),win('redo_marketing','2026-10-01','2026-10-10')],attempted:attemptedAll,connections:admin},period);
-  for(const c of ['Redo Email','Redo SMS']){assert.equal(out.get(c).status,'unknown');assert.equal(out.get(c).cents,null);assert.match(spendNote(out.get(c)),/no completed sync covers/);}
+  for(const c of ['Redo Email','Redo SMS']){assert.equal(out.get(c).status,'unknown');assert.equal(out.get(c).cents,null);assert.match(spendNote(out.get(c)),/this period hasn't synced/);}
   const t=spendTotal(out);assert.equal(t.complete,false);assert.deepEqual(t.gaps.map(g=>g.channel),['Redo Email','Redo SMS']);
 });
 test('a window covering part of the period is partial: subtotal kept, total not complete',()=>{
   const out=summarizeSpend({kpi:[{platform:'meta_ads',day_date:'2026-09-02',spend:100}],windows:[win('meta_ads_kpis','2026-08-20','2026-09-15'),...allJobs.slice(1).map(j=>win(j,'2026-09-01','2026-09-30'))],attempted:attemptedAll,connections:admin},period);
-  const meta=out.get('Meta Ads');assert.equal(meta.status,'partial');assert.equal(meta.cents,10000);assert.equal(meta.covered,15);assert.match(spendNote(meta),/15 of 30 days/);
+  const meta=out.get('Meta Ads');assert.equal(meta.status,'partial');assert.equal(meta.cents,10000);assert.equal(meta.covered,15);assert.match(spendNote(meta),/Synced 15 of 30 days/);
   const t=spendTotal(out);assert.equal(t.complete,false);assert.equal(t.anyKnown,true);assert.equal(t.cents,10000);
 });
 test('windows join: two runs that together cover the period make it complete',()=>{
@@ -45,7 +45,7 @@ test('a source with no connection, run or rows is untracked and does not block t
 test('more than one connection cannot be confirmed from company-level windows',()=>{
   const fresh={platform:'meta_ads',day_date:'2026-09-02',spend:5,connection_id:'a'};
   const viaRows=summarizeSpend({kpi:[fresh,{...fresh,connection_id:'b'}],windows:fullWindows,attempted:attemptedAll,connections:admin},period).get('Meta Ads');
-  assert.equal(viaRows.status,'unverified');assert.equal(viaRows.cents,1000);assert.match(spendNote(viaRows),/2 connections/);
+  assert.equal(viaRows.status,'unverified');assert.equal(viaRows.cents,1000);assert.match(spendNote(viaRows),/2 connected accounts/);
   // A stale second connection with no rows is still seen when the connection list is readable.
   const viaList=summarizeSpend({kpi:[fresh],windows:fullWindows,attempted:attemptedAll,connections:{ads:[{id:'a',platform:'meta_ads'},{id:'b',platform:'meta_ads'}]}},period);
   assert.equal(viaList.get('Meta Ads').status,'unverified');assert.equal(spendTotal(viaList).complete,false);
@@ -56,7 +56,7 @@ test('a non-admin cannot see the connection list, so coverage fails closed: no r
   const a={platform:'meta_ads',day_date:'2026-09-02',spend:5,connection_id:'a'};
   for(const connections of [{ads:null,redo:null},undefined]){
     const out=summarizeSpend({kpi:[a],windows:fullWindows,attempted:attemptedAll,connections},period);
-    const meta=out.get('Meta Ads');assert.equal(meta.status,'unverified');assert.equal(meta.cents,500);assert.match(spendNote(meta),/Only admins can see the connection list/);
+    const meta=out.get('Meta Ads');assert.equal(meta.status,'unverified');assert.equal(meta.cents,500);assert.match(spendNote(meta),/Only admins can confirm this spend is complete/);
     const t=spendTotal(out);assert.equal(t.complete,false);assert.equal(t.anyKnown,true);
   }
   // The same data seen by an admin with both accounts listed is also unverified; with one, complete.
@@ -68,7 +68,7 @@ test('currency: ad spend needs a USD store; Redo rows in another currency are ex
   const cad=summarizeSpend(raw,{...period,currency:'CAD'});
   assert.equal(cad.get('Meta Ads').status,'currency');assert.equal(cad.get('Meta Ads').cents,null);
   assert.equal(cad.get('Redo Email').cents,200);assert.equal(cad.get('Redo Email').excluded,1);
-  const usd=summarizeSpend(raw,period);assert.equal(usd.get('Redo Email').cents,100);assert.match(spendNote(usd.get('Redo Email')),/1 rows in another currency/);
+  const usd=summarizeSpend(raw,period);assert.equal(usd.get('Redo Email').cents,100);assert.match(spendNote(usd.get('Redo Email')),/1 rows in another currency left out/);
   assert.ok(!knownSpend(cad).some(s=>s.channel==='Meta Ads'));
 });
 test('invalid or out-of-period rows fail instead of skewing spend',()=>{

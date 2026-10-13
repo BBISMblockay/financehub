@@ -81,10 +81,10 @@ export function spendTotal(spend){
   return {cents:known.reduce((t,s)=>t+s.cents,0),complete:tracked.length>0&&tracked.every(s=>s.status==='complete'),anyKnown:known.length>0,gaps:tracked.filter(s=>s.status!=='complete')};
 }
 export function spendNote(s){
-  if(s.status==='none')return 'No connection or sync for this source';
-  if(s.status==='unknown')return 'Connected, but no completed sync covers this period';
-  if(s.status==='currency')return 'Spend currency cannot be confirmed for this store';
-  if(s.status==='unverified')return s.listKnown?`${s.connections} connections; sync coverage cannot be confirmed per connection`:'Only admins can see the connection list, so coverage cannot be confirmed; no return is shown';
-  if(s.status==='partial')return `Synced for ${s.covered} of ${s.days} days; spend on the other days is missing`;
-  return s.excluded?`${s.excluded} rows in another currency excluded`:'';
+  if(s.status==='none')return 'Not connected';
+  if(s.status==='unknown')return "Connected, but this period hasn't synced";
+  if(s.status==='currency')return "Can't confirm the currency for this store";
+  if(s.status==='unverified')return s.listKnown?`${s.connections} connected accounts; can't confirm each one synced`:'Only admins can confirm this spend is complete, so return is hidden';
+  if(s.status==='partial')return `Synced ${s.covered} of ${s.days} days; the rest is missing`;
+  return s.excluded?`${s.excluded} rows in another currency left out`:'';
 }

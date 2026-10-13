@@ -8,14 +8,18 @@ spend, orders) and a one-line reconciliation check; Overview tab with the
 multi-channel headline, up to three findings, the channel scorecard, last-click vs
 shared credit bars and the most common journeys; Journeys tab with the order
 cards, filterable by channel and role (anywhere / credited / started); one
-collapsed Trust & method section for reconciliation, journey coverage, spend
-sources, what-if credit rules and the method text.
+collapsed "How this works" section for the Shopify check, journey data, where
+spend comes from, "Try other ways to split credit" (with a how-to tip) and the
+method text. The logo Platform details table stays under the Overview. Page
+copy is plain language: last click / shared, started / helped / closed.
 
 - **Headline** divides by all orders with sales activity; orders with no
   identified channel (Unattributed / Pending) count as not multi-channel.
-- **Roles are distinct per order**: start = earliest identified non-direct touch
-  in the window; close = last-click credit; assist = a channel seen between them.
-  A one-channel journey is both a start and a close.
+- **Roles are distinct per order** (Started / Helped / Closed in the UI): started =
+  earliest identified non-direct touch in the window; closed = last click; helped
+  = a channel seen between them. A one-channel journey is both started and closed.
+  The Platform details table keeps the published "assisted", which includes the
+  introducer.
 - **Shared credit** is the existing equal-share comparison (eligible journeys
   only; excluded orders keep last-click credit), so it adds up to net sales.
 - **Spend**: `marketing_kpis_daily` (meta_ads, google_ads, tiktok_ads) and
