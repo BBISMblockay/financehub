@@ -119,8 +119,9 @@ Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
 ## support@get-silo.com: cross-tenant access through one mailbox (accepted risk, Blake 2026-10-13)
 
 Raised as P1 by both PR #968 review cycles. Since 2026-10-13 support@get-silo.com is a platform admin and
-`admin` in 14 client companies, so whoever can read that mailbox can reset its SILO password and act in
-every one of those workspaces, under one identity. SILO has no MFA (no `aal2`/TOTP in the login code).
+`admin` in 14 client companies (plus owner of State Forty Eight), and its department is `finance`, so it
+holds journal-entry authority in all of them. Whoever can read that mailbox can reset its SILO password and
+act in every one of those workspaces, money included, under one identity. SILO has no MFA (no `aal2`/TOTP in the login code).
 
 **Accepted by Blake on 2026-10-13:** he is the only person with access to that mailbox, so in practice
 it is a second login for one named operator, not a shared one. The control is therefore the mailbox
