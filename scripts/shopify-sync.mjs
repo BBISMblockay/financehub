@@ -248,10 +248,24 @@ async function syncConnection(connection) {
         historyDays: days,
         chunkDays: HISTORY_CHUNK_DAYS,
       });
-      await finishJob(jobId, 'success', result);
-      results.jobs.push(result);
-      record(connection, 'history_import', 'success');
-      console.log(`[ok] ${connection.shop_domain} history_import: ${result.sales_rows_total} sales rows`);
+      // An operator cancelled it mid-import: not a success (the window plan is
+      // unfinished) and not an error (nothing failed). Recording it as
+      // `success` would let the next run resume a plan the record calls
+      // complete; the reason lives in `result.status`.
+      if (result.status === 'cancelled') {
+        await finishJob(jobId, 'skipped', result);
+        results.jobs.push(result);
+        record(connection, 'history_import', 'skipped', 'cancelled by operator');
+        console.log(`[cancelled] ${connection.shop_domain} history_import at window ${result.windows_done}/${result.windows_total}`);
+      } else {
+        await finishJob(jobId, 'success', result);
+        results.jobs.push(result);
+        record(connection, 'history_import', 'success');
+        console.log(`[ok] ${connection.shop_domain} history_import: ${result.sales_rows_total} sales rows`);
+        if (result.plan_mismatch) {
+          console.log(`[warn] ${connection.shop_domain} history_import resumed a stored ${result.history_days}-day plan; the requested ${result.requested_days} days were NOT applied (pass replan to change the plan)`);
+        }
+      }
     } catch (err) {
       await finishJob(jobId, 'error', { error: err.message || String(err) });
       record(connection, 'history_import', 'error', err.message || String(err));

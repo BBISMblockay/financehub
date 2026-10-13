@@ -1250,7 +1250,7 @@
         return `<div class="int-backfill-hint int-backfill-hint--warn"><strong>Import paused</strong> at ${bf?.windows_done || 0}/${bf?.windows_total || '?'} windows. Click <strong>Resume</strong> to continue — repeat until complete.</div>`;
       }
       if (mode === 'server') {
-        return '<div class="int-backfill-hint int-backfill-hint--info"><strong>Server import running.</strong> Progress updates on refresh — do not click Cancel.</div>';
+        return '<div class="int-backfill-hint int-backfill-hint--info"><strong>Server import running.</strong> Progress updates on refresh. Cancel stops it after the current window.</div>';
       }
       return '';
     }
@@ -1821,11 +1821,16 @@
       // before it starts, rather than after it looks done.
       const conn = (_summaryState.shopify || []).find((r) => r.id === connectionId);
       const granted = Array.isArray(conn?.scopes_granted) ? conn.scopes_granted : [];
-      if (historyDays > 60 && granted.length && !granted.includes('read_all_orders') && !confirm(
+      const capped = historyDays > 60 && granted.length && !granted.includes('read_all_orders');
+      if (capped && !confirm(
         `This store's app does not have read_all_orders, so Shopify will only return the last 60 days of orders — not ${historyDays}.\n\n`
         + 'Add read_all_orders to the app in Shopify\'s Dev Dashboard, release it, approve the update, then Re-test here before importing.\n\n'
         + 'Import the last 60 days anyway?',
       )) return;
+      // Accepting the fallback means importing 60 days, so 60 is what gets
+      // sent. It used to send the original 365 or 730, which the server then
+      // planned -- and a plan is a plan of which days to rebuild.
+      if (capped) historyDays = 60;
       if (!confirm(
         `Import ${historyDays} days of sales from Shopify?\n\n`
         + 'Runs in this browser — keep the tab open until Last import shows complete.\n'
@@ -1901,7 +1906,7 @@
       const { data: row } = await db.from('shopify_connections').select('meta').eq('id', connectionId).single();
       const mode = backfillMode({ id: connectionId, meta: row?.meta });
       const extra = mode === 'server'
-        ? '\n\nThis looks like a GitHub Actions job — Cancel will break that run.'
+        ? '\n\nThis import is running on the server: it stops after the window it is currently fetching, so progress already imported is kept.'
         : '';
       if (!confirm(`Cancel the in-progress sales import?${extra}`)) return;
       try {

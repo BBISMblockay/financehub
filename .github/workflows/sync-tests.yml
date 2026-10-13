@@ -343,6 +343,18 @@ jobs:
       - name: Shopify store-name sales fallback
         run: node scripts/tests/shopify-store-name-fallback.test.mjs
 
+      # A history import deletes only the window it re-imports, resumes the
+      # plan it reports, and stops when cancelled. The purge used to walk from
+      # the shop's oldest row to today, so a 60-day re-import erased nine years.
+      - name: History import preserves sales outside its window
+        run: node --test scripts/tests/shopify-history-preserves-sales.test.mjs
+
+      # Cancel, a re-Start and the incremental sync's watermark all write the
+      # same meta column while a UI import window is fetching. Which writer
+      # wins is the decision in shopify-sync-run/lib/history-chunk-persist.mjs.
+      - name: UI history window does not overwrite a cancel or a newer write
+        run: node --test scripts/tests/shopify-history-chunk-persist.test.mjs
+
       # Freshness alarm: a sync that succeeded after the day ended with nothing
       # new is QUIET, never stale; a dropped or failed sync still alarms.
       - name: Freshness quiet feeds
