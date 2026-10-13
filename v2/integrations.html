@@ -20,6 +20,7 @@
   <script src="ad-account-picker.js"></script>
   <script src="integration-guides.js"></script>
   <script src="integration-bootstrap.js"></script>
+  <script src="integration-enrolment.js"></script>
   <style>
     /* ── Page layout (scrollable within silo-main shell) ── */
     #silo-app .silo-main {
@@ -925,7 +926,13 @@
       // A prior job means this connection has already been set up -- unless it
       // finished with a stage it could not run and the caller says the
       // prerequisite has now arrived (Redo's API secret).
-      if (prior && !prior.error && !(requeueAfterSkip && SiloBootstrap.wasSkipped(prior))) return;
+      // Already set up. Returning WHY matters: the explicit "Start first
+      // import" button lands here for a store whose queue row was written
+      // but whose sync was never switched on, and a silent return would
+      // leave the operator pressing a button that does nothing.
+      if (prior && !prior.error && !(requeueAfterSkip && SiloBootstrap.wasSkipped(prior))) {
+        return { skipped: 'already_queued', prior };
+      }
       // Sync on. A connection nobody syncs is the state this whole feature
       // exists to end, and the flag defaults to false on both connection
       // tables. Only on the first pass, so a store deliberately switched off
@@ -954,6 +961,7 @@
           setStatus('Connected. Its first sync is queued; the immediate pull did not run (' + err.message + ')', 'info', 8000);
         }
       }
+      return { queued: true };
     }
 
     function renderBootstrapBand() {
@@ -978,7 +986,11 @@
 
       const needsAttention =
         s.shopify.filter((r) => r.last_test_status === 'error'
-          || (Array.isArray(r.scopes_missing) && r.scopes_missing.length > 0)).length
+          || (Array.isArray(r.scopes_missing) && r.scopes_missing.length > 0)
+          // Tested OK and holding no data at all. It counted as Connected,
+          // which is how suticompany.myshopify.com sat at zero rows for five
+          // days with the page reporting nothing wrong.
+          || enrolmentFor(r)?.state === 'never_imported').length
         + s.ad.filter((r) => r.last_test_success === false).length
         + (s.qbo && (s.qbo.last_test_success === false
             || (s.qbo.refresh_token_expires_at && new Date(s.qbo.refresh_token_expires_at) < new Date())) ? 1 : 0);
@@ -1124,6 +1136,46 @@
     // select and PGRST204 on an insert, and either means "not yet migrated".
     const isPreMigration = (e) => !!e && (e.code === '42703' || e.code === 'PGRST204');
 
+    // ── Has this connection EVER run a sync job? ──────────────────────────
+    // The one fact that tells a store nobody ever enrolled apart from one
+    // somebody switched off on purpose. Both look identical on the row
+    // (`sync_enabled = false`, `last_test_success = true`); only sync_jobs
+    // knows which is which, and v2/integration-enrolment.js explains why the
+    // test flag cannot answer it.
+    //
+    // One `limit(1)` per candidate, and only for rows whose state is still
+    // open (needsEvidence): a store that is syncing, failed its test, or
+    // carries a pause stamp already has its answer. A probe that ERRORS
+    // stays null, which reads as paused -- never as fresh.
+    const _everSynced = new Map();
+
+    async function loadEnrolmentEvidence(rows) {
+      if (!window.SiloEnrolment) return;
+      const candidates = (rows || []).filter((r) => SiloEnrolment.needsEvidence(r));
+      await Promise.all(candidates.map(async (row) => {
+        // Only a definitive answer is cached. A probe that errored is
+        // retried on the next load rather than leaving the store labelled
+        // paused for as long as the page stays open.
+        if (_everSynced.get(row.id) === true || _everSynced.get(row.id) === false) return;
+        let q = db.from('sync_jobs').select('id').eq('connection_id', row.id).limit(1);
+        if (_co?.id) q = q.eq('company_entity_id', _co.id);
+        const { data, error } = await q;
+        // sync_jobs_select is `company_entity_id = active_company_id()`, the
+        // same scope as the connections query that produced these rows, so a
+        // read that is refused returns no connections either and this list is
+        // empty. Zero rows here therefore means zero jobs, not no access.
+        _everSynced.set(row.id, error ? null : (data || []).length > 0);
+      }));
+    }
+
+    /** The row's enrolment state, with whatever evidence we have. */
+    function enrolmentFor(row) {
+      if (!window.SiloEnrolment) return null;
+      const evidence = _everSynced.has(row.id) ? _everSynced.get(row.id) : null;
+      const state = SiloEnrolment.enrolmentState(row, evidence);
+      return { state, ...SiloEnrolment.describeState(state) };
+    }
+
     async function loadConnections() {
       const query = (cols) => {
         let q = db.from('shopify_connections').select(cols).order('created_at');
@@ -1133,6 +1185,7 @@
       let { data, error } = await query(SHOPIFY_CONNECTION_COLUMNS);
       if (isPreMigration(error)) ({ data, error } = await query(SHOPIFY_BASE_COLUMNS.join(',')));
       if (error) { setStatus('Failed to load connections: ' + error.message, 'neg'); return; }
+      await loadEnrolmentEvidence(data || []);
       renderConnections(data || []);
       syncBackfillPolling(data || []);
       _summaryState.shopify = data || [];
@@ -1302,7 +1355,17 @@
     function lastImportHtml(row) {
       const bf = row?.meta?.history_backfill;
       const mode = backfillMode(row);
-      if (!bf) return '<span class="int-sync-status">—</span>';
+      // No import on record. "—" read as "nothing to report" for a store that
+      // had in fact never imported anything at all, which is the state this
+      // column most needs to name.
+      if (!bf) {
+        const enrol = enrolmentFor(row);
+        if (enrol && (enrol.state === 'never_imported' || enrol.state === 'paused')) {
+          const colour = enrol.state === 'never_imported' ? '#92400e' : 'var(--bcn-ink-3)';
+          return `<span class="int-sync-status" style="color:${colour}">${escHtml(enrol.label)}</span>`;
+        }
+        return '<span class="int-sync-status">—</span>';
+      }
       if (bf.status === 'running') {
         if (mode === 'ui_paused') {
           return `<span class="int-sync-status" style="color:#92400e">Paused ${bf.windows_done||0}/${bf.windows_total||'?'} — Resume</span>`;
@@ -1427,6 +1490,22 @@
             </div>
           </td>`;
         frag.appendChild(tr);
+
+        // Enrolment row: a store that tested OK, was never imported, and is
+        // not paused. The button is the ONLY way it gets switched on -- see
+        // v2/integration-enrolment.js on why nothing here infers consent.
+        const enrol = enrolmentFor(row);
+        if (enrol?.offerStart) {
+          const enrolTr = document.createElement('tr');
+          enrolTr.className = 'int-scope-tr';
+          enrolTr.innerHTML = `<td colspan="8" style="padding:0 12px 8px;">
+            <div class="int-backfill-hint int-backfill-hint--warn">
+              <strong>Never imported.</strong> ${escHtml(enrol.hint)}
+              <button class="int-btn int-btn--primary" style="margin-left:8px;"
+                onclick="startFirstImport('${row.id}')">Start first import</button>
+            </div></td>`;
+          frag.appendChild(enrolTr);
+        }
 
         // Scope warning row
         const scopeWarn = scopeWarningHtml(row);
@@ -1933,6 +2012,49 @@
       }
     }
 
+    // Enrol a store that tested OK and was never imported: switch its
+    // nightly sync on, queue the server-side first import, and pull its
+    // stock straight away. Exactly what a first connect does -- this is that
+    // same path, reached by a button instead of by a condition that could
+    // only ever be true once (see v2/integration-enrolment.js).
+    async function startFirstImport(connectionId) {
+      const row = (_summaryState.shopify || []).find((r) => r.id === connectionId);
+      const name = row?.shop_name || row?.shop_domain || 'this store';
+      const enrol = row ? enrolmentFor(row) : null;
+      // The guard is not ceremony: the page may have been open for an hour,
+      // and the operator must not enable a store that has started syncing or
+      // been paused since it was rendered.
+      if (enrol && !enrol.offerStart) {
+        setStatus('That store is no longer waiting for its first import — reloading', 'info', 5000);
+        loadConnections();
+        return;
+      }
+      if (!confirm(`Start the first import for ${name}?\n\nIts nightly sync is switched on and the history import is queued on the server.`)) return;
+      setStatus('Starting the first import…', 'info');
+      const res = await firstConnectBootstrap('shopify', connectionId, {
+        enableSync: { table: 'shopify_connections' },
+        kick: async () => {
+          const snap = await syncRun({ action: 'inventory_snapshot', connection_id: connectionId });
+          setStatus(`✓ ${name} enrolled — ${snap.result?.inventory_rows_upserted || 0} inventory rows now; sales history and the rest are syncing in the background`, 'pos', 10000);
+        },
+      });
+      // A queue row already existed -- written when the store was connected,
+      // never drained, and never accompanied by the sync flag. The queue is
+      // fine; the flag is what this store is missing, so switch it on here
+      // rather than reporting success for work nobody did.
+      if (res?.skipped === 'already_queued') {
+        const { error } = await db.from('shopify_connections')
+          .update({ sync_enabled: true, updated_at: new Date().toISOString() })
+          .eq('id', connectionId);
+        setStatus(error
+          ? 'Its first import was already queued, but switching the nightly sync on failed: ' + error.message
+          : `✓ ${name} enrolled — its first import was already queued and its nightly sync is now on`,
+          error ? 'neg' : 'pos', 8000);
+      }
+      _everSynced.delete(connectionId);
+      loadConnections();
+    }
+
     async function toggleSyncEnabled(connectionId, enabled) {
       const { error } = await db
         .from('shopify_connections')
@@ -1943,6 +2065,22 @@
         loadConnections();
         return;
       }
+      // Record that a PERSON did this, so a later page load can tell a
+      // deliberate pause from a store nobody ever enrolled without having to
+      // ask how long sync_jobs rows are kept. Best effort and deliberately
+      // second: the toggle itself is the setting, this is only the note
+      // beside it, and a failure here must not report the toggle as failed.
+      // Merged onto the meta as it stands NOW because a history import
+      // writes history_backfill to the same column.
+      if (window.SiloEnrolment) {
+        const { data: fresh } = await db.from('shopify_connections')
+          .select('meta').eq('id', connectionId).maybeSingle();
+        const meta = enabled
+          ? SiloEnrolment.withoutPauseStamp(fresh?.meta)
+          : SiloEnrolment.withPauseStamp(fresh?.meta, { by: _session?.user?.id || null });
+        await db.from('shopify_connections').update({ meta }).eq('id', connectionId);
+      }
+      _everSynced.delete(connectionId);
       setStatus(enabled ? 'API sync enabled for nightly job' : 'API sync disabled', 'info', 3000);
       loadConnections();
     }
