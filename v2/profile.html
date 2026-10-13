@@ -1012,18 +1012,22 @@
       const inSetup = !!mfa.pendingId;
       mfa.state.textContent = isOn ? 'On' : 'Off';
       mfa.state.className = 'bcn-pill' + (isOn ? ' bcn-pill--pos' : '');
-      mfa.on.hidden = isOn || inSetup;
+      mfa.on.hidden = isOn || inSetup || !window.SiloMfa.enrollmentOpen();
       mfa.off.hidden = !isOn;
       mfa.setup.hidden = !inSetup;
     }
 
     async function loadMfa() {
       if (!window.SiloMfa || !db || !authUser) return;
-      mfa.card.hidden = false;
+      const open = window.SiloMfa.enrollmentOpen();
       try {
         mfa.factor = await window.SiloMfa.status(db);
         mfa.msg.textContent = '';
       } catch (e) {
+        // Closed and unreadable: say nothing rather than advertise a
+        // feature nobody can turn on yet.
+        if (!open) return;
+        mfa.card.hidden = false;
         mfa.factor = null;
         mfa.state.textContent = 'Unavailable';
         mfa.msg.textContent = 'Could not check two-step login right now. Reload to try again.';
@@ -1031,6 +1035,10 @@
         mfa.off.hidden = true;
         return;
       }
+      // Setup is closed until the database enforces the code (see
+      // pages/mfa.js). An account that already has a factor still sees it,
+      // so it can be turned off.
+      mfa.card.hidden = !(open || mfa.factor || mfa.pendingId);
       renderMfa();
     }
 
@@ -1069,13 +1077,21 @@
     }
 
     async function cancelMfa() {
-      const id = mfa.pendingId;
+      mfa.cancel.disabled = true;
+      try {
+        await window.SiloMfa.cancelEnrollment(db, mfa.pendingId);
+      } catch (e) {
+        // The half-set-up authenticator still exists: keep the setup open.
+        mfa.msg.textContent = e.message || String(e);
+        return;
+      } finally {
+        mfa.cancel.disabled = false;
+      }
       mfa.pendingId = null;
       mfa.qr.removeAttribute('src');
       mfa.secret.textContent = '';
       mfa.msg.textContent = '';
-      renderMfa();
-      await window.SiloMfa.cancelEnrollment(db, id);
+      await loadMfa();
     }
 
     async function disableMfa() {
@@ -1093,6 +1109,9 @@
       try {
         await window.SiloMfa.disable(db, mfa.factor.id);
         await loadMfa();
+        // Keep the confirmation readable even where setup is closed and the
+        // section would otherwise disappear with the factor.
+        mfa.card.hidden = false;
         mfa.msg.textContent = 'Two-step login is off.';
       } catch (e) {
         mfa.msg.textContent = e.message || String(e);

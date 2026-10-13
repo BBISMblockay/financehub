@@ -1,13 +1,18 @@
 # Two-step login (authenticator app)
 
-Added 2026-10-13. Opt-in per user. Code: `pages/mfa.js` (shared helpers),
+Added 2026-10-13. Opt-in per user. **Setup is closed in production** until
+the database enforces the code (see "Limit" below): My profile offers
+"Turn on" only when `pages/config.js` sets `MFA_ENROLLMENT_OPEN: true`, and
+production leaves it unset. The code steps on login and set-password are
+live regardless, but they only act for an account that already holds a
+verified factor, and none does (0 on 2026-10-13). Code: `pages/mfa.js` (shared helpers),
 `pages/login.html`, `pages/set-password.html`, `v2/profile.html`.
 Tests: `v2/tests/unit/mfa-helpers.test.js`, `v2/tests/browser/login-two-step.test.js`,
 `v2/tests/browser/profile-two-step.test.js`.
 
 ## What a user sees
 
-- **Turning it on:** My profile → Two-step login → Turn on. Scan the QR code
+- **Turning it on** (once `MFA_ENROLLMENT_OPEN` is set): My profile → Two-step login → Turn on. Scan the QR code
   in any authenticator app (Google Authenticator, 1Password, Authy, Microsoft
   Authenticator), enter the first code. It is on from then.
 - **Signing in:** password (or email link) as before, then a 6-digit code.
@@ -49,7 +54,7 @@ knows the password and goes straight to an app URL instead of entering the
 code still reads whatever RLS allows. Until the database check below is
 applied, don't tell customers that two-step login is *enforced*.
 
-Next step (migration, needs Blake's approval to apply): a restrictive RLS
+Don't set `MFA_ENROLLMENT_OPEN` until this ships. Next step (migration, needs Blake's approval to apply): a restrictive RLS
 policy on every RLS table, plus `storage.objects`, that refuses `aal1` only
 for users holding a verified factor:
 

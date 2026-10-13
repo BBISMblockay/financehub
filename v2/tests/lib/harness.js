@@ -379,6 +379,8 @@ window.__QUERIES__ = [];
               },
               unenroll: function (a) {
                 state().calls = (state().calls || []).concat(['unenroll:' + a.factorId]);
+                // Supabase reports failures in { error }, not by throwing.
+                if (state().unenrollError) return done({ data: null, error: { message: state().unenrollError } });
                 state().factors = state().factors.filter(function (f) { return f.id !== a.factorId; });
                 return done({ data: {}, error: null });
               }

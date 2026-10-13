@@ -11,6 +11,12 @@
  * whatever RLS allows if someone opens an app page directly; the database
  * check that refuses aal1 for enrolled users is a separate migration. See
  * docs/ops/two-step-login.md.
+ *
+ * So turning it ON is closed until that enforcement is applied: My profile
+ * offers setup only when pages/config.js sets MFA_ENROLLMENT_OPEN: true.
+ * Production leaves it unset. The code steps on login and set-password stay
+ * live regardless, because they only ever act for an account that already
+ * holds a verified factor.
  */
 (function (root) {
   'use strict';
@@ -43,6 +49,13 @@
     } catch (_) {
       return null;
     }
+  }
+
+  // Whether My profile may offer setup. Read at call time so a page that
+  // loads config.js after this file still gets the right answer.
+  function enrollmentOpen() {
+    const cfg = (typeof window !== 'undefined' && window.__SILO_CONFIG__) || {};
+    return cfg.MFA_ENROLLMENT_OPEN === true;
   }
 
   function hasVerifiedFactor(user) {
@@ -108,8 +121,15 @@
     if (error) throw error;
     const stale = ((data && data.all) || [])
       .filter((f) => f.factor_type === 'totp' && f.status !== 'verified');
+    // Supabase reports failures in `{ error }`, not by throwing. A leftover
+    // that cannot be removed would make enroll() fail on the duplicate name
+    // anyway, so stop here with a reason the person can act on.
     for (const f of stale) {
-      try { await client.auth.mfa.unenroll({ factorId: f.id }); } catch (_) { /* best effort */ }
+      let res;
+      try { res = await client.auth.mfa.unenroll({ factorId: f.id }); } catch (e) { res = { error: e }; }
+      if (res && res.error) {
+        throw new Error('Could not clear an earlier unfinished setup (' + (res.error.message || 'unknown error') + '). Reload and try again.');
+      }
     }
     const res = await client.auth.mfa.enroll({
       factorType: 'totp',
@@ -140,9 +160,16 @@
   }
 
   // Abandoning setup: remove the unverified factor so it cannot linger.
+  // Throws when Supabase refuses, so the caller can keep the setup open
+  // instead of showing Off over a factor that still exists.
   async function cancelEnrollment(client, factorId) {
-    if (!factorId) return;
-    try { await client.auth.mfa.unenroll({ factorId }); } catch (_) { /* best effort */ }
+    if (!factorId) return true;
+    let res;
+    try { res = await client.auth.mfa.unenroll({ factorId }); } catch (e) { res = { error: e }; }
+    if (res && res.error) {
+      throw new Error('Could not cancel setup (' + (res.error.message || 'unknown error') + '). Try again.');
+    }
+    return true;
   }
 
   // Supabase only lets an aal2 session remove a verified factor.
@@ -158,6 +185,7 @@
   }
 
   const api = {
+    enrollmentOpen,
     normalizeCode,
     jwtAal,
     hasVerifiedFactor,

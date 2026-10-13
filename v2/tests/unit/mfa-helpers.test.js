@@ -143,6 +143,36 @@ function client(opts = {}) {
     R.ok('enrollment returns QR and secret', en.factorId === 'new' && /^data:image/.test(en.qrCode) && en.secret === 'ABC');
   }
 
+  // Returned (not thrown) errors from unenroll are failures, not success.
+  {
+    const c = client({ factors: [{ id: 'old', status: 'unverified', factor_type: 'totp' }], unenrollError: { message: 'Factor locked' } });
+    let err = null;
+    try { await M.startEnrollment(c); } catch (e) { err = e; }
+    R.ok('a stale factor that cannot be removed stops setup with a reason', err && /earlier unfinished setup.*Factor locked/.test(err.message), err && err.message);
+    R.ok('...and no new factor is enrolled on top of it', !c.calls.some((x) => x.startsWith('enroll')), c.calls.join(','));
+  }
+  {
+    const c = client({ unenrollError: { message: 'Network down' } });
+    let err = null;
+    try { await M.cancelEnrollment(c, 'pending'); } catch (e) { err = e; }
+    R.ok('a refused cancel is reported, not swallowed', err && /Could not cancel setup.*Network down/.test(err.message), err && err.message);
+  }
+  R.ok('cancel succeeds when Supabase does', await M.cancelEnrollment(client({}), 'pending'));
+  R.ok('cancel with nothing pending is a no-op', await M.cancelEnrollment(client({ unenrollError: { message: 'x' } }), null));
+
+  // enrollmentOpen: closed unless config opts in.
+  R.ok('enrollment closed with no window/config', M.enrollmentOpen() === false);
+  for (const [cfg, want, name] of [
+    [{}, false, 'closed when the flag is unset (production)'],
+    [{ MFA_ENROLLMENT_OPEN: 'true' }, false, 'closed for a truthy non-boolean'],
+    [{ MFA_ENROLLMENT_OPEN: true }, true, 'open only for literal true'],
+  ]) {
+    const w = { __SILO_CONFIG__: cfg };
+    const c2 = vm.createContext({ module: { exports: {} }, window: w, atob, Buffer });
+    vm.runInContext(src, c2);
+    R.ok('enrollment ' + name, c2.module.exports.enrollmentOpen() === want);
+  }
+
   // disable: an aal1 session gets an actionable message
   {
     const c = client({ unenrollError: { code: 'insufficient_aal', message: 'AAL2 required' } });

@@ -3,7 +3,7 @@
  * real page and the real pages/mfa.js against the harness's mfa stand-in. */
 'use strict';
 
-const { startSuite } = require('../lib/harness');
+const { startSuite, CONFIG_STUB } = require('../lib/harness');
 const { createReporter } = require('../lib/assert');
 
 const R = createReporter('profile-two-step (browser)');
@@ -22,7 +22,34 @@ const ready = () => {
   const text = (page, sel) => page.evaluate((s) => document.querySelector(s).textContent.trim(), sel);
   const hidden = (page, sel) => page.evaluate((s) => document.querySelector(s).hidden, sel);
 
+  const anyState = () => !!document.getElementById('mfaState') && document.readyState === 'complete';
+
   try {
+    // Production: MFA_ENROLLMENT_OPEN unset. Setup is not offered until the
+    // database enforces the code (PR #970 review, cycle 1).
+    {
+      const page = await suite.open('/v2/profile.html', TABLES, { ready: anyState });
+      await page.waitForTimeout(500);
+      R.ok('closed: the section is hidden for an account without two-step login', await hidden(page, '#mfaCard'));
+      R.ok('closed: the rest of the page still loads', await page.evaluate(() => !document.getElementById('settingsCard').hidden));
+      await page.close();
+    }
+    {
+      const page = await suite.open('/v2/profile.html', TABLES, { ready: anyState });
+      // Re-runs with the harness's own init scripts on reload.
+      await page.addInitScript(() => { window.__FIXTURE_MFA__ = { factors: [{ id: 'fx', status: 'verified', factor_type: 'totp' }], calls: [] }; });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(ready, { timeout: 20000 });
+      R.ok('closed: an account that already has it still sees On', (await text(page, '#mfaState')) === 'On');
+      R.ok('closed: ...and can turn it off', !(await hidden(page, '#btnMfaOff')));
+      R.ok('closed: ...but Turn on is never offered', await hidden(page, '#btnMfaOn'));
+      await page.close();
+    }
+
+    // Open (after enforcement ships): the full flow.
+    await suite.context.route('**/pages/config.js', (route) =>
+      route.fulfill({ contentType: 'text/javascript', body: CONFIG_STUB + '\nwindow.__SILO_CONFIG__.MFA_ENROLLMENT_OPEN = true;' }));
+
     // Off by default: nothing set up, nothing changes for this user.
     const page = await suite.open('/v2/profile.html', TABLES, { ready });
     R.ok('shows Off for an account without two-step login', (await text(page, '#mfaState')) === 'Off');
@@ -62,9 +89,18 @@ const ready = () => {
     await settle(page);
     R.ok('second click turns it Off', (await text(page, '#mfaState')) === 'Off');
 
-    // Cancelling a half-finished setup removes the unverified factor.
+    // A cancel Supabase refuses keeps the setup open (PR #970 review, P2).
     await page.click('#btnMfaOn');
     await settle(page);
+    await page.evaluate(() => { window.__FIXTURE_MFA__.unenrollError = 'Network down'; });
+    await page.click('#btnMfaCancel');
+    await settle(page);
+    R.ok('refused cancel: setup stays open', !(await hidden(page, '#mfaSetup')));
+    R.ok('refused cancel: the reason is shown', /Could not cancel setup.*Network down/.test(await text(page, '#mfaMsg')), await text(page, '#mfaMsg'));
+    R.ok('refused cancel: the factor is still there', await page.evaluate(() => window.__FIXTURE_MFA__.factors.length === 1));
+    await page.evaluate(() => { window.__FIXTURE_MFA__.unenrollError = null; });
+
+    // Cancelling a half-finished setup removes the unverified factor.
     await page.click('#btnMfaCancel');
     await settle(page);
     const left = await page.evaluate(() => window.__FIXTURE_MFA__.factors.length);
