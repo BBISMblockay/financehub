@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {summarize,journeyFlow,escapeHtml,platformMark,loadRows} from '../../v2/silo-attribution-report.js';
-import {reportOverview} from '../../v2/silo-attribution-visuals.js';
+import {trendChart} from '../../v2/silo-attribution-visuals.js';
+import {channelTeamwork,findings} from '../../v2/silo-attribution-together.js';
+import {multiChannelShare} from '../../v2/silo-attribution-overview-ui.js';
 const controls=[{day:'2026-09-01',currency:'USD',shop_timezone:'America/Los_Angeles',net_cents:100,total_cents:120,extracted_at:'snapshot'}];
 const allocation={channel:'Redo Email',window_days:30,visit_id:'r',introduced_channel:'Meta Ads',introduced_visit_id:'m',assisting_channels:['Meta Ads']};
 const rows=[{...controls[0],order_id:'1',order_name:'#1',window_days:30,channel:'Redo Email',allocation,net_cents:100,total_cents:120,evidence_fetched_at:'e'}];
@@ -36,27 +38,39 @@ const missing={order:{name:'#fallback',createdAt:'2026-09-01T10:00:00Z',customer
 const fallbackFlow=journeyFlow(missing,fallback,'UTC','USD',100,30);
 assert.ok(fallbackFlow.includes('Credited first-touch fallback'));assert.ok(fallbackFlow.includes('visit time unavailable'));assert.ok(fallbackFlow.includes('Source: google'));assert.ok(!fallbackFlow.includes('<script>landing'));
 assert.ok(journeyFlow({order:{name:'#old',createdAt:null,customerJourneySummary:null}},null,'UTC','USD',-100,7).includes('Purchase time unavailable'));
-const visual=reportOverview(summarize(rows,controls,30));
-assert.ok(visual.includes('Daily Shopify net sales'));assert.ok(visual.includes('Channels work together'));assert.ok(visual.includes('Meta Ads'));assert.ok(visual.includes('Redo Email'));
+const visual=trendChart(summarize(rows,controls,30));
+assert.ok(visual.includes('Daily Shopify net sales'));assert.ok(!visual.includes('NaN'));
 const negative=summarize([{...rows[0],net_cents:-100,total_cents:-120}],[{...controls[0],net_cents:-100,total_cents:-120}],30);
 const snapshot=JSON.stringify(negative);
-assert.ok(reportOverview(negative).includes('attr-bar-negative'));assert.ok(!reportOverview(negative).includes('NaN'));assert.equal(JSON.stringify(negative),snapshot);
-assert.ok(!reportOverview({...negative,channels:[{channel:'<script>bad</script>',net_cents:-100,orders:1,introduced_orders:0}]}).includes('<script>bad'));
-// Evidence gaps are never headlined as the leading or introducing channel.
-const gapFirst={...negative,channels:[{channel:'Unattributed',net_cents:900,orders:9,introduced_orders:0},{channel:'Redo Email',net_cents:100,orders:1,introduced_orders:0}]};
-assert.ok(reportOverview(gapFirst).includes('Redo Email leads credited net sales'));
-assert.ok(!reportOverview(gapFirst).includes('Unattributed leads'));
-assert.ok(reportOverview(gapFirst).includes('No observed introductions in this window.'));
-assert.ok(!reportOverview(gapFirst).includes('(0 orders)'));
-assert.ok(reportOverview({...gapFirst,channels:[gapFirst.channels[0]]}).includes('No channel has positive credited net sales yet.'));
-console.log('Attribution report: overview headline excludes evidence gaps');
-// The tail is a labelled total with no bar; it never sets the scale or hides an evidence gap.
-const many={...negative,channels:[...Array.from({length:12},(_,i)=>({channel:`Channel ${i+1}`,net_cents:(20-i)*100,orders:1,introduced_orders:0})),{channel:'Unattributed',net_cents:50,orders:1,introduced_orders:0}]};
-const manyHtml=reportOverview(many);
-assert.ok(!manyHtml.includes('Other channels'));
-assert.ok(manyHtml.includes('4 more channels'));
-assert.ok(manyHtml.includes('data-channel="Channel 12"'));
-assert.ok(manyHtml.includes('attr-bar-gap" data-channel="Unattributed"'));
-assert.equal((manyHtml.match(/width:100%/g)||[]).length,1);
-assert.ok(manyHtml.indexOf('data-channel="Unattributed"')<manyHtml.indexOf('4 more channels'));
-console.log('Attribution report: channel tail collapses without a combined bar');
+assert.ok(!trendChart(negative).includes('NaN'));assert.ok(trendChart(negative).includes('-$1'));assert.equal(JSON.stringify(negative),snapshot);
+assert.ok(!trendChart({...negative,reconciliation:[{...negative.reconciliation[0],day:'<script>bad</script>'}]}).includes('<script>bad'));
+// Teamwork rows: last-click credit and roles come from the published allocation.
+const usd=n=>'$'+(n/100).toFixed(0);
+const team=channelTeamwork(summarize(rows,controls,30),null,null);
+const meta=team.find(r=>r.channel==='Meta Ads'),redo=team.find(r=>r.channel==='Redo Email');
+assert.deepEqual([meta.net_cents,meta.started,meta.assisted,meta.closed,meta.touched_net],[0,1,0,0,100],'an introducer is not also counted as an assist');
+assert.deepEqual([redo.net_cents,redo.closed,redo.closed_after_other,redo.shared_cents,redo.roas],[100,1,1,null,null]);
+// Evidence gaps are never headlined as a channel; spend without credit is called out, not hidden.
+const gapReport={orders:[{order_id:'9',channel:'Unattributed',net_cents:900,allocation:{introduced_channel:null}},{order_id:'1',channel:'Redo Email',net_cents:100,allocation:{introduced_channel:'Meta Ads',assisting_channels:[]}}],net:1000};
+const spend=new Map([['Google Ads',{channel:'Google Ads',cents:5000,status:'complete'}]]);
+const gapRows=channelTeamwork(gapReport,null,spend),gapFindings=findings(gapReport,gapRows,null,usd);
+assert.equal(gapRows.at(-1).channel,'Unattributed');assert.equal(gapRows[0].channel,'Google Ads');
+assert.ok(gapFindings.every(f=>!f.title.startsWith('Unattributed')));
+assert.ok(gapFindings.some(f=>f.title==='Meta Ads starts more sales than it gets credit for'));
+assert.ok(gapFindings.some(f=>f.title==='Redo Email mostly finishes what others start'&&f.text.includes('100% of its 1 order was started')&&f.text.includes('Meta Ads')));
+assert.ok(gapFindings.some(f=>f.title==='Google Ads spent $50 with no sales'));
+// An evidence gap can carry an observed introducer; it still never "closes" or headlines.
+const introGap={...gapReport,orders:[...Array.from({length:3},(_,i)=>({order_id:'g'+i,channel:'Pending',net_cents:10,allocation:{introduced_channel:'Meta Ads',assisting_channels:[]}})),...gapReport.orders]};
+const introRows=channelTeamwork(introGap,null,null);
+assert.equal(introRows.find(r=>r.channel==='Pending').closed,0);assert.equal(introRows.find(r=>r.channel==='Meta Ads').started,4);
+assert.ok(findings(introGap,introRows,null,usd).every(f=>!/^(Pending|Unattributed)/.test(f.title)));
+// Return needs complete spend: partial or unverified spend shows the amount but no return.
+for(const status of ['partial','unverified']){
+  const r=channelTeamwork(gapReport,null,new Map([['Redo Email',{channel:'Redo Email',cents:50,status}]])).find(x=>x.channel==='Redo Email');
+  assert.equal(r.spend.cents,50);assert.equal(r.roas,null,status+' spend has no return');
+}
+assert.equal(channelTeamwork(gapReport,null,new Map([['Redo Email',{channel:'Redo Email',cents:50,status:'complete'}]])).find(x=>x.channel==='Redo Email').roas,2);
+// The headline divides by all orders: 90 Unattributed + 10 multi-channel is 10%, not 100%.
+const mixed={orders:[...Array.from({length:90},(_,i)=>({order_id:'u'+i,channel:'Unattributed',net_cents:1,allocation:{}})),...Array.from({length:10},(_,i)=>({order_id:'m'+i,channel:'Google Ads',net_cents:1,allocation:{introduced_channel:'Meta Ads',assisting_channels:[]}}))]};
+assert.deepEqual(multiChannelShare(mixed),{any:10,multi:10,total:100});
+console.log('Attribution report: trend, teamwork rows and findings exclude evidence gaps');
