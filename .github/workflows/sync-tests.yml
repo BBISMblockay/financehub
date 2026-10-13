@@ -40,6 +40,7 @@ on:
       - 'supabase/migrations/*security_audit_db_hardening.sql'
       - 'supabase/migrations/*integration_bootstrap_jobs.sql'
       - 'v2/integration-bootstrap.js'
+      - 'v2/integration-enrolment.js'
       - 'scripts/integration-bootstrap.mjs'
       - 'scripts/lib/integration-bootstrap-*.mjs'
       - 'v2/integrations.html'
@@ -399,6 +400,22 @@ jobs:
       # the plan the drainer runs.
       - name: Integration bootstrap plan and resume
         run: node scripts/tests/integration-bootstrap.test.mjs
+
+      # Which stores the Integrations page may offer to enrol. The live
+      # distinction is between a store nobody ever imported (suticompany:
+      # zero sync_jobs, zero sales rows) and one somebody switched off on
+      # purpose (baseballismchicago: ~1,500 jobs), and the row itself cannot
+      # tell them apart -- so an absent or failed sync_jobs probe must read
+      # as paused, never as offerable.
+      - name: Integration enrolment state
+        run: node scripts/tests/integration-enrolment.test.mjs
+
+      # A Shopify store connected under two companies: order facts are keyed
+      # without the company, so a second company's sync would MOVE the first
+      # one's orders. The nightly, the first-import job and shopify-sync-run's
+      # history actions all refuse a store whose orders another company holds.
+      - name: Shopify tenant guard
+        run: node scripts/tests/shopify-tenant-guard.test.mjs
 
       # Running one job: that a connection which had already synced is NOT
       # re-imported, that a job cancelled from the page while a stage runs

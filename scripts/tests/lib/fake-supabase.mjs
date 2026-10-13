@@ -53,8 +53,31 @@ export function createFakeSupabase({ beforeWrite = null } = {}) {
       .filter(Boolean),
   );
 
+  /** A column, or a PostgREST JSON path into one.
+   *
+   * `meta->>key` and `meta->a->>b` are real PostgREST filters and the
+   * Integrations page depends on them: the pause note's UPDATE pins the
+   * import's own fields so a concurrent window cannot be overwritten. A fake
+   * that ignored the path would match every row and prove the opposite of
+   * what the test asks. `->>` yields text, as Postgres does.
+   */
+  const readPath = (row, col) => {
+    if (!col.includes('->')) return row[col];
+    const [head, ...rest] = col.split('->');
+    let v = row[head.trim()];
+    for (const raw of rest) {
+      const asText = raw.startsWith('>');
+      const key = (asText ? raw.slice(1) : raw).trim().replace(/^'|'$/g, '');
+      if (v === null || v === undefined || typeof v !== 'object') return undefined;
+      v = v[key];
+      if (asText) return v === null || v === undefined ? undefined
+        : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+    }
+    return v;
+  };
+
   const matches = (row, filters) => filters.every((f) => {
-    const v = row[f.col];
+    const v = readPath(row, f.col);
     if (f.op === 'eq') return v === f.val;
     if (f.op === 'neq') return v !== f.val;
     if (f.op === 'is') return f.val === null ? (v === null || v === undefined) : v === f.val;
@@ -172,20 +195,28 @@ export function createFakeSupabase({ beforeWrite = null } = {}) {
 
   function updateBuilder(table, patch) {
     const filters = [];
+    let wantSelect = false;
+    const run = () => {
+      const affected = rowsOf(table).filter((r) => matches(r, filters));
+      for (const r of affected) Object.assign(r, patch);
+      calls.updates.push({ table, patch, filters, affected: affected.length });
+      // A conditional UPDATE is only useful to the caller if it can see
+      // whether it matched: zero rows back is how the page learns the state
+      // moved under it. PostgREST returns the rows when asked.
+      return {
+        data: wantSelect ? affected.map((r) => ({ ...r })) : null,
+        error: null,
+        count: affected.length,
+      };
+    };
     const builder = {
       eq(col, val) { filters.push({ op: 'eq', col, val }); return builder; },
       neq(col, val) { filters.push({ op: 'neq', col, val }); return builder; },
       is(col, val) { filters.push({ op: 'is', col, val }); return builder; },
       lt(col, val) { filters.push({ op: 'lt', col, val }); return builder; },
       gte(col, val) { filters.push({ op: 'gte', col, val }); return builder; },
-      // Awaiting the chain runs it. Recording the matched count lets a test
-      // assert "this sweep touched exactly one row" rather than "a sweep ran".
-      then(resolve) {
-        const affected = rowsOf(table).filter((r) => matches(r, filters));
-        for (const r of affected) Object.assign(r, patch);
-        calls.updates.push({ table, patch, filters, affected: affected.length });
-        return resolve({ error: null, count: affected.length });
-      },
+      select() { wantSelect = true; return builder; },
+      then(resolve) { return resolve(run()); },
     };
     return builder;
   }

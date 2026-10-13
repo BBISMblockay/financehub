@@ -14,6 +14,7 @@ import {
 import { chunkRequestVerdict, planChunkPersist } from './lib/history-chunk-persist.mjs';
 import { connectionReadyForSync } from './lib/shopify-scopes.mjs';
 import { ensureShopifyAccessToken, mayConnect } from './lib/shopify-auth-lib.mjs';
+import { orderFactsHeldElsewhere } from './lib/shopify-tenant-guard.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -571,6 +572,19 @@ Deno.serve(async (req) => {
     // A client-credentials store's token lasts 24 hours: mint a fresh one with
     // the service role (the only reader of the client secret). No-op otherwise.
     await ensureShopifyAccessToken(admin, connection);
+
+    // The two actions that write order facts refuse a store whose orders
+    // another company already holds: those tables are keyed without the
+    // company, so the upsert would move them (lib/shopify-tenant-guard.mjs).
+    // Checked with the service role, which is the only reader that can see
+    // the other company's rows. The inventory snapshot keys by company and
+    // is left alone.
+    if (action === 'start_history_backfill' || action === 'history_chunk') {
+      const guard = await orderFactsHeldElsewhere(admin, connection);
+      if (guard.blocked) {
+        return json({ ok: false, error: `This store's orders are already synced by another company in SILO, so it cannot be imported here. ${guard.heldBy ? '' : guard.reason}`.trim() }, 409);
+      }
+    }
 
     switch (action) {
       case 'start_history_backfill': {
