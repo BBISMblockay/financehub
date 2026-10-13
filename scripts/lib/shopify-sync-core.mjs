@@ -2229,6 +2229,26 @@ export async function runCatalogSync(supabase, connection, { batchId } = {}) {
 // non-atomic writes when a large window exceeds this explicit request bound.
 export const ATOMIC_SALES_MAX_BYTES = 16 * 1024 * 1024;
 
+// Only factor fields that this converter repeats identically on every row.
+// Preserve presence as well as value: absent sales batch ids and paid fields
+// must not become explicit nulls. No persisted columns are discarded.
+export function compactIncrementalRows(orderRows, lineRows, salesRows) {
+  const sharedKeys = ['company_entity_id', 'connection_id', 'shop_domain', 'synced_at', 'sync_batch_id'];
+  const metadata = {};
+  const compact = (name, rows) => {
+    const common = {};
+    for (const key of sharedKeys) {
+      if (rows.length && Object.hasOwn(rows[0], key)) common[key] = rows[0][key];
+      if (!rows.every(row => Object.hasOwn(row, key) === Object.hasOwn(common, key)
+          && row[key] === common[key])) throw new Error(`Inconsistent Shopify ${name} metadata`);
+    }
+    metadata[name] = common;
+    return rows.map(row => Object.fromEntries(Object.entries(row).filter(([key]) => !sharedKeys.includes(key))));
+  };
+  return { p_orders: compact('orders', orderRows), p_lines: compact('lines', lineRows),
+    p_sales: compact('sales', salesRows), p_metadata: metadata };
+}
+
 export async function publishIncrementalWindow(supabase, connection, {
   start, end, orders, skuMeta, syncedAt, batchId, salesRows, headers, base,
 }) {
@@ -2239,7 +2259,7 @@ export async function publishIncrementalWindow(supabase, connection, {
   const args = {
     p_connection_id: connection.id, p_company_entity_id: connection.company_entity_id,
     p_shop_domain: connection.shop_domain, p_start: start, p_end: end,
-    p_orders: orderRows, p_lines: lineRows, p_sales: salesRows,
+    ...compactIncrementalRows(orderRows, lineRows, salesRows),
   };
   const payloadBytes = Buffer.byteLength(JSON.stringify(args), 'utf8');
   if (payloadBytes > ATOMIC_SALES_MAX_BYTES || orderRows.length > 10000

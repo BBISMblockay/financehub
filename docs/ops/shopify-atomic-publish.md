@@ -57,24 +57,33 @@ The known main Finance database test failure in `ai-credit-database.test.mjs`
 
 ## Bounds and remaining verification
 
-The caller refuses a request above 16 MiB compact UTF-8 JSON, 10,000 headers,
-50,000 lines or 50,000 sales rows before RPC. The server independently applies
-those row limits and 16 MiB of normalized JSONB text (a conservative byte bound
-because it includes spaces). Neither side silently subdivides or falls back.
-The 600-order / 599-line changed fixture measured 1,282,960 request bytes.
-This does not certify production maximums: large affected windows can fail closed
-and require a separately reviewed strategy. No staging subsystem was added.
+The caller refuses a request above the proposed 16 MiB compact UTF-8 JSON limit,
+10,000 headers, 50,000 lines or 50,000 sales rows before RPC. This is an
+implementation proposal, NOT a verified Supabase transport constraint. The server
+bounds the complete normalized JSON request at 16 MiB as well. No unit is split.
 
-The requested 10,000-order busy-window probe (10,000 distinct sales rows and
-10,000 lines) measured **21,294,702 bytes**, so the proposed limit rejects it.
-This is a material behavior change for previously valid large windows and a
-deployment blocker, not a successful capacity test. Both caller and SQL rejected
-before mutations; the unchanged-data assertions passed. In one local Node24 /
-PGlite run: JSON encoding 28.95ms, decoding 33.32ms, SQL rejection 376.68ms,
-whole probe 688.61ms. RSS before/after was 595,451,904 / 801,165,312 bytes;
-process peak RSS was 1,127,735,296 bytes across the full suite, not isolated to
-this probe. No accepted 10,000-order publication or concurrency was measured.
-Do not raise the cap or add staging without a separate scope decision and tests.
+Shared company/shop/connection/sync-time/batch metadata is passed once per table.
+Every persisted field is retained; absent keys remain absent and explicit null
+remains null. Metadata is scalar, scope-validated, and cannot be overridden by a
+row. A conservative 32 MiB serialized-expansion bound is checked BEFORE allocating
+each expanded array; it does not bound PostgreSQL/process working memory.
+
+The exact 10,000-order/10,000-line/10,000-distinct-sales-row fixture measured
+21,294,702 bytes before compaction and 14,975,380 after; server-normalized compact
+JSON is 16,235,424 bytes. Complete local publication, changed-payload rollback,
+then changed publication and identical replay all passed independent exact totals.
+No records or monetary fields were dropped. Missing/null/undefined batch fields
+and mixed paid-key round trips are tested separately.
+
+One isolated Node24/PGlite probe measured encode 21.33ms, decode 23.66ms,
+publication 2717.97ms, rollback 2509.38ms. RSS baseline/after was 398,344,192 /
+1,127,260,160 bytes; baseline process high-water was 1,156,677,632 and final
+isolated-process peak 1,240,588,288 bytes. This harness retains original/compact/
+decoded comparisons and includes PGlite startup; it is not production worker RSS.
+Only about 542KB of normalized-byte margin remains for this fixture. Richer or
+larger valid windows can still fail the proposed bounds. Do not infer general
+large-store readiness or raise caps/add staging without review. No hosted or
+separate-reader concurrency acceptance was performed.
 
 Tests execute SQL under a synthetic service_role and deny actual anon/authenticated
 calls, but fixture grants/schema are not proof of deployed privileges or triggers.
@@ -86,7 +95,7 @@ materialized-view refresh and historical import atomicity are not part of this f
 
 ## Local verification record
 
-`node scripts/tests/shopify-atomic-publish-database.test.mjs`: 15 cases passed.
+`node scripts/tests/shopify-atomic-publish-database.test.mjs`: 16 cases passed.
 `SHOPIFY_ATOMIC_MUTATION=keep-lines`, `keep-sales`, and `public-execute` each
 failed the appropriate removal/ledger/privilege assertion. The three independent
 review findings (late source collision, actual invoker-role execution, malformed
@@ -101,4 +110,4 @@ step extraction on this Windows CRLF checkout; no auth/deploy code was changed.
 The known AI-credit database failure reproduced after 35 passes. YAML parser
 verification could not run because PyYAML is unavailable; no tooling installed.
 `git diff --check` passed. Hosted schema checks and two-session visibility were
-not run. These gaps and the busy-window cap prevent a deployment-ready claim.
+not run. These gaps and unverified production-window bounds prevent a deployment-ready claim.

@@ -7,7 +7,7 @@ select 'shopify atomic incremental publish' as check_name,
    and has_function_privilege('service_role',p.oid,'EXECUTE')
    and position('pg_advisory_xact_lock' in p.prosrc) > 0
  then 'ok' else 'BROKEN' end as status
-from (values(to_regprocedure('public.shopify_publish_incremental_window(uuid,uuid,text,date,date,jsonb,jsonb,jsonb)'))) t(oid)
+from (values(to_regprocedure('public.shopify_publish_incremental_window(uuid,uuid,text,date,date,jsonb,jsonb,jsonb,jsonb)'))) t(oid)
 left join pg_proc p on p.oid=t.oid;
 
 -- 0. Attribution scheduling state is deliberately service-only.

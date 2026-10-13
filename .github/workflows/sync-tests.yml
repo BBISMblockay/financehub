@@ -958,6 +958,8 @@ jobs:
         run: npm ci --prefix scripts/tests/finance-db --ignore-scripts
       - name: Atomic Shopify incremental publication (embedded SQL, not concurrency)
         run: node scripts/tests/shopify-atomic-publish-database.test.mjs
+      - name: Isolated busy-window metadata representation and rollback
+        run: node scripts/tests/shopify-atomic-busy-window.test.mjs
       - name: Prove atomic Shopify replacement and execution guards
         run: |
           for mutation in keep-lines keep-sales public-execute; do

@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {PGlite} from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 import {scopesMissingForJob} from '../lib/shopify-scopes.mjs';
-import {publishIncrementalWindow,ordersToOrderRows,ordersToSalesRows} from '../lib/shopify-sync-core.mjs';
+import {publishIncrementalWindow,ordersToOrderRows,ordersToSalesRows,compactIncrementalRows} from '../lib/shopify-sync-core.mjs';
 const root=new URL('./',import.meta.url),read=p=>fs.readFileSync(new URL(p,root),'utf8');
 const NOW='2026-10-10T12:00:00Z';
 const source=read('../lib/shopify-sync-core.mjs');
@@ -32,9 +32,9 @@ async function test(name, fn) { await fn(); console.log(`ok ${++count} - ${name}
 async function publish(a, role='service_role') {
   assert.ok(['service_role','anon','authenticated'].includes(role));
   await db.exec(`set role ${role}`);
-  try{return (await q('select public.shopify_publish_incremental_window($1,$2,$3,$4,$5,$6,$7,$8) result',
+  try{return (await q('select public.shopify_publish_incremental_window($1,$2,$3,$4,$5,$6,$7,$8,$9) result',
     [a.p_connection_id,a.p_company_entity_id,a.p_shop_domain,a.p_start,a.p_end,
-      JSON.stringify(a.p_orders),JSON.stringify(a.p_lines),JSON.stringify(a.p_sales)]))[0].result;
+      JSON.stringify(a.p_orders),JSON.stringify(a.p_lines),JSON.stringify(a.p_sales),JSON.stringify(a.p_metadata)]))[0].result;
   }finally{await db.exec('reset role');}
 }
 function client(c) {
@@ -85,7 +85,7 @@ try {
   // the production migration grants only execution, not new table access.
   await db.exec('grant usage on schema public to service_role,anon,authenticated; grant all on all tables in schema public to service_role; grant all on all sequences in schema public to service_role;');
   await test('migration is repeatable and execution restricted to service_role',async()=>{
-    const sig='public.shopify_publish_incremental_window(uuid,uuid,text,date,date,jsonb,jsonb,jsonb)';
+    const sig='public.shopify_publish_incremental_window(uuid,uuid,text,date,date,jsonb,jsonb,jsonb,jsonb)';
     for(const role of ['anon','authenticated']) assert.equal((await q('select has_function_privilege($1,$2,\'EXECUTE\') ok',[role,sig]))[0].ok,false);
     assert.equal((await q('select has_function_privilege(\'service_role\',$1,\'EXECUTE\') ok',[sig]))[0].ok,true);
     assert.equal((await q('select prosecdef from pg_proc where oid=$1::regprocedure',[sig]))[0].prosecdef,false);
@@ -186,31 +186,34 @@ try {
     }),/exceeds publish limit/);
     assert.equal(called,false);
   });
-  await test('10000-order busy window measures encoding and rejects oversize before mutation',async()=>{
-    const started=performance.now(), rssBefore=process.memoryUsage().rss;
-    const template=orders(0)[0];
-    const busy=Array.from({length:10000},(_,i)=>({...template,id:100000+i,name:'#BUSY-'+i,
-      line_items:[{...template.line_items[0],id:200000+i,sku:'BUSY-'+i,title:'Busy product '+i}]}));
-    const inputs={orders:busy,connection:stores[0],skuMeta:new Map(),syncedAt:NOW,batchId:'busy-window'};
-    const facts=ordersToOrderRows(inputs);
-    const {salesRows}=ordersToSalesRows({...inputs,locationMap:new Map()});
-    const a={...args,p_orders:facts.orderRows,p_lines:facts.lineRows,p_sales:salesRows};
-    const encodeStart=performance.now(), encoded=JSON.stringify(a), encodeMs=performance.now()-encodeStart;
-    const decodeStart=performance.now(), decoded=JSON.parse(encoded), decodeMs=performance.now()-decodeStart;
-    assert.equal(decoded.p_orders.length,10000);assert.equal(decoded.p_lines.length,10000);assert.equal(decoded.p_sales.length,10000);
-    const bytes=Buffer.byteLength(encoded), before=await snapshot();
-    assert.ok(bytes>16*1024*1024,'fixture must exercise the material large-window limit');
-    let called=false;
-    await assert.rejects(()=>publishIncrementalWindow({rpc(){called=true;}},stores[0],{
-      start:a.p_start,end:a.p_end,...inputs,salesRows,headers:{},base:'https://synthetic.invalid',
-    }),/exceeds publish limit/);
-    assert.equal(called,false);
-    const rejectStart=performance.now();await assert.rejects(()=>publish(a),/exceeds limit/);
-    const sqlRejectMs=performance.now()-rejectStart;
-    assert.deepEqual(await snapshot(),before);assert.equal(await untouched(),untouchedBefore);
-    console.log(JSON.stringify({busyWindow:{orders:10000,lines:10000,salesRows:10000,bytes,encodeMs,decodeMs,sqlRejectMs,
-      elapsedMs:performance.now()-started,rssBefore,rssAfter:process.memoryUsage().rss,peakRssBytes:process.resourceUsage().maxRSS*1024,
-      outcome:'REJECTED_BEFORE_MUTATION; no accepted publish or capacity claim'}}));
+  await test('compaction preserves every serialized key, absent/null batch and mixed paid fields',async()=>{
+    for(const batchId of [undefined,null,'']) {
+      const input={orders:orders(0).slice(0,2),connection:stores[0],skuMeta:new Map(),syncedAt:NOW,batchId};
+      const {orderRows,lineRows}=ordersToOrderRows(input);
+      orderRows[0].paid_at=null;orderRows[0].paid_at_checked_at=NOW;
+      const {salesRows}=ordersToSalesRows({...input,locationMap:new Map()});
+      const compact=JSON.parse(JSON.stringify(compactIncrementalRows(orderRows,lineRows,salesRows)));
+      for(const [name,rows] of [['orders',orderRows],['lines',lineRows],['sales',salesRows]]) {
+        assert.deepEqual(compact['p_'+name].map(row=>({...row,...compact.p_metadata[name]})),JSON.parse(JSON.stringify(rows)));
+      }
+      assert.equal(Object.hasOwn(compact.p_orders[1],'paid_at'),false);
+      assert.equal(compact.p_orders[0].paid_at,null);
+      assert.equal(Object.hasOwn(compact.p_metadata.sales,'sync_batch_id'),batchId!==undefined);
+    }
+  });
+  await test('metadata ownership, scalar shape, override and expansion guards reject before mutation',async()=>{
+    const before=await snapshot();
+    for(const mutate of [
+      a=>a.p_metadata.orders.company_entity_id=companyB,
+      a=>a.p_metadata.lines.connection_id=stores[1].id,
+      a=>a.p_metadata.sales.shop_domain=stores[1].shop_domain,
+      a=>a.p_metadata.orders.admin=true,
+      a=>a.p_metadata.orders.sync_batch_id={nested:'invalid'},
+      a=>a.p_orders[0].synced_at=NOW,
+      a=>a.p_metadata.orders.sync_batch_id='x'.repeat(1000000),
+    ]) {
+      const a=structuredClone(args);mutate(a);await assert.rejects(()=>publish(a));assert.deepEqual(await snapshot(),before);
+    }
   });
   console.log(`${count} tests passed; embedded serial PGlite only; separate PostgreSQL reader sessions NOT verified`);
 } catch(error) {console.error(error);process.exitCode=1;} finally {await db.close();}

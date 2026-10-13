@@ -3,7 +3,7 @@
 -- not acquire this lock. Requires the existing paid/terms order migrations.
 create or replace function public.shopify_publish_incremental_window(
   p_connection_id uuid, p_company_entity_id uuid, p_shop_domain text,
-  p_start date, p_end date, p_orders jsonb, p_lines jsonb, p_sales jsonb
+  p_start date, p_end date, p_orders jsonb, p_lines jsonb, p_sales jsonb, p_metadata jsonb
 ) returns jsonb
 language plpgsql security invoker set search_path = ''
 as $$
@@ -19,6 +19,11 @@ declare
   columns_sql text;
   updates_sql text;
   written integer;
+  metadata_key text;
+  shared_keys constant text[] := array['company_entity_id','connection_id','shop_domain','synced_at','sync_batch_id'];
+  order_ids jsonb;
+  expanded_bytes bigint := 0;
+  metadata_bytes bigint;
 begin
   if p_connection_id is null or p_company_entity_id is null
      or nullif(p_shop_domain, '') is null or p_start is null or p_end is null
@@ -32,11 +37,58 @@ begin
   end if;
   -- JSONB text includes whitespace, so this server bound is deliberately
   -- conservative relative to the caller's compact UTF-8 request bound.
-  if octet_length(p_orders::text) + octet_length(p_lines::text) + octet_length(p_sales::text) > 16777216
+  if octet_length(jsonb_build_object('p_connection_id',p_connection_id,'p_company_entity_id',p_company_entity_id,
+       'p_shop_domain',p_shop_domain,'p_start',p_start,'p_end',p_end,'p_orders',p_orders,
+       'p_lines',p_lines,'p_sales',p_sales,'p_metadata',p_metadata)::text) > 16777216
      or jsonb_array_length(p_orders) > 10000 or jsonb_array_length(p_lines) > 50000
      or jsonb_array_length(p_sales) > 50000 then
     raise exception 'Shopify publication payload exceeds limit';
   end if;
+
+  if jsonb_typeof(p_metadata) is distinct from 'object'
+     or not (p_metadata ?& array['orders','lines','sales'])
+     or exists(select 1 from jsonb_object_keys(p_metadata) k where k <> all(array['orders','lines','sales'])) then
+    raise exception 'Invalid Shopify shared metadata';
+  end if;
+  -- Expand within this same transaction only after bounding the entire compact
+  -- request. Shared metadata is never a default: absent keys stay absent.
+  foreach metadata_key in array array['orders','lines','sales'] loop
+    if jsonb_typeof(p_metadata->metadata_key) is distinct from 'object'
+       or exists(select 1 from jsonb_object_keys(p_metadata->metadata_key) k where k <> all(shared_keys)) then
+      raise exception 'Invalid Shopify shared metadata columns';
+    end if;
+    payload := case metadata_key when 'orders' then p_orders when 'lines' then p_lines else p_sales end;
+    if exists(select 1 from jsonb_each(p_metadata->metadata_key) kv
+       where jsonb_typeof(kv.value) not in ('string','null')) then
+      raise exception 'Shopify shared metadata must contain strings or null';
+    end if;
+    if jsonb_array_length(payload) > 0 and (
+       p_metadata->metadata_key->>'company_entity_id' is distinct from p_company_entity_id::text
+       or p_metadata->metadata_key->>'shop_domain' is distinct from p_shop_domain
+       or (metadata_key <> 'sales' and p_metadata->metadata_key->>'connection_id' is distinct from p_connection_id::text)) then
+      raise exception 'Shopify shared metadata scope mismatch';
+    end if;
+    if exists(select 1 from jsonb_array_elements(payload) r
+       where jsonb_typeof(r) is distinct from 'object' or r ?| shared_keys) then
+      raise exception 'Shopify row overrides shared metadata';
+    end if;
+    metadata_bytes := octet_length((p_metadata->metadata_key)::text);
+    select expanded_bytes + coalesce(sum(octet_length(value::text)),0)
+      + jsonb_array_length(payload)::bigint * (metadata_bytes + 4) + 2
+      into expanded_bytes from jsonb_array_elements(payload);
+    -- Separate finite expansion guard, not a relaxation of the 16MiB wire cap.
+    -- Check BEFORE allocation; repeated metadata must not amplify a tiny
+    -- request into unbounded server memory. The 10k fixture expands to ~21MiB.
+    if expanded_bytes > 33554432 then raise exception 'Shopify expanded payload exceeds limit'; end if;
+    select coalesce(jsonb_agg(value || (p_metadata->metadata_key)), '[]'::jsonb)
+      into payload from jsonb_array_elements(payload);
+    case metadata_key when 'orders' then p_orders := payload;
+      when 'lines' then p_lines := payload; else p_sales := payload; end case;
+  end loop;
+
+  -- Build one lookup rather than re-scanning all headers for every line.
+  select coalesce(jsonb_object_agg(value->>'order_id', true), '{}'::jsonb) into order_ids
+    from jsonb_array_elements(p_orders) where nullif(value->>'order_id','') is not null;
 
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
     'shopify-incremental:' || p_company_entity_id::text || ':' || p_shop_domain, 0));
@@ -75,8 +127,7 @@ begin
           raise exception 'Shopify order scope mismatch';
         end if;
         if relation_name = 'shopify_order_lines' and (
-          nullif(item->>'line_item_id', '') is null or not exists (
-            select 1 from jsonb_array_elements(p_orders) o where o->>'order_id' = item->>'order_id')) then
+          nullif(item->>'line_item_id', '') is null or not (order_ids ? (item->>'order_id'))) then
           raise exception 'Shopify line has no published parent';
         end if;
       elsif item->>'source' is distinct from 'shopify_api'
@@ -143,8 +194,8 @@ begin
     'order_lines_upserted', jsonb_array_length(p_lines), 'sales_rows_upserted', jsonb_array_length(p_sales));
 end;
 $$;
-revoke all on function public.shopify_publish_incremental_window(uuid,uuid,text,date,date,jsonb,jsonb,jsonb) from public, anon, authenticated;
-grant execute on function public.shopify_publish_incremental_window(uuid,uuid,text,date,date,jsonb,jsonb,jsonb) to service_role;
-comment on function public.shopify_publish_incremental_window(uuid,uuid,text,date,date,jsonb,jsonb,jsonb)
+revoke all on function public.shopify_publish_incremental_window(uuid,uuid,text,date,date,jsonb,jsonb,jsonb,jsonb) from public, anon, authenticated;
+grant execute on function public.shopify_publish_incremental_window(uuid,uuid,text,date,date,jsonb,jsonb,jsonb,jsonb) to service_role;
+comment on function public.shopify_publish_incremental_window(uuid,uuid,text,date,date,jsonb,jsonb,jsonb,jsonb)
   is 'Service-only atomic incremental window; scoped transaction lock, last publisher wins. No history/edge writer or MV freshness guarantee.';
 notify pgrst, 'reload schema';
