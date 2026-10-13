@@ -33,7 +33,9 @@ Authentication → Multi-Factor → TOTP (App Authenticator). Supabase Auth gate
 `MFA_TOTP_VERIFY_ENABLED` server-side). It was **Enabled** (both) on
 2026-10-13, which means anyone signed in can enroll through the Auth API
 directly, whatever `MFA_ENROLLMENT_OPEN` says. The browser flag only hides the
-button (PR #970 review, cycle 2).
+button (PR #970 review, cycle 2). **Set to verify-only ("Verify Enabled") by Blake
+on 2026-10-13 ~21:20 UTC**: an enroll call is now refused with 422
+`mfa_totp_enroll_not_enabled`, and password sign-in is unchanged (both checked live).
 
 **Until the database enforcement ships, set TOTP so enrollment is off and
 verification stays on** (the dashboard's verify-only option). This is the gate

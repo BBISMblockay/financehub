@@ -96,7 +96,9 @@ allows. Fix: a restrictive `aal2`-for-enrolled-users policy on every RLS table a
 plus `aal` checks in SECURITY DEFINER RPCs and service-role edge functions (migration and deploy, so
 Blake's approval). Until then setup stays closed: `MFA_ENROLLMENT_OPEN` is unset in `pages/config.js`,
 which only hides the button. The server-side gate is Supabase Auth → Multi-Factor → TOTP set to
-verification-only (enrollment off). That is a dashboard change for Blake, still owed as of 2026-10-13.
+verification-only (enrollment off). Set by Blake 2026-10-13 ~21:20 UTC ("Verify Enabled") and checked:
+an enroll call from a signed-in session is refused 422 `mfa_totp_enroll_not_enabled`, password sign-in
+still lands in the app, and `auth.mfa_factors` holds 0 rows.
 Two-step login isn't something to offer customers yet.
 
 ---
