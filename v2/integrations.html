@@ -20,6 +20,7 @@
   <script src="ad-account-picker.js"></script>
   <script src="integration-guides.js"></script>
   <script src="integration-bootstrap.js"></script>
+  <script src="integration-enrolment.js"></script>
   <style>
     /* ── Page layout (scrollable within silo-main shell) ── */
     #silo-app .silo-main {
@@ -911,7 +912,7 @@
     // something to show before the queue is drained. `kick` is that function
     // call; it is best effort by design, because the queued job is what
     // guarantees the data, not the kick.
-    async function firstConnectBootstrap(integration, connectionId, { enableSync = null, requeueAfterSkip = false, kick = null } = {}) {
+    async function firstConnectBootstrap(integration, connectionId, { enableSync = null, requeueAfterSkip = false, requeueTerminal = false, kick = null } = {}) {
       if (!window.SiloBootstrap || !_co?.id) return;
       const prior = await SiloBootstrap.latest(db, { companyId: _co.id, integration, connectionId });
       // A read error is NOT a job. Treating it as one would skip the insert
@@ -925,7 +926,21 @@
       // A prior job means this connection has already been set up -- unless it
       // finished with a stage it could not run and the caller says the
       // prerequisite has now arrived (Redo's API secret).
-      if (prior && !prior.error && !(requeueAfterSkip && SiloBootstrap.wasSkipped(prior))) return;
+      // Already set up. Returning WHY matters: the explicit "Start first
+      // import" button lands here for a store whose queue row was written
+      // but whose sync was never switched on, and a silent return would
+      // leave the operator pressing a button that does nothing.
+      const priorIsOpen = window.SiloEnrolment
+        ? SiloEnrolment.jobCountsAsQueued(prior)
+        : !!prior;
+      if (prior && !prior.error
+        && !(requeueAfterSkip && SiloBootstrap.wasSkipped(prior))
+        // A terminal row (done, partial, error, cancelled) claims nothing and
+        // blocks nothing -- the unique index covers the open states only --
+        // so for a caller that asked to requeue it is not a reason to stop.
+        && !(requeueTerminal && !priorIsOpen)) {
+        return { skipped: 'already_queued', prior };
+      }
       // Sync on. A connection nobody syncs is the state this whole feature
       // exists to end, and the flag defaults to false on both connection
       // tables. Only on the first pass, so a store deliberately switched off
@@ -941,6 +956,12 @@
       const res = await SiloBootstrap.enqueue(db, { companyId: _co.id, integration, connectionId });
       if (res.error) {
         setStatus('Connected — but its first sync could not be queued: ' + res.error, 'neg', 8000);
+        // The explicit Start button must not run its kick: the kick's success
+        // message would overwrite this one and report an import that is not
+        // coming. (The store's nightly sync is already on by this point, so it
+        // reads "Syncing" either way; the message is what tells the operator
+        // its history import still needs queuing.)
+        if (requeueTerminal) return { queued: false, error: res.error };
       } else {
         await refreshBootstrapJobs();
       }
@@ -954,6 +975,7 @@
           setStatus('Connected. Its first sync is queued; the immediate pull did not run (' + err.message + ')', 'info', 8000);
         }
       }
+      return { queued: true };
     }
 
     function renderBootstrapBand() {
@@ -978,7 +1000,11 @@
 
       const needsAttention =
         s.shopify.filter((r) => r.last_test_status === 'error'
-          || (Array.isArray(r.scopes_missing) && r.scopes_missing.length > 0)).length
+          || (Array.isArray(r.scopes_missing) && r.scopes_missing.length > 0)
+          // Tested OK and holding no data at all. It counted as Connected,
+          // which is how suticompany.myshopify.com sat at zero rows for five
+          // days with the page reporting nothing wrong.
+          || enrolmentFor(r)?.state === 'never_imported').length
         + s.ad.filter((r) => r.last_test_success === false).length
         + (s.qbo && (s.qbo.last_test_success === false
             || (s.qbo.refresh_token_expires_at && new Date(s.qbo.refresh_token_expires_at) < new Date())) ? 1 : 0);
@@ -1124,6 +1150,55 @@
     // select and PGRST204 on an insert, and either means "not yet migrated".
     const isPreMigration = (e) => !!e && (e.code === '42703' || e.code === 'PGRST204');
 
+    // ── Has this connection EVER run a sync job? ──────────────────────────
+    // The one fact that tells a store nobody ever enrolled apart from one
+    // somebody switched off on purpose. Both look identical on the row
+    // (`sync_enabled = false`, `last_test_success = true`); only sync_jobs
+    // knows which is which, and v2/integration-enrolment.js explains why the
+    // test flag cannot answer it.
+    //
+    // One `limit(1)` per candidate, and only for rows whose state is still
+    // open (needsEvidence): a store that is syncing, failed its test, or
+    // carries a pause stamp already has its answer. A probe that ERRORS
+    // stays null, which reads as paused -- never as fresh.
+    const _everSynced = new Map();
+
+    async function loadEnrolmentEvidence(rows) {
+      if (!window.SiloEnrolment) return;
+      const candidates = (rows || []).filter((r) => SiloEnrolment.needsEvidence(r));
+      await Promise.all(candidates.map(async (row) => {
+        // Only "has synced" is cached: it can never become untrue. "Has not"
+        // can, at any moment -- the nightly, the bootstrap runner or another
+        // tab writes a job -- so it is probed again on every load, and a
+        // probe that errored is retried rather than leaving the store
+        // labelled paused for as long as the page stays open.
+        if (_everSynced.get(row.id) === true) return;
+        // A connection test writes a sync_jobs row and imports nothing, so
+        // it is not evidence. integration-bootstrap-runner.mjs excludes the
+        // same job_type from the same question; a legacy store whose only
+        // row is a successful test is stranded, not synced.
+        let q = db.from('sync_jobs').select('id')
+          .eq('connection_id', row.id)
+          .neq('job_type', 'test_connection')
+          .limit(1);
+        if (_co?.id) q = q.eq('company_entity_id', _co.id);
+        const { data, error } = await q;
+        // sync_jobs_select is `company_entity_id = active_company_id()`, the
+        // same scope as the connections query that produced these rows, so a
+        // read that is refused returns no connections either and this list is
+        // empty. Zero rows here therefore means zero jobs, not no access.
+        _everSynced.set(row.id, error ? null : (data || []).length > 0);
+      }));
+    }
+
+    /** The row's enrolment state, with whatever evidence we have. */
+    function enrolmentFor(row) {
+      if (!window.SiloEnrolment) return null;
+      const evidence = _everSynced.has(row.id) ? _everSynced.get(row.id) : null;
+      const state = SiloEnrolment.enrolmentState(row, evidence);
+      return { state, ...SiloEnrolment.describeState(state) };
+    }
+
     async function loadConnections() {
       const query = (cols) => {
         let q = db.from('shopify_connections').select(cols).order('created_at');
@@ -1133,6 +1208,7 @@
       let { data, error } = await query(SHOPIFY_CONNECTION_COLUMNS);
       if (isPreMigration(error)) ({ data, error } = await query(SHOPIFY_BASE_COLUMNS.join(',')));
       if (error) { setStatus('Failed to load connections: ' + error.message, 'neg'); return; }
+      await loadEnrolmentEvidence(data || []);
       renderConnections(data || []);
       syncBackfillPolling(data || []);
       _summaryState.shopify = data || [];
@@ -1302,7 +1378,17 @@
     function lastImportHtml(row) {
       const bf = row?.meta?.history_backfill;
       const mode = backfillMode(row);
-      if (!bf) return '<span class="int-sync-status">—</span>';
+      // No import on record. "—" read as "nothing to report" for a store that
+      // had in fact never imported anything at all, which is the state this
+      // column most needs to name.
+      if (!bf) {
+        const enrol = enrolmentFor(row);
+        if (enrol && (enrol.state === 'never_imported' || enrol.state === 'paused')) {
+          const colour = enrol.state === 'never_imported' ? '#92400e' : 'var(--bcn-ink-3)';
+          return `<span class="int-sync-status" style="color:${colour}">${escHtml(enrol.label)}</span>`;
+        }
+        return '<span class="int-sync-status">—</span>';
+      }
       if (bf.status === 'running') {
         if (mode === 'ui_paused') {
           return `<span class="int-sync-status" style="color:#92400e">Paused ${bf.windows_done||0}/${bf.windows_total||'?'} — Resume</span>`;
@@ -1431,6 +1517,22 @@
             </div>
           </td>`;
         frag.appendChild(tr);
+
+        // Enrolment row: a store that tested OK, was never imported, and is
+        // not paused. The button is the ONLY way it gets switched on -- see
+        // v2/integration-enrolment.js on why nothing here infers consent.
+        const enrol = enrolmentFor(row);
+        if (enrol?.offerStart) {
+          const enrolTr = document.createElement('tr');
+          enrolTr.className = 'int-scope-tr';
+          enrolTr.innerHTML = `<td colspan="8" style="padding:0 12px 8px;">
+            <div class="int-backfill-hint int-backfill-hint--warn">
+              <strong>Never imported.</strong> ${escHtml(enrol.hint)}
+              <button class="int-btn int-btn--primary" style="margin-left:8px;"
+                onclick="startFirstImport('${row.id}')">Start first import</button>
+            </div></td>`;
+          frag.appendChild(enrolTr);
+        }
 
         // Scope warning row
         const scopeWarn = scopeWarningHtml(row);
@@ -1721,9 +1823,6 @@
               shop_name: data.shop?.name,
               shop_currency: data.shop?.currency,
               ...scopeFields,
-              meta: data.scopes_error
-                ? { scopes_fetch_error: String(data.scopes_error).slice(0, 500) }
-                : { scopes_fetch_error: null },
             }
           : {
               last_tested_at: new Date().toISOString(),
@@ -1736,6 +1835,18 @@
         if (saveErr) {
           setStatus('Test ran but failed to save: ' + saveErr.message, 'neg', 5000);
           return;
+        }
+        // The scope-fetch note lives in `meta`, which also holds the pause
+        // note and the import record: change that one key, never replace the
+        // object (patchMeta in v2/integration-enrolment.js). A miss leaves the
+        // previous note, which the next Test corrects.
+        if (data.ok && window.SiloEnrolment) {
+          const scopesFetchError = data.scopes_error ? String(data.scopes_error).slice(0, 500) : null;
+          await SiloEnrolment.patchMeta(db, {
+            table: 'shopify_connections',
+            connectionId: id,
+            change: (meta) => ({ ...meta, scopes_fetch_error: scopesFetchError }),
+          });
         }
 
         if (data.ok) {
@@ -1937,17 +2048,90 @@
       }
     }
 
-    async function toggleSyncEnabled(connectionId, enabled) {
-      const { error } = await db
-        .from('shopify_connections')
-        .update({ sync_enabled: enabled })
-        .eq('id', connectionId);
-      if (error) {
-        setStatus('Failed to update sync setting: ' + error.message, 'neg', 5000);
+    // Enrol a store that tested OK and was never imported: switch its
+    // nightly sync on, queue the server-side first import, and pull its
+    // stock straight away. Exactly what a first connect does -- this is that
+    // same path, reached by a button instead of by a condition that could
+    // only ever be true once (see v2/integration-enrolment.js).
+    async function startFirstImport(connectionId) {
+      const row = (_summaryState.shopify || []).find((r) => r.id === connectionId);
+      const name = row?.shop_name || row?.shop_domain || 'this store';
+      const enrol = row ? enrolmentFor(row) : null;
+      if (!row || (enrol && !enrol.offerStart)) {
+        setStatus('That store is no longer waiting for its first import — reloading', 'info', 5000);
         loadConnections();
         return;
       }
-      setStatus(enabled ? 'API sync enabled for nightly job' : 'API sync disabled', 'info', 3000);
+      if (!confirm(`Start the first import for ${name}?\n\nIts nightly sync is switched on and the history import is queued on the server.`)) return;
+      setStatus('Starting the first import…', 'info');
+
+      // Enable with the CONDITIONS IN THE STATEMENT, not around it. The page
+      // may have been open for an hour: another admin can have paused this
+      // store in the meantime, and a check made here against what the page
+      // loaded -- or even against a fresh read a line earlier -- would still
+      // enable it, overriding a decision somebody just made about their API
+      // spend. See enrolConnection in v2/integration-enrolment.js.
+      // expectedUpdatedAt is the version this page loaded: any write since --
+      // a pause from another tab included, even one whose note did not land --
+      // makes the enable match nothing.
+      const enrolled = await SiloEnrolment.enrolConnection(db, { connectionId, expectedUpdatedAt: row.updated_at });
+      if (enrolled.error) {
+        setStatus('Could not switch its nightly sync on: ' + enrolled.error, 'neg', 8000);
+        loadConnections();
+        return;
+      }
+      if (!enrolled.enabled) {
+        setStatus('That store is no longer waiting for its first import — it was switched on or paused elsewhere. Reloading.', 'info', 8000);
+        _everSynced.delete(connectionId);
+        loadConnections();
+        return;
+      }
+
+      // Sync is on; now the history. requeueTerminal is what separates this
+      // from a first connect: a store whose first job was cancelled before it
+      // ran, or gave up after its retries, has a row in the queue that will
+      // never be claimed, and that row must not be reported as an import on
+      // its way.
+      const res = await firstConnectBootstrap('shopify', connectionId, {
+        requeueTerminal: true,
+        kick: async () => {
+          const snap = await syncRun({ action: 'inventory_snapshot', connection_id: connectionId });
+          setStatus(`✓ ${name} enrolled — ${snap.result?.inventory_rows_upserted || 0} inventory rows now; sales history and the rest are syncing in the background`, 'pos', 10000);
+        },
+      });
+      if (res?.skipped === 'already_queued') {
+        setStatus(`✓ ${name} enrolled — its first import was already queued and its nightly sync is now on`, 'pos', 8000);
+      }
+      // queued: false keeps the "could not be queued" message on screen
+      // rather than a success the kick would have printed over it.
+      _everSynced.delete(connectionId);
+      loadConnections();
+    }
+
+    async function toggleSyncEnabled(connectionId, enabled) {
+      // Both halves -- the setting and the note recording that a PERSON set
+      // it -- live in v2/integration-enrolment.js, because the order of the
+      // two writes is what stops a stale Start click from landing inside a
+      // pause, and the note's write is pinned to the import state so it can
+      // never put an old history plan back.
+      const res = enabled
+        ? await SiloEnrolment.resumeConnection(db, { connectionId })
+        : await SiloEnrolment.pauseConnection(db, { connectionId, userId: _session?.user?.id || null });
+      if (!res.ok) {
+        setStatus('Failed to update sync setting: ' + res.error, 'neg', 5000);
+        loadConnections();
+        return;
+      }
+      _everSynced.delete(connectionId);
+      if (!enabled && res.stamped === false) {
+        // The store IS off. What did not land is the note saying a person
+        // switched it off, so after a reload a store that never imported can
+        // be offered "Start first import" again. Say so instead of reporting
+        // a clean pause.
+        setStatus('API sync disabled, but the pause could not be recorded. If this store later offers "Start first import", leave it unless you mean to start it.', 'neg', 10000);
+      } else {
+        setStatus(enabled ? 'API sync enabled for nightly job' : 'API sync disabled', 'info', 3000);
+      }
       loadConnections();
     }
 
