@@ -93,6 +93,17 @@ jobs:
         if: ${{ steps.check.outputs.sales_stale == 'true' && github.event.inputs.heal != 'false' }}
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+          # Which failure policy applies, exactly as in shopify-sync.yml. With
+          # this unset, sync-plan.mjs's isManualRun() defaults to TRUE ("no
+          # RUN_KIND means somebody is watching"), so a scheduled heal was
+          # judged by the hand-dispatch rule: any requested stage that did not
+          # complete exits 1. Bat Nutz is missing read_shopify_payments_payouts
+          # and read_draft_orders, which scope-skip two stages on EVERY run, so
+          # the heal reported `failure` every single time -- naming a broken
+          # heal path in the verdict when the heal had in fact re-synced every
+          # feed it could. A scheduled run is non-fatal for a stage only the
+          # store owner can unblock.
+          SHOPIFY_RUN_KIND: ${{ github.event_name }}
           SHOPIFY_SYNC_MODE: incremental
           # Sales and inventory only. The heal exists to close a freshness gap,
           # not to redo catalog paging and the per-day ShopifyQL loops.

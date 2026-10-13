@@ -23,6 +23,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import { isManualRun, runOutcomeReport } from '../lib/sync-plan.mjs';
 
 const WORKFLOW = '.github/workflows/sales-freshness-check.yml';
 const source = readFileSync(WORKFLOW, 'utf8');
@@ -52,6 +53,33 @@ test('the marketing heal carries the shared Google OAuth client', () => {
       `the marketing heal step must pass ${secret}, or every Google connection is skipped as google_env_missing and the heal cannot repair the feed it exists for`,
     );
   }
+});
+
+// The sales heal's own failure policy. Measured on run 38370936709
+// (2026-10-13 09:21 UTC, the first green run after the marketing fix): the
+// verdict read HEAL_SALES=failure while the sales feed came back fresh,
+// because the step passed no SHOPIFY_RUN_KIND and isManualRun() therefore
+// defaulted to the strict hand-dispatch policy. Bat Nutz lacks
+// read_shopify_payments_payouts and read_draft_orders, so two stages
+// scope-skip on every run and exit 1 followed every time -- a permanent
+// "the heal path is broken" in a verdict where it was not.
+test('the sales heal is judged by the policy of the trigger that started it', () => {
+  assert.match(
+    stepBlock('Re-sync sales (stale)'),
+    /^\s+SHOPIFY_RUN_KIND: \$\{\{ github\.event_name \}\}$/m,
+    'without this the scheduled heal is judged as a hand-dispatched backfill, so a stage only the store owner can unblock reports the heal as failed on every run',
+  );
+});
+
+test('a scheduled run does not fail for a stage only the store owner can unblock', () => {
+  const scoped = [{ requested: true, state: 'scope_skipped', jobType: 'draft_orders_sync', shopDomain: 'batnutz.myshopify.com' }];
+  assert.equal(runOutcomeReport({ manual: isManualRun({ SHOPIFY_RUN_KIND: 'schedule' }), outcomes: scoped }).exitCode, 0);
+  // The same missing scope on a hand-dispatched backfill still goes red: the
+  // operator asked for that stage and did not get it.
+  assert.equal(runOutcomeReport({ manual: isManualRun({ SHOPIFY_RUN_KIND: 'workflow_dispatch' }), outcomes: scoped }).exitCode, 1);
+  // And the default with no RUN_KIND is still strict, which is why the step
+  // has to pass one.
+  assert.equal(isManualRun({}), true);
 });
 
 test('a heal that fails is not the job verdict, and the verdict step is', () => {
