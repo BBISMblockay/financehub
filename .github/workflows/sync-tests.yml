@@ -49,6 +49,10 @@ on:
       # shipped source text, so a change to the page alone has to run them --
       # it did not, until 2026-10-12.
       - 'v2/wow-report.html'
+      # Materializing inventory_workboard_v
+      # (inventory-workboard-matview-database.test.mjs). The test lifts its
+      # verify block out of verify_v2_schema.sql, which is already listed above.
+      - 'supabase/migrations/*inventory_workboard_matview.sql'
       - 'supabase/migrations/*silo_dashboards.sql'
       - 'supabase/migrations/*saved_report_archive.sql'
       - 'supabase/apply_all_post_merge.sql'
@@ -1096,6 +1100,14 @@ jobs:
       # is idempotent, and raises rather than guessing on a drifted body.
       - name: Execute channel resolver hoist regressions
         run: node scripts/tests/wow-channel-hoist-database.test.mjs
+
+      # Materializing inventory_workboard_v. The equivalence case is the point:
+      # the change is speed-only, so the matview has to return the pre-migration
+      # view byte for byte. The cross-tenant cases are why the join keys carry
+      # company_entity_id -- one of them shows a wrong-number build that a
+      # row-count check would pass.
+      - name: Execute inventory workboard matview regressions
+        run: node scripts/tests/inventory-workboard-matview-database.test.mjs
 
       # 20260925150000: marketing and inventory SILO reports. Runs the deployed
       # report SQL over fixtures (grain, totals, missing days, expired Meta

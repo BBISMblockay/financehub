@@ -19202,4 +19202,10 @@ $c$select (select count(*) from v_po_header_summary
 -- row (14,960ms vs 110ms on one predicate). Must come AFTER 20260920180000,
 -- which is what puts the bare calls there.
 \i migrations/20261012180000_wow_channel_tags_hoist.sql
+-- Materializes inventory_workboard_v behind a definer wrapper, refreshed by
+-- the nightly sync. Speed only (~8.6s of database time per inventory page load
+-- becomes an index scan); the rows are proved identical. Must come AFTER
+-- 20260708050000/20260708060000, which create the two matviews it reads and the
+-- wrapper pattern it follows.
+\i migrations/20261012210000_inventory_workboard_matview.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
