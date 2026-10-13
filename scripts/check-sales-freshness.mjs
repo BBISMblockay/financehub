@@ -218,7 +218,7 @@ async function main() {
         // accounts that actually explain it and no others.
         if (excuse === 'client-blocked') {
           const blocked = feedBlockers(conns, SYNC_STAMP[feed.connTable], dayEndedAt, feed.connTable)
-            .map((c) => `${c.platform}: ${c.meta.client_side_block.reason}`);
+            .map((c) => `${c.platform}: ${c.meta?.client_side_block?.reason || 'blocked'}`);
           console.log(`::warning title=Feed lags on a client-side block::${feed.label} ${companyId}`
             + `${partial ? ` (${required} is partial)` : ''} — ${blocked.join('; ')}`);
         }
