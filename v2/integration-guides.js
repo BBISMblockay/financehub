@@ -139,7 +139,8 @@
         {
           title: 'Check its access',
           body: 'Under <strong>Configuration</strong>, the Admin API access should include these read scopes:',
-          scopes: SHOPIFY_SCOPES,
+          scopes: SHOPIFY_OWN_APP_SCOPES,
+          note: '<strong>Include <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders. If you add it now, save the configuration and Test the row in SILO again.',
         },
         {
           title: 'Copy the Admin API access token',
@@ -152,6 +153,7 @@
       ],
       troubleshooting: [
         { q: '"Develop apps" is missing from the admin', a: 'The store has no legacy custom app and can no longer create one. Use <strong>Connect with your store\'s own app</strong>.' },
+        { q: 'The store row says order history is limited to 60 days', a: 'The custom app is missing <code>read_all_orders</code>. In the store admin open <strong>Develop apps</strong>, then the app\'s <strong>Configuration</strong>, tick <code>read_all_orders</code> under Admin API scopes and save, then click <strong>Re-test</strong> in SILO before importing history.' },
       ],
       action: { id: 'shopify_token_form', label: 'Go to the token field' },
     },
@@ -546,9 +548,12 @@
   //   oauth              -- SILO's public app, which does not carry the scope
   //                         until Shopify grants it: the store cannot add it;
   //                         connecting its own app is the route to full history.
-  //   manual_token / null -- a legacy admin custom app (null is a row from
-  //                         before the column existed): its Admin API scopes
-  //                         are edited in the store admin, not the Dev Dashboard.
+  //   manual_token       -- a legacy admin custom app: its Admin API scopes are
+  //                         edited in the store admin, not the Dev Dashboard.
+  //   null / anything else -- UNKNOWN, not "legacy token": 20260928120000 added
+  //                         the column without a backfill, and OAuth connections
+  //                         predate it, so a NULL row may be either. Name both
+  //                         routes rather than guess one (PR #973 review).
   function allOrdersRemedy(authMethod) {
     if (authMethod === 'client_credentials') {
       return {
@@ -562,9 +567,15 @@
         text: 'SILO\'s Shopify app cannot request it yet. To import more than 60 days, connect this store with its own app instead.',
       };
     }
+    if (authMethod === 'manual_token') {
+      return {
+        guide: 'shopify_token',
+        text: 'In the store admin, open Settings \u2192 Apps \u2192 Develop apps, add read_all_orders to the custom app\'s Admin API scopes and save, then Re-test.',
+      };
+    }
     return {
-      guide: 'shopify_token',
-      text: 'In the store admin, open Settings \u2192 Apps \u2192 Develop apps, add read_all_orders to the custom app\'s Admin API scopes and save, then Re-test.',
+      guide: 'shopify_dev_app',
+      text: 'SILO has no record of which app this store connects through. If it is the store\'s own Dev Dashboard app, add read_all_orders in a New version and Install app again; if it is a token from the store admin\'s Develop apps, add it there. Then Re-test, or reconnect with the store\'s own app.',
     };
   }
 

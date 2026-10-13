@@ -180,9 +180,9 @@
       <div class="ig-step-main">
         <div class="ig-step-title">Check its access</div>
         <div class="ig-step-body">Under <strong>Configuration</strong>, the Admin API access should include these read scopes:</div>
-        <div class="ig-scopes"><code>read_orders</code><code>read_products</code><code>read_inventory</code><code>read_locations</code><code>read_shopify_payments_payouts</code><code>read_draft_orders</code><code>read_reports</code><code>read_publications</code></div>
+        <div class="ig-scopes"><code>read_orders</code><code>read_products</code><code>read_inventory</code><code>read_locations</code><code>read_shopify_payments_payouts</code><code>read_draft_orders</code><code>read_reports</code><code>read_publications</code><code>read_all_orders</code></div>
         
-        
+        <div class="ig-step-note"><strong>Include <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders. If you add it now, save the configuration and Test the row in SILO again.</div>
       </div>
     </li><li class="ig-step ig-step--print">
       <div class="ig-step-num" aria-hidden="true">3</div>
@@ -206,7 +206,7 @@
       
       <section class="ig-print-trouble">
           <h3 class="ig-section-label">If something goes wrong</h3>
-          <div class="ig-print-faq"><p class="ig-print-q">&quot;Develop apps&quot; is missing from the admin</p><div class="ig-print-a">The store has no legacy custom app and can no longer create one. Use <strong>Connect with your store's own app</strong>.</div></div>
+          <div class="ig-print-faq"><p class="ig-print-q">&quot;Develop apps&quot; is missing from the admin</p><div class="ig-print-a">The store has no legacy custom app and can no longer create one. Use <strong>Connect with your store's own app</strong>.</div></div><div class="ig-print-faq"><p class="ig-print-q">The store row says order history is limited to 60 days</p><div class="ig-print-a">The custom app is missing <code>read_all_orders</code>. In the store admin open <strong>Develop apps</strong>, then the app's <strong>Configuration</strong>, tick <code>read_all_orders</code> under Admin API scopes and save, then click <strong>Re-test</strong> in SILO before importing history.</div></div>
         </section>
       <p class="ig-fineprint">Button names on the other site can shift slightly as they update their dashboards.</p>
       <p class="ig-print-silo">In SILO: Workspace → Settings → <strong>Integrations</strong> (<code>/v2/integrations.html</code>).</p>
