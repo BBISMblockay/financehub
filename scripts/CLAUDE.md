@@ -25,4 +25,10 @@ Per-table rules for what the syncs write: `docs/agents/database.md`.
   "not resolved", never "none".
 - Backfills ONLY ADD: never blank a resolved value with a null.
 - Record each run in `sync_jobs`. `job_type` has a CHECK constraint; extend it for a new type.
+- **A failure only the ACCOUNT OWNER can fix does not fail the run.** `lib/ad-sync-client-errors.mjs` holds the
+  short allowlist (a cancelled Google Ads account, revoked access, an ad account Meta has blocked); anything SILO
+  can fix is not in it and still exits 1. Such a failure records its `sync_jobs` error row AND stamps
+  `meta.client_side_block = { reason, at }` on the connection, cleared on the next success, so the independent
+  freshness alarm can tell "the client's account is dead" from "the sync did not run" (`lib/freshness-quiet.mjs`).
+  One dead client account used to turn two workflows red on every run.
 - Tests: `scripts/tests/*.test.mjs` run in the "Sync logic tests" workflow.

@@ -1,0 +1,92 @@
+name: Integration Bootstrap
+
+# The first full sync of an integration somebody just connected, run on the
+# server so it finishes whether or not they stay on the Integrations page.
+#
+# WHY IT EXISTS. Shopify's history import is browser-driven in 7-day chunks
+# and the page says "Keep this tab open" next to it, so clicking away stops
+# it. Measured on production 2026-10-12: hhoutfitter.myshopify.com had 2,996
+# sales rows and ZERO inventory rows; i09sb0-6m had 52 "successful" snapshots
+# and no inventory at all. The ad platforms got one short KPI window on
+# connect and Search Console and Redo got nothing until a nightly.
+#
+# WHAT IT RUNS. scripts/integration-bootstrap.mjs claims rows from
+# integration_bootstrap_jobs under a lease and spawns, for each one, the SAME
+# entry-point scripts the scheduled workflows run, scoped to one connection.
+# Nothing here is a second implementation of a sync.
+#
+# ON THE SCHEDULE. Every 15 minutes, which is as close to "on connect" as a
+# GitHub cron gets -- and it is NOT what makes the feature feel immediate:
+# the page kicks the already-deployed per-connection sync functions itself the
+# moment a connection is saved. This workflow is what makes the job FINISH.
+# GitHub's schedules on this repo arrive late and in bursts (a daily 12:25
+# sync routinely fires 5-9 hours late, and two crons were dropped outright on
+# 2026-10-12), so a queue that any later run can drain is the only shape that
+# survives that. A row sitting for an extra hour costs nothing; its stages are
+# idempotent upserts.
+#
+# NO CONCURRENCY GROUP, on purpose, per scripts/CLAUDE.md: with
+# cancel-in-progress false a QUEUED run is cancelled as soon as another enters
+# the group, and here a dropped run is a first sync nobody is watching that
+# silently never happens. Overlapping runs are already safe -- the lease in
+# claim_integration_bootstrap_jobs() means two drainers cannot hold the same
+# job, and the drainer renews it while a stage runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Optional integration_bootstrap_jobs.id (one row, ignores the lease)
+        required: false
+      max_jobs:
+        description: Jobs to claim this run (default 5)
+        required: false
+      max_attempts:
+        description: Attempts before a row is left alone (default 5)
+        required: false
+  schedule:
+    - cron: "*/15 * * * *"
+
+jobs:
+  integration-bootstrap:
+    runs-on: ubuntu-latest
+    # A first Shopify sync is a 60-day order history plus nine other stages,
+    # and the drainer takes up to five jobs sequentially. 330 matches
+    # shopify-sync.yml, whose longest stage this one spawns verbatim.
+    timeout-minutes: 330
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      # The stages inherit this environment, so every credential any stage's
+      # own script reads has to be here. Shopify and Redo credentials live on
+      # their connection rows; Google needs the shared OAuth client to redeem
+      # per-connection refresh tokens, exactly as ad-platforms-sync.yml does,
+      # and a connection whose platform has no credentials configured is
+      # skipped rather than failed by that script.
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_ADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
+      BOOTSTRAP_ONLY_JOB_ID: ${{ github.event.inputs.job_id || '' }}
+      BOOTSTRAP_MAX_JOBS: ${{ github.event.inputs.max_jobs || '' }}
+      BOOTSTRAP_MAX_ATTEMPTS: ${{ github.event.inputs.max_attempts || '' }}
+      # The drainer uses this to decide whether a stage failure should fail
+      # the run: a hand-dispatched run is somebody watching one job and wants
+      # the exit code; a schedule has already recorded the failure on the row
+      # and will retry it.
+      GITHUB_EVENT_NAME: ${{ github.event_name }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Drain the bootstrap queue
+        run: node scripts/integration-bootstrap.mjs

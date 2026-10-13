@@ -1,11 +1,9 @@
 import {classify,journeyVisits} from './silo-attribution-model.js';
-import {reportOverview} from './silo-attribution-visuals.js';
+import {trendChart,platformMark} from './silo-attribution-visuals.js';
+export {platformMark};
+import {summarizeSpend,spendTotal} from './silo-attribution-spend.js';
 import {mountOverview} from './silo-attribution-overview-ui.js';
 export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-export function platformMark(channel) {
-  const key=/^Meta/.test(channel)?'meta':/^Redo/.test(channel)?'redo':/^Google Ads/.test(channel)?'google-ads':/^TikTok/.test(channel)?'tiktok':/^Shop/.test(channel)?'shopify':null;
-  return key?`<svg class="attr-logo" aria-hidden="true"><use href="../assets/landing/integration-icons.svg#icon-${key}"></use></svg>`:'<span class="attr-fallback" aria-hidden="true">•</span>';
-}
 export function summarize(rows,controls,windowDays) {
   const unique=new Set(),byDay=new Map(),orders=new Map(),channels=new Map();
   if(!controls.length)throw Error('No published snapshots for this period');
@@ -69,48 +67,62 @@ export async function loadRows(db,companyId,connectionId,start,end,windowDays) {
   }
   throw Error('Report row limit reached; choose a smaller period');
 }
-export function mountReport(root,{load,evidence,journeys,owners=[],saveDraft}) {
+export function mountReport(root,{load,evidence,journeys,spend}) {
   let report=null,page=0,sequence=0;
   const $=id=>root.querySelector('#'+id),money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:report.currency}).format(n/100);
   function status(message,type='info'){$('status').textContent=message;$('status').className='bcn-status bcn-status--'+type;$('status').hidden=!message;}
   function drawOrders(){
     if(!report)return;
-    const query=$('search').value.toLowerCase(),channel=$('channel').value;
-    const rows=report.orders.filter(a=>(!channel||a.channel===channel)&&[a.order_name,a.order_id,a.channel,a.allocation?.campaign_name,a.allocation?.campaign,a.allocation?.reason].join(' ').toLowerCase().includes(query));
+    const query=$('search').value.toLowerCase(),channel=$('channel').value,role=$('role').value;
+    const plays=a=>role==='credited'?a.channel===channel:role==='started'?a.allocation?.introduced_channel===channel:[a.channel,a.allocation?.introduced_channel,...(a.allocation?.assisting_channels||[])].includes(channel);
+    const rows=report.orders.filter(a=>(!channel||plays(a))&&[a.order_name,a.order_id,a.channel,a.allocation?.campaign_name,a.allocation?.campaign,a.allocation?.reason].join(' ').toLowerCase().includes(query));
     page=Math.min(page,Math.max(0,Math.ceil(rows.length/12)-1));
     $('orders').innerHTML=rows.slice(page*12,page*12+12).map(a=>`<button class="attr-order-card" data-order="${escapeHtml(a.order_id)}"><span class="attr-order-top"><strong>Order ${escapeHtml(a.order_name||a.order_id)}</strong><strong>${money(a.net_cents)}</strong></span><span class="attr-order-path"><span>${platformMark(a.allocation?.introduced_channel||'Unknown')}<small>Introduced</small><strong>${escapeHtml(a.allocation?.introduced_channel||'Not identified')}</strong></span><b>→</b><span>${platformMark(a.channel)}<small>Credited</small><strong>${escapeHtml(a.channel)}</strong></span><b>→</b><span>${platformMark('Shopify')}<small>Purchased</small><strong>Shopify</strong></span></span><span class="attr-order-bottom">${escapeHtml((a.allocation?.assisting_channels||[]).join(', ')||'No other assists observed')}<span>Explore journey ↗</span></span></button>`).join('');
-    $('count').textContent=`${rows.length.toLocaleString()} orders with sales activity · Page ${page+1} of ${Math.max(1,Math.ceil(rows.length/12))}`;
+    $('count').textContent=`${rows.length.toLocaleString()} orders${channel?` where ${channel} ${role==='credited'?'was the last click':role==='started'?'started the journey':'appears'}`:''} · Page ${page+1} of ${Math.max(1,Math.ceil(rows.length/12))}`;
     $('previous').disabled=page===0;$('next').disabled=(page+1)*12>=rows.length;
   }
   function draw(){
-    $('legacy-overview').innerHTML=reportOverview(report);
-    $('net').textContent=money(report.net);$('total').textContent=money(report.total);$('ordercount').textContent=report.orders.length.toLocaleString();$('reconciled').textContent=`${report.days} of ${report.days} days matched`;
-    const selected=$('channel').value;
-    $('channel').innerHTML='<option value="">All credited channels</option>'+report.channels.map(c=>`<option>${escapeHtml(c.channel)}</option>`).join('');$('channel').value=selected;
+    $('trend').innerHTML=trendChart(report);
+    $('net').textContent=money(report.net);$('total').textContent=money(report.total);$('ordercount').textContent=report.orders.length.toLocaleString();$('reconciled').textContent=`${report.days} of ${report.days} day${report.days===1?'':'s'} matched`;
+    $('proof').textContent=`✓ Matches Shopify for ${report.days===1?'the 1 day':`all ${report.days} days`}.`;
+    $('spend').textContent='Loading…';$('spendnote').textContent='';$('roas').textContent='—';
+    const selected=$('channel').value,names=new Set(report.channels.map(c=>c.channel));
+    for(const o of report.orders)for(const c of [o.allocation?.introduced_channel,...(o.allocation?.assisting_channels||[])])if(c)names.add(c);
+    $('channel').innerHTML='<option value="">All channels</option>'+[...names].sort().map(c=>`<option>${escapeHtml(c)}</option>`).join('');$('channel').value=names.has(selected)?selected:'';
     $('channels').innerHTML=report.channels.map(c=>`<tr><td><button class="bcn-btn bcn-btn--ghost" data-channel="${escapeHtml(c.channel)}">${platformMark(c.channel)} ${escapeHtml(c.channel)}</button></td><td class="bcn-mono">${money(c.net_cents)}</td><td class="bcn-mono">${c.orders.toLocaleString()}</td><td class="bcn-mono">${c.introduced_orders.toLocaleString()}</td><td class="bcn-mono">${c.assisted_orders.toLocaleString()}</td></tr>`).join('');
     $('daily').innerHTML=report.reconciliation.map(d=>`<tr><td>${escapeHtml(d.day)}</td><td class="bcn-mono">${money(Number(d.net_cents))}</td><td class="bcn-mono">${money(Number(d.total_cents))}</td><td class="bcn-mono">${money(0)}</td><td class="bcn-mono">${money(0)}</td></tr>`).join('');
     $('results').hidden=false;drawOrders();
   }
+  function drawSpend(summary,error){
+    if(error){$('spend').textContent='Unavailable';$('spendnote').textContent=error;return;}
+    // Only a complete-period total is "marketing spend" and a valid return denominator.
+    const t=spendTotal(summary);
+    $('spend').textContent=t.complete?money(t.cents):t.anyKnown?`${money(t.cents)} so far`:'Unknown';
+    $('roas').textContent=t.complete&&t.cents>0?`${(report.net/t.cents).toFixed(1)}x`:'—';
+    $('spendnote').textContent=t.complete?'All ads + Redo sending costs':`Still missing: ${t.gaps.map(g=>g.channel).join(', ')||'no spend source'}. Return hidden until complete.`;
+  }
   const filters=()=>({start:$('start').value,end:$('end').value,windowDays:Number($('window').value),connectionId:$('store').value});
-  function showJourneys(show){$('ordersection').hidden=!show;$('overview').hidden=show;for(const [id,on] of [['overview-tab',!show],['journeys-tab',show]]){$(id).classList.toggle('bcn-tab--active',on);$(id).setAttribute('aria-pressed',String(on));}}
+  function showJourneys(show){$('ordersection').hidden=!show;$('overview').hidden=show;$('overview-tables').hidden=show;for(const [id,on] of [['overview-tab',!show],['journeys-tab',show]]){$(id).classList.toggle('bcn-tab--active',on);$(id).setAttribute('aria-pressed',String(on));}}
   $('overview-tab').onclick=()=>showJourneys(false);$('journeys-tab').onclick=()=>showJourneys(true);
   async function refresh(){
     const current=++sequence,args=filters();report=null;$('results').hidden=true;$('journey').close();
-    root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Loading verified snapshots.');
+    root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Loading…');
     try{
       const result=await load(args);if(current!==sequence)return;report=result;page=0;draw();
-      $('overview').textContent='Loading captured journeys…';
-      try {
-        const records=await journeys(result.orders,args);if(current!==sequence)return;
-        mountOverview($('overview'),{report:result,records,context:args,owners,saveDraft:fields=>saveDraft({...fields,context:args}),isCurrent:()=>current===sequence&&JSON.stringify(args)===JSON.stringify(filters())});
-      } catch(e){if(current!==sequence)return;$('overview').textContent='Journey overview unavailable: '+e.message+'. Published sales remain available below.';}
+      $('overview').textContent='Loading journeys and spend…';$('trust-analysis').textContent='';
+      const [j,s]=await Promise.allSettled([journeys(result.orders,args),spend(args).then(raw=>summarizeSpend(raw,{start:args.start,end:args.end,currency:result.currency}))]);
+      if(current!==sequence)return;
+      const why=r=>r.status==='rejected'?(r.reason?.message||String(r.reason)):null;
+      drawSpend(s.value,why(s));
+      try{mountOverview($('overview'),$('trust-analysis'),{report:result,records:j.value||null,journeyError:why(j),spend:s.value||null,spendError:why(s)});}
+      catch(e){$('overview').textContent='Overview unavailable: '+e.message+'. Orders remain available under Journeys.';}
       status('');
     }catch(e){if(current===sequence)status(e.message||String(e),'neg');}
   }
-  for(const id of ['start','end','store'])$(id).onchange=()=>{++sequence;report=null;$('results').hidden=true;$('journey').close();root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Filters changed. Load report to view verified results.');};
-  $('load').onclick=refresh;$('window').onchange=refresh;$('search').oninput=()=>{page=0;drawOrders();};$('channel').onchange=()=>{page=0;drawOrders();};$('previous').onclick=()=>{page--;drawOrders();};$('next').onclick=()=>{page++;drawOrders();};$('close').onclick=()=>$('journey').close();
+  for(const id of ['start','end','store'])$(id).onchange=()=>{++sequence;report=null;$('results').hidden=true;$('journey').close();root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Filters changed. Press Load report.');};
+  $('load').onclick=refresh;$('window').onchange=refresh;$('search').oninput=()=>{page=0;drawOrders();};$('channel').onchange=$('role').onchange=()=>{page=0;drawOrders();};$('previous').onclick=()=>{page--;drawOrders();};$('next').onclick=()=>{page++;drawOrders();};$('close').onclick=()=>$('journey').close();
   root.addEventListener('click',async event=>{
-    const channel=event.target.closest('[data-channel]');if(channel){showJourneys(true);$('channel').value=channel.dataset.channel;page=0;drawOrders();$('ordersection').scrollIntoView({behavior:'smooth'});}
+    const channel=event.target.closest('[data-channel]');if(channel){showJourneys(true);if(![...$('channel').options].some(o=>o.value===channel.dataset.channel))$('channel').append(new Option(channel.dataset.channel));$('channel').value=channel.dataset.channel;$('role').value=channel.dataset.role||'any';page=0;drawOrders();$('ordersection').scrollIntoView({behavior:'smooth'});}
     const button=event.target.closest('[data-order]');if(!button||!report)return;
     const a=report.orders.find(r=>r.order_id===button.dataset.order),stamp=sequence;if(!a)return;
     button.disabled=true;

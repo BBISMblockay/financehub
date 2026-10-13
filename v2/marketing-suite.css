@@ -1,0 +1,21 @@
+/* The Ad Studio suite tab strip. Visually the SEO, accounting and settings
+   strips -- one tab row is one tab row -- kept in its own file so a change to
+   one strip cannot silently restyle another. */
+.ads-suite-nav {flex:none;display:flex;align-items:center;gap:20px;padding:0 18px;
+  background:var(--bcn-surface);border-bottom:1px solid var(--bcn-border);min-width:0;}
+.ads-suite-label {font-size:12px;font-weight:650;color:var(--bcn-ink);}
+.ads-suite-links {display:flex;align-items:stretch;gap:18px;overflow-x:auto;min-width:0;}
+.ads-suite-nav a {position:relative;display:inline-flex;align-items:center;gap:7px;font-size:12px;
+  padding:10px 0 9px;white-space:nowrap;text-decoration:none;color:var(--bcn-ink-2);
+  border-bottom:2px solid transparent;}
+.ads-suite-nav a svg {flex:none;opacity:.75;}
+.ads-suite-nav a[aria-current="page"] {color:var(--bcn-accent);border-bottom-color:var(--bcn-accent);font-weight:650;}
+.ads-suite-nav a[aria-current="page"] svg {opacity:1;}
+.ads-suite-nav a:hover {color:var(--bcn-ink);}
+.ads-suite-nav a:hover svg {opacity:1;}
+.ads-suite-nav a:focus-visible {outline:2px solid var(--bcn-accent);outline-offset:-2px;}
+@media(max-width:760px) {
+  .ads-suite-nav {padding:0 12px;gap:14px;}
+  .ads-suite-label {display:none;}
+  .ads-suite-links {gap:18px;width:100%;}
+}

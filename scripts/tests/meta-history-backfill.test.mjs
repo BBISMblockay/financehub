@@ -101,7 +101,13 @@ await test('all three Meta pulls use the planned window, not the raw env', () =>
 
 await test('success and failure both write the history state back', () => {
   assert.match(sync, /metaAfterHistory\(connection\.meta, \{\s*backfill: history\.backfill, succeeded: metaHistoryComplete\(result\)/);
-  assert.match(sync, /if \(history\.backfill\) \{[\s\S]{0,400}metaAfterHistory\(connection\.meta, \{ backfill: true, succeeded: false/);
+  // The failure path writes connection metadata unconditionally now (it also
+  // records the client-side block, which must be cleared on a SILO-side
+  // failure however this run started). What matters here is unchanged: a
+  // failed import still counts its attempt, which is what stops a connection
+  // that can never succeed re-pulling a year on every run.
+  assert.match(sync, /history\.backfill\s*\n?\s*\? metaAfterHistory\(connection\.meta, \{ backfill: true, succeeded: false/);
+  assert.match(sync, /: \{ \.\.\.\(connection\.meta \|\| \{\}\) \};/);
 });
 
 await test('Integrations flags a NEW Meta connection, and only on insert', () => {

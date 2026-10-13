@@ -9,6 +9,11 @@
 #
 # Setting `exclude` replaces Jekyll's default list, so its defaults are restated
 # at the end. A new top-level folder is PUBLIC unless it is added here.
+#
+# `testing` stays excluded, and the `include` allowlist at the end publishes the
+# three Meta App Review assets out of it by name. Anything else added to
+# testing/ stays unpublished, which is why this is an allowlist and not a
+# narrower exclude.
 exclude:
   - data
   - server
@@ -31,3 +36,21 @@ exclude:
   - vendor/cache/
   - vendor/gems/
   - vendor/ruby/
+
+# Allowlist, read only for entries Jekyll would otherwise drop. Two things about
+# how Jekyll matches it (jekyll/entry_filter.rb) decide the shape below:
+#   * a directory in `exclude` is never descended into, so `testing` has to be
+#     listed here too or its files are never even looked at;
+#   * inside a directory, entries are matched against this list by BASENAME, so
+#     the files are listed by basename, not as `testing/meta-oauth.html`.
+# A basename here publishes a file of that name in any directory Jekyll reaches,
+# so keep these names specific. Adding a file to testing/ does NOT publish it;
+# publishing another review asset means adding its basename here on purpose.
+# Jekyll's own default include is `.htaccess`, which this repo does not have.
+# scripts/tests/pages-publish-allowlist.test.mjs builds the site and proves all
+# of this, including that the excluded directories stay out.
+include:
+  - testing                 # the directory itself, so the three files below are reachable
+  - meta-oauth.html         # testing/meta-oauth.html - the Meta App Review reviewer page
+  - meta-oauth.js           # testing/meta-oauth.js - its page logic
+  - meta-oauth-client.js    # testing/meta-oauth-client.js - its request plumbing

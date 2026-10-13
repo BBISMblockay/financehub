@@ -94,7 +94,8 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
   assert.deepEqual(marketing.items.map((item) => item.id), [
     'reports/marketing-overview',
     'reports/marketing-explorer',
-    // Ad Studio (2026-09-27): same exec soft-launch gate.
+    // Ad Studio's exec soft-launch gate came off 2026-10-13 (Blake:
+    // marketing is its audience), so it now shows on any role.
     'reports/ad-studio',
     'reports/seo',
   ]);
@@ -104,6 +105,10 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
   assert.ok(!ids.includes('reports/builder'));
   assert.ok(!ids.includes('reports/wow-report'));
   assert.ok(!ids.includes('reports/silo-attribution'));
+  // Testing & schedule is Baseballism-only for now (Blake, 2026-10-13): the
+  // page is being shaped around how Baseballism runs tests, so a standard
+  // workspace is not offered it yet.
+  assert.ok(!ids.includes('reports/marketing-ops'));
 });
 
 test('Marketing Report and Silo Attribution: Baseballism keeps them, no standard role sees them', () => {
@@ -155,5 +160,24 @@ test('Reports replaces the sales menu for all existing viewers without widening 
     const standard = navSectionsForProfile('standard', 'retail', role, new Set())
       .flatMap((s) => s.items.map((i) => i.id));
     assert.equal(standard.includes('reports/dashboards'), ['owner', 'owner_admin', 'executive'].includes(role));
+  }
+});
+
+// Ad Studio launched behind the exec soft-launch gate (2026-09-27). Marketing
+// is the page's actual audience and most of that team carries profiles.role
+// 'admin' or 'user', so the gate came off 2026-10-13 (Blake). `roles` and
+// `departments` are AND-ed in the filter, so "exec OR marketing" is not
+// expressible on one row -- hence no gate at all, like Performance and
+// Explorer. ad-studio.html has no page-level role check, and ad_ideas RLS
+// (company-scoped, any member) is the boundary either way.
+test('Ad Studio reaches the whole marketing team, and nobody who had it loses it', () => {
+  for (const profile of ['grandfathered', 'standard']) {
+    for (const role of ['owner', 'owner_admin', 'executive', 'admin', 'member', 'viewer', 'user']) {
+      for (const dept of ['marketing', 'exec', 'finance', 'logistics', 'retail']) {
+        const ids = navSectionsForProfile(profile, dept, role, new Set())
+          .flatMap((s) => s.items.map((i) => i.id));
+        assert.ok(ids.includes('reports/ad-studio'), `${profile}/${dept}/${role} sees Ad Studio`);
+      }
+    }
   }
 });

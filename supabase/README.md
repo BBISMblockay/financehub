@@ -14,6 +14,8 @@
 
 **On Deck date caching:** `migrations/20261009171424_on_deck_source_date_once.sql` caches the company-local date once per source fingerprint call without changing cutoff semantics, grants or timeouts.
 
+**First-connect auto sync:** `migrations/20261013060000_integration_bootstrap_jobs.sql` adds `integration_bootstrap_jobs`, the queue a newly connected integration's first full sync is claimed from by `scripts/integration-bootstrap.mjs` (the "Integration Bootstrap" workflow). Admin-only insert within the active company, `claim_integration_bootstrap_jobs()` service-role only, and a lease rather than a status flag so two overlapping drainers cannot run the same import. Applying it is what switches the feature on; until then the page's enqueue fails and the connect paths say so.
+
 **Attribution coverage (disabled draft):** `migrations/20261007031733_attribution_coverage.sql` adds service-only enrollment/cursor state after the original attribution migrations. It does not backfill customer data or enable scheduling. See [the attribution runbook](../docs/ops/silo-attribution.md).
 
 **On Deck coding review:** `migrations/20261004120000_on_deck_coding_review.sql` adds five authenticated, finance-gated functions and changes no table, policy or existing function: `on_deck_coding_items()` (the finance review queue over existing import batches, with a derived stage), `card_import_batch_preview(batch)` (runs `approve_card_import_batch` inside a rolled-back block, so the previewed entry and hash are exactly what approval freezes; a refusal comes back as the specific blocker), `approve_reviewed_card_import_batch(batch, hash)` (approves in SILO only when the frozen entry hashes to what was reviewed; sending to QuickBooks stays optional), `on_deck_coding_access()` and `on_deck_ready_count()` (Home's compact count), plus one trigger, `qbo_card_claim_matches_approval` on `quickbooks_journal_postings`, which refuses a card-import QuickBooks claim whose batch was reopened or reapproved after the posting function read it. Pair with the `quickbooks-post-journal` redeploy (optional `expected_approval_hash`). Verified by the two "On Deck coding" checks in `verify_v2_schema.sql`; runbook [docs/ops/on-deck.md](../docs/ops/on-deck.md).
@@ -2534,6 +2536,50 @@ measured against them.
 PGlite and covers each of those, with four mutations.
 `verify_v2_schema.sql` has the `ad_studio` check.
 
+## Marketing tests — `20261013120000_marketing_tests.sql`
+
+Backs `/v2/marketing-ops.html`. Marketing already had everything around a
+test: `launch_channel_items` is the schedule, `launch_tasks` hangs work off
+it, `ad_ideas` is the idea bank, and the v3 creative workspaces are where the
+numbers are read. What nothing held was the test itself.
+
+- **`marketing_tests`.** Channel, what varied (`element`), control vs variant,
+  the `hypothesis`, the `metric` it is judged on, where that number is read
+  (`metric_note`), the window, the status, and for a concluded test the
+  `outcome` plus `result_summary`.
+- **The design freezes the first time the test runs.** `started_at` is stamped
+  when a row first reaches `running` / `reading` / `concluded` and is never
+  cleared; while it is set, the trigger refuses an edit to `hypothesis`,
+  `element`, `control`, `variant` or `metric`. `ad_ideas`'s frozen-baseline
+  rule applied one step later, because a metric chosen after the numbers are in
+  is a metric chosen *by* them. The freeze deliberately does NOT read the
+  current status: that version was thawed by moving a test back to `planned`
+  for one update and forward again, which is two clicks and leaves no trace.
+  A plan abandoned without ever running is not stamped, so it stays editable —
+  nothing was measured, so there is no result to fit a design to. The window
+  stays editable: extending a read is ordinary, and both dates are on the row,
+  so a stretched window shows.
+- **A concluded test must say what happened.** `concluded` requires an
+  `outcome` AND a non-empty `result_summary` (CHECK, not UI), and `outcome`
+  cannot be set in any other status.
+- **It stores no measurements.** `control_value` / `variant_value` are what the
+  reader wrote down off the report named in `metric_note`; NULL is not
+  measured, never zero. SILO's numbers stay in the reports that own them.
+- **The schedule link is a column on the existing table**,
+  `launch_channel_items.marketing_test_id`, with a COMPOSITE foreign key on
+  `(marketing_test_id, company_entity_id)`, so an item can only name a test in
+  its own company by construction. `on delete set null (marketing_test_id)`:
+  deleting a test unlinks items and must never delete them. MATCH SIMPLE
+  applies — that table's `company_entity_id` is nullable (trigger-stamped), and
+  a row whose company is NULL skips the check, which is harmless because every
+  policy on it tests equality against `active_company_id()`.
+- Shared board, like the launch calendar: any company member reads, adds and
+  moves tests; delete is creator-or-admin.
+
+`scripts/tests/marketing-tests-database.test.mjs` runs the migration twice
+against PGlite and covers each of those, with five mutations.
+`verify_v2_schema.sql` has the `marketing_tests` check.
+
 ## Shopify client credentials — `20260928120000_shopify_client_credentials.sql`
 
 Lets a store outside Baseballism's Shopify organization connect. SILO's
@@ -2790,3 +2836,59 @@ replaced functions are unchanged (`create or replace` keeps them). Verified by
 ## Security audit hardening — `20261008120000_security_audit_db_hardening.sql`
 
 `create_org_invite` lets only an owner invite an owner or into the finance / exec / admin department. Drops the retired `using (true)` PO / costing / Launch policies that older includes re-create, and revokes `generate_next_po_name` from anon. New table `sample_notification_claims` (service-only, primary key `(sample_id, event_type, claim_key)`): `sample-notify` inserts a claim before it sends, so each trigger delivery happens once. `notify_sample_events()` now signs its calls with Vault secret `sample_notify_trigger_secret` (header `x-silo-trigger-secret`) and a per-transition `event_id`. **Rollout order:** create the Vault secret, apply, deploy `sample-notify`, then set its `SAMPLE_NOTIFY_TRIGGER_SECRET` to the same value. Tests: `scripts/tests/org-invite-authority-database.test.mjs`, `scripts/tests/sample-notify-trigger-events.test.mjs`.
+
+
+## Inventory workboard is materialized — `20261012210000_inventory_workboard_matview.sql`
+
+`inventory_workboard_v` keeps its name, its 40 columns and their order, and now
+reads a new `inventory_workboard_mv` instead of joining
+`inventory_on_hand_current_v` to `sales_velocity_by_sku_location_v` on every
+request. Speed only: `/v2/inventory.html` fetches the view in seven
+10,000-row pages and each one rebuilt the whole 67,605-row join plus a
+57,330-group aggregate before honouring its offset, so the cost climbed with the
+offset (454ms at offset 0, 2,123ms at offset 60,000) for ~8.6s of database time
+per page load. Rows were proved identical on production first: same count, same
+totals, same per-row md5 of every velocity-derived column.
+
+The matview is built across EVERY company, because it has no caller to scope it,
+so `company_entity_id` is part of both velocity join keys — without it one
+tenant's inventory matches another's velocity, and
+`sales_velocity_mv_co_loc_sku_name` is UNIQUE on
+`(company_entity_id, location_tag, variant_sku, product_name)`, so dropping
+company from the key matches on three of four columns. The migration refuses to
+record itself if that structure is missing, and separately checks row counts per
+company; the structural check is the load-bearing one, because a cross-tenant
+join only changes the row count where the borrowed key exists in more than one
+company's velocity rows.
+
+`inventory_workboard_v` is therefore `security_invoker = false` with its own
+`company_entity_id = active_company_id()` filter — the eleventh such wrapper,
+same pattern as `20260708060000` — and the matview is granted to `service_role`
+only. `refresh_inventory_workboard_mv()` is service-role only and is called by
+`scripts/sync-silo-inventory-sales.mjs` after both input matviews refresh; a
+failure there throws rather than being logged and swallowed, because a stale
+workboard disagrees with `inventory_on_hand_current_v` and would turn the
+nightly dead-stock tie-out red with no sign of the cause. Tests:
+`scripts/tests/inventory-workboard-matview-database.test.mjs` (14) and the
+`inventory_workboard_mv` verify row.
+
+**The refresh is chained, not called.** `refresh_inventory_workboard_mv()` is invoked from inside
+`refresh_inventory_current_mv()` and `refresh_sales_velocity_mv()`, so every caller of either source
+refresh gets it: `scripts/shopify-sync.mjs`, the "Refresh inventory mat view" retry step in
+`.github/workflows/shopify-sync.yml`, and `handleInventorySnapshot` in `shopify-sync-run` (an edge
+function, which would otherwise need a deploy to pick the call up). This was the first review finding on
+PR #953, and it was a real defect: the original version called the refresh from
+`scripts/sync-silo-inventory-sales.mjs`, whose workflow was retired on 2026-07-08, so on a scheduled run
+nothing would have refreshed the workboard at all. It also preserves the property that made
+materializing the view safe: as a live join it always agreed with its two sources, unconditionally, and
+chaining keeps that true -- including on the hourly sales cron, which refreshes velocity and
+deliberately skips the inventory refresh. A failure of the derived refresh is raised, with its own name
+in the message so the caller's log does not blame the source refresh that succeeded.
+`verify_v2_schema.sql` fails BROKEN if either source function is later replaced without the call.
+
+Because the source refresh and the derived refresh are one statement, a derived-refresh failure aborts it
+and the source refresh rolls back with it. That is deliberate -- the two can never disagree -- and it
+means a caller must read the RPC's error. `scripts/shopify-sync.mjs` and the workflow retry step already
+did; `handleInventorySnapshot` in `shopify-sync-run` did not, and marked its job `success` before the
+call, so an on-demand snapshot could roll both matviews back and still answer `ok: true`. Fixed in the
+same PR, which is why **`shopify-sync-run` needs deploying** -- merging does not deploy it.

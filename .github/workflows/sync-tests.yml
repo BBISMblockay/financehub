@@ -38,6 +38,11 @@ on:
       # Invite authority and retired open policies (org-invite-authority-database.test.mjs).
       - 'supabase/migrations/*org_invites.sql'
       - 'supabase/migrations/*security_audit_db_hardening.sql'
+      - 'supabase/migrations/*integration_bootstrap_jobs.sql'
+      - 'v2/integration-bootstrap.js'
+      - 'scripts/integration-bootstrap.mjs'
+      - 'scripts/lib/integration-bootstrap-*.mjs'
+      - 'v2/integrations.html'
       # The channel resolver and the migration that hoists it out of the row
       # filters (wow-channel-hoist-database.test.mjs), plus the verify check
       # that test lifts its regex from.
@@ -49,6 +54,10 @@ on:
       # shipped source text, so a change to the page alone has to run them --
       # it did not, until 2026-10-12.
       - 'v2/wow-report.html'
+      # Materializing inventory_workboard_v
+      # (inventory-workboard-matview-database.test.mjs). The test lifts its
+      # verify block out of verify_v2_schema.sql, which is already listed above.
+      - 'supabase/migrations/*inventory_workboard_matview.sql'
       - 'supabase/migrations/*silo_dashboards.sql'
       - 'supabase/migrations/*saved_report_archive.sql'
       - 'supabase/apply_all_post_merge.sql'
@@ -75,6 +84,8 @@ on:
       # Redo marketing reporting: the sync driver, its workflow and the
       # migration the database suite executes.
       - 'scripts/redo-marketing-sync.mjs'
+      - 'scripts/check-function-drift.mjs'
+      - 'scripts/check-sales-freshness.mjs'
       - 'scripts/report-tieouts-nightly.mjs'
       - '.github/workflows/report-tieouts-nightly.yml'
       - '.github/workflows/redo-marketing-sync.yml'
@@ -212,6 +223,13 @@ on:
       - 'supabase/migrations/*seo_landscape_28d_rollup.sql'
       - 'supabase/migrations/*ad_studio.sql'
       - 'scripts/tests/ad-studio-database.test.mjs'
+      - 'supabase/migrations/*marketing_tests.sql'
+      - 'scripts/tests/marketing-tests-database.test.mjs'
+      - 'scripts/tests/marketing-ops-page.test.mjs'
+      - 'v2/marketing-ops.html'
+      - 'scripts/tests/ad-studio-suite.test.mjs'
+      - 'v2/marketing-suite.*'
+      - 'v2/ad-studio.html'
       - 'supabase/migrations/*silo_chat_responses*.sql'
       - 'scripts/tests/silo-chat-responses-database.test.mjs'
       - 'v2/seo-keywords.html'
@@ -331,6 +349,12 @@ jobs:
       - name: Ad sync client-side failures
         run: node scripts/tests/ad-sync-client-errors.test.mjs
 
+      # The drift check's slug rule: a file directly under
+      # supabase/functions/ is not a function, so it cannot be reported as a
+      # deploy that is owed.
+      - name: Edge function drift slugs
+        run: node scripts/tests/function-drift-slugs.test.mjs
+
       # Shared Shopify auth rules and their wiring. Mutations:
       # SHOPIFY_AUTH_MUTATION=disabled-admin | no-refresh | redact-anyway | any-domain
       - name: Shopify authorization (client credentials, public app, privacy webhooks)
@@ -345,6 +369,21 @@ jobs:
             fi
             echo "$m failed the suite, as it must"
           done
+
+      # First-connect auto sync: what a newly connected integration's first
+      # sync consists of, and that a half-finished one resumes rather than
+      # re-importing. Also pins v2/integration-bootstrap.js's stage labels to
+      # the plan the drainer runs.
+      - name: Integration bootstrap plan and resume
+        run: node scripts/tests/integration-bootstrap.test.mjs
+
+      # Running one job: that a connection which had already synced is NOT
+      # re-imported, that a job cancelled from the page while a stage runs
+      # stays cancelled, and that one failed stage neither stops the others
+      # nor retries for ever.
+      - name: Integration bootstrap job runner
+        run: node scripts/tests/integration-bootstrap-runner.test.mjs
+
 
       - name: Finance V1 approval and QBO recovery controls
         run: node scripts/tests/finance-v1-controls.test.mjs
@@ -391,6 +430,21 @@ jobs:
       # Baseballism's menu.
       - name: Nav profile fails closed on an unresolved company
         run: node --test scripts/tests/nav-profile.test.mjs
+
+      # /v2/marketing-ops.html offering a channel, element, metric or status the
+      # CHECK constraint rejects is a save that only fails when somebody files a
+      # real test, so the page's four vocabularies are compared with the
+      # migration's, along with the Pattern 1 asset order the sidebar needs.
+      - name: Marketing testing page matches its migration
+        run: node --test scripts/tests/marketing-ops-page.test.mjs
+
+      # ONE Ad Studio destination (2026-10-13): the test record and the
+      # schedule are a TAB of it, not a second sidebar row, and the Testing tab
+      # is narrowed to Baseballism while the page is shaped around how they run
+      # tests. A tab that loses its strip, or a page that loses its row AND its
+      # tab, is a page nobody can reach.
+      - name: Ad Studio suite navigation
+        run: node --test scripts/tests/ad-studio-suite.test.mjs
 
       # One settings area, no duplicate Billing/Integrations routes, and a
       # platform link that a company owner can never see.
@@ -1097,6 +1151,14 @@ jobs:
       - name: Execute channel resolver hoist regressions
         run: node scripts/tests/wow-channel-hoist-database.test.mjs
 
+      # Materializing inventory_workboard_v. The equivalence case is the point:
+      # the change is speed-only, so the matview has to return the pre-migration
+      # view byte for byte. The cross-tenant cases are why the join keys carry
+      # company_entity_id -- one of them shows a wrong-number build that a
+      # row-count check would pass.
+      - name: Execute inventory workboard matview regressions
+        run: node scripts/tests/inventory-workboard-matview-database.test.mjs
+
       # 20260925150000: marketing and inventory SILO reports. Runs the deployed
       # report SQL over fixtures (grain, totals, missing days, expired Meta
       # thumbnails, image fallbacks) and every tie-out the migration writes.
@@ -1315,6 +1377,26 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
+      # Marketing tests (20261013120000): a test's design is frozen once it has
+      # started (so a conclusion still describes what ran), a concluded test
+      # carries both an outcome and what was learned, and the link to the
+      # existing launch schedule is company-scoped by its own composite foreign
+      # key -- deleting a test unlinks its scheduled items, it never deletes them.
+      # Mutations: MARKETING_TESTS_MUTATION=design-thaws | freeze-reads-status | conclude-unanswered | conclusion-from-client | link-any-company | link-cascades
+      - name: Execute marketing-tests database regressions
+        run: node scripts/tests/marketing-tests-database.test.mjs
+      - name: The marketing-test guards, removed, must break it
+        run: |
+          set -u
+          for m in design-thaws freeze-reads-status conclude-unanswered conclusion-from-client link-any-company link-cascades; do
+            echo "--- $m ---"
+            if MARKETING_TESTS_MUTATION="$m" node scripts/tests/marketing-tests-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       # Ask SILO deferred replies (20260928140000, 20260928150000): readable and
       # writable by the asker only, in their active company only.
       # Mutations: SILO_RESPONSES_DB_MUTATION=exec-reads | insert-anyone | no-company
@@ -1519,3 +1601,18 @@ jobs:
       # applied to real Postgres with shopify_orders_v's columns kept in place.
       - name: Shopify order paid date -- transactions and view
         run: node scripts/tests/shopify-order-paid-at.test.mjs
+
+      # First-connect auto sync's database half. In THIS job, not the unit one:
+      # it needs the PGlite dependency installed above.
+      - name: Integration bootstrap queue (real PostgreSQL)
+        run: node scripts/tests/integration-bootstrap-database.test.mjs
+      - name: The bootstrap queue's guards, removed, must break it
+        run: |
+          set -u
+          for m in rls admin lease attempts uniq grant anongrant skiplocked; do
+            if INTEGRATION_BOOTSTRAP_DB_MUTATION="$m" node scripts/tests/integration-bootstrap-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done

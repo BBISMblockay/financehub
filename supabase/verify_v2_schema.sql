@@ -1729,6 +1729,108 @@ select
     else 'ok'
   end as sales_by_product_title_daily_v;
 
+-- ── Inventory workboard, materialized (20261012210000) ────────────────
+-- The view kept its name, its 40 columns and their order; what changed
+-- underneath is that it reads a matview instead of joining two wrapper views on
+-- every request, so the tenant boundary moved from those wrappers' own filters
+-- to an explicit filter in this definer wrapper. The checks mirror
+-- sales_by_product_title_daily_v below, plus one that is specific to this view
+-- and is the whole reason it needs watching:
+--   * the matview is built across EVERY company (it has no caller to scope it),
+--     so company_entity_id MUST be part of both velocity join keys. Without it
+--     the join matches on three of the four columns of the UNIQUE index
+--     sales_velocity_mv_co_loc_sku_name and one company's inventory picks up
+--     another's sales. Measured when this was written: Baseballism's row count
+--     goes 67,605 -> 68,931 and the second company gains 2,664 rows claiming
+--     matched velocity that is not its own. That is wrong NUMBERS on the
+--     inventory page and in the dead-stock report, not a slow page.
+select
+  case
+    when not exists (select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                     where n.nspname='public' and c.relname='inventory_workboard_mv'
+                       and c.relkind='m')
+      then 'MISSING — inventory_workboard_mv; run 20261012210000_inventory_workboard_matview.sql. '
+        || 'Unmaterialized, /v2/inventory.html rebuilds the whole 67k-row join once per 10k-row page, ~8.6s of database time per load'
+    -- pg_matviews, NOT pg_views: a materialized view does not appear in
+    -- pg_views at all, and the NULL that lookup returns would make this check
+    -- fire CRITICAL on a perfectly correct matview.
+    --
+    -- ONE CHECK PER JOIN. Counting mentions is too weak and this check used to
+    -- count: the correct definition mentions the column seven times, so losing
+    -- ONE of the two join predicates leaves five and a `>= 4` test still says
+    -- ok -- while that branch borrows another tenant's velocity on any globally
+    -- unique key, without changing the row count. Each predicate is matched on
+    -- its own, accepting either operand order because pg_get_viewdef may
+    -- reorder an equality and reparenthesise.
+    when coalesce((select definition from pg_matviews
+                   where schemaname='public' and matviewname='inventory_workboard_mv'), '')
+         !~ '(t\.company_entity_id\s*=\s*i\.company_entity_id|i\.company_entity_id\s*=\s*t\.company_entity_id)'
+      then 'CRITICAL — inventory_workboard_mv no longer joins the velocity matview on company_entity_id (title-match join); it is built across every company, so one tenant''s inventory is taking another tenant''s sales velocity'
+    when coalesce((select definition from pg_matviews
+                   where schemaname='public' and matviewname='inventory_workboard_mv'), '')
+         !~ '(a\.company_entity_id\s*=\s*i\.company_entity_id|i\.company_entity_id\s*=\s*a\.company_entity_id)'
+      then 'CRITICAL — inventory_workboard_mv no longer joins the velocity fallback aggregate on company_entity_id; the sku-level fallback is taking another tenant''s sales velocity'
+    when coalesce((select option_value from pg_options_to_table(
+                     (select c.reloptions from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                       where n.nspname='public' and c.relname='inventory_workboard_v'))
+                   where option_name='security_invoker'), 'true') <> 'false'
+      then 'BROKEN — inventory_workboard_v is not security_invoker=false; it reads a matview, and as an invoker view it raises 42501 for every user'
+    when not exists (select 1 from pg_views v
+                     where v.schemaname='public' and v.viewname='inventory_workboard_v'
+                       and v.definition like '%active_company_id()%')
+      then 'CRITICAL — inventory_workboard_v lost its active_company_id() filter; a matview has no RLS, so it is now showing every company''s inventory to every user'
+    when has_table_privilege('anon', 'public.inventory_workboard_mv', 'SELECT')
+      or has_table_privilege('authenticated', 'public.inventory_workboard_mv', 'SELECT')
+      then 'BROKEN — inventory_workboard_mv is granted to anon or authenticated; the matview carries no RLS, so that is every company''s inventory'
+    -- Joined by name through pg_class rather than written as
+    -- 'public.inventory_workboard_mv'::regclass. A regclass cast of a literal
+    -- is constant-folded during planning, so it raises 42P01 before the
+    -- MISSING branch above can short-circuit -- i.e. the whole check would
+    -- fail to run in exactly the state it exists to report.
+    when not exists (select 1 from pg_index ix
+                       join pg_class m on m.oid = ix.indrelid
+                       join pg_namespace mn on mn.oid = m.relnamespace
+                      where mn.nspname='public' and m.relname='inventory_workboard_mv'
+                        and ix.indisunique)
+      then 'MISSING — inventory_workboard_mv has no unique index, so REFRESH MATERIALIZED VIEW CONCURRENTLY cannot run and the nightly refresh locks the inventory page out'
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='refresh_inventory_workboard_mv')
+      then 'MISSING — refresh_inventory_workboard_mv(); the workboard would freeze at whatever the migration populated while inventory_on_hand_current_v moved on, and the dead-stock tie-out would go red with no sign that a refresh was the cause'
+    when has_function_privilege('anon', 'public.refresh_inventory_workboard_mv()', 'EXECUTE')
+      or has_function_privilege('authenticated', 'public.refresh_inventory_workboard_mv()', 'EXECUTE')
+      then 'BROKEN — refresh_inventory_workboard_mv() is executable by anon or authenticated; a browser could kick a 300s refresh'
+    -- The workboard is DERIVED, so a refresh function that exists but is never
+    -- called leaves it frozen. Rather than wire the call into each of the three
+    -- callers that refresh a source (scripts/shopify-sync.mjs, the retry step in
+    -- shopify-sync.yml and handleInventorySnapshot in shopify-sync-run, one of
+    -- them an edge function that only changes when it is deployed), 20261012210000
+    -- chains it inside the two source refresh functions. These two checks are
+    -- what makes that chaining load-bearing instead of a convention: a later
+    -- `create or replace` of either source function that drops the trailing
+    -- refresh silently restores the exact bug review cycle 1 of PR #953 caught,
+    -- and the symptom would be a stale page rather than an error.
+    when not exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname='public' and p.proname='refresh_inventory_current_mv'
+        and pg_get_functiondef(p.oid) ~ 'perform\s+public\.refresh_inventory_workboard_mv')
+      then 'BROKEN — refresh_inventory_current_mv() no longer refreshes the derived inventory_workboard_mv; a Shopify inventory snapshot now leaves /v2/inventory.html and the dead-stock tie-out reading the previous snapshot'
+    when not exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname='public' and p.proname='refresh_sales_velocity_mv'
+        and pg_get_functiondef(p.oid) ~ 'perform\s+public\.refresh_inventory_workboard_mv')
+      then 'BROKEN — refresh_sales_velocity_mv() no longer refreshes the derived inventory_workboard_mv; sold_30 and days_oos on /v2/inventory.html will sit at the last inventory refresh instead of following the hourly sales sync'
+    -- The row-count invariant (the velocity join may neither duplicate nor drop
+    -- an inventory row) is deliberately NOT checked here. It needs
+    -- `select count(*) from public.inventory_workboard_mv`, and a relation
+    -- named in a FROM clause is resolved during parse analysis, so the branch
+    -- would raise 42P01 and take this whole check down whenever the matview is
+    -- absent -- which is the one state it most needs to report. It is covered
+    -- where it belongs instead: the migration asserts it at apply time, per
+    -- company and in total, and the nightly report tie-out from 20260904300000
+    -- reconciles exactly those two figures on production every night.
+    else 'ok'
+  end as inventory_workboard_mv;
+
 -- ── Week over Week report RPC (20260826130000) ────────────────────────
 select
   case
@@ -3780,6 +3882,49 @@ select
       then 'CRITICAL — anon can execute ad_studio_ads()'
     else 'ok'
   end as ad_studio;
+
+-- ── Marketing tests (20261013120000) ───────────────────────────────────────
+-- The two rules this table exists to hold: a started test's design cannot be
+-- rewritten (so the measure is never chosen by the result), and a concluded
+-- test carries an outcome and what was learned. Plus its company scope, and
+-- the composite foreign key that stops a scheduled item naming another
+-- company's test -- and that must never cascade a test's delete into the
+-- schedule, which is real work the test only borrowed.
+select
+  case
+    when to_regclass('public.marketing_tests') is null
+      then 'MISSING — run 20261013120000_marketing_tests.sql'
+    when not exists (select 1 from pg_class where oid='public.marketing_tests'::regclass and relrowsecurity)
+      then 'CRITICAL — marketing_tests has RLS off'
+    when not exists (select 1 from pg_policy where polrelid='public.marketing_tests'::regclass)
+      then 'CRITICAL — marketing_tests has RLS on and no policy; the page reads nothing'
+    when not exists (select 1 from information_schema.columns where table_schema='public'
+                       and table_name='marketing_tests' and column_name='started_at')
+      then 'MISSING — marketing_tests.started_at, which the design freeze reads'
+    when not exists (select 1 from pg_proc where proname='marketing_tests_guard'
+                       and prosrc like '%is frozen once a test has started%')
+      then 'CRITICAL — marketing_tests no longer freezes a started test''s design; the metric could be chosen by the result'
+    when not exists (select 1 from pg_proc where proname='marketing_tests_guard'
+                       and prosrc like '%old.started_at is not null%')
+      then 'CRITICAL — the design freeze reads the current status again; moving a test back to planned would thaw it'
+    when not exists (select 1 from pg_trigger where tgname='trg_marketing_tests_guard'
+                       and tgrelid='public.marketing_tests'::regclass)
+      then 'CRITICAL — the marketing_tests guard trigger is not attached'
+    when not exists (select 1 from pg_constraint where conname='marketing_tests_concluded_is_answered')
+      then 'CRITICAL — a marketing test can be concluded with no outcome and no learning'
+    when not exists (select 1 from pg_constraint where conname='marketing_tests_outcome_only_when_concluded')
+      then 'CRITICAL — an outcome can be filed on a test that has not concluded'
+    when not exists (select 1 from information_schema.columns where table_schema='public'
+                       and table_name='launch_channel_items' and column_name='marketing_test_id')
+      then 'MISSING — launch_channel_items.marketing_test_id'
+    when not exists (select 1 from pg_constraint where conname='launch_channel_items_marketing_test_fkey'
+                       and pg_get_constraintdef(oid) like '%company_entity_id%')
+      then 'CRITICAL — the schedule''s test link is not company-scoped; an item could name another company''s test'
+    when exists (select 1 from pg_constraint where conname='launch_channel_items_marketing_test_fkey'
+                   and confdeltype = 'c')
+      then 'CRITICAL — deleting a marketing test would CASCADE into the schedule and delete real scheduled work'
+    else 'ok'
+  end as marketing_tests;
 
 -- ── Shopify client credentials + compliance log (20260928120000) ────────────
 -- A store's Dev Dashboard client SECRET must stay unreadable by any client:
@@ -6522,6 +6667,58 @@ select 'AI credit ledger' as check_name,
  when (xpath('/row/n/text()', query_to_xml(
          'select count(*) as n from public.ai_credit_reconcile() where not ok', false, true, '')))[1]::text <> '0'
   then 'CRITICAL: AI credit balances do not reconcile with the ledger -- select * from ai_credit_reconcile() where not ok'
+ else 'ok' end as status;
+
+-- =============================================================================
+-- First-connect auto sync: the bootstrap queue (20261013060000)
+-- =============================================================================
+-- What each branch is guarding, in the order it would hurt:
+--  * the queue names every connection a tenant has, so a browser grant for
+--    anon, or a missing company filter, discloses one tenant's integrations to
+--    another;
+--  * claim_integration_bootstrap_jobs() must not be client-callable -- a
+--    browser that could claim a job would take work the drainer then never
+--    does, and the import would silently never happen;
+--  * the lease predicate and the attempt cap inside that function are what
+--    stop two drainers paying twice for the same API calls and what stop a
+--    dead credential being retried every fifteen minutes for ever;
+--  * the partial unique index is what makes a double-click or a reconnect one
+--    import rather than two.
+select 'Integration bootstrap queue' as check_name,
+ case when to_regclass('public.integration_bootstrap_jobs') is null
+   or to_regprocedure('public.claim_integration_bootstrap_jobs(integer,integer,integer)') is null
+  then 'MISSING: run 20261013060000_integration_bootstrap_jobs.sql'
+ when not (select relrowsecurity from pg_class where oid = to_regclass('public.integration_bootstrap_jobs'))
+  then 'CRITICAL: RLS is off on integration_bootstrap_jobs -- every tenant can read every other tenant''s connections'
+ when has_table_privilege('anon', to_regclass('public.integration_bootstrap_jobs'), 'SELECT')
+  then 'CRITICAL: anon holds a grant on integration_bootstrap_jobs'
+ when has_function_privilege('authenticated',
+        to_regprocedure('public.claim_integration_bootstrap_jobs(integer,integer,integer)'), 'EXECUTE')
+   or has_function_privilege('anon',
+        to_regprocedure('public.claim_integration_bootstrap_jobs(integer,integer,integer)'), 'EXECUTE')
+  then 'CRITICAL: claim_integration_bootstrap_jobs() is callable from the browser -- a claimed job is work no drainer will do'
+ when pg_get_functiondef(to_regprocedure('public.claim_integration_bootstrap_jobs(integer,integer,integer)'))
+        !~ 'lease_until is null or c\.lease_until < now\(\)'
+  then 'CRITICAL: the bootstrap claim no longer honours the lease -- two drainers would run the same first sync and pay twice'
+ when pg_get_functiondef(to_regprocedure('public.claim_integration_bootstrap_jobs(integer,integer,integer)'))
+        !~ 'attempts < greatest'
+  then 'CRITICAL: the bootstrap claim no longer caps attempts -- a dead credential is retried for ever, each attempt a paid API call'
+ when pg_get_functiondef(to_regprocedure('public.claim_integration_bootstrap_jobs(integer,integer,integer)'))
+        !~ 'for update skip locked'
+  then 'CRITICAL: the bootstrap claim no longer locks the rows it selects -- two simultaneous drainers can pick the same job'
+ when not exists (
+   select 1 from pg_policy p
+   where p.polrelid = to_regclass('public.integration_bootstrap_jobs')
+     and p.polcmd = 'a'
+     and pg_get_expr(p.polwithcheck, p.polrelid) ~ 'active_company_id'
+     and pg_get_expr(p.polwithcheck, p.polrelid) ~ 'is_admin_user')
+  then 'CRITICAL: anyone signed in can queue a sync, or queue it into another company'
+ when not exists (
+   select 1 from pg_index i join pg_class c on c.oid = i.indexrelid
+   where i.indrelid = to_regclass('public.integration_bootstrap_jobs')
+     and i.indisunique
+     and c.relname = 'integration_bootstrap_jobs_open_uniq')
+  then 'CRITICAL: the one-open-job-per-connection index is gone -- a double-click queues two 60-day imports'
  else 'ok' end as status;
 
 select 'report_email_schedules table' as check_name,

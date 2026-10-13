@@ -29,7 +29,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { appendFileSync } from 'node:fs';
-import { SYNC_STAMP, feedIsQuiet, expectedCompanies } from './lib/freshness-quiet.mjs';
+import { SYNC_STAMP, feedExcuse, feedBlockers, feedFullyBlocked, expectedCompanies } from './lib/freshness-quiet.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -182,22 +182,58 @@ async function main() {
         }
       }
 
-      // Data lags, but did the sync run? A company with nothing to report
-      // (a new store, an idle ad account) is QUIET, not stale -- see
-      // lib/freshness-quiet.mjs. Only asked when the data lags.
-      let quiet = false;
-      if (!lagOk) {
+      // The data is not plainly healthy -- but did the sync run? A company
+      // with nothing to report (a new store, an idle ad account) is QUIET,
+      // and one whose account the client has let die is CLIENT-BLOCKED --
+      // neither is stale, and neither is anything a SILO alarm can be acted
+      // on. See lib/freshness-quiet.mjs.
+      //
+      // Asked for a PARTIAL day too, not only a lagging one: a connection
+      // blocked after yesterday's mid-day capture leaves lag 1 and a partial
+      // day, which read as an alarm nobody could act on until the day rolled
+      // over (review cycle 1, #957). Only a BLOCK excuses a partial day --
+      // see below.
+      let excuse = null;
+      if (!lagOk || partial) {
         const { data: conns, error: connErr } = await db
           .from(feed.connTable)
           .select(feed.connTable === 'ad_platform_connections' ? 'sync_enabled, meta, platform' : 'sync_enabled, meta')
           .eq('company_entity_id', companyId)
           .eq('is_active', true);
         if (connErr) throw new Error(`${feed.connTable} stamp probe failed for ${companyId}: ${connErr.message}`);
-        quiet = feedIsQuiet(conns, SYNC_STAMP[feed.connTable], pacificMidnightUtc(today), feed.connTable);
+        const dayEndedAt = pacificMidnightUtc(today);
+        excuse = feedExcuse(conns, SYNC_STAMP[feed.connTable], dayEndedAt, feed.connTable);
+        // QUIET never excuses a PARTIAL day, and that is the whole point of
+        // the partial check: on 2026-08-30 every row for the day had been
+        // captured mid-day Pacific, the syncs had run, and no later run
+        // corrected them -- six hours of sales and ~$19k of Meta spend
+        // missing behind a feed that read healthy. A connection that CANNOT
+        // sync is the one case where no later run can correct the day.
+        //
+        // And it has to be EVERY producer, not one of them: a blocked Meta
+        // connection beside a healthy GA4 would otherwise waive the partial
+        // rows GA4 can still finish, which is that same 2026-08-30 hole
+        // reopened for a mixed company (review cycle 2).
+        if (partial && !(excuse === 'client-blocked'
+          && feedFullyBlocked(conns, SYNC_STAMP[feed.connTable], dayEndedAt, feed.connTable))) excuse = null;
+        // Visible without being fatal: a dead client account is worth seeing
+        // in the run summary, and is the one thing here somebody could act on
+        // (ask the client to fix it, or switch the connection off). Named
+        // from the same predicate the verdict used, so the warning lists the
+        // accounts that actually explain it and no others.
+        if (excuse === 'client-blocked') {
+          const blocked = feedBlockers(conns, SYNC_STAMP[feed.connTable], dayEndedAt, feed.connTable)
+            .map((c) => `${c.platform}: ${c.meta?.client_side_block?.reason || 'blocked'}`);
+          console.log(`::warning title=Feed lags on a client-side block::${feed.label} ${companyId}`
+            + `${partial ? ` (${required} is partial)` : ''} — ${blocked.join('; ')}`);
+        }
       }
 
-      const ok = (lagOk && !partial) || quiet;
-      const verdict = quiet ? 'quiet (synced after the day ended, no newer data)' : !lagOk ? 'STALE' : partial ? 'PARTIAL' : 'ok';
+      const ok = (lagOk && !partial) || !!excuse;
+      const verdict = excuse === 'client-blocked'
+        ? `client-blocked (the client's account cannot sync; not SILO's to fix${partial ? `, and no producer is left to finish ${required}` : ''})`
+        : excuse === 'quiet' ? 'quiet (synced after the day ended, no newer data)'
+        : !lagOk ? 'STALE' : partial ? 'PARTIAL' : 'ok';
       console.log(
         `[freshness] ${feed.label.padEnd(9)} ${companyId}  latest=${maxDay || 'NONE'}  lag=${lag === null ? 'n/a' : `${lag}d`}`
         + `  ${required} captured=${capturedAt || 'n/a'}  ${verdict}`,

@@ -387,12 +387,32 @@ async function handleInventorySnapshot(
 
   try {
     const result = await runInventorySnapshot(admin, connection, { batchId });
+
+    // The refresh is awaited and its error READ, before the job is called a
+    // success. supabase-js resolves an RPC with { data, error } instead of
+    // rejecting, so a bare `await admin.rpc(...)` silently discards a database
+    // failure -- which is what this did, and it reported ok: true regardless.
+    //
+    // 20261012210000 made that worse rather than merely untidy:
+    // refresh_inventory_current_mv() now also refreshes the derived
+    // inventory_workboard_mv, and a failure there raises, which aborts the
+    // whole statement -- so BOTH matviews roll back and the snapshot this job
+    // just stored is visible in nothing the page reads. Reporting success then
+    // tells the operator their inventory is current when no matview moved at
+    // all. The scheduled orchestrator and the workflow retry step already
+    // check this RPC's error; this was the one caller that did not.
+    const { error: refreshError } = await admin.rpc('refresh_inventory_current_mv');
+    if (refreshError) {
+      throw new Error(
+        `inventory snapshot stored, but the matview refresh failed, so the inventory page and dead-stock inputs still show the previous snapshot: ${refreshError.message}`,
+      );
+    }
+
     await updateJob(admin, connection, jobId, {
       status: 'success',
       finished_at: new Date().toISOString(),
       result,
     });
-    await admin.rpc('refresh_inventory_current_mv');
     return { ok: true, job_id: jobId, result };
   } catch (err) {
     await updateJob(admin, connection, jobId, {

@@ -12,7 +12,7 @@
 // dev-portal setup is finished; Meta/TikTok connections sync regardless.
 
 import { createClient } from '@supabase/supabase-js';
-import { makeFinishJob, runConnections } from './lib/ad-sync-client-errors.mjs';
+import { clientSideReason, makeFinishJob, runConnections } from './lib/ad-sync-client-errors.mjs';
 import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync, fetchMetaJsonOrThrow, META_API_VERSION } from './lib/ad-platforms-sync-core.mjs';
 import { archiveCreativeImages, scrubError } from './lib/creative-image-archive.mjs';
 import { runSearchConsoleSync, SEARCH_CONSOLE_JOB_TYPE } from './lib/search-console-sync-core.mjs';
@@ -140,7 +140,9 @@ async function syncConnection(connection) {
             .eq('id', connection.id);
         },
       });
-      const meta = { ...(connection.meta || {}), last_sync_at: result.synced_at };
+      // client_side_block cleared for the same reason as the campaign path
+      // below: a connection that just synced is not blocked.
+      const meta = { ...(connection.meta || {}), last_sync_at: result.synced_at, client_side_block: null };
       await supabase
         .from('ad_platform_connections')
         .update({ meta, updated_at: new Date().toISOString() })
@@ -252,6 +254,11 @@ async function syncConnection(connection) {
         backfill: history.backfill, succeeded: metaHistoryComplete(result), at: result.synced_at,
       }),
       last_sync_at: result.synced_at,
+      // A connection that just synced is not blocked, whatever it was last
+      // run. Cleared here rather than on reconnect so recovery needs no
+      // action at all -- and so the freshness alarm can never be quietened
+      // by a block stamp left behind by a failure that has since healed.
+      client_side_block: null,
     };
     if (history.backfill) {
       result.history_import = { days: runDaysBack, complete: metaHistoryComplete(result) };
@@ -267,15 +274,49 @@ async function syncConnection(connection) {
     return { connection: label, ...result };
   } catch (err) {
     const message = err?.message || String(err);
-    if (history.backfill) {
-      // A failed import still counts as an attempt, so a connection that can
-      // never succeed stops re-pulling a year. Best-effort: the job error is
-      // what matters, and the next run reads the flag again either way.
-      await supabase
-        .from('ad_platform_connections')
-        .update({ meta: metaAfterHistory(connection.meta, { backfill: true, succeeded: false, at: new Date().toISOString() }), updated_at: new Date().toISOString() })
-        .eq('id', connection.id);
-    }
+    // Stamp a failure the CLIENT owns (their account disabled, access
+    // revoked) so the independent freshness alarm can tell this feed's lag
+    // apart from a sync that never ran -- lib/freshness-quiet.mjs reads it,
+    // and without it one dead client account holds a second workflow red
+    // forever. The 'error' sync_jobs row below stays the audit record; this
+    // is the durable CURRENT state, and it carries `at` so a connection that
+    // stops being attempted at all goes back to STALE on its own.
+    //
+    // Every failure writes it, UNCONDITIONALLY, not only a client-side one:
+    // the stamp says what the LAST attempt was, so a SILO-side failure must
+    // CLEAR an earlier block. Without that, a connection blocked at 23:00
+    // whose next attempt dies on a 500 keeps "blocked" as its newest durable
+    // outcome, and the freshness alarm excuses a SILO outage for the rest of
+    // the Pacific day (review cycle 1, #957).
+    //
+    // Unconditionally rather than "only when this run saw a block", because
+    // `connection.meta` is the snapshot loaded at run START and the scheduled,
+    // 2-hourly, heal and manual runs can overlap: two runs can both load no
+    // block, one record a client block, and the other then fail on a 500 and
+    // skip the write on a stale snapshot, leaving the block standing as
+    // current (review cycle 2). The write costs one update per FAILING
+    // connection, which is rare by construction.
+    //
+    // It is still last-writer-wins between overlapping runs rather than a
+    // serialized read-modify-write: both writers are recording an attempt
+    // that just happened, so the later write is the newer truth. Making it
+    // strictly serial needs a jsonb patch server-side, which is more
+    // machinery than this invariant is worth today.
+    const block = clientSideReason(message);
+    // A failed import still counts as an attempt, so a connection that can
+    // never succeed stops re-pulling a year. Best-effort: the job error is
+    // what matters, and the next run reads the flag again either way. A
+    // lost block stamp leaves the freshness alarm red, which is the safe
+    // direction, so it must not turn a client-side failure into a SILO one.
+    const failedMeta = history.backfill
+      ? metaAfterHistory(connection.meta, { backfill: true, succeeded: false, at: new Date().toISOString() })
+      : { ...(connection.meta || {}) };
+    failedMeta.client_side_block = block ? { reason: block, at: new Date().toISOString() } : null;
+    const { error: metaError } = await supabase
+      .from('ad_platform_connections')
+      .update({ meta: failedMeta, updated_at: new Date().toISOString() })
+      .eq('id', connection.id);
+    if (metaError) console.error(`[warn] ${label}: could not record the failure on the connection: ${metaError.message}`);
     await finishJob(jobId, 'error', { error: message });
     console.error(`[error] ${label}: ${message}`);
     throw err;

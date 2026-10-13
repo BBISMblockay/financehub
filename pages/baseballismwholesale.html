@@ -1355,7 +1355,7 @@
       const syncNewest = payload.newest_order_date ? String(payload.newest_order_date).slice(0, 10) : null;
       if (syncNewest && (!f || syncNewest > f.newest)) {
         els.staleBannerText.innerHTML =
-          `The nightly sync has orders through <span style="font-weight:700">${escapeHtml(formatIsoDate(syncNewest))}</span>, ` +
+          `The AR sync recorded orders through <span style="font-weight:700">${escapeHtml(formatIsoDate(syncNewest))}</span>, ` +
           `but this page can only see up to <span style="font-weight:700">${f ? escapeHtml(formatIsoDate(f.newest)) : 'nothing'}</span>. ` +
           `Rows are being hidden by row-level security — likely missing their company stamp. ` +
           `Run the AR company backfill (supabase/migrations/20260803160000) and see docs/ops/when-something-breaks.md.`;
@@ -1368,14 +1368,22 @@
         return;
       }
 
+      // The Google Sheets source behind this book was RETIRED on 2026-10-13:
+      // BBISM receivables moved to Shopify, and ar-sync.yml no longer runs on
+      // a schedule (dispatch only). So this banner must not say a nightly
+      // sync is running, and must not imply that only NEW orders are missing:
+      // payments and paid dates recorded in Shopify after the date below are
+      // absent too, which is what would let someone chase an invoice that is
+      // already settled.
       const detail = f
-        ? `Newest order in the AR source sheet is <span style="font-weight:700">${escapeHtml(formatIsoDate(f.newest))}</span> (${f.days} days old).`
-        : 'No dated orders found in the AR source sheet.';
+        ? `This is the historical wholesale book, frozen at <span style="font-weight:700">${escapeHtml(formatIsoDate(f.newest))}</span> (${f.days} days ago).`
+        : 'This is the historical wholesale book, and no dated orders were found in it.';
 
       els.staleBannerText.innerHTML =
-        `${detail} Orders created in Shopify after that date are not in SILO yet. ` +
-        `The nightly sync is running — the scheduled report feeding the AR Google Sheet has stopped adding new orders. ` +
-        `Check that report's filters / date range in Shopify.`;
+        `${detail} Its Google Sheets source is retired and no longer syncs, so nothing after that date is here — ` +
+        `not new orders, and <span style="font-weight:700">not payments or paid dates</span>. ` +
+        `Balances and aging below may already be settled in Shopify: check there before contacting a customer or acting on an invoice. ` +
+        `Current wholesale receivables live with the Shopify orders (payment terms and paid dates).`;
       els.staleBanner.hidden = false;
     }
 

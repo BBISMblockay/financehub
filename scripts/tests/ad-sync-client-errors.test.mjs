@@ -26,6 +26,20 @@ t('an invalidated Meta token is client-side; other Meta errors are not', () => {
   assert.ok(clientSideReason('Meta insights → 400: {"error":{"message":"Error validating access token","type":"OAuthException","code":190,"error_subcode":460}}'));
   assert.equal(clientSideReason('Meta insights → 400: {"error":{"message":"Invalid parameter","type":"OAuthException","code":100}}'), null);
 });
+t("a Meta ad account Meta has blocked is client-side; code 200's other members are not", () => {
+  // Bat Nutz, every run since 2026-10-07. The other Meta connections sync
+  // through the same app, so the block is on the account, not on SILO.
+  assert.match(
+    clientSideReason('Meta insights → 400: {"error":{"message":"API access blocked.","type":"OAuthException","code":200,"fbtrace_id":"ATr4B"}}'),
+    /blocked API access/,
+  );
+  // Same family, SILO's to fix: an app permission that was never reviewed
+  // must still fail the run.
+  assert.equal(clientSideReason('Meta post → 400: {"error":{"message":"(#10) This endpoint requires the \'pages_read_engagement\' permission","type":"OAuthException","code":200}}'), null);
+  assert.equal(clientSideReason('Meta insights → 400: {"error":{"message":"Permissions error","type":"OAuthException","code":200}}'), null);
+  // The message alone, from something that is not a Meta OAuth failure, is not it.
+  assert.equal(clientSideReason('API access blocked.'), null);
+});
 t('5xx, timeouts, bugs and empty messages are SILO-side', () => {
   for (const m of ['Google Ads search → 500: internal', 'fetch failed', "TypeError: Cannot read properties of undefined (reading 'rows')", '', null, undefined]) assert.equal(clientSideReason(m), null, String(m));
 });

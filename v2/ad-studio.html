@@ -123,6 +123,7 @@
     #status { margin:12px 20px 0; }
     [hidden] { display:none !important; }
   </style>
+  <link rel="stylesheet" href="marketing-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -232,6 +233,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
+<script src="marketing-suite.js"></script>
 <script src="silo-chrome.js"></script>
 <script src="ad-studio.js?v=5432796cb550"></script>
 <script>
@@ -793,7 +795,7 @@
     _user = sess.data.session.user;
     _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
     if (window.SiloChrome) {
-      window.SiloChrome.mount({ appEl: '#silo-app', active: 'reports/ad-studio', user: { email: _user?.email || '', role: 'admin' }, crumbs: ['Marketing', 'Ad Studio'], supabaseClient: sb });
+      window.SiloChrome.mount({ appEl: '#silo-app', active: 'ads/studio', user: { email: _user?.email || '', role: 'admin' }, crumbs: ['Marketing', 'Ad Studio'], supabaseClient: sb });
     }
     fillSelects();
     await runLoad();

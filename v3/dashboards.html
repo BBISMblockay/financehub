@@ -326,18 +326,18 @@
     </article>`;
   }
 
-  // Every report opens in the builder. Whether that SAVES over the original
+  // Grandfathered custom reports open in the builder. Whether that SAVES over the original
   // or offers a copy is decided there, by RLS -- a SILO report can never be
   // edited in place, so the builder offers the copy. Guessing here would
   // either hide a legitimate edit or promise one that is refused.
-  // A standard workspace reaches this list only through ?manage=reports, which
+  // A standard workspace reaches the custom list through ?manage=reports, which
   // exists to ORGANISE reports it can already read (archive/restore), not to
   // author them. So there the title does not link anywhere: the builder would
-  // let an owner overwrite a report and save anyone's as an editable copy, and
-  // the read-only preview itself links on to the builder.
+  // let an owner overwrite a report and save anyone's as an editable copy,
+  // so management keeps titles unlinked.
   const reportHref = (r) => (navProfile === 'standard' ? null : `/v3/report-builder.html?id=${encodeURIComponent(r.id)}`);
   // A SILO report opens to READ -- the viewer's data on a temporary board --
-  // not into the builder's SQL. Customising is one click away from there.
+  // not into the builder's SQL. Grandfathered navigation also offers a copy.
   const siloReportHref = (r) => `/v3/dashboard.html?report=${encodeURIComponent(r.id)}`;
 
   function siloCard(r) {
@@ -716,20 +716,19 @@
     const company = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
     companyId = company?.id || null;
     navProfile = window.SiloNav?.resolveNavProfile?.(company) || 'standard';
-    reportsEnabled = navProfile === 'grandfathered' || explicitManagement;
+    reportsEnabled = true;
     reportPages = navProfile === 'grandfathered' ? (window.SiloNav?.SALES_REPORT_PAGES || []) : [];
 
     if (navProfile === 'standard') {
-      // Default customer navigation stays Dashboards-only. The explicit
-      // management link from Ask SILO opens just their report organization,
-      // without introducing SILO catalog or report-authoring navigation.
-      allowedTabs = reportsEnabled ? ['mine', 'company', 'archived', 'dashboards'] : ['dashboards'];
-      el('hubTitle').textContent = reportsEnabled ? 'Manage reports' : 'Dashboards';
+      // Shared reading is separate from custom report management. The explicit
+      // Ask SILO route keeps its existing organization tabs and authoring gate.
+      allowedTabs = explicitManagement ? ['mine', 'company', 'archived', 'dashboards'] : ['silo', 'dashboards'];
+      el('hubTitle').textContent = explicitManagement ? 'Manage reports' : 'Reports';
       el('hubTestingPill').hidden = true;
       el('btnNewReport').hidden = true;
       for (const t of L.TABS) el(`tab-${t.id}`).hidden = !allowedTabs.includes(t.id);
       el('libTabs').hidden = !reportsEnabled;
-      document.title = reportsEnabled ? 'SILO · Manage reports' : 'SILO · Dashboards';
+      document.title = explicitManagement ? 'SILO · Manage reports' : 'SILO · Reports';
     }
 
     isScheduleAdmin = !!(companyId && window.SiloReportEmailSchedule
@@ -745,7 +744,7 @@
         appEl: '#silo-app',
         active: 'reports/dashboards',
         user: { email: profile?.email || sessRes.data.session.user.email, role: profile?.role },
-        crumbs: navProfile === 'standard' ? ['Insights', 'Dashboards'] : ['Reports'],
+        crumbs: navProfile === 'standard' ? ['Insights', explicitManagement ? 'Manage reports' : 'Reports'] : ['Reports'],
         supabaseClient: sb,
       });
     }

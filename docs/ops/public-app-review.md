@@ -3,8 +3,10 @@
 Goal: a tenant connects Shopify and Meta with one click, with no Dev Dashboard app and no
 pasted System User token. Both need a public listing approved by the platform.
 
-**Status (2026-10-08, 19:24 UTC evidence).** Meta: **callback deployment missing;
-App Review reported submitted, approval pending** (Part 2, 2.4 and 2.8).
+**Status (2026-10-08, 19:24 UTC evidence; callback and reviewer page revisited 2026-10-13).**
+Meta: **reviewer page's 404 fixed but not merged yet; the callback answers at its URL but the
+deployed revision is still unverified; App Review reported submitted, approval pending**
+(Part 2, 2.4a, then 2.4 and 2.8 for the earlier evidence).
 Shopify: implementation complete, verification pending (unchanged since 2026-10-07). Everything below is
 ADDITIVE. The current flows (typed shop domain, store-owned Dev Dashboard app, pasted
 `shpat_` / System User token) are untouched and keep working. The new code is not linked
@@ -12,8 +14,9 @@ from Integrations. Activating it is a separate small PR (see the end of this fil
 both reviews pass.
 
 **Deployment state differs by platform.** Shopify: nothing is configured, applied or deployed.
-Meta: migration and secrets were reported configured earlier on 2026-10-08, but the latest
-deployment evidence does not support calling the OAuth flow live (2.4). Submission is not
+Meta: migration and secrets were reported configured earlier on 2026-10-08; the 2026-10-08
+inventory evidence did not support calling the OAuth flow live (2.4); the callback answered its
+no-parameter probe on 2026-10-13, which does not identify the deployed revision (2.4a). Submission is not
 approval (2.8). Each step marked **[Blake]** needs your approval in the session, or is something
 only you can do in a platform dashboard.
 
@@ -207,6 +210,37 @@ Keep these as they are:
    `https://get-silo.com/legal/privacy.html#data-deletion`.
 
 Adding a product or a configuration does not change existing connections or tokens.
+
+### 2.4a The reviewer page's 404 was the Pages build, not the callback - 2026-10-13
+
+`https://silo-baseballism.com/testing/meta-oauth.html`, `meta-oauth.js` and
+`meta-oauth-client.js` returned GitHub Pages 404. The cause was the publication change in
+`71e44bf` (2026-10-09, the 2026-10-08 security audit): `_config.yml` excludes `testing`, and the
+Pages build logs `EntryFilter: excluded /testing`
+([build evidence](https://github.com/BBISMblockay/financehub/actions/runs/38355937398/job/115158724154)).
+`_config.yml` now carries an `include` allowlist naming those three files, so they publish and
+everything else in `testing/` stays private; `scripts/tests/pages-publish-allowlist.test.mjs`
+("Publication tests") builds the site and proves both.
+
+**The 404 was never a deployment problem, so it is not a reason to deploy or redeploy
+`meta-oauth-callback`.** It is also not evidence that the deployed callback supports the review
+flow, and the two must not be collapsed. Blake's no-parameter probe on 2026-10-13 returned the
+expected `missing_params` redirect, so SOMETHING answers at the callback URL and Supabase's
+function listing (2.4) was misleading about that. It cannot say WHICH revision answers: that early
+return has been byte-identical since the original pre-review callback (`2657353`,
+`if (!code || !state) return fail('missing_params')`), and with no `state` the redirect target is
+`/v2/integrations.html` in both revisions, so a production still running the pre-review callback
+passes the same probe. The review flow needs what `2d504eb` added - recognising an `rt_` state,
+returning to `/testing/meta-oauth.html`, and re-checking the allow-listed workspace, the caller's
+active company and their admin role BEFORE exchanging the code
+(`meta-oauth-callback/handler.mjs`) - so on a pre-review deployment a reviewer could start OAuth
+and be returned to Integrations, or have the review state handled by the old logic.
+
+**Still open [Blake], and not closed by this page being published:** before Meta's reviewer runs the
+flow, prove the deployed callback matches the review-supporting source on `main` - a green
+`deployment-drift-check.yml` for `meta-oauth-callback`, an exact source comparison, or one
+`rt_` round trip in the allow-listed workspace. Until then 2.4's deploy/verification dependency
+stands. 2.4 below is kept as the record of the 2026-10-08 evidence.
 
 ### 2.4 Callback deployment gap - 2026-10-08
 

@@ -88,6 +88,23 @@
     ['seo/tasks','Tasks','seo-tasks.html'],
   ];
 
+  // The Ad Studio suite (2026-10-13), drawn by marketing-suite.js exactly as
+  // the strips above: REAL pages at their own URLs, one sidebar row. Ad Studio
+  // first -- it holds the baselines and the idea bank an idea starts from --
+  // then the test record and the schedule that idea ends up in. One
+  // destination for marketing's own work, which is how Sammie's mockup reads
+  // it, rather than a sidebar row per page.
+  // The fourth element is the OPTIONAL profiles list for that tab alone: a tab
+  // without one shows wherever the row does. Testing & schedule is
+  // Baseballism-only for now (Blake, 2026-10-13) while the page is shaped
+  // around how Baseballism runs tests, so the row stays on both profiles and
+  // only the tab narrows. Discovery only -- marketing_tests RLS is the
+  // boundary, and a direct URL is not a leak.
+  const AD_STUDIO_SUITE_PAGES = [
+    ['ads/studio','Ad Studio','ad-studio.html'],
+    ['ads/testing','Testing & schedule','marketing-ops.html',['grandfathered']],
+  ];
+
   const FINANCE_DEPTS = ['exec', 'finance'];
 
   // profiles.role values that see exec-only links (e.g. Ask SILO during its
@@ -307,9 +324,22 @@
     { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered', 'standard'] },
     { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered', 'standard'] },
     // Past Meta ads as baselines and an idea bank measured against them
-    // (2026-09-27). Soft launch behind the same exec gate the SEO row started
+    // (2026-09-27). It launched behind the same exec gate the SEO row started
     // with -- who sees it first, not who may read it; RLS is the boundary.
-    { roles: EXEC_ROLES, id: 'reports/ad-studio', section: 'Marketing', label: 'Ad Studio', href: '/v2/ad-studio.html', profiles: ['grandfathered', 'standard'] },
+    // Soft launch over 2026-10-13 (Blake): marketing is the page's actual
+    // audience, and the roles/departments gates are AND-ed here, so there is
+    // no "exec OR marketing" to write -- the row now carries no gate at all,
+    // like its Performance and Explorer siblings. Nobody who could see it
+    // loses it, and ad_ideas RLS (company-scoped, any member reads/writes)
+    // is unchanged and remains the boundary. ad-studio.html has no
+    // page-level role check, so this row was the whole gate.
+    // ONE Ad Studio destination (2026-10-13), not a row per page: the test
+    // record and the schedule (/v2/marketing-ops.html) are a TAB of it
+    // (AD_STUDIO_SUITE_PAGES above), the same collapse as SEO, Accounting and
+    // Workspace settings. silo-chrome.js maps any AD_STUDIO_SUITE_PAGES id
+    // onto this row. Testing & schedule shipped as its own row for a few
+    // hours; it keeps its URL, so nothing that was linked to it breaks.
+    { id: 'reports/ad-studio', section: 'Marketing', label: 'Ad Studio', href: '/v2/ad-studio.html', profiles: ['grandfathered', 'standard'] },
     // ONE SEO destination (2026-09-27), not a row per page: Studio, Search
     // performance and Keywords are TABS of it (SEO_SUITE_PAGES above), the
     // same collapse as Accounting and Workspace settings. silo-chrome.js maps
@@ -319,31 +349,11 @@
     // discovery only; every read is RLS, every approver write re-checked.
     { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo', section: 'Marketing', label: 'SEO', href: '/v2/seo-studio.html', profiles: ['grandfathered', 'standard'] },
 
-    // Standard workspaces get a small Insights surface: curated dashboards.
-    // Baseballism keeps the established Reports label. (Ask SILO moved to
-    // its own row under Home, 2026-10-08.)
-    // Reports is the shared library; the builder retains its own exec gate.
-    // Grandfathered users all see Reports now: it replaces six ungated sales
-    // links. Standard workspaces keep their existing exec-only Dashboards
-    // discovery. This changes menu visibility, never data permissions.
-    //
-    // Only Dashboards moves into standard Insights. Saved reports and the
-    // builder remain under Reports, which standard navigation deliberately
-    // omits until that authoring workflow is ready for customers.
-    //
-    // Deliberately NOT moved here: Accounting Export, PO Builder, Planning
-    // Scenarios and the rest. They are operational workflows that happen to
-    // contain numbers, not reports, and consolidating them into a generic
-    // canvas would cost their specialised behaviour for a tidier menu.
-    //
-    // The library row is one entry, "Reports", opening on SILO Reports with
-    // My Reports and Dashboards as its other two tabs (2026-09-22). It used
-    // to be two rows -- Dashboards, and Saved reports -- over the same page,
-    // which put canned and custom reports in one undifferentiated list under
-    // a heading that said Dashboards. The id stays `reports/dashboards` so
-    // every page that marks it active (the canvas included) keeps working.
-    // Standard workspaces still see only Dashboards, under Insights.
-    { rolesStandard: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', sectionStandard: 'Insights', label: 'Reports', labelStandard: 'Dashboards', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
+    // Both profiles discover shared reports and dashboards through Reports.
+    // Standard workspaces retain their existing exec-only discovery; custom
+    // management remains an explicit Ask SILO route, and the builder stays
+    // outside standard sections. Specialized v2 reports stay grandfathered-only.
+    { rolesStandard: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', sectionStandard: 'Insights', label: 'Reports', labelStandard: 'Reports', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
     { roles: EXEC_ROLES, id: 'reports/builder', section: 'Reports', label: 'Report builder', href: '/v3/report-builder.html', profiles: ['grandfathered', 'standard'] },
     // Hidden from nav for now -- redo_returns only covers a small, recent
     // slice of Shopify's actual refund volume (Redo doesn't see all refunds,
@@ -454,6 +464,7 @@
     ACCOUNTING_PAGES,
     WORKSPACE_SETTINGS_PAGES,
     SEO_SUITE_PAGES,
+    AD_STUDIO_SUITE_PAGES,
     resolveNavProfile,
     isSiloAttributionEnabled,
     navSectionsForProfile,

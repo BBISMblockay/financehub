@@ -547,7 +547,7 @@
     // ensureActiveCompany, not the sync getActiveCompany(): a dashboard link
     // pasted into Slack opens in a fresh tab with an empty sessionStorage,
     // and every insert here needs the company stamped.
-    await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+    const company = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
 
     const { data: profile } = await sb.from('profiles').select('name, email, role').eq('id', user.id).single();
     const isExecOrOwner = ['owner', 'executive'].includes(String(profile?.role || '').toLowerCase());
@@ -564,7 +564,7 @@
 
     // ?report=<id>: one saved report on a temporary board, nothing saved.
     const previewId = new URLSearchParams(location.search).get('report');
-    if (previewId) { await bootPreview(previewId, user, isExecOrOwner); return; }
+    if (previewId) { await bootPreview(previewId, user, isExecOrOwner, company); return; }
 
     const id = new URLSearchParams(location.search).get('id');
     if (!id) { window.location.replace('/v3/dashboards.html'); return; }
@@ -703,7 +703,7 @@
   // it. NOTHING is written -- no dashboard id exists, so Edit, Save and
   // saved views stay off -- and the renderer is the one every saved board
   // uses, so the preview is exactly the tile the report becomes once added.
-  async function bootPreview(reportId, user, isExecOrOwner) {
+  async function bootPreview(reportId, user, isExecOrOwner, company) {
     const P = window.SiloReportPreview;
     const { data: report, error } = await sb.from('silo_chat_saved_reports_v')
       .select(window.SiloDashboardBuilder.REPORT_FIELDS).eq('id', reportId).maybeSingle();
@@ -730,7 +730,10 @@
     const builderLink = el('previewBuilder');
     builderLink.href = `/v3/report-builder.html?id=${encodeURIComponent(report.id)}`;
     builderLink.textContent = isSiloReport ? 'Customize a copy' : 'Open in report builder';
-    builderLink.hidden = false;
+    // Catalog discovery must not introduce authoring in standard workspaces.
+    // This mirrors the library's existing authoring navigation; RLS remains
+    // the authority for writes, including direct builder URLs.
+    builderLink.hidden = window.SiloNav?.resolveNavProfile?.(company) !== 'grandfathered';
 
     // A report that declares its queries as parts of one answer draws every
     // part; anything else draws the one query a transcript ends on.

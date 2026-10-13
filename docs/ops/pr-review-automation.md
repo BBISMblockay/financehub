@@ -264,3 +264,33 @@ Three things worth keeping:
 
 Keep arming both. The check-in remains the thing that survives a dropped
 webhook, and its cost when events do work is one silent re-arm.
+
+## Second live loop: PR #953, 2026-10-12
+
+Both cycles ran, both found a real P1, and events fired every time (the hourly
+check-in was armed three times and never actually delivered a wake — it was
+re-armed or cancelled first each time). Nothing to add to the three rules
+above; they held. Three NEW ways to misread the PR's state, all hit on this PR:
+
+1. **`check_suite.completed` arrives for SUPERSEDED heads.** After pushing the
+   cycle-1 corrections, events for the previous two head shas kept arriving —
+   including one whose suite had been *cancelled* by the concurrency group, with
+   the "no suite is still running or failed" comment attached. Compare the
+   event's `head_sha` against the PR's current head before reading anything
+   into it. Acting on one of these would mean reporting CI green for a commit
+   nobody is merging.
+2. **"Only two checks" can mean "not yet registered", not "nothing
+   triggered".** `sync-tests.yml` takes `concurrency: cancel-in-progress: true`,
+   so a push cancels the in-flight run and queues a new one. For about a minute
+   `get_check_runs` returned just the two unrelated workflows' checks, which
+   reads exactly like the path filter not matching — the case this doc's own
+   warning about path-triggered CI tells you to look for. `actions_list` with
+   `list_workflow_runs` on the workflow file settles it: the run was there,
+   `in_progress`, with the right head sha. Check that before concluding a
+   suite did not fire.
+3. **The check named `verify` is On Deck's, not `verify_v2_schema.sql`.** It
+   comes from `on-deck-tests.yml`. The production run of the schema verifier is
+   `deployment-drift-check.yml`, which runs daily and on push to `main` under
+   `supabase/**` — so a PR carrying an unapplied migration shows **green** CI,
+   and the expected red appears only after merge. Do not tell Blake a PR check
+   will be red when what you mean is the drift check afterwards.
