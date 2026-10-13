@@ -956,6 +956,11 @@
       const res = await SiloBootstrap.enqueue(db, { companyId: _co.id, integration, connectionId });
       if (res.error) {
         setStatus('Connected — but its first sync could not be queued: ' + res.error, 'neg', 8000);
+        // The explicit Start button must not run its kick: the kick's success
+        // message would overwrite this one, and its inventory job is sync_jobs
+        // evidence -- the store would then read "Syncing" with no history
+        // import behind it and never be offered Start again.
+        if (requeueTerminal) return { queued: false, error: res.error };
       } else {
         await refreshBootstrapJobs();
       }
@@ -1161,10 +1166,12 @@
       if (!window.SiloEnrolment) return;
       const candidates = (rows || []).filter((r) => SiloEnrolment.needsEvidence(r));
       await Promise.all(candidates.map(async (row) => {
-        // Only a definitive answer is cached. A probe that errored is
-        // retried on the next load rather than leaving the store labelled
-        // paused for as long as the page stays open.
-        if (_everSynced.get(row.id) === true || _everSynced.get(row.id) === false) return;
+        // Only "has synced" is cached: it can never become untrue. "Has not"
+        // can, at any moment -- the nightly, the bootstrap runner or another
+        // tab writes a job -- so it is probed again on every load, and a
+        // probe that errored is retried rather than leaving the store
+        // labelled paused for as long as the page stays open.
+        if (_everSynced.get(row.id) === true) return;
         // A connection test writes a sync_jobs row and imports nothing, so
         // it is not evidence. integration-bootstrap-runner.mjs excludes the
         // same job_type from the same question; a legacy store whose only
@@ -1811,9 +1818,6 @@
               shop_name: data.shop?.name,
               shop_currency: data.shop?.currency,
               ...scopeFields,
-              meta: data.scopes_error
-                ? { scopes_fetch_error: String(data.scopes_error).slice(0, 500) }
-                : { scopes_fetch_error: null },
             }
           : {
               last_tested_at: new Date().toISOString(),
@@ -1826,6 +1830,18 @@
         if (saveErr) {
           setStatus('Test ran but failed to save: ' + saveErr.message, 'neg', 5000);
           return;
+        }
+        // The scope-fetch note lives in `meta`, which also holds the pause
+        // note and the import record: change that one key, never replace the
+        // object (patchMeta in v2/integration-enrolment.js). A miss leaves the
+        // previous note, which the next Test corrects.
+        if (data.ok && window.SiloEnrolment) {
+          const scopesFetchError = data.scopes_error ? String(data.scopes_error).slice(0, 500) : null;
+          await SiloEnrolment.patchMeta(db, {
+            table: 'shopify_connections',
+            connectionId: id,
+            change: (meta) => ({ ...meta, scopes_fetch_error: scopesFetchError }),
+          });
         }
 
         if (data.ok) {
@@ -2081,6 +2097,10 @@
       if (res?.skipped === 'already_queued') {
         setStatus(`✓ ${name} enrolled — its first import was already queued and its nightly sync is now on`, 'pos', 8000);
       }
+      // queued: false keeps the "could not be queued" message on screen. The
+      // nightly sync is on but holds no history, so the store must be able to
+      // be offered Start again: _everSynced is not set, and the reload below
+      // probes it afresh.
       _everSynced.delete(connectionId);
       loadConnections();
     }

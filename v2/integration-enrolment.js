@@ -166,21 +166,39 @@
    * moved between the read and the write. */
   const PAUSE_STAMP_ATTEMPTS = 3;
 
-  /** Write the pause note, or write nothing. Never a blind replacement. */
-  async function stampPause(db, { table, connectionId, userId = null, at, clear = false }) {
+  /** Change some keys of `meta`, keeping every other key, or write nothing.
+   *
+   * The browser cannot patch JSONB keys in place, so this reads `meta`,
+   * builds the replacement from it, and pins the UPDATE to the import state
+   * it read (pinImportState). Every client write to `meta` goes through here:
+   * a bare `update({ meta: {...} })` replaces the whole object and wipes the
+   * pause note and the import record with it (the Re-test button did exactly
+   * that until PR #971's pre-merge review).
+   */
+  async function patchMeta(db, { table, connectionId, change }) {
     const { data: fresh, error } = await db.from(table)
       .select('meta').eq('id', connectionId).maybeSingle();
-    if (error || !fresh) return { stamped: false, reason: 'unreadable' };
+    if (error || !fresh) return { written: false, reason: 'unreadable' };
     const meta = fresh.meta && typeof fresh.meta === 'object' ? fresh.meta : {};
-    const next = clear ? withoutPauseStamp(meta) : withPauseStamp(meta, { at, by: userId });
+    const next = change(meta);
     const { query, pinned } = pinImportState(
       db.from(table).update({ meta: next }).eq('id', connectionId),
       meta.history_backfill,
     );
-    if (!pinned) return { stamped: false, reason: 'unpinnable' };
+    if (!pinned) return { written: false, reason: 'unpinnable' };
     const { data, error: writeErr } = await query.select('id');
-    if (writeErr) return { stamped: false, reason: 'error' };
-    return { stamped: (data || []).length > 0, reason: (data || []).length ? 'written' : 'import_moved' };
+    if (writeErr) return { written: false, reason: 'error' };
+    return { written: (data || []).length > 0, reason: (data || []).length ? 'written' : 'import_moved' };
+  }
+
+  /** Write the pause note, or write nothing. Never a blind replacement. */
+  async function stampPause(db, { table, connectionId, userId = null, at, clear = false }) {
+    const res = await patchMeta(db, {
+      table,
+      connectionId,
+      change: (meta) => (clear ? withoutPauseStamp(meta) : withPauseStamp(meta, { at, by: userId })),
+    });
+    return { stamped: res.written, reason: res.reason };
   }
 
   /** Switch a store off, with the pause NOTE written before the setting.
@@ -199,14 +217,18 @@
     for (let i = 1; i < PAUSE_STAMP_ATTEMPTS && stamp.reason === 'import_moved'; i++) {
       stamp = await stampPause(db, { table, connectionId, userId, at });
     }
-    const { error } = await db.from(table)
+    const { data: disabled, error } = await db.from(table)
       .update({ sync_enabled: false, updated_at: at })
-      .eq('id', connectionId);
-    if (error) {
+      .eq('id', connectionId)
+      .select('id');
+    // An RLS-refused UPDATE succeeds with zero rows rather than erroring
+    // (supabase/CLAUDE.md), and "nothing was switched off" is a failure.
+    const failure = error ? error.message : ((disabled || []).length ? null : 'not permitted to change this store');
+    if (failure) {
       // A stamp with the sync still ON would read as paused while the
       // nightly keeps running. Take the note back rather than leave that.
       if (stamp.stamped) await stampPause(db, { table, connectionId, at, clear: true });
-      return { ok: false, error: error.message, stamped: false };
+      return { ok: false, error: failure, stamped: false };
     }
     // The setting is off either way -- that is what the person asked for.
     // Whether the NOTE landed is reported, not hidden: without it a later
@@ -261,7 +283,7 @@
   }
 
   window.SiloEnrolment = {
-    pinImportState, stampPause, pauseConnection, resumeConnection, enrolConnection, PAUSE_STAMP_ATTEMPTS,
+    pinImportState, patchMeta, stampPause, pauseConnection, resumeConnection, enrolConnection, PAUSE_STAMP_ATTEMPTS,
     jobCountsAsQueued, NON_IMPORT_JOB_TYPES,
     enrolmentState, describeState, withPauseStamp, withoutPauseStamp, needsEvidence,
   };

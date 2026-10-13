@@ -7,6 +7,7 @@ import {
   connectionReadyForSync,
 } from './lib/shopify-scopes.mjs';
 import { buildSyncPlan, runOutcomeReport, shouldRecordSkippedJob } from './lib/sync-plan.mjs';
+import { orderFactsHeldElsewhere } from './lib/shopify-tenant-guard.mjs';
 import { landingPagesProgress, landingPagesCoverage } from './lib/sync-reporting.mjs';
 import {
   DEFAULT_CHUNK_DAYS,
@@ -579,6 +580,24 @@ async function main() {
 
   for (const connection of connections) {
     console.log(`[shopify-sync] → ${connection.shop_domain}`);
+    // Never sync a store whose order facts another company already holds:
+    // those tables are keyed without the company, so the upsert would MOVE
+    // that company's orders into this one (lib/shopify-tenant-guard.mjs).
+    const guard = await orderFactsHeldElsewhere(supabase, connection);
+    if (guard.blocked) {
+      const msg = `${connection.shop_domain} (company ${connection.company_entity_id}, connection ${connection.id}): not synced -- ${guard.reason}`;
+      // A run aimed at this one connection (a first import from the
+      // bootstrap queue, or a hand dispatch) fails, so the job records why.
+      // The nightly carries on with every other store and leaves a warning.
+      if (ONLY_CONNECTION_ID) {
+        hadError = true;
+        console.error(`[error] ${msg}`);
+      } else {
+        console.log(`::warning title=Shopify store held by another company::${msg}`);
+      }
+      allResults.push({ shop_domain: connection.shop_domain, skipped: 'held_by_another_company', reason: guard.reason });
+      continue;
+    }
     try {
       allResults.push(await syncConnection(connection));
     } catch (err) {

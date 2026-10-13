@@ -32,7 +32,7 @@ vm.runInContext(
 const {
   enrolmentState, describeState, withPauseStamp, withoutPauseStamp, needsEvidence,
   jobCountsAsQueued, NON_IMPORT_JOB_TYPES,
-  pauseConnection, resumeConnection, enrolConnection, stampPause,
+  pauseConnection, resumeConnection, enrolConnection, stampPause, patchMeta,
 } = sandbox.window.SiloEnrolment;
 
 const tested = (over = {}) => ({ last_test_status: 'ok', sync_enabled: false, meta: {}, ...over });
@@ -286,7 +286,8 @@ test('a failed disable takes the pause note back', async () => {
       const u = realUpdate(patch);
       // Fail only the sync_enabled write, which is the second update.
       if ('sync_enabled' in patch && ++updates === 1) {
-        return { ...u, eq: () => ({ then: (r) => r({ error: { message: 'boom' } }) }) };
+        const failed = { then: (r) => r({ data: null, error: { message: 'boom' } }) };
+        return { ...u, eq: () => ({ ...failed, select: () => failed }) };
       }
       return u;
     };
@@ -422,4 +423,68 @@ test('the page passes its loaded version and says when a pause note did not land
   const toggle = page.slice(page.indexOf('async function toggleSyncEnabled'));
   assert.match(toggle.slice(0, 2000), /res\.stamped === false/);
   assert.match(page, /'updated_at'/, 'the connection query loads updated_at');
+});
+
+// ── Pre-merge review (after cycle 2) ─────────────────────────────────────────
+
+test('Re-test changes one key of meta and keeps the pause note and the import record', async () => {
+  // retest() used to write `meta: { scopes_fetch_error }`, replacing the whole
+  // object: the pause note went with it, and a never-imported store a person
+  // had switched off was offered "Start first import" again.
+  const bf = { status: 'complete', cursor: '2026-01-01', windows_done: 9 };
+  const db = seed({ sync_paused_at: 'T20', sync_paused_by: 'user-b', history_backfill: bf });
+  const res = await patchMeta(db, {
+    table: 'shopify_connections', connectionId: CONN,
+    change: (meta) => ({ ...meta, scopes_fetch_error: 'scope fetch failed' }),
+  });
+  assert.equal(res.written, true);
+  const meta = rowOf(db).meta;
+  assert.equal(meta.scopes_fetch_error, 'scope fetch failed');
+  assert.equal(meta.sync_paused_at, 'T20', 'the pause note survives a Test');
+  assert.deepEqual(meta.history_backfill, bf, 'and so does the import record');
+
+  const page = fs.readFileSync(new URL('../../v2/integrations.html', import.meta.url), 'utf8');
+  const retest = page.slice(page.indexOf('async function retest'), page.indexOf('async function retest') + 6000);
+  const updateObj = retest.slice(retest.indexOf('const update = data.ok'), retest.indexOf("db.from('shopify_connections').update(update)"));
+  assert.doesNotMatch(updateObj, /\bmeta:/, 'the Test write must not replace meta');
+  assert.match(retest, /SiloEnrolment\.patchMeta\(db,/, 'it changes the one key through patchMeta');
+});
+
+test('a disable that matched no row is a failed pause, not a quiet success', async () => {
+  // An RLS-refused UPDATE succeeds with zero rows (supabase/CLAUDE.md).
+  const db = seed({}, true);
+  const realFrom = db.from.bind(db);
+  db.from = (table) => {
+    const b = realFrom(table);
+    const realUpdate = b.update.bind(b);
+    b.update = (patch) => {
+      if (!('sync_enabled' in patch)) return realUpdate(patch);
+      const none = { then: (r) => r({ data: [], error: null }) };
+      const chain = new Proxy({}, { get: (_, k) => (k === 'then' ? none.then : () => chain) });
+      return chain;
+    };
+    return b;
+  };
+  const res = await pauseConnection(db, { connectionId: CONN, userId: 'user-b', at: 'T21' });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /not permitted/);
+  assert.equal(rowOf(db).sync_enabled, true, 'nothing was switched off');
+  assert.ok(!rowOf(db).meta.sync_paused_at, 'so the note is taken back');
+});
+
+test('Start does not report an import it could not queue', () => {
+  const page = fs.readFileSync(new URL('../../v2/integrations.html', import.meta.url), 'utf8');
+  const boot = page.slice(page.indexOf('async function firstConnectBootstrap'));
+  const failAt = boot.indexOf('its first sync could not be queued');
+  const kickAt = boot.indexOf('if (kick)');
+  assert.ok(failAt > 0 && kickAt > failAt);
+  assert.match(boot.slice(failAt, kickAt), /if \(requeueTerminal\) return \{ queued: false, error: res\.error \};/,
+    'the explicit Start returns before its kick, whose message and inventory job would claim success');
+});
+
+test('"has not synced" is never cached; only "has synced" is final', () => {
+  const page = fs.readFileSync(new URL('../../v2/integrations.html', import.meta.url), 'utf8');
+  const probe = page.slice(page.indexOf('async function loadEnrolmentEvidence'), page.indexOf('async function loadEnrolmentEvidence') + 1500);
+  assert.match(probe, /if \(_everSynced\.get\(row\.id\) === true\) return;/);
+  assert.doesNotMatch(probe, /_everSynced\.get\(row\.id\) === false\) return/);
 });

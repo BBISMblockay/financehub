@@ -116,6 +116,22 @@ Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
 
 ---
 
+## Shopify order facts are keyed without the company (P2, guarded)
+
+`shopify_orders (shop_domain, order_id)`, `shopify_order_lines (shop_domain, order_id, line_item_id)`,
+`shopify_draft_orders (shop_domain, draft_order_id)` and `shopify_payouts (payout_id)` are unique with
+no `company_entity_id`, and every sync upserts on those keys with the service role. A store connected
+under two companies therefore does not get a copy per company: the second company's sync REWRITES the
+rows' `company_entity_id`, moving the orders between tenants (`sales_by_day` and `inventory_on_hand` hash
+the company into their key and are not affected). Live 2026-10-13: baseballismmlb is also connected
+under BlockayOps, baseballismchicago and baseballismdsg under Test Company, all switched off.
+
+**Guarded since PR #971**: `scripts/lib/shopify-tenant-guard.mjs` refuses to sync a store whose order
+facts another company already holds -- in the nightly and the first-import job (`scripts/shopify-sync.mjs`)
+and in `shopify-sync-run`'s two history actions (needs a deploy to take effect there). The real fix is a
+migration adding `company_entity_id` to those unique keys (and to the sync cores' `onConflict`), which is
+Blake's call.
+
 ## Signup confirmation links lose their destination — Supabase redirect allowlist (P2)
 
 Found 2026-10-09. Every signup on production asks Supabase to send the
