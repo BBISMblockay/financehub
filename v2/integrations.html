@@ -957,9 +957,10 @@
       if (res.error) {
         setStatus('Connected — but its first sync could not be queued: ' + res.error, 'neg', 8000);
         // The explicit Start button must not run its kick: the kick's success
-        // message would overwrite this one, and its inventory job is sync_jobs
-        // evidence -- the store would then read "Syncing" with no history
-        // import behind it and never be offered Start again.
+        // message would overwrite this one and report an import that is not
+        // coming. (The store's nightly sync is already on by this point, so it
+        // reads "Syncing" either way; the message is what tells the operator
+        // its history import still needs queuing.)
         if (requeueTerminal) return { queued: false, error: res.error };
       } else {
         await refreshBootstrapJobs();
@@ -2097,10 +2098,8 @@
       if (res?.skipped === 'already_queued') {
         setStatus(`✓ ${name} enrolled — its first import was already queued and its nightly sync is now on`, 'pos', 8000);
       }
-      // queued: false keeps the "could not be queued" message on screen. The
-      // nightly sync is on but holds no history, so the store must be able to
-      // be offered Start again: _everSynced is not set, and the reload below
-      // probes it afresh.
+      // queued: false keeps the "could not be queued" message on screen
+      // rather than a success the kick would have printed over it.
       _everSynced.delete(connectionId);
       loadConnections();
     }

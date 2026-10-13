@@ -123,12 +123,16 @@ Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
 no `company_entity_id`, and every sync upserts on those keys with the service role. A store connected
 under two companies therefore does not get a copy per company: the second company's sync REWRITES the
 rows' `company_entity_id`, moving the orders between tenants (`sales_by_day` and `inventory_on_hand` hash
-the company into their key and are not affected). Live 2026-10-13: baseballismmlb is also connected
-under BlockayOps, baseballismchicago and baseballismdsg under Test Company, all switched off.
+the company into their key and are not affected). Live 2026-10-13: baseballismmlb's orders are held by
+Baseballism and the store is also connected under BlockayOps; baseballismchicago and baseballismdsg are
+connected under Baseballism and Test Company and hold no order facts under either, so the guard below
+does not protect them -- the first company to write their orders owns them.
 
 **Guarded since PR #971**: `scripts/lib/shopify-tenant-guard.mjs` refuses to sync a store whose order
-facts another company already holds -- in the nightly and the first-import job (`scripts/shopify-sync.mjs`)
-and in `shopify-sync-run`'s two history actions (needs a deploy to take effect there). The real fix is a
+facts another company already holds -- in the nightly and the first-import job (`scripts/shopify-sync.mjs`),
+the manual orders backfill (`scripts/shopify-orders-backfill.mjs`), and `shopify-sync-run`'s two history
+actions (needs a deploy to take effect there). Two companies importing a never-synced store at the same
+moment can both pass it. The real fix is a
 migration adding `company_entity_id` to those unique keys (and to the sync cores' `onConflict`), which is
 Blake's call.
 

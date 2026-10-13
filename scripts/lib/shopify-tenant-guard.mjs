@@ -9,10 +9,17 @@
  * company_entity_id, moving them out of one tenant and into another, and the
  * nightly moves them again every night after.
  *
- * Live on 2026-10-13: baseballismmlb is synced by Baseballism and also
- * connected (off, never imported) under BlockayOps; baseballismchicago and
- * baseballismdsg are synced by Baseballism and also connected (off) under
- * Test Company. PR #971's "Start first import" offered the BlockayOps row.
+ * Live on 2026-10-13: baseballismmlb's orders are held by Baseballism and
+ * the store is also connected (off, never imported) under BlockayOps -- the
+ * row PR #971's "Start first import" offered. baseballismchicago and
+ * baseballismdsg are connected under Baseballism and Test Company but hold NO
+ * order facts under either, so this guard does not protect them: whichever
+ * company writes their orders first owns them from then on.
+ *
+ * What it cannot do: two companies running a first import of a store with no
+ * order facts at the same moment can both pass. Only the migration that puts
+ * company_entity_id into these unique keys closes that, and every other gap.
+ * See docs/ops/bugs.md.
  *
  * The rule: a connection may write order facts for a store only if no OTHER
  * company already holds that store's order facts. Keyed on the rows, not on
@@ -36,7 +43,7 @@
  * scripts/tests/shopify-tenant-guard.test.mjs). Edit this one and re-copy.
  */
 
-export const ORDER_FACT_TABLES = ['shopify_orders', 'shopify_draft_orders', 'shopify_payouts'];
+export const ORDER_FACT_TABLES = ['shopify_orders', 'shopify_order_lines', 'shopify_draft_orders', 'shopify_payouts'];
 
 export async function orderFactsHeldElsewhere(supabase, connection) {
   const domain = connection && connection.shop_domain;

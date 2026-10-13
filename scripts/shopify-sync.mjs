@@ -587,9 +587,12 @@ async function main() {
     if (guard.blocked) {
       const msg = `${connection.shop_domain} (company ${connection.company_entity_id}, connection ${connection.id}): not synced -- ${guard.reason}`;
       // A run aimed at this one connection (a first import from the
-      // bootstrap queue, or a hand dispatch) fails, so the job records why.
-      // The nightly carries on with every other store and leaves a warning.
-      if (ONLY_CONNECTION_ID) {
+      // bootstrap queue), any hand dispatch, and a check that could not be
+      // made at all (the guard fails closed, so the store did not sync) all
+      // fail the run. Only a scheduled run that found a store genuinely held
+      // by another company carries on with a warning: that is a standing
+      // configuration, not something a red run every night would fix.
+      if (ONLY_CONNECTION_ID || PLAN.manual || !guard.heldBy) {
         hadError = true;
         console.error(`[error] ${msg}`);
       } else {

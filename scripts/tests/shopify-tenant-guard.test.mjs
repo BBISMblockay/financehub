@@ -45,14 +45,14 @@ test('a store nobody has synced yet is free to its first company', async () => {
 });
 
 test('draft orders and payouts count too: they are keyed without the company as well', async () => {
-  for (const table of ['shopify_draft_orders', 'shopify_payouts']) {
+  for (const table of ['shopify_order_lines', 'shopify_draft_orders', 'shopify_payouts']) {
     const db = createFakeSupabase();
     db.from(table).insert({ shop_domain: MLB, company_entity_id: BBISM });
     const res = await orderFactsHeldElsewhere(db, conn(OPS));
     assert.equal(res.blocked, true, table);
     assert.equal(res.table, table);
   }
-  assert.deepEqual([...ORDER_FACT_TABLES].sort(), ['shopify_draft_orders', 'shopify_orders', 'shopify_payouts']);
+  assert.deepEqual([...ORDER_FACT_TABLES].sort(), ['shopify_draft_orders', 'shopify_order_lines', 'shopify_orders', 'shopify_payouts']);
 });
 
 test('a check that cannot be made blocks: guessing wrong costs another tenant its data', async () => {
@@ -90,7 +90,7 @@ test('the nightly and the first-import job check before they sync', () => {
   assert.ok(guardAt > 0 && guardAt < syncAt, 'the guard runs before syncConnection');
   const between = loop.slice(guardAt, syncAt);
   assert.match(between, /if \(guard\.blocked\) \{[\s\S]*continue;\s*\}/, 'a blocked store is skipped, on the guard\'s own verdict');
-  assert.match(between, /if \(ONLY_CONNECTION_ID\) \{\s*hadError = true;/,
+  assert.match(between, /if \(ONLY_CONNECTION_ID[^)]*\) \{\s*hadError = true;/,
     'a run aimed at that store fails, so its bootstrap job records why');
 });
 
@@ -99,4 +99,19 @@ test('the edge function refuses both order-writing actions', () => {
   const guardAt = src.indexOf('orderFactsHeldElsewhere(admin, connection)');
   assert.ok(guardAt > 0 && guardAt < src.indexOf("case 'start_history_backfill'"));
   assert.match(src.slice(guardAt - 200, guardAt), /action === 'start_history_backfill' \|\| action === 'history_chunk'/);
+  assert.match(src.slice(guardAt, guardAt + 200), /if \(guard\.blocked\) \{\s*return json\(/, 'a blocked store gets a refusal, not a pass');
+});
+
+test('the manual orders backfill checks before it fetches anything', () => {
+  const src = read('scripts/shopify-orders-backfill.mjs');
+  const fn = src.slice(src.indexOf('async function backfillConnection'));
+  const guardAt = fn.indexOf('orderFactsHeldElsewhere(supabase, connection)');
+  assert.ok(guardAt > 0 && guardAt < fn.indexOf('ensureShopifyAccessToken'), 'before any Shopify call');
+  assert.match(fn.slice(guardAt, guardAt + 200), /if \(guard\.blocked\) throw/);
+});
+
+test('a scheduled run warns only when another company really holds the store', () => {
+  const src = read('scripts/shopify-sync.mjs');
+  assert.match(src, /if \(ONLY_CONNECTION_ID \|\| PLAN\.manual \|\| !guard\.heldBy\) \{\s*hadError = true;/,
+    'a failed check, a manual run, or a single-store run fails');
 });
