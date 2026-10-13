@@ -369,21 +369,6 @@ jobs:
       - name: Integration bootstrap job runner
         run: node scripts/tests/integration-bootstrap-runner.test.mjs
 
-      # The database half on real PostgreSQL: tenant scope, the admin gate,
-      # one-open-job-per-connection, the lease that stops two drainers paying
-      # twice, and the verify_v2_schema.sql block.
-      - name: Integration bootstrap queue (real PostgreSQL)
-        run: node scripts/tests/integration-bootstrap-database.test.mjs
-      - name: The bootstrap queue's guards, removed, must break it
-        run: |
-          set -u
-          for m in rls admin lease attempts uniq grant anongrant skiplocked; do
-            if INTEGRATION_BOOTSTRAP_DB_MUTATION="$m" node scripts/tests/integration-bootstrap-database.test.mjs >/dev/null 2>&1; then
-              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
-              exit 1
-            fi
-            echo "$m failed the suite, as it must"
-          done
 
       - name: Finance V1 approval and QBO recovery controls
         run: node scripts/tests/finance-v1-controls.test.mjs
@@ -1566,3 +1551,18 @@ jobs:
       # applied to real Postgres with shopify_orders_v's columns kept in place.
       - name: Shopify order paid date -- transactions and view
         run: node scripts/tests/shopify-order-paid-at.test.mjs
+
+      # First-connect auto sync's database half. In THIS job, not the unit one:
+      # it needs the PGlite dependency installed above.
+      - name: Integration bootstrap queue (real PostgreSQL)
+        run: node scripts/tests/integration-bootstrap-database.test.mjs
+      - name: The bootstrap queue's guards, removed, must break it
+        run: |
+          set -u
+          for m in rls admin lease attempts uniq grant anongrant skiplocked; do
+            if INTEGRATION_BOOTSTRAP_DB_MUTATION="$m" node scripts/tests/integration-bootstrap-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
