@@ -29,7 +29,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { appendFileSync } from 'node:fs';
-import { SYNC_STAMP, feedExcuse, feedBlockers, expectedCompanies } from './lib/freshness-quiet.mjs';
+import { SYNC_STAMP, feedExcuse, feedBlockers, feedFullyBlocked, expectedCompanies } from './lib/freshness-quiet.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -208,9 +208,14 @@ async function main() {
         // captured mid-day Pacific, the syncs had run, and no later run
         // corrected them -- six hours of sales and ~$19k of Meta spend
         // missing behind a feed that read healthy. A connection that CANNOT
-        // sync is the one case where no later run can correct the day, so a
-        // current block is the only thing that may excuse it.
-        if (partial && excuse !== 'client-blocked') excuse = null;
+        // sync is the one case where no later run can correct the day.
+        //
+        // And it has to be EVERY producer, not one of them: a blocked Meta
+        // connection beside a healthy GA4 would otherwise waive the partial
+        // rows GA4 can still finish, which is that same 2026-08-30 hole
+        // reopened for a mixed company (review cycle 2).
+        if (partial && !(excuse === 'client-blocked'
+          && feedFullyBlocked(conns, SYNC_STAMP[feed.connTable], dayEndedAt, feed.connTable))) excuse = null;
         // Visible without being fatal: a dead client account is worth seeing
         // in the run summary, and is the one thing here somebody could act on
         // (ask the client to fix it, or switch the connection off). Named
@@ -226,7 +231,7 @@ async function main() {
 
       const ok = (lagOk && !partial) || !!excuse;
       const verdict = excuse === 'client-blocked'
-        ? `client-blocked (the client's account cannot sync; not SILO's to fix${partial ? `, and ${required} stays partial` : ''})`
+        ? `client-blocked (the client's account cannot sync; not SILO's to fix${partial ? `, and no producer is left to finish ${required}` : ''})`
         : excuse === 'quiet' ? 'quiet (synced after the day ended, no newer data)'
         : !lagOk ? 'STALE' : partial ? 'PARTIAL' : 'ok';
       console.log(

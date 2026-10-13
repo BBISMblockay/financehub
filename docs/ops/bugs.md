@@ -171,6 +171,21 @@ that reported them are fixed, so these are now reported as warnings instead of a
 
 ---
 
+## BBISM Receivables is a frozen book with live collections actions (P2)
+
+Found 2026-10-13 (review cycle 2 on #957). `/v2/baseballismwholesale.html` reads the retired `ar_*`
+tables, which stop at 2026-09-14, and it still computes open and past-due balances and offers a
+collections queue with actions. Its banner now says the book is frozen and that payments after that
+date are missing too, so nobody should act on a balance without checking Shopify first — but the
+actions are still there to click, and the aging KPIs still read as current numbers.
+
+Needs a decision, not a fix: migrate the workbench onto `shopify_orders_v` (where the live wholesale
+terms and paid dates are), or make the page explicitly historical and disable the collections
+actions. Until then the nav row "BBISM Receivables" points at a book that only moves if somebody
+dispatches `ar-sync.yml` by hand.
+
+---
+
 ## Shared freight invoices are not linked to their POs (P2)
 
 Found 2026-10-08. A freight payment request covering several POs stores them as one comma-joined

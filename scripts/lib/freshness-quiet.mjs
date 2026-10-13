@@ -31,6 +31,14 @@ export function producesFeed(connTable, row) {
   return !!row && !NOT_A_PRODUCER[connTable]?.has(row.platform);
 }
 
+/** The connections this feed is actually judged on: sync enabled, and writing
+ *  the feed's table. One definition, so every rule below asks the same
+ *  question of the same rows. */
+export function enabledProducers(connections, connTable = null) {
+  return (connections || []).filter((c) => c && c.sync_enabled !== false
+    && (!connTable || producesFeed(connTable, c)));
+}
+
 export const SYNC_STAMP = {
   shopify_connections: 'last_sales_sync_at',
   ad_platform_connections: 'last_sync_at',
@@ -95,8 +103,7 @@ export function feedIsQuiet(connections, stampKey, dayEndedAt, connTable = null)
  * @returns 'quiet' | 'client-blocked' | null
  */
 export function feedExcuse(connections, stampKey, dayEndedAt, connTable = null) {
-  const enabled = (connections || []).filter((c) => c && c.sync_enabled !== false
-    && (!connTable || producesFeed(connTable, c)));
+  const enabled = enabledProducers(connections, connTable);
   if (!enabled.length || !(dayEndedAt instanceof Date) || Number.isNaN(+dayEndedAt)) return null;
   const blockKey = connTable ? CLIENT_BLOCK[connTable] : null;
   let blocked = false;
@@ -122,12 +129,27 @@ export function feedBlockers(connections, stampKey, dayEndedAt, connTable = null
   if (!(dayEndedAt instanceof Date) || Number.isNaN(+dayEndedAt)) return [];
   const blockKey = connTable ? CLIENT_BLOCK[connTable] : null;
   if (!blockKey) return [];
-  return (connections || []).filter((c) => {
-    if (!c || c.sync_enabled === false) return false;
-    if (connTable && !producesFeed(connTable, c)) return false;
+  return enabledProducers(connections, connTable).filter((c) => {
     const attempt = attemptedAt(c, stampKey, blockKey);
     return !!attempt && attempt.blocked && attempt.at >= +dayEndedAt;
   });
+}
+
+/**
+ * Is EVERY connection that writes this feed currently blocked?
+ *
+ * The question a PARTIAL day has to ask. `feedExcuse` answers at company
+ * level, so one blocked connection makes the whole feed `client-blocked` --
+ * fine for a feed that LAGS, where the blocked account explains the gap, and
+ * wrong for a partial day, where a healthy sibling producer could still
+ * correct yesterday's rows and is exactly the successful-but-partial case the
+ * alarm exists to catch (review cycle 2). A partial day may only be waived
+ * when nothing left can correct it.
+ */
+export function feedFullyBlocked(connections, stampKey, dayEndedAt, connTable = null) {
+  const producers = enabledProducers(connections, connTable);
+  if (!producers.length) return false;
+  return feedBlockers(connections, stampKey, dayEndedAt, connTable).length === producers.length;
 }
 
 /**
