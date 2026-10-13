@@ -132,9 +132,15 @@ does not protect them -- the first company to write their orders owns them.
 facts another company already holds -- in the nightly and the first-import job (`scripts/shopify-sync.mjs`),
 the manual orders backfill (`scripts/shopify-orders-backfill.mjs`), and `shopify-sync-run`'s two history
 actions (needs a deploy to take effect there). Two companies importing a never-synced store at the same
-moment can both pass it. The real fix is a
-migration adding `company_entity_id` to those unique keys (and to the sync cores' `onConflict`), which is
-Blake's call.
+moment can both pass it.
+
+**Fix written, not live** (`20261013220000_shopify_order_facts_per_company.sql`,
+`scripts/lib/shopify-order-fact-keys.mjs`): the four keys gain `company_entity_id`, every order-fact
+upsert goes through `upsertOrderFact` (per-company key, old key only while the migration is unapplied),
+and the guard stands aside once `shopify_order_facts_keyed_by_company()` is true. Live only after, IN THIS
+ORDER: merge, deploy `shopify-sync-run` and `ad-platform-sync-run`, apply the migration (Blake's approval;
+outside the sync window). Move this entry to the CHANGELOG then. Until then BlockayOps' baseballismmlb
+connection stays refused.
 
 ## support@get-silo.com: cross-tenant access through one mailbox (accepted risk, Blake 2026-10-13)
 

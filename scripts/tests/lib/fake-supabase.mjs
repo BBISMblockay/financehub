@@ -231,7 +231,14 @@ export function createFakeSupabase({ beforeWrite = null } = {}) {
    * cannot happen.
    */
   const missingRpcs = new Set();
+  // 20261013220000's "are order facts keyed per company yet?" Defaults to
+  // false: the fake behaves as production did before that migration, so the
+  // tenant guard's protection is what tests see unless they opt in.
+  let orderFactsPerCompany = false;
   const rpcHandlers = {
+    shopify_order_facts_keyed_by_company() {
+      return { data: orderFactsPerCompany, error: null };
+    },
     shopify_landing_pages_covered_days({ p_company_entity_id, p_shop_domain, p_since, p_until }) {
       const days = new Set(rowsOf('shopify_landing_pages_daily')
         .filter((r) => r.company_entity_id === p_company_entity_id
@@ -264,6 +271,8 @@ export function createFakeSupabase({ beforeWrite = null } = {}) {
     rows: (t) => rowsOf(t).map((r) => ({ ...r })),
     /** Make an RPC behave as though its migration has not been applied. */
     breakRpc(name) { missingRpcs.add(name); },
+    /** Behave as though 20261013220000 (order facts per company) has applied. */
+    setOrderFactsPerCompany(on) { orderFactsPerCompany = !!on; },
     async rpc(fn, args) {
       calls.rpcs.push({ fn, args });
       if (missingRpcs.has(fn)) {

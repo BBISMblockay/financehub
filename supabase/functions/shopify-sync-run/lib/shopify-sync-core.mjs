@@ -2,6 +2,7 @@
 // Mirrors scripts/lib/shopify-sync-core.mjs but uses Web Crypto instead of node:crypto.
 
 import { scopesMissingForJob } from './shopify-scopes.mjs';
+import { upsertOrderFact } from './shopify-order-fact-keys.mjs';
 
 export const SOURCE = 'shopify_api';
 export const DEFAULT_API_VERSION = '2025-01';
@@ -1206,8 +1207,8 @@ export async function upsertOrderFacts(supabase, connection, { orders, skuMeta, 
     if (error) throw new Error(`shopify_order_lines rebuild delete failed: ${error.message}`);
   }
 
-  const ordersUpserted = await upsertInChunks(supabase, 'shopify_orders', orderRows, 'shop_domain,order_id');
-  const linesUpserted = await upsertInChunks(supabase, 'shopify_order_lines', lineRows, 'shop_domain,order_id,line_item_id');
+  const ordersUpserted = await upsertOrderFact(upsertInChunks, supabase, 'shopify_orders', orderRows);
+  const linesUpserted = await upsertOrderFact(upsertInChunks, supabase, 'shopify_order_lines', lineRows);
 
   return { orders_upserted: ordersUpserted, order_lines_upserted: linesUpserted };
 }
@@ -1539,7 +1540,7 @@ export async function runPayoutsSync(supabase, connection, { batchId } = {}) {
     sync_batch_id: batchId || null,
   }));
 
-  const upserted = await upsertInChunks(supabase, 'shopify_payouts', rows, 'payout_id');
+  const upserted = await upsertOrderFact(upsertInChunks, supabase, 'shopify_payouts', rows);
   return { payouts_upserted: upserted, since };
 }
 
