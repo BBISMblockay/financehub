@@ -162,6 +162,10 @@
     return { query: q, pinned };
   }
 
+  /** How many times a pause re-reads and re-pins its note when an import
+   * moved between the read and the write. */
+  const PAUSE_STAMP_ATTEMPTS = 3;
+
   /** Write the pause note, or write nothing. Never a blind replacement. */
   async function stampPause(db, { table, connectionId, userId = null, at, clear = false }) {
     const { data: fresh, error } = await db.from(table)
@@ -188,7 +192,13 @@
    * disable that follows overrides it, or it arrives after and is refused.
    */
   async function pauseConnection(db, { table = 'shopify_connections', connectionId, userId = null, at = new Date().toISOString() }) {
-    const stamp = await stampPause(db, { table, connectionId, userId, at });
+    // A note that missed because an import window landed between its read
+    // and its write is worth another try: the miss is a moving cursor, not a
+    // refusal. Bounded, because a busy import must not hold the pause up.
+    let stamp = await stampPause(db, { table, connectionId, userId, at });
+    for (let i = 1; i < PAUSE_STAMP_ATTEMPTS && stamp.reason === 'import_moved'; i++) {
+      stamp = await stampPause(db, { table, connectionId, userId, at });
+    }
     const { error } = await db.from(table)
       .update({ sync_enabled: false, updated_at: at })
       .eq('id', connectionId);
@@ -198,6 +208,12 @@
       if (stamp.stamped) await stampPause(db, { table, connectionId, at, clear: true });
       return { ok: false, error: error.message, stamped: false };
     }
+    // The setting is off either way -- that is what the person asked for.
+    // Whether the NOTE landed is reported, not hidden: without it a later
+    // load cannot tell this store from one that was never enrolled, so the
+    // caller has to say so. A stale Start from a page loaded before this is
+    // refused by enrolConnection's version condition whether or not the
+    // note landed, because the disable above moved updated_at.
     return { ok: true, stamped: stamp.stamped, reason: stamp.reason };
   }
 
@@ -211,26 +227,41 @@
     return { ok: true, cleared: cleared.stamped };
   }
 
-  /** Enrol a store: switch its sync on only if it is still waiting for it.
+  /** Enrol a store: switch its sync on only if it is still waiting for it,
+   * AND nobody has written to the row since this page read it.
    *
    * The conditions live in the statement, so a pause another admin made
    * while the page sat open wins over a click on a button rendered before
-   * it. Zero rows back also covers an RLS refusal, which from here is the
-   * same answer: this page did not change anything.
+   * it. The pause note alone cannot guarantee that: its write can miss (an
+   * import moved under it) or fail, and a pause without a note looks, to
+   * the note condition, exactly like a store nobody has touched. So the
+   * click also carries the `updated_at` the page loaded, which every write
+   * to the row moves (shopify_connections' BEFORE UPDATE trigger, and the
+   * pause's own disable writes it explicitly). A pause of any kind since the
+   * page loaded therefore makes this match nothing.
+   *
+   * No version, no write: a caller that cannot say which version it is
+   * acting on is exactly the stale page this exists to stop. Zero rows back
+   * also covers an RLS refusal, which from here is the same answer: this
+   * page did not change anything.
    */
-  async function enrolConnection(db, { table = 'shopify_connections', connectionId, at = new Date().toISOString() }) {
+  async function enrolConnection(db, { table = 'shopify_connections', connectionId, expectedUpdatedAt, at = new Date().toISOString() }) {
+    if (expectedUpdatedAt === undefined || expectedUpdatedAt === null || expectedUpdatedAt === '') {
+      return { enabled: false, reason: 'no_version' };
+    }
     const { data, error } = await db.from(table)
       .update({ sync_enabled: true, updated_at: at })
       .eq('id', connectionId)
       .eq('sync_enabled', false)
       .is('meta->>sync_paused_at', null)
+      .eq('updated_at', expectedUpdatedAt)
       .select('id');
     if (error) return { enabled: false, error: error.message };
     return { enabled: (data || []).length > 0 };
   }
 
   window.SiloEnrolment = {
-    pinImportState, stampPause, pauseConnection, resumeConnection, enrolConnection,
+    pinImportState, stampPause, pauseConnection, resumeConnection, enrolConnection, PAUSE_STAMP_ATTEMPTS,
     jobCountsAsQueued, NON_IMPORT_JOB_TYPES,
     enrolmentState, describeState, withPauseStamp, withoutPauseStamp, needsEvidence,
   };

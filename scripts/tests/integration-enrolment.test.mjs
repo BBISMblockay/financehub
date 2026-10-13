@@ -163,7 +163,7 @@ const CONN = 'conn-1';
 const seed = (meta = {}, syncEnabled = false) => {
   const db = createFakeSupabase();
   db.from('shopify_connections').insert({
-    id: CONN, sync_enabled: syncEnabled, meta, updated_at: null, last_test_status: 'ok',
+    id: CONN, sync_enabled: syncEnabled, meta, updated_at: 'U0', last_test_status: 'ok',
   });
   return db;
 };
@@ -201,7 +201,7 @@ test('a stale Start landing BETWEEN the pause\'s two writes still loses', async 
   // and the store ends up ON with a pause recorded against it.
   const db = seed();
   interleaveAfterFirstWrite(db, async () => {
-    await enrolConnection(db, { connectionId: CONN });
+    await enrolConnection(db, { connectionId: CONN, expectedUpdatedAt: 'U0' });
   });
   const res = await pauseConnection(db, { connectionId: CONN, userId: 'user-b', at: 'T0' });
   assert.equal(res.ok, true);
@@ -218,7 +218,7 @@ test('a stale Start cannot land inside a pause and leave the store switched on',
   // B's first write (the note), then A's stale click, then B's second.
   const stamp = await stampPause(db, { table: 'shopify_connections', connectionId: CONN, at: 'T1' });
   assert.equal(stamp.stamped, true);
-  const stale = await enrolConnection(db, { connectionId: CONN });
+  const stale = await enrolConnection(db, { connectionId: CONN, expectedUpdatedAt: 'U0' });
   assert.equal(stale.enabled, false, 'the stamp is already on the row, so the enable must match nothing');
   await db.from('shopify_connections').update({ sync_enabled: false }).eq('id', CONN);
   assert.equal(rowOf(db).sync_enabled, false);
@@ -227,7 +227,7 @@ test('a stale Start cannot land inside a pause and leave the store switched on',
 test('and if the click gets in first, the pause still wins', async () => {
   const db = seed();
   // A's click lands before B has written anything.
-  assert.equal((await enrolConnection(db, { connectionId: CONN })).enabled, true);
+  assert.equal((await enrolConnection(db, { connectionId: CONN, expectedUpdatedAt: 'U0' })).enabled, true);
   // B's pause follows in full. Its disable is the last write, so the row is
   // off -- never "on with a pause recorded", which is what the two-write
   // order is chosen to prevent.
@@ -300,10 +300,10 @@ test('a failed disable takes the pause note back', async () => {
 
 test('enrolling refuses a store that is already on, and resume clears the note', async () => {
   const on = seed({}, true);
-  assert.equal((await enrolConnection(on, { connectionId: CONN })).enabled, false);
+  assert.equal((await enrolConnection(on, { connectionId: CONN, expectedUpdatedAt: 'U0' })).enabled, false);
 
   const paused = seed({ sync_paused_at: 'T6', sync_paused_by: 'user-b' }, false);
-  assert.equal((await enrolConnection(paused, { connectionId: CONN })).enabled, false,
+  assert.equal((await enrolConnection(paused, { connectionId: CONN, expectedUpdatedAt: 'U0' })).enabled, false,
     'a paused store is not enrolled by a button click');
   const resumed = await resumeConnection(paused, { connectionId: CONN, at: 'T7' });
   assert.equal(resumed.ok, true);
@@ -318,4 +318,108 @@ test('a row that cannot be re-read is not stamped from a guess', async () => {
   const res = await stampPause(db, { table: 'shopify_connections', connectionId: 'missing', at: 'T8' });
   assert.equal(res.stamped, false);
   assert.equal(res.reason, 'unreadable');
+});
+
+// ── The remaining hole: a pause whose NOTE did not land ──────────────────────
+//
+// Everything above leans on the note: enrolment refuses a stamped store. But
+// the note can miss (an import moved under it and kept moving) or fail, and a
+// paused store with no note looks, to that condition, like one nobody touched.
+// The version condition closes it: the page's Start carries the updated_at it
+// loaded, and the pause's disable moved it.
+
+/** Make every pause-note write fail; leave every other write alone. */
+function failNoteWrites(db) {
+  const realFrom = db.from.bind(db);
+  db.from = (table) => {
+    const builder = realFrom(table);
+    const realUpdate = builder.update.bind(builder);
+    builder.update = (patch) => {
+      const u = realUpdate(patch);
+      if ('meta' in patch && !('sync_enabled' in patch)) {
+        const fail = { then: (r) => r({ data: null, error: { message: 'note write refused' } }) };
+        const chain = new Proxy({}, { get: (_, k) => (k === 'then' ? fail.then : () => chain) });
+        return chain;
+      }
+      return u;
+    };
+    return builder;
+  };
+}
+
+test('a pause whose note failed still beats a Start from a page loaded before it', async () => {
+  const db = seed();
+  const pageLoadedAt = rowOf(db).updated_at; // admin A's page, rendered with "Start first import"
+  failNoteWrites(db);
+  const res = await pauseConnection(db, { connectionId: CONN, userId: 'user-b', at: 'T10' });
+  assert.equal(res.ok, true, 'the store is off -- that is what B asked for');
+  assert.equal(res.stamped, false, 'and the missing note is REPORTED, not passed off as a clean pause');
+  assert.ok(!rowOf(db).meta.sync_paused_at, 'precondition: no note on the row');
+  assert.equal(rowOf(db).sync_enabled, false);
+
+  const stale = await enrolConnection(db, { connectionId: CONN, expectedUpdatedAt: pageLoadedAt });
+  assert.equal(stale.enabled, false, "A's click was rendered before B's pause and must not undo it");
+  assert.equal(rowOf(db).sync_enabled, false, 'the store stays off');
+});
+
+test('a Start with no version to act on writes nothing', async () => {
+  const db = seed();
+  for (const v of [undefined, null, '']) {
+    const res = await enrolConnection(db, { connectionId: CONN, expectedUpdatedAt: v });
+    assert.equal(res.enabled, false, String(v));
+    assert.equal(res.reason, 'no_version');
+  }
+  assert.equal(rowOf(db).sync_enabled, false);
+});
+
+test('a page that loaded after the pause is not refused by the version', async () => {
+  // The version guards against STALE pages, nothing more: a page reloaded
+  // after the pause sees the new updated_at, and a store with no note and no
+  // import evidence is then offered Start deliberately -- which is why the
+  // pause has to say when its note did not land.
+  const db = seed();
+  failNoteWrites(db);
+  await pauseConnection(db, { connectionId: CONN, userId: 'user-b', at: 'T11' });
+  const fresh = await enrolConnection(db, { connectionId: CONN, expectedUpdatedAt: rowOf(db).updated_at });
+  assert.equal(fresh.enabled, true);
+});
+
+test('a note that missed because an import moved is retried, not given up', async () => {
+  const db = seed({ history_backfill: { status: 'running', cursor: '2026-03-01', windows_done: 3 } });
+  // One import window lands between the first note's read and its write.
+  const realFrom = db.from.bind(db);
+  let reads = 0;
+  db.from = (table) => {
+    const builder = realFrom(table);
+    const realSelect = builder.select.bind(builder);
+    builder.select = (...args) => {
+      const q = realSelect(...args);
+      if (args[0] === 'meta' && ++reads === 1) {
+        const realMaybe = q.maybeSingle.bind(q);
+        q.maybeSingle = async () => {
+          const out = await realMaybe();
+          rowOf(db).meta = { history_backfill: { status: 'running', cursor: '2026-04-01', windows_done: 4 } };
+          return out;
+        };
+      }
+      return q;
+    };
+    return builder;
+  };
+  const res = await pauseConnection(db, { connectionId: CONN, userId: 'user-b', at: 'T12' });
+  assert.equal(res.stamped, true, 'the second attempt reads the moved import and pins to it');
+  assert.equal(rowOf(db).meta.sync_paused_at, 'T12');
+  assert.deepEqual(rowOf(db).meta.history_backfill, { status: 'running', cursor: '2026-04-01', windows_done: 4 },
+    'and the newer import state is what it kept');
+  assert.equal(rowOf(db).sync_enabled, false);
+});
+
+test('the page passes its loaded version and says when a pause note did not land', () => {
+  const page = fs.readFileSync(new URL('../../v2/integrations.html', import.meta.url), 'utf8');
+  const start = page.slice(page.indexOf('async function startFirstImport'));
+  assert.match(start.slice(0, 3000), /enrolConnection\(db, \{ connectionId, expectedUpdatedAt: row\.updated_at \}\)/);
+  assert.match(start.slice(0, 1200), /if \(!row \|\| \(enrol && !enrol\.offerStart\)\)/, 'no row, no click');
+  const toggle = page.slice(page.indexOf('async function toggleSyncEnabled'));
+  assert.match(toggle.slice(0, 2000), /res\.stamped === false/);
+  assert.match(page, /'updated_at'/, 'the connection query loads updated_at');
 });

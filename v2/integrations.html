@@ -2036,7 +2036,7 @@
       const row = (_summaryState.shopify || []).find((r) => r.id === connectionId);
       const name = row?.shop_name || row?.shop_domain || 'this store';
       const enrol = row ? enrolmentFor(row) : null;
-      if (enrol && !enrol.offerStart) {
+      if (!row || (enrol && !enrol.offerStart)) {
         setStatus('That store is no longer waiting for its first import — reloading', 'info', 5000);
         loadConnections();
         return;
@@ -2050,7 +2050,10 @@
       // loaded -- or even against a fresh read a line earlier -- would still
       // enable it, overriding a decision somebody just made about their API
       // spend. See enrolConnection in v2/integration-enrolment.js.
-      const enrolled = await SiloEnrolment.enrolConnection(db, { connectionId });
+      // expectedUpdatedAt is the version this page loaded: any write since --
+      // a pause from another tab included, even one whose note did not land --
+      // makes the enable match nothing.
+      const enrolled = await SiloEnrolment.enrolConnection(db, { connectionId, expectedUpdatedAt: row.updated_at });
       if (enrolled.error) {
         setStatus('Could not switch its nightly sync on: ' + enrolled.error, 'neg', 8000);
         loadConnections();
@@ -2097,7 +2100,15 @@
         return;
       }
       _everSynced.delete(connectionId);
-      setStatus(enabled ? 'API sync enabled for nightly job' : 'API sync disabled', 'info', 3000);
+      if (!enabled && res.stamped === false) {
+        // The store IS off. What did not land is the note saying a person
+        // switched it off, so after a reload a store that never imported can
+        // be offered "Start first import" again. Say so instead of reporting
+        // a clean pause.
+        setStatus('API sync disabled, but the pause could not be recorded. If this store later offers "Start first import", leave it unless you mean to start it.', 'neg', 10000);
+      } else {
+        setStatus(enabled ? 'API sync enabled for nightly job' : 'API sync disabled', 'info', 3000);
+      }
       loadConnections();
     }
 
