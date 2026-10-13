@@ -414,9 +414,22 @@ export function storeNameLocation(connection) {
  * months. Only a caller that genuinely means "every shopify_api row for this
  * shop" omits the range.
  *
+ * `keepRefunds` spares rows with `total_orders = 0`. A history window fetches
+ * orders by created_at, but a refund row is dated by the REFUND -- which is
+ * why runHistoryChunk keeps refund rows regardless of the window they land in.
+ * An order created six months ago and refunded yesterday has its refund row
+ * inside a 60-day window while its parent order is outside the fetch, so
+ * deleting it loses it for good and overstates net sales. `total_orders` is
+ * nullable, so `neq(0)` also spares a null row: sparing one stale row is the
+ * cheaper mistake of the two.
+ *
  * Returns the range it deleted, or null when there was nothing to delete.
  */
-export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDomain, { from = null, to = null } = {}) {
+export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDomain, {
+  from = null,
+  to = null,
+  keepRefunds = false,
+} = {}) {
   // High-volume shops (main store: ~400k rows) exceed the API statement
   // timeout on a single DELETE — walk the date range in 60-day slices.
   const { data: oldest, error: boundsError } = await supabase
@@ -438,7 +451,7 @@ export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDo
   const purged = { from: cursor, to: end };
   while (cursor <= end) {
     const sliceEnd = isoDateOnly(addDays(new Date(`${cursor}T00:00:00Z`), 60));
-    const { error } = await supabase
+    let q = supabase
       .from('sales_by_day')
       .delete()
       .eq('company_entity_id', companyEntityId)
@@ -446,6 +459,8 @@ export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDo
       .eq('source', SOURCE)
       .gte('day_date', cursor)
       .lte('day_date', sliceEnd < end ? sliceEnd : end);
+    if (keepRefunds) q = q.neq('total_orders', 0);
+    const { error } = await q;
     if (error) throw new Error(`sales_by_day purge failed: ${error.message}`);
     if (sliceEnd >= end) break;
     cursor = isoDateOnly(addDays(new Date(`${sliceEnd}T00:00:00Z`), 1));
@@ -1225,6 +1240,34 @@ export function planHistoryWindows(rangeStart, rangeEnd, chunkDays) {
   return windows;
 }
 
+/** Shopify answers only the last 60 days of orders without `read_all_orders`,
+ *  and returns HTTP 200 while doing it. */
+export const NO_ALL_ORDERS_HISTORY_DAYS = 60;
+
+/** The history window this connection's token can actually read.
+ *
+ * A self-installed app rarely has `read_all_orders`, and the integrations UI
+ * offers to "import the last 60 days anyway" but used to send the original
+ * 365 or 730 unchanged. With the import deleting each window it rebuilds, a
+ * plan longer than the token can read is a plan to delete days Shopify will
+ * never return -- so the window is clamped where the plan is made, not where
+ * it is confirmed.
+ *
+ * Scopes that have never been recorded (no Re-test yet) are not evidence that
+ * the scope is missing, so an unknown set is left unclamped; the per-window
+ * purge in runHistoryChunk is what bounds that case, since it deletes nothing
+ * for a window Shopify answered with no orders.
+ */
+export function effectiveHistoryDays(connection, requestedDays) {
+  const requested = Math.max(1, Math.trunc(Number(requestedDays) || 0) || 1);
+  const granted = grantedScopes(connection);
+  const known = Array.isArray(granted) && granted.length > 0;
+  if (!known || granted.includes('read_all_orders') || requested <= NO_ALL_ORDERS_HISTORY_DAYS) {
+    return { days: requested, clamped: false };
+  }
+  return { days: NO_ALL_ORDERS_HISTORY_DAYS, clamped: true, requested };
+}
+
 export function initHistoryBackfillState({
   historyDays,
   chunkDays = DEFAULT_CHUNK_DAYS,
@@ -1325,6 +1368,39 @@ export async function runHistoryChunk(supabase, connection, {
     || (r.day_date >= win.window_start
       && (isFinalWindow ? r.day_date <= win.window_end : r.day_date < win.window_end)));
 
+  // Delete THIS WINDOW's existing days, now that Shopify has answered for
+  // them, and nothing else.
+  //
+  // The purge used to run once for the whole plan before the first window was
+  // fetched, so a 730-day import that failed or was cancelled after its first
+  // 60-day chunk had already deleted the other ~670 days -- windows it never
+  // reached. Per window, an interruption can only ever have lost the window it
+  // was working on, and that window is the one the resume re-fetches.
+  //
+  // A window Shopify answered with NO orders is not purged. Nothing would
+  // replace the rows, so deleting them is pure loss, and an empty answer is
+  // exactly what a token without read_all_orders gives for a window older
+  // than 60 days -- an HTTP 200 with nothing in it. A genuinely empty window
+  // keeps whatever stale rows it had, which is visible staleness instead of
+  // silent deletion.
+  //
+  // The range mirrors keepRows exactly: a non-final window owns up to the day
+  // BEFORE its end (the boundary date belongs to the next window, which
+  // over-fetches a day to complete it), so purging through window_end would
+  // delete a day this window does not rewrite.
+  const purgeTo = isFinalWindow
+    ? win.window_end
+    : isoDateOnly(addDays(new Date(`${win.window_end}T00:00:00Z`), -1));
+  let purgedWindow = null;
+  if (orders.length && purgeTo >= win.window_start) {
+    purgedWindow = await purgeShopifySalesForShop(
+      supabase,
+      connection.company_entity_id,
+      connection.shop_domain,
+      { from: win.window_start, to: purgeTo, keepRefunds: true },
+    );
+  }
+
   const upserted = await upsertInChunks(supabase, 'sales_by_day', keepRows, 'row_hash');
   const orderFacts = await upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId });
 
@@ -1352,6 +1428,7 @@ export async function runHistoryChunk(supabase, connection, {
       window_end: win.window_end,
       orders_fetched: orders.length,
       sales_rows_upserted: upserted,
+      ...(purgedWindow ? { purged_range: purgedWindow } : {}),
       orders_upserted: orderFacts.orders_upserted,
       order_lines_upserted: orderFacts.order_lines_upserted,
     },

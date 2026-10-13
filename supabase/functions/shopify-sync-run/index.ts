@@ -4,13 +4,14 @@ import {
   computeBackfillProgress,
   deserializeSkuMetaCache,
   fetchShopifyLocations,
+  effectiveHistoryDays,
   initHistoryBackfillState,
-  purgeShopifySalesForShop,
   readMeta,
   runHistoryChunk,
   runInventorySnapshot,
   serializeSkuMetaCache,
 } from './lib/shopify-sync-core.mjs';
+import { planChunkPersist } from './lib/history-chunk-persist.mjs';
 import { connectionReadyForSync } from './lib/shopify-scopes.mjs';
 import { ensureShopifyAccessToken, mayConnect } from './lib/shopify-auth-lib.mjs';
 
@@ -192,12 +193,25 @@ function buildProgress(state: Record<string, unknown>) {
   };
 }
 
+/** The row's meta as it stands NOW, not as this request first read it. */
+async function readStoredMeta(admin: SupabaseClient, connectionId: string) {
+  const { data, error } = await admin
+    .from('shopify_connections')
+    .select('meta')
+    .eq('id', connectionId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const meta = (data as Record<string, unknown>).meta;
+  return meta && typeof meta === 'object' ? meta as Record<string, unknown> : {};
+}
+
 async function runHistoryChunkPersisted(
   admin: SupabaseClient,
   connection: Record<string, unknown>,
   batchId: string,
 ) {
   const meta = readMeta(connection);
+  const preState = meta.history_backfill as Record<string, unknown> | undefined;
   const cacheRaw = meta.history_backfill_caches as Record<string, unknown> | undefined;
   const chunkResult = await runHistoryChunk(admin, connection, {
     batchId,
@@ -209,18 +223,37 @@ async function runHistoryChunkPersisted(
     ? serializeSkuMetaCache(chunkResult.caches.skuMeta)
     : cacheRaw?.skuMeta ?? null;
 
-  const patch: Record<string, unknown> = {
-    history_backfill: nextState,
-    history_backfill_caches: chunkResult.done ? null : (skuMetaJson ? { skuMeta: skuMetaJson } : null),
+  // A window takes minutes, and Cancel (or the scheduled sync's watermark, or
+  // a fresh Start) can land on this row while it runs. Decide against what is
+  // stored now rather than against the meta this request opened with.
+  const plan = planChunkPersist({
+    preState,
+    storedMeta: (await readStoredMeta(admin, connection.id as string)) ?? meta,
+    nextState,
+    skuMetaJson,
+    done: chunkResult.done,
+  });
+
+  if (plan.action === 'superseded') {
+    // Another import owns the connection. Its rows are written; its state is
+    // not, and this request stops rather than reviving a replaced plan.
+    return { ...chunkResult, state: plan.state, done: true, superseded: true };
+  }
+
+  const { error } = await admin
+    .from('shopify_connections')
+    .update({ meta: plan.meta })
+    .eq('id', connection.id as string);
+  if (error) throw new Error(`Failed to update connection meta: ${error.message}`);
+  connection.meta = plan.meta;
+
+  return {
+    ...chunkResult,
+    state: plan.state,
+    // A cancelled import is finished as far as the browser loop is concerned.
+    done: plan.cancelled ? true : chunkResult.done,
+    cancelled: plan.cancelled,
   };
-  const mergedMeta = await mergeConnectionMeta(
-    admin,
-    connection.id as string,
-    meta,
-    patch,
-  );
-  connection.meta = mergedMeta;
-  return chunkResult;
 }
 
 async function handleStartHistoryBackfill(
@@ -235,24 +268,28 @@ async function handleStartHistoryBackfill(
   const meta = readMeta(connection);
   let state = meta.history_backfill as Record<string, unknown> | undefined;
 
-  if (state?.status === 'running' && Number(state.target_days) === historyDays && state.job_id) {
+  if (state?.status === 'running'
+    && Number(state.target_days) === effectiveHistoryDays(connection, historyDays).days
+    && state.job_id) {
     return handleHistoryChunk(admin, connection, state.job_id as string, chunkDays);
   }
 
-  // Plan the window range BEFORE deleting anything, and delete only that
-  // range. An unbounded purge here erased the whole of a shop's history to
-  // re-import the range the operator picked, so clicking "90d" on a store with
-  // nine years of sales left ninety days.
-  state = initHistoryBackfillState({ historyDays, chunkDays });
-  await purgeShopifySalesForShop(
-    admin,
-    connection.company_entity_id as string,
-    connection.shop_domain as string,
-    { from: state.range_start as string, to: state.range_end as string },
-  );
+  // Nothing is deleted here. Each window is purged by runHistoryChunk once
+  // Shopify has answered for that window, so an import that stops early can
+  // only have rebuilt the windows it actually fetched. This function used to
+  // delete every shopify_api row for the shop before the first fetch, so
+  // clicking "90d" on a store with nine years of sales left ninety days.
+  //
+  // The plan is also clamped to the window this token can read: without
+  // read_all_orders Shopify answers only the last 60 days, and the UI's
+  // "import the last 60 days anyway" used to send 365 or 730 unchanged.
+  const planned = effectiveHistoryDays(connection, historyDays);
+  state = initHistoryBackfillState({ historyDays: planned.days, chunkDays });
 
   const jobId = existingJobId || await createJob(admin, connection, 'history_import', userId, {
-    history_days: historyDays,
+    history_days: planned.days,
+    requested_days: historyDays,
+    ...(planned.clamped ? { clamped_to: planned.days, clamped_reason: 'read_all_orders not granted' } : {}),
     chunk_days: chunkDays,
     windows_total: state.windows_total,
     initiated_from: 'integrations_ui',
@@ -272,8 +309,13 @@ async function handleStartHistoryBackfill(
   const chunkResult = await runHistoryChunkPersisted(admin, connection, batchId);
   const nextState = chunkResult.state as Record<string, unknown>;
   const progress = buildProgress(nextState);
+  // `done` also goes true when the import was cancelled or superseded mid
+  // window, which stops the browser loop but is not a completed import: the
+  // cancel handler already finished the job, and a superseded run's job
+  // belongs to the import that replaced it.
+  const finished = chunkResult.done && !chunkResult.cancelled && !chunkResult.superseded;
 
-  if (chunkResult.done) {
+  if (finished) {
     await updateJob(admin, connection, jobId, {
       status: 'success',
       finished_at: new Date().toISOString(),
@@ -283,7 +325,7 @@ async function handleStartHistoryBackfill(
       p_company_entity_id: connection.company_entity_id,
     });
     await admin.rpc('refresh_sales_verification_store_comp_summary');
-  } else {
+  } else if (!chunkResult.cancelled && !chunkResult.superseded) {
     await updateJob(admin, connection, jobId, {
       result: { ...progress, last_chunk: chunkResult.chunk },
     });
@@ -325,8 +367,10 @@ async function handleHistoryChunk(
   const nextState = chunkResult.state as Record<string, unknown>;
   const progress = buildProgress(nextState);
 
+  const finished = chunkResult.done && !chunkResult.cancelled && !chunkResult.superseded;
+
   if (activeJobId) {
-    if (chunkResult.done) {
+    if (finished) {
       await updateJob(admin, connection, activeJobId, {
         status: 'success',
         finished_at: new Date().toISOString(),
@@ -336,7 +380,9 @@ async function handleHistoryChunk(
         p_company_entity_id: connection.company_entity_id,
       });
       await admin.rpc('refresh_sales_verification_store_comp_summary');
-    } else {
+    } else if (!chunkResult.cancelled && !chunkResult.superseded) {
+      // Writing progress over a cancelled job's result would erase the record
+      // of WHY it stopped, which is the only thing that record is for.
       await updateJob(admin, connection, activeJobId, {
         result: { ...progress, last_chunk: chunkResult.chunk },
       });
@@ -356,7 +402,10 @@ async function handleCancelHistoryBackfill(
   admin: SupabaseClient,
   connection: Record<string, unknown>,
 ) {
-  const meta = readMeta(connection);
+  // Merge onto the row as it stands: a window may have written progress since
+  // this request read the connection, and that progress must survive the
+  // cancellation (its rows are in sales_by_day).
+  const meta = (await readStoredMeta(admin, connection.id as string)) ?? readMeta(connection);
   const state = meta.history_backfill as Record<string, unknown> | undefined;
   if (!state) return { ok: true, cancelled: false };
 
@@ -372,10 +421,18 @@ async function handleCancelHistoryBackfill(
 
   const jobId = state.job_id as string | undefined;
   if (jobId) {
+    // An operator stopping an import is not a failed sync: `error` put it in
+    // every error report beside real failures, and the Node runner records the
+    // same outcome as `skipped`. The reason lives in `result`.
     await updateJob(admin, connection, jobId, {
-      status: 'error',
+      status: 'skipped',
       finished_at: new Date().toISOString(),
-      error: 'Cancelled by user',
+      result: {
+        ...buildProgress(nextState),
+        status: 'cancelled',
+        cancelled_at: nextState.cancelled_at,
+        reason: 'Cancelled by user',
+      },
     });
   }
 
