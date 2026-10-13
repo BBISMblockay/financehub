@@ -162,12 +162,6 @@ that reported them are fixed, so these are now reported as warnings instead of a
   entirely (`expectedCompanies` skips `sync_enabled = false`), which is cleaner than leaving them
   to the `client-blocked` path. Until one or the other, BlockayOps' marketing feed stays at
   2026-10-05 and reads `client-blocked` in the freshness run.
-- **A deploy is owed** for `meta-oauth-callback` (on `main`, never deployed). It is reachable only
-  from `testing/meta-oauth.html` for Meta's App Review, so it matters when that flow is next used --
-  but the Deployment drift check stays red on that row until it ships from `main` through the
-  "Deploy Edge Function" workflow. `check-function-drift.mjs` has no way to defer an "in repo, not
-  deployed" finding the way it defers a content difference, so there is no quiet middle ground yet.
-  (`shopify-sync-run` was the other one; Blake deployed it 2026-10-13 06:24 UTC.)
 
 ---
 
