@@ -12,8 +12,10 @@
  *
  * Run: node scripts/tests/integration-guides.test.mjs
  * Mutations: GUIDES_MUTATION=scope-drift (a Shopify scope dropped),
- * no-pages-show-list, no-all-orders and all-orders-first (read_all_orders asked for in the
- * first version, which Shopify rejects) must each fail. */
+ * no-pages-show-list, no-all-orders, all-orders-first (read_all_orders asked for in the
+ * first version, which Shopify rejects), remedy-ignores-method (Dev Dashboard advice for
+ * every connection type) and faq-request-access (the dead-end access request is back)
+ * must each fail. */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -24,12 +26,14 @@ import { PUBLIC_SCOPES } from '../lib/shopify-auth-lib.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const mutation = process.env.GUIDES_MUTATION || '';
-assert.ok(['', 'scope-drift', 'no-pages-show-list', 'no-all-orders', 'all-orders-first'].includes(mutation), `Unknown mutation ${mutation}`);
+assert.ok(['', 'scope-drift', 'no-pages-show-list', 'no-all-orders', 'all-orders-first', 'remedy-ignores-method', 'faq-request-access'].includes(mutation), `Unknown mutation ${mutation}`);
 
 let src = read('v2/integration-guides.js');
 if (mutation === 'scope-drift') src = src.replace("    'read_publications',\n", '');
 if (mutation === 'no-all-orders') src = src.replace(".concat(['read_all_orders'])", '');
 if (mutation === 'all-orders-first') src = src.replace("label: 'Copy scopes', value: SHOPIFY_SCOPES.join(',')", "label: 'Copy scopes', value: SHOPIFY_OWN_APP_SCOPES.join(',')");
+if (mutation === 'remedy-ignores-method') src = src.replace("if (authMethod === 'client_credentials') {", 'if (true) {');
+if (mutation === 'faq-request-access') src = src.replace('(Shopify accepts it once the app exists; there is no access request to submit)', '(request access if Shopify asks)');
 if (mutation === 'no-pages-show-list') src = src.replace("['pages_show_list', ", '[');
 const sandbox = { window: {} };
 vm.runInNewContext(src, sandbox);
@@ -108,6 +112,42 @@ t('the own-app route asks for read_all_orders (full history backfill)', () => {
   assert.match(page, /historyDays > 60 && granted\.length && !granted\.includes\('read_all_orders'\)/, 'import warns first');
 });
 
+t('the own-app guide never sends the owner to an access request', () => {
+  // A store-owned Dev Dashboard app has no access-request form; the scope is
+  // added in a later version. Steps, notes and troubleshooting all say so.
+  const g = G.resolve('shopify_dev_app', {});
+  const text = JSON.stringify({ steps: g.steps, troubleshooting: g.troubleshooting });
+  assert.doesNotMatch(text, /request access|submit the request|submit a request/i);
+  const faq = g.troubleshooting.find((f) => /60 days/.test(f.q));
+  assert.match(faq.a, /New version/);
+  assert.match(faq.a, /Install app<\/strong> again/);
+});
+
+t('the read_all_orders fix depends on whose app the connection uses', () => {
+  const own = G.allOrdersRemedy('client_credentials');
+  assert.equal(own.guide, 'shopify_dev_app');
+  assert.match(own.text, /New version/);
+  assert.match(own.text, /Install app again/);
+  // SILO's public app: the store cannot add the scope, so no Dev Dashboard steps.
+  const pub = G.allOrdersRemedy('oauth');
+  assert.equal(pub.guide, 'shopify_dev_app');
+  assert.doesNotMatch(pub.text, /New version|Install app again/);
+  assert.match(pub.text, /own app/);
+  // Legacy admin custom app (and rows from before auth_method existed).
+  for (const m of ['manual_token', null, undefined]) {
+    const legacy = G.allOrdersRemedy(m);
+    assert.equal(legacy.guide, 'shopify_token', String(m));
+    assert.match(legacy.text, /Develop apps/);
+    assert.doesNotMatch(legacy.text, /Dev Dashboard|New version/);
+  }
+  for (const k of ['shopify_dev_app', 'shopify_token']) assert.ok(G.GUIDES[k], k);
+  // Both Integrations warnings take the text and guide from allOrdersRemedy.
+  const page = read('v2/integrations.html');
+  assert.match(page, /allOrdersRemedy\?\.\(row\?\.auth_method\)/, 'store-row banner');
+  assert.match(page, /allOrdersRemedy\?\.\(conn\?\.auth_method\)/, 'history-import confirm');
+  assert.match(page, /data-guide="\$\{escHtml\(remedy\.guide\)\}"/, 'banner opens the matching guide');
+});
+
 t('ctx values are copy chips, escaped, and absent without ctx', () => {
   const evil = 'https://x.supabase.co/functions/v1/redo-webhook/"><img src=x onerror=alert(1)>';
   const html = G.render('redo', { redoWebhookUrl: evil });
@@ -123,7 +163,9 @@ t('Integrations loads the guides and every opener names a real guide', () => {
   assert.ok(page.includes('href="integration-guides.css"'));
   assert.match(page, /href="integration-setup-guides\.pdf"/, 'setup guide PDF linked from header');
   assert.match(page, /download="SILO-integration-setup-guides\.pdf"/, 'download filename set');
-  const keys = [...page.matchAll(/data-guide="([^"]+)"/g)].map((m) => m[1]);
+  // Literal openers only: the 60-day banner's guide is computed by
+  // allOrdersRemedy(), whose keys are checked in their own test.
+  const keys = [...page.matchAll(/data-guide="([^"$]+)"/g)].map((m) => m[1]);
   assert.ok(keys.length >= 5, 'openers present');
   for (const k of keys) assert.ok(G.GUIDES[k], `guide ${k} exists`);
   for (const k of ['shopify_dev_app', 'shopify_token', 'meta_ads', 'redo']) assert.ok(keys.includes(k), `${k} reachable`);
