@@ -19,7 +19,7 @@ work; see [What is not proven yet](#what-is-not-proven-yet).
 
 | # | Step | Today |
 |---|------|-------|
-| 1 | Create the organization + first admin | **Invite-gated** — Blake mints a link at `/v2/backend.html`; the prospect completes `/v2/company-onboarding.html` |
+| 1 | Create the organization + first admin | **Invite-gated** — a platform admin (blake@ or support@) mints a link at `/v2/platform-admin.html` or `/v2/backend.html`; the prospect completes `/v2/company-onboarding.html` |
 | 2 | Invite the rest of the team | **Automatic** — `/v2/backend.html` → invite link; progress tracked on `/v2/setup-checklist.html` |
 | 3 | Pick which modules they see | **Config** — `entities.meta.nav_profile`; default is the standard menu |
 | 4 | Connect Shopify | **Automatic** — `/v2/integrations.html` → OAuth |
