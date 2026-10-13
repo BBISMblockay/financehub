@@ -116,15 +116,21 @@ Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
 
 ---
 
-## support@get-silo.com is a shared-mailbox principal with cross-tenant access (P2, security)
+## support@get-silo.com: cross-tenant access through one mailbox (accepted risk, Blake 2026-10-13)
 
-Raised as P1 by the PR #968 review. Since 2026-10-13 it is a platform admin and `admin` in 14 client companies. Anyone who can
-read that mailbox can reset its SILO password and act in every one of those workspaces, and every
-action is attributed to `support@` rather than a person. SILO has no MFA (no `aal2`/TOTP anywhere in
-the login code). The reviewer's fix: one named, MFA-protected account per support operator, keep
-`support@` as a contact alias, then remove its `platform_admins` row and memberships. Needs Blake's
-decision (who operates support, whether to build MFA) before any change; until then the risk is
-only as small as the set of people who can read that inbox.
+Raised as P1 by both PR #968 review cycles. Since 2026-10-13 support@get-silo.com is a platform admin and
+`admin` in 14 client companies, so whoever can read that mailbox can reset its SILO password and act in
+every one of those workspaces, under one identity. SILO has no MFA (no `aal2`/TOTP in the login code).
+
+**Accepted by Blake on 2026-10-13:** he is the only person with access to that mailbox, so in practice
+it is a second login for one named operator, not a shared one. The control is therefore the mailbox
+itself: keep it single-user and protected by its provider's 2-step verification.
+
+**Revisit, and move to the reviewer's fix, the moment any of these is true:** anyone else gets access to
+the mailbox (an alias, a forward, a delegate, a group), support work is handed to another person, or the
+mailbox is suspected compromised. The fix: one named, non-shared SILO login per operator with the same
+memberships, then remove support@'s `platform_admins` row and memberships and keep it as a contact
+alias. MFA in SILO is separate hardening work.
 
 ## Signup confirmation links lose their destination — Supabase redirect allowlist (P2)
 
