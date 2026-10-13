@@ -4,8 +4,9 @@ Goal: a tenant connects Shopify and Meta with one click, with no Dev Dashboard a
 pasted System User token. Both need a public listing approved by the platform.
 
 **Status (2026-10-08, 19:24 UTC evidence; callback and reviewer page revisited 2026-10-13).**
-Meta: **callback live, reviewer page's 404 fixed but not merged yet, App Review reported
-submitted, approval pending** (Part 2, 2.4a, then 2.4 and 2.8 for the earlier evidence).
+Meta: **reviewer page's 404 fixed but not merged yet; the callback answers at its URL but the
+deployed revision is still unverified; App Review reported submitted, approval pending**
+(Part 2, 2.4a, then 2.4 and 2.8 for the earlier evidence).
 Shopify: implementation complete, verification pending (unchanged since 2026-10-07). Everything below is
 ADDITIVE. The current flows (typed shop domain, store-owned Dev Dashboard app, pasted
 `shpat_` / System User token) are untouched and keep working. The new code is not linked
@@ -14,8 +15,8 @@ both reviews pass.
 
 **Deployment state differs by platform.** Shopify: nothing is configured, applied or deployed.
 Meta: migration and secrets were reported configured earlier on 2026-10-08; the 2026-10-08
-inventory evidence did not support calling the OAuth flow live (2.4), but the callback answered
-its no-parameter probe on 2026-10-13 (2.4a). Submission is not
+inventory evidence did not support calling the OAuth flow live (2.4); the callback answered its
+no-parameter probe on 2026-10-13, which does not identify the deployed revision (2.4a). Submission is not
 approval (2.8). Each step marked **[Blake]** needs your approval in the session, or is something
 only you can do in a platform dashboard.
 
@@ -221,10 +222,25 @@ Pages build logs `EntryFilter: excluded /testing`
 everything else in `testing/` stays private; `scripts/tests/pages-publish-allowlist.test.mjs`
 ("Publication tests") builds the site and proves both.
 
-Blake verified on 2026-10-13 that the callback itself IS live: a no-parameter request returns the
-expected `missing_params` redirect of 2.4 step 4. Supabase's function listing suggesting otherwise
-(2.4) was misleading. **The 404 was never a deployment problem, so this is not a reason to deploy
-or redeploy `meta-oauth-callback`.** 2.4 below is kept as the record of the 2026-10-08 evidence.
+**The 404 was never a deployment problem, so it is not a reason to deploy or redeploy
+`meta-oauth-callback`.** It is also not evidence that the deployed callback supports the review
+flow, and the two must not be collapsed. Blake's no-parameter probe on 2026-10-13 returned the
+expected `missing_params` redirect, so SOMETHING answers at the callback URL and Supabase's
+function listing (2.4) was misleading about that. It cannot say WHICH revision answers: that early
+return has been byte-identical since the original pre-review callback (`2657353`,
+`if (!code || !state) return fail('missing_params')`), and with no `state` the redirect target is
+`/v2/integrations.html` in both revisions, so a production still running the pre-review callback
+passes the same probe. The review flow needs what `2d504eb` added - recognising an `rt_` state,
+returning to `/testing/meta-oauth.html`, and re-checking the allow-listed workspace, the caller's
+active company and their admin role BEFORE exchanging the code
+(`meta-oauth-callback/handler.mjs`) - so on a pre-review deployment a reviewer could start OAuth
+and be returned to Integrations, or have the review state handled by the old logic.
+
+**Still open [Blake], and not closed by this page being published:** before Meta's reviewer runs the
+flow, prove the deployed callback matches the review-supporting source on `main` - a green
+`deployment-drift-check.yml` for `meta-oauth-callback`, an exact source comparison, or one
+`rt_` round trip in the allow-listed workspace. Until then 2.4's deploy/verification dependency
+stands. 2.4 below is kept as the record of the 2026-10-08 evidence.
 
 ### 2.4 Callback deployment gap - 2026-10-08
 
