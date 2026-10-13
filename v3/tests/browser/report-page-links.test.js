@@ -62,7 +62,10 @@ const { startSuite, FIXTURES, REPO_ROOT } = require('../lib/harness');
     await page.goto(`${suite.BASE}/v3/dashboards.html?tab=silo`);
     await page.waitForFunction(() => document.getElementById('siloBody').textContent.includes('fixture unavailable'));
     assert.equal(await page.isHidden('#tab-silo'), false);
-    assert.equal(await page.locator('#siloBody .lib-card').count(), 0);
+    // Saved reports failed to load, so only the page links remain: the four
+    // offered to standard workspaces, never Daily Sales Trend or Top Sellers.
+    assert.deepEqual(await page.locator('#siloBody .lib-card').evaluateAll(cs => cs.map(c => c.dataset.id).sort()),
+      ['reports/product-search', 'reports/product-types', 'reports/sales-overview', 'reports/sales-report']);
     assert.equal((await page.textContent('#hubTitle')).trim(), 'Reports');
     assert.deepEqual(errors, []);
     console.log('PASS report links, search, non-exec discovery, load failure, standard workspace');
