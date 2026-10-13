@@ -1,0 +1,106 @@
+# Two-step login (authenticator app)
+
+Added 2026-10-13. Opt-in per user. **Setup is closed in production** until
+the database enforces the code (see "Limit" below): My profile offers
+"Turn on" only when `pages/config.js` sets `MFA_ENROLLMENT_OPEN: true`, and
+production leaves it unset. The code steps on login and set-password are
+live regardless, but they only act for an account that already holds a
+verified factor, and none does (0 on 2026-10-13). Code: `pages/mfa.js` (shared helpers),
+`pages/login.html`, `pages/set-password.html`, `v2/profile.html`.
+Tests: `v2/tests/unit/mfa-helpers.test.js`, `v2/tests/browser/login-two-step.test.js`,
+`v2/tests/browser/profile-two-step.test.js`.
+
+## What a user sees
+
+- **Turning it on** (once `MFA_ENROLLMENT_OPEN` is set): My profile → Two-step login → Turn on. Scan the QR code
+  in any authenticator app (Google Authenticator, 1Password, Authy, Microsoft
+  Authenticator), enter the first code. It is on from then.
+- **Signing in:** password (or email link) as before, then a 6-digit code.
+  The code step sits before any invite is redeemed or company resolved.
+- **Password reset / change:** `set-password.html` asks for the code before
+  showing the new-password form.
+- **Turning it off:** My profile → Turn off (two clicks). Needs a session that
+  entered its code; Supabase refuses otherwise and the page says so.
+
+Accounts that never turn it on see no change anywhere. If Supabase's
+assurance call fails, an account with no verified factor is let through as
+before, and an account with one is asked for its code.
+
+## Supabase settings it relies on
+
+Authentication → Multi-Factor → TOTP (App Authenticator). Supabase Auth gates
+**enrollment** and **verification** separately (`MFA_TOTP_ENROLL_ENABLED` /
+`MFA_TOTP_VERIFY_ENABLED` server-side). It was **Enabled** (both) on
+2026-10-13, which means anyone signed in can enroll through the Auth API
+directly, whatever `MFA_ENROLLMENT_OPEN` says. The browser flag only hides the
+button (PR #970 review, cycle 2). **Set to verify-only ("Verify Enabled") by Blake
+on 2026-10-13 ~21:20 UTC**: an enroll call is now refused with 422
+`mfa_totp_enroll_not_enabled`, and password sign-in is unchanged (both checked live).
+
+**Until the database enforcement ships, set TOTP so enrollment is off and
+verification stays on** (the dashboard's verify-only option). This is the gate
+the server actually holds. It changes nothing for current users (0 factors),
+and the login code step keeps working for any account that already has one.
+Opening the feature means switching enrollment back on **and** setting
+`MFA_ENROLLMENT_OPEN: true`. Phone/SMS stays disabled. "Limit duration of AAL1
+sessions" was showing ON in the dashboard. On 2026-10-13, 67 of 86 aal1
+sessions had refreshed more than an hour after creation, so the setting is
+not ending password-only sessions for accounts without a factor. Whether it
+applies to enrolled accounts is unverified.
+
+## Lost phone: resetting a user
+
+There are no recovery codes, so an admin with Supabase access resets the user
+after confirming their identity out of band. This is a production data change,
+so it needs Blake. Do the steps **in this order**. Removing the factor alone
+leaves the lost device signed in: its refresh token keeps minting access
+tokens (PR #970 review).
+
+1. **Revoke every session first.** In production, `refresh_tokens.session_id`
+   references `sessions` with `ON DELETE CASCADE` (checked 2026-10-13), so
+   this also kills every refresh token:
+   ```sql
+   delete from auth.sessions where user_id = '<user uuid>';
+   select count(*) from auth.sessions where user_id = '<user uuid>';        -- expect 0
+   select count(*) from auth.refresh_tokens where user_id = '<user uuid>'::text
+     and revoked = false;                                                    -- expect 0
+   ```
+   Access tokens that were already issued stay valid until they expire (the
+   project's JWT expiry, 1 hour by default). Revoking sessions stops renewal,
+   not tokens already handed out.
+2. **If the phone may also hold the password** (saved in a browser or password
+   manager), reset the password too: Authentication → Users → the user → send
+   a password recovery email.
+3. **Remove the factor.** Prefer the supported Admin API,
+   `supabase.auth.admin.mfa.deleteFactor({ userId, id })`, or the dashboard
+   (Authentication → Users → the user). The raw fallback:
+   ```sql
+   delete from auth.mfa_factors where user_id = '<user uuid>';
+   select count(*) from auth.mfa_factors where user_id = '<user uuid>';     -- expect 0
+   ```
+
+The user then signs in with their password alone and can turn two-step login
+on again with a new phone.
+
+## Limit: the front door only (open)
+
+The code is enforced by the sign-in and password pages, not by the database.
+After a correct password, the session already exists at `aal1`. Someone who
+knows the password and goes straight to an app URL instead of entering the
+code still reads whatever RLS allows. Until the database check below is
+applied, don't tell customers that two-step login is *enforced*.
+
+Don't set `MFA_ENROLLMENT_OPEN` until this ships. Next step (migration, needs Blake's approval to apply): a restrictive RLS
+policy on every RLS table, plus `storage.objects`, that refuses `aal1` only
+for users holding a verified factor:
+
+```sql
+-- sketch, not applied
+(select coalesce(auth.jwt()->>'aal', 'aal1')) = 'aal2'
+  or not exists (select 1 from auth.mfa_factors f
+                 where f.user_id = (select auth.uid()) and f.status = 'verified')
+```
+
+That still leaves SECURITY DEFINER RPCs and edge functions that check
+`auth.getUser()` and then use the service role. Each one needs its own `aal`
+check, or must be shown not to need one.

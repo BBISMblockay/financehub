@@ -35,7 +35,12 @@
   // backfills full history. Only SILO's PUBLIC app has to wait for Shopify to
   // approve that scope (hence its absence from PUBLIC_SCOPES). Without it the
   // Admin API returns just the last 60 days of orders, silently, so a history
-  // import looks complete and is not. The own-app route therefore asks for it.
+  // import looks complete and is not. The own-app route therefore asks for it --
+  // but in a SECOND version: the Dev Dashboard rejects read_all_orders on a
+  // brand-new app ("Contains invalid scopes"). The order that worked, and the
+  // only one verified (State Forty Eight, 2026-10-13): v1 with the eight,
+  // release, INSTALL, then silo-2 adding read_all_orders, release, Install
+  // app again, Test -> full history. The guide follows it step for step.
   const SHOPIFY_OWN_APP_SCOPES = SHOPIFY_SCOPES.concat(['read_all_orders']);
   // Deep links verified 2026-10-05: each resolves to Meta login with ?next= pointing
   // at the same path (business.facebook.com/settings/*, developers.facebook.com/apps).
@@ -83,19 +88,22 @@
           link: { href: 'https://dev.shopify.com/dashboard', label: 'Open Dev Dashboard' },
         },
         {
-          title: 'Create an app',
-          body: 'Choose <strong>Create app</strong> and name it anything (e.g. <code>SILO</code>).',
-        },
-        {
-          title: 'Give it read-only access, then release',
-          body: 'Create a new <strong>version</strong> of the app. Under access scopes, add each of these, then <strong>Release</strong> the version. All are read-only; SILO cannot change anything in your store.',
-          copy: [{ label: 'Copy all scopes', value: SHOPIFY_OWN_APP_SCOPES.join(',') }],
-          scopes: SHOPIFY_OWN_APP_SCOPES,
-          note: '<strong>Don\'t skip <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders, so SILO cannot import your sales history. If Shopify asks you to request access to it, submit the request before releasing.',
+          title: 'Create an app with read-only access',
+          body: 'Choose <strong>Create app</strong>, name it anything (e.g. <code>SILO</code>), paste these scopes, then create and <strong>Release</strong> it. All are read-only; SILO cannot change anything in your store.',
+          copy: [{ label: 'Copy scopes', value: SHOPIFY_SCOPES.join(',') }],
+          scopes: SHOPIFY_SCOPES,
+          note: 'Leave <code>read_all_orders</code> out of this first version: Shopify rejects it on a brand-new app (&ldquo;Contains invalid scopes&rdquo;). It goes in after the app is installed, two steps on.',
         },
         {
           title: 'Install the app on the store',
           body: 'From the app\'s overview choose <strong>Install app</strong> and pick this store. Approve the access prompt.',
+        },
+        {
+          title: 'Add full order history in a second version',
+          body: 'Open the app\'s <strong>Versions</strong>, choose <strong>New version</strong>, use these scopes (the same list plus <code>read_all_orders</code>) and <strong>Release</strong> it. Then choose <strong>Install app</strong> again so the store approves the new scope.',
+          copy: [{ label: 'Copy all scopes', value: SHOPIFY_OWN_APP_SCOPES.join(',') }],
+          scopes: SHOPIFY_OWN_APP_SCOPES,
+          note: '<strong>Don\'t skip <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders, so SILO cannot import your sales history.',
         },
         {
           title: 'Copy the Client ID and Client secret',
@@ -113,8 +121,8 @@
       ],
       troubleshooting: [
         { q: 'Shopify refused the app / "shop and app must belong to the same organization"', a: 'The app was created while signed in to a different Shopify organization. Sign in as the store owner, create the app again from the Dev Dashboard, and use the new Client ID and secret.' },
-        { q: 'The store row warns about missing scopes', a: 'Add the missing scope in a new app version, release it, approve the update in the store admin if Shopify asks, then click <strong>Re-test</strong> in SILO.' },
-        { q: 'The store row says order history is limited to 60 days', a: 'The app is missing <code>read_all_orders</code>. In the Dev Dashboard, add it to a new app version (request access if Shopify asks), release it, approve the update in the store admin, then click <strong>Re-test</strong> in SILO. Run the history import <em>after</em> the warning is gone — an import started without it only reaches 60 days back.' },
+        { q: 'The store row warns about missing scopes', a: 'In the Dev Dashboard, add the missing scope in a <strong>New version</strong> and release it, then choose <strong>Install app</strong> again so the store approves it, then click <strong>Re-test</strong> in SILO.' },
+        { q: 'The store row says order history is limited to 60 days', a: 'The app is missing <code>read_all_orders</code>. In the Dev Dashboard, add it in a <strong>New version</strong> and release it (Shopify accepts it once the app is installed; there is no access request to submit), choose <strong>Install app</strong> again so the store approves it, then click <strong>Re-test</strong> in SILO. Run the history import <em>after</em> the warning is gone — an import started without it only reaches 60 days back.' },
       ],
       action: { id: 'shopify_form', label: 'Go to the Shopify form' },
     },
@@ -132,7 +140,8 @@
         {
           title: 'Check its access',
           body: 'Under <strong>Configuration</strong>, the Admin API access should include these read scopes:',
-          scopes: SHOPIFY_SCOPES,
+          scopes: SHOPIFY_OWN_APP_SCOPES,
+          note: '<strong>Include <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders. If you add it now, save the configuration and Test the row in SILO again.',
         },
         {
           title: 'Copy the Admin API access token',
@@ -145,6 +154,7 @@
       ],
       troubleshooting: [
         { q: '"Develop apps" is missing from the admin', a: 'The store has no legacy custom app and can no longer create one. Use <strong>Connect with your store\'s own app</strong>.' },
+        { q: 'The store row says order history is limited to 60 days', a: 'The custom app is missing <code>read_all_orders</code>. In the store admin open <strong>Develop apps</strong>, then the app\'s <strong>Configuration</strong>, tick <code>read_all_orders</code> under Admin API scopes and save, then click <strong>Re-test</strong> in SILO before importing history.' },
       ],
       action: { id: 'shopify_token_form', label: 'Go to the token field' },
     },
@@ -532,12 +542,54 @@
     return true;
   }
 
+  // What to tell a store whose connection lacks read_all_orders. It depends on
+  // whose app the connection uses (shopify_connections.auth_method):
+  //   client_credentials -- the store's own Dev Dashboard app: add the scope in
+  //                         a New version, Install app again, Re-test.
+  //   oauth              -- SILO's public app, which does not carry the scope
+  //                         until Shopify grants it: the store cannot add it,
+  //                         and it cannot switch itself to its own app either --
+  //                         shopify-connect-dev-app refuses a store already
+  //                         connected another way, and Remove fails once orders
+  //                         have synced (shopify_orders' FK has no ON DELETE).
+  //                         So the text names SILO support, not a self-serve step.
+  //   manual_token       -- a legacy admin custom app: its Admin API scopes are
+  //                         edited in the store admin, not the Dev Dashboard.
+  //   null / anything else -- UNKNOWN, not "legacy token": 20260928120000 added
+  //                         the column without a backfill, and OAuth connections
+  //                         predate it, so a NULL row may be either. Name both
+  //                         routes rather than guess one (PR #973 review).
+  function allOrdersRemedy(authMethod) {
+    if (authMethod === 'client_credentials') {
+      return {
+        guide: 'shopify_dev_app',
+        text: 'Add it to the app in a New version in Shopify\'s Dev Dashboard, release it, choose Install app again so the store approves it, then Re-test.',
+      };
+    }
+    if (authMethod === 'oauth') {
+      return {
+        guide: 'shopify_dev_app',
+        text: 'SILO\'s Shopify app cannot request it yet, so this store is limited to the last 60 days. Moving it to the store\'s own app is done by SILO support; contact support to arrange it.',
+      };
+    }
+    if (authMethod === 'manual_token') {
+      return {
+        guide: 'shopify_token',
+        text: 'In the store admin, open Settings \u2192 Apps and sales channels \u2192 Develop apps, add read_all_orders to the custom app\'s Admin API scopes and save, then Re-test.',
+      };
+    }
+    return {
+      guide: 'shopify_dev_app',
+      text: 'SILO has no record of which app this store connects through. If it is the store\'s own Dev Dashboard app, add read_all_orders in a New version and Install app again; if it is a token from the store admin\'s Develop apps, add it there. Then Re-test. If neither applies, contact SILO support.',
+    };
+  }
+
   const api = {
     GUIDES, SHOPIFY_SCOPES, SHOPIFY_OWN_APP_SCOPES,
     META_BUSINESS_SETTINGS, META_SYSTEM_USERS, META_PORTFOLIO_APPS, META_DEVELOPERS_APPS, META_SYSTEM_USER_HELP,
     META_ADS_SCOPES, META_ORGANIC_SCOPES, REDO_MARKETING_SCOPES,
     ONBOARDING_PRINT_ORDER,
-    resolve, render, renderGuidePrint, renderOnboardingDocument, copyValues, open,
+    resolve, render, renderGuidePrint, renderOnboardingDocument, copyValues, open, allOrdersRemedy,
     keys: () => Object.keys(GUIDES),
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

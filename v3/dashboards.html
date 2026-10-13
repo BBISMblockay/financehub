@@ -717,7 +717,8 @@
     companyId = company?.id || null;
     navProfile = window.SiloNav?.resolveNavProfile?.(company) || 'standard';
     reportsEnabled = true;
-    reportPages = navProfile === 'grandfathered' ? (window.SiloNav?.SALES_REPORT_PAGES || []) : [];
+    reportPages = (window.SiloNav?.SALES_REPORT_PAGES || [])
+      .filter((p) => (p.profiles || ['grandfathered']).includes(navProfile));
 
     if (navProfile === 'standard') {
       // Shared reading is separate from custom report management. The explicit

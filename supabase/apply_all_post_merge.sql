@@ -19216,4 +19216,7 @@ $c$select (select count(*) from v_po_header_summary
 -- 20260927190000_ad_studio.sql, whose ad_ideas it references.
 \i migrations/20261013120000_marketing_tests.sql
 \i migrations/20261013180000_report_email_schedules.sql
+-- Shopify order facts unique PER COMPANY, so one store can sync into two
+-- companies without moving either one's orders.
+\i migrations/20261013220000_shopify_order_facts_per_company.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

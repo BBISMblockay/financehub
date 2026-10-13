@@ -115,7 +115,7 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
       return fulfillVideo(route, await readFile(path.join(root, 'assets/landing/silo-hero-motion.mp4')));
     }
     const relative = url.pathname.slice(1);
-    const allowed = [PAGE, 'pages/login.html', 'v2/beacon.css', 'v2/silo-brand.css',
+    const allowed = [PAGE, 'pages/login.html', 'pages/mfa.js', 'v2/beacon.css', 'v2/silo-brand.css',
       'legal/privacy.html', 'assets/landing/early-access.js', P.css,
       'assets/landing/redo-welcome-motion.js'];
     if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative)

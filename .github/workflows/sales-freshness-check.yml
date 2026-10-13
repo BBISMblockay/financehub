@@ -78,10 +78,32 @@ jobs:
           FAIL_ON_STALE: 'false'
         run: node scripts/check-sales-freshness.mjs
 
+      # continue-on-error on both heal steps, deliberately. A heal that throws
+      # is NOT this job's verdict -- the verify pass below is, because the
+      # question this workflow answers is "is the data fresh", not "did the
+      # re-sync process exit 0". Before 2026-10-13 a heal that exited 1 turned
+      # the job red even when the data came back fresh, and the marketing heal
+      # exited 1 on EVERY run (see the env note below), so the job was red
+      # continuously from 2026-10-05 to 2026-10-13 -- about 30 scheduled runs.
+      # A check that is always red reports nothing. The heal's own outcome is
+      # still surfaced, by name, in the summary step at the end.
       - name: Re-sync sales (stale)
+        id: heal_sales
+        continue-on-error: true
         if: ${{ steps.check.outputs.sales_stale == 'true' && github.event.inputs.heal != 'false' }}
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+          # Which failure policy applies, exactly as in shopify-sync.yml. With
+          # this unset, sync-plan.mjs's isManualRun() defaults to TRUE ("no
+          # RUN_KIND means somebody is watching"), so a scheduled heal was
+          # judged by the hand-dispatch rule: any requested stage that did not
+          # complete exits 1. Bat Nutz is missing read_shopify_payments_payouts
+          # and read_draft_orders, which scope-skip two stages on EVERY run, so
+          # the heal reported `failure` every single time -- naming a broken
+          # heal path in the verdict when the heal had in fact re-synced every
+          # feed it could. A scheduled run is non-fatal for a stage only the
+          # store owner can unblock.
+          SHOPIFY_RUN_KIND: ${{ github.event_name }}
           SHOPIFY_SYNC_MODE: incremental
           # Sales and inventory only. The heal exists to close a freshness gap,
           # not to redo catalog paging and the per-day ShopifyQL loops.
@@ -93,12 +115,102 @@ jobs:
         run: node scripts/shopify-sync.mjs
 
       - name: Re-sync marketing (stale)
+        id: heal_marketing
+        continue-on-error: true
         if: ${{ steps.check.outputs.marketing_stale == 'true' && github.event.inputs.heal != 'false' }}
+        # The three Google secrets are REQUIRED here, exactly as in
+        # ad-platforms-sync.yml. Without them scripts/ad-platforms-sync.mjs
+        # cannot redeem a per-connection refresh token, so every google_ads,
+        # ga4 and search_console connection comes back
+        # {"skipped": "google_env_missing"} and the script exits 1. This step
+        # had no env block at all, which made the marketing heal structurally
+        # unable to repair a Google feed -- the only kind of marketing feed
+        # there is. Measured on run 38341584392 (2026-10-13 03:29 UTC): three
+        # google_env_missing skips, exit 1, while the verify pass correctly
+        # reported company e6184b57 seven days behind. Meta and TikTok
+        # credentials live on the connection rows, so these three are the
+        # whole set the script reads beyond the Supabase pair.
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_ADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
         run: node scripts/ad-platforms-sync.mjs
 
-      # Second pass VERIFIES, and fails for real. If the heal worked this is a
-      # no-op; if it did not, this is the alarm, and the log above shows what
-      # the re-sync actually did.
+      # Second pass VERIFIES. If the heal worked this is a no-op; if it did
+      # not, this is the alarm, and the log above shows what the re-sync
+      # actually did. It does not fail the job directly -- the summary step
+      # below owns the exit code, so that it can say WHICH of the three
+      # outcomes happened before the job goes red.
       - name: Verify freshness after heal
+        id: verify
+        continue-on-error: true
         if: ${{ always() && steps.check.outcome == 'success' }}
         run: node scripts/check-sales-freshness.mjs
+
+      # The verdict, and the one place that distinguishes "stale and healed"
+      # from "stale and could not heal". Both are worth knowing and only one
+      # of them is worth waking somebody for: if the data is fresh by the end
+      # of this job then nothing is owed, even if the re-sync was noisy on the
+      # way there -- but a heal that errored is named explicitly so a broken
+      # heal path cannot hide behind a feed that recovered on its own.
+      - name: Freshness verdict
+        if: ${{ always() }}
+        env:
+          CHECK: ${{ steps.check.outcome }}
+          SALES_STALE: ${{ steps.check.outputs.sales_stale }}
+          MARKETING_STALE: ${{ steps.check.outputs.marketing_stale }}
+          HEAL_SALES: ${{ steps.heal_sales.outcome }}
+          HEAL_MARKETING: ${{ steps.heal_marketing.outcome }}
+          VERIFY: ${{ steps.verify.outcome }}
+          HEAL_REQUESTED: ${{ github.event.inputs.heal != 'false' }}
+        run: |
+          # GITHUB_STEP_SUMMARY is always set by Actions; the default keeps this
+          # block runnable outside it, since this step owns the job's exit code
+          # and must not fail for a reason of its own.
+          : "${GITHUB_STEP_SUMMARY:=/dev/null}"
+          say() { echo "$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
+
+          say "### Data freshness"
+          say ""
+
+          if [ "$CHECK" != "success" ]; then
+            say "The freshness check itself did not complete (\`$CHECK\`) — no feed was assessed."
+            say "This is the check being broken, not a verdict about the data."
+            exit 1
+          fi
+
+          feed () {
+            local label="$1" stale="$2" heal="$3"
+            if [ "$stale" != "true" ]; then
+              say "- **$label**: fresh, no re-sync needed"
+            elif [ "$HEAL_REQUESTED" != "true" ]; then
+              say "- **$label**: STALE, heal disabled for this run (reporting only)"
+            elif [ "$heal" = "success" ]; then
+              say "- **$label**: was stale, re-sync ran and completed"
+            elif [ "$heal" = "failure" ]; then
+              say "- **$label**: was stale, and the re-sync ITSELF FAILED — see its step log"
+            else
+              say "- **$label**: was stale, re-sync did not run (\`$heal\`)"
+            fi
+          }
+          feed sales "$SALES_STALE" "$HEAL_SALES"
+          feed marketing "$MARKETING_STALE" "$HEAL_MARKETING"
+          say ""
+
+          if [ "$VERIFY" = "failure" ]; then
+            if [ "$HEAL_REQUESTED" != "true" ]; then
+              say "**Verdict: STALE, and healing was disabled for this run.** The verify step names the feed."
+            else
+              say "**Verdict: STALE after the heal.** A feed is still behind — the verify step names which."
+            fi
+            exit 1
+          fi
+
+          if [ "$HEAL_SALES" = "failure" ] || [ "$HEAL_MARKETING" = "failure" ]; then
+            say "**Verdict: fresh, but a re-sync failed on the way.** The data is within the allowed lag,"
+            say "so nothing is owed on the numbers — but the heal path above is broken and will not"
+            say "rescue the next dropped sync. Fix it before relying on it."
+            exit 0
+          fi
+
+          say "**Verdict: fresh.**"

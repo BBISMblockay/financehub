@@ -87,6 +87,22 @@ failure sees nothing.
 
 ---
 
+## Two-step login is enforced by the sign-in pages, not the database (P2)
+
+Opt-in two-step login shipped 2026-10-13 ([two-step-login.md](two-step-login.md)). The code is asked for
+by `pages/login.html` and `pages/set-password.html`. After a correct password the session already exists
+at `aal1`, so an enrolled user's password alone, taken straight to an app URL, still reads what RLS
+allows. Fix: a restrictive `aal2`-for-enrolled-users policy on every RLS table and `storage.objects`,
+plus `aal` checks in SECURITY DEFINER RPCs and service-role edge functions (migration and deploy, so
+Blake's approval). Until then setup stays closed: `MFA_ENROLLMENT_OPEN` is unset in `pages/config.js`,
+which only hides the button. The server-side gate is Supabase Auth → Multi-Factor → TOTP set to
+verification-only (enrollment off). Set by Blake 2026-10-13 ~21:20 UTC ("Verify Enabled") and checked:
+an enroll call from a signed-in session is refused 422 `mfa_totp_enroll_not_enabled`, password sign-in
+still lands in the app, and `auth.mfa_factors` holds 0 rows.
+Two-step login isn't something to offer customers yet.
+
+---
+
 ## Security audit 2026-10-08: items not fixed in the fix PR (P2)
 
 Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
@@ -115,6 +131,49 @@ Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
 - **`chat_run_readonly_query`** was not reviewed for read-only bypasses in this audit.
 
 ---
+
+## Shopify order facts are keyed without the company (P2, guarded)
+
+`shopify_orders (shop_domain, order_id)`, `shopify_order_lines (shop_domain, order_id, line_item_id)`,
+`shopify_draft_orders (shop_domain, draft_order_id)` and `shopify_payouts (payout_id)` are unique with
+no `company_entity_id`, and every sync upserts on those keys with the service role. A store connected
+under two companies therefore does not get a copy per company: the second company's sync REWRITES the
+rows' `company_entity_id`, moving the orders between tenants (`sales_by_day` and `inventory_on_hand` hash
+the company into their key and are not affected). Live 2026-10-13: baseballismmlb's orders are held by
+Baseballism and the store is also connected under BlockayOps; baseballismchicago and baseballismdsg are
+connected under Baseballism and Test Company and hold no order facts under either, so the guard below
+does not protect them -- the first company to write their orders owns them.
+
+**Guarded since PR #971**: `scripts/lib/shopify-tenant-guard.mjs` refuses to sync a store whose order
+facts another company already holds -- in the nightly and the first-import job (`scripts/shopify-sync.mjs`),
+the manual orders backfill (`scripts/shopify-orders-backfill.mjs`), and `shopify-sync-run`'s two history
+actions (needs a deploy to take effect there). Two companies importing a never-synced store at the same
+moment can both pass it.
+
+**Fix written, not live** (`20261013220000_shopify_order_facts_per_company.sql`,
+`scripts/lib/shopify-order-fact-keys.mjs`): the four keys gain `company_entity_id`, every order-fact
+upsert goes through `upsertOrderFact` (per-company key, old key only while the migration is unapplied),
+and the guard stands aside once `shopify_order_facts_keyed_by_company()` is true. Live only after, IN THIS
+ORDER: merge, deploy `shopify-sync-run` and `ad-platform-sync-run`, apply the migration (Blake's approval;
+outside the sync window). Move this entry to the CHANGELOG then. Until then BlockayOps' baseballismmlb
+connection stays refused.
+
+## support@get-silo.com: cross-tenant access through one mailbox (accepted risk, Blake 2026-10-13)
+
+Raised as P1 by both PR #968 review cycles. Since 2026-10-13 support@get-silo.com is a platform admin and
+`admin` in 14 client companies (plus owner of State Forty Eight), and its department is `finance`, so it
+holds journal-entry authority in all of them. Whoever can read that mailbox can reset its SILO password and
+act in every one of those workspaces, money included, under one identity. SILO has no MFA (no `aal2`/TOTP in the login code).
+
+**Accepted by Blake on 2026-10-13:** he is the only person with access to that mailbox, so in practice
+it is a second login for one named operator, not a shared one. The control is therefore the mailbox
+itself: keep it single-user and protected by its provider's 2-step verification.
+
+**Revisit, and move to the reviewer's fix, the moment any of these is true:** anyone else gets access to
+the mailbox (an alias, a forward, a delegate, a group), support work is handed to another person, or the
+mailbox is suspected compromised. The fix: one named, non-shared SILO login per operator with the same
+memberships, then remove support@'s `platform_admins` row and memberships and keep it as a contact
+alias. MFA in SILO is separate hardening work.
 
 ## Signup confirmation links lose their destination — Supabase redirect allowlist (P2)
 
@@ -146,7 +205,7 @@ redeploy.
 
 ---
 
-## Two client ad accounts are dead, and one edge-function deploy is owed (P2)
+## Two client ad accounts are dead (P2)
 
 Found 2026-10-13 while clearing the red GitHub Actions. Neither is a code defect; the workflows
 that reported them are fixed, so these are now reported as warnings instead of as failures.
@@ -162,12 +221,6 @@ that reported them are fixed, so these are now reported as warnings instead of a
   entirely (`expectedCompanies` skips `sync_enabled = false`), which is cleaner than leaving them
   to the `client-blocked` path. Until one or the other, BlockayOps' marketing feed stays at
   2026-10-05 and reads `client-blocked` in the freshness run.
-- **A deploy is owed** for `meta-oauth-callback` (on `main`, never deployed). It is reachable only
-  from `testing/meta-oauth.html` for Meta's App Review, so it matters when that flow is next used --
-  but the Deployment drift check stays red on that row until it ships from `main` through the
-  "Deploy Edge Function" workflow. `check-function-drift.mjs` has no way to defer an "in repo, not
-  deployed" finding the way it defers a content difference, so there is no quiet middle ground yet.
-  (`shopify-sync-run` was the other one; Blake deployed it 2026-10-13 06:24 UTC.)
 
 ---
 

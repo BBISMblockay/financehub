@@ -18,6 +18,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { ensureShopifyAccessToken } from './lib/shopify-auth-lib.mjs';
 import { connectionReadyForSync } from './lib/shopify-scopes.mjs';
+import { orderFactsHeldElsewhere } from './lib/shopify-tenant-guard.mjs';
 import {
   DEFAULT_API_VERSION,
   DEFAULT_CHUNK_DAYS,
@@ -109,6 +110,12 @@ async function loadConnections() {
 }
 
 async function backfillConnection(connection) {
+  // Order facts are keyed without the company: backfilling a store whose
+  // orders another company holds would MOVE them (lib/shopify-tenant-guard.mjs).
+  // Refused before anything is fetched; the caller records it as this store's
+  // error and the run exits 1.
+  const guard = await orderFactsHeldElsewhere(supabase, connection);
+  if (guard.blocked) throw new Error(`not backfilled -- ${guard.reason}`);
   // A client-credentials connection (the store's own Dev Dashboard app) holds a
   // 24-hour token: mint a fresh one before any request. A no-op for every
   // other connection. A refusal fails THIS store only -- the caller catches it.

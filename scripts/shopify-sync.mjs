@@ -7,6 +7,7 @@ import {
   connectionReadyForSync,
 } from './lib/shopify-scopes.mjs';
 import { buildSyncPlan, runOutcomeReport, shouldRecordSkippedJob } from './lib/sync-plan.mjs';
+import { orderFactsHeldElsewhere } from './lib/shopify-tenant-guard.mjs';
 import { landingPagesProgress, landingPagesCoverage } from './lib/sync-reporting.mjs';
 import {
   DEFAULT_CHUNK_DAYS,
@@ -248,10 +249,24 @@ async function syncConnection(connection) {
         historyDays: days,
         chunkDays: HISTORY_CHUNK_DAYS,
       });
-      await finishJob(jobId, 'success', result);
-      results.jobs.push(result);
-      record(connection, 'history_import', 'success');
-      console.log(`[ok] ${connection.shop_domain} history_import: ${result.sales_rows_total} sales rows`);
+      // An operator cancelled it mid-import: not a success (the window plan is
+      // unfinished) and not an error (nothing failed). Recording it as
+      // `success` would let the next run resume a plan the record calls
+      // complete; the reason lives in `result.status`.
+      if (result.status === 'cancelled') {
+        await finishJob(jobId, 'skipped', result);
+        results.jobs.push(result);
+        record(connection, 'history_import', 'skipped', 'cancelled by operator');
+        console.log(`[cancelled] ${connection.shop_domain} history_import at window ${result.windows_done}/${result.windows_total}`);
+      } else {
+        await finishJob(jobId, 'success', result);
+        results.jobs.push(result);
+        record(connection, 'history_import', 'success');
+        console.log(`[ok] ${connection.shop_domain} history_import: ${result.sales_rows_total} sales rows`);
+        if (result.plan_mismatch) {
+          console.log(`[warn] ${connection.shop_domain} history_import resumed a stored ${result.history_days}-day plan; the requested ${result.requested_days} days were NOT applied (pass replan to change the plan)`);
+        }
+      }
     } catch (err) {
       await finishJob(jobId, 'error', { error: err.message || String(err) });
       record(connection, 'history_import', 'error', err.message || String(err));
@@ -565,6 +580,27 @@ async function main() {
 
   for (const connection of connections) {
     console.log(`[shopify-sync] → ${connection.shop_domain}`);
+    // Never sync a store whose order facts another company already holds:
+    // those tables are keyed without the company, so the upsert would MOVE
+    // that company's orders into this one (lib/shopify-tenant-guard.mjs).
+    const guard = await orderFactsHeldElsewhere(supabase, connection);
+    if (guard.blocked) {
+      const msg = `${connection.shop_domain} (company ${connection.company_entity_id}, connection ${connection.id}): not synced -- ${guard.reason}`;
+      // A run aimed at this one connection (a first import from the
+      // bootstrap queue), any hand dispatch, and a check that could not be
+      // made at all (the guard fails closed, so the store did not sync) all
+      // fail the run. Only a scheduled run that found a store genuinely held
+      // by another company carries on with a warning: that is a standing
+      // configuration, not something a red run every night would fix.
+      if (ONLY_CONNECTION_ID || PLAN.manual || !guard.heldBy) {
+        hadError = true;
+        console.error(`[error] ${msg}`);
+      } else {
+        console.log(`::warning title=Shopify store held by another company::${msg}`);
+      }
+      allResults.push({ shop_domain: connection.shop_domain, skipped: 'held_by_another_company', reason: guard.reason });
+      continue;
+    }
     try {
       allResults.push(await syncConnection(connection));
     } catch (err) {
