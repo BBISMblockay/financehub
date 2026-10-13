@@ -27,9 +27,13 @@
 -- the second a reason to pick it up. A lease distinguishes them by expiry,
 -- and claim_integration_bootstrap_jobs() takes it inside one UPDATE ...
 -- RETURNING, so two simultaneous claims cannot both get the same row.
--- `skip locked` is deliberately NOT used: a row whose lease has expired must
--- be claimable by the next drainer, and a locked row is one another
--- transaction is mid-claim on, which the lease predicate already excludes.
+-- The subquery takes `for update skip locked` as well, which skips only a row
+-- another transaction is mid-claim on RIGHT NOW. Without it, two simultaneous
+-- claims can select the same id and the second one's safety rests on Postgres
+-- re-evaluating the outer qual against the updated row after the lock is
+-- released -- true, but subtle enough that it should not be what stands
+-- between a tenant and two paid imports. It does NOT replace the lease: a row
+-- whose lease has expired is locked by nobody, and must be claimable.
 --
 -- WHY attempts IS CAPPED IN THE ROW. A credential that will never work (an
 -- account picked in the wrong workspace, a revoked token) would otherwise be
@@ -102,6 +106,17 @@ create index if not exists integration_bootstrap_jobs_company_idx
 -- money/people gates. It is NOT a write to anybody's books.
 alter table public.integration_bootstrap_jobs enable row level security;
 
+-- Table privileges, stated rather than inherited. Supabase's default
+-- privileges grant new public tables to anon AND authenticated, so leaving
+-- this implicit would hand anon a grant it must not have (the policies below
+-- are `to authenticated`, so anon would read nothing today -- and would start
+-- reading the moment anybody adds a permissive policy). No DELETE for anyone
+-- but the drainer: the record of what was imported is the point.
+revoke all on public.integration_bootstrap_jobs from anon;
+revoke all on public.integration_bootstrap_jobs from public;
+grant select, insert, update on public.integration_bootstrap_jobs to authenticated;
+grant all on public.integration_bootstrap_jobs to service_role;
+
 drop policy if exists integration_bootstrap_jobs_select on public.integration_bootstrap_jobs;
 create policy integration_bootstrap_jobs_select
   on public.integration_bootstrap_jobs
@@ -117,10 +132,12 @@ create policy integration_bootstrap_jobs_insert
     and public.is_admin_user()
   );
 
--- An admin may cancel their own company's queued job (the page's "Stop"), and
--- nothing else: status and lease belong to the drainer. A client UPDATE that
--- RLS refuses succeeds with zero rows rather than erroring, so the page must
--- re-read, which renderBootstrap() does.
+-- An admin may cancel their own company's queued job, and nothing else:
+-- status and lease belong to the drainer. The two halves refuse differently
+-- and the caller sees different things: USING filters the row away, so
+-- touching another tenant's job updates ZERO ROWS without an error, while
+-- WITH CHECK raises, so setting any status but 'cancelled' is a hard refusal.
+-- Both are asserted in scripts/tests/integration-bootstrap-database.test.mjs.
 drop policy if exists integration_bootstrap_jobs_cancel on public.integration_bootstrap_jobs;
 create policy integration_bootstrap_jobs_cancel
   on public.integration_bootstrap_jobs
@@ -169,6 +186,7 @@ as $function$
         and c.attempts < greatest(p_max_attempts, 1)
       order by c.created_at
       limit greatest(p_limit, 1)
+      for update skip locked
    )
   returning j.*;
 $function$;

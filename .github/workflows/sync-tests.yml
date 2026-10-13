@@ -38,6 +38,11 @@ on:
       # Invite authority and retired open policies (org-invite-authority-database.test.mjs).
       - 'supabase/migrations/*org_invites.sql'
       - 'supabase/migrations/*security_audit_db_hardening.sql'
+      - 'supabase/migrations/*integration_bootstrap_jobs.sql'
+      - 'v2/integration-bootstrap.js'
+      - 'scripts/integration-bootstrap.mjs'
+      - 'scripts/lib/integration-bootstrap-*.mjs'
+      - 'v2/integrations.html'
       # The channel resolver and the migration that hoists it out of the row
       # filters (wow-channel-hoist-database.test.mjs), plus the verify check
       # that test lifts its regex from.
@@ -344,6 +349,36 @@ jobs:
           set -u
           for m in disabled-admin no-refresh redact-anyway any-domain; do
             if SHOPIFY_AUTH_MUTATION="$m" node scripts/tests/shopify-auth.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # First-connect auto sync: what a newly connected integration's first
+      # sync consists of, and that a half-finished one resumes rather than
+      # re-importing. Also pins v2/integration-bootstrap.js's stage labels to
+      # the plan the drainer runs.
+      - name: Integration bootstrap plan and resume
+        run: node scripts/tests/integration-bootstrap.test.mjs
+
+      # Running one job: that a connection which had already synced is NOT
+      # re-imported, that a job cancelled from the page while a stage runs
+      # stays cancelled, and that one failed stage neither stops the others
+      # nor retries for ever.
+      - name: Integration bootstrap job runner
+        run: node scripts/tests/integration-bootstrap-runner.test.mjs
+
+      # The database half on real PostgreSQL: tenant scope, the admin gate,
+      # one-open-job-per-connection, the lease that stops two drainers paying
+      # twice, and the verify_v2_schema.sql block.
+      - name: Integration bootstrap queue (real PostgreSQL)
+        run: node scripts/tests/integration-bootstrap-database.test.mjs
+      - name: The bootstrap queue's guards, removed, must break it
+        run: |
+          set -u
+          for m in rls admin lease attempts uniq grant anongrant skiplocked; do
+            if INTEGRATION_BOOTSTRAP_DB_MUTATION="$m" node scripts/tests/integration-bootstrap-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi
