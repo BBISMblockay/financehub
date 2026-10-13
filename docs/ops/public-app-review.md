@@ -4,8 +4,8 @@ Goal: a tenant connects Shopify and Meta with one click, with no Dev Dashboard a
 pasted System User token. Both need a public listing approved by the platform.
 
 **Status (2026-10-08, 19:24 UTC evidence; callback and reviewer page revisited 2026-10-13).**
-Meta: **reviewer page's 404 fixed but not merged yet; the callback answers at its URL but the
-deployed revision is still unverified; App Review reported submitted, approval pending**
+Meta: **reviewer page published; `meta-oauth-callback` deployed from `main` 2026-10-13 (2.4a,
+drift check green); App Review reported submitted, approval pending**
 (Part 2, 2.4a, then 2.4 and 2.8 for the earlier evidence).
 Shopify: implementation complete, verification pending (unchanged since 2026-10-07). Everything below is
 ADDITIVE. The current flows (typed shop domain, store-owned Dev Dashboard app, pasted
