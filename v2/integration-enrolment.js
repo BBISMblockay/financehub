@@ -113,7 +113,31 @@
       && !(row.meta && row.meta.sync_paused_at);
   }
 
+  /** Does this bootstrap job mean an import is actually coming?
+   *
+   * Only `pending` and `running` do. The queue keeps `done`, `partial`,
+   * `error` and `cancelled` rows as the record of what was imported, and the
+   * unique index that stops a duplicate covers the open states ONLY -- so a
+   * terminal row blocks nothing and claims nothing. Treating one as "already
+   * queued" would tell the operator an import exists when the queue holds a
+   * job that will never run again, which is precisely the state a store
+   * whose first job was cancelled before it ran is in.
+   */
+  function jobCountsAsQueued(job) {
+    return job ? job.status === 'pending' || job.status === 'running' : false;
+  }
+
+  /** Job types in sync_jobs that are not evidence of an IMPORT.
+   *
+   * A connection test writes a sync_jobs row and imports nothing;
+   * scripts/lib/integration-bootstrap-runner.mjs excludes it from the same
+   * question for the same reason. A legacy store whose only row is a
+   * successful test is stranded, not synced.
+   */
+  const NON_IMPORT_JOB_TYPES = ['test_connection'];
+
   window.SiloEnrolment = {
+    jobCountsAsQueued, NON_IMPORT_JOB_TYPES,
     enrolmentState, describeState, withPauseStamp, withoutPauseStamp, needsEvidence,
   };
 })();
