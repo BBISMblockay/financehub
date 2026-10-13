@@ -16,3 +16,4 @@
 #attribution .attr-search select.bcn-field{width:auto;flex:0 1 240px}
 #attribution [hidden]{display:none!important}#trust .attr-controls input{max-width:130px}
 table.bcn-table.attr-scorecard td.bcn-mono,table.bcn-table.attr-scorecard th:not(:first-child),#trust table.bcn-table td.bcn-mono{text-align:right}table.bcn-table.attr-scorecard th:first-child,#trust table.bcn-table th{text-align:left}#trust .attr-chart{max-width:760px;padding:0}
+#overview .attr-dialog p{line-height:1.7}
