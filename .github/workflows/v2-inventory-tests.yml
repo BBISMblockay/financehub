@@ -44,6 +44,8 @@ on:
       - 'pages/login.html'
       # login-founder-invite-recovery drives a signup confirmation through it.
       - 'pages/set-password.html'
+      # Two-step login helpers, driven by login-two-step / profile-two-step.
+      - 'pages/mfa.js'
       - '.github/workflows/v2-inventory-tests.yml'
   pull_request:
     paths:
@@ -60,6 +62,8 @@ on:
       - 'pages/login.html'
       # login-founder-invite-recovery drives a signup confirmation through it.
       - 'pages/set-password.html'
+      # Two-step login helpers, driven by login-two-step / profile-two-step.
+      - 'pages/mfa.js'
       - '.github/workflows/v2-inventory-tests.yml'
   workflow_dispatch:
 
