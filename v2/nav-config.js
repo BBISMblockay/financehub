@@ -324,7 +324,10 @@
     // above: marketing is department `marketing` carrying profiles.role
     // `admin` or `user`, and `roles` AND `departments` cannot express
     // "exec OR marketing". RLS on marketing_tests is the boundary.
-    { id: 'reports/marketing-ops', section: 'Marketing', label: 'Testing & schedule', href: '/v2/marketing-ops.html', profiles: ['grandfathered', 'standard'] },
+    // BASEBALLISM ONLY for now (Blake, 2026-10-13), like Marketing Report and
+    // Silo Attribution above: the page is being shaped around Baseballism's
+    // own way of running tests, so it is not offered to other companies yet.
+    { id: 'reports/marketing-ops', section: 'Marketing', label: 'Testing & schedule', href: '/v2/marketing-ops.html', profiles: ['grandfathered'] },
     // ONE SEO destination (2026-09-27), not a row per page: Studio, Search
     // performance and Keywords are TABS of it (SEO_SUITE_PAGES above), the
     // same collapse as Accounting and Workspace settings. silo-chrome.js maps
