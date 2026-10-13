@@ -1,5 +1,9 @@
 // Presentation only: consumes reconciled results; never changes attribution.
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+export function platformMark(channel) {
+  const key=/^Meta/.test(channel)?'meta':/^Redo/.test(channel)?'redo':/^Google Ads/.test(channel)?'google-ads':/^TikTok/.test(channel)?'tiktok':/^Shop/.test(channel)?'shopify':null;
+  return key?`<svg class="attr-logo" aria-hidden="true"><use href="../assets/landing/integration-icons.svg#icon-${key}"></use></svg>`:'<span class="attr-fallback" aria-hidden="true">•</span>';
+}
 export function trendChart(report){
  const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:report.currency,maximumFractionDigits:0}).format(n/100);
  const daily=report.reconciliation,peak=[...daily].sort((a,b)=>Number(b.net_cents)-Number(a.net_cents))[0];

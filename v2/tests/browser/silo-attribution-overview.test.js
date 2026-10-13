@@ -50,11 +50,17 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   assert.match(await page.locator('.attr-findings').innerText(),/Meta Ads starts more journeys than it closes/);
   assert.match(await page.locator('.attr-findings').innerText(),/Google Ads mostly closes what others start/);
   // Paths carry dollars and open their orders, which open a journey.
-  assert.match(await page.locator('.attr-journey-row').first().innerText(),/Meta Ads[\s\S]*Redo SMS[\s\S]*Google Ads[\s\S]*7 orders[\s\S]*\$700/);
+  const firstPath=page.locator('.attr-journey-path').first();
+  assert.match(await firstPath.innerText(),/7 orders[\s\S]*\$700 net sales[\s\S]*Meta Ads[\s\S]*2\.0 days to next step · n=7[\s\S]*Redo SMS[\s\S]*Google Ads[\s\S]*to purchase · n=7[\s\S]*Purchase/);
+  assert.equal(await firstPath.locator('.attr-overview-path li').count(),4,'three channel step boxes plus Purchase');
+  // Logos stay on the channel tables: scorecard, credit bars, journey steps and the Platform details table.
+  for(const sel of ['.attr-scorecard tbody tr','.attr-pair','.attr-journey-path li','#channels tr'])assert.ok(await page.locator(`${sel} .attr-logo`).count()>0,sel+' has logos');
+  assert.match(await page.locator('#overview-tables summary').innerText(),/Platform details · revenue, introductions and assists/);
+  assert.match(await page.locator('#channels tr',{hasText:'Google Ads'}).textContent(),/Google Ads\s*\$700\.06\s*7\s*0\s*0/);
   await page.locator('[data-path="0"]').first().click();await page.locator('#path-detail [data-order]').first().click();await page.waitForSelector('#journey[open]');assert.match(await page.locator('#flow').innerText(),/Meta Ads/);await page.locator('#close').click();await page.keyboard.press('Escape');
   await page.locator('[data-support="0"]').click();assert.match(await page.locator('#path-title').innerText(),/Meta Ads starts/);await page.keyboard.press('Escape');
   // A channel opens Journeys filtered to every order it appears in, not only the ones it was credited.
-  await meta.locator('[data-channel]').click();assert.equal(await page.locator('#ordersection').isVisible(),true);assert.equal(await page.locator('#overview').isVisible(),false);
+  await meta.locator('[data-channel]').click();assert.equal(await page.locator('#ordersection').isVisible(),true);assert.equal(await page.locator('#overview').isVisible(),false);assert.equal(await page.locator('#overview-tables').isVisible(),false);
   assert.match(await page.locator('#count').innerText(),/^7 orders where Meta Ads appears/);
   await page.locator('#role').selectOption('credited');assert.match(await page.locator('#count').innerText(),/^0 orders/);
   await page.locator('#role').selectOption('started');assert.match(await page.locator('#count').innerText(),/^7 orders where Meta Ads started/);

@@ -1,12 +1,9 @@
 import {classify,journeyVisits} from './silo-attribution-model.js';
-import {trendChart} from './silo-attribution-visuals.js';
+import {trendChart,platformMark} from './silo-attribution-visuals.js';
+export {platformMark};
 import {summarizeSpend,spendTotal} from './silo-attribution-spend.js';
 import {mountOverview} from './silo-attribution-overview-ui.js';
 export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-export function platformMark(channel) {
-  const key=/^Meta/.test(channel)?'meta':/^Redo/.test(channel)?'redo':/^Google Ads/.test(channel)?'google-ads':/^TikTok/.test(channel)?'tiktok':/^Shop/.test(channel)?'shopify':null;
-  return key?`<svg class="attr-logo" aria-hidden="true"><use href="../assets/landing/integration-icons.svg#icon-${key}"></use></svg>`:'<span class="attr-fallback" aria-hidden="true">•</span>';
-}
 export function summarize(rows,controls,windowDays) {
   const unique=new Set(),byDay=new Map(),orders=new Map(),channels=new Map();
   if(!controls.length)throw Error('No published snapshots for this period');
@@ -92,6 +89,7 @@ export function mountReport(root,{load,evidence,journeys,spend}) {
     const selected=$('channel').value,names=new Set(report.channels.map(c=>c.channel));
     for(const o of report.orders)for(const c of [o.allocation?.introduced_channel,...(o.allocation?.assisting_channels||[])])if(c)names.add(c);
     $('channel').innerHTML='<option value="">All channels</option>'+[...names].sort().map(c=>`<option>${escapeHtml(c)}</option>`).join('');$('channel').value=names.has(selected)?selected:'';
+    $('channels').innerHTML=report.channels.map(c=>`<tr><td><button class="bcn-btn bcn-btn--ghost" data-channel="${escapeHtml(c.channel)}">${platformMark(c.channel)} ${escapeHtml(c.channel)}</button></td><td class="bcn-mono">${money(c.net_cents)}</td><td class="bcn-mono">${c.orders.toLocaleString()}</td><td class="bcn-mono">${c.introduced_orders.toLocaleString()}</td><td class="bcn-mono">${c.assisted_orders.toLocaleString()}</td></tr>`).join('');
     $('daily').innerHTML=report.reconciliation.map(d=>`<tr><td>${escapeHtml(d.day)}</td><td class="bcn-mono">${money(Number(d.net_cents))}</td><td class="bcn-mono">${money(Number(d.total_cents))}</td><td class="bcn-mono">${money(0)}</td><td class="bcn-mono">${money(0)}</td></tr>`).join('');
     $('results').hidden=false;drawOrders();
   }
@@ -104,7 +102,7 @@ export function mountReport(root,{load,evidence,journeys,spend}) {
     $('spendnote').textContent=t.complete?'Company-wide ads + Redo sending':`Incomplete: ${t.gaps.map(g=>g.channel).join(', ')||'no spend source'} · return not shown`;
   }
   const filters=()=>({start:$('start').value,end:$('end').value,windowDays:Number($('window').value),connectionId:$('store').value});
-  function showJourneys(show){$('ordersection').hidden=!show;$('overview').hidden=show;for(const [id,on] of [['overview-tab',!show],['journeys-tab',show]]){$(id).classList.toggle('bcn-tab--active',on);$(id).setAttribute('aria-pressed',String(on));}}
+  function showJourneys(show){$('ordersection').hidden=!show;$('overview').hidden=show;$('overview-tables').hidden=show;for(const [id,on] of [['overview-tab',!show],['journeys-tab',show]]){$(id).classList.toggle('bcn-tab--active',on);$(id).setAttribute('aria-pressed',String(on));}}
   $('overview-tab').onclick=()=>showJourneys(false);$('journeys-tab').onclick=()=>showJourneys(true);
   async function refresh(){
     const current=++sequence,args=filters();report=null;$('results').hidden=true;$('journey').close();
