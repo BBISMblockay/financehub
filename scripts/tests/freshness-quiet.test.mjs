@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { SYNC_STAMP, CLIENT_BLOCK, feedIsQuiet, feedExcuse, producesFeed, expectedCompanies } from '../lib/freshness-quiet.mjs';
+import { readFileSync } from 'node:fs';
+import { SYNC_STAMP, CLIENT_BLOCK, feedIsQuiet, feedExcuse, feedBlockers, producesFeed, expectedCompanies } from '../lib/freshness-quiet.mjs';
 
 const dayEnded = new Date('2026-10-02T07:00:00Z'); // Pacific midnight starting 2026-10-02
 const shop = (at, extra = {}) => ({ sync_enabled: true, meta: at ? { last_sales_sync_at: at } : {}, ...extra });
@@ -98,4 +99,60 @@ t('feedIsQuiet still answers the yes/no question for both excuses', () => {
   assert.equal(feedExcuse([ads('2026-10-02T23:38:45Z', { platform: 'meta_ads' })], 'last_sync_at', dayEnded, T), 'quiet');
   assert.equal(feedIsQuiet([{ sync_enabled: true, platform: 'meta_ads', meta: { client_side_block: { reason: 'blocked', at: '2026-10-02T23:38:45Z' } } }], 'last_sync_at', dayEnded, T), true);
 });
+t('a SILO-side failure after a block is not excused by it (cycle 1, #957)', () => {
+  const T = 'ad_platform_connections';
+  // ad-platforms-sync.mjs clears the block on any non-client failure, so the
+  // connection's newest stamp is the 500, not yesterday's block. Here that is
+  // a connection with no usable stamp at all: nothing excuses it.
+  const cleared = { sync_enabled: true, platform: 'google_ads', meta: { client_side_block: null } };
+  assert.equal(feedExcuse([cleared], 'last_sync_at', dayEnded, T), null);
+  // And beside a healthy connection, one cleared connection still alarms.
+  const ga4 = (at) => ads(at, { platform: 'ga4' });
+  assert.equal(feedExcuse([ga4('2026-10-02T23:09:37Z'), cleared], 'last_sync_at', dayEnded, T), null);
+});
+t('feedBlockers names only the connections whose current block was read', () => {
+  const T = 'ad_platform_connections';
+  const blocked = (at, platform, extra = {}) => ({
+    sync_enabled: true, platform, meta: { client_side_block: { reason: `${platform} is dead`, at } }, ...extra,
+  });
+  const current = blocked('2026-10-02T23:09:40Z', 'google_ads');
+  const stale = blocked('2026-09-20T00:00:00Z', 'tiktok_ads');
+  const switchedOff = blocked('2026-10-02T23:09:40Z', 'meta_ads', { sync_enabled: false });
+  const notAProducer = blocked('2026-10-02T23:09:40Z', 'search_console');
+  const superseded = { sync_enabled: true, platform: 'ga4', meta: { last_sync_at: '2026-10-02T23:30:00Z', client_side_block: { reason: 'old', at: '2026-10-02T23:00:00Z' } } };
+  assert.deepEqual(
+    feedBlockers([current, stale, switchedOff, notAProducer, superseded], 'last_sync_at', dayEnded, T),
+    [current],
+  );
+  // No block key for the table, a bad date, or nothing at all: nobody.
+  assert.deepEqual(feedBlockers([current], 'last_sales_sync_at', dayEnded, 'shopify_connections'), []);
+  assert.deepEqual(feedBlockers([current], 'last_sync_at', dayEnded), []);
+  assert.deepEqual(feedBlockers([current], 'last_sync_at', new Date('x'), T), []);
+  assert.deepEqual(feedBlockers(null, 'last_sync_at', dayEnded, T), []);
+});
+// The two scripts either side of the stamp. The rules above are only worth
+// anything if the sync writes the stamp the way they read it and the alarm
+// consults them where it has to, so the wiring is pinned here too -- the
+// helpers can be perfect while the call path ignores them.
+const sync = readFileSync(new URL('../ad-platforms-sync.mjs', import.meta.url), 'utf8');
+const alarm = readFileSync(new URL('../check-sales-freshness.mjs', import.meta.url), 'utf8');
+
+t('the sync records the LAST attempt: a block when client-side, null otherwise', () => {
+  // Written on any failure that could change the stamp, not only a
+  // client-side one -- otherwise a SILO-side failure after a block leaves
+  // "blocked" standing as the newest outcome.
+  assert.match(sync, /const hadBlock = !!connection\.meta\?\.client_side_block;/);
+  assert.match(sync, /if \(history\.backfill \|\| block \|\| hadBlock\) \{/);
+  assert.match(sync, /failedMeta\.client_side_block = block \? \{ reason: block, at: new Date\(\)\.toISOString\(\) \} : null;/);
+  // Both success paths clear it: the campaign one and Search Console's.
+  assert.equal((sync.match(/client_side_block: null/g) || []).length, 2);
+});
+
+t('the alarm consults the excuse for a partial day, and only a block excuses one', () => {
+  assert.match(alarm, /if \(!lagOk \|\| partial\) \{/);
+  assert.match(alarm, /if \(partial && excuse !== 'client-blocked'\) excuse = null;/);
+  // The warning is built from the helper, not from a second predicate.
+  assert.match(alarm, /feedBlockers\(conns, SYNC_STAMP\[feed\.connTable\], dayEndedAt, feed\.connTable\)/);
+});
+
 console.log(`${n} freshness quiet checks passed`);

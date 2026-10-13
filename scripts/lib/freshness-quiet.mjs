@@ -109,6 +109,28 @@ export function feedExcuse(connections, stampKey, dayEndedAt, connTable = null) 
 }
 
 /**
+ * The connections whose CURRENT blocks are what `feedExcuse` read: enabled,
+ * feed-producing, and whose newest stamp is a block at or after dayEndedAt.
+ *
+ * Reported separately so the alarm's warning names exactly the accounts that
+ * explain the verdict. Filtering on "has a block stamp" alone also named a
+ * connection whose sync is switched off, or whose block a later success had
+ * already superseded, telling whoever read the run that two accounts needed
+ * remediation when only one did (review cycle 1, #957).
+ */
+export function feedBlockers(connections, stampKey, dayEndedAt, connTable = null) {
+  if (!(dayEndedAt instanceof Date) || Number.isNaN(+dayEndedAt)) return [];
+  const blockKey = connTable ? CLIENT_BLOCK[connTable] : null;
+  if (!blockKey) return [];
+  return (connections || []).filter((c) => {
+    if (!c || c.sync_enabled === false) return false;
+    if (connTable && !producesFeed(connTable, c)) return false;
+    const attempt = attemptedAt(c, stampKey, blockKey);
+    return !!attempt && attempt.blocked && attempt.at >= +dayEndedAt;
+  });
+}
+
+/**
  * Companies expected to have this feed: those with at least one active,
  * sync-enabled connection that writes it. Matches what the syncs load
  * (ad-platforms-sync.mjs filters sync_enabled = true), so a company whose

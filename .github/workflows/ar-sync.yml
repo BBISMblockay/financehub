@@ -1,9 +1,22 @@
 name: AR Google Sheets Sync
 
+# LEGACY, and no longer scheduled (2026-10-13, Blake's call).
+#
+# BBISM receivables moved to Shopify: `shopify_orders` carries the wholesale
+# book's payment terms and paid dates (342 orders with terms, 187 unpaid as of
+# 2026-10-13), and the reports read it through `shopify_orders_v`. The
+# published Google Sheets behind this sync stopped being updated on
+# 2026-09-14, so its own staleness guard -- which fails the run when the
+# newest order in the sheet is more than AR_STALE_MAX_DAYS old -- failed every
+# day while the sync itself loaded its rows perfectly. The guard was right;
+# the source is retired.
+#
+# The cron is removed rather than the workflow: `ar_invoices` / `ar_customers`
+# still hold the historical wholesale book, `/pages/baseballismwholesale.html`
+# still reads them, and a dispatch is how you refresh them if the sheet is
+# ever updated again. Deleting this would also delete the only way back.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "15 9 * * *"
 
 jobs:
   sync-ar:

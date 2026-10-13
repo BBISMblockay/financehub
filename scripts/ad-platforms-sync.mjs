@@ -281,8 +281,16 @@ async function syncConnection(connection) {
     // forever. The 'error' sync_jobs row below stays the audit record; this
     // is the durable CURRENT state, and it carries `at` so a connection that
     // stops being attempted at all goes back to STALE on its own.
+    //
+    // Every failure writes it, not only a client-side one: the stamp says
+    // what the LAST attempt was, so a SILO-side failure must CLEAR an
+    // earlier block. Without that, a connection blocked at 23:00 whose next
+    // attempt dies on a 500 keeps "blocked" as its newest durable outcome,
+    // and the freshness alarm excuses a SILO outage for the rest of the
+    // Pacific day (review cycle 1, #957).
     const block = clientSideReason(message);
-    if (history.backfill || block) {
+    const hadBlock = !!connection.meta?.client_side_block;
+    if (history.backfill || block || hadBlock) {
       // A failed import still counts as an attempt, so a connection that can
       // never succeed stops re-pulling a year. Best-effort: the job error is
       // what matters, and the next run reads the flag again either way. A
@@ -291,7 +299,7 @@ async function syncConnection(connection) {
       const failedMeta = history.backfill
         ? metaAfterHistory(connection.meta, { backfill: true, succeeded: false, at: new Date().toISOString() })
         : { ...(connection.meta || {}) };
-      if (block) failedMeta.client_side_block = { reason: block, at: new Date().toISOString() };
+      failedMeta.client_side_block = block ? { reason: block, at: new Date().toISOString() } : null;
       const { error: metaError } = await supabase
         .from('ad_platform_connections')
         .update({ meta: failedMeta, updated_at: new Date().toISOString() })

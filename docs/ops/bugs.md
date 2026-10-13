@@ -146,7 +146,7 @@ redeploy.
 
 ---
 
-## Two client ad accounts are dead, and two edge-function deploys are owed (P2)
+## Two client ad accounts are dead, and one edge-function deploy is owed (P2)
 
 Found 2026-10-13 while clearing the red GitHub Actions. Neither is a code defect; the workflows
 that reported them are fixed, so these are now reported as warnings instead of as failures.
@@ -154,14 +154,20 @@ that reported them are fixed, so these are now reported as warnings instead of a
 - **Bat Nutz's Meta ad account** has returned `API access blocked.` (OAuthException 200) on every
   run since 2026-10-07, and **BlockayOps' Google Ads account** has been cancelled
   (`CUSTOMER_NOT_ENABLED`) since 2026-09-30. Both need the account owner to fix the account with
-  the platform, or the connection switched off in `/v2/integrations.html`. Until then BlockayOps'
-  `marketing_kpis_daily` stays at 2026-10-05 and shows as `client-blocked` in the freshness run.
-- **A deploy is owed** for `shopify-sync-run` (its `lib/shopify-sync-core.mjs` moved in #954) and
-  for `meta-oauth-callback` (on `main`, never deployed). The Deployment drift check stays red until
-  both ship from `main` through the "Deploy Edge Function" workflow, which is Blake's to run.
-- **The AR Google Sheets sync** fails daily on its own staleness guard: the published sheet's newest
-  order is 2026-09-14, 28 days behind its 7-day threshold. The sync itself loads 1,106 invoices
-  fine. Somebody has to update the sheet, or the source has to change.
+  the platform, or the connection switched off in `/v2/integrations.html`. **Neither connection has
+  ever written a row** to `marketing_kpis_daily`, so nothing is being lost by either -- but it is a
+  refusal, not a zero: the APIs decline before any number comes back. Bat Nutz's Google Ads
+  connection is healthy ($186 of spend in the 45 days to 2026-10-13); only its Meta one is blocked.
+  Switching Sync off on those two rows drops them out of the freshness alarm's expected list
+  entirely (`expectedCompanies` skips `sync_enabled = false`), which is cleaner than leaving them
+  to the `client-blocked` path. Until one or the other, BlockayOps' marketing feed stays at
+  2026-10-05 and reads `client-blocked` in the freshness run.
+- **A deploy is owed** for `meta-oauth-callback` (on `main`, never deployed). It is reachable only
+  from `testing/meta-oauth.html` for Meta's App Review, so it matters when that flow is next used --
+  but the Deployment drift check stays red on that row until it ships from `main` through the
+  "Deploy Edge Function" workflow. `check-function-drift.mjs` has no way to defer an "in repo, not
+  deployed" finding the way it defers a content difference, so there is no quiet middle ground yet.
+  (`shopify-sync-run` was the other one; Blake deployed it 2026-10-13 06:24 UTC.)
 
 ---
 
