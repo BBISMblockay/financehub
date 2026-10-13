@@ -40,7 +40,9 @@ import {
   runWindowedHistory,
   purgeShopifySalesForShop,
   effectiveHistoryDays,
+  windowFullyReadable,
   NO_ALL_ORDERS_HISTORY_DAYS,
+  READABLE_WHOLE_DAYS,
 } from '../lib/shopify-sync-core.mjs';
 import { createFakeSupabase } from './lib/fake-supabase.mjs';
 
@@ -62,6 +64,14 @@ const conn = (over = {}) => ({
   meta: {},
   ...over,
 });
+
+/** The connection row itself. The import re-reads it between windows (that is
+ *  how Cancel reaches it) and fails closed when it cannot, so every fixture
+ *  needs the row, not just the object passed in. */
+function seedConnection(supabase, c) {
+  supabase.from('shopify_connections').insert({ id: c.id, meta: c.meta ?? {} });
+  return c;
+}
 
 const iso = (d) => d.toISOString().slice(0, 10);
 const daysAgo = (n) => iso(new Date(Date.now() - n * 86400000));
@@ -157,7 +167,7 @@ test('a 60-day import deletes 60 days, not nine years', async () => {
   const seeded = seedSales(supabase, [daysAgo(10)]);
   const shopify = stubShopify();
   try {
-    const result = await runWindowedHistory(supabase, conn(), { batchId: 'b', historyDays: 60 });
+    const result = await runWindowedHistory(supabase, seedConnection(supabase, conn()), { batchId: 'b', historyDays: 60 });
     assert.equal(result.status, 'complete');
 
     const left = salesDays(supabase);
@@ -190,7 +200,8 @@ test('an import that dies leaves BOTH older history and its unreached windows in
   const shopify = stubShopify({ failOrdersAfter: 1 });
   try {
     await assert.rejects(
-      () => runWindowedHistory(supabase, conn(), { batchId: 'b', historyDays: 730, chunkDays: 60 }),
+      () => runWindowedHistory(supabase, seedConnection(supabase, conn()),
+        { batchId: 'b', historyDays: 730, chunkDays: 60 }),
       /503/,
     );
     const left = salesDays(supabase);
@@ -216,27 +227,60 @@ test('an import that dies leaves BOTH older history and its unreached windows in
 // Cycle-1 P1. Without read_all_orders Shopify answers a 200 with no orders for
 // anything older than 60 days. Deleting those days would be pure loss: nothing
 // comes back to replace them.
-test('a window Shopify answers with no orders deletes nothing', async () => {
+// Cycle-2 P1. "Empty" means two different things, and the first version of
+// this fix treated them alike. With read_all_orders an empty window is
+// AUTHORITATIVE -- the last order in that period was deleted in Shopify, and
+// keeping the old row overstates revenue for ever.
+test('an empty window the token can fully read is still rebuilt', async () => {
   const supabase = createFakeSupabase();
-  // 365 days in 60-day chunks puts a window boundary at day 185 (365 - 3*60),
-  // so nothing straddles the cutoff: the three oldest windows answer empty and
-  // the three newest answer normally.
-  const CUTOFF = daysAgo(185);
-  const seeded = seedSales(supabase, [daysAgo(300), daysAgo(250), daysAgo(200), daysAgo(100), daysAgo(10)]);
-  const shopify = stubShopify({ emptyBefore: CUTOFF });
+  const stale = daysAgo(10);
+  supabase.from('sales_by_day').insert({
+    company_entity_id: CO, shop_domain: SHOP, source: SOURCE,
+    day_date: stale, row_hash: 'an-order-since-deleted', total_orders: 2, net_sales: 200,
+  });
+  const shopify = stubShopify({ withOrders: false });
   try {
-    await runWindowedHistory(supabase, conn(), { batchId: 'b', historyDays: 365, chunkDays: 60 });
+    await runWindowedHistory(supabase, seedConnection(supabase, conn()), {
+      batchId: 'b', historyDays: 30, chunkDays: 30,
+    });
+    assert.deepEqual(salesDays(supabase), [],
+      'Shopify says this period has no orders, and it can see the whole period');
+  } finally {
+    shopify.restore();
+  }
+});
+
+// ...while a window BEYOND what the token can read is not evidence of
+// anything. Without read_all_orders Shopify answers it with HTTP 200 and no
+// orders, so deleting those days replaces real sales with nothing -- and the
+// days cannot be refetched.
+test('a window beyond what the token can read is never rebuilt, empty or not', async () => {
+  const supabase = createFakeSupabase();
+  const capped = conn({ scopes_granted: ['read_orders', 'read_products', 'read_locations'] });
+  // A plan made while read_all_orders was granted, resumed after it was
+  // revoked: the stored range reaches far past what the token can now read.
+  capped.meta = {
+    history_backfill: {
+      status: 'running', target_days: 365, chunk_days: 60,
+      range_start: daysAgo(365), range_end: daysAgo(0), cursor: daysAgo(365),
+      windows_done: 0, windows_total: 7, orders_total: 0, sales_rows_total: 0,
+    },
+  };
+  const old = [daysAgo(300), daysAgo(200), daysAgo(100)];
+  const seeded = seedSales(supabase, old);
+  const shopify = stubShopify();
+  try {
+    const result = await runWindowedHistory(supabase, seedConnection(supabase, capped), {
+      batchId: 'b', historyDays: 365, chunkDays: 60,
+    });
     const left = salesDays(supabase);
-    for (const day of seeded.filter((d) => d < CUTOFF)) {
+    for (const day of seeded.filter((d) => d < daysAgo(59))) {
       assert.ok(left.includes(day),
-        `${day} sits in a window Shopify returned empty — deleting it replaces it with nothing`);
+        `${day} is beyond what the token can read — the window answering is not permission to delete it`);
     }
-    const slices = deleteSlices(supabase);
-    assert.ok(slices.length > 0, 'the windows that DID answer are still rebuilt');
-    for (const slice of slices) {
-      assert.ok(slice.from >= CUTOFF,
-        `a window that answered empty was purged anyway, from ${slice.from}`);
-    }
+    const unreadable = result.chunks.filter((c) => c.not_purged);
+    assert.ok(unreadable.length >= 4, 'the windows outside the readable range say why they kept their rows');
+    for (const c of unreadable) assert.equal(c.purged_range, undefined);
   } finally {
     shopify.restore();
   }
@@ -258,7 +302,7 @@ test('a refund row inside the window survives, because nothing refetches its par
   });
   const shopify = stubShopify();
   try {
-    await runWindowedHistory(supabase, conn(), { batchId: 'b', historyDays: 30 });
+    await runWindowedHistory(supabase, seedConnection(supabase, conn()), { batchId: 'b', historyDays: 30 });
     const left = supabase.rows('sales_by_day').map((r) => r.row_hash);
     assert.ok(left.includes('refund-of-an-old-order'),
       'a refund row in the window must survive: its parent order is not in the fetch');
@@ -274,8 +318,11 @@ test('a refund row inside the window survives, because nothing refetches its par
 // Cycle-1 P1. The UI offers "import the last 60 days anyway" when the store has
 // no read_all_orders, and used to send the original 365/730 regardless.
 test('a plan is clamped to what the token can read', async () => {
+  // Shopify's cap is a timestamp, so the earliest calendar date of a 60-day
+  // window is only partly answerable: a clamped plan takes the whole days.
   assert.deepEqual(effectiveHistoryDays({ scopes_granted: ['read_orders'] }, 730),
-    { days: NO_ALL_ORDERS_HISTORY_DAYS, clamped: true, requested: 730 });
+    { days: READABLE_WHOLE_DAYS, clamped: true, requested: 730 });
+  assert.equal(READABLE_WHOLE_DAYS, NO_ALL_ORDERS_HISTORY_DAYS - 1);
   assert.deepEqual(effectiveHistoryDays({ scopes_granted: ALL_ORDERS }, 730),
     { days: 730, clamped: false });
   assert.deepEqual(effectiveHistoryDays({ scopes_granted: ['read_orders'] }, 30),
@@ -290,18 +337,35 @@ test('a plan is clamped to what the token can read', async () => {
   try {
     const result = await runWindowedHistory(
       supabase,
-      conn({ scopes_granted: ['read_orders', 'read_products', 'read_locations'] }),
+      seedConnection(supabase, conn({ scopes_granted: ['read_orders', 'read_products', 'read_locations'] })),
       { batchId: 'b', historyDays: 730, chunkDays: 60 },
     );
-    assert.equal(result.history_days, 60, 'the plan is the window the token can read');
-    assert.equal(result.clamped_to, 60);
+    assert.equal(result.history_days, READABLE_WHOLE_DAYS, 'the plan is the window the token can read');
+    assert.equal(result.clamped_to, READABLE_WHOLE_DAYS);
     const left = salesDays(supabase);
-    for (const day of seeded.filter((d) => d < daysAgo(60))) {
+    for (const day of seeded.filter((d) => d < daysAgo(READABLE_WHOLE_DAYS))) {
       assert.ok(left.includes(day), `${day} is beyond what the token can read and must survive`);
     }
   } finally {
     shopify.restore();
   }
+});
+
+test('readability is scopes plus the cap, and an unknown scope set is the capped case', () => {
+  const now = new Date('2026-10-13T12:00:00Z');
+  const all = { scopes_granted: ALL_ORDERS };
+  const capped = { scopes_granted: ['read_orders'] };
+  // read_all_orders reaches the whole history, so every window is readable.
+  assert.equal(windowFullyReadable(all, '2017-11-25', now), true);
+  // Without it, the readable range is the whole days inside the cap.
+  assert.equal(windowFullyReadable(capped, '2026-08-16', now), true);
+  assert.equal(windowFullyReadable(capped, '2026-08-15', now), true);
+  assert.equal(windowFullyReadable(capped, '2026-08-14', now), false,
+    'the earliest calendar date of a 60-day window is only partly answerable');
+  assert.equal(windowFullyReadable(capped, '2025-01-01', now), false);
+  // Scopes nobody recorded cannot establish readability.
+  assert.equal(windowFullyReadable({}, '2025-01-01', now), false);
+  assert.equal(windowFullyReadable({}, '2026-10-01', now), true);
 });
 
 test('a resume reports the plan that ran, not the one requested', async () => {
@@ -402,6 +466,31 @@ test('Cancel stops the import, and the next window does not undo it', async () =
   }
 });
 
+// Cycle-2 P1. The re-read is how Cancel reaches a running import, so a
+// re-read it cannot trust must stop the run rather than fall back to the meta
+// the run opened with -- writing that stale object is the original bug. The
+// stored cursor has not moved, so the next run repeats the window and the
+// upsert is idempotent: the cost is time, not data.
+test('an import that cannot re-read its own row stops instead of writing stale state', async () => {
+  const supabase = createFakeSupabase();
+  seedSales(supabase);
+  const c = seedConnection(supabase, conn());
+  const shopify = stubShopify({
+    onOrders: (_u, call) => {
+      // The row becomes unreadable while the first window is fetching.
+      if (call === 1) supabase.tables.set('shopify_connections', []);
+    },
+  });
+  try {
+    await assert.rejects(
+      () => runWindowedHistory(supabase, c, { batchId: 'b', historyDays: 90, chunkDays: 30 }),
+      /disappeared mid-import|Could not re-read/,
+    );
+  } finally {
+    shopify.restore();
+  }
+});
+
 test('the purge never crosses into another shop, source, or past the window it owns', async () => {
   const supabase = createFakeSupabase();
   const inWindow = daysAgo(5);
@@ -417,7 +506,7 @@ test('the purge never crosses into another shop, source, or past the window it o
   }
   const shopify = stubShopify();
   try {
-    await runWindowedHistory(supabase, conn(), { batchId: 'b', historyDays: 30 });
+    await runWindowedHistory(supabase, seedConnection(supabase, conn()), { batchId: 'b', historyDays: 30 });
     const left = supabase.rows('sales_by_day').map((r) => r.row_hash).sort();
     assert.deepEqual(left, ['f1', 'o1', 'q1'],
       'only this shop\'s shopify_api rows inside the window are rebuilt');
@@ -435,7 +524,7 @@ test('a non-final window purges up to the day before its end', async () => {
   seedSales(supabase, [daysAgo(75), daysAgo(45), daysAgo(15)]);
   const shopify = stubShopify();
   try {
-    const result = await runWindowedHistory(supabase, conn(), {
+    const result = await runWindowedHistory(supabase, seedConnection(supabase, conn()), {
       batchId: 'b', historyDays: 90, chunkDays: 30,
     });
     const chunks = result.chunks.filter((c) => c.purged_range);

@@ -18,7 +18,7 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { planChunkPersist } from '../../supabase/functions/shopify-sync-run/lib/history-chunk-persist.mjs';
+import { chunkRequestVerdict, planChunkPersist } from '../../supabase/functions/shopify-sync-run/lib/history-chunk-persist.mjs';
 
 const preState = {
   status: 'running', job_id: 'job-1', target_days: 365, chunk_days: 30,
@@ -104,4 +104,31 @@ test('a row whose meta vanished is treated as empty, not as a cancellation', () 
     assert.equal(plan.cancelled, false);
     assert.deepEqual(plan.meta.history_backfill, nextState);
   }
+});
+
+// Cycle-2 P1. handleHistoryChunk used the job id the BROWSER sent for its
+// status updates without checking it against the plan on the row, so a
+// delayed request from a replaced import advanced the LIVE import's cursor
+// and rebuilt its window while reporting against the dead job. The check has
+// to happen before the fetch, so it is its own verdict rather than part of
+// planChunkPersist.
+test('a request carrying a replaced job id runs nothing', () => {
+  const verdict = chunkRequestVerdict({ suppliedJobId: 'job-1', state: { ...preState, job_id: 'job-2' } });
+  assert.deepEqual(verdict, { ok: false, reason: 'superseded', jobId: 'job-2' },
+    'the caller is told which import owns the row now');
+});
+
+test('the stored job id is the one reported, never the one supplied', () => {
+  assert.deepEqual(chunkRequestVerdict({ suppliedJobId: 'job-1', state: preState }),
+    { ok: true, jobId: 'job-1' });
+  // The UI's first call has no id yet; the row's id is the answer.
+  assert.deepEqual(chunkRequestVerdict({ suppliedJobId: null, state: preState }),
+    { ok: true, jobId: 'job-1' });
+  // The scheduled runner creates no job row at all.
+  assert.deepEqual(chunkRequestVerdict({ suppliedJobId: null, state: { ...preState, job_id: undefined } }),
+    { ok: true, jobId: null });
+  // An id supplied against a plan that carries none cannot be shown stale.
+  assert.deepEqual(chunkRequestVerdict({ suppliedJobId: 'job-9', state: { ...preState, job_id: undefined } }),
+    { ok: true, jobId: 'job-9' });
+  assert.deepEqual(chunkRequestVerdict({}), { ok: true, jobId: null });
 });

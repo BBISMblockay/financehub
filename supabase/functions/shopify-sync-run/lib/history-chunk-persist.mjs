@@ -75,3 +75,31 @@ export function planChunkPersist({ preState, storedMeta, nextState, skuMetaJson 
     state: nextState,
   };
 }
+
+/**
+ * May this request run a window at all?
+ *
+ * handleHistoryChunk took the job id the BROWSER sent and used it for status
+ * updates without checking it against the plan on the row. After job 1 was
+ * replaced by job 2 (a re-Start, or a replan), a delayed request still
+ * carrying job 1 would advance job 2's cursor and purge and rebuild job 2's
+ * window, while reporting progress against job 1 -- so two tabs could process
+ * the same window at once and the live job could sit at `running` while its
+ * data moved underneath it. The check belongs BEFORE any side effect, which
+ * is why it is not folded into planChunkPersist: by the time that runs, the
+ * window has already been fetched and written.
+ *
+ * A request with no job id is the UI's first call, before an id exists, and a
+ * stored plan with no job id is the scheduled runner's; neither can be shown
+ * to be stale, so neither is refused.
+ *
+ * @returns {{ ok: true, jobId: string|null } | { ok: false, reason: 'superseded', jobId: string|null }}
+ */
+export function chunkRequestVerdict({ suppliedJobId = null, state = null } = {}) {
+  const storedJob = state?.job_id ?? null;
+  if (suppliedJobId && storedJob && suppliedJobId !== storedJob) {
+    return { ok: false, reason: 'superseded', jobId: storedJob };
+  }
+  // The stored plan's id wins: it is the one the row agrees with.
+  return { ok: true, jobId: storedJob ?? suppliedJobId ?? null };
+}

@@ -1540,6 +1540,16 @@ export function planHistoryWindows(rangeStart, rangeEnd, chunkDays) {
  *  and returns HTTP 200 while doing it. */
 export const NO_ALL_ORDERS_HISTORY_DAYS = 60;
 
+/** The whole days of that cap a plan may claim.
+ *
+ * Shopify's limit is a TIMESTAMP, not a date: 60 days back lands mid-day, so
+ * the earliest calendar date in a 60-day window is only partly answerable.
+ * One recent order makes that window's response non-empty, and purging the
+ * whole earliest date would then delete the hours Shopify would not return.
+ * So a clamped plan takes the 59 days it can read end to end.
+ */
+export const READABLE_WHOLE_DAYS = NO_ALL_ORDERS_HISTORY_DAYS - 1;
+
 /** The history window this connection's token can actually read.
  *
  * A self-installed app rarely has `read_all_orders`, and the integrations UI
@@ -1561,7 +1571,32 @@ export function effectiveHistoryDays(connection, requestedDays) {
   if (!known || granted.includes('read_all_orders') || requested <= NO_ALL_ORDERS_HISTORY_DAYS) {
     return { days: requested, clamped: false };
   }
-  return { days: NO_ALL_ORDERS_HISTORY_DAYS, clamped: true, requested };
+  return { days: READABLE_WHOLE_DAYS, clamped: true, requested };
+}
+
+/** Is every day of this window one Shopify will answer for in full?
+ *
+ * Only a fully readable window may be purged, and then it is purged whether
+ * or not it came back with orders:
+ *
+ *  - EMPTY AND READABLE is authoritative. The last order in that period was
+ *    deleted in Shopify, and leaving the old row behind overstates revenue
+ *    for good. (Skipping the purge for every empty window, as the first
+ *    version of this fix did, traded one silent error for another.)
+ *  - NOT READABLE is not evidence of anything, empty or not. Without
+ *    `read_all_orders` Shopify answers a window older than the cap with HTTP
+ *    200 and no orders, and a window straddling the cap with only the part it
+ *    will admit to -- so deleting the window would replace real days with
+ *    nothing. This is also what protects a plan made while the scope was
+ *    granted and resumed after it was revoked.
+ *
+ * Scopes nobody has recorded cannot establish readability either, so an
+ * unknown set is treated as the capped case.
+ */
+export function windowFullyReadable(connection, windowStart, now = new Date()) {
+  const granted = grantedScopes(connection);
+  if (Array.isArray(granted) && granted.includes('read_all_orders')) return true;
+  return String(windowStart) >= isoDateOnly(addDays(now, -READABLE_WHOLE_DAYS));
 }
 
 export function initHistoryBackfillState({
@@ -1673,12 +1708,12 @@ export async function runHistoryChunk(supabase, connection, {
   // reached. Per window, an interruption can only ever have lost the window it
   // was working on, and that window is the one the resume re-fetches.
   //
-  // A window Shopify answered with NO orders is not purged. Nothing would
-  // replace the rows, so deleting them is pure loss, and an empty answer is
-  // exactly what a token without read_all_orders gives for a window older
-  // than 60 days -- an HTTP 200 with nothing in it. A genuinely empty window
-  // keeps whatever stale rows it had, which is visible staleness instead of
-  // silent deletion.
+  // Only a window Shopify will answer for IN FULL is purged, and such a
+  // window is purged even when it came back empty: that emptiness is the
+  // answer, and keeping the old rows would overstate revenue for ever. A
+  // window beyond what the token can read is never purged, whether it came
+  // back empty or with the fraction Shopify admits to -- deleting it would
+  // replace real days with nothing. windowFullyReadable carries the reasoning.
   //
   // The range mirrors keepRows exactly: a non-final window owns up to the day
   // BEFORE its end (the boundary date belongs to the next window, which
@@ -1688,7 +1723,8 @@ export async function runHistoryChunk(supabase, connection, {
     ? win.window_end
     : isoDateOnly(addDays(new Date(`${win.window_end}T00:00:00Z`), -1));
   let purgedWindow = null;
-  if (orders.length && purgeTo >= win.window_start) {
+  const readable = windowFullyReadable(connection, win.window_start);
+  if (readable && purgeTo >= win.window_start) {
     purgedWindow = await purgeShopifySalesForShop(
       supabase,
       connection.company_entity_id,
@@ -1725,6 +1761,7 @@ export async function runHistoryChunk(supabase, connection, {
       orders_fetched: orders.length,
       sales_rows_upserted: upserted,
       ...(purgedWindow ? { purged_range: purgedWindow } : {}),
+      ...(readable ? {} : { not_purged: 'window beyond what this token can read' }),
       orders_upserted: orderFacts.orders_upserted,
       order_lines_upserted: orderFacts.order_lines_upserted,
       payment_terms: orderFacts.payment_terms,
@@ -2552,8 +2589,12 @@ export async function runDraftOrdersSync(supabase, connection, {
  * while it does: the cancel action (status = 'cancelled') and the incremental
  * sync's watermark keys. Writing a merge of in-memory meta would overwrite
  * both, which is exactly how Cancel used to be undone by the next window.
- * A read failure returns null, and the caller then keeps what it has rather
- * than treating a transient error as a cancellation.
+ * A read that fails THROWS rather than falling back to the meta this run
+ * started with: writing stale meta is the bug, and a run that cannot see the
+ * current row cannot know whether it was cancelled. Throwing costs a re-fetch
+ * of the window just imported -- the stored cursor has not moved, so the next
+ * run repeats it and the upsert is idempotent -- which is the cheaper of the
+ * two outcomes.
  */
 async function readStoredMeta(supabase, connectionId) {
   const { data, error } = await supabase
@@ -2561,7 +2602,8 @@ async function readStoredMeta(supabase, connectionId) {
     .select('meta')
     .eq('id', connectionId)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error) throw new Error(`Could not re-read connection meta: ${error.message}`);
+  if (!data) throw new Error('Connection row disappeared mid-import');
   return data.meta && typeof data.meta === 'object' ? data.meta : {};
 }
 

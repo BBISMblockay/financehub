@@ -11,7 +11,7 @@ import {
   runInventorySnapshot,
   serializeSkuMetaCache,
 } from './lib/shopify-sync-core.mjs';
-import { planChunkPersist } from './lib/history-chunk-persist.mjs';
+import { chunkRequestVerdict, planChunkPersist } from './lib/history-chunk-persist.mjs';
 import { connectionReadyForSync } from './lib/shopify-scopes.mjs';
 import { ensureShopifyAccessToken, mayConnect } from './lib/shopify-auth-lib.mjs';
 
@@ -200,7 +200,12 @@ async function readStoredMeta(admin: SupabaseClient, connectionId: string) {
     .select('meta')
     .eq('id', connectionId)
     .maybeSingle();
-  if (error || !data) return null;
+  // Falling back to the meta this request opened with is the bug this
+  // function exists to fix, so a failed read fails the request instead. The
+  // window just imported is re-fetched on the next Resume; its upsert is
+  // idempotent, so that costs time rather than data.
+  if (error) throw new Error(`Could not re-read connection meta: ${error.message}`);
+  if (!data) throw new Error('Connection row disappeared mid-import');
   const meta = (data as Record<string, unknown>).meta;
   return meta && typeof meta === 'object' ? meta as Record<string, unknown> : {};
 }
@@ -228,7 +233,7 @@ async function runHistoryChunkPersisted(
   // stored now rather than against the meta this request opened with.
   const plan = planChunkPersist({
     preState,
-    storedMeta: (await readStoredMeta(admin, connection.id as string)) ?? meta,
+    storedMeta: await readStoredMeta(admin, connection.id as string),
     nextState,
     skuMetaJson,
     done: chunkResult.done,
@@ -237,6 +242,15 @@ async function runHistoryChunkPersisted(
   if (plan.action === 'superseded') {
     // Another import owns the connection. Its rows are written; its state is
     // not, and this request stops rather than reviving a replaced plan.
+    const staleJobId = preState?.job_id as string | undefined;
+    if (staleJobId) {
+      await finalizeSupersededJob(
+        admin,
+        connection,
+        staleJobId,
+        (plan.state?.job_id as string | undefined) ?? null,
+      );
+    }
     return { ...chunkResult, state: plan.state, done: true, superseded: true };
   }
 
@@ -360,7 +374,20 @@ async function handleHistoryChunk(
     connection.meta = merged;
   }
 
-  const activeJobId = jobId || (state.job_id as string);
+  // A delayed request from a replaced import must not touch the live plan.
+  const verdict = chunkRequestVerdict({ suppliedJobId: jobId ?? null, state });
+  if (!verdict.ok) {
+    if (jobId) await finalizeSupersededJob(admin, connection, jobId, verdict.jobId);
+    return {
+      ok: true,
+      job_id: verdict.jobId,
+      continue: false,
+      superseded: true,
+      progress: buildProgress(state),
+    };
+  }
+
+  const activeJobId = verdict.jobId as string;
   const batchId = `ui-${Date.now()}`;
 
   const chunkResult = await runHistoryChunkPersisted(admin, connection, batchId);
@@ -398,6 +425,26 @@ async function handleHistoryChunk(
   };
 }
 
+/** A job the row has moved on from is finished, not running: leaving it
+ *  `running` corrupts every operational read of sync_jobs. It is recorded
+ *  `skipped` for the same reason a cancellation is -- nothing failed. */
+async function finalizeSupersededJob(
+  admin: SupabaseClient,
+  connection: Record<string, unknown>,
+  staleJobId: string,
+  replacementJobId: string | null,
+) {
+  await updateJob(admin, connection, staleJobId, {
+    status: 'skipped',
+    finished_at: new Date().toISOString(),
+    result: {
+      status: 'superseded',
+      reason: 'A newer import replaced this one',
+      ...(replacementJobId ? { replaced_by_job_id: replacementJobId } : {}),
+    },
+  });
+}
+
 async function handleCancelHistoryBackfill(
   admin: SupabaseClient,
   connection: Record<string, unknown>,
@@ -405,7 +452,7 @@ async function handleCancelHistoryBackfill(
   // Merge onto the row as it stands: a window may have written progress since
   // this request read the connection, and that progress must survive the
   // cancellation (its rows are in sales_by_day).
-  const meta = (await readStoredMeta(admin, connection.id as string)) ?? readMeta(connection);
+  const meta = await readStoredMeta(admin, connection.id as string);
   const state = meta.history_backfill as Record<string, unknown> | undefined;
   if (!state) return { ok: true, cancelled: false };
 
