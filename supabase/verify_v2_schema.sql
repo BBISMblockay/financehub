@@ -1,3 +1,15 @@
+-- Atomic Shopify incremental publication: no public execution or definer bypass.
+select 'shopify atomic incremental publish' as check_name,
+ case when p.oid is null then 'MISSING'
+ when not p.prosecdef
+   and not has_function_privilege('anon',p.oid,'EXECUTE')
+   and not has_function_privilege('authenticated',p.oid,'EXECUTE')
+   and has_function_privilege('service_role',p.oid,'EXECUTE')
+   and position('pg_advisory_xact_lock' in p.prosrc) > 0
+ then 'ok' else 'BROKEN' end as status
+from (values(to_regprocedure('public.shopify_publish_incremental_window(uuid,uuid,text,date,date,jsonb,jsonb,jsonb)'))) t(oid)
+left join pg_proc p on p.oid=t.oid;
+
 -- 0. Attribution scheduling state is deliberately service-only.
 select 'shopify_attribution_coverage service-only state' as check_name,
  case when c.relrowsecurity

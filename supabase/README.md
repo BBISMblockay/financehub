@@ -12,6 +12,8 @@
 
 ## Individual migrations (same content, split)
 
+**Atomic Shopify incremental windows:** `migrations/20261013080000_shopify_atomic_incremental_publish.sql` adds a service-role-only transactional publication RPC. Apply and verify before enabling the importer revision. Missing RPC fails closed; history and edge writers remain separate. See `docs/ops/shopify-atomic-publish.md` for limits and verification.
+
 **On Deck date caching:** `migrations/20261009171424_on_deck_source_date_once.sql` caches the company-local date once per source fingerprint call without changing cutoff semantics, grants or timeouts.
 
 **First-connect auto sync:** `migrations/20261013060000_integration_bootstrap_jobs.sql` adds `integration_bootstrap_jobs`, the queue a newly connected integration's first full sync is claimed from by `scripts/integration-bootstrap.mjs` (the "Integration Bootstrap" workflow). Admin-only insert within the active company, `claim_integration_bootstrap_jobs()` service-role only, and a lease rather than a status flag so two overlapping drainers cannot run the same import. Applying it is what switches the feature on; until then the page's enqueue fails and the connect paths say so.

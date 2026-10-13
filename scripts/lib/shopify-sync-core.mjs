@@ -132,7 +132,7 @@ export async function fetchWithRetry(url, opts = {}, tries = 5) {
   throw lastErr || new Error(`fetchWithRetry: exhausted retries for ${url}`);
 }
 
-export async function getAll(headers, url) {
+export async function getAll(headers, url, expectedKey = null) {
   let out = [];
   let nextUrl = url;
 
@@ -141,8 +141,11 @@ export async function getAll(headers, url) {
     if (!res.ok) throw new Error(await res.text());
 
     const data = await res.json();
+    if (expectedKey && !Array.isArray(data?.[expectedKey])) {
+      throw new Error(`Invalid Shopify ${expectedKey} page; refusing incomplete replacement`);
+    }
     const firstKey = Object.keys(data || {})[0];
-    const arr = firstKey ? data[firstKey] : [];
+    const arr = expectedKey ? data[expectedKey] : (firstKey ? data[firstKey] : []);
     out = out.concat(Array.isArray(arr) ? arr : []);
 
     const link = res.headers.get('link');
@@ -1538,12 +1541,13 @@ export function nextHistoryWindow(state) {
   return { window_start: windowStart, window_end: windowEnd };
 }
 
-export async function fetchOrdersInWindow(headers, base, windowStart, windowEnd) {
+export async function fetchOrdersInWindow(headers, base, windowStart, windowEnd, requireOrdersArray = false) {
   const minIso = new Date(`${windowStart}T00:00:00Z`).toISOString();
   const maxIsoStr = new Date(`${windowEnd}T23:59:59Z`).toISOString();
   return getAll(
     headers,
     `${base}/orders.json?status=any&created_at_min=${encodeURIComponent(minIso)}&created_at_max=${encodeURIComponent(maxIsoStr)}&limit=250`,
+    requireOrdersArray ? 'orders' : null,
   );
 }
 
@@ -2221,6 +2225,38 @@ export async function runCatalogSync(supabase, connection, { batchId } = {}) {
   };
 }
 
+// A complete window must fit one transaction. Never split or fall back to
+// non-atomic writes when a large window exceeds this explicit request bound.
+export const ATOMIC_SALES_MAX_BYTES = 16 * 1024 * 1024;
+
+export async function publishIncrementalWindow(supabase, connection, {
+  start, end, orders, skuMeta, syncedAt, batchId, salesRows, headers, base,
+}) {
+  const paidLookup = await fetchOrderPaidDates(headers, base, orders, { checkedAt: syncedAt });
+  const { orderRows, lineRows } = ordersToOrderRows({
+    orders, connection, skuMeta, syncedAt, batchId, paidDates: paidLookup.paid,
+  });
+  const args = {
+    p_connection_id: connection.id, p_company_entity_id: connection.company_entity_id,
+    p_shop_domain: connection.shop_domain, p_start: start, p_end: end,
+    p_orders: orderRows, p_lines: lineRows, p_sales: salesRows,
+  };
+  const payloadBytes = Buffer.byteLength(JSON.stringify(args), 'utf8');
+  if (payloadBytes > ATOMIC_SALES_MAX_BYTES || orderRows.length > 10000
+      || lineRows.length > 50000 || salesRows.length > 50000) {
+    throw new Error(`Atomic Shopify window exceeds publish limit (${payloadBytes} bytes, ${orderRows.length} orders, ${lineRows.length} lines, ${salesRows.length} sales); no writes attempted`);
+  }
+  const { data, error } = await supabase.rpc('shopify_publish_incremental_window', args);
+  if (error) throw new Error(`Atomic Shopify publish failed (migration required; no non-atomic fallback): ${error.message}`);
+  if (!data || data.orders_upserted !== orderRows.length
+      || data.order_lines_upserted !== lineRows.length || data.sales_rows_upserted !== salesRows.length) {
+    throw new Error('Atomic Shopify publish acknowledgement mismatch; retry the window before advancing watermarks');
+  }
+  const terms = { present: 0, none: 0, not_returned: 0 };
+  for (const row of orderRows) terms[row.payment_terms_status || 'not_returned'] += 1;
+  return { ...data, payment_terms: terms, paid_dates: paidLookup.stats, payload_bytes: payloadBytes };
+}
+
 export async function runIncrementalSales(supabase, connection, {
   batchId,
   daysBack = 2,
@@ -2251,6 +2287,7 @@ export async function runIncrementalSales(supabase, connection, {
   const touched = await getAll(
     headers,
     `${base}/orders.json?status=any&updated_at_min=${encodeURIComponent(sinceISO)}&limit=250`,
+    'orders',
   );
 
   let newestOrderStamp = null;
@@ -2292,6 +2329,7 @@ export async function runIncrementalSales(supabase, connection, {
   let paymentTermsSkipped = null;
   let paidDates = null;
   let paidDatesSkipped = null;
+  let maxPublishBytes = 0;
   const skippedTotals = { cancelled_orders: 0, gift_card_lines: 0, no_location_lines: 0 };
 
   // Rebuild every affected order-date in full: day aggregates can't be patched
@@ -2301,7 +2339,7 @@ export async function runIncrementalSales(supabase, connection, {
     // Over-fetch one UTC day on each side so shop-local dates are complete.
     const fetchStart = isoDateOnly(addDays(new Date(`${run.start}T00:00:00Z`), -1));
     const fetchEnd = isoDateOnly(addDays(new Date(`${run.end}T00:00:00Z`), 1));
-    const orders = await fetchOrdersInWindow(headers, base, fetchStart, fetchEnd);
+    const orders = await fetchOrdersInWindow(headers, base, fetchStart, fetchEnd, true);
 
     const { salesRows, skipped } = ordersToSalesRows({
       orders,
@@ -2321,23 +2359,16 @@ export async function runIncrementalSales(supabase, connection, {
     // sales rows (total_orders > 0): refund rows on these dates may come from
     // orders created long ago that this fetch doesn't cover — they're
     // additive-only (refunds are immutable) and refreshed by hash upsert.
-    const { error: delError } = await supabase
-      .from('sales_by_day')
-      .delete()
-      .eq('company_entity_id', connection.company_entity_id)
-      .eq('shop_domain', connection.shop_domain)
-      .eq('source', SOURCE)
-      .gt('total_orders', 0)
-      .gte('day_date', run.start)
-      .lte('day_date', run.end);
-    if (delError) throw new Error(`sales_by_day rebuild delete failed: ${delError.message}`);
-
-    rowsUpserted += await upsertInChunks(supabase, 'sales_by_day', keepRows, 'row_hash');
+    const orderFacts = await publishIncrementalWindow(supabase, connection, {
+      start: run.start, end: run.end, orders, skuMeta, syncedAt, batchId,
+      salesRows: keepRows, headers, base,
+    });
+    rowsUpserted += orderFacts.sales_rows_upserted;
+    maxPublishBytes = Math.max(maxPublishBytes, orderFacts.payload_bytes);
     daysRebuilt += Math.round(
       (new Date(`${run.end}T00:00:00Z`) - new Date(`${run.start}T00:00:00Z`)) / 86400000,
     ) + 1;
 
-    const orderFacts = await upsertOrderFacts(supabase, connection, { orders, skuMeta, syncedAt, batchId, shopify: { headers, base } });
     ordersUpserted += orderFacts.orders_upserted;
     orderLinesUpserted += orderFacts.order_lines_upserted;
     paymentTerms = addPaymentTermsTally(paymentTerms, orderFacts.payment_terms);
@@ -2348,6 +2379,7 @@ export async function runIncrementalSales(supabase, connection, {
 
   return {
     job_type: 'incremental_sales',
+    max_publish_bytes: maxPublishBytes,
     window_since: sinceISO.slice(0, 10),
     orders_fetched: touched.length,
     days_rebuilt: daysRebuilt,

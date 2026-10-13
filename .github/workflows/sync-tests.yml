@@ -19,6 +19,7 @@ on:
     paths: &sync_paths
       - 'scripts/lib/**'
       - 'scripts/tests/**'
+      - 'supabase/migrations/*shopify_atomic_incremental_publish.sql'
       - 'supabase/migrations/*product_workflow_preview.sql'
       # Product Studio Ready for PO (product-studio-ready-for-po-*.test.mjs),
       # including the client checklist it holds to the database rule.
@@ -955,6 +956,18 @@ jobs:
           node-version: '22'
       - name: Install isolated PostgreSQL test dependency
         run: npm ci --prefix scripts/tests/finance-db --ignore-scripts
+      - name: Atomic Shopify incremental publication (embedded SQL, not concurrency)
+        run: node scripts/tests/shopify-atomic-publish-database.test.mjs
+      - name: Prove atomic Shopify replacement and execution guards
+        run: |
+          for mutation in keep-lines keep-sales public-execute; do
+            if SHOPIFY_ATOMIC_MUTATION="$mutation" node scripts/tests/shopify-atomic-publish-database.test.mjs > /tmp/shopify-atomic-mutation.log 2>&1; then
+              cat /tmp/shopify-atomic-mutation.log
+              echo "Mutation survived: $mutation"
+              exit 1
+            fi
+            echo "Rejected mutation: $mutation"
+          done
       - name: Execute product workflow draft and handoff regressions
         run: node scripts/tests/product-workflow-database.test.mjs
       - name: Execute product-level SKU spread and legacy compatibility regressions
