@@ -3,8 +3,9 @@
 Goal: a tenant connects Shopify and Meta with one click, with no Dev Dashboard app and no
 pasted System User token. Both need a public listing approved by the platform.
 
-**Status (2026-10-08, 19:24 UTC evidence).** Meta: **callback deployment missing;
-App Review reported submitted, approval pending** (Part 2, 2.4 and 2.8).
+**Status (2026-10-08, 19:24 UTC evidence; callback and reviewer page revisited 2026-10-13).**
+Meta: **callback live, reviewer page's 404 fixed but not merged yet, App Review reported
+submitted, approval pending** (Part 2, 2.4a, then 2.4 and 2.8 for the earlier evidence).
 Shopify: implementation complete, verification pending (unchanged since 2026-10-07). Everything below is
 ADDITIVE. The current flows (typed shop domain, store-owned Dev Dashboard app, pasted
 `shpat_` / System User token) are untouched and keep working. The new code is not linked
@@ -12,8 +13,9 @@ from Integrations. Activating it is a separate small PR (see the end of this fil
 both reviews pass.
 
 **Deployment state differs by platform.** Shopify: nothing is configured, applied or deployed.
-Meta: migration and secrets were reported configured earlier on 2026-10-08, but the latest
-deployment evidence does not support calling the OAuth flow live (2.4). Submission is not
+Meta: migration and secrets were reported configured earlier on 2026-10-08; the 2026-10-08
+inventory evidence did not support calling the OAuth flow live (2.4), but the callback answered
+its no-parameter probe on 2026-10-13 (2.4a). Submission is not
 approval (2.8). Each step marked **[Blake]** needs your approval in the session, or is something
 only you can do in a platform dashboard.
 
@@ -207,6 +209,22 @@ Keep these as they are:
    `https://get-silo.com/legal/privacy.html#data-deletion`.
 
 Adding a product or a configuration does not change existing connections or tokens.
+
+### 2.4a The reviewer page's 404 was the Pages build, not the callback - 2026-10-13
+
+`https://silo-baseballism.com/testing/meta-oauth.html`, `meta-oauth.js` and
+`meta-oauth-client.js` returned GitHub Pages 404. The cause was the publication change in
+`71e44bf` (2026-10-09, the 2026-10-08 security audit): `_config.yml` excludes `testing`, and the
+Pages build logs `EntryFilter: excluded /testing`
+([build evidence](https://github.com/BBISMblockay/financehub/actions/runs/38355937398/job/115158724154)).
+`_config.yml` now carries an `include` allowlist naming those three files, so they publish and
+everything else in `testing/` stays private; `scripts/tests/pages-publish-allowlist.test.mjs`
+("Publication tests") builds the site and proves both.
+
+Blake verified on 2026-10-13 that the callback itself IS live: a no-parameter request returns the
+expected `missing_params` redirect of 2.4 step 4. Supabase's function listing suggesting otherwise
+(2.4) was misleading. **The 404 was never a deployment problem, so this is not a reason to deploy
+or redeploy `meta-oauth-callback`.** 2.4 below is kept as the record of the 2026-10-08 evidence.
 
 ### 2.4 Callback deployment gap - 2026-10-08
 
