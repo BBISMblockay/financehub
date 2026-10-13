@@ -1,5 +1,53 @@
 # Silo Attribution v1
 
+## Channels working together + spend (2026-10-12, PR #955)
+
+The page answers "how do our channels work together, and what does each return
+for what we spend?" first. Order: KPI band (net sales, marketing spend, return on
+spend, orders) and a one-line reconciliation check; Overview tab with the
+multi-channel headline, up to three findings, the channel scorecard, last-click vs
+shared credit bars and the most common journeys; Journeys tab with the order
+cards, filterable by channel and role (anywhere / credited / started); one
+collapsed "How this works" section for the Shopify check, journey data, where
+spend comes from, "Try other ways to split credit" (with a how-to tip) and the
+method text. The logo Platform details table stays under the Overview. Page
+copy is plain language: last click / shared, started / helped / closed.
+
+- **Headline** divides by all orders with sales activity; orders with no
+  identified channel (Unattributed / Pending) count as not multi-channel.
+- **Roles are distinct per order** (Started / Helped / Closed in the UI): started =
+  earliest identified non-direct touch in the window; closed = last click; helped
+  = a channel seen between them. A one-channel journey is both started and closed.
+  The Platform details table keeps the published "assisted", which includes the
+  introducer.
+- **Shared credit** is the existing equal-share comparison (eligible journeys
+  only; excluded orders keep last-click credit), so it adds up to net sales.
+- **Spend**: `marketing_kpis_daily` (meta_ads, google_ads, tiktok_ads) and
+  `redo_marketing_daily` (EMAIL, SMS sending cost), read in the browser under
+  their active-company SELECT policies and the page's company re-check. Spend is
+  company-wide; sales are for the selected store. Ad spend has no stored currency
+  and is shown only for a USD store; Redo rows in another currency are excluded.
+- **Coverage** comes from successful `sync_jobs` windows (`result.window`; job
+  types `meta_ads_kpis`, `google_ads_kpis`, `tiktok_ads_kpis`, `redo_marketing`).
+  A day with no rows is $0 only inside a completed window. Complete = windows
+  cover every day of the period. Partial = some days covered; a known subtotal is
+  shown. Unknown = connected (a connection, any run, or rows) but no window
+  covers the period. Unverified = more than one connection, since windows are
+  company-level, OR the viewer cannot see the connection list: both connection
+  tables are admin-only under RLS and an RLS-empty list proves nothing, so the
+  list is read only after `is_admin_user()` confirms an admin, and otherwise
+  (non-admin or a failed check) every tracked source is unverified and no return
+  is shown. Not tracked = no connection, run or rows; it does not block the
+  total. A later row never proves an earlier period was synced.
+- **Return** = credited net sales / spend, for last-click and shared credit,
+  shown only when the spend behind it is complete. An incomplete total reads
+  "$X known" with no return. Observed, not incremental lift.
+- A spend or journey load failure leaves the rest of the page working and says
+  what is unavailable.
+- The Draft review task path was removed with this change.
+
+Not yet: campaign-level spend vs credited campaigns, period-over-period change.
+
 ## Overview, observed rollups and model sensitivity
 
 The existing page opens on Overview; Journeys retains order search and evidence
@@ -34,15 +82,8 @@ Comparisons never modify stored `silo-last-non-direct-v1.1` allocations:
   tie-breaks, with negative amounts mirroring positive allocations. Aggregation
   remains in the report's single currency and store timezone.
 
-Suggestions separate observation, hypothesis and proposed test/investigation.
-Saving requires an owner from the active company's membership and a review date.
-The result is a private evergreen `launch_tasks` item with status `open`, titled
-`Review draft:` and explicitly unapproved in its notes. Task Manager can edit it.
-There is no new draft status or approval pipeline. A deterministic UUID scoped
-to creator/company/store/reporting dates/lookback/suggestion prevents repeated
-clicks and concurrent retries from creating duplicates; retries retain edits.
-No ad-platform write occurs. Supporting IDs (up to 50 in the note) and report
-filters are retained; current evidence must be rechecked at review time.
+The review-task suggestions this section originally described were removed on
+2026-10-12 (see above); findings now open their supporting orders.
 
 No migration, edge deployment, secret or scheduler change is required for this
 add-on. Existing attribution ingestion prerequisites remain. A draft PR does not
