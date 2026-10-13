@@ -19215,4 +19215,7 @@ $c$select (select count(*) from v_po_header_summary
 -- The marketing test record (and the schedule's link column). Must come AFTER
 -- 20260927190000_ad_studio.sql, whose ad_ideas it references.
 \i migrations/20261013120000_marketing_tests.sql
+-- Shopify order facts unique PER COMPANY, so one store can sync into two
+-- companies without moving either one's orders.
+\i migrations/20261013220000_shopify_order_facts_per_company.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

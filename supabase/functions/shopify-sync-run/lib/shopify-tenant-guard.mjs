@@ -39,6 +39,10 @@
  * The tempting `.neq('company_entity_id', ...)` form has to step past every
  * row of the caller's own: 8.1 s on Baseballism's largest store (616k rows).
  *
+ * Superseded by 20261013220000, which keys the four tables per company: once
+ * it has applied (shopify_order_facts_keyed_by_company() is true) the guard
+ * stands aside and one store may sync into any number of companies.
+ *
  * Verbatim copy in supabase/functions/shopify-sync-run/lib/ (pinned by
  * scripts/tests/shopify-tenant-guard.test.mjs). Edit this one and re-copy.
  */
@@ -51,6 +55,14 @@ export async function orderFactsHeldElsewhere(supabase, connection) {
   if (!domain || !companyId) {
     return { blocked: true, reason: 'the connection has no shop_domain or company, so ownership cannot be checked' };
   }
+  // Once 20261013220000 has applied, order facts are unique PER COMPANY: a
+  // second company's sync writes its own copy and moves nothing, so there is
+  // nothing to guard. The function returns true only when all four new keys
+  // exist and none of the old ones does. Any other answer -- false, the
+  // function not existing yet, an error -- falls through to the check below,
+  // which is the pre-migration protection.
+  const { data: perCompany, error: keyErr } = await supabase.rpc('shopify_order_facts_keyed_by_company');
+  if (!keyErr && perCompany === true) return { blocked: false, perCompany: true };
   for (const table of ORDER_FACT_TABLES) {
     const { data, error } = await supabase.from(table)
       .select('company_entity_id')

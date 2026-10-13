@@ -3,6 +3,7 @@
 
 import crypto from 'node:crypto';
 import { scopesMissingForJob } from './shopify-scopes.mjs';
+import { upsertOrderFact } from './shopify-order-fact-keys.mjs';
 
 export const SOURCE = 'shopify_api';
 export const DEFAULT_API_VERSION = '2025-01';
@@ -1452,7 +1453,7 @@ export async function upsertOrderFacts(supabase, connection, { orders, skuMeta, 
       throw err;
     }
   }
-  const linesUpserted = await upsertInChunks(supabase, 'shopify_order_lines', lineRows, 'shop_domain,order_id,line_item_id');
+  const linesUpserted = await upsertOrderFact(upsertInChunks, supabase, 'shopify_order_lines', lineRows);
 
   // Recorded on the sync job so "did Shopify send payment terms at all" is a
   // stored measurement, not a guess: all not_returned means the connection
@@ -1495,7 +1496,7 @@ async function upsertOrderRows(supabase, rows) {
   }
   let n = 0;
   for (const group of groups.values()) {
-    n += await upsertInChunks(supabase, 'shopify_orders', group, 'shop_domain,order_id');
+    n += await upsertOrderFact(upsertInChunks, supabase, 'shopify_orders', group);
   }
   return n;
 }
@@ -1776,8 +1777,10 @@ export async function runHistoryChunk(supabase, connection, {
 /**
  * Shopify Payments payouts → shopify_payouts. Feeds the Accounting Export
  * (deposit register for bank rec + monthly processing-fee journal entry).
- * Payout ids are globally unique, so duplicate connections to the same shop
- * converge on the same rows via the payout_id upsert.
+ * Keyed (payout_id, company_entity_id) since 20261013220000: one store
+ * connected under two companies keeps one copy of its payouts per company
+ * (lib/shopify-order-fact-keys.mjs). Before that the key was payout_id
+ * alone, and a second company's sync moved the first one's payouts.
  */
 export async function runPayoutsSync(supabase, connection, { batchId } = {}) {
   const granted = grantedScopes(connection);
@@ -1848,7 +1851,7 @@ export async function runPayoutsSync(supabase, connection, { batchId } = {}) {
     sync_batch_id: batchId || null,
   }));
 
-  const upserted = await upsertInChunks(supabase, 'shopify_payouts', rows, 'payout_id');
+  const upserted = await upsertOrderFact(upsertInChunks, supabase, 'shopify_payouts', rows);
   return { payouts_upserted: upserted, since };
 }
 
@@ -2572,7 +2575,7 @@ export async function runDraftOrdersSync(supabase, connection, {
     };
   });
 
-  const upserted = await upsertInChunks(supabase, 'shopify_draft_orders', rows, 'shop_domain,draft_order_id');
+  const upserted = await upsertOrderFact(upsertInChunks, supabase, 'shopify_draft_orders', rows);
 
   return {
     job_type: 'draft_orders_sync',

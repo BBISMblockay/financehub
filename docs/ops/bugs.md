@@ -96,7 +96,9 @@ allows. Fix: a restrictive `aal2`-for-enrolled-users policy on every RLS table a
 plus `aal` checks in SECURITY DEFINER RPCs and service-role edge functions (migration and deploy, so
 Blake's approval). Until then setup stays closed: `MFA_ENROLLMENT_OPEN` is unset in `pages/config.js`,
 which only hides the button. The server-side gate is Supabase Auth → Multi-Factor → TOTP set to
-verification-only (enrollment off). That is a dashboard change for Blake, still owed as of 2026-10-13.
+verification-only (enrollment off). Set by Blake 2026-10-13 ~21:20 UTC ("Verify Enabled") and checked:
+an enroll call from a signed-in session is refused 422 `mfa_totp_enroll_not_enabled`, password sign-in
+still lands in the app, and `auth.mfa_factors` holds 0 rows.
 Two-step login isn't something to offer customers yet.
 
 ---
@@ -146,9 +148,15 @@ does not protect them -- the first company to write their orders owns them.
 facts another company already holds -- in the nightly and the first-import job (`scripts/shopify-sync.mjs`),
 the manual orders backfill (`scripts/shopify-orders-backfill.mjs`), and `shopify-sync-run`'s two history
 actions (needs a deploy to take effect there). Two companies importing a never-synced store at the same
-moment can both pass it. The real fix is a
-migration adding `company_entity_id` to those unique keys (and to the sync cores' `onConflict`), which is
-Blake's call.
+moment can both pass it.
+
+**Fix written, not live** (`20261013220000_shopify_order_facts_per_company.sql`,
+`scripts/lib/shopify-order-fact-keys.mjs`): the four keys gain `company_entity_id`, every order-fact
+upsert goes through `upsertOrderFact` (per-company key, old key only while the migration is unapplied),
+and the guard stands aside once `shopify_order_facts_keyed_by_company()` is true. Live only after, IN THIS
+ORDER: merge, deploy `shopify-sync-run` and `ad-platform-sync-run`, apply the migration (Blake's approval;
+outside the sync window). Move this entry to the CHANGELOG then. Until then BlockayOps' baseballismmlb
+connection stays refused.
 
 ## support@get-silo.com: cross-tenant access through one mailbox (accepted risk, Blake 2026-10-13)
 
