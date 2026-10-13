@@ -15,6 +15,9 @@
   <!-- Config -->
   <script src="./config.js"></script>
 
+  <!-- Two-step login (opt-in; no-op for accounts without it) -->
+  <script src="./mfa.js"></script>
+
   <!-- Brand fonts (match Beacon design system: Plus Jakarta Sans + IBM Plex Mono) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -287,6 +290,32 @@
                     class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold tracking-tight shadow-sm hover:bg-slate-800 active:bg-slate-950 disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none flex items-center justify-center gap-2">
               Set password &amp; join
             </button>
+          </form>
+
+          <!-- Two-step login: shown after a correct password (or email link)
+               only for an account that turned it on in My profile. -->
+          <form id="formMfa" class="space-y-4 hidden">
+            <div class="text-sm text-slate-600 leading-relaxed bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
+              Two-step login is on for this account. Open your authenticator app and enter the 6-digit code for SILO.
+            </div>
+            <div>
+              <label for="mfaCode" class="block text-sm font-semibold text-slate-700 mb-1.5">Authentication code</label>
+              <input id="mfaCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="9"
+                     class="mono w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-[18px] tracking-[0.3em] placeholder:text-slate-400 placeholder:tracking-normal focus:outline-none"
+                     placeholder="123456" required />
+            </div>
+
+            <button id="btnMfa" type="submit"
+                    class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold tracking-tight shadow-sm hover:bg-slate-800 active:bg-slate-950 disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none flex items-center justify-center gap-2">
+              Verify
+            </button>
+
+            <div class="pt-1 flex items-center justify-between gap-3">
+              <span class="text-xs text-slate-500">Lost your phone? Ask your workspace admin to reset two-step login.</span>
+              <button id="btnMfaCancel" type="button" class="shrink-0 text-sm text-slate-500 hover:text-slate-700 hover:underline underline-offset-2">
+                Use a different account
+              </button>
+            </div>
           </form>
 
           <dialog id="dlgSignup" class="rounded-2xl p-0 w-full max-w-md border-0">
@@ -708,7 +737,43 @@
         }
       }
 
+      // Two-step login. Every way in (password, email link, invite join, an
+      // existing session) reaches doResolveAndRedirect, so the code step sits
+      // at its top: before an invite is redeemed or anything is routed. An
+      // account without two-step login gets `false` and continues unchanged.
+      // REDIRECT_STARTED stays set while the code step is showing, so a
+      // second SIGNED_IN event cannot route around it.
+      function showMfaStep(userId) {
+        MFA_USER_ID = userId;
+        document.getElementById("authTabs")?.classList.add("hidden");
+        formPassword.classList.add("hidden");
+        formMagic.classList.add("hidden");
+        document.getElementById("formInvite")?.classList.add("hidden");
+        document.getElementById("formMfa").classList.remove("hidden");
+        showStatus("Enter the code from your authenticator app to finish signing in.", "info");
+        const input = document.getElementById("mfaCode");
+        input.value = "";
+        input.focus();
+      }
+
+      function hideMfaStep() {
+        MFA_USER_ID = null;
+        document.getElementById("formMfa").classList.add("hidden");
+        document.getElementById("authTabs")?.classList.remove("hidden");
+        setTab("password");
+      }
+
+      let MFA_USER_ID = null;
+
       async function doResolveAndRedirect(userId) {
+        if (!window.SiloMfa) {
+          throw new Error("Sign-in could not finish loading. Refresh the page and try again.");
+        }
+        if (await window.SiloMfa.needsCode(supabaseClient)) {
+          showMfaStep(userId);
+          return;
+        }
+
         // Redeem a pending invite before reading the profile — acceptance
         // is what activates the profile and creates the org membership.
         const inviteToken = getInviteToken();
@@ -986,6 +1051,40 @@
         } finally {
           setLoading(btnLogin, false, "Sign in");
         }
+      });
+
+      const formMfa = document.getElementById("formMfa");
+      const btnMfa = document.getElementById("btnMfa");
+      formMfa.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const userId = MFA_USER_ID;
+        if (!userId) return;
+        setLoading(btnMfa, true, "Verify");
+        try {
+          await window.SiloMfa.verifyCode(supabaseClient, document.getElementById("mfaCode").value);
+        } catch (err) {
+          showStatus(err?.message || "Could not verify the code.", "error");
+          setLoading(btnMfa, false, "Verify");
+          return;
+        }
+        showStatus("Verified. Redirecting…", "success");
+        try {
+          // The guard is still held from the call that showed this step.
+          await doResolveAndRedirect(userId);
+        } catch (err) {
+          REDIRECT_STARTED = false;
+          showStatus(err?.message || "Could not determine user route.", "error");
+        } finally {
+          setLoading(btnMfa, false, "Verify");
+        }
+      });
+
+      // Leaves the half-finished sign-in: the password-only session is ended
+      // here rather than left in this browser.
+      document.getElementById("btnMfaCancel").addEventListener("click", async () => {
+        try { await supabaseClient.auth.signOut(); } catch {}
+        REDIRECT_STARTED = false;
+        hideMfaStep();
       });
 
       const btnMagic = document.getElementById("btnMagic");

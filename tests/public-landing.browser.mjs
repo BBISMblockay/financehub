@@ -116,7 +116,7 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
       return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Fixture destination</title><h1>Routing destination verified</h1>' });
     }
     const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-    const allowed = ['index.html', 'pages/login.html', 'v2/company-onboarding.html', 'v2/beacon.css', 'v2/silo-brand.css', 'legal/privacy.html'];
+    const allowed = ['index.html', 'pages/login.html', 'pages/mfa.js', 'v2/company-onboarding.html', 'v2/beacon.css', 'v2/silo-brand.css', 'legal/privacy.html'];
     const motionAsset = relative === 'assets/landing/silo-hero-motion.js' || mediaPaths.includes(url.pathname);
     if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative) && !motionAsset) {
       failures.push('Unexpected fixture path: ' + relative);
