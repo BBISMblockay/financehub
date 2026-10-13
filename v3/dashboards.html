@@ -16,7 +16,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20260930a" />
+  <link rel="stylesheet" href="dashboard.css?v=20261013a" />
   <style>
     /* ── Reports library ───────────────────────────────────────────────
        Page-specific, so it lives here rather than in dashboard.css (which
@@ -155,6 +155,7 @@
       <button type="button" class="bcn-tab" role="tab" id="tab-company" data-tab="company" aria-controls="pane-company" aria-selected="false" tabindex="-1">Company Reports <span class="lib-tab-count" data-count="company"></span></button>
       <button type="button" class="bcn-tab" role="tab" id="tab-archived" data-tab="archived" aria-controls="pane-archived" aria-selected="false" tabindex="-1">Archived <span class="lib-tab-count" data-count="archived"></span></button>
       <button type="button" class="bcn-tab" role="tab" id="tab-dashboards" data-tab="dashboards" aria-controls="pane-dashboards" aria-selected="false" tabindex="-1">Dashboards <span class="lib-tab-count" data-count="dashboards"></span></button>
+      <button type="button" class="bcn-tab" role="tab" id="tab-scheduled" data-tab="scheduled" aria-controls="pane-scheduled" aria-selected="false" tabindex="-1" hidden>Scheduled email <span class="lib-tab-count" data-count="scheduled"></span></button>
     </div>
 
     <div class="bcn-status" id="status" hidden></div>
@@ -186,6 +187,10 @@
       </section>
       <section class="lib-pane" id="pane-dashboards" role="tabpanel" aria-labelledby="tab-dashboards" hidden>
         <div class="lib-body" id="listBody"><div class="lib-empty">Loading…</div></div>
+      </section>
+      <section class="lib-pane" id="pane-scheduled" role="tabpanel" aria-labelledby="tab-scheduled" hidden>
+        <p class="lib-intro">Recurring CSV attachments from saved reports or whole dashboards. Admins create schedules from a report preview or the report builder.</p>
+        <div class="lib-body" id="scheduledBody"><div class="lib-empty">Loading…</div></div>
       </section>
     </div>
   </main>
@@ -250,6 +255,9 @@
 <script src="js/chart-adapter.js?v=20260930a"></script>
 <script src="js/report-catalog.js?v=20260930a"></script>
 <script src="js/report-library.js?v=20260930a"></script>
+<script src="js/report-email-schedule.js?v=20261013a"></script>
+<script src="js/report-email-schedule-ui.js?v=20261013a"></script>
+<script src="js/report-email-schedule-mount.js?v=20261013a"></script>
 <script>
 (function () {
   'use strict';
@@ -287,7 +295,8 @@
   let reportPages = []; // Page links belong only to this library, never the widget picker.
   // null = not loaded yet; an Error = the load failed. Kept apart from []
   // so "nothing here" and "could not ask" never render the same message.
-  const data = { silo: null, mine: null, company: null, archived: null, dashboards: null };
+  const data = { silo: null, mine: null, company: null, archived: null, dashboards: null, scheduled: null };
+  let isScheduleAdmin = false;
 
   // ── Icons: one simple glyph per kind, never meaning-bearing on its own ──
   const ICON = {
@@ -404,6 +413,14 @@
 
   // ── Render ──────────────────────────────────────────────────────────
   function render() {
+    if (activeTab === 'scheduled') {
+      el('libCount').textContent = '';
+      el('librarySearch').placeholder = SEARCH_LABEL.scheduled;
+      if (window.SiloReportEmailScheduleMount) {
+        window.SiloReportEmailScheduleMount.mountLibraryTab(sb, userId, companyId, el('scheduledBody'), setStatus);
+      }
+      return;
+    }
     for (const t of L.TABS) {
       const loaded = data[t.id];
       const rows = t.id === 'silo' ? [...reportPages, ...(Array.isArray(loaded) ? loaded : [])] : loaded;
@@ -442,7 +459,7 @@
   }
 
   // ── Tabs ────────────────────────────────────────────────────────────
-  const SEARCH_LABEL = { silo: 'Search SILO reports', mine: 'Search my reports', company: 'Search company reports', archived: 'Search archived reports', dashboards: 'Search dashboards' };
+  const SEARCH_LABEL = { silo: 'Search SILO reports', mine: 'Search my reports', company: 'Search company reports', archived: 'Search archived reports', dashboards: 'Search dashboards', scheduled: 'Search schedules' };
 
   function selectTab(tab, { updateUrl = true, focus = false } = {}) {
     if (!allowedTabs.includes(tab)) tab = allowedTabs[0];
@@ -713,6 +730,13 @@
       for (const t of L.TABS) el(`tab-${t.id}`).hidden = !allowedTabs.includes(t.id);
       el('libTabs').hidden = !reportsEnabled;
       document.title = reportsEnabled ? 'SILO · Manage reports' : 'SILO · Dashboards';
+    }
+
+    isScheduleAdmin = !!(companyId && window.SiloReportEmailSchedule
+      && await window.SiloReportEmailSchedule.isWorkspaceAdmin(sb, userId, companyId));
+    if (isScheduleAdmin && navProfile === 'grandfathered' && !allowedTabs.includes('scheduled')) {
+      allowedTabs = allowedTabs.concat(['scheduled']);
+      el('tab-scheduled').hidden = false;
     }
 
     const { data: profile } = await sb.from('profiles').select('name, email, role').eq('id', userId).single();

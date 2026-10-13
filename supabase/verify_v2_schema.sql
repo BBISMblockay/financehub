@@ -6523,3 +6523,12 @@ select 'AI credit ledger' as check_name,
          'select count(*) as n from public.ai_credit_reconcile() where not ok', false, true, '')))[1]::text <> '0'
   then 'CRITICAL: AI credit balances do not reconcile with the ledger -- select * from ai_credit_reconcile() where not ok'
  else 'ok' end as status;
+
+select 'report_email_schedules table' as check_name,
+  case when not exists (select 1 from information_schema.tables
+                        where table_schema = 'public' and table_name = 'report_email_schedules')
+       then 'MISSING — run 20261013180000_report_email_schedules.sql'
+       when not exists (select 1 from pg_policies where tablename = 'report_email_schedules'
+                          and policyname = 'report_email_schedules_select')
+       then 'BROKEN — report_email_schedules_select missing'
+       else 'ok' end as status;

@@ -1110,6 +1110,11 @@
         + `query ${qi + 1}; saving replaces the report with that one query.`, 'info', 12000);
     }
     preview();
+    const sched = el('btnScheduleEmail');
+    if (sched) {
+      sched.hidden = false;
+      sched.href = `/v3/dashboard.html?report=${encodeURIComponent(id)}&openSchedule=1`;
+    }
   }
 
   /** Columns tiles name that this report no longer returns. The concrete breakage. */
