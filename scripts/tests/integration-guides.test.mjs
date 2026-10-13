@@ -33,7 +33,7 @@ if (mutation === 'scope-drift') src = src.replace("    'read_publications',\n", 
 if (mutation === 'no-all-orders') src = src.replace(".concat(['read_all_orders'])", '');
 if (mutation === 'all-orders-first') src = src.replace("label: 'Copy scopes', value: SHOPIFY_SCOPES.join(',')", "label: 'Copy scopes', value: SHOPIFY_OWN_APP_SCOPES.join(',')");
 if (mutation === 'remedy-ignores-method') src = src.replace("if (authMethod === 'client_credentials') {", 'if (true) {');
-if (mutation === 'faq-request-access') src = src.replace('(Shopify accepts it once the app exists; there is no access request to submit)', '(request access if Shopify asks)');
+if (mutation === 'faq-request-access') src = src.replace('(Shopify accepts it once the app is installed; there is no access request to submit)', '(request access if Shopify asks)');
 if (mutation === 'null-is-legacy') src = src.replace("if (authMethod === 'manual_token') {", 'if (authMethod === \'manual_token\' || !authMethod) {');
 if (mutation === 'token-guide-capped') src = src.replace("          scopes: SHOPIFY_OWN_APP_SCOPES,\n          note: '<strong>Include", "          scopes: SHOPIFY_SCOPES,\n          note: '<strong>Include");
 if (mutation === 'no-pages-show-list') src = src.replace("['pages_show_list', ", '[');
@@ -106,6 +106,11 @@ t('the own-app route asks for read_all_orders (full history backfill)', () => {
   const first = scoped[0];
   const step = scoped[scoped.length - 1];
   assert.ok(scoped.length >= 2, 'scopes are added across two versions');
+  // The one verified order: install BEFORE adding read_all_orders, then install again.
+  const steps = G.resolve('shopify_dev_app', {}).steps;
+  const installAt = steps.findIndex((st) => /^Install the app/.test(st.title));
+  assert.ok(installAt > steps.indexOf(first) && installAt < steps.indexOf(step), 'install sits between the two versions');
+  assert.match(step.body, /Install app<\/strong> again/);
   assert.ok(!first.copy[0].value.split(',').includes('read_all_orders'), 'not in the first version');
   assert.deepEqual(first.copy[0].value.split(',').sort(), [...PUBLIC_SCOPES].sort(), 'first version is the public set');
   assert.ok(step.scopes.includes('read_all_orders'), 'listed in the step');
@@ -134,7 +139,10 @@ t('the read_all_orders fix depends on whose app the connection uses', () => {
   const pub = G.allOrdersRemedy('oauth');
   assert.equal(pub.guide, 'shopify_dev_app');
   assert.doesNotMatch(pub.text, /New version|Install app again/);
-  assert.match(pub.text, /own app/);
+  // An OAuth store cannot switch itself: shopify-connect-dev-app refuses a row
+  // connected another way, and Remove fails once orders exist. Support, not self-serve.
+  assert.doesNotMatch(pub.text, /connect this store|reconnect/i);
+  assert.match(pub.text, /SILO support/);
   // Legacy admin custom app: only an explicit manual_token.
   const legacy = G.allOrdersRemedy('manual_token');
   assert.equal(legacy.guide, 'shopify_token');
@@ -147,6 +155,7 @@ t('the read_all_orders fix depends on whose app the connection uses', () => {
     assert.notEqual(unknown.guide, 'shopify_token', String(m));
     assert.match(unknown.text, /Develop apps/, String(m));
     assert.match(unknown.text, /New version/, String(m));
+    assert.doesNotMatch(unknown.text, /reconnect/i, String(m));
   }
   for (const k of ['shopify_dev_app', 'shopify_token']) assert.ok(G.GUIDES[k], k);
   // Every guide a remedy opens actually tells the reader to add read_all_orders.

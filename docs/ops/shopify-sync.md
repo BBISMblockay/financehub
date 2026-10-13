@@ -70,7 +70,7 @@ There are three ways a store connects, and which one works depends on who owns t
 | Store | How | Token |
 |-------|-----|-------|
 | In Baseballism's Shopify organization | **Connect with Shopify** (OAuth, the legacy custom-distributed app) | Never expires |
-| Any other store, today | **Connect with your store's own app**: the store owner creates an app in the Shopify **Dev Dashboard** while signed in to THEIR organization, gives it the 8 read scopes below, installs it, and pastes its client ID + secret into Integrations | SILO mints a 24-hour token (client-credentials grant) and refreshes it before every sync |
+| Any other store, today | **Connect with your store's own app**: the store owner creates an app in the Shopify **Dev Dashboard** while signed in to THEIR organization, gives it the 8 read scopes below, installs it, adds `read_all_orders` in a second version and installs again, and pastes its client ID + secret into Integrations | SILO mints a 24-hour token (client-credentials grant) and refreshes it before every sync |
 | Any store, once SILO's public app passes Shopify review | **Connect with Shopify** (the public app, used automatically once `SHOPIFY_PUBLIC_CLIENT_ID` / `SHOPIFY_PUBLIC_CLIENT_SECRET` are set) | Never expires |
 
 A pasted `shpat_` token still works for a store that already has one, but Shopify stopped letting new
@@ -83,8 +83,9 @@ Shopify grants it: without it the Admin API returns only the last 60 days of ord
 says so rather than letting a store look fully backfilled. **A store's own Dev Dashboard app is told to
 add it** (Integrations' setup guide, `SHOPIFY_OWN_APP_SCOPES` in `v2/integration-guides.js`), **in a second
 version**: the Dev Dashboard rejects `read_all_orders` on a brand-new app ("Contains invalid scopes") and
-accepts it once the app exists, after which the store must Install the app again to approve it
-(State Forty Eight, 2026-10-13). There is no access-request form for a store-owned app. that app is
+accepts it once the app has been installed, after which the store must Install the app again to approve
+it (State Forty Eight, 2026-10-13, the only order verified). There is no access-request form for a
+store-owned app: that app is
 custom-distributed in the store's own organization, the same kind as Baseballism's legacy app, which holds
 `read_all_orders` and backfills full history. `shopify-connect-dev-app` takes whatever scopes the app
 was given, so nothing server-side changes. A history import over 60 days on a store without it asks
