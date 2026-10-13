@@ -105,7 +105,7 @@ await test('success and failure both write the history state back', () => {
   // for either reason -- but a failed import must still count its attempt,
   // which is what stops a connection that can never succeed re-pulling a
   // year on every run.
-  assert.match(sync, /if \(history\.backfill \|\| block\) \{/);
+  assert.match(sync, /if \(history\.backfill \|\| block \|\| hadBlock\) \{/);
   assert.match(sync, /history\.backfill\s*\n?\s*\? metaAfterHistory\(connection\.meta, \{ backfill: true, succeeded: false/);
 });
 
