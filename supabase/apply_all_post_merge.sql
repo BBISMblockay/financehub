@@ -19208,4 +19208,7 @@ $c$select (select count(*) from v_po_header_summary
 -- 20260708050000/20260708060000, which create the two matviews it reads and the
 -- wrapper pattern it follows.
 \i migrations/20261012210000_inventory_workboard_matview.sql
+-- The marketing test record (and the schedule's link column). Must come AFTER
+-- 20260927190000_ad_studio.sql, whose ad_ideas it references.
+\i migrations/20261013120000_marketing_tests.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

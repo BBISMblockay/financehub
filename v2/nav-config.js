@@ -317,6 +317,14 @@
     // is unchanged and remains the boundary. ad-studio.html has no
     // page-level role check, so this row was the whole gate.
     { id: 'reports/ad-studio', section: 'Marketing', label: 'Ad Studio', href: '/v2/ad-studio.html', profiles: ['grandfathered', 'standard'] },
+    // The test record itself (2026-10-13, 20261013120000): what was tried,
+    // what it was judged on, and what was learned, next to the schedule it
+    // borrows from (launch_channel_items, the Launch calendar's own table).
+    // No role gate, for the same reason Ad Studio lost its one in the row
+    // above: marketing is department `marketing` carrying profiles.role
+    // `admin` or `user`, and `roles` AND `departments` cannot express
+    // "exec OR marketing". RLS on marketing_tests is the boundary.
+    { id: 'reports/marketing-ops', section: 'Marketing', label: 'Testing & schedule', href: '/v2/marketing-ops.html', profiles: ['grandfathered', 'standard'] },
     // ONE SEO destination (2026-09-27), not a row per page: Studio, Search
     // performance and Keywords are TABS of it (SEO_SUITE_PAGES above), the
     // same collapse as Accounting and Workspace settings. silo-chrome.js maps
