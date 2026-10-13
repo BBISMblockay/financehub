@@ -19,7 +19,9 @@
  *      calendar's own table) with its test link, and a javascript: URL is
  *      refused before any write
  *   8. a stored <img onerror> in a title renders as text, not as an element
- *   9. the Learnings tab shows concluded tests only, grouped by what varied,
+ *   9. the Ad Studio strip mounts on the page, with this page as the current
+ *      tab, so a page with no sidebar row of its own is still escapable
+ *  10. the Learnings tab shows concluded tests only, grouped by what varied,
  *      with the two readings as recorded (a missing one is "not measured",
  *      never 0) and nothing computed from them
  */
@@ -355,7 +357,32 @@ const statusText = (page) => page.textContent('#status');
     await page.waitForFunction(() => !/9am send/.test(document.getElementById('itemsTbody').textContent));
     R.ok('"not part of a test" excludes linked items', true);
 
-    // ── 9. Learnings ────────────────────────────────────────────────────
+    // ── 9. The Ad Studio strip, on the real page ────────────────────────
+    // The page has no sidebar row of its own any more, so the strip IS the way
+    // back to Ad Studio. The harness has no active company, which is the paint
+    // where resolveNavProfile answers 'standard' -- and the tab being viewed
+    // has to be in its own strip even then.
+    R.test('the Ad Studio strip mounts, with this page as the current tab', async () => {
+      const strip = await page.evaluate(() => {
+        const nav = document.querySelector('.ads-suite-nav');
+        if (!nav) return null;
+        return {
+          links: [...nav.querySelectorAll('a')].map((a) => ({
+            href: a.getAttribute('href'),
+            current: a.getAttribute('aria-current') === 'page',
+          })),
+          imgs: nav.querySelectorAll('img').length,
+        };
+      });
+      R.truthy(strip, 'the strip is on the page');
+      R.eq(strip.imgs, 0, 'the strip draws inline SVG, not remote images');
+      R.eq(strip.links.length, 2, 'Ad Studio and this page');
+      R.eq(strip.links[0].href, '/v2/ad-studio.html', 'the way back to Ad Studio');
+      R.eq(strip.links[1].href, '/v2/marketing-ops.html');
+      R.eq(strip.links[1].current, true, 'this page is the current tab');
+    });
+
+    // ── 10. Learnings ───────────────────────────────────────────────────
     await page.click('#tabLearn');
     await page.waitForFunction(() => /Free shipping over/.test(document.getElementById('learnBody').textContent));
     const learn = await page.textContent('#learnBody');
