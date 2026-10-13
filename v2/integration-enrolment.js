@@ -136,7 +136,101 @@
    */
   const NON_IMPORT_JOB_TYPES = ['test_connection'];
 
+  /** Pin the UPDATE to the import state we just read.
+   *
+   * meta is shared: a history window, a cancel or a fresh Start writes
+   * meta.history_backfill to the same column, and the browser cannot patch
+   * two JSONB keys without replacing the object. So the replacement carries
+   * the import's own fields as conditions -- PostgREST applies them inside
+   * the statement, and if anything touched the import between the read and
+   * the write the statement matches no rows and the stamp is simply not
+   * written. A missing stamp is harmless; a reverted import cursor is not.
+   */
+  function pinImportState(query, backfill) {
+    if (!backfill || typeof backfill !== 'object') {
+      return { query: query.is('meta->>history_backfill', null), pinned: true };
+    }
+    let q = query;
+    let pinned = false;
+    for (const field of ['status', 'cursor', 'windows_done']) {
+      if (backfill[field] === undefined || backfill[field] === null) continue;
+      q = q.eq(`meta->history_backfill->>${field}`, String(backfill[field]));
+      pinned = true;
+    }
+    // An import record with none of those fields cannot be pinned, and a
+    // blind replacement is exactly what must not happen.
+    return { query: q, pinned };
+  }
+
+  /** Write the pause note, or write nothing. Never a blind replacement. */
+  async function stampPause(db, { table, connectionId, userId = null, at, clear = false }) {
+    const { data: fresh, error } = await db.from(table)
+      .select('meta').eq('id', connectionId).maybeSingle();
+    if (error || !fresh) return { stamped: false, reason: 'unreadable' };
+    const meta = fresh.meta && typeof fresh.meta === 'object' ? fresh.meta : {};
+    const next = clear ? withoutPauseStamp(meta) : withPauseStamp(meta, { at, by: userId });
+    const { query, pinned } = pinImportState(
+      db.from(table).update({ meta: next }).eq('id', connectionId),
+      meta.history_backfill,
+    );
+    if (!pinned) return { stamped: false, reason: 'unpinnable' };
+    const { data, error: writeErr } = await query.select('id');
+    if (writeErr) return { stamped: false, reason: 'error' };
+    return { stamped: (data || []).length > 0, reason: (data || []).length ? 'written' : 'import_moved' };
+  }
+
+  /** Switch a store off, with the pause NOTE written before the setting.
+   *
+   * Order is the whole point. Enrolment refuses a store that carries a
+   * stamp, so stamping first means a stale "Start first import" click can
+   * never land in the middle of a pause and leave the row switched ON with a
+   * pause recorded: either the click arrives before the stamp, and the
+   * disable that follows overrides it, or it arrives after and is refused.
+   */
+  async function pauseConnection(db, { table = 'shopify_connections', connectionId, userId = null, at = new Date().toISOString() }) {
+    const stamp = await stampPause(db, { table, connectionId, userId, at });
+    const { error } = await db.from(table)
+      .update({ sync_enabled: false, updated_at: at })
+      .eq('id', connectionId);
+    if (error) {
+      // A stamp with the sync still ON would read as paused while the
+      // nightly keeps running. Take the note back rather than leave that.
+      if (stamp.stamped) await stampPause(db, { table, connectionId, at, clear: true });
+      return { ok: false, error: error.message, stamped: false };
+    }
+    return { ok: true, stamped: stamp.stamped, reason: stamp.reason };
+  }
+
+  /** Switch a store back on, then take the pause note off. */
+  async function resumeConnection(db, { table = 'shopify_connections', connectionId, at = new Date().toISOString() }) {
+    const { error } = await db.from(table)
+      .update({ sync_enabled: true, updated_at: at })
+      .eq('id', connectionId);
+    if (error) return { ok: false, error: error.message };
+    const cleared = await stampPause(db, { table, connectionId, at, clear: true });
+    return { ok: true, cleared: cleared.stamped };
+  }
+
+  /** Enrol a store: switch its sync on only if it is still waiting for it.
+   *
+   * The conditions live in the statement, so a pause another admin made
+   * while the page sat open wins over a click on a button rendered before
+   * it. Zero rows back also covers an RLS refusal, which from here is the
+   * same answer: this page did not change anything.
+   */
+  async function enrolConnection(db, { table = 'shopify_connections', connectionId, at = new Date().toISOString() }) {
+    const { data, error } = await db.from(table)
+      .update({ sync_enabled: true, updated_at: at })
+      .eq('id', connectionId)
+      .eq('sync_enabled', false)
+      .is('meta->>sync_paused_at', null)
+      .select('id');
+    if (error) return { enabled: false, error: error.message };
+    return { enabled: (data || []).length > 0 };
+  }
+
   window.SiloEnrolment = {
+    pinImportState, stampPause, pauseConnection, resumeConnection, enrolConnection,
     jobCountsAsQueued, NON_IMPORT_JOB_TYPES,
     enrolmentState, describeState, withPauseStamp, withoutPauseStamp, needsEvidence,
   };

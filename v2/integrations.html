@@ -2048,24 +2048,15 @@
       // may have been open for an hour: another admin can have paused this
       // store in the meantime, and a check made here against what the page
       // loaded -- or even against a fresh read a line earlier -- would still
-      // enable it, overriding a decision somebody just made about their
-      // API spend. PostgREST applies these filters inside the UPDATE, so
-      // zero rows back means the state moved and nothing was written.
-      const { data: enabled, error: enableErr } = await db.from('shopify_connections')
-        .update({ sync_enabled: true, updated_at: new Date().toISOString() })
-        .eq('id', connectionId)
-        .eq('sync_enabled', false)
-        .is('meta->>sync_paused_at', null)
-        .select('id');
-      if (enableErr) {
-        setStatus('Could not switch its nightly sync on: ' + enableErr.message, 'neg', 8000);
+      // enable it, overriding a decision somebody just made about their API
+      // spend. See enrolConnection in v2/integration-enrolment.js.
+      const enrolled = await SiloEnrolment.enrolConnection(db, { connectionId });
+      if (enrolled.error) {
+        setStatus('Could not switch its nightly sync on: ' + enrolled.error, 'neg', 8000);
         loadConnections();
         return;
       }
-      // An RLS-refused UPDATE also comes back with zero rows, so this covers
-      // both "somebody changed it" and "you may not change it". Either way
-      // nothing further should run against it.
-      if (!(enabled || []).length) {
+      if (!enrolled.enabled) {
         setStatus('That store is no longer waiting for its first import — it was switched on or paused elsewhere. Reloading.', 'info', 8000);
         _everSynced.delete(connectionId);
         loadConnections();
@@ -2092,43 +2083,18 @@
     }
 
     async function toggleSyncEnabled(connectionId, enabled) {
-      const { error } = await db
-        .from('shopify_connections')
-        .update({ sync_enabled: enabled })
-        .eq('id', connectionId);
-      if (error) {
-        setStatus('Failed to update sync setting: ' + error.message, 'neg', 5000);
+      // Both halves -- the setting and the note recording that a PERSON set
+      // it -- live in v2/integration-enrolment.js, because the order of the
+      // two writes is what stops a stale Start click from landing inside a
+      // pause, and the note's write is pinned to the import state so it can
+      // never put an old history plan back.
+      const res = enabled
+        ? await SiloEnrolment.resumeConnection(db, { connectionId })
+        : await SiloEnrolment.pauseConnection(db, { connectionId, userId: _session?.user?.id || null });
+      if (!res.ok) {
+        setStatus('Failed to update sync setting: ' + res.error, 'neg', 5000);
         loadConnections();
         return;
-      }
-      // Record that a PERSON did this, so a later page load can tell a
-      // deliberate pause from a store nobody ever enrolled without having to
-      // ask how long sync_jobs rows are kept. Best effort and deliberately
-      // second: the toggle itself is the setting, this is only the note
-      // beside it, and a failure here must not report the toggle as failed.
-      // Merged onto the meta as it stands NOW because a history import
-      // writes history_backfill to the same column.
-      if (window.SiloEnrolment) {
-        const { data: fresh, error: readErr } = await db.from('shopify_connections')
-          .select('meta').eq('id', connectionId).maybeSingle();
-        // Writing the whole meta object back is a lost update waiting to
-        // happen: a history window, a cancel or a fresh Start writes
-        // meta.history_backfill to this same column, and a stamp built from
-        // a snapshot taken moments earlier would put the old plan back --
-        // the exact class of bug #967 fixed inside the sync function. So the
-        // stamp is skipped entirely while an import is in flight, and
-        // skipped if the row could not be re-read. It is a note about
-        // intent, not the setting itself: the setting is sync_enabled above,
-        // and a missing stamp only means a later page load falls back to
-        // sync_jobs evidence, which is what it does for every store
-        // connected before this shipped.
-        const importRunning = fresh?.meta?.history_backfill?.status === 'running';
-        if (!readErr && fresh && !importRunning) {
-          const meta = enabled
-            ? SiloEnrolment.withoutPauseStamp(fresh.meta)
-            : SiloEnrolment.withPauseStamp(fresh.meta, { by: _session?.user?.id || null });
-          await db.from('shopify_connections').update({ meta }).eq('id', connectionId);
-        }
       }
       _everSynced.delete(connectionId);
       setStatus(enabled ? 'API sync enabled for nightly job' : 'API sync disabled', 'info', 3000);

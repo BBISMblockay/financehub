@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { createFakeSupabase } from './lib/fake-supabase.mjs';
 
 const sandbox = { window: {} };
 vm.createContext(sandbox);
@@ -31,6 +32,7 @@ vm.runInContext(
 const {
   enrolmentState, describeState, withPauseStamp, withoutPauseStamp, needsEvidence,
   jobCountsAsQueued, NON_IMPORT_JOB_TYPES,
+  pauseConnection, resumeConnection, enrolConnection, stampPause,
 } = sandbox.window.SiloEnrolment;
 
 const tested = (over = {}) => ({ last_test_status: 'ok', sync_enabled: false, meta: {}, ...over });
@@ -149,33 +151,171 @@ test('a connection test is not evidence of an import', () => {
   assert.match(probe.slice(0, 1200), /neq\('job_type', 'test_connection'\)/);
 });
 
-// P1. The enable must carry its conditions INSIDE the statement: another
-// admin pausing the store while the page sits open must not be overridden by
-// a click on a button rendered before that pause existed.
-test('enrolling is a conditional update, not a read-then-write', () => {
-  const page = fs.readFileSync(new URL('../../v2/integrations.html', import.meta.url), 'utf8');
-  const fn = page.slice(
-    page.indexOf('async function startFirstImport'),
-    page.indexOf('async function toggleSyncEnabled'),
-  );
-  assert.match(fn, /\.update\(\{ sync_enabled: true[\s\S]*?\.eq\('sync_enabled', false\)/,
-    'the update must refuse a store somebody already switched on');
-  assert.match(fn, /\.is\('meta->>sync_paused_at', null\)/,
-    'the update must refuse a store somebody just paused');
-  assert.match(fn, /if \(!\(enabled \|\| \[\]\)\.length\)/,
-    'zero rows back means the state moved: nothing further may run against it');
-  assert.match(fn, /requeueTerminal: true/,
-    'a terminal queue row must be requeued, not reported as an import on its way');
+// ── Cycle-2 review findings: run the interleavings, don't assert the shape ──
+//
+// Cycle 1's corrections were checked with regexes over the page, which prove
+// a guard exists and nothing about what happens when two admins write at
+// once. These drive the real functions against the fake PostgREST, which
+// applies `.eq()`/`.is()` filters -- including JSON paths -- inside the
+// UPDATE, exactly as the server does.
+
+const CONN = 'conn-1';
+const seed = (meta = {}, syncEnabled = false) => {
+  const db = createFakeSupabase();
+  db.from('shopify_connections').insert({
+    id: CONN, sync_enabled: syncEnabled, meta, updated_at: null, last_test_status: 'ok',
+  });
+  return db;
+};
+const rowOf = (db) => db.tables.get('shopify_connections')[0];
+
+/** Run `hook` once, after this db's next write has landed.
+ *
+ * pauseConnection is two statements. The question cycle 2 raised is what a
+ * stale Start click does if it arrives BETWEEN them, and the only way to
+ * answer it is to put the click there.
+ */
+function interleaveAfterFirstWrite(db, hook) {
+  const realFrom = db.from.bind(db);
+  let fired = false;
+  db.from = (table) => {
+    const builder = realFrom(table);
+    const realUpdate = builder.update.bind(builder);
+    builder.update = (patch) => {
+      const chain = realUpdate(patch);
+      const realThen = chain.then.bind(chain);
+      chain.then = (resolve, reject) => realThen(async (value) => {
+        if (!fired) { fired = true; await hook(); }
+        return resolve(value);
+      }, reject);
+      return chain;
+    };
+    return builder;
+  };
+}
+
+test('a stale Start landing BETWEEN the pause\'s two writes still loses', async () => {
+  // The order of pauseConnection's two statements is the whole defence: the
+  // note goes first, so the enrolment condition sees it. Written the other
+  // way round -- flag first, note second -- this click lands in the middle
+  // and the store ends up ON with a pause recorded against it.
+  const db = seed();
+  interleaveAfterFirstWrite(db, async () => {
+    await enrolConnection(db, { connectionId: CONN });
+  });
+  const res = await pauseConnection(db, { connectionId: CONN, userId: 'user-b', at: 'T0' });
+  assert.equal(res.ok, true);
+  assert.equal(rowOf(db).sync_enabled, false,
+    'a pause half-applied must never be observable as "switched on with a pause stamp"');
+  assert.equal(rowOf(db).meta.sync_paused_at, 'T0');
 });
 
-// P1. meta is shared with the history import, which writes history_backfill
-// to it. A stamp built from a snapshot would put an old plan back.
-test('the pause stamp never writes over a running import', () => {
-  const page = fs.readFileSync(new URL('../../v2/integrations.html', import.meta.url), 'utf8');
-  const fn = page.slice(page.indexOf('async function toggleSyncEnabled'));
-  const body = fn.slice(0, fn.indexOf('\n    }') + 6);
-  assert.match(body, /history_backfill\?\.status === 'running'/,
-    'the stamp has to stand down while an import is in flight');
-  assert.match(body, /if \(!readErr && fresh && !importRunning\)/,
-    'a row that could not be re-read must not be written from a stale snapshot');
+test('a stale Start cannot land inside a pause and leave the store switched on', async () => {
+  // Admin B pauses while admin A's page still shows the Start button. The
+  // pause is two writes; A's click is one. Whatever the order, the store
+  // must end up OFF -- that is the decision B just made about their spend.
+  const db = seed();
+  // B's first write (the note), then A's stale click, then B's second.
+  const stamp = await stampPause(db, { table: 'shopify_connections', connectionId: CONN, at: 'T1' });
+  assert.equal(stamp.stamped, true);
+  const stale = await enrolConnection(db, { connectionId: CONN });
+  assert.equal(stale.enabled, false, 'the stamp is already on the row, so the enable must match nothing');
+  await db.from('shopify_connections').update({ sync_enabled: false }).eq('id', CONN);
+  assert.equal(rowOf(db).sync_enabled, false);
+});
+
+test('and if the click gets in first, the pause still wins', async () => {
+  const db = seed();
+  // A's click lands before B has written anything.
+  assert.equal((await enrolConnection(db, { connectionId: CONN })).enabled, true);
+  // B's pause follows in full. Its disable is the last write, so the row is
+  // off -- never "on with a pause recorded", which is what the two-write
+  // order is chosen to prevent.
+  const paused = await pauseConnection(db, { connectionId: CONN, userId: 'user-b', at: 'T2' });
+  assert.equal(paused.ok, true);
+  assert.equal(rowOf(db).sync_enabled, false);
+  assert.equal(rowOf(db).meta.sync_paused_at, 'T2');
+});
+
+test('an import that moves during a pause keeps its progress', async () => {
+  // The pause note replaces the whole meta object -- the browser cannot
+  // patch two JSONB keys -- so the UPDATE pins the import's own fields. A
+  // window that lands between the read and the write must not be rolled
+  // back to where the pause found it.
+  const db = seed({ history_backfill: { status: 'running', cursor: '2026-03-01', windows_done: 3 } });
+  const moved = { status: 'running', cursor: '2026-05-01', windows_done: 5 };
+
+  // Interleave: read the row as stampPause does, let a window land, then
+  // let the pinned write go out.
+  const { data: fresh } = await db.from('shopify_connections').select('meta').eq('id', CONN).maybeSingle();
+  rowOf(db).meta = { history_backfill: moved };
+  const { query, pinned } = sandbox.window.SiloEnrolment.pinImportState(
+    db.from('shopify_connections')
+      .update({ meta: { ...fresh.meta, sync_paused_at: 'T3' } })
+      .eq('id', CONN),
+    fresh.meta.history_backfill,
+  );
+  assert.equal(pinned, true);
+  const { data } = await query.select('id');
+  assert.equal((data || []).length, 0, 'the pinned update must match nothing once the import has moved');
+  assert.deepEqual(rowOf(db).meta.history_backfill, moved, 'the newer plan stands');
+  assert.equal(rowOf(db).meta.sync_paused_at, undefined, 'and no stamp was written over it');
+});
+
+test('a pause during a quiet import preserves the import exactly', async () => {
+  const bf = { status: 'running', cursor: '2026-03-01', windows_done: 3 };
+  const db = seed({ history_backfill: bf, last_order_sync_at: 'yesterday' });
+  const res = await pauseConnection(db, { connectionId: CONN, userId: 'user-b', at: 'T4' });
+  assert.equal(res.stamped, true);
+  assert.equal(rowOf(db).sync_enabled, false);
+  assert.deepEqual(rowOf(db).meta.history_backfill, bf, 'nothing about the import changed');
+  assert.equal(rowOf(db).meta.last_order_sync_at, 'yesterday', 'and nothing else in meta was lost');
+  assert.equal(rowOf(db).meta.sync_paused_at, 'T4');
+});
+
+test('a failed disable takes the pause note back', async () => {
+  // A stamp with the sync still ON reads as paused while the nightly keeps
+  // running -- the one state worse than no stamp at all.
+  const db = seed({}, true);
+  const realFrom = db.from.bind(db);
+  let updates = 0;
+  db.from = (table) => {
+    const builder = realFrom(table);
+    const realUpdate = builder.update.bind(builder);
+    builder.update = (patch) => {
+      const u = realUpdate(patch);
+      // Fail only the sync_enabled write, which is the second update.
+      if ('sync_enabled' in patch && ++updates === 1) {
+        return { ...u, eq: () => ({ then: (r) => r({ error: { message: 'boom' } }) }) };
+      }
+      return u;
+    };
+    return builder;
+  };
+  const res = await pauseConnection(db, { connectionId: CONN, userId: 'user-b', at: 'T5' });
+  assert.equal(res.ok, false);
+  assert.equal(rowOf(db).sync_enabled, true, 'the setting did not change');
+  assert.ok(!rowOf(db).meta.sync_paused_at, 'so the note must not be left behind either');
+});
+
+test('enrolling refuses a store that is already on, and resume clears the note', async () => {
+  const on = seed({}, true);
+  assert.equal((await enrolConnection(on, { connectionId: CONN })).enabled, false);
+
+  const paused = seed({ sync_paused_at: 'T6', sync_paused_by: 'user-b' }, false);
+  assert.equal((await enrolConnection(paused, { connectionId: CONN })).enabled, false,
+    'a paused store is not enrolled by a button click');
+  const resumed = await resumeConnection(paused, { connectionId: CONN, at: 'T7' });
+  assert.equal(resumed.ok, true);
+  assert.equal(rowOf(paused).sync_enabled, true);
+  assert.equal(rowOf(paused).meta.sync_paused_at, null, 'resuming takes the note off');
+  // And now it is enrollable again if it never imported.
+  assert.equal(enrolmentState(rowOf(paused), false), 'syncing');
+});
+
+test('a row that cannot be re-read is not stamped from a guess', async () => {
+  const db = createFakeSupabase();
+  const res = await stampPause(db, { table: 'shopify_connections', connectionId: 'missing', at: 'T8' });
+  assert.equal(res.stamped, false);
+  assert.equal(res.reason, 'unreadable');
 });
