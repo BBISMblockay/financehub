@@ -905,13 +905,27 @@
       renderBootstrapBand();
     }
 
-    async function firstConnectBootstrap(integration, connectionId, { enableSync = null, requeueAfterSkip = false } = {}) {
+    // Queues the server-side first sync for a connection somebody has just
+    // finished connecting, and -- where that integration has a deployed
+    // per-connection sync function -- runs the quick part NOW so the page has
+    // something to show before the queue is drained. `kick` is that function
+    // call; it is best effort by design, because the queued job is what
+    // guarantees the data, not the kick.
+    async function firstConnectBootstrap(integration, connectionId, { enableSync = null, requeueAfterSkip = false, kick = null } = {}) {
       if (!window.SiloBootstrap || !_co?.id) return;
       const prior = await SiloBootstrap.latest(db, { companyId: _co.id, integration, connectionId });
+      // A read error is NOT a job. Treating it as one would skip the insert
+      // and say nothing, and the likeliest read error is the one this feature
+      // ships with (the migration not applied yet). The partial unique index
+      // in the database is what prevents a duplicate, so the right move is to
+      // try the insert and report whatever it says.
+      if (prior?.error) {
+        setStatus('Could not read the setup queue (' + prior.error + ') — trying to queue the first sync anyway', 'info', 8000);
+      }
       // A prior job means this connection has already been set up -- unless it
       // finished with a stage it could not run and the caller says the
       // prerequisite has now arrived (Redo's API secret).
-      if (prior && !(requeueAfterSkip && SiloBootstrap.wasSkipped(prior))) return;
+      if (prior && !prior.error && !(requeueAfterSkip && SiloBootstrap.wasSkipped(prior))) return;
       // Sync on. A connection nobody syncs is the state this whole feature
       // exists to end, and the flag defaults to false on both connection
       // tables. Only on the first pass, so a store deliberately switched off
@@ -927,9 +941,19 @@
       const res = await SiloBootstrap.enqueue(db, { companyId: _co.id, integration, connectionId });
       if (res.error) {
         setStatus('Connected — but its first sync could not be queued: ' + res.error, 'neg', 8000);
-        return;
+      } else {
+        await refreshBootstrapJobs();
       }
-      await refreshBootstrapJobs();
+      // The kick runs either way: if the queue is unavailable it is the only
+      // sync this connection is going to get until somebody presses a button,
+      // and if the queue took the job the kick is simply the first stage
+      // happening now instead of within the quarter hour. Both are idempotent
+      // upserts over the same rows.
+      if (kick) {
+        try { await kick(); } catch (err) {
+          setStatus('Connected. Its first sync is queued; the immediate pull did not run (' + err.message + ')', 'info', 8000);
+        }
+      }
     }
 
     function renderBootstrapBand() {
@@ -1722,7 +1746,18 @@
           // that already syncs changes nothing (see neverSynced above), and
           // the drainer re-checks the same thing against sync_jobs.
           if (neverSynced) {
-            await firstConnectBootstrap('shopify', id, { enableSync: { table: 'shopify_connections' } });
+            await firstConnectBootstrap('shopify', id, {
+              enableSync: { table: 'shopify_connections' },
+              // shopify-sync-run is already deployed and already scoped to
+              // one connection: this is the same call the row's Sync now
+              // button makes, so the store's stock is in SILO before anybody
+              // has finished reading this message. Orders, catalog and
+              // analytics ride the queued job.
+              kick: async () => {
+                const snap = await syncRun({ action: 'inventory_snapshot', connection_id: id });
+                setStatus(`✓ Connected — ${snap.result?.inventory_rows_upserted || 0} inventory rows now; sales history and the rest are syncing in the background`, 'pos', 10000);
+              },
+            });
           }
         } else {
           setStatus('✗ Connection failed: ' + (data.error || ''), 'neg', 4000);
@@ -2669,7 +2704,15 @@
       // patchFor() already set sync_enabled, so the account choice is the
       // first moment this connection CAN sync: queue its first full pull
       // rather than leaving it to tomorrow's nightly.
-      await firstConnectBootstrap(row.platform, row.id);
+      await firstConnectBootstrap(row.platform, row.id, {
+        // ad-platform-sync-run is deployed and takes one connection id: the
+        // same call the row's Sync now button makes. Platforms it does not
+        // cover (Search Console's own backfill, TikTok) wait for the queued
+        // job, which is the only executor for them.
+        kick: SYNC_NOW_PLATFORMS.includes(row.platform)
+          ? () => syncAdConnection(row.id)
+          : null,
+      });
       testAdConnection(row.id);
     }
 

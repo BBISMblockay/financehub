@@ -20,18 +20,51 @@ import {
   withStageResult,
 } from './integration-bootstrap-core.mjs';
 
-// Where each integration's connection row lives. Used for two things only:
-// deciding whether a stage's prerequisites are met (Redo's api_secret), and
-// noticing that the connection has been deleted since the job was queued --
-// which is a cancelled job, not an error to retry.
+// Where each integration's connection row lives, and what the runner has to
+// prove about it before spending anybody's API quota:
+//
+//   by            the column the job's id matches
+//   platform      for the shared ad_platform_connections table, the value
+//                 `platform` must hold for this integration
+//   syncFlag      true where the table HAS sync_enabled (redo does not), so
+//                 switching sync off between queueing and draining stops the
+//                 import rather than being ignored
+//
+// Every read is also filtered by the job's company. connection_id carries no
+// foreign key (the target table differs per integration), so the queue cannot
+// refuse a well-formed id belonging to somebody else: an admin of company A
+// may insert a job of their own company naming company B's store. Filtering
+// the load by company_entity_id is what makes that job unplannable instead of
+// a sync of B's store, and it is the tenant boundary on this whole path.
 const CONNECTION_SOURCES = {
-  shopify: { table: 'shopify_connections', by: 'id', select: 'id, is_active, shop_domain' },
-  google_ads: { table: 'ad_platform_connections', by: 'id', select: 'id, is_active, platform' },
-  ga4: { table: 'ad_platform_connections', by: 'id', select: 'id, is_active, platform' },
-  meta_ads: { table: 'ad_platform_connections', by: 'id', select: 'id, is_active, platform' },
-  tiktok_ads: { table: 'ad_platform_connections', by: 'id', select: 'id, is_active, platform' },
-  search_console: { table: 'ad_platform_connections', by: 'id', select: 'id, is_active, platform' },
-  redo: { table: 'redo_connections', by: 'company_entity_id', select: 'id, is_active, api_secret' },
+  shopify: {
+    table: 'shopify_connections', by: 'id', syncFlag: true,
+    select: 'id, is_active, sync_enabled, company_entity_id, shop_domain',
+  },
+  google_ads: {
+    table: 'ad_platform_connections', by: 'id', platform: 'google_ads', syncFlag: true,
+    select: 'id, is_active, sync_enabled, company_entity_id, platform',
+  },
+  ga4: {
+    table: 'ad_platform_connections', by: 'id', platform: 'ga4', syncFlag: true,
+    select: 'id, is_active, sync_enabled, company_entity_id, platform',
+  },
+  meta_ads: {
+    table: 'ad_platform_connections', by: 'id', platform: 'meta_ads', syncFlag: true,
+    select: 'id, is_active, sync_enabled, company_entity_id, platform',
+  },
+  tiktok_ads: {
+    table: 'ad_platform_connections', by: 'id', platform: 'tiktok_ads', syncFlag: true,
+    select: 'id, is_active, sync_enabled, company_entity_id, platform',
+  },
+  search_console: {
+    table: 'ad_platform_connections', by: 'id', platform: 'search_console', syncFlag: true,
+    select: 'id, is_active, sync_enabled, company_entity_id, platform',
+  },
+  redo: {
+    table: 'redo_connections', by: 'company_entity_id', syncFlag: false,
+    select: 'id, is_active, company_entity_id, api_secret',
+  },
 };
 
 /** One job runner bound to a database and a way to run a stage.
@@ -52,13 +85,14 @@ export function createRunner({
     if (!src) return { found: false, row: null };
     const key = src.by === 'id' ? job.connection_id : job.company_entity_id;
     if (!key) return { found: false, row: null };
-    const { data, error } = await db
-      .from(src.table)
-      .select(src.select)
-      .eq(src.by, key)
-      .maybeSingle();
+    let q = db.from(src.table).select(src.select).eq(src.by, key);
+    // The company filter, always, even when the id alone would find the row:
+    // see CONNECTION_SOURCES. A job naming another tenant's connection reads
+    // as not found and is cancelled.
+    if (src.by !== 'company_entity_id') q = q.eq('company_entity_id', job.company_entity_id);
+    const { data, error } = await q.maybeSingle();
     if (error) throw new Error(`Could not read ${src.table}: ${error.message}`);
-    return { found: !!data, row: data || null };
+    return { found: !!data, row: data || null, src };
   }
 
   /** Update the row the drainer holds.
@@ -112,17 +146,35 @@ export function createRunner({
       return { job, status: 'error' };
     }
 
-    // The connection was deleted, or switched off, between queueing and now.
-    // Neither is a failure of this job and neither should be retried: the row
-    // is closed as cancelled so the page can say so.
-    if (!conn.found || conn.row?.is_active === false) {
+    // Everything that means "do not run this job", each a cancellation rather
+    // than an error, because none of them gets better by retrying:
+    //   * the connection was deleted, or belongs to another company (the read
+    //     above is company-filtered, so both read as not found);
+    //   * it was switched off, or its API sync was turned off, between
+    //     queueing and now -- the cron is late often enough for that to be a
+    //     real gap, and running anyway would override somebody's decision;
+    //   * the row is not the integration the job says it is, which no honest
+    //     enqueue produces.
+    const why = (() => {
+      if (!conn.found) return 'connection no longer exists, or does not belong to this company';
+      if (conn.row?.is_active === false) return 'connection is inactive';
+      // `!== true` rather than `=== false`: the column is selected for every
+      // source that has it, so anything but a plain true (false, or a null
+      // nobody expected) means nobody has said yes to syncing this one.
+      if (conn.src?.syncFlag && conn.row?.sync_enabled !== true) return 'API sync is switched off for this connection';
+      if (conn.src?.platform && conn.row?.platform !== conn.src.platform) {
+        return `connection is ${conn.row?.platform || 'unknown'}, not ${job.integration}`;
+      }
+      return null;
+    })();
+    if (why) {
       await patchJob(job.id, {
         status: 'cancelled',
         lease_until: null,
         finished_at: new Date().toISOString(),
-        last_error: conn.found ? 'connection is inactive' : 'connection no longer exists',
+        last_error: why,
       });
-      log.log(`[bootstrap] ${label}: connection gone or inactive, job cancelled`);
+      log.log(`[bootstrap] ${label}: ${why}, job cancelled`);
       return { job, status: 'cancelled' };
     }
 

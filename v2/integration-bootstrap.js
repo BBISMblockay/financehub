@@ -94,10 +94,15 @@
       .limit(1);
     q = connectionId ? q.eq('connection_id', connectionId) : q.is('connection_id', null);
     const { data, error } = await q;
-    // On a read error, answer as if a job exists: queueing nothing is
-    // recoverable from the row's own Sync button, while queueing a duplicate
-    // 60-day import is a second set of paid API calls.
-    if (error) return { id: null, status: 'unknown', stages: {} };
+    // A read error is reported AS an error, never as a job. Answering "a job
+    // exists" would make the caller skip the insert and say nothing, and the
+    // most likely read error is the one this feature ships with: the
+    // migration is not applied yet, so the table does not exist (42P01).
+    // Somebody connecting a store in that window would be told the
+    // connection worked and never told that nothing was set up. What stops a
+    // duplicate import is the partial unique index in the database, not this
+    // read.
+    if (error) return { error: error.message || String(error), code: error.code || null };
     return (data || [])[0] || null;
   }
 

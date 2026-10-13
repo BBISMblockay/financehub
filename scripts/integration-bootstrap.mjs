@@ -9,7 +9,8 @@
 //
 // Env:
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY     -- required
-//   BOOTSTRAP_MAX_JOBS       default 5    jobs claimed per run
+//   BOOTSTRAP_MAX_JOBS       default 5    jobs this run will take, one at a
+//                                        time (never leased before its turn)
 //   BOOTSTRAP_LEASE_SECONDS  default 900  lease length, renewed while a stage runs
 //   BOOTSTRAP_MAX_ATTEMPTS   default 5    attempts before a row is left alone
 //   BOOTSTRAP_STAGE_TIMEOUT_MS default 3300000 (55m) per stage
@@ -96,7 +97,15 @@ const { runJob } = createRunner({
   leaseSeconds: LEASE_SECONDS,
 });
 
-async function claimJobs() {
+/** Claim ONE job, leased from this moment.
+ *
+ * One at a time, not a batch: a batch is leased when it is claimed, and a
+ * Shopify history stage can run most of an hour, so jobs sitting in the array
+ * behind it would lose their lease while doing nothing -- and the next
+ * quarter-hour run would claim one and start it while this process still
+ * intends to. The lease is only honest if it starts when the work does.
+ */
+async function claimJob() {
   if (ONLY_JOB_ID) {
     const { data, error } = await db
       .from('integration_bootstrap_jobs')
@@ -104,30 +113,32 @@ async function claimJobs() {
       .eq('id', ONLY_JOB_ID)
       .maybeSingle();
     if (error) throw new Error(`Could not read job ${ONLY_JOB_ID}: ${error.message}`);
-    return data ? [data] : [];
+    return data || null;
   }
   const { data, error } = await db.rpc('claim_integration_bootstrap_jobs', {
-    p_limit: MAX_JOBS,
+    p_limit: 1,
     p_lease_seconds: LEASE_SECONDS,
     p_max_attempts: MAX_ATTEMPTS,
   });
   if (error) throw new Error(`Could not claim jobs: ${error.message}`);
-  return data || [];
+  return (data || [])[0] || null;
 }
 
 async function main() {
-  const jobs = await claimJobs();
-  if (!jobs.length) {
-    console.log('[bootstrap] nothing to do');
-    return;
-  }
-  console.log(`[bootstrap] claimed ${jobs.length} job(s)`);
   const results = [];
   // Sequential on purpose: these stages are the same syncs the nightlies run,
   // against the same APIs and the same rate limits, and two of them at once
-  // on one runner is how a first sync starts getting throttled.
-  for (const job of jobs) {
+  // on one runner is how a first sync starts getting throttled. MAX_JOBS is
+  // how many this run will take, not how many it holds at once.
+  for (let i = 0; i < Math.max(MAX_JOBS, 1); i++) {
+    const job = await claimJob();
+    if (!job) break;
     results.push(await runJob(job));
+    if (ONLY_JOB_ID) break;
+  }
+  if (!results.length) {
+    console.log('[bootstrap] nothing to do');
+    return;
   }
   const failed = results.filter((r) => r.status === 'error' || r.status === 'partial');
   console.log(

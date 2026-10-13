@@ -40,7 +40,7 @@ async function test(name, fn) {
  * filters it carried -- the guard that keeps a cancelled job cancelled is a
  * filter, so it can only be asserted by looking at them.
  */
-function fakeDb({ connection = { id: 'conn-1', is_active: true }, priorSyncJobs = [], jobRow = null } = {}) {
+function fakeDb({ connection = { id: 'conn-1', is_active: true, sync_enabled: true, company_entity_id: 'co-1' }, priorSyncJobs = [], jobRow = null } = {}) {
   const writes = [];
   const reads = [];
   const builder = (table, op, payload) => {
@@ -123,7 +123,7 @@ await test('the history check ignores test_connection rows and anything queued a
 });
 
 await test('redo has no connection_id, so the history check is skipped rather than matching every row', async () => {
-  const db = fakeDb({ connection: { id: 'r-1', is_active: true, api_secret: 'tok' } });
+  const db = fakeDb({ connection: { id: 'r-1', is_active: true, api_secret: 'tok', company_entity_id: 'co-1' } });
   const { runJob } = createRunner({ db, runStage: async () => ({ ok: true }), log: silent });
   await runJob(job({ integration: 'redo', connection_id: null }));
   assert.equal(db.reads.filter((r) => r.table === 'sync_jobs').length, 0);
@@ -204,17 +204,65 @@ await test('a deleted connection cancels the job instead of erroring every quart
 });
 
 await test('a switched-off connection is cancelled too', async () => {
-  const db = fakeDb({ connection: { id: 'conn-1', is_active: false } });
+  const db = fakeDb({ connection: { id: 'conn-1', is_active: false, sync_enabled: true, company_entity_id: 'co-1' } });
   const { runJob } = createRunner({ db, runStage: async () => ({ ok: true }), log: silent });
   const res = await runJob(job());
   assert.equal(res.status, 'cancelled');
   assert.match(db.writes.at(-1).patch.last_error, /inactive/);
 });
 
+// ── The job's target must belong to the job's company ────────────────────
+
+await test("the connection read is filtered by the job's company, not the id alone", async () => {
+  const db = fakeDb();
+  const { runJob } = createRunner({ db, runStage: async () => ({ ok: true }), log: silent });
+  await runJob(job());
+  const read = db.reads.find((r) => r.table === 'shopify_connections');
+  // connection_id carries no foreign key, so an admin of one company can
+  // insert a job of their OWN company naming another tenant's store id. The
+  // company filter is what turns that into an unplannable job instead of a
+  // sync of somebody else's store.
+  assert.deepEqual(read.filters.company_entity_id, ['co-1']);
+  assert.deepEqual(read.filters.id, ['conn-1']);
+});
+
+await test("a connection in another company reads as missing and the job is cancelled", async () => {
+  // The company-filtered read returns nothing, which is this case.
+  const db = fakeDb({ connection: null });
+  const ran = [];
+  const { runJob } = createRunner({ db, runStage: async (s) => { ran.push(s.stage); return { ok: true }; }, log: silent });
+  const res = await runJob(job());
+  assert.equal(res.status, 'cancelled');
+  assert.deepEqual(ran, []);
+  assert.match(db.writes.at(-1).patch.last_error, /does not belong to this company/);
+});
+
+await test('an ad job whose connection is a different platform is cancelled', async () => {
+  const db = fakeDb({ connection: { id: 'ad-9', is_active: true, sync_enabled: true, company_entity_id: 'co-1', platform: 'ga4' } });
+  const ran = [];
+  const { runJob } = createRunner({ db, runStage: async (s) => { ran.push(s.stage); return { ok: true }; }, log: silent });
+  const res = await runJob(job({ integration: 'meta_ads', connection_id: 'ad-9' }));
+  assert.equal(res.status, 'cancelled');
+  assert.deepEqual(ran, [], 'a Meta sync must not run against a GA4 connection');
+  assert.match(db.writes.at(-1).patch.last_error, /is ga4, not meta_ads/);
+});
+
+await test('sync switched off between queueing and draining cancels the job', async () => {
+  // The cron is late often enough for this gap to be real, and running anyway
+  // would override a decision somebody made in the UI.
+  const db = fakeDb({ connection: { id: 'conn-1', is_active: true, sync_enabled: false, company_entity_id: 'co-1' } });
+  const ran = [];
+  const { runJob } = createRunner({ db, runStage: async (s) => { ran.push(s.stage); return { ok: true }; }, log: silent });
+  const res = await runJob(job());
+  assert.equal(res.status, 'cancelled');
+  assert.deepEqual(ran, []);
+  assert.match(db.writes.at(-1).patch.last_error, /switched off/);
+});
+
 // ── A stage whose prerequisite is missing ────────────────────────────────
 
 await test('Redo without an API secret records both stages skipped and ends done', async () => {
-  const db = fakeDb({ connection: { id: 'r-1', is_active: true, api_secret: null } });
+  const db = fakeDb({ connection: { id: 'r-1', is_active: true, api_secret: null, company_entity_id: 'co-1' } });
   const ran = [];
   const { runJob } = createRunner({ db, runStage: async (s) => { ran.push(s.stage); return { ok: true }; }, log: silent });
   const res = await runJob(job({ integration: 'redo', connection_id: null }));

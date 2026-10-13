@@ -256,6 +256,19 @@ Enqueueing is `is_admin_user()` within `active_company_id()` -- it reads nothing
 already read and spends only that company's own quota. The browser writes the row (`v2/integration-bootstrap.js`),
 which is why no edge-function deploy is owed for the feature.
 
+**`connection_id` is NOT a trusted field, and the drainer is where that is enforced.** It carries no
+foreign key (the target table differs per integration), so the insert policy cannot tell that the id
+belongs to the inserting company: an admin of company A can write a job of their own company naming
+company B's store. `scripts/lib/integration-bootstrap-runner.mjs` therefore reads every connection
+filtered by `company_entity_id = job.company_entity_id` and, for the shared
+`ad_platform_connections` table, checks `platform` equals the job's integration; either mismatch
+cancels the job. **Do not "simplify" that read to the id alone** -- the service role bypasses RLS, so
+the filter is the tenant boundary on this path. The same read requires `sync_enabled` (the tables that
+have it): a job queued before somebody switched sync off is cancelled rather than run, because the
+cron is late often enough for that gap to be real. The drainer also claims ONE job at a time
+(`p_limit: 1` in a loop), since a batch is leased when it is claimed and a 55-minute Shopify stage
+would let its siblings' leases expire while they waited in memory.
+
 ### RPC functions (backend admin)
 ```
 admin_counts()
