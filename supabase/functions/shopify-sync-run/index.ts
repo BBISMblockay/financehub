@@ -239,12 +239,17 @@ async function handleStartHistoryBackfill(
     return handleHistoryChunk(admin, connection, state.job_id as string, chunkDays);
   }
 
+  // Plan the window range BEFORE deleting anything, and delete only that
+  // range. An unbounded purge here erased the whole of a shop's history to
+  // re-import the range the operator picked, so clicking "90d" on a store with
+  // nine years of sales left ninety days.
+  state = initHistoryBackfillState({ historyDays, chunkDays });
   await purgeShopifySalesForShop(
     admin,
     connection.company_entity_id as string,
     connection.shop_domain as string,
+    { from: state.range_start as string, to: state.range_end as string },
   );
-  state = initHistoryBackfillState({ historyDays, chunkDays });
 
   const jobId = existingJobId || await createJob(admin, connection, 'history_import', userId, {
     history_days: historyDays,

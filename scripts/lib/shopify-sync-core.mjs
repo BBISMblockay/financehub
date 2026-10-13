@@ -455,8 +455,18 @@ export function storeNameLocation(connection) {
   return { location_tag: slugify(`shopify_${handle}`), location_name: name || handle };
 }
 
-/** Remove shopify_api sales for one shop only (safe for multi-store companies). */
-export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDomain) {
+/** Remove shopify_api sales for one shop only (safe for multi-store companies).
+ *
+ * `from`/`to` BOUND the delete to one date range, inclusive of both ends.
+ * A history import must pass the range it is about to re-import: without a
+ * bound this walks from the shop's oldest row to today and deletes everything,
+ * so a 60-day re-import used to erase nine years of sales and restore two
+ * months. Only a caller that genuinely means "every shopify_api row for this
+ * shop" omits the range.
+ *
+ * Returns the range it deleted, or null when there was nothing to delete.
+ */
+export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDomain, { from = null, to = null } = {}) {
   // High-volume shops (main store: ~400k rows) exceed the API statement
   // timeout on a single DELETE — walk the date range in 60-day slices.
   const { data: oldest, error: boundsError } = await supabase
@@ -468,10 +478,14 @@ export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDo
     .order('day_date', { ascending: true })
     .limit(1);
   if (boundsError) throw new Error(`sales_by_day purge failed: ${boundsError.message}`);
-  if (!oldest?.length) return;
+  if (!oldest?.length) return null;
 
-  let cursor = oldest[0].day_date;
-  const end = isoDateOnly(addDays(new Date(), 2));
+  // Start no earlier than `from`, so rows older than the window survive even
+  // though the shop has them; end at `to`, so rows newer than the window do.
+  let cursor = from && from > oldest[0].day_date ? from : oldest[0].day_date;
+  const end = to || isoDateOnly(addDays(new Date(), 2));
+  if (cursor > end) return null;
+  const purged = { from: cursor, to: end };
   while (cursor <= end) {
     const sliceEnd = isoDateOnly(addDays(new Date(`${cursor}T00:00:00Z`), 60));
     const { error } = await supabase
@@ -481,10 +495,12 @@ export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDo
       .eq('shop_domain', shopDomain)
       .eq('source', SOURCE)
       .gte('day_date', cursor)
-      .lt('day_date', sliceEnd);
+      .lte('day_date', sliceEnd < end ? sliceEnd : end);
     if (error) throw new Error(`sales_by_day purge failed: ${error.message}`);
-    cursor = sliceEnd;
+    if (sliceEnd >= end) break;
+    cursor = isoDateOnly(addDays(new Date(`${sliceEnd}T00:00:00Z`), 1));
   }
+  return purged;
 }
 
 /** @deprecated Prefer purgeShopifySalesForShop — company-wide purge breaks multi-store imports. */
@@ -2453,10 +2469,30 @@ export async function runDraftOrdersSync(supabase, connection, {
   };
 }
 
+/** Re-read this connection's `meta` from the database.
+ *
+ * The import loop runs for hours, and two other writers touch the same column
+ * while it does: the cancel action (status = 'cancelled') and the incremental
+ * sync's watermark keys. Writing a merge of in-memory meta would overwrite
+ * both, which is exactly how Cancel used to be undone by the next window.
+ * A read failure returns null, and the caller then keeps what it has rather
+ * than treating a transient error as a cancellation.
+ */
+async function readStoredMeta(supabase, connectionId) {
+  const { data, error } = await supabase
+    .from('shopify_connections')
+    .select('meta')
+    .eq('id', connectionId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data.meta && typeof data.meta === 'object' ? data.meta : {};
+}
+
 export async function runWindowedHistory(supabase, connection, {
   batchId,
   historyDays,
   chunkDays = DEFAULT_CHUNK_DAYS,
+  replan = false,
 }) {
   const granted = grantedScopes(connection);
   const missing = scopesMissingForJob(granted, 'history_import');
@@ -2466,23 +2502,55 @@ export async function runWindowedHistory(supabase, connection, {
 
   let meta = readMeta(connection);
   let state = meta.history_backfill;
+  const resuming = Boolean(state && state.status === 'running' && !replan);
+  let purged = null;
 
-  if (!state || state.status !== 'running') {
-    await purgeShopifySalesForShop(
+  if (!resuming) {
+    // Plan FIRST, then delete only what the plan will re-import. The purge
+    // exists to drop days whose orders no longer exist in Shopify (deleted or
+    // moved), so it has no business outside the window being rebuilt.
+    state = initHistoryBackfillState({ historyDays, chunkDays });
+    purged = await purgeShopifySalesForShop(
       supabase,
       connection.company_entity_id,
       connection.shop_domain,
+      { from: state.range_start, to: state.range_end },
     );
-    state = initHistoryBackfillState({ historyDays, chunkDays });
-    meta = { ...meta, history_backfill: state };
+    meta = { ...((await readStoredMeta(supabase, connection.id)) ?? meta), history_backfill: state };
     await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);
     connection.meta = meta;
   }
 
+  // A resume runs the window plan that is STORED, not the one just requested:
+  // re-planning mid-import would strand the windows already imported. Say so
+  // in the result rather than reporting the requested numbers back as if they
+  // had been honoured — a 730-day dispatch against a stuck 60-day import used
+  // to finish green claiming 730. `replan: true` is the way to actually
+  // change the plan.
+  const planMismatch = resuming
+    && (Number(state.target_days) !== Number(historyDays)
+      || Number(state.chunk_days) !== Number(chunkDays));
+
   const chunks = [];
   let caches = null;
+  let cancelled = false;
 
   while (state.status === 'running') {
+    // Cancellation is read from the ROW, twice per window. Once before the
+    // window, so a cancel that arrived while the previous one was writing
+    // stops the import; and once after, because a window takes minutes and
+    // that is when an operator actually clicks Cancel. Checking only before
+    // would let the post-window write put `running` back over the cancel --
+    // which, with the write built from in-memory meta, is how Cancel used to
+    // do nothing at all.
+    let stored = await readStoredMeta(supabase, connection.id);
+    if (stored?.history_backfill?.status === 'cancelled') {
+      state = stored.history_backfill;
+      connection.meta = stored;
+      cancelled = true;
+      break;
+    }
+
     const result = await runHistoryChunk(supabase, connection, {
       batchId,
       skuMetaCache: caches?.skuMeta,
@@ -2493,24 +2561,42 @@ export async function runWindowedHistory(supabase, connection, {
 
     caches = result.caches;
     state = result.state;
-    meta = { ...readMeta(connection), history_backfill: state };
+
+    stored = (await readStoredMeta(supabase, connection.id)) ?? stored;
+    if (stored?.history_backfill?.status === 'cancelled') {
+      // Keep the window just imported -- its rows are in the table, so the
+      // cursor has to move with them -- and keep the cancellation.
+      state = {
+        ...state,
+        status: 'cancelled',
+        cancelled_at: stored.history_backfill.cancelled_at || new Date().toISOString(),
+      };
+      cancelled = true;
+    }
+
+    meta = { ...(stored ?? readMeta(connection)), history_backfill: state };
     await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);
     connection.meta = meta;
 
     if (result.chunk) chunks.push(result.chunk);
-    if (result.done) break;
+    if (cancelled || result.done) break;
   }
 
   return {
     job_type: 'history_import',
-    history_days: historyDays,
-    chunk_days: chunkDays,
+    // The plan that actually ran, which on a resume is the stored one.
+    history_days: state.target_days ?? historyDays,
+    chunk_days: state.chunk_days ?? chunkDays,
+    requested_days: Number(historyDays),
+    resumed: resuming,
+    ...(planMismatch ? { plan_mismatch: true, requested_chunk_days: Number(chunkDays) } : {}),
+    ...(purged ? { purged_range: purged } : {}),
     windows_done: state.windows_done,
     windows_total: state.windows_total,
     orders_total: state.orders_total,
     sales_rows_total: state.sales_rows_total,
     chunks,
-    status: state.status,
+    status: cancelled ? 'cancelled' : state.status,
   };
 }
 

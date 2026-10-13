@@ -1250,7 +1250,7 @@
         return `<div class="int-backfill-hint int-backfill-hint--warn"><strong>Import paused</strong> at ${bf?.windows_done || 0}/${bf?.windows_total || '?'} windows. Click <strong>Resume</strong> to continue — repeat until complete.</div>`;
       }
       if (mode === 'server') {
-        return '<div class="int-backfill-hint int-backfill-hint--info"><strong>Server import running.</strong> Progress updates on refresh — do not click Cancel.</div>';
+        return '<div class="int-backfill-hint int-backfill-hint--info"><strong>Server import running.</strong> Progress updates on refresh. Cancel stops it after the current window.</div>';
       }
       return '';
     }
@@ -1901,7 +1901,7 @@
       const { data: row } = await db.from('shopify_connections').select('meta').eq('id', connectionId).single();
       const mode = backfillMode({ id: connectionId, meta: row?.meta });
       const extra = mode === 'server'
-        ? '\n\nThis looks like a GitHub Actions job — Cancel will break that run.'
+        ? '\n\nThis import is running on the server: it stops after the window it is currently fetching, so progress already imported is kept.'
         : '';
       if (!confirm(`Cancel the in-progress sales import?${extra}`)) return;
       try {

@@ -15,6 +15,7 @@
  *   from(t).delete().eq().not(col,'in',list).select()  -- filtered, returns rows
  *   from(t).select().eq().not(col,'is',null)   -- rows whose col is set
  *   from(t).select().eq().in().gt()            -- filtered read, awaited
+ *   from(t).select().eq().maybeSingle()        -- one row or null
  *
  * Filters are evaluated against stored rows, so a test can assert on the
  * table's resulting CONTENT rather than on call shapes.
@@ -144,6 +145,20 @@ export function createFakeSupabase({ beforeWrite = null } = {}) {
       order(col, opts = {}) { orders.push({ col, ascending: opts.ascending ?? true, nullsFirst: opts.nullsFirst }); return builder; },
       range(from, to) { range = [from, to]; return builder; },
       limit(n) { limit = n; return builder; },
+      // PostgREST: `single()` errors unless exactly one row matched;
+      // `maybeSingle()` returns null for none. runWindowedHistory re-reads one
+      // connection row per window with maybeSingle, and the difference matters
+      // -- a missing row must read as "nothing stored", not as an exception.
+      async single() {
+        const { data } = await builder;
+        if (data.length !== 1) return { data: null, error: { code: 'PGRST116', message: `expected 1 row, got ${data.length}` } };
+        return { data: data[0], error: null };
+      },
+      async maybeSingle() {
+        const { data } = await builder;
+        if (data.length > 1) return { data: null, error: { code: 'PGRST116', message: `expected 0 or 1 row, got ${data.length}` } };
+        return { data: data[0] ?? null, error: null };
+      },
       then(resolve) {
         let rows = rowsOf(table).filter((r) => matches(r, filters)).map((r) => ({ ...r }));
         if (orders.length) rows = rows.sort(compare);

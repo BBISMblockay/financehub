@@ -405,8 +405,18 @@ export function storeNameLocation(connection) {
   return { location_tag: slugify(`shopify_${handle}`), location_name: name || handle };
 }
 
-/** Remove shopify_api sales for one shop only (safe for multi-store companies). */
-export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDomain) {
+/** Remove shopify_api sales for one shop only (safe for multi-store companies).
+ *
+ * `from`/`to` BOUND the delete to one date range, inclusive of both ends.
+ * A history import must pass the range it is about to re-import: without a
+ * bound this walks from the shop's oldest row to today and deletes everything,
+ * so a 60-day re-import used to erase nine years of sales and restore two
+ * months. Only a caller that genuinely means "every shopify_api row for this
+ * shop" omits the range.
+ *
+ * Returns the range it deleted, or null when there was nothing to delete.
+ */
+export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDomain, { from = null, to = null } = {}) {
   // High-volume shops (main store: ~400k rows) exceed the API statement
   // timeout on a single DELETE — walk the date range in 60-day slices.
   const { data: oldest, error: boundsError } = await supabase
@@ -418,10 +428,14 @@ export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDo
     .order('day_date', { ascending: true })
     .limit(1);
   if (boundsError) throw new Error(`sales_by_day purge failed: ${boundsError.message}`);
-  if (!oldest?.length) return;
+  if (!oldest?.length) return null;
 
-  let cursor = oldest[0].day_date;
-  const end = isoDateOnly(addDays(new Date(), 2));
+  // Start no earlier than `from`, so rows older than the window survive even
+  // though the shop has them; end at `to`, so rows newer than the window do.
+  let cursor = from && from > oldest[0].day_date ? from : oldest[0].day_date;
+  const end = to || isoDateOnly(addDays(new Date(), 2));
+  if (cursor > end) return null;
+  const purged = { from: cursor, to: end };
   while (cursor <= end) {
     const sliceEnd = isoDateOnly(addDays(new Date(`${cursor}T00:00:00Z`), 60));
     const { error } = await supabase
@@ -431,10 +445,12 @@ export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDo
       .eq('shop_domain', shopDomain)
       .eq('source', SOURCE)
       .gte('day_date', cursor)
-      .lt('day_date', sliceEnd);
+      .lte('day_date', sliceEnd < end ? sliceEnd : end);
     if (error) throw new Error(`sales_by_day purge failed: ${error.message}`);
-    cursor = sliceEnd;
+    if (sliceEnd >= end) break;
+    cursor = isoDateOnly(addDays(new Date(`${sliceEnd}T00:00:00Z`), 1));
   }
+  return purged;
 }
 
 /** @deprecated Prefer purgeShopifySalesForShop — company-wide purge breaks multi-store imports. */
