@@ -30,8 +30,11 @@ async function pages(query){
 export async function loadSpend(db,companyId,start,end){
   if(!uuid.test(companyId)||![start,end].every(v=>isoDay.test(v))||start>end)throw Error('Invalid spend filters');
   const of=table=>SPEND_SOURCES.filter(s=>s.table===table).map(s=>s.key),jobs=[...new Set(SPEND_SOURCES.map(s=>s.job))];
-  // Connection tables may be admin-only; unreadable just means "count unknown".
-  const readable=async q=>{const {data,error}=await q;return error||!Array.isArray(data)?null:data;};
+  // The connection tables are admin-only under RLS, and RLS hides rows rather
+  // than erroring, so an empty list proves nothing for a non-admin. Only a
+  // confirmed admin's list counts; otherwise the count is unknown (null).
+  const {data:isAdmin,error:adminError}=await db.rpc('is_admin_user');
+  const readable=async q=>{if(adminError||isAdmin!==true)return null;const {data,error}=await q;return error||!Array.isArray(data)?null:data;};
   const [kpi,redo,windows,attempted,adConnections,redoConnections]=await Promise.all([
     pages(()=>db.from('marketing_kpis_daily').select('platform,day_date,spend,connection_id',{count:'exact'}).eq('company_entity_id',companyId).in('platform',of('marketing_kpis_daily')).gte('day_date',start).lte('day_date',end).order('id')),
     pages(()=>db.from('redo_marketing_daily').select('channel,day_date,spend,spend_currency,connection_id',{count:'exact'}).eq('company_entity_id',companyId).in('channel',of('redo_marketing_daily')).gte('day_date',start).lte('day_date',end).order('id')),
@@ -47,24 +50,26 @@ export async function loadSpend(db,companyId,start,end){
 const addDay=(day,n)=>new Date(Date.parse(day+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
 // status: complete | partial (some days outside every completed sync window) |
 // unknown (connected, no completed window covers the period) | unverified (more
-// than one connection: windows are not per connection) | none (not tracked) |
+// than one connection, or the connection list is not visible to this viewer:
+// windows are company-level, not per connection) | none (not tracked) |
 // currency (cannot confirm the currency).
-export function summarizeSpend({kpi=[],redo=[],windows=[],attempted={},connections={}},{start,end,currency}){
+export function summarizeSpend({kpi=[],redo=[],windows=[],attempted={},connections={ads:null,redo:null}},{start,end,currency}){
   const out=new Map(),days=[];
   for(let d=start;d<=end;d=addDay(d,1))days.push(d);
   for(const s of SPEND_SOURCES){
     const rows=s.table==='marketing_kpis_daily'?kpi.filter(r=>r.platform===s.key):redo.filter(r=>r.channel===s.key);
     const spans=windows.filter(w=>w.job_type===s.job&&isoDay.test(w.window?.startDate)&&isoDay.test(w.window?.endDate)).map(w=>w.window);
     const covered=days.filter(d=>spans.some(w=>w.startDate<=d&&d<=w.endDate)).length;
-    const readable=s.table==='marketing_kpis_daily'?connections.ads?.filter(c=>c.platform===s.key):connections.redo;
+    const list=s.table==='marketing_kpis_daily'?connections?.ads:connections?.redo,listKnown=Array.isArray(list);
+    const readable=listKnown&&s.table==='marketing_kpis_daily'?list.filter(c=>c.platform===s.key):list;
     const connectionCount=Math.max(readable?.length||0,new Set(rows.map(r=>r.connection_id).filter(Boolean)).size);
     const tracked=connectionCount>0||attempted[s.job]||spans.length>0||rows.length>0;
     // marketing_kpis_daily stores no currency; the ad accounts report USD.
     const usable=s.table==='marketing_kpis_daily'?(currency==='USD'?rows:[]):rows.filter(r=>r.spend_currency===currency);
     let total=0;
     for(const r of usable){const n=Number(r.spend);if(!Number.isFinite(n))throw Error('Invalid spend value');if(r.day_date<start||r.day_date>end)throw Error('Spend outside the selected period');total+=n;}
-    const status=!tracked?'none':s.table==='marketing_kpis_daily'&&currency!=='USD'?'currency':connectionCount>1?'unverified':covered===days.length?'complete':covered===0&&!rows.length?'unknown':'partial';
-    out.set(s.channel,{...s,status,days:days.length,covered,connections:connectionCount,cents:['none','currency','unknown'].includes(status)?null:Math.round(total*100),excluded:rows.length-usable.length});
+    const status=!tracked?'none':s.table==='marketing_kpis_daily'&&currency!=='USD'?'currency':connectionCount>1||!listKnown?'unverified':covered===days.length?'complete':covered===0&&!rows.length?'unknown':'partial';
+    out.set(s.channel,{...s,status,days:days.length,covered,connections:connectionCount,listKnown,cents:['none','currency','unknown'].includes(status)?null:Math.round(total*100),excluded:rows.length-usable.length});
   }
   return out;
 }
@@ -79,7 +84,7 @@ export function spendNote(s){
   if(s.status==='none')return 'No connection or sync for this source';
   if(s.status==='unknown')return 'Connected, but no completed sync covers this period';
   if(s.status==='currency')return 'Spend currency cannot be confirmed for this store';
-  if(s.status==='unverified')return `${s.connections} connections; sync coverage cannot be confirmed per connection`;
+  if(s.status==='unverified')return s.listKnown?`${s.connections} connections; sync coverage cannot be confirmed per connection`:'Only admins can see the connection list, so coverage cannot be confirmed; no return is shown';
   if(s.status==='partial')return `Synced for ${s.covered} of ${s.days} days; spend on the other days is missing`;
   return s.excluded?`${s.excluded} rows in another currency excluded`:'';
 }

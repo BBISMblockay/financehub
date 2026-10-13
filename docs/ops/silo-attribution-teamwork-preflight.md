@@ -91,3 +91,12 @@ light/dark, tabs, path drilldown, journeys role filter, spend-unavailable state.
 - Ten mutations against these corrections were each caught by a test.
 - The runbook section listed in the PR body was missing from the first commit;
   added here.
+
+## Review cycle 2 correction (2026-10-13)
+
+- A non-admin's connection read is RLS-empty, which looked like one connection.
+  The list is now trusted only after `is_admin_user()` (live: executable by
+  `authenticated`, security definer) returns true; otherwise tracked sources are
+  unverified and no return is shown. Four mutations (unknown list trusted,
+  RLS-empty list trusted, page ignoring the check, RPC error treated as admin)
+  were each caught.

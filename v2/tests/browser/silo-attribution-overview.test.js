@@ -24,7 +24,7 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   await page.route('**/pages/config.js',r=>r.fulfill({contentType:'text/javascript',body:`window.__SILO_CONFIG__={SUPABASE_URL:'synthetic',SUPABASE_ANON_KEY:'synthetic',ensureActiveCompany:async()=>({id:'${company}',entity_key:'baseballism'})};`}));
   await page.route('**/lib/supabase-js.min.js',r=>r.fulfill({contentType:'text/javascript',body:`
    window.fixture=${JSON.stringify({rows,records,controls,company,store})};
-   window.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{user:{id:'synthetic-user',email:'fixture@example.test'}}}})},rpc:async(name)=>({data:name==='nav_badge_counts'?{}:window.emptyFixture?[]:fixture.rows}),from(table){const filters={};let mode='select',payload;
+   window.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{user:{id:'synthetic-user',email:'fixture@example.test'}}}})},rpc:async(name)=>({data:name==='nav_badge_counts'?{}:name==='is_admin_user'?!window.nonAdmin:window.emptyFixture?[]:fixture.rows}),from(table){const filters={};let mode='select',payload;
     const q={select(){return q;},range(){return q;},eq(k,v){filters[k]=v;return q;},gte(){return q;},lte(){return q;},in(k,v){filters[k]=v;return q;},order(){return q;},limit(){return q;},single(){return q;},maybeSingle(){return q;},insert(p){mode='insert';payload=p;return q;},then(resolve){
      if(mode==='insert')return resolve({error:{message:'unexpected write'}});
      let data=[];if(table==='profiles')data=typeof filters.id==='string'?{role:'admin',active_company_id:fixture.company}:[{id:'synthetic-user',name:'Synthetic reviewer'}];
@@ -76,6 +76,11 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   assert.equal(await page.locator('#spend').innerText(),'$362.50 known');assert.equal(await page.locator('#roas').innerText(),'—');assert.match(await page.locator('#spendnote').innerText(),/Incomplete: Meta Ads, Google Ads/);
   assert.match(await page.locator('.attr-scorecard tbody tr',{hasText:'Meta Ads'}).innerText(),/\$300 partial\s+\$0\s+—/);assert.match(await page.locator('.attr-scorecard tfoot').innerText(),/\$363 known\s+\$825\s+—/);
   await page.evaluate(()=>{window.partialSpend=false;});
+  // A non-admin cannot see the connection list, so spend cannot be confirmed complete: no return.
+  await page.evaluate(()=>{window.nonAdmin=true;});await page.locator('#load').click();await page.waitForSelector('.attr-scorecard');
+  assert.equal(await page.locator('#spend').innerText(),'$362.50 known');assert.equal(await page.locator('#roas').innerText(),'—');
+  assert.match(await page.locator('.attr-scorecard tbody tr',{hasText:'Meta Ads'}).innerText(),/\$300 unverified\s+\$0\s+—/);
+  await page.evaluate(()=>{window.nonAdmin=false;});
   // Spend failing never blanks the attribution; it says spend is unavailable.
   await page.evaluate(()=>{window.staleFixture=false;window.spendFail=true;});await page.locator('#load').click();await page.waitForSelector('.attr-scorecard');
   assert.equal(await page.locator('#spend').innerText(),'Unavailable');assert.match(await page.locator('#spendnote').innerText(),/spend read refused/);assert.match(await page.locator('.attr-together').innerText(),/88% of orders/);

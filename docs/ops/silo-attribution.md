@@ -29,7 +29,11 @@ sources, what-if credit rules and the method text.
   cover every day of the period. Partial = some days covered; a known subtotal is
   shown. Unknown = connected (a connection, any run, or rows) but no window
   covers the period. Unverified = more than one connection, since windows are
-  company-level. Not tracked = no connection, run or rows; it does not block the
+  company-level, OR the viewer cannot see the connection list: both connection
+  tables are admin-only under RLS and an RLS-empty list proves nothing, so the
+  list is read only after `is_admin_user()` confirms an admin, and otherwise
+  (non-admin or a failed check) every tracked source is unverified and no return
+  is shown. Not tracked = no connection, run or rows; it does not block the
   total. A later row never proves an earlier period was synced.
 - **Return** = credited net sales / spend, for last-click and shared credit,
   shown only when the spend behind it is complete. An incomplete total reads
