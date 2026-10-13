@@ -6670,6 +6670,34 @@ select 'AI credit ledger' as check_name,
  else 'ok' end as status;
 
 -- =============================================================================
+-- Two-step login enforced by the server (20261014000000)
+-- =============================================================================
+-- An account with a verified authenticator factor must not reach data with a
+-- password-only (aal1) session. The Data API is gated by a PostgREST
+-- pre-request hook (one choke point for tables, views and SECURITY DEFINER
+-- RPCs), Storage by a restrictive policy. If either is gone, an enrolled
+-- user's password alone reads everything RLS allows them.
+select 'Two-step login enforced by the server' as check_name,
+ case when to_regprocedure('public.silo_check_request()') is null
+   or to_regprocedure('public.mfa_session_satisfied()') is null
+  then 'MISSING: run 20261014000000_mfa_enforcement.sql'
+ when not exists (select 1 from pg_db_role_setting s join pg_roles r on r.oid = s.setrole
+                  where r.rolname = 'authenticator'
+                    and 'pgrst.db_pre_request=public.silo_check_request' = any (s.setconfig))
+  then 'CRITICAL: the Data API two-step hook is off -- an enrolled user''s password alone reads every table and RPC. Fix: alter role authenticator set pgrst.db_pre_request = ''public.silo_check_request''; notify pgrst, ''reload config'';'
+ when not exists (select 1 from pg_policy
+                  where polrelid = to_regclass('storage.objects') and polname = 'mfa_session_required'
+                    and not polpermissive
+                    and pg_get_expr(polqual, polrelid) ~ 'mfa_session_satisfied'
+                    and pg_get_expr(polwithcheck, polrelid) ~ 'mfa_session_satisfied')
+  then 'CRITICAL: storage.objects has no restrictive two-step policy -- an enrolled user''s password alone reads and writes files'
+ when pg_get_functiondef(to_regprocedure('public.mfa_session_satisfied()')) !~ '''aal2'''
+   or pg_get_functiondef(to_regprocedure('public.mfa_session_satisfied()')) !~ 'status = ''verified'''
+   or pg_get_functiondef(to_regprocedure('public.silo_check_request()')) !~ 'mfa_session_satisfied\(\)'
+  then 'CRITICAL: the two-step check no longer requires aal2 for a verified factor'
+ else 'ok' end as status;
+
+-- =============================================================================
 -- Shopify order facts keyed per company (20261013220000)
 -- =============================================================================
 -- A company-less unique key on any of the four order-fact tables means a

@@ -1,6 +1,7 @@
 // JWT-auth: start Facebook Login for Business for Meta Ads. Logic in handler.mjs.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createStartHandler } from './handler.mjs';
+import { checkMfaSession } from './mfa-gate.mjs';
 
 const handle = createStartHandler({
   env: {
@@ -11,6 +12,11 @@ const handle = createStartHandler({
     META_REVIEW_COMPANY_IDS: Deno.env.get('META_REVIEW_COMPANY_IDS'),
   },
   admin: createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!),
+  checkMfa: (authorization: string) => checkMfaSession({
+    supabaseUrl: Deno.env.get('SUPABASE_URL'),
+    anonKey: Deno.env.get('SUPABASE_ANON_KEY'),
+    authorization,
+  }),
 });
 
 Deno.serve(handle);

@@ -3,6 +3,16 @@
 > Moved verbatim from the root `CLAUDE.md` on 2026-10-07 (agent-guide restructure). The root file keeps the rules; this file keeps the detail and history. Update here, not in the root.
 
 ### Edge functions
+
+**Two-step login gate (20261014000000).** Sixteen functions verify the caller with `auth.getUser()` and then
+act only with the service role, which the Data API's pre-request hook never sees: comp-request-notify,
+google-oauth-start, org-invite-send, payment-request-submitted-notify, quickbooks-accounts-sync,
+quickbooks-oauth-start, quickbooks-report, review-finish, review-send, shopify-connect-dev-app,
+shopify-oauth-start, tiktok-oauth-start, meta-oauth-start, meta-oauth-review, shopify-install-claim and
+card-categorize. Each calls `checkMfaSession` (`mfa-gate.mjs`) right after `getUser`; it asks PostgREST as
+the caller and fails closed (403 `mfa_required`, 503 when it cannot tell). The other user-facing functions
+make a caller-token PostgREST call whose error aborts before acting, so the hook covers them (audit
+2026-10-13). Pinned by `scripts/tests/mfa-gate.test.mjs`; rule in `supabase/functions/CLAUDE.md`.
 Sources live in `supabase/functions/`; merging a PR does NOT deploy. **Deploys go through the "Deploy Edge Function" workflow from `main` and only with Blake's explicit approval in the session** (corrected 2026-10-07: this line used to say deploys were done by hand through the Supabase MCP/CLI).
 ```
 org-invite-send   -- emails an org invite link; caller must be admin of the invite's entity and present the raw token (JWT-auth)

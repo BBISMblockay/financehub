@@ -1318,7 +1318,10 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
 // ---------------------------------------------------------------------------
 // The bookkeeper's endpoint: authenticate a person, derive their company
 // ---------------------------------------------------------------------------
-export function createCategorizeHandler({ createDb }: { createDb: () => any }) {
+export function createCategorizeHandler({ createDb, checkMfa }: {
+  createDb: () => any;
+  checkMfa?: (authorization: string) => Promise<{ ok: boolean; status?: number; code?: string; message?: string }>;
+}) {
   return async (req: Request): Promise<Response> => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
     if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
@@ -1334,6 +1337,13 @@ export function createCategorizeHandler({ createDb }: { createDb: () => any }) {
       authHeader.replace('Bearer ', ''),
     );
     if (authErr || !user) return json({ error: 'Unauthorized' }, 401);
+
+    // Two-step login: what follows runs with the service role, which the
+    // Data API's gate (20261014000000) never sees. Refused when not wired.
+    const mfa = checkMfa
+      ? await checkMfa(req.headers.get('Authorization') ?? '')
+      : { ok: false, status: 503, code: 'mfa_check_failed', message: 'Two-step login check is not configured.' };
+    if (!mfa.ok) return json({ error: mfa.message, code: mfa.code }, mfa.status);
 
     const body = await req.json().catch(() => ({}));
     const validId = (value: unknown) => typeof value === 'string' && VALID_ID.test(value);

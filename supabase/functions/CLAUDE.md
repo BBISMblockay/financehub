@@ -28,6 +28,14 @@ Per-function behaviour, secrets and history: [`docs/agents/edge-functions.md`](.
 - Use the caller's JWT and RLS for authorization; reach for the service role only for the write after
   that check, and say why.
 - Never take a company id from the request body; read the caller's `active_company_id`.
+- **Two-step login (20261014000000).** The Data API refuses an enrolled user's password-only session
+  with a pre-request hook, but a function that checks the caller with `auth.getUser()` and then
+  reads or writes ONLY with the service role never sends the caller's token to PostgREST. Such a
+  function must call `checkMfaSession` (`mfa-gate.mjs`, a verbatim copy of
+  `scripts/lib/mfa-gate.mjs`) right after `getUser` and before its first service-role call, and be
+  added to the list in `scripts/tests/mfa-gate.test.mjs`. A function whose first step is a
+  caller-token PostgREST call whose error aborts is already covered. The gate fails closed: apply
+  the migration before deploying a gated function.
 - Email sender comes from `SILO_MAIL_FROM` (fallback `SILO <noreply@silo-baseballism.com>`).
 - **Ask SILO (`silo-chat`):** prompt text lives in `prompt-lib.mjs`. `CORE_PROMPT` is cached and must
   stay byte-identical per request; never put per-request content in it. Brand and voice are company

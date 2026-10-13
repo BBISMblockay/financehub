@@ -19218,4 +19218,8 @@ $c$select (select count(*) from v_po_header_summary
 -- Shopify order facts unique PER COMPANY, so one store can sync into two
 -- companies without moving either one's orders.
 \i migrations/20261013220000_shopify_order_facts_per_company.sql
+-- Two-step login enforced by the server: the Data API pre-request hook and a
+-- restrictive storage.objects policy. Affects only accounts with a verified
+-- authenticator factor.
+\i migrations/20261014000000_mfa_enforcement.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

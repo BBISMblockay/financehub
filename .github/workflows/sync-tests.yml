@@ -39,6 +39,23 @@ on:
       - 'supabase/migrations/*org_invites.sql'
       - 'supabase/migrations/*security_audit_db_hardening.sql'
       - 'supabase/migrations/*integration_bootstrap_jobs.sql'
+      - 'supabase/migrations/*mfa_enforcement.sql'
+      - 'supabase/functions/comp-request-notify/**'
+      - 'supabase/functions/google-oauth-start/**'
+      - 'supabase/functions/org-invite-send/**'
+      - 'supabase/functions/payment-request-submitted-notify/**'
+      - 'supabase/functions/quickbooks-accounts-sync/**'
+      - 'supabase/functions/quickbooks-oauth-start/**'
+      - 'supabase/functions/quickbooks-report/**'
+      - 'supabase/functions/review-finish/**'
+      - 'supabase/functions/review-send/**'
+      - 'supabase/functions/shopify-connect-dev-app/**'
+      - 'supabase/functions/shopify-oauth-start/**'
+      - 'supabase/functions/tiktok-oauth-start/**'
+      - 'supabase/functions/meta-oauth-start/**'
+      - 'supabase/functions/meta-oauth-review/**'
+      - 'supabase/functions/shopify-install-claim/**'
+      - 'supabase/functions/card-categorize/**'
       - 'v2/integration-bootstrap.js'
       - 'v2/integration-enrolment.js'
       - 'scripts/integration-bootstrap.mjs'
@@ -422,6 +439,12 @@ jobs:
       # migration is unapplied), and the edge functions ship the same module.
       - name: Shopify order facts per company -- upsert keys
         run: node scripts/tests/shopify-order-fact-keys.test.mjs
+
+      # Two-step login (20261014000000): the sixteen edge functions that verify
+      # the caller and then act with the service role ask PostgREST, as the
+      # caller, before their first service-role call -- and fail closed.
+      - name: Two-step login gate in edge functions
+        run: node scripts/tests/mfa-gate.test.mjs
 
       # Running one job: that a connection which had already synced is NOT
       # re-imported, that a job cancelled from the page while a stage runs
@@ -1661,6 +1684,19 @@ jobs:
       # message the fallback reads, and the guard's signal tracks the keys.
       - name: Shopify order facts per company -- migration
         run: node scripts/tests/shopify-order-facts-per-company-database.test.mjs
+
+      # Two-step login enforced by the server (20261014000000) on real Postgres:
+      # the Data API hook refuses only an enrolled user's aal1 session, Storage
+      # does the same, and the verify check notices either being switched off.
+      - name: Two-step login enforced -- migration
+        run: |
+          set -u
+          node scripts/tests/mfa-enforcement-database.test.mjs
+          for m in any-factor ignore-aal no-storage-check; do
+            if MFA_DB_MUTATION="$m" node scripts/tests/mfa-enforcement-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite"; exit 1
+            fi
+          done
 
       # Shopify order paid date (20261005130000): paid_at from payment
       # transactions, the lookup scoped to draft / terms orders, no mixed
