@@ -45,9 +45,12 @@ the field from the form would have changed nothing; the gate is in
 
 The flow now:
 
-1. **Blake mints an invite.** `create_platform_invite(email, company_name)`,
-   gated by `is_platform_admin()` — a `platform_admins` table seeded with
-   blake@baseballism.com and nobody else. Deliberately *not* "any owner_admin":
+1. **A platform admin mints an invite.** `create_platform_invite(email, company_name)`,
+   gated by `is_platform_admin()` — the `platform_admins` table, which holds
+   blake@baseballism.com and (since 2026-10-13) support@get-silo.com; either may
+   mint. Platform admin grants nothing inside a company: support@ reaches a
+   client's UI through its own `admin` membership there, added by hand for each
+   company created after 2026-10-13. Deliberately *not* "any owner_admin":
    founding a tenant is a platform act, and the owner_admin set is not a list of
    people who should be able to do it. There is no RPC that adds a platform
    admin; it takes a migration or a service-role write.

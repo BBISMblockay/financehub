@@ -116,6 +116,16 @@ Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
 
 ---
 
+## support@get-silo.com is a shared-mailbox principal with cross-tenant access (P2, security)
+
+Raised as P1 by the PR #968 review. Since 2026-10-13 it is a platform admin and `admin` in 14 client companies. Anyone who can
+read that mailbox can reset its SILO password and act in every one of those workspaces, and every
+action is attributed to `support@` rather than a person. SILO has no MFA (no `aal2`/TOTP anywhere in
+the login code). The reviewer's fix: one named, MFA-protected account per support operator, keep
+`support@` as a contact alias, then remove its `platform_admins` row and memberships. Needs Blake's
+decision (who operates support, whether to build MFA) before any change; until then the risk is
+only as small as the set of people who can read that inbox.
+
 ## Signup confirmation links lose their destination — Supabase redirect allowlist (P2)
 
 Found 2026-10-09. Every signup on production asks Supabase to send the
@@ -146,7 +156,7 @@ redeploy.
 
 ---
 
-## Two client ad accounts are dead, and one edge-function deploy is owed (P2)
+## Two client ad accounts are dead (P2)
 
 Found 2026-10-13 while clearing the red GitHub Actions. Neither is a code defect; the workflows
 that reported them are fixed, so these are now reported as warnings instead of as failures.
