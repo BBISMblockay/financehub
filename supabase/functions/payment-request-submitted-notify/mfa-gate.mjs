@@ -25,7 +25,12 @@
 
 export const MFA_REQUIRED_MESSAGE = 'Enter the code from your authenticator app to continue.';
 
-export async function checkMfaSession({ supabaseUrl, anonKey, authorization, fetchImpl }) {
+/**
+ * @param {{ supabaseUrl?: string | null, anonKey?: string | null, authorization?: string | null,
+ *           fetchImpl?: typeof fetch }} args
+ * @returns {Promise<{ ok: boolean, status?: number, code?: string, message?: string }>}
+ */
+export async function checkMfaSession({ supabaseUrl, anonKey, authorization, fetchImpl = undefined }) {
   const doFetch = fetchImpl || fetch;
   if (!supabaseUrl || !anonKey || !authorization || !/^Bearer\s+\S+/i.test(authorization)) {
     return { ok: false, status: 401, code: 'unauthorized', message: 'Sign in again.' };

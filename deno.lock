@@ -56,6 +56,13 @@
       "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="
     }
   },
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.117.3"
+  },
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.116.0": "a38014743786a06c7dbf095a99e9ef3b38c0ec16bff076fc7cd403991192b34e",
+    "https://esm.sh/@supabase/supabase-js@2.117.3": "614f9e550b12b4be7054f947cc4949ebcc0eceeb8e83f7e226cc875356e9b126"
+  },
   "workspace": {
     "packageJson": {
       "dependencies": [
