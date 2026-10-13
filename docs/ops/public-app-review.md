@@ -4,8 +4,8 @@ Goal: a tenant connects Shopify and Meta with one click, with no Dev Dashboard a
 pasted System User token. Both need a public listing approved by the platform.
 
 **Status (2026-10-08, 19:24 UTC evidence; callback and reviewer page revisited 2026-10-13).**
-Meta: **reviewer page's 404 fixed but not merged yet; the callback answers at its URL but the
-deployed revision is still unverified; App Review reported submitted, approval pending**
+Meta: **reviewer page published; `meta-oauth-callback` deployed from `main` 2026-10-13 (2.4a,
+drift check green); App Review reported submitted, approval pending**
 (Part 2, 2.4a, then 2.4 and 2.8 for the earlier evidence).
 Shopify: implementation complete, verification pending (unchanged since 2026-10-07). Everything below is
 ADDITIVE. The current flows (typed shop domain, store-owned Dev Dashboard app, pasted
@@ -241,6 +241,8 @@ flow, prove the deployed callback matches the review-supporting source on `main`
 `deployment-drift-check.yml` for `meta-oauth-callback`, an exact source comparison, or one
 `rt_` round trip in the allow-listed workspace. Until then 2.4's deploy/verification dependency
 stands. 2.4 below is kept as the record of the 2026-10-08 evidence.
+
+**Closed 2026-10-13 16:32 UTC:** `meta-oauth-callback` deployed from `main` `e87802d` through Deploy Edge Function (run 38431297203), ACTIVE v1 with `verify_jwt=false` (start/review still `true`); the no-parameter probe returned 302 to `/v2/integrations.html?oauth_error=missing_params&platform=meta_ads`; the drift check passed (run 38431826805). Version 1 means production had no callback before this. One `rt_` round trip in the review workspace is still the only proof of the full flow [Blake].
 
 ### 2.4 Callback deployment gap - 2026-10-08
 
