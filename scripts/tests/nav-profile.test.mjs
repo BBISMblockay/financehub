@@ -97,9 +97,6 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
     // Ad Studio's exec soft-launch gate came off 2026-10-13 (Blake:
     // marketing is its audience), so it now shows on any role.
     'reports/ad-studio',
-    // Testing & schedule (2026-10-13) is generic -- a test record and the
-    // channel schedule -- so it is on the standard profile too, ungated.
-    'reports/marketing-ops',
     'reports/seo',
   ]);
   assert.ok(!sections.some((section) => section.section === 'Reports'));
@@ -108,6 +105,10 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
   assert.ok(!ids.includes('reports/builder'));
   assert.ok(!ids.includes('reports/wow-report'));
   assert.ok(!ids.includes('reports/silo-attribution'));
+  // Testing & schedule is Baseballism-only for now (Blake, 2026-10-13): the
+  // page is being shaped around how Baseballism runs tests, so a standard
+  // workspace is not offered it yet.
+  assert.ok(!ids.includes('reports/marketing-ops'));
 });
 
 test('Marketing Report and Silo Attribution: Baseballism keeps them, no standard role sees them', () => {
