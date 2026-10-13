@@ -278,5 +278,49 @@ await test('two mapped locations sharing a SILO code stay separate rows', async 
   } finally { restore(); }
 });
 
+// Cycle-2 P1 on PR #954. An unmapped location can resolve to a tag a MAPPED
+// location already owns (Baseballism: 15 of 16 locations mapped to `online`,
+// default_location_code `online`). Two rows under one tag would double the
+// demand the workboard attaches to the pair, and collapsing the mapped rows
+// into the fallback row would rewrite the row shape of every already-mapped
+// store -- so the unmapped location is skipped instead, as it was before the
+// fallback existed, and reported.
+await test('an unmapped location does not add a row to a tag a mapping owns', async () => {
+  const supabase = createFakeSupabase();
+  supabase.from('shopify_location_mappings').insert({
+    company_entity_id: 'co-1', connection_id: 'c-inv', shopify_location_id: '1',
+    silo_location_code: 'online', location_id: null,
+  });
+  const restore = stubShopify(invFixture);
+  try {
+    const res = await runInventorySnapshot(
+      supabase, { ...invConn, default_location_code: 'online' }, { batchId: 'b5' },
+    );
+    const rows = supabase.calls.upserts.filter((u) => u.table === 'inventory_on_hand').flatMap((u) => u.rows);
+    deepEq(rows.length, 1, 'the mapped row only');
+    deepEq([rows[0].location_tag, rows[0].total_available_quantity, rows[0].location],
+      ['online', 7, 'Main Warehouse'], 'mapped row is exactly what it was before the fallback');
+    deepEq([res.locations_unmapped, res.locations_skipped], [0, 1], 'the collision is reported as skipped');
+  } finally { restore(); }
+});
+
+// Same guard without a typed default: the collision can come from the store
+// tag itself when a mapping happens to carry that code.
+await test('the guard also covers a mapping that owns the store tag', async () => {
+  const supabase = createFakeSupabase();
+  supabase.from('shopify_location_mappings').insert({
+    company_entity_id: 'co-1', connection_id: 'c-inv', shopify_location_id: '2',
+    silo_location_code: 'shopify_hhoutfitter', location_id: null,
+  });
+  const restore = stubShopify(invFixture);
+  try {
+    const res = await runInventorySnapshot(supabase, { ...invConn }, { batchId: 'b6' });
+    const rows = supabase.calls.upserts.filter((u) => u.table === 'inventory_on_hand').flatMap((u) => u.rows);
+    deepEq([rows.length, rows[0].total_available_quantity, rows[0].location],
+      [1, 3, 'Retail Floor'], 'only the mapped location wrote');
+    deepEq([res.locations_unmapped, res.locations_skipped], [0, 1], 'the unmapped one was skipped');
+  } finally { restore(); }
+});
+
 console.log(`\n${count - failures}/${count} passed`);
 if (failures) process.exit(1);

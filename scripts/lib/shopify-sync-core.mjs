@@ -1806,6 +1806,27 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
   // How many locations got their tag from the fallback rather than a mapping.
   // Reported so a snapshot that wrote rows under the store's own tag says so,
   // instead of looking identical to one over fully mapped locations.
+  // Tags already owned by an explicit mapping in this snapshot. A location with
+  // no mapping falls back to the typed default or the store tag, and that tag
+  // can be one a MAPPED location already uses -- Baseballism maps 15 of its 16
+  // Shopify locations and every mapping, plus default_location_code, is
+  // `online`. Writing the fallback row there would add a SECOND row under a tag
+  // the mapped rows already own, and the demand side attaches the tag's whole
+  // velocity to every row carrying the (tag, sku) pair, so the store would
+  // double-count (cycle-2 P1 on PR #954). Collapsing the mapped rows into the
+  // fallback row instead would rewrite the row shape of every already-mapped
+  // store -- on that store 248 of its 10,101 (tag, sku) groups hold 2-5 mapped
+  // rows today. So the fallback applies only where it adds nothing to an
+  // existing tag: an unmapped location whose tag a mapping already owns is
+  // skipped, exactly as it was before this fallback existed, and counted in
+  // locations_skipped so the mapping gap is visible rather than silent.
+  const mappedTags = new Set();
+  for (const loc of locations) {
+    if (!isLocationMapped(loc, dbLocationMap)) continue;
+    const mappedResolved = resolveLocation(connection, loc, dbLocationMap);
+    if (mappedResolved?.location_tag) mappedTags.add(mappedResolved.location_tag);
+  }
+
   let locationsUnmapped = 0;
   let locationsSkipped = 0;
 
@@ -1816,6 +1837,13 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
     if (!resolvedLoc) {
       locationsSkipped++;
       console.warn(`[inventory] Cannot name Shopify location "${loc.name}" (${loc.id}) — no mapping, no default and no shop domain, skipping`);
+      continue;
+    }
+    if (!mapped && mappedTags.has(resolvedLoc.location_tag)) {
+      locationsSkipped++;
+      console.warn(
+        `[inventory] Shopify location "${loc.name}" (${loc.id}) has no mapping and its fallback tag "${resolvedLoc.location_tag}" already belongs to a mapped location, skipping — map it to include its stock`,
+      );
       continue;
     }
     if (!mapped) locationsUnmapped++;
