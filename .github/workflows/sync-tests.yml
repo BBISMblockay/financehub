@@ -223,6 +223,10 @@ on:
       - 'supabase/migrations/*seo_landscape_28d_rollup.sql'
       - 'supabase/migrations/*ad_studio.sql'
       - 'scripts/tests/ad-studio-database.test.mjs'
+      - 'supabase/migrations/*marketing_tests.sql'
+      - 'scripts/tests/marketing-tests-database.test.mjs'
+      - 'scripts/tests/marketing-ops-page.test.mjs'
+      - 'v2/marketing-ops.html'
       - 'supabase/migrations/*silo_chat_responses*.sql'
       - 'scripts/tests/silo-chat-responses-database.test.mjs'
       - 'v2/seo-keywords.html'
@@ -423,6 +427,13 @@ jobs:
       # Baseballism's menu.
       - name: Nav profile fails closed on an unresolved company
         run: node --test scripts/tests/nav-profile.test.mjs
+
+      # /v2/marketing-ops.html offering a channel, element, metric or status the
+      # CHECK constraint rejects is a save that only fails when somebody files a
+      # real test, so the page's four vocabularies are compared with the
+      # migration's, along with the Pattern 1 asset order the sidebar needs.
+      - name: Marketing testing page matches its migration
+        run: node --test scripts/tests/marketing-ops-page.test.mjs
 
       # One settings area, no duplicate Billing/Integrations routes, and a
       # platform link that a company owner can never see.
@@ -1349,6 +1360,26 @@ jobs:
           for m in policy-bucket-only snapshot-thaws stale-image-shown approval-from-client; do
             echo "--- $m ---"
             if AD_STUDIO_DB_MUTATION="$m" node scripts/tests/ad-studio-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Marketing tests (20261013120000): a test's design is frozen once it has
+      # started (so a conclusion still describes what ran), a concluded test
+      # carries both an outcome and what was learned, and the link to the
+      # existing launch schedule is company-scoped by its own composite foreign
+      # key -- deleting a test unlinks its scheduled items, it never deletes them.
+      # Mutations: MARKETING_TESTS_MUTATION=design-thaws | freeze-reads-status | conclude-unanswered | conclusion-from-client | link-any-company | link-cascades
+      - name: Execute marketing-tests database regressions
+        run: node scripts/tests/marketing-tests-database.test.mjs
+      - name: The marketing-test guards, removed, must break it
+        run: |
+          set -u
+          for m in design-thaws freeze-reads-status conclude-unanswered conclusion-from-client link-any-company link-cascades; do
+            echo "--- $m ---"
+            if MARKETING_TESTS_MUTATION="$m" node scripts/tests/marketing-tests-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi
