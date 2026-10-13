@@ -28,11 +28,11 @@ most carry a decision that looks like a bug and is not.
 - **Views: `security_invoker = true` by default.** Use `security_invoker = false` ONLY for a wrapper
   that must read something RLS cannot cover (a matview, or a rollup too slow under the caller's RLS),
   and then the view MUST filter `company_entity_id = active_company_id()` and expose only the columns
-  it means to disclose. Production's ten such wrappers (2026-10-07): `inventory_on_hand_current_v`,
+  it means to disclose. Production's eleven such wrappers (2026-10-12): `inventory_on_hand_current_v`,
   `sales_velocity_by_sku_location_v`, `sales_by_product_title_daily_v`,
   `sales_monthly_product_type_rollup_v`, `wow_sales_daily_type_v`, `search_console_query_rollup_v`,
   `search_console_query_rollup_28d_v`, `demand_coverage_base_v`, `product_type_forecastable_v`,
-  `stripe_connect_status_v`. One more, `ar_sync_status_v`, is definer with NO company filter and is
+  `stripe_connect_status_v`, and `inventory_workboard_v` (eleventh, 2026-10-12, `20261012210000`). One more, `ar_sync_status_v`, is definer with NO company filter and is
   readable by `anon` — a known gap, not a pattern to copy.
 - **Materialized views have no RLS.** Read them only through their wrapper view (above). Never grant a matview to
   `authenticated`, and never point a global (`source = 'system'`) report at a matview.
@@ -55,8 +55,29 @@ most carry a decision that looks like a bug and is not.
   goes red.
 - **Every `system` report needs a `silo_report_tieouts` reconciliation**; `run_report_tieouts()` checks
   them.
-- `inventory_on_hand` holds one snapshot. Do not remove the purge to get history. Do not re-"optimise"
-  `inventory_workboard_v`; it already reads matviews through their wrappers.
+- `inventory_on_hand` holds one snapshot. Do not remove the purge to get history.
+- **`inventory_workboard_v` is now a definer wrapper over its own
+  `inventory_workboard_mv`** (2026-10-12): it used to join the two input matviews through their wrapper
+  views on every read, which is correct but costs ~8.6s of database time per `/v2/inventory.html` load,
+  because PostgREST pages it and the whole 67.6k-row join plus a 57,330-group aggregate is rebuilt before
+  any offset can be honoured. The rows are unchanged (proved by per-row md5 on production) and the view
+  keeps its name, columns, order and types. Two rules come with that: the matview is built across EVERY
+  company, so `company_entity_id` MUST be part of both velocity join keys or one tenant's inventory picks
+  up another's sales -- and a cross-tenant build can have the RIGHT row count and the wrong numbers, so
+  the migration and verify assert the join keys structurally, not by counting rows. **Its refresh is CHAINED
+  inside `refresh_inventory_current_mv()` and `refresh_sales_velocity_mv()`, not wired into a caller.**
+  That is deliberate and it is the correction from PR #953's first review: the workboard is derived, and
+  three separate places refresh a source (`scripts/shopify-sync.mjs`, the retry step in
+  `shopify-sync.yml`, and `handleInventorySnapshot` in `shopify-sync-run`, the last an edge function that
+  only changes when it is deployed), so hand-wiring is three chances to leave the page frozen -- the first
+  version of that PR wired it into the one script whose workflow was retired in July, which would have
+  frozen the workboard indefinitely. Before it was materialized the view was a live join and so ALWAYS
+  agreed with `inventory_on_hand_current_v` and `sales_velocity_by_sku_location_v`; chaining is what keeps
+  that unconditional. `verify_v2_schema.sql` fails BROKEN if either source function loses the call. So:
+  **anything derived from a matview refreshes inside that matview's refresh function, not at a call
+  site** -- and if you `create or replace` either source function, keep the trailing refresh. Do not
+  point the view back at the input matviews directly and do not drop the company join keys; see
+  `docs/agents/database.md`.
 - **Marketing revenue:** platform `conversion_value` is what an ad platform CLAIMS, not sales, and the
   platforms overlap. Never present it as revenue next to Shopify sales without naming which is which.
 - **Search Console:** site, page and query are three grains in three tables, never joined into one

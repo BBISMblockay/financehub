@@ -16,13 +16,13 @@ test('navigation requires exact Baseballism ID and non-standard resolved profile
  assert.equal(visible(n,other),false);assert.equal(visible(n,bb),true);
 });
 function harness(company=bb,active=company?.id){
- let activeId=active,callbacks,reads=0,profileError=null,afterLoad=()=>{};
+ let activeId=active,callbacks,reads=0,spendReads=[],profileError=null,afterLoad=()=>{};
  const nodes=new Map();const node=id=>{if(!nodes.has(id))nodes.set(id,{hidden:true,value:'',append(){},close(){}});return nodes.get(id);};
  const db={auth:{getSession:async()=>({data:{session:{user:{id:'user'}}}})},from(table){const q={select(){return q;},eq(){return q;},order(){return table==='shopify_connections'?Promise.resolve({data:[{id:'store',shop_domain:'baseballism'}]}):q;},limit:async()=>({data:[{day:'2026-09-30'}]}),single:async()=>table==='profiles'?{data:{active_company_id:activeId,role:'admin'},error:profileError}:{data:{evidence:{}}}};return q;}};
  const w={SiloNav:nav(),__SILO_CONFIG__:{SUPABASE_URL:'test',SUPABASE_ANON_KEY:'test',SILO_ATTRIBUTION_ENABLED:true,ensureActiveCompany:async()=>company},supabase:{createClient:()=>db}};
- const context={URLSearchParams,location:{search:""},window:w,document:{querySelector:()=>({querySelector:node}),createElement:()=>({})},mountReport:(root,c)=>{callbacks=c;return {refresh:async()=>{}};},loadRows:async()=>{reads++;afterLoad();return 'rows';}};
+ const context={URLSearchParams,location:{search:""},window:w,document:{querySelector:()=>({querySelector:node}),createElement:()=>({})},mountReport:(root,c)=>{callbacks=c;return {refresh:async()=>{}};},loadRows:async()=>{reads++;afterLoad();return 'rows';},loadSpend:async(db,companyId)=>{spendReads.push(companyId);return 'spend';}};
  vm.createContext(context);vm.runInContext(pageSource,context);
- return {start:()=>context.start(),node,setActive:id=>activeId=id,setError:err=>profileError=err,setAfterLoad:fn=>afterLoad=fn,get callbacks(){return callbacks;},get reads(){return reads;}};
+ return {start:()=>context.start(),node,setActive:id=>activeId=id,setError:err=>profileError=err,setAfterLoad:fn=>afterLoad=fn,get callbacks(){return callbacks;},get reads(){return reads;},get spendReads(){return spendReads;}};
 }
 test('direct page accepts Baseballism and uses persisted September period',async()=>{const h=harness();await h.start();assert.equal(h.node('#start').value,'2026-09-01');assert.equal(h.node('#end').value,'2026-09-30');assert.equal(await h.callbacks.load({}),'rows');});
 test('direct page denies other, standard, missing and stale company even with global flag true',async()=>{for(const c of [other,null,{}, {...bb,meta:{nav_profile:'standard'}},{...bb,_staleReconcile:true}]){const h=harness(c);await assert.rejects(h.start());assert.equal(h.callbacks,undefined);}});
@@ -32,3 +32,7 @@ test('switch before loading denies reads and evidence; switch during loading dis
  const pending=harness();await pending.start();pending.setAfterLoad(()=>pending.setActive(other.id));await assert.rejects(pending.callbacks.load({}));assert.equal(pending.node('#results').hidden,true);
 });
 test('profile lookup errors fail closed on initial and subsequent access',async()=>{const h=harness();h.setError(Error('unavailable'));await assert.rejects(h.start());const loaded=harness();await loaded.start();loaded.setError(Error('unavailable'));await assert.rejects(loaded.callbacks.load({}));assert.equal(loaded.reads,0);});
+test('spend reads use the verified company and stop after a switch',async()=>{
+ const h=harness();await h.start();assert.equal(await h.callbacks.spend({start:'2026-09-01',end:'2026-09-30'}),'spend');assert.deepEqual(h.spendReads,[bb.id]);
+ h.setActive(other.id);await assert.rejects(h.callbacks.spend({start:'2026-09-01',end:'2026-09-30'}));assert.deepEqual(h.spendReads,[bb.id]);
+});

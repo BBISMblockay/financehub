@@ -93,6 +93,25 @@ test('shopify-sync-run gates on mayConnect for the connection\'s company, never 
   assert.equal((s.match(/await assertCompanyAdmin\(userClient, admin, userId, connectionId\)/g) || []).length, 2,
     'both connection loaders must go through the company gate');
 });
+test('shopify-sync-run reads the matview refresh error and only then calls the job a success', () => {
+  const s = read('supabase/functions/shopify-sync-run/index.ts');
+  // supabase-js resolves an RPC with { data, error } rather than rejecting, so
+  // a bare `await admin.rpc(...)` reports success over a failed refresh. Since
+  // 20261012210000 that RPC also refreshes the derived inventory_workboard_mv
+  // and a failure there rolls the whole statement back, so an unchecked error
+  // means the snapshot this job stored is visible nowhere while the endpoint
+  // answers ok: true. Found in review cycle 2 of PR #953.
+  assert.match(s, /const \{ error: refreshError \} = await admin\.rpc\('refresh_inventory_current_mv'\)/);
+  assert.match(s, /if \(refreshError\) \{\s*throw new Error\(/);
+  assert.doesNotMatch(s, /^\s*await admin\.rpc\('refresh_inventory_current_mv'\);\s*$/m,
+    'the refresh must not be fired without reading its error');
+  // And the success must come after the refresh, not before it: the original
+  // defect was the ordering as much as the unchecked error.
+  const refreshAt = s.indexOf("await admin.rpc('refresh_inventory_current_mv')");
+  const successAt = s.indexOf("status: 'success'", s.indexOf('handleInventorySnapshot'));
+  assert.ok(refreshAt > 0 && successAt > refreshAt,
+    'the job is marked success before the refresh is known to have worked');
+});
 test('shopify-sync-run scopes every sync_jobs update to the connection', () => {
   const s = read('supabase/functions/shopify-sync-run/index.ts');
   assert.match(s, /\.eq\('id', jobId\)\s*\.eq\('connection_id', connection\.id\)\s*\.eq\('company_entity_id', connection\.company_entity_id\);/);

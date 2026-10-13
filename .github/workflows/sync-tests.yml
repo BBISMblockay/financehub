@@ -38,6 +38,21 @@ on:
       # Invite authority and retired open policies (org-invite-authority-database.test.mjs).
       - 'supabase/migrations/*org_invites.sql'
       - 'supabase/migrations/*security_audit_db_hardening.sql'
+      # The channel resolver and the migration that hoists it out of the row
+      # filters (wow-channel-hoist-database.test.mjs), plus the verify check
+      # that test lifts its regex from.
+      - 'supabase/migrations/*location_channel_resolver.sql'
+      - 'supabase/migrations/*wow_channel_resolver.sql'
+      - 'supabase/migrations/*wow_channel_tags_hoist.sql'
+      - 'supabase/verify_v2_schema.sql'
+      # Both Marketing Report suites lift their subject out of this page's
+      # shipped source text, so a change to the page alone has to run them --
+      # it did not, until 2026-10-12.
+      - 'v2/wow-report.html'
+      # Materializing inventory_workboard_v
+      # (inventory-workboard-matview-database.test.mjs). The test lifts its
+      # verify block out of verify_v2_schema.sql, which is already listed above.
+      - 'supabase/migrations/*inventory_workboard_matview.sql'
       - 'supabase/migrations/*silo_dashboards.sql'
       - 'supabase/migrations/*saved_report_archive.sql'
       - 'supabase/apply_all_post_merge.sql'
@@ -496,6 +511,13 @@ jobs:
 
       - name: Marketing Report destination rendering
         run: node scripts/tests/wow-report-destination.test.mjs
+
+      # wow_report is the only RPC on that page whose failure is fatal to it,
+      # and the one closest to the 8s authenticated cap on a cold cache, which
+      # is why the failures were on the FIRST load. Guards the one retry, that
+      # it is wow_report alone, and that FAILED is reset per load.
+      - name: Marketing Report first load
+        run: node scripts/tests/wow-report-first-load.test.mjs
 
       # The backfill that reaches ads the nightly never asks about (it fetches
       # creatives only for ad ids inside its trailing window, which is why 126
@@ -1070,6 +1092,22 @@ jobs:
       # member's "save a copy". Mutation-tested: SILO_DASH_MUTATION.
       - name: Execute SILO dashboards regressions
         run: node scripts/tests/silo-dashboards-database.test.mjs
+
+      # 20261012180000: hoists silo_channel_location_tags() out of the seven row
+      # filters 20260920180000 left it bare in. Proves the rewrite hoists every
+      # site it claims, returns the same rows, counts one resolver call per
+      # statement instead of one per row, keeps an unconfigured channel empty,
+      # is idempotent, and raises rather than guessing on a drifted body.
+      - name: Execute channel resolver hoist regressions
+        run: node scripts/tests/wow-channel-hoist-database.test.mjs
+
+      # Materializing inventory_workboard_v. The equivalence case is the point:
+      # the change is speed-only, so the matview has to return the pre-migration
+      # view byte for byte. The cross-tenant cases are why the join keys carry
+      # company_entity_id -- one of them shows a wrong-number build that a
+      # row-count check would pass.
+      - name: Execute inventory workboard matview regressions
+        run: node scripts/tests/inventory-workboard-matview-database.test.mjs
 
       # 20260925150000: marketing and inventory SILO reports. Runs the deployed
       # report SQL over fixtures (grain, totals, missing days, expired Meta
