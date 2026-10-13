@@ -21,3 +21,4 @@ table.bcn-table.attr-scorecard td.bcn-mono,table.bcn-table.attr-scorecard th:not
 .attr-journey-paths{display:grid;gap:14px}.attr-journey-path{border:1px solid var(--bcn-border);border-radius:10px;padding:14px 16px;background:var(--bcn-sunken)}.attr-journey-meta{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px}.attr-pair-channel{display:flex;align-items:center;gap:8px}#attribution .attr-scorecard .bcn-btn--ghost{display:inline-flex;align-items:center;gap:8px}
 @media(max-width:800px){.attr-overview-path{flex-direction:column}.attr-overview-path li{min-width:0}}
 #overview-tables>.bcn-card{margin:18px}
+.attr-tip{margin:12px 0;padding:14px 16px;border-left:3px solid var(--bcn-accent);background:var(--bcn-accent-soft);border-radius:var(--bcn-radius-sm);font-size:13px;line-height:1.7}.attr-tip ol{margin:8px 0;padding-left:20px}.attr-tip p{margin:0}

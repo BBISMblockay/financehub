@@ -67,7 +67,7 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   await page.locator('#overview-tab').click();
   // Trust & method holds reconciliation, coverage, spend sources and the what-if credit rules.
   await page.locator('#trust > summary').click();assert.match(await page.locator('#trust').innerText(),/1 of 1 day matched[\s\S]*Journey coverage[\s\S]*Spend sources/);
-  await page.getByText('Try other credit rules',{exact:true}).click();await page.locator('#decay-days').fill('0');await page.locator('#compare-models').click();assert.match(await page.locator('#model-error').innerText(),/Half-life/);await page.locator('#decay-days').fill('7');await page.locator('#compare-models').click();assert.equal(await page.locator('#model-error').innerText(),'');
+  await page.getByText('Try other credit rules',{exact:true}).click();assert.match(await page.locator('.attr-tip').innerText(),/How to use[\s\S]*Half-life[\s\S]*Start \/ Assist \/ Close weights[\s\S]*Recalculate/);await page.locator('#decay-days').fill('0');await page.locator('#compare-models').click();assert.match(await page.locator('#model-error').innerText(),/Half-life/);await page.locator('#decay-days').fill('7');await page.locator('#compare-models').click();assert.equal(await page.locator('#model-error').innerText(),'');
   await page.locator('#trust > summary').click();
   for(const theme of ['light','dark']){
    await page.evaluate(t=>{document.documentElement.setAttribute('data-theme',t);document.querySelector('.bcn-header-sub').textContent='SYNTHETIC FIXTURE PREVIEW — no production data';document.querySelector('.silo-main').scrollTop=0;window.scrollTo(0,0);},theme);
