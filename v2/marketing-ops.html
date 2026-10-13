@@ -79,7 +79,19 @@
       text-overflow: ellipsis; white-space: nowrap;
     }
     .mo-pane[hidden] { display: none; }
+    .mo-learn-group { margin-top: 16px; }
+    .mo-learn-head {
+      display: flex; align-items: baseline; gap: 8px; margin: 0 2px 8px;
+      font-size: 12px; font-weight: 650; color: var(--bcn-ink);
+    }
+    .mo-learn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+    .mo-learn-card { padding: 14px 16px; }
+    .mo-learn-card h3 { margin: 0 0 2px; font-size: 13px; color: var(--bcn-ink); }
+    .mo-learn-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+    .mo-learn-read { margin: 8px 0 0; font-size: 12px; color: var(--bcn-ink-2); white-space: pre-wrap; }
+    .mo-learn-vs { font-size: 11px; color: var(--bcn-ink-3); margin: 4px 0 0; }
   </style>
+  <link rel="stylesheet" href="marketing-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -107,6 +119,7 @@
     <div class="bcn-tabs" style="margin:12px 0 0;">
       <button class="bcn-tab bcn-tab--active" id="tabTests">Tests</button>
       <button class="bcn-tab" id="tabQueue">Schedule</button>
+      <button class="bcn-tab" id="tabLearn">Learnings</button>
     </div>
 
     <section class="bcn-kpi-band" id="kpiBand">
@@ -232,6 +245,41 @@
         (<span class="bcn-mono">launch_channel_items</span>), not a second copy. An item added here
         without a launch belongs to no launch, so it appears on this page and in Task Manager, but not
         inside a launch's drawer.
+      </p>
+    </div>
+
+    <!-- ── Learnings ──────────────────────────────────────────────────── -->
+    <!-- Concluded tests only. The database already guarantees a concluded test
+         carries an outcome AND a non-empty result_summary, so every card here
+         has something to say; nothing is inferred and no number is computed
+         from the two readings. -->
+    <div class="mo-pane" id="paneLearn" hidden>
+      <section class="bcn-filter-bar">
+        <div class="bcn-filter">
+          <input class="bcn-field" type="text" id="fLearnSearch" placeholder="Search what was learned…" style="min-width:220px;" />
+        </div>
+        <div class="bcn-filter">
+          <select class="bcn-field" id="fLearnOutcome">
+            <option value="">Every outcome</option>
+            <option value="win">Wins</option>
+            <option value="loss">Losses</option>
+            <option value="inconclusive">Inconclusive</option>
+          </select>
+        </div>
+        <div class="bcn-filter">
+          <select class="bcn-field" id="fLearnChannel"><option value="">All channels</option></select>
+        </div>
+        <div class="bcn-filter">
+          <select class="bcn-field" id="fLearnElement"><option value="">Anything varying</option></select>
+        </div>
+      </section>
+
+      <div id="learnBody">
+        <p class="mo-empty">Loading…</p>
+      </div>
+      <p class="mo-sub" style="margin:12px 2px 0;">
+        Grouped by what varied, so the next test of the same element starts from
+        what the last one found. A test appears here the moment it is concluded.
       </p>
     </div>
 
@@ -436,6 +484,7 @@
 </div>
 
 <script src="nav-config.js"></script>
+<script src="marketing-suite.js"></script>
 <script src="avatar.js"></script>
 <script src="silo-chrome.js"></script>
 
@@ -767,7 +816,86 @@
     });
   }
 
-  function render() { renderKpis(); renderTests(); renderItems(); }
+  /* ── Learnings ──────────────────────────────────────────────────── */
+  // Concluded tests, grouped by what varied. The grouping is the point: a
+  // winning element is only useful if the next person testing that element
+  // finds it, which is the one thing a finished test used to leave nowhere.
+  function visibleLearnings() {
+    const q  = $('fLearnSearch').value.trim().toLowerCase();
+    const oc = $('fLearnOutcome').value;
+    const ch = $('fLearnChannel').value;
+    const el = $('fLearnElement').value;
+    return tests.filter(t => {
+      if (t.status !== 'concluded') return false;
+      if (oc && t.outcome !== oc) return false;
+      if (ch && t.channel !== ch) return false;
+      if (el && t.element !== el) return false;
+      if (q) {
+        const hay = [t.title, t.hypothesis, t.result_summary, t.control, t.variant, t.metric_note]
+          .map(v => String(v || '').toLowerCase()).join(' ');
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderLearn() {
+    const rows = visibleLearnings();
+    const body = $('learnBody');
+    const concluded = tests.filter(t => t.status === 'concluded').length;
+    if (!rows.length) {
+      body.innerHTML = `<p class="mo-empty">${
+        concluded ? 'No concluded test matches these filters.'
+                  : 'Nothing concluded yet. A test lands here when it is given an outcome and a line on what was learned.'
+      }</p>`;
+      return;
+    }
+    // Newest first inside each group, and the groups follow ELEMENTS' own
+    // order so the page does not reshuffle as tests are concluded.
+    const byElement = new Map();
+    for (const t of rows) {
+      if (!byElement.has(t.element)) byElement.set(t.element, []);
+      byElement.get(t.element).push(t);
+    }
+    const order = [...ELEMENTS.map(([v]) => v), ...[...byElement.keys()].filter(k => !ELEMENTS.some(([v]) => v === k))];
+    body.innerHTML = order.filter(el => byElement.has(el)).map(el => {
+      const group = byElement.get(el).slice().sort((a, b) =>
+        String(b.concluded_at || b.ends_on || '').localeCompare(String(a.concluded_at || a.ends_on || '')));
+      const wins = group.filter(t => t.outcome === 'win').length;
+      return `<div class="mo-learn-group">
+        <div class="mo-learn-head">
+          <span>${esc(LABEL(ELEMENTS, el))}</span>
+          <span class="mo-sub" style="display:inline;">${group.length} concluded${wins ? ` · ${wins} won` : ''}</span>
+        </div>
+        <div class="mo-learn-grid">
+          ${group.map(t => {
+            // Both readings are values a person recorded off the report named
+            // in metric_note. NULL is "not measured", so it shows as a dash
+            // rather than a zero, and no lift is computed from a missing side.
+            const reads = (t.control_value != null || t.variant_value != null)
+              ? `<p class="mo-learn-vs bcn-mono">${esc(LABEL(METRICS, t.metric))}: ${t.control_value ?? '—'} → ${t.variant_value ?? '—'}</p>`
+              : `<p class="mo-learn-vs">Judged on ${esc(LABEL(METRICS, t.metric))}; no reading recorded.</p>`;
+            return `<div class="bcn-card mo-learn-card">
+              <h3><button class="mo-linkbtn" data-test="${esc(t.id)}">${esc(t.title)}</button></h3>
+              ${(t.control || t.variant) ? `<p class="mo-learn-vs">${esc(t.control || '—')} vs ${esc(t.variant || '—')}</p>` : ''}
+              <div class="mo-learn-meta">
+                <span class="bcn-pill ${OUTCOME_TONE[t.outcome] || ''}">${esc(t.outcome || '—')}</span>
+                <span class="bcn-pill">${esc(LABEL(CHANNELS, t.channel))}</span>
+                <span class="bcn-pill bcn-mono">${esc(fmtWindow(t.starts_on, t.ends_on))}</span>
+              </div>
+              ${reads}
+              <p class="mo-learn-read">${esc(t.result_summary || '')}</p>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }).join('');
+    body.querySelectorAll('[data-test]').forEach(b => {
+      b.addEventListener('click', () => openTest(tests.find(t => t.id === b.dataset.test) || null));
+    });
+  }
+
+  function render() { renderKpis(); renderTests(); renderItems(); renderLearn(); }
 
   /* ── Drawers ────────────────────────────────────────────────────── */
   function openOverlay()  { $('moOverlay').classList.add('open'); }
@@ -1016,8 +1144,10 @@
     activeTab = tab;
     $('paneTests').hidden = tab !== 'tests';
     $('paneQueue').hidden = tab !== 'queue';
+    $('paneLearn').hidden = tab !== 'learnings';
     $('tabTests').classList.toggle('bcn-tab--active', tab === 'tests');
     $('tabQueue').classList.toggle('bcn-tab--active', tab === 'queue');
+    $('tabLearn').classList.toggle('bcn-tab--active', tab === 'learnings');
     const url = new URL(location.href);
     url.searchParams.set('tab', tab);
     history.replaceState(null, '', url);
@@ -1034,9 +1164,12 @@
   fillSelect($('fTestChannel'), CHANNELS, { placeholder: 'All channels' });
   fillSelect($('fTestElement'), ELEMENTS, { placeholder: 'Anything varying' });
   fillSelect($('fItemChannel'), CHANNELS, { placeholder: 'All channels' });
+  fillSelect($('fLearnChannel'), CHANNELS, { placeholder: 'All channels' });
+  fillSelect($('fLearnElement'), ELEMENTS, { placeholder: 'Anything varying' });
 
   $('tabTests').addEventListener('click', () => setTab('tests'));
   $('tabQueue').addEventListener('click', () => setTab('queue'));
+  $('tabLearn').addEventListener('click', () => setTab('learnings'));
   $('btnNewTest').addEventListener('click', () => { setTab('tests'); openTest(null); });
   $('btnNewItem').addEventListener('click', () => { setTab('queue'); openItem(null); });
   $('testSave').addEventListener('click', saveTest);
@@ -1053,6 +1186,9 @@
   for (const id of ['fItemSearch', 'fItemWhen', 'fItemChannel', 'fItemTest']) {
     $(id).addEventListener('input', renderItems);
   }
+  for (const id of ['fLearnSearch', 'fLearnOutcome', 'fLearnChannel', 'fLearnElement']) {
+    $(id).addEventListener('input', renderLearn);
+  }
   // Choosing Concluded puts the cursor where the two required answers are,
   // rather than letting the save be the thing that mentions them.
   $('tStatus').addEventListener('change', () => {
@@ -1062,10 +1198,11 @@
   /* ── Bootstrap ──────────────────────────────────────────────────── */
   await loadAll();
 
-  // ?tab=queue|tests, and ?test=<id> to open one directly from a link.
+  // ?tab=queue|learnings|tests, and ?test=<id> to open one directly from a link.
   {
     const qp = new URLSearchParams(location.search);
-    setTab(qp.get('tab') === 'queue' ? 'queue' : 'tests');
+    const wanted = qp.get('tab');
+    setTab(['queue', 'learnings'].includes(wanted) ? wanted : 'tests');
     const id = qp.get('test');
     if (id) {
       const t = tests.find(x => x.id === id);
@@ -1084,9 +1221,9 @@
   if (window.SiloChrome) {
     window.SiloChrome.mount({
       appEl: '#silo-app',
-      active: 'reports/marketing-ops',
+      active: 'ads/testing',
       user: { email: currentEmail, role: currentRole },
-      crumbs: ['Marketing', 'Testing & schedule'],
+      crumbs: ['Marketing', 'Ad Studio', 'Testing & schedule'],
       supabaseClient: db,
     });
   }

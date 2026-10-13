@@ -19,6 +19,11 @@
  *      calendar's own table) with its test link, and a javascript: URL is
  *      refused before any write
  *   8. a stored <img onerror> in a title renders as text, not as an element
+ *   9. the Ad Studio strip mounts on the page, with this page as the current
+ *      tab, so a page with no sidebar row of its own is still escapable
+ *  10. the Learnings tab shows concluded tests only, grouped by what varied,
+ *      with the two readings as recorded (a missing one is "not measured",
+ *      never 0) and nothing computed from them
  */
 'use strict';
 
@@ -73,6 +78,22 @@ const TESTS = [
     concluded_by: 'test-user', concluded_at: '2026-09-09T00:00:00Z', started_at: '2026-09-01T00:00:00Z',
   },
 ];
+
+const WIN = {
+  // A concluded win with both readings, in a different element from the
+  // concluded test above, so Learnings has two groups and a count to get
+  // wrong.
+  id: 't-win', company_entity_id: 'test-company', title: 'Free shipping over $75',
+  channel: 'meta', element: 'offer', hypothesis: 'A shipping threshold beats a percentage off.',
+  control: '15% off', variant: 'free shipping over $75', metric: 'cvr',
+  metric_note: 'Purchase workspace', starts_on: '2026-09-10', ends_on: '2026-09-24',
+  status: 'concluded', outcome: 'win', control_value: 2.1, variant_value: 2.9,
+  result_summary: 'Threshold won on CVR and on AOV. Keep it for sitewide sales.',
+  launch_id: null, ad_idea_id: null, notes: null,
+  created_by: 'test-user', created_at: '2026-09-10T00:00:00Z', updated_at: '2026-09-25T00:00:00Z',
+  concluded_by: 'test-user', concluded_at: '2026-09-25T00:00:00Z', started_at: '2026-09-10T00:00:00Z',
+};
+TESTS.push(WIN);
 
 const ITEMS = [
   {
@@ -335,6 +356,77 @@ const statusText = (page) => page.textContent('#status');
     await page.selectOption('#fItemTest', '__none__');
     await page.waitForFunction(() => !/9am send/.test(document.getElementById('itemsTbody').textContent));
     R.ok('"not part of a test" excludes linked items', true);
+
+    // ── 9. The Ad Studio strip, on the real page ────────────────────────
+    // The page has no sidebar row of its own any more, so the strip IS the way
+    // back to Ad Studio. The harness has no active company, which is the paint
+    // where resolveNavProfile answers 'standard' -- and the tab being viewed
+    // has to be in its own strip even then.
+    R.test('the Ad Studio strip mounts, with this page as the current tab', async () => {
+      const strip = await page.evaluate(() => {
+        const nav = document.querySelector('.ads-suite-nav');
+        if (!nav) return null;
+        return {
+          links: [...nav.querySelectorAll('a')].map((a) => ({
+            href: a.getAttribute('href'),
+            current: a.getAttribute('aria-current') === 'page',
+          })),
+          imgs: nav.querySelectorAll('img').length,
+        };
+      });
+      R.truthy(strip, 'the strip is on the page');
+      R.eq(strip.imgs, 0, 'the strip draws inline SVG, not remote images');
+      R.eq(strip.links.length, 2, 'Ad Studio and this page');
+      R.eq(strip.links[0].href, '/v2/ad-studio.html', 'the way back to Ad Studio');
+      R.eq(strip.links[1].href, '/v2/marketing-ops.html');
+      R.eq(strip.links[1].current, true, 'this page is the current tab');
+    });
+
+    // ── 10. Learnings ───────────────────────────────────────────────────
+    await page.click('#tabLearn');
+    await page.waitForFunction(() => /Free shipping over/.test(document.getElementById('learnBody').textContent));
+    const learn = await page.textContent('#learnBody');
+    R.test('Learnings holds the concluded tests, and only those', () => {
+      R.has(learn, 'Free shipping over $75', 'the concluded win');
+      R.has(learn, 'Threshold won on CVR', 'with what was learned');
+      R.not(learn, 'Send time test', 'a running test is not a learning');
+      R.not(learn, 'Rewound test', 'nor is a plan that never concluded');
+    });
+    R.test('it groups by what varied, and counts the wins in each group', () => {
+      R.has(learn, 'Offer', 'the element is the group heading');
+      R.has(learn, '1 concluded · 1 won', 'the group says how many won');
+    });
+    R.test('both readings are shown as recorded, and a missing pair is named as missing', () => {
+      R.has(learn, '2.1 → 2.9', 'the two values a person recorded');
+      R.not(learn, '38', 'no lift, ratio or percentage is computed from them');
+      R.has(learn, 'no reading recorded', 'the concluded test with no values says so');
+      R.not(learn, '0 → 0', 'a missing reading is never shown as zero');
+    });
+    R.test('a stored <img onerror> is text here too', async () => {
+      R.eq(await page.evaluate(() => window.__XSS__ || null), null, 'no injected handler ran');
+      R.eq(await page.evaluate(() => document.querySelectorAll('#learnBody img').length), 0,
+        'no image element came from a title');
+    });
+
+    // The outcome filter is how "what has ever won" is asked.
+    await page.selectOption('#fLearnOutcome', 'win');
+    await page.waitForFunction(() => !/Not enough volume/.test(document.getElementById('learnBody').textContent));
+    R.has(await page.textContent('#learnBody'), 'Free shipping over $75', 'the win stays');
+    await page.selectOption('#fLearnOutcome', 'loss');
+    await page.waitForFunction(() => /No concluded test matches/.test(document.getElementById('learnBody').textContent));
+    R.ok('with no losses recorded, the list says so rather than showing wins', true);
+
+    // A card opens the test it describes, so a learning is one click from the
+    // record behind it.
+    await page.selectOption('#fLearnOutcome', '');
+    await page.waitForFunction(() => /Free shipping over/.test(document.getElementById('learnBody').textContent));
+    // By card, not by position: the groups follow ELEMENTS' own order, so the
+    // first .mo-linkbtn on the page belongs to whichever element sorts first.
+    await page.click('#learnBody .mo-learn-card:has-text("Free shipping over") .mo-linkbtn');
+    await page.waitForFunction(() => document.getElementById('testDrawer').classList.contains('open'));
+    R.eq(await page.inputValue('#tTitle'), 'Free shipping over $75', 'the card opened its own test');
+    R.eq(await page.evaluate(() => document.getElementById('tMetric').disabled), true,
+      'and it is frozen, as a concluded test must be');
 
     await page.close();
   } catch (err) {

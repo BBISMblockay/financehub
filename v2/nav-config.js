@@ -88,6 +88,23 @@
     ['seo/tasks','Tasks','seo-tasks.html'],
   ];
 
+  // The Ad Studio suite (2026-10-13), drawn by marketing-suite.js exactly as
+  // the strips above: REAL pages at their own URLs, one sidebar row. Ad Studio
+  // first -- it holds the baselines and the idea bank an idea starts from --
+  // then the test record and the schedule that idea ends up in. One
+  // destination for marketing's own work, which is how Sammie's mockup reads
+  // it, rather than a sidebar row per page.
+  // The fourth element is the OPTIONAL profiles list for that tab alone: a tab
+  // without one shows wherever the row does. Testing & schedule is
+  // Baseballism-only for now (Blake, 2026-10-13) while the page is shaped
+  // around how Baseballism runs tests, so the row stays on both profiles and
+  // only the tab narrows. Discovery only -- marketing_tests RLS is the
+  // boundary, and a direct URL is not a leak.
+  const AD_STUDIO_SUITE_PAGES = [
+    ['ads/studio','Ad Studio','ad-studio.html'],
+    ['ads/testing','Testing & schedule','marketing-ops.html',['grandfathered']],
+  ];
+
   const FINANCE_DEPTS = ['exec', 'finance'];
 
   // profiles.role values that see exec-only links (e.g. Ask SILO during its
@@ -316,18 +333,13 @@
     // loses it, and ad_ideas RLS (company-scoped, any member reads/writes)
     // is unchanged and remains the boundary. ad-studio.html has no
     // page-level role check, so this row was the whole gate.
+    // ONE Ad Studio destination (2026-10-13), not a row per page: the test
+    // record and the schedule (/v2/marketing-ops.html) are a TAB of it
+    // (AD_STUDIO_SUITE_PAGES above), the same collapse as SEO, Accounting and
+    // Workspace settings. silo-chrome.js maps any AD_STUDIO_SUITE_PAGES id
+    // onto this row. Testing & schedule shipped as its own row for a few
+    // hours; it keeps its URL, so nothing that was linked to it breaks.
     { id: 'reports/ad-studio', section: 'Marketing', label: 'Ad Studio', href: '/v2/ad-studio.html', profiles: ['grandfathered', 'standard'] },
-    // The test record itself (2026-10-13, 20261013120000): what was tried,
-    // what it was judged on, and what was learned, next to the schedule it
-    // borrows from (launch_channel_items, the Launch calendar's own table).
-    // No role gate, for the same reason Ad Studio lost its one in the row
-    // above: marketing is department `marketing` carrying profiles.role
-    // `admin` or `user`, and `roles` AND `departments` cannot express
-    // "exec OR marketing". RLS on marketing_tests is the boundary.
-    // BASEBALLISM ONLY for now (Blake, 2026-10-13), like Marketing Report and
-    // Silo Attribution above: the page is being shaped around Baseballism's
-    // own way of running tests, so it is not offered to other companies yet.
-    { id: 'reports/marketing-ops', section: 'Marketing', label: 'Testing & schedule', href: '/v2/marketing-ops.html', profiles: ['grandfathered'] },
     // ONE SEO destination (2026-09-27), not a row per page: Studio, Search
     // performance and Keywords are TABS of it (SEO_SUITE_PAGES above), the
     // same collapse as Accounting and Workspace settings. silo-chrome.js maps
@@ -452,6 +464,7 @@
     ACCOUNTING_PAGES,
     WORKSPACE_SETTINGS_PAGES,
     SEO_SUITE_PAGES,
+    AD_STUDIO_SUITE_PAGES,
     resolveNavProfile,
     isSiloAttributionEnabled,
     navSectionsForProfile,
