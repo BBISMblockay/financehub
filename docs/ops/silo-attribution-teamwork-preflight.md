@@ -80,3 +80,14 @@ light/dark, tabs, path drilldown, journeys role filter, spend-unavailable state.
   scorecard; spend pages against an exact row count so a server row cap below
   1,000 cannot undercount.
 - Not done: an authenticated render against production snapshots and spend.
+
+## Review cycle 1 corrections (2026-10-13)
+
+- Return is shown only from complete spend; an incomplete total reads "$X known".
+- Coverage comes from completed `sync_jobs` windows, not the latest row. Live
+  (read-only): September 1-30 is fully covered for Meta, Google and Redo; TikTok
+  has no runs and is untracked.
+- The headline divides by all orders.
+- Ten mutations against these corrections were each caught by a test.
+- The runbook section listed in the PR body was missing from the first commit;
+  added here.

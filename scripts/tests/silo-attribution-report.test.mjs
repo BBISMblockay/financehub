@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {summarize,journeyFlow,escapeHtml,platformMark,loadRows} from '../../v2/silo-attribution-report.js';
 import {trendChart} from '../../v2/silo-attribution-visuals.js';
 import {channelTeamwork,findings} from '../../v2/silo-attribution-together.js';
+import {multiChannelShare} from '../../v2/silo-attribution-overview-ui.js';
 const controls=[{day:'2026-09-01',currency:'USD',shop_timezone:'America/Los_Angeles',net_cents:100,total_cents:120,extracted_at:'snapshot'}];
 const allocation={channel:'Redo Email',window_days:30,visit_id:'r',introduced_channel:'Meta Ads',introduced_visit_id:'m',assisting_channels:['Meta Ads']};
 const rows=[{...controls[0],order_id:'1',order_name:'#1',window_days:30,channel:'Redo Email',allocation,net_cents:100,total_cents:120,evidence_fetched_at:'e'}];
@@ -63,4 +64,13 @@ const introGap={...gapReport,orders:[...Array.from({length:3},(_,i)=>({order_id:
 const introRows=channelTeamwork(introGap,null,null);
 assert.equal(introRows.find(r=>r.channel==='Pending').closed,0);assert.equal(introRows.find(r=>r.channel==='Meta Ads').started,4);
 assert.ok(findings(introGap,introRows,null,usd).every(f=>!/^(Pending|Unattributed)/.test(f.title)));
+// Return needs complete spend: partial or unverified spend shows the amount but no return.
+for(const status of ['partial','unverified']){
+  const r=channelTeamwork(gapReport,null,new Map([['Redo Email',{channel:'Redo Email',cents:50,status}]])).find(x=>x.channel==='Redo Email');
+  assert.equal(r.spend.cents,50);assert.equal(r.roas,null,status+' spend has no return');
+}
+assert.equal(channelTeamwork(gapReport,null,new Map([['Redo Email',{channel:'Redo Email',cents:50,status:'complete'}]])).find(x=>x.channel==='Redo Email').roas,2);
+// The headline divides by all orders: 90 Unattributed + 10 multi-channel is 10%, not 100%.
+const mixed={orders:[...Array.from({length:90},(_,i)=>({order_id:'u'+i,channel:'Unattributed',net_cents:1,allocation:{}})),...Array.from({length:10},(_,i)=>({order_id:'m'+i,channel:'Google Ads',net_cents:1,allocation:{introduced_channel:'Meta Ads',assisting_channels:[]}}))]};
+assert.deepEqual(multiChannelShare(mixed),{any:10,multi:10,total:100});
 console.log('Attribution report: trend, teamwork rows and findings exclude evidence gaps');

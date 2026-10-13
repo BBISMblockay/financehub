@@ -18,7 +18,8 @@ export function channelTeamwork(report,analysis,spend){
   if(analysis)for(const [c,m] of analysis.models.equal)get(c).shared_cents=m.net_cents;
   for(const s of spend?.values()||[])get(s.channel).spend=s;
   const out=[...rows.values()].map(r=>{
-    const cents=r.spend?.cents;
+    // Return needs a full-period denominator: partial or unverified spend gets none.
+    const cents=r.spend?.status==='complete'?r.spend.cents:null;
     return {...r,shared_cents:analysis?(r.shared_cents||0):null,roas:cents>0?r.net_cents/cents:null,shared_roas:cents>0&&analysis?(r.shared_cents||0)/cents:null};
   });
   const rank=r=>GAPS.includes(r.channel)?2:r.spend?.cents>0?0:1;
@@ -37,7 +38,7 @@ export function findings(report,rows,analysis,money){
   const out=[],named=rows.filter(r=>!GAPS.includes(r.channel)),pct=(a,b)=>b?Math.round(a/b*100):0;
   const starter=[...named].filter(r=>r.started>r.closed&&r.started>0).sort((a,b)=>(b.started-b.closed)-(a.started-a.closed)||a.channel.localeCompare(b.channel))[0];
   if(starter){
-    const shared=starter.shared_cents!=null&&starter.shared_cents>starter.net_cents?` Splitting credit across every channel in each journey moves it from ${money(starter.net_cents)} to ${money(starter.shared_cents)}${starter.spend?.cents>0?`, a ${ratio(starter.roas)} to ${ratio(starter.shared_roas)} return on ${money(starter.spend.cents)} spend`:''}.`:'';
+    const shared=starter.shared_cents!=null&&starter.shared_cents>starter.net_cents?` Splitting credit across every channel in each journey moves it from ${money(starter.net_cents)} to ${money(starter.shared_cents)}${starter.roas!=null&&starter.shared_roas!=null?`, a ${ratio(starter.roas)} to ${ratio(starter.shared_roas)} return on ${money(starter.spend.cents)} spend`:''}.`:'';
     out.push({key:'starter',title:`${starter.channel} starts more journeys than it closes`,text:`It starts ${n(starter.started,'order')} but gets last-click credit for ${starter.closed.toLocaleString()}.${shared}`,orderIds:report.orders.filter(o=>o.allocation?.introduced_channel===starter.channel&&o.channel!==starter.channel).map(o=>o.order_id)});
   }
   const closer=[...named].filter(r=>r.closed_after_other>0&&r.channel!==starter?.channel).sort((a,b)=>b.closed_after_other-a.closed_after_other||a.channel.localeCompare(b.channel))[0];

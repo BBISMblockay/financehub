@@ -35,11 +35,13 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
      if(window.spendFail&&table==='marketing_kpis_daily')return resolve({data:null,error:{message:'spend read refused'}});
      if(table==='marketing_kpis_daily')data=[{platform:'meta_ads',day_date:'2026-09-30',spend:300},{platform:'google_ads',day_date:'2026-09-30',spend:50}];
      if(table==='redo_marketing_daily')data=[{channel:'SMS',day_date:'2026-09-30',spend:12.5,spend_currency:'USD'}];
+     // Completed sync windows; partialSpend leaves the ad platforms without one.
+     if(table==='sync_jobs')data=['meta_ads_kpis','google_ads_kpis','tiktok_ads_kpis','redo_marketing'].filter(j=>!window.partialSpend||j==='redo_marketing').map(job_type=>({job_type,window:{startDate:'2026-09-01',endDate:'2026-10-01'}}));
      resolve({data,count:Array.isArray(data)?data.length:null});}};return q;}})};` }));
   const url=`http://127.0.0.1:${server.address().port}/v2/silo-attribution.html?start=2026-09-30&end=2026-09-30`;
   await page.goto(url);await page.waitForSelector('.attr-together',{timeout:10000}).catch(async e=>{console.error(await page.locator('body').innerText(),errors);throw e;});
   // Lead with money and teamwork: KPIs (incl. spend) and the headline are visible without opening anything.
-  assert.match(await page.locator('.attr-together h2').innerText(),/100% of orders touched more than one channel/);
+  assert.match(await page.locator('.attr-together h2').innerText(),/88% of orders touched more than one channel/);assert.match(await page.locator('.attr-together').innerText(),/7 of all 8 orders\. 7 have identified channel evidence/);
   assert.equal(await page.locator('#spend').innerText(),'$362.50');assert.match(await page.locator('#roas').innerText(),/^2\.3x$/);
   assert.equal(await page.locator('#trust').evaluate(d=>d.open),false);assert.ok(await page.locator('.attr-scorecard').isVisible());
   const meta=page.locator('.attr-scorecard tbody tr',{hasText:'Meta Ads'});
@@ -69,9 +71,14 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   await page.setViewportSize({width:390,height:844});await page.waitForTimeout(250);await page.evaluate(()=>{document.querySelector('.silo-main').scrollTop=0;window.scrollTo(0,0);});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));if(process.env.SILO_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SILO_SCREENSHOT_DIR,'attribution-mobile.png'),fullPage:true});
   await page.locator('#start').fill('2026-09-29');await page.locator('#start').dispatchEvent('change');assert.equal(await page.locator('#results').isVisible(),false);
   await page.locator('#start').fill('2026-09-30');await page.evaluate(()=>window.staleFixture=true);await page.locator('#load').click();await page.waitForFunction(()=>document.querySelector('#overview').textContent.includes('refreshed since'));assert.ok(await page.locator('.attr-scorecard').isVisible(),'stale journeys keep the scorecard');assert.equal(await page.locator('#spend').innerText(),'$362.50');assert.equal(await page.locator('#results').isVisible(),true);
+  // Spend that does not cover the period is labelled known, and no return is computed from it.
+  await page.evaluate(()=>{window.staleFixture=false;window.partialSpend=true;});await page.locator('#load').click();await page.waitForSelector('.attr-scorecard');
+  assert.equal(await page.locator('#spend').innerText(),'$362.50 known');assert.equal(await page.locator('#roas').innerText(),'—');assert.match(await page.locator('#spendnote').innerText(),/Incomplete: Meta Ads, Google Ads/);
+  assert.match(await page.locator('.attr-scorecard tbody tr',{hasText:'Meta Ads'}).innerText(),/\$300 partial\s+\$0\s+—/);assert.match(await page.locator('.attr-scorecard tfoot').innerText(),/\$363 known\s+\$825\s+—/);
+  await page.evaluate(()=>{window.partialSpend=false;});
   // Spend failing never blanks the attribution; it says spend is unavailable.
   await page.evaluate(()=>{window.staleFixture=false;window.spendFail=true;});await page.locator('#load').click();await page.waitForSelector('.attr-scorecard');
-  assert.equal(await page.locator('#spend').innerText(),'Unavailable');assert.match(await page.locator('#spendnote').innerText(),/spend read refused/);assert.match(await page.locator('.attr-together').innerText(),/100% of orders/);
+  assert.equal(await page.locator('#spend').innerText(),'Unavailable');assert.match(await page.locator('#spendnote').innerText(),/spend read refused/);assert.match(await page.locator('.attr-together').innerText(),/88% of orders/);
   await page.evaluate(()=>{window.spendFail=false;window.emptyFixture=true;});await page.locator('#load').click();await page.waitForSelector('.attr-together');assert.match(await page.locator('.attr-together').innerText(),/No identified channel journeys/);
   assert.deepEqual(errors,[]);console.log('Attribution browser: KPIs+spend, teamwork, scorecard drilldown, role filter, trust section, desktop/mobile, light/dark, stale/spend-failure/empty states passed');
  }finally{await browser.close();server.close();}

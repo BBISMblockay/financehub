@@ -1,6 +1,6 @@
 import {classify,journeyVisits} from './silo-attribution-model.js';
 import {trendChart} from './silo-attribution-visuals.js';
-import {summarizeSpend,knownSpend} from './silo-attribution-spend.js';
+import {summarizeSpend,spendTotal} from './silo-attribution-spend.js';
 import {mountOverview} from './silo-attribution-overview-ui.js';
 export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function platformMark(channel) {
@@ -97,9 +97,11 @@ export function mountReport(root,{load,evidence,journeys,spend}) {
   }
   function drawSpend(summary,error){
     if(error){$('spend').textContent='Unavailable';$('spendnote').textContent=error;return;}
-    const known=knownSpend(summary),cents=known.reduce((s,x)=>s+x.cents,0),gaps=[...summary.values()].filter(x=>x.status!=='complete').map(x=>x.channel);
-    $('spend').textContent=money(cents);$('roas').textContent=cents>0?`${(report.net/cents).toFixed(1)}x`:'—';
-    $('spendnote').textContent=`Company-wide ads + Redo sending${gaps.length?` · missing or partial: ${gaps.join(', ')}`:''}`;
+    // Only a complete-period total is "marketing spend" and a valid return denominator.
+    const t=spendTotal(summary);
+    $('spend').textContent=t.complete?money(t.cents):t.anyKnown?`${money(t.cents)} known`:'Unknown';
+    $('roas').textContent=t.complete&&t.cents>0?`${(report.net/t.cents).toFixed(1)}x`:'—';
+    $('spendnote').textContent=t.complete?'Company-wide ads + Redo sending':`Incomplete: ${t.gaps.map(g=>g.channel).join(', ')||'no spend source'} · return not shown`;
   }
   const filters=()=>({start:$('start').value,end:$('end').value,windowDays:Number($('window').value),connectionId:$('store').value});
   function showJourneys(show){$('ordersection').hidden=!show;$('overview').hidden=show;for(const [id,on] of [['overview-tab',!show],['journeys-tab',show]]){$(id).classList.toggle('bcn-tab--active',on);$(id).setAttribute('aria-pressed',String(on));}}

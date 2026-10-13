@@ -1,5 +1,45 @@
 # Silo Attribution v1
 
+## Channels working together + spend (2026-10-12, PR #955)
+
+The page answers "how do our channels work together, and what does each return
+for what we spend?" first. Order: KPI band (net sales, marketing spend, return on
+spend, orders) and a one-line reconciliation check; Overview tab with the
+multi-channel headline, up to three findings, the channel scorecard, last-click vs
+shared credit bars and the most common journeys; Journeys tab with the order
+cards, filterable by channel and role (anywhere / credited / started); one
+collapsed Trust & method section for reconciliation, journey coverage, spend
+sources, what-if credit rules and the method text.
+
+- **Headline** divides by all orders with sales activity; orders with no
+  identified channel (Unattributed / Pending) count as not multi-channel.
+- **Roles are distinct per order**: start = earliest identified non-direct touch
+  in the window; close = last-click credit; assist = a channel seen between them.
+  A one-channel journey is both a start and a close.
+- **Shared credit** is the existing equal-share comparison (eligible journeys
+  only; excluded orders keep last-click credit), so it adds up to net sales.
+- **Spend**: `marketing_kpis_daily` (meta_ads, google_ads, tiktok_ads) and
+  `redo_marketing_daily` (EMAIL, SMS sending cost), read in the browser under
+  their active-company SELECT policies and the page's company re-check. Spend is
+  company-wide; sales are for the selected store. Ad spend has no stored currency
+  and is shown only for a USD store; Redo rows in another currency are excluded.
+- **Coverage** comes from successful `sync_jobs` windows (`result.window`; job
+  types `meta_ads_kpis`, `google_ads_kpis`, `tiktok_ads_kpis`, `redo_marketing`).
+  A day with no rows is $0 only inside a completed window. Complete = windows
+  cover every day of the period. Partial = some days covered; a known subtotal is
+  shown. Unknown = connected (a connection, any run, or rows) but no window
+  covers the period. Unverified = more than one connection, since windows are
+  company-level. Not tracked = no connection, run or rows; it does not block the
+  total. A later row never proves an earlier period was synced.
+- **Return** = credited net sales / spend, for last-click and shared credit,
+  shown only when the spend behind it is complete. An incomplete total reads
+  "$X known" with no return. Observed, not incremental lift.
+- A spend or journey load failure leaves the rest of the page working and says
+  what is unavailable.
+- The Draft review task path was removed with this change.
+
+Not yet: campaign-level spend vs credited campaigns, period-over-period change.
+
 ## Overview, observed rollups and model sensitivity
 
 The existing page opens on Overview; Journeys retains order search and evidence
