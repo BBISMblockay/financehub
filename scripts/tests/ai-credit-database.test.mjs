@@ -602,7 +602,18 @@ await test('invoice reading is metered like any other feature; an unknown featur
 
 await test('verify_v2_schema.sql reports the AI credit ledger ok against this schema', async () => {
   const v = await read('supabase/verify_v2_schema.sql');
-  const check = v.slice(v.lastIndexOf("select 'AI credit ledger'"));
+  // Bounded at BOTH ends. Slicing to the end of the file assumed the AI credit
+  // check was the last one in verify_v2_schema.sql, so the first check added
+  // after it (the integration bootstrap queue, 20261013060000) turned this into
+  // two statements and PGlite refused the whole thing -- "cannot insert multiple
+  // commands into a prepared statement", on every branch, for a file this suite
+  // does not own.
+  const start = v.lastIndexOf("select 'AI credit ledger'");
+  const END = "end as status;";
+  const end = v.indexOf(END, start);
+  assert.ok(start > 0 && end > start,
+    'the AI credit ledger check must still exist in verify_v2_schema.sql');
+  const check = v.slice(start, end + END.length);
   assert.equal((await one(check)).status, 'ok');
 });
 
