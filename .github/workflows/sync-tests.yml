@@ -777,6 +777,9 @@ jobs:
           if GUIDES_MUTATION=no-all-orders node scripts/tests/integration-guides.test.mjs >/dev/null 2>&1; then
             echo "::error::the suite passes when the Shopify guide drops read_all_orders"; exit 1
           fi
+          if GUIDES_MUTATION=all-orders-first node scripts/tests/integration-guides.test.mjs >/dev/null 2>&1; then
+            echo "::error::the suite passes when the Shopify guide asks for read_all_orders on a brand-new app"; exit 1
+          fi
 
       # Sync now: one Google Ads / GA4 / Meta connection through the nightly's
       # own core, authorized by the caller's RLS read of the row.

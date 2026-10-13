@@ -12,7 +12,8 @@
  *
  * Run: node scripts/tests/integration-guides.test.mjs
  * Mutations: GUIDES_MUTATION=scope-drift (a Shopify scope dropped),
- * no-pages-show-list and no-all-orders must each fail. */
+ * no-pages-show-list, no-all-orders and all-orders-first (read_all_orders asked for in the
+ * first version, which Shopify rejects) must each fail. */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -23,11 +24,12 @@ import { PUBLIC_SCOPES } from '../lib/shopify-auth-lib.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const mutation = process.env.GUIDES_MUTATION || '';
-assert.ok(['', 'scope-drift', 'no-pages-show-list', 'no-all-orders'].includes(mutation), `Unknown mutation ${mutation}`);
+assert.ok(['', 'scope-drift', 'no-pages-show-list', 'no-all-orders', 'all-orders-first'].includes(mutation), `Unknown mutation ${mutation}`);
 
 let src = read('v2/integration-guides.js');
 if (mutation === 'scope-drift') src = src.replace("    'read_publications',\n", '');
 if (mutation === 'no-all-orders') src = src.replace(".concat(['read_all_orders'])", '');
+if (mutation === 'all-orders-first') src = src.replace("label: 'Copy scopes', value: SHOPIFY_SCOPES.join(',')", "label: 'Copy scopes', value: SHOPIFY_OWN_APP_SCOPES.join(',')");
 if (mutation === 'no-pages-show-list') src = src.replace("['pages_show_list', ", '[');
 const sandbox = { window: {} };
 vm.runInNewContext(src, sandbox);
@@ -91,7 +93,15 @@ t('every guide renders with steps and https-only links', () => {
 
 t('the own-app route asks for read_all_orders (full history backfill)', () => {
   assert.deepEqual([...G.SHOPIFY_OWN_APP_SCOPES].sort(), [...PUBLIC_SCOPES, 'read_all_orders'].sort());
-  const step = G.resolve('shopify_dev_app', {}).steps.find((s) => s.copy);
+  // Shopify rejects read_all_orders on a brand-new app, so the guide creates the
+  // app without it and adds it in a later version. The first scoped step must
+  // leave it out; the last one must carry it.
+  const scoped = G.resolve('shopify_dev_app', {}).steps.filter((s) => s.copy);
+  const first = scoped[0];
+  const step = scoped[scoped.length - 1];
+  assert.ok(scoped.length >= 2, 'scopes are added across two versions');
+  assert.ok(!first.copy[0].value.split(',').includes('read_all_orders'), 'not in the first version');
+  assert.deepEqual(first.copy[0].value.split(',').sort(), [...PUBLIC_SCOPES].sort(), 'first version is the public set');
   assert.ok(step.scopes.includes('read_all_orders'), 'listed in the step');
   assert.ok(step.copy[0].value.split(',').includes('read_all_orders'), 'in Copy all scopes');
   const page = read('v2/integrations.html');

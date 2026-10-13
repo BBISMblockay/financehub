@@ -54,7 +54,7 @@
     <p class="ig-print-brand">SILO</p>
     <h1>Integration setup guides</h1>
     <p class="ig-print-lead">Step-by-step instructions for connections that need work in Shopify, Meta, or Redo before credentials land in SILO. Same content as the setup drawers on the Integrations page.</p>
-    <p class="ig-print-meta">Generated 2026-10-05 · SILO Integrations: <a href="/v2/integrations.html">/v2/integrations.html</a></p>
+    <p class="ig-print-meta">Generated 2026-10-13 · SILO Integrations: <a href="/v2/integrations.html">/v2/integrations.html</a></p>
     <section class="ig-print-toc">
       <h2 class="ig-section-label">Contents</h2>
       <ol><li><a href="#guide-shopify_dev_app">Shopify — store-owned app (recommended)</a></li><li><a href="#guide-shopify_token">Shopify — legacy Admin API token</a></li><li><a href="#guide-meta_ads">Meta Ads — system user token</a></li><li><a href="#guide-redo">Redo — returns &amp; marketing</a></li></ol>
@@ -94,26 +94,26 @@
     </li><li class="ig-step ig-step--print">
       <div class="ig-step-num" aria-hidden="true">3</div>
       <div class="ig-step-main">
-        <div class="ig-step-title">Create an app</div>
-        <div class="ig-step-body">Choose <strong>Create app</strong> and name it anything (e.g. <code>SILO</code>).</div>
-        
-        
-        
+        <div class="ig-step-title">Create an app with read-only access</div>
+        <div class="ig-step-body">Choose <strong>Create app</strong>, name it anything (e.g. <code>SILO</code>), paste these scopes, then create and <strong>Release</strong> it. All are read-only; SILO cannot change anything in your store.</div>
+        <div class="ig-scopes"><code>read_orders</code><code>read_products</code><code>read_inventory</code><code>read_locations</code><code>read_shopify_payments_payouts</code><code>read_draft_orders</code><code>read_reports</code><code>read_publications</code></div>
+        <p class="ig-print-copy"><span class="ig-print-copy-label">Copy scopes</span> <code class="ig-print-code">read_orders,read_products,read_inventory,read_locations,read_shopify_payments_payouts,read_draft_orders,read_reports,read_publications</code></p>
+        <div class="ig-step-note">Leave <code>read_all_orders</code> out of this first version: Shopify rejects it on a brand-new app (&ldquo;Contains invalid scopes&rdquo;). The next step adds it.</div>
       </div>
     </li><li class="ig-step ig-step--print">
       <div class="ig-step-num" aria-hidden="true">4</div>
       <div class="ig-step-main">
-        <div class="ig-step-title">Give it read-only access, then release</div>
-        <div class="ig-step-body">Create a new <strong>version</strong> of the app. Under access scopes, add each of these, then <strong>Release</strong> the version. All are read-only; SILO cannot change anything in your store.</div>
+        <div class="ig-step-title">Add full order history in a second version</div>
+        <div class="ig-step-body">Open the app's <strong>Versions</strong>, choose <strong>New version</strong>, use these scopes (the same list plus <code>read_all_orders</code>), then <strong>Release</strong> it.</div>
         <div class="ig-scopes"><code>read_orders</code><code>read_products</code><code>read_inventory</code><code>read_locations</code><code>read_shopify_payments_payouts</code><code>read_draft_orders</code><code>read_reports</code><code>read_publications</code><code>read_all_orders</code></div>
         <p class="ig-print-copy"><span class="ig-print-copy-label">Copy all scopes</span> <code class="ig-print-code">read_orders,read_products,read_inventory,read_locations,read_shopify_payments_payouts,read_draft_orders,read_reports,read_publications,read_all_orders</code></p>
-        <div class="ig-step-note"><strong>Don't skip <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders, so SILO cannot import your sales history. If Shopify asks you to request access to it, submit the request before releasing.</div>
+        <div class="ig-step-note"><strong>Don't skip <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders, so SILO cannot import your sales history.</div>
       </div>
     </li><li class="ig-step ig-step--print">
       <div class="ig-step-num" aria-hidden="true">5</div>
       <div class="ig-step-main">
         <div class="ig-step-title">Install the app on the store</div>
-        <div class="ig-step-body">From the app's overview choose <strong>Install app</strong> and pick this store. Approve the access prompt.</div>
+        <div class="ig-step-body">From the app's overview choose <strong>Install app</strong> and pick this store. Approve the access prompt. If it was already installed before you added <code>read_all_orders</code>, choose <strong>Install app</strong> again so the store approves the new scope.</div>
         
         
         

@@ -81,7 +81,10 @@ The 8 scopes (`PUBLIC_SCOPES` in `scripts/lib/shopify-auth-lib.mjs`): `read_orde
 `read_reports`, `read_publications`. **`read_all_orders` is deliberately absent from the PUBLIC app** until
 Shopify grants it: without it the Admin API returns only the last 60 days of orders, and the Test button
 says so rather than letting a store look fully backfilled. **A store's own Dev Dashboard app is told to
-add it** (Integrations' setup guide, `SHOPIFY_OWN_APP_SCOPES` in `v2/integration-guides.js`): that app is
+add it** (Integrations' setup guide, `SHOPIFY_OWN_APP_SCOPES` in `v2/integration-guides.js`), **in a second
+version**: the Dev Dashboard rejects `read_all_orders` on a brand-new app ("Contains invalid scopes") and
+accepts it once the app exists, after which the store must Install the app again to approve it
+(State Forty Eight, 2026-10-13). There is no access-request form for a store-owned app. that app is
 custom-distributed in the store's own organization, the same kind as Baseballism's legacy app, which holds
 `read_all_orders` and backfills full history. `shopify-connect-dev-app` takes whatever scopes the app
 was given, so nothing server-side changes. A history import over 60 days on a store without it asks

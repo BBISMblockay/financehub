@@ -35,7 +35,11 @@
   // backfills full history. Only SILO's PUBLIC app has to wait for Shopify to
   // approve that scope (hence its absence from PUBLIC_SCOPES). Without it the
   // Admin API returns just the last 60 days of orders, silently, so a history
-  // import looks complete and is not. The own-app route therefore asks for it.
+  // import looks complete and is not. The own-app route therefore asks for it --
+  // but in a SECOND version: the Dev Dashboard rejects read_all_orders on a
+  // brand-new app ("Contains invalid scopes") and accepts it once the app
+  // exists (State Forty Eight, 2026-10-13: v1 with the eight, silo-2 adding it,
+  // Install app again, Test -> full history).
   const SHOPIFY_OWN_APP_SCOPES = SHOPIFY_SCOPES.concat(['read_all_orders']);
   // Deep links verified 2026-10-05: each resolves to Meta login with ?next= pointing
   // at the same path (business.facebook.com/settings/*, developers.facebook.com/apps).
@@ -83,19 +87,22 @@
           link: { href: 'https://dev.shopify.com/dashboard', label: 'Open Dev Dashboard' },
         },
         {
-          title: 'Create an app',
-          body: 'Choose <strong>Create app</strong> and name it anything (e.g. <code>SILO</code>).',
+          title: 'Create an app with read-only access',
+          body: 'Choose <strong>Create app</strong>, name it anything (e.g. <code>SILO</code>), paste these scopes, then create and <strong>Release</strong> it. All are read-only; SILO cannot change anything in your store.',
+          copy: [{ label: 'Copy scopes', value: SHOPIFY_SCOPES.join(',') }],
+          scopes: SHOPIFY_SCOPES,
+          note: 'Leave <code>read_all_orders</code> out of this first version: Shopify rejects it on a brand-new app (&ldquo;Contains invalid scopes&rdquo;). The next step adds it.',
         },
         {
-          title: 'Give it read-only access, then release',
-          body: 'Create a new <strong>version</strong> of the app. Under access scopes, add each of these, then <strong>Release</strong> the version. All are read-only; SILO cannot change anything in your store.',
+          title: 'Add full order history in a second version',
+          body: 'Open the app\'s <strong>Versions</strong>, choose <strong>New version</strong>, use these scopes (the same list plus <code>read_all_orders</code>), then <strong>Release</strong> it.',
           copy: [{ label: 'Copy all scopes', value: SHOPIFY_OWN_APP_SCOPES.join(',') }],
           scopes: SHOPIFY_OWN_APP_SCOPES,
-          note: '<strong>Don\'t skip <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders, so SILO cannot import your sales history. If Shopify asks you to request access to it, submit the request before releasing.',
+          note: '<strong>Don\'t skip <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders, so SILO cannot import your sales history.',
         },
         {
           title: 'Install the app on the store',
-          body: 'From the app\'s overview choose <strong>Install app</strong> and pick this store. Approve the access prompt.',
+          body: 'From the app\'s overview choose <strong>Install app</strong> and pick this store. Approve the access prompt. If it was already installed before you added <code>read_all_orders</code>, choose <strong>Install app</strong> again so the store approves the new scope.',
         },
         {
           title: 'Copy the Client ID and Client secret',
