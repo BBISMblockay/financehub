@@ -29,7 +29,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { appendFileSync } from 'node:fs';
-import { SYNC_STAMP, feedIsQuiet, expectedCompanies } from './lib/freshness-quiet.mjs';
+import { SYNC_STAMP, feedExcuse, expectedCompanies, producesFeed } from './lib/freshness-quiet.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -183,9 +183,11 @@ async function main() {
       }
 
       // Data lags, but did the sync run? A company with nothing to report
-      // (a new store, an idle ad account) is QUIET, not stale -- see
-      // lib/freshness-quiet.mjs. Only asked when the data lags.
-      let quiet = false;
+      // (a new store, an idle ad account) is QUIET, and one whose account the
+      // client has let die is CLIENT-BLOCKED -- neither is stale, and neither
+      // is anything a SILO alarm can be acted on. See lib/freshness-quiet.mjs.
+      // Only asked when the data lags.
+      let excuse = null;
       if (!lagOk) {
         const { data: conns, error: connErr } = await db
           .from(feed.connTable)
@@ -193,11 +195,22 @@ async function main() {
           .eq('company_entity_id', companyId)
           .eq('is_active', true);
         if (connErr) throw new Error(`${feed.connTable} stamp probe failed for ${companyId}: ${connErr.message}`);
-        quiet = feedIsQuiet(conns, SYNC_STAMP[feed.connTable], pacificMidnightUtc(today), feed.connTable);
+        excuse = feedExcuse(conns, SYNC_STAMP[feed.connTable], pacificMidnightUtc(today), feed.connTable);
+        // Visible without being fatal: a dead client account is worth seeing
+        // in the run summary, and is the one thing here somebody could act on
+        // (ask the client to fix it, or switch the connection off).
+        if (excuse === 'client-blocked') {
+          const blocked = (conns || []).filter((c) => c?.meta?.client_side_block?.reason
+            && producesFeed(feed.connTable, c))
+            .map((c) => `${c.platform}: ${c.meta.client_side_block.reason}`);
+          console.log(`::warning title=Feed lags on a client-side block::${feed.label} ${companyId} — ${blocked.join('; ')}`);
+        }
       }
 
-      const ok = (lagOk && !partial) || quiet;
-      const verdict = quiet ? 'quiet (synced after the day ended, no newer data)' : !lagOk ? 'STALE' : partial ? 'PARTIAL' : 'ok';
+      const ok = (lagOk && !partial) || !!excuse;
+      const verdict = excuse === 'client-blocked' ? 'client-blocked (the client\'s account cannot sync; not SILO\'s to fix)'
+        : excuse === 'quiet' ? 'quiet (synced after the day ended, no newer data)'
+        : !lagOk ? 'STALE' : partial ? 'PARTIAL' : 'ok';
       console.log(
         `[freshness] ${feed.label.padEnd(9)} ${companyId}  latest=${maxDay || 'NONE'}  lag=${lag === null ? 'n/a' : `${lag}d`}`
         + `  ${required} captured=${capturedAt || 'n/a'}  ${verdict}`,

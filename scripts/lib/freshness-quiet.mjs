@@ -37,22 +37,75 @@ export const SYNC_STAMP = {
 };
 
 /**
+ * Where a connection records that its last failure was the CLIENT'S to fix
+ * (ad-platforms-sync.mjs writes it from lib/ad-sync-client-errors.mjs, and
+ * clears it on the next success). Only ad connections have one; a Shopify
+ * connection has no equivalent, so its feed is judged on the sync stamp alone.
+ */
+export const CLIENT_BLOCK = {
+  ad_platform_connections: 'client_side_block',
+};
+
+/** When this connection's last attempt ran, by whichever stamp it carries:
+ *  a successful sync, or a client-side block recorded in place of one. */
+function attemptedAt(conn, stampKey, blockKey) {
+  const ok = Date.parse(conn?.meta?.[stampKey] || '');
+  const blockedAt = blockKey ? Date.parse(conn?.meta?.[blockKey]?.at || '') : NaN;
+  const blocked = Number.isFinite(blockedAt);
+  if (!Number.isFinite(ok)) return blocked ? { at: blockedAt, blocked: true } : null;
+  if (blocked && blockedAt > ok) return { at: blockedAt, blocked: true };
+  return { at: ok, blocked: false };
+}
+
+/**
  * @param connections rows with { sync_enabled, meta } for ONE company and feed
  * @param stampKey    meta key holding the last successful sync time
  * @param dayEndedAt  Date: when the last complete Pacific day ended
  * @param connTable   when given, connections that do not write the feed's
  *                    table (producesFeed) are ignored
- * @returns true only when at least one enabled connection exists and every
- *          enabled one synced successfully at or after dayEndedAt
+ * @returns true when the lag is explained -- see feedExcuse, which this
+ *          wraps and which names WHICH explanation
  */
 export function feedIsQuiet(connections, stampKey, dayEndedAt, connTable = null) {
+  return feedExcuse(connections, stampKey, dayEndedAt, connTable) !== null;
+}
+
+/**
+ * Why this feed's lag is not an alarm, or null when it IS one.
+ *
+ * Every enabled connection behind the feed has to be accounted for since the
+ * last complete Pacific day ended, by one of two stamps:
+ *
+ *   'quiet'          every one of them SYNCED successfully, and still the data
+ *                    lags -- so there was nothing newer to fetch.
+ *   'client-blocked' at least one of them last failed for a reason only the
+ *                    account owner can fix (meta.client_side_block), and the
+ *                    rest synced. BlockayOps' cancelled Google Ads account
+ *                    held the marketing feed at 2026-10-05 and turned this
+ *                    alarm red on every run from 2026-10-07; nobody at SILO
+ *                    could act on it, which is the failure mode the alarm's
+ *                    own scope note warns trains everyone to ignore it.
+ *
+ * Both bars are the same: the stamp must be AT OR AFTER dayEndedAt. A block
+ * recorded days ago is not an excuse -- a connection that has stopped being
+ * attempted at all is the dropped sync this alarm exists to catch -- and
+ * ad-platforms-sync.mjs clears the block on the next success, so a healed
+ * connection cannot keep quietening the alarm.
+ *
+ * @returns 'quiet' | 'client-blocked' | null
+ */
+export function feedExcuse(connections, stampKey, dayEndedAt, connTable = null) {
   const enabled = (connections || []).filter((c) => c && c.sync_enabled !== false
     && (!connTable || producesFeed(connTable, c)));
-  if (!enabled.length || !(dayEndedAt instanceof Date) || Number.isNaN(+dayEndedAt)) return false;
-  return enabled.every((c) => {
-    const at = Date.parse(c.meta?.[stampKey] || '');
-    return Number.isFinite(at) && at >= +dayEndedAt;
-  });
+  if (!enabled.length || !(dayEndedAt instanceof Date) || Number.isNaN(+dayEndedAt)) return null;
+  const blockKey = connTable ? CLIENT_BLOCK[connTable] : null;
+  let blocked = false;
+  for (const c of enabled) {
+    const attempt = attemptedAt(c, stampKey, blockKey);
+    if (!attempt || attempt.at < +dayEndedAt) return null;
+    if (attempt.blocked) blocked = true;
+  }
+  return blocked ? 'client-blocked' : 'quiet';
 }
 
 /**

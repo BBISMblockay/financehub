@@ -12,7 +12,7 @@
 // dev-portal setup is finished; Meta/TikTok connections sync regardless.
 
 import { createClient } from '@supabase/supabase-js';
-import { makeFinishJob, runConnections } from './lib/ad-sync-client-errors.mjs';
+import { clientSideReason, makeFinishJob, runConnections } from './lib/ad-sync-client-errors.mjs';
 import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync, fetchMetaJsonOrThrow, META_API_VERSION } from './lib/ad-platforms-sync-core.mjs';
 import { archiveCreativeImages, scrubError } from './lib/creative-image-archive.mjs';
 import { runSearchConsoleSync, SEARCH_CONSOLE_JOB_TYPE } from './lib/search-console-sync-core.mjs';
@@ -140,7 +140,9 @@ async function syncConnection(connection) {
             .eq('id', connection.id);
         },
       });
-      const meta = { ...(connection.meta || {}), last_sync_at: result.synced_at };
+      // client_side_block cleared for the same reason as the campaign path
+      // below: a connection that just synced is not blocked.
+      const meta = { ...(connection.meta || {}), last_sync_at: result.synced_at, client_side_block: null };
       await supabase
         .from('ad_platform_connections')
         .update({ meta, updated_at: new Date().toISOString() })
@@ -252,6 +254,11 @@ async function syncConnection(connection) {
         backfill: history.backfill, succeeded: metaHistoryComplete(result), at: result.synced_at,
       }),
       last_sync_at: result.synced_at,
+      // A connection that just synced is not blocked, whatever it was last
+      // run. Cleared here rather than on reconnect so recovery needs no
+      // action at all -- and so the freshness alarm can never be quietened
+      // by a block stamp left behind by a failure that has since healed.
+      client_side_block: null,
     };
     if (history.backfill) {
       result.history_import = { days: runDaysBack, complete: metaHistoryComplete(result) };
@@ -267,14 +274,29 @@ async function syncConnection(connection) {
     return { connection: label, ...result };
   } catch (err) {
     const message = err?.message || String(err);
-    if (history.backfill) {
+    // Stamp a failure the CLIENT owns (their account disabled, access
+    // revoked) so the independent freshness alarm can tell this feed's lag
+    // apart from a sync that never ran -- lib/freshness-quiet.mjs reads it,
+    // and without it one dead client account holds a second workflow red
+    // forever. The 'error' sync_jobs row below stays the audit record; this
+    // is the durable CURRENT state, and it carries `at` so a connection that
+    // stops being attempted at all goes back to STALE on its own.
+    const block = clientSideReason(message);
+    if (history.backfill || block) {
       // A failed import still counts as an attempt, so a connection that can
       // never succeed stops re-pulling a year. Best-effort: the job error is
-      // what matters, and the next run reads the flag again either way.
-      await supabase
+      // what matters, and the next run reads the flag again either way. A
+      // lost block stamp leaves the freshness alarm red, which is the safe
+      // direction, so it must not turn a client-side failure into a SILO one.
+      const failedMeta = history.backfill
+        ? metaAfterHistory(connection.meta, { backfill: true, succeeded: false, at: new Date().toISOString() })
+        : { ...(connection.meta || {}) };
+      if (block) failedMeta.client_side_block = { reason: block, at: new Date().toISOString() };
+      const { error: metaError } = await supabase
         .from('ad_platform_connections')
-        .update({ meta: metaAfterHistory(connection.meta, { backfill: true, succeeded: false, at: new Date().toISOString() }), updated_at: new Date().toISOString() })
+        .update({ meta: failedMeta, updated_at: new Date().toISOString() })
         .eq('id', connection.id);
+      if (metaError) console.error(`[warn] ${label}: could not record the failure on the connection: ${metaError.message}`);
     }
     await finishJob(jobId, 'error', { error: message });
     console.error(`[error] ${label}: ${message}`);

@@ -146,6 +146,25 @@ redeploy.
 
 ---
 
+## Two client ad accounts are dead, and two edge-function deploys are owed (P2)
+
+Found 2026-10-13 while clearing the red GitHub Actions. Neither is a code defect; the workflows
+that reported them are fixed, so these are now reported as warnings instead of as failures.
+
+- **Bat Nutz's Meta ad account** has returned `API access blocked.` (OAuthException 200) on every
+  run since 2026-10-07, and **BlockayOps' Google Ads account** has been cancelled
+  (`CUSTOMER_NOT_ENABLED`) since 2026-09-30. Both need the account owner to fix the account with
+  the platform, or the connection switched off in `/v2/integrations.html`. Until then BlockayOps'
+  `marketing_kpis_daily` stays at 2026-10-05 and shows as `client-blocked` in the freshness run.
+- **A deploy is owed** for `shopify-sync-run` (its `lib/shopify-sync-core.mjs` moved in #954) and
+  for `meta-oauth-callback` (on `main`, never deployed). The Deployment drift check stays red until
+  both ship from `main` through the "Deploy Edge Function" workflow, which is Blake's to run.
+- **The AR Google Sheets sync** fails daily on its own staleness guard: the published sheet's newest
+  order is 2026-09-14, 28 days behind its 7-day threshold. The sync itself loads 1,106 invoices
+  fine. Somebody has to update the sheet, or the source has to change.
+
+---
+
 ## Shared freight invoices are not linked to their POs (P2)
 
 Found 2026-10-08. A freight payment request covering several POs stores them as one comma-joined

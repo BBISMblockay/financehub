@@ -25,10 +25,10 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { FN_DIR, slugOfPath, slugsFromLsFiles } from './lib/function-drift-slugs.mjs';
 
 const TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
 const REF = process.env.SUPABASE_PROJECT_REF || 'mkquclffrvlzyecnabyf';
-const FN_DIR = 'supabase/functions';
 
 // Deployed with no source in this repo, as of 2026-09-10. Documented in
 // CLAUDE.md ("Not in this repo"). Adding a slug here is a decision to keep
@@ -91,11 +91,11 @@ const shaBySlug = new Map(deployed.map((f) => [f.slug, f.ezbr_sha256]));
 // all four known-unsourced functions were reported as extra files inside
 // repo functions instead of as functions with no source. git's index is the
 // only honest answer to "what does the repo contain".
-const repoSlugs = new Set(
-  execFileSync('git', ['ls-files', '--', FN_DIR], { encoding: 'utf8' })
-    .split('\n').filter(Boolean)
-    .map((p) => p.split('/')[2])
-    .filter(Boolean),
+//
+// A slug is the DIRECTORY under supabase/functions/, so a file sitting
+// directly in it belongs to no function -- see lib/function-drift-slugs.mjs.
+const repoSlugs = slugsFromLsFiles(
+  execFileSync('git', ['ls-files', '--', FN_DIR], { encoding: 'utf8' }),
 );
 
 const status = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', FN_DIR], { encoding: 'utf8' })
@@ -108,7 +108,10 @@ const unsourced = new Set(); // deployed, no directory in repo
 for (const line of status) {
   const code = line.slice(0, 2);
   const path = line.slice(3);
-  const slug = path.split('/')[2];
+  // Same rule as repoSlugs above: a file directly under supabase/functions/
+  // belongs to no function, so it has no slug to report drift against.
+  const slug = slugOfPath(path);
+  if (!slug) continue;
   if (code === '??') {
     if (repoSlugs.has(slug)) extraFiles.push(path); else unsourced.add(slug);
     continue;
@@ -165,7 +168,7 @@ function deferralBreak(slug, d) {
 // judged against every file drifting under it at once.
 const modifiedBySlug = new Map();
 for (const path of modified) {
-  const slug = path.split('/')[2];
+  const slug = slugOfPath(path);
   if (!modifiedBySlug.has(slug)) modifiedBySlug.set(slug, []);
   modifiedBySlug.get(slug).push(path);
 }
@@ -193,7 +196,7 @@ let failed = false;
 if (deferredDrift.length) {
   console.log('\nDeferred by decision (deployed bundle and repository directory still match their pins, so this is the SAME difference that was deferred):');
   for (const path of deferredDrift) {
-    const d = DEFERRED_DRIFT.get(path.split('/')[2]);
+    const d = DEFERRED_DRIFT.get(slugOfPath(path));
     console.log(`  ${path}\n    deferred ${d.since}: ${d.why}`);
     console.log(`::warning file=${path}::deployed source differs from main; deferred by decision on ${d.since}`);
   }
@@ -223,11 +226,15 @@ if (modified.length) {
   // is how a current card-categorize read as stale on 2026-10-07 (the stale
   // copy was card-coding-prepare-scheduled's). Name the importers.
   const importersOf = (slug) => execFileSync('git', ['grep', '-l', `\\.\\./${slug}/`, 'HEAD', '--', FN_DIR], { encoding: 'utf8' })
-    .split('\n').filter(Boolean).map((l) => l.split('/')[2]).filter((s) => s && s !== slug);
+    // `HEAD:supabase/functions/<slug>/<file>` -- and, again, a file directly
+    // in the directory (CLAUDE.md names import paths) is not an importer.
+    .split('\n').filter(Boolean).map((l) => l.split('/'))
+    .filter((parts) => parts.length > 3).map((parts) => parts[2])
+    .filter((s) => s && s !== slug);
   for (const p of modified) {
     console.log(`  ${p}`);
     let importers = [];
-    try { importers = [...new Set(importersOf(p.split('/')[2]))]; } catch { /* git grep exits 1 on no match */ }
+    try { importers = [...new Set(importersOf(slugOfPath(p)))]; } catch { /* git grep exits 1 on no match */ }
     const hint = importers.length
       ? ` (also bundled by ${importers.join(', ')}; the downloaded copy may be THEIRS -- they need redeploying too)`
       : '';
