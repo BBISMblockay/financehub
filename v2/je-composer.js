@@ -21,6 +21,9 @@
  *     accountingSourceRef: '...',            // stable run/period identity
  *     prefill: { entryDate, memo, lines: [{ accountId, postingType, amount }] },
  *     adjustmentId: '...',                    // resume a staged draft instead
+ *     reviewOnly: true,                       // with adjustmentId: open straight on the
+ *                                             // database read-back, no edit step (an
+ *                                             // entry staged by an RPC, e.g. a reclass)
  *     onStaged: (id) => { ... },              // refresh a drafts list
  *     onPosted: (result) => { ... }           // refresh the report here
  *   });
@@ -165,6 +168,8 @@
       db, companyId, context, accountingSource, accountingSourceRef,
       prefill, adjustmentId, onPosted, onStaged,
     } = opts;
+    // Only a stored entry can be reviewed without an edit step.
+    const reviewOnly = !!(opts.reviewOnly && adjustmentId);
     injectStyles();
 
     const state = {
@@ -629,7 +634,7 @@
       $('jeAddLine').hidden = !editing;
       $('jeSaveDraft').hidden = !editing;
       $('jeStage').hidden = !editing;
-      $('jeBack').hidden = editing;
+      $('jeBack').hidden = editing || reviewOnly;
       $('jePost').hidden = editing;
       // Only a review that actually rendered may enable posting. Otherwise a
       // renderReview() failure would leave a live Post button over a blank
@@ -747,6 +752,14 @@
             p_reason: `Posting failed: ${e.message}`.slice(0, 500),
           });
           if (!reopenError) {
+            if (reviewOnly) {
+              // Nothing to edit here: show the stored entry again so it can be
+              // approved once the cause (an inactive account, a lapsed token) is fixed.
+              showStep('review');
+              await renderReview().catch(() => {});
+              setMsg(`Approval reopened. ${e.message}`, 'bad');
+              return;
+            }
             showStep('edit');
             renderTotals();
             setMsg(`Approval reopened — fix the entry and approve it again. ${e.message}`, 'bad');
@@ -800,6 +813,12 @@
         seeds.forEach(addLine);
       }
 
+      if (reviewOnly) {
+        showStep('review');
+        try { await renderReview(); }
+        catch (e) { setMsg(`Could not read the staged entry — ${e.message}`, 'bad'); }
+        return;
+      }
       showStep('edit');
       renderLines();   // one build for the opening rows; edits go in place
     }).catch((e) => {

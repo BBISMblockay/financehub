@@ -26,7 +26,7 @@ const originalLines = seeds.map((line, i) => ({
 }));
 
 async function composer({ accounts = chart, lines = seeds, error = null, resume = false,
-  referenceError = null } = {}) {
+  referenceError = null, reviewOnly = false } = {}) {
   const ids = new Map();
   class Element {
     constructor() { this.listeners = new Map(); this.children = []; this.value = ''; this.disabled = false; }
@@ -111,6 +111,7 @@ async function composer({ accounts = chart, lines = seeds, error = null, resume 
     db, companyId: 'company-one', context: 'accounting-export:2026-08',
     accountingSource: 'shopify_monthly', accountingSourceRef: '2026-08',
     adjustmentId: resume ? 'existing' : undefined,
+    reviewOnly,
     prefill: { entryDate: '2026-08-31', memo: 'New generated entry', lines },
     onStaged: (id) => staged.push(id),
   });
@@ -244,6 +245,22 @@ await test('valid Review renders the saved rows before enabling approval', async
   assert.match(page.ids.get('jeReview').innerHTML, /New generated entry/);
   assert.match(page.ids.get('jeReview').innerHTML, /Expense/);
   assert.deepEqual(page.staged, ['new-draft']);
+});
+
+await test('reviewOnly opens a stored entry on its database read-back, with no way back to editing', async () => {
+  const page = await composer({ resume: true, reviewOnly: true });
+  assert.equal(page.ids.get('jeEdit').hidden, true);
+  assert.equal(page.ids.get('jeReview').hidden, false);
+  assert.equal(page.ids.get('jeBack').hidden, true);
+  assert.equal(page.ids.get('jeSaveDraft').hidden, true);
+  assert.equal(page.ids.get('jePost').disabled, false);
+  assert.match(page.ids.get('jeReview').innerHTML, /Original draft/);
+  assert.deepEqual(page.writes, [], 'opening for review writes nothing');
+});
+
+await test('reviewOnly without a stored entry still composes (there is nothing to review)', async () => {
+  const page = await composer({ reviewOnly: true });
+  assert.equal(page.ids.get('jeEdit').hidden, false);
 });
 
 console.log(`${checks} executed composer regression checks passed`);

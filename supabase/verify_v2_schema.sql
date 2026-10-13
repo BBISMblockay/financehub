@@ -6669,6 +6669,28 @@ select 'AI credit ledger' as check_name,
   then 'CRITICAL: AI credit balances do not reconcile with the ledger -- select * from ai_credit_reconcile() where not ok'
  else 'ok' end as status;
 
+-- Posted-period reclass (20261013180000): the record is client-read-only, the
+-- staging RPC is not anon-callable, and the adjustment/reopen guards are attached.
+select 'Posted transaction reclass' as check_name,
+ case when to_regclass('public.card_transaction_reclasses') is null
+        or to_regprocedure('public.stage_card_transaction_reclass(uuid,text,text,text,text,date,text)') is null
+   then 'MISSING — run 20261013180000_card_transaction_reclass.sql'
+  when not exists (select 1 from pg_class where oid = to_regclass('public.card_transaction_reclasses') and relrowsecurity)
+   then 'CRITICAL: card_transaction_reclasses has RLS off'
+  when exists (select 1 from unnest(array['anon','authenticated']) r
+               where has_table_privilege(r, 'public.card_transaction_reclasses', 'INSERT,UPDATE,DELETE'))
+   then 'CRITICAL: a client can write a reclass record directly'
+  when has_function_privilege('anon', 'public.stage_card_transaction_reclass(uuid,text,text,text,text,date,text)', 'execute')
+   then 'CRITICAL: anon can stage a reclass'
+  when not exists (select 1 from pg_trigger where tgname = 'card_reclass_guard_adjustment' and tgrelid = 'public.journal_adjustments'::regclass)
+     or not exists (select 1 from pg_trigger where tgname = 'card_reclass_guard_batch_reopen' and tgrelid = 'public.card_import_batches'::regclass)
+   then 'CRITICAL: a reclass guard trigger is not attached; edited lines could post or a reclassified period could be recoded'
+  when position('lines were edited' in coalesce(pg_get_functiondef(to_regprocedure('public.card_reclass_guard_adjustment()')), '')) = 0
+   then 'CRITICAL: approval no longer checks that a reclass adjustment still matches its record'
+  else 'ok' end as status;
+-- End posted transaction reclass checks.
+
+
 -- =============================================================================
 -- First-connect auto sync: the bootstrap queue (20261013060000)
 -- =============================================================================

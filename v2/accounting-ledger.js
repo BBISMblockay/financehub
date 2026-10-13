@@ -220,7 +220,7 @@
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const money = (c) => c === null || c === undefined ? '—'
     : (c < 0 ? '(' : '') + (Math.abs(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (c < 0 ? ')' : '');
-  const SOURCE = { card_import: 'Transactions', journal_adjustment: 'Sales & journals', manual_adjustment: 'Journal entry',
+  const SOURCE = { card_import: 'Transactions', journal_adjustment: 'Sales & journals', manual_adjustment: 'Journal entry', card_reclass: 'Transactions (reclass)',
     prepaid_amortization: 'Schedules', fixed_asset_depreciation: 'Fixed assets', silo_ledger: 'Transactions (SILO ledger)' };
 
   function render(model, { onlyActivity = true, fiscalCrossed = false, closingNote = '' } = {}) {

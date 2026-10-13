@@ -78,7 +78,7 @@
   // place a close is checked: Discard only a draft adjustment (RLS refuses the
   // rest), Void only a posted entry, through the same RPCs the source pages use.
   function registerActions(r){
-    const open=r.kind==='journal_adjustment'?`<button class="bcn-btn" data-journal="${esc(r.id)}">Open</button>`:`<a href="transactions.html?batch=${encodeURIComponent(r.id)}&amp;company=${encodeURIComponent(company.id)}">Review transactions</a>`;
+    const open=r.kind==='journal_adjustment'?`<button class="bcn-btn" data-journal="${esc(r.id)}"${r.source==='card_reclass'?' data-review-only':''}>Open</button>`:`<a href="transactions.html?batch=${encodeURIComponent(r.id)}&amp;company=${encodeURIComponent(company.id)}">Review transactions</a>`;
     const discard=r.kind==='journal_adjustment'&&r.status==='draft'?` <button class="bcn-btn" data-discard="${esc(r.id)}">Discard</button>`:'';
     const voided=r.status==='posted'?` <button class="bcn-btn" data-void="${esc(r.id)}" data-void-kind="${esc(r.kind)}">Void</button>`:'';
     return open+discard+voided;}
@@ -132,8 +132,9 @@
     const surface=String(location.hash||'').slice(1)||(baseline?.status==='accepted'?'ledger':''),hashTab=/^[a-z]+$/.test(surface)?document.querySelector(`[data-surface="${surface}"]`):null;
     const linked=location.hash?hashTab:null;
     hashTab?.click();linked?.scrollIntoView?.({block:'start'});
-    const openJournal=id=>window.SiloJE.open({db,companyId:company.id,context:'accounting:register',adjustmentId:id,onStaged:()=>work(()=>register(true)),onPosted:()=>work(()=>register(true))});
-    el('newJournal').addEventListener('click',()=>openJournal());el('registerTable').addEventListener('click',e=>{const b=e.target.closest('[data-journal]');if(b){openJournal(b.dataset.journal);return;}
+    // A reclass (card_reclass) is staged by Transactions and must post exactly as staged: review only.
+    const openJournal=(id,reviewOnly=false)=>window.SiloJE.open({db,companyId:company.id,context:'accounting:register',adjustmentId:id,reviewOnly,onStaged:()=>work(()=>register(true)),onPosted:()=>work(()=>register(true))});
+    el('newJournal').addEventListener('click',()=>openJournal());el('registerTable').addEventListener('click',e=>{const b=e.target.closest('[data-journal]');if(b){openJournal(b.dataset.journal,b.hasAttribute('data-review-only'));return;}
       const d=e.target.closest('[data-discard]');if(d){discardJournal(d.dataset.discard).catch(err=>status(`Could not discard: ${err.message}.`,true));return;}
       const v=e.target.closest('[data-void]');if(v)voidJournal(v.dataset.void,v.dataset.voidKind).catch(err=>status(`Void failed: ${err.message}.`,true));});el('more').addEventListener('click',()=>work(()=>register()));
     // The migration flow is read-only and self-contained: it must never delay

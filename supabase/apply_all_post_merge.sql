@@ -19215,4 +19215,8 @@ $c$select (select count(*) from v_po_header_summary
 -- The marketing test record (and the schedule's link column). Must come AFTER
 -- 20260927190000_ad_studio.sql, whose ad_ideas it references.
 \i migrations/20261013120000_marketing_tests.sql
+-- Reclassify a transaction in a posted period: a reviewed two-line journal
+-- adjustment plus its record. Must come AFTER 20261005120000 (period lock) and
+-- 20260912000000 (adjustment approval controls).
+\i migrations/20261013180000_card_transaction_reclass.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
