@@ -227,6 +227,9 @@ on:
       - 'scripts/tests/marketing-tests-database.test.mjs'
       - 'scripts/tests/marketing-ops-page.test.mjs'
       - 'v2/marketing-ops.html'
+      - 'scripts/tests/ad-studio-suite.test.mjs'
+      - 'v2/marketing-suite.*'
+      - 'v2/ad-studio.html'
       - 'supabase/migrations/*silo_chat_responses*.sql'
       - 'scripts/tests/silo-chat-responses-database.test.mjs'
       - 'v2/seo-keywords.html'
@@ -434,6 +437,14 @@ jobs:
       # migration's, along with the Pattern 1 asset order the sidebar needs.
       - name: Marketing testing page matches its migration
         run: node --test scripts/tests/marketing-ops-page.test.mjs
+
+      # ONE Ad Studio destination (2026-10-13): the test record and the
+      # schedule are a TAB of it, not a second sidebar row, and the Testing tab
+      # is narrowed to Baseballism while the page is shaped around how they run
+      # tests. A tab that loses its strip, or a page that loses its row AND its
+      # tab, is a page nobody can reach.
+      - name: Ad Studio suite navigation
+        run: node --test scripts/tests/ad-studio-suite.test.mjs
 
       # One settings area, no duplicate Billing/Integrations routes, and a
       # platform link that a company owner can never see.

@@ -523,6 +523,7 @@
     if (window.SiloAccounting?.contains(navActive)) navActive = 'finance/accounting';
     else if (window.SiloWorkspaceSettings?.contains(navActive)) navActive = 'settings/workspace';
     else if (window.SiloSeoSuite?.contains(navActive)) navActive = 'reports/seo';
+    else if (window.SiloAdStudioSuite?.contains(navActive)) navActive = 'reports/ad-studio';
     const sidebar = el(renderSidebar({ ...opts, active: navActive }));
     // What first paint's sidebar LABEL actually shows, so the reconciliation
     // below only touches the DOM when ensureActiveCompany() resolves a
@@ -554,6 +555,7 @@
       window.SiloAccounting?.mount(mainEl, opts.active);
       window.SiloWorkspaceSettings?.mount(mainEl, opts.active);
       window.SiloSeoSuite?.mount(mainEl, opts.active);
+      window.SiloAdStudioSuite?.mount(mainEl, opts.active);
     }
 
     // First render of a session may predate the department fetch — re-render
@@ -718,6 +720,10 @@
           const navEl = sidebar.querySelector('#siloSbNav');
           if (navEl) navEl.innerHTML = renderNavSections(
             navActive, getCachedDepartment(), effectiveRole, getCachedGrantIds());
+          // The Ad Studio strip for the same reason the sidebar is repainted:
+          // one of its tabs is narrowed by nav profile, and first paint on a
+          // deep link has no company yet, so it drew the smaller strip.
+          if (mainEl) window.SiloAdStudioSuite?.refresh(mainEl, opts.active);
         })
         .catch(() => {})
         .finally(() => {

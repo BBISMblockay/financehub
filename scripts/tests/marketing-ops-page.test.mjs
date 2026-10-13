@@ -57,10 +57,29 @@ test('every status the page offers is one the database accepts', () => {
 });
 
 test('the outcome options match the outcome CHECK, plus the empty choice', () => {
-  const inPage = [...page.matchAll(/<option value="(win|loss|inconclusive)">/g)].map((m) => m[1]).sort();
+  // Scoped to the drawer's own select: the Learnings filter offers the same
+  // three words, and scanning the whole page counted each of them twice.
+  const at = page.indexOf('id="tOutcome"');
+  assert.ok(at !== -1, 'the outcome select exists');
+  const block = page.slice(at, page.indexOf('</select>', at));
+  const inPage = [...block.matchAll(/<option value="([a-z]+)">/g)].map((m) => m[1]).sort();
   assert.deepEqual(inPage, checkValues('outcome'));
-  assert.ok(/id="tOutcome"[\s\S]{0,200}<option value="">/.test(page),
+  assert.ok(/<option value="">/.test(block),
     'the outcome select keeps an empty choice, so a test can be un-concluded');
+});
+
+// The Learnings tab can only ever show what the database guarantees is there:
+// a concluded test carries an outcome AND a non-empty result_summary, so a
+// card is never an empty promise. It filters on `status === 'concluded'` and
+// nothing else -- an abandoned plan is not a learning.
+test('Learnings reads concluded tests only, and offers the same three outcomes', () => {
+  assert.match(page, /function visibleLearnings/);
+  assert.match(page, /if \(t\.status !== 'concluded'\) return false;/);
+  const at = page.indexOf('id="fLearnOutcome"');
+  assert.ok(at !== -1, 'the learnings outcome filter exists');
+  const block = page.slice(at, page.indexOf('</select>', at));
+  assert.deepEqual([...block.matchAll(/<option value="([a-z]+)">/g)].map((m) => m[1]).sort(),
+    checkValues('outcome'));
 });
 
 // Pattern 1 (root CLAUDE.md): the asset order is not cosmetic. nav-config.js
@@ -85,9 +104,22 @@ test('the page follows the Pattern 1 asset order', () => {
   assert.deepEqual(order, [...order].sort((a, b) => a - b), 'assets are out of Pattern 1 order');
 });
 
-test('the page mounts the chrome under its own nav id, and the nav row exists', () => {
-  assert.match(page, /active: 'reports\/marketing-ops'/);
-  assert.match(nav, /id: 'reports\/marketing-ops'[^}]*href: '\/v2\/marketing-ops\.html'/);
+// The page is a TAB of the Ad Studio destination (2026-10-13), not a sidebar
+// row of its own: it announces the suite id the strip looks for, the strip
+// lists it at its own URL, and silo-chrome.js maps that id onto the Ad Studio
+// row. A page that forgets any one of those renders with no way across.
+test('the page mounts as the Ad Studio suite tab the strip and chrome expect', () => {
+  const chrome = read('v2/silo-chrome.js');
+  const strip = read('v2/marketing-suite.js');
+  assert.match(page, /active: 'ads\/testing'/);
+  assert.match(page, /src="marketing-suite\.js"/);
+  assert.match(page, /href="marketing-suite\.css"/);
+  assert.match(nav, /\['ads\/testing','Testing & schedule','marketing-ops\.html'/);
+  assert.ok(!/id: 'reports\/marketing-ops'/.test(nav),
+    'a tab of Ad Studio plus a sidebar row of its own would be two navigations for one page');
+  assert.match(strip, /AD_STUDIO_SUITE_PAGES/);
+  assert.match(chrome, /SiloAdStudioSuite\?\.contains\(navActive\)\) navActive = 'reports\/ad-studio'/);
+  assert.match(chrome, /SiloAdStudioSuite\?\.mount\(mainEl, opts\.active\)/);
 });
 
 test('the page resolves the company with ensureActiveCompany, not getActiveCompany', () => {
