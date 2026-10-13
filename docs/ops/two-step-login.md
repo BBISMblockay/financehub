@@ -37,14 +37,37 @@ applies to enrolled accounts is unverified.
 
 ## Lost phone: resetting a user
 
-No recovery codes. An admin with Supabase access removes the factor, after
-confirming the person's identity out of band. This is a production data
-change, so it needs Blake.
+There are no recovery codes, so an admin with Supabase access resets the user
+after confirming their identity out of band. This is a production data change,
+so it needs Blake. Do the steps **in this order**. Removing the factor alone
+leaves the lost device signed in: its refresh token keeps minting access
+tokens (PR #970 review).
 
-- Dashboard: Authentication → Users → the user → remove the MFA factor, or
-- SQL: `delete from auth.mfa_factors where user_id = '<user uuid>';`
+1. **Revoke every session first.** In production, `refresh_tokens.session_id`
+   references `sessions` with `ON DELETE CASCADE` (checked 2026-10-13), so
+   this also kills every refresh token:
+   ```sql
+   delete from auth.sessions where user_id = '<user uuid>';
+   select count(*) from auth.sessions where user_id = '<user uuid>';        -- expect 0
+   select count(*) from auth.refresh_tokens where user_id = '<user uuid>'::text
+     and revoked = false;                                                    -- expect 0
+   ```
+   Access tokens that were already issued stay valid until they expire (the
+   project's JWT expiry, 1 hour by default). Revoking sessions stops renewal,
+   not tokens already handed out.
+2. **If the phone may also hold the password** (saved in a browser or password
+   manager), reset the password too: Authentication → Users → the user → send
+   a password recovery email.
+3. **Remove the factor.** Prefer the supported Admin API,
+   `supabase.auth.admin.mfa.deleteFactor({ userId, id })`, or the dashboard
+   (Authentication → Users → the user). The raw fallback:
+   ```sql
+   delete from auth.mfa_factors where user_id = '<user uuid>';
+   select count(*) from auth.mfa_factors where user_id = '<user uuid>';     -- expect 0
+   ```
 
-The user then signs in with their password alone and can turn it on again.
+The user then signs in with their password alone and can turn two-step login
+on again with a new phone.
 
 ## Limit: the front door only (open)
 

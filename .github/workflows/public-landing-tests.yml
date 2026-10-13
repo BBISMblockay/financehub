@@ -11,6 +11,8 @@ on:
       - 'pages/config.js'
       - 'supabase/functions/onboarding-interest/**'
       - 'pages/login.html'
+      # login.html loads it; the fixture server allowlists it.
+      - 'pages/mfa.js'
       - 'legal/privacy.html'
       - 'supabase/migrations/*_onboarding_interest_queue.sql'
       - 'supabase/verify_v2_schema.sql'
