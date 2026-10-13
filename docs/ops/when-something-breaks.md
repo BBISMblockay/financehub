@@ -63,18 +63,27 @@ Never put the **service role** key in static HTML.
 
 ## BBISM Receivables missing recent orders (sync green, data stale)
 
-The AR pipeline is: **Shopify → scheduled report → Google Sheet → `ar-sync.yml` (nightly) → `ar_invoices` → workbench page.**
-The sync only reads what the sheet contains — if the scheduled report feeding the sheet stops adding new orders, every sync still succeeds while the workbench drifts out of date. (Happened Jul–Aug 2026: sheet froze at Jul 21, old rows kept rolling off, so the report was clearly still refreshing — its filter/date range had stopped matching new orders.)
+**Retired 2026-10-13. Read this first:** BBISM receivables moved to Shopify. `shopify_orders` carries the
+wholesale book's payment terms and paid dates, read through `shopify_orders_v`; the Google Sheets pipeline
+below is history, its daily cron is removed, and `/v2/baseballismwholesale.html` shows a book frozen at the
+sheet's last order (2026-09-14). Its banner now says so, including that payments after that date are missing
+too. **So "BBISM Receivables is stale" is expected, not an incident** — nothing below needs doing unless
+somebody deliberately refreshes the old book, and a balance there may already be settled in Shopify.
+`ar-sync.yml` is still dispatchable for exactly that case, and the steps below are what to check if a
+dispatch comes back stale.
 
-You'll now see it two ways:
+The AR pipeline was: **Shopify → scheduled report → Google Sheet → `ar-sync.yml` (nightly) → `ar_invoices` → workbench page.**
+The sync only reads what the sheet contains — if the scheduled report feeding the sheet stops adding new orders, every sync still succeeds while the workbench drifts out of date. (Happened Jul–Aug 2026: sheet froze at Jul 21, old rows kept rolling off, so the report was clearly still refreshing — its filter/date range had stopped matching new orders. It froze for good on Sep 14.)
 
-1. The workbench shows an amber **"Stale data"** banner with the newest order date when it's more than 7 days old.
-2. The nightly `AR Google Sheets Sync` action **fails** with the same message (data still syncs first — the red run is the alarm). Threshold: `AR_STALE_MAX_DAYS` repo variable, default 7.
+You'll see it two ways:
+
+1. The workbench shows an amber **"Stale data"** banner with the frozen date.
+2. A DISPATCHED `AR Google Sheets Sync` run **fails** with the same message (data still syncs first — the red run is the alarm). Threshold: `AR_STALE_MAX_DAYS` repo variable, default 7. It no longer runs on a schedule, so this cannot turn Actions red on its own.
 
 **First check WHICH kind of stale it is** — the banner distinguishes them:
 
 - **"Rows are being hidden by row-level security"** — the sync's newest order (in `job_sync_state.payload.newest_order_date`) is newer than what the page can see. The rows exist but lack a `company_entity_id` stamp, so RLS hides them from every user (happened Jun–Aug 2026: the sync writes as service_role and never stamped rows inserted after the multi-tenant backfill — the page was blind to everything after Jun 12 while the DB had orders through Jul 21). Fix: run `supabase/migrations/20260803160000_ar_company_entity_backfill.sql` in the SQL editor (idempotent). The sync stamps every row it touches since that same PR, so this should not recur unless a new AR table is added without stamping.
-- **"Newest order in the AR source sheet is …"** — the data really stops there. Fix is upstream, not in this repo:
+- **"This is the historical wholesale book, frozen at …"** — the data really stops there, and since 2026-10-13 that is the expected steady state. Only if somebody wants the old book refreshed is there anything to fix, and the fix is upstream, not in this repo:
 
 1. Open the AR Google Sheet — confirm the last order row matches the banner date (both tabs: `gid=0` and `gid=801564681`).
 2. In Shopify, open the scheduled report that feeds the sheet (Better Reports → scheduled reports) and check its **date range** (a fixed end date is the usual culprit) and **filters** (customer tag / sales channel / status that new orders no longer match).
@@ -88,7 +97,7 @@ You'll now see it two ways:
 | Workflow | What failed | Check |
 |----------|-------------|--------|
 | Nightly Silo Sync | `sync-silo-inventory-sales.mjs` | Secrets `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`; Sheet URLs |
-| AR Google Sheets Sync | `npm run sync:ar` | Same secrets; AR sheet publish URLs in `server/ar-sync.mjs` |
+| AR Google Sheets Sync (dispatch only since 2026-10-13) | `npm run sync:ar` | Same secrets; AR sheet publish URLs in `server/ar-sync.mjs`. A stale-source failure is expected — the sheet is retired |
 
 ---
 

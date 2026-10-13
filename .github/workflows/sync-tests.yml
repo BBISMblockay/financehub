@@ -79,6 +79,8 @@ on:
       # Redo marketing reporting: the sync driver, its workflow and the
       # migration the database suite executes.
       - 'scripts/redo-marketing-sync.mjs'
+      - 'scripts/check-function-drift.mjs'
+      - 'scripts/check-sales-freshness.mjs'
       - 'scripts/report-tieouts-nightly.mjs'
       - '.github/workflows/report-tieouts-nightly.yml'
       - '.github/workflows/redo-marketing-sync.yml'
@@ -334,6 +336,12 @@ jobs:
       # red run; SILO-side failures (developer token, 5xx, bugs) still fail.
       - name: Ad sync client-side failures
         run: node scripts/tests/ad-sync-client-errors.test.mjs
+
+      # The drift check's slug rule: a file directly under
+      # supabase/functions/ is not a function, so it cannot be reported as a
+      # deploy that is owed.
+      - name: Edge function drift slugs
+        run: node scripts/tests/function-drift-slugs.test.mjs
 
       # Shared Shopify auth rules and their wiring. Mutations:
       # SHOPIFY_AUTH_MUTATION=disabled-admin | no-refresh | redact-anyway | any-domain
