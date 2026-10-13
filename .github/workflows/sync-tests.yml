@@ -86,6 +86,10 @@ on:
       - 'scripts/redo-marketing-sync.mjs'
       - 'scripts/check-function-drift.mjs'
       - 'scripts/check-sales-freshness.mjs'
+      # The freshness alarm's own self-heal path: its steps carry the
+      # secrets they need and a failed heal is not the job's verdict
+      # (freshness-heal-env.test.mjs).
+      - '.github/workflows/sales-freshness-check.yml'
       - 'scripts/report-tieouts-nightly.mjs'
       - '.github/workflows/report-tieouts-nightly.yml'
       - '.github/workflows/redo-marketing-sync.yml'
@@ -343,6 +347,13 @@ jobs:
       # new is QUIET, never stale; a dropped or failed sync still alarms.
       - name: Freshness quiet feeds
         run: node scripts/tests/freshness-quiet.test.mjs
+
+      # The heal path of that same alarm: the marketing re-sync carries the
+      # shared Google OAuth client (without it every Google connection is
+      # skipped google_env_missing and the heal cannot repair the only feed it
+      # exists for), and a heal that throws is not the job's verdict.
+      - name: Freshness heal environment
+        run: node scripts/tests/freshness-heal-env.test.mjs
 
       # A client's disabled ad account or revoked access is reported, not a
       # red run; SILO-side failures (developer token, 5xx, bugs) still fail.
