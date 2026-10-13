@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="profile-page.css" />
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
+  <script src="../pages/mfa.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <style>
     .status-pill {
@@ -27,6 +28,11 @@
     .status-pill--inactive { background: var(--bcn-neg-soft); color: var(--bcn-neg); }
     #bootStatus { font-size: 12px; color: var(--bcn-ink-3); padding: 8px 0; }
     .profile-feed-source { margin-top: 10px; font-size: 10px; font-family: var(--bcn-mono); color: var(--bcn-ink-3); }
+    .mfa-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+    .mfa-setup { display: grid; gap: 8px; margin-top: 12px; max-width: 360px; }
+    .mfa-qr { width: 180px; height: 180px; background: #fff; border: 1px solid var(--bcn-border); border-radius: 8px; padding: 6px; }
+    #mfaSecret { word-break: break-all; }
+    #mfaMsg:empty { display: none; }
   </style>
 </head>
 <body class="silo-brand profile-page">
@@ -89,6 +95,31 @@
               </div>
               <div class="profile-settings__security">
                 <a class="bcn-btn bcn-btn--ghost" href="/pages/set-password.html">Change password</a>
+              </div>
+            </section>
+
+            <!-- Two-step login (opt-in). Logic: pages/mfa.js. -->
+            <section id="mfaCard" class="profile-settings__section" hidden>
+              <div class="bcn-field-group">
+                <span class="bcn-label">Two-step login</span>
+                <p class="hint">After your password, SILO also asks for a 6-digit code from an authenticator app on your phone (Google Authenticator, 1Password, Authy, Microsoft Authenticator).</p>
+                <div class="mfa-row">
+                  <span id="mfaState" class="bcn-pill">Checking…</span>
+                  <button type="button" class="bcn-btn bcn-btn--ghost" id="btnMfaOn" hidden>Turn on</button>
+                  <button type="button" class="bcn-btn bcn-btn--ghost" id="btnMfaOff" hidden>Turn off</button>
+                </div>
+                <div id="mfaSetup" class="mfa-setup" hidden>
+                  <p class="hint">1. In your authenticator app, add an account and scan this code.</p>
+                  <img id="mfaQr" class="mfa-qr" alt="QR code for your authenticator app" />
+                  <p class="hint">Can't scan? Enter this key instead: <span id="mfaSecret" class="bcn-mono"></span></p>
+                  <label class="bcn-label" for="mfaSetupCode">2. Enter the 6-digit code the app shows</label>
+                  <input id="mfaSetupCode" class="bcn-field bcn-field--mono" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="9" placeholder="123456" />
+                  <div class="mfa-row">
+                    <button type="button" class="bcn-btn bcn-btn--primary" id="btnMfaConfirm">Confirm and turn on</button>
+                    <button type="button" class="bcn-btn bcn-btn--ghost" id="btnMfaCancel">Cancel</button>
+                  </div>
+                </div>
+                <p class="hint" id="mfaMsg" role="status" aria-live="polite"></p>
               </div>
             </section>
           </div>
@@ -957,6 +988,119 @@
       setTimeout(() => { els.saveStatus.textContent = ''; }, 2500);
     }
 
+    // Two-step login. Opt-in, and separate from Save: each step takes effect
+    // in Supabase Auth as it happens. Any failure here stays inside this
+    // section and never blocks the rest of the page.
+    const mfa = {
+      card: document.getElementById('mfaCard'),
+      state: document.getElementById('mfaState'),
+      on: document.getElementById('btnMfaOn'),
+      off: document.getElementById('btnMfaOff'),
+      setup: document.getElementById('mfaSetup'),
+      qr: document.getElementById('mfaQr'),
+      secret: document.getElementById('mfaSecret'),
+      code: document.getElementById('mfaSetupCode'),
+      confirm: document.getElementById('btnMfaConfirm'),
+      cancel: document.getElementById('btnMfaCancel'),
+      msg: document.getElementById('mfaMsg'),
+      factor: null,
+      pendingId: null,
+    };
+
+    function renderMfa() {
+      const isOn = !!mfa.factor;
+      const inSetup = !!mfa.pendingId;
+      mfa.state.textContent = isOn ? 'On' : 'Off';
+      mfa.state.className = 'bcn-pill' + (isOn ? ' bcn-pill--pos' : '');
+      mfa.on.hidden = isOn || inSetup;
+      mfa.off.hidden = !isOn;
+      mfa.setup.hidden = !inSetup;
+    }
+
+    async function loadMfa() {
+      if (!window.SiloMfa || !db || !authUser) return;
+      mfa.card.hidden = false;
+      try {
+        mfa.factor = await window.SiloMfa.status(db);
+        mfa.msg.textContent = '';
+      } catch (e) {
+        mfa.factor = null;
+        mfa.state.textContent = 'Unavailable';
+        mfa.msg.textContent = 'Could not check two-step login right now. Reload to try again.';
+        mfa.on.hidden = true;
+        mfa.off.hidden = true;
+        return;
+      }
+      renderMfa();
+    }
+
+    async function startMfa() {
+      mfa.msg.textContent = '';
+      mfa.on.disabled = true;
+      try {
+        const en = await window.SiloMfa.startEnrollment(db);
+        mfa.pendingId = en.factorId;
+        mfa.qr.src = en.qrCode || '';
+        mfa.secret.textContent = en.secret || '';
+        mfa.code.value = '';
+        renderMfa();
+        mfa.code.focus();
+      } catch (e) {
+        mfa.msg.textContent = 'Could not start setup: ' + (e.message || e);
+      } finally {
+        mfa.on.disabled = false;
+      }
+    }
+
+    async function confirmMfa() {
+      mfa.confirm.disabled = true;
+      try {
+        await window.SiloMfa.confirmEnrollment(db, mfa.pendingId, mfa.code.value);
+        mfa.pendingId = null;
+        mfa.qr.removeAttribute('src');
+        mfa.secret.textContent = '';
+        await loadMfa();
+        mfa.msg.textContent = 'Two-step login is on. Next time you sign in, SILO will ask for a code from your app.';
+      } catch (e) {
+        mfa.msg.textContent = e.message || String(e);
+      } finally {
+        mfa.confirm.disabled = false;
+      }
+    }
+
+    async function cancelMfa() {
+      const id = mfa.pendingId;
+      mfa.pendingId = null;
+      mfa.qr.removeAttribute('src');
+      mfa.secret.textContent = '';
+      mfa.msg.textContent = '';
+      renderMfa();
+      await window.SiloMfa.cancelEnrollment(db, id);
+    }
+
+    async function disableMfa() {
+      if (!mfa.factor) return;
+      // Two clicks, no browser dialog: the first arms the button.
+      if (!mfa.off.dataset.armed) {
+        mfa.off.dataset.armed = '1';
+        mfa.off.textContent = 'Click again to turn off';
+        mfa.msg.textContent = 'Sign-in will need only your password.';
+        return;
+      }
+      delete mfa.off.dataset.armed;
+      mfa.off.textContent = 'Turn off';
+      mfa.off.disabled = true;
+      try {
+        await window.SiloMfa.disable(db, mfa.factor.id);
+        await loadMfa();
+        mfa.msg.textContent = 'Two-step login is off.';
+      } catch (e) {
+        mfa.msg.textContent = e.message || String(e);
+      } finally {
+        mfa.off.disabled = false;
+      }
+    }
+
     async function boot() {
       if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
         els.loadErr.hidden = false;
@@ -974,8 +1118,15 @@
       els.btnReload.addEventListener('click', () => loadProfile().catch(e => alert(e.message || e)));
       els.btnFeedRefresh.addEventListener('click', () => loadAttentionFeed().catch(e => alert(e.message || e)));
 
+      mfa.on.addEventListener('click', () => { startMfa(); });
+      mfa.confirm.addEventListener('click', () => { confirmMfa(); });
+      mfa.cancel.addEventListener('click', () => { cancelMfa(); });
+      mfa.off.addEventListener('click', () => { disableMfa(); });
+      mfa.code.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirmMfa(); });
+
       try {
         await loadProfile();
+        loadMfa().catch(e => console.warn('two-step login', e));
       } catch (e) {
         console.error(e);
         els.loadErr.hidden = false;

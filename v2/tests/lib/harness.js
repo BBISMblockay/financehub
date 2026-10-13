@@ -350,7 +350,40 @@ window.__QUERIES__ = [];
           onAuthStateChange: function () {
             return { data: { subscription: { unsubscribe: function () {} } } };
           },
-          signOut: function () { return Promise.resolve({ error: null }); }
+          signOut: function () { return Promise.resolve({ error: null }); },
+          // Two-step login (pages/mfa.js). No factor unless a suite sets
+          // window.__FIXTURE_MFA__ = { factors: [...] }; a code of 123456 is
+          // the right one. Pages that never call it are unaffected.
+          mfa: (function () {
+            function state() { return window.__FIXTURE_MFA__ || (window.__FIXTURE_MFA__ = { factors: [], calls: [] }); }
+            function done(v) { return Promise.resolve(v); }
+            return {
+              getAuthenticatorAssuranceLevel: function () {
+                var on = state().factors.some(function (f) { return f.status === 'verified'; });
+                return done({ data: { currentLevel: 'aal1', nextLevel: on ? 'aal2' : 'aal1' }, error: null });
+              },
+              listFactors: function () {
+                var all = state().factors.slice();
+                return done({ data: { all: all, totp: all.filter(function (f) { return f.status === 'verified'; }) }, error: null });
+              },
+              enroll: function (a) {
+                state().calls = (state().calls || []).concat(['enroll']);
+                var f = { id: 'f' + (state().factors.length + 1), status: 'unverified', factor_type: a.factorType };
+                state().factors.push(f);
+                return done({ data: { id: f.id, totp: { qr_code: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"/>', secret: 'FIXTURESECRET' } }, error: null });
+              },
+              challengeAndVerify: function (a) {
+                if (a.code !== '123456') return done({ data: null, error: { code: 'mfa_verification_failed', message: 'Invalid TOTP code entered' } });
+                state().factors.forEach(function (f) { if (f.id === a.factorId) f.status = 'verified'; });
+                return done({ data: {}, error: null });
+              },
+              unenroll: function (a) {
+                state().calls = (state().calls || []).concat(['unenroll:' + a.factorId]);
+                state().factors = state().factors.filter(function (f) { return f.id !== a.factorId; });
+                return done({ data: {}, error: null });
+              }
+            };
+          })()
         },
         from: builder,
         // Storage and edge functions: present so a page that touches them
