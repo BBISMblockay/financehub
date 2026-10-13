@@ -326,31 +326,11 @@
     // discovery only; every read is RLS, every approver write re-checked.
     { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo', section: 'Marketing', label: 'SEO', href: '/v2/seo-studio.html', profiles: ['grandfathered', 'standard'] },
 
-    // Standard workspaces get a small Insights surface: curated dashboards.
-    // Baseballism keeps the established Reports label. (Ask SILO moved to
-    // its own row under Home, 2026-10-08.)
-    // Reports is the shared library; the builder retains its own exec gate.
-    // Grandfathered users all see Reports now: it replaces six ungated sales
-    // links. Standard workspaces keep their existing exec-only Dashboards
-    // discovery. This changes menu visibility, never data permissions.
-    //
-    // Only Dashboards moves into standard Insights. Saved reports and the
-    // builder remain under Reports, which standard navigation deliberately
-    // omits until that authoring workflow is ready for customers.
-    //
-    // Deliberately NOT moved here: Accounting Export, PO Builder, Planning
-    // Scenarios and the rest. They are operational workflows that happen to
-    // contain numbers, not reports, and consolidating them into a generic
-    // canvas would cost their specialised behaviour for a tidier menu.
-    //
-    // The library row is one entry, "Reports", opening on SILO Reports with
-    // My Reports and Dashboards as its other two tabs (2026-09-22). It used
-    // to be two rows -- Dashboards, and Saved reports -- over the same page,
-    // which put canned and custom reports in one undifferentiated list under
-    // a heading that said Dashboards. The id stays `reports/dashboards` so
-    // every page that marks it active (the canvas included) keeps working.
-    // Standard workspaces still see only Dashboards, under Insights.
-    { rolesStandard: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', sectionStandard: 'Insights', label: 'Reports', labelStandard: 'Dashboards', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
+    // Both profiles discover shared reports and dashboards through Reports.
+    // Standard workspaces retain their existing exec-only discovery; custom
+    // management remains an explicit Ask SILO route, and the builder stays
+    // outside standard sections. Specialized v2 reports stay grandfathered-only.
+    { rolesStandard: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', sectionStandard: 'Insights', label: 'Reports', labelStandard: 'Reports', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
     { roles: EXEC_ROLES, id: 'reports/builder', section: 'Reports', label: 'Report builder', href: '/v3/report-builder.html', profiles: ['grandfathered', 'standard'] },
     // Hidden from nav for now -- redo_returns only covers a small, recent
     // slice of Shopify's actual refund volume (Redo doesn't see all refunds,
