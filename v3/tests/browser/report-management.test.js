@@ -322,9 +322,9 @@ let BASE;
     await p.click('#tab-company');
     assert.equal(await p.locator('#companyBody .lib-card[data-id="M_PRIVATE"]').count(), 0, 'restoring a private report never publishes it');
 
-    // The default standard-workspace hub remains dashboard-only. The
+    // The standard-workspace hub offers shared reports and dashboards. The
     // explicit management route used by Ask SILO must still offer recovery
-    // without exposing the grandfathered SILO catalog or report authoring.
+    // without exposing report authoring.
     const { page: standard, errors: standardErrors } = await suite.newPage();
     await standard.addInitScript(PERSIST_FAKE_DB);
     const config = fs.readFileSync(path.join(FIXTURES, 'fake-config.js'), 'utf8');
@@ -332,7 +332,7 @@ let BASE;
       contentType: 'text/javascript', body: config.replace("entity_key: 'baseballism'", "entity_key: 'another-company'"),
     }));
     await standard.goto(`${BASE}/v3/dashboards.html?tab=silo`);
-    await standard.waitForSelector('#listBody .lib-card');
+    await standard.waitForSelector('#siloBody .lib-card');
     assert.equal(await standard.isHidden('#tab-mine'), true);
     assert.equal(await standard.isHidden('#tab-company'), true);
     assert.equal(await standard.isHidden('#tab-archived'), true);

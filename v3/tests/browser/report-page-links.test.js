@@ -60,10 +60,10 @@ const { startSuite, FIXTURES, REPO_ROOT } = require('../lib/harness');
       contentType: 'text/javascript', body: config.replace("entity_key: 'baseballism'", "entity_key: 'another-company'"),
     }));
     await page.goto(`${suite.BASE}/v3/dashboards.html?tab=silo`);
-    await page.waitForSelector('#listBody .lib-card');
-    assert.equal(await page.isHidden('#tab-silo'), true);
+    await page.waitForFunction(() => document.getElementById('siloBody').textContent.includes('fixture unavailable'));
+    assert.equal(await page.isHidden('#tab-silo'), false);
     assert.equal(await page.locator('#siloBody .lib-card').count(), 0);
-    assert.equal((await page.textContent('#hubTitle')).trim(), 'Dashboards');
+    assert.equal((await page.textContent('#hubTitle')).trim(), 'Reports');
     assert.deepEqual(errors, []);
     console.log('PASS report links, search, non-exec discovery, load failure, standard workspace');
   } finally { await suite.close(); }

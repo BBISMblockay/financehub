@@ -2538,6 +2538,50 @@ measured against them.
 PGlite and covers each of those, with four mutations.
 `verify_v2_schema.sql` has the `ad_studio` check.
 
+## Marketing tests — `20261013120000_marketing_tests.sql`
+
+Backs `/v2/marketing-ops.html`. Marketing already had everything around a
+test: `launch_channel_items` is the schedule, `launch_tasks` hangs work off
+it, `ad_ideas` is the idea bank, and the v3 creative workspaces are where the
+numbers are read. What nothing held was the test itself.
+
+- **`marketing_tests`.** Channel, what varied (`element`), control vs variant,
+  the `hypothesis`, the `metric` it is judged on, where that number is read
+  (`metric_note`), the window, the status, and for a concluded test the
+  `outcome` plus `result_summary`.
+- **The design freezes the first time the test runs.** `started_at` is stamped
+  when a row first reaches `running` / `reading` / `concluded` and is never
+  cleared; while it is set, the trigger refuses an edit to `hypothesis`,
+  `element`, `control`, `variant` or `metric`. `ad_ideas`'s frozen-baseline
+  rule applied one step later, because a metric chosen after the numbers are in
+  is a metric chosen *by* them. The freeze deliberately does NOT read the
+  current status: that version was thawed by moving a test back to `planned`
+  for one update and forward again, which is two clicks and leaves no trace.
+  A plan abandoned without ever running is not stamped, so it stays editable —
+  nothing was measured, so there is no result to fit a design to. The window
+  stays editable: extending a read is ordinary, and both dates are on the row,
+  so a stretched window shows.
+- **A concluded test must say what happened.** `concluded` requires an
+  `outcome` AND a non-empty `result_summary` (CHECK, not UI), and `outcome`
+  cannot be set in any other status.
+- **It stores no measurements.** `control_value` / `variant_value` are what the
+  reader wrote down off the report named in `metric_note`; NULL is not
+  measured, never zero. SILO's numbers stay in the reports that own them.
+- **The schedule link is a column on the existing table**,
+  `launch_channel_items.marketing_test_id`, with a COMPOSITE foreign key on
+  `(marketing_test_id, company_entity_id)`, so an item can only name a test in
+  its own company by construction. `on delete set null (marketing_test_id)`:
+  deleting a test unlinks items and must never delete them. MATCH SIMPLE
+  applies — that table's `company_entity_id` is nullable (trigger-stamped), and
+  a row whose company is NULL skips the check, which is harmless because every
+  policy on it tests equality against `active_company_id()`.
+- Shared board, like the launch calendar: any company member reads, adds and
+  moves tests; delete is creator-or-admin.
+
+`scripts/tests/marketing-tests-database.test.mjs` runs the migration twice
+against PGlite and covers each of those, with five mutations.
+`verify_v2_schema.sql` has the `marketing_tests` check.
+
 ## Shopify client credentials — `20260928120000_shopify_client_credentials.sql`
 
 Lets a store outside Baseballism's Shopify organization connect. SILO's

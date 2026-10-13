@@ -19214,4 +19214,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261013060000_integration_bootstrap_jobs.sql
 -- Atomic incremental Shopify publication; apply before enabling importer wiring.
 \i migrations/20261013080000_shopify_atomic_incremental_publish.sql
+-- The marketing test record (and the schedule's link column). Must come AFTER
+-- 20260927190000_ad_studio.sql, whose ad_ideas it references.
+\i migrations/20261013120000_marketing_tests.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

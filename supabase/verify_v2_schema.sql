@@ -3895,6 +3895,49 @@ select
     else 'ok'
   end as ad_studio;
 
+-- ── Marketing tests (20261013120000) ───────────────────────────────────────
+-- The two rules this table exists to hold: a started test's design cannot be
+-- rewritten (so the measure is never chosen by the result), and a concluded
+-- test carries an outcome and what was learned. Plus its company scope, and
+-- the composite foreign key that stops a scheduled item naming another
+-- company's test -- and that must never cascade a test's delete into the
+-- schedule, which is real work the test only borrowed.
+select
+  case
+    when to_regclass('public.marketing_tests') is null
+      then 'MISSING — run 20261013120000_marketing_tests.sql'
+    when not exists (select 1 from pg_class where oid='public.marketing_tests'::regclass and relrowsecurity)
+      then 'CRITICAL — marketing_tests has RLS off'
+    when not exists (select 1 from pg_policy where polrelid='public.marketing_tests'::regclass)
+      then 'CRITICAL — marketing_tests has RLS on and no policy; the page reads nothing'
+    when not exists (select 1 from information_schema.columns where table_schema='public'
+                       and table_name='marketing_tests' and column_name='started_at')
+      then 'MISSING — marketing_tests.started_at, which the design freeze reads'
+    when not exists (select 1 from pg_proc where proname='marketing_tests_guard'
+                       and prosrc like '%is frozen once a test has started%')
+      then 'CRITICAL — marketing_tests no longer freezes a started test''s design; the metric could be chosen by the result'
+    when not exists (select 1 from pg_proc where proname='marketing_tests_guard'
+                       and prosrc like '%old.started_at is not null%')
+      then 'CRITICAL — the design freeze reads the current status again; moving a test back to planned would thaw it'
+    when not exists (select 1 from pg_trigger where tgname='trg_marketing_tests_guard'
+                       and tgrelid='public.marketing_tests'::regclass)
+      then 'CRITICAL — the marketing_tests guard trigger is not attached'
+    when not exists (select 1 from pg_constraint where conname='marketing_tests_concluded_is_answered')
+      then 'CRITICAL — a marketing test can be concluded with no outcome and no learning'
+    when not exists (select 1 from pg_constraint where conname='marketing_tests_outcome_only_when_concluded')
+      then 'CRITICAL — an outcome can be filed on a test that has not concluded'
+    when not exists (select 1 from information_schema.columns where table_schema='public'
+                       and table_name='launch_channel_items' and column_name='marketing_test_id')
+      then 'MISSING — launch_channel_items.marketing_test_id'
+    when not exists (select 1 from pg_constraint where conname='launch_channel_items_marketing_test_fkey'
+                       and pg_get_constraintdef(oid) like '%company_entity_id%')
+      then 'CRITICAL — the schedule''s test link is not company-scoped; an item could name another company''s test'
+    when exists (select 1 from pg_constraint where conname='launch_channel_items_marketing_test_fkey'
+                   and confdeltype = 'c')
+      then 'CRITICAL — deleting a marketing test would CASCADE into the schedule and delete real scheduled work'
+    else 'ok'
+  end as marketing_tests;
+
 -- ── Shopify client credentials + compliance log (20260928120000) ────────────
 -- A store's Dev Dashboard client SECRET must stay unreadable by any client:
 -- shopify_connections is readable by every company member, which is why the
