@@ -120,41 +120,52 @@
   // caveat as EXEC_ROLES: the real boundary is RLS, not this list.
   const ADMIN_ROLES = ['owner', 'owner_admin', 'admin', 'executive'];
 
-  // Existing sales pages now live in SILO Reports. The library only offers
-  // these to grandfathered workspaces, matching their former sidebar scope.
+  // Existing sales pages now live in SILO Reports. `profiles` says which
+  // workspaces' library lists each one (absent = grandfathered only). Four are
+  // offered to standard workspaces too (Blake, 2026-10-13): every one reads
+  // sales_by_day through company-scoped RLS, and SILO's shared system reports
+  // have no equivalent. Daily Sales Trend and Top Sellers stay grandfathered:
+  // standard workspaces already get Daily Sales / Sales vs Last Year and Top
+  // Products. Listing is discovery only; each URL already works for anyone.
   const SALES_REPORT_PAGES = [
     {
       id: 'reports/sales-overview',
+      profiles: ['grandfathered', 'standard'],
       title: 'Sales Performance Overview',
       href: '/v2/bi-sales-overview.html',
       description: 'Compare sales performance across locations and periods.'
     },
     {
       id: 'reports/daily-trend',
+      profiles: ['grandfathered'],
       title: 'Daily Sales Trend',
       href: '/v2/bi-daily-trend.html',
       description: 'Explore daily sales with prior-year comparisons and a seven-day average.'
     },
     {
       id: 'reports/top-sellers',
+      profiles: ['grandfathered'],
       title: 'Top Sellers',
       href: '/v2/bi-top-sellers.html',
       description: 'Rank products by sales alongside stock, velocity and days of cover.'
     },
     {
       id: 'reports/product-types',
+      profiles: ['grandfathered', 'standard'],
       title: 'Product Type Performance',
       href: '/v2/bi-product-types.html',
       description: 'Compare product categories by month, then drill into their products.'
     },
     {
       id: 'reports/product-search',
+      profiles: ['grandfathered', 'standard'],
       title: 'Product Search',
       href: '/v2/bi-product-search.html',
       description: 'Find sales by product name or SKU, with store and month breakdowns.'
     },
     {
       id: 'reports/sales-report',
+      profiles: ['grandfathered', 'standard'],
       title: 'Sales Report',
       href: '/v2/sales-verification.html',
       description: 'Inspect sales records and filter exceptions such as blank SKUs or negative net sales.'
