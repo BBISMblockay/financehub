@@ -94,8 +94,10 @@ by `pages/login.html` and `pages/set-password.html`. After a correct password th
 at `aal1`, so an enrolled user's password alone, taken straight to an app URL, still reads what RLS
 allows. Fix: a restrictive `aal2`-for-enrolled-users policy on every RLS table and `storage.objects`,
 plus `aal` checks in SECURITY DEFINER RPCs and service-role edge functions (migration and deploy, so
-Blake's approval). Until then setup stays closed (`MFA_ENROLLMENT_OPEN` unset in `pages/config.js`),
-and two-step login isn't something to offer customers.
+Blake's approval). Until then setup stays closed: `MFA_ENROLLMENT_OPEN` is unset in `pages/config.js`,
+which only hides the button. The server-side gate is Supabase Auth → Multi-Factor → TOTP set to
+verification-only (enrollment off). That is a dashboard change for Blake, still owed as of 2026-10-13.
+Two-step login isn't something to offer customers yet.
 
 ---
 

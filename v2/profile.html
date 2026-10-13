@@ -1040,6 +1040,11 @@
       // so it can be turned off.
       mfa.card.hidden = !(open || mfa.factor || mfa.pendingId);
       renderMfa();
+      // Say what "On" buys while the database does not require the code
+      // (PR #970 review): only the sign-in page asks for it.
+      if (!open && mfa.factor && !mfa.msg.textContent) {
+        mfa.msg.textContent = 'Preview: the sign-in page asks for your code, but SILO does not yet require it everywhere.';
+      }
     }
 
     async function startMfa() {

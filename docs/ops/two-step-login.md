@@ -28,8 +28,19 @@ before, and an account with one is asked for its code.
 
 ## Supabase settings it relies on
 
-Authentication → Multi-Factor: **TOTP (App Authenticator) = Enabled** (it is,
-checked 2026-10-13). Phone/SMS stays disabled. "Limit duration of AAL1
+Authentication → Multi-Factor → TOTP (App Authenticator). Supabase Auth gates
+**enrollment** and **verification** separately (`MFA_TOTP_ENROLL_ENABLED` /
+`MFA_TOTP_VERIFY_ENABLED` server-side). It was **Enabled** (both) on
+2026-10-13, which means anyone signed in can enroll through the Auth API
+directly, whatever `MFA_ENROLLMENT_OPEN` says. The browser flag only hides the
+button (PR #970 review, cycle 2).
+
+**Until the database enforcement ships, set TOTP so enrollment is off and
+verification stays on** (the dashboard's verify-only option). This is the gate
+the server actually holds. It changes nothing for current users (0 factors),
+and the login code step keeps working for any account that already has one.
+Opening the feature means switching enrollment back on **and** setting
+`MFA_ENROLLMENT_OPEN: true`. Phone/SMS stays disabled. "Limit duration of AAL1
 sessions" was showing ON in the dashboard. On 2026-10-13, 67 of 86 aal1
 sessions had refreshed more than an hour after creation, so the setting is
 not ending password-only sessions for accounts without a factor. Whether it

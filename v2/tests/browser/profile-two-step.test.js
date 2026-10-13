@@ -43,6 +43,7 @@ const ready = () => {
       R.ok('closed: an account that already has it still sees On', (await text(page, '#mfaState')) === 'On');
       R.ok('closed: ...and can turn it off', !(await hidden(page, '#btnMfaOff')));
       R.ok('closed: ...but Turn on is never offered', await hidden(page, '#btnMfaOn'));
+      R.ok('closed: "On" is labelled as a preview, not full protection', /Preview: .*does not yet require it everywhere/.test(await text(page, '#mfaMsg')), await text(page, '#mfaMsg'));
       await page.close();
     }
 
