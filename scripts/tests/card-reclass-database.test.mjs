@@ -17,7 +17,7 @@
 //      ledger records nothing for a reclass (Books counts the posted journal).
 //
 // Mutation hooks -- each must make this suite FAIL:
-//   CARD_RECLASS_MUTATION=no-line-check|no-posted-check|no-open-check|no-reopen-guard|no-void-order|no-lock-check|source-mutable|from-row-location
+//   CARD_RECLASS_MUTATION=no-line-check|no-posted-check|no-open-check|no-reopen-guard|no-void-order|no-lock-check|source-mutable|from-row-location|no-treatment-check
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -32,6 +32,7 @@ const MUTATIONS = {
   'no-void-order': ["  if old.status = 'posted' and new.status <> 'posted' and r.id is not null and exists (", '  if false and exists ('],
   'no-lock-check': ["  if v_lock is not null and v_date <= v_lock then", '  if false then'],
   'from-row-location': ["  v_loc := t.qbo_location_id; v_loc_name := t.qbo_location_name;\n  if v_loc is null then", "  v_loc := t.qbo_location_id; v_loc_name := t.qbo_location_name;\n  if false then"],
+  'no-treatment-check': ["    if t.accounting_treatment in ('transfer', 'payroll_settlement', 'shopify_settlement')\n       and v_to_type", "    if false\n       and v_to_type"],
   'source-mutable': ["    if old.accounting_source = 'card_reclass' or new.accounting_source = 'card_reclass' then\n      raise exception", "    if false then\n      raise exception"],
 };
 const mutation = process.env.CARD_RECLASS_MUTATION || '';
@@ -109,12 +110,19 @@ try {
     }
     await db.exec(await readFile(new URL('supabase/migrations/' + name, root), 'utf8'));
   }
-  let sql = await readFile(new URL('supabase/migrations/20261013180000_card_transaction_reclass.sql', root), 'utf8');
+  // The feature migration, then 20261014020000, which replaces the resolver and
+  // the staging RPC (every bank treatment, held to its account rule). A mutation
+  // applies to whichever file(s) still define the code it targets.
+  const parts = [
+    await readFile(new URL('supabase/migrations/20261013180000_card_transaction_reclass.sql', root), 'utf8'),
+    await readFile(new URL('supabase/migrations/20261014020000_card_reclass_all_bank_treatments.sql', root), 'utf8'),
+  ];
   if (mutation) {
     const [from, to] = MUTATIONS[mutation];
-    assert.ok(sql.includes(from), `Mutation ${mutation} is stale: its target text is gone`);
-    sql = sql.replace(from, to);
+    assert.ok(parts.some((p) => p.includes(from)), `Mutation ${mutation} is stale: its target text is gone`);
+    for (let i = 0; i < parts.length; i++) parts[i] = parts[i].split(from).join(to);
   }
+  const sql = parts.join('\n');
 
   await q("insert into entities(id,title) values($1,'A'),($2,'B')", [co, other]);
   await q('insert into auth.users(id) values($1),($2),($3)', [finance, member, otherFinance]);
@@ -124,12 +132,14 @@ try {
   await q("insert into quickbooks_connections(id,company_entity_id,realm_id,access_token) values($1,$2,'r','x'),($3,$4,'r2','x')", [conn, co, otherConn, other]);
   for (const [c, cn, id, type, active] of [[co, conn, 'meals', 'Expense', true], [co, conn, 'travel', 'Expense', true], [co, conn, 'supplies', 'Expense', true],
     [co, conn, 'ar', 'Accounts Receivable', true], [co, conn, 'old', 'Expense', false], [co, conn, 'cc', 'Credit Card', true], [co, conn, 'bank', 'Bank', true],
+    [co, conn, 'clearing', 'Other Current Liability', true], [co, conn, 'clearing2', 'Other Current Asset', true], [co, conn, 'ap', 'Accounts Payable', true],
     [other, otherConn, 'meals', 'Expense', true], [other, otherConn, 'travel', 'Expense', true], [other, otherConn, 'cc', 'Credit Card', true]]) {
     await q('insert into quickbooks_accounts(company_entity_id,connection_id,qbo_account_id,name,account_type,is_active) values($1,$2,$3,$3,$4,$5)', [c, cn, id, type, active]);
   }
   await q(`insert into quickbooks_locations(company_entity_id,connection_id,qbo_location_id,name,fully_qualified_name,is_active)
            values($1,$2,'hq','HQ','HQ',true),($1,$2,'west','West','West',true)`, [co, conn]);
-  await q(`insert into quickbooks_customers(company_entity_id,connection_id,qbo_customer_id,display_name,is_active) values($1,$2,'c1','Acme',true)`, [co, conn]);
+  await q(`insert into quickbooks_customers(company_entity_id,connection_id,qbo_customer_id,display_name,is_active) values($1,$2,'c1','Acme',true),($1,$2,'c2','Beta',true)`, [co, conn]);
+  await q(`insert into quickbooks_vendors(company_entity_id,connection_id,qbo_vendor_id,display_name,is_active) values($1,$2,'v1','Amex',true)`, [co, conn]);
   await q(`insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,credit_qbo_account_id,credit_qbo_account_name,is_active)
            values($1,$2,$3,'card','Company card','card','cc','cc',true)`, [card, co, conn]);
   // A card whose source carries a DEFAULT location: rows without one post there.
@@ -141,7 +151,7 @@ try {
 
   const verifyBlock = async () => {
     const full = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
-    const block = full.slice(full.indexOf('-- Posted-period reclass (20261013180000)'), full.indexOf('-- End posted transaction reclass checks.'));
+    const block = full.slice(full.indexOf('-- Posted-period reclass (20261013180000'), full.indexOf('-- End posted transaction reclass checks.'));
     const parts = block.split(/;\s*\n/).filter((x) => x.replace(/--.*$/gm, '').trim());
     assert.equal(parts.length, 1);
     return q(parts[0]);
@@ -149,6 +159,10 @@ try {
   // Before the migration the drift check must REPORT it missing, not error out.
   assert.match((await verifyBlock())[0].status, /^MISSING/);
 
+  // With only the first migration (production before 20261014020000) the drift
+  // check must say exactly which file is owed.
+  await db.exec(parts[0]);
+  assert.match((await verifyBlock())[0].status, /^STALE — run 20261014020000/);
   await db.exec(sql);
   await db.exec(sql); // idempotent
 
@@ -306,26 +320,42 @@ try {
     assert.equal((await one('select status from card_import_batches where id=$1', [b])).status, 'categorized');
   });
 
-  await test('bank rows: settled purchases and refunds only, never with an open bank change', async () => {
+  await test('bank rows: every posted treatment, each held to its account rule; never with an open bank change', async () => {
     await q(`insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,credit_qbo_account_id,credit_qbo_account_name,is_active)
              values($1,$2,$3,'bank','Operating','bank','bank','bank',true)`, [bank, co, conn]);
     const plaidConn = randomUUID(), plaidAcct = randomUUID();
     await q(`insert into plaid_connections(id,company_entity_id,item_id,environment,institution_name) values($1,$2,'item','sandbox','Bank')`, [plaidConn, co]);
     await q(`insert into plaid_accounts(id,company_entity_id,connection_id,provider_account_id,name,type,source_id) values($1,$2,$3,'acct','Checking','depository',$4)`, [plaidAcct, co, plaidConn, bank]);
     const b = await newBatch(bank);
-    const mk = async (treatment) => {
-      const t = await newTxn(b, 33);
+    const mk = async (treatment, amount = 33, account = 'meals', entity = null) => {
+      const t = await newTxn(b, amount, { account });
       await q(`update card_transactions set origin='plaid', plaid_account_id=$2, external_transaction_id=$1::text, provider_status='posted',
-               provider_updated_at=now(), accounting_treatment=$3, qbo_location_id='hq', qbo_location_name='HQ' where id=$1`, [t, plaidAcct, treatment]);
+               provider_updated_at=now(), accounting_treatment=$3, qbo_location_id='hq', qbo_location_name='HQ',
+               entity_type=$4, entity_qbo_id=$5, entity_name=$5 where id=$1`, [t, plaidAcct, treatment, entity && entity[0], entity && entity[1]]);
       return t;
     };
-    const purchase = await mk('purchase'), transfer = await mk('transfer'), changed = await mk('purchase');
+    const purchase = await mk('purchase'), changed = await mk('purchase');
+    const transfer = await mk('transfer', 500, 'clearing'), payroll = await mk('payroll_settlement', 900, 'clearing');
+    const payment = await mk('card_payment', 250, 'ap', ['Vendor', 'v1']);
+    const deposit = await mk('deposit', -75, 'ar', ['Customer', 'c1']);
     await q("update card_import_batches set status='posted' where id=$1", [b]);
     await q(`insert into plaid_sync_exceptions(company_entity_id,account_id,transaction_id,external_transaction_id,previous_payload,provider_payload)
              values($1,$2,$3,$4,'{}','{}')`, [co, plaidAcct, changed, String(changed)]);
-    await refuses(() => stage(finance, transfer), /Only a purchase or refund/);
     await refuses(() => stage(finance, changed), /open bank change/);
     assert.ok((await stage(finance, purchase)).adjustment_id);
+    // A transfer or settlement stays one: only a clearing account.
+    await refuses(() => stage(finance, transfer, { to: 'travel' }), /transfer moves through a clearing account/);
+    await refuses(() => stage(finance, payroll, { to: 'travel' }), /payroll settlement moves through a clearing account/);
+    const tr = await stage(finance, transfer, { to: 'clearing2' });
+    assert.deepEqual((await adjLines(tr.adjustment_id)).map((l) => [l.qbo_account_id, l.posting_type]), [['clearing2', 'Debit'], ['clearing', 'Credit']]);
+    // A card payment settles a card or a payable.
+    await refuses(() => stage(finance, payment, { to: 'travel' }), /card payment settles a card or a payable/);
+    assert.ok((await stage(finance, payment, { to: 'cc' })).adjustment_id);
+    // A deposit (the screenshot's row: Accounts Receivable) takes any account; the customer rides the source leg.
+    const dp = await stage(finance, deposit, { to: 'ar', etype: 'Customer', eid: 'c2' });
+    assert.deepEqual((await adjLines(dp.adjustment_id)).map((l) => [l.qbo_account_id, l.posting_type, l.entity_qbo_id]),
+      [['ar', 'Credit', 'c2'], ['ar', 'Debit', 'c1']], 'moves the receipt from one customer to another');
+    await approve(finance, dp.adjustment_id);
   });
 
   await test('a row with no location reverses the source DEFAULT it posted on, frozen at approval, not today\'s default', async () => {

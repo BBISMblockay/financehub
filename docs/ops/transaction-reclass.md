@@ -37,11 +37,16 @@ location and customer/vendor if they change), then give a reason.
 
 - A period that is not posted. A draft or categorized period is edited directly; an approved one is
   reopened.
-- A split, uncoded, excluded or zero-amount row.
+- A split row (reclassify it with a manual journal entry in Books, line by line), or an uncoded,
+  excluded or zero-amount row.
 - On a bank feed:
-  - anything other than a settled purchase or refund (transfers, card payments and settlements stay
-    journal entries);
-  - a row with an open bank change.
+  - a row that isn't settled, or a row with an open bank change;
+  - a target account the row's treatment can't post to. A transfer, payroll settlement or Shopify
+    settlement stays one, so it can only move to a clearing account (Other Current Asset or Other
+    Current Liability). A card payment can only move to a Credit Card or Accounts Payable account.
+    Purchases, refunds and deposits can move to any account. This is the same rule month approval
+    applies, and the dialog only lists accounts that fit. (Since `20261014020000`; the first version
+    refused every bank row except purchases and refunds.)
 - A second reclass while one is awaiting review or posting. After one posts, the next reclass moves the
   amount from that one's target.
 - A target account that is not active in the period's QuickBooks connection. A receivable account
@@ -53,7 +58,7 @@ location and customer/vendor if they change), then give a reason.
   that, retire the reclass first (see "Undoing a reclass" below).
 - A row with no location of its own in a period approved before approvals recorded their default
   location (no approval snapshot). It posted on whatever the source's default was then, which nothing
-  recorded, so the source leg can't be placed correctly. Post a journal entry for it instead.
+  recorded, so the source leg can't be placed correctly. Reclassify it with a manual journal entry in Books.
 
 ## Which location the reversal uses
 

@@ -79,7 +79,11 @@ test('the button is offered only where the RPC would accept it', () => {
   assert.match(R.blocker({ ...txn, status: 'uncoded' }, posted, []), /categorized/);
   assert.match(R.blocker({ ...txn, qbo_account_id: null }, posted, []), /split/);
   assert.match(R.blocker({ ...txn, amount: 0 }, posted, []), /zero/);
-  assert.match(R.blocker({ ...txn, origin: 'plaid', accounting_treatment: 'transfer' }, posted, []), /purchase or refund/);
+  for (const treatment of ['transfer', 'card_payment', 'deposit', 'payroll_settlement', 'shopify_settlement', 'purchase']) {
+    assert.equal(R.blocker({ ...txn, origin: 'plaid', accounting_treatment: treatment }, posted, []), null, `${treatment} can be reclassified`);
+  }
+  assert.match(R.blocker({ ...txn, origin: 'plaid', accounting_treatment: 'unknown' }, posted, []), /no accounting treatment/);
+  assert.doesNotMatch(R.blocker({ ...txn, qbo_account_id: null }, posted, []), /needs a journal entry/, 'never tells the user to make what the button makes');
   assert.equal(R.blocker({ ...txn, origin: 'plaid', accounting_treatment: 'refund' }, posted, []), null);
   assert.match(R.blocker(txn, posted, [{ adjustment_status: 'approved' }]), /awaiting/);
   assert.equal(R.blocker(txn, posted, [{ adjustment_status: 'posted' }]), null, 'a posted reclass does not block the next');
@@ -160,6 +164,20 @@ test('nothing is sent without a category and a reason, or when cancelled', async
   await dialog.all('button').find((b) => b.textContent === 'Cancel').fire('click');
   await done;
   assert.equal(calls.composer.length, 0);
+});
+
+test('a transfer or card payment only offers the accounts its treatment may post to', async () => {
+  const typed = [...accounts, { id: 'clear', name: 'Transfer clearing', type: 'Other Current Liability', connectionId: 'c1' },
+    { id: 'amex', name: 'Amex', type: 'Credit Card', connectionId: 'c1' }, { id: 'ap', name: 'AP', type: 'Accounts Payable', connectionId: 'c1' }];
+  const run = async (treatment) => {
+    const { R, body, db } = harness();
+    R.open({ db, companyId: 'co', t: { ...txn, origin: 'plaid', accounting_treatment: treatment }, batch: posted, list: [], accounts: typed, locations, entities, connectionId: 'c1' });
+    await settle();
+    return body.children.at(-1).all('select')[0].children.map((o) => o.value).filter(Boolean);
+  };
+  assert.deepEqual(await run('transfer'), ['clear']);
+  assert.deepEqual(await run('card_payment'), ['amex', 'ap']);
+  assert.deepEqual(await run('deposit'), ['meals', 'travel', 'clear', 'amex', 'ap'], 'a deposit takes any account');
 });
 
 test('a period whose original location is unknown is refused before any dialog opens', async () => {

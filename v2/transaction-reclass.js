@@ -45,13 +45,24 @@
   // Why this row cannot be reclassified here, or null. Mirrors the RPC's
   // refusals so the button is not offered where it would only fail; the RPC
   // remains the authority.
+  // A bank row keeps its treatment; the target must be an account that
+  // treatment may post to (the same rule approval and the SILO ledger apply).
+  // null = any account.
+  const TREATMENT_TYPES = {
+    transfer: ['Other Current Asset', 'Other Current Liability'],
+    payroll_settlement: ['Other Current Asset', 'Other Current Liability'],
+    shopify_settlement: ['Other Current Asset', 'Other Current Liability'],
+    card_payment: ['Credit Card', 'Accounts Payable'],
+  };
+  const allowedTypes = (t) => (t?.origin === 'plaid' && TREATMENT_TYPES[t.accounting_treatment]) || null;
+
   function blocker(t, batch, list) {
     if (!t || !batch || batch.status !== 'posted') return 'not-posted';
     if (t.status !== 'coded') return 'Only a categorized transaction can be reclassified.';
-    if (!t.qbo_account_id) return 'A split transaction needs a journal entry instead.';
+    if (!t.qbo_account_id) return 'A split transaction is reclassified with a manual journal entry in Books, line by line.';
     if (!Number(t.amount)) return 'A zero-amount transaction has nothing to reclassify.';
-    if (t.origin === 'plaid' && !['purchase', 'refund'].includes(t.accounting_treatment)) {
-      return 'Only a purchase or refund is reclassified here; transfers, payments and settlements need a journal entry.';
+    if (t.origin === 'plaid' && (!t.accounting_treatment || t.accounting_treatment === 'unknown')) {
+      return 'This bank transaction has no accounting treatment.';
     }
     if (pending(list)) return 'A reclassification is awaiting review or posting.';
     return null;
@@ -121,7 +132,11 @@
 
       const account = document.createElement('select'); account.className = 'bcn-field'; account.required = true;
       account.append(option('', 'Choose the correct category…'));
-      for (const a of accounts.filter(inConn)) account.append(option(a.id, `${a.name} · ${a.type}`, false));
+      // Only accounts this row's treatment may post to (the RPC enforces it too).
+      const types = allowedTypes(t);
+      for (const a of accounts.filter((x) => inConn(x) && (!types || types.includes(x.type)))) {
+        account.append(option(a.id, `${a.name} · ${a.type}`, false));
+      }
       const location = document.createElement('select'); location.className = 'bcn-field';
       location.append(option('', 'No location'));
       for (const l of locations.filter(inConn)) location.append(option(l.id, l.name, l.id === fromLocation));
@@ -159,7 +174,7 @@
       dialog.addEventListener('close', () => { dialog.remove(); resolve(result); }, { once: true });
       actions.append(cancel, submit);
       form.append(
-        field('Correct category', account),
+        field('Correct category', account, types ? `A ${String(t.accounting_treatment).replace('_', ' ')} stays one: only ${types.join(' or ')} accounts are listed.` : ''),
         field('Location', location),
         field('Customer or vendor', entity, 'Required for a receivable (customer) or payable (vendor) account.'),
         field('Entry date', date, 'Blank = the original entry date, or the first open day if that month is locked.'),
@@ -211,5 +226,5 @@
     if (!data?.length) throw new Error('Only a draft reclass can be discarded. Reload to see its current state.');
   }
 
-  window.SiloReclass = { load, current, pending, blocker, section, open, review, reopen, discard };
+  window.SiloReclass = { load, current, pending, blocker, allowedTypes, section, open, review, reopen, discard };
 })();
