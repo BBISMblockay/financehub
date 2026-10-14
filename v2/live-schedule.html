@@ -85,6 +85,16 @@
       border: 1px dashed var(--bcn-border); border-radius: 8px;
       padding: 10px 12px; display: flex; justify-content: space-between; gap: 10px;
     }
+    .ls-net-sales-tip {
+      display: flex; flex-direction: column; gap: 4px;
+      background: color-mix(in oklch, var(--bcn-warn) 14%, var(--bcn-surface));
+      border: 1px solid color-mix(in oklch, var(--bcn-warn) 45%, var(--bcn-border));
+      border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.45;
+    }
+    .ls-net-sales-tip strong { color: var(--bcn-ink); font-size: 12.5px; }
+    .ls-net-sales-tip span { color: var(--bcn-ink-2); }
+    .ls-net-sales-label { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .ls-net-sales-label .bcn-pill { font-size: 10px; letter-spacing: .04em; }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -99,7 +109,7 @@
           <h1>TikTok Live Schedule</h1>
         </div>
         <div class="bcn-header-sub">
-          Claim a slot, go live, close it out — one live at a time, company-wide. Each finalized slot pays $25/hr + 3% of gross, auto-filed as an AP payroll payment.
+          Claim a slot, go live, close it out — one live at a time, company-wide. Each finalized slot pays $25/hr + 3% of net sales, auto-filed as an AP payroll payment.
         </div>
       </div>
       <div class="bcn-header-actions">
@@ -191,7 +201,7 @@
                   <th>Status</th>
                   <th>Claimed by</th>
                   <th>Live location</th>
-                  <th class="bcn-num">Entry</th>
+                  <th class="bcn-num">Net sales → payout</th>
                   <th style="text-align:right;">Actions</th>
                 </tr>
               </thead>
@@ -240,16 +250,23 @@
     </div>
     <div class="ls-modal-body">
       <div class="bcn-mono" id="finalizeSlotLabel">—</div>
+      <div class="ls-net-sales-tip" id="netSalesTip" role="note">
+        <strong>Net sales only — not gross</strong>
+        <span>When you finalize, enter the <strong>net sales</strong> total from TikTok for this live (after returns and discounts). Gross or GMV will overpay commission — use the net figure TikTok shows for the session.</span>
+      </div>
       <div class="bcn-field-group">
-        <label class="bcn-label" for="grossSalesInput">Gross sales ($)</label>
-        <input class="bcn-field bcn-field--mono" type="number" id="grossSalesInput" min="0" step="0.01" placeholder="0.00" />
+        <label class="bcn-label ls-net-sales-label" for="grossSalesInput">
+          Net sales ($)
+          <span class="bcn-pill bcn-pill--dark">required for 3% commission</span>
+        </label>
+        <input class="bcn-field bcn-field--mono" type="number" id="grossSalesInput" min="0" step="0.01" placeholder="Net sales from TikTok" aria-describedby="netSalesTip" />
       </div>
       <div class="ls-commission-preview">
         <span>Hourly rate (1 slot)</span>
         <span class="bcn-mono" id="hourlyPreview">$25.00</span>
       </div>
       <div class="ls-commission-preview">
-        <span>Commission (3%)</span>
+        <span>Commission (3% of net sales)</span>
         <span class="bcn-mono" id="commissionPreview">$0.00</span>
       </div>
       <div class="ls-commission-preview">
@@ -573,7 +590,7 @@
         statusCell = '<span class="bcn-pill bcn-pill--pos">FINALIZED</span>';
         claimerCell = renderClaimer(s);
         locationCell = escapeHtml(s.live_location || '—');
-        entryCell = `<span class="bcn-mono ls-entry" title="$${Number(s.hourly_rate ?? HOURLY_RATE).toFixed(2)}/hr + ${money(Number(s.commission_amount))} commission">${money(Number(s.gross_sales))} → ${money(payout)}</span>`;
+        entryCell = `<span class="bcn-mono ls-entry" title="Net sales ${money(Number(s.gross_sales))} · $${Number(s.hourly_rate ?? HOURLY_RATE).toFixed(2)}/hr + ${money(Number(s.commission_amount))} commission">${money(Number(s.gross_sales))} → ${money(payout)}</span>`;
         actionsCell = s.payment_request_id
           ? '<span class="bcn-pill bcn-pill--accent">AP FILED</span>'
           : '<span style="color:var(--bcn-ink-3);">—</span>';
@@ -705,7 +722,7 @@
     if (state.busy || !state.pendingSession) return;
     const gross = Number(els.grossSalesInput.value);
     if (!Number.isFinite(gross) || gross < 0) {
-      setStatus('Enter a valid gross sales amount (zero or more).', 'neg', 5000);
+      setStatus('Enter a valid net sales amount (zero or more). Use TikTok net sales, not gross.', 'neg', 5000);
       return;
     }
     const s = state.pendingSession;
@@ -733,7 +750,7 @@
         requester_email: state.user.email,
         requester_email_norm: String(state.user.email || '').trim().toLowerCase(),
         location_name: s.live_location || null,
-        notes_comments: `TikTok Live payroll — ${payee} (W-2) — ${label} — $${HOURLY_RATE.toFixed(2)}/hr + gross sales ${money(gross)} × 3% = ${money(commission)} → total ${money(total)}`,
+        notes_comments: `TikTok Live payroll — ${payee} (W-2) — ${label} — $${HOURLY_RATE.toFixed(2)}/hr + net sales ${money(gross)} × 3% = ${money(commission)} → total ${money(total)}`,
         workflow_status: 'new',
         completed: false,
         created_by: state.user.id,
