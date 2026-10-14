@@ -11,7 +11,7 @@
 import { mayConnect } from './shopify-auth-lib.mjs';
 import { isClaimToken, hashClaim, claimPlan } from './shopify-install-lib.mjs';
 
-export function createClaimHandler({ admin }) {
+export function createClaimHandler({ admin, checkMfa }) {
   const json = (body, status = 200) => new Response(JSON.stringify(body), {
     status, headers: { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
@@ -24,6 +24,13 @@ export function createClaimHandler({ admin }) {
     const { data: auth } = jwt ? await admin.auth.getUser(jwt) : { data: null };
     const user = auth?.user;
     if (!user) return json({ error: 'Sign in first' }, 401);
+
+    // Two-step login: what follows runs with the service role, which the
+    // Data API's gate (20261014000000) never sees. Refused when not wired.
+    const mfa = checkMfa
+      ? await checkMfa(req.headers.get('Authorization') ?? '')
+      : { ok: false, status: 503, code: 'mfa_check_failed', message: 'Two-step login check is not configured.' };
+    if (!mfa.ok) return json({ error: mfa.message, code: mfa.code }, mfa.status);
 
     let body;
     try { body = await req.json(); } catch { return json({ error: 'Bad request' }, 400); }

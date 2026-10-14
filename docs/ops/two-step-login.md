@@ -1,7 +1,7 @@
 # Two-step login (authenticator app)
 
-Added 2026-10-13. Opt-in per user. **Setup is closed in production** until
-the database enforces the code (see "Limit" below): My profile offers
+Added 2026-10-13. Opt-in per user. **Setup is closed in production** (see
+"Enforcement by the server" below for what opening it still needs): My profile offers
 "Turn on" only when `pages/config.js` sets `MFA_ENROLLMENT_OPEN: true`, and
 production leaves it unset. The code steps on login and set-password are
 live regardless, but they only act for an account that already holds a
@@ -82,25 +82,45 @@ tokens (PR #970 review).
 The user then signs in with their password alone and can turn two-step login
 on again with a new phone.
 
-## Limit: the front door only (open)
+## Enforcement by the server (20261014000000)
 
-The code is enforced by the sign-in and password pages, not by the database.
-After a correct password, the session already exists at `aal1`. Someone who
-knows the password and goes straight to an app URL instead of entering the
-code still reads whatever RLS allows. Until the database check below is
-applied, don't tell customers that two-step login is *enforced*.
+The sign-in and password pages ask for the code, and since `20261014000000`
+the server refuses an enrolled account's password-only (`aal1`) session too.
+An account WITHOUT a verified factor is untouched, so this changes nothing for
+anyone until setup opens.
 
-Don't set `MFA_ENROLLMENT_OPEN` until this ships. Next step (migration, needs Blake's approval to apply): a restrictive RLS
-policy on every RLS table, plus `storage.objects`, that refuses `aal1` only
-for users holding a verified factor:
+- **Data API (tables, views, RPCs):** `public.silo_check_request()` runs before
+  every PostgREST request (`alter role authenticator set pgrst.db_pre_request`)
+  and answers **403 `mfa_required`** when `public.mfa_session_satisfied()` is
+  false. One choke point instead of a policy per table, and it also covers the
+  ~117 SECURITY DEFINER functions and the definer views, which bypass RLS.
+- **Storage:** a restrictive policy `mfa_session_required` on `storage.objects`
+  (Storage does not run the pre-request hook).
+- **Realtime:** not used (the `supabase_realtime` publication is empty).
+- **Edge functions:** fifteen user-facing functions already make a
+  caller-token PostgREST call whose error aborts, so the hook covers them.
+  Sixteen check the caller with `auth.getUser()` and then act only with the
+  service role; each now calls `checkMfaSession` (`mfa-gate.mjs`) first, which
+  asks PostgREST as the caller and fails closed (list and ordering pinned by
+  `scripts/tests/mfa-gate.test.mjs`). Audit of every function: 2026-10-13.
+- `mfa_session_satisfied()` is true when the session is `aal2`, when there is
+  no signed-in user (anon, service role), or when the user has no VERIFIED
+  factor. An unverified (half-finished) setup grants nothing and blocks nothing.
 
+**Rollout order:** merge → apply the migration → deploy the sixteen gated
+functions. The gate fails closed, so a gated function deployed before the
+migration answers 503 until it is applied.
+
+**Rollback (instant, one statement):**
 ```sql
--- sketch, not applied
-(select coalesce(auth.jwt()->>'aal', 'aal1')) = 'aal2'
-  or not exists (select 1 from auth.mfa_factors f
-                 where f.user_id = (select auth.uid()) and f.status = 'verified')
+alter role authenticator reset pgrst.db_pre_request; notify pgrst, 'reload config';
 ```
+`verify_v2_schema.sql` reports CRITICAL while it is off.
 
-That still leaves SECURITY DEFINER RPCs and edge functions that check
-`auth.getUser()` and then use the service role. Each one needs its own `aal`
-check, or must be shown not to need one.
+**Opening setup** still needs: TOTP enrollment switched back on in Supabase
+Auth, `MFA_ENROLLMENT_OPEN: true`, and the lost-phone reset below rehearsed on
+a test account. The sign-in and password pages make no data call before the
+code step (checked 2026-10-13), so an enrolled user signs in normally. App
+pages do not turn an `mfa_required` 403 into a redirect to the code step; a
+user only meets one by holding a session that skipped it, and signing in again
+fixes it.

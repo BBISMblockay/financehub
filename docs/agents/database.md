@@ -284,6 +284,19 @@ list_org_invites()
 revoke_org_invite(p_invite_id)
 ```
 
+### Two-step login enforcement (20261014000000)
+```
+mfa_session_satisfied()   -- true unless the signed-in user holds a VERIFIED authenticator factor and the
+                          -- session is not aal2. Security definer (reads auth.mfa_factors); anon,
+                          -- authenticated and service_role may call it; the edge gate calls it as the caller.
+silo_check_request()      -- PostgREST pre-request hook (authenticator's pgrst.db_pre_request): raises
+                          -- PGRST / HTTP 403 mfa_required when mfa_session_satisfied() is false. Runs before
+                          -- every Data API request, so it also guards the SECURITY DEFINER RPCs and definer views.
+storage.objects policy mfa_session_required -- RESTRICTIVE, same check (Storage does not run the hook).
+```
+Rollback: `alter role authenticator reset pgrst.db_pre_request; notify pgrst, 'reload config';`. Accounts
+without a verified factor are untouched. See `docs/ops/two-step-login.md`.
+
 ### RPC functions (founding a company — platform-admin gated)
 ```
 is_platform_admin()
