@@ -5,16 +5,39 @@
   const S = () => global.SiloReportEmailSchedule;
   const UI = () => global.SiloReportEmailScheduleUI;
 
+  // Everything up to the rendered panel reports its own failure. The first
+  // version returned silently on both guards and let listMembers' rejection
+  // escape the click handler, so a broken read left the button looking dead:
+  // no panel, no message, nothing in the status bar. A click now always
+  // produces either a panel or a reason.
   async function openReportPanel(opts) {
     const { sb, userId, companyId, hostEl, onStatus, context } = opts;
-    if (!await S().isWorkspaceAdmin(sb, userId, companyId)) return;
-    const members = await S().listMembers(sb, companyId);
-    const mount = hostEl || document.getElementById('reportEmailHost');
-    if (!mount) return;
+    let members;
+    let mount;
+    try {
+      if (!await S().isWorkspaceAdmin(sb, userId, companyId)) {
+        onStatus?.('Scheduled email is available to workspace admins.', 'info', 5000);
+        return;
+      }
+      members = await S().listMembers(sb, companyId);
+      mount = hostEl || document.getElementById('reportEmailHost');
+      if (!mount) {
+        onStatus?.('Could not open the schedule panel on this page.', 'neg', 6000);
+        return;
+      }
+    } catch (e) {
+      onStatus?.(e?.message || 'Could not open the schedule panel', 'neg', 6000);
+      return;
+    }
     mount.hidden = false;
     mount.innerHTML = UI().renderPanel({ ...context, members });
     const root = mount.querySelector('.res-panel');
     const close = () => { mount.hidden = true; mount.innerHTML = ''; };
+    if (!root) {
+      close();
+      onStatus?.('Could not render the schedule panel.', 'neg', 6000);
+      return;
+    }
     root.querySelector('#resClose')?.addEventListener('click', close);
     root.querySelector('#resSave')?.addEventListener('click', async () => {
       try {
