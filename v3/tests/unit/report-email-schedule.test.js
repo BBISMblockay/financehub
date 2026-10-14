@@ -306,6 +306,117 @@ function fakeDb(tables, singles = {}) {
     assert.ok(/Email CSV on schedule/.test(html) && !/Edit scheduled email/.test(html));
   }
 
+  // ── what Edit and Send test are allowed to write ────────────────────────
+  // Both of these were found in review: an UPDATE sends only the keys it
+  // carries, so a key written carelessly changes stored behaviour, and a key
+  // left out preserves it.
+  {
+    // A panel opened from the schedules table has no query metadata, so it
+    // renders no query checkboxes. That is NOT the same as "no parts picked".
+    const noBoxes = { querySelectorAll: () => [] };
+    assert.equal(U.readQueryIndices(noBoxes), undefined, 'no controls rendered');
+    const boxes = (picked) => ({
+      querySelectorAll: () => [0, 1, 2].map((i) => ({ checked: picked.includes(i), getAttribute: () => String(i) })),
+    });
+    assert.deepEqual(U.readQueryIndices(boxes([1])), [1]);
+    assert.equal(U.readQueryIndices(boxes([])), null, 'controls rendered but none ticked is a real choice');
+
+    // Drive the panel's own Save and Send test handlers and read the payload
+    // that reaches the database.
+    const openPanel = async (existing, click, formCadence) => {
+      const writes = [];
+      const handlers = {};
+      const rootStub = {
+        querySelector: (sel) => {
+          if (sel === '#resSave' || sel === '#resTest') {
+            return { addEventListener: (_e, fn) => { handlers[sel] = fn; } };
+          }
+          if (sel === '#resClose') return { addEventListener: () => {} };
+          if (sel === '.res-cadence') return { value: formCadence || existing.cadence_preset };
+          if (sel === '.res-subject') return { value: 'Subject' };
+          if (sel === '#resSubscribe') return { checked: false };
+          if (sel === '#resActive') return { checked: existing.is_active !== false };
+          if (sel === '#resExternal') return { value: '' };
+          if (sel === '#resAdmins') return { checked: true };
+          return null;
+        },
+        querySelectorAll: () => [],
+      };
+      let html = '';
+      const host = {
+        hidden: true,
+        set innerHTML(v) { html = v; }, get innerHTML() { return html; },
+        querySelector: (sel) => (sel === '.res-panel' ? rootStub : null),
+      };
+      const sb = {
+        auth: { getSession: async () => ({ data: { session: { access_token: 't' } } }) },
+        rpc: async () => ({ data: null, error: null }),
+        from(table) {
+          const q = {
+            select() { return q; }, eq() { return q; }, order() { return q; },
+            limit() { return q; }, in() { return q; },
+            update(payload) { writes.push(['update', payload]); return q; },
+            insert(payload) { writes.push(['insert', payload]); return q; },
+            maybeSingle: async () => (writes.length
+              ? { data: { id: existing.id }, error: null }
+              : { data: { role: 'owner_admin' }, error: null }),
+            single: async () => ({ data: { id: existing.id }, error: null }),
+            then(res, rej) {
+              return Promise.resolve(table === 'report_email_schedules_v'
+                ? { data: [existing], error: null } : { data: [], error: null }).then(res, rej);
+            },
+          };
+          return q;
+        },
+      };
+      g.fetch = async () => ({ ok: true, json: async () => ({}) });
+      g.__SILO_CONFIG__ = { SUPABASE_URL: 'https://x.test', SUPABASE_ANON_KEY: 'k' };
+      await M.openReportPanel({ sb, userId: 'u1', companyId: 'C1', hostEl: host,
+        onStatus: () => {}, context: { reportId: existing.report_id, title: 'R' } });
+      await handlers[click]();
+      return writes;
+    };
+
+    const stored = {
+      id: 'S1', report_id: 'R1', cadence_preset: 'weekdays_0700', timezone: 'America/Los_Angeles',
+      subject_template: 'Subject', recipients: [{ kind: 'workspace_admins' }],
+      query_indices: [1], is_active: false, is_paused: true,
+      // Deliberately not a time this cadence would compute today: the point
+      // is that a test send leaves the stored time alone, and a fixture that
+      // happens to match what computeNextRunAt returns proves nothing.
+      next_run_at: '2026-11-20T15:00:00.000Z', allow_member_subscribe: false,
+    };
+
+    const saved = await openPanel(stored, '#resSave');
+    assert.equal(saved[0][0], 'update', 'an existing schedule is updated, not inserted again');
+    assert.ok(!('query_indices' in saved[0][1]),
+      'Save leaves a stored query subset alone when the panel rendered no query controls');
+    assert.equal(saved[0][1].is_active, false, 'Save writes what the form says');
+    assert.equal(saved[0][1].is_paused, false, 'and Save is the thing that resumes a schedule');
+
+    const tested = await openPanel(stored, '#resTest');
+    assert.equal(tested[0][0], 'update');
+    assert.ok(!('is_active' in tested[0][1]),
+      'a test must not switch an off schedule back on');
+    assert.ok(!('is_paused' in tested[0][1]), 'nor resume a paused one');
+    assert.ok(!('query_indices' in tested[0][1]), 'nor widen what the export covers');
+    assert.equal(tested[0][1].next_run_at, stored.next_run_at,
+      'nor push the next real send to tomorrow');
+
+    // Changing the cadence and then testing DOES have to move the next run,
+    // or the schedule keeps firing on the old rhythm until someone saves.
+    const recadenced = await openPanel(stored, '#resTest', 'monday_0700');
+    assert.notEqual(recadenced[0][1].next_run_at, stored.next_run_at);
+    assert.equal(recadenced[0][1].cadence_preset, 'monday_0700');
+
+    // A brand-new schedule still gets every column set explicitly.
+    const fresh = await openPanel({ ...stored, id: undefined, report_id: 'R9', is_active: true }, '#resTest');
+    assert.equal(fresh[0][0], 'insert');
+    assert.equal(fresh[0][1].is_active, true);
+    assert.equal(fresh[0][1].is_paused, false);
+    assert.equal(fresh[0][1].query_indices, null);
+  }
+
   // ── repo guard: nothing may embed profiles under entity_memberships ──────
   const offenders = [];
   const walk = (dir) => {

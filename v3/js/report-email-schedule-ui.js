@@ -82,9 +82,15 @@
     return out;
   }
 
+  /** The parts the user picked, or `undefined` when the panel rendered NO
+   *  query controls at all -- which is not the same as picking none. A panel
+   *  opened without the report's query metadata (the schedules table's Edit)
+   *  has no boxes to read, and a caller that treated that as "none picked"
+   *  would overwrite a stored subset with null, which the delivery side reads
+   *  as "every declared part". */
   function readQueryIndices(root) {
     const boxes = [...root.querySelectorAll('[data-query]')];
-    if (!boxes.length) return null;
+    if (!boxes.length) return undefined;
     const picked = boxes.filter((b) => b.checked).map((b) => Number(b.getAttribute('data-query')));
     return picked.length ? picked : null;
   }

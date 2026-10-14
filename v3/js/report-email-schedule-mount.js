@@ -48,6 +48,7 @@
       query_indices: existing.query_indices,
       allow_member_subscribe: existing.allow_member_subscribe,
       is_active: existing.is_active,
+      next_run_at: existing.next_run_at,
       timezone: existing.timezone || context.timezone,
     } : context;
     mount.hidden = false;
@@ -60,25 +61,55 @@
       return;
     }
     root.querySelector('#resClose')?.addEventListener('click', close);
+    // One payload builder, because the two buttons differ in exactly one way
+    // and keeping two copies is how they drifted apart.
+    //
+    // What a write may NOT touch is as important as what it sets. An UPDATE
+    // sends only the keys present, so a key left out keeps its stored value:
+    //   - query_indices is omitted when the panel rendered no query controls
+    //     (Edit from the schedules table has no query metadata to render).
+    //     Writing null there would read downstream as "every declared part",
+    //     silently widening what a multipart report sends out.
+    //   - a TEST never writes is_active or is_paused on a schedule that
+    //     already exists. Sending yourself a test is not a decision to start
+    //     or resume recurring email, and the delivery handler does not need
+    //     the schedule to be active.
+    const buildRow = (trigger) => {
+      const row = {
+        id: ctx.scheduleId || undefined,
+        company_entity_id: companyId,
+        created_by: userId,
+        name: ctx.title,
+        target_kind: 'report',
+        report_id: ctx.reportId,
+        parameter_state: ctx.parameter_state || {},
+        cadence_preset: root.querySelector('.res-cadence')?.value || 'weekdays_0700',
+        timezone: ctx.timezone || 'America/Los_Angeles',
+        subject_template: root.querySelector('.res-subject')?.value || S().defaultSubject(ctx.title),
+        recipients: UI().readRecipients(root),
+        allow_member_subscribe: !!root.querySelector('#resSubscribe')?.checked,
+      };
+      const picked = UI().readQueryIndices(root);
+      if (picked !== undefined) row.query_indices = picked;
+      else if (!ctx.scheduleId) row.query_indices = null;
+      if (trigger !== 'test' || !ctx.scheduleId) {
+        row.is_active = trigger === 'test' ? true : !!root.querySelector('#resActive')?.checked;
+        row.is_paused = false;
+      }
+      // saveSchedule recomputes next_run_at, which on a test would push the
+      // next real send to tomorrow -- so testing a daily report in the
+      // morning would skip that morning. Keep the stored time when the
+      // cadence the test is persisting is the one already stored.
+      if (trigger === 'test' && ctx.scheduleId && ctx.next_run_at
+          && row.cadence_preset === ctx.cadence_preset && row.timezone === ctx.timezone) {
+        row.next_run_at = ctx.next_run_at;
+      }
+      return row;
+    };
+
     root.querySelector('#resSave')?.addEventListener('click', async () => {
       try {
-        const row = {
-          id: ctx.scheduleId || undefined,
-          company_entity_id: companyId,
-          created_by: userId,
-          name: ctx.title,
-          target_kind: 'report',
-          report_id: ctx.reportId,
-          query_indices: UI().readQueryIndices(root),
-          parameter_state: ctx.parameter_state || {},
-          cadence_preset: root.querySelector('.res-cadence')?.value || 'weekdays_0700',
-          timezone: ctx.timezone || 'America/Los_Angeles',
-          subject_template: root.querySelector('.res-subject')?.value || S().defaultSubject(ctx.title),
-          recipients: UI().readRecipients(root),
-          allow_member_subscribe: !!root.querySelector('#resSubscribe')?.checked,
-          is_active: !!root.querySelector('#resActive')?.checked,
-          is_paused: false,
-        };
+        const row = buildRow('save');
         ctx.scheduleId = await S().saveSchedule(sb, row);
         onStatus?.('Schedule saved.', 'pos', 4000);
         close();
@@ -89,23 +120,7 @@
     });
     root.querySelector('#resTest')?.addEventListener('click', async () => {
       try {
-        const row = {
-          id: ctx.scheduleId || undefined,
-          company_entity_id: companyId,
-          created_by: userId,
-          name: ctx.title,
-          target_kind: 'report',
-          report_id: ctx.reportId,
-          query_indices: UI().readQueryIndices(root),
-          parameter_state: ctx.parameter_state || {},
-          cadence_preset: root.querySelector('.res-cadence')?.value || 'weekdays_0700',
-          timezone: ctx.timezone || 'America/Los_Angeles',
-          subject_template: root.querySelector('.res-subject')?.value || S().defaultSubject(ctx.title),
-          recipients: UI().readRecipients(root),
-          allow_member_subscribe: !!root.querySelector('#resSubscribe')?.checked,
-          is_active: true,
-          is_paused: false,
-        };
+        const row = buildRow('test');
         // Keep the id, or the Save that usually follows a test would insert
         // a second schedule beside the one the test just created.
         ctx.scheduleId = await S().saveSchedule(sb, row);
@@ -201,6 +216,7 @@
             parameter_state: row.parameter_state,
             allow_member_subscribe: row.allow_member_subscribe,
             is_active: row.is_active,
+            next_run_at: row.next_run_at,
             timezone: row.timezone,
           },
         });
