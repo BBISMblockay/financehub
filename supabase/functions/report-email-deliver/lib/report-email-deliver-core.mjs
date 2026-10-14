@@ -4,7 +4,15 @@
 
 import { SiloReportParams } from './report-params-lib.mjs';
 
-export const EXPORT_PAGE_SIZE = 5000;
+// chat_run_readonly_query caps every page at 1,000 rows and takes no page-size
+// argument. Delivery pages with p_offset instead of widening the shared engine
+// -- see the header of 20261013180000_report_email_schedules.sql for why the
+// p_limit overload was removed.
+export const EXPORT_PAGE_SIZE = 1000;
+// A hard ceiling on one export. Without it a report that happens to return
+// millions of rows is accumulated in the edge function's memory until the
+// worker is killed, which surfaces as a bare "failed" run with no error.
+export const MAX_EXPORT_ROWS = 200000;
 export const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 export const STORAGE_BUCKET = 'report-email-exports';
 
@@ -54,19 +62,24 @@ export function rowsToCsv(rows) {
   return lines.join('\n');
 }
 
-export async function fetchAllRows(supabase, sql, pageSize = EXPORT_PAGE_SIZE) {
+export async function fetchAllRows(supabase, sql, maxRows = MAX_EXPORT_ROWS) {
   const all = [];
-  for (let offset = 0; ; offset += pageSize) {
+  for (let offset = 0; ; offset += EXPORT_PAGE_SIZE) {
+    // Only `query` and `p_offset`: the two arguments the live
+    // chat_run_readonly_query(text, integer) takes. Adding a third would mean
+    // replacing the shared report engine -- see the migration header.
     const { data, error } = await supabase.rpc('chat_run_readonly_query', {
       query: sql,
       p_offset: offset,
-      p_limit: pageSize,
     });
     if (error) throw new Error(error.message || String(error));
     const page = Array.isArray(data) ? data : (data ? JSON.parse(JSON.stringify(data)) : []);
     if (!page.length) break;
     all.push(...page);
-    if (page.length < pageSize) break;
+    if (all.length > maxRows) {
+      throw new Error(`Export exceeds ${maxRows.toLocaleString()} rows; narrow the report or its filters`);
+    }
+    if (page.length < EXPORT_PAGE_SIZE) break;
   }
   return all;
 }
@@ -75,49 +88,105 @@ export function sanitizeFilename(name) {
   return String(name || 'report').replace(/[^\w.-]+/g, '_').slice(0, 80) || 'report';
 }
 
-export function computeNextRunAt(preset, timezone, fromDate = new Date()) {
-  const tz = timezone || 'America/Los_Angeles';
+// ── Cadence math ─────────────────────────────────────────────────────────
+// A cadence is a WALL-CLOCK time in the company's zone ("every weekday at
+// 7:00 AM"), and next_run_at is a timestamptz, so the conversion has to go
+// through the zone's offset on that date. The first version of this file built
+// the instant with `Date.UTC(y, mo - 1, d, hour, 0)` from zone-local y/m/d --
+// which labels 7:00 Los Angeles as 07:00 UTC, i.e. midnight Pacific. Every
+// schedule would have been delivered seven or eight hours early, on the
+// 00:15 PT cron slot, and nothing would have errored.
+//
+// `v3/js/report-email-schedule.js` carries the same math for the browser's
+// "next run" preview; scripts/tests/report-email-deliver.test.mjs runs both
+// over the same fixtures and fails if they ever disagree.
+
+function zoneParts(instant, tz) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
     year: 'numeric', month: '2-digit', day: '2-digit',
-    weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(fromDate);
-  const get = (t) => parts.find((p) => p.type === t)?.value;
-  const y = Number(get('year'));
-  const mo = Number(get('month'));
-  const d = Number(get('day'));
-  const wd = get('weekday');
-  const hour = preset.includes('0600') ? 6 : 7;
-  const minute = 0;
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    weekday: 'short', hour12: false,
+  }).formatToParts(instant);
+  const num = (t) => Number(parts.find((p) => p.type === t)?.value);
+  return {
+    y: num('year'), mo: num('month'), d: num('day'),
+    // Some ICU builds render midnight as hour 24 under hour12:false.
+    h: num('hour') % 24, mi: num('minute'), s: num('second'),
+    wd: parts.find((p) => p.type === 'weekday')?.value,
+  };
+}
 
-  const candidate = new Date(Date.UTC(y, mo - 1, d, hour, minute));
-  const bumpDays = (n) => new Date(candidate.getTime() + n * 86400000);
+// Milliseconds the zone is ahead of UTC at this instant.
+function zoneOffsetMs(ms, tz) {
+  const p = zoneParts(new Date(ms), tz);
+  return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - ms;
+}
 
-  if (preset === 'daily_0600' || preset === 'weekdays_0700') {
-    let next = bumpDays(1);
-    if (preset === 'weekdays_0700') {
-      while (['Sat', 'Sun'].includes(new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(next))) {
-        next = bumpDays(1);
-      }
-    }
-    return next.toISOString();
+// The instant at which the zone's clock reads y-mo-d hour:minute. Two passes:
+// the first offset is read at the wrong instant whenever a DST change sits
+// between the guess and the answer, and the second settles it.
+export function zonedTimeToInstant(y, mo, d, hour, minute, tz) {
+  const wall = Date.UTC(y, mo - 1, d, hour, minute, 0);
+  let ms = wall;
+  for (let i = 0; i < 3; i += 1) {
+    const next = wall - zoneOffsetMs(ms, tz);
+    if (next === ms) break;
+    ms = next;
   }
-  if (preset === 'monday_0700') {
-    let add = 1;
-    while (add < 8) {
-      const tryD = bumpDays(add);
-      if (new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(tryD) === 'Mon') {
-        return tryD.toISOString();
-      }
-      add += 1;
-    }
-  }
+  return new Date(ms);
+}
+
+// Calendar arithmetic only -- no zone involved, so it cannot drift on a DST day
+// the way adding 86400000 to an instant does.
+function addCalendarDays(y, mo, d, n) {
+  const t = new Date(Date.UTC(y, mo - 1, d + n));
+  return { y: t.getUTCFullYear(), mo: t.getUTCMonth() + 1, d: t.getUTCDate() };
+}
+
+export function computeNextRunAt(preset, timezone, fromDate = new Date()) {
+  const tz = timezone || 'America/Los_Angeles';
+  const hour = String(preset || '').includes('0600') ? 6 : 7;
+  const today = zoneParts(fromDate instanceof Date ? fromDate : new Date(fromDate), tz);
+
   if (preset === 'month_first_0700') {
-    const nextMo = mo === 12 ? 1 : mo + 1;
-    const nextY = mo === 12 ? y + 1 : y;
-    return new Date(Date.UTC(nextY, nextMo - 1, 1, hour, minute)).toISOString();
+    const mo = today.mo === 12 ? 1 : today.mo + 1;
+    const y = today.mo === 12 ? today.y + 1 : today.y;
+    return zonedTimeToInstant(y, mo, 1, hour, 0, tz).toISOString();
   }
-  return bumpDays(1).toISOString();
+
+  // Strictly tomorrow or later: a schedule saved at 09:00 must not fire for a
+  // 07:00 slot that has already passed today.
+  for (let n = 1; n <= 370; n += 1) {
+    const cal = addCalendarDays(today.y, today.mo, today.d, n);
+    const instant = zonedTimeToInstant(cal.y, cal.mo, cal.d, hour, 0, tz);
+    const wd = zoneParts(instant, tz).wd;
+    if (preset === 'weekdays_0700' && (wd === 'Sat' || wd === 'Sun')) continue;
+    if (preset === 'monday_0700' && wd !== 'Mon') continue;
+    return instant.toISOString();
+  }
+  // Unreachable for every preset above; a new preset lands here rather than
+  // returning undefined and writing a null next_run_at.
+  const cal = addCalendarDays(today.y, today.mo, today.d, 1);
+  return zonedTimeToInstant(cal.y, cal.mo, cal.d, hour, 0, tz).toISOString();
+}
+
+// Whether a delivery failure is the SCHEDULE's fault or the world's. Only the
+// schedule's own faults pause it: pausing on a Resend 429, a network blip or a
+// not-yet-deployed function turns one bad minute into a feature that silently
+// stopped, and nobody is told it paused.
+const TRANSIENT = [
+  /\bresend (429|5\d\d)\b/i,
+  /\b(429|50[0-4]|408)\b/,
+  /timeout|timed out|etimedout|econnreset|enotfound|socket hang up|fetch failed|network/i,
+  /canceling statement due to statement timeout/i,
+  /not configured|not set|unauthoriz|invalid session|jwt/i,
+  /storage upload/i,
+];
+
+export function isTransientDeliveryError(message) {
+  const m = String(message || '');
+  return TRANSIENT.some((re) => re.test(m));
 }
 
 export function renderSubject(template, ctx) {
@@ -136,4 +205,24 @@ export function cadenceLabel(preset) {
     month_first_0700: '1st of month 7:00',
   };
   return map[preset] || preset;
+}
+
+// ── Claiming a due row ───────────────────────────────────────────────────
+// next_run_at is the lease. Advancing it with a compare-and-swap on its
+// current value is what stops two overlapping runs -- a workflow_dispatch
+// during a scheduled run, or the same slot retried -- from both selecting the
+// same due row and delivering the export twice. Whoever wins the swap owns the
+// slot, which is why the edge function must NOT write next_run_at: a second
+// writer there would hand the row back to the next run and send again.
+export async function claimSchedule(db, row, now = new Date()) {
+  const next = computeNextRunAt(row.cadence_preset, row.timezone, now);
+  const { data, error } = await db.from('report_email_schedules')
+    .update({ next_run_at: next, updated_at: now.toISOString() })
+    .eq('id', row.id)
+    .eq('next_run_at', row.next_run_at)
+    .select('id');
+  if (error) throw new Error(error.message);
+  // An RLS- or race-refused UPDATE succeeds with ZERO rows, it does not error
+  // (supabase/CLAUDE.md). Zero rows means another run claimed this slot.
+  return Array.isArray(data) && data.length === 1;
 }

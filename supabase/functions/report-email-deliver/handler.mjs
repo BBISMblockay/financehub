@@ -1,18 +1,25 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import {
-  EXPORT_PAGE_SIZE,
   MAX_ATTACHMENT_BYTES,
   STORAGE_BUCKET,
   cadenceLabel,
-  computeNextRunAt,
   defaultQueryIndex,
   fetchAllRows,
   queryIndicesForSchedule,
   renderSubject,
   resolveSql,
+  isTransientDeliveryError,
   rowsToCsv,
   sanitizeFilename,
 } from './lib/report-email-deliver-core.mjs';
+
+// Anything interpolated into the email body -- a schedule name, a report title,
+// a company name -- is text an admin typed, and the body is HTML.
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -69,7 +76,15 @@ async function signCreatorJwt(jwtSecret, supabaseUrl, creatorId, expSeconds = 60
   return `${sigInput}.${sigB64}`;
 }
 
-async function clientForScheduleRun(env, schedule, userJwt) {
+// RLS scopes every read to active_company_id(), which reads
+// profiles.active_company_id -- a PERSISTED column, not a session value. So
+// running the export as the schedule's creator means repointing that column at
+// the schedule's company, and the first version of this function never put it
+// back: a creator who belongs to two companies would find SILO showing the
+// other company's data every morning after the cron ran, with nothing to
+// explain it. Read the old value, set it only if it differs, and restore it in
+// a finally block whatever the export does.
+async function clientForScheduleRun(serviceDb, env, schedule, userJwt) {
   const url = env.SUPABASE_URL;
   const anon = env.SUPABASE_ANON_KEY;
   let token = userJwt;
@@ -82,9 +97,30 @@ async function clientForScheduleRun(env, schedule, userJwt) {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { error: coErr } = await client.rpc('set_active_company', { p_entity_id: schedule.company_entity_id });
-  if (coErr) throw new Error(`set_active_company: ${coErr.message}`);
-  return client;
+
+  const actorId = userJwt ? null : schedule.created_by;
+  let previousCompanyId = null;
+  let changed = false;
+  if (actorId) {
+    const { data: prof } = await serviceDb.from('profiles')
+      .select('active_company_id').eq('id', actorId).maybeSingle();
+    previousCompanyId = prof?.active_company_id ?? null;
+  }
+  if (previousCompanyId !== schedule.company_entity_id) {
+    const { error: coErr } = await client.rpc('set_active_company', { p_entity_id: schedule.company_entity_id });
+    if (coErr) throw new Error(`set_active_company: ${coErr.message}`);
+    changed = true;
+  }
+
+  const restore = async () => {
+    if (!changed || !actorId) return;
+    // Service role, not the minted token: the minted JWT may have expired by
+    // now, and a failed restore must not mask the export's own error.
+    const { error } = await serviceDb.from('profiles')
+      .update({ active_company_id: previousCompanyId }).eq('id', actorId);
+    if (error) console.error('[report-email-deliver] restore active_company_id', error.message);
+  };
+  return { client, restore };
 }
 
 async function loadReportTargets(serviceDb, schedule) {
@@ -170,6 +206,12 @@ export function createReportEmailDeliverHandler(deps = {}) {
     const trigger = body.trigger || (isCron ? 'schedule' : 'manual');
     if (!scheduleId) return new Response(JSON.stringify({ error: 'schedule_id required' }), { status: 400, headers: CORS });
 
+    // Refuse before anything is read: the unauthenticated 404-vs-not-found
+    // difference was an existence oracle for schedule ids.
+    if (!isCron && !userJwt) {
+      return new Response(JSON.stringify({ error: 'authorization required' }), { status: 401, headers: CORS });
+    }
+
     const serviceDb = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
@@ -180,10 +222,6 @@ export function createReportEmailDeliverHandler(deps = {}) {
       return new Response(JSON.stringify({ error: 'schedule not found' }), { status: 404, headers: CORS });
     }
 
-    if (!isCron && !userJwt) {
-      return new Response(JSON.stringify({ error: 'authorization required' }), { status: 401, headers: CORS });
-    }
-
     if (!isCron) {
       const userClient = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
         global: { headers: { Authorization: `Bearer ${userJwt}` } },
@@ -191,8 +229,18 @@ export function createReportEmailDeliverHandler(deps = {}) {
       const { data: userData } = await userClient.auth.getUser();
       const uid = userData?.user?.id;
       if (!uid) return new Response(JSON.stringify({ error: 'invalid session' }), { status: 401, headers: CORS });
-      const { data: mem } = await userClient.from('entity_memberships')
+      // This read is the two-step-login gate for this function
+      // (supabase/functions/CLAUDE.md): it goes to PostgREST with the CALLER's
+      // token, so the pre-request hook refuses an enrolled user's aal1 session
+      // here, before the service-role work below. It must therefore fail CLOSED
+      // on an error, not just on a missing row -- the first version read only
+      // `data` and let the error fall on the floor.
+      const { data: mem, error: memErr } = await userClient.from('entity_memberships')
         .select('role').eq('entity_id', schedule.company_entity_id).eq('user_id', uid).maybeSingle();
+      if (memErr) {
+        const code = String(memErr.code || '') === 'mfa_required' || /mfa/i.test(memErr.message || '') ? 403 : 503;
+        return new Response(JSON.stringify({ error: memErr.message || 'authorization check failed' }), { status: code, headers: CORS });
+      }
       if (!mem || !['owner_admin', 'admin'].includes(mem.role)) {
         return new Response(JSON.stringify({ error: 'admin required' }), { status: 403, headers: CORS });
       }
@@ -212,17 +260,21 @@ export function createReportEmailDeliverHandler(deps = {}) {
     try {
       const paramState = await mergeParameterState(serviceDb, schedule);
       const targets = await loadReportTargets(serviceDb, schedule);
-      const queryClient = await clientForScheduleRun(env, schedule, isCron ? null : userJwt);
+      const run = await clientForScheduleRun(serviceDb, env, schedule, isCron ? null : userJwt);
 
       const attachments = [];
       let totalRows = 0;
-      for (const t of targets) {
-        const sql = resolveSql(t.report, t.queryIndex, paramState);
-        const rows = await fetchAllRows(queryClient, sql, EXPORT_PAGE_SIZE);
-        totalRows += rows.length;
-        const csv = rowsToCsv(rows);
-        const fn = `${sanitizeFilename(t.label)}${targets.length > 1 ? `-q${t.queryIndex}` : ''}.csv`;
-        attachments.push({ filename: fn, content: utf8Base64(csv) });
+      try {
+        for (const t of targets) {
+          const sql = resolveSql(t.report, t.queryIndex, paramState);
+          const rows = await fetchAllRows(run.client, sql);
+          totalRows += rows.length;
+          const csv = rowsToCsv(rows);
+          const fn = `${sanitizeFilename(t.label)}${targets.length > 1 ? `-q${t.queryIndex}` : ''}.csv`;
+          attachments.push({ filename: fn, content: utf8Base64(csv) });
+        }
+      } finally {
+        await run.restore();
       }
 
       const bytes = attachments.reduce((s, a) => s + (a.content?.length || 0) * 0.75, 0);
@@ -258,12 +310,12 @@ export function createReportEmailDeliverHandler(deps = {}) {
         date: new Date().toISOString().slice(0, 10),
       });
 
-      let html = `<p>Your scheduled SILO report export is attached.</p><p><strong>${title}</strong> · ${cadenceLabel(schedule.cadence_preset)}</p><p>${totalRows.toLocaleString()} rows exported across ${targets.length} file(s).</p>`;
+      let html = `<p>Your scheduled SILO report export is attached.</p><p><strong>${escHtml(title)}</strong> · ${escHtml(cadenceLabel(schedule.cadence_preset))}</p><p>${totalRows.toLocaleString()} rows exported across ${targets.length} file(s).</p>`;
       if (deliveryMode === 'storage_link' && storagePaths.length) {
         const links = [];
         for (const p of storagePaths) {
           const { data: signed } = await serviceDb.storage.from(STORAGE_BUCKET).createSignedUrl(p, 60 * 60 * 24 * 7);
-          if (signed?.signedUrl) links.push(`<li><a href="${signed.signedUrl}">${p.split('/').pop()}</a> (7 days)</li>`);
+          if (signed?.signedUrl) links.push(`<li><a href="${escHtml(signed.signedUrl)}">${escHtml(p.split('/').pop())}</a> (7 days)</li>`);
         }
         html += `<p>Files were too large for email. Download:</p><ul>${links.join('')}</ul>`;
       }
@@ -279,10 +331,12 @@ export function createReportEmailDeliverHandler(deps = {}) {
       const send = await sendResend(env, sender, emails, subject, html, attachments.length ? attachments : undefined);
       if (!send.sent) throw new Error(send.reason || 'email not sent');
 
-      const next = computeNextRunAt(schedule.cadence_preset, schedule.timezone);
+      // next_run_at is deliberately NOT written here. The sync script claims a
+      // due row by advancing it (claimSchedule in report-email-deliver-core),
+      // and that claim is what stops two overlapping runs delivering twice; a
+      // second writer here would hand the slot back and send again.
       await serviceDb.from('report_email_schedules').update({
         last_run_at: new Date().toISOString(),
-        next_run_at: next,
         last_error: null,
         updated_at: new Date().toISOString(),
       }).eq('id', schedule.id);
@@ -291,7 +345,7 @@ export function createReportEmailDeliverHandler(deps = {}) {
         finished_at: new Date().toISOString(),
         status: 'succeeded',
         total_rows: totalRows,
-        attachment_count: targets.length,
+        attachment_count: deliveryMode === 'storage_link' ? 0 : targets.length,
         delivery_mode: deliveryMode,
         storage_paths: storagePaths.length ? storagePaths : null,
         recipient_count: emails.length,
@@ -303,9 +357,15 @@ export function createReportEmailDeliverHandler(deps = {}) {
     } catch (err) {
       const msg = err?.message || String(err);
       console.error('[report-email-deliver]', msg);
+      // Pause only on a fault the SCHEDULE owns -- a query that no longer
+      // parses, a deleted report, no resolvable recipients. Pausing on a
+      // Resend 429, a statement timeout or a missing secret turns one bad
+      // minute into a feature that silently stopped, and nobody is told it
+      // paused. A transient failure keeps last_error and tries again next slot.
+      const transient = isTransientDeliveryError(msg);
       await serviceDb.from('report_email_schedules').update({
         last_error: msg.slice(0, 500),
-        is_paused: trigger !== 'test',
+        is_paused: trigger !== 'test' && !transient,
         updated_at: new Date().toISOString(),
       }).eq('id', schedule.id);
       await serviceDb.from('report_email_runs').update({

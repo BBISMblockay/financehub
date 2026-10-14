@@ -11,14 +11,19 @@
 
   const DEPARTMENTS = Object.freeze(['finance', 'logistics', 'marketing', 'ops', 'retail', 'sales']);
 
+  // Roles are PER COMPANY: the membership decides, and the legacy global
+  // profiles.role is consulted only when the user has no membership here (see
+  // CLAUDE.md, "Database essentials"). The first version checked the global
+  // role FIRST, so a global `executive` read as an admin of every company --
+  // the DB gate is_entity_admin() does not agree, so the tab rendered and then
+  // every query came back empty. Nav gating is UX only; RLS is the boundary.
   async function isWorkspaceAdmin(sb, userId, companyId) {
     if (!userId || !companyId) return false;
-    const { data: profile } = await sb.from('profiles').select('role').eq('id', userId).maybeSingle();
-    const pr = String(profile?.role || '').toLowerCase();
-    if (['owner', 'executive'].includes(pr)) return true;
     const { data: mem } = await sb.from('entity_memberships')
       .select('role').eq('user_id', userId).eq('entity_id', companyId).maybeSingle();
-    return !!mem && ['owner_admin', 'admin'].includes(mem.role);
+    if (mem) return ['owner_admin', 'admin'].includes(mem.role);
+    const { data: profile } = await sb.from('profiles').select('role').eq('id', userId).maybeSingle();
+    return String(profile?.role || '').toLowerCase() === 'owner';
   }
 
   function defaultSubject(title) {
@@ -36,31 +41,75 @@
     return data || [];
   }
 
+  // Cadence math. A cadence is a WALL-CLOCK time in the company's zone, so the
+  // conversion to the timestamptz stored in next_run_at has to go through the
+  // zone's offset on that date -- building the instant with Date.UTC() from
+  // zone-local y/m/d labels 7:00 Los Angeles as 07:00 UTC, i.e. midnight
+  // Pacific, and every schedule fires seven hours early with nothing erroring.
+  //
+  // This is a copy of the same three functions in
+  // scripts/lib/report-email-deliver-core.mjs (the browser needs them in a
+  // classic script, the sync script needs them as an ES module).
+  // scripts/tests/report-email-deliver.test.mjs runs BOTH over the same
+  // fixtures and fails if they ever disagree, so edit them together.
+  function zoneParts(instant, tz) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      weekday: 'short', hour12: false,
+    }).formatToParts(instant);
+    const num = (t) => Number(parts.find((p) => p.type === t)?.value);
+    return {
+      y: num('year'), mo: num('month'), d: num('day'),
+      h: num('hour') % 24, mi: num('minute'), s: num('second'),
+      wd: parts.find((p) => p.type === 'weekday')?.value,
+    };
+  }
+
+  function zoneOffsetMs(ms, tz) {
+    const p = zoneParts(new Date(ms), tz);
+    return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - ms;
+  }
+
+  function zonedTimeToInstant(y, mo, d, hour, minute, tz) {
+    const wall = Date.UTC(y, mo - 1, d, hour, minute, 0);
+    let ms = wall;
+    for (let i = 0; i < 3; i += 1) {
+      const next = wall - zoneOffsetMs(ms, tz);
+      if (next === ms) break;
+      ms = next;
+    }
+    return new Date(ms);
+  }
+
+  function addCalendarDays(y, mo, d, n) {
+    const t = new Date(Date.UTC(y, mo - 1, d + n));
+    return { y: t.getUTCFullYear(), mo: t.getUTCMonth() + 1, d: t.getUTCDate() };
+  }
+
   function computeNextRunAt(preset, timezone, fromDate) {
     const tz = timezone || 'America/Los_Angeles';
-    const from = fromDate || new Date();
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
-    }).formatToParts(from);
-    const get = (t) => parts.find((p) => p.type === t)?.value;
-    const y = Number(get('year'));
-    const mo = Number(get('month'));
-    const d = Number(get('day'));
     const hour = String(preset || '').includes('0600') ? 6 : 7;
-    const base = new Date(Date.UTC(y, mo - 1, d, hour, 0));
-    const bump = (n) => new Date(base.getTime() + n * 86400000);
-    const wd = (dt) => new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(dt);
-    if (preset === 'monday_0700') {
-      for (let n = 1; n < 8; n += 1) if (wd(bump(n)) === 'Mon') return bump(n).toISOString();
-    }
+    const from = fromDate instanceof Date ? fromDate : (fromDate ? new Date(fromDate) : new Date());
+    const today = zoneParts(from, tz);
+
     if (preset === 'month_first_0700') {
-      const nmo = mo === 12 ? 1 : mo + 1;
-      const ny = mo === 12 ? y + 1 : y;
-      return new Date(Date.UTC(ny, nmo - 1, 1, hour, 0)).toISOString();
+      const mo = today.mo === 12 ? 1 : today.mo + 1;
+      const y = today.mo === 12 ? today.y + 1 : today.y;
+      return zonedTimeToInstant(y, mo, 1, hour, 0, tz).toISOString();
     }
-    let next = bump(1);
-    if (preset === 'weekdays_0700') while (wd(next) === 'Sat' || wd(next) === 'Sun') next = new Date(next.getTime() + 86400000);
-    return next.toISOString();
+
+    for (let n = 1; n <= 370; n += 1) {
+      const cal = addCalendarDays(today.y, today.mo, today.d, n);
+      const instant = zonedTimeToInstant(cal.y, cal.mo, cal.d, hour, 0, tz);
+      const wd = zoneParts(instant, tz).wd;
+      if (preset === 'weekdays_0700' && (wd === 'Sat' || wd === 'Sun')) continue;
+      if (preset === 'monday_0700' && wd !== 'Mon') continue;
+      return instant.toISOString();
+    }
+    const cal = addCalendarDays(today.y, today.mo, today.d, 1);
+    return zonedTimeToInstant(cal.y, cal.mo, cal.d, hour, 0, tz).toISOString();
   }
 
   async function saveSchedule(sb, row) {
@@ -129,5 +178,6 @@
   global.SiloReportEmailSchedule = {
     CADENCE, DEPARTMENTS, isWorkspaceAdmin, defaultSubject, defaultRecipients,
     listSchedules, saveSchedule, deliverNow, duplicateSchedule, pauseAll, listMembers,
+    computeNextRunAt,
   };
 }(typeof window !== 'undefined' ? window : globalThis));

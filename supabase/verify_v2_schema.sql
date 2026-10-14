@@ -6833,11 +6833,38 @@ select 'Integration bootstrap queue' as check_name,
   then 'CRITICAL: the one-open-job-per-connection index is gone -- a double-click queues two 60-day imports'
  else 'ok' end as status;
 
-select 'report_email_schedules table' as check_name,
-  case when not exists (select 1 from information_schema.tables
-                        where table_schema = 'public' and table_name = 'report_email_schedules')
-       then 'MISSING — run 20261013180000_report_email_schedules.sql'
-       when not exists (select 1 from pg_policies where tablename = 'report_email_schedules'
-                          and policyname = 'report_email_schedules_select')
-       then 'BROKEN — report_email_schedules_select missing'
-       else 'ok' end as status;
+-- ── Scheduled report CSV email (20261013180000) ───────────────────────
+-- Four things, each one a way this feature fails SILENTLY rather than loudly:
+-- the tables missing (the tab just says "not enabled"); RLS off on a table
+-- holding recipient lists; a policy that stopped scoping to the active
+-- company, which is a cross-tenant read of another workspace's schedules; and
+-- the recipient resolver -- a SECURITY DEFINER function with row_security off
+-- -- becoming callable by anon, which would hand out staff email addresses to
+-- anyone holding a schedule id.
+select 'Scheduled report CSV email' as check_name,
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema = 'public' and table_name = 'report_email_schedules')
+      then 'MISSING — run 20261013180000_report_email_schedules.sql'
+    when exists (
+      select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public'
+        and c.relname in ('report_email_schedules', 'report_email_subscriptions', 'report_email_runs')
+        and not c.relrowsecurity)
+      then 'CRITICAL — row level security is OFF on a report email table; every workspace can read every other workspace''s schedules and recipient lists'
+    when (select count(*) from pg_policies
+          where schemaname = 'public' and tablename = 'report_email_schedules'
+            and qual || coalesce(with_check, '') like '%active_company_id()%') < 4
+      then 'CRITICAL — a report_email_schedules policy no longer scopes to active_company_id(); expected all four (select/insert/update/delete) to carry it'
+    when exists (select 1 from information_schema.routine_privileges
+                 where routine_schema = 'public'
+                   and routine_name in ('resolve_report_email_recipients',
+                                        'pause_all_report_email_schedules',
+                                        'duplicate_report_email_schedule')
+                   and grantee = 'anon')
+      then 'CRITICAL — anon can EXECUTE a report email RPC. Run: revoke all on function public.resolve_report_email_recipients(uuid) from public, anon;'
+    when not exists (select 1 from information_schema.views
+                     where table_schema = 'public' and table_name = 'report_email_schedules_v')
+      then 'MISSING — report_email_schedules_v is gone; the Scheduled email tab reads it'
+    else 'ok'
+  end as status;

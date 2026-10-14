@@ -1,66 +1,25 @@
 -- Scheduled CSV email delivery for saved reports and dashboard bundles.
--- Admins configure schedules; a nightly GitHub Action invokes the
--- report-email-deliver edge function. Full exports page past the 1,000-row
--- interactive cap via chat_run_readonly_query's optional p_limit (max 10k).
-
--- ── Extend chat_run_readonly_query with optional page size ───────────────
-drop function if exists public.chat_run_readonly_query(text, integer);
-
-create function public.chat_run_readonly_query(
-  query text,
-  p_offset integer default 0,
-  p_limit integer default 1000
-)
-returns json
-language plpgsql
-volatile
-set search_path to 'public'
-as $function$
-declare
-  result      json;
-  trimmed     text;
-  safe_offset integer;
-  safe_limit  integer;
-begin
-  trimmed := btrim(
-    regexp_replace(query, '^(\s+|--[^\n]*(\n|$)|/\*.*?\*/)+', ''),
-    E' \t\r\n'
-  );
-
-  if right(trimmed, 1) = ';' then
-    trimmed := btrim(left(trimmed, length(trimmed) - 1), E' \t\r\n');
-  end if;
-
-  if trimmed !~* '^(select|with)\s' then
-    raise exception
-      'Only a single SELECT or WITH (read-only) statement is allowed (parsed statement began: %)',
-      left(coalesce(nullif(trimmed, ''), '<empty>'), 40);
-  end if;
-
-  if trimmed ~ ';' then
-    raise exception 'Statement must not contain a semicolon (single statement only)';
-  end if;
-
-  safe_offset := greatest(coalesce(p_offset, 0), 0);
-  safe_limit := least(greatest(coalesce(p_limit, 1000), 1), 10000);
-
-  set local statement_timeout = '120s';
-  execute 'set transaction read only';
-
-  execute format(
-    'select coalesce(json_agg(t), ''[]''::json) from (select * from (%s) user_query limit %s offset %s) t',
-    trimmed, safe_limit, safe_offset
-  ) into result;
-
-  return result;
-end;
-$function$;
-
-revoke all on function public.chat_run_readonly_query(text, integer, integer) from public, anon;
-grant execute on function public.chat_run_readonly_query(text, integer, integer) to authenticated;
-
-comment on function public.chat_run_readonly_query(text, integer, integer) is
-  'Shared read-only reporting engine: single SELECT/WITH, 1000-row default page (p_limit up to 10000 for exports), p_offset, read-only txn. SECURITY INVOKER.';
+-- Admins configure schedules; the "Report email sync" GitHub Action invokes the
+-- report-email-deliver edge function for every due row.
+--
+-- This migration deliberately does NOT touch chat_run_readonly_query. The first
+-- version of it replaced that function with a (text, integer, integer) overload
+-- carrying a p_limit up to 10,000 and a 120s statement timeout, so delivery
+-- could export a whole result set in fewer round trips. Three things were wrong
+-- with that, and they are recorded here so nobody re-adds it:
+--   * verify_v2_schema.sql asserts that function's shape in three places --
+--     pronargs = 2, a '30s' in its body, and the literal 'limit 1000'. All
+--     three would have gone red on the daily deployment drift check the moment
+--     the migration was applied, with messages ("still on the old 10s budget")
+--     that point nowhere near the cause.
+--   * `authenticated` carries an 8s statement timeout at the role level, and
+--     SET LOCAL inside a function cannot raise it for the running statement, so
+--     the 120s was a no-op and a 10,000-row page is MORE likely to time out
+--     than ten pages of 1,000.
+--   * it is the shared report engine for Ask SILO, every saved report and every
+--     v3 tile. Delivery does not need to change it: paging with p_offset at the
+--     existing 1,000-row cap exports the same rows (see fetchAllRows in
+--     scripts/lib/report-email-deliver-core.mjs).
 
 -- ── Schedules ────────────────────────────────────────────────────────────
 create table if not exists public.report_email_schedules (
@@ -411,6 +370,11 @@ revoke all on function public.duplicate_report_email_schedule(uuid) from public,
 grant execute on function public.duplicate_report_email_schedule(uuid) to authenticated;
 
 select public.attach_stamp_company_entity_id_triggers();
+
+-- New public tables and a new view: re-map Ask SILO's schema catalog, or it
+-- answers questions about these tables with stale column lists
+-- (supabase/CLAUDE.md, "New table or migration", step 5).
+select public.refresh_chat_schema_catalog();
 
 insert into storage.buckets (id, name, public)
 values ('report-email-exports', 'report-email-exports', false)

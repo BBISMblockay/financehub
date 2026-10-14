@@ -85,10 +85,20 @@ const verifySql = await readFile(new URL('../../supabase/verify_v2_schema.sql', 
 const verifyStart = verifySql.indexOf("select 'Integration bootstrap queue' as check_name,");
 assert.ok(verifyStart >= 0, 'Integration bootstrap verify block missing');
 let verifyBlock = verifySql.slice(verifyStart);
-// Later verify rows (e.g. report_email_schedules) must not ride along — one
-// statement per db.query, and each suite owns its own block.
-const verifyEnd = verifyBlock.indexOf("select 'report_email_schedules table' as check_name,");
-if (verifyEnd > 0) verifyBlock = verifyBlock.slice(0, verifyEnd);
+// Later verify rows must not ride along -- one statement per db.query, and
+// each suite owns its own block. Cut at the next top-level `select '<name>' as
+// check_name` rather than naming the row that happens to follow today: the row
+// after this one has already been renamed once (report_email_schedules ->
+// "Scheduled report CSV email"), and a stale sentinel silently stops cutting
+// and hands db.query two statements.
+const nextCheck = /\nselect '[^']+' as check_name,/.exec(verifyBlock.slice(1));
+if (nextCheck) verifyBlock = verifyBlock.slice(0, nextCheck.index + 1);
+// ...then drop the next row's leading comment block, which the cut above keeps.
+{
+  const lines = verifyBlock.split('\n');
+  while (lines.length && /^\s*(--.*)?$/.test(lines[lines.length - 1])) lines.pop();
+  verifyBlock = lines.join('\n');
+}
 verifyBlock = verifyBlock.trim();
 assert.ok(verifyBlock.length > 100 && verifyBlock.endsWith(';'), 'could not extract the verify block');
 const verifyStatus = async () => (await db.query(verifyBlock)).rows[0].status;

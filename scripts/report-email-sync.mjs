@@ -1,29 +1,42 @@
-// Nightly (and manual) runner for report_email_schedules due rows.
-// Invokes report-email-deliver per schedule with a cron secret.
+// Runner for report_email_schedules rows that are due. Invokes
+// report-email-deliver once per schedule with the cron secret.
+//
+// It CLAIMS each row before invoking: next_run_at is advanced with a
+// compare-and-swap on its current value, and a row whose swap loses is skipped.
+// Without that claim two runs that overlap -- a workflow_dispatch during a
+// scheduled run, or the same slot retried -- both select the same due row and
+// both deliver, so recipients get the export twice. next_run_at is the lease,
+// which is why the edge function no longer writes it: whoever claims the row
+// owns the next slot, whether the delivery then succeeds or fails.
 
 import { createClient } from '@supabase/supabase-js';
+import { claimSchedule } from './lib/report-email-deliver-core.mjs';
 
-const url = process.env.SUPABASE_URL;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const cronSecret = process.env.REPORT_EMAIL_CRON_SECRET || '';
-const fnBase = `${url?.replace(/\/$/, '')}/functions/v1/report-email-deliver`;
-
-if (!url || !key) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
-if (!cronSecret) {
-  console.log('[report-email] REPORT_EMAIL_CRON_SECRET unset — skipping (safe no-op)');
-  process.exit(0);
-}
-
-const sb = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+// Read at call time, not at import time, so the claim helper below is testable
+// without a live project in the environment.
+const env = () => ({
+  url: process.env.SUPABASE_URL,
+  key: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  cronSecret: process.env.REPORT_EMAIL_CRON_SECRET || '',
+});
 
 async function main() {
-  const now = new Date().toISOString();
+  const { url, key, cronSecret } = env();
+  if (!url || !key) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  if (!cronSecret) {
+    console.log('[report-email] REPORT_EMAIL_CRON_SECRET unset — skipping (safe no-op)');
+    return;
+  }
+  const fnBase = `${url.replace(/\/$/, '')}/functions/v1/report-email-deliver`;
+  const sb = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+
+  const now = new Date();
   const { data: due, error } = await sb.from('report_email_schedules')
-    .select('id, name, next_run_at')
+    .select('id, name, next_run_at, cadence_preset, timezone')
     .eq('is_active', true)
     .eq('is_paused', false)
     .not('next_run_at', 'is', null)
-    .lte('next_run_at', now);
+    .lte('next_run_at', now.toISOString());
   if (error) throw new Error(error.message);
   if (!due?.length) {
     console.log('[report-email] no schedules due');
@@ -32,10 +45,15 @@ async function main() {
   let failed = false;
   for (const row of due) {
     try {
+      if (!await claimSchedule(sb, row, now)) {
+        console.log(`[report-email] skip ${row.id} — claimed by another run`);
+        continue;
+      }
       const res = await fetch(fnBase, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${key}`,
+          apikey: key,
           'Content-Type': 'application/json',
           'x-silo-report-email-cron': cronSecret,
         },
@@ -52,7 +70,9 @@ async function main() {
   if (failed) process.exit(1);
 }
 
-main().catch((e) => {
-  console.error('[report-email]', e?.message || e);
-  process.exit(1);
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((e) => {
+    console.error('[report-email]', e?.message || e);
+    process.exit(1);
+  });
+}
