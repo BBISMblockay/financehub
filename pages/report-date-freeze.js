@@ -30,29 +30,57 @@
   // invisible and only `date '...'` was ever found.
   const LITERAL_RE = /(?:\bdate\s+)?'(\d{4}-\d{2}-\d{2})'/gi;
 
-  // The comparison a literal sits behind, which is what decides whether the
+  // The comparison a literal sits in, which is what decides whether the
   // window is inclusive. `between a and b` puts `between` before the first
   // and `and` before the second; a half-open month is `>= a ... < b`.
-  // Anything else (a cast, a select list, a function argument) reports null.
-  // No `date` keyword to step over here: LITERAL_RE has already taken it as
-  // part of the match, so what precedes the match is the operator itself.
-  const OPERATOR_RE = /(<=|>=|<|>|=|\bbetween\b|\band\b)\s*$/i;
+  //
+  // Both SIDES are read, because a bound can be written either way round:
+  //   day_date < '2026-10-01'          -- strict, in front
+  //   '2026-10-01'::date > day_date    -- the same bound, strict behind
+  // and the wrapping a hand-written query puts around a literal has to be
+  // stepped over, or the operator hides behind it:
+  //   day_date < ('2026-10-01'::date)  -- `(` is not an operator
+  // No `date` keyword to step over in front: LITERAL_RE has already taken
+  // it as part of the match.
+  const OPERATOR_RE = /(<=|>=|<>|!=|<|>|=|\bbetween\b|\band\b)\s*$/i;
+  const OPEN_RE = /[\s(]+$/;
+  // A cast and any number of closing parens, before whatever comes next.
+  const AFTER_RE = /^(?:\s|\)|::\s*[A-Za-z_][\w ]*)*/;
+  const STRICT_AFTER_RE = /^(<|>)(?!=)/;
 
   /** Every literal date in a SQL string, in order, with its position and the
-   *  comparison operator immediately in front of it. */
+   *  comparison on either side of it. `op` is what precedes it and `nextOp`
+   *  the strict operator that follows, if any; both see through parentheses
+   *  and casts. */
   function findLiterals(sql) {
     const out = [];
     const text = String(sql || '');
     LITERAL_RE.lastIndex = 0;
     let m;
     while ((m = LITERAL_RE.exec(text))) {
-      const before = text.slice(0, m.index).match(OPERATOR_RE);
+      const before = text.slice(0, m.index).replace(OPEN_RE, '').match(OPERATOR_RE);
+      const rest = text.slice(m.index + m[0].length).replace(AFTER_RE, '');
+      const after = rest.match(STRICT_AFTER_RE);
       out.push({
         match: m[0], date: m[1], index: m.index,
         op: before ? before[1].toLowerCase() : null,
+        nextOp: after ? after[1] : null,
       });
     }
     return out;
+  }
+
+  // The comparisons that put a literal ON the window, both ends included.
+  // `between` and the `and` that follows it are the two halves of a BETWEEN;
+  // null is a literal that is not a bound at all (a select list, a cast, a
+  // function argument), which has no inclusivity to get wrong.
+  const INCLUSIVE_OPS = ['>=', '<=', '=', 'between', 'and', null];
+
+  /** True when this literal's comparison is demonstrably inclusive. Anything
+   *  the detection cannot place is NOT inclusive: the rewrite refuses rather
+   *  than assuming the shape it happens to recognise. */
+  function isInclusiveBound(lit) {
+    return INCLUSIVE_OPS.includes(lit.op) && !lit.nextOp;
   }
 
   /**
@@ -157,11 +185,16 @@
     // not including the chosen end: pick Last month and the last day of the
     // month disappears. Normalising it would mean rewriting the operator as
     // well as the literal, which is a different and much larger promise.
-    // So: any literal sitting behind a STRICT inequality stops the rewrite.
-    const strict = findLiterals(list.join('\n')).filter((l) => l.op === '<' || l.op === '>');
-    if (strict.length) {
+    //
+    // So the test is POSITIVE: every literal has to be demonstrably on an
+    // inclusive bound. Listing the strict spellings to refuse is the version
+    // that leaks, because a bound can be parenthesised, cast or written back
+    // to front and each spelling has to be thought of in advance. Refusing
+    // whatever cannot be placed costs only a handoff to the report builder.
+    const unsafe = findLiterals(list.join('\n')).filter((l) => !isInclusiveBound(l));
+    if (unsafe.length) {
       return {
-        error: 'This report uses an exclusive date bound (< or >), so its two dates are not the '
+        error: 'This report\u2019s date bounds are not both inclusive, so its two dates are not the '
           + 'window they look like. Open it in the report builder to declare the parameters.',
       };
     }
@@ -187,5 +220,7 @@
     };
   }
 
-  global.SiloReportDateFreeze = { findLiterals, inspect, describe, defaultsForWindow, parameterize };
+  global.SiloReportDateFreeze = {
+    findLiterals, isInclusiveBound, inspect, describe, defaultsForWindow, parameterize,
+  };
 }(typeof window !== 'undefined' ? window : globalThis));

@@ -88,6 +88,43 @@ t('three or more dates are refused: which two are the window is a guess', () => 
   assert.ok(/3 fixed dates/.test(r.error), r.error);
 });
 
+// Cycle-2 review: listing the strict spellings to refuse leaks, because a
+// bound can be parenthesised, cast or written back to front. The test is
+// positive instead -- every literal must be demonstrably on an inclusive
+// bound -- and these are the spellings that got through the first version.
+t('a half-open bound hidden behind parentheses or a cast is still refused', () => {
+  const paren = F.parameterize([
+    "select * from t where day_date >= '2026-09-01' and day_date < ('2026-10-01'::date)"]);
+  assert.ok(paren.error && !paren.queries, JSON.stringify(paren));
+  assert.ok(/not both inclusive/.test(paren.error), paren.error);
+  assert.ok(F.parameterize([
+    "select * from t where day_date >= '2026-09-01' and day_date < (('2026-10-01'))"]).error,
+  'nested parentheses too');
+});
+
+t('a bound written back to front is refused: the operator is on the other side', () => {
+  // The same half-open month, with the literal on the left.
+  const r = F.parameterize([
+    "select * from t where day_date >= '2026-09-01' and '2026-10-01'::date > day_date"]);
+  assert.ok(r.error && !r.queries, JSON.stringify(r));
+  assert.ok(/not both inclusive/.test(r.error), r.error);
+  // And the inclusive spelling of the same shape is still fine.
+  assert.ok(!F.parameterize([
+    "select * from t where '2026-09-01' <= day_date and day_date <= '2026-09-30'"]).error);
+});
+
+t('both sides of a literal are read', () => {
+  const [lit] = F.findLiterals("where ('2026-10-01'::date) > day_date");
+  assert.equal(lit.op, null, 'nothing comparable in front of it');
+  assert.equal(lit.nextOp, '>', 'but a strict comparison behind it, through the cast and paren');
+  assert.equal(F.isInclusiveBound(lit), false);
+  assert.equal(F.isInclusiveBound({ op: '<=', nextOp: null }), true);
+  assert.equal(F.isInclusiveBound({ op: 'between', nextOp: null }), true);
+  assert.equal(F.isInclusiveBound({ op: '<', nextOp: null }), false);
+  assert.equal(F.isInclusiveBound({ op: '<>', nextOp: null }), false,
+    'not-equal is not a window bound either');
+});
+
 t('a half-open window is refused: its two dates are not the window', () => {
   // >= 1 Sep and < 1 Oct IS September, but the literals are 1 Sep and 1 Oct.
   // Rewriting them keeps the `<`, so picking Last month would then drop the
@@ -95,7 +132,7 @@ t('a half-open window is refused: its two dates are not the window', () => {
   const r = F.parameterize([
     "select * from t where day_date >= '2026-09-01' and day_date < '2026-10-01'"]);
   assert.ok(r.error && !r.queries, JSON.stringify(r));
-  assert.ok(/exclusive date bound/.test(r.error), r.error);
+  assert.ok(/not both inclusive/.test(r.error), r.error);
   // The same shape the other way round.
   assert.ok(F.parameterize([
     "select * from t where day_date > '2026-08-31' and day_date <= '2026-09-30'"]).error);
