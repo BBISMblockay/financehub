@@ -160,19 +160,35 @@
     return data;
   }
 
+  // Two reads, never a PostgREST embed. entity_memberships.user_id references
+  // auth.users(id), not public.profiles, so there is no foreign key between
+  // the two tables and `select('user_id, profiles:profiles(...)')` is a hard
+  // 400 PGRST200 ("Could not find a relationship ... in the schema cache")
+  // for every caller -- which is what made the panel's only data read throw
+  // and the button do nothing. v2/settings-team.html lists the same people
+  // the same way, and for the same reason.
   async function listMembers(sb, companyId) {
-    const { data, error } = await sb.from('entity_memberships')
-      .select('user_id, role, profiles:profiles(id, name, email, department, is_active)')
-      .eq('entity_id', companyId);
+    if (!companyId) return [];
+    const { data: memberships, error } = await sb.from('entity_memberships')
+      .select('user_id, role').eq('entity_id', companyId);
     if (error) throw error;
-    return (data || []).map((m) => ({
-      id: m.user_id,
-      role: m.role,
-      name: m.profiles?.name,
-      email: m.profiles?.email,
-      department: m.profiles?.department,
-      active: m.profiles?.is_active !== false,
-    })).filter((m) => m.active && m.email);
+    const ids = (memberships || []).map((m) => m.user_id).filter(Boolean);
+    if (!ids.length) return [];
+    const { data: profiles, error: profErr } = await sb.from('profiles')
+      .select('id, name, email, department, is_active').in('id', ids);
+    if (profErr) throw profErr;
+    const byId = new Map((profiles || []).map((p) => [p.id, p]));
+    return (memberships || []).map((m) => {
+      const p = byId.get(m.user_id) || {};
+      return {
+        id: m.user_id,
+        role: m.role,
+        name: p.name,
+        email: p.email,
+        department: p.department,
+        active: p.is_active !== false,
+      };
+    }).filter((m) => m.active && m.email);
   }
 
   global.SiloReportEmailSchedule = {
