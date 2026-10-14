@@ -729,7 +729,7 @@
                         placeholder="EAAB…" autocomplete="off" spellcheck="false" />
                     </div>
                     <div class="bcn-field-group">
-                      <label class="bcn-label" for="meta-account-id">Ad account ID (optional — Test lists accounts if blank)</label>
+                      <label class="bcn-label" for="meta-account-id">Ad account ID</label>
                       <input class="bcn-field bcn-field--mono" id="meta-account-id" type="text"
                         placeholder="act_1234567890" autocomplete="off" spellcheck="false" />
                     </div>
@@ -3057,7 +3057,7 @@
           </div>
           <div style="margin-top:6px;">
             <input class="bcn-field bcn-field--mono" style="min-width:320px;" type="password"
-              value="${escAttr(row.api_secret || '')}" placeholder="REDO_API_SECRET (optional)"
+              value="${escAttr(row.api_secret || '')}" placeholder="REDO_API_SECRET"
               onchange="updateRedoConnection({ api_secret: this.value.trim() || null })" />
           </div>
         </td>
