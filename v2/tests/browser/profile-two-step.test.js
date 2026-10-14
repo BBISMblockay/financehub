@@ -20,7 +20,15 @@ const ready = () => {
   const suite = await startSuite();
   const settle = (page) => page.waitForTimeout(250);
   const text = (page, sel) => page.evaluate((s) => document.querySelector(s).textContent.trim(), sel);
-  const hidden = (page, sel) => page.evaluate((s) => document.querySelector(s).hidden, sel);
+  // What the person SEES, not just the attribute: a `display` rule on the
+  // element's class beats the UA [hidden] rule (the setup panel shipped that
+  // way, 2026-10-14). Both must agree.
+  const hidden = (page, sel) => page.evaluate((s) => {
+    const el = document.querySelector(s);
+    const rendered = getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0;
+    if (el.hidden === rendered) throw new Error(`${s}: hidden=${el.hidden} but rendered=${rendered}`);
+    return el.hidden;
+  }, sel);
 
   const anyState = () => !!document.getElementById('mfaState') && document.readyState === 'complete';
 

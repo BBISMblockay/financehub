@@ -30,6 +30,9 @@
     .profile-feed-source { margin-top: 10px; font-size: 10px; font-family: var(--bcn-mono); color: var(--bcn-ink-3); }
     .mfa-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
     .mfa-setup { display: grid; gap: 8px; margin-top: 12px; max-width: 360px; }
+    /* display:grid beats the UA [hidden] rule; without this the empty panel
+       shows before Turn on and stays up after Confirm (beacon.css note). */
+    .mfa-setup[hidden] { display: none; }
     .mfa-qr { width: 180px; height: 180px; background: #fff; border: 1px solid var(--bcn-border); border-radius: 8px; padding: 6px; }
     #mfaSecret { word-break: break-all; }
     #mfaMsg:empty { display: none; }
