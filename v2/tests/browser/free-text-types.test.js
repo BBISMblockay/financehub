@@ -1,5 +1,6 @@
 /* Initiative Type and task Type are FREE TEXT — /v2/launch-calendar.html
- * and the Task Manager's drawer (/v2/tasks.html).
+ * and the Task Manager's drawer (/v2/tasks.html) — and the Task Manager's
+ * table names the LAUNCH a task rolls up to, and its NOTES, with no Est.
  *
  * Both columns are plain `text` in the database with no CHECK and no enum, but
  * the drawer used to offer a closed <select>. That did two things: it refused a
@@ -15,6 +16,8 @@
  *   3. the known values are still offered, as <datalist> suggestions, next to
  *      the types actually in use
  *   4. a blank initiative type is refused in the page (`channel` is NOT NULL)
+ *   5. the Task Manager table has a Launch column (derived from the task's
+ *      initiative, linking to that launch) and a Notes column, and no Est.
  */
 'use strict';
 
@@ -42,6 +45,19 @@ const TABLES = () => ({
   launch_tasks: [{
     id: 't-1', launch_id: 'l-1', task_title: 'Brief the agency',
     task_type: 'Lower Funnel', status: 'open', priority: 'normal',
+    notes: 'Agency needs the brief by Friday.', estimated_minutes: 240,
+    company_entity_id: 'test-company',
+  }, {
+    // On an initiative, with NO launch_id of its own: the Launch column has
+    // to derive it from the initiative.
+    id: 't-2', launch_id: null, channel_item_id: 'ci-1',
+    task_title: 'Record the read', task_type: 'creative',
+    status: 'open', priority: 'normal', notes: null,
+    company_entity_id: 'test-company',
+  }, {
+    // Attached to nothing at all.
+    id: 't-3', launch_id: null, task_title: 'Tidy the shared drive',
+    task_type: null, status: 'open', priority: 'low', notes: null,
     company_entity_id: 'test-company',
   }],
   launch_assets: [], launch_comments: [], launch_system_links: [],
@@ -171,6 +187,42 @@ const tab = async (page, name) => {
     R.eq(await tm.$eval('#dType', (e) => e.getAttribute('list')), 'dTypeList', 'it is wired to a datalist');
     const tmOpts = await tm.$$eval('#dTypeList option', (os) => os.map((o) => o.value));
     R.ok('a type already in use is suggested', tmOpts.includes('Lower Funnel'));
+
+    // ── the table names the launch and the notes, and no estimate ───────
+    const headers = await tm.$$eval('#tasksTable thead th', (ths) => ths.map((t) => t.textContent.trim()));
+    R.test('the table has Launch and Notes columns and no Est.', async () => {});
+    R.ok('Launch is a column', headers.includes('Launch'));
+    R.ok('Notes is a column', headers.includes('Notes'));
+    R.ok('Est. is gone', !headers.some((h) => /^Est/i.test(h)));
+    R.ok('Attached to is still there', headers.includes('Attached to'));
+
+    const row = (id) => tm.$$eval(`#tasksTbody tr[data-task-id="${id}"] td`,
+      (tds) => tds.map((td) => ({ text: td.textContent.trim(), href: td.querySelector('a') && td.querySelector('a').getAttribute('href') })));
+    // The Order column's <th> is always present (hidden by CSS in the All
+    // Tasks view) but its <td> is only rendered for one person's list, so
+    // line the two up by the difference rather than by a fixed offset.
+    const col = (cells, name) => cells[headers.indexOf(name) - (headers.length - cells.length)];
+
+    const direct = await row('t-1');
+    R.test('a task on a launch names that launch, and shows its notes', async () => {});
+    R.eq(col(direct, 'Launch').text, 'Fall Drop', 'launch cell');
+    R.has(col(direct, 'Launch').href || '', 'launch=l-1', 'the launch cell links to the launch');
+    R.eq(col(direct, 'Notes').text, 'Agency needs the brief by Friday.', 'notes cell');
+    R.not(direct.map((c) => c.text).join('|'), '4h', 'no estimate is rendered');
+
+    const viaInit = await row('t-2');
+    R.test('a task on an initiative still names the launch underneath it', async () => {});
+    R.has(col(viaInit, 'Attached to').text, 'Podcast read', 'the initiative is named');
+    R.eq(col(viaInit, 'Launch').text, 'Fall Drop', 'the launch is derived from the initiative');
+    R.has(col(viaInit, 'Launch').href || '', 'launch=l-1', 'and still links there');
+    R.eq(col(viaInit, 'Notes').text, '\u2014', 'a task with no notes shows a dash');
+
+    const evergreen = await row('t-3');
+    R.test('an evergreen task belongs to no launch', async () => {});
+    R.eq(col(evergreen, 'Attached to').text, 'Evergreen', 'attached to nothing');
+    R.eq(col(evergreen, 'Launch').text, '\u2014', 'no launch');
+    R.eq(col(evergreen, 'Launch').href, null, 'and no link to one');
+
     await tm.close();
   } catch (err) {
     R.ok('suite ran without throwing', false, err && err.stack);
