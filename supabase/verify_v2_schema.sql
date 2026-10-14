@@ -6168,7 +6168,7 @@ select 'On Deck action loop' as check_name, case when
  and to_regprocedure('public.on_deck_review_state()') is not null
  then 'ok' else 'MISSING' end as status;
 
--- Posted-period reclass (20261013180000): the record is client-read-only, the
+-- Posted-period reclass (20261013180000, 20261014020000): the record is client-read-only, the
 -- staging RPC is not anon-callable, and the adjustment/reopen guards are attached.
 select 'Posted transaction reclass' as check_name,
  case when to_regclass('public.card_transaction_reclasses') is null
@@ -6191,6 +6191,8 @@ select 'Posted transaction reclass' as check_name,
    then 'STALE — re-run 20261013180000_card_transaction_reclass.sql: a reclass reverses the row''s own location instead of the location its period posted with'
   when has_function_privilege('anon', 'public.card_transaction_reclass_from(uuid)', 'execute')
    then 'CRITICAL: anon can call the reclass resolver'
+  when position('moves through a clearing account' in coalesce(pg_get_functiondef(to_regprocedure('public.stage_card_transaction_reclass(uuid,text,text,text,text,date,text)')), '')) = 0
+   then 'STALE — run 20261014020000_card_reclass_all_bank_treatments.sql: posted bank transfers, card payments and deposits cannot be reclassified'
   else 'ok' end as status;
 -- End posted transaction reclass checks.
 
