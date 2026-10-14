@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       # `npm install`, not `npm ci`: there is no root package-lock.json. The
       # first version of this workflow had NO install step, so the very first
       # scheduled run would have died on ERR_MODULE_NOT_FOUND for
