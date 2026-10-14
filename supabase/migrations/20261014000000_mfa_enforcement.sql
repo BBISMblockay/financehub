@@ -68,7 +68,10 @@ begin
         'code', 'mfa_required',
         'message', 'Enter the code from your authenticator app to continue.',
         'hint', 'Sign in again to finish two-step login.')::text,
-      detail = json_build_object('status', 403)::text;
+      -- PostgREST parses DETAIL with `status` AND `headers` both required
+      -- (PgRaiseErrDetails, v12-v14); without headers it answers 500 PGRST121
+      -- instead of this 403. Supabase's docs show an example without it.
+      detail = json_build_object('status', 403, 'headers', json_build_object())::text;
   end if;
 end;
 $$;

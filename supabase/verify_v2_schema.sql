@@ -6695,6 +6695,8 @@ select 'Two-step login enforced by the server' as check_name,
    or pg_get_functiondef(to_regprocedure('public.mfa_session_satisfied()')) !~ 'status = ''verified'''
    or pg_get_functiondef(to_regprocedure('public.silo_check_request()')) !~ 'mfa_session_satisfied\(\)'
   then 'CRITICAL: the two-step check no longer requires aal2 for a verified factor'
+ when pg_get_functiondef(to_regprocedure('public.silo_check_request()')) !~ '''headers'''
+  then 'CRITICAL: silo_check_request() raises without the headers PostgREST requires -- an enrolled user gets HTTP 500, not 403 mfa_required'
  else 'ok' end as status;
 
 -- =============================================================================

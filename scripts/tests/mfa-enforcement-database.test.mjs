@@ -14,7 +14,7 @@
 // request.jwt.claims setting PostgREST sets before the hook runs), and the
 // auth.mfa_factors columns the check reads. PostgREST itself is not run.
 //
-// Mutations: MFA_DB_MUTATION=any-factor | ignore-aal | no-storage-check
+// Mutations: MFA_DB_MUTATION=any-factor | ignore-aal | no-storage-check | no-headers
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
@@ -33,6 +33,7 @@ let sql = await readFile(new URL('../../supabase/migrations/20261014000000_mfa_e
 if (MUT === 'any-factor') sql = sql.replace("and f.status = 'verified'", '');
 if (MUT === 'ignore-aal') sql = sql.replace("coalesce((select auth.jwt() ->> 'aal'), 'aal1') = 'aal2'", 'true');
 if (MUT === 'no-storage-check') sql = sql.replace("using ((select public.mfa_session_satisfied()))\n  with check ((select public.mfa_session_satisfied()));", 'using (true) with check (true);');
+if (MUT === 'no-headers') sql = sql.replace("json_build_object('status', 403, 'headers', json_build_object())", "json_build_object('status', 403)");
 const verifyAll = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
 const V = verifyAll.slice(verifyAll.indexOf("select 'Two-step login enforced by the server'"));
 const verify = async () => (await q(V.slice(0, V.indexOf(';\n') + 1)))[0].status;
@@ -91,8 +92,18 @@ await test('an enrolled user with only a password is refused: PGRST, 403, mfa_re
   const err = await as(session(ENROLLED, 'aal1'), () => hook().then(() => null, (e) => e));
   assert.ok(err, 'refused');
   assert.equal(err.code, 'PGRST');
-  assert.equal(JSON.parse(err.message).code, 'mfa_required');
-  assert.equal(JSON.parse(err.detail).status, 403);
+  // PostgREST turns this into HTTP only if MESSAGE and DETAIL parse as its
+  // PgRaiseErrMessage / PgRaiseErrDetails (Error.hs, v12-v14): message needs
+  // string `code` and `message`; detail needs integer `status` AND an object
+  // `headers` of strings. A missing field is HTTP 500 PGRST121, not this 403.
+  const message = JSON.parse(err.message);
+  const detail = JSON.parse(err.detail);
+  assert.equal(typeof message.code, 'string');
+  assert.equal(message.code, 'mfa_required');
+  assert.equal(typeof message.message, 'string');
+  assert.ok(Number.isInteger(detail.status) && detail.status === 403);
+  assert.ok(detail.headers && typeof detail.headers === 'object' && !Array.isArray(detail.headers), 'detail.headers is required');
+  assert.ok(Object.values(detail.headers).every((v) => typeof v === 'string'));
   // A token with no aal claim at all is aal1 too.
   const noAal = await as({ role: 'authenticated', sub: ENROLLED }, () => hook().then(() => null, (e) => e));
   assert.ok(noAal, 'missing aal claim is not a pass');
@@ -129,6 +140,10 @@ await test('verify: ok applied; CRITICAL when the hook or the storage policy is 
   await db.exec(`create policy mfa_session_required on storage.objects for all to authenticated using (true)`);
   assert.match(await verify(), /CRITICAL: storage\.objects/, 'a PERMISSIVE policy by that name is not the check');
   await db.exec('drop policy mfa_session_required on storage.objects; drop policy mfa_session_required_loose on storage.objects');
+  await db.exec(sql);
+  assert.equal(await verify(), 'ok');
+  await db.exec(sql.replace("json_build_object('status', 403, 'headers', json_build_object())", "json_build_object('status', 403)"));
+  assert.match(await verify(), /CRITICAL: silo_check_request\(\) raises without the headers/);
   await db.exec(sql);
   assert.equal(await verify(), 'ok');
 });

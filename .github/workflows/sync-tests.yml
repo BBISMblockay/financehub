@@ -1692,7 +1692,7 @@ jobs:
         run: |
           set -u
           node scripts/tests/mfa-enforcement-database.test.mjs
-          for m in any-factor ignore-aal no-storage-check; do
+          for m in any-factor ignore-aal no-storage-check no-headers; do
             if MFA_DB_MUTATION="$m" node scripts/tests/mfa-enforcement-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite"; exit 1
             fi
