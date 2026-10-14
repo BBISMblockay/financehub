@@ -91,6 +91,14 @@
     .cc-desc { max-width: 320px; overflow: hidden; text-overflow: ellipsis;
       white-space: nowrap; }
     .cc-note { font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-3); }
+    /* QuickBooks is a second, separate state from SILO's own: a row can be
+       categorized in SILO and absent from the books. It reads as a status
+       line, not a note, because it is the answer to "is this in QuickBooks". */
+    .txn-qbo-state { margin: 0 0 10px; font-family: var(--bcn-mono); font-size: 10.5px;
+      line-height: 1.5; color: var(--bcn-ink-2); background: var(--bcn-band);
+      border-left: 2px solid var(--bcn-ink-3); border-radius: 0 4px 4px 0; padding: 7px 10px; }
+    .txn-qbo-state b { color: var(--bcn-ink); letter-spacing: .04em; text-transform: uppercase;
+      font-size: 9.5px; margin-right: 6px; }
 
     .cc-row--excluded td { opacity: .45; }
     .cc-row--excluded .cc-desc { text-decoration: line-through; }
@@ -2009,13 +2017,131 @@
       : 'Categorized in SILO · saved on this import';
   }
 
+  /* ------------------------------------------------- where QuickBooks stands
+
+     SILO never sends anything to QuickBooks on its own: there is no cron and no
+     background pusher, and quickbooks-post-journal only runs when a person
+     approves a period and then posts it. So a row coded months ago is still
+     absent from QuickBooks while its period is a draft -- which is exactly how
+     a July recode stayed invisible until someone went looking (2026-10-14), and
+     how two closed months sat fully coded and unposted. "Categorized in SILO"
+     is true of that row and says nothing about the books, so the panel now
+     carries a second, separate state for QuickBooks.
+
+     Every branch reads only fields BATCH_FIELDS already loads. Nothing here
+     queries, approves or sends. */
+  const isInQuickBooks = (b) => !!b && (b.status === 'posted' || b.posting_status === 'posted');
+
+  /* A post was sent and its outcome is not settled. quickbooks-post-journal
+     claims the posting BEFORE it calls Intuit, so 'submitting' and 'unknown'
+     mean the entry may or may not exist in QuickBooks -- and a readback can
+     leave a qbo_journal_entry_id on a posting that is still unknown, which is
+     why the id alone is never read as "it is in the books". Neither state may
+     be stated as present or absent. A void clears the batch's posting_id
+     outright (void_card_posting), so a voided batch reads as not posted. */
+  const postingUnsettled = (b) => ['submitting', 'unknown'].includes(b?.posting_status);
+
+  // The month a reader recognises. An import with no period keeps its own label
+  // rather than becoming an anonymous "this period".
+  const periodLabel = (b) => {
+    if (!b) return 'this period';
+    if (!b.period_start) return b.label || 'this period';
+    const d = new Date(`${b.period_start}T00:00:00`);
+    return isNaN(d) ? (b.label || 'this period')
+      : d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+
+  /* A period whose last day has passed. This is the line between "nobody has
+     closed October yet", which needs no comment, and "July is over and still a
+     draft", which is the state worth saying out loud. */
+  const periodClosed = (b) => {
+    if (!b?.period_end) return false;
+    // The reader's own day, not UTC: on the last evening of a month in Pacific
+    // it is already the next month in UTC, and the month SILO is standing in
+    // must not read as closed while the people closing it are still in it.
+    return b.period_end < new Date().toLocaleDateString('en-CA');
+  };
+
+  /* One sentence: in QuickBooks, or not in QuickBooks and what has to happen.
+     Never both, and never a guess -- a posted period whose reclasses could not
+     be read does not know which account holds the amount, so it says so. */
+  function quickbooksStateLine(t) {
+    const b = batchFor(t);
+    if (!b) return '';
+    if (t.status === 'excluded') return 'Not in QuickBooks — excluded from this period’s entry';
+    if (isInQuickBooks(b)) {
+      const ref = b.qbo_doc_number || b.qbo_journal_entry_id;
+      const entry = ref ? ` — journal entry ${ref}` : '';
+      if (reclassError) {
+        return `In QuickBooks${entry}. Its reclasses could not be read, so which account holds the amount now is unknown — reload before relying on it.`;
+      }
+      const moved = window.SiloReclass?.current(reclassesFor(t));
+      return moved
+        ? `In QuickBooks on ${moved.to_qbo_account_name || moved.to_qbo_account_id} — moved there by a posted reclass${entry}`
+        : `In QuickBooks${entry}`;
+    }
+    const period = periodLabel(b);
+    if (!b.source_posting_enabled) {
+      return `Not in QuickBooks — QuickBooks posting is off for ${b.source_name || 'this account'}`;
+    }
+    if (t.status === 'uncoded') {
+      return `Not in QuickBooks — categorize it first, then ${period} has to be approved and posted`;
+    }
+    if (postingUnsettled(b)) {
+      return `Unknown — a post was sent for ${period} and QuickBooks never confirmed it. SILO has locked the entry so it cannot post twice; check QuickBooks, then resolve it on this period.`;
+    }
+    if (b.posting_status === 'failed') {
+      return `Not in QuickBooks — the last post of ${period} was refused by QuickBooks. Fix what it reports on this period, then post it again.`;
+    }
+    if (b.status === 'approved') {
+      return `Not in QuickBooks — ${period} is approved in SILO but has not been sent yet`;
+    }
+    return `Not in QuickBooks — ${period} is still a draft in SILO, and has to be approved and then posted`;
+  }
+
+  /* The QuickBooks step of the workflow strip. It used to say "Approval
+     required" for every unposted state, which read the same for a month waiting
+     on its last uncoded row as for a finished month nobody had approved -- so
+     neither stood out. */
+  function quickbooksStepDetail(batches) {
+    if (!batches.length) return 'No period open';
+    if (batches.every(isInQuickBooks)) return 'Posted';
+    const waiting = batches.filter((b) => !isInQuickBooks(b));
+    // card_import_batches_v carries the source's own switch per batch. Reading
+    // it from the batch means a source list that has not resolved yet cannot
+    // make a postable account look switched off.
+    if (waiting.every((b) => b.source_posting_enabled === false)) return 'Off for account';
+    if (waiting.some(postingUnsettled)) return 'Posting outcome unconfirmed';
+    if (waiting.some((b) => b.posting_status === 'failed')) return 'Last post refused by QuickBooks';
+    if (waiting.every((b) => b.status === 'approved')) return 'Approved — not sent yet';
+    const ready = waiting.filter((b) => periodClosed(b) && !Number(b.uncoded_count));
+    if (ready.length) return `Not sent — approve ${ready.map(periodLabel).join(', ')}`;
+    if (waiting.some((b) => Number(b.uncoded_count) > 0)) return 'Waiting on categorizing';
+    return 'Approval required';
+  }
+
+  /* What a save says. A recode in a closed month that is still unposted has not
+     reached QuickBooks, and the old "Saved 1 row." let that pass unmentioned. An
+     open month is left alone: nobody expects the current month in the books. */
+  function savedCodingMessage(saved, rows) {
+    const base = `Saved ${saved} row${saved === 1 ? '' : 's'}.`;
+    const periods = [...new Map((rows || [])
+      .map((t) => batchFor(t))
+      .filter((b) => b && ['draft', 'categorized'].includes(b.status)
+        && !isInQuickBooks(b) && !postingUnsettled(b) && periodClosed(b))
+      .map((b) => [b.id, b])).values()];
+    if (!periods.length) return base;
+    const names = periods.map(periodLabel).join(', ');
+    return `${base} Not in QuickBooks yet — ${names} ${periods.length === 1 ? 'has' : 'have'} to be approved and posted.`;
+  }
+
   function transactionDetailInner(t) {
     const suggestion = liveSuggestion(t);
     const suggestedCategory = suggestion?.kind === 'ready' && resolveSuggestedAccount(t, suggestion);
     const importCount = dateBrowse ? reviewDateRows().length : (state.txns?.length || 0);
     const journalLabel = dateBrowse ? 'Review import journal' : `Review full import journal (${importCount} rows)`;
     return `<section class="txn-explanation"><h3>${suggestedCategory ? 'Suggested category' : 'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p class="txn-detail-description">${t.origin === 'plaid' && !bank.isAvailable(t) ? esc(providerNote(t)) + ' · ' : ''}${esc(t.description)}</p><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-raw>Source details</button><button class="bcn-btn" type="button" data-journal title="Opens the Journal entry preview for this entire import — every row in the batch, not just this transaction">${esc(journalLabel)}</button><button class="bcn-btn" type="button" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></div></section>
-        <section><h3>Accounting details</h3>${t.origin === 'plaid' ? `<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>${(g => g ? `<p class="cc-note">${esc(g.reason)}.${g.choices.length ? ' Approval accepts: ' + esc(g.choices.map(c => TREATMENTS[c]).join(', ')) + '.' : ''}</p>` : '')(treatmentGapFor(t))}` : ''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : cellButton(t.qbo_location_name, 'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : entityCell(t)}</td></tr></tbody></table><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-toggle-exclude>${t.status === 'excluded' ? 'Include transaction' : 'Exclude transaction'}</button><button class="bcn-btn" type="button" data-split title="Code this transaction across several accounts">${isSplit(t) ? 'Edit split' : 'Split across accounts'}</button></div></section>${reclassSection(t)}`;
+        <section><h3>Accounting details</h3>${(line => line ? `<p class="txn-qbo-state"><b>QuickBooks</b> ${esc(line)}</p>` : '')(quickbooksStateLine(t))}${t.origin === 'plaid' ? `<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>${(g => g ? `<p class="cc-note">${esc(g.reason)}.${g.choices.length ? ' Approval accepts: ' + esc(g.choices.map(c => TREATMENTS[c]).join(', ')) + '.' : ''}</p>` : '')(treatmentGapFor(t))}` : ''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : cellButton(t.qbo_location_name, 'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : entityCell(t)}</td></tr></tbody></table><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-toggle-exclude>${t.status === 'excluded' ? 'Include transaction' : 'Exclude transaction'}</button><button class="bcn-btn" type="button" data-split title="Code this transaction across several accounts">${isSplit(t) ? 'Edit split' : 'Split across accounts'}</button></div></section>${reclassSection(t)}`;
   }
 
   function renderTxnDetailDrawer() {
@@ -2552,12 +2678,14 @@
   function renderWorkflow(rows, batches) {
     const s=window.SiloTransactionDates.summary(rows);
     const reviewed=batches.length>0 && batches.every(b=>['approved','posted'].includes(b.status));
-    const posted=batches.length>0 && batches.every(b=>b.posting_status==='posted' || b.qbo_journal_entry_id);
+    // The tick and the text must agree: both read isInQuickBooks, so an
+    // unconfirmed post cannot show a completed step next to "unconfirmed".
+    const posted=batches.length>0 && batches.every(isInQuickBooks);
     el('transactionFlow').innerHTML=[
       ['Imported', `${s.count} transactions`, !!s.count],
       ['Categorized', `${s.coded} of ${s.count}`, !!s.count && s.uncoded===0],
       ['Human review', reviewed?'Approved':dateBrowse?'Open a transaction to review':(state.batch?.status || 'Not started'), reviewed],
-      ['QuickBooks posting', posted?'Posted':batchSource()?.posting_enabled?'Approval required':'Off for account',posted],
+      ['QuickBooks posting', quickbooksStepDetail(batches), posted],
     ].map(([title,detail,done],i)=>`<div class="txn-flow-step"><span class="txn-flow-dot ${done?'is-done':''}">${done?'✓':i+1}</span><span><b>${esc(title)}</b><small>${esc(detail)}</small></span></div>`).join('');
   }
   function dateAiCandidates() {
@@ -3269,7 +3397,8 @@
       }
 
       state.dirty.clear();
-      setStatus(`Saved ${saved} row${saved === 1 ? '' : 's'}.`, 'pos', 4000);
+      const savedMessage = savedCodingMessage(saved, dirtyRows);
+      setStatus(savedMessage, 'pos', savedMessage.includes('QuickBooks') ? 12000 : 4000);
       if(dateBrowse)journalPreviewBatch=null;
       if(dateBrowse && state.batch) {
         const updates=new Map(dirtyRows.map(t=>[t.id,t]));state.txns=state.txns.map(t=>updates.has(t.id)?{...t,...updates.get(t.id)}:t);

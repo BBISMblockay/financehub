@@ -505,6 +505,12 @@ jobs:
       - name: Account workspace states and cutover confirmation
         run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
 
+      # What Transactions says about QuickBooks. A coded row is in the books
+      # only once its period is approved and posted, and nothing on the row used
+      # to say so -- a July recode sat unseen for a month (2026-10-14).
+      - name: Transactions QuickBooks state
+        run: node --test scripts/tests/transactions-qbo-state.test.mjs
+
       - name: Accounting suite navigation and legacy routes
         run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/accounting-ledger.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs scripts/tests/transaction-reclass-ui.test.mjs scripts/tests/no-unqualified-delete.test.mjs
 

@@ -81,6 +81,14 @@ dialog defaults to it.
 
   If a later reclass of the same transaction is active, undo that one first.
 
+## Telling whether a row reached QuickBooks at all
+
+A reclass only exists for a POSTED period. A row in a period that was never
+posted is edited directly, and until 2026-10-14 nothing said that such an edit
+had not reached QuickBooks. The transaction panel now carries its own QuickBooks
+state for every row, posted or not: see
+[transactions-quickbooks-state.md](transactions-quickbooks-state.md).
+
 ## Not in the SILO ledger
 
 A reclass is a journal adjustment, not a `ledger_entries` row. Books → Ledger already counts every
