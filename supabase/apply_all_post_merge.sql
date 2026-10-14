@@ -19238,4 +19238,8 @@ $c$select (select count(*) from v_po_header_summary
 -- private export bucket. Must come AFTER 20260925120000 (dashboards) and
 -- 20260918120000 (entity memberships).
 \i migrations/20261013180000_report_email_schedules.sql
+-- Adds the 'email' recipient kind so a schedule can also reach an address
+-- outside the workspace. Replaces resolve_report_email_recipients() only, so
+-- it must come after the migration that creates it.
+\i migrations/20261014060000_report_email_external_recipients.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

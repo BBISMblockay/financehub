@@ -40,6 +40,8 @@ on:
       - 'supabase/migrations/*security_audit_db_hardening.sql'
       - 'supabase/migrations/*integration_bootstrap_jobs.sql'
       - 'supabase/migrations/*mfa_enforcement.sql'
+      # Scheduled report email recipients (report-email-recipients-database.test.mjs).
+      - 'supabase/migrations/*report_email_*.sql'
       - 'supabase/functions/comp-request-notify/**'
       - 'supabase/functions/google-oauth-start/**'
       - 'supabase/functions/org-invite-send/**'
@@ -1736,6 +1738,21 @@ jobs:
       # message the fallback reads, and the guard's signal tracks the keys.
       - name: Shopify order facts per company -- migration
         run: node scripts/tests/shopify-order-facts-per-company-database.test.mjs
+
+      # Scheduled report email, outside recipients (20261014060000) on real
+      # Postgres: the 'email' kind resolves, a malformed address is skipped
+      # without taking the rest of the list with it, the three existing kinds
+      # and the authorization check are untouched, and verify reads MISSING
+      # before the migration and ok after it.
+      - name: Report email outside recipients -- migration
+        run: |
+          set -u
+          node scripts/tests/report-email-recipients-database.test.mjs
+          for m in no-email-branch no-validation no-auth-check; do
+            if REPORT_EMAIL_DB_MUTATION="$m" node scripts/tests/report-email-recipients-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite"; exit 1
+            fi
+          done
 
       # Two-step login enforced by the server (20261014000000) on real Postgres:
       # the Data API hook refuses only an enrolled user's aal1 session, Storage

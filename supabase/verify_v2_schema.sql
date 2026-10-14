@@ -6854,7 +6854,11 @@ select 'Scheduled report CSV email' as check_name,
       then 'CRITICAL — row level security is OFF on a report email table; every workspace can read every other workspace''s schedules and recipient lists'
     when (select count(*) from pg_policies
           where schemaname = 'public' and tablename = 'report_email_schedules'
-            and qual || coalesce(with_check, '') like '%active_company_id()%') < 4
+            -- coalesce BOTH: an INSERT policy has a null qual, so
+            -- `qual || with_check` is null and the policy did not count --
+            -- the check read CRITICAL on a correct database (production,
+            -- 2026-10-14: 3 counted, 4 present).
+            and coalesce(qual, '') || coalesce(with_check, '') like '%active_company_id()%') < 4
       then 'CRITICAL — a report_email_schedules policy no longer scopes to active_company_id(); expected all four (select/insert/update/delete) to carry it'
     when exists (select 1 from information_schema.routine_privileges
                  where routine_schema = 'public'
@@ -6866,5 +6870,14 @@ select 'Scheduled report CSV email' as check_name,
     when not exists (select 1 from information_schema.views
                      where table_schema = 'public' and table_name = 'report_email_schedules_v')
       then 'MISSING — report_email_schedules_v is gone; the Scheduled email tab reads it'
+    -- The resolver is the ONLY recipient path, so a replacement that dropped
+    -- the 'email' branch would silently stop every outside recipient without
+    -- failing a run: the schedule keeps its addresses and the mail just never
+    -- reaches them.
+    when (select pg_get_functiondef(p.oid) from pg_proc p
+          join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and p.proname = 'resolve_report_email_recipients'
+          limit 1) not like '%v_kind = ''email''%'
+      then 'MISSING — resolve_report_email_recipients() has no ''email'' branch; run 20261014060000_report_email_external_recipients.sql, or outside recipients are silently dropped'
     else 'ok'
   end as status;

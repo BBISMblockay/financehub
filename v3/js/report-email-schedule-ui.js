@@ -11,6 +11,8 @@
 
   function renderPanel(ctx) {
     const r = ctx.recipients || S().defaultRecipients();
+    const outside = r.filter((x) => x.kind === 'email' && x.value).map((x) => x.value).join(', ');
+    const editing = !!ctx.scheduleId;
     const adminBox = r.some((x) => x.kind === 'workspace_admins') ? 'checked' : '';
     const deptChecks = S().DEPARTMENTS.map((d) => {
       const on = r.some((x) => x.kind === 'department' && x.value === d);
@@ -27,7 +29,10 @@
     }).join('')}</div>` : '';
 
     return `<div class="res-panel" id="reportEmailPanel">
-      <div class="res-head"><h2>Email CSV on schedule</h2><p>Full export as attachments (or download links when very large). Admins only.</p></div>
+      <div class="res-head"><h2>${editing ? 'Edit scheduled email' : 'Email CSV on schedule'}</h2>
+        <p>${editing
+          ? 'Editing the schedule that already exists for this report. Saving replaces it rather than adding a second one.'
+          : 'Full export as attachments (or download links when very large). Admins only.'}</p></div>
       <div class="res-body">
         <div class="res-field"><span class="res-label">How often</span>
           <select class="bcn-field res-cadence">${cadenceOptions(ctx.cadence_preset || 'weekdays_0700')}</select>
@@ -37,6 +42,11 @@
           ${deptChecks}
           <div class="res-people">${people}</div>
         </div>
+        <div class="res-field"><span class="res-label">Also send outside the workspace</span>
+          <textarea class="bcn-field res-external" id="resExternal" rows="2"
+            placeholder="accountant@firm.com, buyer@store.com">${esc(outside)}</textarea>
+          <p class="res-note">One or more addresses, separated by commas or new lines. These
+            people have no SILO account, so they get the same export by email and nothing else.</p></div>
         ${qPick}
         <div class="res-field"><span class="res-label">Subject</span>
           <input class="bcn-field res-subject" value="${esc(ctx.subject_template || S().defaultSubject(ctx.title))}" /></div>
@@ -52,6 +62,8 @@
     </div>`;
   }
 
+  /** Throws on a malformed address, so a typo is caught where it can still
+   *  be corrected rather than silently dropped by the resolver at send time. */
   function readRecipients(root) {
     const out = [];
     if (root.querySelector('#resAdmins')?.checked) out.push({ kind: 'workspace_admins' });
@@ -61,6 +73,11 @@
     root.querySelectorAll('[data-profile]').forEach((el) => {
       if (el.checked) out.push({ kind: 'profile', id: el.getAttribute('data-profile') });
     });
+    const { emails, invalid } = S().parseEmailList(root.querySelector('#resExternal')?.value);
+    if (invalid.length) {
+      throw new Error(`Not an email address: ${invalid.slice(0, 3).join(', ')}`);
+    }
+    for (const email of emails) out.push({ kind: 'email', value: email });
     if (!out.length) out.push({ kind: 'workspace_admins' });
     return out;
   }
@@ -72,26 +89,69 @@
     return picked.length ? picked : null;
   }
 
-  function renderManageTable(rows) {
-    if (!rows.length) return '<div class="lib-empty"><strong>No scheduled email yet</strong>Create one from any report preview or the report builder.</div>';
-    const tr = rows.map((s) => `<tr>
-      <td><strong>${esc(s.target_title || s.name || 'Untitled')}</strong><br><span class="res-note">${esc(s.target_kind)}</span></td>
-      <td class="bcn-mono">${esc(s.cadence_preset || '')}</td>
-      <td>${esc(s.subscriber_count ? `${s.subscriber_count} subs` : JSON.stringify(s.recipients || []).slice(0, 40))}</td>
-      <td class="bcn-mono">${s.last_run_at ? esc(new Date(s.last_run_at).toLocaleString()) : '—'} · ${esc(s.last_run_status || '')}</td>
-      <td class="bcn-mono">${s.next_run_at ? esc(new Date(s.next_run_at).toLocaleDateString()) : '—'}</td>
-      <td>${s.is_paused ? 'Paused' : (s.is_active ? 'On' : 'Off')}</td>
+  const DATE = { month: 'numeric', day: 'numeric' };
+  const DATETIME = { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+  const when = (iso, opts) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString(undefined, opts);
+  };
+
+  /** The run status as a word, not a raw enum. A schedule that has never run
+      says so rather than showing an empty cell next to a date that is also
+      empty, which reads as broken. */
+  function lastRunCell(row) {
+    if (!row.last_run_at) return '<span class="res-dim">Not sent yet</span>';
+    const status = String(row.last_run_status || '');
+    const tone = status === 'failed' ? 'neg' : status === 'succeeded' ? 'pos' : '';
+    const label = status === 'succeeded' ? 'Sent' : status === 'failed' ? 'Failed' : status || 'Sent';
+    return `${esc(when(row.last_run_at, DATETIME))} <span class="res-tag${tone ? ' res-tag--' + tone : ''}">${esc(label)}</span>`;
+  }
+
+  function stateCell(row) {
+    if (row.is_paused) return '<span class="res-tag">Paused</span>';
+    if (!row.is_active) return '<span class="res-tag">Off</span>';
+    return '<span class="res-tag res-tag--pos">On</span>';
+  }
+
+  /** `members` names the people a schedule sends to; without it the summary
+      still renders, just without their names. */
+  function renderManageTable(rows, members) {
+    if (!rows.length) {
+      return `<div class="lib-empty"><strong>No scheduled email yet</strong>
+        Open any saved report, then <em>Email CSV on schedule</em> in the preview header.</div>`;
+    }
+    const tr = rows.map((s2) => `<tr>
+      <td><strong>${esc(s2.target_title || s2.name || 'Untitled')}</strong>
+        <div class="res-dim">${esc(s2.target_kind === 'dashboard' ? 'Dashboard' : 'Report')}</div></td>
+      <td>${esc(S().cadenceLabel(s2.cadence_preset))}</td>
+      <td>${esc(S().recipientSummary(s2.recipients, members))}${s2.subscriber_count
+        ? ` <span class="res-dim">+ ${esc(s2.subscriber_count)} subscribed</span>` : ''}</td>
+      <td>${lastRunCell(s2)}</td>
+      <td>${esc(when(s2.next_run_at, DATE))}</td>
+      <td>${stateCell(s2)}</td>
       <td class="res-actions">
-        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--sm" data-edit="${esc(s.id)}">Edit</button>
-        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--sm" data-run="${esc(s.id)}">Run now</button>
-        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--sm" data-dup="${esc(s.id)}">Duplicate</button>
+        <button type="button" class="bcn-btn bcn-btn--sm" data-edit="${esc(s2.id)}">Edit</button>
+        <button type="button" class="bcn-btn bcn-btn--sm" data-run="${esc(s2.id)}">Send now</button>
+        <button type="button" class="bcn-btn bcn-btn--sm" data-dup="${esc(s2.id)}">Duplicate</button>
+        <button type="button" class="bcn-btn bcn-btn--sm bcn-btn--danger" data-del="${esc(s2.id)}">Delete</button>
       </td></tr>`).join('');
-    return `<div class="bcn-card"><div class="bcn-card-body" style="padding:0"><table class="bcn-table"><thead><tr>
-      <th>Target</th><th>Cadence</th><th>Recipients</th><th>Last sent</th><th>Next</th><th>Status</th><th></th>
+    // Beacon's th is right-aligned by default and needs bcn-th-left for a
+    // text column; table-layout is fixed, so the widths have to be stated.
+    return `<div class="bcn-card"><div class="bcn-card-body" style="padding:0">
+      <table class="bcn-table res-table"><thead><tr>
+      <th class="bcn-th-left">Report</th>
+      <th class="bcn-th-left">How often</th>
+      <th class="bcn-th-left">Goes to</th>
+      <th class="bcn-th-left">Last sent</th>
+      <th class="bcn-th-left">Next</th>
+      <th class="bcn-th-left">Status</th>
+      <th class="bcn-th-left"><span class="res-sr">Actions</span></th>
     </tr></thead><tbody>${tr}</tbody></table></div></div>`;
   }
 
   global.SiloReportEmailScheduleUI = {
     renderPanel, readRecipients, readQueryIndices, renderManageTable,
+    recipientSummary: (r, m) => S().recipientSummary(r, m),
   };
 }(typeof window !== 'undefined' ? window : globalThis));

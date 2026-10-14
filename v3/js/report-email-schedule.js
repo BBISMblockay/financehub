@@ -34,11 +34,87 @@
     return [{ kind: 'workspace_admins' }];
   }
 
+  function cadenceLabel(id) {
+    return CADENCE.find((c) => c.id === id)?.label || id || '';
+  }
+
+  // Addresses outside the workspace. Deliberately permissive about what an
+  // address may contain and strict about what separates two of them, because
+  // the cost of refusing a real address is a feature that does not work and
+  // the cost of accepting a malformed one is a bounced send. The same shape
+  // is checked again in resolve_report_email_recipients(), which skips an
+  // entry it cannot parse.
+  const EMAIL_RE = /^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$/i;
+
+  /** Split a free-text box into { emails, invalid }. Commas, semicolons,
+   *  whitespace and newlines all separate; case and duplicates collapse. */
+  function parseEmailList(text) {
+    const seen = new Set();
+    const emails = [];
+    const invalid = [];
+    for (const raw of String(text || '').split(/[\s,;]+/)) {
+      const one = raw.trim();
+      if (!one) continue;
+      if (!EMAIL_RE.test(one)) { invalid.push(one); continue; }
+      const low = one.toLowerCase();
+      if (seen.has(low)) continue;
+      seen.add(low);
+      emails.push(low);
+    }
+    return { emails, invalid };
+  }
+
+  /** The recipient list in words, for the manage table. `members` is
+   *  listMembers() output and is only used to name a profile. */
+  function recipientSummary(recipients, members) {
+    const r = Array.isArray(recipients) ? recipients : [];
+    if (!r.length) return 'No one';
+    const byId = new Map((members || []).map((m) => [m.id, m]));
+    const parts = [];
+    const people = [];
+    const outside = [];
+    for (const one of r) {
+      if (one?.kind === 'workspace_admins') parts.push('All workspace admins');
+      else if (one?.kind === 'department' && one.value) parts.push(`${one.value} department`);
+      else if (one?.kind === 'profile' && one.id) {
+        const m = byId.get(one.id);
+        people.push(m?.name || m?.email || 'one person');
+      } else if (one?.kind === 'email' && one.value) outside.push(one.value);
+    }
+    if (people.length) parts.push(people.join(', '));
+    if (outside.length) parts.push(outside.join(', '));
+    return parts.join(' · ') || 'No one';
+  }
+
   async function listSchedules(sb) {
     const { data, error } = await sb.from('report_email_schedules_v').select('*')
       .order('updated_at', { ascending: false });
     if (error) throw error;
     return data || [];
+  }
+
+  // The panel opens on a report, not on a schedule, so without this every
+  // Save inserted ANOTHER row: two saves, or a save then a test, left two
+  // identical schedules both firing on the same morning. Opening on the
+  // existing one makes the panel an editor the second time round.
+  async function findScheduleForTarget(sb, target) {
+    const col = target?.dashboardId ? 'dashboard_id' : 'report_id';
+    const id = target?.dashboardId || target?.reportId;
+    if (!id) return null;
+    const { data, error } = await sb.from('report_email_schedules_v').select('*')
+      .eq(col, id).order('updated_at', { ascending: false }).limit(1);
+    if (error) throw error;
+    return (data || [])[0] || null;
+  }
+
+  async function deleteSchedule(sb, id) {
+    const { data, error } = await sb.from('report_email_schedules').delete().eq('id', id).select('id');
+    if (error) throw error;
+    // An RLS-refused delete removes nothing and does NOT error.
+    if (!Array.isArray(data) || !data.length) {
+      throw new Error('Schedule was not deleted -- you may not have permission.');
+    }
+    return true;
   }
 
   // Cadence math. A cadence is a WALL-CLOCK time in the company's zone, so the
@@ -194,6 +270,7 @@
   global.SiloReportEmailSchedule = {
     CADENCE, DEPARTMENTS, isWorkspaceAdmin, defaultSubject, defaultRecipients,
     listSchedules, saveSchedule, deliverNow, duplicateSchedule, pauseAll, listMembers,
-    computeNextRunAt,
+    computeNextRunAt, cadenceLabel, parseEmailList, recipientSummary,
+    findScheduleForTarget, deleteSchedule,
   };
 }(typeof window !== 'undefined' ? window : globalThis));
