@@ -3,13 +3,17 @@ import fetch from "node-fetch";
 import Papa from "papaparse";
 import { createClient } from "@supabase/supabase-js";
 
-const SALES_CSV_SOURCES = [
-  "https://docs.google.com/spreadsheets/d/e/2PACX-1vStgtzXpQpW_9oWh4QC2NOoO7F9L0fJLM7EDP7To0DyDp0TWaFk4V9YUxJVs9NRRv_7-bof9I-Gcc2J/pub?gid=0&single=true&output=csv",
-  "https://docs.google.com/spreadsheets/d/e/2PACX-1vStgtzXpQpW_9oWh4QC2NOoO7F9L0fJLM7EDP7To0DyDp0TWaFk4V9YUxJVs9NRRv_7-bof9I-Gcc2J/pub?gid=801564681&single=true&output=csv"
-];
+// The source workbook's "publish to web" CSV links are credentials: the URL is
+// the whole access control, so anyone holding one reads the wholesale book
+// without signing in. They are supplied at run time instead of living here --
+// see `.github/workflows/ar-sync.yml`. This sync is dispatch-only (2026-10-13)
+// and the workbook has not been updated since 2026-09-14, so in normal
+// operation neither variable is set and this script is not run.
+const SALES_CSV_SOURCES = (process.env.AR_SALES_CSV_URLS || "")
+  .split(/[\s,]+/)
+  .filter(Boolean);
 
-const TERMS_CSV_URL =
-  "https://docs.google.com/spreadsheets/d/e/2PACX-1vStgtzXpQpW_9oWh4QC2NOoO7F9L0fJLM7EDP7To0DyDp0TWaFk4V9YUxJVs9NRRv_7-bof9I-Gcc2J/pub?gid=814012167&single=true&output=csv";
+const TERMS_CSV_URL = process.env.AR_TERMS_CSV_URL || "";
 
 const JOB_SYNC_KEY = "ar_google_sheets_sync";
 
@@ -28,6 +32,15 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+}
+
+// Fail loudly rather than fetching nothing and reporting a clean zero-row run:
+// an empty source list would look exactly like a healthy sync of an empty book.
+if (!SALES_CSV_SOURCES.length || !TERMS_CSV_URL) {
+  throw new Error(
+    "Missing AR_SALES_CSV_URLS or AR_TERMS_CSV_URL. The published-sheet links are " +
+      "no longer stored in this repo; supply them to the dispatch that needs them."
+  );
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);

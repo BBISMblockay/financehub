@@ -19,6 +19,11 @@ const retired = [
   'legacy/pages/po-builder.html', 'legacy/pages/testing.html', 'legacy/app-status.html',
   // 2026-10-06: the two unauthenticated root iframe targets and checkwriter's wrapper.
   'buyer.html', 'checkwriter.html', 'v2/checkwriter.html',
+  // 2026-10-14: three unlinked, unauthenticated pages whose only data source was
+  // a Google Sheet published to the web. Nothing linked them -- they were
+  // reachable only by typing the URL -- and the published links they carried are
+  // credentials, so the pages go rather than the links alone.
+  'pages/wholesale.html', 'legacy/pages/mise.html', 'legacy/pages/product-tags.html',
 ];
 const protectedPages = [
   'v2/inventory.html', 'v2/mailroom.html', 'v2/projections.html', 'v2/finance.html',
@@ -26,7 +31,7 @@ const protectedPages = [
   'v2/purchase_request.html', 'v2/request_manager.html', 'v2/purchase_request2.html',
   'v2/planning-scenarios.html', 'v2/launch-calendar.html', 'v2/products.html',
   'v2/backend.html', 'v2/employeehub.html', 'v2/product-manager.html',
-  'pages/wholesale.html', 'v2/baseballismwholesale.html',
+  'v2/baseballismwholesale.html',
   'index.html', 'pages/login.html',
 ];
 for (const file of retired) assert.equal(fs.existsSync(path.join(root, file)), false, `retired page returned: ${file}`);

@@ -47,7 +47,7 @@ profile was changed. External bookmarks and third-party links remain unknown.
 | `legacy/pages/sales-db.html` | Removed | Archived entry; no surviving consumer |
 | `legacy/marketing.html` | Removed | Archived entry; no surviving consumer |
 | `v2/licensing/index.html` | Removed | Unlinked microsite entry; unlisted assets remain |
-| `v2/wholesale.html` | Removed | Unused wrapper; `pages/wholesale.html` and BBISM receivables remain |
+| `v2/wholesale.html` | Removed | Unused wrapper; BBISM receivables remains (`pages/wholesale.html` removed 2026-10-14) |
 | `legacy/pages/po-builder.html` | Removed | Archived; current PO builder/costing unchanged |
 | `legacy/pages/testing.html` | Removed | Archived entry; no surviving consumer |
 | `legacy/app-status.html` | Removed | Historical static architecture snapshot; no agent/tool/workflow dependency |

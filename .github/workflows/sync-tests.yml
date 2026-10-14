@@ -397,6 +397,13 @@ jobs:
       - name: Edge function drift slugs
         run: node scripts/tests/function-drift-slugs.test.mjs
 
+      # A Google "publish to web" CSV link is a credential -- the URL is the
+      # whole access control -- so none may be committed, and the AR sync must
+      # throw when its source URLs are unset rather than reporting an empty
+      # sync of the wholesale book as a clean run.
+      - name: AR sync source URLs stay out of the repo
+        run: node scripts/tests/ar-sync-source-urls.test.mjs
+
       # Shared Shopify auth rules and their wiring. Mutations:
       # SHOPIFY_AUTH_MUTATION=disabled-admin | no-refresh | redact-anyway | any-domain
       - name: Shopify authorization (client credentials, public app, privacy webhooks)
