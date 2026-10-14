@@ -1035,13 +1035,13 @@
         mfa.off.hidden = true;
         return;
       }
-      // Setup is closed until the database enforces the code (see
+      // Setup is offered only while MFA_ENROLLMENT_OPEN is set (see
       // pages/mfa.js). An account that already has a factor still sees it,
       // so it can be turned off.
       mfa.card.hidden = !(open || mfa.factor || mfa.pendingId);
       renderMfa();
-      // Say what "On" buys while the database does not require the code
-      // (PR #970 review): only the sign-in page asks for it.
+      // If setup is ever closed again, say plainly that "On" is a preview
+      // rather than imply more than the flag controls (PR #970 review).
       if (!open && mfa.factor && !mfa.msg.textContent) {
         mfa.msg.textContent = 'Preview: the sign-in page asks for your code, but SILO does not yet require it everywhere.';
       }
