@@ -2901,8 +2901,6 @@ select
     else 'ok'
   end as inventory_archive_removed;
 
-
-
 -- ---------------------------------------------------------------------------
 -- Ask SILO catalog: the evidence caveats (20260908150000) are still present.
 --
@@ -4915,7 +4913,12 @@ select 'Definer functions reachable by anon' as check_name,
        'notify_slack_task_created','record_product_concept_revision',
        'record_seo_task_revision','resync_tasks_on_initiative_move',
        'saved_report_usage','stamp_changed_by','stamp_company_entity_id',
-       'stamp_created_by','void_card_posting'))
+       'stamp_created_by','void_card_posting',
+       -- Two-step login (20261014000000): PostgREST runs the pre-request hook
+       -- as the request's role, anon included, so both MUST stay anon-callable.
+       -- Safe: auth.uid() is NULL for anon, so they answer "satisfied" and
+       -- disclose nothing; they read only the caller's own factors.
+       'mfa_session_satisfied','silo_check_request'))
    then 'CRITICAL: a SECURITY DEFINER function is executable by anon and is not on the reviewed allowlist'
  else 'ok' end as status;
 
@@ -6170,6 +6173,58 @@ select 'On Deck action loop' as check_name, case when
  and to_regprocedure('public.on_deck_review_state()') is not null
  then 'ok' else 'MISSING' end as status;
 
+-- Posted-period reclass (20261013180000, 20261014020000): the record is client-read-only, the
+-- staging RPC is not anon-callable, and the adjustment/reopen guards are attached.
+select 'Posted transaction reclass' as check_name,
+ case when to_regclass('public.card_transaction_reclasses') is null
+        or to_regprocedure('public.stage_card_transaction_reclass(uuid,text,text,text,text,date,text)') is null
+   then 'MISSING — run 20261013180000_card_transaction_reclass.sql'
+  when not exists (select 1 from pg_class where oid = to_regclass('public.card_transaction_reclasses') and relrowsecurity)
+   then 'CRITICAL: card_transaction_reclasses has RLS off'
+  when exists (select 1 from unnest(array['anon','authenticated']) r
+               where has_table_privilege(r, 'public.card_transaction_reclasses', 'INSERT,UPDATE,DELETE'))
+   then 'CRITICAL: a client can write a reclass record directly'
+  when has_function_privilege('anon', 'public.stage_card_transaction_reclass(uuid,text,text,text,text,date,text)', 'execute')
+   then 'CRITICAL: anon can stage a reclass'
+  when not exists (select 1 from pg_trigger where tgname = 'card_reclass_guard_adjustment' and tgrelid = 'public.journal_adjustments'::regclass)
+     or not exists (select 1 from pg_trigger where tgname = 'card_reclass_guard_batch_reopen' and tgrelid = 'public.card_import_batches'::regclass)
+   then 'CRITICAL: a reclass guard trigger is not attached; edited lines could post or a reclassified period could be recoded'
+  when position('lines were edited' in coalesce(pg_get_functiondef(to_regprocedure('public.card_reclass_guard_adjustment()')), '')) = 0
+   then 'CRITICAL: approval no longer checks that a reclass adjustment still matches its record'
+  when to_regprocedure('public.card_transaction_reclass_from(uuid)') is null
+     or position('card_transaction_reclass_from' in coalesce(pg_get_functiondef(to_regprocedure('public.stage_card_transaction_reclass(uuid,text,text,text,text,date,text)')), '')) = 0
+   then 'STALE — re-run 20261013180000_card_transaction_reclass.sql: a reclass reverses the row''s own location instead of the location its period posted with'
+  when has_function_privilege('anon', 'public.card_transaction_reclass_from(uuid)', 'execute')
+   then 'CRITICAL: anon can call the reclass resolver'
+  when position('moves through a clearing account' in coalesce(pg_get_functiondef(to_regprocedure('public.stage_card_transaction_reclass(uuid,text,text,text,text,date,text)')), '')) = 0
+   then 'STALE — run 20261014020000_card_reclass_all_bank_treatments.sql: posted bank transfers, card payments and deposits cannot be reclassified'
+  else 'ok' end as status;
+-- End posted transaction reclass checks.
+
+-- SILO ledger mirrors journal adjustments (20261014040000): every posted
+-- adjustment is a ledger entry, recorded by trigger, internals not client-callable.
+select 'SILO ledger mirrors journal adjustments' as check_name,
+ case when to_regprocedure('public.silo_ledger_sync_adjustment(uuid)') is null
+        or not exists (select 1 from pg_trigger where tgname = 'silo_ledger_adjustment' and tgrelid = 'public.journal_adjustments'::regclass)
+   then 'MISSING — run 20261014040000_silo_ledger_mirror_journal_adjustments.sql'
+  when not exists (select 1 from pg_constraint where conname = 'ledger_entries_source_check'
+                     and pg_get_constraintdef(oid) like '%journal_adjustment%')
+   then 'MISSING — the ledger does not accept journal adjustment entries'
+  when has_function_privilege('authenticated', 'public.silo_ledger_sync_adjustment(uuid)', 'execute')
+     or has_function_privilege('anon', 'public.silo_ledger_sync_adjustment(uuid)', 'execute')
+   then 'CRITICAL: a client can write the ledger through the adjustment mirror'
+  when not exists (select 1 from information_schema.columns where table_schema = 'public'
+                     and table_name = 'silo_ledger_lines_v' and column_name = 'posting_id')
+   then 'MISSING — silo_ledger_lines_v.posting_id, which Books -> Ledger uses to count a mirrored adjustment once'
+  when exists (select 1 from public.journal_adjustments a
+               join public.accounting_settings st on st.company_entity_id = a.company_entity_id
+               join public.accounting_opening_balances ob on ob.company_entity_id = a.company_entity_id and ob.status = 'accepted'
+               where a.status = 'posted' and a.entry_date >= st.accounting_start_date
+                 and not exists (select 1 from public.ledger_entries e where e.source = 'journal_adjustment' and e.source_id = a.id))
+   then 'BROKEN: a posted adjustment inside the books is missing from the SILO ledger'
+  else 'ok' end as status;
+-- End SILO ledger adjustment mirror checks.
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))
@@ -6667,6 +6722,36 @@ select 'AI credit ledger' as check_name,
  when (xpath('/row/n/text()', query_to_xml(
          'select count(*) as n from public.ai_credit_reconcile() where not ok', false, true, '')))[1]::text <> '0'
   then 'CRITICAL: AI credit balances do not reconcile with the ledger -- select * from ai_credit_reconcile() where not ok'
+ else 'ok' end as status;
+
+-- =============================================================================
+-- Two-step login enforced by the server (20261014000000)
+-- =============================================================================
+-- An account with a verified authenticator factor must not reach data with a
+-- password-only (aal1) session. The Data API is gated by a PostgREST
+-- pre-request hook (one choke point for tables, views and SECURITY DEFINER
+-- RPCs), Storage by a restrictive policy. If either is gone, an enrolled
+-- user's password alone reads everything RLS allows them.
+select 'Two-step login enforced by the server' as check_name,
+ case when to_regprocedure('public.silo_check_request()') is null
+   or to_regprocedure('public.mfa_session_satisfied()') is null
+  then 'MISSING: run 20261014000000_mfa_enforcement.sql'
+ when not exists (select 1 from pg_db_role_setting s join pg_roles r on r.oid = s.setrole
+                  where r.rolname = 'authenticator'
+                    and 'pgrst.db_pre_request=public.silo_check_request' = any (s.setconfig))
+  then 'CRITICAL: the Data API two-step hook is off -- an enrolled user''s password alone reads every table and RPC. Fix: alter role authenticator set pgrst.db_pre_request = ''public.silo_check_request''; notify pgrst, ''reload config'';'
+ when not exists (select 1 from pg_policy
+                  where polrelid = to_regclass('storage.objects') and polname = 'mfa_session_required'
+                    and not polpermissive
+                    and pg_get_expr(polqual, polrelid) ~ 'mfa_session_satisfied'
+                    and pg_get_expr(polwithcheck, polrelid) ~ 'mfa_session_satisfied')
+  then 'CRITICAL: storage.objects has no restrictive two-step policy -- an enrolled user''s password alone reads and writes files'
+ when pg_get_functiondef(to_regprocedure('public.mfa_session_satisfied()')) !~ '''aal2'''
+   or pg_get_functiondef(to_regprocedure('public.mfa_session_satisfied()')) !~ 'status = ''verified'''
+   or pg_get_functiondef(to_regprocedure('public.silo_check_request()')) !~ 'mfa_session_satisfied\(\)'
+  then 'CRITICAL: the two-step check no longer requires aal2 for a verified factor'
+ when pg_get_functiondef(to_regprocedure('public.silo_check_request()')) !~ '''headers'''
+  then 'CRITICAL: silo_check_request() raises without the headers PostgREST requires -- an enrolled user gets HTTP 500, not 403 mfa_required'
  else 'ok' end as status;
 
 -- =============================================================================

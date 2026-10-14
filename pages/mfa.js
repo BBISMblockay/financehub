@@ -7,16 +7,15 @@
  * Opt-in by design: an account with no verified factor never sees a code step,
  * so nothing changes for anyone until they turn it on in My profile.
  *
- * This is the FRONT DOOR only. A password-only session (aal1) still reads
- * whatever RLS allows if someone opens an app page directly; the database
- * check that refuses aal1 for enrolled users is a separate migration. See
+ * These pages are the front door. The server enforces the code too
+ * (20261014000000): the Data API, Storage and the edge functions refuse a
+ * password-only (aal1) session of an enrolled account. See
  * docs/ops/two-step-login.md.
  *
- * So turning it ON is closed until that enforcement is applied: My profile
- * offers setup only when pages/config.js sets MFA_ENROLLMENT_OPEN: true.
- * Production leaves it unset. The code steps on login and set-password stay
- * live regardless, because they only ever act for an account that already
- * holds a verified factor.
+ * My profile offers setup only when pages/config.js sets
+ * MFA_ENROLLMENT_OPEN: true (and Supabase Auth TOTP enrollment is enabled).
+ * The code steps on login and set-password are live regardless, because they
+ * only ever act for an account that already holds a verified factor.
  */
 (function (root) {
   'use strict';

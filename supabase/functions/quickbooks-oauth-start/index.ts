@@ -3,6 +3,7 @@
 // chosen here -- Intuit's consent screen lets the user pick which company to
 // grant, and returns its realmId to the callback.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { checkMfaSession } from './mfa-gate.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -92,6 +93,14 @@ Deno.serve(async (req) => {
     authHeader.replace('Bearer ', ''),
   );
   if (authErr || !user) return json({ error: 'Unauthorized' }, 401);
+  // Two-step login: what follows runs with the service role, which the
+  // Data API's gate (20261014000000) never sees. mfa-gate.mjs asks as the caller.
+  const mfa = await checkMfaSession({
+    supabaseUrl: Deno.env.get('SUPABASE_URL'),
+    anonKey: Deno.env.get('SUPABASE_ANON_KEY'),
+    authorization: req.headers.get('Authorization'),
+  });
+  if (!mfa.ok) return json({ error: mfa.message, code: mfa.code }, mfa.status);
 
   const { company_entity_id } = await req.json().catch(() => ({}));
   if (!company_entity_id) return json({ error: 'company_entity_id required' }, 400);

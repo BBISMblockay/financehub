@@ -96,7 +96,10 @@
   // of `through`: lines not sent, or sent on a later date than the trial balance.
   // `inPostings` names the card batches whose QuickBooks posting is already
   // counted: their in-QuickBooks lines are skipped here, so they count once.
-  function ledgerActivity(lines, { after, through, inPostings = new Set() }) {
+  // `postingIds` does the same for mirrored journal adjustments (since
+  // 20261014040000 a posted adjustment is also a ledger entry): a line whose
+  // posting is counted from the posting log is not counted again.
+  function ledgerActivity(lines, { after, through, inPostings = new Set(), postingIds = new Set() }) {
     const byAccount = new Map();
     for (const l of lines || []) {
       const date = String(l.entry_date || '').slice(0, 10);
@@ -108,6 +111,7 @@
       // the parent batch's status never caught up with it (the posting is written
       // first, so a failed second write leaves the batch 'approved').
       if (l.batch_id && inPostings.has(String(l.batch_id))) continue;
+      if (l.posting_id && postingIds.has(String(l.posting_id))) continue;
       const entry = byAccount.get(String(l.qbo_account_id)) || { net: 0, pending: 0, lines: [] };
       entry.net += amount;
       if (!inQbo) entry.pending += amount;
@@ -147,7 +151,8 @@
       r.silo += a.net; r.lines = r.lines.concat(a.lines);
     }
     if (hasLedger) {
-      for (const [id, a] of ledgerActivity(ledgerLines, { after, through, inPostings })) {
+      const postingIds = new Set((postings || []).filter((p) => p.status === 'posted' && p.id != null).map((p) => String(p.id)));
+      for (const [id, a] of ledgerActivity(ledgerLines, { after, through, inPostings, postingIds })) {
         const r = row(id);
         r.silo += a.net; r.pending += a.pending; r.lines = r.lines.concat(a.lines);
       }
@@ -220,7 +225,7 @@
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const money = (c) => c === null || c === undefined ? '—'
     : (c < 0 ? '(' : '') + (Math.abs(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (c < 0 ? ')' : '');
-  const SOURCE = { card_import: 'Transactions', journal_adjustment: 'Sales & journals', manual_adjustment: 'Journal entry',
+  const SOURCE = { card_import: 'Transactions', journal_adjustment: 'Sales & journals', manual_adjustment: 'Journal entry', card_reclass: 'Transactions (reclass)',
     prepaid_amortization: 'Schedules', fixed_asset_depreciation: 'Fixed assets', silo_ledger: 'Transactions (SILO ledger)' };
 
   function render(model, { onlyActivity = true, fiscalCrossed = false, closingNote = '' } = {}) {
@@ -305,7 +310,7 @@
       const rows = [];
       for (let offset = 0; ; ) {
         const r = await db.from('silo_ledger_lines_v')
-          .select('id,entry_date,kind,memo,description,qbo_account_id,signed_amount,in_quickbooks,quickbooks_date,batch_id')
+          .select('id,entry_date,kind,memo,description,qbo_account_id,signed_amount,in_quickbooks,quickbooks_date,batch_id,posting_id')
           // Account ids are local to one QuickBooks connection: read the
           // books' own, exactly as the postings are read.
           .eq('company_entity_id', companyId).eq('qbo_connection_id', connection).gt('entry_date', after)

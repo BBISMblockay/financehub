@@ -39,6 +39,23 @@ on:
       - 'supabase/migrations/*org_invites.sql'
       - 'supabase/migrations/*security_audit_db_hardening.sql'
       - 'supabase/migrations/*integration_bootstrap_jobs.sql'
+      - 'supabase/migrations/*mfa_enforcement.sql'
+      - 'supabase/functions/comp-request-notify/**'
+      - 'supabase/functions/google-oauth-start/**'
+      - 'supabase/functions/org-invite-send/**'
+      - 'supabase/functions/payment-request-submitted-notify/**'
+      - 'supabase/functions/quickbooks-accounts-sync/**'
+      - 'supabase/functions/quickbooks-oauth-start/**'
+      - 'supabase/functions/quickbooks-report/**'
+      - 'supabase/functions/review-finish/**'
+      - 'supabase/functions/review-send/**'
+      - 'supabase/functions/shopify-connect-dev-app/**'
+      - 'supabase/functions/shopify-oauth-start/**'
+      - 'supabase/functions/tiktok-oauth-start/**'
+      - 'supabase/functions/meta-oauth-start/**'
+      - 'supabase/functions/meta-oauth-review/**'
+      - 'supabase/functions/shopify-install-claim/**'
+      - 'supabase/functions/card-categorize/**'
       - 'v2/integration-bootstrap.js'
       - 'v2/integration-enrolment.js'
       - 'scripts/integration-bootstrap.mjs'
@@ -263,6 +280,7 @@ on:
       - 'v2/silo-chrome.js'
       - 'v2/plaid-bank-feed.js'
       - 'v2/je-composer.js'
+      - 'v2/transaction-reclass.js'
       - 'scripts/lib/forecast-candidate-core.mjs'
       - 'scripts/forecast-candidate-run.mjs'
       - 'scripts/forecast-candidate-backtest.mjs'
@@ -423,6 +441,12 @@ jobs:
       - name: Shopify order facts per company -- upsert keys
         run: node scripts/tests/shopify-order-fact-keys.test.mjs
 
+      # Two-step login (20261014000000): the sixteen edge functions that verify
+      # the caller and then act with the service role ask PostgREST, as the
+      # caller, before their first service-role call -- and fail closed.
+      - name: Two-step login gate in edge functions
+        run: node scripts/tests/mfa-gate.test.mjs
+
       # Running one job: that a connection which had already synced is NOT
       # re-imported, that a job cancelled from the page while a stage runs
       # stays cancelled, and that one failed stage neither stops the others
@@ -467,7 +491,7 @@ jobs:
         run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
 
       - name: Accounting suite navigation and legacy routes
-        run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/accounting-ledger.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs scripts/tests/no-unqualified-delete.test.mjs
+        run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/accounting-ledger.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs scripts/tests/transaction-reclass-ui.test.mjs scripts/tests/no-unqualified-delete.test.mjs
 
       # Which company's sidebar a session is served. Visibility only -- RLS
       # decides the data -- but resolveNavProfile(null) used to answer
@@ -992,6 +1016,21 @@ jobs:
             exit 1
           fi
 
+      # Posted-transaction reclass: staging a reclass vs. unposting the one it
+      # moves from (both orders), and two stages of one transaction. Each lock,
+      # removed, must turn it red.
+      - name: Interleave reclass staging with unposting
+        run: |
+          set -u
+          node scripts/tests/card-reclass-concurrency.test.mjs
+          for m in void-unlocked stage-unlocked; do
+            if CARD_RECLASS_RACE_MUTATION="$m" node scripts/tests/card-reclass-concurrency.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the lock it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       # Product Studio Ready for PO: one PO per concept across Generate PO and
       # the Studio handoff, and one ready brief per concept, under genuinely
       # overlapping transactions. Each lock, removed, must turn it red.
@@ -1131,6 +1170,30 @@ jobs:
           for mutation in no-start-check edit-in-place ignore-lock read-ungated cosmetic-rerecord no-validation posted-not-frozen no-books-start-sync lock-unshared connection-not-stored approved-not-frozen held-reverses no-chart-resync no-source-resync snapshot-ignored no-active-correction-resync no-connection-resync zero-net-uses-today connection-token-resyncs no-freeze-note; do
             if SILO_LEDGER_MUTATION="$mutation" node scripts/tests/silo-ledger-database.test.mjs > /tmp/ledger-mutation.log 2>&1; then
               cat /tmp/ledger-mutation.log; echo "Survived ledger mutation: $mutation"; exit 1
+            fi
+          done
+
+      # Reclassifying a transaction in a POSTED period: a reviewed two-line
+      # adjustment whose lines, date and connection cannot drift from its record,
+      # one open reclass per transaction, ordered unposting, no reopen underneath.
+      - name: Execute posted-transaction reclass regressions
+        run: |
+          node scripts/tests/card-reclass-database.test.mjs
+          for mutation in no-line-check no-posted-check no-open-check no-reopen-guard no-void-order no-lock-check source-mutable from-row-location no-treatment-check; do
+            if CARD_RECLASS_MUTATION="$mutation" node scripts/tests/card-reclass-database.test.mjs > /tmp/reclass-mutation.log 2>&1; then
+              cat /tmp/reclass-mutation.log; echo "Survived reclass mutation: $mutation"; exit 1
+            fi
+          done
+
+      # Posted journal adjustments mirrored into the SILO ledger: posted only, on
+      # the QuickBooks date, reversal on unpost, books-start rule, reclass tied
+      # to its transaction, idempotent backfill.
+      - name: Execute SILO ledger adjustment-mirror regressions
+        run: |
+          node scripts/tests/silo-ledger-adjustments-database.test.mjs
+          for mutation in lock-shifted no-start-check no-void-reversal record-unposted no-books-start; do
+            if LEDGER_ADJ_MUTATION="$mutation" node scripts/tests/silo-ledger-adjustments-database.test.mjs > /tmp/ledger-adj-mutation.log 2>&1; then
+              cat /tmp/ledger-adj-mutation.log; echo "Survived ledger adjustment mutation: $mutation"; exit 1
             fi
           done
 
@@ -1666,6 +1729,19 @@ jobs:
       # message the fallback reads, and the guard's signal tracks the keys.
       - name: Shopify order facts per company -- migration
         run: node scripts/tests/shopify-order-facts-per-company-database.test.mjs
+
+      # Two-step login enforced by the server (20261014000000) on real Postgres:
+      # the Data API hook refuses only an enrolled user's aal1 session, Storage
+      # does the same, and the verify check notices either being switched off.
+      - name: Two-step login enforced -- migration
+        run: |
+          set -u
+          node scripts/tests/mfa-enforcement-database.test.mjs
+          for m in any-factor ignore-aal no-storage-check no-headers; do
+            if MFA_DB_MUTATION="$m" node scripts/tests/mfa-enforcement-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite"; exit 1
+            fi
+          done
 
       # Shopify order paid date (20261005130000): paid_at from payment
       # transactions, the lookup scoped to draft / terms orders, no mixed

@@ -120,8 +120,41 @@ owner's included.
   statements; making SILO the authority is a separate decision.
 - The QuickBooks push is still per import batch (monthly), through the existing approval snapshot.
   Pushing the ledger's own period totals instead is the next PR.
-- Journal adjustments (schedules, fixed assets, sales journals) are not ledger entries yet. Books →
-  Ledger counts them from their QuickBooks postings, as before.
+- Journal adjustments (manual entries, schedules, fixed assets, sales journals, reclasses) **are**
+  ledger entries since `20261014040000`: posting one records it on its QuickBooks date (even inside a
+  locked period: the mirror matches QuickBooks), unposting reverses it on the same date, and the
+  existing posted ones were backfilled. Books → Ledger still counts each from its QuickBooks posting
+  and skips the mirrored lines by `posting_id`, so its figures did not move. A reclass is tied to its
+  transaction (`silo_ledger_lines_v.transaction_id`), so a SILO-only reading sees a category change.
+  What the ledger still lacks is activity entered directly in QuickBooks (bills, payroll, …), which
+  Books → Ledger shows as "Other activity in QuickBooks".
+
+## In theory: running the books from SILO (noted 2026-10-14)
+
+Not a committed goal or roadmap item -- a design direction, so accounting work does not close it off.
+In theory a company could close in QuickBooks on, say, 2026-08-31 and continue in SILO from
+2026-09-01 with no QuickBooks. The opening trial balance, the QBO history archive and the Books -> Ledger roll-forward
+already cover the cutover itself. What would still tie a company to QuickBooks, roughly in the order it would be built:
+
+1. **SILO-only posting.** An approved adjustment reaches the ledger only once QuickBooks accepts it.
+   Approving must record it straight to the ledger when the company does not post to QuickBooks.
+2. **The switch.** `accounting_settings.books_authority` is pinned to `'qbo'` by a CHECK. A per-company
+   switch stops the QuickBooks pushes, makes `accounting_period_locks` the close, and rolls retained
+   earnings at year end. Items 1 and 2 together would be the core of it.
+3. **Statements from the ledger.** P&L, balance sheet and trial balance come from QuickBooks reports
+   today; build them from accepted opening balances plus `silo_ledger_lines_v`. The Ledger tab's
+   "SILO balance" column is most of a trial balance already.
+4. **SILO-owned chart of accounts.** Ledger lines are keyed by `qbo_account_id` from the QuickBooks
+   account cache; a company without QuickBooks needs to add and rename accounts in SILO (the ids can
+   stay as keys).
+5. **What only QuickBooks holds today** ("Other activity in QuickBooks": bills and accruals, payroll
+   journals, non-feed deposits). Cash already arrives through the bank feed; accruals go in through
+   SILO's own journal entry once item 1 exists.
+
+Context (Blake): transaction reclass (`20261013180000`, `20261014020000`) moves this along, because
+category fixes on posted periods now go through SILO into QuickBooks instead of being made in
+QuickBooks by hand. A manual journal adjustment could always do it; reclass makes it the easy path,
+so the ledger stays complete.
 
 ## Production estimate (read-only, 2026-10-04)
 

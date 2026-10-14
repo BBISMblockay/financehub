@@ -706,7 +706,8 @@
 
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="je-composer.js"></script>
+<script src="je-composer.js?v=16b6c8263aa0"></script>
+<script src="transaction-reclass.js?v=545bcb74ec42"></script>
 <script src="plaid-bank-feed.js?v=3bb27ed5e68f"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
@@ -849,6 +850,63 @@
     splits: new Map(),
   };
   const splitsFor = (t) => (t && state.splits.get(t.id)) || null;
+  /* Reclasses of transactions in POSTED periods (transaction-reclass.js). A
+     failure to read them says so on the panel rather than offering a reclass
+     that might duplicate one already staged. */
+  let reclasses = new Map(), reclassError = '';
+  const reclassesFor = (t) => (t && reclasses.get(t.id)) || [];
+  async function loadReclasses(rows) {
+    reclasses = new Map(); reclassError = '';
+    const posted = new Set(state.batches.filter((b) => b.status === 'posted').map((b) => b.id));
+    const ids = (rows || []).filter((t) => posted.has(t.batch_id)).map((t) => t.id);
+    if (!ids.length || !_co?.id || !window.SiloReclass) return;
+    try { reclasses = await window.SiloReclass.load(sb, _co.id, ids); }
+    catch (e) { reclassError = e.message; }
+  }
+  function reclassSection(t) {
+    const batch = batchFor(t);
+    if (batch?.status !== 'posted' || !window.SiloReclass) return '';
+    if (reclassError) return `<section><h3>Reclassify after posting</h3><div class="bcn-status bcn-status--neg">Reclasses could not be read — ${esc(reclassError)}. Reload before reclassifying.</div></section>`;
+    return window.SiloReclass.section(t, batch, reclassesFor(t), esc);
+  }
+  async function refreshReclasses(message) {
+    await loadReclasses(workingRows());
+    renderCoding();
+    if (message) setStatus(message, 'pos', 6000);
+  }
+  async function onReclassClick(e, t) {
+    const R = window.SiloReclass;
+    const batch = batchFor(t);
+    try {
+      const reviewBtn = e.target.closest('[data-reclass-review]');
+      if (reviewBtn) {
+        R.review({ db: sb, companyId: _co.id, adjustmentId: reviewBtn.dataset.reclassReview, t, onChanged: refreshReclasses });
+        return;
+      }
+      const reopenBtn = e.target.closest('[data-reclass-reopen]');
+      if (reopenBtn) {
+        const reason = await askFinance({ title: 'Reopen approved reclass', message: 'The approval is discarded and the reclass returns to draft, where it can be discarded. Nothing is sent to QuickBooks. If its entry was posted, mark it unposted first (after deleting it in QuickBooks).', reason: true, minLength: 3, label: 'Reopen approval' });
+        if (!reason) return;
+        await R.reopen({ db: sb, adjustmentId: reopenBtn.dataset.reclassReopen, reason: reason.trim() });
+        await refreshReclasses('Reclass reopened as a draft. Discard it, or review and post it again.');
+        return;
+      }
+      const discardBtn = e.target.closest('[data-reclass-discard]');
+      if (discardBtn) {
+        if (!await askFinance({ title: 'Discard draft reclass', message: 'The staged adjustment and its reclass record are deleted. Nothing was sent to QuickBooks.', label: 'Discard draft' })) return;
+        await R.discard({ db: sb, companyId: _co.id, adjustmentId: discardBtn.dataset.reclassDiscard });
+        await refreshReclasses('Draft reclass discarded.');
+        return;
+      }
+      if (!e.target.closest('[data-reclass]')) return;
+      const connectionId = batch?.approval_snapshot?.qbo_connection_id || batch?.qbo_connection_id || null;
+      await R.open({ db: sb, companyId: _co.id, t, batch, list: reclassesFor(t), connectionId,
+        accounts: state.allAccounts, locations: state.locations, entities: state.entities,
+        onChanged: refreshReclasses, setStatus });
+    } catch (error) {
+      setStatus(`Reclass failed — ${error.message}`, 'neg', 8000);
+    }
+  }
   const isSplit = (t) => !!(splitsFor(t) || []).length;
 
   // ---------------------------------------------------------------- CSV
@@ -1151,6 +1209,9 @@
      rows. What it must never do is silently show a split row as uncoded with
      no account, so a failure says so. */
   async function loadSplits(rows) {
+    // Every loader (period, date range, discard-and-reload) comes through here,
+    // so the posted-period reclasses for the same rows load alongside.
+    await loadReclasses(rows);
     const ids = (rows || []).map((t) => t.id);
     state.splits = new Map();
     if (!ids.length || !_co?.id) return;
@@ -1941,6 +2002,8 @@
     if (t.origin === 'plaid' && filterCtx().isBankPending(t)) return 'Pending at bank — not editable until posted';
     if (t.status === 'uncoded') return 'Needs categorizing in SILO (not in ledger until coded and saved)';
     if (isSplit(t)) return `Categorized · split across ${(splitsFor(t) || []).length} accounts`;
+    const moved = window.SiloReclass?.current(reclassesFor(t));
+    if (moved) return `Reclassified in QuickBooks to ${moved.to_qbo_account_name || moved.to_qbo_account_id}`;
     return t.coding_source === 'ai'
       ? `Categorized in SILO · AI suggestion · ${Math.round((t.confidence || 0) * 100)}% confidence`
       : 'Categorized in SILO · saved on this import';
@@ -1952,7 +2015,7 @@
     const importCount = dateBrowse ? reviewDateRows().length : (state.txns?.length || 0);
     const journalLabel = dateBrowse ? 'Review import journal' : `Review full import journal (${importCount} rows)`;
     return `<section class="txn-explanation"><h3>${suggestedCategory ? 'Suggested category' : 'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p class="txn-detail-description">${t.origin === 'plaid' && !bank.isAvailable(t) ? esc(providerNote(t)) + ' · ' : ''}${esc(t.description)}</p><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-raw>Source details</button><button class="bcn-btn" type="button" data-journal title="Opens the Journal entry preview for this entire import — every row in the batch, not just this transaction">${esc(journalLabel)}</button><button class="bcn-btn" type="button" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></div></section>
-        <section><h3>Accounting details</h3>${t.origin === 'plaid' ? `<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>${(g => g ? `<p class="cc-note">${esc(g.reason)}.${g.choices.length ? ' Approval accepts: ' + esc(g.choices.map(c => TREATMENTS[c]).join(', ')) + '.' : ''}</p>` : '')(treatmentGapFor(t))}` : ''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : cellButton(t.qbo_location_name, 'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : entityCell(t)}</td></tr></tbody></table><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-toggle-exclude>${t.status === 'excluded' ? 'Include transaction' : 'Exclude transaction'}</button><button class="bcn-btn" type="button" data-split title="Code this transaction across several accounts">${isSplit(t) ? 'Edit split' : 'Split across accounts'}</button></div></section>`;
+        <section><h3>Accounting details</h3>${t.origin === 'plaid' ? `<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>${(g => g ? `<p class="cc-note">${esc(g.reason)}.${g.choices.length ? ' Approval accepts: ' + esc(g.choices.map(c => TREATMENTS[c]).join(', ')) + '.' : ''}</p>` : '')(treatmentGapFor(t))}` : ''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : cellButton(t.qbo_location_name, 'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : entityCell(t)}</td></tr></tbody></table><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-toggle-exclude>${t.status === 'excluded' ? 'Include transaction' : 'Exclude transaction'}</button><button class="bcn-btn" type="button" data-split title="Code this transaction across several accounts">${isSplit(t) ? 'Edit split' : 'Split across accounts'}</button></div></section>${reclassSection(t)}`;
   }
 
   function renderTxnDetailDrawer() {
@@ -3001,6 +3064,10 @@
     if (!tr0) return;
     const t0 = workingRows().find((x) => x.id === tr0.dataset.txn);
     if (!t0) return;
+
+    // Reclassifying acts on a POSTED (read-only) period, so it is routed before
+    // the editability gate below.
+    if (e.target.closest('[data-reclass], [data-reclass-review], [data-reclass-reopen], [data-reclass-discard]')) { await onReclassClick(e, t0); return; }
 
     // One-click fixes for the two things Entry refuses. Each marks the row
     // unsaved, exactly like choosing the value by hand; Save still writes it.

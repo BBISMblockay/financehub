@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { chooseOAuthApp, mayConnect, normalizeShopDomain, PUBLIC_SCOPES } from './shopify-auth-lib.mjs';
+import { checkMfaSession } from './mfa-gate.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -69,6 +70,16 @@ Deno.serve(async (req) => {
       status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
+  // Two-step login: what follows runs with the service role, which the
+  // Data API's gate (20261014000000) never sees. mfa-gate.mjs asks as the caller.
+  const mfa = await checkMfaSession({
+    supabaseUrl: Deno.env.get('SUPABASE_URL'),
+    anonKey: Deno.env.get('SUPABASE_ANON_KEY'),
+    authorization: req.headers.get('Authorization'),
+  });
+  if (!mfa.ok) return new Response(JSON.stringify({ error: mfa.message, code: mfa.code }), {
+      status: mfa.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
 
   const { shop_domain, company_entity_id } = await req.json();
   if (!shop_domain || !company_entity_id) {

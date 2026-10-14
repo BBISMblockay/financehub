@@ -4,6 +4,7 @@
 // profile linked to the review's employee record. Marks the review
 // finished, locks any outstanding access tokens, and emails the manager.
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { checkMfaSession } from './mfa-gate.mjs';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -82,6 +83,14 @@ Deno.serve(async (req: Request) => {
     const jwt = (req.headers.get('Authorization') || '').replace('Bearer ', '');
     const { data: userData, error: userErr } = await db.auth.getUser(jwt);
     if (userErr || !userData?.user) return json({ error: 'Not authenticated' }, 401);
+    // Two-step login: what follows runs with the service role, which the
+    // Data API's gate (20261014000000) never sees. mfa-gate.mjs asks as the caller.
+    const mfa = await checkMfaSession({
+      supabaseUrl: Deno.env.get('SUPABASE_URL'),
+      anonKey: Deno.env.get('SUPABASE_ANON_KEY'),
+      authorization: req.headers.get('Authorization'),
+    });
+    if (!mfa.ok) return json({ error: mfa.message, code: mfa.code }, mfa.status);
     const uid = userData.user.id;
 
     const { review_id, response, signed_name } = await req.json();

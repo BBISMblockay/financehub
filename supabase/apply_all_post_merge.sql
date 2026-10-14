@@ -19215,8 +19215,27 @@ $c$select (select count(*) from v_po_header_summary
 -- The marketing test record (and the schedule's link column). Must come AFTER
 -- 20260927190000_ad_studio.sql, whose ad_ideas it references.
 \i migrations/20261013120000_marketing_tests.sql
-\i migrations/20261013180000_report_email_schedules.sql
+-- Reclassify a transaction in a posted period: a reviewed two-line journal
+-- adjustment plus its record. Must come AFTER 20261005120000 (period lock) and
+-- 20260912000000 (adjustment approval controls).
+\i migrations/20261013180000_card_transaction_reclass.sql
 -- Shopify order facts unique PER COMPANY, so one store can sync into two
 -- companies without moving either one's orders.
 \i migrations/20261013220000_shopify_order_facts_per_company.sql
+-- Two-step login enforced by the server: the Data API pre-request hook and a
+-- restrictive storage.objects policy. Affects only accounts with a verified
+-- authenticator factor.
+\i migrations/20261014000000_mfa_enforcement.sql
+-- Every posted bank treatment can be reclassified, each held to its account
+-- rule. Must come AFTER 20261013180000, whose two functions it replaces.
+\i migrations/20261014020000_card_reclass_all_bank_treatments.sql
+-- Posted journal adjustments mirrored into the SILO ledger (QuickBooks' date,
+-- reversal on unpost). Must come AFTER 20261005120000 (ledger) and
+-- 20261013180000 (reclasses, joined in silo_ledger_lines_v).
+\i migrations/20261014040000_silo_ledger_mirror_journal_adjustments.sql
+-- Scheduled CSV email for saved reports and dashboards: schedules,
+-- optional member subscriptions, run log, recipient resolver and the
+-- private export bucket. Must come AFTER 20260925120000 (dashboards) and
+-- 20260918120000 (entity memberships).
+\i migrations/20261013180000_report_email_schedules.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

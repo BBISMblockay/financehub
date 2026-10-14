@@ -7,6 +7,7 @@
 // Resend when RESEND_API_KEY is configured; always returns the link so the
 // admin can deliver it manually if email isn't set up.
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { checkMfaSession } from './mfa-gate.mjs';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -105,6 +106,14 @@ Deno.serve(async (req: Request) => {
     if (userErr || !userData?.user) {
       return new Response(JSON.stringify({ error: 'Not authenticated' }), { status: 401, headers: CORS });
     }
+    // Two-step login: what follows runs with the service role, which the
+    // Data API's gate (20261014000000) never sees. mfa-gate.mjs asks as the caller.
+    const mfa = await checkMfaSession({
+      supabaseUrl: Deno.env.get('SUPABASE_URL'),
+      anonKey: Deno.env.get('SUPABASE_ANON_KEY'),
+      authorization: req.headers.get('Authorization'),
+    });
+    if (!mfa.ok) return new Response(JSON.stringify({ error: mfa.message, code: mfa.code }), { status: mfa.status, headers: CORS });
     const uid = userData.user.id;
 
     const { invite_id, token } = await req.json();

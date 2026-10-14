@@ -13,13 +13,13 @@ export const prepareSource = () => readFile(PREPARE_URL, 'utf8');
 
 // Returns the Deno.serve callback index.ts would install, plus the module's
 // own exports for suites that drive prepareCoding() directly.
-export function loadCategorizer(source, { createClient, fetch, env = () => 'synthetic', console: log = console }) {
+export function loadCategorizer(source, { createClient, fetch, env = () => 'synthetic', console: log = console, checkMfa = async () => ({ ok: true }) }) {
   const runnable = stripTypeScriptTypes(source.replace(/^export /gm, ''), { mode: 'strip' })
-    + '\nDeno.serve(createCategorizeHandler({ createDb: () => createClient() }));'
+    + '\nDeno.serve(createCategorizeHandler({ createDb: () => createClient(), checkMfa }));'
     + '\nglobalThis.__exports = { prepareCoding, PROMPT_VERSION, buildEvidence };';
   let handler;
   const context = {
-    Request, Response, AbortSignal, performance, crypto: globalThis.crypto, console: log, createClient, fetch,
+    Request, Response, AbortSignal, performance, crypto: globalThis.crypto, console: log, createClient, fetch, checkMfa,
     Deno: { env: { get: env }, serve: (callback) => { handler = callback; } },
   };
   vm.runInNewContext(runnable, context);
