@@ -42,4 +42,11 @@ jobs:
           # than this many days (data still syncs; the failure is the alarm).
           # Override with a repo variable if wholesale goes quiet seasonally.
           AR_STALE_MAX_DAYS: ${{ vars.AR_STALE_MAX_DAYS || 7 }}
+          # The workbook's "publish to web" CSV links are credentials -- the URL
+          # is the whole access control -- so they are no longer committed
+          # (2026-10-14). They are unset today and this dispatch therefore fails
+          # fast, which is correct: the source has been frozen since 2026-09-14.
+          # To use this escape hatch again, add the two secrets first.
+          AR_SALES_CSV_URLS: ${{ secrets.AR_SALES_CSV_URLS }}
+          AR_TERMS_CSV_URL: ${{ secrets.AR_TERMS_CSV_URL }}
         run: npm run sync:ar

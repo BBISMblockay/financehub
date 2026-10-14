@@ -91,11 +91,13 @@ failure sees nothing.
 
 Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
 
-- **Published Google Sheets with customer and AR data (legacy).** `server/ar-sync.mjs`,
-  `pages/wholesale.html` and `config/silo-sources.mjs` read "publish to web" / "anyone with the link"
-  CSV URLs; anyone with a URL reads the data. These are legacy sources (Blake, 2026-10-09), so the fix
-  is to stop publishing the sheets in Google ("Publish to web" → Stop publishing, and remove "anyone
-  with the link"), then delete the URLs and the legacy readers from the repo.
+- **Google Sheets shared "anyone with the link" (legacy).** `config/silo-sources.mjs` holds 38
+  workbooks shared that way; anyone with a URL reads the data without signing in. This is a
+  different mechanism from "publish to web", whose two workbooks were un-published on 2026-10-14
+  (see [CHANGELOG.md](CHANGELOG.md)) — un-publishing those did nothing to these. Not simply
+  revocable: `one-time-sales-backfill.yml` is a live recovery tool that reads them, so turning the
+  sharing off disables a backfill path and needs its own decision. Legacy sources per Blake
+  (2026-10-09).
 - **CI secrets have no environment protection.** `SUPABASE_ACCESS_TOKEN` (full DB control) and the
   service-role key are repo-level secrets any branch's workflow can read. Create a `production`
   environment (branches: `main`, reviewer: Blake), move both secrets into it, add
