@@ -9,7 +9,7 @@
 // Run: node scripts/tests/report-email-deliver.test.mjs
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -360,6 +360,27 @@ await test('the cron workflow installs its dependency before running the script'
   // A concurrency group with cancel-in-progress:false silently drops a QUEUED
   // scheduled run, and the claim already makes overlap harmless.
   assert.ok(!/^concurrency:/m.test(wf), 'no concurrency group (scripts/CLAUDE.md)');
+});
+
+await test('no workflow in this repo runs on a Node older than 22', () => {
+  // @supabase/supabase-js 2.117 declares engines node >= 22, and on 20 the
+  // failure is not the version warning you would expect -- createClient throws
+  // "Node.js detected but native WebSocket not found" before the first query,
+  // so the job dies having done nothing. There is no root package-lock.json,
+  // so `npm install` always resolves the newest supabase-js and any workflow
+  // pinned to 20 breaks the moment it next runs, whatever worked before.
+  // Caught on the first real run of report-email-sync, 2026-10-14; the same
+  // one-line defect was sitting in one-time-sales-backfill.yml.
+  const dir = join(ROOT, '.github', 'workflows');
+  const stale = [];
+  for (const name of readdirSync(dir)) {
+    if (!/\.ya?ml$/.test(name)) continue;
+    const text = readFileSync(join(dir, name), 'utf8');
+    for (const m of text.matchAll(/node-version:\s*['"]?(\d+)/g)) {
+      if (Number(m[1]) < 22) stale.push(`${name} -> ${m[1]}`);
+    }
+  }
+  assert.deepEqual(stale, [], `pin these to 22 or later: ${stale.join(', ')}`);
 });
 
 await test('report-email-deliver keeps verify_jwt ON: both callers send a JWT', () => {
