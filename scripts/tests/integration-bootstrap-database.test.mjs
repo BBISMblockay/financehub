@@ -82,8 +82,25 @@ await db.exec(migration);
 // runs before the behavioural assertions below so that every mutation reaches
 // it rather than failing earlier.
 const verifySql = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
-const verifyBlock = verifySql.slice(verifySql.indexOf("select 'Integration bootstrap queue' as check_name,"));
-assert.ok(verifyBlock.length > 100 && verifyBlock.trim().endsWith(';'), 'could not extract the verify block');
+const verifyStart = verifySql.indexOf("select 'Integration bootstrap queue' as check_name,");
+assert.ok(verifyStart >= 0, 'Integration bootstrap verify block missing');
+let verifyBlock = verifySql.slice(verifyStart);
+// Later verify rows must not ride along -- one statement per db.query, and
+// each suite owns its own block. Cut at the next top-level `select '<name>' as
+// check_name` rather than naming the row that happens to follow today: the row
+// after this one has already been renamed once (report_email_schedules ->
+// "Scheduled report CSV email"), and a stale sentinel silently stops cutting
+// and hands db.query two statements.
+const nextCheck = /\nselect '[^']+' as check_name,/.exec(verifyBlock.slice(1));
+if (nextCheck) verifyBlock = verifyBlock.slice(0, nextCheck.index + 1);
+// ...then drop the next row's leading comment block, which the cut above keeps.
+{
+  const lines = verifyBlock.split('\n');
+  while (lines.length && /^\s*(--.*)?$/.test(lines[lines.length - 1])) lines.pop();
+  verifyBlock = lines.join('\n');
+}
+verifyBlock = verifyBlock.trim();
+assert.ok(verifyBlock.length > 100 && verifyBlock.endsWith(';'), 'could not extract the verify block');
 const verifyStatus = async () => (await db.query(verifyBlock)).rows[0].status;
 if (MUT) {
   assert.notEqual(await verifyStatus(), 'ok', `verify_v2_schema.sql reports ok under the ${MUT} mutation`);
