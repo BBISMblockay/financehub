@@ -54,3 +54,14 @@ try {
  assert.equal(failureDiagnostic({code:'private-secret',message:'private-message'},'bad-stage','customer-name').code,'unknown_error');
  console.log('ok - actual timeout catch retains sanitized stage/code without source data');
 } finally {console.error=previous;}
+
+// Pauses are persisted per exact proposal version, not inferred from a shared
+// company's last-status sentence. The scheduler never calls providers on Save.
+for (const scenario of ['credit_exhausted','budget_cap','daily_cap','credit_unavailable','failure']) {
+ const recorded=[]; const p={id:'test-proposal',kind:'seo',version:7,company_entity_id:company};
+ const db={rpc:async()=>({data:[]}),from(table){let patch,filters=[];const q={select(){return q;},eq(k,v){filters.push([k,v]);return q;},order(){return q;},range(){return q;},lt(){return q;},gt(){return q;},in(){return q;},update(v){patch=v;return q;},then(resolve){if(patch){recorded.push({table,patch,filters});resolve({data:null});return;}resolve({data:table==='on_deck_settings'?[{company_entity_id:company,enabled:true,workflows:['seo'],last_screen_at:'2099-01-01'}]:table==='on_deck_proposals'?[p]:[]});}};return q;}};
+ const work=()=>run({db,prepare:async()=>{if(scenario==='failure')throw new Error('PRIVATE provider message');return scenario;}});
+ if(scenario==='failure')await assert.rejects(work,/1 company/);else await work();
+ const write=recorded.find(x=>x.patch.preparation_state);assert.ok(write);assert.equal(write.patch.preparation_state.state,scenario==='failure'?'failed':'paused');assert.equal(write.patch.preparation_state.reason,scenario==='failure'?'preparation_failed':scenario);assert.equal(write.patch.preparation_state.version,7);assert.ok(write.filters.some(([k,v])=>k==='version'&&v===7));assert.ok(write.filters.some(([k,v])=>k==='company_entity_id'&&v===company));assert.doesNotMatch(JSON.stringify(recorded),/PRIVATE|provider message/);
+ console.log('ok - scheduler persists exact-version '+scenario+' recovery state');
+}

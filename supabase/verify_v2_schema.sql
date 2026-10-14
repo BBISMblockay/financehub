@@ -6166,6 +6166,21 @@ select 'On Deck source date cache' as check_name, case when
  and position('company_today::text' in pg_get_functiondef('public.on_deck_source_version(uuid,text)'::regprocedure))>0
  then 'ok' else 'MISSING' end as status;
 
+-- On Deck review helpers are internal, not client mutation paths.
+select 'On Deck review to action' as check_name, case when
+ to_regprocedure('public.on_deck_review_content(jsonb,jsonb)') is null
+ or not exists(select 1 from information_schema.columns where table_schema='public' and table_name='on_deck_proposals' and column_name='preparation_state')
+ then 'MISSING — run 20261014120000_on_deck_review_action.sql'
+ when has_function_privilege('anon','public.on_deck_decide(uuid,integer,text,text,jsonb,integer)','execute')
+ or has_function_privilege('anon','public.on_deck_context(uuid,integer,text,uuid,uuid,text)','execute')
+ or has_function_privilege('authenticated','public.on_deck_review_content(jsonb,jsonb)','execute')
+ or has_function_privilege('authenticated','public.on_deck_preparation_state(public.on_deck_proposals)','execute')
+ then 'CRITICAL: On Deck review grants widened'
+ when position('on_deck_draft_blockers' in pg_get_functiondef('public.on_deck_decide(uuid,integer,text,text,jsonb,integer)'::regprocedure))=0
+ or position('on_deck_draft_blockers' in pg_get_functiondef('public.on_deck_finish(uuid,jsonb,integer,integer,text)'::regprocedure))=0
+ then 'BROKEN: completeness is not enforced'
+ else 'ok' end as status;
+
 -- On Deck action loop (read-only).
 select 'On Deck action loop' as check_name, case when
  exists(select 1 from information_schema.columns where table_schema='public' and table_name='on_deck_proposals' and column_name='context_work')

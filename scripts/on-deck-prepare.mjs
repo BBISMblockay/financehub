@@ -75,7 +75,16 @@ export async function run({ db, now = new Date(), prepare = prepareViaEdge }) {
       const outcomes = [];
       for (const p of pending) {
         workflow = p.kind;
-        const outcome = await prepare({ db, proposal: p }); outcomes.push(outcome);
+        let outcome;
+        try { outcome = await prepare({ db, proposal: p }); }
+        catch (error) {
+          check(await db.from('on_deck_proposals').update({ preparation_state: { state: 'failed', reason: 'preparation_failed', version: p.version, at: now.toISOString() } }).eq('company_entity_id', company).eq('id', p.id).eq('version', p.version));
+          throw error;
+        }
+        outcomes.push(outcome);
+        if (['credit_exhausted','credit_unavailable','budget_cap','daily_cap','disabled'].includes(outcome)) {
+          check(await db.from('on_deck_proposals').update({ preparation_state: { state: 'paused', reason: outcome, version: p.version, at: now.toISOString() } }).eq('company_entity_id', company).eq('id', p.id).eq('version', p.version));
+        }
         if (outcome === 'stale') check(await db.from('on_deck_proposals').update({ status: 'failed', version: p.version + 1, updated_at: now.toISOString() }).eq('id', p.id).eq('version', p.version));
       }
       if (outcomes.length) {

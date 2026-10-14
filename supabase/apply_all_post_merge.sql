@@ -19253,4 +19253,6 @@ $c$select (select count(*) from v_po_header_summary
 -- LATERAL. Same rows; 16s -> 15ms under RLS, which is what puts it inside the
 -- browser's 8s statement timeout.
 \i migrations/20261014180000_report_location_filter_speed.sql
+-- On Deck editable review, recovery and exact destination links.
+\i migrations/20261014120000_on_deck_review_action.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

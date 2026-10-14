@@ -20,7 +20,17 @@
   function safeLink(label, href) {
     const a = node('a', label); try { const u = new URL(href, location.origin); if (['http:', 'https:'].includes(u.protocol) && !u.username && !u.password) { a.href = u.href; a.rel = 'noopener noreferrer'; } } catch { /* render plain text */ } return a;
   }
-  function receiptLink(p) { const url = p.output?.url; return url && /^\/v[23]\/[a-z-]+\.html(?:\?brief=[a-f0-9-]+)?$/.test(url) ? safeLink(p.output.label, url) : node('p', 'Action recorded. Open the destination workspace to continue.'); }
+  function receiptLink(p) {
+    const out = p.output || {}, links = node('div', null, 'od-buttons'); if (out.label) links.append(node('p', out.label));
+    const uuid = v => typeof v === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
+    const ids = out.kind === 'launch_tasks' ? (out.ids || []).filter(uuid) : uuid(out.id) ? [out.id] : [];
+    ids.forEach((id, i) => {
+      const path = { seo_task: '/v2/seo-tasks.html?task=', ad_idea: '/v2/ad-studio.html?view=ideas&idea=', product_brief: '/v3/product-workflow.html?brief=', launch_tasks: '/v2/tasks.html?task=' }[out.kind];
+      if (path) links.append(safeLink(ids.length > 1 ? 'Open task ' + (i + 1) : 'Open created ' + ({ seo_task: 'SEO task', ad_idea: 'idea', product_brief: 'brief', launch_tasks: 'task' }[out.kind]), path + id));
+    });
+    if (!links.querySelector('a')) links.append(node('p', 'The exact result link is unavailable. Reload before continuing.'));
+    return links;
+  }
   async function companyStillActive() {
     if ((await cfg.ensureActiveCompany(state.db))?.id !== state.co) {
       state.loaded = state.proposalsLoaded = state.codingLoaded = false;
@@ -49,7 +59,7 @@
           state.settings = check(settings) || {}; state.rows = [...check(active), ...check(history)]; state.proposalsLoaded = true;
           state.reviewState = null;
           try { const review = await rpc('on_deck_review_state'); if (Array.isArray(review?.proposals)) state.reviewState = review; } catch (e) { errors.push('Context actions and freshness checks unavailable. Refresh after the On Deck update is installed.'); }
-          for (const row of state.rows) row.source_current = state.reviewState?.proposals.find(x => x.id === row.id)?.source_current;
+          for (const row of state.rows) { const review = state.reviewState?.proposals.find(x => x.id === row.id); row.source_current = review?.source_current; row.preparation = review?.preparation; }
           $('workspace').hidden = false; $('prepare').disabled = !state.settings.enabled;
           renderOverview(); renderQueue(); await select(state.selected);
         } catch (e) { state.rows = []; state.settings = {}; state.proposalsLoaded = false; $('workspace').hidden = true; $('prepare').disabled = true; errors.push(installMessage(e, 'On Deck')); }
@@ -157,7 +167,7 @@
   function proposalCard(p) {
     const c = node('article', null, 'od-rcard'); c.dataset.proposal = p.id;
     const stale = p.source_current === false || !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= Date.now();
-    const ready = p.status === 'ready' && !stale;
+    const ready = p.status === 'ready' && p.source_current === true && !stale && !window.SiloOnDeckBriefing.draftBlockers(p).length;
     const top = node('div', null, 'od-rcard-top');
     top.append(mark(p.kind), node('span', modules[p.kind] || 'Workflow', 'od-rcard-module'), node('span', stale ? 'STALE EVIDENCE' : p.status === 'failed' ? 'PREPARATION FAILED' : ready ? effect[p.kind] : 'NEEDS INPUT', `od-rpill od-rpill--${ready ? 'proposal' : 'needs_input'}`));
     c.append(top, node('h3', title(p)), node('p', names[p.kind].charAt(0) + names[p.kind].slice(1).toLowerCase(), 'od-rcard-sub'));
@@ -165,7 +175,7 @@
     c.append(node('p', ready ? destinations[p.kind][2] : 'Additional input is needed before approval. Open the proposal to inspect what is missing.', 'od-rcard-detail'));
     const ev = node('details', null, 'od-rcard-evidence'); ev.append(node('summary', `Why it is here · draft v${p.version}`), node('p', p.selection_reason)); c.append(ev);
     c.append(button('Review →', () => {
-      setDesk('work'); state.view = p.status === 'ready' ? 'review' : 'needs'; state.selected = p.id; state.tab = 'draft'; renderQueue();
+      setDesk('work'); state.view = p.status === 'ready' ? 'review' : ['preparing','revision'].includes(p.status) ? 'preparing' : 'needs'; state.selected = p.id; state.tab = 'draft'; renderQueue();
       select(p.id).catch(e => message(e.message, true)); $('workspace').scrollIntoView({ block: 'start', behavior: 'smooth' });
     }, true));
     return c;
@@ -178,7 +188,7 @@
     coding.forEach(i => grid.append(state.coding.card(i)));
     proposals.forEach(p => grid.append(proposalCard(p)));
     state.coding?.markActive();
-    const reviewable = coding.filter(i => window.SiloOnDeckCoding.isPending(i)).length + proposals.filter(p => p.status === 'ready').length;
+    const reviewable = coding.filter(i => window.SiloOnDeckCoding.isPending(i)).length + proposals.filter(p => p.status === 'ready' && p.source_current === true && !window.SiloOnDeckBriefing.draftBlockers(p).length && Date.parse(p.valid_until) > Date.now()).length;
     $('ready-count').textContent = String(reviewable);
     $('ready-section').hidden = false;
     if (!grid.children.length) {
@@ -246,10 +256,13 @@
     $('queue-count').textContent = state.view === 'completed' ? 'LATEST 100' : String(visible.length).padStart(2, '0');
     const queue = $('queue'); queue.replaceChildren();
     if (!visible.length) { const empty = node('div', null, 'od-empty'); empty.append(node('strong', 'Nothing on deck here.'), node('span', state.settings.enabled ? 'No qualifying proposals in this view. Preparation will not fill the queue with weak suggestions.' : 'Enable preparation to start screening connected data.')); queue.append(empty); }
-    visible.forEach(p => {
+    const ordered = state.view === 'completed' ? [...visible.filter(p => p.status === 'completed'), ...visible.filter(p => p.status !== 'completed')] : visible;
+    let category = null;
+    ordered.forEach(p => {
+      if (state.view === 'completed') { const label = p.status === 'completed' ? 'Created draft work' : 'Dismissed / skipped opportunities'; if (label !== category) { queue.append(node('h3', label, 'od-section-label')); category = label; } }
       const card = node('button', null, 'od-card'); card.type = 'button'; card.setAttribute('aria-pressed', p.id === state.selected);
       const top = node('div', null, 'od-card-top'); top.append(mark(p.kind), node('span', names[p.kind], 'od-kicker'));
-      card.append(top, node('h3', title(p)), node('span', `${p.status.replaceAll('_', ' ')} · v${p.version}`, 'od-state'));
+      card.append(top, node('h3', title(p)), node('span', `${p.status === 'ready' && window.SiloOnDeckBriefing.draftBlockers(p).length ? 'needs input' : ['preparing','revision','failed'].includes(p.status) ? window.SiloOnDeckBriefing.preparation(p,state.settings,state.reviewState || {}).state : p.status.replaceAll('_', ' ')} · v${p.version}`, 'od-state'));
       card.addEventListener('click', () => { state.selected = p.id; state.tab = 'draft'; renderQueue(); select(p.id).catch(e => message(e.message, true)); }); queue.append(card);
     });
   }
@@ -268,20 +281,23 @@
     const detail = $('detail'), rail = $('rail'), p = selected(); detail.replaceChildren(); rail.replaceChildren();
     if (!p) { const empty = node('div', null, 'od-empty'); empty.append(node('strong', 'Good decisions start with good evidence.'), node('span', 'Your strongest opportunities will appear here with a draft, a reason to act, and a clear destination.')); detail.append(empty); return; }
     const c = p.content || {}, s = p.source || {}, stale = p.source_current === false, expired = !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= Date.now();
-    const head = node('div', null, 'od-detail-head'); head.append(node('span', names[p.kind], 'od-pill'), node('h2', title(p)), node('p', `Draft ${p.version} · ${p.status.replaceAll('_', ' ')}`, 'od-meta')); detail.append(head);
+    const head = node('div', null, 'od-detail-head'); head.append(node('span', names[p.kind], 'od-pill'), node('h2', title(p)), node('p', `Draft ${p.version} · ${p.status === 'ready' && window.SiloOnDeckBriefing.draftBlockers(p).length ? 'needs input' : p.status.replaceAll('_', ' ')}`, 'od-meta')); detail.append(head);
+    const B = window.SiloOnDeckBriefing, blockers = B.draftBlockers(p), editable = B.canReview(p, state.reviewState?.review_contract === 2);
     if (!['completed', 'dismissed', 'screened'].includes(p.status)) {
       const step = node('section', null, 'od-next-step'); step.append(node('h3', 'Your next step'));
-      if (stale) step.append(node('p', 'Source evidence changed. Refresh evidence before preparing the draft task.'));
-      else if (expired) step.append(node('p', 'The saved evidence expired. Refresh evidence before preparing or creating a task.'));
-      else if (['preparing', 'revision'].includes(p.status)) step.append(node('p', 'Preparation is running. Review the new version when it is ready.'));
-      else if ((c.missing || []).length) {
-        step.append(node('p', 'Before task creation, the saved draft needs this context. Here is exactly what is outstanding.'));
-        const inputs = node('ul', null, 'od-input-list');
-        window.SiloOnDeckBriefing.inputPlan(p).forEach(i => { const li = node('li'); li.append(node('span', i.research ? 'Research for the draft task' : 'Required input', i.research ? 'od-input-label od-input-label--research' : 'od-input-label'), node('span', i.label)); inputs.append(li); }); step.append(inputs);
-        step.append(node('p', 'Research questions can be carried into an unpublished task without pretending they are answered. Required inputs need your information.'));
-        const prep = button('Prepare draft task', openHandoff, true); prep.disabled = !c.body; step.append(prep);
-      } else if (p.status === 'ready') step.append(node('p', 'Context is ready. Review the prepared copy, then use ' + actionLabels[p.kind] + ' below. Publishing and implementation happen separately.'));
-      else step.append(node('p', 'A usable prepared draft is not ready yet. Refresh evidence or request a revision to continue.'));
+      const prep = B.preparation(p, state.settings, state.reviewState || {});
+      if (['preparing','revision','failed'].includes(p.status)) {
+        const reasons = { previous_attempt: 'An earlier attempt is still finishing. Its result cannot replace this version; wait for it to finish or be reconciled.', context_open: 'Context work is still open. Record findings or detach the link before requesting new preparation.', disabled: 'Background preparation is off for this workflow. Enable it in Workspace Settings.', credit_exhausted: 'Workspace AI credit is exhausted. Add credit in Workspace Settings, then request preparation.', credit_unavailable: 'AI credit could not be checked. Retry preparation after the service recovers.', budget_cap: 'The monthly preparation cap is reached. Review the cap in Workspace Settings or wait for the next month.', daily_cap: 'The daily safety cap is reached. Try again after earlier attempts leave the 24-hour window.', screening: 'Waiting for the scheduler to screen current evidence.', drafting: 'Waiting for the scheduler to prepare a draft.', unconfirmed: 'Preparation state is unavailable. Reload to check it; no running job is confirmed.', reserved: 'A preparation attempt is running. Review the resulting version when it finishes.' };
+        step.append(node('p', prep.state.charAt(0).toUpperCase() + prep.state.slice(1) + ' — ' + (reasons[prep.reason] || 'Preparation did not finish. Reload status or request fresh screening.')));
+        if (c.body) step.append(node('p', 'Your previous draft is retained below for reference. It cannot authorize work using stale evidence.'));
+        if (prep.state === 'paused') step.append(safeLink('Review preparation settings', '/v2/settings-company.html#on-deck-settings'));
+        if (prep.state === 'running') step.append(button('Reload status', load));
+      }
+      if (p.source_current !== true || expired) step.append(node('p', expired ? 'The saved evidence expired. Refresh evidence before saving or creating work.' : p.source_current === false ? 'Source evidence changed. Refresh evidence before saving or creating work.' : 'Freshness is unavailable. Reload before saving or creating work.'));
+      if (blockers.length) { const list = node('ul', null, 'od-input-list'); blockers.forEach(x => list.append(node('li', x))); step.append(node('p', 'Still needed before creation:'), list); }
+      else if (editable) step.append(node('p', 'Review the evidence and saved work, then confirm creation. Publishing and implementation happen separately.'));
+      const review = button('Review draft', openEditor, true); review.disabled = !editable; step.append(review);
+      if (!editable) step.append(node('p', !state.reviewState || state.reviewState.review_contract !== 2 ? 'Review controls require the On Deck review update. Reload after installation.' : ['preparing','revision'].includes(p.status) ? 'Wait for preparation, or keep the previous revision before editing.' : 'Saving requires confirmed current, unexpired evidence. Your prior copy remains available below.', 'od-meta'));
       detail.append(step);
     }
     const tabs = node('nav', null, 'od-tabs'); tabs.setAttribute('aria-label', 'Proposal detail');
@@ -300,30 +316,36 @@
     } else if (state.tab === 'draft') {
       if (!c.body) panel.append(node('p', p.status === 'failed' ? 'Preparation did not complete. Refresh to request a new screening.' : 'The next preparation run will draft this proposal.'));
       else { const paper = node('div', null, 'od-paper'); paper.append(node('span', 'DRAFT / FOR YOUR REVIEW', 'od-paper-label'), node('h3', c.subject), node('p', c.summary), node('p', c.body)); panel.append(paper); const tasks = node('div', null, 'od-tasks'); (c.tasks || []).forEach(t => { const task = node('details', null, 'od-task'); task.append(node('summary', t.title), node('p', t.detail)); tasks.append(task); }); panel.append(tasks); const rationale = node('details', null, 'od-rationale'); rationale.append(node('summary', 'Why this draft'), node('p', c.reason)); panel.append(rationale); }
+      const savedInputs = window.SiloOnDeckBriefing.inputPlan(p);
+      if (savedInputs.length) { const inputs = node('section'); inputs.append(node('h3','Inputs and saved answers')); savedInputs.forEach(i => { const entry=node('div',null,'od-review-input'); entry.append(node('strong',i.label),node('p',i.mode==='answered' ? i.answer : i.mode==='carry' ? 'Research to complete before publishing or implementing — carried into draft work.' : 'Unanswered' + (i.answer ? ' (reopened): ' + i.answer : ''))); inputs.append(entry); }); panel.append(inputs); }
       const prev = state.events.find(e => e.detail?.previous_content?.body && e.detail.previous_content.body !== c.body)?.detail.previous_content;
       if (prev) { const diff = node('details'); diff.append(node('summary', 'Compare with previous draft')); const cols = node('div', null, 'od-diff'); [prev, c].forEach((value, index) => { const col = node('div'); col.append(node('h4', index ? 'CURRENT' : 'PREVIOUS'), node('pre', [value.subject, value.summary, value.body, ...(value.tasks || []).map(t => `${t.title}\n${t.detail}`)].join('\n\n'))); cols.append(col); }); diff.append(cols); panel.append(diff); }
     } else if (state.tab === 'impact') {
-      panel.append(node('h3', 'What happened'), node('p', p.output ? p.output.label : 'No action has been confirmed.'));
+      panel.append(node('h3', 'What happened'), node('p', p.output ? p.output.label : p.status === 'dismissed' ? 'Opportunity dismissed; no draft work was created. ' + (p.dismiss_reason || '') : p.status === 'screened' ? 'Skipped after screening; no draft work was created.' : 'No action has been confirmed.'));
       panel.append(node('h3', 'Observed value'), node('p', p.value_minutes == null ? 'No time saving or business outcome has been recorded. Revenue lift is not inferred from an approval.' : `${p.value_minutes} minutes saved, reported ${when(p.value_recorded_at)}.\n${p.value_note || ''}`));
       if (p.status === 'completed') panel.append(button('Record observed value', () => decision('value')));
     } else {
       panel.append(node('p', 'Latest 50 events. Previous draft content is retained for review.'));
-      state.events.forEach(e => { const row = node('details', null, 'od-event'); row.append(node('summary', `${when(e.created_at)} · ${e.event_type.replaceAll('_', ' ')}`), node('pre', JSON.stringify(e.detail, null, 2))); panel.append(row); });
+      state.events.forEach(e => { const row = node('details', null, 'od-event'); row.append(node('summary', `${when(e.created_at)} · ${e.event_type.replaceAll('_', ' ')}`), node('pre', JSON.stringify(e.event_type.startsWith('context_') ? { note: e.detail?.note || 'Context link updated. Task details are shown only while accessible.' } : e.detail, null, 2))); panel.append(row); });
       state.attempts.slice(0, 20).forEach(a => panel.append(node('p', `${when(a.created_at)} · ${a.state}${a.error_code ? ` · ${a.error_code}` : ''}`)));
       if (p.dismiss_reason) panel.append(node('p', `Dismissed: ${p.dismiss_reason}`));
     }
     detail.append(panel);
-    if (stale && p.status !== 'completed') detail.append(node('p', p.source_version === '' ? 'Fresh preparation is queued. Saved findings and your previous draft are retained.' : 'Source evidence changed since this draft. Refresh evidence before editing or approving.', 'od-warning'));
+    if (stale && !['completed','dismissed','screened'].includes(p.status)) detail.append(node('p', p.source_version === '' ? 'Fresh screening was requested. Saved findings and your previous draft are retained; check the preparation status above.' : 'Source evidence changed since this draft. Refresh evidence before editing or approving.', 'od-warning'));
     if (p.kind === 'seo' && c.proposed_title) detail.append(node('h3', 'Proposed search copy'), node('p', c.proposed_title), node('p', c.proposed_meta_description));
     if (c.optional_context?.length) { const extra = node('details'); extra.append(node('summary', 'Optional enrichment — not required for this draft')); c.optional_context.forEach(x => extra.append(node('p', x))); detail.append(extra); }
-    if (p.kind === 'seo' && c.body && (!c.proposed_title || !c.proposed_meta_description)) detail.append(node('p', 'Refresh this older draft to prepare separate SEO title and meta-description fields.', 'od-warning'));
+    if (p.kind === 'seo' && c.body && (!c.proposed_title || !c.proposed_meta_description)) detail.append(node('p', 'This draft needs a proposed SEO title and meta description. Fill them in Review draft, or request preparation separately.', 'od-warning'));
     if (p.kind === 'seo' && state.reviewState?.seo === false) detail.append(node('p', 'An SEO approver must create the SEO draft. You can still assign context work.', 'od-warning'));
     renderContext(detail, p);
     const footer = node('div', null, 'od-footer');
     if (p.status === 'completed') footer.append(receiptLink(p));
     else if (!['dismissed', 'screened'].includes(p.status)) {
-      const approve = button(actionLabels[p.kind], () => decision('approve'), true); approve.disabled = p.status !== 'ready' || expired || stale || (c.missing || []).length > 0 || (p.kind === 'seo' && (!c.proposed_title || !c.proposed_meta_description || state.reviewState?.seo === false)); footer.append(approve);
-      if (!['preparing', 'revision'].includes(p.status)) { const edit = button('Edit draft', openEditor); edit.disabled = !c.body || expired || stale; footer.append(edit, button('Refresh evidence', () => simpleAction('refresh'))); }
+      const approve = button(actionLabels[p.kind], () => decision('approve'), true);
+      const denied = p.kind === 'seo' && state.reviewState?.seo !== true || p.kind === 'restock' && state.reviewState?.purchasing !== true;
+      approve.disabled = !editable || p.status !== 'ready' || blockers.length > 0 || denied;
+      footer.append(approve);
+      if (approve.disabled) footer.append(node('p', denied ? 'A reviewer with destination approval permission must create this work.' : blockers.length ? 'Save the missing fields and required answers in Review draft before confirming creation.' : 'Creation requires a saved ready version and current evidence; check the next step above.', 'od-meta'));
+      if (!['preparing', 'revision'].includes(p.status)) footer.append(button('Refresh evidence', () => simpleAction('refresh')));
       if (p.status === 'revision') footer.append(button('Keep previous draft', () => simpleAction('cancel_revision')));
       footer.append(button('Dismiss', () => decision('dismiss')));
     }
@@ -332,33 +354,34 @@
     const revision = node('section'); revision.append(node('h3', 'Give it a nudge'));
     const field = node('textarea'); field.className = 'bcn-field'; field.rows = 3; field.maxLength = 2000; field.placeholder = 'What would make this stronger?'; field.setAttribute('aria-label', 'Revision instructions');
     const revise = button('Request revision', async () => { if (!field.value.trim()) { message('Describe the revision first.', true); field.focus(); return; } revise.disabled = true; await simpleAction('revise', field.value); }, true);
-    revise.disabled = !state.settings.enabled || ['completed', 'dismissed', 'screened', 'preparing', 'revision'].includes(p.status) || expired || stale; field.disabled = revise.disabled; revision.append(field, revise); rail.append(revision);
-    const rules = node('section'); rules.append(node('h3', 'You have the final say'), node('p', 'Nothing publishes or spends here.'), node('span', `Evidence expires ${when(p.valid_until)}`, 'od-meta')); rail.append(rules);
+    revise.disabled = !state.settings.enabled || p.source_current !== true || state.reviewState?.review_contract !== 2 || ['completed', 'dismissed', 'screened', 'preparing', 'revision'].includes(p.status) || expired || stale; field.disabled = revise.disabled; revision.append(field, revise, node('p', revise.disabled ? 'Revision requires enabled preparation, current evidence and an active draft.' : 'This requests paid AI preparation within your workspace limits. Saving edits does not.', 'od-meta')); rail.append(revision);
+    const rules = node('section'); rules.append(node('h3', 'You have the final say'), node('p', 'Creation saves draft work only. AI revision is separate and may use credit.'), node('span', `Evidence expires ${when(p.valid_until)}`, 'od-meta')); rail.append(rules);
   }
   function renderContext(panel, p) {
     if (['completed', 'dismissed', 'screened'].includes(p.status)) return;
-    const work = p.context_work || {};
+    const work = p.context_work || {}, task = state.reviewState?.context_tasks?.find(t => t.id === work.task_id);
     if (work.task_id) {
-      panel.append(node('h3', 'Context work'), node('p', work.title), safeLink('Open context task', '/v2/tasks.html?task=' + work.task_id));
-      const task = state.reviewState?.context_tasks?.find(t => t.id === work.task_id);
-      if (task) panel.append(node('p', `Owner: ${task.owner || 'Needs reassignment'} · ${task.status}. The owner records findings in task notes; an On Deck reviewer imports and reviews them here.`));
-      if (work.state === 'resolved') panel.append(node('p', 'Recorded findings: ' + work.resolution));
+      panel.append(node('h3', 'Context work'));
+      if (task) panel.append(node('p', task.title || 'Linked context task'), safeLink('Open context task', '/v2/tasks.html?task=' + work.task_id), node('p', `Owner: ${task.owner || 'Needs reassignment'} · ${task.status}. Review findings before importing them.`));
+      else panel.append(node('p', 'Linked context task is unavailable. It may have been deleted or access changed. Detach the link to continue; its contents are not shown.'));
+      if (task && work.state === 'resolved') panel.append(node('p', 'Recorded findings: ' + work.resolution));
+      if (state.reviewState?.review_contract === 2) { const detach = button('Detach context link', () => openContext(p, true)); detach.disabled = ['preparing','revision'].includes(p.status); panel.append(detach); if (detach.disabled) panel.append(node('p', 'Wait for preparation before changing the context link.', 'od-meta')); }
     }
-    if (!state.reviewState) return;
+    if (!state.reviewState || (work.task_id && !task)) return;
     if (!['preparing', 'revision'].includes(p.status) && ((p.content?.missing || []).length || work.state === 'open')) {
-      const assign = button(work.state === 'open' ? 'Record findings and refresh draft' : 'Create or link context task', () => openContext(p));
-      assign.disabled = work.state !== 'open' && (p.source_current === false || !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= Date.now());
-      panel.append(assign);
+      const assign = button(work.state === 'open' ? 'Record findings and refresh draft' : 'Assign context work', () => openContext(p));
+      assign.disabled = work.state !== 'open' && !window.SiloOnDeckBriefing.canReview(p, state.reviewState?.review_contract === 2);
+      panel.append(assign, node('p', work.state === 'open' ? 'Saving findings requests a fresh screen and may use AI credit. You can answer inputs manually in Review draft instead.' : assign.disabled ? 'Assigning context work needs confirmed current evidence.' : 'Secondary option: ask an owner to gather required facts. This does not create the proposed destination work.', 'od-meta'));
     }
   }
-  let contextProposal, contextResolving;
-  function openContext(p) {
+  let contextProposal, contextResolving, contextDetaching;
+  function openContext(p, detach = false) {
     if (dialogBusy) return;
-    contextProposal = p; contextResolving = p.context_work?.state === 'open';
-    $('context-title').textContent = contextResolving ? 'Record context findings' : 'Assign required context';
+    contextProposal = p; contextDetaching = detach; contextResolving = !detach && p.context_work?.state === 'open';
+    $('context-title').textContent = detach ? 'Detach unavailable or replaced context' : contextResolving ? 'Record context findings' : 'Assign required context';
     $('context-explanation').textContent = p.title;
     $('context-missing').replaceChildren(); (p.content?.missing || []).forEach(x => $('context-missing').append(node('li', x)));
-    $('context-assignment').hidden = contextResolving; $('context-findings-label').hidden = !contextResolving;
+    $('context-recovery').hidden = !detach; $('context-detach-note').value = ''; $('context-detach-note').required = detach; $('context-detach-note').minLength = detach ? 12 : 0; $('context-assignment').hidden = contextResolving || detach; $('context-findings-label').hidden = !contextResolving;
     const task = state.reviewState?.context_tasks?.find(t => t.id === p.context_work?.task_id);
     $('context-findings').value = contextResolving && !task?.notes_truncated && !task?.notes_are_request ? task?.notes || '' : ''; $('context-findings').required = contextResolving;
     if (contextResolving && task?.notes_are_request) $('context-explanation').textContent += ' - This task has no importable findings beyond its original request or status updates. Enter actual findings and supporting evidence.';
@@ -369,7 +392,7 @@
     (state.reviewState.assignees || []).forEach(a => $('context-owner').append(new Option(a.name, a.id)));
     $('context-task').replaceChildren(new Option('Create a new task', ''));
     (state.reviewState.tasks || []).forEach(t => $('context-task').append(new Option(t.task_title, t.id)));
-    $('context-submit').textContent = contextResolving ? 'Save findings and queue fresh draft' : 'Confirm context task';
+    $('context-submit').textContent = detach ? 'Confirm detach' : contextResolving ? 'Save findings and queue fresh draft' : 'Confirm context task';
     message('', false, 'context-error'); $('context-dialog').showModal();
   }
   $('context-form').addEventListener('submit', e => {
@@ -377,15 +400,16 @@
     submit(e.target, 'context-error', async () => {
       await companyStillActive();
       const task = $('context-task').value, owner = $('context-owner').value;
-      if (!contextResolving && (contextProposal.source_current === false || !Number.isFinite(Date.parse(contextProposal.valid_until)) || Date.parse(contextProposal.valid_until) <= Date.now())) throw new Error('Evidence changed or expired. Refresh before assigning context work.');
-      if (!contextResolving && !task && !owner) throw new Error('Choose an owner or an existing owned task.');
+      if (!contextResolving && !contextDetaching && (contextProposal.source_current === false || !Number.isFinite(Date.parse(contextProposal.valid_until)) || Date.parse(contextProposal.valid_until) <= Date.now())) throw new Error('Evidence changed or expired. Refresh before assigning context work.');
+      if (!contextResolving && !contextDetaching && !task && !owner) throw new Error('Choose an owner or an existing owned task.');
       await rpc('on_deck_context', { p_id: contextProposal.id, p_version: contextProposal.version,
-        p_action: contextResolving ? 'resolve' : task ? 'link' : 'create', p_assignee: owner || null,
-        p_task: task || null, p_note: contextResolving ? $('context-findings').value.trim() : null });
+        p_action: contextDetaching ? 'detach' : contextResolving ? 'resolve' : task ? 'link' : 'create', p_assignee: owner || null,
+        p_task: task || null, p_note: contextDetaching ? $('context-detach-note').value.trim() : contextResolving ? $('context-findings').value.trim() : null });
     }, 'context-dialog');
   });
   async function mutate(p, action, extra = {}) { await companyStillActive(); if (['edit', 'revise', 'approve'].includes(action) && (!Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= Date.now())) throw new Error('Evidence expired. Refresh evidence before saving or approving.'); return rpc('on_deck_decide', { p_id: p.id, p_version: p.version, p_action: action, ...extra }); }
-  async function simpleAction(action, note) { const p = selected(); try { await mutate(p, action, { p_note: note || null }); await load(); message(action === 'cancel_revision' ? 'Previous draft restored for review. Any model call already started still counts toward the cap.' : action === 'revise' ? 'Revision queued. Your previous draft remains in history; approval waits for the new version.' : 'Fresh screening requested. The next run will recheck whether this opportunity qualifies.'); } catch (e) { message(e.message, true); renderDetail(); } }
+  let actionBusy = false;
+  async function simpleAction(action, note) { if (actionBusy) return; actionBusy = true; const p = selected(); try { const result = await mutate(p, action, { p_note: note || null }); state.view = action === 'refresh' ? 'needs' : action === 'revise' ? 'preparing' : result?.status === 'ready' ? 'review' : 'needs'; state.selected = p.id; state.tab = 'draft'; await load(); message(action === 'cancel_revision' ? 'Previous draft restored for review. Any model call already started still counts toward the cap.' : action === 'revise' ? 'Revision queued. Your previous draft remains in history; approval waits for the new version.' : 'Fresh screening requested; previous copy retained. Check the preparation status for queued, running or paused work.'); } catch (e) { message(e.message, true); renderDetail(); } finally { actionBusy = false; } }
   let dialogProposal, dialogAction;
   function decision(action) {
     if (dialogBusy) return;
@@ -398,51 +422,74 @@
     if (approve && dialogProposal.kind === 'restock') ['I reviewed whole-product demand, including promotions and stockouts.', 'I verified realized margin, seasonality and supplier lead time.', 'I checked incoming purchases and the cash budget. Size allocation is still undecided.'].forEach(label => { const row = node('label', null, 'od-check'), input = node('input'); input.type = 'checkbox'; input.required = true; row.append(input, node('span', label)); checks.append(row); });
     $('decision-submit').textContent = approve ? `Confirm · ${actionLabels[dialogProposal.kind]}` : value ? 'Save observed value' : 'Dismiss for 30 days'; $('decision-dialog').showModal();
   }
-  function openHandoff() {
-    if (dialogBusy) return;
-    dialogProposal = selected(); const box = $('handoff-inputs'); box.replaceChildren(); message('', false, 'handoff-error');
-    window.SiloOnDeckBriefing.inputPlan(dialogProposal).forEach((item, i) => {
-      const label = node('label', null, 'od-handoff-input'); label.dataset.index = i;
-      if (item.research) { const checkbox = node('input'); checkbox.type = 'checkbox'; label.append(checkbox, node('span', 'Carry into draft task: ' + item.label)); }
-      else { label.append(node('span', item.label + ' — required')); const value = node('textarea'); value.rows = 3; value.maxLength = 1200; value.placeholder = 'Add the information needed to prepare this task'; value.setAttribute('aria-label', item.label); label.append(value); }
-      box.append(label);
-    }); $('handoff-dialog').showModal();
+  function addTask(t = { title: '', detail: '' }) {
+    if ($('edit-tasks').children.length >= 5) return;
+    const row = node('div', null, 'od-review-task'), title = node('input'), detail = node('textarea');
+    title.className = detail.className = 'bcn-field'; title.value = t.title; title.maxLength = 200; title.required = true; title.setAttribute('aria-label', 'Launch task title');
+    detail.value = t.detail; detail.maxLength = 1500; detail.rows = 3; detail.setAttribute('aria-label', 'Launch task detail');
+    row.append(title, detail, button('Remove task', () => { row.remove(); $('edit-add-task').disabled = false; updateReviewBlockers(); })); $('edit-tasks').append(row); $('edit-add-task').disabled = $('edit-tasks').children.length >= 5;
+  }
+  function editorPatch() {
+    const content = { ...dialogProposal.content, recommend: true, tasks: dialogProposal.content?.tasks || [] };
+    ['subject','summary','body','reason'].forEach(k => { content[k] = $('edit-' + k).value; });
+    if (dialogProposal.kind === 'seo') { content.proposed_title = $('edit-seo-title').value.trim(); content.proposed_meta_description = $('edit-seo-meta').value.trim(); }
+    if (dialogProposal.kind === 'launch') content.tasks = [...$('edit-tasks').children].map(row => ({ title: row.querySelector('input').value.trim(), detail: row.querySelector('textarea').value }));
+    const answers = [...$('edit-missing').children].map(row => ({ value: row.querySelector('textarea').value, carry: !!row.querySelector('[data-carry]')?.checked, reopen: row.querySelector('[data-reopen]')?.checked }));
+    return window.SiloOnDeckBriefing.prepareHandoff({ ...dialogProposal, content }, answers, $('edit-note').value.trim());
+  }
+  function updateReviewBlockers() {
+    try { const patch = editorPatch(), blockers = window.SiloOnDeckBriefing.draftBlockers({ ...dialogProposal, content: patch.content }); $('edit-blockers').textContent = blockers.length ? 'Before creation: ' + blockers.join(' · ') : 'No draft fields remain blocked. Save, then separately confirm creation.'; }
+    catch (e) { $('edit-blockers').textContent = e.message; }
   }
   function openEditor() {
-    if (dialogBusy) return;
-    dialogProposal = selected(); const c = dialogProposal.content || {}; ['subject', 'summary', 'body'].forEach(key => { $(`edit-${key}`).value = c[key] || ''; }); $('edit-note').value = ''; message('', false, 'edit-error');
+    if (dialogBusy || !window.SiloOnDeckBriefing.canReview(selected(), state.reviewState?.review_contract === 2)) return;
+    dialogProposal = selected(); const c = dialogProposal.content || {};
+    ['subject', 'summary', 'body','reason'].forEach(key => { $('edit-' + key).value = c[key] || ''; }); $('edit-note').value = ''; $('edit-reload').hidden = true; message('', false, 'edit-error');
     $('edit-seo').hidden = dialogProposal.kind !== 'seo'; $('edit-seo-title').value = c.proposed_title || ''; $('edit-seo-meta').value = c.proposed_meta_description || '';
-    const tasks = $('edit-tasks'); tasks.replaceChildren(); (c.tasks || []).forEach((t, i) => { const label = node('label', `Task ${i + 1}`), title = node('input'), detail = node('textarea'); title.className = detail.className = 'bcn-field'; title.value = t.title; title.maxLength = 200; title.required = true; title.setAttribute('aria-label', `Task ${i + 1} title`); detail.value = t.detail; detail.maxLength = 1500; detail.rows = 3; detail.setAttribute('aria-label', `Task ${i + 1} detail`); label.append(title, detail); tasks.append(label); });
-    const missing = $('edit-missing'); missing.replaceChildren(); (c.missing || []).forEach(item => { const label = node('label', null, 'od-check'), checkbox = node('input'); checkbox.type = 'checkbox'; label.append(checkbox, node('span', `Resolved: ${item}`)); missing.append(label); }); $('edit-dialog').showModal();
+    const evidence = $('edit-evidence-content'); evidence.replaceChildren(node('p', dialogProposal.selection_reason));
+    if (dialogProposal.kind === 'seo') evidence.append(node('p', 'Current title: ' + (dialogProposal.source?.inspection?.title || 'Unknown')), node('p', 'Current description: ' + (dialogProposal.source?.inspection?.meta_description || 'Unknown')));
+    const source = node('details'); source.append(node('summary', 'Inspect saved evidence'), node('pre', JSON.stringify(dialogProposal.source, null, 2), 'od-source')); evidence.append(source);
+    $('edit-tasks').replaceChildren(); if (dialogProposal.kind === 'launch') (c.tasks || []).forEach(addTask); $('edit-task-rules').hidden = dialogProposal.kind !== 'launch'; $('edit-add-task').hidden = dialogProposal.kind !== 'launch'; $('edit-add-task').disabled = $('edit-tasks').children.length >= 5;
+    const inputs = $('edit-missing'); inputs.replaceChildren();
+    window.SiloOnDeckBriefing.inputPlan(dialogProposal).forEach(item => {
+      const row = node('section', null, 'od-review-input'), label = node('label', item.label + (item.research ? ' — optional research' : ' — required fact')), answer = node('textarea');
+      answer.className = 'bcn-field'; answer.rows = 3; answer.maxLength = 1200; answer.value = item.answer || ''; answer.setAttribute('aria-label', item.label); label.append(answer); row.append(label);
+      if (item.research) { const carry = node('input'); carry.type = 'checkbox'; carry.dataset.carry = ''; carry.checked = item.mode === 'carry'; const choice = node('label', null, 'od-check'); choice.append(carry, node('span', 'Carry unanswered research into created work')); row.append(choice); }
+      const reopen = node('input'); reopen.type = 'checkbox'; reopen.dataset.reopen = ''; reopen.checked = item.mode === 'unanswered' && !!item.answer; const choice = node('label', null, 'od-check'); choice.append(reopen, node('span', reopen.checked ? 'Keep this answer open until verified' : 'Reopen this answer (keep text for reference)')); row.append(choice); inputs.append(row);
+    });
+    $('edit-input-heading').hidden = !inputs.children.length; updateReviewBlockers(); $('edit-dialog').showModal();
   }
+  $('edit-reload').addEventListener('click', async () => { if (dialogBusy) return; $('edit-reload').disabled = true; await load(); $('edit-dialog').close(); $('edit-reload').disabled = false; openEditor(); });
+  $('edit-add-task').addEventListener('click', () => { addTask(); updateReviewBlockers(); });
+  $('edit-form').addEventListener('input', updateReviewBlockers);
   let dialogBusy = false;
   async function submit(form, errorId, fn, dialog) {
     if (dialogBusy) return;
     dialogBusy = true;
     const controls = [...$(dialog).querySelectorAll('button')], disabled = controls.map(b => b.disabled);
     controls.forEach(b => { b.disabled = true; });
-    try { await fn(); $(dialog).close(); await load(); } catch (e) { message(e.message, true, errorId); }
+    try { await fn(); $(dialog).close(); await load(); } catch (e) { message(e.message, true, errorId); if (dialog === 'edit-dialog') $('edit-reload').hidden = false; }
     finally { controls.forEach((b,i) => { b.disabled = disabled[i]; }); dialogBusy = false; }
   }
   document.querySelectorAll('dialog').forEach(d => d.addEventListener('cancel', e => { if (dialogBusy) e.preventDefault(); }));
-  $('handoff-dialog').querySelector('[data-handoff-close]').addEventListener('click', () => { if (!dialogBusy) $('handoff-dialog').close(); });
-  $('handoff-form').addEventListener('input', () => message('', false, 'handoff-error'));
-  $('handoff-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    const proposal = dialogProposal;
-    try {
-      const answers = [...$('handoff-inputs').querySelectorAll('label')].map(l => ({ carry: !!l.querySelector('input')?.checked, value: l.querySelector('textarea')?.value || '' }));
-      const patch = window.SiloOnDeckBriefing.prepareHandoff(proposal, answers);
-      await submit(e.target, 'handoff-error', async () => { await mutate(proposal, 'edit', { p_content: patch.content, p_note: patch.note }); state.view = patch.content.missing.length ? 'needs' : 'review'; state.selected = proposal.id; state.tab = 'draft'; }, 'handoff-dialog');
-      if (!$('handoff-dialog').open && state.proposalsLoaded && selected()?.id === proposal.id) message(patch.content.missing.length ? 'Task prep saved. The remaining inputs are listed above.' : 'Task prep saved. Review the copy below, then confirm draft task creation.');
-    } catch (error) { message(error.message, true, 'handoff-error'); }
-  });
   $('decision-form').addEventListener('submit', e => { e.preventDefault(); const proposal = dialogProposal, action = dialogAction; submit(e.target, 'decision-error', async () => { await mutate(proposal, action, { p_note: $('decision-note').value.trim(), p_minutes: action === 'value' ? Number($('minutes').value) : null }); if (['approve', 'dismiss'].includes(action)) { state.view = 'completed'; state.selected = proposal.id; state.tab = 'impact'; } }, 'decision-dialog'); });
-  $('edit-form').addEventListener('submit', e => { e.preventDefault(); const proposal = dialogProposal, original = proposal.content, content = { ...original, recommend: true }; ['subject', 'summary', 'body'].forEach(k => { content[k] = $(`edit-${k}`).value; }); content.tasks = [...$('edit-tasks').querySelectorAll('label')].map(l => ({ title: l.querySelector('input').value, detail: l.querySelector('textarea').value })); const checks = [...$('edit-missing').querySelectorAll('input')]; if (proposal.kind === 'seo') { content.proposed_title = $('edit-seo-title').value.trim(); content.proposed_meta_description = $('edit-seo-meta').value.trim(); } content.missing = (original.missing || []).filter((_, i) => !checks[i].checked); submit(e.target, 'edit-error', async () => { await mutate(proposal, 'edit', { p_content: content, p_note: $('edit-note').value }); state.view = content.missing.length ? 'needs' : 'review'; state.selected = proposal.id; state.tab = 'draft'; }, 'edit-dialog'); });
+  $('edit-form').addEventListener('submit', e => {
+    e.preventDefault(); const proposal = dialogProposal;
+    try {
+      const patch = editorPatch();
+      if (window.SiloOnDeckBriefing.creationBody(patch.content).length > 5000) throw new Error('Draft copy and saved answers must fit the combined 5000-character limit.');
+      if (proposal.kind === 'launch') { const tasks = patch.content.tasks; if (tasks.length < 1 || tasks.length > 5 || new Set(tasks.map(t => t.title.trim().toLowerCase())).size !== tasks.length) throw new Error('Before Save, provide one to five launch tasks with unique titles.'); }
+      if (patch.note.trim().length < 12) throw new Error('Explain your review in at least 12 characters.');
+      submit(e.target, 'edit-error', async () => {
+        const saved = await mutate(proposal, 'edit', { p_content: patch.content, p_note: patch.note });
+        state.view = (saved?.status || (window.SiloOnDeckBriefing.draftBlockers({ ...proposal, content: patch.content }).length ? 'needs_info' : 'ready')) === 'ready' ? 'review' : 'needs'; state.selected = proposal.id; state.tab = 'draft';
+      }, 'edit-dialog');
+    } catch (e) { message(e.message, true, 'edit-error'); }
+  });
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => { if (!dialogBusy) b.closest('dialog').close(); }));
   $('refresh').addEventListener('click', load);
   $('desk-views').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { if (b.dataset.desk === 'briefing') renderBriefing(); setDesk(b.dataset.desk); }));
-  async function requestPreparation() { $('prepare').disabled = true; try { await companyStillActive(); await rpc('on_deck_request_preparation'); await load(); message('Screening requested for the next hourly scheduler run. There is no charge until a qualified proposal is drafted.'); } catch (e) { message(e.message, true); $('prepare').disabled = !state.settings.enabled; } }
+  async function requestPreparation() { if (actionBusy) return; actionBusy = true; $('prepare').disabled = true; try { await companyStillActive(); await rpc('on_deck_request_preparation'); await load(); message('Screening requested for the next hourly scheduler run. There is no charge until a qualified proposal is drafted.'); } catch (e) { message(e.message, true); $('prepare').disabled = !state.settings.enabled; } finally { actionBusy = false; } }
   $('prepare').addEventListener('click', requestPreparation);
   $('views').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { state.view = b.dataset.view; state.tab = 'draft'; renderQueue(); select(state.selected).catch(e => message(e.message, true)); }));
   async function init() {

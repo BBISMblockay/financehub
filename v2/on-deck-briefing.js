@@ -9,16 +9,17 @@
   function currentStatus(rows = [], now = Date.now()) {
     const active = rows.filter(p => ['ready','needs_info','failed','preparing','revision'].includes(p.status));
     const stale = p => p.source_current === false || !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= now;
-    const ready = active.filter(p => p.status === 'ready' && p.source_current === true && !stale(p) && p.content?.recommend === true && text(p.content?.body) && Array.isArray(p.content?.missing) && !p.content.missing.length && (p.kind !== 'seo' || (text(p.content?.proposed_title) && text(p.content?.proposed_meta_description)))).length;
+    const ready = active.filter(p => p.status === 'ready' && p.source_current === true && !stale(p) && !draftBlockers(p).length).length;
     const needs = active.filter(p => p.status === 'needs_info').length, failed = active.filter(p => p.status === 'failed').length;
     const expired = active.filter(stale).length, preparing = active.filter(p => ['preparing','revision'].includes(p.status)).length;
+    const running = active.filter(p => p.preparation?.state === 'running').length, paused = active.filter(p => p.preparation?.state === 'paused').length, queued = active.filter(p => p.preparation?.state === 'queued').length;
     const unknown = active.filter(p => typeof p.source_current !== 'boolean').length;
-    return { ready, needs, failed, stale: expired, preparing, unknown,
-      text: `${ready} actionable drafts; ${needs} need context; ${failed} failed; ${preparing} preparing. ${expired} active drafts have stale evidence and cannot be approved.${unknown ? ` Freshness unavailable for ${unknown} drafts; reload before review.` : ''}` };
+    return { ready, needs, failed, stale: expired, preparing, queued, running, paused, unknown,
+      text: `${ready} actionable drafts; ${needs} need context; ${failed} failed; ${queued} queued, ${running} running, ${paused} paused. ${expired} active drafts have stale evidence and cannot be approved.${unknown ? ` Freshness unavailable for ${unknown} drafts; reload before review.` : ''}` };
   }
   const name = p => text(p.title).split(' · ').slice(1).join(' · ') || text(p.title) || 'Prepared opportunity';
-  // The current draft contract stores copy, not structured SEO fields. Fail
-  // conservatively when a changed title/description cannot be identified.
+  // Prefer structured SEO fields; legacy parsing only compares displayed copy.
+  // Eligibility still requires complete structured fields.
   function seoChange(p) {
     const body = text(p.content?.body), inspected = p.source?.inspection || {};
     const field = label => {
@@ -31,7 +32,7 @@
   }
   function proposal(p, now) {
     const c = p.content || {}, s = p.source || {}, expires = Date.parse(p.valid_until);
-    if (p.source_current === false || p.status !== 'ready' || c.recommend !== true || !text(c.body) || !Array.isArray(c.missing) || c.missing.length ||
+    if (p.source_current !== true || draftBlockers(p).length || p.status !== 'ready' || c.recommend !== true || !text(c.body) || !Array.isArray(c.missing) || c.missing.length ||
         !Number.isFinite(expires) || expires <= now || !text(p.selection_reason)) return null;
     const base = { id: p.id, type: 'proposal', kind: p.kind, name: name(p), priority: 1,
       rank: Number((p.selection_reason.match(/Selected #(\d+)/) || [])[1]) || 99,
@@ -89,7 +90,7 @@
   }
   function discovery(p, now) {
     const s = p.source || {}, expires = Date.parse(p.valid_until);
-    if (p.source_current === false || p.status !== 'needs_info' || p.content?.recommend !== true || !text(p.content?.body) ||
+    if (p.source_current !== true || p.status !== 'needs_info' || p.content?.recommend !== true || !text(p.content?.body) ||
         !text(p.selection_reason) || !Number.isFinite(expires) || expires <= now) return null;
     if (p.kind === 'ads') {
       if (!positive(s.index) || !['moderate', 'strong'].includes(s.evidence) || !text(s.objective) || !text(s.current_copy)) return null;
@@ -143,26 +144,67 @@
       needsInput: rows.filter(p => p.status === 'needs_info').length + coding.filter(i => i.stage === 'needs_input').length,
       preparing: rows.filter(p => ['preparing', 'revision'].includes(p.status)).length };
   }
+  // The producer's required/optional arrays are the structured rule. Legacy
+  // missing labels stay required regardless of their wording.
   function inputPlan(p) {
-    const optional = new Set(['any prior seo test history for this page']);
-    return (p.content?.missing || []).map(label => ({ label, research: p.kind === 'seo' && (optional.has(clean(label)) || /^current ranking keywords driving the \d[\d,]* clicks$/.test(clean(label)) || /^click-through rate benchmark for position ~\d+(?:\.\d+)? in this vertical$/.test(clean(label))) }));
+    const c = p.content || {};
+    if (Array.isArray(c.review_inputs)) return c.review_inputs.map(i => ({ ...i, research: i.requirement === 'optional' }));
+    return [...(c.missing || []).map((label, i) => ({ id: 'required:' + i, label, requirement: 'required', answer: '', mode: 'unanswered', research: false })),
+      ...(c.optional_context || []).map((label, i) => ({ id: 'optional:' + i, label, requirement: 'optional', answer: '', mode: 'unanswered', research: true }))];
   }
-  function prepareHandoff(p, answers) {
-    const c = p.content || {}, pending = [], supplied = [], research = [];
-    if (!text(c.body)) throw new Error('A prepared draft is needed first.');
-    inputPlan(p).forEach((item, i) => {
-      const answer = answers[i] || {};
-      if (item.research && answer.carry === true) research.push(item.label);
-      else if (!item.research && text(answer.value).length >= 4) supplied.push(item.label + ': ' + text(answer.value));
-      else pending.push(item.label);
+  function creationBody(c) {
+    const inputs = inputPlan({content:c}), sections = [typeof c.body === 'string' ? c.body : ''];
+    const answers = inputs.filter(i => i.mode === 'answered').map(i => i.label + ': ' + i.answer);
+    const research = inputs.filter(i => i.requirement === 'optional' && i.mode === 'carry').map(i => '- ' + i.label);
+    if (answers.length) sections.push('Confirmed task context:\n' + answers.join('\n'));
+    if (research.length) sections.push('Research to complete before publishing or implementing:\n' + research.join('\n'));
+    return sections.join('\n\n');
+  }
+  function draftBlockers(p) {
+    const c = p.content || {}, blockers = [];
+    if (!Array.isArray(c.missing) || !Array.isArray(c.tasks)) blockers.push('Review the saved input and task lists.');
+    if (c.recommend !== true) blockers.push('Review a recommended draft.');
+    for (const [key, label, max] of [['subject', 'Draft title', 200], ['body', 'Draft copy', 5000]]) {
+      if (!text(c[key])) blockers.push(label + ' is required.');
+      else if (c[key].length > max) blockers.push(label + ' exceeds ' + max + ' characters.');
+    }
+    if (typeof c.summary !== 'string' || c.summary.length > 500) blockers.push('Summary must be at most 500 characters.');
+    if (typeof c.reason !== 'string' || c.reason.length > 2000) blockers.push('Draft rationale must be at most 2000 characters.');
+    inputPlan(p).filter(i => i.requirement === 'required' && (i.mode !== 'answered' || text(i.answer).length < 4)).forEach(i => blockers.push(i.label));
+    if (p.kind === 'seo') {
+      if (!text(c.proposed_title)) blockers.push('Proposed SEO title is required.');
+      if (!text(c.proposed_meta_description)) blockers.push('Proposed meta description is required.');
+      if ((c.proposed_title || '').length > 200 || (c.proposed_meta_description || '').length > 500) blockers.push('SEO title/meta exceed their limits (200/500 characters).');
+    }
+    const tasks = c.tasks || [];
+    if (p.kind === 'launch' && (tasks.length < 1 || tasks.length > 5)) blockers.push('Review one to five launch tasks.');
+    if (tasks.some(t => !text(t.title) || t.title.length > 200 || typeof t.detail !== 'string' || t.detail.length > 1500)) blockers.push('Each launch task needs a title (up to 200 characters) and detail (up to 1500).');
+    if (p.kind === 'launch' && new Set(tasks.map(t => clean(t.title))).size !== tasks.length) blockers.push('Launch task titles must be unique.');
+    if (creationBody(c).length > 5000) blockers.push('Draft copy and saved answers exceed the combined 5000-character limit.');
+    return blockers;
+  }
+  function prepareHandoff(p, answers, note) {
+    const c = p.content || {};
+    const review_inputs = inputPlan(p).map((item, i) => {
+      const a = answers[i] || {}, answer = text(a.value);
+      if (answer.length > 1200) throw new Error('Each answer must be at most 1200 characters.');
+      const mode = a.reopen ? 'unanswered' : answer.length >= 4 ? 'answered' : item.research && a.carry === true ? 'carry' : 'unanswered';
+      return { id: item.id, label: item.label, requirement: item.requirement, answer, mode };
     });
-    if (!supplied.length && !research.length) throw new Error('Add a required input or choose a research question to carry into the draft task.');
-    const added = [supplied.length ? 'Confirmed task context:\n' + supplied.join('\n') : '', research.length ? 'Research to complete before publishing or implementing:\n' + research.map(x => '- ' + x).join('\n') : ''].filter(Boolean).join('\n\n');
-    const body = c.body + '\n\n' + added;
-    if (body.length > 5000) throw new Error('This context would exceed the draft limit. Shorten the draft or supplied context first.');
-    return { content: { ...c, recommend: true, body, missing: pending }, note: 'Task handoff: ' + (supplied.length ? 'Added supplied context. ' : '') + (research.length ? 'Carried unanswered research into the draft; it is not claimed resolved. ' : '') + (pending.length ? pending.length + ' required or unselected inputs remain.' : 'Ready for separate draft-task creation review.') };
+    const missing = review_inputs.filter(i => i.requirement === 'required' && i.mode !== 'answered').map(i => i.label);
+    return { content: { ...c, recommend: true, review_inputs, missing }, note: note || 'Reviewed draft inputs; unanswered required facts remain blockers.' };
   }
-  const api = { build, seoChange, inputPlan, prepareHandoff, currentStatus };
+  function preparation(p, settings = {}, review = {}) {
+    const actual = review.proposals?.find(i => i.id === p.id)?.preparation;
+    if (actual) return actual;
+    if (settings.enabled !== true || (Array.isArray(settings.workflows) && !settings.workflows.includes(p.kind))) return { state: 'paused', reason: 'disabled' };
+    if (p.source_version === '' || ['preparing', 'revision'].includes(p.status)) return { state: 'unknown', reason: 'unconfirmed' };
+    return { state: p.status === 'failed' ? 'failed' : 'idle' };
+  }
+  function canReview(p, installed = true, now = Date.now()) {
+    return installed && p.source_current === true && Number.isFinite(Date.parse(p.valid_until)) && Date.parse(p.valid_until) > now && !['preparing', 'revision', 'completed', 'dismissed', 'screened'].includes(p.status);
+  }
+  const api = { build, seoChange, inputPlan, prepareHandoff, currentStatus, draftBlockers, preparation, canReview, creationBody };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.SiloOnDeckBriefing = api;
 })();
