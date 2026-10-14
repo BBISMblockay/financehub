@@ -76,7 +76,6 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 │   ├── functions/             ← Edge function sources (manual deploy — merging a PR does NOT deploy)
 │   └── seeds/                 ← Seed data SQL
 ├── scripts/                   ← Node.js / Python sync + backfill scripts (lib/ holds the sync cores)
-├── config/silo-sources.mjs    ← Google Sheets CSV source URLs for the retired Sheets sync
 ├── server/                    ← Express service (ar-sync.mjs, index.mjs) — NOT used by the browser app
 ├── data/                      ← One-off CSV import fixtures
 ├── .github/workflows/         ← GitHub Actions (see "GitHub Actions / data sync" below)

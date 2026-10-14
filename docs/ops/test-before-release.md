@@ -56,7 +56,6 @@ Use [planning-scenarios-filter-scope.md](../planning-scenarios-filter-scope.md) 
 
 | Script | Command |
 |--------|---------|
-| Silo nightly | `node scripts/sync-silo-inventory-sales.mjs` |
 | AR | `npm run sync:ar` |
 | Shopify API | `npm start` then `POST /api/sync/shopify` |
 
