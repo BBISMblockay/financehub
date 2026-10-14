@@ -1624,6 +1624,11 @@ body.is-report-view, .is-report-view .silo-app, .is-report-view .silo-main { hei
 .res-table td { vertical-align: top; }
 .res-table td:nth-child(4) { white-space: normal; word-break: break-word; }
 .res-tablefoot { display: flex; justify-content: flex-end; margin-top: 10px; }
+/* The frozen-dates notice sits above the filter bar, in the page's own
+   gutter rather than the slicer bar's, so it reads as a statement about
+   the report and not as one of its controls. */
+.v3-frozen-dates { margin: 0 0 10px; }
+.v3-frozen-dates a { color: inherit; text-decoration: underline; }
 .res-sr {
   position: absolute; width: 1px; height: 1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap;

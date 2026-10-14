@@ -106,5 +106,64 @@ test('...and every one of them resolves to a real date today', () => {
 test('company dates keep rolling single controls instead of browser-calendar ranges', () => {
   eq(FB.groupDeclarations([d('date_from','date',{date_basis:'company'}),d('date_to','date',{date_basis:'company'})]).map(x=>x.kind),['single','single']);
 });
+// ...but the scheduled-email period picker only wants to know WHICH TWO
+// KEYS are the window; it stores tokens and prints no resolved date, so
+// the reason for the exclusion above does not apply to it.
+test('includeCompanyCalendar pairs them for a caller that prints no date', () => {
+  const groups = FB.groupDeclarations(
+    [d('date_from','date',{date_basis:'company'}),d('date_to','date',{date_basis:'company'})],
+    { includeCompanyCalendar: true });
+  eq(groups.map((x) => x.kind), ['range']);
+  eq([groups[0].from.key, groups[0].to.key], ['date_from', 'date_to']);
+});
+test('the option does not pair two dates that are not two ends of one window', () => {
+  const groups = FB.groupDeclarations(
+    [d('as_of','date',{date_basis:'company'}),d('launched','date',{date_basis:'company'})],
+    { includeCompanyCalendar: true });
+  eq(groups.map((x) => x.kind), ['single', 'single']);
+});
+
+// ── a text parameter whose choices come from the database ───────────────
+// A SILO report is one global row read by every client and each company has
+// its own locations, so the choices cannot be an enum's declared list.
+test('a text parameter with an options_source gets the choice control, not a text box', () => {
+  const P = g.SiloReportParams;
+  const decls = P.normalizeDeclarations([
+    { key: 'location', type: 'text', label: 'Location', default: 'all', options_source: 'location' }]);
+  eq(decls.length, 1);
+  eq(decls[0].options_source, 'location');
+  eq(decls[0].type, 'text', 'it stays TEXT: the escaping must not change because a dropdown exists');
+});
+test('an unknown options_source is dropped, not passed through', () => {
+  const P = g.SiloReportParams;
+  const [decl] = P.normalizeDeclarations([
+    { key: 'x', type: 'text', label: 'X', default: 'all', options_source: 'anything' }]);
+  eq(decl.options_source, undefined);
+});
+test('options_source is ignored on a type that is not text', () => {
+  const P = g.SiloReportParams;
+  const [decl] = P.normalizeDeclarations([
+    { key: 'd', type: 'date', label: 'D', default: 'today', options_source: 'location' }]);
+  eq(decl.options_source, undefined);
+});
+// The whole safety argument: a dropdown is a convenience, and the value
+// still goes through text's quoting. If this ever stopped being true the
+// picker would be an injection point.
+test('a choice value is still escaped as text', () => {
+  const P = g.SiloReportParams;
+  const [decl] = P.normalizeDeclarations([
+    { key: 'location', type: 'text', label: 'Location', default: 'all', options_source: 'location' }]);
+  eq(P.toLiteral(decl, "o'hare").literal, "'o''hare'");
+  truthy(P.toLiteral(decl, 'x; drop table t').error, 'a semicolon is still refused');
+  truthy(P.toLiteral(decl, 'a\u0000b').error, 'a control character is still refused');
+});
+test("the 'all' sentinel folds the predicate away", () => {
+  const P = g.SiloReportParams;
+  const decls = [{ key: 'location', type: 'text', label: 'Location', default: 'all', options_source: 'location' }];
+  const sql = "select 1 where ({{location}} = 'all' or location_tag = {{location}})";
+  eq(P.substitute(sql, decls, {}).sql, "select 1 where ('all' = 'all' or location_tag = 'all')");
+  eq(P.substitute(sql, decls, { location: 'st_louis' }).sql,
+    "select 1 where ('st_louis' = 'all' or location_tag = 'st_louis')");
+});
 const r = R.summary();
 process.exit(r.fail ? 1 : 0);

@@ -85,6 +85,16 @@
     { id: 'prior_year', label: 'Last year', from: 'prior_year_start', to: 'prior_year_end' },
   ];
 
+  /* The "no filter" value of a choice parameter. A sentinel rather than
+     an empty string because report-params treats '' as "not supplied"
+     and falls back to the declared default -- which is this. */
+  const ALL_CHOICES = 'all';
+  /* What the sentinel is called in each source's dropdown. Keyed by source
+     so the declaration carries no display text: a SILO report is shared by
+     every client and its wording is ours, not a per-report field someone
+     can leave blank. */
+  const ALL_LABELS = { location: 'All locations' };
+
   const START_RE = /^(.*?)(_?)(start|from|begin|since)(_date)?$/i;
   const END_RE = /^(.*?)(_?)(end|to|through|until)(_date)?$/i;
 
@@ -169,6 +179,14 @@
 
     /** key -> { wrap, input, decl } for fields currently mounted. */
     const fields = new Map();
+    /* source name -> [{ value, label }]. The choices a `text` parameter with
+       an options_source offers. They are per company and read from the
+       database, so they arrive asynchronously and may never arrive at all.
+       The control is built either way: without them it offers only the
+       "everything" option, which is the report's own default and the one
+       answer that is always correct. setChoices() fills it in place --
+       rebuilding the bar would drop a half-typed value elsewhere in it. */
+    const choices = new Map();
     /** key -> string. Typed but not yet applied. */
     const pending = new Map();
     const timers = new Map();
@@ -452,12 +470,64 @@
     }
 
     /* ── Mounting ─────────────────────────────────────────────────────── */
+    /* A `text` parameter whose choices come from the database rather than
+       from its own declaration -- a location, today. It is a dropdown for
+       the reader and a text value for the engine: report-params still
+       escapes it as text, so offering a list adds a convenience and moves
+       no boundary. A value that is not on the list is therefore not an
+       error, it simply matches nothing, which is why this control does not
+       refuse one the way buildEnum's datalist does.
+
+       ALL_CHOICES is the sentinel every such report declares as its
+       default; its SQL reads `{{location}} = 'all' or location_tag =
+       {{location}}`, which the planner folds away when it is 'all'. */
+    function buildChoice(decl) {
+      const id = `slicer_${decl.key}`;
+      const wrap = fieldWrap(decl.key, decl.label, id);
+      const sel = document.createElement('select');
+      sel.className = 'bcn-field';
+      sel.id = id;
+      sel.dataset.param = decl.key;
+      const note = document.createElement('span');
+      note.className = 'v3-slicer-hint';
+
+      const fill = (keep) => {
+        const list = choices.get(decl.options_source) || [];
+        sel.innerHTML = '';
+        const all = document.createElement('option');
+        all.value = ALL_CHOICES;
+        all.textContent = ALL_LABELS[decl.options_source] || 'All';
+        sel.appendChild(all);
+        for (const c of list) {
+          const o = document.createElement('option');
+          o.value = c.value; o.textContent = c.label || c.value;
+          sel.appendChild(o);
+        }
+        // A stored value the list does not contain is still the applied
+        // value, and dropping it would silently widen the report to
+        // everything. Carry it as its own option and say it is unknown.
+        if (keep && keep !== ALL_CHOICES && !list.some((c) => c.value === keep)) {
+          const o = document.createElement('option');
+          o.value = keep; o.textContent = `${keep} (not in this workspace)`;
+          sel.appendChild(o);
+        }
+        sel.value = keep == null || keep === '' ? ALL_CHOICES : keep;
+        note.textContent = list.length ? '' : 'Nothing to choose from yet';
+      };
+      fill(getValues()[decl.key]);
+      sel.addEventListener('change', () => commit({ [decl.key]: sel.value }));
+      wrap.appendChild(sel);
+      wrap.appendChild(note);
+      return { wrap, update(v) { fill(v); } };
+    }
+
     function build(group) {
       if (group.kind === 'range') return buildRange(group);
       const d = group.decl;
       if (d.conflict) return buildConflict(d);
       if (d.type === 'enum') return buildEnum(d);
       if (d.type === 'date') return buildDate(d);
+      if (d.options_source) return buildChoice(d);
       return buildText(d);
     }
 
@@ -481,7 +551,8 @@
         // A declaration can CHANGE shape (a report edited from text to
         // enum). Rebuild only that one field, not the bar.
         const sig = g.kind === 'range' ? 'range'
-          : `${g.decl.type}:${(g.decl.options || []).join('|')}:${g.decl.conflict || ''}`;
+          : `${g.decl.type}:${(g.decl.options || []).join('|')}:${g.decl.conflict || ''}`
+            + `:${g.decl.options_source || ''}`;
         if (f && f.sig !== sig) { f.wrap.remove(); fields.delete(g.key); f = null; }
         if (!f) {
           f = build(g);
@@ -579,8 +650,14 @@
       return commit(patch).then(() => true);
     }
 
-    return { sync, paint, flush, hasPending, groupDeclarations, DATE_PRESETS, RANGE_PRESETS };
+    /** Hand the bar a source's choices, before or after it is built. */
+    function setChoices(source, list) {
+      choices.set(String(source), Array.isArray(list) ? list : []);
+      paint();
+    }
+
+    return { sync, paint, flush, hasPending, setChoices, groupDeclarations, DATE_PRESETS, RANGE_PRESETS };
   }
 
-  global.SiloFilterBar = { create, groupDeclarations, DATE_PRESETS, RANGE_PRESETS, matchRangePreset };
+  global.SiloFilterBar = { create, groupDeclarations, DATE_PRESETS, RANGE_PRESETS, matchRangePreset, ALL_CHOICES };
 })(window);

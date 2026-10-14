@@ -6881,3 +6881,51 @@ select 'Scheduled report CSV email' as check_name,
       then 'MISSING — resolve_report_email_recipients() has no ''email'' branch; run 20261014060000_report_email_external_recipients.sql, or outside recipients are silently dropped'
     else 'ok'
   end as status;
+
+-- ---------------------------------------------------------------------------
+-- Report location filter (migrations 20261014080000, 20261014090000)
+--
+-- The choices view and the two reports that declare the parameter. A report
+-- declaring {{location}} whose view is missing errors on every run with an
+-- undeclared-token message that names the wrong culprit, and a report whose
+-- parameter was dropped while the SQL still carries the token fails the same
+-- way -- so both halves are checked, not just the view's existence.
+-- ---------------------------------------------------------------------------
+select 'Report location filter' as check_name,
+  case
+    when not exists (select 1 from information_schema.views
+                     where table_schema = 'public' and table_name = 'silo_report_locations_v')
+      then 'MISSING — silo_report_locations_v is gone; a location slicer has no choices to offer. Run 20261014080000_report_location_filter.sql'
+    -- security_invoker is the tenant boundary here: the view has no company
+    -- filter of its own and MUST NOT grow one, it relies on RLS through
+    -- locations and sales_by_day.
+    when not exists (select 1 from pg_class
+                     where relname = 'silo_report_locations_v'
+                       and 'security_invoker=true' = any(reloptions))
+      then 'CRITICAL — silo_report_locations_v is not security_invoker; it has no company filter of its own, so every workspace would see every other workspace''s locations'
+    when exists (select 1 from information_schema.table_privileges
+                 where table_schema = 'public' and table_name = 'silo_report_locations_v'
+                   and grantee = 'anon')
+      then 'CRITICAL — anon can read silo_report_locations_v. Run: revoke all on public.silo_report_locations_v from anon;'
+    -- The token and the declaration have to move together, in both reports.
+    when exists (
+      select 1 from public.silo_chat_saved_reports r
+       where r.id in ('5110de50-0000-4000-a000-000000000003',
+                      '5110de50-0000-4000-a000-000000000002')
+         and (exists (select 1 from unnest(r.queries_run) q where q like '%{{location}}%'))
+            <> (r.parameters::jsonb @> '[{"key": "location"}]'::jsonb))
+      then 'BROKEN — a SILO report uses {{location}} without declaring it, or declares it without using it; every run of that report errors. Run 20261014090000_report_location_parameter.sql'
+    -- A tie-out whose report has changed reports NO DATA rather than a stale
+    -- pass, which is correct but means the nightly run goes amber until the
+    -- check is regenerated. 20261014090000 does that; this catches the case
+    -- where the report migration ran and the tie-out half did not.
+    when exists (
+      select 1 from public.silo_chat_saved_reports r
+        join public.silo_report_tieouts t on t.report_id = r.id
+       where r.id in ('5110de50-0000-4000-a000-000000000003',
+                      '5110de50-0000-4000-a000-000000000002')
+         and t.enabled
+         and t.check_sql not like '%' || md5(r.queries_run::text || r.parameters::text) || '%')
+      then 'BROKEN — a location-filtered report''s tie-out still guards the previous definition, so report-tieouts-nightly will read NO DATA. Re-run the tie-out block of 20261014090000_report_location_parameter.sql'
+    else 'ok'
+  end as status;
