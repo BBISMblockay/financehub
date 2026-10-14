@@ -75,6 +75,7 @@ that retains freshness, company gates, answers and exact-output replay.
 | Empty SEO copy could become ready after answering questions | Complete field validation runs on finish, edit and approval; existing incomplete ready rows become needs_info |
 | Refresh could switch selection or imply a job was running | The same opportunity remains selected; queued, reserved-running, paused and failed states have recovery explanations and retained copy |
 | Private/deleted context links demanded restored access | An admin can detach with a reason without reading/changing the task, then link public owned work |
+| Detaching a link whose evidence a refresh had already invalidated showed "queued" with nothing due for up to 24 hours | Detach renews the company's screening request when the proposal is still invalidated (`failed`, empty `source_version`), so the next scheduler run re-screens it; ordinary detach with current evidence enqueues nothing |
 | Original source titles and generic workspace receipts | Reviewed titles/content/answers become draft records with exact task, idea or brief links; launch rows can be added/removed within the existing 1–5 limit |
 | Completed mixed created work with skipped opportunities | Existing Outcomes shows separate Created and Dismissed/skipped sections, without a new tab |
 
@@ -98,11 +99,13 @@ lists remain required rather than being inferred optional from their wording.
   environment. Without it, the environment proxy rejects the synthetic
   `silo.test` host. Page bytes and the neutral page origin are retained; external
   services are still stubbed. CI's default transport is unchanged.
-- `node scripts/tests/on-deck-review-action.test.mjs`: 7 real SQL scenario
+- `node scripts/tests/on-deck-review-action.test.mjs`: 8 real SQL scenario
   groups, applying the forward migration twice. Covers full SEO readiness,
   answer reopen/edit, required-fact downgrade/refusal, private/deleted link
   detachment and replacement, credits/caps/queued/reserved states, reviewed
-  titles/copy, destination permissions, version/expiry and approval replay.
+  titles/copy, destination permissions, version/expiry and approval replay,
+  and the Refresh -> screening run -> Detach sequence that must leave the
+  proposal due for re-screening.
 - `PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium node
   v2/tests/browser/on-deck-review-action.test.js`: real-page walkthrough of
   manual completion, reopen/edit/save, repeated submit, refresh recovery,

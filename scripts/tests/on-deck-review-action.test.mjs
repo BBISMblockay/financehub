@@ -54,6 +54,7 @@ const reviewMutations = {
  'detach-company': ["where id=p_id and company_entity_id=public.active_company_id() for update", "where id=p_id for update"],
  'reviewed-title': ["left(r.content->>'subject',200)", "left(r.title,200)"],
  'approval-blockers': ["or jsonb_array_length(public.on_deck_draft_blockers(r.content,r.kind))>0", ""],
+ 'detach-requeue': ["if r.status='failed' and r.source_version='' then\n   update public.on_deck_settings set requested_at=now() where company_entity_id=r.company_entity_id;\n  end if;", ""],
 };
 if (process.env.REVIEW_MUTATE) { const [a,b]=reviewMutations[process.env.REVIEW_MUTATE] || []; assert.ok(a && reviewMigration.includes(a)); reviewMigration=reviewMigration.replaceAll(a,b); }
 await db.exec(reviewMigration); await db.exec(reviewMigration);
@@ -119,6 +120,25 @@ await test('edited launch rows and restock title reach exact draft records; gate
 await test('version, expiry, source and destination permissions reject creation and edits',async()=>{
  let p=await ready('seo');await user();p=await edit(p,p.content);await assert.rejects(()=>decide({...p,version:p.version-1},'approve'),/changed/);await db.exec("select set_config('test.seo','false',false)");await assert.rejects(()=>decide(p,'approve'),/permission/);await db.exec("select set_config('test.seo','true',false)");await root();await db.query("update public.on_deck_proposals set valid_until=now()-interval '1 second' where id=$1",[p.id]);await user();await assert.rejects(()=>edit(p,p.content),/expired/);await assert.rejects(()=>decide(p,'approve'),/expired/);await decide(p,'dismiss','Expired test proposal is retained.');
  for(const role of ['anon','authenticated'])for(const fn of ['on_deck_review_content(jsonb,jsonb)','on_deck_preparation_state(public.on_deck_proposals)'])assert.equal((await one("select has_function_privilege($1,$2,'execute') ok",[role,'public.'+fn])).ok,false);
+});
+await test('detaching a context link invalidated by refresh requeues screening the next run',async()=>{
+ const settings=()=>one('select requested_at,last_screen_at from public.on_deck_settings where company_entity_id=$1',[A]);
+ const due=s=>!s.last_screen_at||new Date(s.requested_at||0)>new Date(s.last_screen_at);
+ await service();const id=await stage('ads');let p=await get(id);const claim=await reserve(p);await finish(claim.run,{...draft,missing:['Verify claim']});p=await get(id);assert.equal(p.status,'needs_info');
+ await root();const t=await one("insert into public.launch_tasks(company_entity_id,task_title,status,assigned_to_user_id,is_private) values($1,'Context work for requeue','open',$2,false) returning id",[A,ADMIN]);
+ await user();p=await context(p,'link',t.id);assert.equal(p.context_work.state,'open');
+ // Refresh invalidates the evidence and asks for a screening run.
+ p=await decide(p,'refresh');assert.equal(p.status,'failed');assert.equal(p.source_version,'');assert.ok(due(await settings()));
+ // That run skips this proposal while the context link is open, then records the screen.
+ await service();assert.equal(await stage('ads',p.source_key),null);
+ await root();await db.query('update public.on_deck_settings set last_screen_at=now() where company_entity_id=$1',[A]);
+ assert.equal(due(await settings()),false,'the screening request was spent by the run that skipped this proposal');
+ await user();p=await context(p,'detach',null,'The context link is no longer reachable.');
+ assert.deepEqual(p.context_work,{});
+ const after=await settings();assert.ok(due(after),'detach must renew the screening request so the next scheduler run re-screens it');
+ const rs=await rpc('on_deck_review_state');const shown=rs.proposals.find(x=>x.id===p.id).preparation;
+ assert.equal(shown.state,'queued');assert.equal(shown.reason,'screening');
+ await decide(p,'dismiss','Stop the requeued test opportunity.');
 });
 console.log(`${checks} On Deck review-to-action SQL scenarios passed (real isolated PostgreSQL via PGlite; no production or provider calls).`);
 await db.close();

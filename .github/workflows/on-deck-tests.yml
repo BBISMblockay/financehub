@@ -83,7 +83,7 @@ jobs:
           done
       - name: Review-to-action guards must reject mutations
         run: |
-          for mutation in completeness required-input detach-company reviewed-title approval-blockers; do
+          for mutation in completeness required-input detach-company reviewed-title approval-blockers detach-requeue; do
             if REVIEW_MUTATE="$mutation" node scripts/tests/on-deck-review-action.test.mjs > /tmp/review-mutation.log 2>&1; then
               cat /tmp/review-mutation.log
               echo "Survived review mutation: $mutation"

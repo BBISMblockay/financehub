@@ -133,6 +133,15 @@ declare r public.on_deck_proposals; t public.launch_tasks; work jsonb; begin
   -- Do not read or mutate the linked task. It may be private or deleted.
   insert into public.on_deck_events(company_entity_id,proposal_id,event_type,actor_id,detail) values(r.company_entity_id,r.id,'context_detached',auth.uid(),jsonb_build_object('note',p_note));
   update public.on_deck_proposals set context_work='{}',version=version+1,updated_at=now() where id=r.id returning * into r;
+  -- A refresh taken while context work was open leaves the proposal invalidated
+  -- (failed, no source_version) and staging skips it while the link is open, so
+  -- the screening request that refresh made can be spent by a run that never
+  -- re-screened it. Renew the request here, or the reviewer sees "queued" with
+  -- nothing due for up to 24 hours. Ordinary detach with current evidence does
+  -- not enqueue anything.
+  if r.status='failed' and r.source_version='' then
+   update public.on_deck_settings set requested_at=now() where company_entity_id=r.company_entity_id;
+  end if;
   return to_jsonb(r);
  end if;
  if p_action='resolve' then p_note:=public.on_deck_context_findings(p_note,r.context_work); end if;
