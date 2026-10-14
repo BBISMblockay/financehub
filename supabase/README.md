@@ -2906,3 +2906,16 @@ means a caller must read the RPC's error. `scripts/shopify-sync.mjs` and the wor
 did; `handleInventorySnapshot` in `shopify-sync-run` did not, and marked its job `success` before the
 call, so an on-demand snapshot could roll both matviews back and still answer `ok: true`. Fixed in the
 same PR, which is why **`shopify-sync-run` needs deploying** -- merging does not deploy it.
+
+## On Deck review to action — `20261014120000`
+
+Adds persisted preparation pause/failure metadata and structured saved review
+answers. Required inputs cannot be removed or reclassified; optional research
+may be carried into unpublished work. Full SEO completeness is checked for
+ready status and approval. Context links can be detached with an admin reason
+without reading or modifying unavailable tasks. Destination work uses reviewed
+titles/copy and exact record URLs. Existing company, freshness, displayed-version,
+destination permission and duplicate-approval gates remain enforced. Apply before
+static/worker release; no Edge change or new secret. Live policy/schema checks
+and authorized synthetic-company acceptance remain rollout gates. See
+`docs/ops/on-deck-review-action.md` for verification and rollback.

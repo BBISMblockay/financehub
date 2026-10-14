@@ -7,14 +7,14 @@ const co = 'test-company';
 const ad = (over = {}) => ({ id: 'ad1', company_entity_id: co, kind: 'ads', status: 'ready', version: 2,
   title: 'Draft creative · Classic tee', selection_reason: 'Strong evidence on purchase performance. Selected #1 of 3 eligible ads opportunities.',
   valid_until: '2099-01-01', source: { objective: 'purchase', index: 1.3, evidence: 'strong', current_copy: 'Classic baseball style.' },
-  content: { recommend: true, subject: 'A new angle', summary: 'Prepared variation', body: 'A fresh take on classic baseball style.', missing: [], tasks: [] }, ...over });
+  content: { recommend: true, subject: 'A new angle', summary: 'Prepared variation', reason:'Measured evidence', body: 'A fresh take on classic baseball style.', missing: [], tasks: [] }, ...over });
 const fixtures = () => ({ profiles: [{ id: 'test-user', role: 'owner', email: 'owner@example.test' }],
   on_deck_settings: [{ company_entity_id: co, enabled: true, last_screen_at: '2026-10-08T07:00:00Z' }],
   on_deck_proposals: [ad(), ad({ id: 'ad2', title: 'Draft creative · Youth tees' }), ad({ id: 'ad3', title: 'Draft creative · Caps' }),
     ad({ id: 'ad4', title: 'Draft creative · Hoodies' }), ad({ id: 'needs', status: 'needs_info', content: { body: 'Draft', missing: ['Targeting details'] } }),
     ad({ id: 'old', valid_until: '2020-01-01' }), ad({ id: 'done', status: 'completed', output: { label: 'Ad idea created — not published', url: '/v2/ad-studio.html' } })],
   on_deck_events: [], on_deck_attempts: [] });
-const rpc = { on_deck_can_review: () => true, on_deck_coding_access: () => ({ review: false, post: false }) };
+const rpc = { on_deck_review_state: () => ({review_contract:2,seo:true,purchasing:true,proposals:window.__FIXTURE_TABLES__.on_deck_proposals.map(p=>({id:p.id,source_current:true})),context_tasks:[],assignees:[],tasks:[]}), on_deck_can_review: () => true, on_deck_coding_access: () => ({ review: false, post: false }) };
 const ready = () => !document.getElementById('briefing').hidden;
 const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '../../../.screenshots');
 (async () => {
@@ -94,7 +94,7 @@ const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '
       assert.equal(await page.evaluate(() => window.__QUERIES__.some(q => /decide|request_preparation/.test(q.table))), false);
     }); await page.close();
     const handoffTables = fixtures();
-    handoffTables.on_deck_proposals = [{ ...investigation.on_deck_proposals[0], version: 2, content: { ...investigation.on_deck_proposals[0].content, proposed_title: 'Baseball tees', proposed_meta_description: 'Explore baseball tees.', missing: ['Current ranking keywords driving the 175 clicks', 'Click-through rate benchmark for position ~7.3 in this vertical', 'Any prior SEO test history for this page'] } }];
+    handoffTables.on_deck_proposals = [{ ...investigation.on_deck_proposals[0], version: 2, content: { ...investigation.on_deck_proposals[0].content, subject:'Reviewed search draft',summary:'Summary',reason:'Observed evidence',tasks:[],proposed_title: 'Baseball tees', proposed_meta_description: 'Explore baseball tees.', missing: ['Confirm supported claim'], optional_context: ['Current ranking keywords driving the 175 clicks', 'Click-through rate benchmark for position ~7.3 in this vertical', 'Any prior SEO test history for this page'] } }];
     page = await open(handoffTables, { rpc: { ...rpc, on_deck_decide: args => {
       const p = window.__FIXTURE_TABLES__.on_deck_proposals[0];
       if (window.__REJECT_HANDOFF__) return { __error: { message: 'Evidence changed. Request a fresh preparation first' } };
@@ -102,35 +102,38 @@ const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '
       if (args.p_action === 'edit') { p.content = args.p_content; p.status = p.content.missing.length ? 'needs_info' : 'ready'; }
       if (args.p_action === 'approve') {
         if (p.status !== 'ready' || p.content.missing.length) return { __error: { message: 'Resolve missing information first' } };
-        window.__CREATED_TASK__ = { status: 'draft', body: p.content.body };
-        p.status = 'completed'; p.output = { label: 'SEO draft created — publishing requires separate review', url: '/v2/seo-tasks.html' };
+        window.__CREATED_TASK__ = { status: 'draft', body: p.content.body + '\n' + p.content.review_inputs.map(i=>i.mode==='carry'?i.label:i.answer).join('\n') };
+        p.status = 'completed'; p.output = {kind:'seo_task',id:'22222222-2222-4222-8222-222222222222',label: 'SEO draft created — publishing requires separate review', url: '/v2/seo-tasks.html?task=22222222-2222-4222-8222-222222222222' };
       } p.version++; return p;
     } } });
     await test('explicit research handoff closes the loop from blocked opportunity to separately confirmed draft task', async () => {
       await page.locator('.od-hero').getByRole('button', { name: 'Investigate search opportunity' }).click();
       await page.getByRole('button', { name: 'Prepared draft', exact: true }).click();
       assert.equal(await page.getByRole('button', { name: 'Create draft SEO task', exact: true }).isDisabled(), true);
-      assert.match(await page.locator('.od-next-step').textContent(), /175 clicks/);
+      assert.match(await page.locator('.od-next-step').textContent(), /Confirm supported claim/);
       await page.setViewportSize({ width: 1440, height: 1100 });
       await page.locator('.od-next-step').scrollIntoViewIfNeeded();
       await page.screenshot({ path: path.join(shots, 'on-deck-task-handoff-desktop.png'), fullPage: true });
-      await page.getByRole('button', { name: 'Prepare draft task', exact: true }).click();
-      await page.getByRole('button', { name: 'Save task prep', exact: true }).click();
-      assert.match(await page.locator('#handoff-error').textContent(), /choose a research question/);
-      for (const box of await page.locator('#handoff-inputs input').all()) await box.check();
+      await page.getByRole('button', { name: 'Review draft', exact: true }).click();
+      assert.match(await page.locator('#edit-blockers').textContent(), /Confirm supported claim/);
+      await page.getByLabel('Confirm supported claim', {exact:true}).fill('Approved product brief supports the claim.');
+      for (const box of await page.locator('#edit-missing [data-carry]').all()) await box.check();
+      await page.getByLabel('Confirm supported claim', {exact:true}).fill('Approved product brief supports the claim.');
       await page.setViewportSize({ width: 390, height: 844 });
       await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right <= 0);
-      assert.ok(await page.locator('#handoff-dialog').evaluate(el => el.getBoundingClientRect().right <= innerWidth));
+      assert.ok(await page.locator('#edit-dialog').evaluate(el => el.getBoundingClientRect().right <= innerWidth));
       await page.screenshot({ path: path.join(shots, 'on-deck-task-prep-mobile.png'), fullPage: true });
       await page.evaluate(() => { window.__REJECT_HANDOFF__ = true; });
-      await page.getByRole('button', { name: 'Save task prep', exact: true }).click();
-      assert.match(await page.locator('#handoff-error').textContent(), /Evidence changed/);
-      assert.equal(await page.locator('#handoff-dialog').evaluate(el => el.open), true);
+      await page.locator('#edit-note').fill('Reviewed the evidence and saved task inputs.');
+      await page.getByRole('button', { name: 'Save for review', exact: true }).click();
+      assert.match(await page.locator('#edit-error').textContent(), /Evidence changed/);
+      assert.equal(await page.locator('#edit-dialog').evaluate(el => el.open), true);
       assert.equal(await page.evaluate(() => window.__FIXTURE_TABLES__.on_deck_proposals[0].status), 'needs_info');
       await page.evaluate(() => { window.__REJECT_HANDOFF__ = false; });
-      await page.getByRole('button', { name: 'Save task prep', exact: true }).click();
-      await page.waitForFunction(() => !document.getElementById('handoff-dialog').open);
-      assert.match(await page.locator('.od-paper').textContent(), /Research to complete before publishing/);
+      await page.locator('#edit-note').fill('Reviewed the evidence and saved task inputs.');
+      await page.getByRole('button', { name: 'Save for review', exact: true }).click();
+      await page.waitForFunction(() => !document.getElementById('edit-dialog').open);
+      assert.match(await page.locator('#detail').textContent(), /Research to complete before publishing/);
       assert.match(await page.locator('.od-card[aria-pressed=true]').textContent(), /Men’s T-Shirts/);
       assert.equal(await page.evaluate(() => window.__QUERIES__.filter(q => q.table === 'rpc:on_deck_decide').length), 2);
       await page.getByRole('button', { name: 'Create draft SEO task', exact: true }).click();
@@ -144,31 +147,35 @@ const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '
     page = await open(handoffTables);
     await test('task prep rejects evidence that expires while the dialog is open', async () => {
       await page.locator('.od-hero').getByRole('button', { name: 'Investigate search opportunity' }).click();
-      await page.getByRole('button', { name: 'Prepare draft task', exact: true }).click();
-      for (const box of await page.locator('#handoff-inputs input').all()) await box.check();
+      await page.getByRole('button', { name: 'Review draft', exact: true }).click();
+      for (const box of await page.locator('#edit-missing [data-carry]').all()) await box.check();
+      await page.getByLabel('Confirm supported claim', {exact:true}).fill('Approved product brief supports the claim.');
       await page.evaluate(() => { Date.now = () => Date.parse('2100-01-01'); });
-      await page.getByRole('button', { name: 'Save task prep', exact: true }).click();
-      await page.waitForFunction(() => /expired/.test(document.getElementById('handoff-error').textContent));
-      assert.equal(await page.locator('#handoff-dialog').evaluate(el => el.open), true);
+      await page.locator('#edit-note').fill('Reviewed the evidence and saved task inputs.');
+      await page.getByRole('button', { name: 'Save for review', exact: true }).click();
+      await page.waitForFunction(() => /expired/.test(document.getElementById('edit-error').textContent));
+      assert.equal(await page.locator('#edit-dialog').evaluate(el => el.open), true);
       assert.equal(await page.evaluate(() => window.__QUERIES__.some(q => q.table === 'rpc:on_deck_decide')), false);
     }); await page.close();
     page = await open(handoffTables);
     await test('pending save blocks Close and Escape and retains submitted proposal identity', async () => {
       await page.locator('.od-hero').getByRole('button', { name: 'Investigate search opportunity' }).click();
-      await page.getByRole('button', { name: 'Prepare draft task', exact: true }).click();
-      for (const box of await page.locator('#handoff-inputs input').all()) await box.check();
+      await page.getByRole('button', { name: 'Review draft', exact: true }).click();
+      for (const box of await page.locator('#edit-missing [data-carry]').all()) await box.check();
+      await page.getByLabel('Confirm supported claim', {exact:true}).fill('Approved product brief supports the claim.');
       await page.evaluate(() => {
         // Hold the real save at the company check; no provider/network work occurs.
         const original = window.__SILO_CONFIG__.ensureActiveCompany;
         window.__SILO_CONFIG__.ensureActiveCompany = async (...args) => { await new Promise(resolve => { window.__RELEASE_SAVE__=resolve; }); window.__SILO_CONFIG__.ensureActiveCompany=original; return original(...args); };
       });
-      await page.getByRole('button', { name: 'Save task prep', exact: true }).click();
+      await page.locator('#edit-note').fill('Reviewed the evidence and saved task inputs.');
+      await page.getByRole('button', { name: 'Save for review', exact: true }).click();
       await page.waitForFunction(() => !!window.__RELEASE_SAVE__);
-      assert.equal(await page.locator('[data-handoff-close]').isDisabled(), true);
+      assert.equal(await page.locator('#edit-dialog [data-close]').isDisabled(), true);
       await page.keyboard.press('Escape');
-      assert.equal(await page.locator('#handoff-dialog').evaluate(el => el.open), true);
+      assert.equal(await page.locator('#edit-dialog').evaluate(el => el.open), true);
       await page.evaluate(() => window.__RELEASE_SAVE__());
-      await page.waitForFunction(() => !document.getElementById('handoff-dialog').open);
+      await page.waitForFunction(() => !document.getElementById('edit-dialog').open);
       const writes=await page.evaluate(() => window.__QUERIES__.filter(q => q.table === 'rpc:on_deck_decide'));
       assert.equal(writes.length,1); assert.equal(writes[0].args.p_id, handoffTables.on_deck_proposals[0].id);
     }); await page.close();
@@ -226,7 +233,7 @@ const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '
     await page.close();
     const stale=fixtures();stale.on_deck_proposals=Array.from({length:6},(_,i)=>ad({id:'stale'+i,status:i===5?'failed':'needs_info'}));
     stale.on_deck_settings[0].last_status='Preparation: 5 ready';stale.on_deck_settings[0].diagnostics={held:{'Product identity needs attention':1176,'Restock policy, cost or lead time missing':3308}};
-    page=await open(stale,{rpc:{...rpc,on_deck_review_state:()=>({proposals:window.__FIXTURE_TABLES__.on_deck_proposals.map(p=>({id:p.id,source_current:false}))}),on_deck_request_preparation:()=>{window.__FIXTURE_TABLES__.on_deck_settings[0].requested_at=new Date().toISOString();return true;}}});
+    page=await open(stale,{rpc:{...rpc,on_deck_review_state:()=>({review_contract:2,purchasing:true,proposals:window.__FIXTURE_TABLES__.on_deck_proposals.map(p=>({id:p.id,source_current:false}))}),on_deck_request_preparation:()=>{window.__FIXTURE_TABLES__.on_deck_settings[0].requested_at=new Date().toISOString();return true;}}});
     await test('empty stale briefing explains current state and explicitly queues refreshed opportunities',async()=>{
       assert.equal(await page.locator('.od-hero').count(),0);
       const text=await page.locator('#briefing').textContent();assert.match(text,/0 actionable drafts; 5 need context; 1 failed/);assert.match(text,/6 active drafts have stale/);assert.doesNotMatch(text,/5 ready/);

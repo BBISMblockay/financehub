@@ -305,3 +305,15 @@ table.bcn-table.od-review-table{table-layout:auto}
 
 .od-next-step{padding:20px 22px;margin:16px 0;border:1px solid var(--bcn-accent-border);border-left:3px solid var(--bcn-accent);background:var(--bcn-accent-soft);border-radius:var(--bcn-radius)}
 .od-next-step h3{margin:0 0 10px;font-size:18px}.od-next-step p{font-size:13px;line-height:1.7;color:var(--bcn-ink-2);margin:10px 0}.od-input-list{list-style:none;padding:0;margin:16px 0;display:flex;flex-direction:column;gap:12px}.od-input-list li{display:flex;flex-direction:column;gap:6px;font-size:13px}.od-input-label{font:10px var(--bcn-mono);text-transform:uppercase;color:var(--bcn-neg)}.od-input-label--research{color:var(--bcn-accent)}.od-handoff-input{display:flex;gap:10px;padding:14px 0;border-bottom:1px solid var(--bcn-border);font-size:13px;line-height:1.6}.od-handoff-input:has(textarea){flex-direction:column}.od-handoff-input textarea{width:100%;box-sizing:border-box}.od-handoff-input input{align-self:flex-start;margin-top:4px}#handoff-form>p{font-size:13px;line-height:1.7;color:var(--bcn-ink-2)}
+
+.od-review-input,.od-review-task{padding:14px 0;border-bottom:1px solid var(--bcn-border)}
+.od-review-input label,.od-review-task{display:flex;flex-direction:column;gap:8px}
+.od-review-input .od-check{flex-direction:row}.od-review-task textarea{width:100%;box-sizing:border-box}
+#edit-evidence{padding:12px;background:var(--bcn-bg);border-radius:var(--bcn-radius)}
+#edit-evidence p{white-space:pre-wrap;font-size:13px;line-height:1.6}
+#edit-blockers{margin:16px 0}#edit-form>p{font-size:13px;line-height:1.6;color:var(--bcn-ink-2)}
+
+#edit-dialog .od-dialog-head{position:sticky;top:-24px;background:var(--bcn-surface);z-index:2;padding:12px 0;border-bottom:1px solid var(--bcn-border)}
+.od-review-save{position:sticky;bottom:-24px;background:var(--bcn-surface);z-index:2;padding:12px 0;border-top:1px solid var(--bcn-border);display:flex;align-items:center;gap:12px}
+.od-review-save span{font-size:12px;color:var(--bcn-ink-2)}
+@media(max-width:640px){#edit-dialog .od-dialog-head{top:-20px}.od-review-save{bottom:-20px}}

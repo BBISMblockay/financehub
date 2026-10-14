@@ -175,9 +175,13 @@
   ];
   const inFilter = s => S.filter === 'all' || (S.filter === 'open' ? ['draft', 'proposed', 'approved'].includes(s) : s === S.filter);
 
+  const linkedTaskId = new URLSearchParams(location.search).get('task');
   async function load() {
+    if (!_co?.id) throw new Error('Choose an active company before loading tasks.');
+    let taskQuery = scoped(sb.from('seo_tasks').select('id, title, approval_status, target_type, target_url, target_handle, rationale, proposed_title, proposed_meta_description, proposed_body, rejection_reason, approved_by, approved_at, created_by, created_at, updated_at, current_revision_number'));
+    if (linkedTaskId) taskQuery = taskQuery.eq('id', linkedTaskId);
     const [tasks, ap] = await Promise.all([
-      scoped(sb.from('seo_tasks').select('id, title, approval_status, target_type, target_url, target_handle, rationale, proposed_title, proposed_meta_description, proposed_body, rejection_reason, approved_by, approved_at, created_by, created_at, updated_at, current_revision_number')).order('created_at', { ascending: false }).limit(1000),
+      taskQuery.order('created_at', { ascending: false }).limit(1000),
       sb.rpc('can_approve_seo_tasks'),
     ]);
     if (tasks.error) throw tasks.error;
@@ -395,7 +399,7 @@
     }
     const want = new URLSearchParams(location.search).get('filter');
     if (FILTERS.some(([k]) => k === want)) S.filter = want;
-    try { await load(); render(); }
+    try { await load(); if (linkedTaskId) S.filter = 'all'; render(); if (linkedTaskId) { const target = [...document.querySelectorAll('[data-task]')].find(x => x.dataset.task === linkedTaskId); if (target) { target.tabIndex = -1; target.focus(); target.scrollIntoView({ block: 'center' }); setStatus('Opened the linked task. Return to SEO Tasks to see all work.'); } else setStatus('Task unavailable in this company.', 'neg'); } }
     catch (err) {
       setStatus(`Load failed: ${err.message || err}`, 'neg');
       el('list').innerHTML = `<div class="st-empty"><b>Could not load tasks.</b>${esc(err.message || err)}</div>`;

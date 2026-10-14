@@ -521,9 +521,17 @@ async function startSuite(options = {}) {
   // route first, so every specific stub below overrides this. Anything
   // external that nothing else claims resolves to an empty 200 rather than
   // hanging the page on an unreachable host.
-  await context.route('**://**', (route) => {
+  await context.route('**://**', async (route) => {
     const url = route.request().url();
-    if (url.startsWith(base)) return route.continue();
+    if (url.startsWith(base)) {
+      if (process.env.SILO_TEST_LOOPBACK_TRANSPORT !== '1' || options.secureContext) return route.continue();
+      // Some cloud egress proxies reject the synthetic silo.test hostname even
+      // with Chromium's resolver override. Keep that page origin (demo guards
+      // depend on it), but serve the same fixture bytes through loopback.
+      const local = url.replace('http://silo.test:', 'http://127.0.0.1:');
+      const response = await context.request.get(local);
+      return route.fulfill({ response });
+    }
     return route.fulfill({ status: 200, contentType: 'text/plain', body: '' });
   });
 

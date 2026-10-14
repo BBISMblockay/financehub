@@ -309,7 +309,10 @@
   }
   async function loadIdeas() {
     let q = sb.from('ad_ideas').select('*').order('updated_at', { ascending: false }).limit(500);
-    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    if (!_co?.id) { S.ideas = []; S.ideasError = 'Choose an active company.'; return; }
+    q = q.eq('company_entity_id', _co.id);
+    const linkedIdea = new URLSearchParams(location.search).get('idea');
+    if (linkedIdea) q = q.eq('id', linkedIdea);
     const { data, error } = await q;
     if (error) { S.ideas = []; S.ideasError = explain(error); return; }
     S.ideasError = null;
@@ -777,6 +780,8 @@
       }
       renderIdeas();
       if (new URLSearchParams(location.search).get('view') === 'ideas') setView('ideas');
+      const linkedIdea = new URLSearchParams(location.search).get('idea');
+      if (linkedIdea) { setView('ideas'); const target = [...document.querySelectorAll('[data-idea]')].find(x => x.dataset.idea === linkedIdea); if (target) { target.tabIndex = -1; target.focus(); target.scrollIntoView({ block: 'center' }); setStatus('Opened the linked idea. Return to Ideas to see all work.'); } else setStatus('Idea unavailable in this company.', 'neg'); }
     } catch (e) {
       if (id !== loadId) return;
       setStatus(`Load failed: ${explain(e)}`, 'neg');

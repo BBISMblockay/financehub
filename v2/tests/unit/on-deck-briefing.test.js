@@ -3,11 +3,11 @@ const assert = require('assert/strict');
 const { loadV2 } = require('../lib/load');
 const { build, inputPlan, prepareHandoff } = loadV2(['on-deck-briefing.js']).SiloOnDeckBriefing;
 const now = Date.parse('2026-10-08T12:00:00Z');
-const ads = (over = {}) => ({ id: 'ad1', kind: 'ads', status: 'ready', title: 'Draft creative · Classic tee', valid_until: '2026-10-10',
+const ads = (over = {}) => ({ id: 'ad1', kind: 'ads', status: 'ready', title: 'Draft creative · Classic tee', source_current: true, valid_until: '2026-10-10',
   selection_reason: 'Strong evidence. Selected #1 of 2 eligible ads opportunities.',
   source: { objective: 'purchase', index: 1.3, evidence: 'strong', current_copy: 'Meet the classic tee.' },
-  content: { recommend: true, missing: [], body: 'A fresh creative variation.' }, ...over });
-const seo = (over = {}) => ({ ...ads(), id: 'seo1', kind: 'seo', title: 'Improve search · Tees', source: { impressions: 29972, clicks: 175, days: 26, position: 7.3, inspection: { title: 'Tees', meta_description: 'Original copy' } }, content: { recommend: true, missing: [], body: 'Draft Title Tag:\nTees\n\nDraft Meta Description:\nNew copy' }, ...over });
+  content: { recommend: true, subject:'Reviewed draft', summary:'Summary', reason:'Evidence', tasks:[], missing: [], body: 'A fresh creative variation.' }, ...over });
+const seo = (over = {}) => ({ ...ads(), id: 'seo1', kind: 'seo', title: 'Improve search · Tees', source: { impressions: 29972, clicks: 175, days: 26, position: 7.3, inspection: { title: 'Tees', meta_description: 'Original copy' } }, content: { ...ads().content, proposed_title:'Tees', proposed_meta_description:'New copy', recommend: true, missing: [], body: 'Draft Title Tag:\nTees\n\nDraft Meta Description:\nNew copy' }, ...over });
 let checks = 0;
 function test(name, fn) { fn(); console.log(`ok ${++checks} - ${name}`); }
 const run = rows => build({ rows, now });
@@ -37,7 +37,7 @@ test('independent workflow ranks cannot override cross-workflow policy', () => {
   }
 });
 test('automatically discovered evidence precedes employee-prepared launch', () => {
-  const launch = ads({ id: 'launch', kind: 'launch', source: { launch_date: '2026-10-08', audience: 'Fans' } });
+  const launch = ads({ id: 'launch', kind: 'launch', source: { launch_date: '2026-10-08', audience: 'Fans' }, content: {...ads().content,tasks:[{title:'Email',detail:'Copy'}]} });
   const result = run([launch, seo(), ads()]); assert.equal(result.featured.kind, 'ads'); assert.equal(result.upkeep[0].kind, 'launch');
   assert.match(result.upkeep[0].caveat, /employee/);
 });
@@ -70,7 +70,7 @@ test('monitoring counts do not call preparations completed', () => {
 test('routine coding and employee launch never become the growth hero', () => {
   const coding = [{ batch_id: 'b', stage: 'code', open_suggestions: 30 }];
   const result = build({ now, coding }); assert.equal(result.featured, null); assert.equal(result.upkeep[0].type, 'coding');
-  assert.equal(run([ads({ kind: 'launch', source: { launch_date: '2026-10-08', audience: 'Fans' } })]).featured, null);
+  assert.equal(run([ads({ kind: 'launch', source: { launch_date: '2026-10-08', audience: 'Fans' }, content: {...ads().content,tasks:[{title:'Email',detail:'Copy'}]} })]).featured, null);
 });
 test('screened ad evidence invites investigation while ready growth drafts take precedence', () => {
   const blocked = ads({ status: 'needs_info', content: { recommend: true, missing: ['Audience'], body: 'Draft' } });
@@ -84,24 +84,24 @@ test('screened search evidence can invite investigation without promoting a bloc
   assert.equal(item.action, 'Investigate search opportunity'); assert.match(item.caveat, /No click-through benchmark/);
   for (const patch of [{ valid_until: '2020-01-01' }, { content: { recommend: false } }, { content: { recommend: true, body: '' } }, { source: { ...blocked.source, impressions: null } }, { status: 'failed' }]) assert.equal(run([{ ...blocked, ...patch }]).featured, null);
 });
-test('SEO research is explicitly carried into task copy, never claimed answered', () => {
-  const p = seo({ content: { ...seo().content, missing: ['Current ranking keywords driving the 175 clicks', 'Click-through rate benchmark for position ~7.3 in this vertical', 'Any prior SEO test history for this page'] } });
-  assert.ok(inputPlan(p).every(x => x.research));
-  const patch = prepareHandoff(p, [{ carry: true }, { carry: true }, { carry: true }]);
-  assert.deepEqual(Array.from(patch.content.missing), []); assert.match(patch.content.body, /Research to complete before publishing/); assert.match(patch.content.body, /175 clicks/); assert.match(patch.note, /not claimed resolved/);
-  assert.equal(p.content.missing.length, 3);
+test('only structured optional research may carry; legacy wording stays essential', () => {
+  const label = 'Any prior SEO test history for this page';
+  const p = seo({ content: { ...seo().content, missing: [label], optional_context: ['CTR benchmark'] } });
+  assert.equal(inputPlan(p)[0].research, false); assert.equal(inputPlan(p)[1].research, true);
+  const blocked = prepareHandoff(p, [{carry:true},{carry:true}]); assert.equal(blocked.content.missing.length,1);
+  const supplied = prepareHandoff(p, [{value:'Verified historic test record'},{carry:true}]); assert.equal(supplied.content.missing.length,0);
+  assert.equal(supplied.content.review_inputs[0].answer,'Verified historic test record'); assert.equal(supplied.content.review_inputs[1].mode,'carry');
+  const saved = {...p,content:supplied.content}; assert.equal(inputPlan(saved)[0].answer,'Verified historic test record');
+  const reopened = prepareHandoff(saved,[{value:inputPlan(saved)[0].answer,reopen:true},{carry:true}]); assert.equal(reopened.content.missing.length,1); assert.equal(reopened.content.body,p.content.body);
 });
-test('unknown and essential inputs remain blockers until supplied; partial research choice preserves the rest', () => {
-  const p = seo({ content: { ...seo().content, missing: ['Required destination URL', 'Any prior SEO test history for this page'] } });
-  assert.equal(inputPlan(p)[0].research, false);
-  const partial = prepareHandoff(p, [{}, { carry: true }]); assert.equal(partial.content.missing[0], 'Required destination URL');
-  const supplied = prepareHandoff(p, [{ value: 'https://store.example/tees' }, { carry: true }]); assert.equal(supplied.content.missing.length, 0); assert.match(supplied.content.body, /Confirmed task context/);
-  assert.throws(() => prepareHandoff(p, [{ carry: true }, {}]), /Add a required input/);
-  assert.equal(inputPlan({ ...p, kind: 'ads' })[1].research, false);
-});
-test('handoff refuses absent draft and excessive context without truncation', () => {
-  assert.throws(() => prepareHandoff(seo({ content: { body: '', missing: ['Anything'] } }), []), /prepared draft/);
-  assert.throws(() => prepareHandoff(seo({ content: { body: 'x'.repeat(5000), missing: ['Input'] } }), [{ value: 'Confirmed fact' }]), /draft limit/);
+test('complete SEO fields and launch rows are required even with no missing facts', () => {
+  const B=loadV2(['on-deck-briefing.js']).SiloOnDeckBriefing;
+  const p=seo({content:{...seo().content,proposed_title:'',proposed_meta_description:''}});
+  assert.equal(B.draftBlockers(p).length,2); assert.equal(run([p]).featured,null);
+  assert.equal(B.draftBlockers(ads({kind:'launch'})).length,1);
+  assert.equal(B.canReview({...ads(),source_current:undefined}),false);
+  assert.equal(B.preparation({...p,status:'preparing'}, {enabled:false}).state,'paused');
+  assert.equal(B.preparation({...p,status:'preparing'}, {enabled:true}).state,'unknown');
 });
 console.log(`${checks} briefing checks passed`);
 
@@ -111,8 +111,8 @@ test('current readiness distinguishes six stale drafts from old ready summaries'
  const result=currentStatus(rows,now);assert.equal(result.ready,0);assert.equal(result.needs,5);assert.equal(result.failed,1);assert.equal(result.stale,6);
  assert.equal(currentStatus([ads({source_current:false}),ads({valid_until:'bad'}),ads({content:{recommend:true,body:'text',missing:['Need facts']}})],now).ready,0);
  assert.equal(currentStatus([ads({source_current:true})],now).ready,1);assert.equal(currentStatus([],now).ready,0);
- assert.equal(currentStatus([ads()],now).ready,0);assert.equal(currentStatus([ads()],now).unknown,1);
- assert.match(currentStatus([ads()],now).text,/Freshness unavailable/);
- assert.equal(currentStatus([seo({source_current:true})],now).ready,0);
- assert.equal(currentStatus([seo({source_current:true,content:{recommend:true,body:'Draft',missing:[],proposed_title:'Title',proposed_meta_description:'Description'}})],now).ready,1);
+ assert.equal(currentStatus([ads({source_current:undefined})],now).ready,0);assert.equal(currentStatus([ads({source_current:undefined})],now).unknown,1);
+ assert.match(currentStatus([ads({source_current:undefined})],now).text,/Freshness unavailable/);
+ assert.equal(currentStatus([seo({source_current:true,content:{...seo().content,proposed_title:'',proposed_meta_description:''}})],now).ready,0);
+ assert.equal(currentStatus([seo({source_current:true,content:{...seo().content,body:'Draft',proposed_title:'Title',proposed_meta_description:'Description'}})],now).ready,1);
 });
