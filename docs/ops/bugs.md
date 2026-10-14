@@ -87,22 +87,6 @@ failure sees nothing.
 
 ---
 
-## Two-step login is enforced by the sign-in pages, not the database (P2, fix written)
-
-Opt-in two-step login shipped 2026-10-13 ([two-step-login.md](two-step-login.md)). After a correct
-password the session exists at `aal1`, so an enrolled user's password alone, taken straight to an app
-URL or the API, still read what RLS allows. Setup is closed meanwhile: `MFA_ENROLLMENT_OPEN` is unset,
-and Supabase Auth TOTP is verify-only (set by Blake 2026-10-13 ~21:20 UTC; enroll refused 422
-`mfa_totp_enroll_not_enabled`, password sign-in unchanged, `auth.mfa_factors` 0 rows).
-
-**Fix written, not live** (`20261014000000_mfa_enforcement.sql`, `scripts/lib/mfa-gate.mjs` in sixteen
-edge functions): a PostgREST pre-request hook, a restrictive `storage.objects` policy, and a caller-token
-check in every function that acts with the service role. Live after: merge, apply the migration (Blake's
-approval), then deploy the sixteen functions. Opening setup after that also needs the lost-phone reset
-rehearsed on a test account. Move this entry to the CHANGELOG then.
-
----
-
 ## Security audit 2026-10-08: items not fixed in the fix PR (P2)
 
 Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:

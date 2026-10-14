@@ -4,6 +4,10 @@ window.__SILO_CONFIG__ = {
   SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1rcXVjbGZmcnZsenllY25hYnlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEzODk4MDEsImV4cCI6MjA4Njk2NTgwMX0.vkOceXSXLnUMPp5FwvivcFvFcDxuVyQnlmmRc9hp1V4",
   REDIRECT_TO: "/v2/finance.html",
   EXPECT_EMAIL_CONFIRMATION: true,
+  // Two-step login setup is offered in My profile. The server enforces the
+  // code for every enrolled account (20261014000000); Supabase Auth TOTP
+  // enrollment must also be Enabled. See docs/ops/two-step-login.md.
+  MFA_ENROLLMENT_OPEN: true,
 
   // Returns the active company object stored after login, or null.
   // Shape: { id, title, entity_key, meta, role }
