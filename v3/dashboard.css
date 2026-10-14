@@ -1599,5 +1599,31 @@ body.is-report-view, .is-report-view .silo-app, .is-report-view .silo-main { hei
 .res-note--box { padding: 10px 12px; background: var(--bcn-band); border-radius: var(--bcn-radius-sm); border: 1px solid var(--bcn-border); }
 .res-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .bcn-btn--sm { font-size: 12px; padding: 4px 10px; }
+.res-external { min-height: 52px; resize: vertical; font-family: var(--bcn-font); }
+.res-dim { font-size: 11px; color: var(--bcn-ink-3); }
+/* A run status or on/off state as a word. Beacon has no pill at this size
+   inside a table cell; these reuse its own tone tokens rather than adding any. */
+.res-tag {
+  display: inline-block; padding: 1px 7px; border-radius: 999px;
+  font-family: var(--bcn-mono); font-size: 10.5px; letter-spacing: 0.01em;
+  background: var(--bcn-band); color: var(--bcn-ink-2); white-space: nowrap;
+}
+.res-tag--pos { background: var(--bcn-pos-soft); color: var(--bcn-pos); }
+.res-tag--neg { background: var(--bcn-neg-soft); color: var(--bcn-neg); }
+/* bcn-table is table-layout: fixed, so every column is equal width unless
+   it is told otherwise -- which is why the schedules table sprawled. */
+.res-table th:nth-child(1), .res-table td:nth-child(1) { width: 22%; }
+.res-table th:nth-child(2), .res-table td:nth-child(2) { width: 14%; }
+.res-table th:nth-child(3), .res-table td:nth-child(3) { width: 24%; }
+.res-table th:nth-child(4), .res-table td:nth-child(4) { width: 15%; }
+.res-table th:nth-child(5), .res-table td:nth-child(5) { width: 8%; }
+.res-table th:nth-child(6), .res-table td:nth-child(6) { width: 7%; }
+.res-table td { vertical-align: top; }
+.res-table td:nth-child(3) { white-space: normal; word-break: break-word; }
+.res-tablefoot { display: flex; justify-content: flex-end; margin-top: 10px; }
+.res-sr {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
 .v3-preview-email-row { display: grid; grid-template-columns: 1fr minmax(280px, 380px); }
 @media (max-width: 900px) { .v3-preview-email-row { grid-template-columns: 1fr; } .res-panel { border-left: 0; border-top: 1px solid var(--bcn-border); max-width: none; } }
