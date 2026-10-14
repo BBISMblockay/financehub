@@ -46,6 +46,8 @@ const TABLES = () => ({
     id: 't-1', launch_id: 'l-1', task_title: 'Brief the agency',
     task_type: 'Lower Funnel', status: 'open', priority: 'normal',
     notes: 'Agency needs the brief by Friday.', estimated_minutes: 240,
+    // assigned, so it also appears in one person's ordered list
+    assigned_to_user_id: 'test-user', assigned_to_name: 'Test User',
     company_entity_id: 'test-company',
   }, {
     // On an initiative, with NO launch_id of its own: the Launch column has
@@ -216,6 +218,19 @@ const tab = async (page, name) => {
     R.eq(col(viaInit, 'Launch').text, 'Fall Drop', 'the launch is derived from the initiative');
     R.has(col(viaInit, 'Launch').href || '', 'launch=l-1', 'and still links there');
     R.eq(col(viaInit, 'Notes').text, '\u2014', 'a task with no notes shows a dash');
+
+    // One person's ordered list renders an extra Order <td> that the All
+    // Tasks view does not, so the columns have to line up in both views --
+    // a table whose Launch column shows the notes is worse than no column.
+    await tm.click('#viewMyTab');
+    await tm.waitForTimeout(120);
+    const ordered = await row('t-1');
+    R.test('the columns still line up in one person\u2019s ordered list', async () => {});
+    R.eq(ordered.length, headers.length, 'every header has a cell in this view');
+    R.eq(ordered[headers.indexOf('Launch')].text, 'Fall Drop', 'Launch is still the launch');
+    R.eq(ordered[headers.indexOf('Notes')].text, 'Agency needs the brief by Friday.', 'Notes is still the notes');
+    await tm.click('#viewAllTab');
+    await tm.waitForTimeout(120);
 
     const evergreen = await row('t-3');
     R.test('an evergreen task belongs to no launch', async () => {});
