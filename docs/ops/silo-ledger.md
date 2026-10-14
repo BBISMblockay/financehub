@@ -129,17 +129,18 @@ owner's included.
   What the ledger still lacks is activity entered directly in QuickBooks (bills, payroll, …), which
   Books → Ledger shows as "Other activity in QuickBooks".
 
-## Next: running the books from SILO (noted 2026-10-14)
+## In theory: running the books from SILO (noted 2026-10-14)
 
-Goal: a company closes in QuickBooks on, say, 2026-08-31 and continues in SILO from 2026-09-01 with no
-QuickBooks. The opening trial balance, the QBO history archive and the Books -> Ledger roll-forward
-already cover the cutover itself. What still ties a company to QuickBooks, in build order:
+Not a committed goal or roadmap item -- a design direction, so accounting work does not close it off.
+In theory a company could close in QuickBooks on, say, 2026-08-31 and continue in SILO from
+2026-09-01 with no QuickBooks. The opening trial balance, the QBO history archive and the Books -> Ledger roll-forward
+already cover the cutover itself. What would still tie a company to QuickBooks, roughly in the order it would be built:
 
 1. **SILO-only posting.** An approved adjustment reaches the ledger only once QuickBooks accepts it.
    Approving must record it straight to the ledger when the company does not post to QuickBooks.
 2. **The switch.** `accounting_settings.books_authority` is pinned to `'qbo'` by a CHECK. A per-company
    switch stops the QuickBooks pushes, makes `accounting_period_locks` the close, and rolls retained
-   earnings at year end. Items 1 and 2 together are the core of "drop QuickBooks".
+   earnings at year end. Items 1 and 2 together would be the core of it.
 3. **Statements from the ledger.** P&L, balance sheet and trial balance come from QuickBooks reports
    today; build them from accepted opening balances plus `silo_ledger_lines_v`. The Ledger tab's
    "SILO balance" column is most of a trial balance already.
