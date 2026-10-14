@@ -1,9 +1,9 @@
 # Two-step login (authenticator app)
 
-Added 2026-10-13. Opt-in per user. **Setup is closed in production** (see
-"Enforcement by the server" below for what opening it still needs): My profile offers
-"Turn on" only when `pages/config.js` sets `MFA_ENROLLMENT_OPEN: true`, and
-production leaves it unset. The code steps on login and set-password are
+Added 2026-10-13. Opt-in per user. **Setup opened 2026-10-14**, once the
+server enforced the code (see "Enforcement by the server" below): My profile offers
+"Turn on" only when `pages/config.js` sets `MFA_ENROLLMENT_OPEN: true` (set
+2026-10-14) and Supabase Auth TOTP enrollment is enabled. The code steps on login and set-password are
 live regardless, but they only act for an account that already holds a
 verified factor, and none does (0 on 2026-10-13). Code: `pages/mfa.js` (shared helpers),
 `pages/login.html`, `pages/set-password.html`, `v2/profile.html`.
@@ -37,12 +37,11 @@ button (PR #970 review, cycle 2). **Set to verify-only ("Verify Enabled") by Bla
 on 2026-10-13 ~21:20 UTC**: an enroll call is now refused with 422
 `mfa_totp_enroll_not_enabled`, and password sign-in is unchanged (both checked live).
 
-**Until the database enforcement ships, set TOTP so enrollment is off and
-verification stays on** (the dashboard's verify-only option). This is the gate
-the server actually holds. It changes nothing for current users (0 factors),
-and the login code step keeps working for any account that already has one.
-Opening the feature means switching enrollment back on **and** setting
-`MFA_ENROLLMENT_OPEN: true`. Phone/SMS stays disabled. "Limit duration of AAL1
+**Now (2026-10-14): TOTP Enabled** (enroll + verify), because the server
+enforces the code. Before that it was verify-only (enrollment off), which was
+the gate the server held while only the sign-in page asked for the code.
+Setup needs BOTH enrollment Enabled here AND `MFA_ENROLLMENT_OPEN: true`;
+closing it again needs only one of them off. Phone/SMS stays disabled. "Limit duration of AAL1
 sessions" was showing ON in the dashboard. On 2026-10-13, 67 of 86 aal1
 sessions had refreshed more than an hour after creation, so the setting is
 not ending password-only sessions for accounts without a factor. Whether it

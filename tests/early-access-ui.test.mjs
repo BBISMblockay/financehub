@@ -13,7 +13,8 @@ test('existing home and shared config stay byte-identical to main c2b6f1e', () =
   // change must never silently replace the user's existing homepage/router.
   const unchanged = {
     'index.html': '9a4c9b997ef349698fc572a7769622a89afffeb21c6fb5988d9c11403ce9673e',
-    'pages/config.js': 'ee67cc20e8f76d35e1ea818674a24bb0a04f70ac025c14b0ede5ec8830bc6ea5',
+    // Deliberately changed 2026-10-14: MFA_ENROLLMENT_OPEN opens two-step login setup.
+    'pages/config.js': '1790aa8ec2fee8c914faf6b13023508a7e8ea7845283029906719e05950560a0',
   };
   for (const [file, hash] of Object.entries(unchanged)) {
     const bytes = readFileSync(new URL('../' + file, import.meta.url));

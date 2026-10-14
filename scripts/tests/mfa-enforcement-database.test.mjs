@@ -9,6 +9,7 @@
 //   - storage.objects refuses reads and writes for the same unsatisfied
 //     session, whatever the bucket's own permissive policy says
 //   - verify_v2_schema.sql's check reads MISSING / ok / CRITICAL correctly
+//   - verify's anon/definer allowlist names both functions (the hook is anon-run)
 //
 // Stand-ins: auth.uid() / auth.jwt() as Supabase defines them (from the
 // request.jwt.claims setting PostgREST sets before the hook runs), and the
@@ -156,6 +157,16 @@ await test('the hook and the check are callable by the API roles, and not by PUB
     const [{ acl }] = await q(`select proacl::text as acl from pg_proc where oid = $1::regprocedure`, [fn]);
     assert.doesNotMatch(acl, /(^|[{,])=X/, `${fn}: no PUBLIC execute`);
   }
+});
+
+// PostgREST runs the hook as anon for anon requests, so both functions are
+// anon-executable SECURITY DEFINER by design; verify's allowlist must name them
+// or the daily drift check goes CRITICAL (it did, run 212, 2026-10-14).
+await test("verify's anon/definer allowlist accepts the two-step functions", async () => {
+  const start = verifyAll.indexOf("select 'Definer functions reachable by anon' as check_name");
+  assert.ok(start > 0, 'the anon/definer check must still exist in verify_v2_schema.sql');
+  const [{ status }] = await q(verifyAll.slice(start).split(/;\s*\n/)[0] + ';');
+  assert.equal(status, 'ok', `anon/definer check: ${status}`);
 });
 
 console.log(`# pass ${passed}`);
