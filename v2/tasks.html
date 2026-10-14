@@ -301,7 +301,8 @@
       <!-- Type -->
       <div class="bcn-field-group">
         <label class="bcn-label" for="dType">Type</label>
-        <input class="bcn-field" type="text" id="dType" placeholder="e.g. Marketing, Design…" />
+        <input class="bcn-field" type="text" id="dType" list="dTypeList" autocomplete="off" placeholder="e.g. Marketing, Design…" />
+        <datalist id="dTypeList"></datalist>
       </div>
 
       <!-- Due date -->
@@ -607,6 +608,18 @@
       o.value = ty; o.textContent = ty;
       fType.appendChild(o);
     });
+
+    // drawer: Type stays free text -- the same list is offered as type-ahead
+    // suggestions only, so any new value can still be typed.
+    const dTypeList = document.getElementById('dTypeList');
+    if (dTypeList) {
+      dTypeList.innerHTML = '';
+      types.forEach(ty => {
+        const o = document.createElement('option');
+        o.value = ty;
+        dTypeList.appendChild(o);
+      });
+    }
 
     // drawer: one "attach to" list -- initiatives and launches together
     fillParentSelect(document.getElementById('dParent'), '— Nothing (evergreen) —');

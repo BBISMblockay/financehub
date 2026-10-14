@@ -829,7 +829,7 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
             <input type="hidden" id="channelEditId" value="" />
             <div class="dp-title" id="channelFormTitle" style="margin-bottom:8px;">New initiative</div>
             <div class="dp-g2">
-              <div class="bcn-field-group"><label class="bcn-label">TYPE</label><select class="bcn-field" id="channelName"><option value="email">Email</option><option value="sms">SMS</option><option value="organic">Organic</option><option value="meta">Meta</option><option value="website">Website</option><option value="retail">Retail</option><option value="other">Other</option></select></div>
+              <div class="bcn-field-group"><label class="bcn-label">TYPE *</label><input class="bcn-field" id="channelName" list="channelTypeList" autocomplete="off" required placeholder="email, sms, retail…" /><datalist id="channelTypeList"></datalist></div>
               <div class="bcn-field-group"><label class="bcn-label">TITLE *</label><input class="bcn-field" id="channelTitle" required /></div>
             </div>
             <div class="dp-g3">
@@ -874,7 +874,7 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
             <div class="dp-g3">
               <div class="bcn-field-group"><label class="bcn-label">DUE DATE</label><input class="bcn-field" id="taskDue" type="date" /></div>
               <div class="bcn-field-group"><label class="bcn-label">PRIORITY</label><select class="bcn-field" id="taskPriority"><option value="normal">Normal</option><option value="high">High</option><option value="critical">Critical</option></select></div>
-              <div class="bcn-field-group"><label class="bcn-label">TYPE</label><select class="bcn-field" id="taskType"><option value="">Type</option><option value="creative">Creative</option><option value="inventory">Inventory</option><option value="website">Website</option><option value="email">Email</option><option value="sms">SMS</option><option value="qa">QA</option></select></div>
+              <div class="bcn-field-group"><label class="bcn-label">TYPE</label><input class="bcn-field" id="taskType" list="taskTypeList" autocomplete="off" placeholder="creative, email…" /><datalist id="taskTypeList"></datalist></div>
             </div>
             <div class="dp-g3">
               <div class="bcn-field-group" style="grid-column:1/3;"><label class="bcn-label">ASSIGN TO</label><select class="bcn-field" id="taskAssignTo"><option value="">Unassigned</option></select></div>
@@ -1612,6 +1612,7 @@ function fillFilterOptions(){
   $('typeFilter').innerHTML=`<option value="">All types</option>`+types.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
   $('designerFilter').innerHTML=`<option value="">All</option>`+designers.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
   $('typeFilter').value=F.type; $('designerFilter').value=F.designer;
+  fillTypeDatalists();
 }
 
 function applyFilters(){
@@ -1747,6 +1748,39 @@ const CH_CLASS = {
   meta:'ch-meta', website:'ch-website', retail:'ch-retail', other:'ch-other',
 };
 function chClass(v){ return CH_CLASS[String(v || '').trim().toLowerCase()] || 'ch-other'; }
+
+/* Initiative Type and launch-task Type are free text in the database (plain
+   nullable/NOT NULL `text`, no CHECK, no enum) and now free text in the form
+   too. These arrays are the values the drawer used to offer as its only
+   choices; they are SUGGESTIONS in a <datalist>, joined with whatever types
+   are actually in use, so anything can be typed.
+
+   Nothing keys off a type string: initiative colours go through chClass(),
+   which already falls back to ch-other, and no filter is built from a
+   hardcoded list. Launch TYPE is deliberately a closed list (see
+   LAUNCH_TYPES) and is left alone. */
+const CHANNEL_TYPE_SUGGESTIONS = ['email', 'sms', 'organic', 'meta', 'website', 'retail', 'other'];
+const TASK_TYPE_SUGGESTIONS    = ['creative', 'inventory', 'website', 'email', 'sms', 'qa'];
+
+function fillDatalist(id, suggested, inUse){
+  const el = $(id);
+  if (!el) return;
+  const seen = new Set(), out = [];
+  for (const raw of [...suggested, ...inUse]){
+    const v = String(raw == null ? '' : raw).trim();
+    if (!v) continue;
+    const key = v.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  el.innerHTML = out.map(v => `<option value="${esc(v)}"></option>`).join('');
+}
+
+function fillTypeDatalists(){
+  fillDatalist('channelTypeList', CHANNEL_TYPE_SUGGESTIONS, channels.map(c => c.channel));
+  fillDatalist('taskTypeList',    TASK_TYPE_SUGGESTIONS,    tasks.map(t => t.task_type));
+}
 
 function evChipInitiative(c){
   const launch=launches.find(x=>String(x.id)===String(c.launch_id));
@@ -2671,7 +2705,7 @@ function openChannelForm(row){
     $('channelEditId').value=row.id;
     $('channelFormTitle').textContent='Edit initiative';
     $('channelFormSaveBtn').textContent='UPDATE INITIATIVE';
-    $('channelName').value=row.channel||'email';
+    $('channelName').value=row.channel||'';
     $('channelTitle').value=row.item_title||'';
     $('channelDate').value=row.scheduled_date||'';
     $('channelTime').value=row.scheduled_time||'';
@@ -2679,16 +2713,26 @@ function openChannelForm(row){
     $('channelOwner').value=row.owner||'';
     $('channelUrl').value=row.link_url||'';
     $('channelNotes').value=row.notes||'';
-  } else if(activeLaunch?.launch_date) $('channelDate').value=activeLaunch.launch_date;
+  } else {
+    // The Type field used to be a <select> whose first option was Email, so a
+    // new initiative defaulted to email. Keep that default now that it is a
+    // free-text field.
+    $('channelName').value='email';
+    if(activeLaunch?.launch_date) $('channelDate').value=activeLaunch.launch_date;
+  }
   $('channelForm').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 function channelPayloadFromForm(){
-  return { channel:$('channelName').value, item_title:$('channelTitle').value.trim(), scheduled_date:$('channelDate').value||null, scheduled_time:$('channelTime').value||null, status:$('channelStatus').value, owner:$('channelOwner').value.trim()||null, link_url:$('channelUrl').value.trim()||null, notes:$('channelNotes').value.trim()||null };
+  return { channel:$('channelName').value.trim(), item_title:$('channelTitle').value.trim(), scheduled_date:$('channelDate').value||null, scheduled_time:$('channelTime').value||null, status:$('channelStatus').value, owner:$('channelOwner').value.trim()||null, link_url:$('channelUrl').value.trim()||null, notes:$('channelNotes').value.trim()||null };
 }
 async function saveChannelItem(e){
   e.preventDefault(); if(!activeLaunch) return;
   const payload=channelPayloadFromForm();
   if(!payload.item_title){ setStatus('Initiative title is required.','neg',2500); return; }
+  // `channel` is NOT NULL in the database. The field used to be a <select>
+  // that could never be empty; now that it is free text, catch a blank here
+  // rather than surfacing a Postgres not-null error.
+  if(!payload.channel){ setStatus('Initiative type is required.','neg',2500); return; }
   const editId=$('channelEditId').value;
   let error;
   if(editId){ ({error}=await db.from('launch_channel_items').update(payload).eq('id',editId)); }
@@ -2745,7 +2789,7 @@ function taskPayloadFromForm(){
   const assignId=$('taskAssignTo').value||null;
   const assignUser=assignId?siloUsers.find(u=>u.id===assignId):null;
   return { channel_item_id:$('taskInitiative').value||null,
-           task_title:$('taskTitle').value.trim(), task_type:$('taskType').value||null, priority:$('taskPriority').value, due_date:$('taskDue').value||null, notes:$('taskNotes').value.trim()||null, assigned_to_user_id:assignId, assigned_to_name:assignUser?(assignUser.name||assignUser.email):null };
+           task_title:$('taskTitle').value.trim(), task_type:$('taskType').value.trim()||null, priority:$('taskPriority').value, due_date:$('taskDue').value||null, notes:$('taskNotes').value.trim()||null, assigned_to_user_id:assignId, assigned_to_name:assignUser?(assignUser.name||assignUser.email):null };
 }
 async function saveTask(e){
   e.preventDefault(); if(!activeLaunch) return;
