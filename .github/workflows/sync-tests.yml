@@ -280,6 +280,7 @@ on:
       - 'v2/silo-chrome.js'
       - 'v2/plaid-bank-feed.js'
       - 'v2/je-composer.js'
+      - 'v2/transaction-reclass.js'
       - 'scripts/lib/forecast-candidate-core.mjs'
       - 'scripts/forecast-candidate-run.mjs'
       - 'scripts/forecast-candidate-backtest.mjs'
@@ -490,7 +491,7 @@ jobs:
         run: node --test scripts/tests/bank-workspace.test.mjs scripts/tests/finance-dialog.test.mjs
 
       - name: Accounting suite navigation and legacy routes
-        run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/accounting-ledger.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs scripts/tests/no-unqualified-delete.test.mjs
+        run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/accounting-ledger.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs scripts/tests/transaction-reclass-ui.test.mjs scripts/tests/no-unqualified-delete.test.mjs
 
       # Which company's sidebar a session is served. Visibility only -- RLS
       # decides the data -- but resolveNavProfile(null) used to answer
@@ -1010,6 +1011,21 @@ jobs:
             exit 1
           fi
 
+      # Posted-transaction reclass: staging a reclass vs. unposting the one it
+      # moves from (both orders), and two stages of one transaction. Each lock,
+      # removed, must turn it red.
+      - name: Interleave reclass staging with unposting
+        run: |
+          set -u
+          node scripts/tests/card-reclass-concurrency.test.mjs
+          for m in void-unlocked stage-unlocked; do
+            if CARD_RECLASS_RACE_MUTATION="$m" node scripts/tests/card-reclass-concurrency.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the lock it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       # Product Studio Ready for PO: one PO per concept across Generate PO and
       # the Studio handoff, and one ready brief per concept, under genuinely
       # overlapping transactions. Each lock, removed, must turn it red.
@@ -1149,6 +1165,18 @@ jobs:
           for mutation in no-start-check edit-in-place ignore-lock read-ungated cosmetic-rerecord no-validation posted-not-frozen no-books-start-sync lock-unshared connection-not-stored approved-not-frozen held-reverses no-chart-resync no-source-resync snapshot-ignored no-active-correction-resync no-connection-resync zero-net-uses-today connection-token-resyncs no-freeze-note; do
             if SILO_LEDGER_MUTATION="$mutation" node scripts/tests/silo-ledger-database.test.mjs > /tmp/ledger-mutation.log 2>&1; then
               cat /tmp/ledger-mutation.log; echo "Survived ledger mutation: $mutation"; exit 1
+            fi
+          done
+
+      # Reclassifying a transaction in a POSTED period: a reviewed two-line
+      # adjustment whose lines, date and connection cannot drift from its record,
+      # one open reclass per transaction, ordered unposting, no reopen underneath.
+      - name: Execute posted-transaction reclass regressions
+        run: |
+          node scripts/tests/card-reclass-database.test.mjs
+          for mutation in no-line-check no-posted-check no-open-check no-reopen-guard no-void-order no-lock-check source-mutable from-row-location; do
+            if CARD_RECLASS_MUTATION="$mutation" node scripts/tests/card-reclass-database.test.mjs > /tmp/reclass-mutation.log 2>&1; then
+              cat /tmp/reclass-mutation.log; echo "Survived reclass mutation: $mutation"; exit 1
             fi
           done
 
