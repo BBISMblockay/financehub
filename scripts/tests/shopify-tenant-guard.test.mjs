@@ -74,6 +74,29 @@ test('a check that cannot be made blocks: guessing wrong costs another tenant it
   }
 });
 
+test('once order facts are keyed per company, the guard stands aside', async () => {
+  // 20261013220000 applied: a second company's sync writes its own copy and
+  // moves nothing, so BlockayOps may sync the store Baseballism also syncs.
+  const db = createFakeSupabase();
+  db.from('shopify_orders').insert({ shop_domain: MLB, order_id: '1', company_entity_id: BBISM });
+  db.setOrderFactsPerCompany(true);
+  const res = await orderFactsHeldElsewhere(db, conn(OPS));
+  assert.equal(res.blocked, false);
+  assert.equal(res.perCompany, true);
+});
+
+test('until it has applied -- false, missing or erroring -- the guard still protects', async () => {
+  for (const setup of [
+    (db) => db.setOrderFactsPerCompany(false),
+    (db) => db.breakRpc('shopify_order_facts_keyed_by_company'),
+  ]) {
+    const db = createFakeSupabase();
+    db.from('shopify_orders').insert({ shop_domain: MLB, order_id: '1', company_entity_id: BBISM });
+    setup(db);
+    assert.equal((await orderFactsHeldElsewhere(db, conn(OPS))).blocked, true);
+  }
+});
+
 test('the edge function ships the same guard, byte for byte', () => {
   assert.equal(
     read('supabase/functions/shopify-sync-run/lib/shopify-tenant-guard.mjs'),

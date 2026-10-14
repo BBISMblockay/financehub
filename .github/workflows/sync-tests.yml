@@ -418,6 +418,12 @@ jobs:
       - name: Shopify tenant guard
         run: node scripts/tests/shopify-tenant-guard.test.mjs
 
+      # 20261013220000 keys order facts per company: every order-fact upsert
+      # goes through upsertOrderFact (per-company key, old key only while the
+      # migration is unapplied), and the edge functions ship the same module.
+      - name: Shopify order facts per company -- upsert keys
+        run: node scripts/tests/shopify-order-fact-keys.test.mjs
+
       # Running one job: that a connection which had already synced is NOT
       # re-imported, that a job cancelled from the page while a stage runs
       # stays cancelled, and that one failed stage neither stops the others
@@ -1677,6 +1683,12 @@ jobs:
       # derived only when terms were returned (NULL, never false, otherwise).
       - name: Shopify order payment terms -- view and overdue
         run: node scripts/tests/shopify-order-terms-database.test.mjs
+
+      # Shopify order facts per company (20261013220000) on real Postgres:
+      # two companies keep one copy each, the old onConflict fails with the
+      # message the fallback reads, and the guard's signal tracks the keys.
+      - name: Shopify order facts per company -- migration
+        run: node scripts/tests/shopify-order-facts-per-company-database.test.mjs
 
       # Shopify order paid date (20261005130000): paid_at from payment
       # transactions, the lookup scoped to draft / terms orders, no mixed

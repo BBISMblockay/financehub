@@ -6689,6 +6689,33 @@ select 'AI credit ledger' as check_name,
  else 'ok' end as status;
 
 -- =============================================================================
+-- Shopify order facts keyed per company (20261013220000)
+-- =============================================================================
+-- A company-less unique key on any of the four order-fact tables means a
+-- second company's sync of a store MOVES the first company's rows into its
+-- own tenant. shopify_order_facts_keyed_by_company() is also what the sync's
+-- tenant guard reads to decide whether to stand aside, so it must stay
+-- service-role only and must stay in step with the keys.
+select 'Shopify order facts keyed per company' as check_name,
+ case when to_regprocedure('public.shopify_order_facts_keyed_by_company()') is null
+  then 'MISSING: run 20261013220000_shopify_order_facts_per_company.sql'
+ when exists (select 1 from pg_index i
+   where i.indrelid in (to_regclass('public.shopify_orders'), to_regclass('public.shopify_order_lines'),
+                        to_regclass('public.shopify_draft_orders'), to_regclass('public.shopify_payouts'))
+     and i.indisunique and not i.indisprimary
+     and not exists (select 1 from pg_attribute a
+       where a.attrelid = i.indrelid and a.attname = 'company_entity_id' and a.attnum = any (i.indkey)))
+  then 'CRITICAL: a Shopify order-fact table has a unique key without company_entity_id -- a second company syncing the same store would move the first one''s orders'
+ -- query_to_xml defers the parse, so this file still runs before the function exists.
+ when (xpath('/row/v/text()', query_to_xml(
+         'select public.shopify_order_facts_keyed_by_company() as v', false, true, '')))[1]::text <> 'true'
+  then 'CRITICAL: a per-company Shopify order-fact key is missing -- re-run 20261013220000 (the sync is falling back to the old key and the tenant guard is back on)'
+ when has_function_privilege('authenticated', to_regprocedure('public.shopify_order_facts_keyed_by_company()'), 'EXECUTE')
+   or has_function_privilege('anon', to_regprocedure('public.shopify_order_facts_keyed_by_company()'), 'EXECUTE')
+  then 'CRITICAL: shopify_order_facts_keyed_by_company() is callable from the browser'
+ else 'ok' end as status;
+
+-- =============================================================================
 -- First-connect auto sync: the bootstrap queue (20261013060000)
 -- =============================================================================
 -- What each branch is guarding, in the order it would hurt:

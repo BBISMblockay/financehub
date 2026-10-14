@@ -19219,4 +19219,7 @@ $c$select (select count(*) from v_po_header_summary
 -- adjustment plus its record. Must come AFTER 20261005120000 (period lock) and
 -- 20260912000000 (adjustment approval controls).
 \i migrations/20261013180000_card_transaction_reclass.sql
+-- Shopify order facts unique PER COMPANY, so one store can sync into two
+-- companies without moving either one's orders.
+\i migrations/20261013220000_shopify_order_facts_per_company.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
