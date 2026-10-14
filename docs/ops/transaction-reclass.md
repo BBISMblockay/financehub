@@ -50,7 +50,31 @@ location and customer/vendor if they change), then give a reason.
   through RLS and the generic composer, so approval re-checks them against the record.
 - Unposting a reclass while a later reclass of the same transaction is active.
 - Reopening a period that has an active reclass: recoding it would move the same amount twice. To do
-  that, first delete the reclass entry in QuickBooks, mark it unposted, then reopen and discard it.
+  that, retire the reclass first (see "Undoing a reclass" below).
+- A row with no location of its own in a period approved before approvals recorded their default
+  location (no approval snapshot). It posted on whatever the source's default was then, which nothing
+  recorded, so the source leg can't be placed correctly. Post a journal entry for it instead.
+
+## Which location the reversal uses
+
+A row with no location of its own posted on its source's **default location as of approval**
+(`approve_card_import_batch` posts `coalesce(row, source default)`). The reclass credits (or debits)
+that same location, read from the frozen approval: the settlement line's location, or, for a period
+that netted to zero, the note `silo_ledger_freeze` took at approval. Today's source default is never
+used, because it may have changed since. `card_transaction_reclass_from()` returns this and the
+dialog defaults to it.
+
+## Undoing a reclass
+
+- **Draft:** **Discard draft** on the transaction panel, or **Discard** in Books → journal register.
+- **Approved, never posted:** **Reopen approval** on the panel, or **Reopen** in the register. It goes
+  back to draft (nothing is sent to QuickBooks); then discard it.
+- **Posted:**
+  1. Delete the entry in QuickBooks.
+  2. **Void** it in Books → journal register. This marks it unposted and returns it to approved.
+  3. **Reopen approval**, then **Discard draft**.
+
+  If a later reclass of the same transaction is active, undo that one first.
 
 ## Not in the SILO ledger
 

@@ -32,7 +32,12 @@ class El {
   focus() {}
   all(tag) { const out = []; const walk = (n) => { for (const c of n.children || []) { if (c.tag === tag) out.push(c); walk(c); } }; walk(this); return out; }
 }
-function harness({ rpcResult = { data: { adjustment_id: 'adj-1', reclass_id: 'r-1' }, error: null }, deleted = [{ id: 'adj-1' }] } = {}) {
+// The resolver says where the amount sits in QuickBooks now. Its location is the
+// one the ORIGINAL posting used (the source default at approval), which a row
+// with no location of its own does not carry.
+const FROM = { account_id: 'meals', account_name: 'Meals', location_id: 'hq', location_name: 'HQ', entity_type: null, entity_id: null, basis: 'posting' };
+function harness({ rpcResult = { data: { adjustment_id: 'adj-1', reclass_id: 'r-1' }, error: null }, deleted = [{ id: 'adj-1' }],
+  fromResult = { data: FROM, error: null } } = {}) {
   const body = new El('body');
   const document = { body, createElement: (tag) => new El(tag), createTextNode: (text) => ({ text }) };
   const calls = { rpc: [], composer: [], deletes: [], order: [] };
@@ -40,7 +45,12 @@ function harness({ rpcResult = { data: { adjustment_id: 'adj-1', reclass_id: 'r-
     SiloJE: { open: (opts) => { calls.composer.push(opts); calls.order.push('composer'); } },
   };
   const db = {
-    rpc: async (name, params) => { calls.rpc.push({ name, params }); return rpcResult; },
+    rpc: async (name, params) => {
+      calls.rpc.push({ name, params });
+      if (name === 'card_transaction_reclass_from') return fromResult;
+      if (name === 'reopen_journal_adjustment') return { data: null, error: null };
+      return rpcResult;
+    },
     from(table) {
       const filters = [];
       const query = {
@@ -89,25 +99,30 @@ test('the panel shows where the amount sits now and the right action for each st
   assert.doesNotMatch(draft, /data-reclass>/, 'no second reclass beside an open one');
   const approved = R.section(txn, posted, [{ adjustment_status: 'approved', adjustment_id: 'a2', reason: 'r' }], esc);
   assert.match(approved, /Post approved reclass/);
-  assert.doesNotMatch(approved, /data-reclass-discard/, 'an approved entry is not discarded from here');
+  assert.match(approved, /data-reclass-reopen="a2"[^>]*>Reopen approval/, 'an approved, unposted reclass can go back to draft without posting');
+  assert.doesNotMatch(approved, /data-reclass-discard/, 'an approved entry is not deleted directly');
+  assert.doesNotMatch(draft, /data-reclass-reopen/);
   assert.match(R.section({ ...txn, status: 'uncoded' }, posted, [], esc), /data-reclass disabled title="Only a categorized/);
 });
 
 test('staging sends the chosen target and reason, refreshes, then opens the stored draft for review only', async () => {
   const { R, body, calls, db } = harness();
   let refreshed = 0;
-  const done = R.open({ db, companyId: 'co', t: txn, batch: posted, list: [], accounts, locations, entities, connectionId: 'c1',
+  // The row itself has NO location; it posted on the source default (HQ).
+  const done = R.open({ db, companyId: 'co', t: { ...txn, qbo_location_id: null }, batch: posted, list: [], accounts, locations, entities, connectionId: 'c1',
     onChanged: async () => { refreshed++; calls.order.push('refresh'); }, setStatus() {} });
+  await settle();
   const dialog = body.children.at(-1);
+  assert.match(dialog.children[1].textContent, /Currently Meals at HQ/);
   const [account, location, entity] = dialog.all('select');
   assert.deepEqual(account.children.map((o) => o.value), ['', 'meals', 'travel'], 'only the period\'s QuickBooks connection');
-  assert.equal(location.value, 'hq', 'keeps the current location by default');
+  assert.equal(location.value, 'hq', 'defaults to the location the original posting used, not the row\'s empty one');
   assert.equal(entity.value, '', 'no entity on the original line, none by default');
   const [date] = dialog.all('input'); const [reason] = dialog.all('textarea');
   account.value = 'travel'; entity.value = 'Vendor:v1'; reason.value = '  Flight, not a meal  ';
   await dialog.all('form')[0].fire('submit');
   await done; await settle();
-  assert.deepEqual(JSON.parse(JSON.stringify(calls.rpc)), [{ name: 'stage_card_transaction_reclass', params: {
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.rpc)), [{ name: 'card_transaction_reclass_from', params: { p_transaction_id: 't1' } }, { name: 'stage_card_transaction_reclass', params: {
     p_transaction_id: 't1', p_to_account_id: 'travel', p_to_location_id: 'hq', p_to_entity_type: 'Vendor', p_to_entity_id: 'v1',
     p_entry_date: null, p_reason: 'Flight, not a meal' } }]);
   assert.equal(refreshed, 1);
@@ -121,6 +136,7 @@ test('staging sends the chosen target and reason, refreshes, then opens the stor
 test('a refused stage keeps the dialog open with the reason and opens nothing', async () => {
   const { R, body, calls, db } = harness({ rpcResult: { data: null, error: { message: 'The books are locked through 2026-09-30' } } });
   R.open({ db, companyId: 'co', t: txn, batch: posted, list: [], accounts, locations, entities, connectionId: 'c1' });
+  await settle();
   const dialog = body.children.at(-1);
   dialog.all('select')[0].value = 'travel'; dialog.all('textarea')[0].value = 'wrong';
   await dialog.all('form')[0].fire('submit');
@@ -135,14 +151,30 @@ test('a refused stage keeps the dialog open with the reason and opens nothing', 
 test('nothing is sent without a category and a reason, or when cancelled', async () => {
   const { R, body, calls, db } = harness();
   const done = R.open({ db, companyId: 'co', t: txn, batch: posted, list: [], accounts, locations, entities, connectionId: 'c1' });
+  await settle();
   const dialog = body.children.at(-1);
   await dialog.all('form')[0].fire('submit');
   dialog.all('select')[0].value = 'travel';
   await dialog.all('form')[0].fire('submit');
-  assert.equal(calls.rpc.length, 0);
+  assert.deepEqual(calls.rpc.map((c) => c.name), ['card_transaction_reclass_from'], 'nothing was staged');
   await dialog.all('button').find((b) => b.textContent === 'Cancel').fire('click');
   await done;
   assert.equal(calls.composer.length, 0);
+});
+
+test('a period whose original location is unknown is refused before any dialog opens', async () => {
+  const { R, body, calls, db } = harness({ fromResult: { data: null, error: { message: 'the location it posted with is unknown' } } });
+  await assert.rejects(R.open({ db, companyId: 'co', t: txn, batch: posted, list: [], accounts, locations, entities, connectionId: 'c1' }), /location it posted with is unknown/);
+  assert.equal(body.children.length, 0, 'no dialog');
+  assert.deepEqual(calls.rpc.map((c) => c.name), ['card_transaction_reclass_from']);
+  assert.equal(calls.composer.length, 0);
+});
+
+test('reopen sends the approved reclass back to draft through the existing RPC, and nothing else', async () => {
+  const { R, calls, db } = harness();
+  await R.reopen({ db, adjustmentId: 'adj-9', reason: 'Deleted in QuickBooks' });
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.rpc)), [{ name: 'reopen_journal_adjustment', params: { p_adjustment_id: 'adj-9', p_reason: 'Deleted in QuickBooks' } }]);
+  assert.equal(calls.composer.length, 0, 'no composer, so no posting request');
 });
 
 test('discard deletes only a draft in the active company and reports a no-op', async () => {
@@ -157,6 +189,7 @@ test('the page loads reclasses through every loader and routes reclass clicks be
   const loadSplits = page.slice(page.indexOf('async function loadSplits(rows) {'));
   assert.ok(loadSplits.slice(0, 400).includes('await loadReclasses(rows);'), 'loadSplits loads reclasses');
   const click = page.slice(page.indexOf('async function onTxnTableClick(e) {'));
+  assert.match(click, /\[data-reclass\], \[data-reclass-review\], \[data-reclass-reopen\], \[data-reclass-discard\]/, 'reopen is routed too');
   const route = click.indexOf("await onReclassClick(e, t0); return;");
   const gate = click.indexOf('if (!requireEditable() || !rowEditable(t0)) return;');
   assert.ok(route > 0 && gate > 0 && route < gate, 'reclass routing precedes the editability gate');

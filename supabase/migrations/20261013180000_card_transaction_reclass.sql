@@ -95,6 +95,70 @@ select r.id, r.company_entity_id, r.transaction_id, r.batch_id, r.adjustment_id,
 revoke all on public.card_transaction_reclasses_v from public, anon, authenticated;
 grant select on public.card_transaction_reclasses_v to authenticated;
 
+-- ── Where a posted transaction's amount sits in QuickBooks now ──────────────
+-- The latest POSTED reclass's target, else the line the period was posted
+-- with. A row with no location of its own posted on the source's default
+-- (approve_card_import_batch: coalesce(row, source default)), so that default
+-- is read from the FROZEN approval -- the settlement line's DepartmentRef, or
+-- the note silo_ledger_freeze took for a zero-net batch -- never from today's
+-- source, which can change after posting. A period approved before snapshots
+-- existed records neither, and is refused rather than guessed.
+-- Finance-gated; the dialog reads it to show (and default to) the current coding.
+create or replace function public.card_transaction_reclass_from(p_transaction_id uuid)
+returns jsonb language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  v_company uuid := public.active_company_id();
+  t public.card_transactions%rowtype; b public.card_import_batches%rowtype;
+  r public.card_transaction_reclasses%rowtype;
+  v_settle jsonb; v_loc text; v_loc_name text; v_noted boolean;
+begin
+  if auth.uid() is null or v_company is null
+     or not (public.can_manage_journal_entries() or public.is_exec_or_owner()) then
+    raise exception 'Finance access required';
+  end if;
+  select * into t from public.card_transactions where id = p_transaction_id and company_entity_id = v_company;
+  if not found then raise exception 'Transaction not found'; end if;
+  select * into b from public.card_import_batches where id = t.batch_id and company_entity_id = v_company;
+
+  select r2.* into r from public.card_transaction_reclasses r2
+    join public.journal_adjustments a on a.id = r2.adjustment_id
+   where r2.transaction_id = t.id and a.status = 'posted'
+   order by r2.created_at desc limit 1;
+  if r.id is not null then
+    return jsonb_build_object('account_id', r.to_qbo_account_id, 'account_name', r.to_qbo_account_name,
+      'location_id', r.to_qbo_location_id, 'location_name', r.to_qbo_location_name,
+      'entity_type', r.to_entity_type, 'entity_id', r.to_entity_qbo_id, 'entity_name', r.to_entity_name,
+      'basis', 'reclass');
+  end if;
+
+  v_loc := t.qbo_location_id; v_loc_name := t.qbo_location_name;
+  if v_loc is null then
+    if b.approval_snapshot is null then
+      raise exception 'This period was posted before approvals recorded their default location, so the location it posted with is unknown. Post a journal entry for it instead.';
+    end if;
+    v_settle := public.silo_ledger_snapshot_settlement(b.id);
+    if v_settle is not null then
+      v_loc := v_settle->'DepartmentRef'->>'value';
+    else
+      select f.qbo_location_id, true into v_loc, v_noted from public.silo_ledger_freeze f where f.batch_id = b.id;
+      if v_noted is null then
+        raise exception 'This period netted to zero and its approval did not record a default location, so the location it posted with is unknown. Post a journal entry for it instead.';
+      end if;
+    end if;
+    if v_loc is not null then
+      select coalesce(l.fully_qualified_name, l.name) into v_loc_name from public.quickbooks_locations l
+       where l.company_entity_id = v_company and l.qbo_location_id = v_loc
+         and l.connection_id = coalesce(nullif(b.approval_snapshot->>'qbo_connection_id', '')::uuid, b.qbo_connection_id);
+    end if;
+  end if;
+  return jsonb_build_object('account_id', t.qbo_account_id, 'account_name', t.qbo_account_name,
+    'location_id', v_loc, 'location_name', v_loc_name,
+    'entity_type', case when t.entity_qbo_id is not null then t.entity_type end,
+    'entity_id', t.entity_qbo_id, 'entity_name', t.entity_name, 'basis', 'posting');
+end $$;
+revoke all on function public.card_transaction_reclass_from(uuid) from public, anon, authenticated;
+grant execute on function public.card_transaction_reclass_from(uuid) to authenticated;
+
 -- ── Stage a reclass ─────────────────────────────────────────────────────────
 -- Writes a DRAFT journal adjustment and the reclass record in one transaction.
 -- Nothing reaches QuickBooks here: the page then opens the composer's review of
@@ -111,7 +175,7 @@ declare
   b public.card_import_batches%rowtype;
   v_conn uuid; v_lock date; v_min date; v_date date;
   v_from_acct text; v_from_acct_name text; v_from_loc text; v_from_loc_name text;
-  v_from_ent_type text; v_from_ent text; v_from_ent_name text;
+  v_from_ent_type text; v_from_ent text; v_from_ent_name text; v_from jsonb;
   v_to_acct_name text; v_to_type text; v_to_loc_name text; v_to_ent_name text;
   v_to_loc text := nullif(btrim(coalesce(p_to_location_id, '')), '');
   v_to_ent_type text := nullif(btrim(coalesce(p_to_entity_type, '')), '');
@@ -170,21 +234,12 @@ begin
     raise exception 'The QuickBooks connection this period was posted to is not active';
   end if;
 
-  -- Where the amount sits now: the latest POSTED reclass's target, else the
-  -- coding the period was posted with.
-  select r.to_qbo_account_id, r.to_qbo_account_name, r.to_qbo_location_id, r.to_qbo_location_name,
-         r.to_entity_type, r.to_entity_qbo_id, r.to_entity_name
-    into v_from_acct, v_from_acct_name, v_from_loc, v_from_loc_name, v_from_ent_type, v_from_ent, v_from_ent_name
-    from public.card_transaction_reclasses r
-    join public.journal_adjustments a on a.id = r.adjustment_id
-   where r.transaction_id = t.id and a.status = 'posted'
-   order by r.created_at desc limit 1;
-  if v_from_acct is null then
-    v_from_acct := t.qbo_account_id; v_from_acct_name := t.qbo_account_name;
-    v_from_loc := t.qbo_location_id; v_from_loc_name := t.qbo_location_name;
-    v_from_ent_type := t.entity_type; v_from_ent := t.entity_qbo_id; v_from_ent_name := t.entity_name;
-    if v_from_ent is null then v_from_ent_type := null; end if;
-  end if;
+  -- Where the amount sits now, including the location the original posting
+  -- actually used (card_transaction_reclass_from).
+  v_from := public.card_transaction_reclass_from(t.id);
+  v_from_acct := v_from->>'account_id'; v_from_acct_name := v_from->>'account_name';
+  v_from_loc := v_from->>'location_id'; v_from_loc_name := v_from->>'location_name';
+  v_from_ent_type := v_from->>'entity_type'; v_from_ent := v_from->>'entity_id'; v_from_ent_name := v_from->>'entity_name';
   if v_from_acct is null then raise exception 'This transaction has no category to move from'; end if;
 
   select a.name, a.account_type into v_to_acct_name, v_to_type from public.quickbooks_accounts a

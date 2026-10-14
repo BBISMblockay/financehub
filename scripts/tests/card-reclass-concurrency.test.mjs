@@ -134,13 +134,15 @@ try {
     insert into quickbooks_accounts(company_entity_id,connection_id,qbo_account_id,name,account_type,is_active) values
       ('${co}','${conn}','meals','meals','Expense',true),('${co}','${conn}','travel','travel','Expense',true),
       ('${co}','${conn}','supplies','supplies','Expense',true),('${co}','${conn}','cc','cc','Credit Card',true);
+    insert into quickbooks_locations(company_entity_id,connection_id,qbo_location_id,name,fully_qualified_name,is_active)
+      values ('${co}','${conn}','hq','HQ','HQ',true);
     insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,credit_qbo_account_id,credit_qbo_account_name,is_active)
       values ('${card}','${co}','${conn}','card','Company card','card','cc','cc',true);
     ${txns.map((x, i) => `
     insert into card_import_batches(id,company_entity_id,source_id,label,entry_date,period_start,period_end,status,origin,qbo_connection_id)
       values ('${x.batch}','${co}','${card}','B${i}','2026-09-30','2026-09-01','2026-09-30','draft','csv','${conn}');
-    insert into card_transactions(id,company_entity_id,batch_id,row_no,txn_date,description,merchant,clean_merchant,card_name,amount,currency,status,qbo_account_id,qbo_account_name,coding_source)
-      values ('${x.txn}','${co}','${x.batch}',1,'2026-09-15','DELTA','DELTA','Delta','Travel',84,'USD','coded','meals','meals','manual');
+    insert into card_transactions(id,company_entity_id,batch_id,row_no,txn_date,description,merchant,clean_merchant,card_name,amount,currency,status,qbo_account_id,qbo_account_name,coding_source,qbo_location_id,qbo_location_name)
+      values ('${x.txn}','${co}','${x.batch}',1,'2026-09-15','DELTA','DELTA','Delta','Travel',84,'USD','coded','meals','meals','manual','hq','HQ');
     update card_import_batches set status='posted' where id='${x.batch}';`).join('')}
   `;
   const stubs = `create or replace function public.attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;

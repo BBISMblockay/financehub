@@ -74,7 +74,9 @@
       ${rows ? `<table class="bcn-table txn-dimensions"><tbody>${rows}</tbody></table>` : ''}
       <div class="txn-detail-actions">
         ${open ? `<button class="bcn-btn bcn-btn--primary" type="button" data-reclass-review="${esc(open.adjustment_id)}">${open.adjustment_status === 'draft' ? 'Review and post' : 'Post approved reclass'}</button>`
-          + (open.adjustment_status === 'draft' ? `<button class="bcn-btn bcn-btn--ghost" type="button" data-reclass-discard="${esc(open.adjustment_id)}">Discard draft</button>` : '') : ''}
+          + (open.adjustment_status === 'draft'
+            ? `<button class="bcn-btn bcn-btn--ghost" type="button" data-reclass-discard="${esc(open.adjustment_id)}">Discard draft</button>`
+            : `<button class="bcn-btn bcn-btn--ghost" type="button" data-reclass-reopen="${esc(open.adjustment_id)}" title="Back to draft without posting, so it can be discarded">Reopen approval</button>`) : ''}
         ${!open ? `<button class="bcn-btn" type="button" data-reclass${why ? ` disabled title="${esc(why)}"` : ''}>Reclassify…</button>` : ''}
       </div>
       ${why && why !== 'not-posted' && !open ? `<p class="cc-note">${esc(why)}</p>` : ''}
@@ -97,12 +99,13 @@
   }
 
   // The staging dialog. Resolves with the RPC result, or null when cancelled.
-  function ask({ db, t, list, accounts, locations, entities, connectionId }) {
-    const from = current(list);
-    const fromAccount = from?.to_qbo_account_id || t.qbo_account_id;
-    const fromLocation = from ? from.to_qbo_location_id : t.qbo_location_id;
-    const fromEntity = from ? (from.to_entity_qbo_id ? `${from.to_entity_type}:${from.to_entity_qbo_id}` : '')
-      : (t.entity_qbo_id && t.entity_type ? `${t.entity_type}:${t.entity_qbo_id}` : '');
+  // `from` is card_transaction_reclass_from(): where the amount sits in
+  // QuickBooks now, including the location the original posting really used
+  // (the source's default at approval when the row had none).
+  function ask({ db, t, from, accounts, locations, entities, connectionId }) {
+    const fromAccount = from.account_id;
+    const fromLocation = from.location_id || '';
+    const fromEntity = from.entity_id && from.entity_type ? `${from.entity_type}:${from.entity_id}` : '';
     const inConn = (x) => !connectionId || x.connectionId === connectionId;
     return new Promise((resolve) => {
       const dialog = document.createElement('dialog');
@@ -111,7 +114,8 @@
       const heading = document.createElement('h2'); heading.textContent = 'Reclassify posted transaction';
       const intro = document.createElement('p');
       intro.textContent = `${t.txn_date} · ${t.clean_merchant || t.description || ''} · $${Math.abs(Number(t.amount)).toFixed(2)}. `
-        + `Currently ${(accounts.find((a) => a.id === fromAccount) || {}).name || fromAccount}. `
+        + `Currently ${from.account_name || (accounts.find((a) => a.id === fromAccount) || {}).name || fromAccount}`
+        + `${from.location_name || from.location_id ? ` at ${from.location_name || from.location_id}` : ''}. `
         + 'This stages an adjusting entry for review. Nothing reaches QuickBooks until you approve it.';
       const form = document.createElement('form'); form.method = 'dialog';
 
@@ -176,13 +180,26 @@
 
   async function open(opts) {
     const { db, companyId, t, onChanged, setStatus } = opts;
-    const staged = await ask({ ...opts, db });
+    // A period whose original location cannot be known is refused here, before
+    // a dialog offers a choice the RPC would refuse anyway.
+    const { data: from, error } = await db.rpc('card_transaction_reclass_from', { p_transaction_id: t.id });
+    if (error) throw new Error(error.message);
+    const staged = await ask({ ...opts, db, from });
     if (!staged) return;
     // Refresh first so the panel shows the staged draft (and offers Review)
     // even if the composer is closed without posting.
     await onChanged?.(null);
     setStatus?.('Reclass staged as a draft — nothing is in QuickBooks until you approve and post it.', 'info', 8000);
     review({ db, companyId, adjustmentId: staged.adjustment_id, t, onChanged });
+  }
+
+  // An APPROVED reclass that is not in QuickBooks (approved and never posted,
+  // or marked unposted after its entry was deleted there) goes back to draft so
+  // it can be discarded. reopen_journal_adjustment refuses while a QuickBooks
+  // posting for it is submitting, unknown or posted. Nothing is sent to Intuit.
+  async function reopen({ db, adjustmentId, reason }) {
+    const { error } = await db.rpc('reopen_journal_adjustment', { p_adjustment_id: adjustmentId, p_reason: reason });
+    if (error) throw new Error(error.message);
   }
 
   async function discard({ db, companyId, adjustmentId }) {
@@ -194,5 +211,5 @@
     if (!data?.length) throw new Error('Only a draft reclass can be discarded. Reload to see its current state.');
   }
 
-  window.SiloReclass = { load, current, pending, blocker, section, open, review, discard };
+  window.SiloReclass = { load, current, pending, blocker, section, open, review, reopen, discard };
 })();

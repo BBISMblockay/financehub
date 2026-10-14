@@ -17,7 +17,7 @@
 //      ledger records nothing for a reclass (Books counts the posted journal).
 //
 // Mutation hooks -- each must make this suite FAIL:
-//   CARD_RECLASS_MUTATION=no-line-check|no-posted-check|no-open-check|no-reopen-guard|no-void-order|no-lock-check|source-mutable
+//   CARD_RECLASS_MUTATION=no-line-check|no-posted-check|no-open-check|no-reopen-guard|no-void-order|no-lock-check|source-mutable|from-row-location
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -31,6 +31,7 @@ const MUTATIONS = {
   'no-reopen-guard': ["  if old.status in ('approved', 'posted') and new.status in ('draft', 'categorized') and exists (", '  if false and exists ('],
   'no-void-order': ["  if old.status = 'posted' and new.status <> 'posted' and r.id is not null and exists (", '  if false and exists ('],
   'no-lock-check': ["  if v_lock is not null and v_date <= v_lock then", '  if false then'],
+  'from-row-location': ["  v_loc := t.qbo_location_id; v_loc_name := t.qbo_location_name;\n  if v_loc is null then", "  v_loc := t.qbo_location_id; v_loc_name := t.qbo_location_name;\n  if false then"],
   'source-mutable': ["    if old.accounting_source = 'card_reclass' or new.accounting_source = 'card_reclass' then\n      raise exception", "    if false then\n      raise exception"],
 };
 const mutation = process.env.CARD_RECLASS_MUTATION || '';
@@ -46,7 +47,7 @@ const dependencies = [
   '20260901020000_posted_status_not_client_writable.sql', '20260912000000_finance_v1_posting_controls.sql',
   '20260912052930_plaid_bank_feed.sql', '20260912203725_bank_feed_workspace_history.sql', '20260912231606_accounting_foundation.sql',
   '20260913022606_qbo_historical_ledger.sql', '20260915100000_card_transaction_splits.sql', '20260915220000_plaid_removed_from_status.sql',
-  '20261005120000_silo_daily_ledger.sql',
+  '20261005120000_silo_daily_ledger.sql', '20261007180000_card_import_entity_kind_on_approve.sql',
 ];
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const one = async (sql, params = []) => (await q(sql, params))[0];
@@ -65,7 +66,7 @@ async function refuses(fn, pattern) {
 }
 
 const co = randomUUID(), other = randomUUID(), finance = randomUUID(), member = randomUUID(), otherFinance = randomUUID();
-const conn = randomUUID(), otherConn = randomUUID(), card = randomUUID(), bank = randomUUID();
+const conn = randomUUID(), otherConn = randomUUID(), card = randomUUID(), bank = randomUUID(), hqCard = randomUUID();
 let rowNo = 0;
 async function newBatch(source, { status = 'draft', company = co, connection = conn, entryDate = '2026-08-31' } = {}) {
   const id = randomUUID();
@@ -82,12 +83,16 @@ async function newTxn(batch, amount, { company = co, account = 'meals', date = '
   return id;
 }
 // A period posted to QuickBooks: coded while draft, then posted (as the edge function does).
+// Through the REAL approval (snapshot + freeze note), as production does.
+const approveBatch = (b) => as(finance, () => q('select approve_card_import_batch($1)', [b]));
 async function postedTxn(amount, opts = {}) {
-  const b = await newBatch(card, opts);
+  const b = await newBatch(opts.source || card, opts);
   const t = await newTxn(b, amount, opts);
+  await approveBatch(b);
   await q("update card_import_batches set status='posted' where id=$1", [b]);
   return { b, t };
 }
+const fromOf = (user, t) => as(user, () => one('select card_transaction_reclass_from($1) f', [t])).then((x) => x.f);
 const stage = (user, t, { to = 'travel', loc = null, etype = null, eid = null, date = null, reason = 'Booked to meals by mistake' } = {}) =>
   as(user, () => one('select stage_card_transaction_reclass($1,$2,$3,$4,$5,$6,$7) r', [t, to, loc, etype, eid, date, reason])).then((x) => x.r);
 const adjLines = (adj) => q(`select line_no, qbo_account_id, posting_type, amount::text, qbo_location_id, entity_type, entity_qbo_id
@@ -122,10 +127,15 @@ try {
     [other, otherConn, 'meals', 'Expense', true], [other, otherConn, 'travel', 'Expense', true], [other, otherConn, 'cc', 'Credit Card', true]]) {
     await q('insert into quickbooks_accounts(company_entity_id,connection_id,qbo_account_id,name,account_type,is_active) values($1,$2,$3,$3,$4,$5)', [c, cn, id, type, active]);
   }
-  await q(`insert into quickbooks_locations(company_entity_id,connection_id,qbo_location_id,name,fully_qualified_name,is_active) values($1,$2,'hq','HQ','HQ',true)`, [co, conn]);
+  await q(`insert into quickbooks_locations(company_entity_id,connection_id,qbo_location_id,name,fully_qualified_name,is_active)
+           values($1,$2,'hq','HQ','HQ',true),($1,$2,'west','West','West',true)`, [co, conn]);
   await q(`insert into quickbooks_customers(company_entity_id,connection_id,qbo_customer_id,display_name,is_active) values($1,$2,'c1','Acme',true)`, [co, conn]);
   await q(`insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,credit_qbo_account_id,credit_qbo_account_name,is_active)
            values($1,$2,$3,'card','Company card','card','cc','cc',true)`, [card, co, conn]);
+  // A card whose source carries a DEFAULT location: rows without one post there.
+  await q(`insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,credit_qbo_account_id,credit_qbo_account_name,is_active,default_qbo_location_id)
+           values($1,$2,$3,'hqcard','HQ card','card','cc','cc',true,'hq')`, [hqCard, co, conn]);
+  await q('update card_sources set posting_enabled=true where company_entity_id=$1', [co]);
   await q(`insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,credit_qbo_account_id,credit_qbo_account_name,is_active)
            values($1,$2,$3,'card','Other card','card','cc','cc',true)`, [randomUUID(), other, otherConn]);
 
@@ -306,7 +316,7 @@ try {
     const mk = async (treatment) => {
       const t = await newTxn(b, 33);
       await q(`update card_transactions set origin='plaid', plaid_account_id=$2, external_transaction_id=$1::text, provider_status='posted',
-               provider_updated_at=now(), accounting_treatment=$3 where id=$1`, [t, plaidAcct, treatment]);
+               provider_updated_at=now(), accounting_treatment=$3, qbo_location_id='hq', qbo_location_name='HQ' where id=$1`, [t, plaidAcct, treatment]);
       return t;
     };
     const purchase = await mk('purchase'), transfer = await mk('transfer'), changed = await mk('purchase');
@@ -316,6 +326,69 @@ try {
     await refuses(() => stage(finance, transfer), /Only a purchase or refund/);
     await refuses(() => stage(finance, changed), /open bank change/);
     assert.ok((await stage(finance, purchase)).adjustment_id);
+  });
+
+  await test('a row with no location reverses the source DEFAULT it posted on, frozen at approval, not today\'s default', async () => {
+    const { b, t } = await postedTxn(100, { source: hqCard });
+    await q("update card_sources set default_qbo_location_id='west' where id=$1", [hqCard]);   // changed after posting
+    const from = await fromOf(finance, t);
+    assert.equal(from.location_id, 'hq', 'Meals/HQ is where the original posting put it');
+    assert.equal(from.location_name, 'HQ');
+    const r = await stage(finance, t, { loc: 'hq' });
+    assert.deepEqual((await adjLines(r.adjustment_id)).map((l) => [l.qbo_account_id, l.posting_type, l.qbo_location_id]),
+      [['travel', 'Debit', 'hq'], ['meals', 'Credit', 'hq']], 'the source leg credits Meals/HQ, not Meals/no location');
+    await approve(finance, r.adjustment_id);
+    await q("update card_sources set default_qbo_location_id='hq' where id=$1", [hqCard]);
+    void b;
+  });
+
+  await test('a zero-net period has no settlement line: the default comes from the note taken at approval', async () => {
+    const b = await newBatch(hqCard);
+    const t = await newTxn(b, 50);
+    await newTxn(b, -50);
+    await approveBatch(b);
+    await q("update card_import_batches set status='posted' where id=$1", [b]);
+    await q("update card_sources set default_qbo_location_id='west' where id=$1", [hqCard]);
+    try {
+      assert.equal((await fromOf(finance, t)).location_id, 'hq');
+    } finally { await q("update card_sources set default_qbo_location_id='hq' where id=$1", [hqCard]); }
+  });
+
+  await test('a period posted before snapshots: a row with no location is refused, one with its own location is not', async () => {
+    const b = await newBatch(hqCard);
+    const unknown = await newTxn(b, 12);
+    const known = await newTxn(b, 13);
+    await q("update card_transactions set qbo_location_id='west', qbo_location_name='West' where id=$1", [known]);
+    await q("update card_import_batches set status='posted' where id=$1", [b]);   // legacy: no approval snapshot
+    await refuses(() => stage(finance, unknown), /location it posted with is unknown/);
+    await refuses(() => fromOf(finance, unknown), /location it posted with is unknown/);
+    assert.equal((await fromOf(finance, known)).location_id, 'west');
+    assert.ok((await stage(finance, known)).adjustment_id);
+  });
+
+  await test('the resolver is finance-only and not callable by anon', async () => {
+    const { t } = await postedTxn(11);
+    await refuses(() => fromOf(member, t), /Finance access required/);
+    await refuses(() => fromOf(otherFinance, t), /Transaction not found/);
+    await refuses(() => as(null, () => q('select card_transaction_reclass_from($1)', [t]), 'anon'), /permission denied/);
+  });
+
+  await test('recovery without posting: posted -> deleted in QBO and unposted -> reopened -> discarded, then free again', async () => {
+    const { b, t } = await postedTxn(90);
+    const r = await stage(finance, t);
+    await approve(finance, r.adjustment_id);
+    await markPosted(r.adjustment_id);
+    await q("update journal_adjustments set status='approved', posting_id=null where id=$1", [r.adjustment_id]);   // void_journal_adjustment's transition
+    await refuses(() => stage(finance, t, { to: 'supplies' }), /awaiting review or posting/);
+    await as(finance, () => q('select reopen_journal_adjustment($1,$2)', [r.adjustment_id, 'Deleted in QuickBooks']));
+    assert.equal((await one('select status from journal_adjustments where id=$1', [r.adjustment_id])).status, 'draft');
+    await as(finance, () => q('delete from journal_adjustments where id=$1', [r.adjustment_id]));
+    assert.equal((await one('select count(*)::int n from card_transaction_reclasses where adjustment_id=$1', [r.adjustment_id])).n, 0);
+    assert.equal((await fromOf(finance, t)).account_id, 'meals', 'the amount is back on its posted category');
+    assert.equal(await one("select count(*)::int n from quickbooks_journal_postings where source='card_reclass'").then((x) => x.n), 0,
+      'no posting request was made during recovery');
+    await q("update card_import_batches set status='approved' where id=$1", [b]);
+    await as(finance, () => q('select reopen_card_import_batch($1,$2)', [b, 'recode']));
   });
 
   await test('clients cannot write the reclass record; reads are company-scoped through the view', async () => {

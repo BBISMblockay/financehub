@@ -6186,6 +6186,11 @@ select 'Posted transaction reclass' as check_name,
    then 'CRITICAL: a reclass guard trigger is not attached; edited lines could post or a reclassified period could be recoded'
   when position('lines were edited' in coalesce(pg_get_functiondef(to_regprocedure('public.card_reclass_guard_adjustment()')), '')) = 0
    then 'CRITICAL: approval no longer checks that a reclass adjustment still matches its record'
+  when to_regprocedure('public.card_transaction_reclass_from(uuid)') is null
+     or position('card_transaction_reclass_from' in coalesce(pg_get_functiondef(to_regprocedure('public.stage_card_transaction_reclass(uuid,text,text,text,text,date,text)')), '')) = 0
+   then 'STALE — re-run 20261013180000_card_transaction_reclass.sql: a reclass reverses the row''s own location instead of the location its period posted with'
+  when has_function_privilege('anon', 'public.card_transaction_reclass_from(uuid)', 'execute')
+   then 'CRITICAL: anon can call the reclass resolver'
   else 'ok' end as status;
 -- End posted transaction reclass checks.
 

@@ -707,7 +707,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="je-composer.js?v=16b6c8263aa0"></script>
-<script src="transaction-reclass.js?v=99d30928851f"></script>
+<script src="transaction-reclass.js?v=9d7b06ff6902"></script>
 <script src="plaid-bank-feed.js?v=3bb27ed5e68f"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
@@ -881,6 +881,14 @@
       const reviewBtn = e.target.closest('[data-reclass-review]');
       if (reviewBtn) {
         R.review({ db: sb, companyId: _co.id, adjustmentId: reviewBtn.dataset.reclassReview, t, onChanged: refreshReclasses });
+        return;
+      }
+      const reopenBtn = e.target.closest('[data-reclass-reopen]');
+      if (reopenBtn) {
+        const reason = await askFinance({ title: 'Reopen approved reclass', message: 'The approval is discarded and the reclass returns to draft, where it can be discarded. Nothing is sent to QuickBooks. If its entry was posted, mark it unposted first (after deleting it in QuickBooks).', reason: true, minLength: 3, label: 'Reopen approval' });
+        if (!reason) return;
+        await R.reopen({ db: sb, adjustmentId: reopenBtn.dataset.reclassReopen, reason: reason.trim() });
+        await refreshReclasses('Reclass reopened as a draft. Discard it, or review and post it again.');
         return;
       }
       const discardBtn = e.target.closest('[data-reclass-discard]');
@@ -3059,7 +3067,7 @@
 
     // Reclassifying acts on a POSTED (read-only) period, so it is routed before
     // the editability gate below.
-    if (e.target.closest('[data-reclass], [data-reclass-review], [data-reclass-discard]')) { await onReclassClick(e, t0); return; }
+    if (e.target.closest('[data-reclass], [data-reclass-review], [data-reclass-reopen], [data-reclass-discard]')) { await onReclassClick(e, t0); return; }
 
     // One-click fixes for the two things Entry refuses. Each marks the row
     // unsaved, exactly like choosing the value by hand; Save still writes it.

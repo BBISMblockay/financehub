@@ -81,7 +81,16 @@
     const open=r.kind==='journal_adjustment'?`<button class="bcn-btn" data-journal="${esc(r.id)}"${r.source==='card_reclass'?' data-review-only':''}>Open</button>`:`<a href="transactions.html?batch=${encodeURIComponent(r.id)}&amp;company=${encodeURIComponent(company.id)}">Review transactions</a>`;
     const discard=r.kind==='journal_adjustment'&&r.status==='draft'?` <button class="bcn-btn" data-discard="${esc(r.id)}">Discard</button>`:'';
     const voided=r.status==='posted'?` <button class="bcn-btn" data-void="${esc(r.id)}" data-void-kind="${esc(r.kind)}">Void</button>`:'';
-    return open+discard+voided;}
+    // A reclass opens review-only, so an approved one that is not in QuickBooks
+    // (never posted, or voided after deletion there) needs its own way back to
+    // draft to be discarded. reopen_journal_adjustment refuses an active posting.
+    const reopen=r.kind==='journal_adjustment'&&r.status==='approved'&&r.source==='card_reclass'?` <button class="bcn-btn" data-reopen="${esc(r.id)}">Reopen</button>`:'';
+    return open+discard+reopen+voided;}
+  async function reopenJournal(id){
+    const reason=await window.SiloFinanceDialog.ask({title:'Reopen approved reclass',message:'The approval is discarded and the reclass returns to draft, where it can be discarded. Nothing is sent to QuickBooks.',reason:true,minLength:3,label:'Reopen approval'});
+    if(!reason)return;
+    await result(db.rpc('reopen_journal_adjustment',{p_adjustment_id:id,p_reason:reason.trim()}));
+    await register(true);status('Reclass reopened as a draft. Discard it here, or review and post it again.');}
   async function discardJournal(id){
     const ok=await window.SiloFinanceDialog.ask({title:'Discard staged journal entry',message:'This draft has not been posted, so nothing in QuickBooks changes. Its lines are deleted with it.',label:'Discard'});
     if(!ok)return;
@@ -135,6 +144,7 @@
     // A reclass (card_reclass) is staged by Transactions and must post exactly as staged: review only.
     const openJournal=(id,reviewOnly=false)=>window.SiloJE.open({db,companyId:company.id,context:'accounting:register',adjustmentId:id,reviewOnly,onStaged:()=>work(()=>register(true)),onPosted:()=>work(()=>register(true))});
     el('newJournal').addEventListener('click',()=>openJournal());el('registerTable').addEventListener('click',e=>{const b=e.target.closest('[data-journal]');if(b){openJournal(b.dataset.journal,b.hasAttribute('data-review-only'));return;}
+      const ro=e.target.closest('[data-reopen]');if(ro){reopenJournal(ro.dataset.reopen).catch(err=>status(`Could not reopen: ${err.message}.`,true));return;}
       const d=e.target.closest('[data-discard]');if(d){discardJournal(d.dataset.discard).catch(err=>status(`Could not discard: ${err.message}.`,true));return;}
       const v=e.target.closest('[data-void]');if(v)voidJournal(v.dataset.void,v.dataset.voidKind).catch(err=>status(`Void failed: ${err.message}.`,true));});el('more').addEventListener('click',()=>work(()=>register()));
     // The migration flow is read-only and self-contained: it must never delay
