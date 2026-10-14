@@ -1174,7 +1174,7 @@ jobs:
       - name: Execute posted-transaction reclass regressions
         run: |
           node scripts/tests/card-reclass-database.test.mjs
-          for mutation in no-line-check no-posted-check no-open-check no-reopen-guard no-void-order no-lock-check source-mutable from-row-location; do
+          for mutation in no-line-check no-posted-check no-open-check no-reopen-guard no-void-order no-lock-check source-mutable from-row-location no-treatment-check; do
             if CARD_RECLASS_MUTATION="$mutation" node scripts/tests/card-reclass-database.test.mjs > /tmp/reclass-mutation.log 2>&1; then
               cat /tmp/reclass-mutation.log; echo "Survived reclass mutation: $mutation"; exit 1
             fi

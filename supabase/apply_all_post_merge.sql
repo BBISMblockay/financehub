@@ -19226,4 +19226,7 @@ $c$select (select count(*) from v_po_header_summary
 -- restrictive storage.objects policy. Affects only accounts with a verified
 -- authenticator factor.
 \i migrations/20261014000000_mfa_enforcement.sql
+-- Every posted bank treatment can be reclassified, each held to its account
+-- rule. Must come AFTER 20261013180000, whose two functions it replaces.
+\i migrations/20261014020000_card_reclass_all_bank_treatments.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
