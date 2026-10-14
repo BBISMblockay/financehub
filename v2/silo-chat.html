@@ -497,6 +497,10 @@
 </div>
 
 <script src="../pages/config.js"></script>
+<!-- The saved-report rerun substitutes a report's declared parameters through the
+     SAME typed path v3 uses, so a report saved with an adjustable window reruns
+     here instead of sending {{tokens}} to Postgres. -->
+<script src="../v3/js/report-params.js?v=20261014d"></script>
 <script src="../pages/report-date-freeze.js?v=20261014d"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
@@ -2020,7 +2024,7 @@
     // is a legitimate widget input.
     const { data, error } = await sb
       .from('silo_chat_saved_reports_v')
-      .select('id, title, question, answer, queries_run, created_by, created_by_name, created_at, visibility, source')
+      .select('id, title, question, answer, queries_run, parameters, created_by, created_by_name, created_at, visibility, source')
       .eq('source', 'ask_silo')
       .is('archived_at', null)
       .order('created_at', { ascending: false });
@@ -2148,8 +2152,24 @@
     const out = el('rerunResults');
     out.innerHTML = `<div class="ac-rerun-note">Running ${r.queries_run.length} quer${r.queries_run.length === 1 ? 'y' : 'ies'}…</div>`;
     const blocks = [];
-    for (const q of r.queries_run) {
-      const sqlToggle = `<details class="ac-rerun-sql"><summary>SQL</summary><pre>${esc(q)}</pre></details>`;
+    // A report saved with an adjustable window stores {{tokens}}, not dates.
+    // Resolving them here, through the same typed substitution v3 uses, is
+    // what makes Refresh data report TODAY's window rather than failing on
+    // unresolved braces. A report with no declarations is passed through
+    // untouched, so nothing changes for anything saved before this.
+    const decls = Array.isArray(r.parameters) ? r.parameters : [];
+    for (const raw of r.queries_run) {
+      const P = window.SiloReportParams;
+      const sub = (decls.length && P) ? P.substitute(raw, decls, {}) : { sql: raw };
+      const q = sub.sql;
+      const sqlToggle = `<details class="ac-rerun-sql"><summary>SQL</summary><pre>${esc(q || raw)}</pre></details>`;
+      // A substitution error never reaches the database: say what could not
+      // be resolved rather than sending braces to Postgres.
+      if (sub.error) {
+        blocks.push(`${sqlToggle}<div class="ac-rerun-error">${esc(sub.error)}</div>`);
+        out.innerHTML = blocks.join('');
+        continue;
+      }
       try {
         const { data: rows, error } = await sb.rpc('chat_run_readonly_query', { query: q });
         blocks.push(error

@@ -88,6 +88,35 @@ t('three or more dates are refused: which two are the window is a guess', () => 
   assert.ok(/3 fixed dates/.test(r.error), r.error);
 });
 
+t('a half-open window is refused: its two dates are not the window', () => {
+  // >= 1 Sep and < 1 Oct IS September, but the literals are 1 Sep and 1 Oct.
+  // Rewriting them keeps the `<`, so picking Last month would then drop the
+  // last day of the month -- a wrong answer that still returns rows.
+  const r = F.parameterize([
+    "select * from t where day_date >= '2026-09-01' and day_date < '2026-10-01'"]);
+  assert.ok(r.error && !r.queries, JSON.stringify(r));
+  assert.ok(/exclusive date bound/.test(r.error), r.error);
+  // The same shape the other way round.
+  assert.ok(F.parameterize([
+    "select * from t where day_date > '2026-08-31' and day_date <= '2026-09-30'"]).error);
+});
+
+t('the operator in front of each literal is what decides it', () => {
+  const lits = F.findLiterals(
+    "select * from t where d between '2026-09-01' and '2026-09-30' and x < date '2026-10-01'");
+  assert.deepEqual(lits.map((l) => l.op), ['between', 'and', '<'],
+    'the operator is read from in front of the whole match, `date` keyword included');
+  assert.equal(F.findLiterals("select '2026-09-01'::date")[0].op, null,
+    'a literal with no comparison in front of it is not an exclusive bound');
+});
+
+t('an inclusive window is still rewritten, in both spellings', () => {
+  assert.ok(!F.parameterize([
+    "select * from t where d between '2026-09-01' and '2026-09-30'"]).error);
+  assert.ok(!F.parameterize([
+    "select * from t where d >= '2026-09-01' and d <= '2026-09-30'"]).error);
+});
+
 t('no dates at all is refused rather than rewritten to nothing', () => {
   assert.ok(F.parameterize(['select 1']).error);
 });

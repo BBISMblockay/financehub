@@ -30,14 +30,27 @@
   // invisible and only `date '...'` was ever found.
   const LITERAL_RE = /(?:\bdate\s+)?'(\d{4}-\d{2}-\d{2})'/gi;
 
-  /** Every literal date in a SQL string, in order, with its position. */
+  // The comparison a literal sits behind, which is what decides whether the
+  // window is inclusive. `between a and b` puts `between` before the first
+  // and `and` before the second; a half-open month is `>= a ... < b`.
+  // Anything else (a cast, a select list, a function argument) reports null.
+  // No `date` keyword to step over here: LITERAL_RE has already taken it as
+  // part of the match, so what precedes the match is the operator itself.
+  const OPERATOR_RE = /(<=|>=|<|>|=|\bbetween\b|\band\b)\s*$/i;
+
+  /** Every literal date in a SQL string, in order, with its position and the
+   *  comparison operator immediately in front of it. */
   function findLiterals(sql) {
     const out = [];
     const text = String(sql || '');
     LITERAL_RE.lastIndex = 0;
     let m;
     while ((m = LITERAL_RE.exec(text))) {
-      out.push({ match: m[0], date: m[1], index: m.index });
+      const before = text.slice(0, m.index).match(OPERATOR_RE);
+      out.push({
+        match: m[0], date: m[1], index: m.index,
+        op: before ? before[1].toLowerCase() : null,
+      });
     }
     return out;
   }
@@ -136,6 +149,22 @@
     }
     const from = info.from;
     const to = info.to;
+    // A HALF-OPEN window is refused, because its two dates do not mean what
+    // they look like. `day_date >= '2026-09-01' and day_date < '2026-10-01'`
+    // is September, but its literals are 1 Sep and 1 Oct -- a 31-day span
+    // whose end is a day the report deliberately excludes. Rewriting it
+    // keeps the `<`, so the report would then report everything up to but
+    // not including the chosen end: pick Last month and the last day of the
+    // month disappears. Normalising it would mean rewriting the operator as
+    // well as the literal, which is a different and much larger promise.
+    // So: any literal sitting behind a STRICT inequality stops the rewrite.
+    const strict = findLiterals(list.join('\n')).filter((l) => l.op === '<' || l.op === '>');
+    if (strict.length) {
+      return {
+        error: 'This report uses an exclusive date bound (< or >), so its two dates are not the '
+          + 'window they look like. Open it in the report builder to declare the parameters.',
+      };
+    }
     const defaults = defaultsForWindow(from, to);
     if (!defaults) return { error: 'Those dates are not a window that can be made relative.' };
     const fromKey = keyFrom || 'date_from';

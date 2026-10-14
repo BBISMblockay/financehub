@@ -49,6 +49,10 @@ on:
       # Ask SILO's save dialog offers to make a frozen date adjustable using
       # this file's rules; v2/silo-chat.html is useless without it.
       - 'pages/report-date-freeze.js'
+      # Ask SILO's saved-report rerun substitutes declared parameters through
+      # this file, so a change to it can break Refresh data on a report saved
+      # with an adjustable window. ask-silo-saved-report-refresh drives it.
+      - 'v3/js/report-params.js'
       - '.github/workflows/v2-inventory-tests.yml'
   pull_request:
     paths:
@@ -70,6 +74,10 @@ on:
       # Ask SILO's save dialog offers to make a frozen date adjustable using
       # this file's rules; v2/silo-chat.html is useless without it.
       - 'pages/report-date-freeze.js'
+      # Ask SILO's saved-report rerun substitutes declared parameters through
+      # this file, so a change to it can break Refresh data on a report saved
+      # with an adjustable window. ask-silo-saved-report-refresh drives it.
+      - 'v3/js/report-params.js'
       - '.github/workflows/v2-inventory-tests.yml'
   workflow_dispatch:
 
