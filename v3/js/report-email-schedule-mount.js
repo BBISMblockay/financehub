@@ -48,7 +48,15 @@
     }
     // The stored schedule wins over the page's defaults for everything the
     // panel edits; the page still supplies what belongs to THIS view (the
-    // filter values applied right now, the report's queries, its title).
+    // report's queries, its title, its declarations).
+    //
+    // parameter_state is part of "what the panel edits", and leaving it out
+    // of this list was a real bug: the period picker is derived from it, so
+    // reopening a "Last month" schedule from a report whose filter bar
+    // happened to show a fortnight showed the fortnight AND saved it,
+    // silently replacing the period the schedule was set to. The page's
+    // values are kept beside it as pageParameterState, which is what the
+    // explicit "Use the filter values on this page instead" option applies.
     const ctx = existing ? {
       ...context,
       scheduleId: existing.id,
@@ -60,12 +68,15 @@
       is_active: existing.is_active,
       next_run_at: existing.next_run_at,
       timezone: existing.timezone || context.timezone,
-    } : { ...context };
+      parameter_state: existing.parameter_state || context.parameter_state,
+      pageParameterState: context.parameter_state || null,
+    } : { ...context, pageParameterState: null };
     // Which two parameters are the date window, and which period the stored
     // state already represents. Both are derived here, once, so the panel
     // and the save path can never disagree about them.
     ctx.dateKeys = S().dateRangeKeys(ctx.parameters);
-    ctx.period_id = S().periodIdFor(ctx.parameter_state, ctx.dateKeys);
+    ctx.period_id = S().periodIdFor(ctx.parameter_state, ctx.dateKeys,
+      { editing: !!ctx.scheduleId });
     mount.hidden = false;
     mount.innerHTML = UI().renderPanel({ ...ctx, members });
     const root = mount.querySelector('.res-panel');
@@ -97,12 +108,15 @@
         name: ctx.title,
         target_kind: 'report',
         report_id: ctx.reportId,
-        // The period REPLACES the page's date values when one is named, so a
-        // "Last month" schedule stores tokens and re-resolves them on every
-        // send. undefined means the panel rendered no period control (a
-        // report with no date window), and then the state passes through
-        // untouched rather than being rewritten with keys it does not have.
-        parameter_state: S().applyPeriod(ctx.parameter_state, ctx.dateKeys, UI().readPeriodId(root)),
+        // The period REPLACES the window when one is named, so a "Last
+        // month" schedule stores tokens and re-resolves them on every send.
+        // undefined means the panel rendered no period control (a report
+        // with no date window), and then the state passes through untouched
+        // rather than being rewritten with keys it does not have. Editing an
+        // existing schedule opens on ITS state, so leaving the picker alone
+        // rewrites nothing -- both Save and Send test.
+        parameter_state: S().applyPeriod(ctx.parameter_state, ctx.dateKeys,
+          UI().readPeriodId(root), ctx.pageParameterState),
         cadence_preset: root.querySelector('.res-cadence')?.value || 'weekdays_0700',
         timezone: ctx.timezone || 'America/Los_Angeles',
         subject_template: root.querySelector('.res-subject')?.value || S().defaultSubject(ctx.title),

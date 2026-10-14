@@ -14,17 +14,23 @@
    *  implies a setting it does not have. */
   function periodField(ctx) {
     if (!ctx.dateKeys) return '';
-    const selected = ctx.period_id || S().USE_PAGE_FILTERS;
-    const opts = S().periodOptions()
+    const editing = !!ctx.scheduleId;
+    const hasPageState = !!ctx.pageParameterState;
+    const selected = ctx.period_id
+      || (editing ? S().KEEP_WINDOW : S().USE_PAGE_FILTERS);
+    const opts = S().periodOptions({ editing, hasPageState })
       .map((p) => `<option value="${esc(p.id)}"${p.id === selected ? ' selected' : ''}>${esc(p.label)}</option>`)
       .join('');
-    const frozen = selected === S().USE_PAGE_FILTERS
+    const frozen = S().isSentinel(selected)
       && /fixed/.test(S().periodSummary(ctx.parameter_state, ctx.dateKeys));
     return `<div class="res-field"><span class="res-label">Period to send</span>
       <select class="bcn-field res-period">${opts}</select>
       <p class="res-note">A named period is worked out again on the morning it sends, so
-        “Last month” always means the month that just ended. “Use the filter values on this
-        page” keeps whatever is applied right now, which stays fixed if those are specific dates.</p>
+        “Last month” always means the month that just ended. ${editing
+          ? 'Keeping the window this schedule already sends leaves it exactly as it is, '
+            + 'including specific dates.'
+          : '“Use the filter values on this page” keeps whatever is applied right now, '
+            + 'which stays fixed if those are specific dates.'}</p>
       ${frozen ? `<p class="res-note res-note--box">This schedule currently sends
         ${esc(S().periodSummary(ctx.parameter_state, ctx.dateKeys))} on every send. Pick a named
         period above if it should move with the calendar.</p>` : ''}</div>`;
@@ -74,9 +80,11 @@
           <input class="bcn-field res-subject" value="${esc(ctx.subject_template || S().defaultSubject(ctx.title))}" /></div>
         <label class="res-check"><input type="checkbox" id="resSubscribe" ${ctx.allow_member_subscribe ? 'checked' : ''}/> Allow members to subscribe themselves</label>
         <label class="res-check"><input type="checkbox" id="resActive" ${ctx.is_active !== false ? 'checked' : ''}/> Schedule is on</label>
-        <p class="res-note res-note--box">${ctx.dateKeys
-          ? 'Everything except the period above comes from the filter values applied on this page.'
-          : 'Uses the filter values applied on this page.'} Large exports are not capped at 1,000 rows.</p>
+        <p class="res-note res-note--box">${editing
+          ? 'These are this schedule\u2019s own settings, not this page\u2019s.'
+          : (ctx.dateKeys
+            ? 'Everything except the period above comes from the filter values applied on this page.'
+            : 'Uses the filter values applied on this page.')} Large exports are not capped at 1,000 rows.</p>
       </div>
       <div class="res-foot">
         <button type="button" class="bcn-btn bcn-btn--primary" id="resSave">Save</button>

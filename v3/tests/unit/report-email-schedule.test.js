@@ -539,6 +539,152 @@ function fakeDb(tables, singles = {}) {
     assert.ok(total > 0 && total <= 95, `stated widths total ${total}%, leaving nothing for actions`);
   }
 
+  // ── reopening a schedule must not adopt the page's window ───────────────
+  // Found in review of the period picker. The panel's existing-schedule
+  // merge restored cadence, recipients and subject from the stored row but
+  // NOT parameter_state, so the period was derived from whatever the report
+  // page's filter bar happened to show. Save a schedule as Last month,
+  // reopen that report on a different window, change only the subject or
+  // send a test, and the saved period was silently replaced.
+  {
+    const keys = { from: 'date_from', to: 'date_to' };
+    const DECLS = [
+      { key: 'date_from', type: 'date', label: 'From', date_basis: 'company', default: 'today-28d' },
+      { key: 'date_to', type: 'date', label: 'Through', date_basis: 'company', default: 'today-1d' },
+    ];
+    const storedState = { date_from: 'prior_month_start', date_to: 'prior_month_end' };
+    const pageState = { date_from: '2026-10-01', date_to: '2026-10-13' };
+
+    // The two sentinels mean different things, and that is the whole fix.
+    assert.deepEqual(S.applyPeriod(storedState, keys, S.KEEP_WINDOW, pageState), storedState,
+      'keeping the window leaves the stored tokens exactly as they are');
+    assert.deepEqual(S.applyPeriod(storedState, keys, S.USE_PAGE_FILTERS, pageState), pageState,
+      'and the page option, picked by name, is the one thing that adopts the page');
+    assert.deepEqual(
+      S.applyPeriod({ ...storedState, location: 'st_louis' }, keys, S.USE_PAGE_FILTERS,
+        { ...pageState, location: 'portland' }),
+      { ...pageState, location: 'st_louis' },
+      'only the two date keys come from the page; the rest belongs to the schedule');
+    assert.deepEqual(S.applyPeriod(storedState, keys, S.USE_PAGE_FILTERS, null), storedState,
+      'Edit from the schedules table has no page, so the page option cannot erase a window');
+
+    // An existing schedule defaults to keeping its own window; a new one to
+    // the page's filters, which are already what its state holds.
+    assert.equal(S.periodIdFor({ date_from: '2026-01-01', date_to: '2026-01-31' }, keys,
+      { editing: true }), S.KEEP_WINDOW);
+    assert.equal(S.periodIdFor({ date_from: '2026-01-01', date_to: '2026-01-31' }, keys), S.USE_PAGE_FILTERS);
+    assert.equal(S.periodIdFor(storedState, keys, { editing: true }), 'prior_month',
+      'a stored named period is still recognised as that period');
+
+    // The option list never offers a page the panel does not have.
+    const editOpts = S.periodOptions({ editing: true, hasPageState: true });
+    assert.equal(editOpts[0].id, S.KEEP_WINDOW, 'keeping the stored window is the default');
+    assert.equal(editOpts[editOpts.length - 1].id, S.USE_PAGE_FILTERS);
+    assert.ok(!S.periodOptions({ editing: true, hasPageState: false })
+      .some((o) => o.id === S.USE_PAGE_FILTERS),
+    'Edit from the schedules table is not offered filters it cannot read');
+    assert.equal(S.periodOptions({ editing: false, hasPageState: true })[0].id, S.USE_PAGE_FILTERS);
+
+    // Now the mounted panel, end to end: stored period and page period
+    // differ, and neither Save nor Send test may replace the stored one.
+    const stored = {
+      id: 'S7', report_id: 'R7', cadence_preset: 'monday_0700', timezone: 'America/Los_Angeles',
+      subject_template: 'Monthly', recipients: [{ kind: 'workspace_admins' }],
+      query_indices: null, is_active: true, is_paused: false,
+      next_run_at: '2026-11-02T15:00:00.000Z', allow_member_subscribe: false,
+      parameter_state: storedState,
+    };
+    const drive = async (click, pickPeriod) => {
+      const writes = [];
+      const handlers = {};
+      let periodValue = null;
+      const rootStub = {
+        querySelector: (sel) => {
+          if (sel === '#resSave' || sel === '#resTest') {
+            return { addEventListener: (_e, fn) => { handlers[sel] = fn; } };
+          }
+          if (sel === '#resClose') return { addEventListener: () => {} };
+          if (sel === '.res-cadence') return { value: stored.cadence_preset };
+          // The one field the person actually came to change.
+          if (sel === '.res-subject') return { value: 'Monthly (renamed)' };
+          if (sel === '.res-period') return { value: periodValue };
+          if (sel === '#resSubscribe') return { checked: false };
+          if (sel === '#resActive') return { checked: true };
+          if (sel === '#resExternal') return { value: '' };
+          if (sel === '#resAdmins') return { checked: true };
+          return null;
+        },
+        querySelectorAll: () => [],
+      };
+      let html = '';
+      const host = {
+        hidden: true,
+        set innerHTML(v) { html = v; }, get innerHTML() { return html; },
+        querySelector: (sel) => (sel === '.res-panel' ? rootStub : null),
+      };
+      const sb = {
+        auth: { getSession: async () => ({ data: { session: { access_token: 't' } } }) },
+        rpc: async () => ({ data: null, error: null }),
+        from(table) {
+          const q = {
+            select() { return q; }, eq() { return q; }, order() { return q; },
+            limit() { return q; }, in() { return q; },
+            update(payload) { writes.push(['update', payload]); return q; },
+            insert(payload) { writes.push(['insert', payload]); return q; },
+            maybeSingle: async () => (writes.length
+              ? { data: { id: stored.id }, error: null }
+              : { data: { role: 'owner_admin' }, error: null }),
+            single: async () => ({ data: { id: stored.id }, error: null }),
+            then(res, rej) {
+              return Promise.resolve(table === 'report_email_schedules_v'
+                ? { data: [stored], error: null } : { data: [], error: null }).then(res, rej);
+            },
+          };
+          return q;
+        },
+      };
+      g.fetch = async () => ({ ok: true, json: async () => ({}) });
+      g.__SILO_CONFIG__ = { SUPABASE_URL: 'https://x.test', SUPABASE_ANON_KEY: 'k' };
+      await M.openReportPanel({
+        sb, userId: 'u1', companyId: 'C1', hostEl: host, onStatus: () => {},
+        // The report preview page: it supplies the declarations and the
+        // filter values currently applied, which are NOT the schedule's.
+        context: { reportId: 'R7', title: 'R', parameters: DECLS, parameter_state: pageState },
+      });
+      // Whatever the picker is left on is what readPeriodId reports, so set
+      // it after render the way the panel's own markup would have.
+      periodValue = pickPeriod || S.KEEP_WINDOW;
+      // Save closes the panel, which blanks innerHTML, so the markup is
+      // read before the click rather than after it.
+      const rendered = html;
+      await handlers[click]();
+      return { writes, html: rendered };
+    };
+
+    for (const click of ['#resSave', '#resTest']) {
+      const { writes, html } = await drive(click);
+      assert.equal(writes[0][0], 'update', `${click} updates the stored schedule`);
+      assert.deepEqual(writes[0][1].parameter_state, storedState,
+        `${click} kept the page's window instead of the schedule's`);
+      assert.ok(/Keep the window this schedule already sends/.test(html),
+        'the panel opens on keeping the stored window');
+      assert.ok(/value="prior_month" selected/.test(html),
+        'and shows the period the schedule is actually set to');
+    }
+    // Picking the page option by name is still honoured, for both buttons.
+    for (const click of ['#resSave', '#resTest']) {
+      const { writes } = await drive(click, S.USE_PAGE_FILTERS);
+      assert.deepEqual(writes[0][1].parameter_state, pageState,
+        `${click} ignored an explicit "use the page filters" choice`);
+    }
+    // And naming a period still wins over both.
+    {
+      const { writes } = await drive('#resSave', 'prior_week');
+      assert.equal(writes[0][1].date_from, undefined);
+      assert.equal(writes[0][1].parameter_state.date_from, 'prior_week_start');
+    }
+  }
+
   // ── repo guard: nothing may embed profiles under entity_memberships ──────
   const offenders = [];
   const walk = (dir) => {

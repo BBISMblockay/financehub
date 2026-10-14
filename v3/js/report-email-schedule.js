@@ -41,7 +41,24 @@
   // window every future email reported. The picker makes the choice
   // explicit and defaults to naming a period rather than freezing a date.
 
+  // Two sentinels, because "no named period" means two different things.
+  //
+  //   USE_PAGE_FILTERS -- take the date values the page's filter bar is
+  //     showing right now. The only sensible default for a NEW schedule,
+  //     whose state IS the page's.
+  //   KEEP_WINDOW -- leave the stored window exactly as it is. The default
+  //     when the panel opens on a schedule that already exists, because
+  //     the thing being edited is that schedule, not this page. Reopening
+  //     a "Last month" schedule from a report whose filters happen to show
+  //     a fortnight used to show (and then save) the fortnight.
+  //
+  // A schedule's window therefore only moves to the page's dates when
+  // someone picks that option by name.
   const USE_PAGE_FILTERS = '__page__';
+  const KEEP_WINDOW = '__keep__';
+
+  /** True for the two ids that are not a named period. */
+  function isSentinel(id) { return id === USE_PAGE_FILTERS || id === KEEP_WINDOW; }
 
   /** The report's two date-range keys, or null if it has no date window.
    *  Company-calendar dates are included: the picker stores tokens and
@@ -59,29 +76,55 @@
   /** The periods a schedule may be set to, in the order they are offered.
    *  Taken from the filter bar's own range presets so a period means the
    *  same thing in an email as it does on screen. */
-  function periodOptions() {
+  //  `opts.editing` is a schedule that already exists, and
+  //  `opts.hasPageState` a page with filter values to offer. Edit from the
+  //  schedules table has neither a page nor its filters, so it is not
+  //  offered an option it cannot honour.
+  function periodOptions(opts) {
     const FB = global.SiloFilterBar;
-    return [{ id: USE_PAGE_FILTERS, label: 'Use the filter values on this page' }]
-      .concat((FB?.RANGE_PRESETS || []).map((p) => ({ id: p.id, label: p.label, from: p.from, to: p.to })));
+    const editing = !!(opts && opts.editing);
+    const hasPage = !!(opts && opts.hasPageState);
+    const head = editing
+      ? [{ id: KEEP_WINDOW, label: 'Keep the window this schedule already sends' }]
+      : [{ id: USE_PAGE_FILTERS, label: 'Use the filter values on this page' }];
+    const presets = (FB?.RANGE_PRESETS || [])
+      .map((p) => ({ id: p.id, label: p.label, from: p.from, to: p.to }));
+    const tail = (editing && hasPage)
+      ? [{ id: USE_PAGE_FILTERS, label: 'Use the filter values on this page instead' }]
+      : [];
+    return head.concat(presets, tail);
   }
 
   /** Which period a stored parameter_state represents, or USE_PAGE_FILTERS
    *  when it matches none -- including when it holds specific dates, which
    *  is the frozen case and is shown to the user as such. */
-  function periodIdFor(parameterState, keys) {
+  function periodIdFor(parameterState, keys, opts) {
     const FB = global.SiloFilterBar;
-    if (!keys || !FB) return USE_PAGE_FILTERS;
+    // An existing schedule falls back to keeping its own window; a new one
+    // to the page's filters, which are already what its state holds.
+    const fallback = (opts && opts.editing) ? KEEP_WINDOW : USE_PAGE_FILTERS;
+    if (!keys || !FB) return fallback;
     const state = parameterState || {};
-    return FB.matchRangePreset(state[keys.from], state[keys.to]) || USE_PAGE_FILTERS;
+    return FB.matchRangePreset(state[keys.from], state[keys.to]) || fallback;
   }
 
   /** parameter_state with the chosen period's TOKENS written in. Returns the
    *  state unchanged for USE_PAGE_FILTERS, for an unknown id, and for a
    *  report with no date window -- a picker that cannot find the keys must
    *  leave the stored state alone rather than invent parameters. */
-  function applyPeriod(parameterState, keys, periodId) {
+  function applyPeriod(parameterState, keys, periodId, pageState) {
     const state = { ...(parameterState || {}) };
-    if (!keys || !periodId || periodId === USE_PAGE_FILTERS) return state;
+    if (!keys || !periodId || periodId === KEEP_WINDOW) return state;
+    if (periodId === USE_PAGE_FILTERS) {
+      // Only the two date keys are taken from the page. Everything else the
+      // schedule stores (a location, a channel) belongs to the schedule.
+      // With no page state -- Edit from the schedules table -- this is the
+      // same no-op it has always been.
+      if (!pageState) return state;
+      state[keys.from] = pageState[keys.from];
+      state[keys.to] = pageState[keys.to];
+      return state;
+    }
     const preset = (global.SiloFilterBar?.RANGE_PRESETS || []).find((p) => p.id === periodId);
     if (!preset) return state;
     state[keys.from] = preset.from;
@@ -99,7 +142,7 @@
     const to = state[keys.to];
     if (!from && !to) return 'Report default';
     const id = periodIdFor(state, keys);
-    if (id !== USE_PAGE_FILTERS) {
+    if (!isSentinel(id)) {
       return periodOptions().find((p) => p.id === id)?.label || id;
     }
     const fixed = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
@@ -370,7 +413,8 @@
     CADENCE, DEPARTMENTS, isWorkspaceAdmin, defaultSubject, defaultRecipients,
     listSchedules, saveSchedule, deliverNow, duplicateSchedule, pauseAll, listMembers,
     computeNextRunAt, cadenceLabel, parseEmailList, recipientSummary,
-    USE_PAGE_FILTERS, dateRangeKeys, periodOptions, periodIdFor, applyPeriod, periodSummary,
+    USE_PAGE_FILTERS, KEEP_WINDOW, isSentinel,
+    dateRangeKeys, periodOptions, periodIdFor, applyPeriod, periodSummary,
     periodSummaryFromState,
     findScheduleForTarget, deleteSchedule,
   };
