@@ -4913,7 +4913,12 @@ select 'Definer functions reachable by anon' as check_name,
        'notify_slack_task_created','record_product_concept_revision',
        'record_seo_task_revision','resync_tasks_on_initiative_move',
        'saved_report_usage','stamp_changed_by','stamp_company_entity_id',
-       'stamp_created_by','void_card_posting'))
+       'stamp_created_by','void_card_posting',
+       -- Two-step login (20261014000000): PostgREST runs the pre-request hook
+       -- as the request's role, anon included, so both MUST stay anon-callable.
+       -- Safe: auth.uid() is NULL for anon, so they answer "satisfied" and
+       -- disclose nothing; they read only the caller's own factors.
+       'mfa_session_satisfied','silo_check_request'))
    then 'CRITICAL: a SECURITY DEFINER function is executable by anon and is not on the reviewed allowlist'
  else 'ok' end as status;
 
