@@ -67,12 +67,83 @@
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   }
 
+  // ── Period boundaries ──────────────────────────────────────────────
+  // One table, two renderings. A boundary token has to resolve twice: in
+  // JS (viewer's calendar) and in SQL (the company's calendar, via
+  // silo_business_today()). Written as two maps side by side with the same
+  // keys, and PERIOD_KEYS asserted equal to both by the unit suite -- a
+  // token that exists on one side only is the exact bug this shape is here
+  // to make impossible. Add a boundary to BOTH maps or to neither.
+  //
+  // Weeks start Monday, matching Postgres date_trunc('week', ...) so the
+  // two renderings agree on which day a week begins.
+  //
+  // `prior_*` is the COMPLETE previous period, both ends -- which is the
+  // thing a scheduled "prior month" CSV needs and which month_start/
+  // month_end (the period in progress) cannot express: on the 1st of the
+  // month, month-to-date is one day.
+
+  /** Days since Monday, 0..6. */
+  function mondayOffset(d) {
+    return (d.getDay() + 6) % 7;
+  }
+
+  // Each entry takes the viewer's "today" and returns a Date.
+  // Day 0 of a month is the last day of the one before it, which handles
+  // February and leap years without a table of month lengths.
+  const PERIOD_LOCAL = {
+    week_start: (n) => new Date(n.getFullYear(), n.getMonth(), n.getDate() - mondayOffset(n)),
+    week_end: (n) => new Date(n.getFullYear(), n.getMonth(), n.getDate() - mondayOffset(n) + 6),
+    prior_week_start: (n) => new Date(n.getFullYear(), n.getMonth(), n.getDate() - mondayOffset(n) - 7),
+    prior_week_end: (n) => new Date(n.getFullYear(), n.getMonth(), n.getDate() - mondayOffset(n) - 1),
+    month_start: (n) => new Date(n.getFullYear(), n.getMonth(), 1),
+    month_end: (n) => new Date(n.getFullYear(), n.getMonth() + 1, 0),
+    prior_month_start: (n) => new Date(n.getFullYear(), n.getMonth() - 1, 1),
+    prior_month_end: (n) => new Date(n.getFullYear(), n.getMonth(), 0),
+    quarter_start: (n) => new Date(n.getFullYear(), Math.floor(n.getMonth() / 3) * 3, 1),
+    quarter_end: (n) => new Date(n.getFullYear(), Math.floor(n.getMonth() / 3) * 3 + 3, 0),
+    prior_quarter_start: (n) => new Date(n.getFullYear(), Math.floor(n.getMonth() / 3) * 3 - 3, 1),
+    prior_quarter_end: (n) => new Date(n.getFullYear(), Math.floor(n.getMonth() / 3) * 3, 0),
+    year_start: (n) => new Date(n.getFullYear(), 0, 1),
+    // Planning reports ask "arriving by end of year" far more often than
+    // they ask about the start of it, and a literal '2026-12-31' default
+    // freezes the report on the year it was written.
+    year_end: (n) => new Date(n.getFullYear(), 11, 31),
+    prior_year_start: (n) => new Date(n.getFullYear() - 1, 0, 1),
+    prior_year_end: (n) => new Date(n.getFullYear() - 1, 11, 31),
+  };
+
+  // Each entry takes the SQL expression for the company's today and returns
+  // a SQL expression for the boundary. date_trunc returns a timestamp, so
+  // every one casts back to date.
+  const PERIOD_SQL = {
+    week_start: (t) => `date_trunc('week', ${t})::date`,
+    week_end: (t) => `(date_trunc('week', ${t}) + interval '6 days')::date`,
+    prior_week_start: (t) => `(date_trunc('week', ${t}) - interval '7 days')::date`,
+    prior_week_end: (t) => `(date_trunc('week', ${t}) - interval '1 day')::date`,
+    month_start: (t) => `date_trunc('month', ${t})::date`,
+    month_end: (t) => `(date_trunc('month', ${t}) + interval '1 month - 1 day')::date`,
+    prior_month_start: (t) => `(date_trunc('month', ${t}) - interval '1 month')::date`,
+    prior_month_end: (t) => `(date_trunc('month', ${t}) - interval '1 day')::date`,
+    quarter_start: (t) => `date_trunc('quarter', ${t})::date`,
+    quarter_end: (t) => `(date_trunc('quarter', ${t}) + interval '3 months - 1 day')::date`,
+    prior_quarter_start: (t) => `(date_trunc('quarter', ${t}) - interval '3 months')::date`,
+    prior_quarter_end: (t) => `(date_trunc('quarter', ${t}) - interval '1 day')::date`,
+    year_start: (t) => `date_trunc('year', ${t})::date`,
+    year_end: (t) => `(date_trunc('year', ${t}) + interval '1 year - 1 day')::date`,
+    prior_year_start: (t) => `(date_trunc('year', ${t}) - interval '1 year')::date`,
+    prior_year_end: (t) => `(date_trunc('year', ${t}) - interval '1 day')::date`,
+  };
+
+  const PERIOD_KEYS = Object.freeze(Object.keys(PERIOD_LOCAL));
+
   /**
    * Resolve a date expression to YYYY-MM-DD, or null if it is not one.
    * Accepts a literal date, or one of a deliberately small set of relative
-   * tokens -- enough for "last 28 days" and "this month", not a date DSL.
+   * tokens -- enough for "last 28 days", "this month" and "prior month",
+   * not a date DSL.
    */
-  function resolveDateExpr(raw) {
+  function resolveDateExpr(raw, nowOverride) {
     const s = String(raw == null ? '' : raw).trim().toLowerCase();
     if (!s) return null;
     if (ISO_DATE_RE.test(s)) {
@@ -82,16 +153,13 @@
       const round = dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
       return round ? s : null;
     }
-    const now = new Date();
-    if (s === 'month_start') return localISO(new Date(now.getFullYear(), now.getMonth(), 1));
-    if (s === 'year_start') return localISO(new Date(now.getFullYear(), 0, 1));
-    // Day 0 of the NEXT month is the last day of this one, which handles
-    // February and leap years without a table of month lengths.
-    if (s === 'month_end') return localISO(new Date(now.getFullYear(), now.getMonth() + 1, 0));
-    // Planning reports ask "arriving by end of year" far more often than
-    // they ask about the start of it, and a literal '2026-12-31' default
-    // freezes the report on the year it was written.
-    if (s === 'year_end') return localISO(new Date(now.getFullYear(), 11, 31));
+    // Duck-typed, not `instanceof Date`: the unit suites run this file in a
+    // vm context whose Date is a different realm's, so instanceof is false
+    // for a perfectly good Date and every fixed-date test silently
+    // asserts against the real today instead.
+    const now = nowOverride && typeof nowOverride.getFullYear === 'function'
+      ? nowOverride : new Date();
+    if (Object.prototype.hasOwnProperty.call(PERIOD_LOCAL, s)) return localISO(PERIOD_LOCAL[s](now));
     const rel = RELATIVE_RE.exec(s);
     if (rel) {
       const days = rel[1] ? Number(rel[1]) : 0;
@@ -100,7 +168,11 @@
     return null;
   }
 
-  const DATE_HINT = 'a date (YYYY-MM-DD), or today, today-27d, month_start, month_end, year_start, year_end';
+  const DATE_HINT = 'a date (YYYY-MM-DD), or today, today-27d, '
+    + 'month_start, month_end, prior_month_start, prior_month_end, '
+    + 'week_start, week_end, prior_week_start, prior_week_end, '
+    + 'quarter_start, quarter_end, prior_quarter_start, prior_quarter_end, '
+    + 'year_start, year_end, prior_year_start, prior_year_end';
 
   // ── Declarations ───────────────────────────────────────────────────
   /**
@@ -178,13 +250,9 @@
         const today = '(select public.silo_business_today())';
         const relative = RELATIVE_RE.exec(token);
         if (relative) return { literal: `(${today} - ${Number(relative[1] || 0)})` };
-        const boundaries = {
-          month_start: `date_trunc('month', ${today})::date`,
-          year_start: `date_trunc('year', ${today})::date`,
-          month_end: `(date_trunc('month', ${today}) + interval '1 month - 1 day')::date`,
-          year_end: `(date_trunc('year', ${today}) + interval '1 year - 1 day')::date`,
-        };
-        if (Object.prototype.hasOwnProperty.call(boundaries, token)) return { literal: `(${boundaries[token]})` };
+        if (Object.prototype.hasOwnProperty.call(PERIOD_SQL, token)) {
+          return { literal: `(${PERIOD_SQL[token](today)})` };
+        }
       }
       const iso = resolveDateExpr(raw);
       if (!iso) return { error: `"${label}" must be ${DATE_HINT}.` };
@@ -325,5 +393,6 @@
     TYPES, KEY_RE, DATE_HINT,
     normalizeDeclarations, tokensIn, toLiteral, effectiveValue,
     substitute, mergeDeclarations, defaultsFor, resolveDateExpr, localISO,
+    PERIOD_KEYS, PERIOD_LOCAL, PERIOD_SQL,
   };
 })(window);

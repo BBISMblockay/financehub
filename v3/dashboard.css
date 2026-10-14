@@ -1612,14 +1612,17 @@ body.is-report-view, .is-report-view .silo-app, .is-report-view .silo-main { hei
 .res-tag--neg { background: var(--bcn-neg-soft); color: var(--bcn-neg); }
 /* bcn-table is table-layout: fixed, so every column is equal width unless
    it is told otherwise -- which is why the schedules table sprawled. */
-.res-table th:nth-child(1), .res-table td:nth-child(1) { width: 22%; }
-.res-table th:nth-child(2), .res-table td:nth-child(2) { width: 14%; }
-.res-table th:nth-child(3), .res-table td:nth-child(3) { width: 24%; }
-.res-table th:nth-child(4), .res-table td:nth-child(4) { width: 15%; }
-.res-table th:nth-child(5), .res-table td:nth-child(5) { width: 8%; }
+/* Eight columns since Period was added; table-layout is fixed, so every
+   width is stated and they sum to 90%, leaving 10% for the actions cell. */
+.res-table th:nth-child(1), .res-table td:nth-child(1) { width: 19%; }
+.res-table th:nth-child(2), .res-table td:nth-child(2) { width: 12%; }
+.res-table th:nth-child(3), .res-table td:nth-child(3) { width: 11%; }
+.res-table th:nth-child(4), .res-table td:nth-child(4) { width: 20%; }
+.res-table th:nth-child(5), .res-table td:nth-child(5) { width: 14%; }
 .res-table th:nth-child(6), .res-table td:nth-child(6) { width: 7%; }
+.res-table th:nth-child(7), .res-table td:nth-child(7) { width: 7%; }
 .res-table td { vertical-align: top; }
-.res-table td:nth-child(3) { white-space: normal; word-break: break-word; }
+.res-table td:nth-child(4) { white-space: normal; word-break: break-word; }
 .res-tablefoot { display: flex; justify-content: flex-end; margin-top: 10px; }
 .res-sr {
   position: absolute; width: 1px; height: 1px; overflow: hidden;

@@ -193,8 +193,97 @@ console.log('\n── month_end / year_end ──');
     ok(P.toLiteral({ key: 'd', type: 'date', label: 'D' }, 'year_end').literal.startsWith("date '"));
     ok(P.toLiteral({ key: 'd', type: 'date', label: 'D' }, 'month_end').literal.startsWith("date '"));
   });
+  // 'quarter_end' used to stand in for "unknown" here; it is a real token
+  // since prior-period support, so the refusal is proved with one that is
+  // not in PERIOD_LOCAL and never will be.
   t('an unknown relative token is still refused', () =>
-    ok(P.toLiteral({ key: 'd', type: 'date', label: 'D' }, 'quarter_end').error));
+    ok(P.toLiteral({ key: 'd', type: 'date', label: 'D' }, 'fortnight_end').error));
+}
+
+// ── period boundaries, including the prior-period set ────────────────────
+console.log('\n── period boundaries ──');
+{
+  const p2 = (n) => String(n).padStart(2, '0');
+  const iso = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+  const at = (y, m, d) => new Date(y, m - 1, d);
+
+  // The whole point of the two-map shape: a token that resolves in only one
+  // calendar is a report that works in the browser and breaks in a 7am email.
+  t('every period token resolves in BOTH calendars', () => {
+    eq(Object.keys(P.PERIOD_LOCAL).sort(), Object.keys(P.PERIOD_SQL).sort());
+    eq([...P.PERIOD_KEYS].sort(), Object.keys(P.PERIOD_LOCAL).sort());
+    ok(P.PERIOD_KEYS.length >= 16);
+  });
+
+  // Fixed "today"s, so these assert arithmetic and not whatever day it is.
+  // Wed 2026-03-11: a month after February in a non-leap year, mid-quarter.
+  const WED = at(2026, 3, 11);
+  const cases = [
+    ['week_start', WED, '2026-03-09'],        // Monday of that week
+    ['week_end', WED, '2026-03-15'],          // Sunday
+    ['prior_week_start', WED, '2026-03-02'],
+    ['prior_week_end', WED, '2026-03-08'],
+    ['month_start', WED, '2026-03-01'],
+    ['month_end', WED, '2026-03-31'],
+    ['prior_month_start', WED, '2026-02-01'],
+    ['prior_month_end', WED, '2026-02-28'],   // non-leap February
+    ['quarter_start', WED, '2026-01-01'],
+    ['quarter_end', WED, '2026-03-31'],
+    ['prior_quarter_start', WED, '2025-10-01'],
+    ['prior_quarter_end', WED, '2025-12-31'],
+    ['year_start', WED, '2026-01-01'],
+    ['year_end', WED, '2026-12-31'],
+    ['prior_year_start', WED, '2025-01-01'],
+    ['prior_year_end', WED, '2025-12-31'],
+  ];
+  for (const [token, now, want] of cases) {
+    t(`${token} on ${iso(now)} is ${want}`, () => eq(P.resolveDateExpr(token, now), want));
+  }
+
+  // Monday is the boundary, so Monday itself and the Sunday before it are
+  // the two days an off-by-one would move.
+  t('on a Monday, week_start is that Monday', () =>
+    eq(P.resolveDateExpr('week_start', at(2026, 3, 9)), '2026-03-09'));
+  t('on a Sunday, week_start is the Monday six days back', () =>
+    eq(P.resolveDateExpr('week_start', at(2026, 3, 15)), '2026-03-09'));
+
+  // The cases that break a naive implementation: year boundaries and leap day.
+  t('prior_month on 1 January reaches back a year', () => {
+    eq(P.resolveDateExpr('prior_month_start', at(2026, 1, 1)), '2025-12-01');
+    eq(P.resolveDateExpr('prior_month_end', at(2026, 1, 1)), '2025-12-31');
+  });
+  t('prior_quarter in Q1 reaches back a year', () => {
+    eq(P.resolveDateExpr('prior_quarter_start', at(2026, 2, 20)), '2025-10-01');
+    eq(P.resolveDateExpr('prior_quarter_end', at(2026, 2, 20)), '2025-12-31');
+  });
+  t('prior_month_end finds 29 February in a leap year', () =>
+    eq(P.resolveDateExpr('prior_month_end', at(2024, 3, 5)), '2024-02-29'));
+  t('month_end finds 29 February in a leap year', () =>
+    eq(P.resolveDateExpr('month_end', at(2024, 2, 5)), '2024-02-29'));
+
+  // A browser-calendar report emits a literal; a company-calendar one emits
+  // SQL that Postgres evaluates at run time. Neither may emit the raw token.
+  t('browser calendar emits a date literal for every token', () => {
+    for (const key of P.PERIOD_KEYS) {
+      const r = P.toLiteral({ key: 'd', type: 'date', label: 'D' }, key);
+      ok(!r.error && /^date '\d{4}-\d{2}-\d{2}'$/.test(r.literal), `${key}: ${r.error || r.literal}`);
+    }
+  });
+  t('company calendar emits silo_business_today() SQL for every token', () => {
+    for (const key of P.PERIOD_KEYS) {
+      const r = P.toLiteral({ key: 'd', type: 'date', date_basis: 'company', label: 'D' }, key);
+      ok(!r.error, `${key}: ${r.error}`);
+      ok(r.literal.includes('silo_business_today()'), `${key} is not on the company calendar: ${r.literal}`);
+      ok(!r.literal.includes(key), `${key} leaked its token into SQL: ${r.literal}`);
+    }
+  });
+  t('prior_month on the company calendar is the complete previous month', () => {
+    const d = { key: 'd', type: 'date', date_basis: 'company', label: 'D' };
+    const from = P.toLiteral(d, 'prior_month_start').literal;
+    const to = P.toLiteral(d, 'prior_month_end').literal;
+    ok(/date_trunc\('month'/.test(from) && /interval '1 month'/.test(from), from);
+    ok(/date_trunc\('month'/.test(to) && /interval '1 day'/.test(to), to);
+  });
 }
 
 t('company-calendar defaults remain relative SQL through normalize/substitute', () => {

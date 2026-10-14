@@ -82,6 +82,12 @@ on:
       - 'supabase/migrations/*saved_report_archive.sql'
       - 'supabase/apply_all_post_merge.sql'
       - 'v3/js/report-params.js'
+      # report-email-deliver ships verbatim copies of
+      # scripts/lib/report-email-deliver-core.mjs and of silo-chat's
+      # report-params-lib.mjs, and report-email-deliver.test.mjs is what
+      # proves they are still byte-exact. Without this path a PR that edits
+      # only the copy runs no check at all.
+      - 'supabase/functions/report-email-deliver/**'
       - 'scripts/shopify-sync.mjs'
       - 'scripts/shopify-orders-backfill.mjs'
       - 'scripts/ad-platforms-sync.mjs'

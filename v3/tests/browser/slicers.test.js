@@ -152,6 +152,23 @@ const isoToday = () => { const d = new Date(); const p = (n) => String(n).padSta
   ok('the resolved date is shown next to the control',
     (await page.locator('#slicerBar').innerText()).includes(want));
 
+  // A prior-period boundary is a real option in the real control, and it
+  // stores the token like any other preset. This is what a scheduled
+  // "prior month" CSV is built on: if the dropdown resolved it to a date
+  // here, the schedule would be frozen on the month it was created in.
+  await page.evaluate(() => { window.__FAKE_DB__.rpcCalls.length = 0; });
+  await page.selectOption('#slicerFields [data-param="report_date"]', 'prior_month_start');
+  await page.waitForTimeout(600);
+  const priorStored = await page.evaluate(() => window.__siloDashboard.runtime.getParamValues().report_date);
+  ok('a prior-period preset is offered and stored as a token',
+    priorStored === 'prior_month_start', 'got ' + priorStored);
+  const pm = new Date();
+  const wantPrior = `${pm.getMonth() === 0 ? pm.getFullYear() - 1 : pm.getFullYear()}-${
+    p(pm.getMonth() === 0 ? 12 : pm.getMonth())}-01`;
+  calls = await page.evaluate(() => window.__FAKE_DB__.rpcCalls.map((c) => c.args.query));
+  ok('…and the RPC got the first day of last month',
+    calls.some((q) => q.includes(`date '${wantPrior}'`)), 'wanted ' + wantPrior + ', got ' + JSON.stringify(calls));
+
   // ── 8. Saving persists filter_state; a viewer's change does not ──────
   await page.goto(`${BASE}/v3/dashboard.html?id=D1&edit=1`);
   await page.waitForFunction(() => window.__siloDashboard, { timeout: 10000 });
