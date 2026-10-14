@@ -13,6 +13,11 @@ written.
 
 ### 1. Preflight (read-only, before writing any code)
 
+First state the intended user outcome and observable acceptance criteria:
+who starts where, what they must be able to finish, what persisted result
+confirms success, and the relevant failure/recovery behavior. Name non-goals
+and rollout dependencies so review does not expand into unrelated work.
+
 Do not edit anything until you have walked, and can name:
 
 - **Every call site** of every function you intend to change — including
@@ -36,6 +41,12 @@ Do not edit anything until you have walked, and can name:
 Then write down, explicitly: **the assumptions that require live verification**,
 and **the tests, defined before the implementation**.
 
+Apply the checks to the paths and risks actually touched. For a small
+documentation-only change, check accuracy, links, instruction consistency and
+any relevant format validator; mark runtime, policy and mutation checks not
+applicable with a reason. Do not query production or invent application tests
+for prose. For workflow instructions, walk representative decisions and exits.
+
 ### 2. Implement.
 
 ### 3. Adversarial review of the FINAL INTEGRATED CALL PATH
@@ -51,6 +62,20 @@ Mutation-test the suite while you are there: break each fix deliberately and
 confirm a test fails. A test that passes against the bug it claims to prevent is
 worse than no test, because it is credited as coverage.
 
+Trace the affected journey through its final result and recovery paths, not
+just a successful click. For example, answering missing inputs must actually
+permit the intended task creation; a working MFA form does not prove backend
+enforcement or enabled enrollment. For security changes, include denied paths
+at the enforcing backend/data boundary. Use an authorized test environment;
+this requirement grants no production or account-change permission.
+
+Map each acceptance criterion to evidence (commit, environment, result and
+mock limitations). If appropriate end-to-end verification is unavailable,
+record an explicit unverified gate with owner, steps, expected result and the
+stage it blocks: merge, deployment or user enablement. A merge gate must be
+resolved before a merge-ready verdict; a later-stage gate keeps release
+verification pending. Green CI alone proves neither usability nor security.
+
 ### 4. Language
 
 **Do not say "ready", "done", or "complete" until review and verification have
@@ -59,6 +84,10 @@ both actually happened.** While anything is unverified, the phrase is
 unknowns. Some findings genuinely require a live environment and will still
 arrive late — that is fine and expected. Announcing completion before the phase
 that would have caught them is not.
+
+Report merged, deployed (including migrations), runtime-verified and user-enabled
+states separately, each with evidence or an explicit unknown/not-applicable.
+Neither merge nor deployment alone establishes a working, enabled feature.
 
 ---
 
@@ -73,6 +102,29 @@ ONE correction batch per cycle, and end with a readiness assessment that names t
 last reviewed sha (both read from the markers), and one of three statuses. The harness reads that file automatically before acting on any
 review or CI event on a PR Claude opened; `/steward <task>` starts it by hand. It never merges,
 deploys, applies a migration, or touches production data — those stay Blake's.
+
+The first independent pass covers the full affected journey, recovery paths,
+security/data boundaries and rollout against the acceptance criteria. Batch
+supported findings and fixes. The second pass reviews only corrections, new
+changes and affected dependencies, and may raise genuinely new blockers within
+that scope. Severity follows demonstrated impact;
+separate required fixes from optional improvements without adding unrelated
+scope. An exhausted automatic budget never waives risk: unreviewed changes or
+material review gaps require an explicit additional-review handoff to Blake.
+The strict two-cycle lifetime cap counts running, complete and blocked
+reservations. Further review requires Blake's explicit request; never restart
+automatically or reset the budget. Preserve independent review and passing
+applicable CI on the exact head.
+
+The reviewer remains read-only except for authorized review comments. Safe,
+isolated synthetic tests are optional; otherwise disclose source-only review
+and its limitations. Do not write production data or change settings to gather
+review evidence. Implementation verification duties do not authorize reviewer
+mutations.
+
+These are review expectations, not a change to the externally configured
+reviewer's prompt or trigger budget. Include them in the review handoff and
+report missing coverage instead of assuming the reviewer loaded this file.
 
 ---
 

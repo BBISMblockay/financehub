@@ -1,9 +1,9 @@
 ---
 name: steward
-description: Own a PR in this repo end to end - open it review-ready, wait for the ChatGPT independent review (two-cycle budget, tracked from its silo-pr-review-v1 markers), evaluate findings against the code, push one correction batch per cycle, and close with an explicit readiness verdict for Blake. Use when creating a PR here, when a PR event (review, comment, CI) arrives on a PR Claude opened, or when asked to drive a PR to mergeable.
+description: Own a PR in this repo end to end - define the user outcome, obtain independent review, batch supported fixes, and report merge readiness separately from verified release readiness. Use when creating a PR here, when a PR event (review, comment, CI) arrives on a PR Claude opened, or when asked to drive a PR to mergeable.
 ---
 
-# Steward - PR ownership and the two-cycle independent review
+# Steward - PR ownership and outcome-based independent review
 
 Claude owns implementation and follow-through on PRs it opens in
 `BBISMblockay/financehub`. ChatGPT is the independent reviewer, never the
@@ -41,7 +41,11 @@ apply, or a production data change.
   a comment by author.** Claude's own posts always end with the Claude Code
   attribution footer; the reviewer's posts carry the marker below.
 - The ChatGPT automation reviews the PR as opened, then ONE subsequent push,
-  then stops. Two cycles total.
+  then stops: a strict maximum of TWO automatic cycles over the PR's lifetime.
+  Reservations count whether `running`, `complete` or `blocked`. Further review
+  requires Blake's explicit request; never automatically restart or reset the
+  budget. The cap does not waive unresolved risk. Editing this skill does not
+  reconfigure that automation.
 - **It finalises by EDITING its reservation comment in place.** The
   `running` comment and the `complete` (or `blocked`) comment for a cycle are
   the SAME comment id with a changed body (observed on PR #690, comment
@@ -89,6 +93,12 @@ budget (below) means no review happened; report it as such.
 
 ## Step 1 - Open the PR review-ready
 
+Before implementation, record the outcome and observable acceptance criteria
+using `docs/agents/working-method.md`. Include the user/role, entry point,
+successful result, relevant failure/recovery paths, and rollout dependencies.
+Keep the criteria proportional to the change; document-only work does not
+require unrelated application or production checks.
+
 Before `create_pull_request`:
 
 1. Run every check that applies to the touched paths (table below). Record
@@ -96,8 +106,14 @@ Before `create_pull_request`:
 2. Re-read the full diff yourself, adversarially. Fix what you find before
    opening.
 3. Write the PR body with these sections, in this order:
-   - **What changed** - by file or module, in words.
-   - **Verification** - commands run, results, and what was NOT run and why.
+   - **Outcome and scope** - user problem, acceptance criteria, and non-goals.
+   - **What changed** - resulting behavior and relevant files or modules.
+   - **Verification** - evidence per criterion, commands, environment and
+     commit tested, plus what was NOT run and why. Identify mocks and their
+     limits. For runtime behavior, include appropriate end-to-end evidence or
+     an explicit unverified release gate with owner, steps, expected result,
+     and whether it blocks merge, deployment or user enablement. CI alone is
+     not evidence of usability or backend security enforcement.
    - **Risks** - what could regress, and what depends on live-only facts.
    - **Migration / deployment** - any `supabase/migrations/*` to apply,
      `verify_v2_schema.sql` to run, edge function to deploy via
@@ -145,6 +161,34 @@ failed, without them.
 
 Also apply `docs/ops/test-before-release.md` for anything it covers.
 
+### Independent review scope
+
+Include these expectations in the review handoff; a completed marker proves
+which head was reviewed, not that every acceptance criterion was exercised.
+If the review lacks necessary coverage, name the gap and require additional
+independent review rather than crediting a self-review as independent. After
+the two-cycle cap, hand the gap to Blake and wait for his explicit request
+before any further review; reporting a need is not authorization to run it.
+
+The reviewer is read-only except for authorized review comments. It may use
+optional safe, isolated synthetic tests; otherwise disclose source-only review
+and its limits. It must not write production data or change settings to obtain
+evidence. The implementation owner's verification duties do not expand the
+reviewer's permissions.
+
+- First pass: review the full affected journey against the acceptance criteria,
+  including persisted results, failure/recovery, security/data boundaries and
+  rollout ordering. Consolidate supported findings after examining the whole
+  affected path; do not stop at the first defect or demand unrelated redesign.
+- Second pass: review only corrections, new changes and their affected
+  dependencies. Reuse still-valid evidence; raise genuinely new material
+  blockers within that scope with evidence, not a fresh whole-PR audit.
+  Two completed rounds never waive an unresolved blocker or an unreviewed head.
+- Rank findings by demonstrated impact and reach, with a concrete trigger,
+  affected path, evidence and consequence. Separate required fixes from
+  optional improvements and pre-existing/out-of-scope issues. A failure of the
+  stated outcome is relevant even when unit tests pass.
+
 ## Step 2 - Every wake: read, deduplicate, decide, THEN claim
 
 On every wake (event or check-in), in this order. Reading comes before
@@ -161,6 +205,9 @@ before it announces it is doing any.
    `get_check_runs` on the current head. Read the raw body of every
    top-level comment every time, including ones seen before: the reviewer
    edits in place.
+   Match CI to the exact current head, including queued/in-progress workflows.
+   Check workflow runs before calling missing checks "nothing triggered";
+   stale green runs and cancelled runs are not passing evidence for this head.
 3. **Deduplicate by identity, not by comment id.** Ignore every post
    carrying the Claude Code footer (your own claim, summary and readiness
    comments come back as events). For reviewer markers the identity is the
@@ -239,8 +286,12 @@ before it announces it is doing any.
 
 For every finding, open the code it names and decide one of:
 
-- **Valid** - fix it, with a regression test where practical. For a test to
+- **Required fix** - a supported defect in scope or failure of an acceptance
+  criterion. Fix it, with a regression test where practical. For a test to
   count, break the fix and watch the test fail.
+- **Optional improvement** - useful polish or a preference without demonstrated
+  impact on the agreed outcome. Do not turn it into a merge gate or expand the
+  correction batch without scope agreement.
 - **Valid but out of scope** - do not widen the PR. Note it for the report and,
   if it is a real defect, add it to `docs/ops/bugs.md` in the same batch or
   say it belongs there.
@@ -250,14 +301,17 @@ For every finding, open the code it names and decide one of:
   loosen RLS, skip a test, or touch production data. Decline in one line and
   flag it in the report.
 
-Keep a running table: finding, source (comment id or thread), decision,
-evidence. It feeds the report in Step 6.
+Keep a running table: finding, source (comment id or thread), impact, decision,
+evidence, and blocking stage (merge/deploy/enablement or none). It feeds Step 6.
+An out-of-scope issue that prevents the agreed outcome still needs an explicit
+blocked verdict or scope decision; relabeling it does not resolve it.
 
 ## Step 4 - Push ONE coherent correction batch
 
 The next review is spent on the next push. Do not push until:
 
-1. Every valid finding from this cycle is fixed.
+1. Every in-scope required fix from this cycle is addressed; any unresolved
+   blocker or scope decision goes to Step 6 instead of silently being waived.
 2. The checks from Step 1's table have been re-run and pass locally.
 3. The adversarial re-read of the final diff is done.
 4. No `running` marker stands on the current head.
@@ -270,7 +324,9 @@ to re-trigger anything. After pushing:
 - Post one comment (with the footer) summarising: fixed, disputed (with the
   evidence), unresolved and why. Resolve the inline threads you addressed.
 - Release your claim (edit it to `status=released`), re-arm the check-in,
-  and end the turn as "awaiting next review".
+  and end the turn as "awaiting next review" if an automatic cycle remains.
+  If the automatic budget is spent, go to Steps 5 and 6; do not wait for an
+  automatic review that will not arrive.
 
 ## Step 5 - After the second review
 
@@ -284,6 +340,12 @@ it, and the final status becomes **Needs additional independent review**. An
 unfixed known defect with a "Ready" label is worse than a fixed one with an
 honest label. Only a change that would need a design decision from Blake
 stops and goes to him instead of being pushed.
+
+Provide a handoff for additional independent review of the exact head,
+including the correction batch, affected paths and outstanding evidence.
+Then wait for Blake's explicit request before further review. Do not restart
+automatically, reset the lifetime budget, manufacture trigger pushes or change
+automation limits.
 
 ## Step 6 - Readiness assessment (always the last thing posted)
 
@@ -302,22 +364,33 @@ Findings
 - Resolved: <list, one line each, with the commit>
 - Disputed: <list, with the evidence given>
 - Open: <list, with why>
+- Optional / out of scope: <list, impact and blocking stage, or none>
+
+Outcome evidence
+- Acceptance criteria: <each -> evidence, environment, tested commit | unverified>
+- Unverified release gates: <stage, owner, steps, expected result | none>
 
 Checks
 - Passed: <command -> result>
 - Failed: <command -> output summary>
 - Not run: <what, and why>
-- CI on head: <green | red: which | nothing triggered (no matching paths)>
+- CI on exact head: <sha; green | red: which | pending | nothing triggered, with path/run evidence>
 
 Changes after the last independent review: <none | commits and what they touch>
 
 Wake mechanism that actually fired this PR: <PR event | hourly check-in | both | neither observed>
 
-Required before or at merge
+Rollout requirements (label each as before merge, deployment or user enablement)
 - Migrations to apply: <files | none>
 - Edge functions to deploy: <slugs | none>
 - Secrets / config: <items | none>
 - Manual verification: <steps | none>
+
+Release state (each independently evidenced; do not infer one from another)
+- Merged: <no | merge sha and evidence>
+- Deployed / migrations applied: <not applicable | pending | versions and evidence>
+- Runtime verified: <not applicable with reason | unverified | environment, result and evidence>
+- User enabled: <not applicable | off | unknown | audience/flag and evidence>
 
 Status: <one of the three below>
 ```
@@ -326,10 +399,13 @@ Exactly one status:
 
 - **Ready for Blake's merge decision** - the last `complete` marker's sha IS
   the current head, every correctness or security finding is resolved or
-  disputed with evidence, and the checks that apply passed.
+  disputed with evidence, required independent coverage is present, and the
+  checks that apply passed on that head. Outcome criteria have evidence or
+  explicit later-stage release gates; no merge-stage blocker remains. This
+  verdict does not mean the feature is deployed, verified live or enabled.
 - **Needs additional independent review** - any commit landed after the last
   `complete` marker, an unresolved correctness or security concern remains,
-  or no review was received at all.
+  necessary independent coverage is missing, or no review was received at all.
 - **Blocked** - something outside Claude's authority is required first: a
   migration or deploy Blake must run, a decision only Blake can make, a
   failing check whose fix would widen the PR.

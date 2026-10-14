@@ -2,6 +2,20 @@
 
 Short checklist. Skip sections that your PR did not touch.
 
+Use the acceptance criteria and evidence gates in
+[working-method.md](../agents/working-method.md). For documentation-only work,
+check accuracy, links, instruction consistency and applicable format validation;
+page-load, login and runtime checks are not applicable unless behavior changes.
+For behavior changes, verify the affected end-to-end result and recovery path
+in an authorized environment, or document the unverified release gate (stage,
+owner, steps and expected result). Identify mocks and what they do not prove.
+Keep merged, deployed, runtime-verified and user-enabled states separate.
+
+This checklist grants no permission to deploy, apply SQL, dispatch a mutating
+workflow, change account/security settings or write production data. Obtain
+Blake's explicit authorization for those actions; record pending gates when
+authorization or access is unavailable.
+
 ---
 
 ## Every PR (quick)
