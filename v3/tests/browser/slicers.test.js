@@ -341,7 +341,38 @@ const isoToday = () => { const d = new Date(); const p = (n) => String(n).padSta
     const calls = await page.evaluate(() => window.__FAKE_DB__.rpcCalls.map((c) => c.args.query));
     ok('picking one filters the query, quoted as text',
       calls.some((q) => q.includes("location_tag = 'st_louis'")), calls.slice(-2).join(' | '));
+
+    // A FAILED read must not read as an empty workspace. The live bug was
+    // exactly this: the view blew the 8s statement timeout, the page caught
+    // it, and the control said "Nothing to choose from yet" -- which points
+    // at the data, not at the query that died.
+    const hint = () => page.textContent('[data-param="location"] ~ .v3-slicer-hint');
+    await page.evaluate(() => window.__siloDashboard.filterBar.setChoices('location', null));
+    await page.waitForTimeout(200);
+    ok('a failed read says so, it does not claim the workspace has no locations',
+      (await hint()).includes('could not be loaded'), await hint());
+    await page.evaluate(() => window.__siloDashboard.filterBar.setChoices('location', []));
+    await page.waitForTimeout(200);
+    ok('a workspace that really has none still says nothing to choose from',
+      (await hint()).includes('Nothing to choose from yet'), await hint());
   }
+
+  // The same thing through the page's own read, which is where it went
+  // wrong on production: the view exceeded the 8s statement timeout.
+  await page.evaluate(() => sessionStorage.setItem('__FAKE_SELECT_ERRORS__',
+    JSON.stringify({ silo_report_locations_v: 'canceling statement due to statement timeout' })));
+  await page.reload();
+  await page.waitForFunction(() => window.__siloDashboard);
+  await page.waitForTimeout(700);
+  {
+    const note = await page.textContent('[data-param="location"] ~ .v3-slicer-hint');
+    ok('a read that fails on the page itself reaches the control as a failure',
+      note.includes('could not be loaded'), note);
+    const opts = await page.$$eval('[data-param="location"] option', (os) => os.map((o) => o.value));
+    ok('and the report default is still selectable, so the page is usable',
+      opts.join(',') === 'all', JSON.stringify(opts));
+  }
+  await page.evaluate(() => sessionStorage.removeItem('__FAKE_SELECT_ERRORS__'));
 
   ok('no page errors throughout', errors.length === 0, errors.slice(0, 4).join('\n        '));
 

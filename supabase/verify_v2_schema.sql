@@ -6915,6 +6915,13 @@ select 'Report location filter' as check_name,
          and (exists (select 1 from unnest(r.queries_run) q where q like '%{{location}}%'))
             <> (r.parameters::jsonb @> '[{"key": "location"}]'::jsonb))
       then 'BROKEN — a SILO report uses {{location}} without declaring it, or declares it without using it; every run of that report errors. Run 20261014090000_report_location_parameter.sql'
+    -- The fallback branch MUST be driven from `entities` through a LATERAL.
+    -- Written the other way round -- scanning sales_by_day and excluding
+    -- catalogued companies with `not exists` -- it reads 1.19M rows and takes
+    -- 16s under RLS, where `authenticated` is capped at 8s, so the dropdown
+    -- silently offers nothing. 20261014180000 is that rewrite.
+    when (select pg_get_viewdef('public.silo_report_locations_v'::regclass)) not ilike '%lateral%'
+      then 'BROKEN — silo_report_locations_v scans sales_by_day for every company, which exceeds the browser''s 8s timeout and leaves every location slicer empty. Run 20261014180000_report_location_filter_speed.sql'
     -- A tie-out whose report has changed reports NO DATA rather than a stale
     -- pass, which is correct but means the nightly run goes amber until the
     -- check is regenerated. 20261014090000 does that; this catches the case

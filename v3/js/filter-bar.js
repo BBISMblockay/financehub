@@ -491,8 +491,14 @@
       const note = document.createElement('span');
       note.className = 'v3-slicer-hint';
 
+      /* Three states, not two: never asked, asked and empty, asked and
+         failed. They looked the same once -- a read that blew the 8s
+         statement timeout left the control saying "Nothing to choose from
+         yet", which reads as "this workspace has no locations" and sent a
+         real outage looking in the wrong place. */
       const fill = (keep) => {
-        const list = choices.get(decl.options_source) || [];
+        const got = choices.get(decl.options_source);
+        const list = Array.isArray(got) ? got : [];
         sel.innerHTML = '';
         const all = document.createElement('option');
         all.value = ALL_CHOICES;
@@ -512,7 +518,9 @@
           sel.appendChild(o);
         }
         sel.value = keep == null || keep === '' ? ALL_CHOICES : keep;
-        note.textContent = list.length ? '' : 'Nothing to choose from yet';
+        note.textContent = Array.isArray(got)
+          ? (got.length ? '' : 'Nothing to choose from yet')
+          : (got === false ? 'The choices could not be loaded' : 'Loading the choices…');
       };
       fill(getValues()[decl.key]);
       sel.addEventListener('change', () => commit({ [decl.key]: sel.value }));
@@ -650,9 +658,13 @@
       return commit(patch).then(() => true);
     }
 
-    /** Hand the bar a source's choices, before or after it is built. */
+    /**
+     * Hand the bar a source's choices, before or after it is built.
+     * Anything that is not an array means the read FAILED, which the
+     * control says out loud rather than passing off as an empty workspace.
+     */
     function setChoices(source, list) {
-      choices.set(String(source), Array.isArray(list) ? list : []);
+      choices.set(String(source), Array.isArray(list) ? list : false);
       paint();
     }
 

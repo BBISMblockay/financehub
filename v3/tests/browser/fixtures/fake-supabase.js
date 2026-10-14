@@ -280,6 +280,12 @@
       if (saved) Object.assign(db, JSON.parse(saved));
     } catch { /* ignore */ }
   }
+  // A table named here fails its reads. It survives a reload on its own, so
+  // a test can set it and then navigate, which is the only way to drive a
+  // read the page performs for itself at load.
+  try {
+    db.__selectErrors = JSON.parse(sessionStorage.getItem('__FAKE_SELECT_ERRORS__') || 'null') || {};
+  } catch { db.__selectErrors = {}; }
   function persist() {
     if (!PERSIST) return;
     try {
@@ -327,6 +333,11 @@
     const run = () => {
       db.queryCalls.push({ table, op, filters: JSON.parse(JSON.stringify(filters)), range, limit });
       if (op === 'select') {
+        // A table named in __selectErrors fails the way PostgREST fails --
+        // data null, error set -- so a page's catch path can be driven for
+        // real instead of by calling its handler directly.
+        const forced = (db.__selectErrors || {})[table];
+        if (forced) return { data: null, error: { message: forced } };
         let out = viewRows(table);
         for (const f of filters) {
           if (f.k === 'eq') out = out.filter((r) => String(r[f.c]) === String(f.v));
