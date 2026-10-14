@@ -1,0 +1,46 @@
+name: Report email sync
+
+# Delivers every report_email_schedules row whose next_run_at has passed.
+#
+# Slots are chosen for the cadences the UI offers -- 6:00 and 7:00 in the
+# company's zone -- which land at 13:00/14:00 UTC under PDT and 14:00/15:00
+# under PST, so all four are covered plus two later catch-ups. GitHub throttles
+# this repository's cron schedules hard (an hourly schedule was measured firing
+# roughly one time in six), and the runner selects on `next_run_at <= now`
+# rather than on the slot it woke in, so a missed slot delays a delivery and
+# never skips one.
+#
+# NO concurrency group, deliberately, and scripts/CLAUDE.md is the reason: with
+# `cancel-in-progress: false` a QUEUED run is cancelled as soon as another
+# enters the group, so a group silently drops a scheduled run. A group is worth
+# that only when concurrent runs cost something, and here they no longer do --
+# the runner claims each due row with a compare-and-swap on next_run_at
+# (claimSchedule), so a second run finds nothing to send rather than sending the
+# export twice.
+
+on:
+  schedule:
+    - cron: '5 13,14,15,18,23 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # `npm install`, not `npm ci`: there is no root package-lock.json. The
+      # first version of this workflow had NO install step, so the very first
+      # scheduled run would have died on ERR_MODULE_NOT_FOUND for
+      # @supabase/supabase-js before reaching a single schedule.
+      - name: Install deps
+        run: npm install
+      - name: Run due schedules
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REPORT_EMAIL_CRON_SECRET: ${{ secrets.REPORT_EMAIL_CRON_SECRET }}
+        run: node scripts/report-email-sync.mjs

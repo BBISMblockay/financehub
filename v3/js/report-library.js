@@ -22,6 +22,7 @@
     { id: 'company', label: 'Company Reports', noun: 'company reports' },
     { id: 'archived', label: 'Archived', noun: 'archived reports' },
     { id: 'dashboards', label: 'Dashboards', noun: 'dashboards' },
+    { id: 'scheduled', label: 'Scheduled email', noun: 'schedules' },
   ]);
   const DEFAULT_TAB = 'silo';
   // ?tab=reports deep-linked the old combined "Saved reports" list. Its

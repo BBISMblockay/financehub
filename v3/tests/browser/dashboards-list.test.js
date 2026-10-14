@@ -25,7 +25,7 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
     (await p.locator('.silo-sb-link[data-nav-id="reports/library"]').count()) === 0);
   ok('the report builder row stays',
     (await p.locator('.silo-sb-link[data-nav-id="reports/builder"]').count()) === 1);
-  const tabs = await p.$$eval('#libTabs [role="tab"]', (els) => els.map((e) => e.dataset.tab));
+  const tabs = await p.locator('#libTabs [role="tab"]:visible').evaluateAll((els) => els.map((e) => e.dataset.tab));
   ok('five tabs, in order', tabs.join() === 'silo,mine,company,archived,dashboards');
   ok('defaults to SILO Reports', (await p.getAttribute('#tab-silo', 'aria-selected')) === 'true');
   ok('...and only its pane is shown', !(await p.isHidden('#pane-silo'))

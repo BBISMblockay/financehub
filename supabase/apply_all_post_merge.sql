@@ -19233,4 +19233,9 @@ $c$select (select count(*) from v_po_header_summary
 -- reversal on unpost). Must come AFTER 20261005120000 (ledger) and
 -- 20261013180000 (reclasses, joined in silo_ledger_lines_v).
 \i migrations/20261014040000_silo_ledger_mirror_journal_adjustments.sql
+-- Scheduled CSV email for saved reports and dashboards: schedules,
+-- optional member subscriptions, run log, recipient resolver and the
+-- private export bucket. Must come AFTER 20260925120000 (dashboards) and
+-- 20260918120000 (entity memberships).
+\i migrations/20261013180000_report_email_schedules.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
