@@ -38,19 +38,27 @@ Never put the **service role** key in static HTML.
 
 ## Sales or inventory numbers look wrong
 
-1. **Which job owns this channel?**  
-   - Retail locations → nightly **Silo Sheets** sync (`scripts/sync-silo-inventory-sales.mjs`)  
-   - Online Shopify → **Express** sync (`server/index.mjs`)  
-   Both write `sales_by_day` / `inventory_on_hand`. Mixing them without a rule causes confusion.
+1. **One job owns every channel.** GitHub Actions → **Shopify API Sync**
+   (`.github/workflows/shopify-sync.yml`) runs `scripts/shopify-sync.mjs`, which writes
+   `sales_by_day` and `inventory_on_hand` through `scripts/lib/shopify-sync-core.mjs` for retail
+   locations and online alike. Sole source of truth since 2026-07-08.
 
-2. **Did nightly sync run?**  
-   GitHub Actions → `Nightly Silo Sync` → check last run logs.
+2. **Did the sync run?**  
+   Check that workflow's last run logs. The independent alarm is **Data freshness check**
+   (`.github/workflows/sales-freshness-check.yml`), which fails when a nightly sync did not run and
+   re-runs `scripts/shopify-sync.mjs` itself to heal it — so look at its logs too before concluding
+   the sync never ran.
 
-3. **Stale Sheet URL?**  
-   Update CSV export URLs in [`config/silo-sources.mjs`](../../config/silo-sources.mjs), re-run sync.
-
-4. **Shopify rate limit (429)?**  
+3. **Shopify rate limit (429)?**  
    Sync retries automatically; wait and re-run, or space out cron jobs.
+
+4. **Numbers older than 2026-07-08?**  
+   Pre-API history came from the Better Reports Google Sheets import and still sits in
+   `sales_by_day`; it is read-only history now. **That importer no longer exists** — the sheets
+   sync, its source config and its workflows were deleted on 2026-10-14 because the links were
+   shared "anyone with the link". There is no sheet to re-point and no sync to re-run. Restoring it
+   would mean recovering the deleted files from git history and re-sharing the workbooks, which is a
+   deliberate decision to review, not a recovery step.
 
 ---
 
@@ -96,7 +104,6 @@ You'll see it two ways:
 
 | Workflow | What failed | Check |
 |----------|-------------|--------|
-| Nightly Silo Sync | `sync-silo-inventory-sales.mjs` | Secrets `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`; Sheet URLs |
 | AR Google Sheets Sync (dispatch only since 2026-10-13) | `npm run sync:ar` | Same secrets; AR sheet publish URLs in `server/ar-sync.mjs`. A stale-source failure is expected — the sheet is retired |
 
 ---

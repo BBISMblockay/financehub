@@ -76,8 +76,9 @@ is the authority on what is still to do.
 - [ ] Post-merge SQL checklist on every DB PR (`verify_v2_schema.sql`)
 - [x] Sync architecture: one GitHub Action (`shopify-sync.yml`, daily 08:30 UTC)
       pulls sales + inventory + catalog + payouts straight from the Shopify
-      API. The Google Sheets / Better Reports path it replaced was retired
-      2026-07-08 (`nightly-silo-sync.yml` is manual-only now)
+      API. The Google Sheets / Better Reports path it replaced lost its cron
+      2026-07-08 and was deleted outright 2026-10-14; its history stays in
+      `sales_by_day`
 - [x] Align `profiles.role` with `po_builder_can_write` / `po_costing_can_write`
       (30 active profiles as of 2026-08-26, 23 of them `admin`; the enum is
       `owner/admin/executive/user`)
