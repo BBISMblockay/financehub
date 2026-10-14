@@ -120,8 +120,14 @@ owner's included.
   statements; making SILO the authority is a separate decision.
 - The QuickBooks push is still per import batch (monthly), through the existing approval snapshot.
   Pushing the ledger's own period totals instead is the next PR.
-- Journal adjustments (schedules, fixed assets, sales journals) are not ledger entries yet. Books →
-  Ledger counts them from their QuickBooks postings, as before.
+- Journal adjustments (manual entries, schedules, fixed assets, sales journals, reclasses) **are**
+  ledger entries since `20261014040000`: posting one records it on its QuickBooks date (even inside a
+  locked period: the mirror matches QuickBooks), unposting reverses it on the same date, and the
+  existing posted ones were backfilled. Books → Ledger still counts each from its QuickBooks posting
+  and skips the mirrored lines by `posting_id`, so its figures did not move. A reclass is tied to its
+  transaction (`silo_ledger_lines_v.transaction_id`), so a SILO-only reading sees a category change.
+  What the ledger still lacks is activity entered directly in QuickBooks (bills, payroll, …), which
+  Books → Ledger shows as "Other activity in QuickBooks".
 
 ## Production estimate (read-only, 2026-10-04)
 

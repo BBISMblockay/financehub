@@ -1180,6 +1180,18 @@ jobs:
             fi
           done
 
+      # Posted journal adjustments mirrored into the SILO ledger: posted only, on
+      # the QuickBooks date, reversal on unpost, books-start rule, reclass tied
+      # to its transaction, idempotent backfill.
+      - name: Execute SILO ledger adjustment-mirror regressions
+        run: |
+          node scripts/tests/silo-ledger-adjustments-database.test.mjs
+          for mutation in lock-shifted no-start-check no-void-reversal record-unposted no-books-start; do
+            if LEDGER_ADJ_MUTATION="$mutation" node scripts/tests/silo-ledger-adjustments-database.test.mjs > /tmp/ledger-adj-mutation.log 2>&1; then
+              cat /tmp/ledger-adj-mutation.log; echo "Survived ledger adjustment mutation: $mutation"; exit 1
+            fi
+          done
+
       - name: Execute profiles tenant-isolation regressions
         run: node --test scripts/tests/profiles-tenant-scope.test.mjs
 
