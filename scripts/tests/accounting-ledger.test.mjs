@@ -249,6 +249,26 @@ test('a posted batch with rows from before the ledger start counts what QuickBoo
   assert.equal(by['83'].pending, -1500, 'only the unposted 15 is not yet in QuickBooks');
 });
 
+test('a posted adjustment mirrored into the ledger counts once, from its posting', () => {
+  // Since 20261014040000 a posted journal adjustment is also a ledger entry. Its
+  // posting is counted from the posting log; its mirrored lines must not add to it.
+  const postings = [posting('adj1', '2026-08-31', [line('163', 'Debit', 25), line('290', 'Credit', 25)], { source: 'card_reclass' })];
+  const mirrored = [lline('163', '2026-08-31', 25, { in_quickbooks: true, quickbooks_date: '2026-08-31', posting_id: 'adj1', adjustment_id: 'j1' }),
+    lline('290', '2026-08-31', -25, { in_quickbooks: true, quickbooks_date: '2026-08-31', posting_id: 'adj1', adjustment_id: 'j1' })];
+  const m = L.rollForward({ opening, postings, trialBalance: L.parseTrialBalance(trialBalance), closingDate: '2026-09-22', ledgerLines: mirrored });
+  const by = Object.fromEntries(m.rows.map((r) => [r.id, r]));
+  assert.equal(by['163'].silo, 2500, 'counted once');
+  assert.equal(by['290'].silo, -2500);
+  assert.equal(by['163'].pending, 0);
+  // A voided posting is not counted from the log; its mirror nets to zero (entry + reversal) on its own.
+  const voided = [{ ...postings[0], status: 'voided' }];
+  const net = [...mirrored, lline('163', '2026-08-31', -25, { id: 'rev1', kind: 'reversal', in_quickbooks: false, posting_id: null }),
+    lline('290', '2026-08-31', 25, { id: 'rev2', kind: 'reversal', in_quickbooks: false, posting_id: null })];
+  const v = L.rollForward({ opening, postings: voided, trialBalance: L.parseTrialBalance(trialBalance), closingDate: '2026-09-22', ledgerLines: net.map((l) => ({ ...l, posting_id: null })) });
+  const vb = Object.fromEntries(v.rows.map((r) => [r.id, r]));
+  assert.equal(vb['163']?.silo || 0, 0, 'a voided adjustment adds nothing');
+});
+
 test('without the ledger the tab behaves exactly as before', async () => {
   const { el } = await mountWith({ __missing: ['silo_ledger_lines_v'], quickbooks_journal_postings: [stored('a1', '2026-08-31', [line('163', 'Debit', 500), line('290', 'Credit', 500)])], quickbooks_report_runs: [run('tb-a')] });
   const html = el('ledgerTable').innerHTML;

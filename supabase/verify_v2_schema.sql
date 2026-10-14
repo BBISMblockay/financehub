@@ -6201,6 +6201,30 @@ select 'Posted transaction reclass' as check_name,
   else 'ok' end as status;
 -- End posted transaction reclass checks.
 
+-- SILO ledger mirrors journal adjustments (20261014040000): every posted
+-- adjustment is a ledger entry, recorded by trigger, internals not client-callable.
+select 'SILO ledger mirrors journal adjustments' as check_name,
+ case when to_regprocedure('public.silo_ledger_sync_adjustment(uuid)') is null
+        or not exists (select 1 from pg_trigger where tgname = 'silo_ledger_adjustment' and tgrelid = 'public.journal_adjustments'::regclass)
+   then 'MISSING — run 20261014040000_silo_ledger_mirror_journal_adjustments.sql'
+  when not exists (select 1 from pg_constraint where conname = 'ledger_entries_source_check'
+                     and pg_get_constraintdef(oid) like '%journal_adjustment%')
+   then 'MISSING — the ledger does not accept journal adjustment entries'
+  when has_function_privilege('authenticated', 'public.silo_ledger_sync_adjustment(uuid)', 'execute')
+     or has_function_privilege('anon', 'public.silo_ledger_sync_adjustment(uuid)', 'execute')
+   then 'CRITICAL: a client can write the ledger through the adjustment mirror'
+  when not exists (select 1 from information_schema.columns where table_schema = 'public'
+                     and table_name = 'silo_ledger_lines_v' and column_name = 'posting_id')
+   then 'MISSING — silo_ledger_lines_v.posting_id, which Books -> Ledger uses to count a mirrored adjustment once'
+  when exists (select 1 from public.journal_adjustments a
+               join public.accounting_settings st on st.company_entity_id = a.company_entity_id
+               join public.accounting_opening_balances ob on ob.company_entity_id = a.company_entity_id and ob.status = 'accepted'
+               where a.status = 'posted' and a.entry_date >= st.accounting_start_date
+                 and not exists (select 1 from public.ledger_entries e where e.source = 'journal_adjustment' and e.source_id = a.id))
+   then 'BROKEN: a posted adjustment inside the books is missing from the SILO ledger'
+  else 'ok' end as status;
+-- End SILO ledger adjustment mirror checks.
+
 -- Plaid ingestion: metadata uses finance/company RLS; ciphertext is service-only.
 with expected(name) as (values ('plaid_connections'),('plaid_connection_secrets'),
   ('plaid_accounts'),('plaid_sync_exceptions'),('finance_audit_events'))

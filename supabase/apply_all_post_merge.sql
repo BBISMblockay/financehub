@@ -19229,4 +19229,8 @@ $c$select (select count(*) from v_po_header_summary
 -- Every posted bank treatment can be reclassified, each held to its account
 -- rule. Must come AFTER 20261013180000, whose two functions it replaces.
 \i migrations/20261014020000_card_reclass_all_bank_treatments.sql
+-- Posted journal adjustments mirrored into the SILO ledger (QuickBooks' date,
+-- reversal on unpost). Must come AFTER 20261005120000 (ledger) and
+-- 20261013180000 (reclasses, joined in silo_ledger_lines_v).
+\i migrations/20261014040000_silo_ledger_mirror_journal_adjustments.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
