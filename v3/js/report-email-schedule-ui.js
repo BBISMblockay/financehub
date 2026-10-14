@@ -9,6 +9,27 @@
     return S().CADENCE.map((c) => `<option value="${esc(c.id)}"${c.id === selected ? ' selected' : ''}>${esc(c.label)}</option>`).join('');
   }
 
+  /** The period control, or '' when this report has no date window to set.
+   *  A report with no dates gets no control rather than a disabled one that
+   *  implies a setting it does not have. */
+  function periodField(ctx) {
+    if (!ctx.dateKeys) return '';
+    const selected = ctx.period_id || S().USE_PAGE_FILTERS;
+    const opts = S().periodOptions()
+      .map((p) => `<option value="${esc(p.id)}"${p.id === selected ? ' selected' : ''}>${esc(p.label)}</option>`)
+      .join('');
+    const frozen = selected === S().USE_PAGE_FILTERS
+      && /fixed/.test(S().periodSummary(ctx.parameter_state, ctx.dateKeys));
+    return `<div class="res-field"><span class="res-label">Period to send</span>
+      <select class="bcn-field res-period">${opts}</select>
+      <p class="res-note">A named period is worked out again on the morning it sends, so
+        “Last month” always means the month that just ended. “Use the filter values on this
+        page” keeps whatever is applied right now, which stays fixed if those are specific dates.</p>
+      ${frozen ? `<p class="res-note res-note--box">This schedule currently sends
+        ${esc(S().periodSummary(ctx.parameter_state, ctx.dateKeys))} on every send. Pick a named
+        period above if it should move with the calendar.</p>` : ''}</div>`;
+  }
+
   function renderPanel(ctx) {
     const r = ctx.recipients || S().defaultRecipients();
     const outside = r.filter((x) => x.kind === 'email' && x.value).map((x) => x.value).join(', ');
@@ -37,6 +58,7 @@
         <div class="res-field"><span class="res-label">How often</span>
           <select class="bcn-field res-cadence">${cadenceOptions(ctx.cadence_preset || 'weekdays_0700')}</select>
           <p class="res-note">Company time · ${esc(ctx.timezone || 'America/Los_Angeles')}</p></div>
+        ${periodField(ctx)}
         <div class="res-field"><span class="res-label">Send to</span>
           <label class="res-check"><input type="checkbox" id="resAdmins" ${adminBox}/> All workspace admins</label>
           ${deptChecks}
@@ -52,7 +74,9 @@
           <input class="bcn-field res-subject" value="${esc(ctx.subject_template || S().defaultSubject(ctx.title))}" /></div>
         <label class="res-check"><input type="checkbox" id="resSubscribe" ${ctx.allow_member_subscribe ? 'checked' : ''}/> Allow members to subscribe themselves</label>
         <label class="res-check"><input type="checkbox" id="resActive" ${ctx.is_active !== false ? 'checked' : ''}/> Schedule is on</label>
-        <p class="res-note res-note--box">Uses the filter values applied on this page. Large exports are not capped at 1,000 rows.</p>
+        <p class="res-note res-note--box">${ctx.dateKeys
+          ? 'Everything except the period above comes from the filter values applied on this page.'
+          : 'Uses the filter values applied on this page.'} Large exports are not capped at 1,000 rows.</p>
       </div>
       <div class="res-foot">
         <button type="button" class="bcn-btn bcn-btn--primary" id="resSave">Save</button>
@@ -80,6 +104,14 @@
     for (const email of emails) out.push({ kind: 'email', value: email });
     if (!out.length) out.push({ kind: 'workspace_admins' });
     return out;
+  }
+
+  /** The chosen period id, or undefined when the panel rendered no period
+   *  control -- which is not the same as choosing "page filters". A report
+   *  with no date window must leave parameter_state exactly as it was. */
+  function readPeriodId(root) {
+    const sel = root.querySelector('.res-period');
+    return sel ? sel.value : undefined;
   }
 
   /** The parts the user picked, or `undefined` when the panel rendered NO
@@ -131,6 +163,12 @@
       <td><strong>${esc(s2.target_title || s2.name || 'Untitled')}</strong>
         <div class="res-dim">${esc(s2.target_kind === 'dashboard' ? 'Dashboard' : 'Report')}</div></td>
       <td>${esc(S().cadenceLabel(s2.cadence_preset))}</td>
+      <td>${(() => {
+        const label = S().periodSummaryFromState(s2.parameter_state);
+        return label === 'Fixed dates'
+          ? `<span class="res-tag res-tag--neg">${esc(label)}</span>`
+          : esc(label);
+      })()}</td>
       <td>${esc(S().recipientSummary(s2.recipients, members))}${s2.subscriber_count
         ? ` <span class="res-dim">+ ${esc(s2.subscriber_count)} subscribed</span>` : ''}</td>
       <td>${lastRunCell(s2)}</td>
@@ -148,6 +186,7 @@
       <table class="bcn-table res-table"><thead><tr>
       <th class="bcn-th-left">Report</th>
       <th class="bcn-th-left">How often</th>
+      <th class="bcn-th-left">Period</th>
       <th class="bcn-th-left">Goes to</th>
       <th class="bcn-th-left">Last sent</th>
       <th class="bcn-th-left">Next</th>
@@ -157,7 +196,7 @@
   }
 
   global.SiloReportEmailScheduleUI = {
-    renderPanel, readRecipients, readQueryIndices, renderManageTable,
+    renderPanel, readRecipients, readQueryIndices, readPeriodId, renderManageTable,
     recipientSummary: (r, m) => S().recipientSummary(r, m),
   };
 }(typeof window !== 'undefined' ? window : globalThis));

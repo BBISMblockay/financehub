@@ -26,6 +26,105 @@
     return String(profile?.role || '').toLowerCase() === 'owner';
   }
 
+  // ── The period a schedule sends ────────────────────────────────────
+  // A schedule stores parameter_state, which the delivery side substitutes
+  // at SEND time. So what it stores decides whether a recurring export
+  // rolls forward or repeats one frozen window:
+  //
+  //   { date_from: 'prior_month_start', date_to: 'prior_month_end' }
+  //      -> every send is the month that just ended
+  //   { date_from: '2026-09-01', date_to: '2026-09-30' }
+  //      -> every send is September 2026, forever
+  //
+  // Before this the panel silently stored whatever the filter bar happened
+  // to show, so a specific date picked once to look at something became the
+  // window every future email reported. The picker makes the choice
+  // explicit and defaults to naming a period rather than freezing a date.
+
+  const USE_PAGE_FILTERS = '__page__';
+
+  /** The report's two date-range keys, or null if it has no date window.
+   *  Company-calendar dates are included: the picker stores tokens and
+   *  never prints a resolved date, so the viewer's calendar is not in play. */
+  function dateRangeKeys(parameters) {
+    const P = global.SiloReportParams;
+    const FB = global.SiloFilterBar;
+    if (!P || !FB) return null;
+    const decls = P.normalizeDeclarations(parameters);
+    const group = FB.groupDeclarations(decls, { includeCompanyCalendar: true })
+      .find((g) => g.kind === 'range');
+    return group ? { from: group.from.key, to: group.to.key } : null;
+  }
+
+  /** The periods a schedule may be set to, in the order they are offered.
+   *  Taken from the filter bar's own range presets so a period means the
+   *  same thing in an email as it does on screen. */
+  function periodOptions() {
+    const FB = global.SiloFilterBar;
+    return [{ id: USE_PAGE_FILTERS, label: 'Use the filter values on this page' }]
+      .concat((FB?.RANGE_PRESETS || []).map((p) => ({ id: p.id, label: p.label, from: p.from, to: p.to })));
+  }
+
+  /** Which period a stored parameter_state represents, or USE_PAGE_FILTERS
+   *  when it matches none -- including when it holds specific dates, which
+   *  is the frozen case and is shown to the user as such. */
+  function periodIdFor(parameterState, keys) {
+    const FB = global.SiloFilterBar;
+    if (!keys || !FB) return USE_PAGE_FILTERS;
+    const state = parameterState || {};
+    return FB.matchRangePreset(state[keys.from], state[keys.to]) || USE_PAGE_FILTERS;
+  }
+
+  /** parameter_state with the chosen period's TOKENS written in. Returns the
+   *  state unchanged for USE_PAGE_FILTERS, for an unknown id, and for a
+   *  report with no date window -- a picker that cannot find the keys must
+   *  leave the stored state alone rather than invent parameters. */
+  function applyPeriod(parameterState, keys, periodId) {
+    const state = { ...(parameterState || {}) };
+    if (!keys || !periodId || periodId === USE_PAGE_FILTERS) return state;
+    const preset = (global.SiloFilterBar?.RANGE_PRESETS || []).find((p) => p.id === periodId);
+    if (!preset) return state;
+    state[keys.from] = preset.from;
+    state[keys.to] = preset.to;
+    return state;
+  }
+
+  /** The period in words for the schedules table. Says plainly when a
+   *  schedule is pinned to fixed dates, because that is the thing someone
+   *  scanning the table needs to notice. */
+  function periodSummary(parameterState, keys) {
+    if (!keys) return 'Report default';
+    const state = parameterState || {};
+    const from = state[keys.from];
+    const to = state[keys.to];
+    if (!from && !to) return 'Report default';
+    const id = periodIdFor(state, keys);
+    if (id !== USE_PAGE_FILTERS) {
+      return periodOptions().find((p) => p.id === id)?.label || id;
+    }
+    const fixed = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+    if (fixed(from) && fixed(to)) return `${from} → ${to} (fixed)`;
+    return `${from || '—'} → ${to || '—'}`;
+  }
+
+  /** The period for one row of the schedules table, which has the stored
+   *  parameter_state but NOT the report's declarations -- so this reads the
+   *  values alone and never needs a second read per row. It says "Fixed
+   *  dates" loudly, because that is the row someone scanning the table has
+   *  to notice: every send repeats one window. */
+  function periodSummaryFromState(parameterState) {
+    const state = parameterState || {};
+    const values = Object.values(state).map((v) => String(v == null ? '' : v));
+    if (!values.length) return 'Report default';
+    const isoDates = values.filter((v) => /^\d{4}-\d{2}-\d{2}$/.test(v));
+    if (isoDates.length) return 'Fixed dates';
+    for (const p of (global.SiloFilterBar?.RANGE_PRESETS || [])) {
+      if (values.includes(p.from) && values.includes(p.to)) return p.label;
+    }
+    const tokens = values.filter((v) => global.SiloReportParams?.resolveDateExpr(v));
+    return tokens.length ? 'Rolling' : 'Report default';
+  }
+
   function defaultSubject(title) {
     return `${title || 'Report'} · {{company}} · {{date}}`;
   }
@@ -271,6 +370,8 @@
     CADENCE, DEPARTMENTS, isWorkspaceAdmin, defaultSubject, defaultRecipients,
     listSchedules, saveSchedule, deliverNow, duplicateSchedule, pauseAll, listMembers,
     computeNextRunAt, cadenceLabel, parseEmailList, recipientSummary,
+    USE_PAGE_FILTERS, dateRangeKeys, periodOptions, periodIdFor, applyPeriod, periodSummary,
+    periodSummaryFromState,
     findScheduleForTarget, deleteSchedule,
   };
 }(typeof window !== 'undefined' ? window : globalThis));

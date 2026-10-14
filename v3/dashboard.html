@@ -20,7 +20,7 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20261014c" />
+  <link rel="stylesheet" href="dashboard.css?v=20261014d" />
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2/v2-mobile.css" />
   <script src="../v2/v2-shell.js" defer></script>
@@ -203,11 +203,11 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20260930a"></script>
+<script src="js/report-params.js?v=20261014d"></script>
 <script src="js/field-semantics.js?v=20260930a"></script>
 <script src="js/metrics.js?v=20260930a"></script>
 <script src="js/chart-adapter.js?v=20260930a"></script>
-<script src="js/filter-bar.js?v=20260930a"></script>
+<script src="js/filter-bar.js?v=20261014d"></script>
 <script src="js/report-catalog.js?v=20260930a"></script>
 <!-- The dashboard page does not compose SQL, but it does have to READ a
      saved answer: which of its queries is the answer and which is the
@@ -220,9 +220,9 @@
 <script src="js/report-library.js?v=20260930a"></script>
 <script src="js/dashboard-copy.js?v=20260930a"></script>
 <script src="js/report-preview.js?v=20260930a"></script>
-<script src="js/report-email-schedule.js?v=20261014c"></script>
-<script src="js/report-email-schedule-ui.js?v=20261014c"></script>
-<script src="js/report-email-schedule-mount.js?v=20261014c"></script>
+<script src="js/report-email-schedule.js?v=20261014d"></script>
+<script src="js/report-email-schedule-ui.js?v=20261014d"></script>
+<script src="js/report-email-schedule-mount.js?v=20261014d"></script>
 <script>
 (function () {
   'use strict';
@@ -798,6 +798,9 @@
       title: report.title,
       userId: user.id,
       queries: (report.columns_metadata?._queries) || null,
+      // The period picker pairs the report's date parameters by their
+      // declarations, not by what the filter bar happens to be showing.
+      parameters: report.parameters || [],
       getParams: () => runtime?.getParamValues?.() || {},
     });
     if (new URLSearchParams(location.search).get('openSchedule') === '1') {
@@ -821,6 +824,7 @@
         reportId: ctx.reportId,
         title: ctx.title,
         queries: ctx.queries,
+        parameters: ctx.parameters,
         parameter_state: ctx.getParams(),
         timezone: 'America/Los_Angeles',
       },

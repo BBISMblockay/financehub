@@ -32,6 +32,12 @@ and the gate. `product_concepts` detail: `docs/agents/database.md`.
 - A column LABEL belongs to the report (`columns_metadata`); DISPLAY choices belong to the widget.
 - Report `{{tokens}}` are substituted by `js/report-params.js` with typed checks. An undeclared token
   is an error, never a passthrough. Date slicers store the TOKEN (`today-27d`), not the resolved date.
+- A period boundary (`prior_month_start`, `week_end`, …) lives in BOTH `PERIOD_LOCAL` (the viewer's
+  calendar) and `PERIOD_SQL` (the company's, via `silo_business_today()`) in `js/report-params.js`.
+  Add one to both maps or to neither; the unit suite asserts the key sets are equal, because a token
+  that resolves in only one calendar works on screen and breaks in a 7am email.
+- A scheduled email's `parameter_state` stores the period as a TOKEN. `applyPeriod()` must never
+  write a resolved date there: that is what freezes a recurring export on one window.
 - `js/filter-bar.js` is built once and updated in place. Rebuilding its `innerHTML` drops typed input.
 - A KPI's title is never evidence of which column it shows.
 - SILO (`system`) dashboards and reports are global and read-only to every client; changing one is a

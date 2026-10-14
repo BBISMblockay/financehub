@@ -44,10 +44,22 @@
     { value: 'today-30d', label: '30 days ago' },
     { value: 'today-90d', label: '90 days ago' },
     { value: 'today-365d', label: '365 days ago' },
+    { value: 'week_start', label: 'Start of this week' },
+    { value: 'week_end', label: 'End of this week' },
+    { value: 'prior_week_start', label: 'Start of last week' },
+    { value: 'prior_week_end', label: 'End of last week' },
     { value: 'month_start', label: 'Start of this month' },
     { value: 'month_end', label: 'End of this month' },
+    { value: 'prior_month_start', label: 'Start of last month' },
+    { value: 'prior_month_end', label: 'End of last month' },
+    { value: 'quarter_start', label: 'Start of this quarter' },
+    { value: 'quarter_end', label: 'End of this quarter' },
+    { value: 'prior_quarter_start', label: 'Start of last quarter' },
+    { value: 'prior_quarter_end', label: 'End of last quarter' },
     { value: 'year_start', label: 'Start of this year' },
     { value: 'year_end', label: 'End of this year' },
+    { value: 'prior_year_start', label: 'Start of last year' },
+    { value: 'prior_year_end', label: 'End of last year' },
   ];
 
   /* A range preset sets BOTH ends at once. Every one is INCLUSIVE of both
@@ -64,6 +76,13 @@
     { id: 'mtd', label: 'Month to date', from: 'month_start', to: 'today' },
     { id: 'this_month', label: 'This month', from: 'month_start', to: 'month_end' },
     { id: 'ytd', label: 'Year to date', from: 'year_start', to: 'today' },
+    /* A COMPLETE period, both ends. "Last month" is not month-to-date: on
+       the 1st, month-to-date is one day, which is the whole reason a
+       scheduled "prior month" CSV could not be expressed before. */
+    { id: 'prior_week', label: 'Last week', from: 'prior_week_start', to: 'prior_week_end' },
+    { id: 'prior_month', label: 'Last month', from: 'prior_month_start', to: 'prior_month_end' },
+    { id: 'prior_quarter', label: 'Last quarter', from: 'prior_quarter_start', to: 'prior_quarter_end' },
+    { id: 'prior_year', label: 'Last year', from: 'prior_year_start', to: 'prior_year_end' },
   ];
 
   const START_RE = /^(.*?)(_?)(start|from|begin|since)(_date)?$/i;
@@ -78,18 +97,30 @@
    *
    * Returns [{kind:'range', key, from, to} | {kind:'single', decl}] in the
    * declaration order they arrived in, so the bar's layout is stable.
+   *
+   * A company-calendar date is NOT paired into a range control by default:
+   * the range control prints the window it resolves to, and resolving it in
+   * the VIEWER's calendar would print a date the query will not use. Those
+   * stay two single controls, which say "Company calendar" instead of a
+   * date. `opts.includeCompanyCalendar` pairs them anyway, for a caller that
+   * only wants to know WHICH TWO KEYS are the ends of one window and never
+   * renders a resolved date -- the scheduled-email period picker, which
+   * stores tokens for Postgres to resolve at send time.
    */
-  function groupDeclarations(decls) {
+  function groupDeclarations(decls, opts) {
+    const anyCalendar = !!(opts && opts.includeCompanyCalendar);
+    const pairable = (d) => d.type === 'date' && !d.conflict
+      && (anyCalendar || d.date_basis !== 'company');
     const byKey = new Map(decls.map((d) => [d.key, d]));
     const consumed = new Set();
     const out = [];
     for (const d of decls) {
       if (consumed.has(d.key)) continue;
-      if (d.type === 'date' && !d.conflict && d.date_basis !== 'company') {
+      if (pairable(d)) {
         const m = START_RE.exec(d.key);
         if (m) {
           const prefix = m[1];
-          const partner = decls.find((o) => o !== d && o.type === 'date' && !o.conflict && o.date_basis !== 'company'
+          const partner = decls.find((o) => o !== d && pairable(o)
             && !consumed.has(o.key) && (END_RE.exec(o.key) || [])[1] === prefix);
           if (partner && byKey.has(partner.key)) {
             consumed.add(d.key); consumed.add(partner.key);
