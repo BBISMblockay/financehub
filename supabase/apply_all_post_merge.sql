@@ -19249,4 +19249,8 @@ $c$select (select count(*) from v_po_header_summary
 -- regenerates their tie-outs. Needs the view above, and must come after
 -- the migrations that seed those two reports.
 \i migrations/20261014090000_report_location_parameter.sql
+-- Rewrites the view above so its fallback is driven from `entities` through a
+-- LATERAL. Same rows; 16s -> 15ms under RLS, which is what puts it inside the
+-- browser's 8s statement timeout.
+\i migrations/20261014180000_report_location_filter_speed.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

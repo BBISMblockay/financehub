@@ -9,6 +9,14 @@
       name: 'Monday sales review', description: 'What sold last week', visibility: 'company',
       created_at: '2026-08-28T00:00:00Z', updated_at: '2026-08-28T00:00:00Z', widget_count: 0 }],
     dashboard_widgets: [],
+    // Per-company location choices for a slicer with options_source
+    // (silo_report_locations_v). Read AFTER the bar is built, which is
+    // the whole point of the regression that uses it.
+    silo_report_locations: [
+      { company_entity_id: 'C1', location_tag: 'st_louis', label: 'St. Louis' },
+      { company_entity_id: 'C1', location_tag: 'mission_viejo', label: 'Mission Viejo' },
+      { company_entity_id: 'C1', location_tag: 'wholesale', label: 'Wholesale' },
+    ],
     // Personal saved filter views (20260908130000). Empty by default: the
     // page has to work with none, and a suite seeds its own.
     dashboard_filter_views: [],
@@ -272,6 +280,12 @@
       if (saved) Object.assign(db, JSON.parse(saved));
     } catch { /* ignore */ }
   }
+  // A table named here fails its reads. It survives a reload on its own, so
+  // a test can set it and then navigate, which is the only way to drive a
+  // read the page performs for itself at load.
+  try {
+    db.__selectErrors = JSON.parse(sessionStorage.getItem('__FAKE_SELECT_ERRORS__') || 'null') || {};
+  } catch { db.__selectErrors = {}; }
   function persist() {
     if (!PERSIST) return;
     try {
@@ -319,6 +333,11 @@
     const run = () => {
       db.queryCalls.push({ table, op, filters: JSON.parse(JSON.stringify(filters)), range, limit });
       if (op === 'select') {
+        // A table named in __selectErrors fails the way PostgREST fails --
+        // data null, error set -- so a page's catch path can be driven for
+        // real instead of by calling its handler directly.
+        const forced = (db.__selectErrors || {})[table];
+        if (forced) return { data: null, error: { message: forced } };
         let out = viewRows(table);
         for (const f of filters) {
           if (f.k === 'eq') out = out.filter((r) => String(r[f.c]) === String(f.v));
