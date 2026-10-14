@@ -464,6 +464,20 @@
            people never build a dashboard at all; this closes it without
            v2 taking a dependency on /v3/ code -- the redirect below hands
            off to the dashboard page, which owns the visual recommendation. -->
+      <!-- A saved report whose SQL carries a literal date reports that
+           window forever; 35 of 231 saved reports were in that state on
+           2026-10-14. Offered here, at the one moment the person still
+           remembers what they meant, rather than left to be discovered
+           months later when the numbers stopped moving. Ticked by
+           default: a rolling window is almost always what was wanted, and
+           the exact window stays one click away. -->
+      <div class="bcn-field-group" id="saveDialogFreezeWrap" hidden>
+        <label class="ac-save-vis-opt" for="saveDialogRelative">
+          <input type="checkbox" id="saveDialogRelative" checked />
+          <span><strong>Make the dates adjustable</strong>
+            <small id="saveDialogFreezeNote"></small></span>
+        </label>
+      </div>
       <div class="bcn-field-group" id="saveDialogDashWrap" hidden>
         <label class="bcn-label" for="saveDialogDashboard">Add to a dashboard</label>
         <select class="bcn-field" id="saveDialogDashboard">
@@ -483,6 +497,7 @@
 </div>
 
 <script src="../pages/config.js"></script>
+<script src="../pages/report-date-freeze.js?v=20261014d"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
@@ -1676,6 +1691,29 @@
     el('saveDialogDashboard').value = '';
     el('saveDialogNewDashWrap').hidden = true;
     el('btnConfirmSave').textContent = 'Save';
+    // Only offer the rewrite when there IS one to offer. parameterize()
+    // refuses anything but a clean two-date window, so asking it now
+    // rather than at Save means the dialog never promises a fix it will
+    // then decline to make.
+    pendingSave.relative = null;
+    const freezeWrap = el('saveDialogFreezeWrap');
+    freezeWrap.hidden = true;
+    const F = window.SiloReportDateFreeze;
+    if (F) {
+      const info = F.inspect(ctx.queries, []);
+      if (info.frozen) {
+        const plan = F.parameterize(ctx.queries);
+        if (plan.queries) {
+          pendingSave.relative = plan;
+          el('saveDialogRelative').checked = true;
+          el('saveDialogFreezeNote').textContent =
+            `It asks about ${info.from} → ${info.to}. Saved as it is, it reports that window `
+            + 'forever. Adjustable, it opens on the same length of time ending yesterday, and '
+            + 'you can change it on the report.';
+          freezeWrap.hidden = false;
+        }
+      }
+    }
     el('saveDialogBackdrop').classList.add('open');
     el('saveDialogName').focus();
     el('saveDialogName').select();
@@ -1716,12 +1754,17 @@
     const visibility = document.querySelector('input[name="saveVisibility"]:checked')?.value === 'private'
       ? 'private' : 'company';
     const { ctx, btn } = pendingSave;
+    // The rewrite, when it was offered AND left ticked. Anything else
+    // saves exactly what ran, which is the existing behaviour.
+    const plan = pendingSave.relative && el('saveDialogRelative')?.checked
+      ? pendingSave.relative : null;
     el('btnConfirmSave').disabled = true;
     const { data: saved, error } = await sb.from('silo_chat_saved_reports').insert({
       title,
       question: ctx.question,
       answer: ctx.answer,
-      queries_run: ctx.queries,
+      queries_run: plan ? plan.queries : ctx.queries,
+      parameters: plan ? plan.parameters : null,
       visibility,
       // Explicit rather than leaning on the column default: this row's
       // provenance is the point now that the table serves several

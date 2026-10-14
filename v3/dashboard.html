@@ -77,6 +77,13 @@
          mode too: changing the date range is the ordinary way to read a
          dashboard, not an edit. A viewer's change applies to their session;
          only an editor's Save writes it back as the dashboard's position. -->
+    <!-- A report saved from Ask SILO before the dates could be made
+         adjustable carries a literal date in its SQL and reports that one
+         window forever. It looks exactly like a working report, which is
+         what makes it worth saying out loud here rather than leaving
+         someone to notice the numbers stopped moving. -->
+    <div class="bcn-status bcn-status--info v3-frozen-dates" id="frozenDates" hidden></div>
+
     <section class="v3-slicer-bar" id="slicerBar" hidden>
       <div class="v3-slicer-row">
         <button type="button" class="v3-slicer-lead v3-slicer-toggle" id="btnFilters"
@@ -194,6 +201,7 @@
 </div>
 
 <script src="../pages/config.js"></script>
+<script src="../pages/report-date-freeze.js?v=20261014d"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack-all.js"></script>
@@ -371,6 +379,40 @@
       mark.textContent = 'not filtered';
       mark.title = `This report does not read ${missing.map((k) => `{{${k}}}`).join(', ')}, so the dashboard filters do not change it.`;
     }
+  }
+
+  /* Choices for a parameter whose options come from the database rather
+     than its own declaration. Read once per page and handed to the filter
+     bar; a failure leaves the control offering "All locations", which is
+     the report's default and always a correct answer, rather than blocking
+     the page on a dropdown. */
+  async function loadChoiceSources(bar) {
+    if (!bar || !bar.setChoices) return;
+    try {
+      const { data, error } = await sb.from('silo_report_locations_v')
+        .select('location_tag, label').order('label');
+      if (error) throw error;
+      bar.setChoices('location', (data || []).map((r) => ({ value: r.location_tag, label: r.label })));
+    } catch (e) {
+      // Not a page failure. Say it once in the console and carry on.
+      console.warn('[v3] location choices unavailable', e?.message || e);
+    }
+  }
+
+  /* Say so when a report is pinned to a literal date. Read-only: it never
+     changes the report, because rewriting someone's saved SQL from a
+     banner is not a thing a page should do quietly. The report builder is
+     where the fix is made, so that is where it points. */
+  function showFrozenDates(report) {
+    const box = el('frozenDates');
+    const F = window.SiloReportDateFreeze;
+    if (!box || !F) return;
+    const info = F.inspect(report?.queries_run, report?.parameters);
+    if (!info.frozen) { box.hidden = true; return; }
+    const esc = window.SiloChart.esc;
+    box.innerHTML = `${esc(F.describe(info))} `
+      + `<a href="report-builder.html?id=${encodeURIComponent(report.id)}">Make the dates adjustable</a>`;
+    box.hidden = false;
   }
 
   async function applyParams(patch) {
@@ -635,6 +677,7 @@
       participation: (key) => runtime.participationFor(key),
       onApply: applyParams,
     });
+    loadChoiceSources(filterBar);
 
     if (canEdit) {
       builder = window.SiloDashboardBuilder.create({
@@ -757,6 +800,8 @@
       participation: (key) => runtime.participationFor(key),
       onApply: applyParams,
     });
+    loadChoiceSources(filterBar);
+    showFrozenDates(report);
     viewsAvailable = false;
     window.__siloDashboard = { runtime, builder: null, dashboard, preview: true, get filterBar() { return filterBar; } };
 

@@ -48,6 +48,9 @@ const window = {};
   'use strict';
 
   const TYPES = ['date', 'number', 'enum', 'text'];
+  // Where a `text` parameter's dropdown choices come from. See
+  // normalizeDeclarations: this picks the CONTROL, never the escaping.
+  const OPTION_SOURCES = ['location'];
 
   // {{key}} — keys are snake_case identifiers so a token can never be
   // confused with SQL punctuation, and so the same regex validates a
@@ -201,6 +204,20 @@ const window = {};
         default: raw.default === undefined || raw.default === null ? '' : String(raw.default),
       };
       if (type === 'date' && raw.date_basis === 'company') decl.date_basis = 'company';
+      // A UI hint, and ONLY a UI hint: it tells a filter bar where to fetch
+      // the choices to offer, and changes nothing about how the value is
+      // turned into SQL. A `text` parameter keeps text's escaping, so the
+      // security boundary does not move because a dropdown exists. It has
+      // to work this way: a SILO report is global and read-only to every
+      // client, while each company has its own locations, so the choices
+      // cannot be an `enum`'s declared option list.
+      //
+      // Allowlisted, not copied through: an unknown source is dropped and
+      // the control falls back to a plain text field rather than silently
+      // offering nothing.
+      if (type === 'text' && OPTION_SOURCES.includes(String(raw.options_source || ''))) {
+        decl.options_source = String(raw.options_source);
+      }
       if (type === 'enum') {
         decl.options = (Array.isArray(raw.options) ? raw.options : [])
           .map((o) => String(o)).filter((o) => o !== '');
@@ -394,7 +411,7 @@ const window = {};
   }
 
   global.SiloReportParams = {
-    TYPES, KEY_RE, DATE_HINT,
+    TYPES, OPTION_SOURCES, KEY_RE, DATE_HINT,
     normalizeDeclarations, tokensIn, toLiteral, effectiveValue,
     substitute, mergeDeclarations, defaultsFor, resolveDateExpr, localISO,
     PERIOD_KEYS, PERIOD_LOCAL, PERIOD_SQL,

@@ -19242,4 +19242,11 @@ $c$select (select count(*) from v_po_header_summary
 -- outside the workspace. Replaces resolve_report_email_recipients() only, so
 -- it must come after the migration that creates it.
 \i migrations/20261014060000_report_email_external_recipients.sql
+-- Per-company choices for a report location slicer. Reads `locations` and
+-- `sales_by_day`, so it must come after both exist.
+\i migrations/20261014080000_report_location_filter.sql
+-- Declares {{location}} on Sales by Location and Top Products and
+-- regenerates their tie-outs. Needs the view above, and must come after
+-- the migrations that seed those two reports.
+\i migrations/20261014090000_report_location_parameter.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

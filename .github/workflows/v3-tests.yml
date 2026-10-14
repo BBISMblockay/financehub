@@ -26,6 +26,10 @@ on:
       - 'v2/nav-config.js'
       - 'v2/silo-chrome.js'
       - 'v2/beacon.css'
+      # The report page loads this to flag a report pinned to a literal
+      # date, and report-date-freeze.test.js is the suite that holds it to
+      # refusing every rewrite it is not sure of.
+      - 'pages/report-date-freeze.js'
   pull_request:
     paths: *v3_paths
   workflow_dispatch:
