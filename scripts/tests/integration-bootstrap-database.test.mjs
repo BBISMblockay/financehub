@@ -82,8 +82,15 @@ await db.exec(migration);
 // runs before the behavioural assertions below so that every mutation reaches
 // it rather than failing earlier.
 const verifySql = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
-const verifyBlock = verifySql.slice(verifySql.indexOf("select 'Integration bootstrap queue' as check_name,"));
-assert.ok(verifyBlock.length > 100 && verifyBlock.trim().endsWith(';'), 'could not extract the verify block');
+const verifyStart = verifySql.indexOf("select 'Integration bootstrap queue' as check_name,");
+assert.ok(verifyStart >= 0, 'Integration bootstrap verify block missing');
+let verifyBlock = verifySql.slice(verifyStart);
+// Later verify rows (e.g. report_email_schedules) must not ride along — one
+// statement per db.query, and each suite owns its own block.
+const verifyEnd = verifyBlock.indexOf("select 'report_email_schedules table' as check_name,");
+if (verifyEnd > 0) verifyBlock = verifyBlock.slice(0, verifyEnd);
+verifyBlock = verifyBlock.trim();
+assert.ok(verifyBlock.length > 100 && verifyBlock.endsWith(';'), 'could not extract the verify block');
 const verifyStatus = async () => (await db.query(verifyBlock)).rows[0].status;
 if (MUT) {
   assert.notEqual(await verifyStatus(), 'ok', `verify_v2_schema.sql reports ok under the ${MUT} mutation`);

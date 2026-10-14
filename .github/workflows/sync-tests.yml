@@ -867,6 +867,11 @@ jobs:
       - name: Nightly report tie-outs classify and impersonate safely
         run: node scripts/tests/report-tieouts-nightly.test.mjs
 
+      # Scheduled CSV email: cadence math, CSV pagination and export helpers
+      # (report-email-deliver-core.mjs), no network.
+      - name: Report email deliver core
+        run: node scripts/tests/report-email-deliver.test.mjs
+
   plaid-typecheck:
     name: Plaid Edge Function typecheck
     runs-on: ubuntu-latest
