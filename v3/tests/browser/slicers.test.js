@@ -297,6 +297,52 @@ const isoToday = () => { const d = new Date(); const p = (n) => String(n).padSta
   await page.waitForTimeout(500);
   await page.reload(); await page.waitForFunction(()=>window.__siloDashboard); await page.waitForTimeout(500);
   ok('reload preserves the rolling token, not a frozen date',await page.inputValue('[data-param="date_from"]')==='today-60d');
+  // ── a choice slicer whose options arrive after the bar is built ──────
+  // The page reads silo_report_locations_v per company, which lands AFTER
+  // the field is on screen. The first version shipped with only the "All
+  // locations" option visible forever, because setChoices() repainted
+  // values and a <select>'s options are only written when the field is
+  // rebuilt. Asserted on the real control, not on the helper.
+  await seed(`db.silo_chat_saved_reports.push({id:'LOC',title:'By location',source:'system',company_entity_id:null,
+    parameters:[{key:'location',type:'text',label:'Location',default:'all',options_source:'location'}],
+    queries_run:["select 1 where ({{location}} = 'all' or location_tag = {{location}})"]});
+    db.dashboards[0].filter_state={}; db.dashboard_widgets.length=0;
+    db.dashboard_widgets.push({id:'LW',dashboard_id:'D1',report_id:'LOC',query_index:0,title:'By location',
+      visual_type:'table',visual_config:{},layout:{x:0,y:0,w:6,h:4},sort_order:0});`);
+  await page.reload();
+  await page.waitForFunction(() => window.__siloDashboard);
+  await page.waitForTimeout(700);
+  {
+    const opts = await page.$$eval('[data-param="location"] option',
+      (os) => os.map((o) => `${o.value}|${o.textContent.trim()}`));
+    ok('the company\'s locations are listed, not just the All option',
+      opts.length === 4, JSON.stringify(opts));
+    ok('All is first and is the sentinel the report declares',
+      opts[0] === 'all|All locations', JSON.stringify(opts[0]));
+    ok('each choice shows the human name and submits the slug',
+      opts.includes('st_louis|St. Louis') && opts.includes('mission_viejo|Mission Viejo'),
+      JSON.stringify(opts));
+    // And the mechanism itself, isolated from how fast the page's own read
+    // happens to resolve: hand an ALREADY-BUILT bar a new list. A <select>'s
+    // options are only written when the field is rebuilt, so a setChoices
+    // that merely repaints leaves whatever was on screen at build time.
+    await page.evaluate(() => window.__siloDashboard.filterBar.setChoices('location', [
+      { value: 'denver', label: 'Denver' }, { value: 'tempe', label: 'Tempe' }]));
+    await page.waitForTimeout(200);
+    const later = await page.$$eval('[data-param="location"] option', (os) => os.map((o) => o.value));
+    ok('a list handed to a bar that is already on screen replaces its options',
+      later.join(',') === 'all,denver,tempe', JSON.stringify(later));
+    await page.evaluate(() => window.__siloDashboard.filterBar.setChoices('location', [
+      { value: 'st_louis', label: 'St. Louis' }, { value: 'mission_viejo', label: 'Mission Viejo' },
+      { value: 'wholesale', label: 'Wholesale' }]));
+    await page.waitForTimeout(200);
+    await page.selectOption('[data-param="location"]', 'st_louis');
+    await page.waitForTimeout(500);
+    const calls = await page.evaluate(() => window.__FAKE_DB__.rpcCalls.map((c) => c.args.query));
+    ok('picking one filters the query, quoted as text',
+      calls.some((q) => q.includes("location_tag = 'st_louis'")), calls.slice(-2).join(' | '));
+  }
+
   ok('no page errors throughout', errors.length === 0, errors.slice(0, 4).join('\n        '));
 
   console.log(`\n${checks - fails}/${checks} checks passed\n`);

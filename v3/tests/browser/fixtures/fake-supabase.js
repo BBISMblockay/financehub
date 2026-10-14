@@ -9,6 +9,14 @@
       name: 'Monday sales review', description: 'What sold last week', visibility: 'company',
       created_at: '2026-08-28T00:00:00Z', updated_at: '2026-08-28T00:00:00Z', widget_count: 0 }],
     dashboard_widgets: [],
+    // Per-company location choices for a slicer with options_source
+    // (silo_report_locations_v). Read AFTER the bar is built, which is
+    // the whole point of the regression that uses it.
+    silo_report_locations: [
+      { company_entity_id: 'C1', location_tag: 'st_louis', label: 'St. Louis' },
+      { company_entity_id: 'C1', location_tag: 'mission_viejo', label: 'Mission Viejo' },
+      { company_entity_id: 'C1', location_tag: 'wholesale', label: 'Wholesale' },
+    ],
     // Personal saved filter views (20260908130000). Empty by default: the
     // page has to work with none, and a suite seeds its own.
     dashboard_filter_views: [],
