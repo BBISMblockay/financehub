@@ -94,10 +94,19 @@
     /* QuickBooks is a second, separate state from SILO's own: a row can be
        categorized in SILO and absent from the books. It reads as a status
        line, not a note, because it is the answer to "is this in QuickBooks". */
-    .txn-qbo-state { margin: 0 0 10px; font-family: var(--bcn-mono); font-size: 10.5px;
-      line-height: 1.5; color: var(--bcn-ink-2); background: var(--bcn-band);
-      border-left: 2px solid var(--bcn-ink-3); border-radius: 0 4px 4px 0; padding: 7px 10px; }
-    .txn-qbo-state b { color: var(--bcn-ink); letter-spacing: .04em; text-transform: uppercase;
+    /* --bcn-band is the near-black chrome band in BOTH themes, so anything on
+       it has to take its text from the band's own ink. Two things were wrong
+       here and only one of them showed: the colours came from the page ink,
+       and `.txn-detail-panel p` in transactions-workspace.css outranks a lone
+       class, so the paragraph was painted --bcn-ink-2 whatever this rule said.
+       In dark theme that token is light and it read by luck; in light theme it
+       is near-black on near-black. Hence the panel-scoped selector. */
+    .txn-qbo-state,
+    .txn-detail-panel .txn-qbo-state { margin: 0 0 10px; font-family: var(--bcn-mono); font-size: 10.5px;
+      line-height: 1.5; color: var(--bcn-band-ink-2); background: var(--bcn-band);
+      border-left: 2px solid var(--bcn-band-ink-3); border-radius: 0 4px 4px 0; padding: 7px 10px; }
+    .txn-qbo-state b,
+    .txn-detail-panel .txn-qbo-state b { color: var(--bcn-band-ink); letter-spacing: .04em; text-transform: uppercase;
       font-size: 9.5px; margin-right: 6px; }
 
     .cc-row--excluded td { opacity: .45; }
