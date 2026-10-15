@@ -114,11 +114,11 @@ closed up to 17 hours early, while the people closing it are still in it.
 
 ## Tests
 
-`node scripts/tests/transactions-qbo-state.test.mjs` — 43 checks against the
+`node scripts/tests/transactions-qbo-state.test.mjs` — 49 checks against the
 shipped page, with the real `transaction-filters.js`, `transaction-dates.js` and
 `card-splits.js` loaded rather than stubs, including the panel and strip wiring
 and not only the helpers. Green under both UTC and `TZ=America/Los_Angeles`.
-37 mutations were confirmed to fail a test, among them reading the unfinished
+43 mutations were confirmed to fail a test, among them reading the unfinished
 attempt from the batch instead of its claim (the cycle-1 finding), correlating
 the claim read on the wrong column, swallowing a failed or thrown claim read,
 reading a journal entry id as proof of posting, comparing the period end
@@ -129,3 +129,33 @@ both go through `loadTxns()` and the real workspace widget — so their wiring i
 held by a source assertion, with the behaviour it depends on driven directly.
 Seven of the mutations restore some form of "not in QuickBooks", one per
 reading, against a sweep that asserts no reading anywhere asserts absence.
+
+## A fourth reading: handled outside SILO (2026-10-15)
+
+`card_sources.posting_start_on` is the first day SILO may post an account
+(`20261015020000_card_posting_start.sql`; set in Books & setup). A period ending
+before it was not SILO's to send — Baseballism's July and August 2026 bank
+periods were categorized inside QuickBooks directly, off a three-month Plaid
+backload — so the row reads **Handled outside SILO** and asks for nothing, the
+workflow strip says the same, the save confirmation stops naming the period as
+unposted work, and the Approve button is disabled with that reason rather than
+letting the database trigger's refusal be the first anyone hears of it.
+
+Its place in the precedence matters: it comes AFTER the two claim readings and
+BEFORE the posting switch. A post already sent and unconfirmed is not settled by
+a date set afterwards, so an unresolved claim still reads **Unknown**. A period
+already posted still reads **In QuickBooks**: the date governs what SILO may
+send from now on, and does not relabel history.
+
+The reading needs `source_posting_start_on` in `BATCH_FIELDS`; unselected it is
+`undefined` and every period silently reads as SILO's, which a test pins.
+
+A cut-over need not fall on a period boundary. A period whose own end is after
+it is SILO's to post, but the entry approval freezes is built from every
+non-zero effective line in the batch -- so a September 15 cut-over on a
+September 1-30 import would freeze the September 10 rows and posting would send
+them. `card_posting_start_guard` refuses that approval, counting the rows and
+naming the earliest; the entry pane blocks Approve with the same count, so the
+database's refusal is never the first anyone hears of it. Excluding those rows,
+or moving them to their own import, clears it, because the guard asks exactly
+the lines approval freezes.

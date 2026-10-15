@@ -159,6 +159,10 @@
     el('migrationToggle').addEventListener('click',()=>setMigration(el('migrationBody').hidden));
     // It draws above the tabs, so a #register landing is re-scrolled once it has.
     window.SiloMigrationStatus?.mount({db,companyId:company.id}).catch(e=>{console.warn('Migration status unavailable:',e.message);}).finally(()=>linked?.scrollIntoView?.({block:'start'}));
+    // The cut-over control writes, but only to card_sources.posting_start_on and
+    // only through its own confirmation, so a failure to mount it leaves the
+    // rest of Books usable and says so in its own card.
+    window.SiloPostingStart?.mount({db,companyId:company.id,el,businessToday,booksStart:booksSettings?.accounting_start_date}).catch(e=>{el('postingStart').querySelector('[data-posting-table]').textContent=`Accounts could not be read: ${e.message}.`;});
     // Same rule for the ledger: read-only, and it degrades to its own message.
     window.SiloLedger?.mount({db,companyId:company.id,opening:baseline,settings:booksSettings,businessToday,el}).catch(e=>{el('ledgerTable').textContent=`The ledger could not be read: ${e.message}.`;});
     // History loading must not delay or disable the existing Books controls.

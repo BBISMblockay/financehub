@@ -741,7 +741,7 @@
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   // Keep journal payloads server-side: a 60-batch list must not download every
   // approval_snapshot. Shared by list, older-batch and active-batch refreshes.
-  const BATCH_FIELDS = 'id,company_entity_id,source_id,source_name,source_key,label,file_name,status,created_at,entry_date,period_start,period_end,total_amount,txn_count,uncoded_count,excluded_count,coded_amount,qbo_journal_entry_id,qbo_doc_number,posting_status,posting_id,qbo_connection_id,origin,feed_sequence,approved_at,approved_by,approval_version,approval_hash,source_posting_enabled,credit_account_name,credit_account_type';
+  let BATCH_FIELDS = 'id,company_entity_id,source_id,source_name,source_key,label,file_name,status,created_at,entry_date,period_start,period_end,total_amount,txn_count,uncoded_count,excluded_count,coded_amount,qbo_journal_entry_id,qbo_doc_number,posting_status,posting_id,qbo_connection_id,origin,feed_sequence,approved_at,approved_by,approval_version,approval_hash,source_posting_enabled,source_posting_start_on,credit_account_name,credit_account_type';
 
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
@@ -1058,7 +1058,28 @@
     }));
   }
 
+  /* The page is static and goes live on merge; the migration that adds
+     source_posting_start_on is applied separately and may come later. PostgREST
+     rejects a select that names an unknown column rather than returning nothing,
+     so ask once and drop the column until it exists. Every period then reads as
+     SILO's, which is exactly what the page did before this field. */
+  let batchFieldsChecked = false;
+  async function ensureBatchFields() {
+    if (batchFieldsChecked) return;
+    const probe = await sb.from('card_import_batches_v').select('source_posting_start_on').limit(1);
+    if (!probe.error) { batchFieldsChecked = true; return; }
+    /* Only "that column does not exist" means the migration is not applied. Any
+       other failure (network, auth) is not evidence about the schema: keep the
+       column, do not latch, and let the real read below report the problem
+       instead of silently losing every "Handled outside SILO" reading. */
+    if (probe.error.code === '42703' || /source_posting_start_on/.test(probe.error.message || '')) {
+      batchFieldsChecked = true;
+      BATCH_FIELDS = BATCH_FIELDS.replace(',source_posting_start_on', '');
+    }
+  }
+
   async function loadBatches() {
+    await ensureBatchFields();
     const { data, error } = await sb.from('card_import_batches_v')
       .select(BATCH_FIELDS).order('created_at', { ascending: false }).limit(60);
     if (error) throw new Error(error.message);
@@ -2142,6 +2163,31 @@
       : d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   };
 
+  /* A period that ends before SILO started posting the account
+     (card_sources.posting_start_on). Accounts came under SILO at different
+     times: Baseballism's cards in August 2026, the bank feed only in September,
+     and the bank feed's July and August were coded inside QuickBooks directly
+     off a three-month Plaid backload. Those months are not unfinished work and
+     nothing is to be sent for them, so they say so instead of asking to be
+     approved. Approval refuses them in the database too
+     (card_batch_posting_start), which is what makes this more than a label. */
+  /* A cut-over need not fall on a period boundary. A September 1-30 import with
+     a September 15 cut-over is SILO's to post, but the entry approval freezes
+     would hold the September 10 rows too -- and the database refuses that
+     (card_posting_start_guard). These are the rows it counts: coded, not
+     excluded, dated before the cut-over. */
+  const preCutoverRows = (b, rows) => {
+    if (!b?.source_posting_start_on) return [];
+    return (rows || []).filter((t) => t && t.status === 'coded'
+      && t.txn_date && t.txn_date < b.source_posting_start_on);
+  };
+
+  const handledOutsideSilo = (b) => {
+    if (!b?.source_posting_start_on) return false;
+    const ends = b.period_end || b.entry_date || b.period_start;
+    return !!ends && ends < b.source_posting_start_on;
+  };
+
   /* A period whose last day has passed. This is the line between "nobody has
      closed October yet", which needs no comment, and "July is over and still a
      draft", which is the state worth saying out loud. */
@@ -2192,6 +2238,11 @@
       const ref = claim.ref ? ` Look for ${claim.ref}.` : '';
       return `Unknown — a post was sent for ${period} and QuickBooks never confirmed it, so the entry may or may not exist there. SILO has locked the entry so it cannot post twice; check QuickBooks, then resolve it on this period.${ref}`;
     }
+    /* Before the posting switch: a period from before the cut-over is settled,
+       not waiting on a switch, an approval or a category. */
+    if (handledOutsideSilo(b)) {
+      return `Handled outside SILO — ${period} ends before SILO started posting ${b.source_name || 'this account'}, so nothing is sent for it.`;
+    }
     if (!b.source_posting_enabled) {
       return `Not sent to QuickBooks — QuickBooks posting is off for ${b.source_name || 'this account'}. ${SENT_ONLY}`;
     }
@@ -2220,6 +2271,7 @@
        lookup that failed says so rather than reading as "nothing was sent". */
     if (waiting.some((b) => claimStateFor(b)?.kind === 'unreadable')) return 'Posting attempts could not be read';
     if (waiting.some(postingUnsettled)) return 'Posting outcome unconfirmed';
+    if (waiting.every(handledOutsideSilo)) return 'Handled outside SILO';
     // card_import_batches_v carries the source's own switch per batch. Reading
     // it from the batch means a source list that has not resolved yet cannot
     // make a postable account look switched off.
@@ -2240,7 +2292,7 @@
     const periods = [...new Map((rows || [])
       .map((t) => batchFor(t))
       .filter((b) => b && ['draft', 'categorized'].includes(b.status)
-        && !isInQuickBooks(b) && !claimStateFor(b) && periodClosed(b))
+        && !isInQuickBooks(b) && !claimStateFor(b) && !handledOutsideSilo(b) && periodClosed(b))
       .map((b) => [b.id, b])).values()];
     if (!periods.length) return base;
     const names = periods.map(periodLabel).join(', ');
@@ -3966,6 +4018,22 @@
       blockers.push(e.src?.credit_vendor_name
         ? `balancing receivable line: “${e.src.credit_vendor_name}” was typed, not picked — choose the customer on the Accounts tab`
         : 'the card balancing account is Accounts Receivable but has no customer — set it on the Accounts tab');
+    }
+    // The database refuses this period outright (card_batch_posting_start). Say
+    // so here rather than letting the refusal be the first they hear of it.
+    if (handledOutsideSilo(state.batch)) {
+      blockers.push(`${periodLabel(state.batch)} ends before SILO started posting `
+        + `${state.batch.source_name || 'this account'}, so it is not SILO's to send — it was handled outside SILO`);
+    } else {
+      // A period that STRADDLES the cut-over: the period is SILO's, some of its
+      // rows are not, and approving would freeze them into the entry.
+      const early = preCutoverRows(state.batch, state.txns);
+      if (early.length) {
+        blockers.push(`${early.length} ${early.length === 1 ? 'row is' : 'rows are'} dated before SILO started `
+          + `posting ${state.batch.source_name || 'this account'} on ${state.batch.source_posting_start_on} — `
+          + `move ${early.length === 1 ? 'it' : 'them'} to their own import, or exclude `
+          + `${early.length === 1 ? 'it' : 'them'}, because approving would send activity handled outside SILO`);
+      }
     }
     // The preview is built from the split lines that were read. If they could
     // not be read, it is missing lines and must not be approved.

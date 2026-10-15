@@ -399,9 +399,30 @@ try {
     }
   });
 
+  /* BATCH_FIELDS is read from the shipped page, so it names the batch view as
+     the NEWEST migration defines it, while the fixture above stops at a slice
+     of the migration history on purpose. Rather than drag the whole later
+     accounting stack in (and its verifier checks with it), bring just this
+     view to head: every committed re-definition of it, and every column a
+     later migration adds to card_sources, which is all it reads from. Without
+     this the suite went red the first time the view gained a column
+     (source_posting_start_on, 20261015020000). */
+  await test('the batch view is brought to its committed head definition', async () => {
+    const names = (await readdir(new URL('supabase/migrations/', root))).filter((name) => name.slice(0, 14) > '20260923140000').sort();
+    for (const name of names) {
+      const sql = await readFile(new URL(`supabase/migrations/${name}`, root), 'utf8');
+      if (!/card_import_batches_v|card_sources/i.test(sql)) continue;
+      for (const statement of splitSqlStatements(sql)) {
+        if (!/^\s*(drop\s+view\s+if\s+exists\s+public\.card_import_batches_v|create\s+(or\s+replace\s+)?view\s+public\.card_import_batches_v|grant\s+select\s+on\s+public\.card_import_batches_v|alter\s+table\s+(public\.)?card_sources\s+add\s+column\s+if\s+not\s+exists)/i.test(statement.text)) continue;
+        await db.exec(statement.text);
+      }
+    }
+    assert.equal(await scalar("select count(*)::integer from pg_class where relname='card_import_batches_v'"), 1);
+  });
+
   await test('batch page projection excludes journal payloads and uses real view columns', async () => {
     const html = await readFile(new URL('v2/transactions.html', root), 'utf8');
-    const fields = html.match(/const BATCH_FIELDS = '([^']+)'/)[1];
+    const fields = html.match(/(?:const|let) BATCH_FIELDS = '([^']+)'/)[1];
     assert.ok(!fields.includes('*') && !fields.includes('approval_snapshot'));
     assert.ok(fields.includes('source_id') && fields.includes('posting_status'));
     await q(`select ${fields} from public.card_import_batches_v limit 1`);

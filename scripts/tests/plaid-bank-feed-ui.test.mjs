@@ -399,6 +399,7 @@ await test('list and older-batch requests omit approval payloads while retaining
   h.db.from = (table) => {
     const q = query({ card_import_batches_v: single ? batch : [batch] }, h.writes, table);
     q.select = (fields) => {
+      if (table === 'card_import_batches_v' && fields === 'source_posting_start_on') return q;   // the one-column schema probe
       if (table === 'card_import_batches_v') {
         requests.push(fields);
         assert.ok(!fields.includes('*') && !fields.includes('approval_snapshot'));
@@ -413,6 +414,35 @@ await test('list and older-batch requests omit approval payloads while retaining
   await h.page.openBatch(batch.id);
   assert.equal(h.page.state.batch.id, batch.id); assert.equal(requests.length, 2);
 });
+
+for (const [name, probeError, kept] of [
+  ['an undefined column drops it, so the page loads before the migration is applied', { code: '42703', message: 'column card_import_batches_v.source_posting_start_on does not exist' }, false],
+  ['a schema-cache miss on that column drops it too', { code: 'PGRST204', message: "Could not find the 'source_posting_start_on' column of 'card_import_batches_v' in the schema cache" }, false],
+  ['a network failure does NOT drop it: that would silence every Handled outside SILO reading', { message: 'Failed to fetch' }, true],
+]) {
+  await test(`the schema probe: ${name}`, async () => {
+    const h = await pageHarness(); const full = []; let probes = 0;
+    const batch = { ...h.page.state.batch, id: 'probe-batch' };
+    h.db.from = (table) => {
+      const q = query({ card_import_batches_v: [batch] }, h.writes, table);
+      q.select = (fields) => {
+        if (table === 'card_import_batches_v' && fields === 'source_posting_start_on') {
+          probes += 1;
+          return { limit: async () => ({ data: null, error: probeError }) };
+        }
+        if (table === 'card_import_batches_v') full.push(fields);
+        return q;
+      };
+      return q;
+    };
+    await h.page.loadBatches();
+    assert.equal(h.page.state.batches[0].id, 'probe-batch', 'the page still loads its batches');
+    assert.equal(full.every((f) => f.includes('source_posting_start_on')), kept,
+      kept ? 'the column stays in the read' : 'the column is dropped from the read');
+    await h.page.loadBatches();
+    assert.equal(probes, kept ? 2 : 1, kept ? 'an unexplained failure is asked again next time' : 'a missing column is settled once');
+  });
+}
 
 await test('mapping unconfirmed or changed date cannot call configure RPC',async()=>{
   for(const answer of [null,false,'changed']){

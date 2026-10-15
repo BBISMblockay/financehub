@@ -6968,3 +6968,51 @@ select 'Report location filter' as check_name,
       then 'BROKEN — a location-filtered report''s tie-out still guards the previous definition, so report-tieouts-nightly will read NO DATA. Re-run the tie-out block of 20261014090000_report_location_parameter.sql'
     else 'ok'
   end as status;
+
+-- When SILO starts posting an account (20261015020000): the cut-over column,
+-- the approval guard, the ledger gate, the On Deck filter, and a paged resync
+-- that only finance can call.
+select 'Card posting cut-over' as check_name,
+ case when not exists (select 1 from information_schema.columns where table_schema = 'public'
+                         and table_name = 'card_sources' and column_name = 'posting_start_on')
+        or not exists (select 1 from pg_trigger where tgname = 'card_batch_posting_start'
+                         and tgrelid = 'public.card_import_batches'::regclass)
+        or to_regprocedure('public.silo_ledger_resync_posting_start(uuid,integer,date)') is null
+        or not exists (select 1 from pg_trigger where tgname = 'qbo_card_posting_start_claim'
+                         and tgrelid = 'public.quickbooks_journal_postings'::regclass)
+        or to_regprocedure('public.card_posting_start_refusal(uuid,uuid,date,date,date)') is null
+   then 'MISSING — run 20261015020000_card_posting_start.sql'
+  -- The gate is the whole point: without it a pre-cut-over month stays in
+  -- SILO's own ledger even though QuickBooks already holds it by hand.
+  when pg_get_functiondef(to_regprocedure('public.silo_ledger_start(public.card_sources)')) not like '%posting_start_on%'
+   then 'BROKEN — silo_ledger_start ignores posting_start_on, so pre-cut-over transactions still enter the SILO ledger'
+  when pg_get_functiondef(to_regprocedure('public.on_deck_coding_items()')) not like '%source_posting_start_on%'
+   then 'BROKEN — On Deck still lists periods SILO is not to post'
+  when not exists (select 1 from information_schema.columns where table_schema = 'public'
+                     and table_name = 'card_import_batches_v' and column_name = 'source_posting_start_on')
+   then 'MISSING — card_import_batches_v.source_posting_start_on, which Transactions reads to say a period was handled outside SILO'
+  -- The resync must reconcile BOTH directions. Reversal-only means clearing a
+  -- cut-over leaves those months absent from SILO's ledger with nothing to put
+  -- them back, because silo_ledger_on_source ignores this column by design.
+  when to_regprocedure('public.silo_ledger_resync_candidates(uuid,uuid,integer,date)') is null
+    or pg_get_functiondef(to_regprocedure('public.silo_ledger_resync_candidates(uuid,uuid,integer,date)')) not like '%<>%'
+   then 'BROKEN — the cut-over resync only reverses; clearing a date would not restore those ledger entries'
+  -- The guard must judge the batch's CONTENTS, or a cut-over inside a period
+  -- lets approval freeze pre-cut-over lines that posting would then send.
+  when pg_get_functiondef(to_regprocedure('public.card_posting_start_refusal(uuid,uuid,date,date,date)')) not like '%card_coding_effective_lines%'
+    or pg_get_functiondef(to_regprocedure('public.card_posting_start_guard()')) not like '%card_posting_start_refusal%'
+   then 'BROKEN — the approval guard judges only the period, so a period straddling the cut-over can be approved with pre-cut-over lines in its entry'
+  -- A month SILO is not to post must not be sendable even when it is already
+  -- approved: the posting claim is the one step every send passes.
+  when pg_get_functiondef(to_regprocedure('public.card_import_batch_preview(uuid)')) not like '%card_posting_start_refusal%'
+   then 'BROKEN — On Deck still offers to send a month SILO is not to post'
+  when has_function_privilege('anon', 'public.card_posting_start_refusal(uuid,uuid,date,date,date)', 'execute')
+    or has_function_privilege('authenticated', 'public.card_posting_start_refusal(uuid,uuid,date,date,date)', 'execute')
+   then 'CRITICAL: a client can call the cut-over judgement directly'
+  when has_function_privilege('anon', 'public.silo_ledger_resync_posting_start(uuid,integer,date)', 'execute')
+    or has_function_privilege('anon', 'public.silo_ledger_resync_candidates(uuid,uuid,integer,date)', 'execute')
+    or has_function_privilege('authenticated', 'public.silo_ledger_resync_candidates(uuid,uuid,integer,date)', 'execute')
+   then 'CRITICAL: a client can reach the ledger resync directly'
+  when not has_function_privilege('authenticated', 'public.silo_ledger_resync_posting_start(uuid,integer,date)', 'execute')
+   then 'BROKEN — Books & setup cannot run the resync after saving a cut-over'
+  else 'ok' end as status;
