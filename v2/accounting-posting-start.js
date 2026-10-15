@@ -142,9 +142,14 @@
          reversal either way. */
       const posts = source.posting_start_on ? `${longDate(source.posting_start_on)} onward` : 'every period';
       const work = source.posting_start_on ? 'Reversing earlier ledger entries' : 'Restoring earlier ledger entries';
+      /* The window is only a speed-up: it can miss a row stranded by an earlier,
+         interrupted run under a different date. So a windowed pass that reaches 0
+         is followed by one unbounded pass, and "Saved" is only said once that
+         also reads 0. */
+      let bound = before;
       let remaining = null;
       for (let page = 0; page < 200; page += 1) {
-        const r = await db.rpc('silo_ledger_resync_posting_start', { p_source_id: id, p_limit: 100, p_before: before });
+        const r = await db.rpc('silo_ledger_resync_posting_start', { p_source_id: id, p_limit: 100, p_before: bound });
         if (r.error) {
           status(`Saved. SILO posts ${posts}, but SILO’s ledger is not yet in line with that: ${r.error.message}. Press Save again on this account to pick up where it stopped.`, true);
           return;
@@ -154,6 +159,7 @@
         const stalled = remaining !== null && left < RESYNC_CAP && left >= remaining;
         remaining = left;
         status(remaining ? `${work} — ${remaining} transactions left…` : 'Saved.');
+        if (!remaining && bound !== null) { bound = null; remaining = null; continue; }
         if (!remaining) break;
         /* Each page settles up to 100 rows, so a remainder that did not shrink
            means the rest are held (an open feed exception, an inactive account)

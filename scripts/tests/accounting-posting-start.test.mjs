@@ -107,10 +107,11 @@ function harness({ sources = [SOURCE], update, rpc, value = '2026-09-01' } = {})
 
 test('the paged reversal runs to zero, and only then is the save called done', async () => {
   const h = harness({ update: { data: [{ id: 's1', posting_start_on: '2026-09-01' }], error: null },
-    rpc: [{ data: 240, error: null }, { data: 140, error: null }, { data: 0, error: null }] });
+    rpc: [{ data: 240, error: null }, { data: 140, error: null }, { data: 0, error: null }, { data: 0, error: null }] });
   await h.mounted; await h.click();
   const resyncs = h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start');
-  assert.equal(resyncs.length, 3, 'the RPC is bounded per call, so the caller must loop until it returns 0');
+  assert.equal(resyncs.length, 4, 'the RPC is bounded per call, so the caller must loop until it returns 0, then confirm once without the window');
+  assert.equal(resyncs[3][1].p_before, null, 'the last pass is unbounded: the window is a speed-up, never the proof');
   assert.equal(JSON.stringify(resyncs[0][1]), JSON.stringify({ p_source_id: 's1', p_limit: 100, p_before: '2026-09-01' }));
   assert.match(h.statusEl.innerHTML, /Saved/);
   assert.match(h.statusEl.innerHTML, /SILO posts from September 1, 2026/);
@@ -148,11 +149,22 @@ test('a remainder that does not shrink stops the loop rather than pressing on', 
 
 test('a capped count is a lower bound, not a stall: the loop keeps going', async () => {
   const h = harness({ update: { data: [{ id: 's1', posting_start_on: '2026-09-01' }], error: null },
-    rpc: [{ data: 5000, error: null }, { data: 5000, error: null }, { data: 4000, error: null }, { data: 0, error: null }] });
+    rpc: [{ data: 5000, error: null }, { data: 5000, error: null }, { data: 4000, error: null }, { data: 0, error: null }, { data: 0, error: null }] });
   await h.mounted; await h.click();
-  assert.equal(h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start').length, 4,
+  assert.equal(h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start').length, 5,
     'two reads at the 5000 cap are not evidence that nothing moved');
   assert.ok(!/did not move/.test(h.statusEl.innerHTML), h.statusEl.innerHTML);
+});
+
+test('a windowed pass that reads 0 is not trusted alone: one unbounded pass must also read 0', async () => {
+  // An earlier interrupted run under a different date can leave a row outside
+  // today's window; only an unbounded pass can see it.
+  const h = harness({ update: { data: [{ id: 's1', posting_start_on: '2026-09-01' }], error: null },
+    rpc: [{ data: 0, error: null }, { data: 3, error: null }, { data: 0, error: null }] });
+  await h.mounted; await h.click();
+  const calls = h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start').map((c) => c[1].p_before);
+  assert.deepEqual(calls, ['2026-09-01', null, null], 'windowed 0 -> unbounded finds 3 -> keeps going unbounded to 0');
+  assert.match(h.statusEl.innerHTML, /Saved/);
 });
 
 test('the resync is bounded to rows before the later of the old and new date', async () => {
@@ -195,12 +207,12 @@ test('the account list reads only its own company, and asks for the column it re
 test('saving the SAME date again resumes a reversal that stopped partway', async () => {
   const PARTIAL = { ...SOURCE, posting_start_on: '2026-09-01' };
   const h = harness({ sources: [PARTIAL], update: { data: [], error: null },
-    rpc: [{ data: 120, error: null }, { data: 0, error: null }] });
+    rpc: [{ data: 120, error: null }, { data: 0, error: null }, { data: 0, error: null }] });
   await h.mounted; await h.click();
   assert.equal(h.asks(), 0, 'nothing is being decided, so no confirmation is asked again');
   assert.equal(h.calls.filter((c) => c[0] === 'update').length, 0,
     'the date is already right; rewriting it would be a no-op write');
-  assert.equal(h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start').length, 2,
+  assert.equal(h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start').length, 3,
     'the whole point of pressing Save again is that the reconciliation runs');
   assert.match(h.statusEl.innerHTML, /Saved/);
   assert.doesNotMatch(h.statusEl.innerHTML, /already the cut-over/,
@@ -210,11 +222,11 @@ test('saving the SAME date again resumes a reversal that stopped partway', async
 test('clearing the cut-over restores, and says restore rather than reverse', async () => {
   const SET = { ...SOURCE, posting_start_on: '2026-09-01' };
   const h = harness({ sources: [SET], value: '', update: { data: [{ id: 's1', posting_start_on: null }], error: null },
-    rpc: [{ data: 435, error: null }, { data: 0, error: null }] });
+    rpc: [{ data: 435, error: null }, { data: 0, error: null }, { data: 0, error: null }] });
   await h.mounted; await h.click();
   assert.equal(h.asks(), 1, 'clearing it IS a decision, so it is confirmed');
   assert.equal(JSON.stringify(h.calls.find((c) => c[0] === 'update')[1]), JSON.stringify({ posting_start_on: null }));
-  assert.equal(h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start').length, 2,
+  assert.equal(h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start').length, 3,
     'the reversed entries do not come back on their own: silo_ledger_on_source ignores this field');
   assert.match(h.statusEl.innerHTML, /Every period is SILO’s to post/);
   assert.ok(h.said.some((m) => /Restoring earlier ledger entries — 435 transactions left/.test(m)),

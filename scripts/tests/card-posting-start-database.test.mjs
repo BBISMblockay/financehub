@@ -64,7 +64,7 @@ const MUTATIONS = {
   // Count held rows as out of line: the remainder never reaches 0.
   'resync-counts-held': ['    and public.silo_ledger_blocker(t.id) is null\n', ''],
   // A pre-cut-over month that is already approved can be sent: the claim is not judged.
-  'no-claim-guard': ["create trigger qbo_card_posting_start_claim before insert", "create trigger qbo_card_posting_start_claim_off before insert"],
+  'no-claim-guard': ["  if new.source <> 'card_import' or new.status <> 'submitting' then return new; end if;\n  select * into v_batch from public.card_import_batches where id = new.source_ref::uuid;", "  return new;\n  select * into v_batch from public.card_import_batches where id = new.source_ref::uuid;"],
   // On Deck keeps offering to send it.
   'preview-still-posts': ["coalesce(v_source.posting_enabled, false) and v_cutover is null);", "coalesce(v_source.posting_enabled, false));"],
   // Ignore the window: every row is judged again.
@@ -537,6 +537,17 @@ try {
     assert.equal((await live(inWindow)).length, 1, 'a row dated after the window is not touched');
     await as(finance, () => q("select silo_ledger_resync_posting_start($1,100,date '2026-09-01')", [bank]));
     assert.equal((await live(inWindow)).length, 0, 'the right window reaches it and reverses it');
+  });
+
+  await test('the production schema check agrees with this migration: verify_v2_schema.sql reads ok', async () => {
+    // Nothing else runs this block before production does, so a refactor that
+    // moves logic between functions would first show up as a red drift check.
+    const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+    const from = verify.indexOf("select 'Card posting cut-over' as check_name");
+    assert.ok(from >= 0, 'the check exists');
+    const statement = verify.slice(from, verify.indexOf(';\n', from) + 1);
+    const row = await one(statement);
+    assert.equal(row.status, 'ok', `verify says: ${row.status}`);
   });
 
   console.log(`PASS card posting start: ${passed} checks -- approval refused before the cut-over by any path, the ledger reversed in pages rather than deleted, On Deck quiet, history intact`);

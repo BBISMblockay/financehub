@@ -6999,7 +6999,8 @@ select 'Card posting cut-over' as check_name,
    then 'BROKEN — the cut-over resync only reverses; clearing a date would not restore those ledger entries'
   -- The guard must judge the batch's CONTENTS, or a cut-over inside a period
   -- lets approval freeze pre-cut-over lines that posting would then send.
-  when pg_get_functiondef(to_regprocedure('public.card_posting_start_guard()')) not like '%card_coding_effective_lines%'
+  when pg_get_functiondef(to_regprocedure('public.card_posting_start_refusal(uuid,uuid,date,date,date)')) not like '%card_coding_effective_lines%'
+    or pg_get_functiondef(to_regprocedure('public.card_posting_start_guard()')) not like '%card_posting_start_refusal%'
    then 'BROKEN — the approval guard judges only the period, so a period straddling the cut-over can be approved with pre-cut-over lines in its entry'
   -- A month SILO is not to post must not be sendable even when it is already
   -- approved: the posting claim is the one step every send passes.
