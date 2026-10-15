@@ -175,6 +175,7 @@
     const limit = 'Silo can only see the accounts that were connected here. It has no way to know how many bank or card accounts the company holds in total, so this never means "all of them".';
     if (!liveBanks.length && !activeSources.length) {
       return { state: 'todo', summary: 'No bank or card feed reaches Silo yet', metrics, link,
+        ask: 'Connect a bank, or add a card account, so your transactions reach SILO.',
         points: ['Nothing is feeding transactions into Silo. Connect a bank, or add a card source and upload a statement, before coding can begin.'], limit };
     }
     const points = [];
@@ -194,7 +195,8 @@
         ask: 'Reconnect an account that has stopped sending transactions.' };
     }
     if (!liveBanks.length) {
-      return { state: 'active', summary: `${plural(activeSources.length, 'card source')}, no live bank feed`, metrics, link, points, limit };
+      return { state: 'active', summary: `${plural(activeSources.length, 'card source')}, no live bank feed`, metrics, link, points, limit,
+        ask: 'Connect a bank if your transactions should arrive on their own instead of by upload.' };
     }
     return { state: 'done', summary: `${plural(liveBanks.length, 'bank')} · ${plural(activeSources.length, 'source')}`, metrics, link, points, limit };
   }
@@ -209,6 +211,7 @@
     const limit = 'An accepted trial balance is a set of closing balances, not transaction detail. Open invoices, bills and reconciliation history are not part of it.';
     if (!f.opening) {
       return { state: 'todo', summary: 'No trial balance stored', link,
+        ask: 'Bring your starting balances over from QuickBooks and check them.',
         points: ['Fetch a read-only trial balance from QuickBooks as of the day before Silo starts, then review it account by account.'], limit };
     }
     const start = f.settings && f.settings.accounting_start_date;
@@ -225,6 +228,7 @@
     }
     if (!start) {
       return { state: 'attention', summary: 'Accepted, but no start date is set', metrics, link,
+        ask: 'Set the date your books start in SILO.',
         points: ['The opening balances are accepted but no accounting start date is recorded, so Silo cannot tell which transactions belong to it and which belong to QuickBooks history.'], limit };
     }
     return { state: 'done', summary: `Accepted · Silo starts ${start}`, metrics, link,
@@ -248,6 +252,7 @@
     }
     if (!rows.length) {
       return { state: 'todo', summary: 'No QuickBooks history retained', link,
+        ask: 'Save a copy of your old QuickBooks books, so they stay readable here.',
         points: [`Nothing is archived yet. Save a general ledger and trial balance window ending ${addDays(cutover, -1)} so the detail behind your opening balances survives disconnecting QuickBooks.`], limit };
     }
     const cov = coverage(rows, cutover);
@@ -278,7 +283,13 @@
       return { state: 'attention', summary: 'A period is missing', metrics, link, points, limit,
         ask: `Save the missing stretch of your old books (${cov.gaps.map(g => `${g.from} → ${g.to}`).join(', ')}) before disconnecting QuickBooks.` };
     }
-    if (exceptions) return { state: 'attention', summary: `Covers ${cov.from} → ${cov.to} · ${plural(exceptions, 'exception')}`, metrics, link, points, limit };
+    if (exceptions) {
+      /* The copy IS saved here, so telling the reader to save one again would
+         not touch what is outstanding: the accounts the old reports could not
+         fully account for are what needs a look. */
+      return { state: 'attention', summary: `Covers ${cov.from} → ${cov.to} · ${plural(exceptions, 'exception')}`, metrics, link, points, limit,
+        ask: `Look at ${plural(exceptions, 'account')} your old reports could not fully account for.` };
+    }
     return { state: 'done', summary: `Covers ${cov.from} → ${cov.to}`, metrics, link, points, limit };
   }
 
@@ -300,6 +311,7 @@
     ];
     if (!c.total) {
       return { state: 'todo', summary: 'No transactions in Silo yet', metrics, link,
+        ask: 'Upload a statement, or connect a feed, so there are transactions to categorize.',
         points: ['Nothing has been imported. Connect a feed or upload a statement, then code the rows and save the ones that repeat as rules.'], limit };
     }
     const coded = Math.max(0, c.total - c.uncoded);
@@ -358,7 +370,8 @@
     points.push(`${plural(months.length - missing.length, 'of ' + count(months.length) + ' month', 'of ' + count(months.length) + ' months')} since ${cutover} has a posted entry.`);
     if (missing.length) points.push(`Nothing posted for ${missing.join(', ')}. Build the sales journal and approve the card batches for those months.`);
     if (!posted.size) {
-      return { state: 'todo', summary: `No entries posted since ${cutover}`, metrics, link, points, limit };
+      return { state: 'todo', summary: `No entries posted since ${cutover}`, metrics, link, points, limit,
+        ask: `Post ${missing.length === 1 ? missing[0] : `${count(missing.length)} months with nothing in them`}.` };
     }
     if (missing.length) {
       return { state: 'attention', summary: `${count(missing.length)} month${missing.length === 1 ? '' : 's'} with nothing posted`, metrics, link, points, limit,
@@ -375,18 +388,16 @@
     { id: 'revenue', title: 'Monthly sales posted', build: revenueStage },
   ];
 
-  /* What the reader has to DO about an unfinished step, in their words.
-     The step's own `points` explain the accounting; this is the instruction,
-     and it is the only part of a step that belongs outside the details. A
-     builder may set its own `ask` where it can be specific (how many rows,
-     which months); otherwise this is what shows. */
-  const ASKS = Object.freeze({
-    feeds: 'Connect a bank, or add a card account, so your transactions reach SILO.',
-    opening: 'Bring your starting balances over from QuickBooks and check them.',
-    history: 'Save a copy of your old QuickBooks books, so they stay readable here.',
-    coding: 'Categorize the transactions that are waiting on you.',
-    revenue: 'Post the months that still have nothing in them.',
-  });
+  /* What the reader has to DO about an unfinished step, in their words. The
+     step's own `points` explain the accounting; the `ask` is the instruction,
+     and it is the only part of a step that belongs outside the details.
+     It is set by the BRANCH that found the problem, never per step: a step is
+     unfinished for several different reasons and they do not share a next
+     action -- saved history with open exceptions is not resolved by saving
+     another copy, a month that has not ended yet cannot be posted, and a step
+     Silo could not read is answered by refreshing, not by doing the work
+     again. A branch with nothing for the reader to do states no ask, and the
+     lead says what that step is instead. */
 
   /* The lead line. It says where the company stands in one sentence and
      claims nothing the steps did not measure -- a step SILO could not read
@@ -394,13 +405,24 @@
   function plainState(stages) {
     const open = stages.filter(s => s.state !== 'done');
     if (!open.length) return 'Your books are set up, and nothing is waiting on you.';
-    if (open.every(s => s.state === 'unknown')) {
-      return 'SILO could not read part of your books just now. Refresh the page; if it keeps happening, tell your administrator.';
+    /* A step Silo could not read is not work the reader owes: it may already
+       be finished. It is counted separately and never folded into the number
+       of things that need them. */
+    const unreadable = open.filter(s => s.state === 'unknown').length;
+    const asked = open.filter(s => s.ask).length;
+    const unreadableLine = unreadable === 1
+      ? 'SILO could not read one part of your books just now; refresh the page.'
+      : `SILO could not read ${unreadable} parts of your books just now; refresh the page.`;
+    if (!asked) {
+      if (unreadable) {
+        return `${unreadableLine} If it keeps happening, tell your administrator.`;
+      }
+      return 'Nothing needs you right now.';
     }
-    const n = open.length;
-    return n === 1
+    const lead = asked === 1
       ? 'One thing needs you before your books are fully set up.'
-      : `${n} things need you before your books are fully set up.`;
+      : `${asked} things need you before your books are fully set up.`;
+    return unreadable ? `${lead} ${unreadableLine}` : lead;
   }
 
   function assess(facts) {
@@ -418,7 +440,7 @@
         metrics: out.metrics || [],
         limit: out.limit || '',
         link: out.link || null,
-        ask: out.ask || ASKS[b.id] || '',
+        ask: out.ask || '',
       };
     });
     /* Position is the first step that is not finished -- including an unknown

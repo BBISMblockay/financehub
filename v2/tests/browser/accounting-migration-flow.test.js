@@ -361,6 +361,23 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
       r.eq(current.map((s) => s.name), ['Your old books, kept here']);
     });
 
+    /* Review cycle 1 (#1003): with the details collapsed the ask list is the
+       guidance, so an unreadable step must not put an instruction on screen
+       that cannot resolve it -- nor be counted as work the reader owes. */
+    await check('an unreadable step asks for a refresh and is not counted as work owed', async () => {
+      const seen = await page2.evaluate(() => ({
+        lead: document.querySelector('[data-migration-headline]').textContent.trim(),
+        asks: Array.from(document.querySelectorAll('.migration-asks li span')).map((n) => n.textContent.trim()),
+      }));
+      r.has(seen.lead, 'could not read');
+      r.has(seen.lead, 'needs you', 'the lead still counts the work that IS outstanding');
+      r.truthy(!/^2 things need you/.test(seen.lead),
+        `the unreadable step was counted as work owed: ${seen.lead}`);
+      for (const a of seen.asks) {
+        r.not(a, 'Save a copy', `the page told the reader to redo an unreadable step: ${a}`);
+      }
+    });
+
     await page2.close();
   } finally {
     await suite.close();

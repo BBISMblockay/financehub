@@ -191,6 +191,45 @@ r.test('a company with everything outstanding is still asked for at most three t
     'and they are the first three, in migration order');
 });
 
+/* Review cycle 1 (#1003, P2): with the details collapsed, the ask list IS the
+   guidance, so an instruction that cannot resolve what is outstanding is worse
+   than none. Each of the three cases the review named is pinned below. */
+
+r.test('a step SILO could not read asks for a refresh, not for the work again', () => {
+  const facts = Object.assign(LIVE(), { history: U });
+  const model = M.assess(facts);
+  r.eq(stage(facts, 'history').state, 'unknown');
+  r.eq(stage(facts, 'history').ask, '', 'an unreadable step claims no next action');
+  model.asks.forEach(a => r.not(a.ask, 'Save a copy',
+    'the archive may already exist; the page must not say to make another'));
+  r.has(model.plain, 'could not read one part');
+  r.has(model.plain, 'One thing needs you', 'the unreadable step is not counted as work owed');
+  r.not(model.plain, '2 things need you');
+});
+
+r.test('saved history with open exceptions points at the exceptions', () => {
+  const facts = LIVE();
+  const history = stage(facts, 'history');
+  r.eq(history.state, 'attention');
+  r.has(history.ask, 'could not fully account for', 'the open accounts are what is outstanding');
+  r.not(history.ask, 'Save a copy', 'the copy is already saved; re-saving changes nothing');
+  r.has(history.ask, '71');
+});
+
+r.test('a month that has not finished yet is not something to post', () => {
+  const facts = Object.assign(LIVE(), {
+    today: '2026-10-15',
+    settings: { accounting_start_date: '2026-10-01', accounting_basis: 'Accrual', fiscal_year_start_month: 1 },
+    journals: [], batches: [],
+  });
+  const revenue = stage(facts, 'revenue');
+  r.not(revenue.state, 'done');
+  r.eq(revenue.ask, '', 'there is no completed month to act on');
+  r.has(revenue.summary, 'No complete month');
+  r.not(M.assess(facts).asks.map(a => a.id).join(','), 'revenue',
+    'and it is not listed as something that needs the reader');
+});
+
 r.test('the instruction carries the number where SILO already knows it', () => {
   const model = M.assess(LIVE());
   const coding = model.stages.find(s => s.id === 'coding');
