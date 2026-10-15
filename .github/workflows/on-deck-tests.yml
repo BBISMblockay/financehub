@@ -83,6 +83,13 @@ jobs:
           done
       - name: Review-to-action guards must reject mutations
         run: |
+          for mutation in drift-blocks-again empty-basis expiry drift-record drift-flag; do
+            if DRIFT_MUTATE="$mutation" node scripts/tests/on-deck-review-action.test.mjs > /tmp/drift-mutation.log 2>&1; then
+              cat /tmp/drift-mutation.log
+              echo "Survived evidence-drift mutation: $mutation"
+              exit 1
+            fi
+          done
           for mutation in completeness required-input detach-company reviewed-title approval-blockers detach-requeue; do
             if REVIEW_MUTATE="$mutation" node scripts/tests/on-deck-review-action.test.mjs > /tmp/review-mutation.log 2>&1; then
               cat /tmp/review-mutation.log

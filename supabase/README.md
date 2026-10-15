@@ -2907,6 +2907,24 @@ did; `handleInventorySnapshot` in `shopify-sync-run` did not, and marked its job
 call, so an on-demand snapshot could roll both matviews back and still answer `ok: true`. Fixed in the
 same PR, which is why **`shopify-sync-run` needs deploying** -- merging does not deploy it.
 
+## On Deck evidence drift warns — `20261015013000`
+
+Replaces `on_deck_context` and `on_deck_decide` so that evidence DRIFT no longer
+disables a draft. Those three gates (context create/link, revise/edit, approve)
+required `source_version` to match `on_deck_source_version()` exactly, and that
+fingerprint moves whenever any input table is synced or the company's date rolls
+over, so a draft prepared mid-afternoon was unusable the same evening: on
+2026-10-15 all five of Baseballism's open proposals read `source_current=false`.
+They now block only on an absent evidence basis (`source_version=''`, which an
+explicit Refresh sets) and on the 48-hour `valid_until`. Unanswered required
+facts, version conflicts, content validity and every permission gate are
+unchanged, `on_deck_review_state` still reports `source_current` so the page can
+say the data has refreshed, and approval records `detail.evidence_drifted` on its
+`action_confirmed` event. Function replacement only: no table, policy, grant or
+data change, and no Edge deploy. Re-run `refresh_chat_schema_catalog()` after
+applying. Verified by the "On Deck evidence drift" check in
+`verify_v2_schema.sql`.
+
 ## On Deck review to action — `20261014120000`
 
 Adds persisted preparation pause/failure metadata and structured saved review
