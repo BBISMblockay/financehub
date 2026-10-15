@@ -191,7 +191,17 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
     }
     .tm-cal-chip:hover { border-color: var(--bcn-accent); }
-    .tm-cal-more { font-size: 9px; font-family: var(--bcn-mono); color: var(--bcn-ink-3); }
+    /* The overflow label is a button: a day with more tasks than fit has to
+       stay reachable, so it expands the cell rather than hiding work. */
+    .tm-cal-more {
+      font-size: 9px; font-family: var(--bcn-mono); color: var(--bcn-ink-3);
+      background: none; border: 0; padding: 1px 0; margin: 0;
+      text-align: left; cursor: pointer; font-weight: 700;
+    }
+    .tm-cal-more:hover { color: var(--bcn-accent); text-decoration: underline; }
+    /* A day with many tasks scrolls inside its own cell instead of stretching
+       the whole week's row. */
+    .tm-cal-cell--open { max-height: 220px; overflow-y: auto; }
     .tm-cal-scroll { overflow: auto; }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -784,6 +794,10 @@
   let viewUserId = null;   // null = All Tasks; otherwise a profile id
   let displayMode = 'table'; // table | board | calendar
   let calAnchor = new Date(TODAY); calAnchor.setDate(1);
+  // How many chips a day shows before it offers to expand, and which days the
+  // viewer has expanded. Keyed by date, so it survives a re-render.
+  const CAL_CHIP_LIMIT = 3;
+  const calExpandedDays = new Set();
 
   const TASK_TYPE_SUGGESTIONS = ['creative', 'inventory', 'website', 'email', 'sms', 'qa'];
 
@@ -897,15 +911,28 @@
     </button>`;
   }
 
+  /* `launch_tasks.status` carries two spellings of the middle state: this page
+     writes 'in-progress' and v2/launch-calendar.html writes 'in_progress', both
+     into the same column. Normalise on read, and make Open the catch-all, so a
+     value neither page anticipated still lands in a column instead of
+     disappearing -- the table lists every row the filter keeps, and a board
+     that quietly shows fewer is worse than no board. */
+  function boardStatus(t) {
+    const s = String(t.status || '').trim().toLowerCase().replace(/_/g, '-');
+    if (s === 'done') return 'done';
+    if (s === 'in-progress') return 'in-progress';
+    return 'open';
+  }
+
   function renderBoard(rows) {
     const cols = [
-      { key: 'open', label: 'Open', match: t => t.status === 'open' },
-      { key: 'in-progress', label: 'In progress', match: t => t.status === 'in-progress' },
-      { key: 'done', label: 'Done', match: t => t.status === 'done' },
+      { key: 'open', label: 'Open' },
+      { key: 'in-progress', label: 'In progress' },
+      { key: 'done', label: 'Done' },
     ];
     const list = viewUserId ? rows : rows.slice().sort(autoRank);
     document.getElementById('tmKanban').innerHTML = cols.map(col => {
-      const items = list.filter(col.match);
+      const items = list.filter(t => boardStatus(t) === col.key);
       return `<section class="tm-k-col" aria-label="${escHtml(col.label)}">
         <header class="tm-k-col-head"><span>${escHtml(col.label)}</span><span>${items.length}</span></header>
         <div class="tm-k-col-body">${items.length ? items.map(kanbanCard).join('') : '<div class="tm-muted" style="font-size:11px;padding:4px;">—</div>'}</div>
@@ -941,11 +968,20 @@
       const d = new Date(y, m, day);
       const key = calYmd(d);
       const tasks = byDay.get(key) || [];
-      const chips = tasks.slice(0, 3).map(t =>
+      const expanded = calExpandedDays.has(key);
+      const shown = expanded ? tasks : tasks.slice(0, CAL_CHIP_LIMIT);
+      const chips = shown.map(t =>
         `<button type="button" class="tm-cal-chip" data-open-task="${escHtml(t.id)}" title="${escHtml(t.task_title || '')}">${escHtml(t.task_title || '')}</button>`
       ).join('');
-      const more = tasks.length > 3 ? `<div class="tm-cal-more">+${tasks.length - 3} more</div>` : '';
-      html += `<div class="tm-cal-cell${key === todayKey ? ' tm-cal-cell--today' : ''}">
+      // Every task on the day is reachable: the label expands the cell rather
+      // than naming work the viewer then cannot open.
+      const more = tasks.length > CAL_CHIP_LIMIT
+        ? `<button type="button" class="tm-cal-more" data-expand-day="${escHtml(key)}">${expanded ? 'Show less' : '+' + (tasks.length - shown.length) + ' more'}</button>`
+        : '';
+      const cls = 'tm-cal-cell'
+        + (key === todayKey ? ' tm-cal-cell--today' : '')
+        + (expanded ? ' tm-cal-cell--open' : '');
+      html += `<div class="${cls}">
         <div class="tm-cal-daynum">${day}</div>${chips}${more}</div>`;
     }
     document.getElementById('tmCalGrid').innerHTML = html;
@@ -1263,8 +1299,19 @@
     const task = allTasks.find(t => t.id === el.dataset.openTask);
     if (task) openDrawer(task);
   }
+  function calendarGridClick(e) {
+    const more = e.target.closest('[data-expand-day]');
+    if (more) {
+      const key = more.dataset.expandDay;
+      if (calExpandedDays.has(key)) calExpandedDays.delete(key);
+      else calExpandedDays.add(key);
+      renderCalendar(filteredTasks);
+      return;
+    }
+    openTaskFromClick(e);
+  }
   document.getElementById('tmKanban').addEventListener('click', openTaskFromClick);
-  document.getElementById('tmCalGrid').addEventListener('click', openTaskFromClick);
+  document.getElementById('tmCalGrid').addEventListener('click', calendarGridClick);
   document.getElementById('tasksTbody').addEventListener('click', e => {
     const up = e.target.closest('[data-move-up]');
     if (up) { moveTask(up.dataset.moveUp, -1); return; }
