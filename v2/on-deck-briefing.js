@@ -6,20 +6,24 @@
   const positive = v => number(v) !== null && number(v) > 0;
   const fmt = v => Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 });
   const clean = v => text(v).replace(/\s+/g, ' ').toLowerCase();
-  function currentStatus(rows = [], now = Date.now()) {
+  // driftWarns mirrors on_deck_review_state's drift_warns: false means the database
+ // still refuses a drifted draft, so nothing here may advertise one as actionable.
+  function currentStatus(rows = [], now = Date.now(), driftWarns = false) {
     const active = rows.filter(p => ['ready','needs_info','failed','preparing','revision'].includes(p.status));
     // Expiry is the gate. A sync that refreshed the source data is reported, not
     // counted against the draft: the fingerprint moves on every sync, so treating
     // drift as staleness left every draft unactionable within hours of preparation.
     const stale = p => !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= now;
-    const ready = active.filter(p => p.status === 'ready' && typeof p.source_current === 'boolean' && !stale(p) && !draftBlockers(p).length).length;
+    const usable = p => typeof p.source_current === 'boolean' && (p.source_current !== false || driftWarns === true);
+    const ready = active.filter(p => p.status === 'ready' && usable(p) && !stale(p) && !draftBlockers(p).length).length;
     const needs = active.filter(p => p.status === 'needs_info').length, failed = active.filter(p => p.status === 'failed').length;
     const expired = active.filter(stale).length, preparing = active.filter(p => ['preparing','revision'].includes(p.status)).length;
     const running = active.filter(p => p.preparation?.state === 'running').length, paused = active.filter(p => p.preparation?.state === 'paused').length, queued = active.filter(p => p.preparation?.state === 'queued').length;
     const unknown = active.filter(p => typeof p.source_current !== 'boolean').length;
     const drifted = active.filter(p => p.source_current === false && !stale(p)).length;
+    const blocked = driftWarns === true ? 0 : drifted;
     return { ready, needs, failed, stale: expired, preparing, queued, running, paused, unknown, drifted,
-      text: `${ready} actionable drafts; ${needs} need context; ${failed} failed; ${queued} queued, ${running} running, ${paused} paused. ${expired} active drafts expired and cannot be approved.${drifted ? ` ${drifted} were prepared before the latest data sync; the figures shown are from preparation time.` : ''}${unknown ? ` Freshness unavailable for ${unknown} drafts; reload before review.` : ''}` };
+      text: `${ready} actionable drafts; ${needs} need context; ${failed} failed; ${queued} queued, ${running} running, ${paused} paused. ${expired} active drafts expired and cannot be approved.${drifted ? blocked ? ` ${blocked} have changed evidence and cannot be approved until the On Deck update is applied.` : ` ${drifted} were prepared before the latest data sync; the figures shown are from preparation time.` : ''}${unknown ? ` Freshness unavailable for ${unknown} drafts; reload before review.` : ''}` };
   }
   const name = p => text(p.title).split(' · ').slice(1).join(' · ') || text(p.title) || 'Prepared opportunity';
   // Prefer structured SEO fields; legacy parsing only compares displayed copy.
@@ -34,9 +38,9 @@
     return (title && clean(title) !== clean(inspected.title)) ||
       (meta && clean(meta) !== clean(inspected.meta_description));
   }
-  function proposal(p, now) {
+  function proposal(p, now, driftWarns = false) {
     const c = p.content || {}, s = p.source || {}, expires = Date.parse(p.valid_until);
-    if (typeof p.source_current !== 'boolean' || draftBlockers(p).length || p.status !== 'ready' || c.recommend !== true || !text(c.body) || !Array.isArray(c.missing) || c.missing.length ||
+    if (typeof p.source_current !== 'boolean' || (p.source_current === false && driftWarns !== true) || draftBlockers(p).length || p.status !== 'ready' || c.recommend !== true || !text(c.body) || !Array.isArray(c.missing) || c.missing.length ||
         !Number.isFinite(expires) || expires <= now || !text(p.selection_reason)) return null;
     const base = { id: p.id, type: 'proposal', kind: p.kind, name: name(p), priority: 1,
       rank: Number((p.selection_reason.match(/Selected #(\d+)/) || [])[1]) || 99,
@@ -92,9 +96,9 @@
     }
     return null;
   }
-  function discovery(p, now) {
+  function discovery(p, now, driftWarns = false) {
     const s = p.source || {}, expires = Date.parse(p.valid_until);
-    if (typeof p.source_current !== 'boolean' || p.status !== 'needs_info' || p.content?.recommend !== true || !text(p.content?.body) ||
+    if (typeof p.source_current !== 'boolean' || (p.source_current === false && driftWarns !== true) || p.status !== 'needs_info' || p.content?.recommend !== true || !text(p.content?.body) ||
         !text(p.selection_reason) || !Number.isFinite(expires) || expires <= now) return null;
     if (p.kind === 'ads') {
       if (!positive(s.index) || !['moderate', 'strong'].includes(s.evidence) || !text(s.objective) || !text(s.current_copy)) return null;
@@ -123,8 +127,8 @@
       sources: 'Search Console + inspected website', action: 'Investigate search opportunity', evidence: p.selection_reason,
       metrics: [['Search impressions', fmt(s.impressions)], ['Observed CTR', (s.clicks / s.impressions * 100).toFixed(2) + '%'], ['Average position', fmt(s.position)]] };
   }
-  function build({ rows = [], coding = [], now = Date.now() } = {}) {
-    const time = Number(now), candidates = rows.map(p => proposal(p, time) || discovery(p, time)).filter(Boolean);
+  function build({ rows = [], coding = [], now = Date.now(), driftWarns = false } = {}) {
+    const time = Number(now), candidates = rows.map(p => proposal(p, time, driftWarns) || discovery(p, time, driftWarns)).filter(Boolean);
     for (const i of coding) {
       // Daily-ledger coding only. Legacy approvals stay in the existing reviewer.
       if (i.stage !== 'code' || i.ledger_unavailable || !positive(i.open_suggestions)) continue;

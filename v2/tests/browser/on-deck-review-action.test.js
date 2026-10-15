@@ -34,8 +34,7 @@ const rpc = {
  if (process.env.FRONT_REVIEW_MUTATE) {
   const root=path.resolve(__dirname,'../../');
   const mutations={
-   'freshness':['on-deck-briefing.js',"installed && typeof p.source_current === 'boolean' &&",'installed && true &&'],
-   'no-evidence-basis':['on-deck-briefing.js',"if (p.source_version === '') {",'if (false) {'],
+   'freshness':['on-deck-briefing.js',"installed && typeof p.source_current === 'boolean' && p.source_version !== '' &&",'installed && true &&'],
    'full-draft':['on-deck-briefing.js',"if (!text(c.proposed_title)) blockers.push('Proposed SEO title is required.');",""],
    'saved-answer':['on-deck-briefing.js',"if (Array.isArray(c.review_inputs)) return c.review_inputs.map(i => ({ ...i, research: i.requirement === 'optional' }));",""],
    'private-context':['on-deck.js',"'Linked context task is unavailable. It may have been deleted or access changed. Detach the link to continue; its contents are not shown.'","work.title"],

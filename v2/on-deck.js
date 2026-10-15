@@ -95,7 +95,7 @@
     try {
       await companyStillActive();
       // Recheck expiry at click time, including a page left open overnight.
-      const current = window.SiloOnDeckBriefing.build({ rows: state.proposalsLoaded ? state.rows : [], coding: state.codingLoaded ? state.coding.items() : [] });
+      const current = window.SiloOnDeckBriefing.build({ rows: state.proposalsLoaded ? state.rows : [], coding: state.codingLoaded ? state.coding.items() : [], driftWarns: state.reviewState?.drift_warns === true });
       if (![current.featured, ...current.secondary, ...current.upkeep].some(i => i && i.id === item.id && i.type === item.type)) { renderBriefing(); throw new Error('This recommendation is no longer available. Refresh to review current evidence.'); }
       setDesk('work');
       if (item.type === 'coding') { await state.coding.open(item.id); $('coding-review').scrollIntoView({ block: 'start' }); $('coding-review').tabIndex = -1; $('coding-review').focus(); }
@@ -105,13 +105,13 @@
   function renderBriefing() {
     if (!state.loaded) return;
     const box = $('briefing'); box.replaceChildren(); box.hidden = false;
-    const model = window.SiloOnDeckBriefing.build({ rows: state.proposalsLoaded ? state.rows : [], coding: state.codingLoaded ? state.coding.items() : [] });
+    const model = window.SiloOnDeckBriefing.build({ rows: state.proposalsLoaded ? state.rows : [], coding: state.codingLoaded ? state.coding.items() : [], driftWarns: state.reviewState?.drift_warns === true });
     const checked = node('p', null, 'od-briefing-status bcn-mono');
     checked.append(node('span', state.proposalsLoaded && state.settings.last_screen_at ? `Screened ${when(state.settings.last_screen_at)}` : 'Connected work reviewed', 'od-meta'));
     if ((!state.proposalsLoaded && state.access.proposals) || (!state.codingLoaded && state.access.coding.review)) checked.append(node('span', 'Some connected work could not be loaded. See the notice above.'));
     box.append(checked);
     if (state.proposalsLoaded) {
-      box.append(node('p', window.SiloOnDeckBriefing.currentStatus(state.rows).text, 'od-attention'));
+      box.append(node('p', window.SiloOnDeckBriefing.currentStatus(state.rows, Date.now(), state.reviewState?.drift_warns === true).text, 'od-attention'));
       if (/^Preparation failed/.test(state.settings.last_status || '')) box.append(node('p', state.settings.last_status, 'od-attention'));
       if (state.settings.requested_at && new Date(state.settings.requested_at) > new Date(state.settings.last_screen_at || 0)) box.append(node('p', 'Refresh requested. Waiting for the next scheduler run; this is not a completed preparation.'));
     }
@@ -351,7 +351,7 @@
       if (p.dismiss_reason) panel.append(node('p', `Dismissed: ${p.dismiss_reason}`));
     }
     detail.append(panel);
-    if (drifted && !['completed','dismissed','screened'].includes(p.status)) detail.append(node('p', p.source_version === '' ? 'Fresh screening was requested. Saved findings and your previous draft are retained; check the preparation status above.' : 'Your data has refreshed since this draft was prepared. The evidence above is what it was built on; editing and creating work are still available until it expires.', 'od-warning'));
+    if (drifted && !['completed','dismissed','screened'].includes(p.status)) detail.append(node('p', p.source_version === '' ? 'Fresh screening was requested. Saved findings and your previous draft are retained; check the preparation status above.' : (editable ? 'Your data has refreshed since this draft was prepared. The evidence above is what it was built on; editing and creating work are still available until it expires.' : 'Your data has refreshed since this draft was prepared. Editing and creating work stay closed until the On Deck update is applied.'), 'od-warning'));
     if (p.kind === 'seo' && c.proposed_title) detail.append(node('h3', 'Proposed search copy'), node('p', c.proposed_title), node('p', c.proposed_meta_description));
     if (c.optional_context?.length) { const extra = node('details'); extra.append(node('summary', 'Optional enrichment — not required for this draft')); c.optional_context.forEach(x => extra.append(node('p', x))); detail.append(extra); }
     if (p.kind === 'seo' && c.body && (!c.proposed_title || !c.proposed_meta_description)) detail.append(node('p', 'This draft needs a proposed SEO title and meta description. Fill them in Review draft, or request preparation separately.', 'od-warning'));
@@ -374,7 +374,9 @@
     const revision = node('section'); revision.append(node('h3', 'Give it a nudge'));
     const field = node('textarea'); field.className = 'bcn-field'; field.rows = 3; field.maxLength = 2000; field.placeholder = 'What would make this stronger?'; field.setAttribute('aria-label', 'Revision instructions');
     const revise = button('Request revision', async () => { if (!field.value.trim()) { message('Describe the revision first.', true); field.focus(); return; } revise.disabled = true; await simpleAction('revise', field.value); }, true);
-    revise.disabled = !state.settings.enabled || typeof p.source_current !== 'boolean' || p.source_version === '' || state.reviewState?.review_contract !== 2 || ['completed', 'dismissed', 'screened', 'preparing', 'revision'].includes(p.status) || expired; field.disabled = revise.disabled; revision.append(field, revise, node('p', revise.disabled ? 'Revision requires enabled preparation, current evidence and an active draft.' : 'This requests paid AI preparation within your workspace limits. Saving edits does not.', 'od-meta')); rail.append(revision);
+    // Same helper as Review draft and Assign context work: before the drift migration
+    // is applied the SQL still refuses a drifted revise, so the button must not invite it.
+    revise.disabled = !state.settings.enabled || !editable; field.disabled = revise.disabled; revision.append(field, revise, node('p', revise.disabled ? 'Revision requires enabled preparation, current evidence and an active draft.' : 'This requests paid AI preparation within your workspace limits. Saving edits does not.', 'od-meta')); rail.append(revision);
     const rules = node('section'); rules.append(node('h3', 'You have the final say'), node('p', 'Creation saves draft work only. AI revision is separate and may use credit.'), node('span', `Evidence expires ${when(p.valid_until)}`, 'od-meta')); rail.append(rules);
   }
   function renderContext(panel, p) {

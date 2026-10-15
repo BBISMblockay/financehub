@@ -231,12 +231,14 @@ const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '
       assert.match(await page.locator('#status').textContent(), /Active company changed/);
     });
     await page.close();
-    const stale=fixtures();stale.on_deck_proposals=Array.from({length:6},(_,i)=>ad({id:'stale'+i,status:i===5?'failed':'needs_info'}));
+    // Expiry is what empties the briefing now: a sync that merely refreshed the data
+    // leaves these drafts in play (20261015013000), so this scenario expires them.
+    const stale=fixtures();stale.on_deck_proposals=Array.from({length:6},(_,i)=>ad({id:'stale'+i,status:i===5?'failed':'needs_info',valid_until:'2026-10-01'}));
     stale.on_deck_settings[0].last_status='Preparation: 5 ready';stale.on_deck_settings[0].diagnostics={held:{'Product identity needs attention':1176,'Restock policy, cost or lead time missing':3308}};
     page=await open(stale,{rpc:{...rpc,on_deck_review_state:()=>({review_contract:2,drift_warns:true,purchasing:true,proposals:window.__FIXTURE_TABLES__.on_deck_proposals.map(p=>({id:p.id,source_current:false}))}),on_deck_request_preparation:()=>{window.__FIXTURE_TABLES__.on_deck_settings[0].requested_at=new Date().toISOString();return true;}}});
     await test('empty stale briefing explains current state and explicitly queues refreshed opportunities',async()=>{
       assert.equal(await page.locator('.od-hero').count(),0);
-      const text=await page.locator('#briefing').textContent();assert.match(text,/0 actionable drafts; 5 need context; 1 failed/);assert.match(text,/6 were prepared before the latest data sync/);assert.doesNotMatch(text,/5 ready/);
+      const text=await page.locator('#briefing').textContent();assert.match(text,/0 actionable drafts; 5 need context; 1 failed/);assert.match(text,/6 active drafts expired/);assert.doesNotMatch(text,/5 ready/);
       await page.getByText(/Last successful screening:/).click();assert.match(await page.locator('#briefing').textContent(),/1176 held: Product identity/);assert.match(await page.locator('#briefing').textContent(),/3308 held:/);
       assert.equal(await page.evaluate(()=>window.__QUERIES__.some(q=>q.table==='rpc:on_deck_request_preparation')),false);
       await page.getByRole('button',{name:'Request refreshed opportunities',exact:true}).click();await page.waitForFunction(()=>document.getElementById('status').textContent.includes('Screening requested'));

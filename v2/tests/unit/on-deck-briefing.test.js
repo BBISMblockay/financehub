@@ -108,14 +108,20 @@ console.log(`${checks} briefing checks passed`);
 const { currentStatus } = loadV2(['on-deck-briefing.js']).SiloOnDeckBriefing;
 test('current readiness counts a refreshed sync as drift, and expiry as stale',()=>{
  const rows=[...Array.from({length:5},(_,i)=>ads({id:String(i),status:'needs_info',source_current:false})),ads({id:'failed',status:'failed',source_current:false})];
- const result=currentStatus(rows,now);assert.equal(result.ready,0);assert.equal(result.needs,5);assert.equal(result.failed,1);
+ const result=currentStatus(rows,now,true);assert.equal(result.ready,0);assert.equal(result.needs,5);assert.equal(result.failed,1);
  // Drift is not staleness: these six are inside their window, so nothing expired.
  assert.equal(result.stale,0);assert.equal(result.drifted,6);assert.match(result.text,/prepared before the latest data sync/);
  // A ready draft whose data has since synced is still actionable; an expired one is not.
- assert.equal(currentStatus([ads({source_current:false})],now).ready,1);
- assert.equal(currentStatus([ads({valid_until:'bad'}),ads({content:{recommend:true,body:'text',missing:['Need facts']}})],now).ready,0);
- assert.equal(currentStatus([ads({valid_until:'bad'})],now).stale,1);
+ assert.equal(currentStatus([ads({source_current:false})],now,true).ready,1);
+ assert.equal(currentStatus([ads({valid_until:'bad'}),ads({content:{recommend:true,body:'text',missing:['Need facts']}})],now,true).ready,0);
+ assert.equal(currentStatus([ads({valid_until:'bad'})],now,true).stale,1);
+ // Without the capability (merge applied, migration not yet) a drifted draft is not
+ // counted as actionable and the summary says the update is owed, because the SQL
+ // would still refuse it.
+ const pre=currentStatus([ads({source_current:false})],now);
+ assert.equal(pre.ready,0);assert.match(pre.text,/cannot be approved until the On Deck update is applied/);
  assert.equal(currentStatus([ads({source_current:true})],now).ready,1);assert.equal(currentStatus([],now).ready,0);
+ assert.equal(currentStatus([seo({source_current:false,content:{...seo().content,body:'Draft',proposed_title:'T',proposed_meta_description:'D'}})],now,true).ready,1);
  assert.equal(currentStatus([ads({source_current:undefined})],now).ready,0);assert.equal(currentStatus([ads({source_current:undefined})],now).unknown,1);
  assert.match(currentStatus([ads({source_current:undefined})],now).text,/Freshness unavailable/);
  assert.equal(currentStatus([seo({source_current:true,content:{...seo().content,proposed_title:'',proposed_meta_description:''}})],now).ready,0);

@@ -97,7 +97,7 @@ jobs:
               exit 1
             fi
           done
-          for mutation in full-draft freshness no-evidence-basis saved-answer private-context dialog-lock exact-result; do
+          for mutation in full-draft freshness saved-answer private-context dialog-lock exact-result; do
             if FRONT_REVIEW_MUTATE="$mutation" node v2/tests/browser/on-deck-review-action.test.js > /tmp/review-browser-mutation.log 2>&1; then
               cat /tmp/review-browser-mutation.log
               echo "Survived browser review mutation: $mutation"

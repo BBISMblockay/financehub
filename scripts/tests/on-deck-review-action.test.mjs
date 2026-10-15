@@ -56,10 +56,12 @@ const reviewMutations = {
  'approval-blockers': ["or jsonb_array_length(public.on_deck_draft_blockers(r.content,r.kind))>0", ""],
  'detach-requeue': ["if r.status='failed' and r.source_version='' then\n   update public.on_deck_settings set requested_at=now() where company_entity_id=r.company_entity_id;\n  end if;", ""],
 };
-if (process.env.REVIEW_MUTATE) { const [a,b]=reviewMutations[process.env.REVIEW_MUTATE] || []; assert.ok(a && reviewMigration.includes(a)); reviewMigration=reviewMigration.replaceAll(a,b); }
-await db.exec(reviewMigration); await db.exec(reviewMigration);
 // Evidence drift warns instead of blocking (20261015013000). Loaded after the
-// migration it replaces, exactly as production applies it.
+// migration it replaces, exactly as production applies it -- which is why a
+// REVIEW_MUTATE must reach BOTH files: 20261015013000 redefines on_deck_context
+// and on_deck_decide, so mutating only the older copy installed a clean body and
+// the mutation silently survived.
+let mutated = null;
 let driftMigration = await read('../../supabase/migrations/20261015013000_on_deck_evidence_drift_warns.sql');
 const driftMutations = {
  'drift-blocks-again': ["coalesce(r.source_version,'')=''", "r.source_version<>public.on_deck_source_version(r.company_entity_id,r.kind)"],
@@ -68,8 +70,24 @@ const driftMutations = {
  'drift-record': ["'evidence_drifted',r.source_version<>public.on_deck_source_version(r.company_entity_id,r.kind)", "'evidence_drifted',false"],
  'drift-flag': ["'review_contract',2,'drift_warns',true,", "'review_contract',2,"],
 };
-if (process.env.DRIFT_MUTATE) { const [a,b]=driftMutations[process.env.DRIFT_MUTATE] || []; assert.ok(a && driftMigration.includes(a)); driftMigration=driftMigration.replaceAll(a,b); }
+if (process.env.REVIEW_MUTATE) {
+ const [a,b]=reviewMutations[process.env.REVIEW_MUTATE] || [];
+ assert.ok(a, 'unknown REVIEW_MUTATE');
+ const inReview=reviewMigration.includes(a), inDrift=driftMigration.includes(a);
+ assert.ok(inReview || inDrift, 'mutation target is in neither migration');
+ if (inReview) reviewMigration=reviewMigration.replaceAll(a,b);
+ if (inDrift) driftMigration=driftMigration.replaceAll(a,b);
+ mutated=a;
+}
+if (process.env.DRIFT_MUTATE) { const [a,b]=driftMutations[process.env.DRIFT_MUTATE] || []; assert.ok(a && driftMigration.includes(a)); driftMigration=driftMigration.replaceAll(a,b); mutated=a; }
+await db.exec(reviewMigration); await db.exec(reviewMigration);
 await db.exec(driftMigration); await db.exec(driftMigration);
+// The mutation has to be absent from what is actually INSTALLED, or the run proves
+// nothing: a later migration can replace the body a mutation was applied to.
+if (mutated) {
+ const left=await one("select count(*) n from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and position($1 in p.prosrc)>0",[mutated]);
+ assert.equal(Number(left.n),0,'the mutated text is still installed; the mutation did not take effect');
+}
 await user(); await rpc('on_deck_configure', [true,100,10000,['seo','ads','launch','restock']]);
 await root(); await db.query("insert into public.entity_memberships values($1,$2,'admin')",[B,ADMIN]);
 const context = (p, action, task = null, note = null) => rpc('on_deck_context',[p.id,p.version,action,null,task,note]);

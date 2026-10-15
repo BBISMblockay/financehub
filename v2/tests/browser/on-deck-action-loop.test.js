@@ -5,6 +5,7 @@ const path = require('path');
 const { startSuite, fakeSupabaseScript } = require('../lib/harness');
 const draft = { recommend: true, subject: 'Collection search copy review', summary: 'A grounded hypothesis, no assumed lift.', body: 'A draft for review.', reason: 'Observed page exposure.', missing: ['Confirm the product claim against the approved brief.'], optional_context: ['No comparative CTR benchmark is recorded.'], proposed_title: 'Classic tees | Example', proposed_meta_description: 'Explore classic tees.', tasks: [] };
 const tables = () => ({ profiles: [{ id: 'test-user', email: 'owner@example.test', role: 'admin' }], on_deck_settings: [{ enabled: true }], on_deck_proposals: [{ id: 'search', company_entity_id: 'test-company', kind: 'seo', title: 'Search copy · Classic tees', status: 'needs_info', version: 2, valid_until: '2099-01-01', source_version: 'current', selection_reason: 'Selected #1 from page evidence.', source: { url: 'https://example.test/tees', impressions: 30000, clicks: 180, position: 7, days: 26, inspection: { title: 'Tees', meta_description: 'Current copy' } }, content: structuredClone(draft) }], on_deck_events: [], on_deck_attempts: [] });
+const tables2 = version => { const t = tables(); t.on_deck_proposals[0].source_version = version; return t; };
 const rpc = {
   on_deck_can_review: () => true,
   on_deck_review_state: () => ({review_contract:2,drift_warns:true,purchasing:true, seo: true, context_tasks: [{id: 'created', notes: 'Findings from task owner: approved brief revision 3.', status: 'open', owner: 'Research owner'}], proposals: window.__FIXTURE_TABLES__.on_deck_proposals.map(p => ({ id: p.id, source_current: p.source_version === 'current' })), assignees: [{ id: 'owner', name: 'Research owner' }], tasks: [{ id: 'existing', task_title: 'Existing evidence research', assigned_to_user_id: 'owner' }] }),
@@ -85,11 +86,31 @@ const rpc = {
    await page.getByRole('button',{name:'Record findings and refresh draft'}).click(); assert.match(await page.locator('#context-explanation').textContent(),/exceed the import limit/); assert.equal(await page.getByLabel('Findings and supporting evidence').inputValue(),'');
   }); await page.close();
 
-  for(const mode of ['stale','expired']) {
-   const blocked=tables();if(mode==='stale')blocked.on_deck_proposals[0].source_version='old';else blocked.on_deck_proposals[0].valid_until='2000-01-01';
+  // Expiry and a requested refresh block a new context assignment; a sync that moved
+  // the fingerprint does not, because on_deck_context accepts it (20261015013000).
+  for(const mode of ['expired','refreshed']) {
+   const blocked=tables();if(mode==='expired')blocked.on_deck_proposals[0].valid_until='2000-01-01';else blocked.on_deck_proposals[0].source_version='';
    page=await suite.open('/v2/on-deck.html?proposal=search',blocked,{rpc,ready});
    await test(mode+' context cannot be newly assigned',async()=>{assert.equal(await page.getByRole('button',{name:'Assign context work'}).isDisabled(),true);assert.equal(await page.evaluate(()=>window.__QUERIES__.some(q=>q.table==='rpc:on_deck_context')),false);});await page.close();
   }
+  const synced=tables();synced.on_deck_proposals[0].source_version='old';
+  page=await suite.open('/v2/on-deck.html?proposal=search',synced,{rpc,ready});
+  await test('a draft whose data has since synced can still be assigned context work',async()=>{assert.equal(await page.getByRole('button',{name:'Assign context work'}).isDisabled(),false);});await page.close();
+  // The rollout gap: merged page, migration not yet applied. The payload carries no
+  // drift_warns, the SQL still refuses a drifted draft, and so does every control.
+  const preApply={...rpc,on_deck_review_state:()=>({review_contract:2,purchasing:true,seo:true,context_tasks:[],proposals:window.__FIXTURE_TABLES__.on_deck_proposals.map(p=>({id:p.id,source_current:p.source_version==='current'})),assignees:[{id:'owner',name:'Research owner'}],tasks:[]})};
+  page=await suite.open('/v2/on-deck.html?proposal=search',tables2('old'),{rpc:preApply,ready});
+  await test('before the migration is applied a drifted draft offers nothing it cannot do',async()=>{
+   assert.equal(await page.getByRole('button',{name:'Review draft',exact:true}).isDisabled(),true);
+   assert.equal(await page.getByRole('button',{name:'Request revision'}).isDisabled(),true);
+   assert.equal(await page.getByRole('button',{name:'Assign context work'}).isDisabled(),true);
+   assert.match(await page.locator('#detail').textContent(),/until the On Deck update is applied/);
+  });await page.close();
+  page=await suite.open('/v2/on-deck.html?proposal=search',tables2('old'),{rpc,ready});
+  await test('with the migration applied the same draft can be reviewed and revised',async()=>{
+   assert.equal(await page.getByRole('button',{name:'Review draft',exact:true}).isDisabled(),false);
+   assert.equal(await page.getByRole('button',{name:'Request revision'}).isDisabled(),false);
+  });await page.close();
   const untouched=tables();untouched.on_deck_proposals[0].context_work={state:'open',task_id:'created',title:'Resolve claim'};
   const requestRpc={...rpc,on_deck_review_state:()=>({review_contract:2,drift_warns:true,purchasing:true,seo:true,proposals:[{id:'search',source_current:false}],assignees:[],tasks:[],context_tasks:[{id:'created',notes:'Required findings: generated request only',notes_are_request:true}]})};
   page=await suite.open('/v2/on-deck.html?proposal=search',untouched,{rpc:requestRpc,ready});
