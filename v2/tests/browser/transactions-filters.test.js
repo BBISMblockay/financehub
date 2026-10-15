@@ -523,6 +523,34 @@ const TABLES = {
       r.truthy(opaque(bg), 'background-color was ' + bg);
     });
 
+    /* The QuickBooks state line sits on --bcn-band, the near-black chrome band
+       in BOTH themes, so its text has to come from the band's own ink. It was
+       painted with the page's --bcn-ink, which happens to read in dark theme
+       and was black on black in light (Blake, 2026-10-15: "can't read the
+       container accounting details in light mode, only dark mode"). Both
+       themes are checked, because passing one of them is exactly the bug. */
+    await check('the QuickBooks state line is readable in BOTH themes', async () => {
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+        await page.waitForTimeout(120);
+        const seen = await page.evaluate(() => {
+          const p = document.querySelector('#txnDetailBody .txn-qbo-state');
+          if (!p) return null;
+          const s = getComputedStyle(p);
+          const b = getComputedStyle(p.querySelector('b'));
+          return { bg: s.backgroundColor, fg: s.color, label: b.color };
+        });
+        r.not(seen, null, `the state line is on screen in ${theme} theme`);
+        r.truthy(opaque(seen.bg), `${theme}: background was ${seen.bg}`);
+        const band = lightness(seen.bg);
+        for (const [what, colour] of [['body text', seen.fg], ['the QUICKBOOKS label', seen.label]]) {
+          r.truthy(Math.abs(lightness(colour) - band) > 0.3,
+            `${theme}: ${what} was ${colour} on ${seen.bg}`);
+        }
+      }
+      await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
+    });
+
     await check('the accounting suite nav bar is opaque', async () => {
       const bg = await page.$eval('[data-accounting-suite]', (n) => getComputedStyle(n).backgroundColor);
       r.truthy(opaque(bg), 'background-color was ' + bg);
