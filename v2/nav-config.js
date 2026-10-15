@@ -224,6 +224,9 @@
     // Back for STANDARD workspaces only, under Insights (Blake, 2026-10-06);
     // Baseballism's menu stays without it for now.
     { departments: FINANCE_DEPTS, id: 'start/on-deck', section: 'Insights', label: 'On Deck', href: '/v2/on-deck.html', profiles: ['standard'] },
+    // Side by side with the existing page while the one-screen rebuild is
+    // evaluated. One of the two is removed once a choice is made.
+    { departments: FINANCE_DEPTS, id: 'start/on-deck-next', section: 'Insights', label: 'On Deck (new)', href: '/v2/on-deck-next.html', profiles: ['standard'] },
     { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
     { id: 'start/help', section: 'Start', label: 'Help', href: '/v2/help.html', profiles: ['grandfathered', 'standard'] },
     // Standard-profile only, and admin-only within that. Baseballism is years

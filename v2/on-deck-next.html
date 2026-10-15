@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>On Deck — SILO</title>
+  <link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
+  <link rel="stylesheet" href="on-deck.css"><link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
+  <script src="v2-shell.js" defer></script>
+</head>
+<body class="on-deck">
+<div class="silo-app" id="silo-app"><main class="silo-main">
+  <header class="bcn-header">
+    <div><div class="od-eyebrow">SILO / ON DECK</div><h1>What to do next<span class="od-dot">.</span></h1><p class="od-sub">Your business, read back to you, with the work already drafted.</p></div>
+    <div class="od-buttons">
+      <button id="refresh" class="bcn-btn bcn-btn--ghost" disabled>Refresh</button>
+      <a class="bcn-btn bcn-btn--ghost" href="settings-company.html#on-deck-settings" aria-label="Workspace Settings" title="Workspace Settings">⚙</a>
+      <a class="bcn-btn bcn-btn--ghost" href="on-deck.html">Full workspace</a>
+    </div>
+  </header>
+  <div id="status" class="bcn-status" role="status" aria-live="polite">Loading your recommendations…</div>
+  <section id="brief" class="od-wrap odn-brief" aria-label="Your brief" hidden></section>
+  <section id="cards" class="od-wrap" aria-label="What SILO recommends" hidden></section>
+  <section id="needs" class="od-wrap" aria-label="What SILO needs from you" hidden></section>
+  <section id="done" class="od-wrap" aria-label="Recently created" hidden></section>
+</main></div>
+<script src="../pages/config.js"></script><script src="lib/supabase-js.min.js"></script><script src="nav-config.js"></script><script src="avatar.js"></script><script src="silo-chrome.js"></script><script src="on-deck-briefing.js"></script><script src="on-deck-next.js"></script>
+</body></html>

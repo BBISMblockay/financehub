@@ -226,3 +226,14 @@ test('only a reserved attempt earns the working label', () => {
   // only thing left to go on, and it still may not claim paused or queued.
   assert.equal(stat(ads({ status: 'revision' })).key, 'working');
 });
+// The rebuilt page shows the top several recommendations, so it needs the whole
+// ranked list, not the featured-plus-two slice.
+test('build exposes every candidate in rank order', () => {
+  const rows = [ads({ id: 'a2', score: 1 }), seo({ id: 's1' }), ads({ id: 'a1', score: 9 })];
+  const model = run(rows);
+  assert.equal(model.cards.length, 3);
+  assert.deepEqual(model.cards.map(c => c.kind), ['ads', 'ads', 'seo']);
+  assert.equal(model.cards[0].id, model.featured.id);
+  assert.deepEqual(model.cards.slice(1, 3).map(c => c.id), model.secondary.map(c => c.id));
+  assert.equal(run([]).cards.length, 0);
+});
