@@ -206,6 +206,10 @@ on:
       - 'v2/accounting-books*'
       - 'v2/accounting-ledger.js'
       - 'scripts/tests/accounting-ledger.test.mjs'
+      - 'v2/accounting-posting-start.js'
+      - 'scripts/tests/accounting-posting-start.test.mjs'
+      - 'scripts/tests/card-posting-start-database.test.mjs'
+      - 'supabase/migrations/*card_posting_start.sql'
       - 'supabase/migrations/*silo_daily_ledger.sql'
       - 'v2/qbo-reports.html'
       - 'v2/cash-forecast.html'
@@ -510,6 +514,11 @@ jobs:
       # to say so -- a July recode sat unseen for a month (2026-10-14).
       - name: Transactions QuickBooks state
         run: node --test scripts/tests/transactions-qbo-state.test.mjs
+
+      # The Books & setup control that writes the cut-over: the date it refuses,
+      # a refused save reported as refused, and the paged reversal run to zero.
+      - name: Posting cut-over control
+        run: node --test scripts/tests/accounting-posting-start.test.mjs
 
       - name: Accounting suite navigation and legacy routes
         run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/accounting-ledger.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs scripts/tests/transaction-reclass-ui.test.mjs scripts/tests/no-unqualified-delete.test.mjs
@@ -1215,6 +1224,19 @@ jobs:
           for mutation in lock-shifted no-start-check no-void-reversal record-unposted no-books-start; do
             if LEDGER_ADJ_MUTATION="$mutation" node scripts/tests/silo-ledger-adjustments-database.test.mjs > /tmp/ledger-adj-mutation.log 2>&1; then
               cat /tmp/ledger-adj-mutation.log; echo "Survived ledger adjustment mutation: $mutation"; exit 1
+            fi
+          done
+
+      # When SILO starts posting an account (card_sources.posting_start_on):
+      # approval refused for an earlier period, those periods out of On Deck,
+      # their ledger entries reversed rather than deleted, and the resync gated
+      # to finance and to one company.
+      - name: Execute card posting cut-over regressions
+        run: |
+          node scripts/tests/card-posting-start-database.test.mjs
+          for mutation in no-approve-guard guard-refuses-undated no-ledger-gate no-on-deck-filter resync-deletes resync-ungated resync-crosses-companies no-view-column; do
+            if CARD_POSTING_START_MUTATION="$mutation" node scripts/tests/card-posting-start-database.test.mjs > /tmp/posting-start-mutation.log 2>&1; then
+              cat /tmp/posting-start-mutation.log; echo "Survived posting cut-over mutation: $mutation"; exit 1
             fi
           done
 

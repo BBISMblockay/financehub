@@ -6951,3 +6951,28 @@ select 'Report location filter' as check_name,
       then 'BROKEN — a location-filtered report''s tie-out still guards the previous definition, so report-tieouts-nightly will read NO DATA. Re-run the tie-out block of 20261014090000_report_location_parameter.sql'
     else 'ok'
   end as status;
+
+-- When SILO starts posting an account (20261015020000): the cut-over column,
+-- the approval guard, the ledger gate, the On Deck filter, and a paged resync
+-- that only finance can call.
+select 'Card posting cut-over' as check_name,
+ case when not exists (select 1 from information_schema.columns where table_schema = 'public'
+                         and table_name = 'card_sources' and column_name = 'posting_start_on')
+        or not exists (select 1 from pg_trigger where tgname = 'card_batch_posting_start'
+                         and tgrelid = 'public.card_import_batches'::regclass)
+        or to_regprocedure('public.silo_ledger_resync_posting_start(uuid,integer)') is null
+   then 'MISSING — run 20261015020000_card_posting_start.sql'
+  -- The gate is the whole point: without it a pre-cut-over month stays in
+  -- SILO's own ledger even though QuickBooks already holds it by hand.
+  when pg_get_functiondef(to_regprocedure('public.silo_ledger_start(public.card_sources)')) not like '%posting_start_on%'
+   then 'BROKEN — silo_ledger_start ignores posting_start_on, so pre-cut-over transactions still enter the SILO ledger'
+  when pg_get_functiondef(to_regprocedure('public.on_deck_coding_items()')) not like '%source_posting_start_on%'
+   then 'BROKEN — On Deck still lists periods SILO is not to post'
+  when not exists (select 1 from information_schema.columns where table_schema = 'public'
+                     and table_name = 'card_import_batches_v' and column_name = 'source_posting_start_on')
+   then 'MISSING — card_import_batches_v.source_posting_start_on, which Transactions reads to say a period was handled outside SILO'
+  when has_function_privilege('anon', 'public.silo_ledger_resync_posting_start(uuid,integer)', 'execute')
+   then 'CRITICAL: anon can reverse ledger entries'
+  when not has_function_privilege('authenticated', 'public.silo_ledger_resync_posting_start(uuid,integer)', 'execute')
+   then 'BROKEN — Books & setup cannot run the resync after saving a cut-over'
+  else 'ok' end as status;

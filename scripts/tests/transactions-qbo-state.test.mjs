@@ -30,6 +30,7 @@ const EXPOSE = [
   'quickbooksStateLine', 'quickbooksStepDetail', 'periodLabel', 'isInQuickBooks',
   'periodClosed', 'savedCodingMessage', 'renderWorkflow', 'accountingStateLine',
   'transactionDetailInner', 'postingUnsettled', 'claimStateFor', 'loadPostingClaims',
+  'handledOutsideSilo',
 ].join(', ');
 
 /* Enough DOM and enough of the page's siblings for the presentation functions.
@@ -475,7 +476,8 @@ test('every QuickBooks line carries exactly one of the three states', () => {
     for (const t of [row(), row({ status: 'uncoded', qbo_account_id: null }), row({ status: 'excluded' })]) {
       const line = h.api.quickbooksStateLine(t);
       assert.ok(line, 'a row in a batch in view always has a QuickBooks state');
-      const hit = [/^In QuickBooks/, /^Not sent to QuickBooks/, /^Unknown/].filter((re) => re.test(line));
+      const hit = [/^In QuickBooks/, /^Not sent to QuickBooks/, /^Unknown/, /^Handled outside SILO/]
+        .filter((re) => re.test(line));
       assert.equal(hit.length, 1, `exactly one status per row, got: ${line}`);
     }
   }
@@ -616,4 +618,69 @@ test('the three states a reader could mistake for absence say what SILO does not
   assert.doesNotMatch(posted.api.quickbooksStateLine(row()), /does not show here/);
   const unresolved = harness({ batch: batch(TIMED_OUT), sources: [SOURCE], claims: { b1: [claim()] } });
   assert.doesNotMatch(unresolved.api.quickbooksStateLine(row()), /does not show here/);
+});
+
+/* Accounts came under SILO at different times (Blake, 2026-10-15): the card
+   accounts in August 2026, the Plaid bank feed only in September, whose July
+   and August were coded inside QuickBooks directly off a three-month backload.
+   card_sources.posting_start_on marks that cut-over, and a period before it is
+   settled -- not waiting on an approval, a category or a posting switch. */
+const CUTOVER = { source_posting_start_on: '2026-09-01' };
+
+test('a period before the cut-over says it was handled outside SILO, and asks for nothing', () => {
+  const b = batch(CUTOVER);
+  const h = harness({ batch: b, sources: [SOURCE] });
+  const line = h.api.quickbooksStateLine(row());
+  assert.match(line, /^Handled outside SILO/, line);
+  assert.match(line, /July 2026/);
+  assert.match(line, /Baseballism Operating/, 'which account stopped short is the whole point');
+  assert.match(line, /nothing is sent for it/);
+  assert.doesNotMatch(line, /approve/i, 'approving it is refused by the database; do not ask for it');
+  assert.doesNotMatch(line, /not in QuickBooks/i, 'those rows ARE in QuickBooks, by hand');
+  assert.equal(h.api.quickbooksStepDetail([b]), 'Handled outside SILO');
+  assert.equal(h.api.savedCodingMessage(1, [row()]), 'Saved 1 row.',
+    'a settled month must not be named as work on every save');
+});
+
+test('the cut-over reaches back, never forward', () => {
+  const after = batch({ ...CUTOVER, period_start: '2026-09-01', period_end: '2026-09-30' });
+  const h = harness({ batch: after, sources: [SOURCE] });
+  assert.equal(h.api.handledOutsideSilo(after), false);
+  assert.match(h.api.quickbooksStateLine(row()), /^Not sent to QuickBooks/);
+  // The day itself is SILO's: posting_start_on is the first day it may post.
+  const onTheDay = batch({ ...CUTOVER, period_start: '2026-09-01', period_end: '2026-09-01' });
+  assert.equal(h.api.handledOutsideSilo(onTheDay), false);
+  assert.equal(h.api.handledOutsideSilo(batch({ source_posting_start_on: null })), false,
+    'no cut-over set is the state every account starts in');
+});
+
+test('a posted period before the cut-over still reads as posted: history is not relabelled', () => {
+  const b = batch({ ...CUTOVER, status: 'posted', posting_status: 'posted', qbo_doc_number: 'SILO-311' });
+  const h = harness({ batch: b, sources: [SOURCE] });
+  assert.match(h.api.quickbooksStateLine(row()), /^In QuickBooks/);
+  assert.match(h.api.quickbooksStateLine(row()), /SILO-311/);
+  assert.equal(h.api.quickbooksStepDetail([b]), 'Posted');
+});
+
+test('an unresolved attempt still outranks the cut-over: a sent post is not settled by a date', () => {
+  const b = batch({ ...CUTOVER, ...TIMED_OUT });
+  const h = harness({ batch: b, sources: [SOURCE], claims: { b1: [claim()] } });
+  assert.match(h.api.quickbooksStateLine(row()), /^Unknown/,
+    'something was sent for this period and QuickBooks never confirmed it');
+  assert.match(h.api.quickbooksStepDetail([b]), /unconfirmed/i);
+});
+
+test('the entry pane refuses to approve it, in the reader\'s words, before the database does', () => {
+  const pane = body.slice(body.indexOf('const balKind = requiredEntityKindForAccount'));
+  const upTo = pane.slice(0, pane.indexOf("el('btnApprove').disabled"));
+  assert.match(upTo, /handledOutsideSilo\(state\.batch\)/,
+    'the Approve blocker list must carry the cut-over, so the refusal is not the first they hear of it');
+  assert.match(upTo, /handled outside SILO/,
+    'and say it in the same words as the row');
+});
+
+test('the batch read asks for the cut-over column, or every period reads as SILO\'s', () => {
+  const fields = script.slice(script.indexOf('BATCH_FIELDS'), script.indexOf('BATCH_FIELDS') + 800);
+  assert.match(fields, /source_posting_start_on/,
+    'card_import_batches_v exposes it; unselected it is undefined and nothing is ever handled outside SILO');
 });
