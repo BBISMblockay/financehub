@@ -1234,7 +1234,7 @@ jobs:
       - name: Execute card posting cut-over regressions
         run: |
           node scripts/tests/card-posting-start-database.test.mjs
-          for mutation in no-approve-guard guard-refuses-undated guard-ignores-contents no-ledger-gate no-on-deck-filter resync-deletes resync-reverses-only resync-ungated resync-crosses-companies no-view-column guard-blocks-void guard-update-only resync-counts-held; do
+          for mutation in no-approve-guard guard-refuses-undated guard-ignores-contents no-ledger-gate no-on-deck-filter resync-deletes resync-reverses-only resync-ungated resync-crosses-companies no-view-column guard-blocks-void guard-update-only resync-counts-held no-claim-guard preview-still-posts window-ignored; do
             if CARD_POSTING_START_MUTATION="$mutation" node scripts/tests/card-posting-start-database.test.mjs > /tmp/posting-start-mutation.log 2>&1; then
               cat /tmp/posting-start-mutation.log; echo "Survived posting cut-over mutation: $mutation"; exit 1
             fi

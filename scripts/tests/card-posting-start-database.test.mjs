@@ -63,6 +63,12 @@ const MUTATIONS = {
   'guard-update-only': ['create trigger card_batch_posting_start before insert or update of status', 'create trigger card_batch_posting_start before update of status'],
   // Count held rows as out of line: the remainder never reaches 0.
   'resync-counts-held': ['    and public.silo_ledger_blocker(t.id) is null\n', ''],
+  // A pre-cut-over month that is already approved can be sent: the claim is not judged.
+  'no-claim-guard': ["create trigger qbo_card_posting_start_claim before insert", "create trigger qbo_card_posting_start_claim_off before insert"],
+  // On Deck keeps offering to send it.
+  'preview-still-posts': ["coalesce(v_source.posting_enabled, false) and v_cutover is null);", "coalesce(v_source.posting_enabled, false));"],
+  // Ignore the window: every row is judged again.
+  'window-ignored': ['    and (p_before is null or t.txn_date < p_before)\n', ''],
   'no-view-column': ['  s.posting_start_on as source_posting_start_on\n', '  null::date as source_posting_start_on\n'],
 };
 const mutation = process.env.CARD_POSTING_START_MUTATION || '';
@@ -461,6 +467,76 @@ try {
     } finally {
       await q("update quickbooks_accounts set is_active=true where company_entity_id=$1 and qbo_account_id='supplies'", [co]);
     }
+  });
+
+  const claim = (batch, hash, user = finance) => q(
+    `insert into quickbooks_journal_postings(company_entity_id,connection_id,source,source_ref,payload,status,request_key,payload_hash)
+     values($1,$2,'card_import',$3,'{}'::jsonb,'submitting',$4,$5)`, [co, conn, batch, `card_import:${batch}:${hash}`, hash]);
+  let approvedEarly;
+  await test('a month approved BEFORE the date was set cannot be sent: the posting claim is refused', async () => {
+    await q('update card_sources set posting_start_on=null where id=$1', [bank]);
+    approvedEarly = await newBatch(bank, { start: '2026-06-01', end: '2026-06-30' });
+    await newTxn(approvedEarly, 44, { date: '2026-06-12' });
+    await approve(approvedEarly);
+    const hash = (await one('select approval_hash h from card_import_batches where id=$1', [approvedEarly])).h;
+    await q("update card_sources set posting_start_on='2026-09-01' where id=$1", [bank]);
+    assert.equal((await one('select status from card_import_batches where id=$1', [approvedEarly])).status, 'approved',
+      'setting the date does not rewrite an approved batch');
+    await refused(() => claim(approvedEarly, hash), /before SILO started posting/i,
+      'quickbooks-post-journal takes this claim before it calls Intuit, so refusing it means nothing is sent');
+    assert.equal((await one("select count(*)::int n from quickbooks_journal_postings where source_ref=$1", [approvedEarly])).n, 0);
+  });
+
+  await test('a period on or after the date still takes its claim', async () => {
+    const batch = await newBatch(bank, { start: '2026-09-01', end: '2026-09-30' });
+    await newTxn(batch, 21, { date: '2026-09-14' });
+    await approve(batch);
+    const hash = (await one('select approval_hash h from card_import_batches where id=$1', [batch])).h;
+    await claim(batch, hash);
+    assert.equal((await one("select count(*)::int n from quickbooks_journal_postings where source_ref=$1", [batch])).n, 1);
+  });
+
+  await test('a month posted, voided and put back to approved is not sendable either', async () => {
+    await q('update card_sources set posting_start_on=null where id=$1', [bank]);
+    const jun = await newBatch(bank, { start: '2026-06-01', end: '2026-06-30' });
+    await newTxn(jun, 17, { date: '2026-06-03' });
+    await approve(jun);
+    await q(`insert into quickbooks_journal_postings(company_entity_id,connection_id,source,source_ref,payload,status,qbo_journal_entry_id)
+             values($1,$2,'card_import',$3,'{}'::jsonb,'posted','JE9')`, [co, conn, jun]);
+    await q("update card_import_batches set status='posted' where id=$1", [jun]);
+    await q("update card_sources set posting_start_on='2026-09-01' where id=$1", [bank]);
+    await as(finance, () => q("select void_card_posting($1,'posted by mistake before the date was set')", [jun]));
+    const hash = (await one('select approval_hash h from card_import_batches where id=$1', [jun])).h;
+    await refused(() => claim(jun, hash), /before SILO started posting/i, 'the void reopens the way out, not the way to send it again');
+  });
+
+  await test('On Deck offers no send for such a month: blocker set, not ready, cannot post', async () => {
+    const pre = (await as(finance, () => q('select card_import_batch_preview($1) p', [approvedEarly])))[0].p;
+    assert.equal(pre.can_post, false, 'the Send button must not appear');
+    assert.equal(pre.ready, false);
+    assert.match(pre.blocker, /before SILO started posting/i);
+    const sep = await one("select id from card_import_batches where source_id=$1 and status='approved' and period_start='2026-09-01' limit 1", [bank]);
+    const ok = (await as(finance, () => q('select card_import_batch_preview($1) p', [sep.id])))[0].p;
+    assert.equal(ok.can_post, true, 'a period SILO owns keeps its send');
+    assert.equal(ok.blocker, null);
+  });
+
+  await test('the shared judgement is not callable by a client', async () => {
+    await refused(() => as(finance, () => q("select card_posting_start_refusal($1,$2,null,null,null)", [approvedEarly, bank])), /permission denied/i, 'authenticated');
+    await refused(() => as(null, () => q("select card_posting_start_refusal($1,$2,null,null,null)", [approvedEarly, bank]), 'anon'), /permission denied/i, 'anon');
+  });
+
+  await test('the resync only judges rows before the window the caller passes', async () => {
+    await q('update card_sources set posting_start_on=null where id=$1', [bank]);
+    const aug = await newBatch(bank, { start: '2026-08-01', end: '2026-08-31' });
+    const inWindow = await newTxn(aug, 12, { date: '2026-08-20', account: 'supplies' });
+    assert.equal((await live(inWindow)).length, 1);
+    await q("update card_sources set posting_start_on='2026-09-01' where id=$1", [bank]);
+    const outside = (await as(finance, () => q("select silo_ledger_resync_posting_start($1,100,date '2026-08-01') r", [bank])))[0].r;
+    assert.equal(outside, 0, 'nothing before August 1 needs work');
+    assert.equal((await live(inWindow)).length, 1, 'a row dated after the window is not touched');
+    await as(finance, () => q("select silo_ledger_resync_posting_start($1,100,date '2026-09-01')", [bank]));
+    assert.equal((await live(inWindow)).length, 0, 'the right window reaches it and reverses it');
   });
 
   console.log(`PASS card posting start: ${passed} checks -- approval refused before the cut-over by any path, the ledger reversed in pages rather than deleted, On Deck quiet, history intact`);

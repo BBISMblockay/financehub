@@ -60,21 +60,19 @@ $$;
 -- drift from that 200-line function. Posting is unreachable without approval --
 -- quickbooks-post-journal refuses any batch that is not already 'approved' --
 -- so this one guard closes both.
-create or replace function public.card_posting_start_guard()
-returns trigger language plpgsql security invoker set search_path = public, pg_temp as $$
+-- The judgement itself lives in one place, card_posting_start_refusal, so the
+-- approval trigger below, the posting-claim trigger and the On Deck preview ask
+-- the same question and cannot drift apart. It returns the sentence to show, or
+-- null when the batch is SILO's to approve and post. Not callable by clients:
+-- only the definer functions and triggers that need it reach it.
+create or replace function public.card_posting_start_refusal(
+  p_batch uuid, p_source uuid, p_period_end date, p_entry_date date, p_period_start date)
+returns text language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare v_start date; v_name text; v_end date; v_early date; v_count integer;
 begin
-  -- Only a move INTO 'approved' is judged. 'approved'/'posted' -> 'approved' is
-  -- not one: a re-save is a no-op, and posted -> approved is void_card_posting /
-  -- "Mark unposted", the way OUT of a post made before the date was set. Refusing
-  -- that would leave a wrongly posted month reading "In QuickBooks" for good.
-  -- An INSERT already carrying status 'approved' is judged too (finance clients
-  -- may insert any status but 'posted'), so there is no OLD row to compare.
-  if new.status <> 'approved' then return new; end if;
-  if tg_op = 'UPDATE' and old.status in ('approved', 'posted') then return new; end if;
   select s.posting_start_on, s.display_name into v_start, v_name
-    from public.card_sources s where s.id = new.source_id;
-  if v_start is null then return new; end if;
+    from public.card_sources s where s.id = p_source;
+  if v_start is null then return null; end if;
 
   -- Two tests, because a period and a transaction are judged on different
   -- dates and a cut-over need not fall on a period boundary.
@@ -82,10 +80,10 @@ begin
   -- First the period itself. period_end is its own last day; an import with no
   -- period is judged by its entry date, and one with neither is left to the
   -- second test rather than guessed at.
-  v_end := coalesce(new.period_end, new.entry_date, new.period_start);
+  v_end := coalesce(p_period_end, p_entry_date, p_period_start);
   if v_end is not null and v_end < v_start then
-    raise exception 'This period ends before SILO started posting % (%). It was handled outside SILO; nothing is to be sent for it.',
-      coalesce(v_name, 'this account'), to_char(v_start, 'FMMonth FMDD, YYYY');
+    return format('This period ends before SILO started posting %s (%s). It was handled outside SILO; nothing is to be sent for it.',
+      coalesce(v_name, 'this account'), to_char(v_start, 'FMMonth FMDD, YYYY'));
   end if;
 
   -- Then its contents. A cut-over mid-period (say September 15 on a September
@@ -99,15 +97,62 @@ begin
   -- the same question the snapshot answers.
   select min(e.txn_date), count(distinct e.transaction_id) into v_early, v_count
     from public.card_coding_effective_lines e
-   where e.batch_id = new.id and round(e.amount, 2) <> 0 and e.txn_date < v_start;
-  if v_early is null then return new; end if;
-  raise exception 'This import holds % transaction(s) dated before SILO started posting % (%), the earliest on %. Approving it would freeze an entry containing activity that was handled outside SILO. Move those rows to their own import, or exclude them, before approving this period.',
-    v_count, coalesce(v_name, 'this account'), to_char(v_start, 'FMMonth FMDD, YYYY'), to_char(v_early, 'FMMonth FMDD, YYYY');
+   where e.batch_id = p_batch and round(e.amount, 2) <> 0 and e.txn_date < v_start;
+  if v_early is null then return null; end if;
+  return format('This import holds %s transaction(s) dated before SILO started posting %s (%s), the earliest on %s. Approving it would freeze an entry containing activity that was handled outside SILO. Move those rows to their own import, or exclude them, before approving this period.',
+    v_count, coalesce(v_name, 'this account'), to_char(v_start, 'FMMonth FMDD, YYYY'), to_char(v_early, 'FMMonth FMDD, YYYY'));
 end $$;
+revoke all on function public.card_posting_start_refusal(uuid, uuid, date, date, date) from public, anon, authenticated;
+
+create or replace function public.card_posting_start_guard()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_msg text;
+begin
+  -- Only a move INTO 'approved' is judged. 'approved'/'posted' -> 'approved' is
+  -- not one: a re-save is a no-op, and posted -> approved is void_card_posting /
+  -- "Mark unposted", the way OUT of a post made before the date was set. Refusing
+  -- that would leave a wrongly posted month reading "In QuickBooks" for good.
+  -- (That voided month is then approved and pre-cut-over; the posting-claim
+  -- trigger below is what keeps it from being sent again.)
+  -- An INSERT already carrying status 'approved' is judged too (finance clients
+  -- may insert any status but 'posted'), so there is no OLD row to compare.
+  if new.status <> 'approved' then return new; end if;
+  if tg_op = 'UPDATE' and old.status in ('approved', 'posted') then return new; end if;
+  v_msg := public.card_posting_start_refusal(new.id, new.source_id, new.period_end, new.entry_date, new.period_start);
+  if v_msg is null then return new; end if;
+  raise exception '%', v_msg;
+end $$;
+revoke all on function public.card_posting_start_guard() from public, anon, authenticated;
 
 drop trigger if exists card_batch_posting_start on public.card_import_batches;
 create trigger card_batch_posting_start before insert or update of status on public.card_import_batches
   for each row execute function public.card_posting_start_guard();
+
+-- ── A pre-cut-over month can never be SENT, whatever state it is in ─────────
+-- The approval guard only stops a month BECOMING approved. A month that was
+-- already approved when the date was set, or that SILO posted, voided and put
+-- back to approved, stays approved -- and quickbooks-post-journal checks only
+-- status, posting_enabled and the connection. Taking the posting claim is the
+-- one step every send must pass, so refuse it here. The function already treats
+-- a failed claim insert as "nothing was sent" (it never calls Intuit before the
+-- claim exists), so this needs no deploy. Fires after
+-- qbo_card_claim_matches_approval (alphabetical), which owns the stale-approval
+-- and missing-batch cases.
+create or replace function public.card_posting_start_claim_guard()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_batch public.card_import_batches%rowtype; v_reason text;
+begin
+  if new.source <> 'card_import' or new.status <> 'submitting' then return new; end if;
+  select * into v_batch from public.card_import_batches where id = new.source_ref::uuid;
+  if not found then return new; end if;
+  v_reason := public.card_posting_start_refusal(v_batch.id, v_batch.source_id, v_batch.period_end, v_batch.entry_date, v_batch.period_start);
+  if v_reason is null then return new; end if;
+  raise exception '%', v_reason using errcode = 'P0PS1';
+end $$;
+revoke all on function public.card_posting_start_claim_guard() from public, anon, authenticated;
+drop trigger if exists qbo_card_posting_start_claim on public.quickbooks_journal_postings;
+create trigger qbo_card_posting_start_claim before insert on public.quickbooks_journal_postings
+  for each row execute function public.card_posting_start_claim_guard();
 
 -- ── Bringing the ledger in line with the cut-over, in pages ───────────────
 -- The date moves in BOTH directions, so this reconciles in both. Setting a
@@ -130,13 +175,18 @@ create trigger card_batch_posting_start before insert or update of status on pub
 -- An approved or posted batch is frozen and is never touched here: its entry
 -- was recorded from the approval snapshot, and for a posted one QuickBooks
 -- holds it.
+drop function if exists public.silo_ledger_resync_candidates(uuid, uuid, integer);
 create or replace function public.silo_ledger_resync_candidates(
-  p_source_id uuid, p_company uuid, p_limit integer)
+  p_source_id uuid, p_company uuid, p_limit integer, p_before date default null)
 returns setof uuid language sql stable security invoker set search_path = public, pg_temp as $$
   select t.id from public.card_transactions t
   join public.card_import_batches b on b.id = t.batch_id
   where b.source_id = p_source_id and t.company_entity_id = p_company
     and b.status not in ('approved', 'posted')
+    -- Only a row dated before the LATER of the old and new cut-over can change
+    -- state: from that day on both dates agree. The caller passes it, so a
+    -- backloaded account does not judge every row it has ever coded.
+    and (p_before is null or t.txn_date < p_before)
     -- A coded row that fails validation (open feed exception, inactive account)
     -- is HELD by the writer: it returns without recording or reversing. Such a
     -- row would be a candidate on every pass and never change, so the remainder
@@ -155,16 +205,19 @@ returns setof uuid language sql stable security invoker set search_path = public
   order by t.txn_date, t.id
   limit greatest(coalesce(p_limit, 100), 1);
 $$;
-revoke all on function public.silo_ledger_resync_candidates(uuid, uuid, integer) from public, anon, authenticated;
+revoke all on function public.silo_ledger_resync_candidates(uuid, uuid, integer, date) from public, anon, authenticated;
 
 -- Returns how many of the source's transactions are still out of line AFTER
 -- reconciling up to p_limit of them. The caller loops until it returns 0.
--- The remainder is counted over at most RESYNC_SCAN candidates, because
--- silo_ledger_desired_lines runs per row and an unbounded count on a
--- backloaded account would exceed the browser's 8s statement timeout. That
--- caps how large the number can read, never whether it reaches 0, so the
--- caller's loop still terminates exactly.
-create or replace function public.silo_ledger_resync_posting_start(p_source_id uuid, p_limit integer default 100)
+-- The remainder reads at most 5000 (RESYNC_SCAN): that caps how large the number
+-- can read, never whether it reaches 0, so the caller's loop still terminates.
+-- p_before narrows the rows judged to those dated before the later of the old and
+-- new cut-over (the only rows that can change state); null judges every row. The
+-- work per call is still every candidate row in that window (silo_ledger_desired_lines
+-- per row, twice per call), so measure it on real data before relying on the
+-- browser's 8s statement timeout.
+drop function if exists public.silo_ledger_resync_posting_start(uuid, integer);
+create or replace function public.silo_ledger_resync_posting_start(p_source_id uuid, p_limit integer default 100, p_before date default null)
 returns integer language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_company uuid; v_id uuid;
 begin
@@ -175,15 +228,15 @@ begin
    where id = p_source_id and company_entity_id = public.active_company_id();
   if v_company is null then raise exception 'Account not found'; end if;
 
-  for v_id in select public.silo_ledger_resync_candidates(p_source_id, v_company, p_limit) loop
+  for v_id in select public.silo_ledger_resync_candidates(p_source_id, v_company, p_limit, p_before) loop
     perform public.silo_ledger_sync_card_transaction(v_id);
   end loop;
 
-  return (select count(*)::int from public.silo_ledger_resync_candidates(p_source_id, v_company, 5000));
+  return (select count(*)::int from public.silo_ledger_resync_candidates(p_source_id, v_company, 5000, p_before));
 end $$;
 
-revoke all on function public.silo_ledger_resync_posting_start(uuid, integer) from public, anon;
-grant execute on function public.silo_ledger_resync_posting_start(uuid, integer) to authenticated;
+revoke all on function public.silo_ledger_resync_posting_start(uuid, integer, date) from public, anon;
+grant execute on function public.silo_ledger_resync_posting_start(uuid, integer, date) to authenticated;
 
 -- ── The date travels with the batch ────────────────────────────────────────
 -- Appended at the end so CREATE OR REPLACE keeps every existing column in
@@ -325,6 +378,139 @@ as $$
   left join mix m on m.batch_id = b.id
   left join dates d on d.batch_id = b.id
   order by b.updated_at desc;
+$$;
+
+-- ── On Deck stops offering to send a month SILO is not to post ──────────────
+-- card_import_batch_preview, byte-for-byte as 20261004120000 defined it plus
+-- v_cutover: an approved pre-cut-over month reports blocker, ready=false and
+-- can_post=false. Grants are kept by CREATE OR REPLACE.
+create or replace function public.card_import_batch_preview(p_batch_id uuid)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_company uuid := public.active_company_id();
+  v_batch public.card_import_batches%rowtype;
+  v_source public.card_sources%rowtype;
+  v_snapshot jsonb;
+  v_hash text;
+  v_blocker text;
+  v_connection uuid;
+  v_lines jsonb;
+  v_dest jsonb;
+  v_posting jsonb;
+  v_dates jsonb;
+  v_cutover text;
+begin
+  if auth.uid() is null or v_company is null
+     or not coalesce(public.can_manage_journal_entries() or public.is_exec_or_owner(), false) then
+    raise exception 'Finance access required' using errcode = '42501';
+  end if;
+  select * into v_batch from public.card_import_batches
+  where id = p_batch_id and company_entity_id = v_company;
+  if not found then raise exception 'Batch not found' using errcode = '42501'; end if;
+  select * into v_source from public.card_sources where id = v_batch.source_id and company_entity_id = v_company;
+
+  if v_batch.status in ('approved', 'posted') then
+    -- Already frozen: the preview IS the stored approval, never a rebuild.
+    v_snapshot := v_batch.approval_snapshot;
+    v_hash := v_batch.approval_hash;
+    if v_snapshot is null or v_hash is null then
+      v_blocker := 'This approval predates the posting controls. Reopen it in Transactions and approve it again.';
+    end if;
+  elsif v_batch.status in ('draft', 'categorized') then
+    -- Run the real approval and roll it back. PL/pgSQL variables survive the
+    -- rollback of the block; every row change, audit event and lock taken by
+    -- approve_card_import_batch does not.
+    begin
+      perform public.approve_card_import_batch(p_batch_id);
+      select approval_snapshot, approval_hash into v_snapshot, v_hash
+      from public.card_import_batches where id = p_batch_id;
+      raise exception using errcode = 'P0D01', message = 'on_deck_preview_rollback';
+    exception
+      when sqlstate 'P0D01' then null;
+      when others then v_blocker := sqlerrm; v_snapshot := null; v_hash := null;
+    end;
+  else
+    v_blocker := format('This import is %s and cannot be approved.', v_batch.status);
+  end if;
+
+  -- An approved month that SILO is not to post (the cut-over came after it was
+  -- approved, or it was posted, voided and put back) must not offer a send: the
+  -- posting claim would refuse it, so say so here instead of on a failed click.
+  if v_batch.status = 'approved' then
+    v_cutover := public.card_posting_start_refusal(v_batch.id, v_batch.source_id, v_batch.period_end, v_batch.entry_date, v_batch.period_start);
+  end if;
+
+  v_connection := nullif(v_snapshot->>'qbo_connection_id', '')::uuid;
+  if v_connection is null then v_connection := coalesce(v_batch.qbo_connection_id, v_source.qbo_connection_id); end if;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'posting_type', l.line->'JournalEntryLineDetail'->>'PostingType',
+           'amount', (l.line->>'Amount')::numeric,
+           'account_id', l.line->'JournalEntryLineDetail'->'AccountRef'->>'value',
+           'account_name', coalesce(a.fully_qualified_name, a.name),
+           'account_type', a.account_type,
+           'location_name', loc.name,
+           'entity_type', l.line->'JournalEntryLineDetail'->'Entity'->>'Type',
+           'entity_name', coalesce(cu.display_name, ve.display_name),
+           'description', l.line->>'Description') order by l.n), '[]'::jsonb)
+    into v_lines
+  from jsonb_array_elements(coalesce(v_snapshot->'payload'->'Line', '[]'::jsonb)) with ordinality as l(line, n)
+  left join public.quickbooks_accounts a on a.company_entity_id = v_company and a.connection_id = v_connection
+    and a.qbo_account_id = l.line->'JournalEntryLineDetail'->'AccountRef'->>'value'
+  left join public.quickbooks_locations loc on loc.company_entity_id = v_company and loc.connection_id = v_connection
+    and loc.qbo_location_id = l.line->'JournalEntryLineDetail'->'DepartmentRef'->>'value'
+  left join public.quickbooks_customers cu on cu.company_entity_id = v_company and cu.connection_id = v_connection
+    and l.line->'JournalEntryLineDetail'->'Entity'->>'Type' = 'Customer'
+    and cu.qbo_customer_id = l.line->'JournalEntryLineDetail'->'Entity'->'EntityRef'->>'value'
+  left join public.quickbooks_vendors ve on ve.company_entity_id = v_company and ve.connection_id = v_connection
+    and l.line->'JournalEntryLineDetail'->'Entity'->>'Type' = 'Vendor'
+    and ve.qbo_vendor_id = l.line->'JournalEntryLineDetail'->'Entity'->'EntityRef'->>'value';
+
+  select jsonb_build_object('connection_id', c.id, 'company_name', c.company_name, 'environment', c.environment, 'is_active', c.is_active)
+    into v_dest
+  from public.quickbooks_connections c where c.id = v_connection and c.company_entity_id = v_company;
+
+  select jsonb_build_object('status', p.status, 'qbo_journal_entry_id', p.qbo_journal_entry_id,
+           'qbo_doc_number', p.qbo_doc_number, 'error_message', left(p.error_message, 500),
+           'posted_at', p.posted_at, 'payload_hash', p.payload_hash)
+    into v_posting
+  from public.quickbooks_journal_postings p
+  where p.company_entity_id = v_company and p.source = 'card_import' and p.source_ref = p_batch_id::text
+  order by p.created_at desc limit 1;
+
+  select jsonb_build_object('first_txn', min(t.txn_date), 'last_txn', max(t.txn_date),
+           'txn_count', count(*), 'uncoded', count(*) filter (where t.status = 'uncoded'),
+           'excluded', count(*) filter (where t.status = 'excluded'),
+           'coded', count(*) filter (where t.status = 'coded'),
+           'source_updated_at', max(t.updated_at),
+           'currency', case when count(distinct t.currency) = 1 then min(t.currency) end)
+    into v_dates
+  from public.card_transactions t where t.batch_id = p_batch_id and t.company_entity_id = v_company;
+
+  return jsonb_build_object(
+    'batch_id', v_batch.id, 'status', v_batch.status, 'label', v_batch.label,
+    'source_name', v_source.display_name, 'posting_enabled', coalesce(v_source.posting_enabled, false),
+    'entry_date', v_snapshot->'payload'->>'TxnDate',
+    'period_start', v_batch.period_start, 'period_end', v_batch.period_end,
+    'ready', v_blocker is null and v_cutover is null and v_hash is not null,
+    'blocker', coalesce(v_blocker, v_cutover),
+    'hash', v_hash,
+    'approval_version', v_batch.approval_version,
+    'approved_at', v_batch.approved_at,
+    'memo', v_snapshot->'payload'->>'PrivateNote',
+    'lines', v_lines,
+    'debits', (select coalesce(sum((x->>'amount')::numeric), 0) from jsonb_array_elements(v_lines) x where x->>'posting_type' = 'Debit'),
+    'credits', (select coalesce(sum((x->>'amount')::numeric), 0) from jsonb_array_elements(v_lines) x where x->>'posting_type' = 'Credit'),
+    'destination', v_dest,
+    'posting', v_posting,
+    'facts', v_dates,
+    'can_post', coalesce(public.can_manage_journal_entries(), false) and coalesce(v_source.posting_enabled, false) and v_cutover is null);
+end;
 $$;
 
 -- Ask SILO's schema map: the batch view gained a column.

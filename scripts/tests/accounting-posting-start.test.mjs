@@ -111,7 +111,7 @@ test('the paged reversal runs to zero, and only then is the save called done', a
   await h.mounted; await h.click();
   const resyncs = h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start');
   assert.equal(resyncs.length, 3, 'the RPC is bounded per call, so the caller must loop until it returns 0');
-  assert.equal(JSON.stringify(resyncs[0][1]), JSON.stringify({ p_source_id: 's1', p_limit: 100 }));
+  assert.equal(JSON.stringify(resyncs[0][1]), JSON.stringify({ p_source_id: 's1', p_limit: 100, p_before: '2026-09-01' }));
   assert.match(h.statusEl.innerHTML, /Saved/);
   assert.match(h.statusEl.innerHTML, /SILO posts from September 1, 2026/);
   assert.doesNotMatch(h.statusEl.innerHTML, /books-flag/, 'a finished save is not an alarm');
@@ -133,7 +133,7 @@ test('a reversal that stops partway says what is left, and never reads as finish
   assert.match(h.statusEl.innerHTML, /SILO posts September 1, 2026 onward/);
 });
 
-test('a remainder that does not shrink stops the loop and says rows are held, rather than pressing on', async () => {
+test('a remainder that does not shrink stops the loop rather than pressing on', async () => {
   // Rows held by an open problem cannot be moved by the resync; looping 200
   // times and then telling the user to press Save again would never end.
   const h = harness({ update: { data: [{ id: 's1', posting_start_on: '2026-09-01' }], error: null },
@@ -141,9 +141,26 @@ test('a remainder that does not shrink stops the loop and says rows are held, ra
   await h.mounted; await h.click();
   assert.equal(h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start').length, 3,
     'it stops at the first page that changed nothing, not after 200 calls');
-  assert.match(h.statusEl.innerHTML, /3 transactions are held by an open problem/);
+  assert.match(h.statusEl.innerHTML, /3 transactions did not move on the last pass/);
   assert.match(h.statusEl.innerHTML, /SILO posts September 1, 2026 onward/, 'the date is still saved and governs');
   assert.match(h.statusEl.innerHTML, /books-flag/);
+});
+
+test('a capped count is a lower bound, not a stall: the loop keeps going', async () => {
+  const h = harness({ update: { data: [{ id: 's1', posting_start_on: '2026-09-01' }], error: null },
+    rpc: [{ data: 5000, error: null }, { data: 5000, error: null }, { data: 4000, error: null }, { data: 0, error: null }] });
+  await h.mounted; await h.click();
+  assert.equal(h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start').length, 4,
+    'two reads at the 5000 cap are not evidence that nothing moved');
+  assert.ok(!/did not move/.test(h.statusEl.innerHTML), h.statusEl.innerHTML);
+});
+
+test('the resync is bounded to rows before the later of the old and new date', async () => {
+  const h = harness({ update: { data: [{ id: 's1', posting_start_on: '2026-09-01' }], error: null },
+    rpc: [{ data: 0, error: null }] });
+  await h.mounted; await h.click();
+  const call = h.calls.find((c) => c[0] === 'silo_ledger_resync_posting_start');
+  assert.equal(call[1].p_before, '2026-09-01', 'setting 2026-09-01 from nothing judges rows before it');
 });
 
 test('an RLS-refused save is reported as refused, not as saved', async () => {

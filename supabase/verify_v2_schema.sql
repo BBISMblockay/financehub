@@ -6977,7 +6977,10 @@ select 'Card posting cut-over' as check_name,
                          and table_name = 'card_sources' and column_name = 'posting_start_on')
         or not exists (select 1 from pg_trigger where tgname = 'card_batch_posting_start'
                          and tgrelid = 'public.card_import_batches'::regclass)
-        or to_regprocedure('public.silo_ledger_resync_posting_start(uuid,integer)') is null
+        or to_regprocedure('public.silo_ledger_resync_posting_start(uuid,integer,date)') is null
+        or not exists (select 1 from pg_trigger where tgname = 'qbo_card_posting_start_claim'
+                         and tgrelid = 'public.quickbooks_journal_postings'::regclass)
+        or to_regprocedure('public.card_posting_start_refusal(uuid,uuid,date,date,date)') is null
    then 'MISSING — run 20261015020000_card_posting_start.sql'
   -- The gate is the whole point: without it a pre-cut-over month stays in
   -- SILO's own ledger even though QuickBooks already holds it by hand.
@@ -6991,17 +6994,24 @@ select 'Card posting cut-over' as check_name,
   -- The resync must reconcile BOTH directions. Reversal-only means clearing a
   -- cut-over leaves those months absent from SILO's ledger with nothing to put
   -- them back, because silo_ledger_on_source ignores this column by design.
-  when to_regprocedure('public.silo_ledger_resync_candidates(uuid,uuid,integer)') is null
-    or pg_get_functiondef(to_regprocedure('public.silo_ledger_resync_candidates(uuid,uuid,integer)')) not like '%<>%'
+  when to_regprocedure('public.silo_ledger_resync_candidates(uuid,uuid,integer,date)') is null
+    or pg_get_functiondef(to_regprocedure('public.silo_ledger_resync_candidates(uuid,uuid,integer,date)')) not like '%<>%'
    then 'BROKEN — the cut-over resync only reverses; clearing a date would not restore those ledger entries'
   -- The guard must judge the batch's CONTENTS, or a cut-over inside a period
   -- lets approval freeze pre-cut-over lines that posting would then send.
   when pg_get_functiondef(to_regprocedure('public.card_posting_start_guard()')) not like '%card_coding_effective_lines%'
    then 'BROKEN — the approval guard judges only the period, so a period straddling the cut-over can be approved with pre-cut-over lines in its entry'
-  when has_function_privilege('anon', 'public.silo_ledger_resync_posting_start(uuid,integer)', 'execute')
-    or has_function_privilege('anon', 'public.silo_ledger_resync_candidates(uuid,uuid,integer)', 'execute')
-    or has_function_privilege('authenticated', 'public.silo_ledger_resync_candidates(uuid,uuid,integer)', 'execute')
+  -- A month SILO is not to post must not be sendable even when it is already
+  -- approved: the posting claim is the one step every send passes.
+  when pg_get_functiondef(to_regprocedure('public.card_import_batch_preview(uuid)')) not like '%card_posting_start_refusal%'
+   then 'BROKEN — On Deck still offers to send a month SILO is not to post'
+  when has_function_privilege('anon', 'public.card_posting_start_refusal(uuid,uuid,date,date,date)', 'execute')
+    or has_function_privilege('authenticated', 'public.card_posting_start_refusal(uuid,uuid,date,date,date)', 'execute')
+   then 'CRITICAL: a client can call the cut-over judgement directly'
+  when has_function_privilege('anon', 'public.silo_ledger_resync_posting_start(uuid,integer,date)', 'execute')
+    or has_function_privilege('anon', 'public.silo_ledger_resync_candidates(uuid,uuid,integer,date)', 'execute')
+    or has_function_privilege('authenticated', 'public.silo_ledger_resync_candidates(uuid,uuid,integer,date)', 'execute')
    then 'CRITICAL: a client can reach the ledger resync directly'
-  when not has_function_privilege('authenticated', 'public.silo_ledger_resync_posting_start(uuid,integer)', 'execute')
+  when not has_function_privilege('authenticated', 'public.silo_ledger_resync_posting_start(uuid,integer,date)', 'execute')
    then 'BROKEN — Books & setup cannot run the resync after saving a cut-over'
   else 'ok' end as status;

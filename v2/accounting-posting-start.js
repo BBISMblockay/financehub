@@ -16,6 +16,8 @@
  */
 (function () {
   'use strict';
+  /* silo_ledger_resync_posting_start reads at most this many; a count at the cap is a lower bound. */
+  const RESYNC_CAP = 5000;
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -105,7 +107,10 @@
          those entries affecting the balances. An unchanged date therefore skips
          the write and the confirmation (nothing is being decided) and resumes
          the reconciliation, which is idempotent. */
-      const unchanged = (source.posting_start_on || '') === next;
+      const previous = source.posting_start_on || '';
+      const unchanged = previous === next;
+      /* Only rows dated before the later of the old and new date can change state. */
+      const before = [previous, next].filter(Boolean).sort().pop() || null;
       if (!unchanged) {
         const ok = await window.SiloFinanceDialog.ask({
           title: next ? 'Set when SILO starts posting' : 'Clear the cut-over',
@@ -139,13 +144,14 @@
       const work = source.posting_start_on ? 'Reversing earlier ledger entries' : 'Restoring earlier ledger entries';
       let remaining = null;
       for (let page = 0; page < 200; page += 1) {
-        const r = await db.rpc('silo_ledger_resync_posting_start', { p_source_id: id, p_limit: 100 });
+        const r = await db.rpc('silo_ledger_resync_posting_start', { p_source_id: id, p_limit: 100, p_before: before });
         if (r.error) {
           status(`Saved. SILO posts ${posts}, but SILO’s ledger is not yet in line with that: ${r.error.message}. Press Save again on this account to pick up where it stopped.`, true);
           return;
         }
         const left = Number(r.data) || 0;
-        const stalled = remaining !== null && left >= remaining;
+        /* The server reads at most 5000, so a capped value cannot show progress. */
+        const stalled = remaining !== null && left < RESYNC_CAP && left >= remaining;
         remaining = left;
         status(remaining ? `${work} — ${remaining} transactions left…` : 'Saved.');
         if (!remaining) break;
@@ -153,7 +159,7 @@
            means the rest are held (an open feed exception, an inactive account)
            and pressing on cannot change them. Stop and say so. */
         if (stalled) {
-          status(`Saved, and SILO posts ${posts}. ${remaining} transactions are held by an open problem (a feed exception or an inactive account) and cannot be moved yet. Clear it, then press Save again on this account.`, true);
+          status(`Saved, and SILO posts ${posts}. ${remaining} transactions did not move on the last pass. Press Save again on this account; if the number stays the same, something else is changing this account’s transactions.`, true);
           return;
         }
       }
