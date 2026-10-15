@@ -192,6 +192,10 @@
 .od-rpill{font:600 10px var(--bcn-mono);letter-spacing:.05em;text-transform:uppercase;padding:4px 8px;border-radius:5px;background:var(--bcn-accent-soft);color:var(--bcn-accent)}
 .od-rpill--needs_input{background:var(--bcn-bg);color:var(--bcn-warn);border:1px solid var(--bcn-warn)}
 .od-rpill--posted{background:var(--bcn-bg);color:var(--bcn-pos);border:1px solid var(--bcn-pos);display:inline-block;width:max-content}
+.od-rpill--warn{background:var(--bcn-bg);color:var(--bcn-warn);border:1px solid var(--bcn-warn)}
+.od-rpill--working{background:var(--bcn-bg);color:var(--bcn-ink-2);border:1px solid var(--bcn-border)}
+.od-rpill--muted{background:var(--bcn-bg);color:var(--bcn-ink-3);border:1px solid var(--bcn-border)}
+.bcn-status>.bcn-btn{margin-left:10px}
 .od-rcard h3{font-size:19px;letter-spacing:-.4px;margin:6px 0 0;overflow-wrap:anywhere}
 .od-rcard-sub{margin:0;font-size:12px;color:var(--bcn-ink-3);overflow-wrap:anywhere}
 .od-rcard-detail{margin:4px 0;font-size:12px;line-height:1.6;color:var(--bcn-ink-2)}

@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('assert/strict');
 const { loadV2 } = require('../lib/load');
-const { build, inputPlan, prepareHandoff } = loadV2(['on-deck-briefing.js']).SiloOnDeckBriefing;
+const { build, inputPlan, prepareHandoff, statusOf, draftBlockers } = loadV2(['on-deck-briefing.js']).SiloOnDeckBriefing;
 const now = Date.parse('2026-10-08T12:00:00Z');
 const ads = (over = {}) => ({ id: 'ad1', kind: 'ads', status: 'ready', title: 'Draft creative · Classic tee', source_current: true, valid_until: '2026-10-10',
   selection_reason: 'Strong evidence. Selected #1 of 2 eligible ads opportunities.',
@@ -116,3 +116,48 @@ test('current readiness distinguishes six stale drafts from old ready summaries'
  assert.equal(currentStatus([seo({source_current:true,content:{...seo().content,proposed_title:'',proposed_meta_description:''}})],now).ready,0);
  assert.equal(currentStatus([seo({source_current:true,content:{...seo().content,body:'Draft',proposed_title:'Title',proposed_meta_description:'Description'}})],now).ready,1);
 });
+
+// One status per proposal: the card, the detail and the button all read this.
+const reviewOk = { review_contract: 2, proposals: [] };
+const stat = (p, over = {}) => statusOf(p, { settings: { enabled: true, workflows: ['ads','seo','launch','restock'] }, review: reviewOk, now, ...over });
+test('a failed readiness call never invents a status', () => {
+  for (const review of [null, undefined, { review_contract: 1, proposals: [] }]) {
+    const st = stat(ads({ source_current: true }), { review });
+    assert.equal(st.key, 'unavailable'); assert.equal(st.action, 'retry');
+    assert.doesNotMatch(st.label, /ready|needs/i);
+    assert.doesNotMatch(st.detail, /install|migration|update/i);
+  }
+});
+test('unknown freshness is unknown, not ready', () => {
+  assert.equal(stat(ads({ source_current: undefined })).key, 'unavailable');
+});
+test('the card and the detail cannot disagree: ready means no blockers', () => {
+  const ready = ads({ source_current: true });
+  assert.equal(draftBlockers(ready).length, 0);
+  assert.equal(stat(ready).key, 'ready'); assert.equal(stat(ready).action, 'review');
+  // The exact row Blake hit: status 'ready' with an unanswered required fact.
+  const blocked = ads({ status: 'ready', source_current: true, content: { ...ads().content, missing: ['Verify the margin claim'] } });
+  assert.ok(draftBlockers(blocked).length);
+  const st = stat(blocked);
+  assert.equal(st.key, 'needs_input'); assert.equal(st.action, 'answer');
+  assert.equal(st.label, 'Needs 1 answer'); assert.equal(st.asks, 1);
+  assert.notEqual(st.label.toLowerCase(), 'ready for your review');
+});
+test('two unanswered facts pluralise, answered ones do not count', () => {
+  const two = ads({ source_current: true, content: { ...ads().content, missing: ['One', 'Two'] } });
+  assert.equal(stat(two).label, 'Needs 2 answers');
+});
+test('terminal rows keep their status even when readiness is unavailable', () => {
+  assert.equal(stat(ads({ status: 'completed' }), { review: null }).key, 'done');
+  assert.equal(stat(ads({ status: 'dismissed' }), { review: null }).key, 'dismissed');
+  assert.equal(stat(ads({ status: 'screened' }), { review: null }).key, 'screened');
+});
+test('preparing, paused, failed and stale each say what they are', () => {
+  assert.equal(stat(ads({ status: 'preparing', source_current: true })).key, 'working');
+  assert.equal(stat(ads({ source_current: true }), { settings: { enabled: false } }).key, 'blocked');
+  assert.equal(stat(ads({ status: 'failed', source_current: true })).key, 'blocked');
+  assert.equal(stat(ads({ source_current: false })).key, 'stale');
+  assert.equal(stat(ads({ source_current: true, valid_until: '2026-10-01' })).key, 'stale');
+  assert.equal(stat(ads({ source_current: true, valid_until: '2026-10-01' })).label, 'Evidence expired');
+});
+

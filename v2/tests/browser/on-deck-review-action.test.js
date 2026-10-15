@@ -52,7 +52,7 @@ const rpc = {
  const save=async()=>{await page.locator('#edit-note').fill('Reviewed evidence, copy and saved task inputs.');await page.getByRole('button',{name:'Save for review',exact:true}).click();await page.waitForFunction(()=>!document.getElementById('edit-dialog').open);};
  const shots=path.resolve(__dirname,'../../../.screenshots');fs.mkdirSync(shots,{recursive:true});
  try {
-  await test('incomplete stored ready output is blocked and repairable without an AI request',async()=>{const data=tables();Object.assign(data.on_deck_proposals[0],{status:'ready',content:{...content(),missing:[],proposed_meta_description:'Grounded metadata'}});page=await open(data);assert.equal(await page.getByRole('button',{name:'Create draft SEO task',exact:true}).isDisabled(),true);assert.match(await page.locator('#detail').textContent(),/needs input/);assert.equal(await page.getByRole('button',{name:'Review draft',exact:true}).isEnabled(),true);await page.close();});
+  await test('incomplete stored ready output is blocked and repairable without an AI request',async()=>{const data=tables();Object.assign(data.on_deck_proposals[0],{status:'ready',content:{...content(),missing:[],proposed_meta_description:'Grounded metadata'}});page=await open(data);assert.equal(await page.getByRole('button',{name:'Create draft SEO task',exact:true}).isDisabled(),true);assert.match(await page.locator('#detail').textContent(),/Needs input/i);assert.equal(await page.getByRole('button',{name:'Review draft',exact:true}).isEnabled(),true);await page.close();});
   page=await open();
   await test('single review path places evidence, manual SEO fields and editable inputs together',async()=>{
    assert.equal(await page.getByRole('button',{name:'Prepare draft task',exact:true}).count(),0);
