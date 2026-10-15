@@ -22,7 +22,7 @@ const r = createReporter('accounting-migration-flow');
 
 /* The live Baseballism position, as fixture rows. */
 const FIXTURES = () => ({
-  accounting_settings: [{ accounting_start_date: '2026-08-01', accounting_basis: 'Accrual', fiscal_year_start_month: 1, qbo_connection_id: 'conn-1' }],
+  accounting_settings: [{ accounting_start_date: '2026-08-01', accounting_basis: 'Accrual', fiscal_year_start_month: 1, qbo_connection_id: 'conn-1', bookkeeping_mode: 'silo', silo_takeover_on: null }],
   accounting_opening_balances: [{ id: 'ob-1', status: 'accepted', accepted_at: '2026-09-14T00:00:00Z', snapshot: { as_of: '2026-07-31', accounting_start_date: '2026-08-01', currency: 'USD', basis: 'Accrual', debits: 1, credits: 1, fetched_at: 'x', lines: [] }, snapshot_hash: 'h' }],
   accounting_accounts: [{ id: 'a1', name: 'Cash', account_type: 'Bank', qbo_account_id: '1', is_active: true }],
   qbo_history_imports: [
@@ -144,6 +144,40 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
       const pressed = await page.$$eval('.books-tabs [data-surface]', (bs) =>
         bs.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.surface));
       r.eq(pressed.length, 1, 'exactly one tab reads as pressed');
+    });
+
+    /* Who keeps the books decides whether SILO posts at all, and it used to sit
+       inside the Setup tab below the opening-balance machinery -- on a company
+       that lands on Ledger, it was not on screen at all (Blake, 2026-10-15:
+       "you've migrated section is so buried"). It belongs beside the lead. */
+    await check('who keeps the books is on the landing view, above the tabs', async () => {
+      const where = await page.evaluate(() => {
+        const card = document.getElementById('booksMode');
+        const tabs = document.querySelector('.books-tabs');
+        if (!card || !tabs) return { missing: true };
+        return {
+          hidden: card.hidden || !card.offsetParent,
+          beforeTabs: !!(card.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING),
+          insideSurface: !!card.closest('.books-surface'),
+          heading: card.querySelector('h2').textContent.trim(),
+        };
+      });
+      r.not(where.missing, true, 'the card is on the page');
+      r.eq(where.hidden, false, 'it is on screen without clicking a tab');
+      r.eq(where.beforeTabs, true, 'it sits above the tabs');
+      r.eq(where.insideSurface, false, 'and not inside any one tab');
+      r.has(where.heading, 'Who keeps your books');
+    });
+
+    await check('the per-account exception is one line until it is asked for', async () => {
+      const shape = await page.evaluate(() => {
+        const card = document.getElementById('postingStart');
+        const d = card && card.querySelector('details');
+        return d ? { open: d.open, summary: d.querySelector('summary').textContent.trim() } : null;
+      });
+      r.not(shape, null, 'the posting-start card is still there');
+      r.eq(shape.open, false, 'a company that needs no exception never opens it');
+      r.has(shape.summary, 'later');
     });
 
     /* Everything below reads the steps, their rails and their layout, which
