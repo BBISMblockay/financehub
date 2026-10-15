@@ -254,15 +254,31 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
       r.eq(after.filter((s) => s.expanded === 'true').map((s) => s.name), ['Your accounts are connected']);
     });
 
-    await check('a panel jump drives the page’s own tabs, not a second copy', async () => {
+    /* The old books live in Setup now, not in a tab of their own, so a jump has
+       to open the tab that OWNS the surface, show that surface, and open its
+       fold -- otherwise the reader lands on a page with the thing they asked
+       for still collapsed somewhere below. */
+    await check('a panel jump opens the tab that owns the surface, and the surface itself', async () => {
       await page.click('.migration-step-btn[data-stage="history"]');
       await page.click('#migrationDetail [data-jump="history"]');
-      const shown = await page.evaluate(() => Array.from(document.querySelectorAll('.books-surface'))
-        .filter((s) => !s.hidden).map((s) => s.id));
-      r.eq(shown, ['history'], 'the QBO history surface is the one on screen');
-      const pressed = await page.$$eval('.books-tabs [data-surface]', (bs) =>
-        bs.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.surface));
-      r.eq(pressed, ['history'], 'the tab itself reads as pressed');
+      const seen = await page.evaluate(() => ({
+        shown: Array.from(document.querySelectorAll('.books-surface')).filter((s) => !s.hidden).map((s) => s.id),
+        open: !!document.querySelector('#history [data-subsection]')?.open,
+        pressed: Array.from(document.querySelectorAll('.books-tabs [data-surface]'))
+          .filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.surface),
+      }));
+      r.truthy(seen.shown.indexOf('history') !== -1, `the old books are on screen (${seen.shown.join(', ')})`);
+      r.eq(seen.open, true, 'and opened, not left folded');
+      r.eq(seen.pressed, ['setup'], 'under the tab that owns them');
+    });
+
+    await check('three tabs, and every surface still belongs to one of them', async () => {
+      const tabs = await page.$$eval('.books-tabs [data-surface]', (bs) =>
+        bs.map((b) => ({ label: b.textContent.trim(), owns: (b.dataset.owns || b.dataset.surface).split(/\s+/) })));
+      r.eq(tabs.map((t) => t.label), ['Ledger', 'Journals', 'Setup']);
+      const owned = tabs.flatMap((t) => t.owns).sort();
+      const surfaces = await page.$$eval('.books-surface', (ss) => ss.map((n) => n.id).sort());
+      r.eq(owned, surfaces, 'a surface no tab owns can never be reached');
     });
 
     /* The methodology note was three permanent lines beside the headline and

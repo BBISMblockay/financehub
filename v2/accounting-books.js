@@ -135,12 +135,28 @@
     el('connection').addEventListener('change',()=>work(load));
     el('accept').addEventListener('click',()=>work(async()=>{const reviewed=baseline;const reason=await window.SiloFinanceDialog.ask({title:'Accept Silo opening balances',message:`Accept ${reviewed.snapshot.currency} ${amount(reviewed.snapshot.debits)} of balanced opening history as of ${reviewed.snapshot.as_of}. This freezes the baseline. It does not post a journal to QBO or switch ledger ownership.`,label:'Accept opening balances',reason:true,minLength:10,confirmation:'I reviewed the accounts, balances, cutover date and accounting basis against QuickBooks.'});if(!reason)return;
       await result(db.rpc('accept_accounting_opening_balances',{p_id:reviewed.id,p_expected_hash:reviewed.snapshot_hash,p_reason:reason}));await load();status('Opening history accepted and retained in Silo. No QBO journal was created.');}));
-    document.querySelectorAll('[data-surface]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.books-surface').forEach(s=>s.hidden=s.id!==button.dataset.surface);document.querySelectorAll('[data-surface]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));}));
-    // Reports links here as "Journals"; a #surface hash opens that tab.
+    // A tab shows every surface it OWNS, not one named after it: Setup carries
+    // the chart of accounts, locations and the old QuickBooks books as sections
+    // of itself. Everything that used to name a surface -- a #hash, a jump from
+    // the migration flow, a link from another page -- still names one, so the
+    // lookup goes surface -> owning tab, never the other way round.
+    const owns=button=>String(button.dataset.owns||button.dataset.surface||'').split(/\s+/).filter(Boolean);
+    const tabFor=id=>Array.from(document.querySelectorAll('.books-tabs [data-surface]')).find(b=>owns(b).indexOf(id)!==-1)||null;
+    const showTab=button=>{if(!button)return;const shown=owns(button);
+      document.querySelectorAll('.books-surface').forEach(s=>{s.hidden=shown.indexOf(s.id)===-1;});
+      document.querySelectorAll('.books-tabs [data-surface]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));};
+    document.querySelectorAll('.books-tabs [data-surface]').forEach(button=>button.addEventListener('click',()=>showTab(button)));
+    // Opens the tab that owns a surface, opens that surface's own disclosure if
+    // it has one, and scrolls to it. This is what a deep link or a jump means.
+    window.SiloBooks=Object.assign(window.SiloBooks||{},{showSurface(id){const tab=tabFor(id);if(!tab)return false;
+      showTab(tab);const section=document.getElementById(id);
+      const fold=section?.querySelector('[data-subsection]');if(fold)fold.open=true;
+      section?.scrollIntoView?.({block:'start'});return true;}});
+    // Reports links here as "Journals"; a #surface hash opens its tab.
     // Before acceptance the work is Setup; after it, the ledger comes first.
-    const surface=String(location.hash||'').slice(1)||(baseline?.status==='accepted'?'ledger':''),hashTab=/^[a-z]+$/.test(surface)?document.querySelector(`[data-surface="${surface}"]`):null;
-    const linked=location.hash?hashTab:null;
-    hashTab?.click();linked?.scrollIntoView?.({block:'start'});
+    const surface=String(location.hash||'').slice(1)||(baseline?.status==='accepted'?'ledger':'');
+    const linked=location.hash&&/^[a-z]+$/.test(surface)?document.getElementById(surface):null;
+    if(/^[a-z]+$/.test(surface)){if(location.hash)window.SiloBooks.showSurface(surface);else showTab(tabFor(surface));}
     // A reclass (card_reclass) is staged by Transactions and must post exactly as staged: review only.
     const openJournal=(id,reviewOnly=false)=>window.SiloJE.open({db,companyId:company.id,context:'accounting:register',adjustmentId:id,reviewOnly,onStaged:()=>work(()=>register(true)),onPosted:()=>work(()=>register(true))});
     el('newJournal').addEventListener('click',()=>openJournal());el('registerTable').addEventListener('click',e=>{const b=e.target.closest('[data-journal]');if(b){openJournal(b.dataset.journal,b.hasAttribute('data-review-only'));return;}
