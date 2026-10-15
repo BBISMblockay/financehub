@@ -444,6 +444,25 @@ try {
     }
   });
 
+  await test('a pre-cut-over row is never held by an open problem: it is reversed even if its account is inactive', async () => {
+    // silo_ledger_blocker returns null for a row dated before the ledger start,
+    // and the cut-over feeds that start. So the held-row exclusion in the resync
+    // candidates can never strand a pre-cut-over entry behind a plain "Saved".
+    await q('update card_sources set posting_start_on=null where id=$1', [bank]);
+    const aug = await newBatch(bank, { start: '2026-08-01', end: '2026-08-31' });
+    const early = await newTxn(aug, 18, { date: '2026-08-05', account: 'supplies' });
+    assert.equal((await live(early)).length, 1, 'recorded while valid');
+    await q("update card_sources set posting_start_on='2026-09-01' where id=$1", [bank]);
+    await q("update quickbooks_accounts set is_active=false where company_entity_id=$1 and qbo_account_id='supplies'", [co]);
+    try {
+      assert.equal((await one('select silo_ledger_blocker($1) b', [early])).b, null, 'not blocked: it is before the start');
+      assert.equal((await as(finance, () => q('select silo_ledger_resync_posting_start($1,100) r', [bank])))[0].r, 0);
+      assert.equal((await live(early)).length, 0, 'reversed despite the inactive account');
+    } finally {
+      await q("update quickbooks_accounts set is_active=true where company_entity_id=$1 and qbo_account_id='supplies'", [co]);
+    }
+  });
+
   console.log(`PASS card posting start: ${passed} checks -- approval refused before the cut-over by any path, the ledger reversed in pages rather than deleted, On Deck quiet, history intact`);
 } finally {
   await db.close();
