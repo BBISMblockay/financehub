@@ -97,6 +97,17 @@
     }
     .tm-btn-edit:hover { border-color: var(--bcn-accent); color: var(--bcn-accent); }
 
+    /* a cell with nothing in it, or a launch that no longer exists */
+    .tm-muted { color: var(--bcn-ink-3); }
+
+    /* Notes are free prose and can be a paragraph. One line here, the whole
+       text on hover and in the drawer -- a wrapping notes cell makes every
+       other row a different height and the table stops being scannable. */
+    .tm-notes-cell {
+      max-width: 260px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
     /* empty state */
     .tm-empty {
       padding: 48px 0; text-align: center;
@@ -221,22 +232,29 @@
               <tr>
                 <th class="tm-order-col" style="display:none;width:64px;">Order</th>
                 <th>Title</th>
-                <!-- Not "Launch": this column now names an initiative, a launch
-                     or Evergreen, and a header that says Launch over an
-                     initiative's name is the kind of thing nobody reports and
-                     everybody quietly distrusts. -->
+                <!-- Not "Launch": this column names whatever the task hangs
+                     off -- an initiative, a launch, or Evergreen -- and a
+                     header that says Launch over an initiative's name is the
+                     kind of thing nobody reports and everybody quietly
+                     distrusts. The launch has its own column, next. -->
                 <th>Attached to</th>
+                <!-- The launch the task rolls up to. A task attached to an
+                     INITIATIVE is still work on that initiative's launch, and
+                     "Attached to" names the initiative, so the launch had
+                     nowhere to show. Derived, never stored twice: the task's
+                     own launch_id, or the launch its initiative sits on. -->
+                <th>Launch</th>
                 <th>Assignee</th>
                 <th>Priority</th>
                 <th>Type</th>
                 <th>Due</th>
-                <th>Est.</th>
+                <th>Notes</th>
                 <th>Status</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="tasksTbody">
-              <tr><td colspan="8" class="tm-empty">Loading…</td></tr>
+              <tr><td colspan="11" class="tm-empty">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -301,7 +319,8 @@
       <!-- Type -->
       <div class="bcn-field-group">
         <label class="bcn-label" for="dType">Type</label>
-        <input class="bcn-field" type="text" id="dType" placeholder="e.g. Marketing, Design…" />
+        <input class="bcn-field" type="text" id="dType" list="dTypeList" autocomplete="off" placeholder="e.g. Marketing, Design…" />
+        <datalist id="dTypeList"></datalist>
       </div>
 
       <!-- Due date -->
@@ -527,8 +546,11 @@
   function parentOf(task) {
     if (task.channel_item_id) {
       const i = allInitiatives.find(x => x.id === task.channel_item_id);
+      // launch_id is derived by the database when an initiative is chosen, but
+      // fall back to the initiative's own launch so a row written before that
+      // trigger existed still reports the launch it belongs to.
       return { kind: 'initiative', title: i ? (i.item_title || 'Untitled') : 'Initiative (removed)',
-               launchId: task.launch_id };
+               launchId: task.launch_id || i?.launch_id || null };
     }
     if (task.launch_id) return { kind: 'launch', title: launchName(task.launch_id), launchId: task.launch_id };
     return { kind: 'evergreen', title: 'Evergreen', launchId: null };
@@ -608,6 +630,18 @@
       fType.appendChild(o);
     });
 
+    // drawer: Type stays free text -- the same list is offered as type-ahead
+    // suggestions only, so any new value can still be typed.
+    const dTypeList = document.getElementById('dTypeList');
+    if (dTypeList) {
+      dTypeList.innerHTML = '';
+      types.forEach(ty => {
+        const o = document.createElement('option');
+        o.value = ty;
+        dTypeList.appendChild(o);
+      });
+    }
+
     // drawer: one "attach to" list -- initiatives and launches together
     fillParentSelect(document.getElementById('dParent'), '— Nothing (evergreen) —');
 
@@ -656,15 +690,6 @@
     if (da !== db_) return da < db_ ? -1 : 1;
     // shorter tasks float up — quick wins first
     return (a.estimated_minutes ?? 1e9) - (b.estimated_minutes ?? 1e9);
-  }
-
-  function fmtEst(min) {
-    if (!min) return '—';
-    if (min < 60) return min + 'm';
-    if (min === 240) return '½d';
-    if (min === 480) return '1d';
-    if (min > 480) return '1d+';
-    return (min / 60) + 'h';
   }
 
   function setViewMode(userId) {
@@ -737,7 +762,7 @@
   function renderTable(rows) {
     const tbody = document.getElementById('tasksTbody');
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="10" class="tm-empty">No tasks match your filters.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="11" class="tm-empty">No tasks match your filters.</td></tr>';
       return;
     }
 
@@ -748,13 +773,28 @@
       const par    = parentOf(t);
       const lName  = par.title;
       const aName  = t.assigned_to_name || (t.assigned_to_user_id ? profileName(t.assigned_to_user_id) : '—');
-      // An initiative is named as itself, and still links through to the
-      // launch it sits on -- that is where you go to see it in context.
-      const launchCell = par.kind !== 'evergreen'
-        ? `<a href="/v2/launch-calendar.html?launch=${encodeURIComponent(par.launchId || '')}" style="color:var(--bcn-accent);font-weight:600;text-decoration:none;">`
-          + (par.kind === 'initiative' ? '<span title="Initiative" style="opacity:.7;margin-right:3px;">&#9671;</span>' : '')
-          + `${escHtml(lName)}</a>`
+      // "Attached to" names the thing the task hangs off -- an initiative, a
+      // launch, or Evergreen -- and the Launch column carries the link, so
+      // each column says one thing. A task attached straight to a launch is
+      // named in both, because both are true of it.
+      const attachedCell = par.kind !== 'evergreen'
+        ? (par.kind === 'initiative' ? '<span title="Initiative" style="opacity:.7;margin-right:3px;">&#9671;</span>' : '')
+          + escHtml(lName)
         : '<span class="bcn-pill bcn-pill--dark" style="font-size:10px;">Evergreen</span>';
+      // Derived, not a second stored link: the task's own launch when it has
+      // one, otherwise the launch its initiative sits on. An evergreen task
+      // belongs to no launch, and a launch that has since been deleted is
+      // said so rather than shown as a dead link.
+      const launchId   = par.launchId || null;
+      const launchCell = launchId
+        ? (allLaunches.some(l => String(l.id) === String(launchId))
+            ? `<a href="/v2/launch-calendar.html?launch=${encodeURIComponent(launchId)}" style="color:var(--bcn-accent);font-weight:600;text-decoration:none;">${escHtml(launchName(launchId))}</a>`
+            : '<span class="tm-muted">Launch (removed)</span>')
+        : '<span class="tm-muted">—</span>';
+      const notes      = (t.notes || '').trim();
+      const notesCell  = notes
+        ? `<span title="${escHtml(notes)}">${escHtml(notes)}</span>`
+        : '<span class="tm-muted">—</span>';
       const orderCell = viewUserId
         ? `<td class="tm-order-col" style="white-space:nowrap;">
             <button class="tm-btn-edit" data-move-up="${escHtml(t.id)}" ${idx===0?'disabled':''} title="Move up">↑</button>
@@ -771,12 +811,13 @@
       return `<tr class="${rowCls}" data-task-id="${escHtml(t.id)}">
         ${orderCell}
         <td style="max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(t.task_title || '')}">${t.is_private ? '<span title="Private" style="margin-right:4px;">🔒</span>' : ''}${escHtml(t.task_title || '')}</td>
+        <td>${attachedCell}</td>
         <td>${launchCell}</td>
         <td style="white-space:nowrap;"><span style="display:inline-flex;align-items:center;gap:6px;">${profileAvatarHtml(t.assigned_to_user_id, 'xs')}${escHtml(aName)}</span></td>
         <td>${priorityPill(t.priority)}</td>
         <td>${escHtml(t.task_type || '—')}</td>
         <td class="bcn-mono ${dueCls}" style="white-space:nowrap;">${fmtDate(t.due_date)}</td>
-        <td class="bcn-mono" style="white-space:nowrap;">${fmtEst(t.estimated_minutes)}</td>
+        <td class="tm-notes-cell">${notesCell}</td>
         <td>${statusSel}</td>
         <td><button class="tm-btn-edit" data-edit-task="${escHtml(t.id)}">Edit</button></td>
       </tr>`;
