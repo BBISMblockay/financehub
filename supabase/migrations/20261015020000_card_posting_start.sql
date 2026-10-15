@@ -62,32 +62,94 @@ $$;
 -- so this one guard closes both.
 create or replace function public.card_posting_start_guard()
 returns trigger language plpgsql security invoker set search_path = public, pg_temp as $$
-declare v_start date; v_name text; v_end date;
+declare v_start date; v_name text; v_end date; v_early date; v_count integer;
 begin
   if new.status <> 'approved' or old.status is not distinct from 'approved' then return new; end if;
   select s.posting_start_on, s.display_name into v_start, v_name
     from public.card_sources s where s.id = new.source_id;
   if v_start is null then return new; end if;
-  -- period_end is the period's own last day; an import with no period is judged
-  -- by its entry date, and one with neither is left alone rather than guessed at.
+
+  -- Two tests, because a period and a transaction are judged on different
+  -- dates and a cut-over need not fall on a period boundary.
+  --
+  -- First the period itself. period_end is its own last day; an import with no
+  -- period is judged by its entry date, and one with neither is left to the
+  -- second test rather than guessed at.
   v_end := coalesce(new.period_end, new.entry_date, new.period_start);
-  if v_end is null or v_end >= v_start then return new; end if;
-  raise exception 'This period ends before SILO started posting % (%). It was handled outside SILO; nothing is to be sent for it.',
-    coalesce(v_name, 'this account'), to_char(v_start, 'FMMonth FMDD, YYYY');
+  if v_end is not null and v_end < v_start then
+    raise exception 'This period ends before SILO started posting % (%). It was handled outside SILO; nothing is to be sent for it.',
+      coalesce(v_name, 'this account'), to_char(v_start, 'FMMonth FMDD, YYYY');
+  end if;
+
+  -- Then its contents. A cut-over mid-period (say September 15 on a September
+  -- 1-30 import) passes the test above, and approval would freeze a snapshot
+  -- holding BOTH the September 10 and the September 20 lines -- so posting it
+  -- would send the pre-cut-over one, which is exactly the activity the date
+  -- says was handled elsewhere. Meanwhile silo_ledger_start keeps that same
+  -- line out of SILO's ledger, so approval and the ledger would disagree about
+  -- the same row. These are the lines approval actually freezes
+  -- (card_coding_effective_lines over the batch, non-zero), so the test asks
+  -- the same question the snapshot answers.
+  select min(e.txn_date), count(distinct e.transaction_id) into v_early, v_count
+    from public.card_coding_effective_lines e
+   where e.batch_id = new.id and round(e.amount, 2) <> 0 and e.txn_date < v_start;
+  if v_early is null then return new; end if;
+  raise exception 'This import holds % transaction(s) dated before SILO started posting % (%), the earliest on %. Approving it would freeze an entry containing activity that was handled outside SILO. Move those rows to their own import, or exclude them, before approving this period.',
+    v_count, coalesce(v_name, 'this account'), to_char(v_start, 'FMMonth FMDD, YYYY'), to_char(v_early, 'FMMonth FMDD, YYYY');
 end $$;
 
 drop trigger if exists card_batch_posting_start on public.card_import_batches;
 create trigger card_batch_posting_start before update of status on public.card_import_batches
   for each row execute function public.card_posting_start_guard();
 
--- ── Reversing what the ledger already recorded, in pages ───────────────────
--- Returns how many of the source's transactions still hold a live ledger entry
--- they should no longer have, AFTER reversing up to p_limit of them. The caller
--- loops until it returns 0. Nothing is deleted: each one is reversed by
--- silo_ledger_sync_card_transaction, which also respects the period lock.
+-- ── Bringing the ledger in line with the cut-over, in pages ───────────────
+-- The date moves in BOTH directions, so this reconciles in both. Setting a
+-- cut-over reverses what the ledger recorded for earlier months; clearing it,
+-- or moving it earlier, records what it should now hold again. The first
+-- version of this function only did the reversal half, which made the UI report
+-- a finished save after clearing a date while those months stayed absent from
+-- SILO's ledger -- silo_ledger_on_source deliberately ignores this field, so
+-- nothing else would have resynced them.
+--
+-- A transaction needs work exactly when the ledger's state disagrees with what
+-- silo_ledger_desired_lines now wants:
+--   * desired null, a live original exists      -> reverse it;
+--   * desired non-null, no live original exists -> record it.
+-- Both are written by silo_ledger_sync_card_transaction, the same append-only
+-- writer a recode goes through, which respects the period lock and never
+-- deletes. A recode of an unchanged date is not this function's business, so a
+-- live original whose fingerprint merely differs is left to its own trigger.
+--
+-- An approved or posted batch is frozen and is never touched here: its entry
+-- was recorded from the approval snapshot, and for a posted one QuickBooks
+-- holds it.
+create or replace function public.silo_ledger_resync_candidates(
+  p_source_id uuid, p_company uuid, p_limit integer)
+returns setof uuid language sql stable security invoker set search_path = public, pg_temp as $$
+  select t.id from public.card_transactions t
+  join public.card_import_batches b on b.id = t.batch_id
+  where b.source_id = p_source_id and t.company_entity_id = p_company
+    and b.status not in ('approved', 'posted')
+    and (public.silo_ledger_desired_lines(t.id) is null) <> (not exists (
+          select 1 from public.ledger_entries e
+          where e.company_entity_id = p_company and e.source = 'card_transaction'
+            and e.source_id = t.id and e.kind = 'original'
+            and not exists (select 1 from public.ledger_entries r where r.reverses_entry_id = e.id)))
+  order by t.txn_date, t.id
+  limit greatest(coalesce(p_limit, 100), 1);
+$$;
+revoke all on function public.silo_ledger_resync_candidates(uuid, uuid, integer) from public, anon, authenticated;
+
+-- Returns how many of the source's transactions are still out of line AFTER
+-- reconciling up to p_limit of them. The caller loops until it returns 0.
+-- The remainder is counted over at most RESYNC_SCAN candidates, because
+-- silo_ledger_desired_lines runs per row and an unbounded count on a
+-- backloaded account would exceed the browser's 8s statement timeout. That
+-- caps how large the number can read, never whether it reaches 0, so the
+-- caller's loop still terminates exactly.
 create or replace function public.silo_ledger_resync_posting_start(p_source_id uuid, p_limit integer default 100)
 returns integer language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_company uuid; v_id uuid; v_done integer := 0;
+declare v_company uuid; v_id uuid;
 begin
   if not (coalesce(public.can_manage_journal_entries(), false) or coalesce(public.is_exec_or_owner(), false)) then
     raise exception 'Finance access required';
@@ -96,35 +158,11 @@ begin
    where id = p_source_id and company_entity_id = public.active_company_id();
   if v_company is null then raise exception 'Account not found'; end if;
 
-  for v_id in
-    select t.id from public.card_transactions t
-    join public.card_import_batches b on b.id = t.batch_id
-    where b.source_id = p_source_id and t.company_entity_id = v_company
-      and b.status not in ('approved', 'posted')
-      and public.silo_ledger_desired_lines(t.id) is null
-      and exists (
-        select 1 from public.ledger_entries e
-        where e.company_entity_id = v_company and e.source = 'card_transaction'
-          and e.source_id = t.id and e.kind = 'original'
-          and not exists (select 1 from public.ledger_entries r where r.reverses_entry_id = e.id))
-    order by t.txn_date, t.id
-    limit greatest(coalesce(p_limit, 100), 1)
-  loop
+  for v_id in select public.silo_ledger_resync_candidates(p_source_id, v_company, p_limit) loop
     perform public.silo_ledger_sync_card_transaction(v_id);
-    v_done := v_done + 1;
   end loop;
 
-  return (
-    select count(*)::int from public.card_transactions t
-    join public.card_import_batches b on b.id = t.batch_id
-    where b.source_id = p_source_id and t.company_entity_id = v_company
-      and b.status not in ('approved', 'posted')
-      and public.silo_ledger_desired_lines(t.id) is null
-      and exists (
-        select 1 from public.ledger_entries e
-        where e.company_entity_id = v_company and e.source = 'card_transaction'
-          and e.source_id = t.id and e.kind = 'original'
-          and not exists (select 1 from public.ledger_entries r where r.reverses_entry_id = e.id)));
+  return (select count(*)::int from public.silo_ledger_resync_candidates(p_source_id, v_company, 5000));
 end $$;
 
 revoke all on function public.silo_ledger_resync_posting_start(uuid, integer) from public, anon;

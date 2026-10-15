@@ -26,7 +26,8 @@
 //
 // Mutation hooks -- each must make this suite FAIL:
 //   CARD_POSTING_START_MUTATION=no-approve-guard|guard-refuses-undated|no-ledger-gate
-//     |no-on-deck-filter|resync-deletes|resync-ungated|resync-crosses-companies|no-view-column
+//     |guard-ignores-contents|no-on-deck-filter|resync-deletes|resync-reverses-only
+//     |resync-ungated|resync-crosses-companies|no-view-column
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -35,17 +36,24 @@ import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/co
 
 const MUTATIONS = {
   // Let approval through: the guard becomes decoration.
-  'no-approve-guard': ["  raise exception 'This period ends before SILO started posting % (%). It was handled outside SILO; nothing is to be sent for it.',\n    coalesce(v_name, 'this account'), to_char(v_start, 'FMMonth FMDD, YYYY');", '  return new;'],
+  'no-approve-guard': ["  if v_start is null then return new; end if;\n", "  if true then return new; end if;\n"],
   // Judge a period with no dates at all as pre-cut-over rather than leaving it alone.
-  'guard-refuses-undated': ['  if v_end is null or v_end >= v_start then return new; end if;', '  if v_end is not null and v_end >= v_start then return new; end if;'],
+  'guard-refuses-undated': ['  if v_end is not null and v_end < v_start then', '  if v_end is null or v_end < v_start then'],
+  // Judge the period only, not its contents: a batch straddling the cut-over is
+  // then approved with pre-cut-over lines frozen into its entry.
+  'guard-ignores-contents': ['  if v_early is null then return new; end if;', '  return new;'],
   // The ledger ignores the date: August stays recorded and new rows keep landing.
   'no-ledger-gate': ['  select greatest(st.accounting_start_date,\n                  coalesce(p_source.authoritative_from, st.accounting_start_date),\n                  coalesce(p_source.posting_start_on, st.accounting_start_date))',
     '  select greatest(st.accounting_start_date,\n                  coalesce(p_source.authoritative_from, st.accounting_start_date))'],
   // On Deck keeps asking for the months that were handled elsewhere.
   'no-on-deck-filter': ["      and (b.source_posting_start_on is null\n           or b.status in ('approved', 'posted')\n           or coalesce(b.period_end, b.entry_date, b.period_start) is null\n           or coalesce(b.period_end, b.entry_date, b.period_start) >= b.source_posting_start_on)", ''],
   // Delete the entries instead of reversing them: the ledger stops being append-only.
-  'resync-deletes': ['    perform public.silo_ledger_sync_card_transaction(v_id);\n    v_done := v_done + 1;',
-    "    delete from public.ledger_lines where entry_id in (select id from public.ledger_entries where source='card_transaction' and source_id=v_id);\n    delete from public.ledger_entries where source='card_transaction' and source_id=v_id;\n    v_done := v_done + 1;"],
+  'resync-deletes': ['    perform public.silo_ledger_sync_card_transaction(v_id);',
+    "    delete from public.ledger_lines where entry_id in (select id from public.ledger_entries where source='card_transaction' and source_id=v_id);\n    delete from public.ledger_entries where source='card_transaction' and source_id=v_id;"],
+  // Only reverse, never restore: clearing the date then reports a finished save
+  // while those months stay absent from SILO's ledger.
+  'resync-reverses-only': ['    and (public.silo_ledger_desired_lines(t.id) is null) <> (not exists (',
+    '    and public.silo_ledger_desired_lines(t.id) is null and (true) <> (not exists ('],
   'resync-ungated': ["  if not (coalesce(public.can_manage_journal_entries(), false) or coalesce(public.is_exec_or_owner(), false)) then\n    raise exception 'Finance access required';\n  end if;", ''],
   // Resolve the account without the active company: another tenant's books become reachable.
   'resync-crosses-companies': ['   where id = p_source_id and company_entity_id = public.active_company_id();', '   where id = p_source_id;'],
@@ -171,6 +179,7 @@ try {
   const augustTxn = await newTxn(august, 410, { date: '2026-08-12' });
   const augustTxn2 = await newTxn(august, 90, { date: '2026-08-20' });
   const septemberTxn = await newTxn(september, 75, { date: '2026-09-09' });
+  let lateCoded;   // an August row coded AFTER the cut-over was set (test 10)
   const cardBatch = await newBatch(card, { start: '2026-08-01', end: '2026-08-31' });
   const cardTxn = await newTxn(cardBatch, 30, { date: '2026-08-15', account: 'supplies' });
 
@@ -226,17 +235,51 @@ try {
     assert.equal((await one('select status from card_import_batches where id=$1', [cardBatch])).status, 'approved');
   });
 
-  await test('an import with no period and no entry date is left alone rather than guessed at', async () => {
+  await test('an import with no period and no entry date is judged on its rows, never guessed at', async () => {
+    // The period test has nothing to read, so the guard says nothing about the
+    // period -- but the rows it would freeze are still its business.
     const dateless = await newBatch(bank, { start: null, end: null, entry: null });
-    await newTxn(dateless, 12, { date: '2026-06-02' });
+    await newTxn(dateless, 12, { date: '2026-09-20' });
     await q("update card_import_batches set status='approved' where id=$1", [dateless]);
-    assert.equal((await one('select status from card_import_batches where id=$1', [dateless])).status, 'approved');
+    assert.equal((await one('select status from card_import_batches where id=$1', [dateless])).status, 'approved',
+      'nothing in it is pre-cut-over, so a missing period is not treated as suspicious');
+
+    const datelessEarly = await newBatch(bank, { start: null, end: null, entry: null });
+    await newTxn(datelessEarly, 12, { date: '2026-06-02' });
+    await assert.rejects(
+      () => q("update card_import_batches set status='approved' where id=$1", [datelessEarly]),
+      /dated before SILO started posting/,
+      'a row it would freeze IS pre-cut-over, and that is refused whatever the period says');
+  });
+
+  await test('a period STRADDLING the cut-over is refused on its contents, not its period', async () => {
+    // The hole the period test alone leaves: a cut-over need not fall on a
+    // period boundary. This import's period ends after the cut-over, so the
+    // period itself is SILO's -- but approval would freeze a September 10 line
+    // that silo_ledger_start keeps out of SILO's ledger, and posting it would
+    // send activity handled outside SILO.
+    await q('update card_sources set posting_start_on=$2 where id=$1', [bank, '2026-09-15']);
+    const straddle = await newBatch(bank, { start: '2026-09-01', end: '2026-09-30', entry: '2026-09-30' });
+    const early = await newTxn(straddle, 40, { date: '2026-09-10' });
+    await newTxn(straddle, 60, { date: '2026-09-20' });
+    await assert.rejects(
+      () => q("update card_import_batches set status='approved' where id=$1", [straddle]),
+      /holds 1 transaction\(s\) dated before SILO started posting .*earliest on September 10, 2026/s,
+      'the refusal counts the rows and names the earliest, so the fix is obvious');
+    assert.equal((await one('select status from card_import_batches where id=$1', [straddle])).status, 'draft');
+
+    // Excluding the early row removes its line from the snapshot, so the same
+    // import then approves: the guard asks exactly what approval freezes.
+    await q("update card_transactions set status='excluded' where id=$1", [early]);
+    await approve(straddle);
+    assert.equal((await one('select status from card_import_batches where id=$1', [straddle])).status, 'approved');
+    await q('update card_sources set posting_start_on=$2 where id=$1', [bank, '2026-09-01']);
   });
 
   await test('the ledger stops recording anything before the date', async () => {
-    const fresh = await newTxn(august, 55, { date: '2026-08-25', status: 'uncoded' });
-    await q("update card_transactions set status='coded', qbo_account_id='supplies', qbo_account_name='supplies', coding_source='manual' where id=$1", [fresh]);
-    assert.equal((await live(fresh)).length, 0, 'a row coded now, dated before the cut-over, is not SILO\'s to record');
+    lateCoded = await newTxn(august, 55, { date: '2026-08-25', status: 'uncoded' });
+    await q("update card_transactions set status='coded', qbo_account_id='supplies', qbo_account_name='supplies', coding_source='manual' where id=$1", [lateCoded]);
+    assert.equal((await live(lateCoded)).length, 0, 'a row coded now, dated before the cut-over, is not SILO\'s to record');
   });
 
   await test('what the ledger already recorded is reversed, never deleted, and the caller is told how much is left', async () => {
@@ -250,10 +293,12 @@ try {
       assert.deepEqual((await allEntries(t)).map((r) => r.kind), ['original', 'reversal'],
         'the original is reversed, not removed: ledger_entries is append-only');
     }
-    // What is left in SILO's books: the card account's August expense (30) and
-    // the bank account's September one (75). August's 410 and 90 are out.
+    // What is left in SILO's books: the card account's August expense (30), the
+    // bank account's September one (75), the September 20 row of the dateless
+    // import (12) and the one the straddle test left approved (60). August's
+    // 410 and 90 are out, and so is the straddle's excluded September 10 (40).
     const dr = (await one("select coalesce(sum(case when posting_type='Debit' then amount else -amount end),0)::text v from ledger_lines where company_entity_id=$1 and qbo_account_id='supplies'", [co])).v;
-    assert.equal(dr, '105.00', 'the two pre-cut-over amounts are gone from the balance, and nothing else is');
+    assert.equal(dr, '177.00', 'the two pre-cut-over amounts are gone from the balance, and nothing else is');
   });
 
   await test('running the resync again changes nothing', async () => {
@@ -264,6 +309,54 @@ try {
 
   await test('September is left recorded: the cut-over reaches back, never forward', async () => {
     assert.equal((await live(septemberTxn)).length, 1);
+  });
+
+  await test('clearing the cut-over puts the reversed entries back: the resync reconciles both ways', async () => {
+    /* The hole the first version of this left: the resync only visited
+       transactions whose desired lines had become null AND still held a live
+       original. After a reversal those rows have no live original, so clearing
+       the date made them eligible again and the resync skipped them, returned
+       0, and the control reported a finished save while August stayed absent
+       from SILO's ledger -- silo_ledger_on_source deliberately ignores this
+       field, so nothing else would have put them back. */
+    const beforeClear = (await one('select count(*)::int n from ledger_entries')).n;
+    await q('update card_sources set posting_start_on=null where id=$1', [bank]);
+    assert.equal((await one('select count(*)::int n from ledger_entries')).n, beforeClear,
+      'clearing the date must not resync inside the UPDATE either: that is what the 8s timeout forbids');
+
+    // Three rows are now out of line, not two: the August 25 row coded AFTER
+    // the cut-over was set (so it was never recorded at all) is restored by the
+    // same pass, which is the point of reconciling against desired state rather
+    // than hunting for entries to reverse.
+    const remaining = (await as(finance, () => q('select silo_ledger_resync_posting_start($1,1) r', [bank])))[0].r;
+    assert.equal(remaining, 2, 'restoring pages exactly as reversing does');
+    assert.equal((await as(finance, () => q('select silo_ledger_resync_posting_start($1,100) r', [bank])))[0].r, 0);
+    assert.equal((await live(lateCoded)).length, 1,
+      'a row coded while the cut-over was set is recorded once the cut-over is gone');
+
+    for (const t of [augustTxn, augustTxn2]) {
+      assert.equal((await live(t)).length, 1, 'the entry is back, and it is live');
+      assert.deepEqual((await allEntries(t)).map((r) => r.kind), ['original', 'reversal', 'original'],
+        'append-only throughout: the reversal stays on the record beside the new original');
+      const net = (await one(`select coalesce(sum(case when l.posting_type='Debit' then l.amount else -l.amount end),0)::text v
+        from ledger_lines l join ledger_entries e on e.id=l.entry_id
+        where e.source='card_transaction' and e.source_id=$1`, [t])).v;
+      assert.equal(net, '0.00', 'original + reversal + original nets to one entry\'s worth per side, balanced');
+    }
+    // Back in the expense balance: 177 + August's 410 and 90 + the 55 coded late.
+    const dr = (await one("select coalesce(sum(case when posting_type='Debit' then amount else -amount end),0)::text v from ledger_lines where company_entity_id=$1 and qbo_account_id='supplies'", [co])).v;
+    assert.equal(dr, '732.00', 'every period is SILO\'s again, so its coded activity is in SILO\'s books again');
+
+    // And a cleared date lets the period approve again.
+    await q("update card_import_batches set status='categorized' where id=$1", [august]);
+    await approve(august);
+    assert.equal((await one('select status from card_import_batches where id=$1', [august])).status, 'approved');
+
+    // Put the fixture back for the checks that follow.
+    await q("update card_import_batches set status='categorized', approval_snapshot=null where id=$1", [august]);
+    await q('update card_sources set posting_start_on=$2 where id=$1', [bank, '2026-09-01']);
+    await as(finance, () => q('select silo_ledger_resync_posting_start($1,500)', [bank]));
+    assert.equal((await live(augustTxn)).length, 0, 'and setting it again reverses them once more');
   });
 
   await test('the resync is finance-only, and cannot reach another company\'s account', async () => {

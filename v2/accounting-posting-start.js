@@ -97,42 +97,59 @@
       const next = String(input?.value || '').trim();
       const problem = validate(next, source, businessToday, booksStart);
       if (problem) { status(problem, true); return; }
-      if ((source.posting_start_on || '') === next) { status('That is already the cut-over for this account.'); return; }
-      const ok = await window.SiloFinanceDialog.ask({
-        title: next ? 'Set when SILO starts posting' : 'Clear the cut-over',
-        message: confirmText(source, next, source.posting_start_on),
-        label: next ? 'Set cut-over' : 'Clear cut-over',
-        confirmation: next
-          ? 'Those earlier periods are already recorded in QuickBooks, or are not to be sent from SILO.'
-          : 'SILO may post every period of this account.',
-      });
-      if (!ok) return;
+      /* Saving the SAME date again is the retry the messages below prescribe.
+         The date is written before the reconciliation runs, so a run that
+         stopped partway leaves the date already correct -- and the first
+         version of this control answered "that is already the cut-over" and
+         did nothing, which made the advertised recovery impossible and left
+         those entries affecting the balances. An unchanged date therefore skips
+         the write and the confirmation (nothing is being decided) and resumes
+         the reconciliation, which is idempotent. */
+      const unchanged = (source.posting_start_on || '') === next;
+      if (!unchanged) {
+        const ok = await window.SiloFinanceDialog.ask({
+          title: next ? 'Set when SILO starts posting' : 'Clear the cut-over',
+          message: confirmText(source, next, source.posting_start_on),
+          label: next ? 'Set cut-over' : 'Clear cut-over',
+          confirmation: next
+            ? 'Those earlier periods are already recorded in QuickBooks, or are not to be sent from SILO.'
+            : 'SILO may post every period of this account.',
+        });
+        if (!ok) return;
 
-      status('Saving…');
-      const { data, error } = await db.from('card_sources').update({ posting_start_on: next || null })
-        .eq('id', id).eq('company_entity_id', companyId).select('id,posting_start_on');
-      // An RLS-refused UPDATE succeeds with zero rows rather than erroring.
-      if (error) { status(`The cut-over was not saved: ${error.message}.`, true); return; }
-      if (!data?.length) { status('The cut-over was not saved: your account cannot change this one. Ask your company owner.', true); return; }
-      source.posting_start_on = data[0].posting_start_on;
-      render();
+        status('Saving…');
+        const { data, error } = await db.from('card_sources').update({ posting_start_on: next || null })
+          .eq('id', id).eq('company_entity_id', companyId).select('id,posting_start_on');
+        // An RLS-refused UPDATE succeeds with zero rows rather than erroring.
+        if (error) { status(`The cut-over was not saved: ${error.message}.`, true); return; }
+        if (!data?.length) { status('The cut-over was not saved: your account cannot change this one. Ask your company owner.', true); return; }
+        source.posting_start_on = data[0].posting_start_on;
+        render();
+      } else {
+        status('Checking SILO’s ledger against this date…');
+      }
 
-      /* The date is saved and already governs approval and every new ledger
-         record, so a resync that stops partway leaves the account correct going
-         forward and says what is left rather than rolling the date back. */
+      /* The date is written and already governs approval and every new ledger
+         record, so a run that stops partway leaves the account correct going
+         forward and says what is left rather than rolling the date back.
+         Setting a date reverses earlier entries; clearing one records them
+         again, so the wording follows the direction rather than claiming a
+         reversal either way. */
+      const posts = source.posting_start_on ? `${longDate(source.posting_start_on)} onward` : 'every period';
+      const work = source.posting_start_on ? 'Reversing earlier ledger entries' : 'Restoring earlier ledger entries';
       let remaining = null;
       for (let page = 0; page < 200; page += 1) {
         const r = await db.rpc('silo_ledger_resync_posting_start', { p_source_id: id, p_limit: 100 });
         if (r.error) {
-          status(`Saved. SILO posts ${source.posting_start_on ? longDate(source.posting_start_on) + ' onward' : 'every period'}, but earlier ledger entries could not be reversed: ${r.error.message}. Save the date again to finish reversing them.`, true);
+          status(`Saved. SILO posts ${posts}, but SILO’s ledger is not yet in line with that: ${r.error.message}. Press Save again on this account to pick up where it stopped.`, true);
           return;
         }
         remaining = Number(r.data) || 0;
-        status(remaining ? `Saved. Reversing earlier ledger entries — ${remaining} transactions left…` : 'Saved.');
+        status(remaining ? `${work} — ${remaining} transactions left…` : 'Saved.');
         if (!remaining) break;
       }
       status(remaining
-        ? `Saved, and SILO posts ${source.posting_start_on ? longDate(source.posting_start_on) + ' onward' : 'every period'}. ${remaining} earlier transactions still hold ledger entries; save the date again to finish reversing them.`
+        ? `Saved, and SILO posts ${posts}. ${remaining} transactions are still out of line in SILO’s ledger; press Save again on this account to pick up where it stopped.`
         : `Saved. ${stateLabel(source)}. Nothing was sent to QuickBooks.`, !!remaining);
     }
 

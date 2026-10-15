@@ -2150,6 +2150,17 @@
      nothing is to be sent for them, so they say so instead of asking to be
      approved. Approval refuses them in the database too
      (card_batch_posting_start), which is what makes this more than a label. */
+  /* A cut-over need not fall on a period boundary. A September 1-30 import with
+     a September 15 cut-over is SILO's to post, but the entry approval freezes
+     would hold the September 10 rows too -- and the database refuses that
+     (card_posting_start_guard). These are the rows it counts: coded, not
+     excluded, dated before the cut-over. */
+  const preCutoverRows = (b, rows) => {
+    if (!b?.source_posting_start_on) return [];
+    return (rows || []).filter((t) => t && t.status === 'coded'
+      && t.txn_date && t.txn_date < b.source_posting_start_on);
+  };
+
   const handledOutsideSilo = (b) => {
     if (!b?.source_posting_start_on) return false;
     const ends = b.period_end || b.entry_date || b.period_start;
@@ -3992,6 +4003,16 @@
     if (handledOutsideSilo(state.batch)) {
       blockers.push(`${periodLabel(state.batch)} ends before SILO started posting `
         + `${state.batch.source_name || 'this account'}, so it is not SILO's to send — it was handled outside SILO`);
+    } else {
+      // A period that STRADDLES the cut-over: the period is SILO's, some of its
+      // rows are not, and approving would freeze them into the entry.
+      const early = preCutoverRows(state.batch, state.txns);
+      if (early.length) {
+        blockers.push(`${early.length} ${early.length === 1 ? 'row is' : 'rows are'} dated before SILO started `
+          + `posting ${state.batch.source_name || 'this account'} on ${state.batch.source_posting_start_on} — `
+          + `move ${early.length === 1 ? 'it' : 'them'} to their own import, or exclude `
+          + `${early.length === 1 ? 'it' : 'them'}, because approving would send activity handled outside SILO`);
+      }
     }
     // The preview is built from the split lines that were read. If they could
     // not be read, it is missing lines and must not be approved.

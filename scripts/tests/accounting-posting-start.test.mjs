@@ -62,11 +62,16 @@ test('the confirmation names both halves of what saving does, and that QuickBook
 
 /* ── The save path, against a stubbed Supabase and a stub of the two DOM
       pieces the control touches. ───────────────────────────────────────────── */
-function harness({ sources = [SOURCE], update, rpc } = {}) {
+function harness({ sources = [SOURCE], update, rpc, value = '2026-09-01' } = {}) {
   const calls = [];
+  let asked = 0;
   const node = (attrs = {}) => ({ ...attrs, textContent: '', innerHTML: '', disabled: false });
-  const table = node(); const statusEl = node();
-  const input = node({ value: '2026-09-01', dataset: {} });
+  const table = node(); const said = [];
+  // Every status write, not just the last: the progress line is overwritten by
+  // the one that follows it, and some of what the control must say is in there.
+  const statusEl = { get innerHTML() { return said[said.length - 1] ?? ''; },
+    set innerHTML(v) { said.push(v); } };
+  const input = node({ value, dataset: {} });
   const button = node({ dataset: { saveStart: 's1' } });
   let clickHandler = null;
   const host = {
@@ -89,9 +94,9 @@ function harness({ sources = [SOURCE], update, rpc } = {}) {
     },
     rpc: async (name, args) => { calls.push([name, args]); return rpc.shift(); },
   };
-  window.SiloFinanceDialog = { ask: async () => true };
+  window.SiloFinanceDialog = { ask: async () => { asked += 1; return true; } };
   return {
-    calls, statusEl,
+    calls, statusEl, said, asks: () => asked,
     mounted: P.mount({ db, companyId: 'c1', el: (id) => (id === 'postingStart' ? host : null), businessToday: TODAY, booksStart: BOOKS }),
     click: () => new Promise((resolve) => {
       clickHandler({ target: { closest: (sel) => (sel === '[data-save-start]' ? button : null) } });
@@ -110,15 +115,18 @@ test('the paged reversal runs to zero, and only then is the save called done', a
   assert.match(h.statusEl.innerHTML, /Saved/);
   assert.match(h.statusEl.innerHTML, /SILO posts from September 1, 2026/);
   assert.doesNotMatch(h.statusEl.innerHTML, /books-flag/, 'a finished save is not an alarm');
+  assert.ok(h.said.some((m) => /Reversing earlier ledger entries — 240 transactions left/.test(m)),
+    'setting a date reverses, and the progress line says which direction it is going');
 });
 
 test('a reversal that stops partway says what is left, and never reads as finished', async () => {
   const h = harness({ update: { data: [{ id: 's1', posting_start_on: '2026-09-01' }], error: null },
     rpc: [{ data: 300, error: null }, { data: null, error: { message: 'canceling statement due to statement timeout' } }] });
   await h.mounted; await h.click();
-  assert.match(h.statusEl.innerHTML, /could not be reversed/);
+  assert.match(h.statusEl.innerHTML, /ledger is not yet in line/);
   assert.match(h.statusEl.innerHTML, /statement timeout/);
-  assert.match(h.statusEl.innerHTML, /Save the date again/, 'the recovery must be an action they can take');
+  assert.match(h.statusEl.innerHTML, /[Pp]ress Save again on this account/,
+    'the recovery must be an action they can take, and one the control honours (see the unchanged-date test)');
   assert.match(h.statusEl.innerHTML, /books-flag/, 'an unfinished reversal is shown as unfinished');
   // The date is saved and already governs approval, so the message must not
   // suggest the cut-over did not take effect.
@@ -152,4 +160,47 @@ test('the account list reads only its own company, and asks for the column it re
   assert.match(src, /select\('[^']*posting_start_on/);
   assert.match(src, /\.eq\('company_entity_id', companyId\)[\s\S]{0,200}posting_start_on: next \|\| null|posting_start_on: next \|\| null[\s\S]{0,300}company_entity_id/,
     'the update is company-scoped too');
+});
+
+test('saving the SAME date again resumes a reversal that stopped partway', async () => {
+  const PARTIAL = { ...SOURCE, posting_start_on: '2026-09-01' };
+  const h = harness({ sources: [PARTIAL], update: { data: [], error: null },
+    rpc: [{ data: 120, error: null }, { data: 0, error: null }] });
+  await h.mounted; await h.click();
+  assert.equal(h.asks(), 0, 'nothing is being decided, so no confirmation is asked again');
+  assert.equal(h.calls.filter((c) => c[0] === 'update').length, 0,
+    'the date is already right; rewriting it would be a no-op write');
+  assert.equal(h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start').length, 2,
+    'the whole point of pressing Save again is that the reconciliation runs');
+  assert.match(h.statusEl.innerHTML, /Saved/);
+  assert.doesNotMatch(h.statusEl.innerHTML, /already the cut-over/,
+    'answering "that is already the cut-over" is what made the advertised retry impossible');
+});
+
+test('clearing the cut-over restores, and says restore rather than reverse', async () => {
+  const SET = { ...SOURCE, posting_start_on: '2026-09-01' };
+  const h = harness({ sources: [SET], value: '', update: { data: [{ id: 's1', posting_start_on: null }], error: null },
+    rpc: [{ data: 435, error: null }, { data: 0, error: null }] });
+  await h.mounted; await h.click();
+  assert.equal(h.asks(), 1, 'clearing it IS a decision, so it is confirmed');
+  assert.equal(JSON.stringify(h.calls.find((c) => c[0] === 'update')[1]), JSON.stringify({ posting_start_on: null }));
+  assert.equal(h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start').length, 2,
+    'the reversed entries do not come back on their own: silo_ledger_on_source ignores this field');
+  assert.match(h.statusEl.innerHTML, /Every period is SILO’s to post/);
+  assert.ok(h.said.some((m) => /Restoring earlier ledger entries — 435 transactions left/.test(m)),
+    'clearing the date records entries back; calling that a reversal describes the opposite of what runs');
+  assert.ok(!h.said.some((m) => /Reversing/.test(m)), h.said.join(' | '));
+});
+
+test('every message that prescribes a retry prescribes the one the control honours', async () => {
+  /* Two messages say what to do when the reconciliation does not finish: the
+     RPC-error one, driven above, and the one for a remainder still left after
+     the page cap, which needs 20,000 out-of-line transactions to reach and so
+     is held here by source instead. Both must name the action the unchanged-date
+     path actually performs, or the control advertises a recovery it refuses. */
+  const src = await readFile(new URL('../../v2/accounting-posting-start.js', import.meta.url), 'utf8');
+  const prescriptions = src.match(/[Pp]ress Save again on this account to pick up where it stopped\./g) || [];
+  assert.equal(prescriptions.length, 2, 'both unfinished-run messages, and no third wording');
+  assert.doesNotMatch(src, /[Ss]ave the date again/,
+    'the earlier wording asked for a write the control now skips, so it named no action at all');
 });

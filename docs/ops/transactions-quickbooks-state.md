@@ -149,3 +149,13 @@ send from now on, and does not relabel history.
 
 The reading needs `source_posting_start_on` in `BATCH_FIELDS`; unselected it is
 `undefined` and every period silently reads as SILO's, which a test pins.
+
+A cut-over need not fall on a period boundary. A period whose own end is after
+it is SILO's to post, but the entry approval freezes is built from every
+non-zero effective line in the batch -- so a September 15 cut-over on a
+September 1-30 import would freeze the September 10 rows and posting would send
+them. `card_posting_start_guard` refuses that approval, counting the rows and
+naming the earliest; the entry pane blocks Approve with the same count, so the
+database's refusal is never the first anyone hears of it. Excluding those rows,
+or moving them to their own import, clears it, because the guard asks exactly
+the lines approval freezes.

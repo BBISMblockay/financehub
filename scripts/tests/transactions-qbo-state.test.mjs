@@ -30,7 +30,7 @@ const EXPOSE = [
   'quickbooksStateLine', 'quickbooksStepDetail', 'periodLabel', 'isInQuickBooks',
   'periodClosed', 'savedCodingMessage', 'renderWorkflow', 'accountingStateLine',
   'transactionDetailInner', 'postingUnsettled', 'claimStateFor', 'loadPostingClaims',
-  'handledOutsideSilo',
+  'handledOutsideSilo', 'preCutoverRows',
 ].join(', ');
 
 /* Enough DOM and enough of the page's siblings for the presentation functions.
@@ -683,4 +683,35 @@ test('the batch read asks for the cut-over column, or every period reads as SILO
   const fields = script.slice(script.indexOf('BATCH_FIELDS'), script.indexOf('BATCH_FIELDS') + 800);
   assert.match(fields, /source_posting_start_on/,
     'card_import_batches_v exposes it; unselected it is undefined and nothing is ever handled outside SILO');
+});
+
+test('a period straddling the cut-over: the period is SILO\'s, some of its rows are not', () => {
+  const straddle = batch({ source_posting_start_on: '2026-07-15' });   // period is 2026-07-01..07-31
+  const h = harness({ batch: straddle, sources: [SOURCE] });
+  assert.equal(h.api.handledOutsideSilo(straddle), false,
+    'the period ends after the cut-over, so the period itself is SILO\'s to post');
+  const rows = [
+    row({ id: 'r1', txn_date: '2026-07-10', status: 'coded' }),
+    row({ id: 'r2', txn_date: '2026-07-20', status: 'coded' }),
+    row({ id: 'r3', txn_date: '2026-07-02', status: 'excluded' }),
+    row({ id: 'r4', txn_date: '2026-07-03', status: 'uncoded' }),
+  ];
+  const early = h.api.preCutoverRows(straddle, rows);
+  assert.equal(early.map((t) => t.id).join(','), 'r1',
+    'only a coded row before the cut-over would be frozen into the entry; an excluded or uncoded row contributes no line');
+  assert.equal(h.api.preCutoverRows(batch(), rows).length, 0,
+    'no cut-over set means no row is early');
+  assert.equal(h.api.preCutoverRows(straddle, []).length, 0);
+});
+
+test('the entry pane names the straddling rows, in the reader\'s words, before the database refuses', () => {
+  const pane = body.slice(body.indexOf('const balKind = requiredEntityKindForAccount'));
+  const upTo = pane.slice(0, pane.indexOf("el('btnApprove').disabled"));
+  assert.match(upTo, /preCutoverRows\(state\.batch, state\.txns\)/,
+    'the Approve blocker list must count the straddling rows, or the trigger\'s refusal is the first they hear of it');
+  assert.match(upTo, /move .*to their own import, or exclude/s,
+    'and say what to do about them');
+  // The two readings are exclusive: a period that is wholly before the cut-over
+  // is not also described as holding a few early rows.
+  assert.match(upTo, /handledOutsideSilo\(state\.batch\)\) \{[\s\S]*?\} else \{/);
 });
