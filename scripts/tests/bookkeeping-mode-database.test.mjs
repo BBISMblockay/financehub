@@ -27,7 +27,8 @@
 // Mutation hooks -- each must make this suite FAIL:
 //   BOOKKEEPING_MODE_MUTATION=mode-ignores-ledger|no-mode-claim-guard
 //     |claim-guard-card-only|override-ignored|on-deck-still-asks
-//     |handover-ignores-approvals|rpc-ignores-company|rpc-ungated|rpc-keeps-stale-date
+//     |handover-ignores-approvals|handover-unserialized|rpc-ignores-company
+//     |rpc-ungated|rpc-keeps-stale-date
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -52,6 +53,9 @@ const MUTATIONS = {
   'handover-ignores-approvals': ["    if v_open > 0 then", '    if false then'],
   // Take the company from the session alone: a switch in another tab while the
   // confirmation is open writes the answer to the wrong company's books.
+  // Drop the lock from the approval side: an approval in flight can then
+  // commit after a handover has counted and found none.
+  'handover-unserialized': ['  perform public.bookkeeping_mode_lock(new.company_entity_id);\n', ''],
   'rpc-ignores-company': ['  if p_company is not null and p_company <> v_company then', '  if false then'],
   'rpc-ungated': ["  if auth.uid() is null or v_company is null\n     or not coalesce(public.can_manage_journal_entries() or public.is_exec_or_owner(), false) then\n    raise exception 'Finance access required' using errcode = '42501';\n  end if;", ''],
   // Keep a takeover date that belongs to the other mode: switching back shows a
@@ -271,6 +275,27 @@ try {
     await as(finance, () => q('select reopen_card_import_batch($1,$2)', [pending, 'clearing it for the handover']));
     await setMode('qbo');
     assert.equal(await reconcile(bank), 0);
+  });
+
+  await test('the handover and an approval take the same company lock, so they cannot interleave', async () => {
+    // PGlite runs one connection, so the interleaving itself cannot be staged
+    // here. What can be pinned is the invariant that makes it impossible: both
+    // sides take the same company-scoped transaction lock before they read the
+    // state the other is about to change, and each takes only that one.
+    const key = (await one("select hashtext('silo.bookkeeping_mode:' || $1::text) as k", [co])).k;
+    assert.equal(Number((await one('select public.bookkeeping_mode_lock($1) is null as taken', [co])).taken), 1,
+      'the lock function runs');
+    for (const fn of ['public.set_bookkeeping_mode(text,date,uuid)', 'public.card_posting_start_guard()']) {
+      const body = (await one('select pg_get_functiondef(to_regprocedure($1)) as d', [fn])).d;
+      assert.match(body, /bookkeeping_mode_lock/, `${fn} must take the lock`);
+    }
+    assert.ok(Number.isFinite(Number(key)), 'the key is derived from the company, so one company cannot block another');
+    assert.equal((await one("select count(*)::int as n from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='bookkeeping_mode_lock'", [])).n, 1);
+    // It is an xact lock, so it is released by commit or rollback and cannot
+    // be leaked by a failed handover.
+    const def = (await one("select pg_get_functiondef(to_regprocedure('public.bookkeeping_mode_lock(uuid)')) as d")).d;
+    assert.match(def, /pg_advisory_xact_lock/);
+    assert.doesNotMatch(def, /pg_advisory_lock\(/, 'a session lock would outlive the statement that took it');
   });
 
   await test('a company switch while the confirmation is open cannot write to the wrong books', async () => {

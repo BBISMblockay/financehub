@@ -139,6 +139,37 @@ drop trigger if exists bookkeeping_mode_claim on public.quickbooks_journal_posti
 create trigger bookkeeping_mode_claim before insert on public.quickbooks_journal_postings
   for each row execute function public.silo_bookkeeping_mode_claim_guard();
 
+-- ── One lock, so an approval in flight cannot slip past the handover ──────
+-- Both sides take this, company-scoped, and hold it to commit. Without it the
+-- interleaving is: A approves a batch while the mode is still 'silo' but has
+-- not committed; B counts approved batches, sees none, commits 'qbo'; A
+-- commits. The company is then in reporting-only holding a frozen, unsent
+-- ledger entry -- exactly what the count exists to prevent, and the resync
+-- never touches an approved batch. Whichever gets the lock first wins and the
+-- other re-reads committed state. Each side takes only this one lock, so there
+-- is no ordering to get wrong.
+create or replace function public.bookkeeping_mode_lock(p_company uuid)
+returns void language sql volatile security definer set search_path = public, pg_temp as $$
+  select pg_advisory_xact_lock(hashtext('silo.bookkeeping_mode:' || p_company::text));
+$$;
+revoke all on function public.bookkeeping_mode_lock(uuid) from public, anon, authenticated;
+
+-- The approval trigger of 20261015020000, unchanged but for that lock: it is
+-- taken before the refusal is read, so an approval that is going to commit is
+-- already holding it when a handover tries to count.
+create or replace function public.card_posting_start_guard()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_msg text;
+begin
+  if new.status <> 'approved' then return new; end if;
+  if tg_op = 'UPDATE' and old.status in ('approved', 'posted') then return new; end if;
+  perform public.bookkeeping_mode_lock(new.company_entity_id);
+  v_msg := public.card_posting_start_refusal(new.id, new.source_id, new.period_end, new.entry_date, new.period_start);
+  if v_msg is null then return new; end if;
+  raise exception '%', v_msg;
+end $$;
+revoke all on function public.card_posting_start_guard() from public, anon, authenticated;
+
 -- ── Saving the answer ──────────────────────────────────────────────────────
 -- accounting_settings has a read policy and no write policy, so the write is a
 -- definer RPC behind the finance gates. It writes ONLY the two fields: the
@@ -167,6 +198,10 @@ begin
   if p_mode not in ('silo', 'qbo') then
     raise exception 'Unknown bookkeeping mode %', p_mode using errcode = '22023';
   end if;
+
+  -- Held to commit, so an approval already in flight is counted below rather
+  -- than committing after this does.
+  if p_mode = 'qbo' then perform public.bookkeeping_mode_lock(v_company); end if;
 
   -- An approved batch is frozen: its ledger entry was recorded from the
   -- approval snapshot and the resync deliberately never touches it, so handing

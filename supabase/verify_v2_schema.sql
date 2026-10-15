@@ -6996,6 +6996,12 @@ select 'Bookkeeping mode' as check_name,
   -- unapproved period is refused in reporting-only, so On Deck must not ask.
   when pg_get_functiondef(to_regprocedure('public.on_deck_coding_items()')) not like '%bookkeeping_mode%'
    then 'BROKEN — On Deck still asks a reporting-only company to approve coding'
+  -- Both sides of the handover race must take the same company lock, or an
+  -- approval in flight commits after the count found none.
+  when to_regprocedure('public.bookkeeping_mode_lock(uuid)') is null
+    or pg_get_functiondef(to_regprocedure('public.card_posting_start_guard()')) not like '%bookkeeping_mode_lock%'
+    or pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode(text,date,uuid)')) not like '%bookkeeping_mode_lock%'
+   then 'BROKEN — approval and the handover are not serialized, so a company can land in reporting-only holding an unsent approval'
   else 'ok' end as status;
 
 -- When SILO starts posting an account (20261015020000): the cut-over column,
