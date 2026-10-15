@@ -1096,14 +1096,28 @@
 
      A failed READ is kept apart from "no claim": not knowing is not the same as
      knowing there is nothing, and the line says so rather than asserting. */
-  let postingClaims = new Map(), postingClaimsError = '';
+  let postingClaims = new Map(), postingClaimsError = '', postingClaimsChecked = new Set();
   const UNRESOLVED_CLAIM = ['submitting', 'unknown'];
-  async function loadPostingClaims() {
-    postingClaims = new Map(); postingClaimsError = '';
-    const ids = [...new Set((state.batches || [])
-      .filter((b) => b.company_entity_id === _co?.id && b.status !== 'posted')
+  /* `batches` undefined means a full reload: the whole list is re-read and the
+     previous answers are dropped. Passed a subset, it ADDS those batches to
+     what is known, because openBatch() and selectSource() can put a period in
+     state.batches that the latest-60 list never contained. Only ids this has
+     actually looked up count as known: an id nobody queried must not read as a
+     confirmed absence of attempts, which was the second-cycle finding on #995. */
+  async function loadPostingClaims(batches) {
+    const full = batches === undefined;
+    if (full) { postingClaims = new Map(); postingClaimsError = ''; postingClaimsChecked = new Set(); }
+    const considered = (full ? (state.batches || []) : batches || [])
+      .filter((b) => b && b.company_entity_id === _co?.id);
+    if (!_co?.id) return;
+    /* A posted period is resolved by the batch itself, so it needs no claim
+       read -- but it is still KNOWN, and must not fall into the unchecked
+       branch below. */
+    for (const b of considered) if (b.status === 'posted') postingClaimsChecked.add(b.id);
+    const ids = [...new Set(considered
+      .filter((b) => b.status !== 'posted' && !postingClaimsChecked.has(b.id))
       .map((b) => b.id))];
-    if (!ids.length || !_co?.id) return;
+    if (!ids.length) return;
     /* This must never take the page down: a register that will not open is
        worse than one that cannot describe its posting attempts, which is the
        lesson from the report location slicer (2026-10-14). A throw degrades to
@@ -1125,9 +1139,11 @@
           held.push(row);
           postingClaims.set(row.source_ref, held);
         }
+        for (const id of ids.slice(offset, offset + 200)) postingClaimsChecked.add(id);
       }
     } catch (e) {
       postingClaims = new Map();
+      postingClaimsChecked = new Set();
       postingClaimsError = e.message || String(e);
     }
   }
@@ -1138,6 +1154,9 @@
   function claimStateFor(b) {
     if (!b) return null;
     if (postingClaimsError) return { kind: 'unreadable', detail: postingClaimsError };
+    if (!postingClaimsChecked.has(b.id)) {
+      return { kind: 'unreadable', detail: 'this period\u2019s posting attempts have not been read' };
+    }
     const rows = postingClaims.get(b.id) || [];
     if (rows.some((r) => UNRESOLVED_CLAIM.includes(r.status))) {
       const row = rows.find((r) => UNRESOLVED_CLAIM.includes(r.status));
@@ -1854,6 +1873,9 @@
     }
     await loadTxns(id);
     if (!state.batches.some(batch => batch.id === id)) state.batches.push(state.batch);
+    // The opened period may be older than the latest-60 list, so its posting
+    // attempts have not been read yet. Read them before anything renders.
+    await loadPostingClaims([state.batch]);
     buildOptionCache();
     for (const id of ['bulkAccount', 'bulkLocation', 'bulkEntity']) el(id).innerHTML = '';
     if(previousBatch?.id!==id) {state.selected.clear();setQuickSearch('');}
@@ -4822,6 +4844,8 @@
           periods.push(...(data||[]));if(!data || data.length<500)break;
         }
         state.batches=[...state.batches.filter(b=>b.source_id!==id),...periods];
+        // A whole account's history, most of it outside the latest-60 list.
+        await loadPostingClaims(periods);
         const current=periods.find(b=>['draft','categorized'].includes(b.status)) || periods[0];
         if(current)await openBatch(current.id);
         await browseDates(id);

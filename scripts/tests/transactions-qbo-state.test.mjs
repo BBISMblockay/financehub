@@ -36,7 +36,8 @@ const EXPOSE = [
    Anything a test does not set stays empty, so a function that starts reading
    something new fails loudly here rather than silently in a browser. */
 function harness({ batch = null, batches = null, sources = [], dateBrowse = false, reclasses = [],
-  reclassError = '', claims = {}, claimsError = '', spy = null, readError = null, readThrows = null } = {}) {
+  reclassError = '', claims = {}, claimsError = '', spy = null, readError = null, readThrows = null,
+  unchecked = [], claimRows = null } = {}) {
   const nodes = new Map();
   const node = (id) => {
     if (!nodes.has(id)) nodes.set(id, { id, innerHTML: '', textContent: '', hidden: false, disabled: false,
@@ -54,7 +55,11 @@ function harness({ batch = null, batches = null, sources = [], dateBrowse = fals
       q.in = (col, vals) => { call.in[col] = vals; return q; };
       q.then = (res, rej) => (readThrows
         ? Promise.reject(new Error(readThrows))
-        : Promise.resolve({ data: [], error: readError })).then(res, rej);
+        : Promise.resolve({
+            data: table === 'quickbooks_journal_postings' && claimRows
+              ? claimRows.filter((r) => (call.in.source_ref || []).includes(r.source_ref))
+              : [],
+            error: readError })).then(res, rej);
       return q;
     },
     rpc: () => Promise.resolve({ data: 0, error: null }), auth: { getSession: () => Promise.resolve({ data: { session: null } }) } };
@@ -87,6 +92,12 @@ function harness({ batch = null, batches = null, sources = [], dateBrowse = fals
     reclassError = ${JSON.stringify(reclassError)};
     postingClaims = new Map(Object.entries(${JSON.stringify(claims)}));
     postingClaimsError = ${JSON.stringify(claimsError)};
+    /* A seeded fixture stands for a lookup that already happened, so the ids
+       it covers are KNOWN. \`unchecked\` is the opposite case: a batch the page
+       holds but never queried, which is what openBatch() and selectSource()
+       produce when they reach past the latest-60 list. */
+    postingClaimsChecked = new Set((state.batches || []).map((b) => b.id)
+      .filter((id) => !${JSON.stringify(unchecked)}.includes(id)));
     window.subject = { ${EXPOSE} };
   })();`, sandbox);
   return { api: sandbox.window.subject, node };
@@ -464,4 +475,94 @@ test('every QuickBooks line carries exactly one of the three states', () => {
       assert.equal(hit.length, 1, `exactly one status per row, got: ${line}`);
     }
   }
+});
+
+/* Cycle-2 review, #995: the lookup covers more than the first page of batches.
+
+   loadBatches() reads the latest 60 periods, but openBatch() fetches a single
+   older period by id and appends it, and selecting an account loads that
+   account's whole history. A batch nobody queried is not a batch with no
+   attempt, so an id outside what was actually read must say so instead of
+   falling through to "has not been sent yet".
+
+   The integrated run of those two paths is not reachable in this harness --
+   both go through loadTxns() and the real workspace widget -- so the wiring
+   is held by a source assertion, and the behaviour it depends on is driven
+   directly below it. */
+const OLDER = { id: 'b2', period_start: '2026-03-01', period_end: '2026-03-31', label: '2026-03 bank feed' };
+
+test('a period the page holds but never queried is uncertain, not an absence of attempts', () => {
+  const older = batch({ ...OLDER, ...TIMED_OUT });
+  const h = harness({ batch: older, batches: [batch(), older], sources: [SOURCE], unchecked: ['b2'] });
+  assert.equal(h.api.claimStateFor(older)?.kind, 'unreadable',
+    'an unqueried id must never be read as a confirmed empty result');
+  const line = h.api.quickbooksStateLine(row({ batch_id: 'b2' }));
+  assert.match(line, /^Unknown/, line);
+  assert.match(line, /have not been read/i);
+  assert.doesNotMatch(line, /has not been sent yet/,
+    'this is exactly the false certainty the first cycle asked us to remove');
+  assert.match(h.api.quickbooksStepDetail([older]), /could not be read/i);
+  // The periods that WERE read keep their own, confident reading.
+  assert.equal(h.api.claimStateFor(batch()), null);
+});
+
+test('reading an appended period on its own resolves it, without re-reading the rest', async () => {
+  const older = batch({ ...OLDER, ...TIMED_OUT });
+  const seen = [];
+  const h = harness({ batch: older, batches: [batch(), older], sources: [SOURCE], unchecked: ['b2'],
+    spy: seen, claimRows: [claim({ source_ref: 'b2' })] });
+  // Both periods are handed in, as selectSource() hands in a whole history.
+  await h.api.loadPostingClaims([batch(), older]);
+  const calls = seen.filter((c) => c.table === 'quickbooks_journal_postings');
+  assert.equal(calls.length, 1);
+  assert.deepEqual([...calls[0].in.source_ref], ['b2'],
+    'only the period that was not known yet needs a read');
+  assert.equal(h.api.claimStateFor(older)?.kind, 'unresolved');
+  assert.match(h.api.quickbooksStateLine(row({ batch_id: 'b2' })), /never confirmed/i);
+  assert.equal(h.api.claimStateFor(batch()), null, 'the already-known periods are untouched');
+});
+
+test('a full reload re-reads everything rather than trusting the previous answers', async () => {
+  const seen = [];
+  const h = harness({ batch: batch(TIMED_OUT), batches: [batch(TIMED_OUT), batch({ ...OLDER, ...TIMED_OUT })],
+    sources: [SOURCE], spy: seen, claimRows: [claim({ source_ref: 'b1' })] });
+  await h.api.loadPostingClaims();
+  const calls = seen.filter((c) => c.table === 'quickbooks_journal_postings');
+  assert.equal(calls.length, 1);
+  assert.deepEqual([...calls[0].in.source_ref].sort(), ['b1', 'b2'],
+    'a reload cannot skip ids a previous call happened to cover');
+  assert.equal(h.api.claimStateFor(batch(TIMED_OUT))?.kind, 'unresolved');
+  assert.equal(h.api.claimStateFor(batch({ ...OLDER, ...TIMED_OUT })), null,
+    'read and found nothing is a real answer, unlike never read');
+});
+
+test('a posted period needs no claim read and must not read as unqueried', async () => {
+  const posted = batch({ status: 'posted', posting_status: 'posted', qbo_doc_number: 'SILO-900' });
+  const seen = [];
+  const h = harness({ batch: posted, batches: [posted], sources: [SOURCE], unchecked: ['b1'], spy: seen });
+  await h.api.loadPostingClaims([posted]);
+  assert.equal(seen.filter((c) => c.table === 'quickbooks_journal_postings').length, 0);
+  assert.equal(h.api.claimStateFor(posted), null);
+  assert.equal(h.api.quickbooksStepDetail([posted]), 'Posted');
+});
+
+test('both paths that append a period read its claims before anything renders', () => {
+  const open = body.slice(body.indexOf('async function openBatch(id)'));
+  const openBody = open.slice(0, open.indexOf('\n  // ------------------------------------------------------------- coding'));
+  const push = openBody.indexOf('state.batches.push(state.batch)');
+  const read = openBody.indexOf('loadPostingClaims(');
+  const render = openBody.indexOf('renderMeta();', push);
+  assert.ok(push > 0 && read > push, 'openBatch must read the claims of the period it appended');
+  assert.ok(read < render, 'and read them before the panel is rendered');
+
+  // selectSource is wired after the boot marker, so it is read from the whole
+  // inline script rather than the pre-boot slice the harness runs.
+  const select = script.slice(script.indexOf('selectSource:async id=>'));
+  const selectBody = select.slice(0, select.indexOf('await browseDates(id);'));
+  const replace = selectBody.indexOf('state.batches=[...state.batches.filter');
+  const selectRead = selectBody.indexOf('loadPostingClaims(');
+  assert.ok(replace > 0 && selectRead > replace,
+    'selecting an account loads its whole history, so its claims must be read too');
+  assert.ok(selectRead < selectBody.indexOf('await openBatch('),
+    'and read before the period it opens renders');
 });

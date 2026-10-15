@@ -55,6 +55,13 @@ Two rules follow:
 - **An unresolved attempt outranks everything else**, including the posting
   switch: turning posting off for an account does not resolve a send already
   made.
+- **A period nobody looked up is not a period with no attempt.** The claim read
+  tracks which batch ids it actually covered. `loadBatches()` reads the latest
+  60 periods, but opening a journal link fetches a single older period by id and
+  selecting an account loads that account's whole history, so both of those
+  paths read the claims of what they appended before anything renders — and an
+  id still outside what was read says so rather than falling through to "has
+  not been sent yet". Found by review cycle 2 on PR #995.
 - **A failed lookup is not "no attempt".** If the claim read fails, the line
   says the attempts could not be read and names the error, rather than
   asserting the period was never sent. The read also never takes the register
@@ -83,17 +90,23 @@ closed up to 17 hours early, while the people closing it are still in it.
   period through `on_deck_coding_items()` (stage `approve`, "QuickBooks entry not
   prepared (optional)"). Since a hold can be deliberate, nothing here escalates
   it; the gap was in Transactions, where the coding happens.
-- **Nothing is sent, approved or queried.** Every reading comes from fields the
-  batch list already loads (`BATCH_FIELDS` over `card_import_batches_v`).
+- **Nothing is sent, approved or written.** The only addition to what the page
+  already read is the one SELECT over `quickbooks_journal_postings` described
+  above; everything else comes from fields the batch list already loads
+  (`BATCH_FIELDS` over `card_import_batches_v`).
 
 ## Tests
 
-`node scripts/tests/transactions-qbo-state.test.mjs` — 36 checks against the
+`node scripts/tests/transactions-qbo-state.test.mjs` — 41 checks against the
 shipped page, with the real `transaction-filters.js`, `transaction-dates.js` and
 `card-splits.js` loaded rather than stubs, including the panel and strip wiring
 and not only the helpers. Green under both UTC and `TZ=America/Los_Angeles`.
-23 mutations were confirmed to fail a test, among them reading the unfinished
+30 mutations were confirmed to fail a test, among them reading the unfinished
 attempt from the batch instead of its claim (the cycle-1 finding), correlating
 the claim read on the wrong column, swallowing a failed or thrown claim read,
-reading a journal entry id as proof of posting, and comparing the period end
-against a UTC date.
+reading a journal entry id as proof of posting, comparing the period end
+against a UTC date, and treating a period the page never looked up as a period
+with no attempts (the cycle-2 finding), on each of the two paths that append
+one. The integrated run of those two paths is not reachable in this harness —
+both go through `loadTxns()` and the real workspace widget — so their wiring is
+held by a source assertion, with the behaviour it depends on driven directly.
