@@ -133,6 +133,19 @@ test('a reversal that stops partway says what is left, and never reads as finish
   assert.match(h.statusEl.innerHTML, /SILO posts September 1, 2026 onward/);
 });
 
+test('a remainder that does not shrink stops the loop and says rows are held, rather than pressing on', async () => {
+  // Rows held by an open problem cannot be moved by the resync; looping 200
+  // times and then telling the user to press Save again would never end.
+  const h = harness({ update: { data: [{ id: 's1', posting_start_on: '2026-09-01' }], error: null },
+    rpc: [{ data: 40, error: null }, { data: 3, error: null }, { data: 3, error: null }] });
+  await h.mounted; await h.click();
+  assert.equal(h.calls.filter((c) => c[0] === 'silo_ledger_resync_posting_start').length, 3,
+    'it stops at the first page that changed nothing, not after 200 calls');
+  assert.match(h.statusEl.innerHTML, /3 transactions are held by an open problem/);
+  assert.match(h.statusEl.innerHTML, /SILO posts September 1, 2026 onward/, 'the date is still saved and governs');
+  assert.match(h.statusEl.innerHTML, /books-flag/);
+});
+
 test('an RLS-refused save is reported as refused, not as saved', async () => {
   const h = harness({ update: { data: [], error: null }, rpc: [] });
   await h.mounted; await h.click();

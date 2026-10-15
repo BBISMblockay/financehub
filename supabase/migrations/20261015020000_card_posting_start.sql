@@ -64,7 +64,14 @@ create or replace function public.card_posting_start_guard()
 returns trigger language plpgsql security invoker set search_path = public, pg_temp as $$
 declare v_start date; v_name text; v_end date; v_early date; v_count integer;
 begin
-  if new.status <> 'approved' or old.status is not distinct from 'approved' then return new; end if;
+  -- Only a move INTO 'approved' is judged. 'approved'/'posted' -> 'approved' is
+  -- not one: a re-save is a no-op, and posted -> approved is void_card_posting /
+  -- "Mark unposted", the way OUT of a post made before the date was set. Refusing
+  -- that would leave a wrongly posted month reading "In QuickBooks" for good.
+  -- An INSERT already carrying status 'approved' is judged too (finance clients
+  -- may insert any status but 'posted'), so there is no OLD row to compare.
+  if new.status <> 'approved' then return new; end if;
+  if tg_op = 'UPDATE' and old.status in ('approved', 'posted') then return new; end if;
   select s.posting_start_on, s.display_name into v_start, v_name
     from public.card_sources s where s.id = new.source_id;
   if v_start is null then return new; end if;
@@ -99,7 +106,7 @@ begin
 end $$;
 
 drop trigger if exists card_batch_posting_start on public.card_import_batches;
-create trigger card_batch_posting_start before update of status on public.card_import_batches
+create trigger card_batch_posting_start before insert or update of status on public.card_import_batches
   for each row execute function public.card_posting_start_guard();
 
 -- ── Bringing the ledger in line with the cut-over, in pages ───────────────
@@ -130,6 +137,16 @@ returns setof uuid language sql stable security invoker set search_path = public
   join public.card_import_batches b on b.id = t.batch_id
   where b.source_id = p_source_id and t.company_entity_id = p_company
     and b.status not in ('approved', 'posted')
+    -- A coded row that fails validation (open feed exception, inactive account)
+    -- is HELD by the writer: it returns without recording or reversing. Such a
+    -- row would be a candidate on every pass and never change, so the remainder
+    -- could not reach 0. Judge candidacy by the rule the writer uses.
+    and public.silo_ledger_blocker(t.id) is null
+    -- Cheap pre-filter: an uncoded row with no entry cannot be out of line, so
+    -- skip it before the per-row desired_lines call.
+    and (t.status = 'coded' or exists (select 1 from public.ledger_entries x
+          where x.company_entity_id = p_company and x.source = 'card_transaction'
+            and x.source_id = t.id and x.kind = 'original'))
     and (public.silo_ledger_desired_lines(t.id) is null) <> (not exists (
           select 1 from public.ledger_entries e
           where e.company_entity_id = p_company and e.source = 'card_transaction'

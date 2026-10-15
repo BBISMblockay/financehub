@@ -144,9 +144,18 @@
           status(`Saved. SILO posts ${posts}, but SILO’s ledger is not yet in line with that: ${r.error.message}. Press Save again on this account to pick up where it stopped.`, true);
           return;
         }
-        remaining = Number(r.data) || 0;
+        const left = Number(r.data) || 0;
+        const stalled = remaining !== null && left >= remaining;
+        remaining = left;
         status(remaining ? `${work} — ${remaining} transactions left…` : 'Saved.');
         if (!remaining) break;
+        /* Each page settles up to 100 rows, so a remainder that did not shrink
+           means the rest are held (an open feed exception, an inactive account)
+           and pressing on cannot change them. Stop and say so. */
+        if (stalled) {
+          status(`Saved, and SILO posts ${posts}. ${remaining} transactions are held by an open problem (a feed exception or an inactive account) and cannot be moved yet. Clear it, then press Save again on this account.`, true);
+          return;
+        }
       }
       status(remaining
         ? `Saved, and SILO posts ${posts}. ${remaining} transactions are still out of line in SILO’s ledger; press Save again on this account to pick up where it stopped.`

@@ -57,6 +57,12 @@ const MUTATIONS = {
   'resync-ungated': ["  if not (coalesce(public.can_manage_journal_entries(), false) or coalesce(public.is_exec_or_owner(), false)) then\n    raise exception 'Finance access required';\n  end if;", ''],
   // Resolve the account without the active company: another tenant's books become reachable.
   'resync-crosses-companies': ['   where id = p_source_id and company_entity_id = public.active_company_id();', '   where id = p_source_id;'],
+  // Judge the move out of 'posted' too: the void path is then closed.
+  'guard-blocks-void': ["  if tg_op = 'UPDATE' and old.status in ('approved', 'posted') then return new; end if;", "  if tg_op = 'UPDATE' and old.status in ('approved') then return new; end if;"],
+  // Judge updates only: a batch inserted as approved slips through.
+  'guard-update-only': ['create trigger card_batch_posting_start before insert or update of status', 'create trigger card_batch_posting_start before update of status'],
+  // Count held rows as out of line: the remainder never reaches 0.
+  'resync-counts-held': ['    and public.silo_ledger_blocker(t.id) is null\n', ''],
   'no-view-column': ['  s.posting_start_on as source_posting_start_on\n', '  null::date as source_posting_start_on\n'],
 };
 const mutation = process.env.CARD_POSTING_START_MUTATION || '';
@@ -389,6 +395,53 @@ try {
   await test('the batch view carries the date, so the browser reads it per period', async () => {
     const row = await one('select source_posting_start_on from card_import_batches_v where id=$1', [august]);
     assert.equal(row.source_posting_start_on.toISOString().slice(0, 10), '2026-09-01');
+  });
+
+  await test('a month posted BEFORE the date was set can still be voided: the way out stays open', async () => {
+    // The remediation case the feature exists for: a period was posted by
+    // mistake, its entry was deleted in QuickBooks by hand, and the date was set
+    // afterwards. posted -> approved is void_card_posting; guarding it would leave
+    // SILO saying "In QuickBooks" with no way out short of clearing the date.
+    await q('update card_sources set posting_start_on=null where id=$1', [bank]);
+    const may = await newBatch(bank, { start: '2026-05-01', end: '2026-05-31' });
+    await newTxn(may, 20, { date: '2026-05-10' });
+    await approve(may);
+    await q(`insert into quickbooks_journal_postings(company_entity_id,connection_id,source,source_ref,payload,status,qbo_journal_entry_id)
+             values($1,$2,'card_import',$3,'{}'::jsonb,'posted','JE1')`, [co, conn, may]);
+    await q("update card_import_batches set status='posted' where id=$1", [may]);
+    await q("update card_sources set posting_start_on='2026-09-01' where id=$1", [bank]);
+    await as(finance, () => q("select void_card_posting($1,'deleted in QuickBooks by hand')", [may]));
+    assert.equal((await one('select status from card_import_batches where id=$1', [may])).status, 'approved',
+      'the void goes through');
+    // And the guard still bites for a fresh approval of an unposted early period.
+    await q("update card_import_batches set status='categorized' where id=$1", [may]);
+    await refused(() => approve(may), /before SILO started posting/i, 'a fresh approval after the void is refused');
+  });
+
+  await test('a batch INSERTED already approved is judged too, not only one whose status is updated', async () => {
+    await refused(() => newBatch(bank, { start: '2026-06-01', end: '2026-06-30', status: 'approved' }),
+      /before SILO started posting/i, 'a pre-cut-over batch inserted as approved');
+    const ok = await newBatch(bank, { start: '2026-09-01', end: '2026-09-30', status: 'approved' });
+    assert.equal((await one('select status from card_import_batches where id=$1', [ok])).status, 'approved',
+      'a period on or after the date inserts as approved as before');
+  });
+
+  await test('a row held by an open problem never keeps the resync from finishing', async () => {
+    // silo_ledger_sync_card_transaction HOLDS a coded row whose coding fails
+    // validation: it neither records nor reverses. If such a row counted as
+    // out of line the remainder could never reach 0 and the control would tell
+    // the user to press Save again forever.
+    const october = await newBatch(bank, { start: '2026-10-01', end: '2026-10-31' });
+    const held = await newTxn(october, 33, { date: '2026-10-05', account: 'supplies' });
+    assert.equal((await live(held)).length, 1, 'recorded while valid');
+    await q("update quickbooks_accounts set is_active=false where company_entity_id=$1 and qbo_account_id='supplies'", [co]);
+    try {
+      const r = (await as(finance, () => q('select silo_ledger_resync_posting_start($1,100) r', [bank])))[0].r;
+      assert.equal(r, 0, 'a held row is not out of line: the writer would not touch it');
+      assert.equal((await live(held)).length, 1, 'and its entry stands rather than being reversed over a temporary problem');
+    } finally {
+      await q("update quickbooks_accounts set is_active=true where company_entity_id=$1 and qbo_account_id='supplies'", [co]);
+    }
   });
 
   console.log(`PASS card posting start: ${passed} checks -- approval refused before the cut-over by any path, the ledger reversed in pages rather than deleted, On Deck quiet, history intact`);
