@@ -45,6 +45,10 @@ const mutations = {
   'no-department-cap': ['n >= PER_KIND', 'false'],
   'guess-status': ['} catch (e) { state.reviewFailed = true; }', '} catch (e) { state.reviewFailed = false; }'],
   'silent-refresh': ['if (await load()) message(', 'if (await load() && false) message('],
+  'keep-other-company': ['      clearSurfaces();\n', ''],
+  // The original defect: counting the lifecycle status as work in flight.
+  'paused-is-working': ['const key = statusOf(p).key;',
+    "const key = ['preparing', 'revision'].includes(p.status) ? 'working' : statusOf(p).key;"],
 };
 (async () => {
   const suite = await startSuite({ secureContext: true });
@@ -122,6 +126,37 @@ const mutations = {
       assert.match(await page.locator('#status').textContent(), /Fresh screening requested/);
       await page.waitForFunction(() => /Queued to prepare/.test(document.getElementById('needs').textContent));
       assert.match(await page.locator('#needs').textContent(), /Waiting for the scheduler to screen/);
+    });
+    await page.close();
+
+    // A lifecycle status of 'preparing' is also what a row paused on exhausted
+    // credit looks like, so the brief must not read it as work in flight.
+    page = await open([seo({ status: 'preparing' })], { rpc: { ...rpc,
+      on_deck_review_state: () => ({ review_contract: 2, drift_warns: true, seo: true, purchasing: true, context_tasks: [], assignees: [], tasks: [],
+        proposals: [{ id: 'seo1', source_current: true, preparation: { state: 'paused', reason: 'credit_exhausted' } }] }) } });
+    await test('a paused draft is never reported as work in flight', async () => {
+      const brief = await page.locator('#brief').textContent();
+      assert.doesNotMatch(brief, /still preparing|Nothing needs you yet/);
+      assert.match(brief, /cannot get there on its own/);
+      assert.match(brief, /1 SILO cannot continue on its own/);
+      assert.equal(await cards().count(), 0);
+      const row = page.locator('#needs .odn-row');
+      assert.match(await row.textContent(), /Paused/);
+      assert.match(await row.textContent(), /AI credit is exhausted/);
+    });
+    await page.close();
+
+    page = await open([seo()]);
+    await test('a company change takes the previous company\u2019s recommendations off the screen', async () => {
+      assert.equal(await cards().count(), 1);
+      await page.evaluate(() => { window.__FIXTURE_SERVER_COMPANY__ = { id: 'other-company' }; });
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      await page.waitForFunction(() => /Active company changed/.test(document.getElementById('status').textContent));
+      for (const id of ['brief', 'cards', 'needs', 'done']) {
+        assert.equal(await page.locator('#' + id).isVisible(), false, id + ' is still on screen');
+        assert.equal(await page.locator('#' + id).textContent(), '', id + ' still carries the previous company\u2019s content');
+      }
+      assert.equal(await page.locator('a', { hasText: 'Review draft' }).count(), 0);
     });
     await page.close();
 

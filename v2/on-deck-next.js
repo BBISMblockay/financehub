@@ -112,16 +112,38 @@
 
   /* The brief is a factual read-back of the drafts SILO already screened: the
      same numbers the cards carry, so it reproduces exactly. It runs no AI and
-     spends no tokens. */
-  function renderBrief(summary) {
+     spends no tokens.
+
+     Its counts come from statusOf, like every other part of this page, and NOT
+     from a lifecycle status: `status='preparing'` is equally what a row looks
+     like when its AI credit is exhausted, its workflow is switched off or the
+     monthly cap is reached. Counting those as work in flight would print "SILO
+     is still preparing, nothing needs you yet" over a row that says Paused and
+     names a blocker only the reader can clear. */
+  function tally() {
+    const counts = {};
+    for (const p of state.rows) {
+      if (!['ready', 'needs_info', 'failed', 'preparing', 'revision'].includes(p.status)) continue;
+      const key = statusOf(p).key;
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    return counts;
+  }
+  function renderBrief(counts) {
     const box = $('brief'); box.replaceChildren(); box.hidden = false;
-    const lead = summary.ready
-      ? `${summary.ready} ${summary.ready === 1 ? 'recommendation is' : 'recommendations are'} ready for you.`
-      : summary.needs ? 'Nothing is ready to act on yet. SILO needs answers from you first.'
-      : summary.preparing || summary.queued || summary.running ? 'SILO is still preparing. Nothing needs you yet.'
+    const ready = counts.ready || 0, asks = counts.needs_input || 0;
+    const stuck = (counts.blocked || 0) + (counts.stale || 0), unknown = counts.unavailable || 0;
+    const working = (counts.working || 0) + (counts.queued || 0);
+    const lead = ready ? `${ready} ${ready === 1 ? 'recommendation is' : 'recommendations are'} ready for you.`
+      : asks ? 'Nothing is ready to act on yet. SILO needs answers from you first.'
+      : stuck ? 'Nothing is ready to act on, and SILO cannot get there on its own. See what it needs below.'
+      : unknown ? 'SILO could not read the state of your drafts. Nothing here is a recommendation yet.'
+      : working ? 'SILO is still preparing. Nothing needs you yet.'
       : 'Nothing is ready to act on right now.';
+    const parts = [[ready, 'ready to act on'], [asks, 'waiting on your answers'], [stuck, 'SILO cannot continue on its own'],
+      [working, 'being prepared'], [unknown, 'of unknown state']].filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`);
     box.append(node('h2', lead));
-    box.append(node('p', summary.text, 'odn-why'));
+    box.append(node('p', parts.length ? parts.join(', ') + '.' : 'No drafts are open.', 'odn-why'));
     const requested = state.settings.requested_at && new Date(state.settings.requested_at) > new Date(state.settings.last_screen_at || 0);
     box.append(node('p', `Last screened ${when(state.settings.last_screen_at)}.` + (requested ? ' A refresh is requested and waiting for the next run.' : ''), 'od-meta'));
     if (/^Preparation failed/.test(state.settings.last_status || '')) box.append(node('p', state.settings.last_status, 'od-attention'));
@@ -199,15 +221,27 @@
   }
 
   function render() {
-    renderBrief(B().currentStatus(state.rows, Date.now(), state.reviewState?.drift_warns === true));
+    renderBrief(tally());
     const cards = pick(B().build({ rows: state.rows, coding: [], driftWarns: state.reviewState?.drift_warns === true }));
     renderCards(cards);
     renderNeeds(new Set(cards.map(([, p]) => p.id)));
     renderDone();
   }
 
+  // A page is scoped to the company it loaded with. If that changed under it,
+  // the previous company's recommendations, numbers and created-record links
+  // must come OFF the screen: a notice above stale tenant content still reads
+  // as advice about the company now selected. /v2/on-deck.html clears on this
+  // same path.
+  function clearSurfaces() {
+    state.settings = {}; state.rows = []; state.reviewState = null; state.reviewFailed = false;
+    for (const id of ['brief', 'cards', 'needs', 'done']) { const el = $(id); el.replaceChildren(); el.hidden = true; }
+  }
   async function companyStillActive() {
-    if ((await cfg.ensureActiveCompany?.(state.db))?.id !== state.co) throw new Error('Active company changed. Reload On Deck before continuing.');
+    if ((await cfg.ensureActiveCompany?.(state.db))?.id !== state.co) {
+      clearSurfaces();
+      throw new Error('Active company changed. Reload On Deck before continuing.');
+    }
   }
 
   // Returns true when the page is showing a complete, trustworthy picture.
@@ -252,7 +286,10 @@
     if (!state.co) { message('No active company. Choose one before using On Deck.', true); return; }
     let profile = {};
     try { profile = check(await state.db.from('profiles').select('role').eq('id', session.user.id).maybeSingle()) || {}; } catch (e) { profile = {}; }
-    window.SiloChrome?.mount({ appEl: '#silo-app', active: 'start/on-deck-next', user: { email: session.user.email, role: profile.role }, crumbs: [['SILO', '/v2/home.html'], ['On Deck', null]], supabaseClient: state.db });
+    // Deliberately not in v2/nav-config.js: this page is reached by URL while it
+    // is evaluated against /v2/on-deck.html, and it would replace that entry
+    // rather than sit beside it. The sidebar highlights On Deck regardless.
+    window.SiloChrome?.mount({ appEl: '#silo-app', active: 'start/on-deck', user: { email: session.user.email, role: profile.role }, crumbs: [['SILO', '/v2/home.html'], ['On Deck', null]], supabaseClient: state.db });
     let allowed = false;
     try { allowed = !!await rpc('on_deck_can_review'); } catch (e) { allowed = false; }
     if (!allowed) { message('On Deck review is for company admins. Ask an owner for access.', true); return; }
