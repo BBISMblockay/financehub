@@ -32,6 +32,15 @@
 <details class="migration-note"><summary>How these steps are measured</summary><p>Every step is read from your books each time this page loads. Nothing here is a checkbox someone ticks, and a step Silo could not measure reads “Unknown”, never “Done”.</p></details>
 </div>
 </section>
+<!-- The one question that decides whether Silo posts at all. It used to sit
+     inside the Setup tab, below the opening-balance machinery, so the company's
+     own position was three cards down and behind a tab click (Blake,
+     2026-10-15: "you've migrated section is so buried"). It belongs beside the
+     lead: everything under the tabs is detail about one of the two answers. -->
+<article class="books-card" id="booksMode"><h2>You’ve migrated. Who keeps your books from here?</h2>
+<p class="books-caption" data-mode-state></p>
+<div data-mode-body>Loading…</div>
+<div class="books-caption" data-mode-status role="status" aria-live="polite"></div></article>
 <nav class="books-tabs" aria-label="Books"><button class="bcn-btn" data-surface="ledger" aria-pressed="false">Ledger</button><button class="bcn-btn" data-surface="register" aria-pressed="false">Journals</button><button class="bcn-btn" data-surface="accounts" aria-pressed="false">Chart of accounts</button><button class="bcn-btn" data-surface="locations" aria-pressed="false">Locations</button><button class="bcn-btn" data-surface="setup" aria-pressed="true">Setup & opening balances</button><button class="bcn-btn" data-surface="history" aria-pressed="false">QBO history</button></nav>
 <section id="setup" class="books-surface">
 <div class="books-columns"><article class="books-card"><details id="setupInputs" open><summary id="setupInputsLabel">Prepare opening balances</summary>
@@ -48,19 +57,20 @@
 <button id="accept" class="bcn-btn bcn-btn--primary" disabled>Review & accept opening balances</button>
 </article></div>
 <div id="opening" class="books-card" hidden></div>
-<article class="books-card" id="booksMode"><h2>You’ve migrated. Who keeps your books from here?</h2>
-<p class="books-caption" data-mode-state></p>
-<div data-mode-body>Loading…</div>
-<div class="books-caption" data-mode-status role="status" aria-live="polite"></div></article>
-<article class="books-card" id="postingStart"><h2>When Silo starts posting each account</h2>
+<!-- The exception to the answer above, for the account that came onboard
+     later. Most companies never set one, so it is one line until asked for:
+     the card used to open with a five-sentence explanation and a row per
+     account, which is the setup page reading like an accounting manual. -->
+<article class="books-card" id="postingStart"><details><summary>Does one account start later than the rest?</summary>
 <p>An account can be brought into Silo after its first months were already categorized in QuickBooks — a provider backload does not mean Silo owns those months. Set the first day Silo may post an account and its earlier periods can no longer be approved or posted, they leave On Deck, and whatever Silo’s ledger recorded for them is reversed. Leave it empty and every period is Silo’s, which is how every account starts. Nothing here is sent to QuickBooks.</p>
-<div data-posting-table>Loading accounts…</div>
+<div data-posting-table>Loading accounts…</div></details>
 <div class="books-caption" data-posting-status role="status" aria-live="polite"></div></article>
 <article class="books-card"><details><summary>Ledger ownership &amp; migration scope</summary><p>QuickBooks remains the official ledger during this phase. Silo retains your opening history and its own account identities. Transactions keep their existing human approval and QBO recovery controls.</p><p>Opening balances are not historical transaction detail. Open invoices, bills, reconciliation, period locks, reversals and independent Silo ledger roll-forward require the next accounting phase before switching book ownership.</p><a href="transactions.html">Review bank-feed mappings and source cutovers →</a></details></article>
 </section>
 <section id="accounts" class="books-surface" hidden><div class="books-card"><h2>Your chart of accounts</h2><p>Seeded from QuickBooks, with stable Silo account IDs. Refreshing QBO cannot overwrite the saved account snapshot, so each account shows both its status when it was seeded and its status in QuickBooks now.</p><div id="accountsTable">Prepare opening balances to seed your chart.</div></div></section>
 <section id="locations" class="books-surface" hidden><div class="books-card"><div class="books-row"><div><h2>Locations</h2><p>QuickBooks locations journal lines are tagged with, and the Silo sales locations mapped to each. Mappings are edited in <a href="accounting-export.html">Sales &amp; journals</a>.</p></div></div><div id="locationsTable">Loading locations…</div></div></section>
-<section id="ledger" class="books-surface" hidden><div class="books-card"><div class="books-row"><div><h2>Ledger roll-forward</h2><p>Opening balance + activity = closing balance, for every account. Silo's own postings and everything entered directly in QuickBooks are shown apart, so it is clear what Silo originated and what it did not. Click a Posted by Silo amount to see its lines.</p></div>
+<section id="ledger" class="books-surface" hidden><div class="books-card"><div class="books-row"><div><h2>Ledger roll-forward</h2><p>Opening balance + activity = closing balance, for every account.</p>
+<details><summary>How to read it</summary><p>Silo's own postings and everything entered directly in QuickBooks are shown apart, so it is clear what Silo originated and what it did not. Click a Posted by Silo amount to see its lines.</p></details></div>
 <div class="ledger-controls"><label>Closing balances<select id="ledgerRun" class="bcn-field"></select></label><button id="ledgerFetch" class="bcn-btn" type="button" hidden>Fetch trial balance through today</button></div></div>
 <label class="ledger-check"><input type="checkbox" id="ledgerAll"> Show accounts with no balance or activity</label>
 <div id="ledgerTable">Loading the ledger…</div><div id="ledgerLines" class="ledger-lines" hidden></div></div></section>
