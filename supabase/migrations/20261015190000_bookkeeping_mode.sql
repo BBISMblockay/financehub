@@ -146,17 +146,45 @@ create trigger bookkeeping_mode_claim before insert on public.quickbooks_journal
 -- silo_ledger_resync_posting_start per account, exactly as saving a per-account
 -- date does, because reconciling thousands of transactions inside this
 -- statement would exceed the browser's 8s timeout and roll the save back.
-create or replace function public.set_bookkeeping_mode(p_mode text, p_takeover date default null)
+-- p_company is the company the reader was looking at when the confirmation
+-- opened. The dialog is appended to document.body, outside the element the
+-- company-switch shield makes inert, so a switch in another tab can land
+-- between opening the confirmation and confirming it -- and active_company_id()
+-- alone would then write the answer to the wrong company's books.
+drop function if exists public.set_bookkeeping_mode(text, date);
+create or replace function public.set_bookkeeping_mode(p_mode text, p_takeover date default null, p_company uuid default null)
 returns public.accounting_settings language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_company uuid := public.active_company_id(); v_row public.accounting_settings%rowtype;
+declare v_company uuid := public.active_company_id(); v_row public.accounting_settings%rowtype; v_open integer;
 begin
   if auth.uid() is null or v_company is null
      or not coalesce(public.can_manage_journal_entries() or public.is_exec_or_owner(), false) then
     raise exception 'Finance access required' using errcode = '42501';
   end if;
+  if p_company is not null and p_company <> v_company then
+    raise exception 'Your active company changed while this was open. Reload Books & setup and answer again.'
+      using errcode = 'P0BM1';
+  end if;
   if p_mode not in ('silo', 'qbo') then
     raise exception 'Unknown bookkeeping mode %', p_mode using errcode = '22023';
   end if;
+
+  -- An approved batch is frozen: its ledger entry was recorded from the
+  -- approval snapshot and the resync deliberately never touches it, so handing
+  -- the books back while one is outstanding would leave SILO's ledger holding
+  -- an entry it can no longer send -- and the save would report a reversal that
+  -- did not happen. A posted month is different: QuickBooks holds it, and its
+  -- entry is the record of that, so it stays. Reopening is the way out, and it
+  -- is the reader's decision, not this function's.
+  if p_mode = 'qbo' then
+    select count(*) into v_open from public.card_import_batches b
+     where b.company_entity_id = v_company and b.status = 'approved';
+    if v_open > 0 then
+      raise exception 'There %s still % approved import(s) that SILO has not sent. Reopen or post %s in Transactions first, so nothing is left approved with nowhere to go.',
+        case when v_open = 1 then 'is' else 'are' end, v_open, case when v_open = 1 then 'it' else 'them' end
+        using errcode = 'P0BM2';
+    end if;
+  end if;
+
   update public.accounting_settings
      set bookkeeping_mode = p_mode,
          -- The takeover date belongs to 'silo'. Keeping a stale one on 'qbo'
@@ -167,8 +195,8 @@ begin
   if not found then raise exception 'Accounting is not set up for this company yet' using errcode = 'P0002'; end if;
   return v_row;
 end $$;
-revoke all on function public.set_bookkeeping_mode(text, date) from public, anon;
-grant execute on function public.set_bookkeeping_mode(text, date) to authenticated;
+revoke all on function public.set_bookkeeping_mode(text, date, uuid) from public, anon;
+grant execute on function public.set_bookkeeping_mode(text, date, uuid) to authenticated;
 
 -- ── On Deck stops asking for work SILO is not to do ───────────────────────
 -- Byte-for-byte as 20261015020000 defined it but for the one predicate marked

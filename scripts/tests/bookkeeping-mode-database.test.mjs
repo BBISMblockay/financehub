@@ -20,10 +20,14 @@
 //   5. set_bookkeeping_mode is finance-only, company-scoped, refuses an unknown
 //      mode, and drops the takeover date when the answer is 'qbo'.
 //
+// Exit code, as every suite here: 0 when every check passes, non-zero when one
+// fails. The CI loop applies a mutation and FAILS the job if the run exits 0,
+// because a mutation that leaves the suite passing was not caught.
+//
 // Mutation hooks -- each must make this suite FAIL:
 //   BOOKKEEPING_MODE_MUTATION=mode-ignores-ledger|no-mode-claim-guard
-//     |claim-guard-card-only|override-ignored|on-deck-still-asks|rpc-ungated
-//     |rpc-keeps-stale-date
+//     |claim-guard-card-only|override-ignored|on-deck-still-asks
+//     |handover-ignores-approvals|rpc-ignores-company|rpc-ungated|rpc-keeps-stale-date
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -42,6 +46,13 @@ const MUTATIONS = {
   // Keep listing coding work in reporting-only: On Deck then asks for a click
   // the approval guard refuses.
   'on-deck-still-asks': ["      and (b.status in ('approved', 'posted')\n           or coalesce((select st.bookkeeping_mode from public.accounting_settings st\n                        where st.company_entity_id = b.company_entity_id), 'silo') <> 'qbo')", ''],
+  // Hand the books back with an approved import still outstanding: SILO is
+  // left holding an entry it can no longer send, and the save claims a
+  // reversal that did not happen.
+  'handover-ignores-approvals': ["    if v_open > 0 then", '    if false then'],
+  // Take the company from the session alone: a switch in another tab while the
+  // confirmation is open writes the answer to the wrong company's books.
+  'rpc-ignores-company': ['  if p_company is not null and p_company <> v_company then', '  if false then'],
   'rpc-ungated': ["  if auth.uid() is null or v_company is null\n     or not coalesce(public.can_manage_journal_entries() or public.is_exec_or_owner(), false) then\n    raise exception 'Finance access required' using errcode = '42501';\n  end if;", ''],
   // Keep a takeover date that belongs to the other mode: switching back shows a
   // date nobody chose.
@@ -105,8 +116,8 @@ const live = (txn) => q(`select e.* from ledger_entries e where e.source='card_t
                          and not exists (select 1 from ledger_entries r where r.reverses_entry_id = e.id)`, [txn]);
 const allEntries = (txn) => q("select kind from ledger_entries where source='card_transaction' and source_id=$1", [txn]);
 const onDeck = (user = finance) => as(user, () => q('select batch_id, stage from on_deck_coding_items()'));
-const setMode = (mode, takeover = null, user = finance) =>
-  as(user, () => q('select bookkeeping_mode, silo_takeover_on from set_bookkeeping_mode($1,$2)', [mode, takeover]));
+const setMode = (mode, takeover = null, user = finance, company = null) =>
+  as(user, () => q('select bookkeeping_mode, silo_takeover_on from set_bookkeeping_mode($1,$2,$3)', [mode, takeover, company]));
 // The loop the Books & setup card runs: pages until nothing is out of line.
 async function reconcile(source, user = finance) {
   for (let page = 0; page < 50; page += 1) {
@@ -246,6 +257,47 @@ try {
              values($1,$2,'journal_entry',$3,'submitting','{}'::jsonb,$4,'h')`, [co, conn, randomUUID(), randomUUID()]);
   });
 
+  await test('an approved import SILO never sent blocks the handover, and says how to clear it', async () => {
+    // Its ledger entry came from the frozen approval snapshot and the resync
+    // never touches it, so switching now would leave SILO holding an entry it
+    // can no longer send -- and report a reversal that did not happen.
+    const pending = await newBatch(bank, { start: '2026-10-01', end: '2026-10-31' });
+    await newTxn(pending, 120, { date: '2026-10-05' });
+    await as(finance, () => q('select approve_card_import_batch($1)', [pending]));
+    await refused(() => setMode('qbo'), /approved import/i, 'the handover must not proceed');
+    await refused(() => setMode('qbo'), /Reopen or post/, 'and must say how to clear it');
+    assert.equal((await one('select bookkeeping_mode from accounting_settings where company_entity_id=$1', [co])).bookkeeping_mode, 'silo',
+      'nothing is written when it is refused');
+    await as(finance, () => q('select reopen_card_import_batch($1,$2)', [pending, 'clearing it for the handover']));
+    await setMode('qbo');
+    assert.equal(await reconcile(bank), 0);
+  });
+
+  await test('a company switch while the confirmation is open cannot write to the wrong books', async () => {
+    // The confirmation sits outside the element the company-switch shield makes
+    // inert, so the company the reader saw is passed with the answer.
+    await refused(() => setMode('silo', null, finance, other), /active company changed/i,
+      'another company’s id must not be accepted');
+    assert.equal((await one('select bookkeeping_mode from accounting_settings where company_entity_id=$1', [other])).bookkeeping_mode, 'silo',
+      'and the other company is untouched');
+    const ok = await setMode('silo', null, finance, co);
+    assert.equal(ok[0].bookkeeping_mode, 'silo', 'the company actually on screen is accepted');
+  });
+
+  await test('an account switched off still has its ledger entries reversed', async () => {
+    const dormant = randomUUID();
+    await q(`insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,credit_qbo_account_id,credit_qbo_account_name,is_active,posting_enabled)
+             values($1,$2,$3,'old','Retired card','card','cc','cc',true,true)`, [dormant, co, conn]);
+    const batch = await newBatch(dormant, { start: '2026-09-01', end: '2026-09-30' });
+    const txn = await newTxn(batch, 45, { date: '2026-09-12' });
+    assert.equal((await live(txn)).length, 1, 'it was recorded while the account was on');
+    await q('update card_sources set is_active=false where id=$1', [dormant]);
+    await setMode('qbo');
+    assert.equal(await reconcile(dormant), 0, 'a disabled account is still reconciled');
+    assert.equal((await live(txn)).length, 0, 'and its entries are reversed, not left standing');
+    await setMode('silo', null);
+  });
+
   await test('only finance can answer, for their own company, and only with a known answer', async () => {
     await refused(() => setMode('silo', null, member), /Finance access required/, 'a non-finance member must not answer');
     await refused(() => setMode('sometimes', null), /Unknown bookkeeping mode/, 'there is no third mode');
@@ -267,15 +319,17 @@ try {
     assert.equal((await one('select bookkeeping_mode from accounting_settings where company_entity_id=$1', [co])).bookkeeping_mode, 'silo');
   });
 
-  console.log(`\n${passed} checks passed`);
-  if (mutation) {
-    console.error(`\nMutation ${mutation} did NOT fail the suite`);
-    process.exit(1);
-  }
-} catch (error) {
-  if (mutation) { console.log(`\nMutation ${mutation} failed the suite as it must: ${error.message}`); process.exit(0); }
-  console.error(error);
-  process.exit(1);
+  await test('the production schema check agrees with this migration: verify_v2_schema.sql reads ok', async () => {
+    // Nothing else runs this block before production does, so a refactor that
+    // moves logic between functions would first show up as a red drift check.
+    const verify = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+    const from = verify.indexOf("select 'Bookkeeping mode' as check_name");
+    assert.ok(from >= 0, 'the check exists');
+    const statement = verify.slice(from, verify.indexOf(';\n', from) + 1);
+    assert.equal((await one(statement)).status, 'ok');
+  });
+
+  console.log(`PASS bookkeeping mode: ${passed} checks -- reporting-only sends nothing from any surface, records nothing, and says so; the account's own date still wins`);
 } finally {
   await db.close();
 }

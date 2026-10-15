@@ -52,7 +52,9 @@ test('handing the books back says what it costs, in full, before it happens', ()
   for (const surface of [/bank and card coding/, /revenue journals/, /schedules/, /fixed assets/, /adjustments/]) {
     assert.match(text, surface, 'every surface that stops sending is named');
   }
-  assert.match(text, /reversed/, 'and what happens to SILO’s own ledger');
+  assert.match(text, /recorded but never sent is reversed/,
+    'the reversal promise is true only for what was never sent: an approved or posted month is not reversed');
+  assert.match(text, /already posted to QuickBooks stay exactly as they are/);
   assert.match(text, /Nothing is deleted/);
   assert.match(text, /nothing is sent/i);
   assert.doesNotMatch(text, /QuickBooks will be changed|removed from QuickBooks/,

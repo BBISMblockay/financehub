@@ -6976,7 +6976,7 @@ select 'Bookkeeping mode' as check_name,
                          and table_name = 'accounting_settings' and column_name = 'bookkeeping_mode')
         or not exists (select 1 from information_schema.columns where table_schema = 'public'
                          and table_name = 'accounting_settings' and column_name = 'silo_takeover_on')
-        or to_regprocedure('public.set_bookkeeping_mode(text,date)') is null
+        or to_regprocedure('public.set_bookkeeping_mode(text,date,uuid)') is null
         or to_regprocedure('public.silo_posting_start_for_source(public.card_sources)') is null
    then 'MISSING — run 20261015190000_bookkeeping_mode.sql'
   -- Reporting-only is a statement about the whole company. Without this trigger
@@ -6988,9 +6988,9 @@ select 'Bookkeeping mode' as check_name,
    then 'BROKEN — the ledger start date ignores the mode, so a reporting-only company still records SILO ledger entries'
   -- accounting_settings has a read policy and no write policy, so the RPC is
   -- the only write path and must stay callable by signed-in finance users.
-  when not has_function_privilege('authenticated', 'public.set_bookkeeping_mode(text,date)', 'execute')
+  when not has_function_privilege('authenticated', 'public.set_bookkeeping_mode(text,date,uuid)', 'execute')
    then 'BROKEN — nobody can save the bookkeeping mode'
-  when has_function_privilege('anon', 'public.set_bookkeeping_mode(text,date)', 'execute')
+  when has_function_privilege('anon', 'public.set_bookkeeping_mode(text,date,uuid)', 'execute')
    then 'BROKEN — set_bookkeeping_mode is callable without signing in'
   -- An item nobody can act on does not belong in the queue: approving an
   -- unapproved period is refused in reporting-only, so On Deck must not ask.

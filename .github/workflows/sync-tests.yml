@@ -1260,7 +1260,7 @@ jobs:
       - name: Execute bookkeeping mode regressions
         run: |
           node scripts/tests/bookkeeping-mode-database.test.mjs
-          for mutation in mode-ignores-ledger no-mode-claim-guard claim-guard-card-only override-ignored on-deck-still-asks rpc-ungated rpc-keeps-stale-date; do
+          for mutation in mode-ignores-ledger no-mode-claim-guard claim-guard-card-only override-ignored on-deck-still-asks handover-ignores-approvals rpc-ignores-company rpc-ungated rpc-keeps-stale-date; do
             if BOOKKEEPING_MODE_MUTATION="$mutation" node scripts/tests/bookkeeping-mode-database.test.mjs > /tmp/bookkeeping-mode-mutation.log 2>&1; then
               cat /tmp/bookkeeping-mode-mutation.log; echo "Survived bookkeeping mode mutation: $mutation"; exit 1
             fi

@@ -19,6 +19,10 @@
  */
 (function () {
   'use strict';
+  /* silo_ledger_resync_posting_start reads at most this many; a count at the
+     cap is a lower bound, so two equal capped counts are not evidence that
+     nothing moved. */
+  const RESYNC_CAP = 5000;
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const DAY = /^\d{4}-\d{2}-\d{2}$/;
   const longDate = (value) => (window.SiloPostingStart?.longDate
@@ -59,8 +63,8 @@
     if (mode === 'qbo') {
       return 'QuickBooks will keep the books for this company.\n\n'
         + 'SILO will not send anything to QuickBooks again — not bank and card coding, not revenue journals, '
-        + 'schedules, fixed assets or hand-written adjustments. Whatever SILO’s own ledger holds is reversed, '
-        + 'so its roll-forward stops counting it.\n\n'
+        + 'schedules, fixed assets or hand-written adjustments. What SILO recorded but never sent is reversed, '
+        + 'so its roll-forward stops counting it; months already posted to QuickBooks stay exactly as they are.\n\n'
         + 'Everything already in QuickBooks stays exactly as it is. Nothing is deleted, and nothing is sent.';
     }
     return (takeover
@@ -97,8 +101,16 @@
         if (s.error.code === '42703' || /bookkeeping_mode/.test(s.error.message || '')) { host.hidden = true; return; }
         throw new Error(s.error.message);
       }
+      /* The account list is not decoration here: the save reconciles SILO's
+         ledger one account at a time, so an unread list would skip the ledger
+         work entirely and still report a finished save. Fail the read instead,
+         and let the next mount (or the next Save, which re-reads) recover. */
+      if (c.error) throw new Error(c.error.message);
       settings = s.data;
-      sources = (c.data || []).filter((row) => row.is_active !== false);
+      /* Inactive accounts are kept: a disabled account can still hold live
+         ledger entries from when it was coded, and in reporting-only those are
+         exactly what has to be reversed. */
+      sources = c.data || [];
       render();
     }
 
@@ -141,8 +153,12 @@
         });
         if (!ok) return;
         status('Saving…');
+        /* The company the card was mounted for, not whichever one is active by
+           the time this returns: the confirmation sits outside the element the
+           company-switch shield makes inert, so a switch in another tab can
+           land while it is open. The RPC refuses a mismatch. */
         const { data, error } = await db.rpc('set_bookkeeping_mode', {
-          p_mode: mode, p_takeover: mode === 'silo' && takeover ? takeover : null,
+          p_mode: mode, p_takeover: mode === 'silo' && takeover ? takeover : null, p_company: companyId,
         });
         if (error) { status(`That was not saved: ${error.message}.`, true); return; }
         settings = Array.isArray(data) ? data[0] : data;
@@ -170,7 +186,7 @@
           /* A remainder that did not shrink means the rest are held (an open
              feed exception, an inactive account) and pressing on cannot move
              them. Stop that account rather than spinning through 200 pages. */
-          const stalled = remaining !== null && left >= remaining;
+          const stalled = remaining !== null && left < RESYNC_CAP && left >= remaining;
           remaining = left;
           status(remaining ? `${label} — ${name}, ${remaining} transactions left…` : `${label} — ${name} done.`);
           if (!remaining || stalled) break;
