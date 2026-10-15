@@ -56,8 +56,38 @@ const reviewMutations = {
  'approval-blockers': ["or jsonb_array_length(public.on_deck_draft_blockers(r.content,r.kind))>0", ""],
  'detach-requeue': ["if r.status='failed' and r.source_version='' then\n   update public.on_deck_settings set requested_at=now() where company_entity_id=r.company_entity_id;\n  end if;", ""],
 };
-if (process.env.REVIEW_MUTATE) { const [a,b]=reviewMutations[process.env.REVIEW_MUTATE] || []; assert.ok(a && reviewMigration.includes(a)); reviewMigration=reviewMigration.replaceAll(a,b); }
+// Evidence drift warns instead of blocking (20261015013000). Loaded after the
+// migration it replaces, exactly as production applies it -- which is why a
+// REVIEW_MUTATE must reach BOTH files: 20261015013000 redefines on_deck_context
+// and on_deck_decide, so mutating only the older copy installed a clean body and
+// the mutation silently survived.
+let mutated = null;
+let driftMigration = await read('../../supabase/migrations/20261015013000_on_deck_evidence_drift_warns.sql');
+const driftMutations = {
+ 'drift-blocks-again': ["coalesce(r.source_version,'')=''", "r.source_version<>public.on_deck_source_version(r.company_entity_id,r.kind)"],
+ 'empty-basis': ["coalesce(r.source_version,'')=''", "false"],
+ 'expiry': ["r.valid_until<=now() or coalesce(r.source_version,'')=''", "false"],
+ 'drift-record': ["'evidence_drifted',r.source_version<>public.on_deck_source_version(r.company_entity_id,r.kind)", "'evidence_drifted',false"],
+ 'drift-flag': ["'review_contract',2,'drift_warns',true,", "'review_contract',2,"],
+};
+if (process.env.REVIEW_MUTATE) {
+ const [a,b]=reviewMutations[process.env.REVIEW_MUTATE] || [];
+ assert.ok(a, 'unknown REVIEW_MUTATE');
+ const inReview=reviewMigration.includes(a), inDrift=driftMigration.includes(a);
+ assert.ok(inReview || inDrift, 'mutation target is in neither migration');
+ if (inReview) reviewMigration=reviewMigration.replaceAll(a,b);
+ if (inDrift) driftMigration=driftMigration.replaceAll(a,b);
+ mutated=a;
+}
+if (process.env.DRIFT_MUTATE) { const [a,b]=driftMutations[process.env.DRIFT_MUTATE] || []; assert.ok(a && driftMigration.includes(a)); driftMigration=driftMigration.replaceAll(a,b); mutated=a; }
 await db.exec(reviewMigration); await db.exec(reviewMigration);
+await db.exec(driftMigration); await db.exec(driftMigration);
+// The mutation has to be absent from what is actually INSTALLED, or the run proves
+// nothing: a later migration can replace the body a mutation was applied to.
+if (mutated) {
+ const left=await one("select count(*) n from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and position($1 in p.prosrc)>0",[mutated]);
+ assert.equal(Number(left.n),0,'the mutated text is still installed; the mutation did not take effect');
+}
 await user(); await rpc('on_deck_configure', [true,100,10000,['seo','ads','launch','restock']]);
 await root(); await db.query("insert into public.entity_memberships values($1,$2,'admin')",[B,ADMIN]);
 const context = (p, action, task = null, note = null) => rpc('on_deck_context',[p.id,p.version,action,null,task,note]);
@@ -140,5 +170,34 @@ await test('detaching a context link invalidated by refresh requeues screening t
  assert.equal(shown.state,'queued');assert.equal(shown.reason,'screening');
  await decide(p,'dismiss','Stop the requeued test opportunity.');
 });
-console.log(`${checks} On Deck review-to-action SQL scenarios passed (real isolated PostgreSQL via PGlite; no production or provider calls).`);
+await test('a refreshed sync warns and the draft still works; no evidence basis and expiry still block',async()=>{
+ // Production 2026-10-15: all five open proposals read source_current=false
+ // because a sync had run since preparation, so every Review draft was disabled.
+ let p=await ready('ads');
+ await root();await db.query("update public.on_deck_proposals set source_version='fingerprint-before-the-sync' where id=$1",[p.id]);
+ await user();p=await get(p.id);
+ const rs=await rpc('on_deck_review_state');const row=rs.proposals.find(x=>x.id===p.id);
+ assert.equal(rs.drift_warns,true,'the page can tell the fix is installed');
+ assert.equal(row.source_current,false,'the page is still told the data moved');
+ assert.deepEqual(row.blockers,[],'nothing is outstanding on this draft');
+ p=await edit(p,{...p.content,subject:'Reviewed ad copy variation'});
+ assert.equal(p.status,'ready','drift must not block an edit');
+ p=await decide(p,'approve','Reviewed the copy variation against the evidence shown before creating draft work.');
+ assert.equal(p.status,'completed','drift must not block creation');
+ const ev=await one("select detail from public.on_deck_events where proposal_id=$1 and event_type='action_confirmed'",[p.id]);
+ assert.equal(ev.detail.evidence_drifted,true,'approval records that the evidence had moved');
+
+ // A draft an explicit Refresh emptied has no evidence basis at all: still blocked.
+ let q=await ready('ads');
+ await root();await db.query("update public.on_deck_proposals set source_version='' where id=$1",[q.id]);
+ await user();q=await get(q.id);
+ await assert.rejects(()=>edit(q,q.content),/refreshed|expired/);
+ await assert.rejects(()=>decide(q,'approve','Reviewed before creating draft work.'),/refreshed|expired/);
+ // And the 48-hour window still closes.
+ await root();await db.query("update public.on_deck_proposals set source_version='fingerprint-before-the-sync',valid_until=now()-interval '1 second' where id=$1",[q.id]);
+ await user();q=await get(q.id);
+ await assert.rejects(()=>decide(q,'approve','Reviewed before creating draft work.'),/expired/);
+ await decide(q,'dismiss','Stop the drift test proposal.');
+});
 await db.close();
+console.log(`${checks} On Deck review-to-action SQL scenarios passed (real isolated PostgreSQL via PGlite; no production or provider calls).`);

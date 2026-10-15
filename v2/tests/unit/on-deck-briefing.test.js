@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('assert/strict');
 const { loadV2 } = require('../lib/load');
-const { build, inputPlan, prepareHandoff, statusOf, draftBlockers } = loadV2(['on-deck-briefing.js']).SiloOnDeckBriefing;
+const { build, inputPlan, prepareHandoff, statusOf, draftBlockers, canReview } = loadV2(['on-deck-briefing.js']).SiloOnDeckBriefing;
 const now = Date.parse('2026-10-08T12:00:00Z');
 const ads = (over = {}) => ({ id: 'ad1', kind: 'ads', status: 'ready', title: 'Draft creative · Classic tee', source_current: true, valid_until: '2026-10-10',
   selection_reason: 'Strong evidence. Selected #1 of 2 eligible ads opportunities.',
@@ -106,11 +106,22 @@ test('complete SEO fields and launch rows are required even with no missing fact
 console.log(`${checks} briefing checks passed`);
 
 const { currentStatus } = loadV2(['on-deck-briefing.js']).SiloOnDeckBriefing;
-test('current readiness distinguishes six stale drafts from old ready summaries',()=>{
+test('current readiness counts a refreshed sync as drift, and expiry as stale',()=>{
  const rows=[...Array.from({length:5},(_,i)=>ads({id:String(i),status:'needs_info',source_current:false})),ads({id:'failed',status:'failed',source_current:false})];
- const result=currentStatus(rows,now);assert.equal(result.ready,0);assert.equal(result.needs,5);assert.equal(result.failed,1);assert.equal(result.stale,6);
- assert.equal(currentStatus([ads({source_current:false}),ads({valid_until:'bad'}),ads({content:{recommend:true,body:'text',missing:['Need facts']}})],now).ready,0);
+ const result=currentStatus(rows,now,true);assert.equal(result.ready,0);assert.equal(result.needs,5);assert.equal(result.failed,1);
+ // Drift is not staleness: these six are inside their window, so nothing expired.
+ assert.equal(result.stale,0);assert.equal(result.drifted,6);assert.match(result.text,/prepared before the latest data sync/);
+ // A ready draft whose data has since synced is still actionable; an expired one is not.
+ assert.equal(currentStatus([ads({source_current:false})],now,true).ready,1);
+ assert.equal(currentStatus([ads({valid_until:'bad'}),ads({content:{recommend:true,body:'text',missing:['Need facts']}})],now,true).ready,0);
+ assert.equal(currentStatus([ads({valid_until:'bad'})],now,true).stale,1);
+ // Without the capability (merge applied, migration not yet) a drifted draft is not
+ // counted as actionable and the summary says the update is owed, because the SQL
+ // would still refuse it.
+ const pre=currentStatus([ads({source_current:false})],now);
+ assert.equal(pre.ready,0);assert.match(pre.text,/cannot be approved until the On Deck update is applied/);
  assert.equal(currentStatus([ads({source_current:true})],now).ready,1);assert.equal(currentStatus([],now).ready,0);
+ assert.equal(currentStatus([seo({source_current:false,content:{...seo().content,body:'Draft',proposed_title:'T',proposed_meta_description:'D'}})],now,true).ready,1);
  assert.equal(currentStatus([ads({source_current:undefined})],now).ready,0);assert.equal(currentStatus([ads({source_current:undefined})],now).unknown,1);
  assert.match(currentStatus([ads({source_current:undefined})],now).text,/Freshness unavailable/);
  assert.equal(currentStatus([seo({source_current:true,content:{...seo().content,proposed_title:'',proposed_meta_description:''}})],now).ready,0);
@@ -118,7 +129,7 @@ test('current readiness distinguishes six stale drafts from old ready summaries'
 });
 
 // One status per proposal: the card, the detail and the button all read this.
-const reviewOk = { review_contract: 2, proposals: [] };
+const reviewOk = { review_contract: 2, drift_warns: true, proposals: [] };
 const stat = (p, over = {}) => statusOf(p, { settings: { enabled: true, workflows: ['ads','seo','launch','restock'] }, review: reviewOk, now, ...over });
 test('a failed readiness call never invents a status', () => {
   for (const review of [null, undefined, { review_contract: 1, proposals: [] }]) {
@@ -156,9 +167,39 @@ test('preparing, paused, failed and stale each say what they are', () => {
   assert.equal(stat(ads({ status: 'preparing', source_current: true })).key, 'working');
   assert.equal(stat(ads({ source_current: true }), { settings: { enabled: false } }).key, 'blocked');
   assert.equal(stat(ads({ status: 'failed', source_current: true })).key, 'blocked');
-  assert.equal(stat(ads({ source_current: false })).key, 'stale');
   assert.equal(stat(ads({ source_current: true, valid_until: '2026-10-01' })).key, 'stale');
   assert.equal(stat(ads({ source_current: true, valid_until: '2026-10-01' })).label, 'Evidence expired');
+});
+// A sync refreshing the source data is the single most common event in SILO; it
+// must not take the draft away. Expiry and unknown freshness still do.
+test('a refreshed sync is a notice on a usable status, not a blocked one', () => {
+  const drifted = stat(ads({ source_current: false }));
+  assert.equal(drifted.key, 'ready'); assert.equal(drifted.action, 'review');
+  assert.match(drifted.notice, /refreshed since this draft/);
+  assert.equal(canReview(ads({ source_current: false }), true, now, true), true);
+  // Same draft, one unanswered fact: it needs the answer, and still says the data moved.
+  const asked = stat(ads({ source_current: false, content: { ...ads().content, missing: ['Confirm the margin'] } }));
+  assert.equal(asked.key, 'needs_input'); assert.match(asked.notice, /refreshed since this draft/);
+  // Expired and unknown are unchanged.
+  assert.equal(stat(ads({ source_current: false, valid_until: '2026-10-01' })).key, 'stale');
+  assert.equal(canReview(ads({ source_current: false, valid_until: '2026-10-01' }), true, now, true), false);
+  assert.equal(canReview(ads({ source_current: undefined }), true, now), false);
+  assert.equal(stat(ads({ source_current: true })).notice, undefined);
+  // An explicit Refresh empties source_version. That is no evidence basis at all,
+  // and the SQL refuses it, so the page must not offer the draft either.
+  const refreshed = ads({ source_current: false, source_version: '' });
+  assert.equal(stat(refreshed).key, 'queued'); assert.equal(stat(refreshed).action, null);
+  assert.match(stat(refreshed).detail, /fresh screening/i);
+  assert.equal(canReview(refreshed, true, now), false);
+});
+// Between merge and apply the database still refuses a drifted draft, so the page
+// must keep blocking it instead of offering an action that will error.
+test('before the migration is applied, drift still blocks', () => {
+  const old = { review_contract: 2, proposals: [] };
+  const st = stat(ads({ source_current: false }), { review: old });
+  assert.equal(st.key, 'stale'); assert.equal(st.action, 'refresh'); assert.equal(st.notice, undefined);
+  assert.equal(canReview(ads({ source_current: false }), true, now, false), false);
+  assert.equal(canReview(ads({ source_current: false }), true, now, true), true);
 });
 
 // Cycle-1 P2 on #998: `status='preparing'` is also what a row looks like when its

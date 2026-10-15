@@ -10,7 +10,7 @@ const content = () => ({ recommend:true,subject:'Search hypothesis',summary:'Rev
 const tables = () => ({ profiles:[{id:'test-user',role:'admin',email:'reviewer@example.test'}],on_deck_settings:[{enabled:true,workflows:['seo','launch','ads','restock']}],on_deck_proposals:[{id,company_entity_id:'test-company',kind:'seo',title:'Search · Classic tees',status:'needs_info',version:2,source_version:'current',valid_until:'2099-01-01',selection_reason:'Selected #1 from measured search evidence.',source:{url:'https://example.test/tees',impressions:30000,clicks:175,position:7,days:26,inspection:{title:'Classic tees',meta_description:'Current snippet'}},content:content()}],on_deck_events:[],on_deck_attempts:[] });
 const rpc = {
  on_deck_can_review:()=>true,on_deck_coding_access:()=>({review:false,post:false}),
- on_deck_review_state:()=>({review_contract:2,seo:true,purchasing:true,proposals:window.__FIXTURE_TABLES__.on_deck_proposals.map(p=>({id:p.id,source_current:p.source_version==='current',preparation:p.preparation_state||{state:p.status==='failed'?'paused':'idle',reason:p.status==='failed'?'disabled':null}})),context_tasks:[],tasks:[{id:'public-replacement',task_title:'Replacement public task',assigned_to_user_id:'owner',status:'open'}],assignees:[{id:'owner',name:'Task owner'}]}),
+ on_deck_review_state:()=>({review_contract:2,drift_warns:true,seo:true,purchasing:true,proposals:window.__FIXTURE_TABLES__.on_deck_proposals.map(p=>({id:p.id,source_current:p.source_version==='current',preparation:p.preparation_state||{state:p.status==='failed'?'paused':'idle',reason:p.status==='failed'?'disabled':null}})),context_tasks:[],tasks:[{id:'public-replacement',task_title:'Replacement public task',assigned_to_user_id:'owner',status:'open'}],assignees:[{id:'owner',name:'Task owner'}]}),
  on_deck_context:a=>{const p=window.__FIXTURE_TABLES__.on_deck_proposals[0];if(p.version!==a.p_version)throw new Error('Proposal changed. Reload.');if(a.p_action==='detach')p.context_work={};else p.context_work={state:'open',task_id:a.p_task,title:'Replacement public task'};p.version++;return p;},
  on_deck_decide:a=>{
   const p=window.__FIXTURE_TABLES__.on_deck_proposals[0];
@@ -34,7 +34,7 @@ const rpc = {
  if (process.env.FRONT_REVIEW_MUTATE) {
   const root=path.resolve(__dirname,'../../');
   const mutations={
-   'freshness':['on-deck-briefing.js','installed && p.source_current === true &&','installed && true &&'],
+   'freshness':['on-deck-briefing.js',"installed && typeof p.source_current === 'boolean' && p.source_version !== '' &&",'installed && true &&'],
    'full-draft':['on-deck-briefing.js',"if (!text(c.proposed_title)) blockers.push('Proposed SEO title is required.');",""],
    'saved-answer':['on-deck-briefing.js',"if (Array.isArray(c.review_inputs)) return c.review_inputs.map(i => ({ ...i, research: i.requirement === 'optional' }));",""],
    'private-context':['on-deck.js',"'Linked context task is unavailable. It may have been deleted or access changed. Detach the link to continue; its contents are not shown.'","work.title"],

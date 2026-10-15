@@ -6181,6 +6181,23 @@ select 'On Deck review to action' as check_name, case when
  then 'BROKEN: completeness is not enforced'
  else 'ok' end as status;
 
+-- On Deck evidence drift (20261015013000): a routine sync warns, it does not disable a draft.
+-- The three review gates must block on an absent evidence basis and on expiry, NOT on a
+-- fingerprint mismatch, and approval must record whether the evidence had drifted.
+select 'On Deck evidence drift' as check_name, case when
+ (select count(*) from regexp_matches(pg_get_functiondef('public.on_deck_decide(uuid,integer,text,text,jsonb,integer)'::regprocedure),E'coalesce\\(r\\.source_version,''''\\)=''''','g'))<2
+ or position('coalesce(r.source_version,'''')=''''' in pg_get_functiondef('public.on_deck_context(uuid,integer,text,uuid,uuid,text)'::regprocedure))=0
+ then 'MISSING — run 20261015013000_on_deck_evidence_drift_warns.sql'
+ when position('evidence_drifted' in pg_get_functiondef('public.on_deck_decide(uuid,integer,text,text,jsonb,integer)'::regprocedure))=0
+ then 'BROKEN: approval no longer records evidence drift'
+ when (select count(*) from regexp_matches(pg_get_functiondef('public.on_deck_decide(uuid,integer,text,text,jsonb,integer)'::regprocedure),E'valid_until<=now\\(\\)','g'))<2
+ or position('valid_until<=now()' in pg_get_functiondef('public.on_deck_context(uuid,integer,text,uuid,uuid,text)'::regprocedure))=0
+ then 'CRITICAL: the 48-hour expiry gate is gone'
+ when has_function_privilege('anon','public.on_deck_decide(uuid,integer,text,text,jsonb,integer)','execute')
+ or has_function_privilege('anon','public.on_deck_context(uuid,integer,text,uuid,uuid,text)','execute')
+ then 'CRITICAL: On Deck review grants widened'
+ else 'ok' end as status;
+
 -- On Deck action loop (read-only).
 select 'On Deck action loop' as check_name, case when
  exists(select 1 from information_schema.columns where table_schema='public' and table_name='on_deck_proposals' and column_name='context_work')
