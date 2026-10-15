@@ -246,6 +246,9 @@
     const cutover = f.settings && f.settings.accounting_start_date;
     if (!cutover) {
       return { state: 'unknown', summary: 'No start date to measure coverage against', link,
+        /* Read fine; it cannot be judged until an earlier step is done. A
+           refresh would change nothing, so this is never a read error. */
+        blocked: true,
         points: [rows.length
           ? `${plural(rows.length, 'history window')} is saved, but without an accounting start date Silo cannot say whether that history runs up to the hand-off. Accept opening balances first.`
           : 'Coverage cannot be judged until an accounting start date is set.'], limit };
@@ -348,7 +351,7 @@
       { label: 'Posted batches', value: count((f.batches || []).filter(b => b.status === 'posted').length) },
     ];
     if (!cutover || !isDate(f.today)) {
-      return { state: 'unknown', summary: 'No period to measure', metrics, link,
+      return { state: 'unknown', summary: 'No period to measure', metrics, link, blocked: true,
         points: ['Month-by-month coverage cannot be judged until an accounting start date and the company business date are both known.'], limit };
     }
     /* Only COMPLETE months are graded. The month in progress has no entries yet
@@ -408,7 +411,7 @@
     /* A step Silo could not read is not work the reader owes: it may already
        be finished. It is counted separately and never folded into the number
        of things that need them. */
-    const unreadable = open.filter(s => s.state === 'unknown').length;
+    const unreadable = open.filter(s => s.state === 'unknown' && !s.blocked).length;
     const asked = open.filter(s => s.ask).length;
     const unreadableLine = unreadable === 1
       ? 'SILO could not read one part of your books just now; refresh the page.'
@@ -441,6 +444,10 @@
         limit: out.limit || '',
         link: out.link || null,
         ask: out.ask || '',
+        /* An `unknown` step is either a fact Silo could not read or a step
+           whose prerequisite is not done yet. Only the first is answered by
+           refreshing, so the two cannot share a sentence in the lead. */
+        blocked: !!out.blocked,
       };
     });
     /* Position is the first step that is not finished -- including an unknown

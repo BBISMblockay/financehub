@@ -230,6 +230,32 @@ r.test('a month that has not finished yet is not something to post', () => {
     'and it is not listed as something that needs the reader');
 });
 
+/* Review cycle 2 (#1003, P2): `unknown` covers two different things, and only
+   one of them is answered by refreshing. A brand-new company reads perfectly
+   well -- history and revenue are unknown because no start date exists yet --
+   and telling it SILO could not read its books is both wrong and unactionable. */
+r.test('a company that has not set up yet is never told SILO could not read its books', () => {
+  const fresh = {
+    today: '2026-10-15', settings: null, opening: null, history: [], journals: [], batches: [],
+    bank: { connections: [], accounts: [] }, sources: [],
+    coding: { total: 0, uncoded: 0, rules: 0, splitRules: 0 }, revenue: { shops: 0, newestSalesDay: null },
+  };
+  const model = M.assess(fresh);
+  r.eq(stage(fresh, 'history').state, 'unknown', 'coverage still cannot be judged');
+  r.truthy(stage(fresh, 'history').blocked, 'but because a prerequisite is missing, not a failed read');
+  r.truthy(stage(fresh, 'revenue').blocked);
+  r.not(model.plain, 'could not read', 'nothing failed to read');
+  r.not(model.plain, 'refresh', 'refreshing cannot resolve a step that is simply next');
+  r.has(model.plain, 'need you', 'it leads with the setup that IS outstanding');
+  r.has(model.asks.map(a => a.id).join(','), 'opening', 'and opening balances are one of them');
+});
+
+r.test('a failed read is still told apart from a prerequisite', () => {
+  const facts = Object.assign(LIVE(), { history: U });
+  r.eq(stage(facts, 'history').blocked, false, 'an unreadable table is not a prerequisite');
+  r.has(M.assess(facts).plain, 'refresh the page');
+});
+
 r.test('the instruction carries the number where SILO already knows it', () => {
   const model = M.assess(LIVE());
   const coding = model.stages.find(s => s.id === 'coding');

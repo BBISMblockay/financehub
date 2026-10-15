@@ -379,6 +379,31 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
     });
 
     await page2.close();
+
+    /* ---- a company that has not set up yet -----------------------------
+       Review cycle 2 (#1003): every read succeeds, but history and revenue
+       cannot be judged until an accounting start date exists. That is the step
+       after this one, not a read error, and a refresh cannot resolve it. */
+    const FRESH = () => Object.assign(FIXTURES(), {
+      accounting_settings: [], accounting_opening_balances: [], qbo_history_imports: [],
+      plaid_connections: [], plaid_accounts: [], card_sources: [], card_transactions: [],
+      card_coding_rules: [], card_import_batches: [], journal_adjustments: [],
+      shopify_connections: [], sales_by_day: [],
+    });
+    const page3 = await suite.open('/v2/accounting-books.html', FRESH(), { ready: READY });
+    await check('a company that has not set up yet is told what to set up, not to refresh', async () => {
+      const seen = await page3.evaluate(() => ({
+        lead: document.querySelector('[data-migration-headline]').textContent.trim(),
+        states: Array.from(document.querySelectorAll('.migration-step-state')).map((n) => n.textContent.trim()),
+        asks: Array.from(document.querySelectorAll('.migration-asks li span')).map((n) => n.textContent.trim()),
+      }));
+      r.truthy(seen.states.indexOf('Unknown') !== -1, 'the prerequisite-blocked steps still read Unknown');
+      r.not(seen.lead, 'could not read', `nothing failed to read: ${seen.lead}`);
+      r.not(seen.lead, 'refresh', `refreshing resolves nothing here: ${seen.lead}`);
+      r.has(seen.lead, 'need you');
+      r.truthy(seen.asks.length >= 1 && seen.asks.length <= 3, `it offered ${seen.asks.length} asks`);
+    });
+    await page3.close();
   } finally {
     await suite.close();
   }
