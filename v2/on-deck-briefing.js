@@ -147,7 +147,9 @@
     candidates.sort((a, b) => a.priority - b.priority || (a.kind === b.kind ? a.rank - b.rank : order[a.kind] - order[b.kind]) || String(a.id).localeCompare(String(b.id)));
     const growth = candidates.filter(i => ['ads', 'seo', 'restock'].includes(i.kind));
     const upkeep = candidates.filter(i => !growth.includes(i));
-    return { featured: growth[0] || null, secondary: growth.slice(1, 3), upkeep: upkeep.slice(0, 1), opportunities: growth.length, eligible: candidates.length,
+    // `cards` is the same ranked list the briefing picks from, unsliced, for a
+    // surface that shows the top several instead of one featured plus two.
+    return { cards: candidates, featured: growth[0] || null, secondary: growth.slice(1, 3), upkeep: upkeep.slice(0, 1), opportunities: growth.length, eligible: candidates.length,
       watching: rows.filter(p => ['ready', 'needs_info', 'preparing', 'revision', 'failed'].includes(p.status) && !candidates.some(c => c.type === 'proposal' && c.id === p.id)).length,
       needsInput: rows.filter(p => p.status === 'needs_info').length + coding.filter(i => i.stage === 'needs_input').length,
       preparing: rows.filter(p => ['preparing', 'revision'].includes(p.status)).length };
