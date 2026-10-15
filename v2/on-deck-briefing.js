@@ -201,10 +201,76 @@
     if (p.source_version === '' || ['preparing', 'revision'].includes(p.status)) return { state: 'unknown', reason: 'unconfirmed' };
     return { state: p.status === 'failed' ? 'failed' : 'idle' };
   }
+  // ONE status per proposal. Every surface renders from this and nothing else,
+  // so a card and its detail can never disagree about the same row. `review` is
+  // the on_deck_review_state payload, or null when that call failed: a null
+  // review means the status is UNKNOWN, never "needs input" and never "ready".
+  const STATUS_REASONS = {
+    previous_attempt: 'An earlier attempt is still finishing.',
+    context_open: 'Context work is still open.',
+    disabled: 'Background preparation is off for this workflow.',
+    credit_exhausted: 'Workspace AI credit is exhausted.',
+    credit_unavailable: 'AI credit could not be checked.',
+    budget_cap: 'The monthly preparation cap is reached.',
+    daily_cap: 'The daily safety cap is reached.',
+    screening: 'Waiting for the scheduler to screen current evidence.',
+    drafting: 'Waiting for the scheduler to prepare a draft.',
+    preparation_failed: 'Refresh evidence to queue a fresh draft. Your previous copy is kept.',
+  };
+  function statusOf(p, ctx = {}) {
+    const now = ctx.now || Date.now();
+    const review = ctx.review || null;
+    const prep = preparation(p, ctx.settings || {}, review || {});
+    if (p.status === 'completed') return { key: 'done', label: 'Completed', tone: 'posted', action: 'open-created' };
+    if (p.status === 'dismissed') return { key: 'dismissed', label: 'Dismissed', tone: 'muted', action: null };
+    if (p.status === 'screened') return { key: 'screened', label: 'Not shortlisted', tone: 'muted', action: null };
+    if (!review || review.review_contract !== 2 || typeof p.source_current !== 'boolean') {
+      return { key: 'unavailable', label: 'Status unavailable', tone: 'warn', action: 'retry',
+        detail: 'SILO could not load this proposal\u2019s status. Your saved draft is unchanged.' };
+    }
+    // The preparation state decides first, and only a reserved attempt earns the
+    // working label: `status` is 'preparing' for a row that is paused on an
+    // exhausted credit, queued behind the scheduler, or finished failing, and
+    // reading the lifecycle status first told the reviewer to wait for work that
+    // could not proceed while the next-step paragraph said "Paused".
+    if (prep.state === 'running') {
+      return { key: 'working', label: 'SILO is preparing this', tone: 'working', action: null };
+    }
+    if (prep.state === 'paused') {
+      return { key: 'blocked', label: 'Paused', tone: 'warn', action: null, detail: STATUS_REASONS[prep.reason] || 'Preparation is paused.' };
+    }
+    if (prep.state === 'queued') {
+      return { key: 'queued', label: 'Queued to prepare', tone: 'working', action: null,
+        detail: STATUS_REASONS[prep.reason] || 'Queued for the next preparation run.' };
+    }
+    if (prep.state === 'failed') {
+      return { key: 'blocked', label: 'Preparation did not finish', tone: 'warn', action: 'refresh',
+        detail: STATUS_REASONS.preparation_failed };
+    }
+    if (['preparing', 'revision'].includes(p.status)) {
+      return { key: 'working', label: 'SILO is preparing this', tone: 'working', action: null };
+    }
+    const expired = !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= now;
+    if (p.status === 'failed') {
+      return { key: 'blocked', label: 'Preparation did not finish', tone: 'warn', action: 'refresh',
+        detail: STATUS_REASONS.preparation_failed };
+    }
+    if (p.source_current === false || expired) {
+      return { key: 'stale', label: expired ? 'Evidence expired' : 'Evidence changed', tone: 'warn', action: 'refresh',
+        detail: 'Refresh evidence before saving or creating work.' };
+    }
+    const blockers = draftBlockers(p);
+    if (blockers.length) {
+      const asks = inputPlan(p).filter(i => i.requirement === 'required' && (i.mode !== 'answered' || text(i.answer).length < 4)).length;
+      return { key: 'needs_input', label: asks ? `Needs ${asks} answer${asks === 1 ? '' : 's'}` : 'Needs input', tone: 'needs_input',
+        action: 'answer', asks, blockers };
+    }
+    return { key: 'ready', label: 'Ready for your review', tone: 'proposal', action: 'review' };
+  }
   function canReview(p, installed = true, now = Date.now()) {
     return installed && p.source_current === true && Number.isFinite(Date.parse(p.valid_until)) && Date.parse(p.valid_until) > now && !['preparing', 'revision', 'completed', 'dismissed', 'screened'].includes(p.status);
   }
-  const api = { build, seoChange, inputPlan, prepareHandoff, currentStatus, draftBlockers, preparation, canReview, creationBody };
+  const api = { build, seoChange, inputPlan, prepareHandoff, currentStatus, draftBlockers, preparation, canReview, creationBody, statusOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.SiloOnDeckBriefing = api;
 })();

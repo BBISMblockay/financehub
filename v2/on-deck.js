@@ -13,10 +13,19 @@
   const when = v => v ? new Date(v).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Not yet';
   function node(tag, text, className) { const n = document.createElement(tag); if (text != null) n.textContent = text; if (className) n.className = className; return n; }
   function button(text, fn, primary) { const b = node('button', text, `bcn-btn ${primary ? 'bcn-btn--primary' : 'bcn-btn--ghost'}`); b.type = 'button'; b.addEventListener('click', fn); return b; }
-  function message(text, bad = false, id = 'status') { const el = $(id); el.textContent = text; el.className = 'bcn-status' + (bad ? ' bcn-status--neg' : ''); el.hidden = !text; }
+  function message(text, bad = false, id = 'status', retry = null) {
+    const el = $(id); el.replaceChildren(); el.className = 'bcn-status' + (bad ? ' bcn-status--neg' : ''); el.hidden = !text;
+    if (!text) return;
+    el.append(node('span', text));
+    // A failure the user can act on gets an action, never an instruction to
+    // install something that is already installed.
+    if (retry) el.append(button('Retry', retry));
+  }
   function check(result) { if (result.error) throw new Error(result.error.message || 'Request failed'); return result.data; }
   async function rpc(name, args) { return check(await state.db.rpc(name, args)); }
   function selected() { return state.rows.find(p => p.id === state.selected); }
+  // The single status every surface renders. Never computed inline again.
+  function statusOf(p) { return window.SiloOnDeckBriefing.statusOf(p, { settings: state.settings, review: state.reviewState, now: Date.now() }); }
   function safeLink(label, href) {
     const a = node('a', label); try { const u = new URL(href, location.origin); if (['http:', 'https:'].includes(u.protocol) && !u.username && !u.password) { a.href = u.href; a.rel = 'noopener noreferrer'; } } catch { /* render plain text */ } return a;
   }
@@ -47,7 +56,7 @@
       await companyStillActive();
       // Two independent access paths. A failure in one never hides the other.
       const errors = [];
-      state.codingLoaded = false; state.proposalsLoaded = false;
+      state.codingLoaded = false; state.proposalsLoaded = false; state.reviewFailed = false;
       if (state.access.coding.review) { try { await state.coding.load(); state.codingLoaded = true; } catch (e) { state.coding.close(); errors.push(installMessage(e, 'Transaction coding review')); } }
       if (state.access.proposals) {
         try {
@@ -58,14 +67,18 @@
           ]);
           state.settings = check(settings) || {}; state.rows = [...check(active), ...check(history)]; state.proposalsLoaded = true;
           state.reviewState = null;
-          try { const review = await rpc('on_deck_review_state'); if (Array.isArray(review?.proposals)) state.reviewState = review; } catch (e) { errors.push('Context actions and freshness checks unavailable. Refresh after the On Deck update is installed.'); }
+          // This call decides every proposal's status. If it fails, say so and
+          // offer a retry: do not guess a status and do not blame an install.
+          try { const review = await rpc('on_deck_review_state'); if (Array.isArray(review?.proposals)) state.reviewState = review; else state.reviewFailed = true; }
+          catch (e) { state.reviewFailed = true; }
           for (const row of state.rows) { const review = state.reviewState?.proposals.find(x => x.id === row.id); row.source_current = review?.source_current; row.preparation = review?.preparation; }
           $('workspace').hidden = false; $('prepare').disabled = !state.settings.enabled;
           renderOverview(); renderQueue(); await select(state.selected);
         } catch (e) { state.rows = []; state.settings = {}; state.proposalsLoaded = false; $('workspace').hidden = true; $('prepare').disabled = true; errors.push(installMessage(e, 'On Deck')); }
       }
       state.loaded = true; renderReady(); renderAfter(); renderBriefing();
-      if (errors.length) message(errors.join(' '), true);
+      if (state.reviewFailed) errors.push('SILO could not load the status of your recommendations. Your saved drafts are unchanged.');
+      if (errors.length) message(errors.join(' '), true, 'status', state.reviewFailed ? load : null);
       else message(state.access.proposals && !state.settings.enabled ? 'Background preparation is off. Enable it in Workspace Settings.' : '');
     } catch (e) { state.loaded = false; state.proposalsLoaded = false; state.codingLoaded = false; $('briefing').hidden = true; $('all-work-top').hidden = true; $('workspace').hidden = true; message(installMessage(e, 'On Deck'), true); }
     finally { state.loading = false; $('refresh').disabled = false; $('briefing').setAttribute('aria-busy', 'false'); }
@@ -166,13 +179,12 @@
      finance queue and proposals a person must decide. No placeholders. */
   function proposalCard(p) {
     const c = node('article', null, 'od-rcard'); c.dataset.proposal = p.id;
-    const stale = p.source_current === false || !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= Date.now();
-    const ready = p.status === 'ready' && p.source_current === true && !stale && !window.SiloOnDeckBriefing.draftBlockers(p).length;
+    const st = statusOf(p), ready = st.key === 'ready';
     const top = node('div', null, 'od-rcard-top');
-    top.append(mark(p.kind), node('span', modules[p.kind] || 'Workflow', 'od-rcard-module'), node('span', stale ? 'STALE EVIDENCE' : p.status === 'failed' ? 'PREPARATION FAILED' : ready ? effect[p.kind] : 'NEEDS INPUT', `od-rpill od-rpill--${ready ? 'proposal' : 'needs_input'}`));
+    top.append(mark(p.kind), node('span', modules[p.kind] || 'Workflow', 'od-rcard-module'), node('span', ready ? effect[p.kind] : st.label.toUpperCase(), `od-rpill od-rpill--${st.tone}`));
     c.append(top, node('h3', title(p)), node('p', names[p.kind].charAt(0) + names[p.kind].slice(1).toLowerCase(), 'od-rcard-sub'));
     const missing = p.content?.missing || [];
-    c.append(node('p', ready ? destinations[p.kind][2] : 'Additional input is needed before approval. Open the proposal to inspect what is missing.', 'od-rcard-detail'));
+    c.append(node('p', ready ? destinations[p.kind][2] : st.detail || 'Additional input is needed before approval. Open the proposal to inspect what is missing.', 'od-rcard-detail'));
     const ev = node('details', null, 'od-rcard-evidence'); ev.append(node('summary', `Why it is here · draft v${p.version}`), node('p', p.selection_reason)); c.append(ev);
     c.append(button('Review →', () => {
       setDesk('work'); state.view = p.status === 'ready' ? 'review' : ['preparing','revision'].includes(p.status) ? 'preparing' : 'needs'; state.selected = p.id; state.tab = 'draft'; renderQueue();
@@ -262,7 +274,7 @@
       if (state.view === 'completed') { const label = p.status === 'completed' ? 'Created draft work' : 'Dismissed / skipped opportunities'; if (label !== category) { queue.append(node('h3', label, 'od-section-label')); category = label; } }
       const card = node('button', null, 'od-card'); card.type = 'button'; card.setAttribute('aria-pressed', p.id === state.selected);
       const top = node('div', null, 'od-card-top'); top.append(mark(p.kind), node('span', names[p.kind], 'od-kicker'));
-      card.append(top, node('h3', title(p)), node('span', `${p.status === 'ready' && window.SiloOnDeckBriefing.draftBlockers(p).length ? 'needs input' : ['preparing','revision','failed'].includes(p.status) ? window.SiloOnDeckBriefing.preparation(p,state.settings,state.reviewState || {}).state : p.status.replaceAll('_', ' ')} · v${p.version}`, 'od-state'));
+      card.append(top, node('h3', title(p)), node('span', `${statusOf(p).label} · v${p.version}`, 'od-state'));
       card.addEventListener('click', () => { state.selected = p.id; state.tab = 'draft'; renderQueue(); select(p.id).catch(e => message(e.message, true)); }); queue.append(card);
     });
   }
@@ -281,7 +293,7 @@
     const detail = $('detail'), rail = $('rail'), p = selected(); detail.replaceChildren(); rail.replaceChildren();
     if (!p) { const empty = node('div', null, 'od-empty'); empty.append(node('strong', 'Good decisions start with good evidence.'), node('span', 'Your strongest opportunities will appear here with a draft, a reason to act, and a clear destination.')); detail.append(empty); return; }
     const c = p.content || {}, s = p.source || {}, stale = p.source_current === false, expired = !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= Date.now();
-    const head = node('div', null, 'od-detail-head'); head.append(node('span', names[p.kind], 'od-pill'), node('h2', title(p)), node('p', `Draft ${p.version} · ${p.status === 'ready' && window.SiloOnDeckBriefing.draftBlockers(p).length ? 'needs input' : p.status.replaceAll('_', ' ')}`, 'od-meta')); detail.append(head);
+    const head = node('div', null, 'od-detail-head'); head.append(node('span', names[p.kind], 'od-pill'), node('h2', title(p)), node('p', `Draft ${p.version} · ${statusOf(p).label}`, 'od-meta')); detail.append(head);
     const B = window.SiloOnDeckBriefing, blockers = B.draftBlockers(p), editable = B.canReview(p, state.reviewState?.review_contract === 2);
     if (!['completed', 'dismissed', 'screened'].includes(p.status)) {
       const step = node('section', null, 'od-next-step'); step.append(node('h3', 'Your next step'));
@@ -297,7 +309,12 @@
       if (blockers.length) { const list = node('ul', null, 'od-input-list'); blockers.forEach(x => list.append(node('li', x))); step.append(node('p', 'Still needed before creation:'), list); }
       else if (editable) step.append(node('p', 'Review the evidence and saved work, then confirm creation. Publishing and implementation happen separately.'));
       const review = button('Review draft', openEditor, true); review.disabled = !editable; step.append(review);
-      if (!editable) step.append(node('p', !state.reviewState || state.reviewState.review_contract !== 2 ? 'Review controls require the On Deck review update. Reload after installation.' : ['preparing','revision'].includes(p.status) ? 'Wait for preparation, or keep the previous revision before editing.' : 'Saving requires confirmed current, unexpired evidence. Your prior copy remains available below.', 'od-meta'));
+      if (!editable) {
+        const st = statusOf(p);
+        // The same status that labelled the card explains the disabled button.
+        step.append(node('p', st.detail || (st.key === 'working' ? 'Wait for preparation, or keep the previous revision before editing.' : 'Saving requires confirmed current, unexpired evidence. Your prior copy remains available below.'), 'od-meta'));
+        if (st.action === 'retry') step.append(button('Retry', load));
+      }
       detail.append(step);
     }
     const tabs = node('nav', null, 'od-tabs'); tabs.setAttribute('aria-label', 'Proposal detail');
