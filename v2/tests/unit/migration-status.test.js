@@ -139,7 +139,63 @@ r.test('the position never steps over an earlier Unknown to reach a later Done',
   r.eq(model.stages.find(s => s.id === 'opening').state, 'done', 'a later step is genuinely done');
   r.eq(model.current.id, 'feeds', 'the flow still points at the unreadable one');
   r.has(model.headline, 'unknown');
-  r.has(model.headline, 'Banks and cards connected', 'the headline names the step, cased as the step is');
+  r.has(model.headline, 'Your accounts are connected', 'the headline names the step, cased as the step is');
+});
+
+/* ---- what the reader is shown first ------------------------------------
+   The five measured steps now sit behind a disclosure, so these two fields
+   ARE the page for most readers. They must never overclaim: a step SILO
+   could not read makes the answer "could not read", not "set up". */
+
+r.test('the lead sentence never reads as set up while a step is unreadable', () => {
+  const model = M.assess(Object.assign(LIVE(), { bank: U, sources: U, coding: U, batches: U, history: U, journals: U, revenue: U, opening: U, settings: U }));
+  r.has(model.plain, 'could not read');
+  r.not(model.plain, 'set up, and nothing', 'an unreadable book is never reported as finished');
+});
+
+r.test('a finished migration says so in one sentence, and asks for nothing', () => {
+  const facts = LIVE();
+  facts.history = [{ period_start: '2025-01-01', period_end: '2026-07-31', exception_count: 0 }];
+  facts.coding = { total: 10, uncoded: 0, rules: 5, splitRules: 0 };
+  facts.batches = [{ status: 'posted', entry_date: '2026-08-31' }];
+  const model = M.assess(facts);
+  r.truthy(model.complete, 'nothing outstanding');
+  r.has(model.plain, 'nothing is waiting on you');
+  r.eq(model.asks.length, 0, 'a finished migration has nothing to ask for');
+});
+
+r.test('each unfinished step offers one plain instruction, at most three of them', () => {
+  const model = M.assess(LIVE());
+  r.truthy(model.asks.length >= 1 && model.asks.length <= 3, 'at most three, or the lead is a page again');
+  model.asks.forEach(a => {
+    r.truthy(a.ask.length > 0, 'every unfinished step says what to do about it');
+    r.not(a.ask, 'trial balance', 'the instruction avoids words only an accountant uses');
+    r.not(a.ask, 'journal', 'the instruction avoids words only an accountant uses');
+  });
+  r.has(model.plain, 'need you', 'the lead counts what is outstanding');
+});
+
+r.test('a company with everything outstanding is still asked for at most three things', () => {
+  /* Nothing connected, nothing imported, nothing coded: all five steps are
+     open. The cap is the point -- five instructions is the overwhelming page
+     this replaced. */
+  const bare = Object.assign(LIVE(), {
+    bank: [], sources: [], history: [], batches: [], journals: [], revenue: [],
+    opening: [], coding: { total: 40, uncoded: 40, rules: 0, splitRules: 0 },
+  });
+  const model = M.assess(bare);
+  const open = model.stages.filter(s => s.state !== 'done');
+  r.truthy(open.length >= 4, `the fixture should leave most steps open, it left ${open.length}`);
+  r.eq(model.asks.length, 3, 'three at most, however many steps are open');
+  r.eq(model.asks.map(a => a.id), open.slice(0, 3).map(s => s.id),
+    'and they are the first three, in migration order');
+});
+
+r.test('the instruction carries the number where SILO already knows it', () => {
+  const model = M.assess(LIVE());
+  const coding = model.stages.find(s => s.id === 'coding');
+  r.has(coding.ask, 'Categorize', 'the coding step asks in plain words');
+  r.has(coding.ask, 'waiting on you');
 });
 
 /* ---- the live position ------------------------------------------------ */

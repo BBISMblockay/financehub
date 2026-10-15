@@ -190,7 +190,8 @@
     if (stale.length) points.push(`${plural(stale.length, 'connection')} is not active and will not pull new transactions until it is reconnected.`);
     if (errored.length) points.push(`${plural(errored.length, 'account')} last reported a sync error (${errored.map(a => a.last_error_code).join(', ')}).`);
     if (errored.length || stale.length) {
-      return { state: 'attention', summary: 'A connected feed has stopped', metrics, link, points, limit };
+      return { state: 'attention', summary: 'A connected feed has stopped', metrics, link, points, limit,
+        ask: 'Reconnect an account that has stopped sending transactions.' };
     }
     if (!liveBanks.length) {
       return { state: 'active', summary: `${plural(activeSources.length, 'card source')}, no live bank feed`, metrics, link, points, limit };
@@ -219,6 +220,7 @@
     ];
     if (f.opening.status !== 'accepted') {
       return { state: 'active', summary: 'Prepared, waiting on review', metrics, link,
+        ask: 'Check your starting balances and accept them.',
         points: ['A trial balance is staged but nobody has accepted it. Acceptance freezes the baseline and needs a written review note; until then Silo has no starting balances.'], limit };
     }
     if (!start) {
@@ -272,7 +274,10 @@
     if (exceptions) {
       points.push(`${plural(exceptions, 'account exception')} across the saved windows is still open. Review them in QBO history; an exception is an account the reports could not fully account for, not necessarily an error.`);
     }
-    if (cov.gaps.length) return { state: 'attention', summary: 'A period is missing', metrics, link, points, limit };
+    if (cov.gaps.length) {
+      return { state: 'attention', summary: 'A period is missing', metrics, link, points, limit,
+        ask: `Save the missing stretch of your old books (${cov.gaps.map(g => `${g.from} → ${g.to}`).join(', ')}) before disconnecting QuickBooks.` };
+    }
     if (exceptions) return { state: 'attention', summary: `Covers ${cov.from} → ${cov.to} · ${plural(exceptions, 'exception')}`, metrics, link, points, limit };
     return { state: 'done', summary: `Covers ${cov.from} → ${cov.to}`, metrics, link, points, limit };
   }
@@ -306,7 +311,10 @@
     if (open.length) points.push(`${plural(open.length, 'batch', 'batches')} is still open for editing and has not been approved.`);
     if (c.splitRules) points.push(`${plural(c.splitRules, 'split rule')} remembers which accounts a transaction divides across. It deliberately remembers no amounts — an amortizing payment splits differently every month.`);
     if (c.uncoded || open.length) {
-      return { state: 'active', summary: `${count(coded)} of ${count(c.total)} coded`, metrics, link, points, limit };
+      const ask = c.uncoded
+        ? `Categorize ${plural(c.uncoded, 'transaction')} waiting on you.`
+        : `Approve ${plural(open.length, 'import', 'imports')} still open for editing.`;
+      return { state: 'active', summary: `${count(coded)} of ${count(c.total)} coded`, metrics, link, points, limit, ask };
     }
     return { state: 'done', summary: 'Nothing waiting to be coded', metrics, link, points, limit };
   }
@@ -353,18 +361,47 @@
       return { state: 'todo', summary: `No entries posted since ${cutover}`, metrics, link, points, limit };
     }
     if (missing.length) {
-      return { state: 'attention', summary: `${count(missing.length)} month${missing.length === 1 ? '' : 's'} with nothing posted`, metrics, link, points, limit };
+      return { state: 'attention', summary: `${count(missing.length)} month${missing.length === 1 ? '' : 's'} with nothing posted`, metrics, link, points, limit,
+        ask: `Post ${missing.length === 1 ? missing[0] : `${count(missing.length)} months with nothing in them`}.` };
     }
     return { state: 'done', summary: `Every month since ${cutover} is posted`, metrics, link, points, limit };
   }
 
   const BUILDERS = [
-    { id: 'feeds', title: 'Banks and cards connected', build: feedsStage },
-    { id: 'opening', title: 'Opening trial balance stored', build: openingStage },
-    { id: 'history', title: 'QuickBooks history retained', build: historyStage },
-    { id: 'coding', title: 'Coding and rules in Silo', build: codingStage },
-    { id: 'revenue', title: 'Revenue journals posted', build: revenueStage },
+    { id: 'feeds', title: 'Your accounts are connected', build: feedsStage },
+    { id: 'opening', title: 'Your starting numbers', build: openingStage },
+    { id: 'history', title: 'Your old books, kept here', build: historyStage },
+    { id: 'coding', title: 'Transactions categorized', build: codingStage },
+    { id: 'revenue', title: 'Monthly sales posted', build: revenueStage },
   ];
+
+  /* What the reader has to DO about an unfinished step, in their words.
+     The step's own `points` explain the accounting; this is the instruction,
+     and it is the only part of a step that belongs outside the details. A
+     builder may set its own `ask` where it can be specific (how many rows,
+     which months); otherwise this is what shows. */
+  const ASKS = Object.freeze({
+    feeds: 'Connect a bank, or add a card account, so your transactions reach SILO.',
+    opening: 'Bring your starting balances over from QuickBooks and check them.',
+    history: 'Save a copy of your old QuickBooks books, so they stay readable here.',
+    coding: 'Categorize the transactions that are waiting on you.',
+    revenue: 'Post the months that still have nothing in them.',
+  });
+
+  /* The lead line. It says where the company stands in one sentence and
+     claims nothing the steps did not measure -- a step SILO could not read
+     makes the answer "could not read", never "set up". */
+  function plainState(stages) {
+    const open = stages.filter(s => s.state !== 'done');
+    if (!open.length) return 'Your books are set up, and nothing is waiting on you.';
+    if (open.every(s => s.state === 'unknown')) {
+      return 'SILO could not read part of your books just now. Refresh the page; if it keeps happening, tell your administrator.';
+    }
+    const n = open.length;
+    return n === 1
+      ? 'One thing needs you before your books are fully set up.'
+      : `${n} things need you before your books are fully set up.`;
+  }
 
   function assess(facts) {
     const f = facts || {};
@@ -381,6 +418,7 @@
         metrics: out.metrics || [],
         limit: out.limit || '',
         link: out.link || null,
+        ask: out.ask || ASKS[b.id] || '',
       };
     });
     /* Position is the first step that is not finished -- including an unknown
@@ -391,7 +429,10 @@
     const headline = open
       ? `Step ${current.index + 1} of ${stages.length} · ${current.title} — ${current.stateLabel.toLowerCase()}`
       : 'Every step Silo can measure is complete';
-    return { stages, current, headline, complete: !open };
+    /* At most three, because a list of five is a page of its own again. The
+       rest are a click away in the details, where they always were. */
+    const asks = stages.filter(s => s.state !== 'done' && s.ask).slice(0, 3);
+    return { stages, current, headline, plain: plainState(stages), asks, complete: !open };
   }
 
   /* ---- rendering ---------------------------------------------------------- */
@@ -435,7 +476,25 @@
 
   function render(root, model) {
     const section = root;
-    section.querySelector('[data-migration-headline]').textContent = model.headline;
+    /* The lead is one plain sentence and, at most, three things to do. The
+       five measured steps, their figures and their limits are all still here
+       -- behind the disclosure, where they answer "why does it say that?"
+       rather than being the first thing a reader has to parse. */
+    section.querySelector('[data-migration-headline]').textContent = model.plain;
+    const position = section.querySelector('[data-migration-position]');
+    if (position) position.textContent = model.headline;
+    const asks = section.querySelector('[data-migration-asks]');
+    if (asks) {
+      asks.innerHTML = model.asks.map(a => {
+        const link = a.link
+          ? (a.link.href
+            ? `<a class="bcn-btn" href="${esc(a.link.href)}">${esc(a.link.text)} →</a>`
+            : `<button type="button" class="bcn-btn" data-jump="${esc(a.link.surface)}">${esc(a.link.text)} →</button>`)
+          : '';
+        return `<li><span>${esc(a.ask)}</span>${link}</li>`;
+      }).join('');
+      asks.hidden = !model.asks.length;
+    }
     section.querySelector('[data-migration-steps]').innerHTML =
       model.stages.map(s => stepMarkup(s, model.current.id)).join('');
     const detail = section.querySelector('#migrationDetail');
@@ -457,14 +516,16 @@
       const btn = e.target.closest('.migration-step-btn');
       if (btn) show(btn.dataset.stage);
     });
-    detail.addEventListener('click', e => {
+    const jumper = e => {
       const jump = e.target.closest('[data-jump]');
       if (!jump) return;
       /* Drive the page's own tabs by clicking them, rather than duplicating
          the show/hide logic here -- one definition of what a tab does. */
       const tab = document.querySelector(`.books-tabs [data-surface="${jump.dataset.jump}"]`);
       if (tab) { tab.click(); tab.scrollIntoView({ block: 'nearest' }); }
-    });
+    };
+    detail.addEventListener('click', jumper);
+    if (asks) asks.addEventListener('click', jumper);
 
     show(model.current.id);
     section.hidden = false;

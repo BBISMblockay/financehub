@@ -7,6 +7,10 @@
  * text and not only as a colour, and that the panel's jump buttons drive the
  * page's own tabs rather than a second copy of them.
  *
+ * Since the strip-down it also proves the shape of the page a new reader
+ * meets: one plain sentence, the things that need them, and the five measured
+ * steps folded away behind "Show details".
+ *
  * Nothing is saved: every read is a select and every click is navigation.
  */
 'use strict';
@@ -88,13 +92,83 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
 
     const steps = await page.evaluate(readSteps);
 
+    /* What a reader who has never done this meets. The five measured steps,
+       their figures and their limits are the explanation BEHIND the page, not
+       the page: on load the lead is one sentence anyone can act on, the things
+       that need them are listed, and the engine is folded away. */
+    await check('the page leads with one plain sentence, not a step counter', async () => {
+      const lead = await page.$eval('[data-migration-headline]', (n) => n.textContent.trim());
+      r.truthy(lead.length > 20, `the lead is a sentence: ${lead}`);
+      r.truthy(!/Step \d+ of \d+/.test(lead), `the lead still counts steps: ${lead}`);
+      r.truthy(!/trial balance|journal|reconcil/i.test(lead), `the lead still speaks accountant: ${lead}`);
+      r.truthy(/need/.test(lead), `the lead does not say what is wanted: ${lead}`);
+    });
+
+    await check('the things that need the reader are on screen, at most three, each one action', async () => {
+      const asks = await page.$$eval('.migration-asks li', (lis) => lis.map((li) => ({
+        text: li.querySelector('span').textContent.trim(),
+        action: li.querySelector('[data-jump], a.bcn-btn') ? li.querySelector('[data-jump], a.bcn-btn').textContent.trim() : '',
+      })));
+      r.truthy(asks.length >= 1 && asks.length <= 3, `the fixture offered ${asks.length} asks`);
+      for (const a of asks) {
+        r.truthy(a.text.length > 10, `an ask shipped as a stub: ${a.text}`);
+        r.truthy(a.action.length > 0, `the ask "${a.text}" has nothing to click`);
+      }
+      const hidden = await page.$eval('.migration-asks', (n) => n.hidden);
+      r.eq(hidden, false, 'the ask list is on screen');
+    });
+
+    await check('the five measured steps start folded away behind one button', async () => {
+      const shape = await page.evaluate(() => ({
+        body: document.getElementById('migrationBody').hidden,
+        label: document.getElementById('migrationToggle').textContent.trim(),
+        expanded: document.getElementById('migrationToggle').getAttribute('aria-expanded'),
+        controls: document.getElementById('migrationToggle').getAttribute('aria-controls'),
+      }));
+      r.eq(shape.body, true, 'the steps are collapsed on load');
+      r.eq(shape.label, 'Show details');
+      r.eq(shape.expanded, 'false');
+      r.eq(shape.controls, 'migrationBody');
+      /* The step counter did not vanish, it moved: inside the details, where
+         it explains the lead instead of being it. */
+      const inside = await page.evaluate(() => {
+        const n = document.querySelector('[data-migration-position]');
+        return { text: n ? n.textContent.trim() : null, within: !!(n && document.getElementById('migrationBody').contains(n)) };
+      });
+      r.has(inside.text, 'Step 3 of 5');
+      r.eq(inside.within, true, 'the counter sits behind the disclosure');
+    });
+
+    await check('an ask drives the page’s own tabs, same as the panels do', async () => {
+      await page.click('.migration-asks [data-jump]');
+      const pressed = await page.$$eval('.books-tabs [data-surface]', (bs) =>
+        bs.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.surface));
+      r.eq(pressed.length, 1, 'exactly one tab reads as pressed');
+    });
+
+    /* Everything below reads the steps, their rails and their layout, which
+       only exist on screen once the reader has asked for them. */
+    await page.click('#migrationToggle');
+    await check('the button opens the steps and says so', async () => {
+      const shape = await page.evaluate(() => ({
+        body: document.getElementById('migrationBody').hidden,
+        label: document.getElementById('migrationToggle').textContent.trim(),
+        expanded: document.getElementById('migrationToggle').getAttribute('aria-expanded'),
+        steps: document.querySelectorAll('.migration-step').length,
+      }));
+      r.eq(shape.body, false);
+      r.eq(shape.label, 'Hide details');
+      r.eq(shape.expanded, 'true');
+      r.eq(shape.steps, 5);
+    });
+
     await check('five steps render, in migration order, each named', async () => {
       r.eq(steps.map((s) => s.name), [
-        'Banks and cards connected',
-        'Opening trial balance stored',
-        'QuickBooks history retained',
-        'Coding and rules in Silo',
-        'Revenue journals posted',
+        'Your accounts are connected',
+        'Your starting numbers',
+        'Your old books, kept here',
+        'Transactions categorized',
+        'Monthly sales posted',
       ]);
     });
 
@@ -110,14 +184,12 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
     await check('exactly one step is marked current, and it is the first unfinished one', async () => {
       const current = steps.filter((s) => s.current === 'step');
       r.eq(current.length, 1, 'exactly one current step');
-      r.eq(current[0].name, 'QuickBooks history retained');
-      const headline = await page.$eval('[data-migration-headline]', (n) => n.textContent);
-      r.has(headline, 'Step 3 of 5');
+      r.eq(current[0].name, 'Your old books, kept here');
     });
 
     await check('the current step opens by default and is the only one expanded', async () => {
       r.eq(steps.filter((s) => s.expanded === 'true').length, 1);
-      r.eq(steps.find((s) => s.expanded === 'true').name, 'QuickBooks history retained');
+      r.eq(steps.find((s) => s.expanded === 'true').name, 'Your old books, kept here');
     });
 
     await check('two snapshots of one window are reported once, not added together', async () => {
@@ -145,7 +217,7 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
     await check('opening a step closes the one before it', async () => {
       await page.click('.migration-step-btn[data-stage="feeds"]');
       const after = await page.evaluate(readSteps);
-      r.eq(after.filter((s) => s.expanded === 'true').map((s) => s.name), ['Banks and cards connected']);
+      r.eq(after.filter((s) => s.expanded === 'true').map((s) => s.name), ['Your accounts are connected']);
     });
 
     await check('a panel jump drives the page’s own tabs, not a second copy', async () => {
@@ -278,15 +350,15 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
 
     await check('a table that returns an error degrades ITS step, not the whole flow', async () => {
       r.eq(broken.length, 5, 'the strip still draws every step');
-      const history = broken.find((s) => s.name === 'QuickBooks history retained');
+      const history = broken.find((s) => s.name === 'Your old books, kept here');
       r.eq(history.state, 'Unknown');
-      r.eq(broken.find((s) => s.name === 'Opening trial balance stored').state, 'Done',
+      r.eq(broken.find((s) => s.name === 'Your starting numbers').state, 'Done',
         'a readable step is unaffected');
     });
 
     await check('an unreadable step is never stepped over to reach a later Done', async () => {
       const current = broken.filter((s) => s.current === 'step');
-      r.eq(current.map((s) => s.name), ['QuickBooks history retained']);
+      r.eq(current.map((s) => s.name), ['Your old books, kept here']);
     });
 
     await page2.close();
