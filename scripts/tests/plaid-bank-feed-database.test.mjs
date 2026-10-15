@@ -422,7 +422,7 @@ try {
 
   await test('batch page projection excludes journal payloads and uses real view columns', async () => {
     const html = await readFile(new URL('v2/transactions.html', root), 'utf8');
-    const fields = html.match(/const BATCH_FIELDS = '([^']+)'/)[1];
+    const fields = html.match(/(?:const|let) BATCH_FIELDS = '([^']+)'/)[1];
     assert.ok(!fields.includes('*') && !fields.includes('approval_snapshot'));
     assert.ok(fields.includes('source_id') && fields.includes('posting_status'));
     await q(`select ${fields} from public.card_import_batches_v limit 1`);

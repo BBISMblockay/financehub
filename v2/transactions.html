@@ -1066,9 +1066,16 @@
   let batchFieldsChecked = false;
   async function ensureBatchFields() {
     if (batchFieldsChecked) return;
-    batchFieldsChecked = true;
     const probe = await sb.from('card_import_batches_v').select('source_posting_start_on').limit(1);
-    if (probe.error) BATCH_FIELDS = BATCH_FIELDS.replace(',source_posting_start_on', '');
+    if (!probe.error) { batchFieldsChecked = true; return; }
+    /* Only "that column does not exist" means the migration is not applied. Any
+       other failure (network, auth) is not evidence about the schema: keep the
+       column, do not latch, and let the real read below report the problem
+       instead of silently losing every "Handled outside SILO" reading. */
+    if (probe.error.code === '42703' || /source_posting_start_on/.test(probe.error.message || '')) {
+      batchFieldsChecked = true;
+      BATCH_FIELDS = BATCH_FIELDS.replace(',source_posting_start_on', '');
+    }
   }
 
   async function loadBatches() {

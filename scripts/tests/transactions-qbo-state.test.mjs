@@ -688,10 +688,11 @@ test('the batch read asks for the cut-over column, or every period reads as SILO
 test('the page works before the migration is applied: it drops the column when the view lacks it', () => {
   // The page is static and live on merge; PostgREST rejects a select that names
   // an unknown column, so without this Transactions cannot load its batches.
-  const probe = script.slice(script.indexOf('async function ensureBatchFields'), script.indexOf('async function ensureBatchFields') + 700);
+  const probe = script.slice(script.indexOf('async function ensureBatchFields'), script.indexOf('async function ensureBatchFields') + 1500);
   assert.match(probe, /select\('source_posting_start_on'\)/, 'it asks the view once whether the column exists');
   assert.match(probe, /BATCH_FIELDS = BATCH_FIELDS\.replace\(',source_posting_start_on', ''\)/,
     'and drops it from every later read when it does not');
+  assert.match(probe, /42703/, 'only an undefined-column error counts as the migration being absent');
   const load = script.slice(script.indexOf('async function loadBatches'), script.indexOf('async function loadBatches') + 200);
   assert.match(load, /await ensureBatchFields\(\)/, 'before the first batch read');
 });
