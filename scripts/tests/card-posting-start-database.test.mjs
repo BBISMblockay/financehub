@@ -36,12 +36,12 @@ import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/co
 
 const MUTATIONS = {
   // Let approval through: the guard becomes decoration.
-  'no-approve-guard': ["  if v_start is null then return new; end if;\n", "  if true then return new; end if;\n"],
+  'no-approve-guard': ["  if v_start is null then return null; end if;\n", "  if true then return null; end if;\n"],
   // Judge a period with no dates at all as pre-cut-over rather than leaving it alone.
   'guard-refuses-undated': ['  if v_end is not null and v_end < v_start then', '  if v_end is null or v_end < v_start then'],
   // Judge the period only, not its contents: a batch straddling the cut-over is
   // then approved with pre-cut-over lines frozen into its entry.
-  'guard-ignores-contents': ['  if v_early is null then return new; end if;', '  return new;'],
+  'guard-ignores-contents': ['  if v_early is null then return null; end if;', '  return null;'],
   // The ledger ignores the date: August stays recorded and new rows keep landing.
   'no-ledger-gate': ['  select greatest(st.accounting_start_date,\n                  coalesce(p_source.authoritative_from, st.accounting_start_date),\n                  coalesce(p_source.posting_start_on, st.accounting_start_date))',
     '  select greatest(st.accounting_start_date,\n                  coalesce(p_source.authoritative_from, st.accounting_start_date))'],

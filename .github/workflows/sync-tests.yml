@@ -1238,6 +1238,10 @@ jobs:
             if CARD_POSTING_START_MUTATION="$mutation" node scripts/tests/card-posting-start-database.test.mjs > /tmp/posting-start-mutation.log 2>&1; then
               cat /tmp/posting-start-mutation.log; echo "Survived posting cut-over mutation: $mutation"; exit 1
             fi
+            # A mutation whose target text is gone exits non-zero too, and would pass as killed.
+            if grep -q "is stale" /tmp/posting-start-mutation.log; then
+              cat /tmp/posting-start-mutation.log; echo "Stale posting cut-over mutation (target text gone): $mutation"; exit 1
+            fi
           done
 
       - name: Execute profiles tenant-isolation regressions

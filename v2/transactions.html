@@ -741,7 +741,7 @@
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   // Keep journal payloads server-side: a 60-batch list must not download every
   // approval_snapshot. Shared by list, older-batch and active-batch refreshes.
-  const BATCH_FIELDS = 'id,company_entity_id,source_id,source_name,source_key,label,file_name,status,created_at,entry_date,period_start,period_end,total_amount,txn_count,uncoded_count,excluded_count,coded_amount,qbo_journal_entry_id,qbo_doc_number,posting_status,posting_id,qbo_connection_id,origin,feed_sequence,approved_at,approved_by,approval_version,approval_hash,source_posting_enabled,source_posting_start_on,credit_account_name,credit_account_type';
+  let BATCH_FIELDS = 'id,company_entity_id,source_id,source_name,source_key,label,file_name,status,created_at,entry_date,period_start,period_end,total_amount,txn_count,uncoded_count,excluded_count,coded_amount,qbo_journal_entry_id,qbo_doc_number,posting_status,posting_id,qbo_connection_id,origin,feed_sequence,approved_at,approved_by,approval_version,approval_hash,source_posting_enabled,source_posting_start_on,credit_account_name,credit_account_type';
 
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
@@ -1058,7 +1058,21 @@
     }));
   }
 
+  /* The page is static and goes live on merge; the migration that adds
+     source_posting_start_on is applied separately and may come later. PostgREST
+     rejects a select that names an unknown column rather than returning nothing,
+     so ask once and drop the column until it exists. Every period then reads as
+     SILO's, which is exactly what the page did before this field. */
+  let batchFieldsChecked = false;
+  async function ensureBatchFields() {
+    if (batchFieldsChecked) return;
+    batchFieldsChecked = true;
+    const probe = await sb.from('card_import_batches_v').select('source_posting_start_on').limit(1);
+    if (probe.error) BATCH_FIELDS = BATCH_FIELDS.replace(',source_posting_start_on', '');
+  }
+
   async function loadBatches() {
+    await ensureBatchFields();
     const { data, error } = await sb.from('card_import_batches_v')
       .select(BATCH_FIELDS).order('created_at', { ascending: false }).limit(60);
     if (error) throw new Error(error.message);

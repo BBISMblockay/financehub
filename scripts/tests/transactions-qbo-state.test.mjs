@@ -685,6 +685,17 @@ test('the batch read asks for the cut-over column, or every period reads as SILO
     'card_import_batches_v exposes it; unselected it is undefined and nothing is ever handled outside SILO');
 });
 
+test('the page works before the migration is applied: it drops the column when the view lacks it', () => {
+  // The page is static and live on merge; PostgREST rejects a select that names
+  // an unknown column, so without this Transactions cannot load its batches.
+  const probe = script.slice(script.indexOf('async function ensureBatchFields'), script.indexOf('async function ensureBatchFields') + 700);
+  assert.match(probe, /select\('source_posting_start_on'\)/, 'it asks the view once whether the column exists');
+  assert.match(probe, /BATCH_FIELDS = BATCH_FIELDS\.replace\(',source_posting_start_on', ''\)/,
+    'and drops it from every later read when it does not');
+  const load = script.slice(script.indexOf('async function loadBatches'), script.indexOf('async function loadBatches') + 200);
+  assert.match(load, /await ensureBatchFields\(\)/, 'before the first batch read');
+});
+
 test('a period straddling the cut-over: the period is SILO\'s, some of its rows are not', () => {
   const straddle = batch({ source_posting_start_on: '2026-07-15' });   // period is 2026-07-01..07-31
   const h = harness({ batch: straddle, sources: [SOURCE] });
