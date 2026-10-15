@@ -4,12 +4,12 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SILO · Books & setup</title>
 <link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
-<link rel="stylesheet" href="accounting-books.css?v=c66f8e4c2285"><link rel="stylesheet" href="accounting-suite.css?v=615de4bff781">
+<link rel="stylesheet" href="accounting-books.css?v=b4532b48cbf9"><link rel="stylesheet" href="accounting-suite.css?v=615de4bff781">
 <link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
 <script src="v2-shell.js" defer></script><script src="nav-config.js"></script><script src="avatar.js"></script>
 <script src="accounting-suite.js"></script><script src="silo-chrome.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/pages/config.js"></script>
-<script src="finance-dialog.js"></script><script src="je-composer.js?v=16b6c8263aa0"></script><script src="qbo-history.js?v=c2c2ac767e22"></script><script src="migration-status.js?v=7891a44c7e1d"></script><script src="accounting-ledger.js?v=f4a919a506ab"></script><script src="accounting-posting-start.js?v=da8c029da5ed"></script><script src="accounting-mode.js?v=4202445a671e"></script><script src="accounting-books.js?v=e983b2af113f" defer></script>
+<script src="finance-dialog.js"></script><script src="je-composer.js?v=16b6c8263aa0"></script><script src="qbo-history.js?v=c2c2ac767e22"></script><script src="migration-status.js?v=4fc3aa8475fc"></script><script src="accounting-ledger.js?v=f4a919a506ab"></script><script src="accounting-posting-start.js?v=da8c029da5ed"></script><script src="accounting-mode.js?v=4202445a671e"></script><script src="accounting-books.js?v=4cf9fd531585" defer></script>
 </head>
 <body><div class="silo-app" id="silo-app"><main class="silo-main accounting-workspace">
 <div class="books-page">
@@ -17,8 +17,13 @@
 <p id="booksIntro">Your accounts, opening balances and journal history.</p></div><span id="booksBadge" class="books-badge">Loading setup…</span></header>
 <div id="status" class="bcn-status" role="status" aria-live="polite">Loading your company’s books…</div>
 <section class="migration-flow" id="migrationFlow" aria-labelledby="migrationFlowTitle" hidden>
-<div class="migration-flow-head"><div><p class="books-eyebrow">QuickBooks → Silo</p><h2 id="migrationFlowTitle" data-migration-headline>Reading where your migration stands…</h2></div><button type="button" id="migrationToggle" class="bcn-btn bcn-btn--ghost" aria-expanded="true" aria-controls="migrationBody">Hide steps</button></div>
-<div id="migrationBody">
+<div class="migration-flow-head"><div><p class="books-eyebrow">Your books</p><h2 id="migrationFlowTitle" data-migration-headline>Reading where your books stand…</h2></div><button type="button" id="migrationToggle" class="bcn-btn bcn-btn--ghost" aria-expanded="false" aria-controls="migrationBody">Show details</button></div>
+<ul class="migration-asks" data-migration-asks hidden></ul>
+<div id="migrationBody" hidden>
+<!-- The step count lives HERE, not in the lead: it answers "why does it
+     say that?" for a reader who opened the details, and it is the one
+     place that names the step Silo is waiting on. -->
+<p class="migration-position" data-migration-position></p>
 <ol class="migration-steps" data-migration-steps aria-label="Migration steps"></ol>
 <div id="migrationDetail" class="migration-detail" hidden></div>
 <!-- How the flow is measured. It used to sit open beside the headline and was

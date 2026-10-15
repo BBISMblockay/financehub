@@ -203,3 +203,9 @@
 .books-choice { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; margin: 14px 0; }
 .books-choice input { width: auto; min-height: 0; margin-top: 4px; }
 .books-choice-detail { margin: 0 0 14px 30px; }
+
+.migration-asks { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+.migration-asks li { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 12px 14px; border: 1px solid var(--bcn-border); border-radius: 12px; }
+.migration-asks li span { color: var(--bcn-ink); }
+.migration-position { font-size: 11px; color: var(--bcn-ink-3); margin: 0 0 10px; }

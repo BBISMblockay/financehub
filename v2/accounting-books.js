@@ -153,9 +153,11 @@
     // The migration steps can fold to their headline; the choice is kept per
     // company in this browser, and the headline always stays on screen.
     const migrationKey='silo-books-migration:'+company.id;
-    const setMigration=open=>{el('migrationBody').hidden=!open;el('migrationToggle').setAttribute('aria-expanded',String(open));el('migrationToggle').textContent=open?'Hide steps':'Show steps';
+    // Collapsed by default: the lead sentence and what needs the reader are
+    // the page, and the five measured steps are the explanation behind them.
+    const setMigration=open=>{el('migrationBody').hidden=!open;el('migrationToggle').setAttribute('aria-expanded',String(open));el('migrationToggle').textContent=open?'Hide details':'Show details';
       try{localStorage.setItem(migrationKey,open?'open':'closed');}catch{}};
-    try{if(localStorage.getItem(migrationKey)==='closed')setMigration(false);}catch{}
+    try{if(localStorage.getItem(migrationKey)==='open')setMigration(true);}catch{}
     el('migrationToggle').addEventListener('click',()=>setMigration(el('migrationBody').hidden));
     // It draws above the tabs, so a #register landing is re-scrolled once it has.
     window.SiloMigrationStatus?.mount({db,companyId:company.id}).catch(e=>{console.warn('Migration status unavailable:',e.message);}).finally(()=>linked?.scrollIntoView?.({block:'start'}));

@@ -139,7 +139,128 @@ r.test('the position never steps over an earlier Unknown to reach a later Done',
   r.eq(model.stages.find(s => s.id === 'opening').state, 'done', 'a later step is genuinely done');
   r.eq(model.current.id, 'feeds', 'the flow still points at the unreadable one');
   r.has(model.headline, 'unknown');
-  r.has(model.headline, 'Banks and cards connected', 'the headline names the step, cased as the step is');
+  r.has(model.headline, 'Your accounts are connected', 'the headline names the step, cased as the step is');
+});
+
+/* ---- what the reader is shown first ------------------------------------
+   The five measured steps now sit behind a disclosure, so these two fields
+   ARE the page for most readers. They must never overclaim: a step SILO
+   could not read makes the answer "could not read", not "set up". */
+
+r.test('the lead sentence never reads as set up while a step is unreadable', () => {
+  const model = M.assess(Object.assign(LIVE(), { bank: U, sources: U, coding: U, batches: U, history: U, journals: U, revenue: U, opening: U, settings: U }));
+  r.has(model.plain, 'could not read');
+  r.not(model.plain, 'set up, and nothing', 'an unreadable book is never reported as finished');
+});
+
+r.test('a finished migration says so in one sentence, and asks for nothing', () => {
+  const facts = LIVE();
+  facts.history = [{ period_start: '2025-01-01', period_end: '2026-07-31', exception_count: 0 }];
+  facts.coding = { total: 10, uncoded: 0, rules: 5, splitRules: 0 };
+  facts.batches = [{ status: 'posted', entry_date: '2026-08-31' }];
+  const model = M.assess(facts);
+  r.truthy(model.complete, 'nothing outstanding');
+  r.has(model.plain, 'nothing is waiting on you');
+  r.eq(model.asks.length, 0, 'a finished migration has nothing to ask for');
+});
+
+r.test('each unfinished step offers one plain instruction, at most three of them', () => {
+  const model = M.assess(LIVE());
+  r.truthy(model.asks.length >= 1 && model.asks.length <= 3, 'at most three, or the lead is a page again');
+  model.asks.forEach(a => {
+    r.truthy(a.ask.length > 0, 'every unfinished step says what to do about it');
+    r.not(a.ask, 'trial balance', 'the instruction avoids words only an accountant uses');
+    r.not(a.ask, 'journal', 'the instruction avoids words only an accountant uses');
+  });
+  r.has(model.plain, 'need you', 'the lead counts what is outstanding');
+});
+
+r.test('a company with everything outstanding is still asked for at most three things', () => {
+  /* Nothing connected, nothing imported, nothing coded: all five steps are
+     open. The cap is the point -- five instructions is the overwhelming page
+     this replaced. */
+  const bare = Object.assign(LIVE(), {
+    bank: [], sources: [], history: [], batches: [], journals: [], revenue: [],
+    opening: [], coding: { total: 40, uncoded: 40, rules: 0, splitRules: 0 },
+  });
+  const model = M.assess(bare);
+  const open = model.stages.filter(s => s.state !== 'done');
+  r.truthy(open.length >= 4, `the fixture should leave most steps open, it left ${open.length}`);
+  r.eq(model.asks.length, 3, 'three at most, however many steps are open');
+  r.eq(model.asks.map(a => a.id), open.slice(0, 3).map(s => s.id),
+    'and they are the first three, in migration order');
+});
+
+/* Review cycle 1 (#1003, P2): with the details collapsed, the ask list IS the
+   guidance, so an instruction that cannot resolve what is outstanding is worse
+   than none. Each of the three cases the review named is pinned below. */
+
+r.test('a step SILO could not read asks for a refresh, not for the work again', () => {
+  const facts = Object.assign(LIVE(), { history: U });
+  const model = M.assess(facts);
+  r.eq(stage(facts, 'history').state, 'unknown');
+  r.eq(stage(facts, 'history').ask, '', 'an unreadable step claims no next action');
+  model.asks.forEach(a => r.not(a.ask, 'Save a copy',
+    'the archive may already exist; the page must not say to make another'));
+  r.has(model.plain, 'could not read one part');
+  r.has(model.plain, 'One thing needs you', 'the unreadable step is not counted as work owed');
+  r.not(model.plain, '2 things need you');
+});
+
+r.test('saved history with open exceptions points at the exceptions', () => {
+  const facts = LIVE();
+  const history = stage(facts, 'history');
+  r.eq(history.state, 'attention');
+  r.has(history.ask, 'could not fully account for', 'the open accounts are what is outstanding');
+  r.not(history.ask, 'Save a copy', 'the copy is already saved; re-saving changes nothing');
+  r.has(history.ask, '71');
+});
+
+r.test('a month that has not finished yet is not something to post', () => {
+  const facts = Object.assign(LIVE(), {
+    today: '2026-10-15',
+    settings: { accounting_start_date: '2026-10-01', accounting_basis: 'Accrual', fiscal_year_start_month: 1 },
+    journals: [], batches: [],
+  });
+  const revenue = stage(facts, 'revenue');
+  r.not(revenue.state, 'done');
+  r.eq(revenue.ask, '', 'there is no completed month to act on');
+  r.has(revenue.summary, 'No complete month');
+  r.not(M.assess(facts).asks.map(a => a.id).join(','), 'revenue',
+    'and it is not listed as something that needs the reader');
+});
+
+/* Review cycle 2 (#1003, P2): `unknown` covers two different things, and only
+   one of them is answered by refreshing. A brand-new company reads perfectly
+   well -- history and revenue are unknown because no start date exists yet --
+   and telling it SILO could not read its books is both wrong and unactionable. */
+r.test('a company that has not set up yet is never told SILO could not read its books', () => {
+  const fresh = {
+    today: '2026-10-15', settings: null, opening: null, history: [], journals: [], batches: [],
+    bank: { connections: [], accounts: [] }, sources: [],
+    coding: { total: 0, uncoded: 0, rules: 0, splitRules: 0 }, revenue: { shops: 0, newestSalesDay: null },
+  };
+  const model = M.assess(fresh);
+  r.eq(stage(fresh, 'history').state, 'unknown', 'coverage still cannot be judged');
+  r.truthy(stage(fresh, 'history').blocked, 'but because a prerequisite is missing, not a failed read');
+  r.truthy(stage(fresh, 'revenue').blocked);
+  r.not(model.plain, 'could not read', 'nothing failed to read');
+  r.not(model.plain, 'refresh', 'refreshing cannot resolve a step that is simply next');
+  r.has(model.plain, 'need you', 'it leads with the setup that IS outstanding');
+  r.has(model.asks.map(a => a.id).join(','), 'opening', 'and opening balances are one of them');
+});
+
+r.test('a failed read is still told apart from a prerequisite', () => {
+  const facts = Object.assign(LIVE(), { history: U });
+  r.eq(stage(facts, 'history').blocked, false, 'an unreadable table is not a prerequisite');
+  r.has(M.assess(facts).plain, 'refresh the page');
+});
+
+r.test('the instruction carries the number where SILO already knows it', () => {
+  const model = M.assess(LIVE());
+  const coding = model.stages.find(s => s.id === 'coding');
+  r.has(coding.ask, 'Categorize', 'the coding step asks in plain words');
+  r.has(coding.ask, 'waiting on you');
 });
 
 /* ---- the live position ------------------------------------------------ */
