@@ -1063,6 +1063,25 @@
      rejects a select that names an unknown column rather than returning nothing,
      so ask once and drop the column until it exists. Every period then reads as
      SILO's, which is exactly what the page did before this field. */
+  /* Who keeps this company's books. 'qbo' means SILO sends nothing to
+     QuickBooks from any surface, so the entry cannot be posted from here. The
+     database refuses the posting claim either way (the mode guard on
+     quickbooks_journal_postings); this is so the page says why before the
+     click rather than after it. An unreadable or absent setting reads as
+     'silo', which is what the page did before the column existed. */
+  let bookkeepingMode = 'silo';
+  let bookkeepingModeChecked = false;
+  async function readBookkeepingMode() {
+    if (bookkeepingModeChecked) return;
+    const r = await sb.from('accounting_settings').select('bookkeeping_mode').limit(1).maybeSingle();
+    /* Only a real answer latches: an unknown column (migration not applied yet)
+       or a transient failure is re-asked on the next load rather than fixing
+       the page on a guess. */
+    if (r.error) return;
+    bookkeepingModeChecked = true;
+    if (r.data?.bookkeeping_mode) bookkeepingMode = r.data.bookkeeping_mode;
+  }
+
   let batchFieldsChecked = false;
   async function ensureBatchFields() {
     if (batchFieldsChecked) return;
@@ -1080,6 +1099,7 @@
 
   async function loadBatches() {
     await ensureBatchFields();
+    await readBookkeepingMode().catch(() => {});
     const { data, error } = await sb.from('card_import_batches_v')
       .select(BATCH_FIELDS).order('created_at', { ascending: false }).limit(60);
     if (error) throw new Error(error.message);
@@ -4043,6 +4063,10 @@
     if (state.dirty.size) blockers.push('there are unsaved coding changes');
     if (state.codingBusy) blockers.push('coding changes are still running');
 
+    if (bookkeepingMode === 'qbo') {
+      blockers.push('QuickBooks keeps the books for this company, so SILO does not send entries to it '
+        + '— change that in Books & setup if SILO should keep the books');
+    }
     const posted = state.batch.status === 'posted';
     const approved = state.batch.status === 'approved';
     el('btnVoid').hidden = !posted;

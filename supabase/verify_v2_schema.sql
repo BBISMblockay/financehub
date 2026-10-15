@@ -6969,6 +6969,35 @@ select 'Report location filter' as check_name,
     else 'ok'
   end as status;
 
+-- Who keeps the books (20261015190000): the company-wide mode, the claim guard
+-- that makes reporting-only cover every posting surface, and the write RPC.
+select 'Bookkeeping mode' as check_name,
+ case when not exists (select 1 from information_schema.columns where table_schema = 'public'
+                         and table_name = 'accounting_settings' and column_name = 'bookkeeping_mode')
+        or not exists (select 1 from information_schema.columns where table_schema = 'public'
+                         and table_name = 'accounting_settings' and column_name = 'silo_takeover_on')
+        or to_regprocedure('public.set_bookkeeping_mode(text,date)') is null
+        or to_regprocedure('public.silo_posting_start_for_source(public.card_sources)') is null
+   then 'MISSING — run 20261015190000_bookkeeping_mode.sql'
+  -- Reporting-only is a statement about the whole company. Without this trigger
+  -- it would only cover bank coding, and a revenue journal would still be sent.
+  when not exists (select 1 from pg_trigger where tgname = 'bookkeeping_mode_claim'
+                     and tgrelid = 'public.quickbooks_journal_postings'::regclass)
+   then 'BROKEN — reporting-only does not cover every posting surface'
+  when pg_get_functiondef(to_regprocedure('public.silo_posting_start_for_source(public.card_sources)')) not like '%bookkeeping_mode%'
+   then 'BROKEN — the ledger start date ignores the mode, so a reporting-only company still records SILO ledger entries'
+  -- accounting_settings has a read policy and no write policy, so the RPC is
+  -- the only write path and must stay callable by signed-in finance users.
+  when not has_function_privilege('authenticated', 'public.set_bookkeeping_mode(text,date)', 'execute')
+   then 'BROKEN — nobody can save the bookkeeping mode'
+  when has_function_privilege('anon', 'public.set_bookkeeping_mode(text,date)', 'execute')
+   then 'BROKEN — set_bookkeeping_mode is callable without signing in'
+  -- An item nobody can act on does not belong in the queue: approving an
+  -- unapproved period is refused in reporting-only, so On Deck must not ask.
+  when pg_get_functiondef(to_regprocedure('public.on_deck_coding_items()')) not like '%bookkeeping_mode%'
+   then 'BROKEN — On Deck still asks a reporting-only company to approve coding'
+  else 'ok' end as status;
+
 -- When SILO starts posting an account (20261015020000): the cut-over column,
 -- the approval guard, the ledger gate, the On Deck filter, and a paged resync
 -- that only finance can call.
@@ -6984,8 +7013,15 @@ select 'Card posting cut-over' as check_name,
    then 'MISSING — run 20261015020000_card_posting_start.sql'
   -- The gate is the whole point: without it a pre-cut-over month stays in
   -- SILO's own ledger even though QuickBooks already holds it by hand.
-  when pg_get_functiondef(to_regprocedure('public.silo_ledger_start(public.card_sources)')) not like '%posting_start_on%'
-   then 'BROKEN — silo_ledger_start ignores posting_start_on, so pre-cut-over transactions still enter the SILO ledger'
+  -- 20261015190000 moved the precedence into silo_posting_start_for_source and
+  -- silo_ledger_start now delegates to it, so either shape is correct and the
+  -- gate must be present in whichever one computes the date.
+  when coalesce(pg_get_functiondef(to_regprocedure('public.silo_posting_start_for_source(public.card_sources)')),
+                pg_get_functiondef(to_regprocedure('public.silo_ledger_start(public.card_sources)'))) not like '%posting_start_on%'
+   then 'BROKEN — the ledger start date ignores posting_start_on, so pre-cut-over transactions still enter the SILO ledger'
+  when to_regprocedure('public.silo_posting_start_for_source(public.card_sources)') is not null
+   and pg_get_functiondef(to_regprocedure('public.silo_ledger_start(public.card_sources)')) not like '%silo_posting_start_for_source%'
+   then 'BROKEN — silo_ledger_start no longer asks silo_posting_start_for_source, so the ledger and the approval guard can disagree'
   when pg_get_functiondef(to_regprocedure('public.on_deck_coding_items()')) not like '%source_posting_start_on%'
    then 'BROKEN — On Deck still lists periods SILO is not to post'
   when not exists (select 1 from information_schema.columns where table_schema = 'public'

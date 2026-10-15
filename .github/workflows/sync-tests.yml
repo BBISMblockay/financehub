@@ -209,6 +209,10 @@ on:
       - 'v2/accounting-posting-start.js'
       - 'scripts/tests/accounting-posting-start.test.mjs'
       - 'scripts/tests/card-posting-start-database.test.mjs'
+      - 'v2/accounting-mode.js'
+      - 'scripts/tests/bookkeeping-mode-database.test.mjs'
+      - 'scripts/tests/accounting-mode.test.mjs'
+      - 'supabase/migrations/*bookkeeping_mode.sql'
       - 'supabase/migrations/*card_posting_start.sql'
       - 'supabase/migrations/*silo_daily_ledger.sql'
       - 'v2/qbo-reports.html'
@@ -519,6 +523,12 @@ jobs:
       # a refused save reported as refused, and the paged reversal run to zero.
       - name: Posting cut-over control
         run: node --test scripts/tests/accounting-posting-start.test.mjs
+
+      # The card that asks who keeps the books: the default reported as a
+      # position rather than a gap, the dates it refuses, and a confirmation
+      # that names every surface that stops sending.
+      - name: Bookkeeping mode card
+        run: node --test scripts/tests/accounting-mode.test.mjs
 
       - name: Accounting suite navigation and legacy routes
         run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/accounting-ledger.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs scripts/tests/transaction-reclass-ui.test.mjs scripts/tests/no-unqualified-delete.test.mjs
@@ -1241,6 +1251,22 @@ jobs:
             # A mutation whose target text is gone exits non-zero too, and would pass as killed.
             if grep -q "is stale" /tmp/posting-start-mutation.log; then
               cat /tmp/posting-start-mutation.log; echo "Stale posting cut-over mutation (target text gone): $mutation"; exit 1
+            fi
+          done
+
+      # Who keeps the books: the company-wide mode, reporting-only covering
+      # every posting surface rather than bank coding alone, and the account's
+      # own date still overriding the company default.
+      - name: Execute bookkeeping mode regressions
+        run: |
+          node scripts/tests/bookkeeping-mode-database.test.mjs
+          for mutation in mode-ignores-ledger no-mode-claim-guard claim-guard-card-only override-ignored on-deck-still-asks rpc-ungated rpc-keeps-stale-date; do
+            if BOOKKEEPING_MODE_MUTATION="$mutation" node scripts/tests/bookkeeping-mode-database.test.mjs > /tmp/bookkeeping-mode-mutation.log 2>&1; then
+              cat /tmp/bookkeeping-mode-mutation.log; echo "Survived bookkeeping mode mutation: $mutation"; exit 1
+            fi
+            # A mutation whose target text is gone exits non-zero too, and would pass as killed.
+            if grep -q "is stale" /tmp/bookkeeping-mode-mutation.log; then
+              cat /tmp/bookkeeping-mode-mutation.log; echo "Stale bookkeeping mode mutation (target text gone): $mutation"; exit 1
             fi
           done
 

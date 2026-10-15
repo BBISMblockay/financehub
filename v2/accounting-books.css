@@ -199,3 +199,7 @@
   text-decoration: underline; text-underline-offset: 2px; }
 .ledger-lines { margin-top: 12px; border-top: 1px solid var(--bcn-border); padding-top: 10px; }
 .books-card .ledger-check input { width: auto; min-height: 0; }
+
+.books-choice { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; margin: 14px 0; }
+.books-choice input { width: auto; min-height: 0; margin-top: 4px; }
+.books-choice-detail { margin: 0 0 14px 30px; }

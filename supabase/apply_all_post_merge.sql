@@ -19263,4 +19263,8 @@ $c$select (select count(*) from v_po_header_summary
 -- (silo_ledger_start, which it replaces) and 20261004120000, which defines
 -- on_deck_coding_items and card_import_batches_v, both of which it replaces.
 \i migrations/20261015020000_card_posting_start.sql
+-- Who keeps the books, company-wide (accounting_settings.bookkeeping_mode).
+-- Must come AFTER 20261015020000: it replaces silo_ledger_start and
+-- card_posting_start_refusal, which that migration defines.
+\i migrations/20261015190000_bookkeeping_mode.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
