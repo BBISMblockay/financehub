@@ -312,7 +312,7 @@
       if (!editable) {
         const st = statusOf(p);
         // The same status that labelled the card explains the disabled button.
-        step.append(node('p', st.key === 'unavailable' ? st.detail : ['preparing','revision'].includes(p.status) ? 'Wait for preparation, or keep the previous revision before editing.' : st.detail || 'Saving requires confirmed current, unexpired evidence. Your prior copy remains available below.', 'od-meta'));
+        step.append(node('p', st.detail || (st.key === 'working' ? 'Wait for preparation, or keep the previous revision before editing.' : 'Saving requires confirmed current, unexpired evidence. Your prior copy remains available below.'), 'od-meta'));
         if (st.action === 'retry') step.append(button('Retry', load));
       }
       detail.append(step);

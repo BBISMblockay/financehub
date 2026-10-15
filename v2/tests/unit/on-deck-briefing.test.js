@@ -161,3 +161,27 @@ test('preparing, paused, failed and stale each say what they are', () => {
   assert.equal(stat(ads({ source_current: true, valid_until: '2026-10-01' })).label, 'Evidence expired');
 });
 
+// Cycle-1 P2 on #998: `status='preparing'` is also what a row looks like when its
+// credit is exhausted, when it is queued behind the scheduler, or when the attempt
+// already failed. Reading the lifecycle status first said "SILO is preparing this"
+// while the next-step paragraph said "Paused", which is the disagreement this PR
+// exists to remove.
+const prep = (state, reason) => ({ review: { review_contract: 2, proposals: [{ id: 'ad1', preparation: { state, reason } }] } });
+test('a preparing row that is paused, queued or failed says so, not "preparing"', () => {
+  const paused = stat(ads({ status: 'preparing' }), prep('paused', 'credit_exhausted'));
+  assert.equal(paused.key, 'blocked'); assert.equal(paused.label, 'Paused');
+  assert.match(paused.detail, /credit is exhausted/);
+  const queued = stat(ads({ status: 'preparing' }), prep('queued', 'drafting'));
+  assert.equal(queued.key, 'queued'); assert.equal(queued.label, 'Queued to prepare');
+  assert.match(queued.detail, /scheduler/);
+  const failed = stat(ads({ status: 'preparing' }), prep('failed', 'preparation_failed'));
+  assert.equal(failed.key, 'blocked'); assert.equal(failed.label, 'Preparation did not finish');
+  assert.equal(failed.action, 'refresh');
+  for (const st of [paused, queued, failed]) assert.doesNotMatch(st.label, /preparing this/i);
+});
+test('only a reserved attempt earns the working label', () => {
+  assert.equal(stat(ads({ status: 'preparing' }), prep('running', 'reserved')).key, 'working');
+  // No confirmed state from the readiness payload: the lifecycle status is the
+  // only thing left to go on, and it still may not claim paused or queued.
+  assert.equal(stat(ads({ status: 'revision' })).key, 'working');
+});

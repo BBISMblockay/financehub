@@ -213,6 +213,9 @@
     credit_unavailable: 'AI credit could not be checked.',
     budget_cap: 'The monthly preparation cap is reached.',
     daily_cap: 'The daily safety cap is reached.',
+    screening: 'Waiting for the scheduler to screen current evidence.',
+    drafting: 'Waiting for the scheduler to prepare a draft.',
+    preparation_failed: 'Refresh evidence to queue a fresh draft. Your previous copy is kept.',
   };
   function statusOf(p, ctx = {}) {
     const now = ctx.now || Date.now();
@@ -225,16 +228,32 @@
       return { key: 'unavailable', label: 'Status unavailable', tone: 'warn', action: 'retry',
         detail: 'SILO could not load this proposal\u2019s status. Your saved draft is unchanged.' };
     }
-    if (['preparing', 'revision'].includes(p.status) || prep.state === 'running') {
+    // The preparation state decides first, and only a reserved attempt earns the
+    // working label: `status` is 'preparing' for a row that is paused on an
+    // exhausted credit, queued behind the scheduler, or finished failing, and
+    // reading the lifecycle status first told the reviewer to wait for work that
+    // could not proceed while the next-step paragraph said "Paused".
+    if (prep.state === 'running') {
       return { key: 'working', label: 'SILO is preparing this', tone: 'working', action: null };
     }
     if (prep.state === 'paused') {
       return { key: 'blocked', label: 'Paused', tone: 'warn', action: null, detail: STATUS_REASONS[prep.reason] || 'Preparation is paused.' };
     }
+    if (prep.state === 'queued') {
+      return { key: 'queued', label: 'Queued to prepare', tone: 'working', action: null,
+        detail: STATUS_REASONS[prep.reason] || 'Queued for the next preparation run.' };
+    }
+    if (prep.state === 'failed') {
+      return { key: 'blocked', label: 'Preparation did not finish', tone: 'warn', action: 'refresh',
+        detail: STATUS_REASONS.preparation_failed };
+    }
+    if (['preparing', 'revision'].includes(p.status)) {
+      return { key: 'working', label: 'SILO is preparing this', tone: 'working', action: null };
+    }
     const expired = !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= now;
     if (p.status === 'failed') {
       return { key: 'blocked', label: 'Preparation did not finish', tone: 'warn', action: 'refresh',
-        detail: 'Refresh evidence to queue a fresh draft. Your previous copy is kept.' };
+        detail: STATUS_REASONS.preparation_failed };
     }
     if (p.source_current === false || expired) {
       return { key: 'stale', label: expired ? 'Evidence expired' : 'Evidence changed', tone: 'warn', action: 'refresh',
