@@ -209,3 +209,8 @@
   padding: 12px 14px; border: 1px solid var(--bcn-border); border-radius: 12px; }
 .migration-asks li span { color: var(--bcn-ink); }
 .migration-position { font-size: 11px; color: var(--bcn-ink-3); margin: 0 0 10px; }
+/* A folded section of Setup. It is a card whose whole body is a disclosure, so
+   reference a company opens twice a year costs one line until it is wanted. */
+.books-subsection .books-card { margin-bottom: 12px; }
+.books-subsection summary { font-size: 15px; font-weight: 650; cursor: pointer; }
+.books-subsection details[open] > summary { margin-bottom: 10px; }

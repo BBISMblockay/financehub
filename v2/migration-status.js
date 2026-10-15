@@ -548,9 +548,14 @@
     const jumper = e => {
       const jump = e.target.closest('[data-jump]');
       if (!jump) return;
-      /* Drive the page's own tabs by clicking them, rather than duplicating
-         the show/hide logic here -- one definition of what a tab does. */
-      const tab = document.querySelector(`.books-tabs [data-surface="${jump.dataset.jump}"]`);
+      /* Ask the page to show a surface rather than duplicating the show/hide
+         logic here -- one definition of what a tab does. A surface is not
+         always a tab of its own (Setup owns three of them), so the page does
+         the lookup; the direct click is the fallback for a page that has not
+         defined SiloBooks yet. */
+      const id = jump.dataset.jump;
+      if (window.SiloBooks?.showSurface?.(id)) return;
+      const tab = document.querySelector(`.books-tabs [data-surface="${id}"]`);
       if (tab) { tab.click(); tab.scrollIntoView({ block: 'nearest' }); }
     };
     detail.addEventListener('click', jumper);
