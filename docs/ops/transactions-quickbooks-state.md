@@ -24,9 +24,26 @@ separate from SILO's own state and is always exactly one of three readings:
 
 | Reading | When |
 |---------|------|
-| `In QuickBooks — journal entry SILO-…` | the period is posted. If a posted reclass moved the amount, it names the account holding it now |
-| `Not in QuickBooks — …` | with the next step: categorize the row, approve the month, send the approved month, or that posting is off for the account. A refused post says QuickBooks refused it |
+| `In QuickBooks — journal entry SILO-…` | SILO posted the period. If a posted reclass moved the amount, it names the account holding it now |
+| `Not sent to QuickBooks — …` | with the next step: categorize the row, approve the month, send the approved month, or that posting is off for the account. A refused post says QuickBooks refused it |
 | `Unknown — …` | a post was sent and QuickBooks never confirmed it |
+
+### Why it says "not sent", never "not in QuickBooks"
+
+SILO reads nothing back out of QuickBooks. It knows what it posted itself and
+nothing more, so an unposted period can only be reported as not sent.
+
+Baseballism's July and August 2026 are the case that proves it: those months
+were coded inside QuickBooks directly, off a three-month Plaid import, and are
+deliberately out of SILO (Blake, 2026-10-15). Their rows are in QuickBooks. A
+line reading "Not in QuickBooks — July 2026 is still a draft" would have been
+false on exactly the months that prompted this change.
+
+So the draft, approved and posting-off readings also carry one clause — "SILO
+reports only what it posted itself, so a month entered in QuickBooks directly
+does not show here" — because those are the three states where a reader could
+take silence for absence. A posted period, an unresolved attempt and a refusal
+each say precisely what happened and do not carry it.
 
 ### Why "unknown" needs its own reading, and its own query
 
@@ -78,8 +95,8 @@ said the same thing about a month waiting on its last uncoded row as about a
 finished month nobody had approved. Its green tick reads the same predicate as
 its text, so an unconfirmed post cannot show a completed step.
 
-**On save**, a recode in a closed period that is not posted adds: "Not in
-QuickBooks yet — July 2026 has to be approved and posted." The open current month
+**On save**, a recode in a closed period that is not posted adds: "SILO has not
+posted July 2026 — it is still a draft here." The open current month
 is left alone; nobody expects it in the books yet. "Closed" is judged by the
 reader's own calendar day, not UTC — west of UTC, `toISOString()` calls a month
 closed up to 17 hours early, while the people closing it are still in it.
@@ -97,11 +114,11 @@ closed up to 17 hours early, while the people closing it are still in it.
 
 ## Tests
 
-`node scripts/tests/transactions-qbo-state.test.mjs` — 41 checks against the
+`node scripts/tests/transactions-qbo-state.test.mjs` — 43 checks against the
 shipped page, with the real `transaction-filters.js`, `transaction-dates.js` and
 `card-splits.js` loaded rather than stubs, including the panel and strip wiring
 and not only the helpers. Green under both UTC and `TZ=America/Los_Angeles`.
-30 mutations were confirmed to fail a test, among them reading the unfinished
+37 mutations were confirmed to fail a test, among them reading the unfinished
 attempt from the batch instead of its claim (the cycle-1 finding), correlating
 the claim read on the wrong column, swallowing a failed or thrown claim read,
 reading a journal entry id as proof of posting, comparing the period end
@@ -110,3 +127,5 @@ with no attempts (the cycle-2 finding), on each of the two paths that append
 one. The integrated run of those two paths is not reachable in this harness —
 both go through `loadTxns()` and the real workspace widget — so their wiring is
 held by a source assertion, with the behaviour it depends on driven directly.
+Seven of the mutations restore some form of "not in QuickBooks", one per
+reading, against a sweep that asserts no reading anywhere asserts absence.

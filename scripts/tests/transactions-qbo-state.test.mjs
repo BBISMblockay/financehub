@@ -111,13 +111,15 @@ const batch = (over = {}) => ({ id: 'b1', company_entity_id: 'co', source_id: 's
   txn_count: 804, uncoded_count: 0, excluded_count: 0, coded_amount: 1000, posting_status: null,
   qbo_journal_entry_id: null, qbo_doc_number: null, source_posting_enabled: true, ...over });
 
-test('a coded row in a draft period says it is NOT in QuickBooks and names the period to approve', () => {
+test('a coded row in a draft period says SILO has not sent it, and names the period', () => {
   const h = harness({ batch: batch(), sources: [SOURCE] });
   const line = h.api.quickbooksStateLine(row());
-  assert.match(line, /^Not in QuickBooks/);
+  assert.match(line, /^Not sent to QuickBooks/);
   assert.match(line, /July 2026/, 'the period must be named, not called "this period"');
   assert.match(line, /approved/);
   assert.match(line, /posted/);
+  assert.match(line, /reports only what it posted itself/,
+    'a month entered in QuickBooks directly is invisible to SILO, and the line must say so');
 });
 
 test('a posted period says the row IS in QuickBooks and names the journal entry', () => {
@@ -125,13 +127,13 @@ test('a posted period says the row IS in QuickBooks and names the journal entry'
   const line = h.api.quickbooksStateLine(row());
   assert.match(line, /^In QuickBooks/);
   assert.match(line, /SILO-A98/);
-  assert.doesNotMatch(line, /Not in QuickBooks/);
+  assert.doesNotMatch(line, /Not sent/);
 });
 
 test('an approved period distinguishes "frozen in SILO" from "sent to QuickBooks"', () => {
   const h = harness({ batch: batch({ status: 'approved' }), sources: [SOURCE] });
   const line = h.api.quickbooksStateLine(row());
-  assert.match(line, /^Not in QuickBooks/);
+  assert.match(line, /^Not sent to QuickBooks/);
   assert.match(line, /approved/);
   assert.match(line, /not been sent|not sent/);
 });
@@ -147,14 +149,14 @@ test('a source with posting switched off says so instead of asking for an approv
 test('an uncoded row asks for the category first, then the period', () => {
   const h = harness({ batch: batch({ uncoded_count: 1 }), sources: [SOURCE] });
   const line = h.api.quickbooksStateLine(row({ status: 'uncoded', qbo_account_id: null, qbo_account_name: null }));
-  assert.match(line, /^Not in QuickBooks/);
+  assert.match(line, /^Not sent to QuickBooks/);
   assert.match(line, /categoriz/i);
 });
 
 test('an excluded row never claims a QuickBooks state it cannot have', () => {
   const h = harness({ batch: batch(), sources: [SOURCE] });
   const line = h.api.quickbooksStateLine(row({ status: 'excluded' }));
-  assert.match(line, /^Not in QuickBooks/);
+  assert.match(line, /^Not sent to QuickBooks/);
   assert.match(line, /excluded/i);
 });
 
@@ -228,7 +230,7 @@ test('the transaction panel renders the QuickBooks state, labelled apart from SI
   const html = h.api.transactionDetailInner(row());
   assert.match(html, /txn-qbo-state/);
   assert.match(html, /QuickBooks<\/b>/);
-  assert.match(html, /Not in QuickBooks/);
+  assert.match(html, /Not sent to QuickBooks/);
   assert.match(html, /July 2026/);
 });
 
@@ -240,11 +242,13 @@ test('the panel keeps SILO\'s state and QuickBooks\' state as two separate state
     'the SILO line must not start claiming a QuickBooks state');
 });
 
-test('saving into a closed, unposted month says the change is not in QuickBooks yet', () => {
+test('saving into a closed, unposted month says SILO has not posted it', () => {
   const h = harness({ batch: batch(), sources: [SOURCE] });
   const message = h.api.savedCodingMessage(1, [row()]);
   assert.match(message, /Saved 1 row/);
-  assert.match(message, /not in QuickBooks/i);
+  assert.match(message, /SILO has not posted/i);
+  assert.doesNotMatch(message, /not in QuickBooks/i,
+    'the save cannot assert the month is absent from QuickBooks -- SILO never reads it back');
   assert.match(message, /July 2026/);
 });
 
@@ -371,7 +375,7 @@ test('a refused post says QuickBooks refused it, not that a human forgot to appr
   const b = batch(TIMED_OUT);
   const h = harness({ batch: b, sources: [SOURCE], claims: { b1: [claim({ status: 'failed' })] } });
   const line = h.api.quickbooksStateLine(row());
-  assert.match(line, /^Not in QuickBooks/);
+  assert.match(line, /^Not sent to QuickBooks/);
   assert.match(line, /refused/i);
   assert.doesNotMatch(line, /has not been sent yet/, 'it was sent -- it came back refused');
   assert.match(h.api.quickbooksStepDetail([b]), /refused/i);
@@ -396,7 +400,7 @@ test('a voided posting leaves the period reading as not posted', () => {
   const b = batch({ status: 'approved', posting_id: null, posting_status: null, qbo_journal_entry_id: null, qbo_doc_number: null });
   const h = harness({ batch: b, sources: [SOURCE] });
   assert.equal(h.api.isInQuickBooks(b), false);
-  assert.match(h.api.quickbooksStateLine(row()), /^Not in QuickBooks/);
+  assert.match(h.api.quickbooksStateLine(row()), /^Not sent to QuickBooks/);
 });
 
 test('a save never claims a period is waiting on approval when that is not what it waits on', () => {
@@ -471,7 +475,7 @@ test('every QuickBooks line carries exactly one of the three states', () => {
     for (const t of [row(), row({ status: 'uncoded', qbo_account_id: null }), row({ status: 'excluded' })]) {
       const line = h.api.quickbooksStateLine(t);
       assert.ok(line, 'a row in a batch in view always has a QuickBooks state');
-      const hit = [/^In QuickBooks/, /^Not in QuickBooks/, /^Unknown/].filter((re) => re.test(line));
+      const hit = [/^In QuickBooks/, /^Not sent to QuickBooks/, /^Unknown/].filter((re) => re.test(line));
       assert.equal(hit.length, 1, `exactly one status per row, got: ${line}`);
     }
   }
@@ -565,4 +569,51 @@ test('both paths that append a period read its claims before anything renders', 
     'selecting an account loads its whole history, so its claims must be read too');
   assert.ok(selectRead < selectBody.indexOf('await openBatch('),
     'and read before the period it opens renders');
+});
+
+/* Blake, 2026-10-15: "we did those months inside qbo, brought in 3 mo of
+   plaid. so july august is already categorized in qbo system. essentially
+   excluded from silo."
+
+   SILO reads nothing back out of QuickBooks. It knows only what it posted
+   itself, so "Not in QuickBooks" was a claim it is not entitled to make -- and
+   on the very two months that prompted this change it was simply false. Every
+   unposted reading now reports SILO's own send, and the three states where a
+   reader might take silence for absence carry the caveat. */
+test('no reading ever asserts a row is absent from QuickBooks', () => {
+  const states = [batch(), batch({ status: 'categorized' }), batch({ status: 'approved' }),
+    batch({ source_posting_enabled: false }), batch({ uncoded_count: 3 }), batch(TIMED_OUT)];
+  const claimSets = [{}, { b1: [claim()] }, { b1: [claim({ status: 'failed' })] }];
+  // The unreadable state included: not knowing is the case most tempting to
+  // phrase as "not in QuickBooks", and it is the one that may not be.
+  const errors = ['', 'network error'];
+  for (const b of states) for (const claims of claimSets) for (const claimsError of errors) {
+    const h = harness({ batch: b, sources: [SOURCE], claims, claimsError });
+    for (const t of [row(), row({ status: 'uncoded', qbo_account_id: null }), row({ status: 'excluded' })]) {
+      const line = h.api.quickbooksStateLine(t);
+      assert.doesNotMatch(line, /not in QuickBooks/i,
+        `SILO cannot state a row is absent from QuickBooks: ${line}`);
+    }
+    assert.doesNotMatch(h.api.savedCodingMessage(1, [row()]), /not in QuickBooks/i);
+    assert.doesNotMatch(h.api.quickbooksStepDetail([b]), /not in QuickBooks/i);
+  }
+});
+
+test('the three states a reader could mistake for absence say what SILO does not see', () => {
+  const cases = [
+    ['a draft period', batch()],
+    ['an approved period', batch({ status: 'approved' })],
+    ['an account with posting off', batch({ source_posting_enabled: false })],
+  ];
+  for (const [why, b] of cases) {
+    const h = harness({ batch: b, sources: [SOURCE] });
+    assert.match(h.api.quickbooksStateLine(row()), /entered in QuickBooks directly does not show here/,
+      `${why} must not let silence read as absence`);
+  }
+  // Not on every reading: a posted period, an unresolved attempt and a refusal
+  // each already say exactly what happened, and the caveat would only crowd them.
+  const posted = harness({ batch: batch({ status: 'posted', posting_status: 'posted' }), sources: [SOURCE] });
+  assert.doesNotMatch(posted.api.quickbooksStateLine(row()), /does not show here/);
+  const unresolved = harness({ batch: batch(TIMED_OUT), sources: [SOURCE], claims: { b1: [claim()] } });
+  assert.doesNotMatch(unresolved.api.quickbooksStateLine(row()), /does not show here/);
 });

@@ -2153,13 +2153,22 @@
     return b.period_end < new Date().toLocaleDateString('en-CA');
   };
 
-  /* One sentence: in QuickBooks, or not in QuickBooks and what has to happen.
-     Never both, and never a guess -- a posted period whose reclasses could not
-     be read does not know which account holds the amount, so it says so. */
+  /* SILO can only ever report what IT sent. It reads nothing back out of
+     QuickBooks, so an unposted period says "not sent", never "not in
+     QuickBooks": Baseballism's July and August 2026 were coded inside
+     QuickBooks directly off a three-month Plaid import and are deliberately
+     out of SILO, and telling a reader those rows are absent from QuickBooks
+     would be false (Blake, 2026-10-15). Only a period SILO posted itself can
+     be stated as being in QuickBooks.
+
+     One sentence: posted by SILO, or not sent and what would send it. Never
+     both, and never a guess -- a posted period whose reclasses could not be
+     read does not know which account holds the amount, so it says so. */
+  const SENT_ONLY = 'SILO reports only what it posted itself, so a month entered in QuickBooks directly does not show here.';
   function quickbooksStateLine(t) {
     const b = batchFor(t);
     if (!b) return '';
-    if (t.status === 'excluded') return 'Not in QuickBooks — excluded from this period’s entry';
+    if (t.status === 'excluded') return 'Not sent to QuickBooks — excluded from this period’s entry';
     if (isInQuickBooks(b)) {
       const ref = b.qbo_doc_number || b.qbo_journal_entry_id;
       const entry = ref ? ` — journal entry ${ref}` : '';
@@ -2177,25 +2186,25 @@
        done afterwards, least of all by turning posting off. */
     const claim = claimStateFor(b);
     if (claim?.kind === 'unreadable') {
-      return `Unknown — ${period} is not posted in SILO, but its posting attempts could not be read (${claim.detail}), so whether anything reached QuickBooks is unknown. Reload before posting it.`;
+      return `Unknown — SILO has not posted ${period}, but its posting attempts could not be read (${claim.detail}), so whether anything reached QuickBooks is unknown. Reload before posting it.`;
     }
     if (claim?.kind === 'unresolved') {
       const ref = claim.ref ? ` Look for ${claim.ref}.` : '';
       return `Unknown — a post was sent for ${period} and QuickBooks never confirmed it, so the entry may or may not exist there. SILO has locked the entry so it cannot post twice; check QuickBooks, then resolve it on this period.${ref}`;
     }
     if (!b.source_posting_enabled) {
-      return `Not in QuickBooks — QuickBooks posting is off for ${b.source_name || 'this account'}`;
+      return `Not sent to QuickBooks — QuickBooks posting is off for ${b.source_name || 'this account'}. ${SENT_ONLY}`;
     }
     if (t.status === 'uncoded') {
-      return `Not in QuickBooks — categorize it first, then ${period} has to be approved and posted`;
+      return `Not sent to QuickBooks — categorize it first, then ${period} has to be approved and posted`;
     }
     if (claim?.kind === 'failed') {
-      return `Not in QuickBooks — the last post of ${period} was refused by QuickBooks. Fix what it reports on this period, then post it again.`;
+      return `Not sent to QuickBooks — the last post of ${period} was refused by QuickBooks. Fix what it reports on this period, then post it again.`;
     }
     if (b.status === 'approved') {
-      return `Not in QuickBooks — ${period} is approved in SILO but has not been sent yet`;
+      return `Not sent to QuickBooks — ${period} is approved in SILO but has not been sent yet. ${SENT_ONLY}`;
     }
-    return `Not in QuickBooks — ${period} is still a draft in SILO, and has to be approved and then posted`;
+    return `Not sent to QuickBooks — ${period} is still a draft in SILO, and would have to be approved and then posted. ${SENT_ONLY}`;
   }
 
   /* The QuickBooks step of the workflow strip. It used to say "Approval
@@ -2235,7 +2244,7 @@
       .map((b) => [b.id, b])).values()];
     if (!periods.length) return base;
     const names = periods.map(periodLabel).join(', ');
-    return `${base} Not in QuickBooks yet — ${names} ${periods.length === 1 ? 'has' : 'have'} to be approved and posted.`;
+    return `${base} SILO has not posted ${names} — ${periods.length === 1 ? 'it is' : 'they are'} still a draft here.`;
   }
 
   function transactionDetailInner(t) {
