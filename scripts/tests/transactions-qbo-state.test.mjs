@@ -29,13 +29,14 @@ const siblings = await Promise.all(['transaction-filters', 'transaction-dates', 
 const EXPOSE = [
   'quickbooksStateLine', 'quickbooksStepDetail', 'periodLabel', 'isInQuickBooks',
   'periodClosed', 'savedCodingMessage', 'renderWorkflow', 'accountingStateLine',
-  'transactionDetailInner', 'postingUnsettled',
+  'transactionDetailInner', 'postingUnsettled', 'claimStateFor', 'loadPostingClaims',
 ].join(', ');
 
 /* Enough DOM and enough of the page's siblings for the presentation functions.
    Anything a test does not set stays empty, so a function that starts reading
    something new fails loudly here rather than silently in a browser. */
-function harness({ batch = null, batches = null, sources = [], dateBrowse = false, reclasses = [], reclassError = '' } = {}) {
+function harness({ batch = null, batches = null, sources = [], dateBrowse = false, reclasses = [],
+  reclassError = '', claims = {}, claimsError = '', spy = null, readError = null, readThrows = null } = {}) {
   const nodes = new Map();
   const node = (id) => {
     if (!nodes.has(id)) nodes.set(id, { id, innerHTML: '', textContent: '', hidden: false, disabled: false,
@@ -43,8 +44,19 @@ function harness({ batch = null, batches = null, sources = [], dateBrowse = fals
       querySelectorAll: () => [], addEventListener() {}, setAttribute() {}, insertAdjacentHTML() {}, append() {} });
     return nodes.get(id);
   };
-  const db = { from() { const q = {}; for (const m of ['select', 'eq', 'gte', 'lte', 'order', 'limit', 'range', 'in', 'maybeSingle', 'update', 'insert', 'delete']) q[m] = () => q;
-      q.then = (res, rej) => Promise.resolve({ data: [], error: null }).then(res, rej); return q; },
+  const db = {
+    from(table) {
+      const call = { table, eq: {}, in: {} };
+      if (spy) spy.push(call);
+      const q = {};
+      for (const m of ['select', 'gte', 'lte', 'order', 'limit', 'range', 'maybeSingle', 'update', 'insert', 'delete']) q[m] = () => q;
+      q.eq = (col, val) => { call.eq[col] = val; return q; };
+      q.in = (col, vals) => { call.in[col] = vals; return q; };
+      q.then = (res, rej) => (readThrows
+        ? Promise.reject(new Error(readThrows))
+        : Promise.resolve({ data: [], error: readError })).then(res, rej);
+      return q;
+    },
     rpc: () => Promise.resolve({ data: 0, error: null }), auth: { getSession: () => Promise.resolve({ data: { session: null } }) } };
   const window = {
     __SILO_CONFIG__: { SUPABASE_URL: 'https://fixture.invalid', SUPABASE_ANON_KEY: 'synthetic' },
@@ -66,12 +78,15 @@ function harness({ batch = null, batches = null, sources = [], dateBrowse = fals
   for (const module of siblings) vm.runInNewContext(module, sandbox);
   if (!window.SiloTransactionDates?.read) window.SiloTransactionDates = { ...window.SiloTransactionDates, read: async () => [] };
   vm.runInNewContext(body + `
+    _co = { id: 'co' };
     state.batch = ${JSON.stringify(batch)};
     state.batches = ${JSON.stringify(batches || (batch ? [batch] : []))};
     state.sources = ${JSON.stringify(sources)};
     dateBrowse = ${JSON.stringify(dateBrowse)};
     reclasses = new Map([['t1', ${JSON.stringify(reclasses)}]]);
     reclassError = ${JSON.stringify(reclassError)};
+    postingClaims = new Map(Object.entries(${JSON.stringify(claims)}));
+    postingClaimsError = ${JSON.stringify(claimsError)};
     window.subject = { ${EXPOSE} };
   })();`, sandbox);
   return { api: sandbox.window.subject, node };
@@ -247,34 +262,121 @@ test('saveCoding reports through savedCodingMessage, so the confirmation cannot 
     'the old unconditional "Saved N rows." confirmation must be gone');
 });
 
-/* quickbooks-post-journal claims a posting before it calls Intuit, so an
-   unfinished post leaves the batch approved with posting_status 'submitting' or
-   'unknown' -- and a readback can leave a journal entry id on one of those. If
-   either read as posted, SILO would tell a reader an entry exists when nobody
-   knows; if they read as "approved, not sent yet", it would invite a second
-   post of an entry that may already be in the books. */
-test('an unconfirmed post is reported as unknown, never as present or absent', () => {
-  for (const posting_status of ['submitting', 'unknown']) {
-    const b = batch({ status: 'approved', posting_status, qbo_journal_entry_id: '81599' });
-    const h = harness({ batch: b, sources: [SOURCE] });
+/* The shape a real interrupted post leaves behind.
+
+   quickbooks-post-journal inserts its claim as 'submitting' BEFORE calling
+   Intuit and links card_import_batches.posting_id only after a confirmed
+   success, and card_import_batches_v joins the posting THROUGH that posting_id.
+   So an unfinished attempt leaves the batch at 'approved' with posting_status
+   null -- byte for byte the shape of a period nobody has sent. Verified on
+   production: of 25 card_import claims, the 9 posted ones are linked to their
+   batch and all 16 failed ones are not.
+
+   The first version of these tests injected posting_status onto the batch, a
+   shape production never produces, so they passed while the page would have
+   told someone "approved but not sent yet" about an entry QuickBooks may hold.
+   These use the real two-record shape instead. (Cycle-1 review, #995.) */
+const TIMED_OUT = { status: 'approved', posting_id: null, posting_status: null,
+  qbo_journal_entry_id: null, qbo_doc_number: null };
+const claim = (over = {}) => ({ source_ref: 'b1', status: 'unknown', created_at: '2026-10-14T22:00:00Z',
+  qbo_doc_number: 'SILO-7C1', qbo_journal_entry_id: null, error_message: 'network_outcome_unknown: fetch failed', ...over });
+
+test('a post that timed out is reported as unknown, from the claim the batch never links', () => {
+  for (const status of ['submitting', 'unknown']) {
+    const b = batch(TIMED_OUT);
+    const h = harness({ batch: b, sources: [SOURCE], claims: { b1: [claim({ status })] } });
     const line = h.api.quickbooksStateLine(row());
-    assert.match(line, /^Unknown/, `${posting_status} must not be stated either way: ${line}`);
-    assert.match(line, /never confirmed|not confirmed/i);
+    assert.match(line, /^Unknown/, `${status} must not be stated either way: ${line}`);
+    assert.match(line, /never confirmed/i);
+    assert.match(line, /may or may not exist/i);
     assert.match(line, /cannot post twice/i, 'the reader must be told why SILO is holding it');
-    assert.equal(h.api.isInQuickBooks(b), false, 'a journal entry id alone is not proof it posted');
+    assert.match(line, /SILO-7C1/, 'the doc number to search QuickBooks for travels with it');
     assert.equal(h.api.postingUnsettled(b), true);
+    assert.equal(h.api.isInQuickBooks(b), false);
     assert.match(h.api.quickbooksStepDetail([b]), /unconfirmed/i);
   }
 });
 
+test('the batch alone can never show an unfinished attempt, so reading it is not enough', () => {
+  // The exact regression: same batch, no claim loaded -> the old code's reading.
+  const b = batch(TIMED_OUT);
+  const blind = harness({ batch: b, sources: [SOURCE] });
+  assert.match(blind.api.quickbooksStateLine(row()), /has not been sent yet/,
+    'with no claim this is genuinely an approved, unsent period');
+  const seeing = harness({ batch: b, sources: [SOURCE], claims: { b1: [claim()] } });
+  assert.match(seeing.api.quickbooksStateLine(row()), /^Unknown/,
+    'the same batch plus its claim must read as unknown, not as unsent');
+});
+
+test('an unfinished attempt outranks the posting switch, which resolves nothing already sent', () => {
+  const b = batch({ ...TIMED_OUT, source_posting_enabled: false });
+  const h = harness({ batch: b, sources: [{ ...SOURCE, posting_enabled: false }], claims: { b1: [claim()] } });
+  const line = h.api.quickbooksStateLine(row());
+  assert.match(line, /^Unknown/, 'turning posting off does not resolve an attempt already sent');
+  assert.doesNotMatch(line, /posting is off/i);
+  assert.match(h.api.quickbooksStepDetail([b]), /unconfirmed/i);
+});
+
+test('an unresolved attempt outranks a later refusal, which settles nothing about the lost one', () => {
+  const b = batch(TIMED_OUT);
+  const h = harness({ batch: b, sources: [SOURCE],
+    claims: { b1: [claim({ status: 'failed', created_at: '2026-10-14T23:00:00Z' }), claim()] } });
+  assert.equal(h.api.claimStateFor(b).kind, 'unresolved');
+  assert.match(h.api.quickbooksStateLine(row()), /^Unknown/);
+});
+
+test('a lookup that failed is kept apart from knowing there is no attempt', () => {
+  const b = batch(TIMED_OUT);
+  const h = harness({ batch: b, sources: [SOURCE], claimsError: 'network error' });
+  assert.equal(h.api.claimStateFor(b).kind, 'unreadable');
+  const line = h.api.quickbooksStateLine(row());
+  assert.match(line, /^Unknown/, 'not knowing must not be reported as not sent');
+  assert.match(line, /could not be read/i);
+  assert.match(line, /network error/);
+  assert.match(h.api.quickbooksStepDetail([b]), /could not be read/i);
+  assert.equal(h.api.savedCodingMessage(1, [row()]), 'Saved 1 row.',
+    'a period whose attempts could not be read must not be named as merely needing approval');
+});
+
+test('a failed claim read is recorded, not swallowed, so the page knows it does not know', async () => {
+  const h = harness({ batch: batch(TIMED_OUT), sources: [SOURCE],
+    claims: { b1: [claim()] }, readError: { message: 'JWT expired' } });
+  await h.api.loadPostingClaims();
+  // The stale map from before the failed read must not be reused as fact.
+  assert.equal(h.api.claimStateFor(batch(TIMED_OUT))?.kind, 'unreadable');
+  assert.match(h.api.quickbooksStateLine(row()), /could not be read/i);
+  assert.match(h.api.quickbooksStateLine(row()), /JWT expired/);
+});
+
+test('a thrown read degrades to the same recorded error, rather than taking the register down', async () => {
+  const h = harness({ batch: batch(TIMED_OUT), sources: [SOURCE], claims: { b1: [claim()] }, readThrows: 'offline' });
+  await assert.doesNotReject(() => h.api.loadPostingClaims(),
+    'the page must still open when the claim read fails outright');
+  assert.equal(h.api.claimStateFor(batch(TIMED_OUT))?.kind, 'unreadable');
+  assert.match(h.api.quickbooksStateLine(row()), /offline/);
+});
+
 test('a refused post says QuickBooks refused it, not that a human forgot to approve', () => {
-  const b = batch({ status: 'approved', posting_status: 'failed' });
-  const h = harness({ batch: b, sources: [SOURCE] });
+  const b = batch(TIMED_OUT);
+  const h = harness({ batch: b, sources: [SOURCE], claims: { b1: [claim({ status: 'failed' })] } });
   const line = h.api.quickbooksStateLine(row());
   assert.match(line, /^Not in QuickBooks/);
   assert.match(line, /refused/i);
   assert.doesNotMatch(line, /has not been sent yet/, 'it was sent -- it came back refused');
   assert.match(h.api.quickbooksStepDetail([b]), /refused/i);
+});
+
+test('the claim read asks for the correlation on_deck_coding_items uses, and keeps a failure apart', async () => {
+  const seen = [];
+  const h = harness({ batch: batch(TIMED_OUT), sources: [SOURCE], spy: seen });
+  await h.api.loadPostingClaims();
+  const call = seen.find((c) => c.table === 'quickbooks_journal_postings');
+  assert.ok(call, 'the postings table must be read on its own; the batch view cannot show this');
+  assert.equal(call.eq.source, 'card_import');
+  assert.ok(call.eq.company_entity_id, 'the read must be company-scoped');
+  assert.deepEqual([...call.in.source_ref], ['b1'], 'correlated by source_ref = the batch id');
+  assert.deepEqual([...call.in.status], ['submitting', 'unknown', 'failed'],
+    'the three statuses that never reach the batch view');
 });
 
 test('a voided posting leaves the period reading as not posted', () => {
@@ -287,18 +389,26 @@ test('a voided posting leaves the period reading as not posted', () => {
 });
 
 test('a save never claims a period is waiting on approval when that is not what it waits on', () => {
-  for (const b of [batch({ status: 'approved', posting_status: 'unknown' }), batch({ status: 'approved' }),
-    batch({ status: 'posted', posting_status: 'posted' })]) {
-    const h = harness({ batch: b, sources: [SOURCE] });
+  const cases = [
+    { b: batch({ status: 'approved' }), claims: {}, why: 'approved, nothing sent' },
+    { b: batch({ status: 'posted', posting_status: 'posted' }), claims: {}, why: 'already posted' },
+    { b: batch(TIMED_OUT), claims: { b1: [claim()] }, why: 'an attempt is unresolved' },
+    { b: batch(), claims: { b1: [claim({ status: 'failed' })] }, why: 'the last attempt was refused' },
+  ];
+  for (const { b, claims, why } of cases) {
+    const h = harness({ batch: b, sources: [SOURCE], claims });
     assert.equal(h.api.savedCodingMessage(1, [row()]), 'Saved 1 row.',
-      `only a draft or categorized period may be named as needing approval: ${b.status}/${b.posting_status}`);
+      `a period must not be reduced to "needs approval" when ${why}`);
   }
+  // The one case that SHOULD be named: a closed draft with no attempt at all.
+  const plain = harness({ batch: batch(), sources: [SOURCE] });
+  assert.match(plain.api.savedCodingMessage(1, [row()]), /July 2026/);
 });
 
 /* Three findings from reviewing the wired path, each with its own check. */
 test('the workflow tick and its text agree: an unconfirmed post is not a completed step', () => {
-  const b = batch({ status: 'approved', posting_status: 'unknown', qbo_journal_entry_id: '81599' });
-  const h = harness({ batch: b, sources: [SOURCE] });
+  const b = batch(TIMED_OUT);
+  const h = harness({ batch: b, sources: [SOURCE], claims: { b1: [claim()] } });
   h.api.renderWorkflow([row()], [b]);
   const html = h.node('transactionFlow').innerHTML;
   assert.match(html, /unconfirmed/i);
@@ -339,13 +449,14 @@ test('every QuickBooks line carries exactly one of the three states', () => {
   const states = [
     batch(), batch({ status: 'categorized' }), batch({ status: 'approved' }),
     batch({ status: 'posted', posting_status: 'posted', qbo_doc_number: 'X' }),
-    batch({ status: 'approved', posting_status: 'submitting' }),
-    batch({ status: 'approved', posting_status: 'unknown', qbo_journal_entry_id: '81599' }),
-    batch({ status: 'approved', posting_status: 'failed' }),
     batch({ source_posting_enabled: false }), batch({ uncoded_count: 3 }),
   ];
-  for (const b of states) {
-    const h = harness({ batch: b, sources: [SOURCE] });
+  // The unfinished and refused attempts live in the claim, never on the batch,
+  // so the sweep carries them as the second record rather than a batch field.
+  const claimSets = [{}, { b1: [claim({ status: 'submitting' })] }, { b1: [claim()] },
+    { b1: [claim({ status: 'failed' })] }];
+  for (const b of states) for (const claims of claimSets) {
+    const h = harness({ batch: b, sources: [SOURCE], claims });
     for (const t of [row(), row({ status: 'uncoded', qbo_account_id: null }), row({ status: 'excluded' })]) {
       const line = h.api.quickbooksStateLine(t);
       assert.ok(line, 'a row in a batch in view always has a QuickBooks state');

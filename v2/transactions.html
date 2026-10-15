@@ -1075,6 +1075,76 @@
       batches=[...batches.filter(b=>b.source_id!==sourceId),...accountBatches];
     }
     state.batches = batches;
+    await loadPostingClaims();
+  }
+
+  /* Postings that never reached the batch.
+
+     quickbooks-post-journal inserts its claim with status 'submitting' BEFORE
+     it calls Intuit, and links card_import_batches.posting_id only in
+     finalize(), after a confirmed success. card_import_batches_v joins the
+     posting through that posting_id, so an unfinished or refused attempt is
+     INVISIBLE on the batch: its posting_status is null and its status is still
+     'approved'. Production bears this out -- of 25 card_import claims, the 9
+     posted ones are linked to their batch and all 16 failed ones are not.
+
+     So a post that timed out leaves exactly the shape of a period nobody has
+     sent yet, and reading the batch alone would tell someone "approved but not
+     sent" about an entry QuickBooks may well hold. The claim has to be read on
+     its own, correlated the way on_deck_coding_items() does it: company,
+     source 'card_import', source_ref = the batch id. (Cycle-1 review, #995.)
+
+     A failed READ is kept apart from "no claim": not knowing is not the same as
+     knowing there is nothing, and the line says so rather than asserting. */
+  let postingClaims = new Map(), postingClaimsError = '';
+  const UNRESOLVED_CLAIM = ['submitting', 'unknown'];
+  async function loadPostingClaims() {
+    postingClaims = new Map(); postingClaimsError = '';
+    const ids = [...new Set((state.batches || [])
+      .filter((b) => b.company_entity_id === _co?.id && b.status !== 'posted')
+      .map((b) => b.id))];
+    if (!ids.length || !_co?.id) return;
+    /* This must never take the page down: a register that will not open is
+       worse than one that cannot describe its posting attempts, which is the
+       lesson from the report location slicer (2026-10-14). A throw degrades to
+       the same recorded error as a PostgREST error, and the error is recorded
+       INSTEAD of partial rows, so half a page is never read as the whole truth.
+       Measured on production at 2.3ms under an index scan, against the 8s
+       statement timeout `authenticated` is capped at. */
+    try {
+      for (let offset = 0; offset < ids.length; offset += 200) {
+        const { data, error } = await sb.from('quickbooks_journal_postings')
+          .select('source_ref,status,created_at,qbo_doc_number,qbo_journal_entry_id,error_message')
+          .eq('company_entity_id', _co.id).eq('source', 'card_import')
+          .in('source_ref', ids.slice(offset, offset + 200))
+          .in('status', [...UNRESOLVED_CLAIM, 'failed'])
+          .order('created_at', { ascending: false });
+        if (error) throw new Error(error.message);
+        for (const row of data || []) {
+          const held = postingClaims.get(row.source_ref) || [];
+          held.push(row);
+          postingClaims.set(row.source_ref, held);
+        }
+      }
+    } catch (e) {
+      postingClaims = new Map();
+      postingClaimsError = e.message || String(e);
+    }
+  }
+
+  /* What the unfinished attempts on a batch amount to. An UNRESOLVED attempt
+     outranks a later failed one: a failure after a lost response does not tell
+     anyone whether the lost one landed. */
+  function claimStateFor(b) {
+    if (!b) return null;
+    if (postingClaimsError) return { kind: 'unreadable', detail: postingClaimsError };
+    const rows = postingClaims.get(b.id) || [];
+    if (rows.some((r) => UNRESOLVED_CLAIM.includes(r.status))) {
+      const row = rows.find((r) => UNRESOLVED_CLAIM.includes(r.status));
+      return { kind: 'unresolved', ref: row.qbo_doc_number || row.qbo_journal_entry_id || null };
+    }
+    if (rows.some((r) => r.status === 'failed')) return { kind: 'failed' };
+    return null;
   }
 
   /* Every rule, not the first 500. The old `.limit(500)` silently hid the
@@ -2032,14 +2102,13 @@
      queries, approves or sends. */
   const isInQuickBooks = (b) => !!b && (b.status === 'posted' || b.posting_status === 'posted');
 
-  /* A post was sent and its outcome is not settled. quickbooks-post-journal
-     claims the posting BEFORE it calls Intuit, so 'submitting' and 'unknown'
-     mean the entry may or may not exist in QuickBooks -- and a readback can
-     leave a qbo_journal_entry_id on a posting that is still unknown, which is
-     why the id alone is never read as "it is in the books". Neither state may
-     be stated as present or absent. A void clears the batch's posting_id
-     outright (void_card_posting), so a voided batch reads as not posted. */
-  const postingUnsettled = (b) => ['submitting', 'unknown'].includes(b?.posting_status);
+  /* A post was sent and its outcome is not settled: the entry may or may not
+     exist in QuickBooks, and neither may be stated as fact. This reads the
+     CLAIM (see loadPostingClaims) and not b.posting_status, because an
+     unresolved attempt is never linked to the batch and so never appears
+     there. A void clears the batch's posting_id outright (void_card_posting),
+     so a voided batch reads as not posted. */
+  const postingUnsettled = (b) => claimStateFor(b)?.kind === 'unresolved';
 
   // The month a reader recognises. An import with no period keeps its own label
   // rather than becoming an anonymous "this period".
@@ -2081,16 +2150,24 @@
         : `In QuickBooks${entry}`;
     }
     const period = periodLabel(b);
+    /* An unfinished attempt comes FIRST, ahead of the posting switch and the
+       period's own status: an attempt already sent is not resolved by anything
+       done afterwards, least of all by turning posting off. */
+    const claim = claimStateFor(b);
+    if (claim?.kind === 'unreadable') {
+      return `Unknown — ${period} is not posted in SILO, but its posting attempts could not be read (${claim.detail}), so whether anything reached QuickBooks is unknown. Reload before posting it.`;
+    }
+    if (claim?.kind === 'unresolved') {
+      const ref = claim.ref ? ` Look for ${claim.ref}.` : '';
+      return `Unknown — a post was sent for ${period} and QuickBooks never confirmed it, so the entry may or may not exist there. SILO has locked the entry so it cannot post twice; check QuickBooks, then resolve it on this period.${ref}`;
+    }
     if (!b.source_posting_enabled) {
       return `Not in QuickBooks — QuickBooks posting is off for ${b.source_name || 'this account'}`;
     }
     if (t.status === 'uncoded') {
       return `Not in QuickBooks — categorize it first, then ${period} has to be approved and posted`;
     }
-    if (postingUnsettled(b)) {
-      return `Unknown — a post was sent for ${period} and QuickBooks never confirmed it. SILO has locked the entry so it cannot post twice; check QuickBooks, then resolve it on this period.`;
-    }
-    if (b.posting_status === 'failed') {
+    if (claim?.kind === 'failed') {
       return `Not in QuickBooks — the last post of ${period} was refused by QuickBooks. Fix what it reports on this period, then post it again.`;
     }
     if (b.status === 'approved') {
@@ -2107,12 +2184,16 @@
     if (!batches.length) return 'No period open';
     if (batches.every(isInQuickBooks)) return 'Posted';
     const waiting = batches.filter((b) => !isInQuickBooks(b));
+    /* Same precedence as the row: an unfinished attempt outranks the posting
+       switch, because turning posting off resolves nothing already sent, and a
+       lookup that failed says so rather than reading as "nothing was sent". */
+    if (waiting.some((b) => claimStateFor(b)?.kind === 'unreadable')) return 'Posting attempts could not be read';
+    if (waiting.some(postingUnsettled)) return 'Posting outcome unconfirmed';
     // card_import_batches_v carries the source's own switch per batch. Reading
     // it from the batch means a source list that has not resolved yet cannot
     // make a postable account look switched off.
     if (waiting.every((b) => b.source_posting_enabled === false)) return 'Off for account';
-    if (waiting.some(postingUnsettled)) return 'Posting outcome unconfirmed';
-    if (waiting.some((b) => b.posting_status === 'failed')) return 'Last post refused by QuickBooks';
+    if (waiting.some((b) => claimStateFor(b)?.kind === 'failed')) return 'Last post refused by QuickBooks';
     if (waiting.every((b) => b.status === 'approved')) return 'Approved — not sent yet';
     const ready = waiting.filter((b) => periodClosed(b) && !Number(b.uncoded_count));
     if (ready.length) return `Not sent — approve ${ready.map(periodLabel).join(', ')}`;
@@ -2128,7 +2209,7 @@
     const periods = [...new Map((rows || [])
       .map((t) => batchFor(t))
       .filter((b) => b && ['draft', 'categorized'].includes(b.status)
-        && !isInQuickBooks(b) && !postingUnsettled(b) && periodClosed(b))
+        && !isInQuickBooks(b) && !claimStateFor(b) && periodClosed(b))
       .map((b) => [b.id, b])).values()];
     if (!periods.length) return base;
     const names = periods.map(periodLabel).join(', ');

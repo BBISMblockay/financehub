@@ -28,12 +28,39 @@ separate from SILO's own state and is always exactly one of three readings:
 | `Not in QuickBooks — …` | with the next step: categorize the row, approve the month, send the approved month, or that posting is off for the account. A refused post says QuickBooks refused it |
 | `Unknown — …` | a post was sent and QuickBooks never confirmed it |
 
-That third reading is not hedging. `quickbooks-post-journal` claims its posting
-**before** it calls Intuit, so `submitting` and `unknown` mean the entry may or
-may not exist, and a readback can leave a `qbo_journal_entry_id` on a posting
-that never confirmed. A journal entry id is therefore never read as proof the
-entry posted. SILO locks the entry in that state so it cannot post twice, and
-the line says so.
+### Why "unknown" needs its own reading, and its own query
+
+`quickbooks-post-journal` inserts its posting claim with status `submitting`
+**before** it calls Intuit, and links `card_import_batches.posting_id` only in
+`finalize()`, after a confirmed success. `card_import_batches_v` joins the
+posting *through* that `posting_id`.
+
+So an unfinished or refused attempt is **invisible on the batch**: its
+`posting_status` is null and its status is still `approved` — byte for byte the
+shape of a period nobody has sent. Production bears this out: of 25
+`card_import` claims, the 9 posted ones are linked to their batch and all 16
+failed ones are not.
+
+That is why the page reads the claim separately (`loadPostingClaims`),
+correlated the way `on_deck_coding_items()` does it — company, `source =
+'card_import'`, `source_ref` = the batch id — and why a journal entry id alone
+is never read as proof the entry posted. Reading the batch alone would tell
+someone "approved but not sent yet" about an entry QuickBooks may well hold.
+The first version of this change did exactly that, and its tests passed because
+they injected `posting_status` onto a batch fixture, a shape production never
+produces. Found by review cycle 1 on PR #995.
+
+Two rules follow:
+
+- **An unresolved attempt outranks everything else**, including the posting
+  switch: turning posting off for an account does not resolve a send already
+  made.
+- **A failed lookup is not "no attempt".** If the claim read fails, the line
+  says the attempts could not be read and names the error, rather than
+  asserting the period was never sent. The read also never takes the register
+  down: a throw degrades to that same recorded error. It measured 2.3ms on
+  production under an index scan (`idx_quickbooks_postings_company_status`),
+  against the 8s statement timeout `authenticated` is capped at.
 
 A **void** is not this case: `void_card_posting` clears the batch's `posting_id`,
 so a voided period reads as not posted, with no stale entry number.
@@ -61,10 +88,12 @@ closed up to 17 hours early, while the people closing it are still in it.
 
 ## Tests
 
-`node scripts/tests/transactions-qbo-state.test.mjs` — 29 checks against the
+`node scripts/tests/transactions-qbo-state.test.mjs` — 36 checks against the
 shipped page, with the real `transaction-filters.js`, `transaction-dates.js` and
 `card-splits.js` loaded rather than stubs, including the panel and strip wiring
 and not only the helpers. Green under both UTC and `TZ=America/Los_Angeles`.
-15 mutations were confirmed to fail a test, among them reading a journal entry id
-as proof of posting (which was a real bug in the first version) and comparing the
-period end against a UTC date.
+23 mutations were confirmed to fail a test, among them reading the unfinished
+attempt from the batch instead of its claim (the cycle-1 finding), correlating
+the claim read on the wrong column, swallowing a failed or thrown claim read,
+reading a journal entry id as proof of posting, and comparing the period end
+against a UTC date.
