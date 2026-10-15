@@ -8,14 +8,18 @@
   const clean = v => text(v).replace(/\s+/g, ' ').toLowerCase();
   function currentStatus(rows = [], now = Date.now()) {
     const active = rows.filter(p => ['ready','needs_info','failed','preparing','revision'].includes(p.status));
-    const stale = p => p.source_current === false || !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= now;
-    const ready = active.filter(p => p.status === 'ready' && p.source_current === true && !stale(p) && !draftBlockers(p).length).length;
+    // Expiry is the gate. A sync that refreshed the source data is reported, not
+    // counted against the draft: the fingerprint moves on every sync, so treating
+    // drift as staleness left every draft unactionable within hours of preparation.
+    const stale = p => !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= now;
+    const ready = active.filter(p => p.status === 'ready' && typeof p.source_current === 'boolean' && !stale(p) && !draftBlockers(p).length).length;
     const needs = active.filter(p => p.status === 'needs_info').length, failed = active.filter(p => p.status === 'failed').length;
     const expired = active.filter(stale).length, preparing = active.filter(p => ['preparing','revision'].includes(p.status)).length;
     const running = active.filter(p => p.preparation?.state === 'running').length, paused = active.filter(p => p.preparation?.state === 'paused').length, queued = active.filter(p => p.preparation?.state === 'queued').length;
     const unknown = active.filter(p => typeof p.source_current !== 'boolean').length;
-    return { ready, needs, failed, stale: expired, preparing, queued, running, paused, unknown,
-      text: `${ready} actionable drafts; ${needs} need context; ${failed} failed; ${queued} queued, ${running} running, ${paused} paused. ${expired} active drafts have stale evidence and cannot be approved.${unknown ? ` Freshness unavailable for ${unknown} drafts; reload before review.` : ''}` };
+    const drifted = active.filter(p => p.source_current === false && !stale(p)).length;
+    return { ready, needs, failed, stale: expired, preparing, queued, running, paused, unknown, drifted,
+      text: `${ready} actionable drafts; ${needs} need context; ${failed} failed; ${queued} queued, ${running} running, ${paused} paused. ${expired} active drafts expired and cannot be approved.${drifted ? ` ${drifted} were prepared before the latest data sync; the figures shown are from preparation time.` : ''}${unknown ? ` Freshness unavailable for ${unknown} drafts; reload before review.` : ''}` };
   }
   const name = p => text(p.title).split(' · ').slice(1).join(' · ') || text(p.title) || 'Prepared opportunity';
   // Prefer structured SEO fields; legacy parsing only compares displayed copy.
@@ -32,7 +36,7 @@
   }
   function proposal(p, now) {
     const c = p.content || {}, s = p.source || {}, expires = Date.parse(p.valid_until);
-    if (p.source_current !== true || draftBlockers(p).length || p.status !== 'ready' || c.recommend !== true || !text(c.body) || !Array.isArray(c.missing) || c.missing.length ||
+    if (typeof p.source_current !== 'boolean' || draftBlockers(p).length || p.status !== 'ready' || c.recommend !== true || !text(c.body) || !Array.isArray(c.missing) || c.missing.length ||
         !Number.isFinite(expires) || expires <= now || !text(p.selection_reason)) return null;
     const base = { id: p.id, type: 'proposal', kind: p.kind, name: name(p), priority: 1,
       rank: Number((p.selection_reason.match(/Selected #(\d+)/) || [])[1]) || 99,
@@ -90,7 +94,7 @@
   }
   function discovery(p, now) {
     const s = p.source || {}, expires = Date.parse(p.valid_until);
-    if (p.source_current !== true || p.status !== 'needs_info' || p.content?.recommend !== true || !text(p.content?.body) ||
+    if (typeof p.source_current !== 'boolean' || p.status !== 'needs_info' || p.content?.recommend !== true || !text(p.content?.body) ||
         !text(p.selection_reason) || !Number.isFinite(expires) || expires <= now) return null;
     if (p.kind === 'ads') {
       if (!positive(s.index) || !['moderate', 'strong'].includes(s.evidence) || !text(s.objective) || !text(s.current_copy)) return null;
@@ -205,6 +209,8 @@
   // so a card and its detail can never disagree about the same row. `review` is
   // the on_deck_review_state payload, or null when that call failed: a null
   // review means the status is UNKNOWN, never "needs input" and never "ready".
+  // Shown alongside a usable status, never instead of one.
+  const DRIFT_NOTICE = 'Your data has refreshed since this draft was prepared. The figures below are the ones it was built on.';
   const STATUS_REASONS = {
     previous_attempt: 'An earlier attempt is still finishing.',
     context_open: 'Context work is still open.',
@@ -255,20 +261,40 @@
       return { key: 'blocked', label: 'Preparation did not finish', tone: 'warn', action: 'refresh',
         detail: STATUS_REASONS.preparation_failed };
     }
-    if (p.source_current === false || expired) {
-      return { key: 'stale', label: expired ? 'Evidence expired' : 'Evidence changed', tone: 'warn', action: 'refresh',
+    if (expired) {
+      return { key: 'stale', label: 'Evidence expired', tone: 'warn', action: 'refresh',
+        detail: 'This draft passed its 48-hour window. Refresh evidence to queue a fresh one.' };
+    }
+    // An explicit Refresh empties source_version: there is no evidence basis at all,
+    // which is what the SQL gates block on. Drift (a fingerprint that merely moved)
+    // reads false on source_current too, so the page must tell the two apart or it
+    // would offer a draft the database will refuse.
+    if (p.source_version === '') {
+      return { key: 'queued', label: 'Fresh draft requested', tone: 'working', action: null,
+        detail: 'A fresh screening was requested. Your saved answers and previous draft are kept until it arrives.' };
+    }
+    // drift_warns is absent until 20261015013000 is applied to the database, and
+    // until then the gates still refuse a drifted draft, so the page keeps blocking
+    // it rather than offering an action the database will reject.
+    if (p.source_current === false && review.drift_warns !== true) {
+      return { key: 'stale', label: 'Evidence changed', tone: 'warn', action: 'refresh',
         detail: 'Refresh evidence before saving or creating work.' };
     }
+    const notice = p.source_current === false ? DRIFT_NOTICE : undefined;
     const blockers = draftBlockers(p);
     if (blockers.length) {
       const asks = inputPlan(p).filter(i => i.requirement === 'required' && (i.mode !== 'answered' || text(i.answer).length < 4)).length;
       return { key: 'needs_input', label: asks ? `Needs ${asks} answer${asks === 1 ? '' : 's'}` : 'Needs input', tone: 'needs_input',
-        action: 'answer', asks, blockers };
+        action: 'answer', asks, blockers, notice };
     }
-    return { key: 'ready', label: 'Ready for your review', tone: 'proposal', action: 'review' };
+    return { key: 'ready', label: 'Ready for your review', tone: 'proposal', action: 'review', notice };
   }
-  function canReview(p, installed = true, now = Date.now()) {
-    return installed && p.source_current === true && Number.isFinite(Date.parse(p.valid_until)) && Date.parse(p.valid_until) > now && !['preparing', 'revision', 'completed', 'dismissed', 'screened'].includes(p.status);
+  function canReview(p, installed = true, now = Date.now(), driftWarns = false) {
+    if (p.source_current === false && driftWarns !== true) return false;
+    // Drift (source_current === false) is a notice, matching the SQL gates, which
+    // block only on an absent evidence basis and on expiry. Unknown freshness
+    // (not a boolean) still blocks: nothing about the draft has been confirmed.
+    return installed && typeof p.source_current === 'boolean' && p.source_version !== '' && Number.isFinite(Date.parse(p.valid_until)) && Date.parse(p.valid_until) > now && !['preparing', 'revision', 'completed', 'dismissed', 'screened'].includes(p.status);
   }
   const api = { build, seoChange, inputPlan, prepareHandoff, currentStatus, draftBlockers, preparation, canReview, creationBody, statusOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -200,7 +200,7 @@
     coding.forEach(i => grid.append(state.coding.card(i)));
     proposals.forEach(p => grid.append(proposalCard(p)));
     state.coding?.markActive();
-    const reviewable = coding.filter(i => window.SiloOnDeckCoding.isPending(i)).length + proposals.filter(p => p.status === 'ready' && p.source_current === true && !window.SiloOnDeckBriefing.draftBlockers(p).length && Date.parse(p.valid_until) > Date.now()).length;
+    const reviewable = coding.filter(i => window.SiloOnDeckCoding.isPending(i)).length + proposals.filter(p => statusOf(p).key === 'ready').length;
     $('ready-count').textContent = String(reviewable);
     $('ready-section').hidden = false;
     if (!grid.children.length) {
@@ -292,9 +292,9 @@
   function renderDetail() {
     const detail = $('detail'), rail = $('rail'), p = selected(); detail.replaceChildren(); rail.replaceChildren();
     if (!p) { const empty = node('div', null, 'od-empty'); empty.append(node('strong', 'Good decisions start with good evidence.'), node('span', 'Your strongest opportunities will appear here with a draft, a reason to act, and a clear destination.')); detail.append(empty); return; }
-    const c = p.content || {}, s = p.source || {}, stale = p.source_current === false, expired = !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= Date.now();
+    const c = p.content || {}, s = p.source || {}, drifted = p.source_current === false, expired = !Number.isFinite(Date.parse(p.valid_until)) || Date.parse(p.valid_until) <= Date.now();
     const head = node('div', null, 'od-detail-head'); head.append(node('span', names[p.kind], 'od-pill'), node('h2', title(p)), node('p', `Draft ${p.version} · ${statusOf(p).label}`, 'od-meta')); detail.append(head);
-    const B = window.SiloOnDeckBriefing, blockers = B.draftBlockers(p), editable = B.canReview(p, state.reviewState?.review_contract === 2);
+    const B = window.SiloOnDeckBriefing, blockers = B.draftBlockers(p), editable = B.canReview(p, state.reviewState?.review_contract === 2, Date.now(), state.reviewState?.drift_warns === true);
     if (!['completed', 'dismissed', 'screened'].includes(p.status)) {
       const step = node('section', null, 'od-next-step'); step.append(node('h3', 'Your next step'));
       const prep = B.preparation(p, state.settings, state.reviewState || {});
@@ -305,7 +305,10 @@
         if (prep.state === 'paused') step.append(safeLink('Review preparation settings', '/v2/settings-company.html#on-deck-settings'));
         if (prep.state === 'running') step.append(button('Reload status', load));
       }
-      if (p.source_current !== true || expired) step.append(node('p', expired ? 'The saved evidence expired. Refresh evidence before saving or creating work.' : p.source_current === false ? 'Source evidence changed. Refresh evidence before saving or creating work.' : 'Freshness is unavailable. Reload before saving or creating work.'));
+      // A sync that refreshed the data says so and leaves the draft usable. Only an
+      // expired draft, or one whose freshness could not be read, stops the work.
+      if (expired || typeof p.source_current !== 'boolean') step.append(node('p', expired ? 'The saved evidence expired. Refresh evidence to queue a fresh draft.' : 'Freshness is unavailable. Reload before saving or creating work.'));
+      else if (drifted) step.append(node('p', statusOf(p).notice || '', 'od-meta'));
       if (blockers.length) { const list = node('ul', null, 'od-input-list'); blockers.forEach(x => list.append(node('li', x))); step.append(node('p', 'Still needed before creation:'), list); }
       else if (editable) step.append(node('p', 'Review the evidence and saved work, then confirm creation. Publishing and implementation happen separately.'));
       const review = button('Review draft', openEditor, true); review.disabled = !editable; step.append(review);
@@ -348,7 +351,7 @@
       if (p.dismiss_reason) panel.append(node('p', `Dismissed: ${p.dismiss_reason}`));
     }
     detail.append(panel);
-    if (stale && !['completed','dismissed','screened'].includes(p.status)) detail.append(node('p', p.source_version === '' ? 'Fresh screening was requested. Saved findings and your previous draft are retained; check the preparation status above.' : 'Source evidence changed since this draft. Refresh evidence before editing or approving.', 'od-warning'));
+    if (drifted && !['completed','dismissed','screened'].includes(p.status)) detail.append(node('p', p.source_version === '' ? 'Fresh screening was requested. Saved findings and your previous draft are retained; check the preparation status above.' : 'Your data has refreshed since this draft was prepared. The evidence above is what it was built on; editing and creating work are still available until it expires.', 'od-warning'));
     if (p.kind === 'seo' && c.proposed_title) detail.append(node('h3', 'Proposed search copy'), node('p', c.proposed_title), node('p', c.proposed_meta_description));
     if (c.optional_context?.length) { const extra = node('details'); extra.append(node('summary', 'Optional enrichment — not required for this draft')); c.optional_context.forEach(x => extra.append(node('p', x))); detail.append(extra); }
     if (p.kind === 'seo' && c.body && (!c.proposed_title || !c.proposed_meta_description)) detail.append(node('p', 'This draft needs a proposed SEO title and meta description. Fill them in Review draft, or request preparation separately.', 'od-warning'));
@@ -371,7 +374,7 @@
     const revision = node('section'); revision.append(node('h3', 'Give it a nudge'));
     const field = node('textarea'); field.className = 'bcn-field'; field.rows = 3; field.maxLength = 2000; field.placeholder = 'What would make this stronger?'; field.setAttribute('aria-label', 'Revision instructions');
     const revise = button('Request revision', async () => { if (!field.value.trim()) { message('Describe the revision first.', true); field.focus(); return; } revise.disabled = true; await simpleAction('revise', field.value); }, true);
-    revise.disabled = !state.settings.enabled || p.source_current !== true || state.reviewState?.review_contract !== 2 || ['completed', 'dismissed', 'screened', 'preparing', 'revision'].includes(p.status) || expired || stale; field.disabled = revise.disabled; revision.append(field, revise, node('p', revise.disabled ? 'Revision requires enabled preparation, current evidence and an active draft.' : 'This requests paid AI preparation within your workspace limits. Saving edits does not.', 'od-meta')); rail.append(revision);
+    revise.disabled = !state.settings.enabled || typeof p.source_current !== 'boolean' || p.source_version === '' || state.reviewState?.review_contract !== 2 || ['completed', 'dismissed', 'screened', 'preparing', 'revision'].includes(p.status) || expired; field.disabled = revise.disabled; revision.append(field, revise, node('p', revise.disabled ? 'Revision requires enabled preparation, current evidence and an active draft.' : 'This requests paid AI preparation within your workspace limits. Saving edits does not.', 'od-meta')); rail.append(revision);
     const rules = node('section'); rules.append(node('h3', 'You have the final say'), node('p', 'Creation saves draft work only. AI revision is separate and may use credit.'), node('span', `Evidence expires ${when(p.valid_until)}`, 'od-meta')); rail.append(rules);
   }
   function renderContext(panel, p) {
@@ -387,7 +390,7 @@
     if (!state.reviewState || (work.task_id && !task)) return;
     if (!['preparing', 'revision'].includes(p.status) && ((p.content?.missing || []).length || work.state === 'open')) {
       const assign = button(work.state === 'open' ? 'Record findings and refresh draft' : 'Assign context work', () => openContext(p));
-      assign.disabled = work.state !== 'open' && !window.SiloOnDeckBriefing.canReview(p, state.reviewState?.review_contract === 2);
+      assign.disabled = work.state !== 'open' && !window.SiloOnDeckBriefing.canReview(p, state.reviewState?.review_contract === 2, Date.now(), state.reviewState?.drift_warns === true);
       panel.append(assign, node('p', work.state === 'open' ? 'Saving findings requests a fresh screen and may use AI credit. You can answer inputs manually in Review draft instead.' : assign.disabled ? 'Assigning context work needs confirmed current evidence.' : 'Secondary option: ask an owner to gather required facts. This does not create the proposed destination work.', 'od-meta'));
     }
   }
@@ -417,7 +420,7 @@
     submit(e.target, 'context-error', async () => {
       await companyStillActive();
       const task = $('context-task').value, owner = $('context-owner').value;
-      if (!contextResolving && !contextDetaching && (contextProposal.source_current === false || !Number.isFinite(Date.parse(contextProposal.valid_until)) || Date.parse(contextProposal.valid_until) <= Date.now())) throw new Error('Evidence changed or expired. Refresh before assigning context work.');
+      if (!contextResolving && !contextDetaching && (typeof contextProposal.source_current !== 'boolean' || contextProposal.source_version === '' || !Number.isFinite(Date.parse(contextProposal.valid_until)) || Date.parse(contextProposal.valid_until) <= Date.now())) throw new Error('Evidence changed or expired. Refresh before assigning context work.');
       if (!contextResolving && !contextDetaching && !task && !owner) throw new Error('Choose an owner or an existing owned task.');
       await rpc('on_deck_context', { p_id: contextProposal.id, p_version: contextProposal.version,
         p_action: contextDetaching ? 'detach' : contextResolving ? 'resolve' : task ? 'link' : 'create', p_assignee: owner || null,
@@ -459,7 +462,7 @@
     catch (e) { $('edit-blockers').textContent = e.message; }
   }
   function openEditor() {
-    if (dialogBusy || !window.SiloOnDeckBriefing.canReview(selected(), state.reviewState?.review_contract === 2)) return;
+    if (dialogBusy || !window.SiloOnDeckBriefing.canReview(selected(), state.reviewState?.review_contract === 2, Date.now(), state.reviewState?.drift_warns === true)) return;
     dialogProposal = selected(); const c = dialogProposal.content || {};
     ['subject', 'summary', 'body','reason'].forEach(key => { $('edit-' + key).value = c[key] || ''; }); $('edit-note').value = ''; $('edit-reload').hidden = true; message('', false, 'edit-error');
     $('edit-seo').hidden = dialogProposal.kind !== 'seo'; $('edit-seo-title').value = c.proposed_title || ''; $('edit-seo-meta').value = c.proposed_meta_description || '';

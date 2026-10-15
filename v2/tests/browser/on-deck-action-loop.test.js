@@ -7,7 +7,7 @@ const draft = { recommend: true, subject: 'Collection search copy review', summa
 const tables = () => ({ profiles: [{ id: 'test-user', email: 'owner@example.test', role: 'admin' }], on_deck_settings: [{ enabled: true }], on_deck_proposals: [{ id: 'search', company_entity_id: 'test-company', kind: 'seo', title: 'Search copy · Classic tees', status: 'needs_info', version: 2, valid_until: '2099-01-01', source_version: 'current', selection_reason: 'Selected #1 from page evidence.', source: { url: 'https://example.test/tees', impressions: 30000, clicks: 180, position: 7, days: 26, inspection: { title: 'Tees', meta_description: 'Current copy' } }, content: structuredClone(draft) }], on_deck_events: [], on_deck_attempts: [] });
 const rpc = {
   on_deck_can_review: () => true,
-  on_deck_review_state: () => ({review_contract:2,purchasing:true, seo: true, context_tasks: [{id: 'created', notes: 'Findings from task owner: approved brief revision 3.', status: 'open', owner: 'Research owner'}], proposals: window.__FIXTURE_TABLES__.on_deck_proposals.map(p => ({ id: p.id, source_current: p.source_version === 'current' })), assignees: [{ id: 'owner', name: 'Research owner' }], tasks: [{ id: 'existing', task_title: 'Existing evidence research', assigned_to_user_id: 'owner' }] }),
+  on_deck_review_state: () => ({review_contract:2,drift_warns:true,purchasing:true, seo: true, context_tasks: [{id: 'created', notes: 'Findings from task owner: approved brief revision 3.', status: 'open', owner: 'Research owner'}], proposals: window.__FIXTURE_TABLES__.on_deck_proposals.map(p => ({ id: p.id, source_current: p.source_version === 'current' })), assignees: [{ id: 'owner', name: 'Research owner' }], tasks: [{ id: 'existing', task_title: 'Existing evidence research', assigned_to_user_id: 'owner' }] }),
   on_deck_context: a => {
     const p = window.__FIXTURE_TABLES__.on_deck_proposals[0];
     if (a.p_action === 'resolve') { p.context_work.state = 'resolved'; p.context_work.resolution = a.p_note; p.status = 'failed'; p.source_version = ''; }
@@ -69,15 +69,17 @@ const rpc = {
   }); await page.close();
   const stale = tables(); Object.assign(stale.on_deck_proposals[0], { status: 'ready', source_version: 'old' }); stale.on_deck_proposals[0].content.missing = [];
   page = await suite.open('/v2/on-deck.html?proposal=search', stale, { rpc, ready });
-  await test('stale evidence is explicit before editing or approving; refresh queues it', async () => {
-   assert.match(await page.locator('#detail').textContent(), /Source evidence changed/);
-   assert.equal(await page.getByRole('button', { name: 'Create draft SEO task', exact: true }).isDisabled(), true);
-   assert.equal(await page.getByRole('button', { name: 'Review draft', exact: true }).isDisabled(), true);
+  await test('a refreshed sync is stated and the draft still works; refresh still queues a fresh one', async () => {
+   // The fingerprint moves on every sync, so drift is a notice. Expiry and unknown
+   // freshness are the gates; see 20261015013000_on_deck_evidence_drift_warns.sql.
+   assert.match(await page.locator('#detail').textContent(), /refreshed since this draft/);
+   assert.doesNotMatch(await page.locator('#detail').textContent(), /Refresh evidence before/);
+   assert.equal(await page.getByRole('button', { name: 'Review draft', exact: true }).isDisabled(), false);
    await page.getByRole('button', { name: 'Refresh evidence' }).click();
    await page.waitForFunction(() => window.__FIXTURE_TABLES__.on_deck_proposals[0].source_version === '');
   }); await page.close();
   const longNotes=tables(); longNotes.on_deck_proposals[0].context_work={state:'open',task_id:'created',title:'Resolve claim'};
-  const clippedRpc={...rpc,on_deck_review_state:()=>({review_contract:2,purchasing:true,seo:true,proposals:[{id:'search',source_current:true}],assignees:[],tasks:[],context_tasks:[{id:'created',notes:'Old request text',notes_truncated:true}]})};
+  const clippedRpc={...rpc,on_deck_review_state:()=>({review_contract:2,drift_warns:true,purchasing:true,seo:true,proposals:[{id:'search',source_current:true}],assignees:[],tasks:[],context_tasks:[{id:'created',notes:'Old request text',notes_truncated:true}]})};
   page=await suite.open('/v2/on-deck.html?proposal=search',longNotes,{rpc:clippedRpc,ready});
   await test('truncated task notes require reading full task, never import partial findings',async()=>{
    await page.getByRole('button',{name:'Record findings and refresh draft'}).click(); assert.match(await page.locator('#context-explanation').textContent(),/exceed the import limit/); assert.equal(await page.getByLabel('Findings and supporting evidence').inputValue(),'');
@@ -89,7 +91,7 @@ const rpc = {
    await test(mode+' context cannot be newly assigned',async()=>{assert.equal(await page.getByRole('button',{name:'Assign context work'}).isDisabled(),true);assert.equal(await page.evaluate(()=>window.__QUERIES__.some(q=>q.table==='rpc:on_deck_context')),false);});await page.close();
   }
   const untouched=tables();untouched.on_deck_proposals[0].context_work={state:'open',task_id:'created',title:'Resolve claim'};
-  const requestRpc={...rpc,on_deck_review_state:()=>({review_contract:2,purchasing:true,seo:true,proposals:[{id:'search',source_current:false}],assignees:[],tasks:[],context_tasks:[{id:'created',notes:'Required findings: generated request only',notes_are_request:true}]})};
+  const requestRpc={...rpc,on_deck_review_state:()=>({review_contract:2,drift_warns:true,purchasing:true,seo:true,proposals:[{id:'search',source_current:false}],assignees:[],tasks:[],context_tasks:[{id:'created',notes:'Required findings: generated request only',notes_are_request:true}]})};
   page=await suite.open('/v2/on-deck.html?proposal=search',untouched,{rpc:requestRpc,ready});
   await test('original request is not prefilled as findings; existing stale work can be resolved',async()=>{await page.getByRole('button',{name:'Record findings and refresh draft'}).click();assert.equal(await page.getByLabel('Findings and supporting evidence').inputValue(),'');assert.match(await page.locator('#context-explanation').textContent(),/no importable findings/);});await page.close();
   console.log(`${checks} action-loop browser checks passed`);

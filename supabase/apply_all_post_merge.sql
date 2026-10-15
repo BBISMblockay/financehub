@@ -19255,4 +19255,6 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261014180000_report_location_filter_speed.sql
 -- On Deck editable review, recovery and exact destination links.
 \i migrations/20261014120000_on_deck_review_action.sql
+-- On Deck: a routine data sync warns instead of disabling a draft.
+\i migrations/20261015013000_on_deck_evidence_drift_warns.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
