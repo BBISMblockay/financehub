@@ -43,7 +43,10 @@ const shots = process.env.SILO_BRIEFING_SCREENSHOTS || path.resolve(__dirname, '
       assert.match(await page.locator('.od-paper').textContent(), /fresh take/);
       assert.equal(await page.locator('.od-card[aria-pressed=true]').textContent().then(t => /Classic tee/.test(t)), true);
       assert.equal(await page.evaluate(() => window.__QUERIES__.some(q => q.table === 'rpc:on_deck_decide')), false);
-      assert.equal(await page.evaluate(() => document.activeElement.id), 'detail');
+      assert.ok(await page.evaluate(() => {
+        const step = document.querySelector('#detail .od-next-step');
+        return step ? step.contains(document.activeElement) : document.activeElement.id === 'detail';
+      }), 'focus lands in Your next step after opening from briefing');
     });
     await test('back to briefing and evidence use real existing detail tabs', async () => {
       await page.getByRole('button', { name: 'Briefing', exact: true }).click();

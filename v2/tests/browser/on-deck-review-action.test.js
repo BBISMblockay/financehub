@@ -56,6 +56,18 @@ const rpc = {
  const save=async()=>{await page.locator('#edit-note').fill('Reviewed evidence, copy and saved task inputs.');await page.getByRole('button',{name:'Save for review',exact:true}).click();await page.waitForFunction(()=>!document.getElementById('edit-dialog').open);};
  const shots=path.resolve(__dirname,'../../../.screenshots');fs.mkdirSync(shots,{recursive:true});
  try {
+  await test('proposal deep link lands on Your next step', async () => {
+    const data = tables();
+    Object.assign(data.on_deck_proposals[0], { status: 'ready', content: { ...content(), missing: [], proposed_title: 'Classic tees | Example', proposed_meta_description: 'Grounded metadata' } });
+    page = await suite.open('/v2/on-deck.html?proposal=' + id, data, { rpc, ready });
+    assert.equal(await page.locator('#detail .od-next-step').count(), 1);
+    const focusedInStep = await page.evaluate(() => {
+      const step = document.querySelector('#detail .od-next-step');
+      return step && step.contains(document.activeElement);
+    });
+    assert.ok(focusedInStep, 'focus should land inside Your next step after ?proposal=');
+    await page.close();
+  });
   await test('a finished draft can be created from the page without opening the editor first',async()=>{
    const data=tables();Object.assign(data.on_deck_proposals[0],{status:'ready',content:{...content(),missing:[],proposed_title:'Classic tees | Example',proposed_meta_description:'Grounded metadata'}});
    page=await open(data);
