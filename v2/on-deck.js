@@ -229,7 +229,7 @@
     const sub = $('ready-section')?.querySelector('.od-section-head p');
     if (sub) {
       sub.textContent = state.proposalsLoaded
-        ? 'Bookkeeping batches only. Workflow proposals are in the lineup below — not duplicated here.'
+        ? 'Bookkeeping batches only. Workflow proposals are in the lineup above — not duplicated here.'
         : 'Bookkeeping batches waiting for review.';
     }
     // Workflow proposals live in the lineup; duplicating them here bounced people between grids.
