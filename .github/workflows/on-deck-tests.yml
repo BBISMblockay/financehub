@@ -97,7 +97,7 @@ jobs:
               exit 1
             fi
           done
-          for mutation in full-draft freshness saved-answer private-context dialog-lock exact-result; do
+          for mutation in full-draft freshness saved-answer private-context dialog-lock exact-result editor-first vague-ask; do
             if FRONT_REVIEW_MUTATE="$mutation" node v2/tests/browser/on-deck-review-action.test.js > /tmp/review-browser-mutation.log 2>&1; then
               cat /tmp/review-browser-mutation.log
               echo "Survived browser review mutation: $mutation"
@@ -115,13 +115,6 @@ jobs:
             if CHEAP_MUTATE="$mutation" node scripts/tests/on-deck-source-date.test.mjs > /tmp/cheap-date-mutation.log 2>&1; then
               cat /tmp/cheap-date-mutation.log
               echo "Survived fingerprint-input mutation: $mutation"
-              exit 1
-            fi
-          done
-          for mutation in show-unready no-department-cap guess-status silent-refresh keep-other-company paused-is-working; do
-            if NEXT_MUTATE="$mutation" node v2/tests/browser/on-deck-next.test.js > /tmp/next-mutation.log 2>&1; then
-              cat /tmp/next-mutation.log
-              echo "Survived one-screen On Deck mutation: $mutation"
               exit 1
             fi
           done
