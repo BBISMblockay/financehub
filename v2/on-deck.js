@@ -91,6 +91,40 @@
     if (desk === 'briefing') state.coding?.close();
     if (focus) { $('desk-title').tabIndex = -1; $('desk-title').focus(); $('desk-title').scrollIntoView({ block: 'start' }); }
   }
+  function proposalView(p) {
+    return p.status === 'ready' ? 'review' : ['preparing', 'revision'].includes(p.status) ? 'preparing' : 'needs';
+  }
+  /** Scroll the workflow board into view and focus Your next step when present. */
+  function focusProposalWorkspace({ nextStep = true } = {}) {
+    if ($('workspace').hidden) return;
+    $('workspace').scrollIntoView({ block: 'start' });
+    requestAnimationFrame(() => {
+      const step = $('detail')?.querySelector('.od-next-step');
+      if (nextStep && step) {
+        step.scrollIntoView({ block: 'nearest' });
+        const primary = step.querySelector('.od-step-actions .bcn-btn--primary:not([disabled])')
+          || step.querySelector('.od-step-actions button:not([disabled])')
+          || step.querySelector('h3');
+        const target = primary || step;
+        target.tabIndex = -1;
+        target.focus({ preventScroll: true });
+        return;
+      }
+      const detail = $('detail');
+      if (!detail) return;
+      detail.tabIndex = -1;
+      detail.focus({ preventScroll: true });
+    });
+  }
+  async function openProposalInWorkspace(id, { view, tab = 'draft', nextStep = true } = {}) {
+    setDesk('work');
+    state.selected = id;
+    if (view) state.view = view;
+    state.tab = tab;
+    renderQueue();
+    await select(id);
+    focusProposalWorkspace({ nextStep });
+  }
   async function openBriefingAction(item, evidence = false) {
     try {
       await companyStillActive();
@@ -99,7 +133,14 @@
       if (![current.featured, ...current.secondary, ...current.upkeep].some(i => i && i.id === item.id && i.type === item.type)) { renderBriefing(); throw new Error('This recommendation is no longer available. Refresh to review current evidence.'); }
       setDesk('work');
       if (item.type === 'coding') { await state.coding.open(item.id); $('coding-review').scrollIntoView({ block: 'start' }); $('coding-review').tabIndex = -1; $('coding-review').focus(); }
-      else { state.view = item.readiness === 'investigate' ? 'needs' : 'review'; state.selected = item.id; state.tab = evidence || item.readiness === 'investigate' ? 'brief' : 'draft'; renderQueue(); await select(item.id); $('detail').tabIndex = -1; $('detail').focus(); $('workspace').scrollIntoView({ block: 'start' }); }
+      else {
+        const tab = evidence || item.readiness === 'investigate' ? 'brief' : 'draft';
+        await openProposalInWorkspace(item.id, {
+          view: item.readiness === 'investigate' ? 'needs' : 'review',
+          tab,
+          nextStep: tab === 'draft',
+        });
+      }
     } catch (e) { message(e.message, true); }
   }
   function renderBriefing() {
@@ -165,7 +206,9 @@
     if (recent) {
       const result = node('section', null, 'bcn-card od-watch'); const copy = node('div');
       copy.append(node('h2', 'Recent action recorded'), node('p', `${title(recent)} · ${recent.output.label || 'Draft work created'}. Approval is not proof of business lift.`));
-      result.append(copy, button('View recorded action', () => { setDesk('work'); state.view = 'completed'; state.selected = recent.id; state.tab = 'impact'; renderQueue(); select(recent.id).catch(e => message(e.message, true)); $('workspace').scrollIntoView({ block: 'start' }); })); box.append(result);
+      result.append(copy, button('View recorded action', () => {
+        openProposalInWorkspace(recent.id, { view: 'completed', tab: 'impact', nextStep: false }).catch(e => message(e.message, true));
+      })); box.append(result);
     }
     // Keep consequential unknown posting outcomes visible even in the briefing.
     const unresolved = state.codingLoaded ? state.coding.items().filter(i => i.stage_reason === 'posting_unresolved') : [];
@@ -175,34 +218,23 @@
     return /does not exist|schema cache|could not find/i.test(e.message)
       ? `${what} is not installed in this environment yet. Apply the On Deck migrations before using it.` : e.message;
   }
-  /* "Ready for your review": real records only -- coding batches from the
-     finance queue and proposals a person must decide. No placeholders. */
-  function proposalCard(p) {
-    const c = node('article', null, 'od-rcard'); c.dataset.proposal = p.id;
-    const st = statusOf(p), ready = st.key === 'ready';
-    const top = node('div', null, 'od-rcard-top');
-    top.append(mark(p.kind), node('span', modules[p.kind] || 'Workflow', 'od-rcard-module'), node('span', ready ? effect[p.kind] : st.label.toUpperCase(), `od-rpill od-rpill--${st.tone}`));
-    c.append(top, node('h3', title(p)), node('p', names[p.kind].charAt(0) + names[p.kind].slice(1).toLowerCase(), 'od-rcard-sub'));
-    const missing = p.content?.missing || [];
-    c.append(node('p', ready ? destinations[p.kind][2] : st.detail || 'Additional input is needed before approval. Open the proposal to inspect what is missing.', 'od-rcard-detail'));
-    const ev = node('details', null, 'od-rcard-evidence'); ev.append(node('summary', `Why it is here · draft v${p.version}`), node('p', p.selection_reason)); c.append(ev);
-    c.append(button('Review →', () => {
-      setDesk('work'); state.view = p.status === 'ready' ? 'review' : ['preparing','revision'].includes(p.status) ? 'preparing' : 'needs'; state.selected = p.id; state.tab = 'draft'; renderQueue();
-      select(p.id).catch(e => message(e.message, true)); $('workspace').scrollIntoView({ block: 'start', behavior: 'smooth' });
-    }, true));
-    return c;
-  }
   function renderReady() {
     const grid = $('ready-cards'); grid.replaceChildren();
     // Recorded entries are done in SILO and belong under "After approval".
     const coding = state.codingLoaded ? state.coding.items().filter(i => !window.SiloOnDeckCoding.isRecorded(i)) : [];
-    const proposals = state.proposalsLoaded ? state.rows.filter(p => ['ready', 'needs_info', 'failed'].includes(p.status)) : [];
     coding.forEach(i => grid.append(state.coding.card(i)));
-    proposals.forEach(p => grid.append(proposalCard(p)));
     state.coding?.markActive();
-    const reviewable = coding.filter(i => window.SiloOnDeckCoding.isPending(i)).length + proposals.filter(p => statusOf(p).key === 'ready').length;
-    $('ready-count').textContent = String(reviewable);
-    $('ready-section').hidden = false;
+    const pendingCoding = coding.filter(i => window.SiloOnDeckCoding.isPending(i)).length;
+    $('ready-count').textContent = String(pendingCoding);
+    const sub = $('ready-section')?.querySelector('.od-section-head p');
+    if (sub) {
+      sub.textContent = state.proposalsLoaded
+        ? 'Bookkeeping batches only. Workflow proposals are in the lineup below — not duplicated here.'
+        : 'Bookkeeping batches waiting for review.';
+    }
+    // Workflow proposals live in the lineup; duplicating them here bounced people between grids.
+    $('ready-section').hidden = !coding.length;
+    if (!coding.length) return;
     if (!grid.children.length) {
       const empty = node('div', null, 'od-empty');
       empty.append(node('strong', 'Nothing is waiting for you.'), node('span', 'Prepared work appears here when it is ready for a decision. SILO does not fill this space with weak suggestions.'));
@@ -549,7 +581,12 @@
       $('prepare').hidden = !state.access.proposals; $('settings-link').hidden = !state.access.proposals;
       await load();
       const linked = new URLSearchParams(location.search).get('proposal'), match = state.rows.find(p => p.id === linked);
-      if (match) { setDesk('work'); state.view = Object.keys(groups).find(k => groups[k].includes(match.status)); renderQueue(); await select(match.id); }
+      if (match) {
+        await openProposalInWorkspace(match.id, {
+          view: Object.keys(groups).find(k => groups[k].includes(match.status)),
+          tab: 'draft',
+        });
+      }
     } catch (e) { message(/does not exist|schema cache|could not find/i.test(e.message) ? 'On Deck is not installed in this environment yet. Apply the preview migration before enabling preparation.' : e.message, true); }
   }
   init();
