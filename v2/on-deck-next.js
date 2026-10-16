@@ -1,17 +1,21 @@
 /* On Deck, one screen.
-   Every card answers the same three questions -- what SILO recommends and why,
-   what it needs from you, and what the button does -- and carries exactly one
-   button. Anything that is not a reviewable recommendation is not dressed up as
-   one: it drops into "What SILO needs from you". Status comes from
-   SiloOnDeckBriefing.statusOf and is never computed here; the database gates in
-   on_deck_decide / on_deck_context stay authoritative, so this page only offers
-   what those will accept. */
+   The surface carries recommendations and nothing else. A draft SILO has not
+   finished -- being prepared, queued, paused, expired, or of unknown state --
+   is not surfaced at all: it goes inside a collapsed summary of SILO's own
+   progress, because a reader cannot act on it and a page full of machinery
+   reads as work. What is left is a card per recommendation (what SILO
+   recommends, why, the evidence, one button that says what it does) and, when
+   SILO is waiting on an answer, one line per question.
+   Status comes from SiloOnDeckBriefing.statusOf and is never computed here; the
+   database gates in on_deck_decide / on_deck_context stay authoritative, so
+   this page only offers what those will accept. */
 (function () {
   'use strict';
   const $ = id => document.getElementById(id);
   const cfg = window.__SILO_CONFIG__ || {};
   const state = { db: null, co: null, settings: {}, rows: [], reviewState: null, reviewFailed: false, loading: false };
   const PER_KIND = 2, MAX_CARDS = 6;   // no one department takes over the surface
+  const OPEN = ['ready', 'preparing', 'revision', 'needs_info', 'failed'];
   const when = v => v ? new Date(v).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'not yet';
   const B = () => window.SiloOnDeckBriefing;
 
@@ -51,16 +55,16 @@
     return safeLink('Open created ' + label, path + ids[0], true);
   }
 
-  // What the button does, said before it is pressed.
+  // What the button does, and what it needs from the reader, in one line each.
   const promises = {
-    review: 'Opens this draft with its evidence. Nothing is created until you confirm there.',
+    review: 'Nothing is missing — this needs your judgement. Nothing is created until you confirm.',
     answer: 'Opens this draft so you can answer what is missing. Saving answers creates no work and runs no AI.',
     refresh: 'Asks SILO to screen your current data again and prepare a fresh draft. Your saved answers are kept.',
   };
 
-  // One control per row, labelled with what pressing it does. A status with no
-  // action (SILO is still working, or preparation is paused) gets no button:
-  // there is nothing for the reader to press, and offering one would be a lie.
+  // One control per card or row, labelled with what pressing it does. A status
+  // with no action (SILO is still working, or preparation is paused) gets no
+  // button: there is nothing to press, and offering one would be a lie.
   function actionButton(st, p, primary = true) {
     if (st.action === 'open-created') return createdLink(p) || node('span', 'The created record link is unavailable. Reload before continuing.', 'od-meta');
     if (st.action === 'refresh') return button('Refresh evidence', () => refreshEvidence(p), primary);
@@ -81,20 +85,14 @@
       item.metrics.slice(0, 3).forEach(([label, value]) => { row.append(node('dt', label)); row.append(node('dd', String(value), 'bcn-num')); });
       box.append(row);
     }
-
-    const needs = node('div', null, 'odn-needs');
-    needs.append(node('h4', 'What SILO needs from you'));
-    // Only a complete draft reaches this grid (see pick), so the honest answer
-    // here is "nothing"; the fallback exists so a status change between render
-    // passes still reads truthfully rather than claiming completeness.
-    needs.append(node('p', st.key === 'ready' ? 'Your judgement. The draft is complete; nothing is missing.' : st.detail || st.label));
-    box.append(needs);
-
     const act = node('div', null, 'od-buttons');
     const control = actionButton(st, p);
     if (control) act.append(control); else act.append(node('span', st.label, `od-rpill od-rpill--${st.tone}`));
     box.append(act);
-    if (promises[st.action]) box.append(node('p', promises[st.action], 'od-meta'));
+    // Only a complete draft reaches this grid (see pick), so the promise line is
+    // the whole answer to "what does it need from me"; the fallback keeps a
+    // status that changed between render passes from reading as completeness.
+    box.append(node('p', promises[st.action] || st.detail || st.label, 'od-meta'));
     if (st.notice) box.append(node('p', st.notice, 'od-meta'));
     if (item.caveat) box.append(node('p', item.caveat, 'od-meta'));
     return box;
@@ -110,78 +108,43 @@
     } catch (e) { message(e.message, true); }
   }
 
-  /* The brief is a factual read-back of the drafts SILO already screened: the
-     same numbers the cards carry, so it reproduces exactly. It runs no AI and
-     spends no tokens.
-
-     Its counts come from statusOf, like every other part of this page, and NOT
-     from a lifecycle status: `status='preparing'` is equally what a row looks
-     like when its AI credit is exhausted, its workflow is switched off or the
-     monthly cap is reached. Counting those as work in flight would print "SILO
-     is still preparing, nothing needs you yet" over a row that says Paused and
-     names a blocker only the reader can clear. */
-  function tally() {
-    const counts = {};
-    for (const p of state.rows) {
-      if (!['ready', 'needs_info', 'failed', 'preparing', 'revision'].includes(p.status)) continue;
-      const key = statusOf(p).key;
-      counts[key] = (counts[key] || 0) + 1;
-    }
-    return counts;
+  function compactRow(p, st, label) {
+    const row = node('div', null, 'odn-row');
+    row.append(node('span', title(p), 'odn-row-name'));
+    if (label) row.append(node('span', label, 'od-meta'));
+    const control = actionButton(st, p, false);
+    if (control) row.append(control);
+    return row;
   }
-  function renderBrief(counts) {
-    const box = $('brief'); box.replaceChildren(); box.hidden = false;
-    const ready = counts.ready || 0, asks = counts.needs_input || 0;
-    const stuck = (counts.blocked || 0) + (counts.stale || 0), unknown = counts.unavailable || 0;
-    const working = (counts.working || 0) + (counts.queued || 0);
-    const lead = ready ? `${ready} ${ready === 1 ? 'recommendation is' : 'recommendations are'} ready for you.`
-      : asks ? 'Nothing is ready to act on yet. SILO needs answers from you first.'
-      : stuck ? 'Nothing is ready to act on, and SILO cannot get there on its own. See what it needs below.'
-      : unknown ? 'SILO could not read the state of your drafts. Nothing here is a recommendation yet.'
-      : working ? 'SILO is still preparing. Nothing needs you yet.'
-      : 'Nothing is ready to act on right now.';
-    const parts = [[ready, 'ready to act on'], [asks, 'waiting on your answers'], [stuck, 'SILO cannot continue on its own'],
-      [working, 'being prepared'], [unknown, 'of unknown state']].filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`);
-    box.append(node('h2', lead));
-    box.append(node('p', parts.length ? parts.join(', ') + '.' : 'No drafts are open.', 'odn-why'));
-    const requested = state.settings.requested_at && new Date(state.settings.requested_at) > new Date(state.settings.last_screen_at || 0);
-    box.append(node('p', `Last screened ${when(state.settings.last_screen_at)}.` + (requested ? ' A refresh is requested and waiting for the next run.' : ''), 'od-meta'));
-    if (/^Preparation failed/.test(state.settings.last_status || '')) box.append(node('p', state.settings.last_status, 'od-attention'));
-  }
+  function list(rows) { const box = node('div', null, 'odn-list'); rows.forEach(r => box.append(r)); return box; }
 
-  function renderCards(cards) {
+  function renderCards(cards, extra) {
     const box = $('cards'); box.replaceChildren(); box.hidden = false;
     box.append(node('h2', 'What SILO recommends'));
     if (!cards.length) {
       box.append(node('p', state.settings.enabled === false
         ? 'Background preparation is off for this workspace, so nothing is being prepared. An owner can turn it on in Workspace Settings.'
-        : 'No recommendation is ready to act on. Anything SILO is working on, or waiting on you for, is below.', 'odn-why'));
+        : 'Nothing is ready for you to act on right now.', 'odn-why'));
       return;
     }
     const grid = node('div', null, 'od-ready-grid');
     cards.forEach(([item, p]) => grid.append(card(item, p)));
     box.append(grid);
+    if (extra.length) {
+      box.append(node('p', 'Also ready for review', 'odn-why'));
+      box.append(list(extra.map(p => compactRow(p, statusOf(p)))));
+    }
   }
 
-  // Everything that is not a recommendation: one line each, demoted on purpose.
-  function renderNeeds(shown) {
+  // The one thing besides a recommendation that belongs on the surface: a draft
+  // SILO finished and cannot go further on without an answer from the reader.
+  function renderAsks(shown) {
     const box = $('needs'); box.replaceChildren();
-    const rest = state.rows.filter(p => ['ready', 'needs_info', 'failed', 'preparing', 'revision'].includes(p.status) && !shown.has(p.id));
-    box.hidden = !rest.length;
-    if (!rest.length) return;
-    box.append(node('h2', 'What SILO needs from you'));
-    box.append(node('p', 'These are not recommendations yet. They are drafts SILO cannot finish on its own.', 'odn-why'));
-    const list = node('div', null, 'odn-list');
-    rest.forEach(p => {
-      const st = statusOf(p), row = node('div', null, 'odn-row');
-      row.append(node('span', title(p), 'odn-row-name'));
-      row.append(node('span', st.label, `od-rpill od-rpill--${st.tone}`));
-      if (st.detail) row.append(node('span', st.detail, 'od-meta'));
-      const control = actionButton(st, p, false);
-      if (control) row.append(control);
-      list.append(row);
-    });
-    box.append(list);
+    const asks = state.rows.filter(p => OPEN.includes(p.status) && !shown.has(p.id) && statusOf(p).key === 'needs_input');
+    box.hidden = !asks.length;
+    if (!asks.length) return;
+    box.append(node('h2', 'SILO needs an answer from you'));
+    box.append(list(asks.map(p => compactRow(p, statusOf(p)))));
   }
 
   function renderDone() {
@@ -190,41 +153,56 @@
     box.hidden = !done.length;
     if (!done.length) return;
     box.append(node('h2', 'Recently created'));
-    const list = node('div', null, 'odn-list');
-    done.forEach(p => {
+    box.append(list(done.map(p => {
       const row = node('div', null, 'odn-row');
       row.append(node('span', title(p), 'odn-row-name'));
       row.append(node('span', `created ${when(p.approved_at)}`, 'od-meta'));
       const link = createdLink(p); if (link) row.append(link);
-      list.append(row);
-    });
-    box.append(list);
+      return row;
+    })));
+  }
+
+  /* SILO's own machinery, collapsed. Everything in here is a draft the reader
+     cannot act on yet: being prepared, queued behind the scheduler, paused on a
+     blocker, past its evidence window, or of a state SILO could not read. None
+     of it is surfaced as a recommendation, and none of it is counted as one. */
+  function renderEngine(shown) {
+    const box = $('engine'); box.replaceChildren();
+    const rest = state.rows.filter(p => OPEN.includes(p.status) && !shown.has(p.id) && statusOf(p).key !== 'needs_input');
+    box.hidden = !rest.length && !state.settings.last_screen_at;
+    if (box.hidden) return;
+    const wrap = node('details', null, 'odn-engine');
+    wrap.append(node('summary', rest.length ? `What SILO is still working on (${rest.length})` : 'SILO’s own progress'));
+    if (rest.length) wrap.append(list(rest.map(p => { const st = statusOf(p); return compactRow(p, st, [st.label, st.detail].filter(Boolean).join(' \u2014 ')); })));
+    const requested = state.settings.requested_at && new Date(state.settings.requested_at) > new Date(state.settings.last_screen_at || 0);
+    wrap.append(node('p', `Last screened ${when(state.settings.last_screen_at)}.` + (requested ? ' A refresh is requested and waiting for the next run.' : ''), 'od-meta'));
+    if (/^Preparation failed/.test(state.settings.last_status || '')) wrap.append(node('p', state.settings.last_status, 'od-attention'));
+    box.append(wrap);
   }
 
   /* Rank order from the briefing, then the rule that makes this surface
      trustworthy: only a draft SILO can finish on its own is presented as a
-     recommendation. A draft still waiting on answers, a refresh or the
-     scheduler is not an actionable business suggestion, so it drops to the
-     strip below instead of being dressed up as one. Capped per department so
-     one of them cannot take the page. */
+     recommendation. Capped per department so one of them cannot take the page;
+     a ready draft beyond the cap keeps its place in "Also ready". */
   function pick(model) {
-    const byId = new Map(state.rows.map(p => [p.id, p])), seen = new Map(), out = [];
+    const byId = new Map(state.rows.map(p => [p.id, p])), seen = new Map(), out = [], extra = [];
     for (const item of model.cards || []) {
       const p = item.type === 'proposal' ? byId.get(item.id) : null;
       if (!p || statusOf(p).key !== 'ready') continue;
       const n = seen.get(item.kind) || 0;
-      if (n >= PER_KIND || out.length >= MAX_CARDS) continue;
+      if (n >= PER_KIND || out.length >= MAX_CARDS) { extra.push(p); continue; }
       seen.set(item.kind, n + 1);
       out.push([item, p]);
     }
-    return out;
+    return { out, extra };
   }
 
   function render() {
-    renderBrief(tally());
-    const cards = pick(B().build({ rows: state.rows, coding: [], driftWarns: state.reviewState?.drift_warns === true }));
-    renderCards(cards);
-    renderNeeds(new Set(cards.map(([, p]) => p.id)));
+    const { out, extra } = pick(B().build({ rows: state.rows, coding: [], driftWarns: state.reviewState?.drift_warns === true }));
+    renderCards(out, extra);
+    const shown = new Set([...out.map(([, p]) => p.id), ...extra.map(p => p.id)]);
+    renderAsks(shown);
+    renderEngine(shown);
     renderDone();
   }
 
@@ -235,7 +213,7 @@
   // same path.
   function clearSurfaces() {
     state.settings = {}; state.rows = []; state.reviewState = null; state.reviewFailed = false;
-    for (const id of ['brief', 'cards', 'needs', 'done']) { const el = $(id); el.replaceChildren(); el.hidden = true; }
+    for (const id of ['cards', 'needs', 'engine', 'done']) { const el = $(id); el.replaceChildren(); el.hidden = true; }
   }
   async function companyStillActive() {
     if ((await cfg.ensureActiveCompany?.(state.db))?.id !== state.co) {
@@ -252,7 +230,7 @@
       await companyStillActive();
       const [settings, active, history] = await Promise.all([
         state.db.from('on_deck_settings').select('*').eq('company_entity_id', state.co).maybeSingle(),
-        state.db.from('on_deck_proposals').select('*').eq('company_entity_id', state.co).in('status', ['ready', 'preparing', 'revision', 'needs_info', 'failed']).order('created_at'),
+        state.db.from('on_deck_proposals').select('*').eq('company_entity_id', state.co).in('status', OPEN).order('created_at'),
         state.db.from('on_deck_proposals').select('*').eq('company_entity_id', state.co).eq('status', 'completed').order('approved_at', { ascending: false }).limit(5),
       ]);
       state.settings = check(settings) || {};

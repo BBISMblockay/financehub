@@ -118,7 +118,7 @@ jobs:
               exit 1
             fi
           done
-          for mutation in show-unready no-department-cap guess-status silent-refresh keep-other-company paused-is-working; do
+          for mutation in show-unready no-department-cap guess-status silent-refresh keep-other-company surface-unfinished engine-expanded; do
             if NEXT_MUTATE="$mutation" node v2/tests/browser/on-deck-next.test.js > /tmp/next-mutation.log 2>&1; then
               cat /tmp/next-mutation.log
               echo "Survived one-screen On Deck mutation: $mutation"

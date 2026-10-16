@@ -1,9 +1,11 @@
 'use strict';
 /* The one-screen On Deck (/v2/on-deck-next.html). What is asserted here is the
    promise the page makes: only a draft SILO can finish on its own appears as a
-   recommendation, every card answers what/why/what-it-needs/what-the-button-does
-   with exactly one control, no department takes the grid, and a failed status
-   call says so instead of inventing a status. */
+   recommendation, every card answers what SILO recommends and why, what it
+   needs from you and what the button does, with exactly one control, no
+   department takes the grid, anything SILO has not finished is NOT surfaced
+   (it sits collapsed, where it cannot read as work waiting on the reader), and
+   a failed status call says so instead of inventing a status. */
 const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
@@ -46,9 +48,11 @@ const mutations = {
   'guess-status': ['} catch (e) { state.reviewFailed = true; }', '} catch (e) { state.reviewFailed = false; }'],
   'silent-refresh': ['if (await load()) message(', 'if (await load() && false) message('],
   'keep-other-company': ['      clearSurfaces();\n', ''],
-  // The original defect: counting the lifecycle status as work in flight.
-  'paused-is-working': ['const key = statusOf(p).key;',
-    "const key = ['preparing', 'revision'].includes(p.status) ? 'working' : statusOf(p).key;"],
+  // Blake, 2026-10-16: "if silo isn't finished reviewing, don't surface it."
+  // Both halves of that: unfinished work must not join the asks the reader is
+  // being shown, and SILO's own progress must stay collapsed.
+  'surface-unfinished': ["statusOf(p).key === 'needs_input'", "statusOf(p).key !== 'ready'"],
+  'engine-expanded': ['if (rest.length) wrap.append(list(', "wrap.setAttribute('open', '');\n    if (rest.length) wrap.append(list("],
 };
 (async () => {
   const suite = await startSuite({ secureContext: true });
@@ -73,7 +77,7 @@ const mutations = {
       assert.match(body, /Test clearer search copy/);              // what SILO recommends
       assert.match(body, /30,000/);                                // the evidence it rests on
       assert.match(body, /Review how this page presents/);         // why
-      assert.match(body, /Your judgement\. The draft is complete/); // what it needs from you
+      assert.match(body, /needs your judgement/);                  // what it needs from you
       assert.match(body, /Nothing is created until you confirm/);   // what the button does
       assert.equal(await card.locator('.od-buttons a, .od-buttons button').count(), 1);
       const href = await card.getByRole('link', { name: 'Review draft' }).getAttribute('href');
@@ -82,14 +86,17 @@ const mutations = {
       fs.mkdirSync(shots, { recursive: true });
       await page.screenshot({ path: path.join(shots, 'on-deck-next.png'), fullPage: true });
     });
-    await test('a draft still waiting on answers is not presented as a recommendation', async () => {
+    await test('a draft still waiting on answers is one line with one button, not a recommendation', async () => {
       assert.doesNotMatch(await page.locator('#cards').textContent(), /Youth caps/);
       const strip = page.locator('#needs');
       assert.equal(await strip.isVisible(), true);
-      assert.match(await strip.textContent(), /These are not recommendations yet/);
+      assert.match(await strip.textContent(), /SILO needs an answer from you/);
       const row = strip.locator('.odn-row', { hasText: 'Youth caps' });
-      assert.match(await row.textContent(), /Needs 1 answer/);
       assert.equal(await row.getByRole('link', { name: 'Answer 1 question' }).count(), 1);
+      // The explanatory paragraphs and status pills that used to sit here are
+      // what made the page read as machinery.
+      assert.doesNotMatch(await strip.textContent(), /not recommendations yet|cannot finish on its own/);
+      assert.equal(await strip.locator('.od-rpill').count(), 0);
     });
     await test('mobile width shows the same page with no sideways scroll', async () => {
       await page.setViewportSize({ width: 390, height: 844 });
@@ -101,10 +108,12 @@ const mutations = {
 
     page = await open([seo({ id: 's1' }), seo({ id: 's2', title: 'Search copy · Caps', selection_reason: 'Selected #2 of 4 eligible seo opportunities.' }),
       seo({ id: 's3', title: 'Search copy · Hoodies', selection_reason: 'Selected #3 of 4 eligible seo opportunities.' })]);
-    await test('no single department takes the grid; the rest drop to the strip', async () => {
+    await test('no single department takes the grid; the rest stay reviewable below it', async () => {
       assert.equal(await cards().count(), 2);
-      assert.equal(await page.locator('#needs .odn-row').count(), 1);
-      assert.match(await page.locator('#needs').textContent(), /Ready for your review/);
+      const extra = page.locator('#cards .odn-row');
+      assert.equal(await extra.count(), 1);
+      assert.match(await page.locator('#cards').textContent(), /Also ready for review/);
+      assert.equal(await extra.getByRole('link', { name: 'Review draft' }).count(), 1);
     });
     await page.close();
 
@@ -117,44 +126,50 @@ const mutations = {
     await page.close();
 
     page = await open([seo({ valid_until: '2020-01-01' })]);
-    await test('an expired draft is never a recommendation; its one control queues a fresh one', async () => {
+    await test('an expired draft is not surfaced; its one control, inside SILO’s progress, queues a fresh one', async () => {
       assert.equal(await cards().count(), 0);
-      const row = page.locator('#needs .odn-row');
-      assert.match(await row.textContent(), /Evidence expired/);
-      await row.getByRole('button', { name: 'Refresh evidence' }).click();
+      assert.match(await page.locator('#cards').textContent(), /Nothing is ready for you to act on/);
+      assert.equal(await page.locator('#needs').isVisible(), false);
+      const engine = page.locator('#engine');
+      assert.match(await engine.textContent(), /What SILO is still working on \(1\)/);
+      assert.match(await engine.textContent(), /Evidence expired/);
+      if (!await engine.locator('details').evaluate(d => d.open)) await engine.locator('summary').click();
+      await engine.getByRole('button', { name: 'Refresh evidence' }).click();
       await page.waitForFunction(() => window.__FIXTURE_TABLES__.on_deck_proposals[0].source_version === '');
       assert.match(await page.locator('#status').textContent(), /Fresh screening requested/);
-      await page.waitForFunction(() => /Queued to prepare/.test(document.getElementById('needs').textContent));
-      assert.match(await page.locator('#needs').textContent(), /Waiting for the scheduler to screen/);
+      await page.waitForFunction(() => /Queued to prepare/.test(document.getElementById('engine').textContent));
+      assert.match(await engine.textContent(), /Waiting for the scheduler to screen/);
     });
     await page.close();
 
     // A lifecycle status of 'preparing' is also what a row paused on exhausted
-    // credit looks like, so the brief must not read it as work in flight.
+    // credit looks like, so neither may be surfaced as work the reader can act on.
     page = await open([seo({ status: 'preparing' })], { rpc: { ...rpc,
       on_deck_review_state: () => ({ review_contract: 2, drift_warns: true, seo: true, purchasing: true, context_tasks: [], assignees: [], tasks: [],
         proposals: [{ id: 'seo1', source_current: true, preparation: { state: 'paused', reason: 'credit_exhausted' } }] }) } });
-    await test('a paused draft is never reported as work in flight', async () => {
-      const brief = await page.locator('#brief').textContent();
-      assert.doesNotMatch(brief, /still preparing|Nothing needs you yet/);
-      assert.match(brief, /cannot get there on its own/);
-      assert.match(brief, /1 SILO cannot continue on its own/);
+    await test('a draft SILO has not finished is not surfaced at all; it sits collapsed', async () => {
       assert.equal(await cards().count(), 0);
-      const row = page.locator('#needs .odn-row');
-      assert.match(await row.textContent(), /Paused/);
-      assert.match(await row.textContent(), /AI credit is exhausted/);
+      assert.equal(await page.locator('#needs').isVisible(), false);
+      const engine = page.locator('#engine');
+      assert.match(await engine.textContent(), /What SILO is still working on \(1\)/);
+      assert.match(await engine.textContent(), /Paused/);
+      assert.match(await engine.textContent(), /AI credit is exhausted/);
+      assert.equal(await engine.locator('.odn-row').first().isVisible(), false, 'SILO’s progress is expanded by default');
+      await engine.locator('summary').click();
+      assert.equal(await engine.locator('.odn-row').first().isVisible(), true);
+      assert.match(await engine.textContent(), /Last screened/);
     });
     await page.close();
 
     page = await open([seo()]);
-    await test('a company change takes the previous company\u2019s recommendations off the screen', async () => {
+    await test('a company change takes the previous company’s recommendations off the screen', async () => {
       assert.equal(await cards().count(), 1);
       await page.evaluate(() => { window.__FIXTURE_SERVER_COMPANY__ = { id: 'other-company' }; });
       await page.getByRole('button', { name: 'Refresh', exact: true }).click();
       await page.waitForFunction(() => /Active company changed/.test(document.getElementById('status').textContent));
-      for (const id of ['brief', 'cards', 'needs', 'done']) {
+      for (const id of ['cards', 'needs', 'engine', 'done']) {
         assert.equal(await page.locator('#' + id).isVisible(), false, id + ' is still on screen');
-        assert.equal(await page.locator('#' + id).textContent(), '', id + ' still carries the previous company\u2019s content');
+        assert.equal(await page.locator('#' + id).textContent(), '', id + ' still carries the previous company’s content');
       }
       assert.equal(await page.locator('a', { hasText: 'Review draft' }).count(), 0);
     });
@@ -165,8 +180,8 @@ const mutations = {
       assert.equal(await cards().count(), 0);
       assert.match(await page.locator('#status').textContent(), /could not load the status/);
       assert.equal(await page.locator('#status').getByRole('button', { name: 'Retry' }).count(), 1);
-      assert.doesNotMatch(await page.locator('#cards').textContent(), /Ready for your review/);
-      assert.match(await page.locator('#needs').textContent(), /Status unavailable/);
+      assert.equal(await page.locator('#needs').isVisible(), false);
+      assert.match(await page.locator('#engine').textContent(), /Status unavailable/);
     });
     await page.close();
     console.log(`\n# on-deck-next: ${n} checks passed`);
