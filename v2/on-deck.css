@@ -322,31 +322,3 @@ table.bcn-table.od-review-table{table-layout:auto}
 .od-review-save{position:sticky;bottom:-24px;background:var(--bcn-surface);z-index:2;padding:12px 0;border-top:1px solid var(--bcn-border);display:flex;align-items:center;gap:12px}
 .od-review-save span{font-size:12px;color:var(--bcn-ink-2)}
 @media(max-width:640px){#edit-dialog .od-dialog-head{top:-20px}.od-review-save{bottom:-20px}}
-
-/* One-screen On Deck (/v2/on-deck-next.html). Cards are read, not clicked: the
-   single button is the only control, so these override the lineup card's
-   pointer and three-line clamp. */
-.od-wrap>h2{font:650 15px/1.4 var(--bcn-font);margin:26px 0 4px}
-.od-wrap>.odn-why{margin:0 0 14px}
-.odn-why{font:12px/1.7 var(--bcn-font);color:var(--bcn-ink-2);margin:8px 0}
-.odn-card{cursor:default;border:1px solid var(--bcn-border);border-left:3px solid var(--bcn-accent);border-radius:8px;display:flex;flex-direction:column;gap:2px;padding:18px}
-.odn-card:last-child{border-radius:8px}
-.odn-card p{display:block;-webkit-line-clamp:none;overflow:visible;font-size:12px;line-height:1.7}
-.odn-card h3{margin:12px 0 6px}
-.odn-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:10px;margin:12px 0;padding:12px 0;border-top:1px solid var(--bcn-border);border-bottom:1px solid var(--bcn-border)}
-.odn-metrics dt{font:10px var(--bcn-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--bcn-ink-3)}
-.odn-metrics dd{margin:4px 0 0;font:600 14px var(--bcn-mono);color:var(--bcn-ink)}
-.odn-card .od-buttons{margin-top:auto;padding-top:4px}
-.odn-list{display:flex;flex-direction:column;border:1px solid var(--bcn-border);border-radius:8px;background:var(--bcn-surface)}
-.odn-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:13px 16px;border-bottom:1px solid var(--bcn-border);font-size:12px}
-.odn-row:last-child{border-bottom:0}
-.odn-row-name{font:600 13px/1.4 var(--bcn-font);flex:1 1 220px;min-width:0;overflow-wrap:anywhere}
-.odn-row .od-meta{flex:1 1 180px}
-@media(max-width:700px){.odn-card{min-width:0;max-width:none;border-right:1px solid var(--bcn-border);border-left:3px solid var(--bcn-accent)}}
-/* SILO's own progress, collapsed by default: a reader cannot act on anything in
-   here, so it must not read as work waiting for them. */
-.odn-engine{border:1px solid var(--bcn-border);border-radius:8px;background:var(--bcn-surface);padding:12px 16px}
-.odn-engine>summary{font:600 13px/1.4 var(--bcn-font);color:var(--bcn-ink-2);cursor:pointer}
-.odn-engine>summary:focus-visible{outline:2px solid var(--bcn-accent);outline-offset:2px}
-.odn-engine .odn-list{margin:12px 0 0}
-.odn-engine>p{margin:10px 0 0}
