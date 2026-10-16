@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Transactions UX preview</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="transactions-workspace.css?v=999a1ae498b6" />
+  <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    /* Preview-only — mirrors production DOM/CSS; not wired to Supabase. */
+    .preview-bar {
+      flex: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 16px;
+      align-items: center;
+      padding: 8px 18px;
+      border-bottom: 1px solid var(--bcn-accent-border);
+      background: var(--bcn-accent-soft);
+      font-size: 12px;
+      color: var(--bcn-ink-2);
+    }
+    .preview-bar .bcn-tabs button { font-size: 12px; padding: 6px 12px; }
+    .preview-proposed-only[hidden] { display: none !important; }
+    .txn-month-lane {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 16px;
+      padding: 10px 14px;
+      margin: 0 0 6px;
+      border: 1px solid var(--bcn-accent-border);
+      border-radius: 10px;
+      background: var(--bcn-accent-soft);
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--bcn-ink-2);
+    }
+    .txn-month-lane strong { color: var(--bcn-ink); }
+    .txn-month-lane .bcn-btn { margin-left: auto; }
+    .txn-flow-step .bcn-btn { margin-left: auto; flex: none; font-size: 11px; min-height: 28px; padding: 4px 10px; }
+    .preview-note {
+      font-size: 11px;
+      color: var(--bcn-ink-3);
+      padding: 0 18px 6px;
+      max-width: 90ch;
+      line-height: 1.5;
+    }
+    .cc-pane[data-pane="coding"] { display: flex !important; }
+    .silo-main.accounting-workspace { min-height: 0; }
+    .cc-page { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+    .cc-content { flex: 1; min-height: 0; overflow: hidden; display: flex; padding: 8px 12px; }
+    .cc-pane[data-pane="coding"] { flex: 1; min-height: 0; overflow: hidden; }
+  </style>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main accounting-workspace">
+    <div class="preview-bar">
+      <span class="bcn-mono" style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--bcn-accent)">Transactions UX preview</span>
+      <nav class="bcn-tabs" id="preview-mode" aria-label="Preview mode">
+        <button type="button" data-mode="shipped" aria-pressed="true">As shipped (Oct 2026)</button>
+        <button type="button" data-mode="proposed" aria-pressed="false">Proposed depth</button>
+      </nav>
+    </div>
+    <p class="preview-note" id="preview-note">Matches your current register: account tiles, date scope, queue filters, dense table, footer workflow. Toggle <strong>Proposed depth</strong> for ideas that sit on top of this — not a replacement layout.</p>
+
+    <header class="bcn-header">
+      <div><div class="bcn-header-title">Transactions</div></div>
+      <nav class="bcn-tabs cc-tabbar" aria-label="Transaction workspace">
+        <button type="button" class="bcn-tab bcn-tab--active">Transactions</button>
+        <button type="button" class="bcn-tab">Journal entry</button>
+        <button type="button" class="bcn-tab">Rules</button>
+        <button type="button" class="bcn-tab">Accounts</button>
+      </nav>
+      <div class="bcn-header-actions">
+        <button type="button" class="bcn-btn accounting-action">Import</button>
+        <button type="button" class="bcn-btn accounting-action">Connect</button>
+      </div>
+    </header>
+
+    <div class="accounting-suite" aria-label="Accounting">
+      <span class="accounting-suite-label">Accounting</span>
+      <div class="accounting-suite-links">
+        <a href="#" aria-current="page">Transactions</a>
+        <a href="#">Invoicing</a>
+        <a href="#">Sales &amp; journals</a>
+        <a href="#">Books &amp; setup</a>
+      </div>
+    </div>
+
+    <div class="cc-page">
+      <div class="cc-content">
+        <section class="cc-pane" data-pane="coding">
+          <section class="txn-context" aria-label="Account and dates">
+            <div class="wsec">
+              <p class="wsec-lbl">Account
+                <span class="wsec-meta">4 accounts · 187 to categorize</span>
+                <button type="button" class="wsec-expand" aria-expanded="false">Show all</button>
+              </p>
+              <div class="wtiles" role="radiogroup" aria-label="Account">
+                <div class="wtile-wrap">
+                  <button type="button" class="wtile is-on" role="radio" aria-checked="true">
+                    <span class="wtile-top">
+                      <span class="wtile-mark" style="--wtile-hue:245">BO</span>
+                      <span class="wtile-id">
+                        <span class="wtile-name">Baseballism Operating</span>
+                        <span class="wtile-mask">Chase ·••• 4821</span>
+                      </span>
+                    </span>
+                    <span class="wtile-bal"><small>Available</small>$94,875.09</span>
+                    <span class="wtile-ft">
+                      <span class="wtile-sync"><i class="wtile-dot" data-tone="ok"></i>42m ago</span>
+                      <span class="wtile-pending">187 to categorize</span>
+                    </span>
+                  </button>
+                  <button type="button" class="wtile-info" aria-label="Account details">i</button>
+                </div>
+                <div class="wtile-wrap">
+                  <button type="button" class="wtile" role="radio" aria-checked="false">
+                    <span class="wtile-top">
+                      <span class="wtile-mark" style="--wtile-hue:262">CC</span>
+                      <span class="wtile-id">
+                        <span class="wtile-name">Columbia CC</span>
+                        <span class="wtile-mask">Statement upload</span>
+                      </span>
+                    </span>
+                    <span class="wtile-bal"><small>Balance</small>—</span>
+                    <span class="wtile-ft">
+                      <span class="wtile-sync"><i class="wtile-dot" data-tone="ok"></i>CSV</span>
+                      <span class="wtile-pending is-clear">All done</span>
+                    </span>
+                  </button>
+                  <button type="button" class="wtile-info" aria-label="Account details">i</button>
+                </div>
+                <div class="wtile-wrap">
+                  <button type="button" class="wtile" role="radio" aria-checked="false">
+                    <span class="wtile-top">
+                      <span class="wtile-mark" style="--wtile-hue:280">DV</span>
+                      <span class="wtile-id">
+                        <span class="wtile-name">Divvy</span>
+                        <span class="wtile-mask">Statement upload</span>
+                      </span>
+                    </span>
+                    <span class="wtile-bal"><small>Balance</small>—</span>
+                    <span class="wtile-ft">
+                      <span class="wtile-sync"><i class="wtile-dot" data-tone="ok"></i>CSV</span>
+                      <span class="wtile-pending is-clear">All done</span>
+                    </span>
+                  </button>
+                  <button type="button" class="wtile-info" aria-label="Account details">i</button>
+                </div>
+              </div>
+            </div>
+            <form class="txn-dates" id="dateForm" onsubmit="return false">
+              <div class="txn-presets" aria-label="Date shortcuts">
+                <button type="button" class="bcn-btn" aria-pressed="true">This month</button>
+                <button type="button" class="bcn-btn">Last month</button>
+                <button type="button" class="bcn-btn">Quarter</button>
+                <button type="button" class="bcn-btn">Year to date</button>
+              </div>
+              <label>From <input class="bcn-field" type="date" value="2026-10-01" aria-label="Start date"></label>
+              <label>To <input class="bcn-field" type="date" value="2026-10-31" aria-label="End date"></label>
+              <button class="bcn-btn" type="submit">Apply dates</button>
+            </form>
+          </section>
+
+          <div class="txn-month-lane preview-proposed-only" hidden>
+            <div>
+              <strong>September 2026</strong> is fully coded on this account (620 rows) but never approved for QuickBooks.
+              SILO will not post until you approve on <strong>Journal entry</strong>.
+            </div>
+            <button type="button" class="bcn-btn bcn-btn--primary">Open September approval</button>
+            <button type="button" class="bcn-btn bcn-btn--ghost">Dismiss for today</button>
+          </div>
+
+          <div class="cc-card cc-card--grow transaction-list">
+            <div class="cc-card-head txn-card-head">
+              <div class="txn-card-head__row">
+                <div class="txn-card-head__title">
+                  <div class="cc-title">Transactions</div>
+                  <div class="cc-sub" id="code-sub">292 transactions in selected dates · Baseballism Operating · Oct 1–31, 2026</div>
+                  <div class="txn-card-head__meta">
+                    <span class="cc-note" role="status">187 shown · Needs categorizing · 62 ready to review · 27 need a person to choose</span>
+                  </div>
+                </div>
+                <div class="txn-card-head__actions">
+                  <input class="bcn-field" type="search" placeholder="Search 292 rows — merchant, account, location…" />
+                  <button type="button" class="bcn-btn">Filters · 1</button>
+                  <button type="button" class="bcn-btn bcn-btn--primary" id="btn-prepare">Prepare now</button>
+                  <details class="txn-tools"><summary>More actions</summary><div><button type="button" class="bcn-btn">Learn rules</button></div></details>
+                </div>
+              </div>
+              <div class="txn-filters txn-card-head__queues" role="group" aria-label="Transaction filters">
+                <button type="button">All <span>292</span></button>
+                <button type="button" aria-pressed="true">Needs categorizing <span>187</span></button>
+                <button type="button">Pending at bank <span>17</span></button>
+                <button type="button">Conflicts <span>0</span></button>
+                <button type="button">AI <span>81</span></button>
+                <button type="button">Low confidence <span>8</span></button>
+                <button type="button">Excluded <span>17</span></button>
+              </div>
+            </div>
+            <div class="cc-body">
+              <table class="cc-tbl" id="tblCoding">
+                <thead>
+                  <tr>
+                    <th class="txn-select"></th>
+                    <th class="txn-date">Date</th>
+                    <th class="txn-description">Transaction</th>
+                    <th class="txn-merchant">Merchant</th>
+                    <th class="txn-amount">Amount</th>
+                    <th class="txn-treatment">Type</th>
+                    <th class="txn-category">Category</th>
+                    <th class="txn-location">Location</th>
+                    <th class="txn-entity">Entity</th>
+                    <th class="txn-review"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="txn-row">
+                    <td class="txn-select"><input type="checkbox" aria-label="Select row"></td>
+                    <td class="txn-date">2026-10-15</td>
+                    <td class="txn-description">
+                      <button type="button" class="txn-description-button">PREAUTHORIZED ACH CREDIT shopify TRANSFER ST-T8E7G7L…</button>
+                      <div class="txn-secondary">Needs category</div>
+                    </td>
+                    <td class="txn-merchant txn-col-empty">—</td>
+                    <td class="txn-amount txn-inflow">+$296.83</td>
+                    <td class="txn-treatment"><span class="txn-type-label">Deposit</span></td>
+                    <td class="txn-category">
+                      <span class="preview-shipped-only cc-cell cc-cell--empty">Choose category</span>
+                      <span class="preview-proposed-only txn-suggestion" hidden>
+                        <button type="button" class="txn-suggestion-button">Shopify payouts · 96%</button>
+                        <button type="button" class="txn-accept-button">Accept</button>
+                      </span>
+                    </td>
+                    <td class="txn-location"><span class="cc-cell">HQ</span></td>
+                    <td class="txn-entity txn-col-empty">—</td>
+                    <td class="txn-review"><button type="button" class="txn-review-button" aria-label="Review">⋯</button></td>
+                  </tr>
+                  <tr class="txn-row txn-row--open preview-proposed-only" hidden>
+                    <td colspan="10">
+                      <div class="txn-detail-panel">
+                        <div>
+                          <h3>Suggestion</h3>
+                          <p>Rule matched <strong>Shopify TRANSFER</strong> → Shopify payouts (location HQ). History: 14 prior transfers coded the same way in 2026.</p>
+                          <p class="txn-qbo-state"><b>QuickBooks</b> Not in books until row is saved and month is approved + posted</p>
+                          <button type="button" class="bcn-btn bcn-btn--primary">Accept suggestion</button>
+                          <button type="button" class="bcn-btn">Choose different category</button>
+                        </div>
+                        <div>
+                          <h3>Accounting details</h3>
+                          <table class="txn-dimensions"><tbody>
+                            <tr><th>Location</th><td>HQ</td></tr>
+                            <tr><th>Entity</th><td>—</td></tr>
+                          </tbody></table>
+                          <button type="button" class="bcn-btn bcn-btn--ghost">Split across accounts…</button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr class="txn-row">
+                    <td class="txn-select"><input type="checkbox" aria-label="Select row"></td>
+                    <td class="txn-date">2026-10-15</td>
+                    <td class="txn-description">
+                      <button type="button" class="txn-description-button">AMEX · ADOBE CREATIVE CLD</button>
+                      <div class="txn-secondary preview-shipped-only">Needs category</div>
+                      <div class="txn-secondary preview-proposed-only" hidden><span class="cc-chip cc-chip--ai">AI 88%</span> prepared</div>
+                    </td>
+                    <td class="txn-merchant">Adobe</td>
+                    <td class="txn-amount">−$54.99</td>
+                    <td class="txn-treatment"><span class="txn-type-label">Purchase</span></td>
+                    <td class="txn-category">
+                      <span class="preview-shipped-only cc-cell cc-cell--empty">Choose category</span>
+                      <span class="preview-proposed-only txn-suggestion" hidden>
+                        <button type="button" class="txn-suggestion-button">Software &amp; subscriptions</button>
+                        <button type="button" class="txn-accept-button">Accept</button>
+                      </span>
+                    </td>
+                    <td class="txn-location"><span class="cc-cell">HQ</span></td>
+                    <td class="txn-entity txn-col-empty">—</td>
+                    <td class="txn-review"><button type="button" class="txn-review-button" aria-label="Review">⋯</button></td>
+                  </tr>
+                  <tr class="txn-row">
+                    <td class="txn-select"><input type="checkbox" aria-label="Select row"></td>
+                    <td class="txn-date">2026-10-15</td>
+                    <td class="txn-description">
+                      <button type="button" class="txn-description-button">CHASE · TIKTOK SHOP PAYOUT</button>
+                      <div class="txn-secondary">Needs category</div>
+                    </td>
+                    <td class="txn-merchant">Tiktok Shop</td>
+                    <td class="txn-amount txn-inflow">+$1,842.10</td>
+                    <td class="txn-treatment"><span class="txn-type-label">Deposit</span></td>
+                    <td class="txn-category"><span class="cc-cell cc-cell--empty">Choose category</span></td>
+                    <td class="txn-location"><span class="cc-cell">HQ</span></td>
+                    <td class="txn-entity txn-col-empty">—</td>
+                    <td class="txn-review"><button type="button" class="txn-review-button" aria-label="Review">⋯</button></td>
+                  </tr>
+                  <tr class="txn-row">
+                    <td class="txn-select"><input type="checkbox" aria-label="Select row"></td>
+                    <td class="txn-date">2026-10-15</td>
+                    <td class="txn-description">
+                      <button type="button" class="txn-description-button">WIRE OUT · FACTORY DEPOSIT PO SS26-014</button>
+                      <div class="txn-secondary">Needs category</div>
+                    </td>
+                    <td class="txn-merchant txn-col-empty">—</td>
+                    <td class="txn-amount">−$37,959.29</td>
+                    <td class="txn-treatment"><span class="txn-type-label">Purchase</span></td>
+                    <td class="txn-category"><span class="cc-cell cc-cell--empty">Choose category</span></td>
+                    <td class="txn-location"><span class="cc-cell">HQ</span></td>
+                    <td class="txn-entity txn-col-empty">—</td>
+                    <td class="txn-review"><button type="button" class="txn-review-button" aria-label="Review">⋯</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="cc-foot">
+              <span class="preview-proposed-only cc-note" hidden id="review-next-label">Reviewing uncoded · 1 of 187</span>
+              <button type="button" class="bcn-btn preview-proposed-only" hidden id="btn-review-next">Review next uncoded</button>
+              <span class="cc-note" style="margin-left:auto">12 unsaved</span>
+              <button type="button" class="bcn-btn" id="btn-save">Save categories</button>
+            </div>
+          </div>
+
+          <div class="txn-flow" aria-label="Review workflow" id="txn-flow">
+            <div class="txn-flow-step">
+              <span class="txn-flow-dot is-done">✓</span>
+              <span><b>Imported</b><small>292 transactions</small></span>
+            </div>
+            <div class="txn-flow-step">
+              <span class="txn-flow-dot">2</span>
+              <span><b>Categorized</b><small id="flow-cat">88 of 292</small></span>
+            </div>
+            <div class="txn-flow-step">
+              <span class="txn-flow-dot">3</span>
+              <span><b>Human review</b><small id="flow-review">Open a transaction to review</small></span>
+            </div>
+            <div class="txn-flow-step">
+              <span class="txn-flow-dot">4</span>
+              <span><b>QuickBooks posting</b><small id="flow-qbo">Waiting on categorizing</small></span>
+              <button type="button" class="bcn-btn bcn-btn--primary preview-proposed-only" hidden>When ready: Journal entry →</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+<script src="nav-config.js"></script>
+<script src="avatar.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+(function () {
+  window.SiloChrome?.mount({
+    appEl: '#silo-app',
+    active: 'finance/card-coding',
+    user: { email: 'blake@baseballism.com', role: 'owner' },
+    crumbs: ['Finance', 'Transactions preview'],
+  });
+
+  const note = document.getElementById('preview-note');
+  function setMode(mode) {
+    const proposed = mode === 'proposed';
+    document.querySelectorAll('#preview-mode button').forEach(b => {
+      b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
+    });
+    document.querySelectorAll('.preview-proposed-only').forEach(el => {
+      el.hidden = !proposed;
+    });
+    document.querySelectorAll('.preview-shipped-only').forEach(el => {
+      el.hidden = proposed;
+    });
+    note.innerHTML = proposed
+      ? '<strong>Proposed depth</strong> (incremental): (1) month-close lane when a prior period is coded but unapproved, (2) inline Accept on prepared suggestions so Prepare now pays off in the grid, (3) expanded row panel with QuickBooks state, (4) Review next queue + clearer Journal entry handoff — same shell you have now.'
+      : 'Matches your current register: account tiles, date scope, queue filters, dense table, footer workflow. Toggle <strong>Proposed depth</strong> for ideas that sit on top of this — not a replacement layout.';
+    document.getElementById('flow-review').textContent = proposed
+      ? '81 AI suggestions · accept inline or review next'
+      : 'Open a transaction to review';
+    document.getElementById('flow-qbo').textContent = proposed
+      ? 'September waiting approval · October still coding'
+      : 'Waiting on categorizing';
+  }
+  document.getElementById('preview-mode').addEventListener('click', e => {
+    const btn = e.target.closest('[data-mode]');
+    if (btn) setMode(btn.dataset.mode);
+  });
+  setMode('shipped');
+})();
+</script>
+</body>
+</html>
