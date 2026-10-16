@@ -507,7 +507,7 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
  .ev-chip-init-title { font-size:11px;line-height:1.4;font-weight:500;-webkit-line-clamp:2; }
  .ev-chip-init-meta { font-size:10px;margin-top:2px; }
  .lc2-hero { gap:16px;align-items:center; }
- .lc2-hero img { width:clamp(130px,40%,180px);height:auto;aspect-ratio:1;flex-shrink:0;object-fit:contain;border-radius:10px;padding:5px;box-sizing:border-box; }
+ .lc2-hero img { width:clamp(130px,40%,224px);height:auto;aspect-ratio:1;flex-shrink:0;object-fit:contain;border-radius:10px;padding:5px;box-sizing:border-box; }
  .lc2-hero>div { min-width:0;flex:1; }
  @container(max-width:130px) { .ev-chip-thumb-wrap { display:none; } .ev-chip { padding:7px; } .ev-chip-title { font-size:11px; } }
  @media(max-width:700px) { .lc2-hero img { width:130px; } .cal-cell { padding:7px; } }
@@ -573,12 +573,12 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
 <style>
 /* Cover artwork leads the overview; supporting metadata follows beneath. */
 #drawerLaunchMeta .lc2-hero{display:flex;flex-direction:column;align-items:stretch;gap:16px}
-#drawerLaunchMeta .lc2-hero>img{display:block;width:180px;height:180px;max-width:100%;aspect-ratio:1;object-fit:contain;padding:0;border-radius:10px}
+#drawerLaunchMeta .lc2-hero>img{display:block;width:224px;height:224px;max-width:100%;margin:0 auto;aspect-ratio:1;object-fit:contain;padding:0;border-radius:10px}
 #drawerLaunchMeta .lc2-hero>div{width:100%;flex:none}
 .lc4-document-cover{margin:0 0 28px;break-inside:avoid;text-align:center}
-.lc4-document-cover img{display:block;margin:0 auto;max-width:100%;width:180px;height:180px;object-fit:contain;border-radius:10px}
-@media screen and (max-width:700px){#drawerLaunchMeta .lc2-hero>img,.lc4-document-cover img{width:120px;height:120px}}
-@media print{.lc4-document-cover img{width:180px;height:180px;max-width:100%}}
+.lc4-document-cover img{display:block;margin:0 auto;max-width:100%;width:224px;height:224px;object-fit:contain;border-radius:10px}
+@media screen and (max-width:700px){#drawerLaunchMeta .lc2-hero>img,.lc4-document-cover img{width:144px;height:144px}}
+@media print{.lc4-document-cover img{width:224px;height:224px;max-width:100%}}
 </style></head>
 <body class="silo-brand">
 
@@ -3061,14 +3061,14 @@ function lc2MoveDates(launch, targetDate) {
 <style>
 #dp-brief{max-width:1000px;gap:12px}
 #dp-brief .lc3-brief-hero{display:flex;align-items:center;gap:24px;padding:4px 0 10px}
-.lc3-brief-hero img{width:180px;height:180px;object-fit:contain;border-radius:10px;background:var(--bcn-surface)}
+.lc3-brief-hero img{width:224px;height:224px;object-fit:contain;border-radius:10px;background:var(--bcn-surface)}
 .lc3-brief-hero h2{font-size:22px;margin:0 0 8px}.lc3-brief-hero p{color:var(--bcn-ink-3);margin:0}
 #dp-brief .lc3-essentials{padding:18px;display:grid;gap:10px}
 #dp-brief textarea{min-height:68px}
 #dp-brief .lc3-optional{border:1px solid var(--bcn-border);border-radius:8px;background:var(--bcn-surface)}
 #dp-brief .lc3-optional summary{padding:14px 18px;font-size:13px;font-weight:600;cursor:pointer}
 #dp-brief .lc3-optional .dp-section{border:0;padding:0 18px 18px}
-@media(max-width:700px){.lc3-brief-hero img{width:120px;height:120px}.lc3-brief-hero h2{font-size:18px}}
+@media(max-width:700px){.lc3-brief-hero img{width:144px;height:144px}.lc3-brief-hero h2{font-size:18px}}
 </style><script>
 (function(){
  const brief=$('dp-brief');
@@ -3103,7 +3103,7 @@ function lc2MoveDates(launch, targetDate) {
   const clone=$('releaseDocument').cloneNode(true);
   clone.querySelectorAll('.reldoc-row--empty,.reldoc-sec--empty,.reldoc-print-none,.reldoc-print-header').forEach(el=>el.remove());
   clone.querySelectorAll('a').forEach(a=>{try{if(!/^https?:$/.test(new URL(a.href).protocol))a.removeAttribute('href');}catch{a.removeAttribute('href');}});
-  return '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(activeLaunch?.title||'Launch document')+'</title><style>body{font:14px/1.6 Arial,sans-serif;color:#17202a;max-width:850px;margin:32px auto;padding:0 28px}h1{font-size:28px;line-height:1.25}.lc2-doc-date{color:#667085}.reldoc-sec{border-top:1px solid #ddd;margin-top:24px;padding-top:20px}.reldoc-sec-title{font-size:19px;font-weight:bold;margin-bottom:12px}.reldoc-row{display:grid;grid-template-columns:1fr 1.3fr;gap:24px;padding:6px 0;break-inside:avoid}.reldoc-k{color:#667085}.reldoc-v{overflow-wrap:anywhere}.reldoc-block{white-space:pre-wrap;margin:14px 0}.reldoc-block-label{font-weight:bold;margin:14px 0 6px}.lc4-document-cover{margin:20px 0;break-inside:avoid;text-align:center}.lc4-document-cover img{max-width:100%;width:180px;height:180px;object-fit:contain}.print-tools{background:#f2f5fa;padding:16px;margin-bottom:24px}button{padding:10px 18px;cursor:pointer} @page{size:auto;margin:16mm}@media print{body{margin:0;padding:0;max-width:none}.print-tools{display:none}.reldoc-sec-title{break-after:avoid}a{color:inherit}}</style></head><body><div class="print-tools"><button onclick="window.print()">Print / Save as PDF</button><p>If no print dialog opens, open this document in Chrome or Edge and print there.</p></div>'+clone.outerHTML+'</body></html>';
+  return '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(activeLaunch?.title||'Launch document')+'</title><style>body{font:14px/1.6 Arial,sans-serif;color:#17202a;max-width:850px;margin:32px auto;padding:0 28px}h1{font-size:28px;line-height:1.25}.lc2-doc-date{color:#667085}.reldoc-sec{border-top:1px solid #ddd;margin-top:24px;padding-top:20px}.reldoc-sec-title{font-size:19px;font-weight:bold;margin-bottom:12px}.reldoc-row{display:grid;grid-template-columns:1fr 1.3fr;gap:24px;padding:6px 0;break-inside:avoid}.reldoc-k{color:#667085}.reldoc-v{overflow-wrap:anywhere}.reldoc-block{white-space:pre-wrap;margin:14px 0}.reldoc-block-label{font-weight:bold;margin:14px 0 6px}.lc4-document-cover{margin:20px 0;break-inside:avoid;text-align:center}.lc4-document-cover img{max-width:100%;width:224px;height:224px;object-fit:contain}.print-tools{background:#f2f5fa;padding:16px;margin-bottom:24px}button{padding:10px 18px;cursor:pointer} @page{size:auto;margin:16mm}@media print{body{margin:0;padding:0;max-width:none}.print-tools{display:none}.reldoc-sec-title{break-after:avoid}a{color:inherit}}</style></head><body><div class="print-tools"><button onclick="window.print()">Print / Save as PDF</button><p>If no print dialog opens, open this document in Chrome or Edge and print there.</p></div>'+clone.outerHTML+'</body></html>';
  }
  const button=$('printDocBtn');button.textContent='PRINT DOCUMENT';
  const download=document.createElement('button');download.type='button';download.className='bcn-btn bcn-btn--mono';download.textContent='DOWNLOAD PRINT COPY';button.after(download);
