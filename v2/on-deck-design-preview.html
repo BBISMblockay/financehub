@@ -9,20 +9,19 @@
   <link rel="stylesheet" href="on-deck.css">
   <link rel="stylesheet" href="beacon-mirrors-unified.css">
   <link rel="stylesheet" href="v2-mobile.css">
+  <script src="v2-shell.js" defer></script>
   <style>
-    /* Preview-only: design review page (not linked from nav). */
-    .od-design-banner{margin:0 24px 0;padding:10px 14px;max-width:1700px;box-sizing:border-box}
-    @media(max-width:700px){.od-design-banner{margin:0 12px}}
+    /* Preview-only: not linked from nav. Uses the same shell + Beacon assets as on-deck.html. */
     .od-finance-upkeep{margin-top:18px}
     .od-preview-hidden{display:none!important}
   </style>
 </head>
 <body class="on-deck" data-desk="briefing" data-preview="briefing">
 <div class="silo-app" id="silo-app"><main class="silo-main">
-  <div class="bcn-status od-design-banner" role="status">Design preview — static sample data. Recommended All work: workflow board + collapsed Finance upkeep.</div>
+  <div id="status" class="bcn-status" role="status">Static layout sample — toggle views below. Not live data.</div>
   <header class="bcn-header">
     <div>
-      <div class="od-eyebrow">SILO / ON DECK <span class="od-badge">DESIGN PREVIEW</span></div>
+      <div class="od-eyebrow">SILO / ON DECK <span class="od-badge">PREVIEW</span></div>
       <h1 id="desk-title">Your next move<span class="od-dot">.</span></h1>
       <p class="od-sub" id="desk-subtitle">One useful action, backed by your connected business.</p>
     </div>
@@ -202,6 +201,19 @@
     </div>
   </div>
 </main></div>
+<script src="nav-config.js"></script>
+<script src="avatar.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+(function () {
+  window.SiloChrome?.mount({
+    appEl: '#silo-app',
+    active: 'start/on-deck',
+    user: { email: 'blake@baseballism.com', role: 'owner' },
+    crumbs: ['On Deck'],
+  });
+})();
+</script>
 <script>
 (function () {
   const body = document.body;
@@ -231,6 +243,8 @@
   });
   document.querySelector('[data-goto=work]')?.addEventListener('click', () => show('work'));
   show('briefing');
+  const status = document.getElementById('status');
+  if (status) status.hidden = true;
 })();
 </script>
 </body>
