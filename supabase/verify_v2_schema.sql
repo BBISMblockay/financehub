@@ -6198,6 +6198,25 @@ select 'On Deck evidence drift' as check_name, case when
  then 'CRITICAL: On Deck review grants widened'
  else 'ok' end as status;
 
+-- On Deck freshness cost (20261016170000): the fingerprint must not scan the two
+-- multi-million-row fact tables, and the review payload must resolve it once per
+-- workflow. on_deck_review_state measured 4.4-8.6s against the 8s authenticated
+-- timeout before this; a regression here takes On Deck down again.
+select 'On Deck freshness cost' as check_name, case when
+ position('search_console_daily' in pg_get_functiondef('public.on_deck_source_version(uuid,text)'::regprocedure))=0
+ then 'MISSING - run 20261016170000_on_deck_source_version_cheap.sql'
+ when position('search_console_page_daily' in pg_get_functiondef('public.on_deck_source_version(uuid,text)'::regprocedure))>0
+ or position('sales_by_day' in pg_get_functiondef('public.on_deck_source_version(uuid,text)'::regprocedure))>0
+ then 'BROKEN: the fingerprint is scanning a multi-million-row fact table again'
+ when position('vers->>p.kind' in pg_get_functiondef('public.on_deck_review_state()'::regprocedure))=0
+ then 'BROKEN: the fingerprint is resolved once per draft again'
+ when not exists(select 1 from pg_indexes where schemaname='public' and tablename='sync_jobs' and indexname='sync_jobs_company_type_status_finished')
+ then 'BROKEN: the sync_jobs lookup index is gone'
+ when has_function_privilege('authenticated','public.on_deck_source_version(uuid,text)','execute')
+ or has_function_privilege('anon','public.on_deck_source_version(uuid,text)','execute')
+ then 'CRITICAL: on_deck_source_version is callable from the browser'
+ else 'ok' end as status;
+
 -- On Deck action loop (read-only).
 select 'On Deck action loop' as check_name, case when
  exists(select 1 from information_schema.columns where table_schema='public' and table_name='on_deck_proposals' and column_name='context_work')

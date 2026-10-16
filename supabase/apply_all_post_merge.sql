@@ -19257,6 +19257,10 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261014120000_on_deck_review_action.sql
 -- On Deck: a routine data sync warns instead of disabling a draft.
 \i migrations/20261015013000_on_deck_evidence_drift_warns.sql
+-- On Deck: the freshness fingerprint stops scanning search_console_page_daily
+-- and sales_by_day, and is resolved once per workflow. Must come AFTER
+-- 20261009171424 and 20261015013000, both of whose bodies it replaces.
+\i migrations/20261016170000_on_deck_source_version_cheap.sql
 -- When SILO starts posting a bank or card account (card_sources.posting_start_on):
 -- approval refused for earlier periods, those periods out of On Deck, and their
 -- ledger entries reversed by a paged RPC. Must come AFTER 20261005120000
