@@ -233,15 +233,42 @@
     }
 
     .ac-empty {
-      margin:auto; text-align:center; color:var(--bcn-ink-3); font-size:13px; max-width:420px;
+      margin:auto; text-align:center; color:var(--bcn-ink-3); font-size:13px; max-width:720px; width:100%;
+      padding:8px 12px 24px;
     }
-    .ac-empty h3 { color:var(--bcn-ink); margin-bottom:6px; }
-    .ac-suggestions { display:flex; flex-direction:column; gap:6px; margin-top:14px; }
+    .ac-empty h3 { color:var(--bcn-ink); margin-bottom:6px; font-size:18px; }
+    .ac-empty-lede { line-height:1.5; max-width:540px; margin:0 auto; }
+    .ac-prompt-index { margin-top:18px; text-align:left; }
+    .ac-prompt-index-head {
+      display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:10px;
+    }
+    .ac-prompt-index-title { font-size:11px; font-family:var(--bcn-mono); text-transform:uppercase; letter-spacing:.08em; color:var(--bcn-ink-3); font-weight:700; }
+    .ac-prompt-index-hint { font-size:11.5px; color:var(--bcn-ink-3); }
+    .ac-prompt-cats { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+    .ac-prompt-cat {
+      font-family:var(--bcn-mono); font-size:10px; text-transform:uppercase; letter-spacing:.05em;
+      padding:5px 10px; border-radius:999px; border:1px solid var(--bcn-border); background:var(--bcn-surface);
+      color:var(--bcn-ink-2); cursor:pointer;
+    }
+    .ac-prompt-cat:hover { background:var(--bcn-sunken); }
+    .ac-prompt-cat.active { border-color:var(--bcn-accent); background:var(--bcn-accent-soft); color:var(--bcn-ink); }
+    .ac-prompt-list { display:flex; flex-direction:column; gap:6px; max-height:min(42vh,360px); overflow-y:auto; padding-right:4px; }
+    .ac-prompt-row { display:flex; gap:6px; align-items:stretch; }
     .ac-suggestion {
-      text-align:left; padding:8px 12px; border:1px solid var(--bcn-border); border-radius:8px;
-      background:var(--bcn-surface); font-size:12.5px; color:var(--bcn-ink-2); cursor:pointer;
+      flex:1; min-width:0; text-align:left; padding:9px 12px; border:1px solid var(--bcn-border); border-radius:8px;
+      background:var(--bcn-surface); font-size:12.5px; line-height:1.45; color:var(--bcn-ink-2); cursor:pointer;
     }
-    .ac-suggestion:hover { background:var(--bcn-sunken); }
+    .ac-suggestion:hover { background:var(--bcn-sunken); border-color:var(--bcn-accent-border); color:var(--bcn-ink); }
+    .ac-prompt-copy {
+      flex-shrink:0; align-self:stretch; padding:0 10px; border:1px solid var(--bcn-border); border-radius:8px;
+      background:var(--bcn-surface); font-family:var(--bcn-mono); font-size:9px; text-transform:uppercase;
+      letter-spacing:.06em; color:var(--bcn-ink-3); cursor:pointer;
+    }
+    .ac-prompt-copy:hover { background:var(--bcn-sunken); color:var(--bcn-ink); }
+    @media (max-width:640px) {
+      .ac-prompt-row { flex-direction:column; }
+      .ac-prompt-copy { align-self:flex-end; padding:6px 10px; }
+    }
 
     .ac-typing { display:flex; gap:4px; padding:4px 0; }
     .ac-typing span {
@@ -373,19 +400,7 @@
 
     <div class="ac-content">
       <div class="bcn-card ac-card">
-        <div class="ac-log" id="log">
-          <div class="ac-empty" id="emptyState">
-            <h3>Ask anything about your data</h3>
-            <div>Queries your live SILO data directly — sales, inventory, marketing, returns, purchasing. Nothing needs to be built into a report first.</div>
-            <div class="ac-suggestions">
-              <button class="ac-suggestion" data-q="What were our top 5 selling products by revenue in the last 30 days?">What were our top 5 selling products by revenue in the last 30 days?</button>
-              <button class="ac-suggestion" data-q="Which SKUs get returned the most, and why?">Which SKUs get returned the most, and why?</button>
-              <button class="ac-suggestion" data-q="How is our marketing spend trending against online sales this month?">How is our marketing spend trending against online sales this month?</button>
-              <button class="ac-suggestion" data-q="Suggest a marketing campaign idea based on what's actually selling well right now.">Suggest a marketing campaign idea based on what's actually selling well right now.</button>
-              <button class="ac-suggestion" id="suggestionConcept" data-q="I want to generate a new product concept.">Generate a new product concept</button>
-            </div>
-          </div>
-        </div>
+        <div class="ac-log" id="log"></div>
         <div class="ac-pending-images" id="pendingImages" hidden></div>
         <div class="ac-inputbar">
           <button type="button" class="ac-attach-btn" id="btnAttach" title="Attach a reference image">
@@ -525,6 +540,86 @@
 
   const el = id => document.getElementById(id);
   const esc = s => String(s ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+  const escAttr = s => esc(s).replaceAll('"', '&quot;');
+
+  /** Starter prompts — click sends to chat; Copy puts text in the composer only. */
+  const ASK_SILO_PROMPT_CATEGORIES = [
+    { id: 'all', label: 'All' },
+    { id: 'sales', label: 'Sales' },
+    { id: 'inventory', label: 'Inventory' },
+    { id: 'marketing', label: 'Marketing' },
+    { id: 'returns', label: 'Returns' },
+    { id: 'ops', label: 'Ops & POs' },
+    { id: 'planning', label: 'Launches & tasks' },
+    { id: 'finance', label: 'Finance' },
+    { id: 'creative', label: 'Product & creative' },
+  ];
+  const ASK_SILO_PROMPTS = [
+    { cat: 'sales', q: 'What were our top 5 selling products by revenue in the last 30 days?' },
+    { cat: 'sales', q: 'Compare DTC revenue this week to the same week last year.' },
+    { cat: 'sales', q: 'Which collections grew the most in units sold month over month?' },
+    { cat: 'sales', q: 'What is average order value trend over the last 90 days?' },
+    { cat: 'sales', q: 'Break down revenue by sales channel for the current month.' },
+    { cat: 'inventory', q: 'Which SKUs have the lowest sell-through in the last 60 days?' },
+    { cat: 'inventory', q: 'What products are at risk of stocking out in the next two weeks?' },
+    { cat: 'inventory', q: 'Show incoming PO units expected to arrive in the next 30 days, by vendor.' },
+    { cat: 'inventory', q: 'List SKUs with on-hand inventory above 90 days of cover.' },
+    { cat: 'marketing', q: 'How is our marketing spend trending against online sales this month?' },
+    { cat: 'marketing', q: 'Which Meta campaigns drove the most attributed revenue in the last 30 days?' },
+    { cat: 'marketing', q: 'Summarize Redo email and SMS performance for the last 14 days.' },
+    { cat: 'marketing', q: 'Suggest a marketing campaign idea based on what is selling well right now.' },
+    { cat: 'marketing', q: 'Which upcoming launch calendar events in the next 14 days have no linked campaigns?' },
+    { cat: 'returns', q: 'Which SKUs get returned the most, and why?' },
+    { cat: 'returns', q: 'What is our return rate by product category year to date?' },
+    { cat: 'returns', q: 'Which return reasons increased the most compared to last month?' },
+    { cat: 'ops', q: 'List open purchase orders by vendor with expected ship or receive dates.' },
+    { cat: 'ops', q: 'Which POs are past their expected receive date and still not fully received?' },
+    { cat: 'planning', q: 'What launches are scheduled in the next 30 days and marked ready?' },
+    { cat: 'planning', q: 'Show open launch tasks due this week, grouped by owner.' },
+    { cat: 'planning', q: 'Which launches in the next 60 days still have product readiness gaps?' },
+    { cat: 'finance', q: 'Summarize journal entry activity for the current month by department.' },
+    { cat: 'finance', q: 'Which client invoices are overdue by more than 30 days?' },
+    { cat: 'creative', q: 'I want to generate a new product concept.', workflow: 'product_concept' },
+    { cat: 'creative', q: 'Draft three headline options for our next email send based on recent best sellers.' },
+    { cat: 'creative', q: 'What product types are underrepresented in our catalog compared to what sells?' },
+  ];
+
+  function buildEmptyStateInner() {
+    const cats = ASK_SILO_PROMPT_CATEGORIES.map(c =>
+      `<button type="button" class="ac-prompt-cat${c.id === 'all' ? ' active' : ''}" data-cat="${escAttr(c.id)}">${esc(c.label)}</button>`
+    ).join('');
+    const rows = ASK_SILO_PROMPTS.map(p => {
+      const wf = p.workflow ? ` data-workflow="${escAttr(p.workflow)}"` : '';
+      return `<div class="ac-prompt-row" data-cat="${escAttr(p.cat)}">
+        <button type="button" class="ac-suggestion" data-q="${escAttr(p.q)}"${wf}>${esc(p.q)}</button>
+        <button type="button" class="ac-prompt-copy" data-q="${escAttr(p.q)}" title="Copy to composer">Copy</button>
+      </div>`;
+    }).join('');
+    return `
+      <h3>Ask anything about your data</h3>
+      <div class="ac-empty-lede">Queries your live SILO data directly — sales, inventory, marketing, returns, purchasing. Nothing needs to be built into a report first.</div>
+      <div class="ac-prompt-index">
+        <div class="ac-prompt-index-head">
+          <span class="ac-prompt-index-title">Example prompts</span>
+          <span class="ac-prompt-index-hint">Click to send · Copy to edit first</span>
+        </div>
+        <div class="ac-prompt-cats" role="tablist">${cats}</div>
+        <div class="ac-prompt-list" id="acPromptList">${rows}</div>
+      </div>`;
+  }
+
+  function mountEmptyState() {
+    el('log').innerHTML = `<div class="ac-empty" id="emptyState">${buildEmptyStateInner()}</div>`;
+  }
+
+  function filterPromptCategory(catId) {
+    el('log').querySelectorAll('.ac-prompt-cat').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.cat === catId);
+    });
+    el('log').querySelectorAll('.ac-prompt-row').forEach(row => {
+      row.hidden = catId !== 'all' && row.dataset.cat !== catId;
+    });
+  }
 
   function setStatus(msg, type = 'info', ms = 0) {
     const s = el('status');
@@ -1663,9 +1758,24 @@
     this.style.height = Math.min(120, this.scrollHeight) + 'px';
   });
   el('log').addEventListener('click', (e) => {
+    const catTab = e.target.closest('.ac-prompt-cat');
+    if (catTab) {
+      filterPromptCategory(catTab.dataset.cat || 'all');
+      return;
+    }
+    const copyBtn = e.target.closest('.ac-prompt-copy');
+    if (copyBtn?.dataset.q) {
+      e.preventDefault();
+      const q = copyBtn.dataset.q;
+      el('input').value = q;
+      el('input').dispatchEvent(new Event('input', { bubbles: true }));
+      el('input').focus();
+      setStatus('Prompt copied — edit if you like, then Send.', 'info', 3500);
+      return;
+    }
     const suggestion = e.target.closest('.ac-suggestion');
-    if (suggestion) {
-      if (suggestion.id === 'suggestionConcept') setWorkflow('product_concept');
+    if (suggestion?.dataset.q) {
+      if (suggestion.dataset.workflow === 'product_concept') setWorkflow('product_concept');
       sendMessage(suggestion.dataset.q);
       return;
     }
@@ -1857,11 +1967,7 @@
     history = [];
     clearHistorySession();
     setWorkflow(null);
-    el('log').innerHTML = `
-      <div class="ac-empty" id="emptyState">
-        <h3>Ask anything about your data</h3>
-        <div>Queries your live SILO data directly — sales, inventory, marketing, returns, purchasing. Nothing needs to be built into a report first.</div>
-      </div>`;
+    mountEmptyState();
   });
 
   // ── Taught notes modal ────────────────────────────────────────────────
@@ -2274,6 +2380,7 @@
     }
 
     restoreHistoryFromSession();
+    if (!history.length) mountEmptyState();
 
     // Arrived from another page with a question ready (SEO Studio's "Draft
     // improvements with Ask SILO"): put it in the composer and STOP. Nothing
