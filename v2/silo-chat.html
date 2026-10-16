@@ -592,7 +592,7 @@
       const wf = p.workflow ? ` data-workflow="${escAttr(p.workflow)}"` : '';
       return `<div class="ac-prompt-row" data-cat="${escAttr(p.cat)}">
         <button type="button" class="ac-suggestion" data-q="${escAttr(p.q)}"${wf}>${esc(p.q)}</button>
-        <button type="button" class="ac-prompt-copy" data-q="${escAttr(p.q)}" title="Copy to composer">Copy</button>
+        <button type="button" class="ac-prompt-copy" data-q="${escAttr(p.q)}"${wf} title="Copy to composer">Copy</button>
       </div>`;
     }).join('');
     return `
@@ -1767,6 +1767,9 @@
     if (copyBtn?.dataset.q) {
       e.preventDefault();
       const q = copyBtn.dataset.q;
+      const wf = copyBtn.dataset.workflow;
+      if (wf && WORKFLOWS[wf]) setWorkflow(wf);
+      else setWorkflow(null);
       el('input').value = q;
       el('input').dispatchEvent(new Event('input', { bubbles: true }));
       el('input').focus();

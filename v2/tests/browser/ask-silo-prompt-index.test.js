@@ -40,6 +40,23 @@ const r = createReporter('ask-silo-prompt-index');
   await page.locator('.ac-prompt-row[data-cat="returns"] .ac-prompt-copy').first().click();
   const copied = await page.inputValue('#input');
   r.test('copy fills composer', () => r.eq(copied, sampleQ));
+  await page.click('#btnSend');
+  await page.waitForTimeout(400);
+  r.test('ordinary copy then send keeps workflow null',
+    () => r.eq(sent[sent.length - 1]?.workflow ?? null, null));
+
+  await page.click('#btnNewChat');
+  await page.waitForFunction(() => document.getElementById('emptyState'));
+
+  const conceptQ = 'I want to generate a new product concept.';
+  await page.click('.ac-prompt-cat[data-cat="creative"]');
+  await page.locator('.ac-prompt-copy[data-workflow="product_concept"]').click();
+  r.ok('copy selects product concept mode', !(await page.locator('#workflowBar[hidden]').count()));
+  await page.fill('#input', conceptQ + ' Focus on a summer cap.');
+  await page.click('#btnSend');
+  await page.waitForTimeout(400);
+  r.test('concept copy then send includes product_concept workflow',
+    () => r.eq(sent[sent.length - 1]?.workflow, 'product_concept'));
 
   await page.click('#btnNewChat');
   await page.waitForFunction(() => document.getElementById('emptyState'));
