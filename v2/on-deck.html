@@ -14,22 +14,22 @@
   </header>
   <div id="status" class="bcn-status" role="status" aria-live="polite">Loading your decision workspace…</div>
   <section id="briefing" class="od-wrap od-briefing" aria-label="Your business briefing" hidden></section>
-  <div class="od-wrap od-top" id="all-work-top">
-    <section class="od-section" id="ready-section" aria-labelledby="ready-title" hidden>
-      <div class="od-section-head"><h2 id="ready-title">Bookkeeping queue <span class="od-count" id="ready-count">0</span></h2><p>Bookkeeping batches only. Workflow proposals are in the lineup below.</p></div>
-      <div class="od-ready-grid" id="ready-cards"></div>
-    </section>
-    <section class="od-section od-review" id="coding-review" aria-label="Review prepared output" hidden></section>
-    <section class="od-section" id="after-section" aria-labelledby="after-title" hidden>
-      <div class="od-section-head"><h2 id="after-title">After approval</h2><p>What was done, and the record it created.</p></div>
-      <div class="od-after-grid" id="after-cards"></div><div id="attention"></div>
-    </section>
-  </div>
   <div class="od-wrap" id="workspace" hidden>
     <div class="od-section-head"><h2>Workflow proposals</h2><p>Restock, launch, search and ad drafts. Each creates draft work for its own workspace.</p></div>
     <div class="od-toolbar"><nav id="views" class="od-tabs" aria-label="Proposal views"><button data-view="review" aria-pressed="true">Up next <b>0</b></button><button data-view="preparing" aria-pressed="false">Preparing <b>0</b></button><button data-view="needs" aria-pressed="false">Needs you <b>0</b></button><button data-view="completed" aria-pressed="false">Outcomes <b>0</b></button></nav><span class="od-meta" id="screened-at"></span></div>
     <div class="od-board"><section class="od-lineup" aria-label="Curated proposals"><div class="od-section-label">THE LINEUP <span id="queue-count"></span></div><div id="queue"></div></section><section class="od-detail" id="detail" aria-label="Selected proposal"><div class="od-empty">Select a proposal to review its evidence and draft.</div></section><aside class="od-rail" id="rail" aria-label="Connected work and revisions"></aside></div>
     <details class="od-screening"><summary>What stayed off the lineup</summary><div id="screening"></div></details>
+  </div>
+  <div class="od-wrap od-top" id="all-work-top">
+    <section class="od-section od-review" id="coding-review" aria-label="Review prepared output" hidden></section>
+    <section class="od-section" id="ready-section" aria-labelledby="ready-title" hidden>
+      <div class="od-section-head"><h2 id="ready-title">Bookkeeping queue <span class="od-count" id="ready-count">0</span></h2><p>Bookkeeping batches only. Workflow proposals are in the lineup above — not duplicated here.</p></div>
+      <div class="od-ready-grid" id="ready-cards"></div>
+    </section>
+    <section class="od-section" id="after-section" aria-labelledby="after-title" hidden>
+      <div class="od-section-head"><h2 id="after-title">After approval</h2><p>What was done, and the record it created.</p></div>
+      <div class="od-after-grid" id="after-cards"></div><div id="attention"></div>
+    </section>
   </div>
 </main></div>
 <dialog id="edit-dialog" class="od-dialog"><form id="edit-form"><div class="od-dialog-head"><h2>Review draft</h2><button type="button" data-close class="bcn-btn bcn-btn--ghost">Close</button></div><p>Review the evidence, edit the work and answer inputs here. Save does not run AI or create work. Creation needs a separate confirmation.</p><details id="edit-evidence" open><summary>Evidence for this draft</summary><div id="edit-evidence-content"></div></details><div id="edit-blockers" class="bcn-status" role="status"></div><label>Subject / title<input class="bcn-field" id="edit-subject" maxlength="200" required></label><label>Proposal summary<textarea class="bcn-field" id="edit-summary" maxlength="500" rows="3"></textarea></label><label>Draft copy<textarea class="bcn-field" id="edit-body" maxlength="5000" rows="10" required></textarea></label><label>Rationale and evidence<textarea class="bcn-field" id="edit-reason" maxlength="2000" rows="3"></textarea></label><div id="edit-seo" hidden><label>Proposed SEO title<input id="edit-seo-title" class="bcn-field" maxlength="200"></label><label>Proposed meta description<textarea id="edit-seo-meta" class="bcn-field" maxlength="500" rows="3"></textarea></label></div><p id="edit-task-rules" hidden>Save requires one to five launch tasks with unique titles. Each title is up to 200 characters; each detail is up to 1500.</p><div id="edit-tasks"></div><button type="button" id="edit-add-task" class="bcn-btn bcn-btn--ghost" hidden>Add launch task</button><h3 id="edit-input-heading">Inputs and saved answers</h3><div id="edit-missing"></div><label>Review note (required, 12–2000 characters)<textarea class="bcn-field" id="edit-note" required minlength="12" maxlength="2000" rows="3" placeholder="Explain edits or how missing information was resolved"></textarea></label><div class="bcn-status" id="edit-error" role="alert" hidden></div><button type="button" id="edit-reload" class="bcn-btn bcn-btn--ghost" hidden>Reload saved version</button><p>Copy and included answers/research must fit 5000 characters together. Each answer is up to 1200. Incomplete SEO fields and unanswered inputs can be saved. Required facts cannot be dismissed. Reopen an answer to make it a blocker again. Optional research may be carried into draft work.</p><div class="od-review-save"><button class="bcn-btn bcn-btn--primary" type="submit">Save for review</button><span>Creates no work and runs no AI.</span></div></form></dialog>
