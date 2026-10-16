@@ -309,9 +309,27 @@
       // expired draft, or one whose freshness could not be read, stops the work.
       if (expired || typeof p.source_current !== 'boolean') step.append(node('p', expired ? 'The saved evidence expired. Refresh evidence to queue a fresh draft.' : 'Freshness is unavailable. Reload before saving or creating work.'));
       else if (drifted) step.append(node('p', statusOf(p).notice || '', 'od-meta'));
-      if (blockers.length) { const list = node('ul', null, 'od-input-list'); blockers.forEach(x => list.append(node('li', x))); step.append(node('p', 'Still needed before creation:'), list); }
+      /* The one place that says what this proposal needs from the reader, and
+         carries the buttons that do it. A complete draft is created from here
+         WITHOUT a trip through the editor first (Blake, 2026-10-16: "make it
+         more defined on what user needs to do, or bypass to setup the task") --
+         the editor is still one click away for anyone who wants to change the
+         copy, and creation still goes through its own confirmation. The
+         create button lives here rather than in the footer below, so there is
+         exactly one of it on the page. */
+      const denied = p.kind === 'seo' && state.reviewState?.seo !== true || p.kind === 'restock' && state.reviewState?.purchasing !== true;
+      const canCreate = editable && p.status === 'ready' && !blockers.length && !denied;
+      const asks = B.inputPlan(p).filter(i => i.requirement === 'required' && (i.mode !== 'answered' || String(i.answer || '').trim().length < 4)).length;
+      if (blockers.length) { const list = node('ul', null, 'od-input-list'); blockers.forEach(x => list.append(node('li', x))); step.append(node('p', asks ? `Answer ${asks} question${asks === 1 ? '' : 's'} in Review draft. Until then this cannot be created:` : 'Fill these in Review draft. Until then this cannot be created:'), list); }
+      else if (canCreate) step.append(node('p', `Nothing is missing. ${actionLabels[p.kind]}, or edit the draft first. It creates draft work in ${destinations[p.kind][0]} and publishes nothing.`));
       else if (editable) step.append(node('p', 'Review the evidence and saved work, then confirm creation. Publishing and implementation happen separately.'));
-      const review = button('Review draft', openEditor, true); review.disabled = !editable; step.append(review);
+      const approve = button(actionLabels[p.kind], () => decision('approve'), canCreate);
+      approve.disabled = !canCreate;
+      const review = button('Review draft', openEditor, !canCreate); review.disabled = !editable;
+      const controls = node('div', null, 'od-step-actions');
+      (canCreate ? [approve, review] : [review, approve]).forEach(b => controls.append(b));
+      step.append(controls);
+      if (!canCreate && editable) step.append(node('p', denied ? 'A reviewer with destination approval permission must create this work.' : blockers.length ? 'Save the missing fields and required answers in Review draft before confirming creation.' : 'Creation requires a saved ready version and current evidence.', 'od-meta'));
       if (!editable) {
         const st = statusOf(p);
         // The same status that labelled the card explains the disabled button.
@@ -360,11 +378,8 @@
     const footer = node('div', null, 'od-footer');
     if (p.status === 'completed') footer.append(receiptLink(p));
     else if (!['dismissed', 'screened'].includes(p.status)) {
-      const approve = button(actionLabels[p.kind], () => decision('approve'), true);
-      const denied = p.kind === 'seo' && state.reviewState?.seo !== true || p.kind === 'restock' && state.reviewState?.purchasing !== true;
-      approve.disabled = !editable || p.status !== 'ready' || blockers.length > 0 || denied;
-      footer.append(approve);
-      if (approve.disabled) footer.append(node('p', denied ? 'A reviewer with destination approval permission must create this work.' : blockers.length ? 'Save the missing fields and required answers in Review draft before confirming creation.' : 'Creation requires a saved ready version and current evidence; check the next step above.', 'od-meta'));
+      // The create button and its explanation live in "Your next step" above:
+      // one decision point, and only one button that creates the work.
       if (!['preparing', 'revision'].includes(p.status)) footer.append(button('Refresh evidence', () => simpleAction('refresh')));
       if (p.status === 'revision') footer.append(button('Keep previous draft', () => simpleAction('cancel_revision')));
       footer.append(button('Dismiss', () => decision('dismiss')));

@@ -40,6 +40,10 @@ const rpc = {
    'private-context':['on-deck.js',"'Linked context task is unavailable. It may have been deleted or access changed. Detach the link to continue; its contents are not shown.'","work.title"],
    'dialog-lock':['on-deck.js','controls.forEach(b => { b.disabled = true; });',''],
    'exact-result':['on-deck.js',"seo_task: '/v2/seo-tasks.html?task='","seo_task: '/v2/seo-tasks.html#'"],
+   // Blake, 2026-10-16: say what the reader has to do, and let a finished draft
+   // be created without a trip through the editor first.
+   'editor-first':['on-deck.js','(canCreate ? [approve, review] : [review, approve])','([review, approve])'],
+   'vague-ask':['on-deck.js','asks ? `Answer ${asks} question${asks === 1 ? \'\' : \'s\'} in Review draft. Until then this cannot be created:` : ','false ? \'\' : '],
   };
   const [file,before,after]=mutations[process.env.FRONT_REVIEW_MUTATE]||[];assert.ok(file);const source=fs.readFileSync(path.join(root,file),'utf8');assert.ok(source.includes(before));
   await suite.context.route('**/v2/'+file,r=>r.fulfill({contentType:'text/javascript',body:source.replace(before,after)}));
@@ -52,6 +56,34 @@ const rpc = {
  const save=async()=>{await page.locator('#edit-note').fill('Reviewed evidence, copy and saved task inputs.');await page.getByRole('button',{name:'Save for review',exact:true}).click();await page.waitForFunction(()=>!document.getElementById('edit-dialog').open);};
  const shots=path.resolve(__dirname,'../../../.screenshots');fs.mkdirSync(shots,{recursive:true});
  try {
+  await test('a finished draft can be created from the page without opening the editor first',async()=>{
+   const data=tables();Object.assign(data.on_deck_proposals[0],{status:'ready',content:{...content(),missing:[],proposed_title:'Classic tees | Example',proposed_meta_description:'Grounded metadata'}});
+   page=await open(data);
+   const step=page.locator('.od-next-step');
+   assert.match(await step.textContent(),/Nothing is missing/);
+   assert.match(await step.textContent(),/publishes nothing/);
+   // One button that creates the work, in the one block that says what to do,
+   // and it is the primary action -- not the editor.
+   const create=page.getByRole('button',{name:'Create draft SEO task',exact:true});
+   assert.equal(await create.count(),1);
+   assert.equal(await step.getByRole('button',{name:'Create draft SEO task',exact:true}).count(),1);
+   assert.equal(await create.isDisabled(),false);
+   assert.ok((await create.getAttribute('class')).includes('bcn-btn--primary'));
+   assert.equal(await step.locator('button').first().textContent(),'Create draft SEO task');
+   await page.screenshot({path:path.join(shots,'on-deck-next-step.png'),fullPage:true});
+   await create.click();
+   assert.equal(await page.evaluate(()=>document.getElementById('edit-dialog').open),false,'the editor was opened on the way to creation');
+   await page.getByRole('button',{name:'Confirm · Create draft SEO task'}).click();
+   await page.waitForFunction(()=>window.__FIXTURE_TABLES__.on_deck_proposals[0].status==='completed');
+   assert.equal(await page.evaluate(()=>window.__CREATIONS__),1);
+   await page.close();});
+  await test('a draft still missing an answer says how many, and leads with the editor',async()=>{
+   page=await open();
+   const step=page.locator('.od-next-step');
+   assert.match(await step.textContent(),/Answer 1 question in Review draft/);
+   assert.equal(await step.locator('button').first().textContent(),'Review draft');
+   assert.equal(await page.getByRole('button',{name:'Create draft SEO task',exact:true}).isDisabled(),true);
+   await page.close();});
   await test('incomplete stored ready output is blocked and repairable without an AI request',async()=>{const data=tables();Object.assign(data.on_deck_proposals[0],{status:'ready',content:{...content(),missing:[],proposed_meta_description:'Grounded metadata'}});page=await open(data);assert.equal(await page.getByRole('button',{name:'Create draft SEO task',exact:true}).isDisabled(),true);assert.match(await page.locator('#detail').textContent(),/Needs input/i);assert.equal(await page.getByRole('button',{name:'Review draft',exact:true}).isEnabled(),true);await page.close();});
   page=await open();
   await test('single review path places evidence, manual SEO fields and editable inputs together',async()=>{
