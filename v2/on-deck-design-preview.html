@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>On Deck layout preview — SILO</title>
+  <link rel="stylesheet" href="beacon.css">
+  <link rel="stylesheet" href="silo-brand.css">
+  <link rel="stylesheet" href="on-deck.css">
+  <link rel="stylesheet" href="beacon-mirrors-unified.css">
+  <link rel="stylesheet" href="v2-mobile.css">
+  <style>
+    /* Preview-only: design review page (not linked from nav). */
+    .od-design-banner{margin:0 24px 0;padding:10px 14px;max-width:1700px;box-sizing:border-box}
+    @media(max-width:700px){.od-design-banner{margin:0 12px}}
+    .od-finance-upkeep{margin-top:18px}
+    .od-preview-hidden{display:none!important}
+  </style>
+</head>
+<body class="on-deck" data-desk="briefing" data-preview="briefing">
+<div class="silo-app" id="silo-app"><main class="silo-main">
+  <div class="bcn-status od-design-banner" role="status">Design preview — static sample data. Recommended All work: workflow board + collapsed Finance upkeep.</div>
+  <header class="bcn-header">
+    <div>
+      <div class="od-eyebrow">SILO / ON DECK <span class="od-badge">DESIGN PREVIEW</span></div>
+      <h1 id="desk-title">Your next move<span class="od-dot">.</span></h1>
+      <p class="od-sub" id="desk-subtitle">One useful action, backed by your connected business.</p>
+    </div>
+    <div class="od-buttons">
+      <nav class="bcn-tabs od-tabs" id="preview-views" aria-label="Preview views">
+        <button type="button" data-preview="briefing" aria-pressed="true">Briefing</button>
+        <button type="button" data-preview="work" aria-pressed="false">All work (recommended)</button>
+      </nav>
+    </div>
+  </header>
+
+  <section id="preview-briefing" class="od-wrap od-briefing" aria-label="Briefing sample">
+    <p class="od-briefing-status bcn-mono"><span class="od-meta">Screened Oct 16, 2:30 PM</span></p>
+    <div class="od-briefing-layout">
+      <article class="bcn-card od-hero">
+        <div class="bcn-card-header od-opportunity-head">
+          <span class="od-signal-icon" data-kind="seo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg></span>
+          <span class="bcn-mono">TODAY'S OPPORTUNITY · SEARCH</span>
+          <span class="od-signal-status" data-status="ready">Draft ready</span>
+        </div>
+        <div class="bcn-card-body">
+          <h2>Improve title on /collections/classic-tees</h2>
+          <p class="od-finding">Impressions are strong but clicks lag; SILO prepared SEO copy you can turn into a draft task.</p>
+          <dl class="od-briefing-metrics">
+            <div><dt class="bcn-mono">Impressions (28d)</dt><dd class="bcn-num">48,240</dd></div>
+            <div><dt class="bcn-mono">Clicks</dt><dd class="bcn-num">312</dd></div>
+            <div><dt class="bcn-mono">Avg position</dt><dd class="bcn-num">8.4</dd></div>
+          </dl>
+          <div class="od-briefing-reasons">
+            <div><h3 class="bcn-mono">Why act</h3><p>Page ranks on page one for branded and category terms; title/meta are the fastest lever.</p></div>
+            <div><h3 class="bcn-mono">Potential benefit</h3><p>Higher CTR on existing impressions without new spend.</p></div>
+          </div>
+        </div>
+        <div class="bcn-card-foot od-prepared">
+          <p>Prepared from Search Console through Oct 15. Review first — nothing publishes automatically.</p>
+          <button type="button" class="bcn-btn bcn-btn--primary">Create draft SEO task</button>
+          <button type="button" class="bcn-btn bcn-btn--ghost">See evidence</button>
+        </div>
+        <div class="od-briefing-sources">
+          <span>Review first. Nothing publishes, orders or changes your budget automatically.</span>
+          <span class="bcn-mono">search_console_page_daily · company calendar</span>
+        </div>
+      </article>
+      <section class="bcn-card od-secondary">
+        <div class="bcn-card-header"><h2 class="bcn-mono">ALSO WORTH A LOOK</h2></div>
+        <div class="od-briefing-row" data-role="upkeep">
+          <div>
+            <div class="od-row-caption"><span class="od-signal-icon" data-kind="coding" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="3" width="14" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span><span class="bcn-mono">BOOKKEEPING</span></div>
+            <h3>Keep your books current</h3>
+            <p>12 suggested classifications · routine upkeep.</p>
+          </div>
+          <button type="button" class="bcn-btn bcn-btn--ghost">Code transactions</button>
+        </div>
+      </section>
+    </div>
+    <section class="bcn-card od-watch">
+      <span class="od-signal-icon" data-kind="watch" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/></svg></span>
+      <div>
+        <h2>Background watch</h2>
+        <p>3 growth opportunities · 1 preparing · 2 needing input. Evidence, revisions and all remaining work are available in All work.</p>
+      </div>
+      <button type="button" class="bcn-btn bcn-btn--ghost" data-goto="work">All work →</button>
+    </section>
+  </section>
+
+  <div id="preview-work" class="od-preview-hidden">
+    <div class="od-wrap" id="workspace">
+      <div class="od-section-head"><h2>Workflow proposals</h2><p>Restock, launch, search and ad drafts. Each creates draft work for its own workspace.</p></div>
+      <div class="od-toolbar">
+        <nav class="od-tabs" aria-label="Proposal views">
+          <button type="button" aria-pressed="true">Up next <b>2</b></button>
+          <button type="button" aria-pressed="false">Preparing <b>1</b></button>
+          <button type="button" aria-pressed="false">Needs you <b>1</b></button>
+          <button type="button" aria-pressed="false">Outcomes <b>4</b></button>
+        </nav>
+        <span class="od-meta">Screened Oct 16, 2:30 PM</span>
+      </div>
+      <div class="od-board">
+        <section class="od-lineup" aria-label="Curated proposals">
+          <div class="od-section-label">THE LINEUP <span>02</span></div>
+          <button type="button" class="od-card" aria-pressed="true">
+            <div class="od-card-top"><span class="od-mark" data-kind="seo" aria-hidden="true">⌕</span><span class="od-kicker">SEARCH OPPORTUNITY</span></div>
+            <h3>Improve title on /collections/classic-tees</h3>
+            <span class="od-state">Ready · v3</span>
+          </button>
+          <button type="button" class="od-card" aria-pressed="false">
+            <div class="od-card-top"><span class="od-mark" data-kind="restock" aria-hidden="true">▦</span><span class="od-kicker">PRODUCT RESTOCK</span></div>
+            <h3>Classic tee — cover below target</h3>
+            <span class="od-state">Ready · v2</span>
+          </button>
+        </section>
+        <section class="od-detail" aria-label="Selected proposal">
+          <div class="od-detail-head">
+            <span class="od-pill">SEARCH OPPORTUNITY</span>
+            <h2>Improve title on /collections/classic-tees</h2>
+            <p class="od-meta">Draft 3 · Ready</p>
+          </div>
+          <section class="od-next-step">
+            <h3>Your next step</h3>
+            <p>Nothing is missing. Create draft SEO task, or edit the draft first. It creates draft work in SEO tasks and publishes nothing.</p>
+            <div class="od-step-actions">
+              <button type="button" class="bcn-btn bcn-btn--primary">Create draft SEO task</button>
+              <button type="button" class="bcn-btn bcn-btn--ghost">Review draft</button>
+            </div>
+          </section>
+          <nav class="od-tabs" aria-label="Proposal detail">
+            <button type="button" aria-pressed="true">Prepared draft</button>
+            <button type="button" aria-pressed="false">Evidence</button>
+            <button type="button" aria-pressed="false">Outcome</button>
+            <button type="button" aria-pressed="false">History</button>
+          </nav>
+          <div class="od-panel">
+            <div class="od-paper">
+              <span class="od-paper-label">DRAFT / FOR YOUR REVIEW</span>
+              <h3>Classic Tees — search title refresh</h3>
+              <p>Proposed title and meta focus on collection intent while keeping brand voice.</p>
+              <p>Shop Classic Baseball Tees | Free Shipping Over $75 — curated fits for game day and everyday.</p>
+            </div>
+          </div>
+          <div class="od-footer">
+            <button type="button" class="bcn-btn bcn-btn--ghost">Refresh evidence</button>
+            <button type="button" class="bcn-btn bcn-btn--ghost">Dismiss</button>
+          </div>
+        </section>
+        <aside class="od-rail" aria-label="Connected work">
+          <section>
+            <span class="od-eyebrow">ON APPROVAL →</span>
+            <h3>SEO tasks</h3>
+            <p>Creates draft work for final review.</p>
+            <a href="#">Open workspace ↗</a>
+          </section>
+          <section>
+            <h3>Give it a nudge</h3>
+            <textarea class="bcn-field" rows="3" placeholder="What would make this stronger?" aria-label="Revision instructions"></textarea>
+            <button type="button" class="bcn-btn bcn-btn--ghost">Request revision</button>
+            <p class="od-meta">Saving edits does not run AI.</p>
+          </section>
+          <section>
+            <h3>You have the final say</h3>
+            <p>Creation saves draft work only. AI revision is separate and may use credit.</p>
+            <span class="od-meta">Evidence expires Oct 18, 2:30 PM</span>
+          </section>
+        </aside>
+      </div>
+      <details class="od-screening"><summary>What stayed off the lineup</summary><p>Held: weak evidence (2) · cap reached (1)</p></details>
+    </div>
+    <div class="od-wrap od-top" id="all-work-top">
+      <details class="od-screening od-finance-upkeep">
+        <summary>Finance upkeep · 3 bookkeeping batches · 2 recorded outcomes</summary>
+        <section class="od-section" style="margin-top:14px">
+          <div class="od-section-head">
+            <h2>Bookkeeping queue <span class="od-count">3</span></h2>
+            <p>Not duplicated in the lineup above.</p>
+          </div>
+          <div class="od-ready-grid">
+            <article class="od-rcard">
+              <div class="od-rcard-top"><span class="od-rpill">Needs review</span><span class="od-rcard-module">September card</span></div>
+              <h3>Code 12 transactions</h3>
+              <p class="od-rcard-sub">Operating account · Plaid import</p>
+              <button type="button" class="bcn-btn bcn-btn--primary">Review batch</button>
+            </article>
+            <article class="od-rcard">
+              <div class="od-rcard-top"><span class="od-rpill od-rpill--working">In progress</span><span class="od-rcard-module">August card</span></div>
+              <h3>Finish 4 remaining lines</h3>
+              <p class="od-rcard-sub">Saved selection waiting on approval</p>
+              <button type="button" class="bcn-btn bcn-btn--ghost">Continue</button>
+            </article>
+          </div>
+        </section>
+        <section class="od-section" style="margin-top:14px">
+          <div class="od-section-head"><h2>After approval</h2><p>What was done, and the record it created.</p></div>
+          <div class="od-after-grid">
+            <div class="od-after"><h3>July card batch</h3><p class="od-rcard-sub">Recorded in SILO ledger</p></div>
+          </div>
+        </section>
+      </details>
+    </div>
+  </div>
+</main></div>
+<script>
+(function () {
+  const body = document.body;
+  const briefing = document.getElementById('preview-briefing');
+  const work = document.getElementById('preview-work');
+  const title = document.getElementById('desk-title');
+  const sub = document.getElementById('desk-subtitle');
+  function show(which) {
+    body.dataset.preview = which;
+    body.dataset.desk = which === 'briefing' ? 'briefing' : 'work';
+    briefing.classList.toggle('od-preview-hidden', which !== 'briefing');
+    work.classList.toggle('od-preview-hidden', which !== 'work');
+    document.querySelectorAll('#preview-views button').forEach(b => {
+      b.setAttribute('aria-pressed', String(b.dataset.preview === which));
+    });
+    if (which === 'briefing') {
+      title.innerHTML = 'Your next move<span class="od-dot">.</span>';
+      sub.textContent = 'One useful action, backed by your connected business.';
+    } else {
+      title.innerHTML = 'All work<span class="od-dot">.</span>';
+      sub.textContent = 'Prepared drafts, evidence, items needing input and recorded actions.';
+    }
+  }
+  document.getElementById('preview-views').addEventListener('click', e => {
+    const btn = e.target.closest('[data-preview]');
+    if (btn) show(btn.dataset.preview);
+  });
+  document.querySelector('[data-goto=work]')?.addEventListener('click', () => show('work'));
+  show('briefing');
+})();
+</script>
+</body>
+</html>
