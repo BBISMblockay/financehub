@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SILO · UX preview — Transactions, Marketing, PO</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="transactions-workspace.css?v=999a1ae498b6" />
+  <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
+  <link rel="stylesheet" href="po-workbench.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    /* Preview-only — not in nav. Toggle areas to compare today vs proposed. */
+    .ux-preview-bar {
+      flex: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 16px;
+      align-items: center;
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--bcn-accent-border);
+      background: var(--bcn-accent-soft);
+      font-size: 12px;
+      color: var(--bcn-ink-2);
+    }
+    .ux-preview-bar .bcn-tabs button { font-size: 12px; padding: 6px 12px; }
+    .ux-preview-badge {
+      font-family: var(--bcn-mono);
+      font-size: 10px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--bcn-accent);
+      border: 1px solid var(--bcn-accent-border);
+      border-radius: 999px;
+      padding: 3px 8px;
+    }
+    .ux-panel[hidden] { display: none !important; }
+
+    /* —— Transactions proposed —— */
+    .txn-preview-sub {
+      font-size: 12px;
+      color: var(--bcn-ink-3);
+      margin-top: 4px;
+      max-width: 52ch;
+    }
+    .txn-books-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--bcn-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--bcn-border);
+      background: var(--bcn-sunken);
+      color: var(--bcn-ink-2);
+      text-decoration: none;
+    }
+    .txn-books-pill:hover { border-color: var(--bcn-accent-border); color: var(--bcn-accent); }
+    .txn-flow-step.is-active .txn-flow-dot { background: var(--bcn-accent-soft); border-color: var(--bcn-accent); color: var(--bcn-accent); font-weight: 700; }
+    .txn-flow-step.is-blocked strong { color: var(--bcn-warn); }
+    .txn-flow-cta { margin-left: auto; flex: none; }
+    .txn-drawer-sample {
+      position: relative;
+      border: 1px solid var(--bcn-border);
+      border-radius: 12px;
+      background: var(--bcn-surface);
+      padding: 14px 16px;
+      max-width: 420px;
+    }
+    .txn-drawer-sample h3 { font-size: 12px; margin: 0 0 8px; }
+    .txn-qbo-state {
+      margin: 0 0 10px;
+      font-family: var(--bcn-mono);
+      font-size: 10.5px;
+      line-height: 1.5;
+      color: var(--bcn-band-ink-2);
+      background: var(--bcn-band);
+      border-left: 2px solid var(--bcn-band-ink-3);
+      border-radius: 0 4px 4px 0;
+      padding: 7px 10px;
+    }
+    .txn-qbo-state b {
+      color: var(--bcn-band-ink);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      font-size: 9.5px;
+      margin-right: 6px;
+    }
+    .txn-preview-grid {
+      display: grid;
+      grid-template-columns: 1fr minmax(280px, 36%);
+      gap: 14px;
+      padding: 14px 18px;
+      min-height: 0;
+      flex: 1;
+    }
+    @media (max-width: 960px) {
+      .txn-preview-grid { grid-template-columns: 1fr; }
+    }
+    .cc-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .cc-tbl th {
+      text-align: left;
+      font-family: var(--bcn-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--bcn-ink-3);
+      padding: 9px 8px;
+      border-bottom: 1px solid var(--bcn-border-strong);
+      background: var(--bcn-sunken);
+    }
+    .cc-tbl td { padding: 8px; border-top: 1px solid var(--bcn-border); }
+    .cc-chip { display: inline-block; font-family: var(--bcn-mono); font-size: 9.5px;
+      text-transform: uppercase; padding: 2px 6px; border-radius: 999px; border: 1px solid var(--bcn-border); }
+    .cc-chip--ai { background: rgba(37,99,235,.10); border-color: rgba(37,99,235,.35); }
+
+    /* —— Marketing proposed —— */
+    .mk-suite {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 0 18px;
+      background: var(--bcn-surface);
+      border-bottom: 1px solid var(--bcn-border);
+      overflow-x: auto;
+    }
+    .mk-suite-label { font-size: 12px; font-weight: 650; color: var(--bcn-ink); white-space: nowrap; }
+    .mk-suite a {
+      font-size: 12px;
+      padding: 10px 0 9px;
+      text-decoration: none;
+      color: var(--bcn-ink-2);
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+    }
+    .mk-suite a[aria-current="page"] { color: var(--bcn-accent); border-bottom-color: var(--bcn-accent); font-weight: 650; }
+    .mk-map {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      padding: 14px 18px;
+    }
+    @media (max-width: 900px) { .mk-map { grid-template-columns: 1fr; } }
+    .mk-map-card {
+      border: 1px solid var(--bcn-border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      background: var(--bcn-surface);
+    }
+    .mk-map-card h3 { font-size: 13px; margin: 0 0 6px; }
+    .mk-map-card p { font-size: 12px; line-height: 1.5; color: var(--bcn-ink-2); margin: 0; }
+    .mk-map-card .bcn-mono { font-size: 10px; color: var(--bcn-ink-3); display: block; margin-top: 8px; }
+    .mk-reality {
+      margin: 0 18px 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(217,119,6,.45);
+      background: rgba(217,119,6,.07);
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--bcn-ink-2);
+    }
+    .mk-reality strong { color: var(--bcn-ink); }
+    .mk-stat-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      padding: 12px 18px 0;
+    }
+    .mk-stat-label { font-family: var(--bcn-mono); font-size: 9.5px; text-transform: uppercase; color: var(--bcn-ink-3); }
+    .mk-stat-value { font-family: var(--bcn-mono); font-size: 22px; font-weight: 600; }
+    .mk-stat-note { font-size: 11px; color: var(--bcn-ink-3); max-width: 28ch; margin-top: 4px; }
+
+    /* —— PO proposed —— */
+    .po-preview-layout { padding: 12px 18px 24px; display: flex; flex-direction: column; gap: 12px; }
+    .po-inline-hint {
+      font-size: 12px;
+      color: var(--bcn-ink-2);
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--bcn-border);
+      background: var(--bcn-sunken);
+    }
+    .po-confirm-sheet {
+      border: 1px solid var(--bcn-border);
+      border-radius: 12px;
+      background: var(--bcn-surface);
+      max-width: 420px;
+      overflow: hidden;
+    }
+    .po-confirm-sheet .bcn-card-header { padding: 10px 14px; }
+    .po-confirm-sheet .bcn-card-body { padding: 12px 14px; font-size: 13px; line-height: 1.5; color: var(--bcn-ink-2); }
+    .po-confirm-sheet .bcn-card-foot { padding: 10px 14px; display: flex; gap: 8px; justify-content: flex-end; }
+    .po-split-demo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+    @media (max-width: 800px) { .po-split-demo { grid-template-columns: 1fr; } }
+    .po-today-alert {
+      font-family: var(--bcn-font);
+      font-size: 13px;
+      padding: 12px 14px;
+      border: 1px dashed var(--bcn-border-strong);
+      border-radius: 10px;
+      background: #f8fafc;
+      color: var(--bcn-ink-3);
+    }
+    html[data-theme="dark"] .po-today-alert { background: var(--bcn-sunken); }
+  </style>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main accounting-workspace">
+    <div class="ux-preview-bar" role="region" aria-label="Preview controls">
+      <span class="ux-preview-badge">Design preview</span>
+      <span>Static samples — not live data.</span>
+      <nav class="bcn-tabs" id="ux-area-tabs" aria-label="Preview area">
+        <button type="button" data-area="transactions" aria-pressed="true">2 · Transactions</button>
+        <button type="button" data-area="marketing" aria-pressed="false">3 · Marketing</button>
+        <button type="button" data-area="po" aria-pressed="false">4 · PO builder</button>
+      </nav>
+      <nav class="bcn-tabs" id="ux-mode-tabs" aria-label="Today vs proposed">
+        <button type="button" data-mode="today" aria-pressed="false">Today</button>
+        <button type="button" data-mode="proposed" aria-pressed="true">Proposed</button>
+      </nav>
+    </div>
+
+    <!-- TRANSACTIONS -->
+    <section class="ux-panel" id="panel-transactions" data-area="transactions">
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0">
+          <div class="bcn-header-title">Transactions</div>
+          <p class="txn-preview-sub" id="txn-sub">Proposed: one sentence for the whole job — code the month, approve it, post to QuickBooks — plus a workflow strip that names the blocking step.</p>
+        </div>
+        <nav class="bcn-tabs cc-tabbar" aria-label="Transaction workspace">
+          <button type="button" class="bcn-tab bcn-tab--active">Transactions</button>
+          <button type="button" class="bcn-tab">Journal entry</button>
+          <button type="button" class="bcn-tab">Rules</button>
+          <button type="button" class="bcn-tab">Accounts</button>
+        </nav>
+        <div class="bcn-header-actions">
+          <a class="txn-books-pill" href="#" onclick="return false">Books · SILO posts</a>
+          <button type="button" class="bcn-btn bcn-btn--ghost">Import</button>
+          <button type="button" class="bcn-btn bcn-btn--ghost">Connect</button>
+        </div>
+      </header>
+      <div class="accounting-suite" aria-label="Accounting">
+        <span class="accounting-suite-label">Accounting</span>
+        <div class="accounting-suite-links">
+          <a href="#" aria-current="page" data-label="Transactions">Transactions</a>
+          <a href="#" data-label="Sales &amp; journals">Sales &amp; journals</a>
+          <a href="#" data-label="Books &amp; setup">Books &amp; setup</a>
+        </div>
+      </div>
+      <div class="bcn-status bcn-status--info" id="txn-status-demo">Saved 1 row · July 2026 still needs approval before QuickBooks post.</div>
+      <div class="txn-preview-grid">
+        <div>
+          <div class="txn-flow" id="txn-flow" aria-label="Review workflow">
+            <div class="txn-flow-step is-done">
+              <span class="txn-flow-dot">✓</span>
+              <div><strong>Import &amp; code</strong><small>42 rows need review</small></div>
+            </div>
+            <div class="txn-flow-step is-active is-blocked">
+              <span class="txn-flow-dot">2</span>
+              <div><strong>Approve month</strong><small>July 2026 · 804 rows coded, not approved</small></div>
+              <button type="button" class="bcn-btn bcn-btn--primary txn-flow-cta">Review July</button>
+            </div>
+            <div class="txn-flow-step">
+              <span class="txn-flow-dot">3</span>
+              <div><strong>Post to QuickBooks</strong><small>Runs only after approval</small></div>
+            </div>
+            <div class="txn-flow-step">
+              <span class="txn-flow-dot">4</span>
+              <div><strong>Reconcile</strong><small>Match bank feed to books</small></div>
+            </div>
+          </div>
+          <table class="cc-tbl" style="margin-top:12px">
+            <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th></tr></thead>
+            <tbody>
+              <tr><td>Jul 12</td><td>AMEX · Adobe</td><td><span class="cc-chip cc-chip--ai">Software</span></td><td class="num">−$54.99</td></tr>
+              <tr><td>Jul 14</td><td>CHASE · Payroll</td><td><span class="cc-chip">Payroll</span></td><td class="num">−$12,400.00</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <aside class="txn-drawer-sample" aria-label="Drawer sample">
+          <h3>Accounting details</h3>
+          <p class="txn-qbo-state"><b>QuickBooks</b> Categorized in SILO · Not posted — July period awaiting approval</p>
+          <p style="font-size:12px;color:var(--bcn-ink-2);margin:0">Category saves stay in SILO until the month is approved and posted. Reclassify after post uses an adjusting entry.</p>
+        </aside>
+      </div>
+    </section>
+
+    <!-- MARKETING -->
+    <section class="ux-panel" id="panel-marketing" data-area="marketing" hidden>
+      <header class="bcn-header">
+        <div>
+          <div class="bcn-header-title"><span class="bcn-mono" style="font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span></div>
+          <h1>Marketing Performance</h1>
+          <div class="bcn-header-sub" id="mk-sub">Proposed: a visible “numbers map” so Performance, Explorer, and WoW are not compared blindly.</div>
+        </div>
+      </header>
+      <nav class="mk-suite" aria-label="Marketing suite">
+        <span class="mk-suite-label">Marketing</span>
+        <a href="#" aria-current="page">Performance</a>
+        <a href="#">Explorer</a>
+        <a href="#">Ops</a>
+        <a href="#">Week over Week</a>
+      </nav>
+      <div class="mk-reality" id="mk-reality">
+        <strong>Platform claimed vs store revenue (28d).</strong> Meta/TikTok report <span class="bcn-num">$142k</span> conversion value; Shopify online net is <span class="bcn-num">$189k</span> — claim ratio ≈ <span class="bcn-num">0.75</span>. Use Performance for ledger MER; Explorer for creative diagnostics at platform grain only.
+      </div>
+      <div class="mk-map" id="mk-map">
+        <article class="mk-map-card">
+          <h3>Performance (this page)</h3>
+          <p>Blended ad spend vs <strong>Shopify online net sales</strong> — the MER your books care about.</p>
+          <span class="bcn-mono">marketing_kpis_daily · shopify</span>
+        </article>
+        <article class="mk-map-card">
+          <h3>Explorer</h3>
+          <p>Platform-reported conversion value and creative-level stats. <strong>Not</strong> the same as store revenue.</p>
+          <span class="bcn-mono">conversion_value · ad platforms</span>
+        </article>
+        <article class="mk-map-card">
+          <h3>Week over Week</h3>
+          <p>Grain-aware KPIs (day/week/MTD/YTD) with notes. Online sales definition matches Performance, not Explorer.</p>
+          <span class="bcn-mono">wow_* RPCs · report_date</span>
+        </article>
+      </div>
+      <div class="mk-stat-row">
+        <div>
+          <div class="mk-stat-label">Blended MER (28d)</div>
+          <div class="mk-stat-value bcn-num">3.42</div>
+          <div class="mk-stat-note">Spend ÷ Shopify online net — same definition as Finance expects</div>
+        </div>
+        <div>
+          <div class="mk-stat-label">Platform ROAS (claimed)</div>
+          <div class="mk-stat-value bcn-num">4.1</div>
+          <div class="mk-stat-note">From ad APIs — compare to MER only with the claim ratio above</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PO BUILDER -->
+    <section class="ux-panel" id="panel-po" data-area="po" hidden>
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0">
+          <div class="bcn-header-title"><h1>PO builder</h1></div>
+          <div class="bcn-header-sub" id="po-sub">Proposed: inline status + confirm sheets instead of browser alerts.</div>
+        </div>
+        <div class="bcn-header-actions">
+          <button type="button" class="bcn-btn bcn-btn--ghost">PO list</button>
+          <button type="button" class="bcn-btn bcn-btn--primary">+ New PO</button>
+        </div>
+      </header>
+      <div class="bcn-status bcn-status--neg" id="po-status-proposed" hidden>Pop-up blocked — allow pop-ups to open vendor PDF, or use Download PDF.</div>
+      <div class="po-preview-layout">
+        <div class="po-split-demo">
+          <div>
+            <h2 class="bcn-mono" style="font-size:11px;text-transform:uppercase;color:var(--bcn-ink-3);margin:0 0 8px">Today</h2>
+            <div class="po-today-alert" id="po-today">Blocking validation uses <code>alert("Save the PO header first.")</code> — interrupts flow, no context, easy to miss on mobile.</div>
+          </div>
+          <div>
+            <h2 class="bcn-mono" style="font-size:11px;text-transform:uppercase;color:var(--bcn-ink-3);margin:0 0 8px">Proposed</h2>
+            <div class="bcn-status bcn-status--warn" id="po-status-warn" style="margin-bottom:10px">Save the PO header before adding catalog lines.</div>
+            <div class="po-confirm-sheet" id="po-confirm">
+              <div class="bcn-card-header bcn-card-header--dark"><span class="bcn-mono">Confirm duplicate</span></div>
+              <div class="bcn-card-body">Duplicate <strong>SS26-014 Classic Tee</strong> as a new draft PO? Lines and factory copy over; status resets to draft.</div>
+              <div class="bcn-card-foot">
+                <button type="button" class="bcn-btn bcn-btn--ghost">Cancel</button>
+                <button type="button" class="bcn-btn bcn-btn--primary">Duplicate PO</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="po-inline-hint">Same `#poStatus` / <code>setStatus</code> pattern as Tasks and Transactions — errors stay on-page; confirms use Beacon sheets, not <code>window.confirm</code> except destructive deletes.</p>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="nav-config.js"></script>
+<script src="avatar.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+(function () {
+  window.SiloChrome?.mount({
+    appEl: '#silo-app',
+    active: 'finance/card-coding',
+    user: { email: 'blake@baseballism.com', role: 'owner' },
+    crumbs: ['Accounting', 'UX preview'],
+    supabaseClient: null,
+  });
+
+  const areaTabs = document.getElementById('ux-area-tabs');
+  const modeTabs = document.getElementById('ux-mode-tabs');
+  let area = 'transactions';
+  let mode = 'proposed';
+
+  function setArea(next) {
+    area = next;
+    document.querySelectorAll('.ux-panel').forEach(p => {
+      p.hidden = p.dataset.area !== area;
+    });
+    areaTabs.querySelectorAll('button').forEach(b => {
+      b.setAttribute('aria-pressed', String(b.dataset.area === area));
+    });
+    applyMode();
+  }
+
+  function applyMode() {
+    const today = mode === 'today';
+    document.getElementById('txn-sub').textContent = today
+      ? 'Today: workflow strip and QuickBooks state exist, but the header does not spell out code → approve → post; feedback is easy to miss in the drawer alone.'
+      : 'Proposed: one sentence for the whole job — code the month, approve it, post to QuickBooks — plus a workflow strip that names the blocking step.';
+    document.getElementById('txn-status-demo').hidden = today;
+    document.getElementById('txn-flow').querySelector('.txn-flow-cta').hidden = today;
+    document.getElementById('mk-sub').textContent = today
+      ? 'Today: “About these numbers” in a disclosure; Explorer and WoW live as separate nav rows without a shared map.'
+      : 'Proposed: a visible “numbers map” so Performance, Explorer, and WoW are not compared blindly.';
+    document.getElementById('mk-reality').hidden = today;
+    document.getElementById('mk-map').hidden = today;
+    document.getElementById('po-sub').textContent = today
+      ? 'Today: many actions still call alert() — works, but breaks Beacon patterns and mobile focus.'
+      : 'Proposed: inline status + confirm sheets instead of browser alerts.';
+    document.getElementById('po-today').hidden = !today;
+    document.getElementById('po-confirm').hidden = today;
+    document.getElementById('po-status-proposed').hidden = today;
+    document.getElementById('po-status-warn')?.toggleAttribute('hidden', today);
+  }
+
+  function setMode(next) {
+    mode = next;
+    modeTabs.querySelectorAll('button').forEach(b => {
+      b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
+    });
+    applyMode();
+  }
+
+  areaTabs.addEventListener('click', e => {
+    const btn = e.target.closest('[data-area]');
+    if (btn) setArea(btn.dataset.area);
+  });
+  modeTabs.addEventListener('click', e => {
+    const btn = e.target.closest('[data-mode]');
+    if (btn) setMode(btn.dataset.mode);
+  });
+
+  setArea('transactions');
+  setMode('proposed');
+})();
+</script>
+</body>
+</html>
