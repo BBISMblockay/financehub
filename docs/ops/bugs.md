@@ -87,27 +87,56 @@ failure sees nothing.
 
 ---
 
-## Security audit 2026-10-08: items not fixed in the fix PR (P2)
+## Security audit 2026-10-08: status re-checked 2026-10-16 (P2)
 
-Fixed items are in [CHANGELOG.md](CHANGELOG.md) (2026-10-09). Still open:
+Re-checked against `main` at `956039f` and, read-only, against production. The 2026-10-09 fixes are in
+[CHANGELOG.md](CHANGELOG.md); the drift check on `main` was green on 2026-10-15, so its migration and
+function deploys match the repo. The `sample_notification_claims` table and the sample-notify Vault
+secret exist.
 
-- **CI secrets have no environment protection.** `SUPABASE_ACCESS_TOKEN` (full DB control) and the
-  service-role key are repo-level secrets any branch's workflow can read. Create a `production`
-  environment (branches: `main`, reviewer: Blake), move both secrets into it, add
-  `environment: production` to the jobs that use them. Repo settings, not code.
-- **`ar_sync_status_v`** is definer, unfiltered and readable by anon (documented in
-  `supabase/CLAUDE.md`). Needs a company filter that keeps the wholesale freshness banner working.
-- **`quickbooks-oauth-start` / `quickbooks-accounts-sync` skip `is_active`.** A deactivated admin can
-  connect a QuickBooks company. Use `mayConnect`.
-- **`plaid-finance/handler.ts:44`** compares the service-role key with `===` (timing).
-- **Notification emails still interpolating raw fields:** `review-portal`, `review-finish`,
-  `mail-item-notify`, `org-invite-send`. Low (email clients do not run script), but phishing-shaped
-  HTML is possible.
-- **`customer-onboarding` open form** has no per-company rate limit and returns raw DB / Stripe errors
-  to anonymous callers.
-- **No CSP on any page; CDN scripts are unpinned** (`@supabase/supabase-js@2`, `marked@12`,
-  `dompurify@3`) with no SRI. Any XSS is account takeover while the session sits in `localStorage`.
-- **`chat_run_readonly_query`** was not reviewed for read-only bypasses in this audit.
+**Closed since the audit**
+- Published Google Sheets with customer and AR data: links out of the repo and unpublished in Google;
+  all four returned HTTP 401 signed out (2026-10-14).
+- The 39 legacy "anyone with the link" sheet URLs are out of the repo (2026-10-14). Un-sharing them is
+  still open, below.
+- Two-step login is enforced by the server (`20261014000000`). Live on 2026-10-16:
+  `pgrst.db_pre_request = public.silo_check_request` is set on `authenticator`, one restrictive
+  `storage.objects` policy, and 2 users enrolled. Enrollment is open in My profile.
+
+**Still open** (each checked 2026-10-16)
+- **CI secrets have no environment protection.** No workflow declares `environment:`, and 28 workflows
+  reference `SUPABASE_ACCESS_TOKEN` or the service-role key, so any branch's workflow can read them. The
+  repo is still public. Fix: a `production` environment (branch `main`, reviewer Blake), move both
+  secrets into it, add `environment: production` to those jobs. Repo settings plus workflow edits.
+- **`ar_sync_status_v`** is still a definer view with no company filter, and `anon` can SELECT it
+  (live). It exposes one row of a retired job's status, no tenant data. Still needs a filter or a revoke
+  that keeps the wholesale freshness banner working.
+- **`quickbooks-oauth-start` / `quickbooks-accounts-sync` never check `is_active`.** Both gate on
+  membership role, or the profile role as a fallback, so a deactivated admin can still connect or sync
+  QuickBooks. Use `mayConnect`, as `tiktok-oauth-start` and `shopify-sync-run` now do.
+- **`plaid-finance/handler.ts:44`** still compares the service-role key with `===`.
+- **Notification emails interpolate raw stored fields:** `review-portal` (line 206), `review-finish`
+  (129), `mail-item-notify` (115-129), `org-invite-send` (89-94). None escapes. Low risk (email clients
+  do not run script), but an org title or comment can carry phishing-shaped HTML.
+- **`customer-onboarding` returns raw errors to anonymous callers** (`handler.ts` 157-161: any thrown
+  message, including `customer_accounts: <db error>`, goes back as `{ error }` with 502). There is no
+  per-company rate limit on the open form.
+- **No CSP on any page; CDN scripts unpinned, no SRI.** 0 pages set a Content-Security-Policy and 0 use
+  `integrity=`. `@supabase/supabase-js@2` is unpinned on 62 pages (14 pin `2.49.1`, 1 pins `2.49.8`).
+  Any XSS is account takeover while the session sits in `localStorage`.
+- **`chat_run_readonly_query`** has still not been reviewed for read-only bypasses. Its read-only
+  transaction (since `20260916120000`) stops writes; nothing since has reviewed it further.
+- **38 Google workbooks still shared "anyone with the link"** (owed since 2026-10-14). Deleting the URLs
+  from git does not revoke them: Drive → Share → General access → **Restricted**, per workbook. Can't
+  be checked from here.
+- **No vulnerability scanning:** no Dependabot config and no scanning workflow (`npm audit`, CodeQL,
+  osv-scanner). Tracked as P12-P14 in `docs/security/plaid/control-register.md`.
+- **Two-step login follow-ups** from the 2026-10-14 entry: support@get-silo.com is not enrolled (the 2
+  enrolled users are Baseballism staff), and the lost-phone reset in
+  [two-step-login.md](two-step-login.md) has no recorded rehearsal.
+
+**Unverified from here:** `SYNC_SHARED_SECRET` on the Render `financehub` service, and whether the vendor
+whose bank details were public was told. Both were owed by the 2026-10-09 fixes.
 
 ---
 
