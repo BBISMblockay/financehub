@@ -583,12 +583,17 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
 <style>
 /* Cover artwork leads the overview; supporting metadata follows beneath. */
 #drawerLaunchMeta .lc2-hero{display:flex;flex-direction:column;align-items:stretch;gap:16px}
-#drawerLaunchMeta .lc2-hero>img{display:block;width:224px;height:224px;max-width:100%;margin:0 auto;aspect-ratio:1;object-fit:contain;padding:0;border-radius:10px}
+#drawerLaunchMeta .lc2-hero>img.lc-launch-art{display:block;width:100%;max-width:100%;height:auto;margin:0 auto;object-fit:contain;padding:0;border-radius:10px;background:var(--bcn-sunken)}
 #drawerLaunchMeta .lc2-hero>div{width:100%;flex:none}
 .lc4-document-cover{margin:0 0 28px;break-inside:avoid;text-align:center}
-.lc4-document-cover img{display:block;margin:0 auto;max-width:100%;width:224px;height:224px;object-fit:contain;border-radius:10px}
-@media screen and (max-width:700px){#drawerLaunchMeta .lc2-hero>img,.lc4-document-cover img{width:144px;height:144px}}
-@media print{.lc4-document-cover img{width:224px;height:224px;max-width:100%}}
+.lc4-document-cover img.lc-launch-art{display:block;margin:0 auto;width:100%;max-width:min(100%,560px);height:auto;object-fit:contain;border-radius:10px;background:var(--bcn-sunken)}
+.lc-launch-art{cursor:zoom-in}
+.lc-art-lightbox{position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;padding:32px 24px;background:rgba(10,16,30,.78);backdrop-filter:blur(4px)}
+.lc-art-lightbox.open{display:flex}
+.lc-art-lightbox img{max-width:min(96vw,1200px);max-height:90vh;object-fit:contain;border-radius:10px;box-shadow:0 24px 80px rgba(0,0,0,.35)}
+.lc-art-lightbox-close{position:absolute;top:16px;right:16px;width:40px;height:40px;border:1px solid rgba(255,255,255,.25);border-radius:8px;background:rgba(255,255,255,.12);color:#fff;font-size:22px;line-height:1;cursor:pointer}
+.lc-art-lightbox-close:hover{background:rgba(255,255,255,.22)}
+@media print{.lc4-document-cover img.lc-launch-art{width:100%;max-width:560px;height:auto}}
 </style></head>
 <body class="silo-brand">
 
@@ -1317,6 +1322,21 @@ let launchFormExisting = null;   // the stored row the launch form is editing, o
 
 const $ = id => document.getElementById(id);
 const esc = v => String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+function launchArtImgTag(url, alt){
+  if(!url) return '';
+  const u=esc(url), a=esc(alt||'Launch artwork');
+  return `<img class="lc-launch-art" src="${u}" alt="${a}" data-full-src="${u}" tabindex="0" role="button" aria-label="View larger artwork">`;
+}
+function applyLaunchArtImg(img, url, alt){
+  img.className='lc-launch-art';
+  img.src=url;
+  img.alt=alt||'Launch artwork';
+  img.dataset.fullSrc=url;
+  img.tabIndex=0;
+  img.role='button';
+  img.setAttribute('aria-label','View larger artwork');
+  return img;
+}
 // Only http(s) links are rendered as links: a stored URL is free text, and a
 // javascript: URL in an href runs on click (security audit 2026-10-08).
 const safeUrl = v => { try { const p = new URL(String(v ?? ''), location.href).protocol; return (p === 'http:' || p === 'https:') ? String(v) : '#'; } catch { return '#'; } };
@@ -3100,7 +3120,7 @@ function applyProductToProductForm(r){ openProductForm(null); pendingProductSour
     originalOverview(prods,chans,tsks);
     const x=activeLaunch, open=tsks.filter(t=>!['done','complete'].includes(t.status));
     const label=v=>String(v||'Not reviewed').replaceAll('_',' ');
-    $('drawerLaunchMeta').innerHTML=`<div class="lc2-hero">${x.launch_image_url?`<img src="${esc(x.launch_image_url)}" alt="Launch artwork">`:''}<div><div style="display:flex;gap:5px;flex-wrap:wrap"><span class="bcn-pill">${esc(label(x.status||'planned'))}</span><span class="bcn-pill">${esc(label(x.launch_readiness))}</span>${x.launch_type?`<span class="bcn-pill">${esc(x.launch_type)}</span>`:''}${linkFollowUpPill(x)} </div><div class="dp-item-meta">${prods.length} products · ${chans.length} initiatives · ${open.length} open tasks</div>${x.designer?`<div class="dp-item-meta">Designer: ${esc(x.designer)}</div>`:''}${x.marketing_channel?`<div class="dp-item-meta">Channel: ${esc(x.marketing_channel)}</div>`:''}</div></div>`;
+    $('drawerLaunchMeta').innerHTML=`<div class="lc2-hero">${x.launch_image_url?launchArtImgTag(x.launch_image_url,x.title):''}<div><div style="display:flex;gap:5px;flex-wrap:wrap"><span class="bcn-pill">${esc(label(x.status||'planned'))}</span><span class="bcn-pill">${esc(label(x.launch_readiness))}</span>${x.launch_type?`<span class="bcn-pill">${esc(x.launch_type)}</span>`:''}${linkFollowUpPill(x)} </div><div class="dp-item-meta">${prods.length} products · ${chans.length} initiatives · ${open.length} open tasks</div>${x.designer?`<div class="dp-item-meta">Designer: ${esc(x.designer)}</div>`:''}${x.marketing_channel?`<div class="dp-item-meta">Channel: ${esc(x.marketing_channel)}</div>`:''}</div></div>`;
     let summary=$('lc2-summary');if(!summary){summary=document.createElement('div');summary.id='lc2-summary';$('drawerLaunchMeta').after(summary);}
     const scheduled=[...chans].sort((a,b)=>String(a.scheduled_date||'9999').localeCompare(String(b.scheduled_date||'9999'))||String(a.scheduled_time||'').localeCompare(String(b.scheduled_time||'')));
     summary.innerHTML=`<section class="dp-section"><div class="lc2-section-head"><strong>Readiness</strong></div><div class="lc2-readiness"><div><small>Launch status</small><strong>${esc(label(x.launch_readiness))}</strong></div><div><small>Checklist</small><strong>${open.length} open tasks</strong></div></div><div class="lc2-next"><strong>${x.launch_readiness==='ready'?'Launch marked ready':'Review launch readiness'}</strong><p>Review product readiness and the launch checklist.</p><button class="bcn-btn bcn-btn--primary" data-lc2-tab="dp-products">Review products →</button></div></section><section class="dp-section" style="margin-top:12px"><div class="lc2-section-head"><strong>Initiatives (${chans.length})</strong><button class="bcn-btn bcn-btn--ghost" data-lc2-tab="dp-channels">View all →</button></div>${scheduled.slice(0,3).map(c=>`<div class="lc2-init"><span class="bcn-pill pill-ch ${chClass(c.channel)}">${esc(c.channel||'other')}</span><span class="lc2-init-title">${esc(c.item_title||'Initiative')}</span><small>${c.scheduled_date?esc(fmt(c.scheduled_date)):'Unscheduled'}${c.scheduled_time?' · '+esc(c.scheduled_time.slice(0,5)):''}</small></div>`).join('')||'<div class="dp-sub">No initiatives yet.</div>'}</section><section class="dp-section" style="margin-top:12px"><div class="lc2-section-head"><strong>Open tasks (${open.length})</strong><button class="bcn-btn bcn-btn--ghost" data-lc2-tab="dp-tasks">View tasks →</button></div>${open.slice(0,3).map(t=>`<div class="dp-item-meta">${esc(t.task_title||t.title||'Task')}</div>`).join('')||'<div class="dp-sub">No open tasks.</div>'}</section>${x.details||x.notes?`<section class="dp-section" style="margin-top:12px"><strong>Launch notes</strong><div class="dp-item-meta">${esc(x.details||x.notes)}</div></section>`:''}`;
@@ -3156,7 +3176,7 @@ function applyProductToProductForm(r){ openProductForm(null); pendingProductSour
   header.append(title,date);$('releaseDocument').prepend(header);
   if(args[0].launch_image_url){
     const cover=document.createElement('figure');cover.className='lc4-document-cover';
-    const img=document.createElement('img');img.src=args[0].launch_image_url;img.alt=args[0].title||'Launch artwork';
+    const img=applyLaunchArtImg(document.createElement('img'),args[0].launch_image_url,args[0].title||'Launch artwork');
     cover.append(img);header.after(cover);
   }
  };
@@ -3245,14 +3265,14 @@ function lc2MoveDates(launch, targetDate) {
 <style>
 #dp-brief{max-width:1000px;gap:12px}
 #dp-brief .lc3-brief-hero{display:flex;align-items:center;gap:24px;padding:4px 0 10px}
-.lc3-brief-hero img{width:224px;height:224px;object-fit:contain;border-radius:10px;background:var(--bcn-surface)}
+.lc3-brief-hero img.lc-launch-art{width:min(100%,480px);height:auto;flex-shrink:0;object-fit:contain;border-radius:10px;background:var(--bcn-surface)}
 .lc3-brief-hero h2{font-size:22px;margin:0 0 8px}.lc3-brief-hero p{color:var(--bcn-ink-3);margin:0}
 #dp-brief .lc3-essentials{padding:18px;display:grid;gap:10px}
 #dp-brief textarea{min-height:68px}
 #dp-brief .lc3-optional{border:1px solid var(--bcn-border);border-radius:8px;background:var(--bcn-surface)}
 #dp-brief .lc3-optional summary{padding:14px 18px;font-size:13px;font-weight:600;cursor:pointer}
 #dp-brief .lc3-optional .dp-section{border:0;padding:0 18px 18px}
-@media(max-width:700px){.lc3-brief-hero img{width:144px;height:144px}.lc3-brief-hero h2{font-size:18px}}
+@media(max-width:700px){.lc3-brief-hero{flex-direction:column;align-items:flex-start}.lc3-brief-hero img.lc-launch-art{width:100%;max-width:100%}.lc3-brief-hero h2{font-size:18px}}
 </style><script>
 (function(){
  const brief=$('dp-brief');
@@ -3277,7 +3297,7 @@ function lc2MoveDates(launch, targetDate) {
  renderBrief=function(x){
   oldBrief(x);if(!x)return;
   hero.replaceChildren();
-  if(x.launch_image_url){const img=document.createElement('img');img.src=x.launch_image_url;img.alt=x.title||'Container image';hero.append(img);}
+  if(x.launch_image_url){hero.append(applyLaunchArtImg(document.createElement('img'),x.launch_image_url,x.title||'Container image'));}
   const meta=document.createElement('div'),title=document.createElement('h2'),sub=document.createElement('p');
   title.textContent=x.title||'Launch brief';sub.textContent=fmt(x.launch_date)+(x.designer?' · '+x.designer:'');
   meta.append(title,sub);hero.append(meta);
@@ -3287,7 +3307,7 @@ function lc2MoveDates(launch, targetDate) {
   const clone=$('releaseDocument').cloneNode(true);
   clone.querySelectorAll('.reldoc-row--empty,.reldoc-sec--empty,.reldoc-print-none,.reldoc-print-header').forEach(el=>el.remove());
   clone.querySelectorAll('a').forEach(a=>{try{if(!/^https?:$/.test(new URL(a.href).protocol))a.removeAttribute('href');}catch{a.removeAttribute('href');}});
-  return '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(activeLaunch?.title||'Launch document')+'</title><style>body{font:14px/1.6 Arial,sans-serif;color:#17202a;max-width:850px;margin:32px auto;padding:0 28px}h1{font-size:28px;line-height:1.25}.lc2-doc-date{color:#667085}.reldoc-sec{border-top:1px solid #ddd;margin-top:24px;padding-top:20px}.reldoc-sec-title{font-size:19px;font-weight:bold;margin-bottom:12px}.reldoc-row{display:grid;grid-template-columns:1fr 1.3fr;gap:24px;padding:6px 0;break-inside:avoid}.reldoc-k{color:#667085}.reldoc-v{overflow-wrap:anywhere}.reldoc-block{white-space:pre-wrap;margin:14px 0}.reldoc-block-label{font-weight:bold;margin:14px 0 6px}.lc4-document-cover{margin:20px 0;break-inside:avoid;text-align:center}.lc4-document-cover img{max-width:100%;width:224px;height:224px;object-fit:contain}.print-tools{background:#f2f5fa;padding:16px;margin-bottom:24px}button{padding:10px 18px;cursor:pointer} @page{size:auto;margin:16mm}@media print{body{margin:0;padding:0;max-width:none}.print-tools{display:none}.reldoc-sec-title{break-after:avoid}a{color:inherit}}</style></head><body><div class="print-tools"><button onclick="window.print()">Print / Save as PDF</button><p>If no print dialog opens, open this document in Chrome or Edge and print there.</p></div>'+clone.outerHTML+'</body></html>';
+  return '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(activeLaunch?.title||'Launch document')+'</title><style>body{font:14px/1.6 Arial,sans-serif;color:#17202a;max-width:850px;margin:32px auto;padding:0 28px}h1{font-size:28px;line-height:1.25}.lc2-doc-date{color:#667085}.reldoc-sec{border-top:1px solid #ddd;margin-top:24px;padding-top:20px}.reldoc-sec-title{font-size:19px;font-weight:bold;margin-bottom:12px}.reldoc-row{display:grid;grid-template-columns:1fr 1.3fr;gap:24px;padding:6px 0;break-inside:avoid}.reldoc-k{color:#667085}.reldoc-v{overflow-wrap:anywhere}.reldoc-block{white-space:pre-wrap;margin:14px 0}.reldoc-block-label{font-weight:bold;margin:14px 0 6px}.lc4-document-cover{margin:20px 0;break-inside:avoid;text-align:center}.lc4-document-cover img{max-width:100%;width:100%;max-width:560px;height:auto;object-fit:contain}.print-tools{background:#f2f5fa;padding:16px;margin-bottom:24px}button{padding:10px 18px;cursor:pointer} @page{size:auto;margin:16mm}@media print{body{margin:0;padding:0;max-width:none}.print-tools{display:none}.reldoc-sec-title{break-after:avoid}a{color:inherit}}</style></head><body><div class="print-tools"><button onclick="window.print()">Print / Save as PDF</button><p>If no print dialog opens, open this document in Chrome or Edge and print there.</p></div>'+clone.outerHTML+'</body></html>';
  }
  const button=$('printDocBtn');button.textContent='PRINT DOCUMENT';
  const download=document.createElement('button');download.type='button';download.className='bcn-btn bcn-btn--mono';download.textContent='DOWNLOAD PRINT COPY';button.after(download);
@@ -3307,6 +3327,43 @@ function lc2MoveDates(launch, targetDate) {
   Promise.race([Promise.all(imageReady),new Promise(resolve=>setTimeout(resolve,8000))]).then(()=>{if(!win.closed){try{win.print();}catch{}}});
   setStatus('Opened a printable document. If no dialog appears, use Download print copy and print it from Chrome or Edge.','info',15000);
  };
+})();
+</script>
+<div class="lc-art-lightbox" id="lcArtLightbox" hidden role="dialog" aria-modal="true" aria-label="Launch artwork preview">
+  <button type="button" class="lc-art-lightbox-close" id="lcArtLightboxClose" aria-label="Close">×</button>
+  <img id="lcArtLightboxImg" alt="" />
+</div>
+<script>
+(function(){
+  const lb=$('lcArtLightbox'), lbImg=$('lcArtLightboxImg'), lbClose=$('lcArtLightboxClose');
+  if(!lb||!lbImg||!lbClose) return;
+  function openLaunchArtLightbox(src, alt){
+    lbImg.src=src;
+    lbImg.alt=alt||'';
+    lb.classList.add('open');
+    lb.removeAttribute('hidden');
+    document.body.style.overflow='hidden';
+  }
+  function closeLaunchArtLightbox(){
+    lb.classList.remove('open');
+    lb.setAttribute('hidden','');
+    lbImg.removeAttribute('src');
+    document.body.style.overflow='';
+  }
+  lbClose.onclick=closeLaunchArtLightbox;
+  lb.onclick=e=>{ if(e.target===lb) closeLaunchArtLightbox(); };
+  document.addEventListener('click',e=>{
+    const art=e.target.closest('.lc-launch-art');
+    if(!art) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openLaunchArtLightbox(art.dataset.fullSrc||art.src, art.alt);
+  });
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&lb.classList.contains('open')) closeLaunchArtLightbox();
+    const art=e.target.closest?.('.lc-launch-art');
+    if(art&&(e.key==='Enter'||e.key===' ')){ e.preventDefault(); openLaunchArtLightbox(art.dataset.fullSrc||art.src, art.alt); }
+  });
 })();
 </script></body>
 </html>
