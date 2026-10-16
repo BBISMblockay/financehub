@@ -80,8 +80,24 @@ if (process.env.REVIEW_MUTATE) {
  mutated=a;
 }
 if (process.env.DRIFT_MUTATE) { const [a,b]=driftMutations[process.env.DRIFT_MUTATE] || []; assert.ok(a && driftMigration.includes(a)); driftMigration=driftMigration.replaceAll(a,b); mutated=a; }
+// 20261016170000 replaces on_deck_source_version and on_deck_review_state again,
+// so it is the one that must carry a mutation aimed at either of those bodies.
+let cheapMigration = await read('../../supabase/migrations/20261016170000_on_deck_source_version_cheap.sql');
+const cheapMutations = {
+ 'scan-search-console-again': ["(select max(finished_at)::text from public.sync_jobs where company_entity_id=p_company and status='success' and job_type='search_console_daily')", "(select concat(count(*),':',max(synced_at)) from public.search_console_page_daily where company_entity_id=p_company)"],
+ 'version-per-row': ["'source_current',p.source_version=vers->>p.kind", "'source_current',p.source_version=public.on_deck_source_version(co,p.kind)"],
+ 'version-map-empty': ["select distinct kind k from public.on_deck_proposals where company_entity_id=co and status not in ('completed','dismissed','screened')", "select null::text k where false"],
+};
+if (process.env.CHEAP_MUTATE) { const [a,b]=cheapMutations[process.env.CHEAP_MUTATE] || []; assert.ok(a && cheapMigration.includes(a), 'unknown CHEAP_MUTATE'); cheapMigration=cheapMigration.replaceAll(a,b); mutated=a; }
+if (process.env.REVIEW_MUTATE || process.env.DRIFT_MUTATE) {
+ // A mutation aimed at a body this migration replaces has to reach this copy too,
+ // or the clean body installs over it and the mutation proves nothing.
+ const [a,b]=(reviewMutations[process.env.REVIEW_MUTATE] || driftMutations[process.env.DRIFT_MUTATE] || []);
+ if (a && cheapMigration.includes(a)) cheapMigration=cheapMigration.replaceAll(a,b);
+}
 await db.exec(reviewMigration); await db.exec(reviewMigration);
 await db.exec(driftMigration); await db.exec(driftMigration);
+await db.exec(cheapMigration); await db.exec(cheapMigration);
 // The mutation has to be absent from what is actually INSTALLED, or the run proves
 // nothing: a later migration can replace the body a mutation was applied to.
 if (mutated) {
@@ -198,6 +214,60 @@ await test('a refreshed sync warns and the draft still works; no evidence basis 
  await user();q=await get(q.id);
  await assert.rejects(()=>decide(q,'approve','Reviewed before creating draft work.'),/expired/);
  await decide(q,'dismiss','Stop the drift test proposal.');
+});
+
+await test('the fingerprint reads the sync record, not the fact table, and is resolved once per workflow', async () => {
+ // What made On Deck unusable on 2026-10-16 was COST, not correctness: the
+ // fingerprint counted search_console_page_daily (1.5M rows on production) once
+ // per draft, and on_deck_review_state exceeded the 8s authenticated timeout.
+ await root();
+ const version = kind => one('select public.on_deck_source_version($1,$2) v',[A,kind]).then(r=>r.v);
+ const before = await version('seo');
+
+ // Rows landing in the fact table no longer move it on their own...
+ await db.query("insert into public.search_console_page_daily(company_entity_id,site_url,day_date,page,clicks,impressions,position) select $1,'https://example.test','2026-10-16','https://example.test/p'||i,1,10,5 from generate_series(1,500) i",[A]);
+ assert.equal(await version('seo'), before, 'counting the fact table is what made this call slow');
+
+ // ...the sync that wrote them does.
+ await db.query("insert into public.sync_jobs(company_entity_id,job_type,status,finished_at) values($1,'search_console_daily','success',now())",[A]);
+ const after = await version('seo');
+ assert.notEqual(after, before, 'a Search Console sync must still show as a refresh');
+
+ // A failed run is not a refresh, and another company's sync is not this one's.
+ await db.query("insert into public.sync_jobs(company_entity_id,job_type,status,finished_at) values($1,'search_console_daily','error',now()+interval '1 hour')",[A]);
+ await db.query("insert into public.sync_jobs(company_entity_id,job_type,status,finished_at) values($1,'search_console_daily','success',now()+interval '2 hours')",[B]);
+ assert.equal(await version('seo'), after, 'only this company\u2019s successful runs count');
+
+ // restock drops the sales_by_day read; its sync token already covered it.
+ const restock = await version('restock');
+ await db.query("insert into public.sales_by_day(company_entity_id,sku,day_date,total_quantity_sold) select $1,'sku'||i,'2026-10-16',1 from generate_series(1,500) i",[A]);
+ assert.equal(await version('restock'), restock, 'the restock branch no longer scans sales_by_day');
+ await db.query("insert into public.sync_jobs(company_entity_id,job_type,status,finished_at) values($1,'incremental_sales','success',now()+interval '3 hours')",[A]);
+ assert.notEqual(await version('restock'), restock, 'a sales sync must still show as a refresh');
+
+ // One fingerprint per workflow, not one per draft. Two seo drafts, one call.
+ const first=await ready('seo'), second=await ready('seo');
+ assert.notEqual(first.id, second.id, 'two seo drafts are open');
+ // Counting the fingerprint's own calls: every branch resolves the company
+ // timezone exactly once, so this counts calls to on_deck_source_version.
+ await root();
+ await db.exec('create sequence if not exists public.version_calls');
+ await db.exec("create or replace function public.silo_company_timezone(uuid) returns text language plpgsql stable as $$begin perform nextval('public.version_calls'); return 'America/Los_Angeles'; end $$");
+ const kinds = Number((await one("select count(distinct kind) n from public.on_deck_proposals where company_entity_id=$1 and status not in ('completed','dismissed','screened')",[A])).n);
+ const open = Number((await one("select count(*) n from public.on_deck_proposals where company_entity_id=$1 and status not in ('completed','dismissed','screened')",[A])).n);
+ assert.ok(open > kinds, 'the fixture must hold more drafts than workflows for this to prove anything');
+ await db.exec('alter sequence public.version_calls restart with 1');
+ await user();
+ const rs = await rpc('on_deck_review_state');
+ await root();
+ const calls = Number((await one('select last_value from public.version_calls')).last_value);
+ assert.equal(calls, kinds, `the fingerprint must be computed once per workflow (${kinds}), not once per draft (${open})`);
+ assert.equal(rs.proposals.length, open, 'every open draft is still reported');
+ for (const row of rs.proposals) assert.equal(typeof row.source_current,'boolean','every draft still reports its freshness');
+ assert.equal(rs.proposals.find(x=>x.id===first.id).source_current,true,'a draft prepared against the current fingerprint still reads current');
+ await user();
+ await decide(first,'dismiss','Stop the fingerprint test proposal.');
+ await decide(second,'dismiss','Stop the second fingerprint test proposal.');
 });
 await db.close();
 console.log(`${checks} On Deck review-to-action SQL scenarios passed (real isolated PostgreSQL via PGlite; no production or provider calls).`);

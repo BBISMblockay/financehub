@@ -2912,6 +2912,34 @@ did; `handleInventorySnapshot` in `shopify-sync-run` did not, and marked its job
 call, so an on-demand snapshot could roll both matviews back and still answer `ok: true`. Fixed in the
 same PR, which is why **`shopify-sync-run` needs deploying** -- merging does not deploy it.
 
+## On Deck freshness cost — `20261016170000`
+
+Replaces `on_deck_source_version` and `on_deck_review_state`, and adds
+`sync_jobs_company_type_status_finished`. The fingerprint built itself by
+counting whole fact tables, and `on_deck_review_state` called it once per
+proposal row: measured on production as the signed-in owner, that call took
+**4379 ms, 4409 ms and 8569 ms** against the `authenticated` 8 s statement
+timeout, so On Deck had begun failing outright and every draft read "Status
+unavailable". The seo branch alone was 1358 ms cold over
+`search_console_page_daily` (1.5M rows, 1499 MB, no index on `synced_at`), and
+the restock branch 5291 ms cold over 90 days of `sales_by_day` (1.3M rows,
+2500 MB) — the same timeout the 2026-10-15 preparation run hit. Both branches
+now take their freshness from the `sync_jobs` row the importer already writes
+(`search_console_daily` for seo; the restock branch already carried
+`inventory_snapshot`/`incremental_sales`/`history_import`), which is sound
+rather than approximate because those job types are what every writer of those
+tables records. The seo branch measures **24 ms**. The review payload resolves
+the fingerprint once per distinct kind instead of once per draft. The ads and
+launch branches, the local-date component, the 48-hour expiry gate, the
+absent-evidence gate and every grant are unchanged, and
+`on_deck_source_version` stays off `authenticated`. Changing the fingerprint's
+inputs changes what counts as drift, which since `20261015013000` is a notice
+and never blocks an approval. Function replacement plus one index: no table,
+policy, grant or data change, and no Edge deploy. The index build takes a brief
+lock on `sync_jobs` (37 MB). Re-run `refresh_chat_schema_catalog()` after
+applying. Verified by the "On Deck freshness cost" check in
+`verify_v2_schema.sql`.
+
 ## On Deck evidence drift warns — `20261015013000`
 
 Replaces `on_deck_context` and `on_deck_decide` so that evidence DRIFT no longer
