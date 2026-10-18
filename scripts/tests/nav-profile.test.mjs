@@ -159,7 +159,7 @@ test('Reports replaces the sales menu for all existing viewers without widening 
     assert.ok(!globalStub.SiloNav.SALES_REPORT_PAGES.some((p) => ids.includes(p.id)));
     const standard = navSectionsForProfile('standard', 'retail', role, new Set())
       .flatMap((s) => s.items.map((i) => i.id));
-    assert.equal(standard.includes('reports/dashboards'), ['owner', 'owner_admin', 'executive'].includes(role));
+    assert.equal(standard.includes('reports/dashboards'), ['owner', 'owner_admin', 'executive', 'admin'].includes(role));
   }
 });
 
