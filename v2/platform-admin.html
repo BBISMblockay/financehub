@@ -583,7 +583,20 @@
           + encodeURIComponent(data.token);
         el('pfLinkBox').hidden = false;
         el('pfEmail').value = ''; el('pfCompany').value = '';
-        setStatus(`Invite created for ${data.email}. Copy the link — it is shown once.`, 'pos', 15000);
+        // Email it from here so nobody has to paste the link into a message.
+        // The function can only email the address stored on this invite. A
+        // failed send is not a failed invite: the link is already on screen.
+        let emailed = false;
+        try {
+          const sent = await db.functions.invoke('platform-invite-send', {
+            body: { invite_id: data.invite_id, token: data.token },
+          });
+          emailed = !sent.error && !!sent.data?.email_sent;
+        } catch (_) { /* fall through to the manual-link message */ }
+        setStatus(emailed
+          ? `Invite emailed to ${data.email}. The link below still works if you want a copy — it is shown once.`
+          : `Invite created for ${data.email}, but the email could not be sent. Copy the link — it is shown once.`,
+        emailed ? 'pos' : 'neg', 15000);
         await loadInvites();
       } catch (e) { setStatus(e?.message || String(e), 'neg', 12000); }
       finally { el('pfCreate').disabled = false; }

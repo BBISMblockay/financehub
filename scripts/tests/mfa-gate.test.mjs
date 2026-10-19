@@ -32,7 +32,7 @@ function fakeFetch(status, body, log = []) {
 
 // The functions whose caller-token check is this gate (audit 2026-10-13).
 const INLINE = [
-  'comp-request-notify', 'google-oauth-start', 'org-invite-send', 'payment-request-submitted-notify',
+  'comp-request-notify', 'google-oauth-start', 'org-invite-send', 'payment-request-submitted-notify', 'platform-invite-send',
   'quickbooks-accounts-sync', 'quickbooks-oauth-start', 'quickbooks-report', 'review-finish', 'review-send',
   'shopify-connect-dev-app', 'shopify-oauth-start', 'tiktok-oauth-start',
 ];

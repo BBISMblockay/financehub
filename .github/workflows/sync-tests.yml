@@ -45,6 +45,7 @@ on:
       - 'supabase/functions/comp-request-notify/**'
       - 'supabase/functions/google-oauth-start/**'
       - 'supabase/functions/org-invite-send/**'
+      - 'supabase/functions/platform-invite-send/**'
       - 'supabase/functions/payment-request-submitted-notify/**'
       - 'supabase/functions/quickbooks-accounts-sync/**'
       - 'supabase/functions/quickbooks-oauth-start/**'
@@ -327,6 +328,7 @@ on:
       # Without these paths the functions could be edited and nothing would run.
       - 'supabase/migrations/*notification_reply_contacts.sql'
       - 'supabase/functions/org-invite-send/**'
+      - 'supabase/functions/platform-invite-send/**'
       - 'supabase/functions/payment-request-notify/**'
       - 'supabase/functions/payment-request-submitted-notify/**'
       - 'supabase/functions/comp-request-notify/**'
@@ -961,7 +963,7 @@ jobs:
           # --node-modules-dir=none because the repo root has a package.json,
           # which otherwise puts deno in node_modules mode; these functions
           # import a fully-specified npm: specifier and need no import map.
-          for fn in org-invite-send payment-request-notify payment-request-submitted-notify \
+          for fn in org-invite-send platform-invite-send payment-request-notify payment-request-submitted-notify \
                     comp-request-notify mail-item-notify sample-notify review-send \
                     review-finish review-portal payment-request-forward-melio; do
             npx --yes deno@2.9.6 check --node-modules-dir=none "supabase/functions/$fn/index.ts"

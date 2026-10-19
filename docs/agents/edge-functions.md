@@ -16,6 +16,7 @@ make a caller-token PostgREST call whose error aborts before acting, so the hook
 Sources live in `supabase/functions/`; merging a PR does NOT deploy. **Deploys go through the "Deploy Edge Function" workflow from `main` and only with Blake's explicit approval in the session** (corrected 2026-10-07: this line used to say deploys were done by hand through the Supabase MCP/CLI).
 ```
 org-invite-send   -- emails an org invite link; caller must be admin of the invite's entity and present the raw token (JWT-auth)
+platform-invite-send -- emails a FOUNDING invite link (create_platform_invite); caller must pass is_platform_admin() as themselves and present the raw token (JWT-auth, MFA-gated)
 org-invite-redeem -- PUBLIC (verify_jwt off): peek shows org/email for a token; redeem creates the invitee's confirmed account with their chosen password (no confirmation email — the invite proved the address) and applies the invite
 review-send     -- manager sends a review: mints hashed 30-day token, status → sent, emails employee (JWT-auth)
 review-portal   -- PUBLIC (verify_jwt off): token IS the auth; get/finish/renew for associates without SILO logins
