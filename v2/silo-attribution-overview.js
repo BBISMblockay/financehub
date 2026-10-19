@@ -115,13 +115,24 @@ export function analyzeJourneys(report,records,settings={}) {
 }
 
 export async function loadJourneyRecords(db,companyId,connectionId,orders) {
-  const records=[];
-  for(let i=0;i<orders.length;i+=200){
-    const ids=orders.slice(i,i+200).map(o=>o.order_id);
-    const {data,error}=await db.from('shopify_attribution_orders').select('company_entity_id,connection_id,order_id,evidence,fetched_at').eq('company_entity_id',companyId).eq('connection_id',connectionId).in('order_id',ids);
+  // The rollup reads only the order object and the shop's own hosts, so ask for those two keys
+  // rather than the whole evidence blob. The blob averages 5.3KB per order and 3.1KB of that is
+  // the allocations object, which the ledger rows already carry -- a 30-day store shipped about
+  // 111MB of evidence, most of it a second copy of data the page had. Six batches in flight:
+  // these were strictly sequential, ~95 round trips one after another for a 30-day period.
+  const batches=[];
+  for(let i=0;i<orders.length;i+=200)batches.push(orders.slice(i,i+200).map(o=>o.order_id));
+  const fetchBatch=async ids=>{
+    const wanted=new Set(ids);
+    const {data,error}=await db.from('shopify_attribution_orders').select('company_entity_id,connection_id,order_id,order_evidence:evidence->order,own_hosts:evidence->own_hosts,fetched_at').eq('company_entity_id',companyId).eq('connection_id',connectionId).in('order_id',ids);
     if(error)throw error;if(!Array.isArray(data))throw Error('Unexpected journey response');
-    if(data.some(r=>!ids.includes(r.order_id)||r.company_entity_id!==companyId||r.connection_id!==connectionId))throw Error('Journey scope mismatch');
-    records.push(...data);
+    if(data.some(r=>!wanted.has(r.order_id)||r.company_entity_id!==companyId||r.connection_id!==connectionId))throw Error('Journey scope mismatch');
+    return data.map(({order_evidence,own_hosts,...rest})=>({...rest,evidence:{order:order_evidence,own_hosts:own_hosts||[]}}));
+  };
+  const records=[];
+  for(let i=0;i<batches.length;i+=6){
+    const done=await Promise.all(batches.slice(i,i+6).map(fetchBatch));
+    for(const part of done)records.push(...part);
   }
   return records;
 }

@@ -55,9 +55,48 @@ test('historical catalog labels must reconcile before changing credit rules',()=
   row.allocation.assisting_channels=['Meta Ads','Historically mapped provider'];
   assert.equal(analyzeJourneys(report,[record]).exclusions[0].reason,'Historical channel mapping unavailable');
 });
-test('loader enforces tenant/store scope and batches',async()=>{
+// The server now returns the two evidence keys the rollup reads, not the whole blob, so the
+// loader rebuilds the `evidence` shape the rest of the module expects.
+const served=record=>({company_entity_id:record.company_entity_id,connection_id:record.connection_id,order_id:record.order_id,order_evidence:record.evidence.order,own_hosts:record.evidence.own_hosts,fetched_at:record.fetched_at});
+function journeyDb(records,calls,track={inFlight:0,peak:0}){
+  const byId=new Map(records.map(r=>[r.order_id,r]));
+  return {track,from(){const filters={};const chain={select(columns){filters.columns=columns;return chain;},eq(k,v){filters[k]=v;return chain;},in(k,v){
+    calls.push({...filters,[k]:v});
+    track.inFlight++;track.peak=Math.max(track.peak,track.inFlight);
+    // Resolve on a later tick so overlapping requests are observable.
+    return new Promise(resolve=>setTimeout(()=>{track.inFlight--;resolve({data:v.map(id=>byId.get(id)).filter(Boolean).map(served)});},0));
+  }};return chain;}};
+}
+test('loader enforces tenant/store scope and asks only for the keys the rollup reads',async()=>{
   const {row,record}=fixture(),calls=[];
-  const db={from(){const filters={};const chain={select(){return chain;},eq(k,v){filters[k]=v;return chain;},in(k,v){calls.push({...filters,[k]:v});return Promise.resolve({data:[record]});}};return chain;}};
-  assert.equal((await loadJourneyRecords(db,company,store,[row])).length,1);assert.equal(calls[0].company_entity_id,company);assert.equal(calls[0].connection_id,store);
+  const db=journeyDb([record],calls);
+  const loaded=await loadJourneyRecords(db,company,store,[row]);
+  assert.equal(loaded.length,1);
+  assert.equal(calls[0].company_entity_id,company);assert.equal(calls[0].connection_id,store);
+  // The whole blob is 5.3KB an order and 3.1KB of it duplicates the ledger's allocation.
+  assert.match(calls[0].columns,/order_evidence:evidence->order/);
+  assert.match(calls[0].columns,/own_hosts:evidence->own_hosts/);
+  assert.ok(!/(^|,)evidence(,|$)/.test(calls[0].columns),'the whole evidence blob must not be requested');
+  // Rebuilt into the shape analyzeJourneys reads, so the rollup is unchanged.
+  assert.deepEqual(loaded[0].evidence.order,record.evidence.order);
+  assert.deepEqual(loaded[0].evidence.own_hosts,record.evidence.own_hosts);
+  assert.equal(loaded[0].fetched_at,record.fetched_at);
+  assert.deepEqual(analyzeJourneys({orders:[row],net:row.net_cents,total:row.total_cents,currency:'USD'},loaded).paths,analyzeJourneys({orders:[row],net:row.net_cents,total:row.total_cents,currency:'USD'},[record]).paths);
   await assert.rejects(loadJourneyRecords(db,'other',store,[row]),/scope/);
+});
+test('batches run several at a time and return every order exactly once',async()=>{
+  const {row,record}=fixture(),calls=[];
+  // Eight batches, so the six-request ceiling is actually crossed: five would overlap fully
+  // and prove nothing about the bound.
+  const orders=Array.from({length:1600},(_,i)=>({...row,order_id:'o'+i}));
+  const records=orders.map(o=>({...record,order_id:o.order_id}));
+  const db=journeyDb(records,calls);
+  const loaded=await loadJourneyRecords(db,company,store,orders);
+  assert.equal(loaded.length,1600);
+  assert.equal(new Set(loaded.map(r=>r.order_id)).size,1600);
+  assert.equal(calls.length,8,'1600 orders in batches of 200');
+  assert.ok(calls.every(c=>c.order_id.length<=200));
+  // Sequential batches were the whole cost for a 30-day store: ~95 round trips end to end.
+  assert.ok(db.track.peak>1,'batches must overlap');
+  assert.ok(db.track.peak<=6,'and must not all be fired at once');
 });

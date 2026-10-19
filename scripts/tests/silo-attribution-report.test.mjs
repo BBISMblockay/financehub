@@ -74,3 +74,38 @@ assert.equal(channelTeamwork(gapReport,null,new Map([['Redo Email',{channel:'Red
 const mixed={orders:[...Array.from({length:90},(_,i)=>({order_id:'u'+i,channel:'Unattributed',net_cents:1,allocation:{}})),...Array.from({length:10},(_,i)=>({order_id:'m'+i,channel:'Google Ads',net_cents:1,allocation:{introduced_channel:'Meta Ads',assisting_channels:[]}}))]};
 assert.deepEqual(multiChannelShare(mixed),{any:10,multi:10,total:100});
 console.log('Attribution report: trend, teamwork rows and findings exclude evidence gaps');
+
+// Paging: one request per snapshot day, never a period-wide offset walk, and a day with more
+// than 1000 ledger rows continues by order_id inside that day.
+const threeDays=['2026-09-01','2026-09-02','2026-09-03'].map(day=>({...controls[0],day,net_cents:1000,total_cents:1000}));
+const bigDay=day=>Array.from({length:1000},(_,i)=>({...rows[0],day,order_id:String(1000000000000+i),net_cents:1,total_cents:1}));
+const paged=[];
+const pagedDb={
+  rpc(name,args){
+    paged.push(args);
+    assert.equal(args.p_offset,0,'a page must never be fetched by offset');
+    const day=args.query.match(/day='(\d{4}-\d{2}-\d{2})'/)[1];
+    if(day!=='2026-09-02')return Promise.resolve({data:[{...rows[0],day,net_cents:1000,total_cents:1000}],error:null});
+    // 2026-09-02 holds 1500 rows: 1000, then 500 after the keyset.
+    const after=args.query.match(/order_id > '(\d+)'/)?.[1];
+    // 1000 rows of one cent, then 500 zero-cent rows, so the day still totals its control.
+    const all=[...bigDay(day),...Array.from({length:500},(_,i)=>({...rows[0],day,order_id:String(1000000001000+i),net_cents:0,total_cents:0}))];
+    const rest=after?all.filter(r=>r.order_id>after):all;
+    return Promise.resolve({data:rest.slice(0,1000),error:null});
+  },
+  from(){const chain={select(){return chain;},eq(){return chain;},gte(){return chain;},lte(){return chain;},order(){return chain;},then(resolve){resolve({data:threeDays,error:null});}};return chain;}
+};
+const pagedResult=await loadRows(pagedDb,tenant,store,'2026-09-01','2026-09-03',30);
+assert.equal(pagedResult.days,3);
+assert.equal(pagedResult.net,3000);
+assert.equal(paged.length,4,'three days plus one keyset continuation');
+assert.deepEqual(paged.filter(a=>a.query.includes("day='2026-09-02'")).length,2);
+assert.ok(paged.every(a=>!/between/.test(a.query)),'a request must ask for one day, not the period');
+assert.ok(paged.every(a=>/order by order_id/.test(a.query)));
+// A non-numeric order id is never interpolated back into SQL.
+const oneDay={
+  rpc:(n,a)=>Promise.resolve({data:bigDay('2026-09-01').map(r=>({...r,order_id:"1' or '1"})),error:null}),
+  from(){const chain={select(){return chain;},eq(){return chain;},gte(){return chain;},lte(){return chain;},order(){return chain;},then(resolve){resolve({data:[{...controls[0],net_cents:1000,total_cents:1000}],error:null});}};return chain;}
+};
+await assert.rejects(loadRows(oneDay,tenant,store,'2026-09-01','2026-09-01',30),/Unexpected order identifier/);
+console.log('Attribution report: day-at-a-time paging, keyset continuation and identifier guard passed');
