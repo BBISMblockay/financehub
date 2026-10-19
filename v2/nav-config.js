@@ -361,10 +361,11 @@
     { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo', section: 'Marketing', label: 'SEO', href: '/v2/seo-studio.html', profiles: ['grandfathered', 'standard'] },
 
     // Both profiles discover shared reports and dashboards through Reports.
-    // Standard workspaces retain their existing exec-only discovery; custom
+    // Standard workspaces discover Reports as admin-and-up (admins added
+    // 2026-10-18, previously exec-only); custom
     // management remains an explicit Ask SILO route, and the builder stays
     // outside standard sections. Specialized v2 reports stay grandfathered-only.
-    { rolesStandard: EXEC_ROLES, id: 'reports/dashboards', section: 'Reports', sectionStandard: 'Insights', label: 'Reports', labelStandard: 'Reports', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
+    { rolesStandard: ADMIN_ROLES, id: 'reports/dashboards', section: 'Reports', sectionStandard: 'Insights', label: 'Reports', labelStandard: 'Reports', href: '/v3/dashboards.html', profiles: ['grandfathered', 'standard'] },
     { roles: EXEC_ROLES, id: 'reports/builder', section: 'Reports', label: 'Report builder', href: '/v3/report-builder.html', profiles: ['grandfathered', 'standard'] },
     // Hidden from nav for now -- redo_returns only covers a small, recent
     // slice of Shopify's actual refund volume (Redo doesn't see all refunds,

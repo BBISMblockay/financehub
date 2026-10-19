@@ -15,14 +15,16 @@ test('navigation requires exact Baseballism ID and non-standard resolved profile
  assert.equal(n.navSectionsForProfile('grandfathered').some(s=>s.items.some(i=>i.id==='reports/silo-attribution')),false);
  assert.equal(visible(n,other),false);assert.equal(visible(n,bb),true);
 });
-function harness(company=bb,active=company?.id){
- let activeId=active,callbacks,reads=0,spendReads=[],profileError=null,afterLoad=()=>{};
- const nodes=new Map();const node=id=>{if(!nodes.has(id))nodes.set(id,{hidden:true,value:'',append(){},close(){}});return nodes.get(id);};
- const db={auth:{getSession:async()=>({data:{session:{user:{id:'user'}}}})},from(table){const q={select(){return q;},eq(){return q;},order(){return table==='shopify_connections'?Promise.resolve({data:[{id:'store',shop_domain:'baseballism'}]}):q;},limit:async()=>({data:[{day:'2026-09-30'}]}),single:async()=>table==='profiles'?{data:{active_company_id:activeId,role:'admin'},error:profileError}:{data:{evidence:{}}}};return q;}};
+const oneStore=[{id:'store',shop_domain:'baseballism'}];
+const oneCovered=[{connection_id:'store',last_day:'2026-09-30',funded_days:30}];
+function harness(company=bb,active=company?.id,{stores=oneStore,coverage=oneCovered,search=''}={}){
+ let activeId=active,callbacks,reads=0,spendReads=[],profileError=null,afterLoad=()=>{},queries=[];
+ const nodes=new Map();const node=id=>{if(!nodes.has(id))nodes.set(id,{hidden:true,value:'',options:[],append(option){this.options.push(option);},close(){}});return nodes.get(id);};
+ const db={auth:{getSession:async()=>({data:{session:{user:{id:'user'}}}})},rpc:async(fn,args)=>{queries.push({fn,query:args?.query});return {data:coverage};},from(table){const q={select(){return q;},eq(){return q;},order(){return table==='shopify_connections'?Promise.resolve({data:stores}):q;},limit:async()=>({data:[{day:'2026-09-30'}]}),single:async()=>table==='profiles'?{data:{active_company_id:activeId,role:'admin'},error:profileError}:{data:{evidence:{}}}};return q;}};
  const w={SiloNav:nav(),__SILO_CONFIG__:{SUPABASE_URL:'test',SUPABASE_ANON_KEY:'test',SILO_ATTRIBUTION_ENABLED:true,ensureActiveCompany:async()=>company},supabase:{createClient:()=>db}};
- const context={URLSearchParams,location:{search:""},window:w,document:{querySelector:()=>({querySelector:node}),createElement:()=>({})},mountReport:(root,c)=>{callbacks=c;return {refresh:async()=>{}};},loadRows:async()=>{reads++;afterLoad();return 'rows';},loadSpend:async(db,companyId)=>{spendReads.push(companyId);return 'spend';}};
+ const context={URLSearchParams,location:{search},window:w,document:{querySelector:()=>({querySelector:node}),createElement:()=>({})},mountReport:(root,c)=>{callbacks=c;return {refresh:async()=>{}};},loadRows:async()=>{reads++;afterLoad();return 'rows';},loadSpend:async(db,companyId)=>{spendReads.push(companyId);return 'spend';}};
  vm.createContext(context);vm.runInContext(pageSource,context);
- return {start:()=>context.start(),node,setActive:id=>activeId=id,setError:err=>profileError=err,setAfterLoad:fn=>afterLoad=fn,get callbacks(){return callbacks;},get reads(){return reads;},get spendReads(){return spendReads;}};
+ return {start:()=>context.start(),node,setActive:id=>activeId=id,setError:err=>profileError=err,setAfterLoad:fn=>afterLoad=fn,get callbacks(){return callbacks;},get reads(){return reads;},get spendReads(){return spendReads;},get queries(){return queries;},get offered(){return node('#store').options.map(o=>o.value);}};
 }
 test('direct page accepts Baseballism and uses persisted September period',async()=>{const h=harness();await h.start();assert.equal(h.node('#start').value,'2026-09-01');assert.equal(h.node('#end').value,'2026-09-30');assert.equal(await h.callbacks.load({}),'rows');});
 test('direct page denies other, standard, missing and stale company even with global flag true',async()=>{for(const c of [other,null,{}, {...bb,meta:{nav_profile:'standard'}},{...bb,_staleReconcile:true}]){const h=harness(c);await assert.rejects(h.start());assert.equal(h.callbacks,undefined);}});
@@ -35,4 +37,39 @@ test('profile lookup errors fail closed on initial and subsequent access',async(
 test('spend reads use the verified company and stop after a switch',async()=>{
  const h=harness();await h.start();assert.equal(await h.callbacks.spend({start:'2026-09-01',end:'2026-09-30'}),'spend');assert.deepEqual(h.spendReads,[bb.id]);
  h.setActive(other.id);await assert.rejects(h.callbacks.spend({start:'2026-09-01',end:'2026-09-30'}));assert.deepEqual(h.spendReads,[bb.id]);
+});
+const threeStores=[{id:'online',shop_domain:'baseballism'},{id:'retail',shop_domain:'baseballismchicago'},{id:'fod',shop_domain:'baseballismfod'}];
+test('only stores with attributed sales are offered, and the period follows the selected store',async()=>{
+ const coverage=[{connection_id:'online',last_day:'2026-10-17',funded_days:47},{connection_id:'retail',last_day:'2026-10-17',funded_days:0},{connection_id:'fod',last_day:'2026-10-15',funded_days:37}];
+ const h=harness(bb,bb.id,{stores:threeStores,coverage});await h.start();
+ assert.deepEqual(h.offered,['online','fod']);
+ assert.equal(h.node('#store').value,'online');
+ assert.equal(h.node('#end').value,'2026-10-17');
+ assert.equal(h.node('#start').value,'2026-09-18');
+ const picked=harness(bb,bb.id,{stores:threeStores,coverage,search:'?store=fod'});await picked.start();
+ assert.equal(picked.node('#store').value,'fod');
+ assert.equal(picked.node('#end').value,'2026-10-15');
+ assert.equal(picked.node('#start').value,'2026-09-16');
+});
+test('a store with no attributed sales cannot be reached by URL',async()=>{
+ const coverage=[{connection_id:'online',last_day:'2026-10-17',funded_days:47},{connection_id:'retail',last_day:'2026-10-17',funded_days:0}];
+ const h=harness(bb,bb.id,{stores:threeStores,coverage,search:'?store=retail'});await h.start();
+ assert.equal(h.node('#store').value,'online');
+});
+test('no coverage yet offers every active store rather than an empty picker',async()=>{
+ const h=harness(bb,bb.id,{stores:threeStores,coverage:[]});await h.start();
+ assert.deepEqual(h.offered,['online','retail','fod']);
+ assert.equal(h.node('#store').value,'online');
+ assert.equal(h.node('#end').value,new Date(Date.now()-86400000).toISOString().slice(0,10));
+});
+test('the coverage probe is a scoped read-only aggregate, never an unbounded table scan',async()=>{
+ const h=harness();await h.start();
+ assert.equal(h.queries.length,1);
+ assert.equal(h.queries[0].fn,'chat_run_readonly_query');
+ assert.match(h.queries[0].query,/^select connection_id, max\(day\) as last_day, count\(\*\) filter \(where total_cents <> 0 or net_cents <> 0\) as funded_days from public\.shopify_attribution_days where company_entity_id='3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'::uuid group by connection_id$/);
+});
+test('a company that is not the pilot workspace never reaches the coverage probe',async()=>{
+ for(const c of [other,null,{},{...bb,meta:{nav_profile:'standard'}},{id:"3bd934c9'; drop table x --",entity_key:'baseballism'}]){
+   const h=harness(c);await assert.rejects(h.start());assert.deepEqual(h.queries,[]);
+ }
 });
