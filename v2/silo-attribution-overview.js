@@ -118,8 +118,8 @@ export function analyzeJourneys(report,records,settings={}) {
 // stored evidence carries Shopify's whole order object, and `firstVisit` and `lastVisit` repeat
 // two visits that `moments.nodes` already holds. PostgREST projects top-level keys only, so the
 // shape is built in SQL through the reporting engine instead: the visits are the
-// first/nodes/last union deduped by id in first-seen order -- exactly what journeyVisits() does
-// in the page -- and a moment that is not a CustomerVisit is dropped here rather than there. A
+// first/nodes/last union deduped by id, keeping the LAST copy of a repeated id, which is what
+// journeyVisits()'s Map.set() keeps when two copies of a visit disagree -- and a moment that is not a CustomerVisit is dropped here rather than there. A
 // 30-day store's journeys go from 35MB to 24MB with no visit and no field the model reads left
 // behind, and 500 orders a request instead of 200 turns ~104 round trips into ~42.
 const VISIT_FIELDS=['id','occurredAt','source','sourceType','referrerUrl','landingPage','utmParameters'];
@@ -132,7 +132,7 @@ export const journeyQuery=(companyId,connectionId,ids)=>`select e.company_entity
       select distinct on (n->>'id') ${visitObject('n')} as visit, seen
       from jsonb_array_elements(visits) with ordinality t(n,seen)
       where n->>'id' is not null and (n->>'__typename' is null or n->>'__typename'='CustomerVisit')
-      order by n->>'id', seen) deduped))) end) as order_evidence,
+      order by n->>'id', seen desc) deduped))) end) as order_evidence,
  case when jsonb_typeof(e.evidence->'own_hosts')='array' then e.evidence->'own_hosts' else '[]'::jsonb end as own_hosts
  from public.shopify_attribution_orders e
  cross join lateral (select e.evidence->'order' as o) ord

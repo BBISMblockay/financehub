@@ -76,7 +76,11 @@ if(report){
  const nodes=[visit(1),visit(2),visit(3,{__typename:'CustomerPageView'}),{occurredAt:'2026-09-04T10:00:00Z'},
   visit(5,{source:'',referrerUrl:'https://l.facebook.com/',utmParameters:{source:'',medium:'',campaign:'',content:'',term:''}}),
   visit(6,{source:'',referrerUrl:'',sourceType:'SEO',utmParameters:{source:'',medium:'',campaign:'',content:'',term:''}})];
- const order={id:'gid://shopify/Order/1',name:'#1',createdAt:'2026-09-05T10:00:00Z',sourceName:'web',customerJourneySummary:{ready:true,firstVisit:nodes[0],lastVisit:nodes[1],moments:{pageInfo:{hasNextPage:false},nodes}}};
+ // firstVisit and lastVisit are STALE copies that disagree with the nodes: journeyVisits() keeps
+ // the last copy of a repeated id (Map.set), so the SQL dedup has to keep the last one too, or a
+ // visit would classify differently in the page than it does here.
+ const stale=utm=>({...visit(1),utmParameters:{source:utm,medium:'paid',campaign:'',content:'',term:''}});
+ const order={id:'gid://shopify/Order/1',name:'#1',createdAt:'2026-09-05T10:00:00Z',sourceName:'web',customerJourneySummary:{ready:true,firstVisit:stale('google'),lastVisit:{...visit(2),utmParameters:{source:'redo',medium:'sms',campaign:'',content:'',term:''}},moments:{pageInfo:{hasNextPage:false},nodes}}};
  await db.exec('reset role; set role service_role');
  const orderId=(await db.query('select order_id from shopify_attribution_orders limit 1')).rows[0].order_id;
  await db.query('update shopify_attribution_orders set evidence=$1::jsonb where order_id=$2',[JSON.stringify({order,own_hosts:['shop.test']}),orderId]);
@@ -86,7 +90,9 @@ if(report){
  const shape=o=>journeyVisits(o).map(v=>({id:v.id,at:v.occurredAt,landing:v.landingPage,...classify(v,{ownHosts:['shop.test']})}));
  assert.deepEqual(shape(projected[0].order_evidence),shape(order),'the projected journey must classify identically to the whole blob');
  assert.equal(shape(projected[0].order_evidence).length,4,'four visits survive: a repeat, a non-visit moment and a moment without an id are dropped');
- assert.deepEqual(shape(projected[0].order_evidence).map(v=>v.channel),['Meta Ads','Meta Ads','Meta Social — Unspecified','Organic Search']);
+ // Visit 1 keeps the nodes copy (Meta Ads, not the stale google firstVisit) and visit 2 keeps the
+ // lastVisit copy (Redo SMS, not the nodes copy), in both the projection and the whole blob.
+ assert.deepEqual(shape(projected[0].order_evidence).map(v=>v.channel),['Meta Ads','Redo SMS','Meta Social — Unspecified','Organic Search']);
  // Deduped in SQL, not left to the page: the repeats are what made this payload worth trimming.
  assert.equal(projected[0].order_evidence.customerJourneySummary.moments.nodes.length,4,'the visits must already be deduped in SQL');
  assert.equal(projected[0].order_evidence.customerJourneySummary.ready,true);
