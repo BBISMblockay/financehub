@@ -5852,6 +5852,7 @@ select 'Early-access intake permissions' as check_name,
      and regexp_replace(pg_get_expr(polwithcheck,polrelid),'[[:space:]()]','','g')='SELECTis_platform_adminASis_platform_admin')
    then 'CRITICAL: intake policies are not exclusively platform-admin scoped'
  else 'ok' end as status from objects;
+-- End onboarding interest checks.
 
 -- Early-access auto-invite (20261019000000): service-only, never client-callable.
 with objects as (
@@ -5873,7 +5874,6 @@ select 'Early-access auto-invite functions' as check_name,
    and prosrc like '%p_daily_cap%' and prosrc like '%status = ''pending'' and expires_at > now()%')
    then 'CRITICAL: auto-invite cap/lock/no-supersede contract changed'
  else 'ok' end as status from objects;
--- End onboarding interest checks.
 
 -- ── Workspace admin RPCs are member-scoped (20261009120000) ───────────────
 -- The Backend hub's Users panel used to list, and let any company's admin
