@@ -126,7 +126,7 @@
         return;
       }
       submitted = true;
-      showStatus('Thanks! Your early-access request has been received. We’ll contact you about SILO onboarding.', 'pos');
+      showStatus('Thanks! Your early-access request has been received. We’ll email you a link to get started.', 'pos');
       status.focus();
     } catch (_) {
       // Never render server/body error details or imply a failed transport

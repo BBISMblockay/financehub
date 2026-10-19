@@ -5852,6 +5852,27 @@ select 'Early-access intake permissions' as check_name,
      and regexp_replace(pg_get_expr(polwithcheck,polrelid),'[[:space:]()]','','g')='SELECTis_platform_adminASis_platform_admin')
    then 'CRITICAL: intake policies are not exclusively platform-admin scoped'
  else 'ok' end as status from objects;
+
+-- Early-access auto-invite (20261019000000): service-only, never client-callable.
+with objects as (
+  select to_regprocedure('public.claim_auto_invite(text,integer)') as claimer,
+    to_regprocedure('public.finish_auto_invite(uuid,boolean)') as finisher
+)
+select 'Early-access auto-invite functions' as check_name,
+ case when claimer is null or finisher is null
+   or not exists(select 1 from pg_attribute where attrelid='public.onboarding_interest_queue'::regclass
+     and attname='auto_invited_at' and not attisdropped)
+   then 'MISSING: run 20261019000000_onboarding_interest_auto_invite.sql'
+ when exists(select 1 from unnest(array['anon','authenticated']) as roles(role)
+    where has_function_privilege(role,claimer,'EXECUTE') or has_function_privilege(role,finisher,'EXECUTE'))
+   then 'CRITICAL: auto-invite functions callable by clients'
+ when not has_function_privilege('service_role',claimer,'EXECUTE')
+   or not has_function_privilege('service_role',finisher,'EXECUTE')
+   then 'MISSING: service auto-invite privileges'
+ when not exists(select 1 from pg_proc where oid=claimer and prosrc like '%pg_advisory_xact_lock%'
+   and prosrc like '%p_daily_cap%' and prosrc like '%status = ''pending'' and expires_at > now()%')
+   then 'CRITICAL: auto-invite cap/lock/no-supersede contract changed'
+ else 'ok' end as status from objects;
 -- End onboarding interest checks.
 
 -- ── Workspace admin RPCs are member-scoped (20261009120000) ───────────────

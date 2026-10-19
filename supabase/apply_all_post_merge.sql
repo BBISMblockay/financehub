@@ -19272,3 +19272,6 @@ $c$select (select count(*) from v_po_header_summary
 -- card_posting_start_refusal, which that migration defines.
 \i migrations/20261015190000_bookkeeping_mode.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
+
+-- Early-access auto-invite: service-only functions; inert until ONBOARDING_AUTO_INVITE=true is set on the edge function.
+\i migrations/20261019000000_onboarding_interest_auto_invite.sql

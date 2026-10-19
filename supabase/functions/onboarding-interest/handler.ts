@@ -1,5 +1,9 @@
 // Public early-access intake. Only this service-role path may add a lead.
-// No session, tenant creation, invitation, message, or billing side effect.
+// No session, tenant creation, message, or billing side effect of its own. When
+// ONBOARDING_AUTO_INVITE=true it also asks onboarding-interest-invite to send
+// the lead their founding invite; that function owns the daily cap, the
+// recipient (the stored lead address) and every failure, and nothing it does
+// changes this function's response.
 export const ALLOWED_ORIGINS = new Set([
   'https://get-silo.com',
   'https://www.get-silo.com',
@@ -15,6 +19,7 @@ type Dependencies = {
   supabaseUrl?: string;
   serviceRoleKey?: string;
   fetch?: typeof globalThis.fetch;
+  autoInvite?: boolean;
 };
 type Lead = { name: string; company_name: string; email: string };
 class InputError extends Error {
@@ -144,6 +149,18 @@ export function createHandler(deps: Dependencies) {
       if (!result.ok) return reply({ error: UNAVAILABLE }, 503);
       const outcome = await result.json();
       if (outcome?.accepted === true && outcome?.retry_after_seconds === 0) {
+        if (deps.autoInvite) {
+          // Best effort, and invisible to the visitor: the same generic success
+          // is returned whether this sent, was skipped, or failed.
+          try {
+            await fetcher(`${deps.supabaseUrl.replace(/\/$/, '')}/functions/v1/onboarding-interest-invite`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${deps.serviceRoleKey}` },
+              body: JSON.stringify({ email: lead.email }),
+              signal: AbortSignal.timeout(8000),
+            });
+          } catch { /* deliberately silent: no request data in logs */ }
+        }
         return reply({ ok: true }, 200);
       }
       if (outcome?.accepted === false && Number.isInteger(outcome?.retry_after_seconds) &&

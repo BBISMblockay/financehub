@@ -10,6 +10,8 @@ on:
       - 'v2/platform-admin.html'
       - 'pages/config.js'
       - 'supabase/functions/onboarding-interest/**'
+      - 'supabase/functions/onboarding-interest-invite/**'
+      - 'supabase/migrations/*_onboarding_interest_auto_invite.sql'
       - 'pages/login.html'
       # login.html loads it; the fixture server allowlists it.
       - 'pages/mfa.js'
@@ -43,6 +45,10 @@ jobs:
         run: npm ci --prefix scripts/tests/finance-db
       - name: Check interest queue permissions, persistence, deduplication, and rate limits
         run: node scripts/tests/onboarding-interest-database.test.mjs
+      - name: Check auto-invite handler, trigger and daily-cap database functions
+        run: |
+          node scripts/tests/onboarding-interest-invite-handler.test.mjs
+          node scripts/tests/onboarding-interest-auto-invite-database.test.mjs
       - name: Install pinned browser test dependency
         working-directory: tests
         run: npm ci
