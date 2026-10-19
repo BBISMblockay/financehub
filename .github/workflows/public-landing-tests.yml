@@ -31,7 +31,9 @@ permissions:
 
 jobs:
   public-landing:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest is 26.04, which the pinned Playwright (1.58.2)
+    # cannot install Chromium on, so the browser step never ran.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
