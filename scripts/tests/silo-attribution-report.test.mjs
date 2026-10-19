@@ -109,3 +109,18 @@ const oneDay={
 };
 await assert.rejects(loadRows(oneDay,tenant,store,'2026-09-01','2026-09-01',30),/Unexpected order identifier/);
 console.log('Attribution report: day-at-a-time paging, keyset continuation and identifier guard passed');
+// The request names its columns. `select *` shipped the whole allocation object -- 15MB of a
+// 30-day store's 25MB -- so every column and allocation key the page reads is asserted here: drop
+// one from the loader's projection and this fails rather than the page silently losing a field.
+const projected=paged[0].query;
+assert.ok(!/select \*/.test(projected),'the loader must name its columns');
+assert.ok(projected.includes('public.silo_attribution_ledger_v'));
+for(const column of ['company_entity_id','connection_id','day','order_id','order_name','channel','net_cents','total_cents','window_days','extracted_at','evidence_fetched_at','allocation'])
+  assert.ok(new RegExp('\\b'+column+'\\b').test(projected.slice(0,projected.indexOf(' from '))),`column ${column} is read by the page and must be requested`);
+for(const key of ['assignment','assisting_channels','campaign','campaign_name','channel','introduced_channel','introduced_visit_id','medium','reason','source','visit_id','window_days'])
+  assert.ok(projected.includes(`'${key}'`),`allocation key ${key} is read by the page and must be requested`);
+// An allocation that exists but carries none of those keys stays an empty object, so the page
+// still reads the order as backfilled instead of 'Model not backfilled'.
+assert.ok(/coalesce\(\(select jsonb_object_agg/.test(projected)&&projected.includes("'{}'::jsonb"),'an empty allocation must not become null');
+console.log('Attribution report: the loader requests only the columns and allocation keys the page reads');
+

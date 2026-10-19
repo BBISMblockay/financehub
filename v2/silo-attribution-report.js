@@ -53,6 +53,14 @@ export function journeyFlow(evidence,allocation,timezone,currency,netCents,windo
   const summary=`<div class="attr-journey-summary"><div class="attr-path-stage">${platformMark(allocation?.introduced_channel||'Unknown')}<small>Observed introduction</small><strong>${escapeHtml(allocation?.introduced_channel||'Not identified')}</strong></div><span class="attr-path-arrow">→</span><div class="attr-path-stage">${platformMark(allocation?.channel||'Unattributed')}<small>Revenue credit</small><strong>${escapeHtml(allocation?.channel||'Unattributed')}</strong></div><span class="attr-path-arrow">→</span><div class="attr-path-stage">${platformMark('Shopify')}<small>Purchase</small><strong>${escapeHtml(order.name)}</strong></div></div><p class="attr-context">Role summary for the ${windowDays}-day window. Other observed assists: ${escapeHtml((allocation?.assisting_channels||[]).join(', ')||'None identified')}.</p>`;
   return summary+`<details class="attr-all-visits"><summary>Explore ${visits.length} observed visits and supporting evidence</summary><ol class="attr-flow" aria-label="Customer journey in chronological order">${steps.join('')}</ol></details>`;
 }
+// `select *` shipped the whole allocation object: 15MB of a 30-day store's 25MB, most of it keys
+// the page never reads plus the key names themselves repeated once per row. These are the columns
+// and allocation keys the page actually reads -- summarize(), the order list's search, journeyFlow()
+// and observedJourney(). Projecting them here is page-only: the view, its grants and the reporting
+// engine are untouched, and an allocation that exists but holds none of these keys stays an empty
+// object rather than becoming null, so a row still reads as backfilled.
+const ALLOCATION_KEYS=['assignment','assisting_channels','campaign','campaign_name','channel','introduced_channel','introduced_visit_id','medium','reason','source','visit_id','window_days'];
+export const LEDGER_SELECT=`select l.company_entity_id, l.connection_id, l.day, l.order_id, l.order_name, l.channel, l.net_cents, l.total_cents, l.window_days, l.extracted_at, l.evidence_fetched_at, case when l.allocation is null then null else coalesce((select jsonb_object_agg(k,v) from jsonb_each(l.allocation) a(k,v) where k in (${ALLOCATION_KEYS.map(k=>`'${k}'`).join(',')})),'{}'::jsonb) end as allocation from public.silo_attribution_ledger_v l`;
 export async function loadRows(db,companyId,connectionId,start,end,windowDays) {
   if(![companyId,connectionId].every(v=>/^[0-9a-f-]{36}$/i.test(v))||![start,end].every(v=>/^\d{4}-\d{2}-\d{2}$/.test(v))||![7,14,30,60].includes(windowDays))throw Error('Invalid report filters');
   const {data:controls,error}=await db.from('shopify_attribution_days').select('day,currency,shop_timezone,net_cents,total_cents,extracted_at').eq('company_entity_id',companyId).eq('connection_id',connectionId).gte('day',start).lte('day',end).order('day');
@@ -72,7 +80,7 @@ export async function loadRows(db,companyId,connectionId,start,end,windowDays) {
     const out=[];let after=null;
     for(let request=0;request<60;request++){
       const keyset=after?` and order_id > '${after}'`:'';
-      const {data,error}=await db.rpc('chat_run_readonly_query',{query:`select * from public.silo_attribution_ledger_v where company_entity_id='${companyId}'::uuid and connection_id='${connectionId}'::uuid and window_days=${windowDays} and day='${day}'::date${keyset} order by order_id`,p_offset:0});
+      const {data,error}=await db.rpc('chat_run_readonly_query',{query:`${LEDGER_SELECT} where company_entity_id='${companyId}'::uuid and connection_id='${connectionId}'::uuid and window_days=${windowDays} and day='${day}'::date${keyset} order by order_id`,p_offset:0});
       if(error)throw error;if(!Array.isArray(data))throw Error('Unexpected reporting result');
       out.push(...data);
       if(data.length<1000)return out;
