@@ -1,4 +1,5 @@
-// admin_update_profile must not let an 'admin' become an owner.
+// admin_update_profile must not let an 'admin' become an owner, or hand
+// themselves finance authority.
 //
 // What was wrong (production, found 2026-10-14, still open when re-checked
 // 2026-10-19): admin_update_profile is SECURITY DEFINER, EXECUTE to
@@ -29,6 +30,30 @@
 //                                    the captured company -- the first version
 //                                    of this fix, and the P1 the independent
 //                                    review caught)
+//   ESC_MUTATION=no-finance-guard    (drops the finance/exec department refusal)
+//   ESC_MUTATION=no-executive-guard  (drops the global 'executive' role refusal)
+//   ESC_MUTATION=finance-guard-on-supplied
+//                                   (refuses a department that was merely
+//                                    RE-SENT, which breaks ordinary saves for
+//                                    the 20 people already in finance or exec)
+//   ESC_MUTATION=finance-helper-authority
+//                                   (asks is_exec_or_owner(), which reads
+//                                    profiles.active_company_id, instead of the
+//                                    company the call captured)
+//   ESC_MUTATION=finance-stepping-stone
+//                                   (asks "do they already hold authority"
+//                                    against the REFUSED set instead of the set
+//                                    the gate admits, which makes the 'admin'
+//                                    department a stepping stone to finance --
+//                                    the first version of this guard, found
+//                                    re-reading the diff)
+//
+// The finance half: 'admin' and 'executive' both map to membership 'admin', so
+// an admin granting either profiles.department in ('finance','exec') or
+// profiles.role = 'executive' changes no membership and reaches none of the
+// owner guards -- while can_manage_journal_entries() admits the department on
+// its own and is_exec_or_owner() admits the role on its own. Closed on Blake's
+// instruction of 2026-10-19: "only owner and exec can make admin have finance".
 //
 // Run: node scripts/tests/admin-profile-owner-escalation-database.test.mjs
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e.message); process.exit(1); });
@@ -40,7 +65,9 @@ import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/inde
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
 const MUTATIONS = ['no-grant-guard', 'no-demote-guard', 'no-last-owner',
-  'guard-on-supplied', 'no-advisory-lock', 'helper-authority'];
+  'guard-on-supplied', 'no-advisory-lock', 'helper-authority',
+  'no-finance-guard', 'no-executive-guard', 'finance-guard-on-supplied',
+  'finance-helper-authority', 'finance-stepping-stone'];
 const mutation = process.env.ESC_MUTATION || '';
 assert.ok(mutation === '' || MUTATIONS.includes(mutation), `Unknown escalation mutation: ${mutation}`);
 
@@ -62,13 +89,27 @@ const NEEDLES = [
   'is_owner_admin_of_company(',
   "where em.entity_id = v_company_id and em.role = 'owner_admin'",
   'silo-workspace-membership|',
+  'is_exec_or_owner_of_company(v_company_id)',
+  "in ('finance', 'exec', 'admin')",
+  "<> coalesce(v_current_department, '')",
+  "v_role::text = 'executive'",
 ];
 // A body carrying every one of them EXCEPT one, so each case isolates a single
-// property of the check. The check reads prosrc, so a comment carrying the
-// string is indistinguishable from a real call -- which is the point: these
-// cases test the CHECK, not the function.
+// property of the check. Each needle is emitted as a dollar-quoted `perform`
+// rather than as a comment: the finance branches of the check strip -- comments
+// before matching (they have to -- the real function's comments name
+// is_exec_or_owner() while explaining why it is not used), so a commented
+// needle would read as absent and the wrong branch would fire. Dollar quoting
+// also means a needle containing single quotes needs no escaping. These cases
+// test the CHECK, not the function.
+// pg_advisory_xact_lock is always present: the lock branch of the check counts
+// functions carrying BOTH that call and the key string, and it sits ABOVE the
+// finance branches -- so a stub missing it fires the lock message for every
+// case and the later cases would prove nothing. 'silo-workspace-membership|'
+// is the omittable half of that pair.
 const stubBody = (omit) => NEEDLES.filter((n) => n !== omit)
-  .map((n) => `-- ${n}\n`).join('') + ' return;';
+  .concat('pg_advisory_xact_lock')
+  .map((n) => ` perform $n$${n}$n$;\n`).join('') + ' return;';
 
 let passed = 0;
 const test = async (name, fn) => { await fn(); passed += 1; console.log(`ok ${passed} - ${name}`); };
@@ -97,6 +138,14 @@ const bbMember = randomUUID();     // ordinary member
 const soloOwner = randomUUID();    // the only owner of the other tenant
 const crossOwner = randomUUID();   // admin in Baseballism, owner_admin in Blockay (review P1)
 const mixedOwner = randomUUID();   // owner_admin here, global profiles.role 'admin' (review P2)
+const plainAdmin = randomUUID();   // admin of Baseballism, department 'ops' -- the finance attacker.
+                                   // bbAdmin cannot play this part: the fixture
+                                   // already puts them IN finance, and the guard
+                                   // (correctly) lets somebody re-send what they
+                                   // already have.
+const execUser = randomUUID();     // membership admin, global role 'executive' -- the
+                                   // "and exec" half of the rule, so the tests show who
+                                   // the guard still lets through
 const bbism = randomUUID();
 const blockay = randomUUID();
 const thirdco = randomUUID();     // crossOwner's own company, kept out of blockay
@@ -108,8 +157,9 @@ await db.exec(await readFile(new URL('supabase/migrations/20260918120000_company
 await q(`insert into auth.users(id,email) values
   ($1,'blake@baseballism.com'),($2,'coowner@baseballism.com'),($3,'admin@baseballism.com'),
   ($4,'member@baseballism.com'),($5,'owner@blockay.com'),
-  ($6,'cross@baseballism.com'),($7,'mixed@baseballism.com')`,
-  [blake, coOwner, bbAdmin, bbMember, soloOwner, crossOwner, mixedOwner]);
+  ($6,'cross@baseballism.com'),($7,'mixed@baseballism.com'),
+  ($8,'plain@baseballism.com'),($9,'exec@baseballism.com')`,
+  [blake, coOwner, bbAdmin, bbMember, soloOwner, crossOwner, mixedOwner, plainAdmin, execUser]);
 await q(`insert into public.entities(id,module,entity_type,entity_key,source,title) values
   ($1,'finance_hub','company','baseballism','seed','Baseballism'),
   ($2,'finance_hub','company','blockay-ops','seed','Blockay Ops'),
@@ -127,11 +177,15 @@ await q(`update public.profiles set role='admin', department='ops', active_compa
 // 'admin', and a second company, which is why the global column was never
 // rewritten when they were promoted.
 await q(`update public.profiles set role='admin', department='ops', active_company_id=$2 where id=$1`, [mixedOwner, bbism]);
+await q(`update public.profiles set role='admin', department='ops', active_company_id=$2 where id=$1`, [plainAdmin, bbism]);
+await q(`update public.profiles set role='executive', department='exec', active_company_id=$2 where id=$1`, [execUser, bbism]);
 await q(`insert into public.entity_memberships(entity_id,user_id,role) values
   ($1,$2,'owner_admin'),($1,$3,'owner_admin'),($1,$4,'admin'),($1,$5,'member'),($6,$7,'owner_admin'),
   ($1,$8,'admin'),($10,$8,'owner_admin'),
-  ($1,$9,'owner_admin'),($10,$9,'member')`,
-  [bbism, blake, coOwner, bbAdmin, bbMember, blockay, soloOwner, crossOwner, mixedOwner, thirdco]);
+  ($1,$9,'owner_admin'),($10,$9,'member'),
+  ($1,$11,'admin'),($1,$12,'admin')`,
+  [bbism, blake, coOwner, bbAdmin, bbMember, blockay, soloOwner, crossOwner, mixedOwner, thirdco,
+   plainAdmin, execUser]);
 
 // ── 0. The definition in production today, and the hole it leaves ────────────
 await db.exec(await readFile(
@@ -210,6 +264,25 @@ if (mutation === 'no-grant-guard') {
   // Non-global replace, and admin_update_profile is the FIRST function in the
   // file, so this strips its lock and leaves the two siblings' alone.
   sql = sql.replace(/perform pg_advisory_xact_lock\([\s\S]*?\);/, '');
+} else if (mutation === 'no-finance-guard') {
+  sql = sql.replace(/if lower\(trim\(coalesce\(p_department[\s\S]*?end if;\n/, '');
+} else if (mutation === 'no-executive-guard') {
+  sql = sql.replace(/if v_role::text = 'executive'[\s\S]*?end if;\n/, '');
+} else if (mutation === 'finance-guard-on-supplied') {
+  // The same defect as guard-on-supplied, on the department: refuse because the
+  // field was SENT rather than because it changed. This is the one that breaks
+  // the live app rather than leaving a hole, so it has its own case.
+  sql = sql.replace(
+    "       and lower(trim(coalesce(p_department, ''))) <> coalesce(v_current_department, '')\n"
+    + "       and coalesce(v_current_department, '') not in ('finance', 'exec')\n", '');
+} else if (mutation === 'finance-stepping-stone') {
+  sql = sql.replace("and coalesce(v_current_department, '') not in ('finance', 'exec')\n",
+    "and coalesce(v_current_department, '') not in ('finance', 'exec', 'admin')\n");
+} else if (mutation === 'finance-helper-authority') {
+  // is_exec_or_owner() joins membership on profiles.active_company_id, which is
+  // session state the caller can change mid-call -- cycle 1's P1, one column over.
+  sql = sql.replaceAll('public.is_exec_or_owner_of_company(v_company_id)',
+    'public.is_exec_or_owner()');
 } else if (mutation === 'helper-authority') {
   // Exactly the first version of this migration: authority asked about the
   // caller's CURRENT active company rather than the company being written.
@@ -449,28 +522,192 @@ await test('the same rename goes through once the form sends p_role => null', as
     'and the membership must be untouched -- the upsert does nothing on conflict');
 });
 
-// ── 5b. The LIMIT of these guards, pinned so it cannot be mistaken ───────────
-// These guards are about owner_admin and nothing else. 'executive' and 'admin'
-// BOTH map to membership 'admin', so an admin sending p_role='executive' for
-// themselves makes no membership change at all and the guards above are not
-// reached by design -- while the legacy global profiles.role becomes
-// 'executive', which is_exec_or_owner() accepts on its own. That is a separate
-// finding, filed in docs/ops/bugs.md and NOT fixed here, because refusing it
-// changes what the Backend users panel is allowed to do. This test pins the
-// current behaviour so the gap is machine-checked rather than only described:
-// if it is ever closed, this is the assertion that must be inverted.
-await test('OPEN, see bugs.md: an admin can still self-assign the global executive role', async () => {
-  await as(bbAdmin, () => q(
-    'select public.admin_update_profile($1, null, null, $2, null, null)', [bbAdmin, 'executive']));
-  assert.equal(await profileRole(bbAdmin), 'executive',
-    'documents the open gap -- the guards above are about owner_admin only');
-  assert.equal(await membershipRole(bbism, bbAdmin), 'admin',
-    'and the membership is unchanged, which is exactly why the guards do not fire');
+// ── 5d. Finance authority: the second half of the same hole ─────────────
+// 'executive' and 'admin' BOTH map to membership 'admin', so an admin sending
+// p_role='executive' -- or p_department='finance' -- changes no membership and
+// the owner guards above are never reached. Both columns carry authority on
+// their own: can_manage_journal_entries() admits `p.department in
+// ('finance','exec')`, and is_exec_or_owner() admits
+// `lower(p.role::text) = 'executive'`, which gates 27 functions and 80+ RLS
+// policies. Until 2026-10-19 this file PINNED that gap as open (the test was
+// named "OPEN, see bugs.md: an admin can still self-assign the global executive
+// role"); Blake's rule -- "only owner and exec can make admin have finance" --
+// closed it, so that assertion is inverted here, which is exactly what the note
+// on it said to do.
+await refused(
+  () => as(plainAdmin, () => q(
+    'select public.admin_update_profile($1, null, $2, null, null, null)', [plainAdmin, 'finance'])),
+  /only an owner or executive can grant the finance department/,
+  'an admin putting THEMSELVES in finance');
 
-  // Put it back, so the ordering of this file does not matter to later tests.
+await test('and their department is unchanged afterwards', async () => {
+  assert.equal((await one('select department from public.profiles where id=$1', [plainAdmin]))?.department,
+    'ops', 'nothing may have been written');
+});
+
+await refused(
+  () => as(plainAdmin, () => q(
+    'select public.admin_update_profile($1, null, $2, null, null, null)', [bbMember, 'finance'])),
+  /only an owner or executive can grant the finance department/,
+  'an admin putting SOMEBODY ELSE in finance');
+
+await refused(
+  () => as(plainAdmin, () => q(
+    'select public.admin_update_profile($1, null, $2, null, null, null)', [plainAdmin, 'exec'])),
+  /only an owner or executive can grant the exec department/,
+  "the 'exec' department, which carries the same journal authority");
+
+await refused(
+  () => as(plainAdmin, () => q(
+    'select public.admin_update_profile($1, null, $2, null, null, null)', [plainAdmin, '  FiNaNcE '])),
+  /only an owner or executive can grant the finance department/,
+  'padding and capitals do not get past it (the stored value would still be finance)');
+
+await refused(
+  () => as(bbAdmin, () => q(
+    'select public.admin_update_profile($1, null, null, $2, null, null)', [bbAdmin, 'executive'])),
+  /only an owner or executive can grant executive access/,
+  'an admin self-assigning the global executive role (was OPEN until 2026-10-19)');
+
+await test('the admin keeps the role they had', async () => {
+  assert.equal(await profileRole(bbAdmin), 'admin',
+    'is_exec_or_owner() must not have become reachable');
+});
+
+// ── Who the rule still lets through ───────────────────────────────────
+await test('an OWNER can put somebody in finance', async () => {
   await as(blake, () => q(
-    'select public.admin_update_profile($1, null, null, $2, null, null)', [bbAdmin, 'admin']));
-  assert.equal(await profileRole(bbAdmin), 'admin');
+    'select public.admin_update_profile($1, null, $2, null, null, null)', [bbMember, 'finance']));
+  assert.equal((await one('select department from public.profiles where id=$1', [bbMember]))?.department,
+    'finance');
+});
+
+await test('an EXECUTIVE can too -- that is the "and exec" half of the rule', async () => {
+  assert.equal(await profileRole(execUser), 'executive', 'fixture precondition');
+  assert.equal(await membershipRole(bbism, execUser), 'admin', 'with no owner membership anywhere');
+  await as(execUser, () => q(
+    'select public.admin_update_profile($1, null, $2, null, null, null)', [plainAdmin, 'finance']));
+  assert.equal((await one('select department from public.profiles where id=$1', [plainAdmin]))?.department,
+    'finance');
+});
+
+// ── The regression half: ordinary saves for people already in finance ─────
+// 20 of 55 profiles on production are already finance or exec. The panel posts
+// every field on every save, so every edit to those people re-sends their own
+// department. ESC_MUTATION=finance-guard-on-supplied is the version that breaks
+// this, and it breaks the app rather than leaving a hole.
+await test('a plain admin can still rename somebody who is ALREADY in finance', async () => {
+  await as(plainAdmin, () => q(
+    'select public.admin_update_profile($1, $2, $3, null, null, null)',
+    [bbMember, 'Member Renamed', 'finance']));
+  assert.equal((await one('select name from public.profiles where id=$1', [bbMember]))?.name,
+    'Member Renamed', 'a rename must not need owner authority');
+  assert.equal((await one('select department from public.profiles where id=$1', [bbMember]))?.department,
+    'finance', 'and the department is unchanged');
+});
+
+await test('a plain admin can still move somebody OUT of finance', async () => {
+  // Deliberate: the rule is about GRANTING authority. Taking it away is not an
+  // escalation, any owner or exec can put it back, and refusing it would stop an
+  // admin from offboarding somebody. Said out loud here because it is a choice.
+  await as(plainAdmin, () => q(
+    'select public.admin_update_profile($1, null, $2, null, null, null)', [bbMember, 'logistics']));
+  assert.equal((await one('select department from public.profiles where id=$1', [bbMember]))?.department,
+    'logistics');
+});
+
+await test("the 'admin' department is not a stepping stone to finance", async () => {
+  // Found re-reading the diff, not by review: the first version of this guard
+  // asked "is their current department in the REFUSED set", which includes
+  // 'admin' -- a value that grants nothing. Somebody parked there would have
+  // counted as already holding authority, and a plain admin could have walked
+  // them on to 'finance'. The question is now asked against ('finance','exec'),
+  // the set can_manage_journal_entries() actually admits.
+  await q(`update public.profiles set department='admin' where id=$1`, [bbMember]);
+  let msg = null;
+  try {
+    await as(plainAdmin, () => q(
+      'select public.admin_update_profile($1, null, $2, null, null, null)', [bbMember, 'finance']));
+  } catch (e) { msg = e.message; }
+  assert.match(msg || '(not refused)', /only an owner or executive can grant the finance department/,
+    "the 'admin' department confers no authority, so this is still a grant");
+  assert.equal((await one('select department from public.profiles where id=$1', [bbMember]))?.department,
+    'admin', 'and nothing may have been written');
+
+  // Moving between two departments that BOTH already carry authority is not a
+  // grant, so it stays allowed -- that is what the narrower set buys.
+  await q(`update public.profiles set department='finance' where id=$1`, [bbMember]);
+  await as(plainAdmin, () => q(
+    'select public.admin_update_profile($1, null, $2, null, null, null)', [bbMember, 'exec']));
+  assert.equal((await one('select department from public.profiles where id=$1', [bbMember]))?.department,
+    'exec');
+  await q(`update public.profiles set department='logistics' where id=$1`, [bbMember]);
+});
+
+await test('a multi-company person is unaffected: the columns are not written at all', async () => {
+  // mixedOwner belongs to two companies, so this function never writes their
+  // global department or role. The guard must not fire on a value that goes
+  // nowhere, or saving them would start failing.
+  const before = (await one('select department from public.profiles where id=$1', [mixedOwner]))?.department;
+  await as(plainAdmin, () => q(
+    'select public.admin_update_profile($1, $2, $3, null, null, null)',
+    [mixedOwner, 'Mixed Renamed', 'finance']));
+  assert.equal((await one('select department from public.profiles where id=$1', [mixedOwner]))?.department,
+    before, 'unchanged, exactly as before this migration');
+  assert.equal((await one('select name from public.profiles where id=$1', [mixedOwner]))?.name,
+    'Mixed Renamed', 'and the save still goes through');
+});
+
+// ── Cycle 1's lesson, applied to the new guard ────────────────────────
+// is_exec_or_owner() joins membership on profiles.active_company_id, so it asks
+// about session state -- the same mistake the review caught in the owner guard,
+// one column over. Here the stored column says Third Co (where crossOwner is an
+// owner) while the call captured Baseballism (where they are a plain admin),
+// which is the state a committed switch leaves behind while the call waits on
+// the shared lock. Under ESC_MUTATION=finance-helper-authority the grant lands.
+await test('an active-company switch mid-call cannot confer finance authority', async () => {
+  assert.equal(await membershipRole(bbism, crossOwner), 'admin', 'fixture precondition');
+  assert.equal(await membershipRole(thirdco, crossOwner), 'owner_admin', 'fixture precondition');
+
+  await withDriftingActiveCompany(bbism, thirdco, async (attempt) => {
+    await q('update public.profiles set active_company_id=$2 where id=$1', [crossOwner, thirdco]);
+    const msg = await attempt(crossOwner,
+      'select public.admin_update_profile($1, null, $2, null, null, null)', [bbMember, 'finance']);
+    assert.match(msg || '(not refused at all)',
+      /only an owner or executive can grant the finance department/,
+      'authority must be asked about the company being written');
+    assert.equal((await one('select department from public.profiles where id=$1', [bbMember]))?.department,
+      'logistics', 'and nothing may have been written');
+  });
+});
+
+await test('the finance guard asks the company-bound helper, never the session one', async () => {
+  const raw = (await one(`select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                           where n.nspname='public' and p.proname='admin_update_profile'`))?.prosrc || '';
+  // CODE only. prosrc carries the comments too, and this function's comments
+  // discuss is_exec_or_owner() by name on purpose -- asserting over the raw
+  // body fires on the prose that explains the fix. The same mistake cost a
+  // debugging round on the verify check in this PR's first cycle.
+  const code = raw.split('\n')
+    .filter((l) => !l.trim().startsWith('--'))
+    .map((l) => l.replace(/--.*$/, ''))
+    .join('\n');
+  assert.match(code, /is_exec_or_owner_of_company\(/, 'it must ask about a named company');
+  assert.doesNotMatch(code, /is_exec_or_owner\(\)/,
+    'and never is_exec_or_owner(), which reads profiles.active_company_id');
+});
+
+await test('the finance helper is scoped to its argument and is not reachable by anon', async () => {
+  const r = await as(crossOwner, () => one(
+    `select public.is_exec_or_owner_of_company($1) as here,
+            public.is_exec_or_owner_of_company($2) as there`, [bbism, thirdco]));
+  assert.equal(r.here, false, 'a plain admin in Baseballism');
+  assert.equal(r.there, true, 'an owner in Third Co');
+  const g = await one(`select
+    has_function_privilege('anon','public.is_exec_or_owner_of_company(uuid)','execute') as a,
+    has_function_privilege('authenticated','public.is_exec_or_owner_of_company(uuid)','execute') as u`);
+  assert.equal(g.a, false, 'anon must not reach it');
+  assert.equal(g.u, true, 'the panel must');
 });
 
 // ── 6. The verify_v2_schema check, actually executed ─────────────────────────
@@ -492,6 +729,10 @@ await test('the verify check goes CRITICAL when each guard is taken away', async
     [NEEDLES[0], /does not check owner authority for the company it writes/],
     [NEEDLES[1], /no last-owner guard/],
     [NEEDLES[2], /does not take the shared per-company owner lock/],
+    [NEEDLES[3], /does not gate finance authority on owner-or-exec/],
+    [NEEDLES[4], /does not refuse the finance, exec and admin departments/],
+    [NEEDLES[5], /refuses a department that was only re-sent/],
+    [NEEDLES[6], /does not refuse a self-granted global executive role/],
   ];
   for (const [needle, expected] of cases) {
     await db.exec('begin');

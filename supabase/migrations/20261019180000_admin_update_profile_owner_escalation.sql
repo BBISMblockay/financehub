@@ -1,7 +1,14 @@
--- admin_update_profile: an 'admin' could make themselves an owner.
+-- admin_update_profile: an 'admin' could make themselves an owner, and could
+-- hand themselves finance authority.
 --
 -- Found in the 2026-10-14 platform security audit (Critical 4), re-verified
--- against production 2026-10-19 before this was written.
+-- against production 2026-10-19 before this was written. The owner half is
+-- that finding. The finance half was found in the adversarial pass over the
+-- fix, filed P1 in docs/ops/bugs.md, and closed here on Blake's instruction of
+-- 2026-10-19: "only owner and exec can make admin have finance." Both halves
+-- are the same shape -- this function writes authority-bearing columns and
+-- only asked is_admin() first -- so they are fixed together. See the
+-- "Finance-authority guards" block in the body.
 --
 -- WHAT WAS WRONG
 -- The function is SECURITY DEFINER, EXECUTE to `authenticated`, and gated only
@@ -145,6 +152,40 @@ revoke execute on function public.is_owner_admin_of_company(uuid) from public;
 revoke execute on function public.is_owner_admin_of_company(uuid) from anon;
 grant  execute on function public.is_owner_admin_of_company(uuid) to authenticated;
 
+-- Owner-or-executive authority over ONE named company, for the finance guards
+-- below. Mirrors is_exec_or_owner() exactly -- active profile, then membership
+-- owner_admin or the global 'executive' role, falling back to the global role
+-- when the person has no membership in that company -- with the one difference
+-- that the company is an argument instead of profiles.active_company_id.
+--
+-- The argument is the whole point, and it is cycle 1's lesson applied before
+-- the same bug could be written twice: a guard must ask about the company it is
+-- writing to, not about session state a second request can change mid-call.
+create or replace function public.is_exec_or_owner_of_company(p_entity_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public', 'pg_temp'
+as $function$
+  select exists (
+    select 1
+    from public.profiles p
+    left join public.entity_memberships em
+      on em.user_id = p.id and em.entity_id = p_entity_id
+    where p.id = auth.uid()
+      and coalesce(p.is_active, true) = true
+      and case when em.role is not null
+            then em.role = 'owner_admin' or lower(p.role::text) = 'executive'
+            else lower(p.role::text) in ('owner', 'executive')
+          end
+  );
+$function$;
+
+revoke execute on function public.is_exec_or_owner_of_company(uuid) from public;
+revoke execute on function public.is_exec_or_owner_of_company(uuid) from anon;
+grant  execute on function public.is_exec_or_owner_of_company(uuid) to authenticated;
+
 create or replace function public.admin_update_profile(
   p_user_id uuid,
   p_name text default null,
@@ -166,6 +207,8 @@ declare
   v_company_id uuid;
   v_has_other_org boolean;
   v_current_membership_role text;
+  v_current_department text;
+  v_current_global_role text;
 begin
   if not public.is_admin() then
     raise exception 'not authorized';
@@ -244,6 +287,80 @@ begin
     select 1 from public.entity_memberships em
     where em.user_id = p_user_id and em.entity_id <> v_company_id
   ) into v_has_other_org;
+
+  -- ── Finance-authority guards ──────────────────────────────────────────────
+  -- Blake's rule, 2026-10-19: "only owner and exec can make admin have
+  -- finance". Two columns carry that authority and both are written by this
+  -- function, neither of them through a membership change:
+  --
+  --   profiles.department in ('finance','exec')  -> can_manage_journal_entries()
+  --   profiles.role = 'executive'                -> is_exec_or_owner()
+  --
+  -- can_manage_journal_entries() admits `p.department in ('finance','exec')` on
+  -- its own, with no role of any kind, and is_exec_or_owner() admits
+  -- `lower(p.role::text) = 'executive'` the same way -- 27 functions and 80+
+  -- RLS policies across money and people hang off that second one. So an
+  -- 'admin' could hand either to themselves or to anyone else through the
+  -- users panel, and the owner guards above would never see it, because
+  -- 'admin' and 'executive' both map to membership 'admin' and nothing about
+  -- owner_admin changes.
+  --
+  -- create_org_invite already refuses exactly this on the invite path
+  -- (20261008120000: "only an owner can invite into the % department", for
+  -- 'finance', 'exec' and 'admin'), so this is the same rule on the other path
+  -- rather than a new one. Two deliberate differences, both stated so the
+  -- asymmetry is on purpose and not an oversight: the authority here is
+  -- owner-OR-executive, because that is the rule as given, while the invite
+  -- path is owner-only; and the department set is copied from that function
+  -- verbatim, which is a superset of what can_manage_journal_entries() reads,
+  -- so there is no third value to miss.
+  --
+  -- Only in the branch that actually writes those columns. For somebody who
+  -- belongs to another company too, department and role are not written at all
+  -- (see the two updates below), so there is nothing to escalate and refusing
+  -- would only break saves.
+  if not v_has_other_org then
+    -- `for update` on the row being written, so the comparison cannot be made
+    -- against a department another transaction is in the middle of changing.
+    -- The lock order (advisory key, then entity_memberships, then profiles)
+    -- matches set_workspace_member_role and remove_workspace_member.
+    select lower(coalesce(pr.department, '')), lower(coalesce(pr.role::text, ''))
+      into v_current_department, v_current_global_role
+      from public.profiles pr
+     where pr.id = p_user_id
+     for update;
+
+    -- Granting it, not re-sending it. Same reasoning as the owner guards: the
+    -- users panel posts every field on every save, so an admin editing the
+    -- name of somebody who is already in finance re-sends 'finance', and a
+    -- guard keyed on "p_department names finance" would refuse that. On
+    -- production when this was written, 20 of 55 profiles are already finance
+    -- or exec, and every one of their saves has to keep working.
+    -- Three clauses, and the middle two are different questions. "Is this a
+    -- change at all" keeps a re-send allowed. "Do they already hold finance
+    -- authority" is asked against ('finance','exec') ONLY -- the set
+    -- can_manage_journal_entries() actually admits -- and NOT against the
+    -- refused set, which also carries 'admin' from create_org_invite. Asking
+    -- it against the refused set was the first version of this guard and it
+    -- left a stepping stone: somebody in the 'admin' department, which grants
+    -- nothing, would have counted as already having authority, and a plain
+    -- admin could have moved them on to 'finance'. Found re-reading the diff.
+    if lower(trim(coalesce(p_department, ''))) in ('finance', 'exec', 'admin')
+       and lower(trim(coalesce(p_department, ''))) <> coalesce(v_current_department, '')
+       and coalesce(v_current_department, '') not in ('finance', 'exec')
+       and not public.is_exec_or_owner_of_company(v_company_id) then
+      raise exception 'only an owner or executive can grant the % department',
+        lower(trim(p_department));
+    end if;
+
+    -- The global 'executive' role, which is the same escalation wearing the
+    -- role column instead of the department column.
+    if v_role::text = 'executive'
+       and coalesce(v_current_global_role, '') <> 'executive'
+       and not public.is_exec_or_owner_of_company(v_company_id) then
+      raise exception 'only an owner or executive can grant executive access';
+    end if;
+  end if;
 
   if v_has_other_org then
     update public.profiles

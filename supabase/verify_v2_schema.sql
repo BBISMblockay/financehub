@@ -5356,6 +5356,49 @@ select 'Owner grants are bound to the company being written' as check_name,
    then 'CRITICAL: anon can execute admin_update_profile'
  when has_function_privilege('anon','public.is_owner_admin_of_company(uuid)','execute')
    then 'CRITICAL: anon can execute is_owner_admin_of_company'
+ -- ── The finance half of the same hole (added 2026-10-19) ─────────────────
+ -- profiles.department in ('finance','exec') passes can_manage_journal_entries()
+ -- and profiles.role = 'executive' passes is_exec_or_owner(), each on its own,
+ -- with no membership change -- so the owner guards above never see either.
+ -- Blake's rule: only an owner or an executive may grant them.
+ --
+ -- These read prosrc with -- comments STRIPPED, because this function's own
+ -- comments discuss is_exec_or_owner() by name and an unstripped ilike fires on
+ -- the prose that explains the fix.
+ when to_regprocedure('public.is_exec_or_owner_of_company(uuid)') is null
+   then 'MISSING: run 20261019180000_admin_update_profile_owner_escalation.sql (finance guards)'
+ when (select regexp_replace(prosrc,'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='is_exec_or_owner_of_company')
+      not ilike '%em.entity_id = p_entity_id%'
+   then 'CRITICAL: is_exec_or_owner_of_company does not scope to its argument'
+ when (select regexp_replace(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      not ilike '%is_exec_or_owner_of_company(v_company_id)%'
+   then 'CRITICAL: admin_update_profile does not gate finance authority on owner-or-exec for the company it writes'
+ when (select regexp_replace(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      ilike '%is_exec_or_owner()%'
+   then 'CRITICAL: admin_update_profile asks is_exec_or_owner(), which reads session state; a company switch mid-call can grant finance authority'
+ when (select regexp_replace(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      not ilike '%in (''finance'', ''exec'', ''admin'')%'
+   then 'CRITICAL: admin_update_profile does not refuse the finance, exec and admin departments'
+ when (select regexp_replace(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      not ilike '%<> coalesce(v_current_department, '''')%'
+   then 'CRITICAL: admin_update_profile refuses a department that was only re-sent, which breaks every save for somebody already in finance'
+ when (select regexp_replace(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      not ilike '%v_role::text = ''executive''%'
+   then 'CRITICAL: admin_update_profile does not refuse a self-granted global executive role'
+ when has_function_privilege('anon','public.is_exec_or_owner_of_company(uuid)','execute')
+   then 'CRITICAL: anon can execute is_exec_or_owner_of_company'
  else 'ok' end as status;
 
 -- ── A THIRD claimed region starts on the next line ───────────────────────

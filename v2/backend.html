@@ -1377,6 +1377,56 @@
       computeAccountActivation();
     }
 
+    // ====== Who may hand out finance authority ======
+    // admin_update_profile refuses the finance and exec departments, and the
+    // global 'executive' role, to anybody who is not an owner or an executive of
+    // this workspace, and refuses owner to anybody who is not an owner
+    // (20261019180000). create_org_invite has refused finance, exec and owner to
+    // non-owners since 20261008120000. These dropdowns offered every value to
+    // everybody, so an ordinary admin could pick one and the save came back as a
+    // privilege error with no way to see it coming.
+    //
+    // The server is still the boundary; this only stops OFFERING what it will
+    // refuse. Both flags start false and are only ever widened, and a failed
+    // read leaves every option exactly as it is today -- the refusal still
+    // holds, so the worst case is the error message, not a hole.
+    let CAN_GRANT_FINANCE = false;   // owner or executive
+    let CAN_GRANT_OWNER = false;     // owner of the active workspace
+
+    async function loadGrantCapability(){
+      const [exec, owner] = await Promise.allSettled([
+        supabaseClient.rpc("is_exec_or_owner"),
+        supabaseClient.rpc("is_owner_admin_of_active_company")
+      ]);
+      CAN_GRANT_FINANCE = exec.status === "fulfilled" && exec.value?.data === true;
+      CAN_GRANT_OWNER = owner.status === "fulfilled" && owner.value?.data === true;
+      applyGrantCapability();
+    }
+
+    function applyGrantCapability(){
+      const restrict = (selectId, values, why) => {
+        const node = el(selectId);
+        if (!node) return;
+        values.forEach(v => {
+          const opt = node.querySelector(`option[value="${v}"]`);
+          if (!opt) return;
+          opt.disabled = true;
+          opt.title = why;
+        });
+      };
+      if (!CAN_GRANT_FINANCE) {
+        restrict("dlgDept", ["finance", "exec"],
+          "Only an owner or executive can put somebody in finance or exec.");
+        restrict("dlgRole", ["executive"],
+          "Only an owner or executive can grant the executive role.");
+      }
+      if (!CAN_GRANT_OWNER) {
+        restrict("dlgRole", ["owner"], "Only an owner can grant owner access.");
+        restrict("invDept", ["finance", "exec"],
+          "Only an owner can invite somebody into finance or exec.");
+      }
+    }
+
     // ====== Boot / UI wiring ======
     async function refreshAll(){
       setText("lastRefresh", new Date().toLocaleString());
@@ -1454,6 +1504,7 @@
       initUi();
       const ok = await requireAdmin();
       if (!ok) return;
+      await loadGrantCapability();
       await refreshAll();
     })();
   </script>
