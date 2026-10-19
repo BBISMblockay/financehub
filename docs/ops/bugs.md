@@ -8,7 +8,85 @@ Only items that still matter today. Fixed items live in [CHANGELOG.md](CHANGELOG
 
 ## Fix these first (P1)
 
-See below.
+- **An admin can self-assign the global `executive` role, which is finance authority** -- first
+  entry below. Found 2026-10-19; needs a decision from Blake, not just a patch.
+
+---
+
+## An admin can self-assign the global `executive` role, which is finance authority (P1)
+
+Found 2026-10-19 in the adversarial pass over the `admin_update_profile` owner fix
+(`20261019180000`), which closes `owner_admin` and deliberately does **not** close this. Reported to
+Blake with that PR, because refusing it changes what the Backend users panel's role dropdown is
+allowed to do, and that is his call rather than a security migration's.
+
+`admin_update_profile` maps **both** `p_role='admin'` and `p_role='executive'` onto membership
+`admin`. So a membership `admin` calling it with their own id and `p_role='executive'` makes **no
+membership change at all** -- the new owner guards are not reached, correctly, because nothing about
+`owner_admin` changed -- while the legacy global `profiles.role` becomes `executive`. And
+`is_exec_or_owner()` reads, verbatim from production:
+
+    when em.role is not null then em.role = 'owner_admin' or lower(p.role::text) = 'executive'
+
+`executive` in that global column passes on its own, with no membership change needed. Measured
+against production 2026-10-19: all **37** membership-`admin` accounts belong to exactly one company,
+so the branch of the function that writes the global column applies to every one of them, and **32**
+of the 37 are not `executive` today and could become it. What `is_exec_or_owner()` gates, counted
+live: **27** functions and **80+** RLS policies, among them `approve_journal_adjustment`,
+`approve_card_import_batch`, `void_card_posting`, `set_card_transaction_splits`,
+`set_bookkeeping_mode`, `accept_accounting_opening_balances`, the `accounting_*`, `ledger_*`,
+`plaid_*` and `qbo_history_*` read policies, and the employee review and comp-request tables. In
+other words the money surface and the people surface.
+
+`profiles.department` is the same shape of gap through the same RPC and is already known:
+`can_manage_journal_entries()` admits `p.department in ('finance','exec')`, which CLAUDE.md records
+as "`department` alone grants journal-entry authority", and `admin_update_profile` writes
+`department` under the same conditions.
+
+Pinned by a test rather than only described: `scripts/tests/admin-profile-owner-escalation-database.test.mjs`
+has a case named `OPEN, see bugs.md: an admin can still self-assign the global executive role`. If
+this is closed, that assertion is the one to invert.
+
+Why this may be intended rather than broken, which is the question for Blake: the users panel offers
+`executive` in its dropdown, so assigning it to *somebody else* looks like a feature. The narrow fix
+is to refuse only a **self** raise of `profiles.role` or `department` -- an admin may still promote a
+colleague, but not themselves -- which leaves the panel's purpose intact and closes the escalation.
+Filed P1 because the authority reached is finance approval and the preconditions are "be an admin",
+which 37 accounts already are.
+
+---
+
+## An admin can deactivate an owner, platform-wide, and the owner cannot undo it (P2)
+
+Found 2026-10-19 while closing the `admin_update_profile` owner-escalation hole (Critical 4 of the
+2026-10-14 audit). Deliberately **not** fixed in that migration: it is a different property
+(availability, not privilege), the fix would change what the Backend users panel's Active toggle is
+allowed to do, and widening a security migration into live admin behaviour is not a call to make
+without Blake.
+
+`admin_update_profile` writes `is_active = coalesce(p_is_active, is_active)` in **both** of its
+branches, gated only on `is_admin()` plus "the target belongs to my active company". After
+`20261019180000` a membership `admin` can no longer change an owner's ROLE -- but nothing stops them
+sending `p_is_active => false` for that same owner. Three facts make that worse than it sounds, each
+read live from production rather than from a migration file:
+
+- `profiles.is_active` is **global**, one column for the whole platform, which
+  `20260918120000` documents as deliberate. So company A's admin deactivating an owner disables that
+  person in **every** company they belong to, including tenants A has nothing to do with.
+- `is_admin()` begins `coalesce(p.is_active, true) = true`. A deactivated owner therefore cannot call
+  `admin_update_profile` -- so they cannot re-enable themselves, and recovery needs a *different*
+  still-active admin, or service-role SQL.
+- Deactivation leaves `entity_memberships` untouched, so it is not a membership change anything else
+  would notice; the row still says `owner_admin`.
+
+The shape of a fix is the guard already in the function: when the stored membership role of the
+target is `owner_admin` and `p_is_active` would turn it off, require
+`is_owner_admin_of_active_company()`, and under the same per-company advisory key refuse the last
+active owner. It should land with whatever is decided about the Active toggle in
+`v2/backend.html`, not before.
+
+Not P1: it needs an account that is already a trusted `admin` of a company the owner belongs to, it
+grants the attacker no new read or write, and another admin can reverse it.
 
 ---
 

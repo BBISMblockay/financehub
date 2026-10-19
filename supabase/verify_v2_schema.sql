@@ -5287,6 +5287,60 @@ select 'Customer address pointer constraints' as check_name,
    then 'MISSING: customer_account_addresses_resolved_v'
  else 'ok' end as status;
 
+-- ── admin_update_profile cannot hand out owner (20261019180000) ───────────
+-- It is SECURITY DEFINER, EXECUTE to authenticated, and gated only on
+-- is_admin() -- which passes for membership role 'admin'. It mapped
+-- p_role='owner' onto membership 'owner_admin' and upserted it with
+-- `do update set role = excluded.role`, so an admin calling it with their OWN
+-- id became an owner_admin, and could strip an existing one. set_workspace_
+-- member_role and create_org_invite already refuse exactly this; this was the
+-- third path and it was missed. Guard the three properties separately, because
+-- each has its own way of going quietly missing.
+select 'admin_update_profile cannot grant or strip owner' as check_name,
+ case
+ when to_regprocedure('public.admin_update_profile(uuid,text,text,text,boolean,text)') is null
+   then 'MISSING: admin_update_profile'
+ -- Granting owner. Checked as a pair with the message, so a rewrite that keeps
+ -- the words and loses the gate still fails here.
+ when (select regexp_replace(prosrc,'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      not ilike '%is_owner_admin_of_active_company()%'
+   then 'CRITICAL: admin_update_profile does not check owner authority; an admin can make themselves an owner'
+ -- Taking owner away is the same hole inverted, and the workspace must keep
+ -- one. The count query is the thing to look for: the message alone could
+ -- survive a rewrite that dropped it.
+ when (select regexp_replace(prosrc,'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      not ilike '%where em.entity_id = v_company_id and em.role = ''owner_admin''%'
+   then 'CRITICAL: admin_update_profile has no last-owner guard; a workspace can be left with no owner'
+ -- Same shared per-company key as set_workspace_member_role and
+ -- remove_workspace_member (see the workspace membership check above). The
+ -- owner-count invariant now spans THREE functions; a function that changes
+ -- owner roles without taking that key reopens the race the other two closed.
+ when (select regexp_replace(prosrc,'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      not like '%silo-workspace-membership|%'
+   then 'CRITICAL: admin_update_profile does not take the shared per-company owner lock'
+ when not has_function_privilege('authenticated',
+     'public.admin_update_profile(uuid,text,text,text,boolean,text)','execute')
+   then 'BROKEN: authenticated cannot execute admin_update_profile; the Backend users panel is dead'
+ when has_function_privilege('anon',
+     'public.admin_update_profile(uuid,text,text,text,boolean,text)','execute')
+   then 'CRITICAL: anon can execute admin_update_profile'
+ else 'ok' end as status;
+
+-- ── A THIRD claimed region starts on the next line ───────────────────────
+-- Everything from the "Workspace Settings administration" marker below down to
+-- the "A SECOND claimed region" note is claimed TWICE: workspace-settings-
+-- database.test.mjs slices from that marker to that note, and workspace-admin-
+-- scope-database.test.mjs slices from its own marker inside it to the same
+-- note and asserts the span holds exactly ONE statement. So a new check added
+-- anywhere between here and that note fails one of those two tests with a bare
+-- count mismatch that names nothing -- which is how the owner-escalation check
+-- below ended up here. Add a new check ABOVE this line, not below it.
 -- ── Workspace Settings administration (20260920120000) ────────────────────
 -- Four SECURITY DEFINER functions that exist BECAUSE entity_memberships and
 -- entities take no client writes. If Supabase's default privileges hand any of
