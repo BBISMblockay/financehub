@@ -86,13 +86,15 @@ test('loader enforces tenant/store scope and asks only for the keys the rollup r
 });
 test('batches run several at a time and return every order exactly once',async()=>{
   const {row,record}=fixture(),calls=[];
-  const orders=Array.from({length:1000},(_,i)=>({...row,order_id:'o'+i}));
+  // Eight batches, so the six-request ceiling is actually crossed: five would overlap fully
+  // and prove nothing about the bound.
+  const orders=Array.from({length:1600},(_,i)=>({...row,order_id:'o'+i}));
   const records=orders.map(o=>({...record,order_id:o.order_id}));
   const db=journeyDb(records,calls);
   const loaded=await loadJourneyRecords(db,company,store,orders);
-  assert.equal(loaded.length,1000);
-  assert.equal(new Set(loaded.map(r=>r.order_id)).size,1000);
-  assert.equal(calls.length,5,'1000 orders in batches of 200');
+  assert.equal(loaded.length,1600);
+  assert.equal(new Set(loaded.map(r=>r.order_id)).size,1600);
+  assert.equal(calls.length,8,'1600 orders in batches of 200');
   assert.ok(calls.every(c=>c.order_id.length<=200));
   // Sequential batches were the whole cost for a 30-day store: ~95 round trips end to end.
   assert.ok(db.track.peak>1,'batches must overlap');
