@@ -362,6 +362,7 @@
           <select class="bcn-field" aria-label="Status for ${esc(row.name)}" data-interest-status="${esc(row.id)}">
             ${['pending', 'contacted', 'closed'].map((value) => `<option value="${value}"${value === row.status ? ' selected' : ''}>${value}</option>`).join('')}
           </select>
+          <button type="button" class="bcn-btn bcn-btn--primary" data-interest-invite="${esc(row.id)}" data-email="${esc(row.email)}" data-company="${esc(row.company_name)}" data-original-status="${esc(row.status)}">Invite</button>
           <button type="button" class="bcn-btn bcn-btn--ghost" data-interest-save="${esc(row.id)}" data-original-status="${esc(row.status)}">Save</button>
         </div>
       </article>`).join('') || '<div class="plat-empty">No interest in this view.</div>';
@@ -544,6 +545,26 @@
     el('interestPrevious').addEventListener('click', () => { if (!interestBusy && interestPage > 0) { interestPage--; loadInterest(); } });
     el('interestNext').addEventListener('click', () => { if (!interestBusy && interestHasNext) { interestPage++; loadInterest(); } });
 
+    // One click on a lead: mint the founding invite, email it, and mark the
+    // lead contacted. The status change is best-effort and guarded by the
+    // original status, so a row someone else already moved is left alone.
+    el('tblInterest').addEventListener('click', async (event) => {
+      const inv = event.target.closest('[data-interest-invite]');
+      if (!inv || interestBusy) return;
+      setInterestBusy(true);
+      let invited = false;
+      try {
+        await mintAndSendInvite(inv.dataset.email, inv.dataset.company);
+        invited = true;
+        await db.from('onboarding_interest_queue')
+          .update({ status: 'contacted' }).eq('id', inv.dataset.interestInvite)
+          .eq('status', inv.dataset.originalStatus);
+      } catch (e) {
+        if (!invited) setStatus(e?.message || String(e), 'neg', 12000);
+      } finally { setInterestBusy(false); }
+      if (invited) { await loadInvites(); await loadInterest(); }
+    });
+
     el('tblInterest').addEventListener('click', async (event) => {
       const button = event.target.closest('[data-interest-save]');
       if (!button || interestBusy) return;
@@ -570,20 +591,41 @@
       if (saved) await loadInterest();
     });
 
+    // Mint a founding invite and email it. Shared by the form and the lead
+    // queue's Invite button, so both behave identically. Throws when the
+    // RPC fails; a failed email is reported but is not an error.
+    async function mintAndSendInvite(email, company) {
+      const { data, error } = await db.rpc('create_platform_invite', {
+        p_email: email, p_company_name: company || null,
+      });
+      if (error) throw error;
+      el('pfLink').value = `${location.origin}/v2/company-onboarding.html?invite=`
+        + encodeURIComponent(data.token);
+      el('pfLinkBox').hidden = false;
+      // Email it from here so nobody has to paste the link into a message.
+      // The function can only email the address stored on this invite. A
+      // failed send is not a failed invite: the link is already on screen.
+      let emailed = false;
+      try {
+        const sent = await db.functions.invoke('platform-invite-send', {
+          body: { invite_id: data.invite_id, token: data.token },
+        });
+        emailed = !sent.error && !!sent.data?.email_sent;
+      } catch (_) { /* fall through to the manual-link message */ }
+      setStatus(emailed
+        ? `Invite emailed to ${data.email}. The link below still works if you want a copy — it is shown once.`
+        : `Invite created for ${data.email}, but the email could not be sent. Copy the link — it is shown once.`,
+      emailed ? 'pos' : 'neg', 15000);
+      return { data, emailed };
+    }
+
     el('pfCreate').addEventListener('click', async () => {
       const email = el('pfEmail').value.trim();
       if (!email) { setStatus('A founder email is required.', 'neg', 6000); return; }
       el('pfCreate').disabled = true;
       try {
-        const { data, error } = await db.rpc('create_platform_invite', {
-          p_email: email, p_company_name: el('pfCompany').value.trim() || null,
-        });
-        if (error) throw error;
-        el('pfLink').value = `${location.origin}/v2/company-onboarding.html?invite=`
-          + encodeURIComponent(data.token);
-        el('pfLinkBox').hidden = false;
+        await mintAndSendInvite(email, el('pfCompany').value.trim());
         el('pfEmail').value = ''; el('pfCompany').value = '';
-        setStatus(`Invite created for ${data.email}. Copy the link — it is shown once.`, 'pos', 15000);
         await loadInvites();
       } catch (e) { setStatus(e?.message || String(e), 'neg', 12000); }
       finally { el('pfCreate').disabled = false; }
