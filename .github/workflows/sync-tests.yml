@@ -1490,7 +1490,7 @@ jobs:
         run: |
           set -u
           for m in no-grant-guard no-demote-guard no-last-owner \
-                   guard-on-supplied no-advisory-lock; do
+                   guard-on-supplied no-advisory-lock helper-authority; do
             echo "--- $m ---"
             if ESC_MUTATION="$m" node scripts/tests/admin-profile-owner-escalation-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"

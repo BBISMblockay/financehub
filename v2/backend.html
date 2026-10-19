@@ -984,6 +984,9 @@
     // ====== User dialog (RPC update) ======
     const userDialog = el("userDialog");
     let DLG_UID = null;
+    // The role the dialog OPENED with. Save sends p_role only when the operator
+    // actually moved the dropdown -- see saveUserDialog().
+    let DLG_ROLE_OPENED_WITH = null;
 
     function openUserDialog(uid){
       const u = USERS.find(x => String(x.id) === String(uid));
@@ -996,6 +999,7 @@
       el("dlgName").value = u.name || "";
       el("dlgDept").value = u.department || "";
       el("dlgRole").value = u.role || "member";
+      DLG_ROLE_OPENED_WITH = el("dlgRole").value;
       el("dlgStatus").value = (u.is_active === false || String(u.status).toLowerCase() === "disabled") ? "disabled" : "active";
       el("dlgNotes").value = u.notes || "";
 
@@ -1157,11 +1161,30 @@
       if (!DLG_UID) return;
 
       const p_is_active = (String(el("dlgStatus")?.value || "active").toLowerCase() !== "disabled");
+
+      // Send the role ONLY when it was actually changed in this dialog.
+      //
+      // This list loads the GLOBAL profiles.role, which is not the same thing as
+      // the person's membership role in this workspace: the global column is
+      // written only for somebody who belongs to no other company, so a
+      // multi-company user promoted through Workspace Settings keeps a global
+      // role of "admin" while their membership here is "owner_admin". On
+      // production today that is 7 owner memberships across 5 people.
+      //
+      // Resending that stale global value on every save asked the database to
+      // DEMOTE a real owner just because somebody fixed a typo in their name --
+      // which it used to do silently, and which admin_update_profile now
+      // (correctly) refuses, so the whole save would fail instead. Sending null
+      // when the dropdown was not touched says what the operator actually meant:
+      // leave the role alone.
+      const roleNow = String(el("dlgRole")?.value || "").trim();
+      const roleChanged = !!roleNow && roleNow !== DLG_ROLE_OPENED_WITH;
+
       const payload = {
         p_user_id: DLG_UID,
         p_name: (String(el("dlgName")?.value || "").trim() || null),
         p_department: (String(el("dlgDept")?.value || "").trim() || null),
-        p_role: (String(el("dlgRole")?.value || "").trim() || null),
+        p_role: (roleChanged ? roleNow : null),
         p_is_active: p_is_active,
         p_notes: (String(el("dlgNotes")?.value || "").trim() || null)
       };
@@ -1173,6 +1196,9 @@
       }
 
       if (msg) msg.textContent = "Saved.";
+      // The dialog stays open, so the baseline moves to what was just saved --
+      // otherwise a second Save would re-send the first change as if it were new.
+      if (roleChanged) DLG_ROLE_OPENED_WITH = roleNow;
       await Promise.allSettled([ loadUsers(), loadHealth() ]);
     }
 
