@@ -264,6 +264,10 @@ await test('only the schedule\'s own faults are permanent; the world\'s are not'
     'canceling statement due to statement timeout',
     'SUPABASE_JWT_SECRET not configured for scheduled delivery',
     'invalid session', 'storage upload: timeout',
+    // Two-step login refusing SILO's own scheduled token is SILO's fault, not
+    // the schedule's: it paused the only live schedule on 2026-10-15.
+    'Enter the code from your authenticator app to continue.',
+    'mfa_required',
   ]) {
     assert.equal(isTransientDeliveryError(transient), true, `transient: ${transient}`);
   }
@@ -297,6 +301,26 @@ await test('the export run restores the creator\'s active company', () => {
   const setIdx = src.indexOf("set_active_company");
   const guardIdx = src.indexOf('if (previousCompanyId !== schedule.company_entity_id)');
   assert.ok(guardIdx > -1 && guardIdx < setIdx, 'skip the write when it already matches');
+});
+
+await test('the scheduled run\'s minted token claims aal2, and only the scheduled run mints one', () => {
+  const src = read('supabase/functions/report-email-deliver/handler.mjs');
+  // Two-step login (20261014000000): the PostgREST pre-request hook refuses
+  // every Data API request from a session that is not aal2 when the user holds
+  // a verified factor, and a token with NO `aal` claim is aal1. Drop this claim
+  // and every unattended delivery for an enrolled creator fails on its first
+  // read and the schedule is paused -- which is what happened on 2026-10-15.
+  const payload = src.slice(src.indexOf('const payload = b64url({'), src.indexOf('const sigInput'));
+  assert.match(payload, /aal: 'aal2'/, 'the minted token must assert aal2');
+  assert.match(payload, /role: 'authenticated'/);
+  assert.match(payload, /silo_minted: 'report-email-schedule'/,
+    'the claim that tells a scheduled run from a human session in the logs');
+  assert.match(payload, /exp: now \+ expSeconds/);
+  assert.match(src, /signCreatorJwt\(secret, url, schedule\.created_by\)/);
+  // A caller's own token is never replaced by a minted one: the manual and test
+  // paths run as the human who clicked, with the session they actually hold.
+  assert.match(src, /let token = userJwt;\s*\n\s*if \(!token\) \{/);
+  assert.match(src, /isCron \? null : userJwt/, 'the cron path is the only one that mints');
 });
 
 await test('the admin check fails closed on an error, not only on a missing row', () => {

@@ -106,6 +106,36 @@ anyone until setup opens.
   no signed-in user (anon, service role), or when the user has no VERIFIED
   factor. An unverified (half-finished) setup grants nothing and blocks nothing.
 
+### Unattended work that runs AS a user (2026-10-19)
+
+One path in SILO holds no session and no password and still has to read as a
+particular user: the scheduled report CSV. `report-email-deliver` signs a
+ten-minute HS256 token for the schedule's creator and sends the export through
+PostgREST under their RLS, because the report SQL is arbitrary and RLS is what
+scopes it to one company — the service role would read every tenant.
+
+That token carried no `aal` claim, so the hook read it as `aal1` and refused
+every unattended delivery from the moment a schedule's creator turned two-step
+login on. Found 2026-10-19 (the successes in `report_email_runs` were all
+browser **test** sends). It now claims `aal: 'aal2'` and
+`silo_minted: 'report-email-schedule'`.
+
+Why that is not a hole: the gate stops someone holding only a stolen PASSWORD
+from reaching data. This token comes from no password — it is minted inside the
+edge function with the project's JWT secret, by a caller that already presented
+the cron secret and the service-role key, and anyone who can reach that secret
+can already mint any claim at all. The rules that keep it that way:
+
+- a minted token is never handed to a browser or returned in a response;
+- it is scoped to one export and expires in ten minutes;
+- `silo_minted` is how a scheduled run is told from a human session that
+  entered a code, in Postgres logs and in any later audit;
+- `report-email-deliver` is the ONLY function that mints one
+  (`scripts/tests/report-email-deliver.test.mjs` pins the claim and that the
+  manual and test paths still use the caller's own token). Anything else that
+  needs unattended access takes the service role with an explicit company
+  filter, or a definer function — not a minted user token.
+
 **Rollout order:** merge → apply the migration → deploy the sixteen gated
 functions. The gate fails closed, so a gated function deployed before the
 migration answers 503 until it is applied.
