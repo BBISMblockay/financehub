@@ -24,16 +24,19 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   await page.route('**/pages/config.js',r=>r.fulfill({contentType:'text/javascript',body:`window.__SILO_CONFIG__={SUPABASE_URL:'synthetic',SUPABASE_ANON_KEY:'synthetic',ensureActiveCompany:async()=>({id:'${company}',entity_key:'baseballism'})};`}));
   await page.route('**/lib/supabase-js.min.js',r=>r.fulfill({contentType:'text/javascript',body:`
    window.fixture=${JSON.stringify({rows,records,controls,company,store})};
-   window.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{user:{id:'synthetic-user',email:'fixture@example.test'}}}})},rpc:async(name)=>({data:name==='nav_badge_counts'?{}:name==='is_admin_user'?!window.nonAdmin:window.emptyFixture?[]:fixture.rows}),from(table){const filters={};let mode='select',payload;
+   window.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{user:{id:'synthetic-user',email:'fixture@example.test'}}}})},rpc:async(name,args)=>({data:name==='nav_badge_counts'?{}:name==='is_admin_user'?!window.nonAdmin
+    // Both report reads go through the reporting engine: the ledger rows, and the journeys
+    // projected to the fields the rollup classifies.
+    :/shopify_attribution_orders/.test(args&&args.query||'')?fixture.records.map(r=>({company_entity_id:r.company_entity_id,connection_id:r.connection_id,order_id:r.order_id,order_evidence:r.evidence.order,own_hosts:r.evidence.own_hosts,fetched_at:window.staleFixture?'changed':r.fetched_at}))
+    :window.emptyFixture?[]:fixture.rows}),from(table){const filters={};let mode='select',payload;
     const q={select(){return q;},range(){return q;},eq(k,v){filters[k]=v;return q;},gte(){return q;},lte(){return q;},in(k,v){filters[k]=v;return q;},order(){return q;},limit(){return q;},single(){return q;},maybeSingle(){return q;},insert(p){mode='insert';payload=p;return q;},then(resolve){
      if(mode==='insert')return resolve({error:{message:'unexpected write'}});
      let data=[];if(table==='profiles')data=typeof filters.id==='string'?{role:'admin',active_company_id:fixture.company}:[{id:'synthetic-user',name:'Synthetic reviewer'}];
      if(table==='entity_memberships')data=filters.user_id?{user_id:'synthetic-user'}:[{user_id:'synthetic-user'}];
      if(table==='shopify_connections')data=[{id:fixture.store,shop_domain:'synthetic.example.test'}];
      if(table==='shopify_attribution_days')data=window.emptyFixture?fixture.controls.map(c=>({...c,net_cents:0,total_cents:0})):fixture.controls;
-     // The drilldown reads one order's whole evidence; the rollup asks only for the two
-     // evidence keys it uses, so the bulk read serves that projected shape.
-     if(table==='shopify_attribution_orders')data=typeof filters.order_id==='string'?fixture.records.find(r=>r.order_id===filters.order_id):fixture.records.map(r=>({company_entity_id:r.company_entity_id,connection_id:r.connection_id,order_id:r.order_id,order_evidence:r.evidence.order,own_hosts:r.evidence.own_hosts,fetched_at:window.staleFixture?'changed':r.fetched_at}));
+     // Only the drilldown reads a row of this table now, and it reads one order's whole evidence.
+     if(table==='shopify_attribution_orders')data=fixture.records.find(r=>r.order_id===filters.order_id)||null;
      if(window.spendFail&&table==='marketing_kpis_daily')return resolve({data:null,error:{message:'spend read refused'}});
      if(table==='marketing_kpis_daily')data=[{platform:'meta_ads',day_date:'2026-09-30',spend:300},{platform:'google_ads',day_date:'2026-09-30',spend:50}];
      if(table==='redo_marketing_daily')data=[{channel:'SMS',day_date:'2026-09-30',spend:12.5,spend_currency:'USD'}];

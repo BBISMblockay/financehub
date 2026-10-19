@@ -42,11 +42,66 @@ assert.equal((await db.query('select ledger from shopify_attribution_days')).row
 await db.exec('reset role; set role authenticated');await db.query("select set_config('test.company',$1,false)",[co]);
 assert.equal((await db.query('select * from shopify_attribution_days')).rows.length,1);
 if(report){const rows=(await db.query('select window_days,sum(net_cents) as net from silo_attribution_ledger_v group by window_days')).rows;assert.equal(rows.length,4);for(const r of rows)assert.equal(Number(r.net),-100);}
+if(report){
+ // The Attribution page's own projection, run against the real view. Its unit tests feed the
+ // loader mock rows, so this is the only place that SQL executes: every column it keeps must
+ // match `select *`, and an allocation holding none of the kept keys must stay an empty object,
+ // which is what keeps such an order reading as backfilled rather than "Model not backfilled".
+ const {LEDGER_SELECT}=await import('../../v2/silo-attribution-report.js');
+ const scope=` where company_entity_id='${co}'::uuid and connection_id='${conn}'::uuid and window_days=30 and day='2026-09-01'::date order by order_id`;
+ const projected=(await db.query(LEDGER_SELECT+scope)).rows,full=(await db.query('select * from silo_attribution_ledger_v'+scope)).rows;
+ assert.ok(projected.length&&projected.length===full.length,'the projection must return the same rows as select *');
+ for(const [i,row] of projected.entries())for(const key of Object.keys(row))assert.deepEqual(row[key],full[i][key],`projected ${key} differs from select *`);
+ for(const dropped of ['currency','shop_timezone'])assert.ok(!(dropped in projected[0]),`${dropped} is read from the daily controls, not from every ledger row`);
+ await db.exec('reset role; set role service_role');
+ await db.query(`update shopify_attribution_orders set evidence=evidence||'{"allocations":{"30":{"model_version":"1"}}}'::jsonb`);
+ await db.exec("reset role; set role authenticated");await db.query("select set_config('test.company',$1,false)",[co]);
+ assert.deepEqual((await db.query(LEDGER_SELECT+scope)).rows[0].allocation,{},'an allocation with no kept keys must stay an empty object');
+ await db.exec('reset role; set role service_role');
+ await db.query(`update shopify_attribution_orders set evidence=evidence-'allocations'`);
+ assert.equal((await db.query(LEDGER_SELECT+scope)).rows[0].allocation,null,'a missing allocation must stay null');
+ await db.exec("reset role; set role authenticated");await db.query("select set_config('test.company',$1,false)",[co]);
+}
+if(report){
+ // The journey read's SQL projection, run against the real view's table: the page classifies the
+ // visits it gets back, so what must hold is that the projected journey yields the same visits,
+ // with the same classification, as the whole stored blob. Visits repeated as firstVisit and
+ // lastVisit collapse, a moment that is not a CustomerVisit is dropped in SQL instead of in the
+ // page, and no field classify() reads is left behind.
+ const {journeyQuery}=await import('../../v2/silo-attribution-overview.js');
+ const {journeyVisits,classify}=await import('../../v2/silo-attribution-model.js');
+ const visit=(n,extra={})=>({id:'gid://shopify/CustomerVisit/'+n,occurredAt:`2026-09-0${n}T10:00:00Z`,source:'https://facebook.com/',sourceType:null,referrerUrl:'https://facebook.com/',landingPage:'https://shop.test/products/cap',utmParameters:{source:'facebook',medium:'paid',campaign:'fall',content:'ad-1',term:''},__typename:'CustomerVisit',...extra});
+ // Visit 5 classifies from its referrer alone and visit 6 from its sourceType, so a field
+ // dropped from the projection changes a channel rather than nothing.
+ const nodes=[visit(1),visit(2),visit(3,{__typename:'CustomerPageView'}),{occurredAt:'2026-09-04T10:00:00Z'},
+  visit(5,{source:'',referrerUrl:'https://l.facebook.com/',utmParameters:{source:'',medium:'',campaign:'',content:'',term:''}}),
+  visit(6,{source:'',referrerUrl:'',sourceType:'SEO',utmParameters:{source:'',medium:'',campaign:'',content:'',term:''}})];
+ const order={id:'gid://shopify/Order/1',name:'#1',createdAt:'2026-09-05T10:00:00Z',sourceName:'web',customerJourneySummary:{ready:true,firstVisit:nodes[0],lastVisit:nodes[1],moments:{pageInfo:{hasNextPage:false},nodes}}};
+ await db.exec('reset role; set role service_role');
+ const orderId=(await db.query('select order_id from shopify_attribution_orders limit 1')).rows[0].order_id;
+ await db.query('update shopify_attribution_orders set evidence=$1::jsonb where order_id=$2',[JSON.stringify({order,own_hosts:['shop.test']}),orderId]);
+ await db.exec('reset role; set role authenticated');await db.query("select set_config('test.company',$1,false)",[co]);
+ const projected=(await db.query(journeyQuery(co,conn,[orderId]))).rows;
+ assert.equal(projected.length,1,'the projection must return the order');
+ const shape=o=>journeyVisits(o).map(v=>({id:v.id,at:v.occurredAt,landing:v.landingPage,...classify(v,{ownHosts:['shop.test']})}));
+ assert.deepEqual(shape(projected[0].order_evidence),shape(order),'the projected journey must classify identically to the whole blob');
+ assert.equal(shape(projected[0].order_evidence).length,4,'four visits survive: a repeat, a non-visit moment and a moment without an id are dropped');
+ assert.deepEqual(shape(projected[0].order_evidence).map(v=>v.channel),['Meta Ads','Meta Ads','Meta Social — Unspecified','Organic Search']);
+ // Deduped in SQL, not left to the page: the repeats are what made this payload worth trimming.
+ assert.equal(projected[0].order_evidence.customerJourneySummary.moments.nodes.length,4,'the visits must already be deduped in SQL');
+ assert.equal(projected[0].order_evidence.customerJourneySummary.ready,true);
+ assert.equal(projected[0].order_evidence.customerJourneySummary.moments.pageInfo.hasNextPage,false);
+ assert.deepEqual(projected[0].own_hosts,['shop.test']);
+ const text=JSON.stringify(projected[0].order_evidence);
+ for(const dropped of ['sourceName','__typename','firstVisit','lastVisit'])assert.ok(!text.includes(dropped),`${dropped} is not read by the rollup and must not be sent`);
+}
 await assert.rejects(publish(),/permission denied/);
 await assert.rejects(db.exec('delete from shopify_attribution_orders'),/permission denied/);
 await db.query("select set_config('test.company',$1,false)",[other]);
 assert.equal((await db.query('select * from shopify_attribution_days')).rows.length,0);
 assert.equal((await db.query('select * from shopify_attribution_orders')).rows.length,0);
+// The journey read goes through the reporting engine now, so prove that path is RLS-bounded too.
+if(report){const {journeyQuery}=await import('../../v2/silo-attribution-overview.js');assert.equal((await db.query(journeyQuery(co,conn,['1','2']))).rows.length,0,'another company must read no journeys');}
 if(report)assert.equal((await db.query('select * from silo_attribution_ledger_v')).rows.length,0);
 await db.exec('reset role; set role anon');await assert.rejects(db.query('select * from shopify_attribution_days'),/permission denied/);
 await db.close();console.log('Attribution DB: atomic replacement, stale writes, RLS and grants passed');

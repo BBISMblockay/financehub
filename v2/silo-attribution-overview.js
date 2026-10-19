@@ -114,18 +114,46 @@ export function analyzeJourneys(report,records,settings={}) {
   return {paths,roles:[...roles.values()],eligible,total:seen.size,exclusions:[...exclusions].map(([reason,count])=>({reason,count})),journeys,models};
 }
 
+// The rollup reads one field of the order, three of the journey and seven of each visit. The
+// stored evidence carries Shopify's whole order object, and `firstVisit` and `lastVisit` repeat
+// two visits that `moments.nodes` already holds. PostgREST projects top-level keys only, so the
+// shape is built in SQL through the reporting engine instead: the visits are the
+// first/nodes/last union deduped by id in first-seen order -- exactly what journeyVisits() does
+// in the page -- and a moment that is not a CustomerVisit is dropped here rather than there. A
+// 30-day store's journeys go from 35MB to 24MB with no visit and no field the model reads left
+// behind, and 500 orders a request instead of 200 turns ~104 round trips into ~42.
+const VISIT_FIELDS=['id','occurredAt','source','sourceType','referrerUrl','landingPage','utmParameters'];
+const visitObject=alias=>`jsonb_build_object(${VISIT_FIELDS.map(f=>`'${f}',${alias}->'${f}'`).join(',')})`;
+export const journeyQuery=(companyId,connectionId,ids)=>`select e.company_entity_id, e.connection_id, e.order_id, e.fetched_at,
+ jsonb_build_object('id',o->'id','name',o->'name','createdAt',o->'createdAt','customerJourneySummary',
+  case when jsonb_typeof(cjs)<>'object' then cjs else jsonb_build_object('ready',cjs->'ready',
+   'moments',jsonb_build_object('pageInfo',cjs->'moments'->'pageInfo','nodes',
+    (select jsonb_agg(visit order by seen) from (
+      select distinct on (n->>'id') ${visitObject('n')} as visit, seen
+      from jsonb_array_elements(visits) with ordinality t(n,seen)
+      where n->>'id' is not null and (n->>'__typename' is null or n->>'__typename'='CustomerVisit')
+      order by n->>'id', seen) deduped))) end) as order_evidence,
+ case when jsonb_typeof(e.evidence->'own_hosts')='array' then e.evidence->'own_hosts' else '[]'::jsonb end as own_hosts
+ from public.shopify_attribution_orders e
+ cross join lateral (select e.evidence->'order' as o) ord
+ cross join lateral (select o->'customerJourneySummary' as cjs) journey
+ cross join lateral (select (case when jsonb_typeof(cjs->'firstVisit')='object' then jsonb_build_array(cjs->'firstVisit') else '[]'::jsonb end)
+  || (case when jsonb_typeof(cjs->'moments'->'nodes')='array' then cjs->'moments'->'nodes' else '[]'::jsonb end)
+  || (case when jsonb_typeof(cjs->'lastVisit')='object' then jsonb_build_array(cjs->'lastVisit') else '[]'::jsonb end) as visits) touched
+ where e.company_entity_id='${companyId}'::uuid and e.connection_id='${connectionId}'::uuid and e.order_id in (${ids.map(id=>`'${id}'`).join(',')})`;
+
 export async function loadJourneyRecords(db,companyId,connectionId,orders) {
-  // The rollup reads only the order object and the shop's own hosts, so ask for those two keys
-  // rather than the whole evidence blob. The blob averages 5.3KB per order and 3.1KB of that is
-  // the allocations object, which the ledger rows already carry -- a 30-day store shipped about
-  // 111MB of evidence, most of it a second copy of data the page had. Six batches in flight:
-  // these were strictly sequential, ~95 round trips one after another for a 30-day period.
+  if(![companyId,connectionId].every(v=>/^[0-9a-f-]{36}$/i.test(v)))throw Error('Invalid journey scope');
   const batches=[];
-  for(let i=0;i<orders.length;i+=200)batches.push(orders.slice(i,i+200).map(o=>o.order_id));
+  for(let i=0;i<orders.length;i+=500)batches.push(orders.slice(i,i+500).map(o=>String(o.order_id)));
   const fetchBatch=async ids=>{
+    if(!ids.every(id=>/^[0-9]+$/.test(id)))throw Error('Unexpected order identifier');
     const wanted=new Set(ids);
-    const {data,error}=await db.from('shopify_attribution_orders').select('company_entity_id,connection_id,order_id,order_evidence:evidence->order,own_hosts:evidence->own_hosts,fetched_at').eq('company_entity_id',companyId).eq('connection_id',connectionId).in('order_id',ids);
+    const {data,error}=await db.rpc('chat_run_readonly_query',{query:journeyQuery(companyId,connectionId,ids),p_offset:0});
     if(error)throw error;if(!Array.isArray(data))throw Error('Unexpected journey response');
+    // The reporting engine pages at 1000 rows; a batch asks for fewer orders than that, so a
+    // response at the cap would be a silently truncated page rather than an answer.
+    if(data.length>ids.length)throw Error('Unexpected journey response');
     if(data.some(r=>!wanted.has(r.order_id)||r.company_entity_id!==companyId||r.connection_id!==connectionId))throw Error('Journey scope mismatch');
     return data.map(({order_evidence,own_hosts,...rest})=>({...rest,evidence:{order:order_evidence,own_hosts:own_hosts||[]}}));
   };
