@@ -60,12 +60,34 @@ export async function loadRows(db,companyId,connectionId,start,end,windowDays) {
   const expected=Math.round((Date.parse(end)-Date.parse(start))/86400000)+1;
   if(expected<1||expected>31)throw Error('Choose an inclusive period of 1–31 days');
   if(controls.length!==expected)throw Error('Some days have not been backfilled. No full-period report is available yet.');
+  // One request per day, four in flight. The reporting engine caps a page at 1000 rows and
+  // honours an offset only after building the whole result, so walking a period-wide offset
+  // re-expanded and re-sorted every day of the period on every page -- about 400ms each for a
+  // 30-day store, spilling 19MB to disk on the later pages. A day is the natural page: it is one
+  // index row in shopify_attribution_days, and a day with more than 1000 ledger rows continues
+  // by order_id within that day. Four at a time, not all of them: a wide burst of concurrent
+  // report RPCs is what made the WoW report cancel its own queries.
+  const loadDay=async day=>{
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(day))throw Error('Unexpected snapshot day');
+    const out=[];let after=null;
+    for(let request=0;request<60;request++){
+      const keyset=after?` and order_id > '${after}'`:'';
+      const {data,error}=await db.rpc('chat_run_readonly_query',{query:`select * from public.silo_attribution_ledger_v where company_entity_id='${companyId}'::uuid and connection_id='${connectionId}'::uuid and window_days=${windowDays} and day='${day}'::date${keyset} order by order_id`,p_offset:0});
+      if(error)throw error;if(!Array.isArray(data))throw Error('Unexpected reporting result');
+      out.push(...data);
+      if(data.length<1000)return out;
+      const last=String(data[data.length-1].order_id);
+      if(!/^[0-9]+$/.test(last))throw Error('Unexpected order identifier');
+      after=last;
+    }
+    throw Error('Report row limit reached; choose a smaller period');
+  };
   const rows=[];
-  for(let offset=0;offset<100000;offset+=1000){
-    const {data,error}=await db.rpc('chat_run_readonly_query',{query:`select * from public.silo_attribution_ledger_v where company_entity_id='${companyId}'::uuid and connection_id='${connectionId}'::uuid and window_days=${windowDays} and day between '${start}'::date and '${end}'::date order by day,order_id`,p_offset:offset});
-    if(error)throw error;if(!Array.isArray(data))throw Error('Unexpected reporting result');rows.push(...data);if(data.length<1000)return summarize(rows,controls,windowDays);
+  for(let i=0;i<controls.length;i+=4){
+    const batch=await Promise.all(controls.slice(i,i+4).map(c=>loadDay(c.day)));
+    for(const part of batch)rows.push(...part);
   }
-  throw Error('Report row limit reached; choose a smaller period');
+  return summarize(rows,controls,windowDays);
 }
 export function mountReport(root,{load,evidence,journeys,spend}) {
   let report=null,page=0,sequence=0;
