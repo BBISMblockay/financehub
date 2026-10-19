@@ -987,12 +987,19 @@
     // The role the dialog OPENED with. Save sends p_role only when the operator
     // actually moved the dropdown -- see saveUserDialog().
     let DLG_ROLE_OPENED_WITH = null;
+    // Bumped every time the dialog opens. saveUserDialog() captures it and
+    // refuses to touch the baseline afterwards if the dialog has moved on, so a
+    // slow save for one person cannot rewrite the baseline belonging to the
+    // next. Review cycle 2 of #1022 found exactly that: nothing disables Save
+    // or blocks a close while the RPC is in flight.
+    let DLG_GENERATION = 0;
 
     function openUserDialog(uid){
       const u = USERS.find(x => String(x.id) === String(uid));
       if (!u) return;
 
       DLG_UID = u.id;
+      DLG_GENERATION += 1;
       setText("dlgEmail", u.email || "—");
       setText("dlgUid", u.id ? `uid: ${u.id}` : "—");
 
@@ -1179,6 +1186,9 @@
       // leave the role alone.
       const roleNow = String(el("dlgRole")?.value || "").trim();
       const roleChanged = !!roleNow && roleNow !== DLG_ROLE_OPENED_WITH;
+      // Which dialog this save belongs to, read BEFORE the await.
+      const savedGeneration = DLG_GENERATION;
+      const savedUid = DLG_UID;
 
       const payload = {
         p_user_id: DLG_UID,
@@ -1198,7 +1208,14 @@
       if (msg) msg.textContent = "Saved.";
       // The dialog stays open, so the baseline moves to what was just saved --
       // otherwise a second Save would re-send the first change as if it were new.
-      if (roleChanged) DLG_ROLE_OPENED_WITH = roleNow;
+      // Only if this is still the same dialog, though: closing it and opening
+      // somebody else is allowed while the request is in flight, and writing the
+      // baseline then would hand the next person a value that has nothing to do
+      // with them. The status text above is left as it was -- it has always been
+      // written after the await, and it is cosmetic.
+      if (roleChanged && DLG_GENERATION === savedGeneration && DLG_UID === savedUid) {
+        DLG_ROLE_OPENED_WITH = roleNow;
+      }
       await Promise.allSettled([ loadUsers(), loadHealth() ]);
     }
 
