@@ -8,7 +8,47 @@ Only items that still matter today. Fixed items live in [CHANGELOG.md](CHANGELOG
 
 ## Fix these first (P1)
 
-See below.
+- Nothing is queued at P1. The `executive` self-assignment entry that was here was closed on
+  2026-10-19 (`20261019180000`, see CHANGELOG). The
+  `company-onboarding-database.test.mjs` entry further below is still marked P1, but that suite
+  **passes** as of 2026-10-19 on this branch -- it is left in place rather than deleted, for Blake
+  to confirm before it goes.
+
+---
+
+## An admin can deactivate an owner, platform-wide, and the owner cannot undo it (P2)
+
+Found 2026-10-19 while closing the `admin_update_profile` owner-escalation hole (Critical 4 of the
+2026-10-14 audit). Deliberately **not** fixed in that migration: it is a different property
+(availability, not privilege), the fix would change what the Backend users panel's Active toggle is
+allowed to do, and widening a security migration into live admin behaviour is not a call to make
+without Blake.
+
+`admin_update_profile` writes `is_active = coalesce(p_is_active, is_active)` in **both** of its
+branches, gated only on `is_admin()` plus "the target belongs to my active company". After
+`20261019180000` a membership `admin` can no longer change an owner's ROLE, nor grant themselves the
+global `executive` role or the `finance`/`exec` department (that half was closed in the same
+migration on Blake's instruction of 2026-10-19) -- but nothing stops them sending
+`p_is_active => false` for that same owner. Three facts make that worse than it sounds, each
+read live from production rather than from a migration file:
+
+- `profiles.is_active` is **global**, one column for the whole platform, which
+  `20260918120000` documents as deliberate. So company A's admin deactivating an owner disables that
+  person in **every** company they belong to, including tenants A has nothing to do with.
+- `is_admin()` begins `coalesce(p.is_active, true) = true`. A deactivated owner therefore cannot call
+  `admin_update_profile` -- so they cannot re-enable themselves, and recovery needs a *different*
+  still-active admin, or service-role SQL.
+- Deactivation leaves `entity_memberships` untouched, so it is not a membership change anything else
+  would notice; the row still says `owner_admin`.
+
+The shape of a fix is the guard already in the function: when the stored membership role of the
+target is `owner_admin` and `p_is_active` would turn it off, require
+`is_owner_admin_of_active_company()`, and under the same per-company advisory key refuse the last
+active owner. It should land with whatever is decided about the Active toggle in
+`v2/backend.html`, not before.
+
+Not P1: it needs an account that is already a trusted `admin` of a company the owner belongs to, it
+grants the attacker no new read or write, and another admin can reverse it.
 
 ---
 
