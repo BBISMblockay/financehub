@@ -19156,6 +19156,9 @@ $c$select (select count(*) from v_po_header_summary
 -- Public early-access queue only; no tenant/auth/invite/billing changes.
 \i migrations/20261003221720_onboarding_interest_queue.sql
 
+-- Early-access auto-invite: service-only functions; inert until ONBOARDING_AUTO_INVITE=true is set on the edge function.
+\i migrations/20261019000000_onboarding_interest_auto_invite.sql
+
 -- On Deck coding review: preview = rolled-back approval; approve/post bound to the reviewed hash.
 \i migrations/20261004120000_on_deck_coding_review.sql
 
@@ -19272,6 +19275,3 @@ $c$select (select count(*) from v_po_header_summary
 -- card_posting_start_refusal, which that migration defines.
 \i migrations/20261015190000_bookkeeping_mode.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
-
--- Early-access auto-invite: service-only functions; inert until ONBOARDING_AUTO_INVITE=true is set on the edge function.
-\i migrations/20261019000000_onboarding_interest_auto_invite.sql
