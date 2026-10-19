@@ -31,7 +31,9 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
      if(table==='entity_memberships')data=filters.user_id?{user_id:'synthetic-user'}:[{user_id:'synthetic-user'}];
      if(table==='shopify_connections')data=[{id:fixture.store,shop_domain:'synthetic.example.test'}];
      if(table==='shopify_attribution_days')data=window.emptyFixture?fixture.controls.map(c=>({...c,net_cents:0,total_cents:0})):fixture.controls;
-     if(table==='shopify_attribution_orders')data=typeof filters.order_id==='string'?fixture.records.find(r=>r.order_id===filters.order_id):window.staleFixture?fixture.records.map(r=>({...r,fetched_at:'changed'})):fixture.records;
+     // The drilldown reads one order's whole evidence; the rollup asks only for the two
+     // evidence keys it uses, so the bulk read serves that projected shape.
+     if(table==='shopify_attribution_orders')data=typeof filters.order_id==='string'?fixture.records.find(r=>r.order_id===filters.order_id):fixture.records.map(r=>({company_entity_id:r.company_entity_id,connection_id:r.connection_id,order_id:r.order_id,order_evidence:r.evidence.order,own_hosts:r.evidence.own_hosts,fetched_at:window.staleFixture?'changed':r.fetched_at}));
      if(window.spendFail&&table==='marketing_kpis_daily')return resolve({data:null,error:{message:'spend read refused'}});
      if(table==='marketing_kpis_daily')data=[{platform:'meta_ads',day_date:'2026-09-30',spend:300},{platform:'google_ads',day_date:'2026-09-30',spend:50}];
      if(table==='redo_marketing_daily')data=[{channel:'SMS',day_date:'2026-09-30',spend:12.5,spend_currency:'USD'}];
