@@ -182,6 +182,12 @@ const TRANSIENT = [
   /canceling statement due to statement timeout/i,
   /not configured|not set|unauthoriz|invalid session|jwt/i,
   /storage upload/i,
+  // Two-step login refusing the scheduled run's own token is SILO's fault, not
+  // the schedule's: it is what paused the only live schedule on 2026-10-15
+  // (the minted token carried no `aal` claim, so the pre-request hook read it
+  // as aal1). A schedule must not be silently switched off by an enforcement
+  // change it has no part in -- it retries, and last_error says why.
+  /mfa_required|authenticator app|two-step/i,
 ];
 
 export function isTransientDeliveryError(message) {

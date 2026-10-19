@@ -69,6 +69,19 @@ async function signCreatorJwt(jwtSecret, supabaseUrl, creatorId, expSeconds = 60
     iss: `${supabaseUrl.replace(/\/$/, '')}/auth/v1`,
     iat: now,
     exp: now + expSeconds,
+    // Two-step login (20261014000000) refuses every Data API request whose
+    // session is not aal2 when the user holds a verified authenticator factor,
+    // and a token with no `aal` claim counts as aal1 -- so from the moment a
+    // schedule's creator turned two-step login on, the unattended delivery
+    // died on its first read ("Enter the code from your authenticator app to
+    // continue.") and the schedule was paused. This token comes from no
+    // password: it is minted inside the function by code already holding the
+    // project's JWT secret, already called with the cron secret and the
+    // service-role key, it never leaves this function, and it expires in ten
+    // minutes. `silo_minted` marks it in Postgres logs so a scheduled run is
+    // never read as a human session that entered a code.
+    aal: 'aal2',
+    silo_minted: 'report-email-schedule',
   });
   const sigInput = `${header}.${payload}`;
   const sig = await crypto.subtle.sign('HMAC', key, enc.encode(sigInput));
