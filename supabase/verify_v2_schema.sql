@@ -6181,9 +6181,16 @@ select 'SILO ledger entries balance' as check_name,
   else 'ok' end as status;
 -- End SILO ledger checks.
 
--- On Deck fingerprint cutoff caches the company-local date outside the scan.
+-- On Deck resolves the company-local date ONCE, in the declare, and folds it into
+-- the fingerprint -- it is never recomputed per source read. This check used to
+-- also require the literal `day_date>=company_today-90`, the 90-day cutoff on the
+-- sales_by_day scan; 20261016170000_on_deck_source_version_cheap.sql removed that
+-- scan on purpose, so that half had been asserting the absence of the very fix
+-- below it ('On Deck freshness cost'), and it is what the check was reporting
+-- MISSING from 2026-10-16 onward. The remaining two halves are the whole of what
+-- "cached outside the scan" means now.
 select 'On Deck source date cache' as check_name, case when
- position('day_date>=company_today-90' in pg_get_functiondef('public.on_deck_source_version(uuid,text)'::regprocedure))>0
+ position('company_today date:=' in pg_get_functiondef('public.on_deck_source_version(uuid,text)'::regprocedure))>0
  and position('company_today::text' in pg_get_functiondef('public.on_deck_source_version(uuid,text)'::regprocedure))>0
  then 'ok' else 'MISSING' end as status;
 
