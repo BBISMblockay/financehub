@@ -7284,6 +7284,79 @@ select 'developer API boundary' as check_name, case
     where i.relname = 'silo_api_grants_session' and x.indisunique)
    then 'MISSING — silo_api_grants_session, so one session could answer for two grants'
 
+  -- Nobody writes a grant from a browser. A row-level policy says which ROWS
+  -- you may touch, never which COLUMNS, so a client INSERT/UPDATE privilege on
+  -- this table is a way to write consented_aal = 'aal2' with no second factor,
+  -- rebind a session, widen scopes, move the expiry, or un-revoke a
+  -- disconnected connection. The first version of 20261020030000 shipped
+  -- exactly that and called it revoke-only in a comment.
+  when has_table_privilege('authenticated', 'public.silo_api_grants', 'INSERT')
+    or has_table_privilege('authenticated', 'public.silo_api_grants', 'UPDATE')
+    or has_table_privilege('authenticated', 'public.silo_api_grants', 'DELETE')
+   then 'CRITICAL: authenticated can write silo_api_grants, so consent evidence, scopes, the session binding and revocation are all forgeable'
+  when has_table_privilege('anon', 'public.silo_api_grants', 'SELECT')
+   then 'CRITICAL: anon can read silo_api_grants'
+  -- And the trigger that keeps it revoke-only and bind-once for EVERY writer,
+  -- including the consent function, the token hook and a future Developers
+  -- screen.
+  when not exists (
+    select 1 from pg_trigger t
+    where t.tgrelid = 'public.silo_api_grants'::regclass
+      and t.tgname = 'silo_api_grants_frozen' and not t.tgisinternal)
+   then 'MISSING — the silo_api_grants_frozen trigger, so a grant is only as immutable as its writers'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_grants_frozen()')) not like '%revocation cannot be undone%'
+    or pg_get_functiondef(to_regprocedure('public.silo_api_grants_frozen()')) not like '%rebound to another session%'
+   then 'BROKEN — silo_api_grants_frozen no longer refuses undoing a revocation or rebinding a session'
+  -- Consent takes only the client and the scopes. Assurance, company, person
+  -- and dates are read from request state; an argument for any of them would
+  -- be a way to supply it.
+  when to_regprocedure('public.silo_api_consent(text,text[])') is null
+   then 'MISSING — silo_api_consent(text, text[]), the only way a grant is created'
+  when exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'silo_api_consent'
+      and p.pronargs <> 2)
+   then 'CRITICAL: silo_api_consent takes extra arguments, so a security-relevant field may be supplied rather than derived'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_consent(text,text[])')) not like '%silo_api_claims%'
+    or pg_get_functiondef(to_regprocedure('public.silo_api_consent(text,text[])')) not like '%aal2%'
+   then 'CRITICAL: silo_api_consent no longer reads the approving session''s assurance'
+  when to_regprocedure('public.silo_api_revoke(uuid)') is null
+   then 'MISSING — silo_api_revoke(uuid), so a connection cannot be disconnected'
+
+  -- The report wrapper executes SQL other people wrote, so its search path is
+  -- part of the boundary: it must be able to resolve an unqualified report
+  -- table (every shipped report writes them unqualified), must not let a
+  -- temporary relation shadow one, and public must stay a schema no untrusted
+  -- role can create in.
+  when coalesce((select array_to_string(p.proconfig, ',') from pg_proc p
+                 where p.oid = to_regprocedure('public.silo_api_run_report(uuid,jsonb,integer,integer)')), '')
+       not like '%search_path=public, pg_temp%'
+   then 'CRITICAL: silo_api_run_report''s search_path is not "public, pg_temp" -- either no real report can run, or a temporary relation can shadow one'
+  when exists (
+    select 1 from pg_namespace n, aclexplode(n.nspacl) a
+    where n.nspname = 'public' and a.privilege_type = 'CREATE'
+      and a.grantee <> 0
+      and pg_get_userbyid(a.grantee) in
+          ('anon','authenticated','service_role','authenticator','silo_integration','silo_revoked','silo_api_exec'))
+   then 'CRITICAL: a client role can CREATE in schema public, so the report wrapper''s search_path is no longer trusted'
+  when exists (
+    select 1 from pg_namespace n, aclexplode(n.nspacl) a
+    where n.nspname = 'public' and a.privilege_type = 'CREATE' and a.grantee = 0)
+   then 'CRITICAL: PUBLIC can CREATE in schema public, so the report wrapper''s search_path is no longer trusted'
+
+  -- Parameter substitution assembles from the template's own segments. The
+  -- placeholder version rescanned its own output, so a text value equal to a
+  -- later placeholder had that parameter's literal spliced inside its quotes
+  -- and became SQL (reproduced in the database, mutation M11).
+  -- Matched on the OPERATION, not on a name: the function's own comment
+  -- records the placeholder it used to use, so a name match reads its
+  -- explanation as the defect. What must be absent is any replacement pass
+  -- over the accumulated output -- both the old shapes wrote `replace(v_out,`
+  -- or `regexp_replace(v_out,`.
+  when pg_get_functiondef(to_regprocedure('public.silo_api_substitute(text,jsonb,jsonb)')) not like '%regexp_split_to_array%'
+    or pg_get_functiondef(to_regprocedure('public.silo_api_substitute(text,jsonb,jsonb)')) like '%replace(v_out,%'
+   then 'CRITICAL: silo_api_substitute is substituting into its own output again, so a parameter value can become SQL'
+
   -- Every grant expires, 90 days is the ceiling (Blake, 2026-10-19), and the
   -- resolver must not read a null expiry as live. Two-factor approval is a
   -- moment; an OAuth token reads aal1 and is re-issued hourly forever, so the

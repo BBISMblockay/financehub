@@ -216,30 +216,270 @@ alter table public.silo_api_grants enable row level security;
 -- A person manages their OWN connections for the company they are working in.
 -- The integration role is granted nothing here at all: a connection can never
 -- read, widen or extend itself.
+-- A person sees their own connections. An OWNER of the company a connection
+-- reads sees it too, because an authority to disconnect that cannot list is
+-- not an authority at all -- Blake's default is that the approving person or an
+-- authorized owner of that company may disconnect, and the owner has to be
+-- able to find the row to pass it to silo_api_revoke(). It is scoped by the
+-- GRANT's company rather than by the reader's active one, so switching
+-- companies in another tab cannot widen or narrow what an owner is looking at
+-- mid-task. Owner means entity_memberships.role = 'owner_admin' for that
+-- company, never is_admin_user(), which passes for nearly everyone here.
 drop policy if exists silo_api_grants_select on public.silo_api_grants;
 create policy silo_api_grants_select on public.silo_api_grants
   for select to authenticated
-  using (user_id = auth.uid() and company_entity_id = public.active_company_id());
+  using (
+    user_id = auth.uid()
+    or exists (
+      select 1 from public.entity_memberships em
+      where em.user_id = auth.uid()
+        and em.entity_id = silo_api_grants.company_entity_id
+        and em.role = 'owner_admin'));
 
+-- NOBODY writes this table from a browser. The first version of this
+-- migration gave `authenticated` INSERT and UPDATE behind a policy that
+-- checked only the caller and the active company, and called that
+-- "revoke-only" in a comment. It was not: a row-level policy says which ROWS
+-- you may touch, never which COLUMNS, so a first-party caller could have
+-- written consented_aal = 'aal2' with no second factor anywhere near it (an
+-- account with no verified factor passes the first-party MFA gate at aal1),
+-- bound auth_session_id to a session of their choosing, widened scopes, moved
+-- consented_at and expires_at forward together to satisfy the 90-day ceiling,
+-- or set revoked_at back to NULL on a connection they had already
+-- disconnected. Every one of those values is then trusted by the resolver, the
+-- MFA branch and the scope gate. The OAuth server being off did not make that
+-- safe; it only meant nothing was using it yet.
+--
+-- So there are no client write privileges at all. Reads stay (a person must be
+-- able to see their own connections), and the two writes a person legitimately
+-- performs go through functions that derive every security-relevant field from
+-- request state instead of accepting it.
 drop policy if exists silo_api_grants_insert on public.silo_api_grants;
-create policy silo_api_grants_insert on public.silo_api_grants
-  for insert to authenticated
-  with check (user_id = auth.uid() and company_entity_id = public.active_company_id());
-
--- Revoking is the only field a person changes after the fact. Everything else
--- about a grant is decided at consent; an UPDATE that could move
--- company_entity_id or scopes would be a way to widen an approval without
--- approving anything, so the WITH CHECK pins both.
 drop policy if exists silo_api_grants_revoke on public.silo_api_grants;
-create policy silo_api_grants_revoke on public.silo_api_grants
-  for update to authenticated
-  using (user_id = auth.uid() and company_entity_id = public.active_company_id())
-  with check (user_id = auth.uid() and company_entity_id = public.active_company_id());
 
 revoke all on public.silo_api_grants from anon, authenticated, silo_integration, silo_revoked;
-grant select, insert, update on public.silo_api_grants to authenticated;
+grant select on public.silo_api_grants to authenticated;
 
--- The access-token hook runs as supabase_auth_admin, inside GoTrue.
+-- The access-token hook runs as supabase_auth_admin, inside GoTrue, and binds
+-- auth_session_id once. That is the only write it makes.
+
+-- ── Structural immutability, independent of who is writing ─────────────────
+-- The privilege revoke above is the boundary for the browser. This trigger is
+-- the one that holds for EVERY writer, including the consent and revoke
+-- functions below, the token hook, a future Developers screen and a mistake in
+-- any of them: once a grant exists, the only things that may change are its
+-- revocation (once, never undone), its last_used_at, and its session binding
+-- (once, NULL -> a value, never to a different one). Everything a decision was
+-- made about is frozen. A new approval is a NEW ROW, which is what makes
+-- generation and consented_at mean anything.
+create or replace function public.silo_api_grants_frozen()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.client_id        is distinct from old.client_id
+     or new.user_id       is distinct from old.user_id
+     or new.company_entity_id is distinct from old.company_entity_id
+     or new.scopes        is distinct from old.scopes
+     or new.consented_aal is distinct from old.consented_aal
+     or new.consented_at  is distinct from old.consented_at
+     or new.expires_at    is distinct from old.expires_at
+     or new.generation    is distinct from old.generation
+     or new.created_at    is distinct from old.created_at then
+    raise exception 'silo_api_grant_frozen: a granted authorization cannot be changed; approve a new one'
+      using errcode = 'check_violation';
+  end if;
+  -- Revocation is monotonic: it cannot be undone, and it cannot be moved.
+  if old.revoked_at is not null and new.revoked_at is distinct from old.revoked_at then
+    raise exception 'silo_api_grant_frozen: a revocation cannot be undone or moved'
+      using errcode = 'check_violation';
+  end if;
+  -- The session binding happens once, at first issuance.
+  if old.auth_session_id is not null
+     and new.auth_session_id is distinct from old.auth_session_id then
+    raise exception 'silo_api_grant_frozen: a grant cannot be rebound to another session'
+      using errcode = 'check_violation';
+  end if;
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+comment on function public.silo_api_grants_frozen() is
+  'Keeps silo_api_grants revoke-only and bind-once for every writer, not just for the browser: the consented fields, scopes, company and expiry are frozen, a revocation cannot be undone, and a session binding cannot be moved. 20261020030000.';
+
+-- Supabase's default privileges hand EXECUTE on every new public function to
+-- anon and authenticated, so a trigger function has to be taken back
+-- explicitly (supabase/CLAUDE.md). Calling it directly could not do anything
+-- useful, but a client-callable trigger function is noise in the surface.
+revoke all on function public.silo_api_grants_frozen() from public, anon, authenticated;
+
+drop trigger if exists silo_api_grants_frozen on public.silo_api_grants;
+create trigger silo_api_grants_frozen
+  before update on public.silo_api_grants
+  for each row execute function public.silo_api_grants_frozen();
+
+-- ── Consent: the only way a grant comes into existence ─────────────────────
+-- Everything that decides what the grant may do is read from request state,
+-- never from an argument: the person from auth.uid(), the company from
+-- active_company_id(), the assurance from the session's own aal claim, the
+-- dates from now(). The caller chooses only which client they are approving
+-- and which of the offered scopes it gets.
+create or replace function public.silo_api_consent(
+  p_client_id text,
+  p_scopes text[] default array['reports:read'])
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  c_offered constant text[] := array['reports:read'];
+  v_user    uuid;
+  v_company uuid;
+  v_aal     text;
+  v_scopes  text[];
+  v_gen     integer;
+  v_id      uuid;
+begin
+  -- A connection can never approve anything, least of all itself.
+  if public.silo_api_is_integration() then
+    raise exception 'integration_not_allowed: a connection cannot approve access'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  v_user := auth.uid();
+  if v_user is null then
+    raise exception 'not_authenticated: sign in to approve access'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  v_company := public.active_company_id();
+  if v_company is null then
+    raise exception 'no_active_company: open the company you are approving access for'
+      using errcode = 'check_violation';
+  end if;
+
+  if not exists (
+    select 1 from public.entity_memberships em
+    where em.user_id = v_user and em.entity_id = v_company) then
+    raise exception 'not_a_member: you are not a member of that company'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  -- The assurance of the session doing the approving, as the session itself
+  -- reports it. This is the whole reason consented_aal exists: an OAuth token
+  -- reads aal1 forever, so the only evidence two-factor approval happened is
+  -- what was true HERE, at this moment, recorded by the server.
+  --
+  -- A grant consented below aal2 can never be used -- mfa_session_satisfied()
+  -- refuses an integration whose grant is not aal2 -- so it is refused now,
+  -- loudly, rather than written and left to fail silently on first use. That
+  -- makes enrolling a second factor a precondition of API access, which is the
+  -- posture the design has carried since the first proof.
+  v_aal := coalesce(nullif(public.silo_api_claims() ->> 'aal', ''), 'aal1');
+  if v_aal <> 'aal2' then
+    raise exception 'mfa_required: finish two-step login before approving API access'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if coalesce(trim(p_client_id), '') = '' then
+    raise exception 'invalid_client: no application was named'
+      using errcode = 'check_violation';
+  end if;
+
+  -- Scopes are an allowlist, deduplicated, and never empty.
+  select coalesce(array_agg(distinct sc), '{}')
+    into v_scopes
+  from unnest(coalesce(p_scopes, '{}'::text[])) sc
+  where sc = any(c_offered);
+  if array_length(v_scopes, 1) is null then
+    raise exception 'invalid_scope: no recognised scope was requested'
+      using errcode = 'check_violation';
+  end if;
+
+  -- v1 is one company per (person, client), so approving again -- for another
+  -- company, or for different scopes -- revokes what came before rather than
+  -- leaving two. The partial unique index makes that mandatory, not a choice.
+  select coalesce(max(g.generation), 0) into v_gen
+  from public.silo_api_grants g
+  where g.client_id = trim(p_client_id) and g.user_id = v_user;
+
+  update public.silo_api_grants
+     set revoked_at = now()
+   where client_id = trim(p_client_id)
+     and user_id = v_user
+     and revoked_at is null;
+
+  insert into public.silo_api_grants
+    (client_id, user_id, company_entity_id, auth_session_id, generation,
+     scopes, consented_aal, consented_at, expires_at)
+  values
+    (trim(p_client_id), v_user, v_company, null, v_gen + 1,
+     v_scopes, v_aal, now(), now() + interval '90 days')
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+comment on function public.silo_api_consent(text, text[]) is
+  'Creates the one live authorization for a third-party client, deriving the person, company, assurance and dates from request state rather than from arguments. Refuses a session that is not aal2, because a grant consented below aal2 can never be used. Approving again revokes the previous grant and bumps generation. 20261020030000.';
+
+revoke all on function public.silo_api_consent(text, text[]) from public, anon;
+grant execute on function public.silo_api_consent(text, text[]) to authenticated;
+
+-- ── Disconnect: monotonic, and the only UPDATE a person can cause ──────────
+-- Who may disconnect is Blake's stated default: the person who approved it, or
+-- an owner of the company it reads. Not every `admin` -- is_admin_user() passes
+-- for nearly everyone here -- so this reads entity_memberships.role directly
+-- for the GRANT's company, not the caller's active one.
+create or replace function public.silo_api_revoke(p_grant_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user uuid;
+  v_hit  integer;
+begin
+  if public.silo_api_is_integration() then
+    raise exception 'integration_not_allowed: a connection cannot disconnect anything'
+      using errcode = 'insufficient_privilege';
+  end if;
+  v_user := auth.uid();
+  if v_user is null then
+    raise exception 'not_authenticated: sign in to disconnect an application'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  update public.silo_api_grants g
+     set revoked_at = now()
+   where g.id = p_grant_id
+     and g.revoked_at is null
+     and (g.user_id = v_user
+          or exists (
+            select 1 from public.entity_memberships em
+            where em.user_id = v_user
+              and em.entity_id = g.company_entity_id
+              and em.role = 'owner_admin'));
+  get diagnostics v_hit = row_count;
+
+  -- Already revoked, or not yours, both answer false: a disconnect is
+  -- idempotent, and an authorization nobody can see must not be enumerable
+  -- through the difference between "no such grant" and "not yours".
+  return v_hit > 0;
+end;
+$$;
+
+comment on function public.silo_api_revoke(uuid) is
+  'Disconnects an authorization: the person who approved it, or an owner of the company it reads. Monotonic and idempotent -- it only ever sets revoked_at on a live grant, and the frozen trigger refuses undoing one. The Supabase-side revokeGrant() call is separate and still required. 20261020030000.';
+
+revoke all on function public.silo_api_revoke(uuid) from public, anon;
+grant execute on function public.silo_api_revoke(uuid) to authenticated;
+
 grant select, update on public.silo_api_grants to supabase_auth_admin;
 
 -- ---------------------------------------------------------------------------
@@ -710,11 +950,10 @@ declare
   v_raw    text;
   v_label  text;
   v_lit    text;
-  v_ph     text;
+  v_lits   jsonb := '{}'::jsonb;   -- key -> its validated SQL literal
+  v_segs   text[];                 -- the template, split on the tokens
   v_i      integer := 0;
-  v_phs    text[] := '{}';   -- placeholder per token, in the same order
-  v_lits   text[] := '{}';   -- its literal
-  v_j      integer;
+  v_mkey   text;
   v_n      numeric;
   v_iso    date;
   v_rel    text[];
@@ -858,29 +1097,52 @@ begin
       v_lit := quote_literal(v_raw);
     end if;
 
-    -- Every token becomes an opaque placeholder FIRST, and only once every
-    -- token in the original SQL has been replaced do the placeholders become
-    -- literals. Two passes, not one per parameter: a literal substituted in
-    -- the first pass must never be rescanned, or a text value of "{{other}}"
-    -- would be rewritten into another parameter's literal -- which is what an
-    -- interleaved loop did here, and which the browser's single-pass
-    -- String.replace() never does.
-    v_i := v_i + 1;
-    v_ph := format('$silo_ph_%s$', v_i);
-    if position(v_ph in v_out) > 0 then
-      raise exception 'report_parameter_placeholder_collision: the report''s SQL contains %', v_ph
-        using errcode = 'check_violation';
-    end if;
-    v_out := regexp_replace(v_out, '\{\{\s*' || v_key || '\s*\}\}', v_ph, 'gi');
-    v_phs := v_phs || v_ph;
-    v_lits := v_lits || v_lit;
+    v_lits := v_lits || jsonb_build_object(v_key, v_lit);
   end loop;
 
-  -- replace(), never regexp_replace(): its replacement argument interprets
-  -- \1-\9 and \&, so a correctly escaped literal is not inert there.
-  for v_j in 1 .. coalesce(array_length(v_phs, 1), 0) loop
-    v_out := replace(v_out, v_phs[v_j], v_lits[v_j]);
+  -- ASSEMBLE, never substitute. The output is built by alternating the
+  -- ORIGINAL template's segments with validated literals, so no inserted
+  -- literal is ever scanned again.
+  --
+  -- Two earlier versions of this were both wrong, in the same way at different
+  -- depths, and the shape is worth keeping on the record. Replacing one token
+  -- at a time let a text value of "{{other}}" be rewritten into another
+  -- parameter's literal. Replacing every token with an opaque placeholder
+  -- first and then expanding the placeholders fixed that, but the SECOND pass
+  -- still rescanned its own output: a text value that happened to equal a
+  -- later placeholder ("$silo_ph_2$") had that later parameter's literal
+  -- spliced INSIDE its quotes, so two quoted strings became one expression and
+  -- the second parameter's text was SQL. Checking the template for a
+  -- placeholder collision did not help, because the colliding text arrives in
+  -- a VALUE, not in the template.
+  --
+  -- Splitting the template on the token pattern gives exactly one more segment
+  -- than there are tokens, and each literal lands between two segments that
+  -- are, by construction, template text. There is no pass over the result at
+  -- all, so there is nothing left for a value to collide with.
+  v_segs := regexp_split_to_array(v_out,
+              '\{\{\s*[a-zA-Z][a-zA-Z0-9_]*\s*\}\}');
+  v_out := v_segs[1];
+  v_i := 1;
+  for v_mkey in
+    select lower(m.match[1])
+    from regexp_matches(coalesce(p_sql, ''),
+           '\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}', 'g') as m(match)
+  loop
+    v_i := v_i + 1;
+    -- Every key reaching here was validated above: the loop over v_keys covers
+    -- the distinct keys of this same pattern over this same text.
+    v_out := v_out || (v_lits ->> v_mkey) || coalesce(v_segs[v_i], '');
   end loop;
+
+  -- A segment count that does not match the token count would mean the split
+  -- and the match disagree, which would silently drop or duplicate template
+  -- text. Cheaper to refuse than to return SQL nobody wrote.
+  if v_i <> coalesce(array_length(v_segs, 1), 0) then
+    raise exception 'report_parameter_assembly_mismatch: % tokens, % segments',
+      v_i - 1, coalesce(array_length(v_segs, 1), 0)
+      using errcode = 'internal_error';
+  end if;
 
   return v_out;
 end;
@@ -924,7 +1186,24 @@ create or replace function public.silo_api_run_report(
 returns json
 language plpgsql
 security definer
-set search_path = ''
+-- NOT the repo's usual search_path = '': this function EXECUTEs report SQL
+-- that other people wrote, and every shipped report writes its tables
+-- unqualified ("from sales_by_day_verification_v"), exactly as
+-- chat_run_readonly_query does -- that function runs with search_path = public
+-- for the same reason. With an empty path the RPC would answer
+-- "relation does not exist" for every real report, which is what the first
+-- version of this did; the local fixture hid it by seeding a report whose SQL
+-- was qualified.
+--
+-- pg_temp is listed, and listed LAST, on purpose. An unlisted pg_temp is
+-- searched FIRST, so a caller could shadow a report's table with a temporary
+-- one of their own; naming it last removes that. public is trusted here
+-- because no untrusted role may create in it (checked on production
+-- 2026-10-19: anon, authenticated, service_role and authenticator all have
+-- USAGE and no CREATE), and verify_v2_schema.sql fails if that ever changes.
+-- Everything this function references itself stays fully qualified, so the
+-- path only ever governs the report's own SQL.
+set search_path = public, pg_temp
 as $function$
 declare
   c_page_size constant integer := 1000;
@@ -1152,6 +1431,43 @@ begin
     where public.silo_api_period_sql(t.tok, 'X') is null
   ) then
     v_missing := v_missing || 'silo_api_period_sql is missing a period boundary';
+  end if;
+
+  -- Nobody writes a grant from a browser, and the trigger that keeps the
+  -- table revoke-only and bind-once applies to every other writer.
+  if has_table_privilege('authenticated', 'public.silo_api_grants', 'INSERT')
+     or has_table_privilege('authenticated', 'public.silo_api_grants', 'UPDATE')
+     or has_table_privilege('authenticated', 'public.silo_api_grants', 'DELETE') then
+    v_missing := v_missing || 'authenticated can write silo_api_grants';
+  end if;
+  if not exists (select 1 from pg_trigger t
+                 where t.tgrelid = 'public.silo_api_grants'::regclass
+                   and t.tgname = 'silo_api_grants_frozen' and not t.tgisinternal) then
+    v_missing := v_missing || 'the silo_api_grants_frozen trigger is not attached';
+  end if;
+  if not has_function_privilege('authenticated',
+       'public.silo_api_consent(text,text[])'::regprocedure, 'execute')
+     or not has_function_privilege('authenticated',
+       'public.silo_api_revoke(uuid)'::regprocedure, 'execute') then
+    v_missing := v_missing || 'a person cannot approve or disconnect a connection';
+  end if;
+  if has_function_privilege('silo_integration',
+       'public.silo_api_consent(text,text[])'::regprocedure, 'execute')
+     or has_function_privilege('silo_integration',
+       'public.silo_api_revoke(uuid)'::regprocedure, 'execute') then
+    v_missing := v_missing || 'an integration role can approve or disconnect a connection';
+  end if;
+
+  -- The report wrapper resolves unqualified report tables through public, so
+  -- public has to stay a schema no untrusted role can create in.
+  if exists (
+    select 1 from pg_namespace n, aclexplode(n.nspacl) a
+    where n.nspname = 'public' and a.privilege_type = 'CREATE'
+      and (a.grantee = 0
+           or pg_get_userbyid(a.grantee) in
+              ('anon','authenticated','service_role','authenticator',
+               'silo_integration','silo_revoked','silo_api_exec'))) then
+    v_missing := v_missing || 'a client role (or PUBLIC) can CREATE in schema public, so the report path is not trusted';
   end if;
 
   -- Every grant expires, and nothing may outlive 90 days from its consent.

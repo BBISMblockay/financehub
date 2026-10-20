@@ -300,7 +300,11 @@ without a verified factor are untouched. See `docs/ops/two-step-login.md`.
 
 ### Developer API integration access (20261020030000) — present, not enabled
 ```
-silo_api_grants           -- one live grant per (client_id, user_id): company_entity_id, scopes text[],
+silo_api_grants           -- NO CLIENT WRITES. authenticated has SELECT only; a person sees their own
+                          -- grants and an owner_admin sees their company's. Writes go through
+                          -- silo_api_consent()/silo_api_revoke(), and silo_api_grants_frozen (BEFORE
+                          -- UPDATE) keeps the table revoke-only and bind-once for every writer.
+                          -- one live grant per (client_id, user_id): company_entity_id, scopes text[],
                           -- consented_aal, auth_session_id (bound at first issuance), expires_at,
                           -- revoked_at. Company-scoped RLS to the approving user only; no client may
                           -- read it. Two partial unique indexes: one live grant per client+user, and one
@@ -317,7 +321,20 @@ silo_api_require_scope()  -- reads the GRANT ROW, not the silo_scopes claim (a c
                           -- before insufficient_scope.
 silo_api_run_report()     -- the only thing silo_integration may execute. Global (source='system')
                           -- reports only, 1000-row pages, SELECT-only, owned by silo_api_exec.
-silo_api_substitute()     -- the typed {{token}} substitution, ported from v3/js/report-params.js.
+                          -- search_path = public, pg_temp, NOT '': shipped reports write their tables
+                          -- unqualified (so does chat_run_readonly_query), and pg_temp is listed last so a
+                          -- temporary relation cannot shadow one. public is trusted only while no client
+                          -- role can CREATE in it, which verify checks.
+silo_api_consent()        -- (client_id, scopes) -> the new grant's id. The ONLY way a grant is created.
+                          -- Person, company, assurance and dates come from request state, never from an
+                          -- argument; refuses a session that is not aal2, because mfa_session_satisfied()
+                          -- would refuse the resulting grant forever. Re-approving revokes the previous
+                          -- grant and bumps generation.
+silo_api_revoke()         -- (grant id) -> boolean. Monotonic and idempotent. The approving person, or an
+                          -- entity_memberships owner_admin of the GRANT's company -- never is_admin_user().
+                          -- The Supabase-side revokeGrant() call is separate and still required.
+silo_api_substitute()     -- the typed {{token}} substitution, ported from v3/js/report-params.js. ASSEMBLES
+                          -- from the template's own segments; never substitutes into its own output.
 silo_api_period_sql()     -- the 16 PERIOD_SQL boundaries, server-side.
 silo_api_access_token_hook() -- Custom Access Token hook. First-party claims untouched. A client_id with
                           -- no usable grant gets role=silo_revoked (a dead end: an issued token cannot be
