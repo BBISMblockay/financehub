@@ -177,6 +177,12 @@ comment on column public.silo_api_grants.consented_aal is
 -- keeps. Re-consent moves consented_at, which moves the window; it does not
 -- extend an existing row. Written as ALTERs so re-applying the migration over
 -- an existing table tightens it too (create table if not exists would not).
+--
+-- Blake confirmed the policy on 2026-10-20: 90 days maximum, with a
+-- disconnect after 30 days unused. The idle half is NOT built here. It needs
+-- the grant row to carry when it was last used, which means a write on a path
+-- that every integration request runs, so it belongs with PR1 and its own
+-- review rather than bolted onto a reviewed head.
 update public.silo_api_grants
    set expires_at = consented_at + interval '90 days'
  where expires_at is null;
@@ -893,9 +899,12 @@ grant execute on function public.silo_api_require_scope(text)
 -- The substitution itself is deliberately NOT regexp_replace(): its replacement
 -- argument interprets \1-\9 and \&, so a perfectly escaped literal is not inert
 -- there and a value containing a backslash comes out mangled (found in the
--- proof harness, where 'a\b' silently became a backspace). Each token is first
--- replaced by an opaque placeholder, then the placeholder by the literal using
--- replace(), which interprets nothing.
+-- proof harness, where 'a\b' silently became a backspace). Nor is it any kind
+-- of replace() over the accumulated output: the result is ASSEMBLED by
+-- splitting the original template on the token pattern and alternating those
+-- segments with the validated literals, so no inserted literal is ever
+-- scanned a second time. See the comment inside silo_api_substitute() for the
+-- two earlier versions this replaced and why each was wrong.
 create or replace function public.silo_api_period_sql(p_token text, p_today text)
 returns text
 language sql
