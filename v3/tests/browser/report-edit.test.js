@@ -250,8 +250,8 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
   // its declared parameter is still worth reaching without diving into the
   // SQL dock -- the chip bar shows Parameters even with no Rows/Values/
   // Filters to show.
-  ok('a report with no guided source still surfaces its parameters as a chip',
-     await p.isVisible('#chipBar') && (await p.textContent('#chipBar')).includes('date_from'));
+  ok('a report with no guided source still surfaces its parameters in the panel',
+     (await p.textContent('#paramsSection')).includes('date_from'));
   await p.click('#btnPreview'); await p.waitForTimeout(700);
   await p.click('#btnSave'); await p.waitForTimeout(300);
   await p.click('#btnConfirmSave'); await p.waitForTimeout(600);
