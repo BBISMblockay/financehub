@@ -213,14 +213,25 @@
     const measuresOpen = secOpen('secMeasures', !cfg.measures.length);
     const filtersOpen = secOpen('secFilters', !cfg.filters.length);
 
+    const descFirst = source.description
+      ? source.description.split(/(?<=[.!?])\s+/)[0]
+      : '';
+    const startPill = source.report_priority === 1
+      ? '<span class="bcn-pill bcn-pill--accent rb-source-pill">Start here</span>'
+      : '';
+    const coachStep = (done, label) =>
+      `<li class="rb-coach-step${done ? ' is-done' : ''}">${esc(label)}</li>`;
+
     el('buildBody').innerHTML = `
       ${mvNote}
       <div class="rb-source-head">
-        <span class="rb-source-title">${esc(RB.friendlyRelName(source.relname))}</span>
+        <div class="rb-source-title-row">
+          <span class="rb-source-title">${esc(RB.friendlyRelName(source.relname))}</span>
+          ${startPill}
+        </div>
+        ${source.description ? `<p class="rb-source-lede">${esc(descFirst)}</p>` : ''}
         <details class="rb-details">
-          <summary>${source.description
-            ? esc(source.description.split(/(?<=[.!?])\s+/)[0]) + (/[.!?]\s+\S/.test(source.description) ? ' — details' : '')
-            : 'Details'}</summary>
+          <summary>${source.description ? 'Full description & identifier' : 'Details'}</summary>
           ${source.description ? `<p class="rb-note">${esc(source.description)}</p>` : ''}
           <span class="rb-note rb-mono-hint">${esc(source.relname)} · ${esc(source.relkind)}</span>
         </details>
@@ -238,6 +249,12 @@
             <span>Summarise (group and total)</span>
           </label>
         </div>
+        ${cfg.summarise ? `
+        <ul class="rb-summarise-coach" aria-label="Summarise checklist">
+          ${coachStep(cfg.dimensions.length > 0, 'Pick row fields in the Fields rail (Group by)')}
+          ${coachStep(cfg.measures.length > 0, 'Add at least one total (Values or Totals)')}
+          ${coachStep(!!lastRun, 'Preview to see real rows')}
+        </ul>` : ''}
 
         ${dateCols().length ? `
         <details class="rb-editor" id="secDate"${dateOpen ? ' open' : ''}>
@@ -436,7 +453,10 @@
       groups.push(chipGroup('Parameters', paramChips, { zone: 'params', addLabel: 'Add a parameter' }));
     }
     bar.hidden = !groups.length;
-    bar.innerHTML = groups.join('');
+    const hint = source
+      ? '<p class="rb-chip-hint">Click fields in the rail, drag onto a group, or press <kbd class="rb-chip-kbd">⌘K</kbd>.</p>'
+      : '';
+    bar.innerHTML = hint + groups.join('');
   }
 
   function moveItem(arr, from, dir) {
@@ -720,6 +740,15 @@
     }
     checkParams();
     renderChipBar();
+    const collapse = el('paramsCollapse');
+    const collapseSummary = el('paramsCollapseSummary');
+    if (collapse && collapseSummary) {
+      const n = cfg.parameters.length;
+      collapseSummary.textContent = n
+        ? `${n} parameter${n === 1 ? '' : 's'}`
+        : 'No parameters yet — expand to learn more';
+      collapse.open = n > 0 || !!(el('paramWarn') && el('paramWarn').innerHTML.trim());
+    }
   }
 
   function checkParams() {
@@ -927,15 +956,12 @@
     el('previewBody').innerHTML = '<div class="dw-loading">Running…</div>';
     el('previewMeta').textContent = '';
     if (el('staleBar')) el('staleBar').hidden = true;
-    el('btnPreview').disabled = true;
-    const runBtn = el('btnRunQuery');
-    if (runBtn) runBtn.disabled = true;
+    document.querySelectorAll('.rb-preview-trigger').forEach((b) => { b.disabled = true; });
     const t0 = performance.now();
     const { data, error } = await sb.rpc('chat_run_readonly_query', { query: resolved.sql, p_offset: 0 });
     const ms = Math.round(performance.now() - t0);
     if (seq !== previewSeq) return; // superseded by a newer Preview/Run click
-    el('btnPreview').disabled = false;
-    if (runBtn) runBtn.disabled = false;
+    document.querySelectorAll('.rb-preview-trigger').forEach((b) => { b.disabled = false; });
     if (error) {
       lastRun = null;
       el('previewBody').innerHTML = `<div class="dw-empty dw-empty--error"><strong>Query failed.</strong> ${esc(error.message)}</div>`
@@ -950,6 +976,7 @@
     // page from a prior query would otherwise linger onto a new one.
     lastRun = { sql, resolvedSql: resolved.sql, rows, firstPageRows: rows.length, total: null };
     renderPreview(ms);
+    if (tab === 'build' && source) renderBuild();
 
     // Measure the real total only when the page came back full. Rendering
     // first and counting after keeps the preview as fast as it was -- the
@@ -1372,11 +1399,22 @@
   }
 
   let cmdActive = -1;
+  function setCmdHintsVisible(on) {
+    const hints = el('cmdHints');
+    if (hints) hints.hidden = !on;
+  }
   function renderCommandResults(query) {
     const box = el('cmdResults');
     if (!box) return;
     const q = query.trim();
-    if (!q) { box.hidden = true; box.innerHTML = ''; cmdActive = -1; return; }
+    if (!q) {
+      box.hidden = true;
+      box.innerHTML = '';
+      cmdActive = -1;
+      setCmdHintsVisible(document.activeElement === el('cmdSearch'));
+      return;
+    }
+    setCmdHintsVisible(false);
     const scored = commandCandidates()
       .map((c) => ({ c, score: RB.fuzzyScore(q, c.text) }))
       .filter((x) => x.score > 0)
@@ -1390,7 +1428,8 @@
     }
     box.innerHTML = scored.map((x, i) => `
       <button type="button" class="rb-cmd-result${i === 0 ? ' is-active' : ''}" data-cmd="${i}">
-        ${esc(x.c.text[0])}
+        <span class="rb-cmd-result-label">${esc(x.c.text[0])}</span>
+        ${x.c.text[1] ? `<span class="rb-cmd-result-meta">${esc(x.c.text[1])}</span>` : ''}
       </button>`).join('');
     box._commands = scored.map((x) => x.c);
     box.hidden = false;
@@ -1408,7 +1447,13 @@
   }
 
   el('cmdSearch')?.addEventListener('input', (e) => renderCommandResults(e.target.value));
-  el('cmdSearch')?.addEventListener('focus', (e) => { if (e.target.value.trim()) renderCommandResults(e.target.value); });
+  el('cmdSearch')?.addEventListener('focus', (e) => {
+    if (e.target.value.trim()) renderCommandResults(e.target.value);
+    else setCmdHintsVisible(true);
+  });
+  el('cmdSearch')?.addEventListener('blur', () => {
+    setTimeout(() => setCmdHintsVisible(false), 120);
+  });
   el('cmdSearch')?.addEventListener('keydown', (e) => {
     const box = el('cmdResults');
     if (!box || box.hidden) return;
@@ -1647,11 +1692,7 @@
     if (md) { cfg.measures.splice(+md.dataset.mDel, 1); renderBuild(); }
   });
 
-  el('btnPreview').addEventListener('click', preview);
-  // The dock's own Run button is the same action under a different label --
-  // one engine, one button behind both, so Preview and Run can never drift
-  // into running something different from what is on screen.
-  el('btnRunQuery')?.addEventListener('click', preview);
+  document.querySelectorAll('.rb-preview-trigger').forEach((b) => b.addEventListener('click', preview));
   el('previewModeToggle')?.addEventListener('click', (e) => {
     const b = e.target.closest('[data-preview-mode]');
     if (!b || !lastRun) return;
