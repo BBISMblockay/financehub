@@ -64,6 +64,10 @@ on:
       - 'v2/integration-enrolment.js'
       - 'scripts/integration-bootstrap.mjs'
       - 'scripts/lib/integration-bootstrap-*.mjs'
+      # integration-reconcile.test.mjs reads the reconcile script and its
+      # workflow as source, so a change to either must run these tests.
+      - 'scripts/reconcile-integrations.mjs'
+      - '.github/workflows/reconcile-integrations.yml'
       - 'v2/integrations.html'
       # The channel resolver and the migration that hoists it out of the row
       # filters (wow-channel-hoist-database.test.mjs), plus the verify check
@@ -453,6 +457,14 @@ jobs:
       # as paused, never as offerable.
       - name: Integration enrolment state
         run: node scripts/tests/integration-enrolment.test.mjs
+
+      # The daily reconcile pass: which feeds it judges, with which tolerance,
+      # and -- the part worth a test -- the one thing it may write. It may
+      # queue a FIRST import for a connection that has never imported and that
+      # nobody paused, and nothing else: a pause, a failed probe, a prior
+      # bootstrap job of any status, or an unreadable queue each stop it.
+      - name: Integration reconcile
+        run: node scripts/tests/integration-reconcile.test.mjs
 
       # A Shopify store connected under two companies: order facts are keyed
       # without the company, so a second company's sync would MOVE the first
@@ -1888,3 +1900,22 @@ jobs:
             fi
             echo "$m failed the suite, as it must"
           done
+
+  # The reconcile pass end to end: the real script and the real Supabase
+  # client against a PostgREST stand-in, so a forgotten column, a probe that
+  # drops its company filter or a queue row in the wrong shape fails here
+  # rather than in production. Its own job because it spawns the script,
+  # which imports @supabase/supabase-js -- the unit job above is a bare
+  # checkout on purpose and installs nothing.
+  reconcile-end-to-end:
+    name: Integration reconcile (end to end)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Integration reconcile (end to end)
+        run: node --test scripts/tests/integration-reconcile-run.test.mjs
