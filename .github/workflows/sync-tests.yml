@@ -40,6 +40,7 @@ on:
       - 'supabase/migrations/*security_audit_db_hardening.sql'
       - 'supabase/migrations/*integration_bootstrap_jobs.sql'
       - 'supabase/migrations/*mfa_enforcement.sql'
+      - 'supabase/migrations/*developer_api_integration_access.sql'
       # Scheduled report email recipients (report-email-recipients-database.test.mjs).
       - 'supabase/migrations/*report_email_*.sql'
       - 'supabase/functions/comp-request-notify/**'
@@ -483,6 +484,14 @@ jobs:
       # caller, before their first service-role call -- and fail closed.
       - name: Two-step login gate in edge functions
         run: node scripts/tests/mfa-gate.test.mjs
+
+      # Third-party tokens (20261020030000): verify_jwt accepts the anon key and
+      # will accept a developer-platform OAuth token, so a function that checks
+      # the caller and then acts with the service role has to refuse both. The
+      # last check reads the migration and fails if the module and the database
+      # stop refusing with the same code and message.
+      - name: Developer API gate in edge functions
+        run: node scripts/tests/integration-gate.test.mjs
 
       # Running one job: that a connection which had already synced is NOT
       # re-imported, that a job cancelled from the page while a stage runs
