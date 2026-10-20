@@ -122,6 +122,44 @@
     renderSourceList();
     renderBuild();
     if (tab === 'sql') el('sqlText').value = RB.buildSql(source, cfg) || '';
+    el('controlsPanel')?.removeAttribute('hidden');
+  }
+
+  /** Shopify-style readout: what dataset and which fields the report uses. */
+  function renderCanvasHead() {
+    const head = el('canvasHead');
+    if (!head) return;
+    if (!source) { head.innerHTML = ''; return; }
+    const descFirst = source.description
+      ? source.description.split(/(?<=[.!?])\s+/)[0]
+      : '';
+    const startPill = source.report_priority === 1
+      ? '<span class="bcn-pill bcn-pill--accent rb-source-pill">Recommended</span>'
+      : '';
+    let summaryLines;
+    if (cfg.summarise) {
+      const dims = cfg.dimensions.map(colLabel);
+      const metrics = cfg.measures.map(measureChipLabel);
+      summaryLines =
+        `FROM ${RB.friendlyRelName(source.relname)}\n`
+        + `  GROUP BY ${dims.length ? dims.join(', ') : '—'}\n`
+        + `  METRICS ${metrics.length ? metrics.join(', ') : '—'}`;
+    } else {
+      const cols = cfg.columns.map(colLabel);
+      summaryLines =
+        `FROM ${RB.friendlyRelName(source.relname)}\n`
+        + `  SHOW ${cols.length ? cols.join(', ') : '—'}`;
+    }
+    head.innerHTML = `
+      <div class="rb-query-summary rb-card">
+        <div class="rb-query-summary-top">
+          <h2 class="rb-query-summary-title">${esc(RB.friendlyRelName(source.relname))}</h2>
+          ${startPill}
+        </div>
+        ${source.description ? `<p class="rb-source-lede">${esc(descFirst)}</p>` : ''}
+        <pre class="rb-query-summary-code">${esc(summaryLines)}</pre>
+        <p class="rb-note rb-query-summary-note">Use <strong>Refresh</strong> after you change metrics or filters.</p>
+      </div>`;
   }
 
   // ── Build pane ───────────────────────────────────────────────────────
@@ -144,7 +182,15 @@
   }
 
   function renderBuild() {
-    if (!source) return;
+    if (!source) {
+      el('buildBody').innerHTML = '<div class="v3-empty">Pick a data source on the left.</div>';
+      renderCanvasHead();
+      el('controlsPanel')?.setAttribute('hidden', '');
+      renderFieldBrowser();
+      renderChipBar();
+      return;
+    }
+    renderCanvasHead();
     const cols = usableCols();
     const aliasList = cfg.measures.map(RB.measureAlias).filter(Boolean);
 
@@ -213,52 +259,28 @@
     const measuresOpen = secOpen('secMeasures', !cfg.measures.length);
     const filtersOpen = secOpen('secFilters', !cfg.filters.length);
 
-    const descFirst = source.description
-      ? source.description.split(/(?<=[.!?])\s+/)[0]
-      : '';
-    const startPill = source.report_priority === 1
-      ? '<span class="bcn-pill bcn-pill--accent rb-source-pill">Start here</span>'
-      : '';
     const coachStep = (done, label) =>
       `<li class="rb-coach-step${done ? ' is-done' : ''}">${esc(label)}</li>`;
 
     el('buildBody').innerHTML = `
       ${mvNote}
-      <div class="rb-source-head">
-        <div class="rb-source-title-row">
-          <span class="rb-source-title">${esc(RB.friendlyRelName(source.relname))}</span>
-          ${startPill}
-        </div>
-        ${source.description ? `<p class="rb-source-lede">${esc(descFirst)}</p>` : ''}
-        <details class="rb-details">
-          <summary>${source.description ? 'Full description & identifier' : 'Details'}</summary>
-          ${source.description ? `<p class="rb-note">${esc(source.description)}</p>` : ''}
-          <span class="rb-note rb-mono-hint">${esc(source.relname)} · ${esc(source.relkind)}</span>
-        </details>
-      </div>
-
-      <!-- One bordered panel for every remaining control, rather than each
-           getting its own floating card -- Summarise is this panel's own
-           always-visible first row, and everything below it is a collapsed
-           <details> sharing the same border instead of five separate boxes
-           each announcing themselves with their own edge and shadow. -->
       <div class="rb-editor-group rb-card">
         <div class="rb-editor-row">
           <label class="rb-summarise-toggle">
             <input type="checkbox" id="chkSummarise" ${cfg.summarise ? 'checked' : ''} />
-            <span>Summarise (group and total)</span>
+            <span>Group results</span>
           </label>
         </div>
         ${cfg.summarise ? `
-        <ul class="rb-summarise-coach" aria-label="Summarise checklist">
-          ${coachStep(cfg.dimensions.length > 0, 'Pick row fields in the Fields rail (Group by)')}
-          ${coachStep(cfg.measures.length > 0, 'Add at least one total (Values or Totals)')}
-          ${coachStep(!!lastRun, 'Preview to see real rows')}
+        <ul class="rb-summarise-coach" aria-label="Grouped report steps">
+          ${coachStep(cfg.dimensions.length > 0, 'Choose dimensions (breakdown)')}
+          ${coachStep(cfg.measures.length > 0, 'Add at least one metric')}
+          ${coachStep(!!lastRun, 'Refresh to see results')}
         </ul>` : ''}
 
         ${dateCols().length ? `
         <details class="rb-editor" id="secDate"${dateOpen ? ' open' : ''}>
-          <summary>Date range${cfg.dateColumn ? ` · ${esc((RB.DATE_RANGES.find((r) => r.id === cfg.dateRange) || {}).label || 'custom')}` : ' · none'}</summary>
+          <summary>Time range${cfg.dateColumn ? ` · ${esc((RB.DATE_RANGES.find((r) => r.id === cfg.dateRange) || {}).label || 'custom')}` : ''}</summary>
           <div class="rb-editor-body">
             <div class="rb-row">
               <div class="bcn-field-group">
@@ -286,20 +308,19 @@
 
         ${cfg.summarise ? `
         <details class="rb-editor" id="secMeasures"${measuresOpen ? ' open' : ''}>
-          <summary>Totals${cfg.measures.length ? ` · ${cfg.measures.length}` : ''}</summary>
+          <summary>Metrics${cfg.measures.length ? ` · ${cfg.measures.length}` : ''}</summary>
           <div class="rb-editor-body">
-            ${measureRows || '<p class="rb-note">No totals yet — add one.</p>'}
+            ${measureRows || '<p class="rb-note">No metrics yet — add one below or pick a numeric field above.</p>'}
             <div class="rb-row">
-              <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddMeasure">+ Add a total</button>
-              <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddCalc">+ Add a calculation</button>
+              <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddMeasure">+ Add metric</button>
+              <button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddCalc">+ Ratio / calculation</button>
             </div>
-            <p class="rb-note">A calculation is one total over another — ROAS is sales ÷ spend, and no column holds it.
-              Division is guarded, so a zero denominator leaves the cell empty rather than failing the query.</p>
+            <p class="rb-note">Ratios (e.g. sales ÷ spend) live here — pick two metrics and an operator.</p>
           </div>
         </details>` : ''}
 
         <details class="rb-editor" id="secSort">
-          <summary>Sort and limit</summary>
+          <summary>Sort &amp; row limit</summary>
           <div class="rb-editor-body">
             <div class="rb-row">
               <div class="bcn-field-group">
@@ -324,7 +345,7 @@
         </details>
 
         <details class="rb-editor" id="secGenSql">
-          <summary>SQL this generates</summary>
+          <summary>View SQL</summary>
           <div class="rb-editor-body">
             <pre class="rb-generated" id="genSql">${esc(RB.buildSql(source, cfg) || '-- choose at least one total to summarise')}</pre>
           </div>
@@ -435,13 +456,13 @@
       const rowsChips = cfg.summarise
         ? cfg.dimensions.map((d, i) => chip(colLabel(d), { zone: 'dims', index: i, move: cfg.dimensions.length }))
         : cfg.columns.map((c, i) => chip(colLabel(c), { zone: 'cols', index: i }));
-      groups.push(chipGroup(cfg.summarise ? 'Rows' : 'Columns', rowsChips, {
+      groups.push(chipGroup(cfg.summarise ? 'Dimensions' : 'Columns', rowsChips, {
         zone: cfg.summarise ? 'dims' : 'cols',
-        addLabel: cfg.summarise ? 'Choose a group-by column' : 'Choose which columns to show',
+        addLabel: cfg.summarise ? 'Choose a dimension' : 'Choose which columns to show',
       }));
       if (cfg.summarise) {
         const valueChips = cfg.measures.map((m, i) => chip(measureChipLabel(m), { zone: 'measures', index: i, move: cfg.measures.length }));
-        groups.push(chipGroup('Values', valueChips, { zone: 'measures', addLabel: 'Add a total' }));
+        groups.push(chipGroup('Metrics', valueChips, { zone: 'measures', addLabel: 'Add a metric' }));
       }
       const filterChips = cfg.filters.map((f, i) => chip(filterChipLabel(f), { zone: 'filters', index: i }));
       if (cfg.dateColumn && cfg.dateRange) filterChips.unshift(chip(dateRangeChipLabel(), { zone: 'daterange' }));
@@ -452,11 +473,8 @@
       const paramChips = cfg.parameters.map((p, i) => chip(p.label || p.key || 'Untitled', { zone: 'params', index: i }));
       groups.push(chipGroup('Parameters', paramChips, { zone: 'params', addLabel: 'Add a parameter' }));
     }
-    bar.hidden = !groups.length;
-    const hint = source
-      ? '<p class="rb-chip-hint">Click fields in the rail, drag onto a group, or press <kbd class="rb-chip-kbd">⌘K</kbd>.</p>'
-      : '';
-    bar.innerHTML = hint + groups.join('');
+    bar.innerHTML = groups.join('');
+    bar.hidden = true;
   }
 
   function moveItem(arr, from, dir) {
@@ -489,8 +507,7 @@
       secManualOpen.add(target.id);
     }
     if (zone === 'dims' || zone === 'cols') {
-      const rail = document.querySelector('.rb-rail');
-      if (rail && rail.classList.contains('is-collapsed')) el('btnToggleRail')?.click();
+      el('controlsPanel')?.removeAttribute('hidden');
       el('fieldSearch')?.focus();
     }
     target.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -593,7 +610,8 @@
              : `Show ${hiddenCount()} technical column${hiddenCount() === 1 ? '' : 's'} (ids, sync stamps)`}
          </button>` : '';
     el('fieldBrowserList').innerHTML = (cfg.summarise
-      ? section('Group by', cols, 'dim') + section('Measures', cols.filter((c) => RB.NUMERIC_PG.test(c.type)), 'measure')
+      ? section('Dimensions', cols, 'dim')
+        + section('Metrics', cols.filter((c) => RB.NUMERIC_PG.test(c.type)), 'measure')
       : section('Columns', cols, 'col')) + toggleHtml;
   }
 
@@ -745,8 +763,8 @@
     if (collapse && collapseSummary) {
       const n = cfg.parameters.length;
       collapseSummary.textContent = n
-        ? `${n} parameter${n === 1 ? '' : 's'}`
-        : 'No parameters yet — expand to learn more';
+        ? `${n} dashboard control${n === 1 ? '' : 's'}`
+        : 'No controls yet — expand to learn more';
       collapse.open = n > 0 || !!(el('paramWarn') && el('paramWarn').innerHTML.trim());
     }
   }
@@ -1482,6 +1500,14 @@
     const open = rail.classList.toggle('is-collapsed') === false;
     el('btnToggleRail').setAttribute('aria-expanded', String(open));
   });
+  el('btnToggleControls')?.addEventListener('click', () => {
+    const panel = el('controlsPanel');
+    if (!panel) return;
+    const collapsed = panel.classList.toggle('is-collapsed');
+    const btn = el('btnToggleControls');
+    btn.textContent = collapsed ? 'Show' : 'Hide';
+    btn.setAttribute('aria-expanded', String(!collapsed));
+  });
 
   // ── Wiring ───────────────────────────────────────────────────────────
   el('srcSearch').addEventListener('input', renderSourceList);
@@ -1507,7 +1533,9 @@
   document.querySelectorAll('[data-tab]').forEach((btn) => btn.addEventListener('click', () => {
     tab = btn.dataset.tab;
     document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('bcn-tab--active', b === btn));
-    el('paneBuild').hidden = tab !== 'build';
+    const controls = el('controlsPanel');
+    if (controls) controls.hidden = tab !== 'build' || !source;
+    document.querySelector('.rb-canvas')?.classList.toggle('rb-canvas--sql', tab === 'sql');
     el('paneSql').hidden = tab !== 'sql';
     // Carry the guided query across, so "Build then tweak" works.
     if (tab === 'sql' && source && !el('sqlText').value.trim()) {
@@ -1647,6 +1675,7 @@
     // updating them costs nothing a typing cursor can notice.
     const gen = el('genSql');
     if (gen) gen.textContent = RB.buildSql(source, cfg) || '-- choose at least one total to summarise';
+    renderCanvasHead();
     renderChipBar();
     markStale();
   });

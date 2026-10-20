@@ -168,16 +168,12 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
  cols = await p.evaluate(()=>window.__siloReportBuilder.cfg.columns);
  ok('clicking it again re-adds it', cols.includes('net_sales'), JSON.stringify(cols));
 
- // Command search: deterministic, not AI -- every result is a concrete
- // action already reachable some other way.
+ // Consumer layout hides the command palette; dimensions are picked in Controls.
  await p.click('label:has(#chkSummarise)'); await p.waitForTimeout(150);
- await p.fill('#cmdSearch','group by product title'); await p.waitForTimeout(150);
- const cmdText = await p.textContent('#cmdResults');
- ok('command search finds a matching field action', /Group by Product Title/.test(cmdText), cmdText);
- await p.click('.rb-cmd-result.is-active'); await p.waitForTimeout(150);
+ await p.click('[data-field="product_title"][data-field-kind="dim"]'); await p.waitForTimeout(150);
  let dims = await p.evaluate(()=>window.__siloReportBuilder.cfg.dimensions);
- ok('selecting a command result performs it', dims.includes('product_title'), JSON.stringify(dims));
- ok('...and clears the search box rather than leaving stale text', (await p.inputValue('#cmdSearch'))==='');
+ ok('dimensions list adds a group-by field', dims.includes('product_title'), JSON.stringify(dims));
+ ok('query summary names the dataset', (await p.textContent('#canvasHead')).includes('FROM'));
 
  // Chart above the table, offered only when the shape supports one.
  await p.click('#btnAddMeasure'); await p.waitForTimeout(150);
@@ -192,12 +188,9 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
  ok('the toggle switches to table-only', !(await p.isVisible('#previewChart')));
  ok('...and the table segment becomes active', await p.locator('[data-preview-mode="table"].is-active').count()===1);
 
- // Rail collapse -- a keyboard/touch-safe alternative to always showing it.
- const wasExpanded = await p.getAttribute('#btnToggleRail','aria-expanded');
- await p.click('#btnToggleRail'); await p.waitForTimeout(150);
- ok('collapsing the rail is reflected in aria-expanded',
-    (await p.getAttribute('#btnToggleRail','aria-expanded'))!==wasExpanded);
- await p.click('#btnToggleRail'); await p.waitForTimeout(150);
+ // Controls panel can collapse (Hide/Show in the panel header).
+ await p.locator('#btnToggleControls').click({ force: true }); await p.waitForTimeout(150);
+ ok('controls panel collapses', (await p.locator('#controlsPanel.is-collapsed').count())===1);
 
  // Parameters: a date default gets a familiar control, not a bare text field.
  await p.click('#btnAddParam'); await p.waitForTimeout(150);

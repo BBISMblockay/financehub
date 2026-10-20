@@ -403,7 +403,61 @@
    shadow" departure v3/README.md already documents for a dashboard tile,
    reused verbatim (including its exact shadow formula, mixed from
    --bcn-band so it stays theme-correct) rather than invented again here. */
-.rb-layout { flex: 1; min-height: 0; display: flex; gap: 0; background: var(--bcn-sunken); }
+/* Shopify-like: sources | results canvas | controls */
+.rb-layout {
+  flex: 1; min-height: 0; display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(260px, 300px);
+  gap: 0; background: var(--bcn-sunken);
+}
+.rb-pro { display: none !important; }
+.rb-canvas {
+  min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  overflow-y: auto; padding-bottom: 14px;
+}
+.rb-canvas .rb-stale-bar { margin: 10px 14px 0; }
+.rb-canvas--sql .rb-preview,
+.rb-canvas--sql .rb-params,
+.rb-canvas--sql #canvasHead { display: none; }
+.rb-controls {
+  min-height: 0; min-width: 0; display: flex; flex-direction: column;
+  border-left: 1px solid var(--bcn-border); background: var(--bcn-surface);
+  position: relative; z-index: 2;
+}
+.rb-controls[hidden] { display: none !important; }
+.rb-controls.is-collapsed {
+  width: 0; min-width: 0; max-width: 0; padding: 0; border: none; overflow: hidden;
+}
+.rb-controls-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 12px 14px; border-bottom: 1px solid var(--bcn-border); flex-shrink: 0;
+}
+.rb-controls-title {
+  font-size: 13px; font-weight: 700; color: var(--bcn-ink);
+}
+.rb-controls-toggle { font-size: 12px; padding: 4px 10px; }
+.rb-controls-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 0 12px; }
+.rb-controls-body .rb-field-browser { border-top: none; }
+.rb-controls-body .rb-editor-group { border: none; border-radius: 0; box-shadow: none; }
+.rb-query-summary {
+  margin: 14px 14px 0; padding: 16px 18px;
+}
+.rb-query-summary-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rb-query-summary-title {
+  margin: 0; font-size: 18px; font-weight: 700; color: var(--bcn-ink); letter-spacing: -0.02em;
+}
+.rb-query-summary-code {
+  margin: 10px 0 0; padding: 12px 14px; background: var(--bcn-sunken);
+  border: 1px solid var(--bcn-border); border-radius: 8px;
+  font-family: var(--bcn-mono); font-size: 12px; line-height: 1.55; color: var(--bcn-ink-2);
+  white-space: pre-wrap;
+}
+.rb-query-summary-note { margin: 10px 0 0; }
+.rb-preview--hero { margin-top: 12px; }
+.rb-preview--hero .rb-preview-title {
+  font-family: inherit; font-size: 13px; font-weight: 700; text-transform: none; letter-spacing: 0;
+  color: var(--bcn-ink);
+}
+.rb-panes--sql { padding: 0 14px; }
 /* Flat by design, not by omission: the mockups this page is built from use
    almost no shadow at all -- a 1px border and the white-card-on-light-canvas
    contrast do the separating. The three-layer "card soup" the previous pass
@@ -455,6 +509,7 @@
    contest entirely: every section renders at its natural height, in order,
    and nothing is ever squeezed to near-nothing to make room for a sibling. */
 .rb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+/* Legacy alias if referenced elsewhere */
 .rb-panes { padding: 14px; background: var(--bcn-sunken); display: flex; flex-direction: column; gap: 14px; }
 .rb-pane[hidden] { display: none !important; }
 
@@ -570,10 +625,13 @@
 .dw-loadmore { display: flex; align-items: center; gap: 8px; padding: 8px 0 0; }
 
 @media (max-width: 860px) {
-  .rb-layout { flex-direction: column; }
-  .rb-rail { width: auto; max-height: 190px; border-right: none; border-bottom: 1px solid var(--bcn-border); }
-  .rb-header-kbd { display: none; }
-  .rb-action-hint { font-size: 11px; }
+  .rb-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  .rb-rail { max-height: 200px; border-right: none; border-bottom: 1px solid var(--bcn-border); }
+  .rb-controls { border-left: none; border-top: 1px solid var(--bcn-border); max-height: 42vh; }
+  .rb-controls.is-collapsed { max-height: 0; }
 }
 
 /* Query picker: a saved chat answer's queries, previewable in place. */
