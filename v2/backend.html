@@ -984,18 +984,29 @@
     // ====== User dialog (RPC update) ======
     const userDialog = el("userDialog");
     let DLG_UID = null;
+    // The role the dialog OPENED with. Save sends p_role only when the operator
+    // actually moved the dropdown -- see saveUserDialog().
+    let DLG_ROLE_OPENED_WITH = null;
+    // Bumped every time the dialog opens. saveUserDialog() captures it and
+    // refuses to touch the baseline afterwards if the dialog has moved on, so a
+    // slow save for one person cannot rewrite the baseline belonging to the
+    // next. Review cycle 2 of #1022 found exactly that: nothing disables Save
+    // or blocks a close while the RPC is in flight.
+    let DLG_GENERATION = 0;
 
     function openUserDialog(uid){
       const u = USERS.find(x => String(x.id) === String(uid));
       if (!u) return;
 
       DLG_UID = u.id;
+      DLG_GENERATION += 1;
       setText("dlgEmail", u.email || "—");
       setText("dlgUid", u.id ? `uid: ${u.id}` : "—");
 
       el("dlgName").value = u.name || "";
       el("dlgDept").value = u.department || "";
       el("dlgRole").value = u.role || "member";
+      DLG_ROLE_OPENED_WITH = el("dlgRole").value;
       el("dlgStatus").value = (u.is_active === false || String(u.status).toLowerCase() === "disabled") ? "disabled" : "active";
       el("dlgNotes").value = u.notes || "";
 
@@ -1157,11 +1168,33 @@
       if (!DLG_UID) return;
 
       const p_is_active = (String(el("dlgStatus")?.value || "active").toLowerCase() !== "disabled");
+
+      // Send the role ONLY when it was actually changed in this dialog.
+      //
+      // This list loads the GLOBAL profiles.role, which is not the same thing as
+      // the person's membership role in this workspace: the global column is
+      // written only for somebody who belongs to no other company, so a
+      // multi-company user promoted through Workspace Settings keeps a global
+      // role of "admin" while their membership here is "owner_admin". On
+      // production today that is 7 owner memberships across 5 people.
+      //
+      // Resending that stale global value on every save asked the database to
+      // DEMOTE a real owner just because somebody fixed a typo in their name --
+      // which it used to do silently, and which admin_update_profile now
+      // (correctly) refuses, so the whole save would fail instead. Sending null
+      // when the dropdown was not touched says what the operator actually meant:
+      // leave the role alone.
+      const roleNow = String(el("dlgRole")?.value || "").trim();
+      const roleChanged = !!roleNow && roleNow !== DLG_ROLE_OPENED_WITH;
+      // Which dialog this save belongs to, read BEFORE the await.
+      const savedGeneration = DLG_GENERATION;
+      const savedUid = DLG_UID;
+
       const payload = {
         p_user_id: DLG_UID,
         p_name: (String(el("dlgName")?.value || "").trim() || null),
         p_department: (String(el("dlgDept")?.value || "").trim() || null),
-        p_role: (String(el("dlgRole")?.value || "").trim() || null),
+        p_role: (roleChanged ? roleNow : null),
         p_is_active: p_is_active,
         p_notes: (String(el("dlgNotes")?.value || "").trim() || null)
       };
@@ -1173,6 +1206,16 @@
       }
 
       if (msg) msg.textContent = "Saved.";
+      // The dialog stays open, so the baseline moves to what was just saved --
+      // otherwise a second Save would re-send the first change as if it were new.
+      // Only if this is still the same dialog, though: closing it and opening
+      // somebody else is allowed while the request is in flight, and writing the
+      // baseline then would hand the next person a value that has nothing to do
+      // with them. The status text above is left as it was -- it has always been
+      // written after the await, and it is cosmetic.
+      if (roleChanged && DLG_GENERATION === savedGeneration && DLG_UID === savedUid) {
+        DLG_ROLE_OPENED_WITH = roleNow;
+      }
       await Promise.allSettled([ loadUsers(), loadHealth() ]);
     }
 
@@ -1334,6 +1377,56 @@
       computeAccountActivation();
     }
 
+    // ====== Who may hand out finance authority ======
+    // admin_update_profile refuses the finance and exec departments, and the
+    // global 'executive' role, to anybody who is not an owner or an executive of
+    // this workspace, and refuses owner to anybody who is not an owner
+    // (20261019180000). create_org_invite has refused finance, exec and owner to
+    // non-owners since 20261008120000. These dropdowns offered every value to
+    // everybody, so an ordinary admin could pick one and the save came back as a
+    // privilege error with no way to see it coming.
+    //
+    // The server is still the boundary; this only stops OFFERING what it will
+    // refuse. Both flags start false and are only ever widened, and a failed
+    // read leaves every option exactly as it is today -- the refusal still
+    // holds, so the worst case is the error message, not a hole.
+    let CAN_GRANT_FINANCE = false;   // owner or executive
+    let CAN_GRANT_OWNER = false;     // owner of the active workspace
+
+    async function loadGrantCapability(){
+      const [exec, owner] = await Promise.allSettled([
+        supabaseClient.rpc("is_exec_or_owner"),
+        supabaseClient.rpc("is_owner_admin_of_active_company")
+      ]);
+      CAN_GRANT_FINANCE = exec.status === "fulfilled" && exec.value?.data === true;
+      CAN_GRANT_OWNER = owner.status === "fulfilled" && owner.value?.data === true;
+      applyGrantCapability();
+    }
+
+    function applyGrantCapability(){
+      const restrict = (selectId, values, why) => {
+        const node = el(selectId);
+        if (!node) return;
+        values.forEach(v => {
+          const opt = node.querySelector(`option[value="${v}"]`);
+          if (!opt) return;
+          opt.disabled = true;
+          opt.title = why;
+        });
+      };
+      if (!CAN_GRANT_FINANCE) {
+        restrict("dlgDept", ["finance", "exec"],
+          "Only an owner or executive can put somebody in finance or exec.");
+        restrict("dlgRole", ["executive"],
+          "Only an owner or executive can grant the executive role.");
+      }
+      if (!CAN_GRANT_OWNER) {
+        restrict("dlgRole", ["owner"], "Only an owner can grant owner access.");
+        restrict("invDept", ["finance", "exec"],
+          "Only an owner can invite somebody into finance or exec.");
+      }
+    }
+
     // ====== Boot / UI wiring ======
     async function refreshAll(){
       setText("lastRefresh", new Date().toLocaleString());
@@ -1411,6 +1504,7 @@
       initUi();
       const ok = await requireAdmin();
       if (!ok) return;
+      await loadGrantCapability();
       await refreshAll();
     })();
   </script>

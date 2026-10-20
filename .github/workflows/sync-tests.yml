@@ -1309,6 +1309,15 @@ jobs:
       - name: Execute backend admin member-scope regressions
         run: node scripts/tests/workspace-admin-scope-database.test.mjs
 
+      # admin_update_profile mapped p_role='owner' onto membership 'owner_admin'
+      # and upserted it with `do update set role = excluded.role`, gated only on
+      # is_admin() -- which passes for a plain 'admin'. So an admin calling it
+      # with their OWN id became an owner, and could demote a real one. The
+      # fixture installs 20261009120000 and proves both holes before applying
+      # the fix.
+      - name: Execute admin_update_profile owner-escalation regressions
+        run: node scripts/tests/admin-profile-owner-escalation-database.test.mjs
+
       # entities took client UPDATE from any member of a company, a viewer
       # included -- title, entity_key, meta.nav_profile and entity_type, which
       # is what decides whose menu a company is served. The fixture BUILDS the
@@ -1480,6 +1489,22 @@ jobs:
                    accounts-any-admin accounts-anon; do
             echo "--- $m ---"
             if SCOPE_MUTATION="$m" node scripts/tests/workspace-admin-scope-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      - name: Each owner-escalation guard, removed one at a time, must break it
+        run: |
+          set -u
+          for m in no-grant-guard no-demote-guard no-last-owner \
+                   guard-on-supplied no-advisory-lock helper-authority \
+                   no-finance-guard no-executive-guard \
+                   finance-guard-on-supplied finance-helper-authority \
+                   finance-stepping-stone; do
+            echo "--- $m ---"
+            if ESC_MUTATION="$m" node scripts/tests/admin-profile-owner-escalation-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

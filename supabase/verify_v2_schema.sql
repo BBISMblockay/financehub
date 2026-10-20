@@ -5287,6 +5287,129 @@ select 'Customer address pointer constraints' as check_name,
    then 'MISSING: customer_account_addresses_resolved_v'
  else 'ok' end as status;
 
+-- ── Owner grants are company-bound (20261019180000) ──────────────────────
+-- admin_update_profile is SECURITY DEFINER, EXECUTE to authenticated, and gated
+-- only on is_admin() -- which passes for membership role 'admin'. It mapped
+-- p_role='owner' onto membership 'owner_admin' and upserted it with
+-- `do update set role = excluded.role`, so an admin calling it with their OWN
+-- id became an owner_admin, and could strip an existing one.
+--
+-- The guard that closes it has to ask about the company being WRITTEN, not the
+-- caller's current active company: active_company_id() re-reads
+-- profiles.active_company_id, set_active_company() takes no membership lock, and
+-- a plpgsql function is volatile, so a switch committed while the call waits on
+-- the advisory lock is visible to the next query. An admin of A who owns B could
+-- otherwise be granted owner in A. Hence is_owner_admin_of_company(<captured>),
+-- in all THREE functions that change owner roles -- a fix in one of them only
+-- moves the escalation to the next RPC.
+select 'Owner grants are bound to the company being written' as check_name,
+ case
+ when to_regprocedure('public.admin_update_profile(uuid,text,text,text,boolean,text)') is null
+   then 'MISSING: admin_update_profile'
+ when to_regprocedure('public.is_owner_admin_of_company(uuid)') is null
+   then 'MISSING: run 20261019180000_admin_update_profile_owner_escalation.sql'
+ -- The helper must name ONE company and must not fall back to mutable state.
+ when (select regexp_replace(prosrc,'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='is_owner_admin_of_company')
+      not ilike '%em.entity_id = p_entity_id%'
+   then 'CRITICAL: is_owner_admin_of_company does not scope to its argument'
+ when (select regexp_replace(prosrc,'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='is_owner_admin_of_company')
+      ilike '%active_company_id%'
+   then 'CRITICAL: is_owner_admin_of_company re-reads the active company'
+ -- Granting owner. Each of the three must ask the company-bound question.
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public'
+     and p.proname in ('admin_update_profile','set_workspace_member_role','remove_workspace_member')
+     and regexp_replace(p.prosrc,'[[:space:]]+',' ','g')
+         not ilike '%is_owner_admin_of_company(%')
+   then 'CRITICAL: a function that changes owner roles does not check owner authority for the company it writes'
+ -- And none of them may still resolve the caller's active company for it.
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public'
+     and p.proname in ('admin_update_profile','set_workspace_member_role','remove_workspace_member')
+     and regexp_replace(p.prosrc,'[[:space:]]+',' ','g')
+         ilike '%is_owner_admin_of_active_company%')
+   then 'CRITICAL: an owner-role function still asks the active-company helper; a company switch mid-call can escalate'
+ -- Taking owner away, and the workspace keeps one. The count query is the thing
+ -- to look for: the message alone could survive a rewrite that dropped it.
+ when (select regexp_replace(prosrc,'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      not ilike '%where em.entity_id = v_company_id and em.role = ''owner_admin''%'
+   then 'CRITICAL: admin_update_profile has no last-owner guard; a workspace can be left with no owner'
+ -- One shared per-company key across all three; the owner-count invariant spans
+ -- them, and a per-function key leaves "one demoted while another is removed".
+ when (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public'
+     and p.proname in ('admin_update_profile','set_workspace_member_role','remove_workspace_member')
+     and p.prosrc like '%silo-workspace-membership|%'
+     and p.prosrc like '%pg_advisory_xact_lock%') <> 3
+   then 'CRITICAL: an owner-role function does not take the shared per-company owner lock'
+ when not has_function_privilege('authenticated',
+     'public.admin_update_profile(uuid,text,text,text,boolean,text)','execute')
+   then 'BROKEN: authenticated cannot execute admin_update_profile; the Backend users panel is dead'
+ when has_function_privilege('anon',
+     'public.admin_update_profile(uuid,text,text,text,boolean,text)','execute')
+   then 'CRITICAL: anon can execute admin_update_profile'
+ when has_function_privilege('anon','public.is_owner_admin_of_company(uuid)','execute')
+   then 'CRITICAL: anon can execute is_owner_admin_of_company'
+ -- ── The finance half of the same hole (added 2026-10-19) ─────────────────
+ -- profiles.department in ('finance','exec') passes can_manage_journal_entries()
+ -- and profiles.role = 'executive' passes is_exec_or_owner(), each on its own,
+ -- with no membership change -- so the owner guards above never see either.
+ -- Blake's rule: only an owner or an executive may grant them.
+ --
+ -- These read prosrc with -- comments STRIPPED, because this function's own
+ -- comments discuss is_exec_or_owner() by name and an unstripped ilike fires on
+ -- the prose that explains the fix.
+ when to_regprocedure('public.is_exec_or_owner_of_company(uuid)') is null
+   then 'MISSING: run 20261019180000_admin_update_profile_owner_escalation.sql (finance guards)'
+ when (select regexp_replace(prosrc,'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='is_exec_or_owner_of_company')
+      not ilike '%em.entity_id = p_entity_id%'
+   then 'CRITICAL: is_exec_or_owner_of_company does not scope to its argument'
+ when (select regexp_replace(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      not ilike '%is_exec_or_owner_of_company(v_company_id)%'
+   then 'CRITICAL: admin_update_profile does not gate finance authority on owner-or-exec for the company it writes'
+ when (select regexp_replace(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      ilike '%is_exec_or_owner()%'
+   then 'CRITICAL: admin_update_profile asks is_exec_or_owner(), which reads session state; a company switch mid-call can grant finance authority'
+ when (select regexp_replace(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      not ilike '%in (''finance'', ''exec'', ''admin'')%'
+   then 'CRITICAL: admin_update_profile does not refuse the finance, exec and admin departments'
+ when (select regexp_replace(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      not ilike '%<> coalesce(v_current_department, '''')%'
+   then 'CRITICAL: admin_update_profile refuses a department that was only re-sent, which breaks every save for somebody already in finance'
+ when (select regexp_replace(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'[[:space:]]+',' ','g')
+         from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='admin_update_profile')
+      not ilike '%v_role::text = ''executive''%'
+   then 'CRITICAL: admin_update_profile does not refuse a self-granted global executive role'
+ when has_function_privilege('anon','public.is_exec_or_owner_of_company(uuid)','execute')
+   then 'CRITICAL: anon can execute is_exec_or_owner_of_company'
+ else 'ok' end as status;
+
+-- ── A THIRD claimed region starts on the next line ───────────────────────
+-- Everything from the "Workspace Settings administration" marker below down to
+-- the "A SECOND claimed region" note is claimed TWICE: workspace-settings-
+-- database.test.mjs slices from that marker to that note, and workspace-admin-
+-- scope-database.test.mjs slices from its own marker inside it to the same
+-- note and asserts the span holds exactly ONE statement. So a new check added
+-- anywhere between here and that note fails one of those two tests with a bare
+-- count mismatch that names nothing -- which is how the owner-escalation check
+-- below ended up here. Add a new check ABOVE this line, not below it.
 -- ── Workspace Settings administration (20260920120000) ────────────────────
 -- Four SECURITY DEFINER functions that exist BECAUSE entity_memberships and
 -- entities take no client writes. If Supabase's default privileges hand any of
