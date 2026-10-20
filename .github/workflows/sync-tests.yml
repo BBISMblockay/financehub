@@ -40,6 +40,7 @@ on:
       - 'supabase/migrations/*security_audit_db_hardening.sql'
       - 'supabase/migrations/*integration_bootstrap_jobs.sql'
       - 'supabase/migrations/*mfa_enforcement.sql'
+      - 'supabase/migrations/*developer_api_integration_access.sql'
       # Scheduled report email recipients (report-email-recipients-database.test.mjs).
       - 'supabase/migrations/*report_email_*.sql'
       - 'supabase/functions/comp-request-notify/**'
@@ -63,6 +64,10 @@ on:
       - 'v2/integration-enrolment.js'
       - 'scripts/integration-bootstrap.mjs'
       - 'scripts/lib/integration-bootstrap-*.mjs'
+      # integration-reconcile.test.mjs reads the reconcile script and its
+      # workflow as source, so a change to either must run these tests.
+      - 'scripts/reconcile-integrations.mjs'
+      - '.github/workflows/reconcile-integrations.yml'
       - 'v2/integrations.html'
       # The channel resolver and the migration that hoists it out of the row
       # filters (wow-channel-hoist-database.test.mjs), plus the verify check
@@ -453,6 +458,14 @@ jobs:
       - name: Integration enrolment state
         run: node scripts/tests/integration-enrolment.test.mjs
 
+      # The daily reconcile pass: which feeds it judges, with which tolerance,
+      # and -- the part worth a test -- the one thing it may write. It may
+      # queue a FIRST import for a connection that has never imported and that
+      # nobody paused, and nothing else: a pause, a failed probe, a prior
+      # bootstrap job of any status, or an unreadable queue each stop it.
+      - name: Integration reconcile
+        run: node scripts/tests/integration-reconcile.test.mjs
+
       # A Shopify store connected under two companies: order facts are keyed
       # without the company, so a second company's sync would MOVE the first
       # one's orders. The nightly, the first-import job and shopify-sync-run's
@@ -471,6 +484,14 @@ jobs:
       # caller, before their first service-role call -- and fail closed.
       - name: Two-step login gate in edge functions
         run: node scripts/tests/mfa-gate.test.mjs
+
+      # Third-party tokens (20261020030000): verify_jwt accepts the anon key and
+      # will accept a developer-platform OAuth token, so a function that checks
+      # the caller and then acts with the service role has to refuse both. The
+      # last check reads the migration and fails if the module and the database
+      # stop refusing with the same code and message.
+      - name: Developer API gate in edge functions
+        run: node scripts/tests/integration-gate.test.mjs
 
       # Running one job: that a connection which had already synced is NOT
       # re-imported, that a job cancelled from the page while a stage runs
@@ -1300,6 +1321,15 @@ jobs:
       - name: Execute backend admin member-scope regressions
         run: node scripts/tests/workspace-admin-scope-database.test.mjs
 
+      # admin_update_profile mapped p_role='owner' onto membership 'owner_admin'
+      # and upserted it with `do update set role = excluded.role`, gated only on
+      # is_admin() -- which passes for a plain 'admin'. So an admin calling it
+      # with their OWN id became an owner, and could demote a real one. The
+      # fixture installs 20261009120000 and proves both holes before applying
+      # the fix.
+      - name: Execute admin_update_profile owner-escalation regressions
+        run: node scripts/tests/admin-profile-owner-escalation-database.test.mjs
+
       # entities took client UPDATE from any member of a company, a viewer
       # included -- title, entity_key, meta.nav_profile and entity_type, which
       # is what decides whose menu a company is served. The fixture BUILDS the
@@ -1471,6 +1501,22 @@ jobs:
                    accounts-any-admin accounts-anon; do
             echo "--- $m ---"
             if SCOPE_MUTATION="$m" node scripts/tests/workspace-admin-scope-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      - name: Each owner-escalation guard, removed one at a time, must break it
+        run: |
+          set -u
+          for m in no-grant-guard no-demote-guard no-last-owner \
+                   guard-on-supplied no-advisory-lock helper-authority \
+                   no-finance-guard no-executive-guard \
+                   finance-guard-on-supplied finance-helper-authority \
+                   finance-stepping-stone; do
+            echo "--- $m ---"
+            if ESC_MUTATION="$m" node scripts/tests/admin-profile-owner-escalation-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi
@@ -1854,3 +1900,22 @@ jobs:
             fi
             echo "$m failed the suite, as it must"
           done
+
+  # The reconcile pass end to end: the real script and the real Supabase
+  # client against a PostgREST stand-in, so a forgotten column, a probe that
+  # drops its company filter or a queue row in the wrong shape fails here
+  # rather than in production. Its own job because it spawns the script,
+  # which imports @supabase/supabase-js -- the unit job above is a bare
+  # checkout on purpose and installs nothing.
+  reconcile-end-to-end:
+    name: Integration reconcile (end to end)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Integration reconcile (end to end)
+        run: node --test scripts/tests/integration-reconcile-run.test.mjs

@@ -19274,4 +19274,18 @@ $c$select (select count(*) from v_po_header_summary
 -- Must come AFTER 20261015020000: it replaces silo_ledger_start and
 -- card_posting_start_refusal, which that migration defines.
 \i migrations/20261015190000_bookkeeping_mode.sql
+-- admin_update_profile refuses to grant or strip owner_admin (security audit
+-- 2026-10-14, Critical 4). Replaces the function body only. Must come AFTER
+-- 20261009120000, whose version of admin_update_profile it replaces, and after
+-- 20260918120000, which defines is_owner_admin_of_active_company().
+\i migrations/20261019180000_admin_update_profile_owner_escalation.sql
+-- The developer platform's permission layer: silo_api_grants, the two
+-- integration roles, the grant/scope/company resolvers, silo_api_run_report
+-- and the Storage refusal. Must come AFTER 20261014000000 (whose
+-- silo_check_request and mfa_session_satisfied bodies it replaces) and after
+-- 20261014090000/20261014180000, which define the report rows it reads.
+-- Applying it turns NOTHING on: the OAuth server, the OAuth client and the
+-- access-token hook are dashboard settings, so without them no token can
+-- carry client_id and every branch it adds is unreachable.
+\i migrations/20261020030000_developer_api_integration_access.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

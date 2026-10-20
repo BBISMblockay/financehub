@@ -1,0 +1,65 @@
+name: Integration reconcile
+
+# Asks, once a day, the question nothing else in SILO asks: is every client's
+# data actually arriving?
+#
+# WHY IT IS NOT PART OF "Data freshness check". That workflow is the alarm for
+# a nightly that did not run, and it covers two feeds, only for connections
+# with sync_enabled = true. A store nobody ever switched on is invisible to
+# it -- which is the gap this pass exists to close -- and its own header says
+# a check bolted onto something heavier is a check that dies with it. This one
+# walks seven feeds and can write to the bootstrap queue, so it runs on its
+# own schedule and fails on its own.
+#
+# 15:00 UTC = 8am PT, after the morning syncs and their 11:00/14:00 heals have
+# had their chance. A connection reported here has already missed every
+# automatic correction the platform has.
+
+on:
+  workflow_dispatch:
+    inputs:
+      auto_start:
+        description: Queue a first import for connections that have never imported (default off)
+        required: false
+        default: 'false'
+      dry_run:
+        description: With auto_start, log what would be queued without writing it
+        required: false
+        default: 'false'
+      only_feed:
+        description: One feed label (sales, inventory, marketing, search_console, seo_serp, redo, banking, quickbooks)
+        required: false
+  schedule:
+    - cron: "0 15 * * *"
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      # DEFAULTS OFF ON THE SCHEDULE, deliberately. Day one of this check is
+      # report-only: it says what it WOULD start and starts nothing, so the
+      # first run's list can be read by a person before anything acts on it.
+      # Turning it on is a one-line change to this default, once that list
+      # looks right. A hand-run can pass auto_start: true at any time.
+      RECONCILE_AUTO_START: ${{ github.event.inputs.auto_start || 'false' }}
+      RECONCILE_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+      RECONCILE_ONLY_FEED: ${{ github.event.inputs.only_feed || '' }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Reconcile integrations
+        run: node scripts/reconcile-integrations.mjs

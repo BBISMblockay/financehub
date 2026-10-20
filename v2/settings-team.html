@@ -146,6 +146,13 @@
   const TFA = () => window.SiloTeamFeatureAccess;
 
   let _co = null, _me = null, _isAdmin = false, _isOwner = false;
+  // Owner-or-executive. admin_update_profile refuses the finance and exec
+  // departments to anybody else (20261019180000): those two carry journal-entry,
+  // comp and payment authority through can_manage_journal_entries() on their
+  // own. Defaults to FALSE and is only ever widened, so a failed capability read
+  // leaves the restricted options alone rather than offering a save the server
+  // will refuse.
+  let _canGrantFinance = false;
   let _canGrantSiloSeo = false;
   let _lastInvite = null;
   let _siloGrants = new Map();
@@ -237,7 +244,15 @@
       const canEditDept = mayEdit && !deptBlocked;
       const deptCell = canEditDept
         ? `<select class="bcn-field ws-dept-select" data-dept-for="${esc(r.user_id)}">`
-          + DEPTS.map((d) => `<option value="${d}"${d === (p?.department || 'ops') ? ' selected' : ''}>${d}</option>`).join('')
+          + DEPTS.map((d) => {
+            // Same shape as the owner option above: offer it only to somebody
+            // the database will accept it from. Their CURRENT department stays
+            // selectable whatever it is, so the control can still show it.
+            const restricted = (d === 'finance' || d === 'exec')
+              && !_canGrantFinance && d !== (p?.department || 'ops');
+            return `<option value="${d}"${d === (p?.department || 'ops') ? ' selected' : ''}`
+              + `${restricted ? ' disabled' : ''}>${d}</option>`;
+          }).join('')
           + '</select>'
         : `<span class="ws-perm-hint"${deptTitle ? ` title="${esc(deptTitle)}"` : ''}>${esc(p?.department || '—')}${deptBlocked ? ' · shared' : ''}</span>`;
 
@@ -263,7 +278,14 @@
         const seoCell = _canGrantSiloSeo
           ? permCheckbox('seo', r.user_id, p, seoChecked, execInherited || !mayEdit, seoTitle)
           : '<span class="ws-perm-hint">—</span>';
-        const finEditable = _isAdmin && mayEdit && !finInheritedOwner && !deptBlocked;
+        // Granting finance needs owner-or-exec; REMOVING it does not, which is
+        // why finChecked keeps the box live -- an admin offboarding somebody can
+        // still take it away, and any owner or exec can put it back.
+        if (!_canGrantFinance && !finChecked && !finInheritedOwner) {
+          finTitle = 'Only an owner or executive can put somebody in finance.';
+        }
+        const finEditable = _isAdmin && mayEdit && !finInheritedOwner && !deptBlocked
+          && (_canGrantFinance || finChecked);
         const finCell = finEditable
           ? permCheckbox('finance', r.user_id, p, finChecked, false, finTitle)
           : `<span class="ws-perm-hint"${finTitle ? ` title="${esc(finTitle)}"` : ''}>${finChecked ? 'yes' : '—'}</span>`;
@@ -439,6 +461,7 @@
 
     const { data: canExec } = await db.rpc('is_exec_or_owner');
     _canGrantSiloSeo = !!canExec;
+    _canGrantFinance = _isOwner || !!canExec;
     if (_canGrantSiloSeo || _isAdmin) {
       document.querySelectorAll('.ws-perm-col').forEach((n) => { n.hidden = false; });
       el('featureAccessNote').hidden = false;
