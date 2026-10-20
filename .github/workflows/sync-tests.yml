@@ -63,6 +63,10 @@ on:
       - 'v2/integration-enrolment.js'
       - 'scripts/integration-bootstrap.mjs'
       - 'scripts/lib/integration-bootstrap-*.mjs'
+      # integration-reconcile.test.mjs reads the reconcile script and its
+      # workflow as source, so a change to either must run these tests.
+      - 'scripts/reconcile-integrations.mjs'
+      - '.github/workflows/reconcile-integrations.yml'
       - 'v2/integrations.html'
       # The channel resolver and the migration that hoists it out of the row
       # filters (wow-channel-hoist-database.test.mjs), plus the verify check
@@ -452,6 +456,21 @@ jobs:
       # as paused, never as offerable.
       - name: Integration enrolment state
         run: node scripts/tests/integration-enrolment.test.mjs
+
+      # The daily reconcile pass: which feeds it judges, with which tolerance,
+      # and -- the part worth a test -- the one thing it may write. It may
+      # queue a FIRST import for a connection that has never imported and that
+      # nobody paused, and nothing else: a pause, a failed probe, a prior
+      # bootstrap job of any status, or an unreadable queue each stop it.
+      - name: Integration reconcile
+        run: node scripts/tests/integration-reconcile.test.mjs
+
+      # The same pass end to end: the real script and the real Supabase
+      # client against a PostgREST stand-in, so a forgotten column, a probe
+      # that drops its company filter or a queue row in the wrong shape fails
+      # here rather than in production.
+      - name: Integration reconcile (end to end)
+        run: node scripts/tests/integration-reconcile-run.test.mjs
 
       # A Shopify store connected under two companies: order facts are keyed
       # without the company, so a second company's sync would MOVE the first
