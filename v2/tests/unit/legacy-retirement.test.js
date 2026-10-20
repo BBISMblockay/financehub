@@ -93,6 +93,26 @@ for (const profile of ['standard', 'grandfathered']) {
     assert.ok(fs.existsSync(path.join(root, target)), `${profile} nav has no file: ${target}`);
   }
 }
+// 2026-10-20: BBISM Receivables left the nav but the PAGE stays (it is in
+// protectedPages above). Its tables froze on 2026-10-12 when the Google Sheets
+// sync was retired, so the row would have sent anyone who clicked it to a book
+// that cannot move. The page keeps the pre-2026-05 wholesale history and the
+// collections queue/notes, so it answers at its URL until those are replaced --
+// and the only thing telling a visitor where the live balances are is the
+// frozen-book banner, so assert the link rather than trusting prose.
+const WHOLESALE_PAGE = '/v2/baseballismwholesale.html';
+const AR_DASHBOARD_ID = '56ccb5cd-33a3-4033-bb42-8f7b4e79f5af';
+for (const profile of ['standard', 'grandfathered']) {
+  const sections = context.window.SiloNav.navSectionsForProfile(profile, 'exec', 'owner', []);
+  const hrefs = sections.flatMap((s) => s.items).map((i) => i.href);
+  assert.equal(hrefs.includes(WHOLESALE_PAGE), false,
+    `${profile} nav still offers the frozen receivables book`);
+}
+const wholesaleBook = fs.readFileSync(path.join(root, 'pages/baseballismwholesale.html'), 'utf8');
+assert.ok(wholesaleBook.includes(`/v3/dashboard.html?id=${AR_DASHBOARD_ID}`),
+  'frozen receivables book must link to the Shopify-fed AR dashboard');
+console.log('legacy retirement: receivables book is URL-only and points at the live AR board');
+
 const guide = fs.readFileSync(path.join(root, 'v2/launch-calendar-guide.html'), 'utf8');
 assert.ok(guide.includes('href="https://github.com/BBISMblockay/financehub/blob/main/CLAUDE.md"'), 'architecture link names authoritative guide');
 console.log('legacy retirement: archived route definitions and both current nav profiles verified');

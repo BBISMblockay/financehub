@@ -211,10 +211,14 @@ collections queue with actions. Its banner now says the book is frozen and that 
 date are missing too, so nobody should act on a balance without checking Shopify first — but the
 actions are still there to click, and the aging KPIs still read as current numbers.
 
-Needs a decision, not a fix: migrate the workbench onto `shopify_orders_v` (where the live wholesale
-terms and paid dates are), or make the page explicitly historical and disable the collections
-actions. Until then the nav row "BBISM Receivables" points at a book that only moves if somebody
-dispatches `ar-sync.yml` by hand.
+**Decided 2026-10-20 (Blake): make it historical, replace the numbers with a report.** Open
+receivables now come from the Shopify sync on the Wholesale Tracking dashboard (saved report
+"Wholesale AR — open balances (Shopify)"), the nav row was removed, and the page's banner links to
+that board. The page itself stays reachable at `/v2/baseballismwholesale.html` while the replacement
+is proven out, so the collections actions are still clickable and the aging KPIs still read as
+current numbers for anyone who types the URL — **the P2 is narrowed, not closed**. It closes when the
+page is retired, which is the agreed next step once nothing needs the pre-2026-05 history or the
+collections notes (neither has a home in reporting).
 
 ---
 

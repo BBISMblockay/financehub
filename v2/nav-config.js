@@ -237,7 +237,14 @@
 
 
     { departments: FINANCE_DEPTS, id: 'finance/accounting', section: 'Accounting', sectionStandard: 'Finance', label: 'Accounting', href: '/v2/transactions.html', profiles: ['grandfathered', 'standard'] },
-    { departments: FINANCE_DEPTS, id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
+    // BBISM Receivables removed from the nav 2026-10-20 (Blake): same stale Google Sheets
+    // story as WPV above. Its tables (ar_customers / ar_invoices) were written only by the
+    // retired sheet sync and froze on 2026-10-12; open receivables now come from the Shopify
+    // sync, on the Wholesale Tracking dashboard. Unlike WPV the page is NOT retired yet --
+    // /v2/baseballismwholesale.html still works, its frozen-book banner now links to that
+    // dashboard, and it holds the only copy of the pre-2026-05 wholesale history and the
+    // collections queue, contact log and notes. Dropping the row rather than the page is the
+    // "prove it out first" step; retire both together once nothing needs them.
     // Invoicing lives inside ACCOUNTING_PAGES rather than duplicating a
     // sidebar destination. The page/Stripe function retain their finance
     // authorization; workspace navigation is never the security boundary.
