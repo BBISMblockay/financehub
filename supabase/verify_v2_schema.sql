@@ -7105,3 +7105,228 @@ select 'Card posting cut-over' as check_name,
   when not has_function_privilege('authenticated', 'public.silo_ledger_resync_posting_start(uuid,integer,date)', 'execute')
    then 'BROKEN — Books & setup cannot run the resync after saving a cut-over'
   else 'ok' end as status;
+
+-- =============================================================================
+-- Developer API: a third-party OAuth client can run reports for ONE company
+-- and reach nothing else (migration 20261020030000).
+--
+-- Every row here is an INVARIANT, not a presence test. The whole boundary is
+-- Postgres privileges plus RLS, and the way that boundary breaks is quietly:
+-- a GRANT issued by a role that is neither owner nor superuser is accepted and
+-- does nothing, a new table arrives with Supabase's default grants on it, or a
+-- SECURITY DEFINER wrapper ends up owned by a role that owns tables and so
+-- stops honouring RLS. So this asks what the roles can actually REACH.
+-- =============================================================================
+select 'developer API boundary' as check_name, case
+
+  when to_regclass('public.silo_api_grants') is null
+   then 'MISSING — run supabase/migrations/20261020030000_developer_api_integration_access.sql'
+  when not exists (select 1 from pg_roles where rolname = 'silo_integration')
+    or not exists (select 1 from pg_roles where rolname = 'silo_revoked')
+    or not exists (select 1 from pg_roles where rolname = 'silo_api_exec')
+   then 'MISSING — the integration roles'
+
+  -- The token's role must be able to run one function and read nothing. This is
+  -- the claim the whole design rests on, so it is asked of effective privilege
+  -- (which accounts for PUBLIC and for role inheritance), not of a grant list.
+  when exists (
+    select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind in ('r','p','v','m')
+      and has_table_privilege('silo_integration', c.oid, 'SELECT'))
+   then 'CRITICAL: silo_integration can SELECT from a public relation: '
+        || (select string_agg(c.relname, ', ' order by c.relname)
+            from pg_class c join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = 'public' and c.relkind in ('r','p','v','m')
+              and has_table_privilege('silo_integration', c.oid, 'SELECT'))
+  when has_schema_privilege('silo_integration', 'storage', 'usage')
+   then 'CRITICAL: silo_integration has USAGE on schema storage'
+  when has_table_privilege('silo_integration', 'public.silo_api_grants', 'SELECT')
+   then 'CRITICAL: a connection can read the grant table, so it can see its own authorization'
+  -- EXPLICIT grants only. Effective privilege is the wrong question for
+  -- functions: SILO's public schema carries 88 PUBLIC-EXECUTE functions
+  -- (pgcrypto's, and others whose ACL was never set), so every role can call
+  -- them and listing those here would report a known least-privilege backlog
+  -- as a boundary break every night. What makes them unreachable for an
+  -- integration is the path allowlist below, asserted separately -- PostgREST
+  -- only ever offers /rpc/silo_api_run_report. So what is asked here is the
+  -- thing that would be a real mistake: an explicit grant to the integration
+  -- roles of something outside the API surface.
+  when exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace,
+      aclexplode(p.proacl) a
+    where n.nspname = 'public'
+      and a.grantee in ('silo_integration'::regrole, 'silo_revoked'::regrole)
+      and a.privilege_type = 'EXECUTE'
+      and p.proname not in (
+        -- The API surface, the gate the pre-request hook calls, and the
+        -- helpers those two need in order to answer at all.
+        'silo_api_run_report', 'silo_check_request', 'mfa_session_satisfied',
+        'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
+        'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id'))
+   then 'CRITICAL: an integration role is granted EXECUTE outside the API surface: '
+        || (select string_agg(distinct p.proname, ', ')
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace,
+              aclexplode(p.proacl) a
+            where n.nspname = 'public'
+              and a.grantee in ('silo_integration'::regrole, 'silo_revoked'::regrole)
+              and a.privilege_type = 'EXECUTE'
+              and p.proname not in (
+                'silo_api_run_report', 'silo_check_request', 'mfa_session_satisfied',
+                'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
+                'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id'))
+
+  -- The dead end has to stay a dead end.
+  when exists (
+    select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind in ('r','p','v','m')
+      and has_table_privilege('silo_revoked', c.oid, 'SELECT'))
+   then 'CRITICAL: silo_revoked can SELECT from a public relation'
+  when has_function_privilege('silo_revoked',
+         'public.silo_api_run_report(uuid,jsonb,integer,integer)', 'execute')
+   then 'CRITICAL: silo_revoked can run reports'
+
+  -- Why a SECURITY DEFINER wrapper is acceptable at all: its owner owns
+  -- nothing, so RLS is still in force inside it.
+  when (select pg_get_userbyid(proowner) from pg_proc
+         where oid = to_regprocedure('public.silo_api_run_report(uuid,jsonb,integer,integer)'))
+       <> 'silo_api_exec'
+   then 'CRITICAL: silo_api_run_report is not owned by silo_api_exec, so it may bypass RLS'
+  when exists (select 1 from pg_roles where rolname = 'silo_api_exec' and rolbypassrls)
+   then 'CRITICAL: silo_api_exec holds BYPASSRLS, so the report wrapper ignores RLS'
+  when exists (
+    select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where c.relowner = 'silo_api_exec'::regrole and c.relkind in ('r','p','v','m','f'))
+   then 'CRITICAL: silo_api_exec owns a relation, so the report wrapper bypasses RLS on it'
+  -- And why it can read a report's tables at all.
+  when not pg_has_role('silo_api_exec', 'authenticated', 'member')
+   then 'BROKEN — silo_api_exec is not a member of authenticated, so every report returns an empty page'
+
+  -- PostgREST cannot switch to a role it is not a member of, so a token would
+  -- be refused before any gate could explain why.
+  when not pg_has_role('authenticator', 'silo_integration', 'member')
+    or not pg_has_role('authenticator', 'silo_revoked', 'member')
+   then 'BROKEN — authenticator cannot assume an integration role'
+
+  -- The four refusals, read out of the live function bodies rather than
+  -- assumed from the migration having run once.
+  when pg_get_functiondef(to_regprocedure('public.silo_check_request()')) not like '%integration_revoked%'
+   then 'BROKEN — the pre-request hook no longer refuses a revoked connection'
+  when pg_get_functiondef(to_regprocedure('public.silo_check_request()')) not like '%silo_api_path_allowed%'
+   then 'CRITICAL: the pre-request hook no longer confines an integration to the API path, so it can reach any table or RPC its company allows'
+  -- The hook CALLING the allowlist is not enough: a body that answers `true`
+  -- is no allowlist, and it is the single change that would open every table
+  -- and RPC to an integration token at once. So the list itself has to still
+  -- read the request's path and still name the one RPC it allows.
+  when pg_get_functiondef(to_regprocedure('public.silo_api_path_allowed()')) not like '%request.path%'
+   then 'CRITICAL: silo_api_path_allowed() no longer reads the request path, so every path is allowed'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_path_allowed()')) not like '%/rpc/silo_api_run_report%'
+   then 'CRITICAL: silo_api_path_allowed() no longer names the report RPC'
+  -- Grant state BEFORE assurance, or a revoked connection is told to go and
+  -- enter a code that cannot help it.
+  when position('integration_revoked' in pg_get_functiondef(to_regprocedure('public.silo_check_request()')))
+       > position('mfa_required' in pg_get_functiondef(to_regprocedure('public.silo_check_request()')))
+   then 'BROKEN — the pre-request hook answers mfa_required before it answers integration_revoked'
+  when pg_get_functiondef(to_regprocedure('public.active_company_id()')) not like '%silo_api_grant%'
+   then 'CRITICAL: active_company_id() no longer resolves an integration from its grant'
+  when pg_get_functiondef(to_regprocedure('public.active_company_id()')) like '%coalesce%'
+   then 'CRITICAL: active_company_id() coalesces, so a dead connection can inherit the browser company'
+  when pg_get_functiondef(to_regprocedure('public.mfa_session_satisfied()')) not like '%consented_aal%'
+   then 'BROKEN — mfa_session_satisfied() no longer reads the grant''s recorded assurance'
+  when pg_get_functiondef(to_regprocedure('public.mfa_session_satisfied()')) like '%silo_scopes%'
+   then 'CRITICAL: assurance is being read from a token claim'
+  -- The resolver must return SETOF: a composite-returning version yields one
+  -- all-NULL row when nothing matches, and every `not exists` refusal built on
+  -- it fails OPEN.
+  when (select p.proretset from pg_proc p where p.oid = to_regprocedure('public.silo_api_grant()')) is not true
+   then 'CRITICAL: silo_api_grant() does not return SETOF, so the refusals built on it fail open'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_grant()')) not like '%auth_session_id%'
+   then 'CRITICAL: silo_api_grant() no longer binds to the Auth session, so an old token can be replayed'
+  -- Scopes from the grant, never from the token: a claim is stamped at
+  -- issuance and stays stale until the next refresh.
+  when pg_get_functiondef(to_regprocedure('public.silo_api_require_scope(text)')) not like '%silo_api_grant%'
+    or pg_get_functiondef(to_regprocedure('public.silo_api_require_scope(text)')) like '%silo_scopes%'
+   then 'CRITICAL: scopes are being read from the token claim, so narrowing a connection would not take effect'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_run_report(uuid,jsonb,integer,integer)')) not like '%silo_api_require_scope%'
+   then 'CRITICAL: the report surface no longer checks scope'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_run_report(uuid,jsonb,integer,integer)')) not like '%''system''%'
+   then 'CRITICAL: the report surface no longer restricts itself to global reports'
+
+  -- Storage runs none of the above.
+  when not exists (
+    select 1 from pg_policy pol join pg_class c on c.oid = pol.polrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'storage' and c.relname = 'objects'
+      and pol.polname = 'no_third_party_clients' and not pol.polpermissive)
+   then 'CRITICAL: storage.objects has no restrictive no_third_party_clients policy'
+
+  -- GoTrue's side. The hook is what stamps the dead-end role, and a token
+  -- already issued cannot be relabelled afterwards.
+  when to_regprocedure('public.silo_api_access_token_hook(jsonb)') is null
+   then 'MISSING — silo_api_access_token_hook'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_access_token_hook(jsonb)')) not like '%silo_revoked%'
+   then 'CRITICAL: the access-token hook no longer stamps the dead-end role on a grantless client'
+  when has_function_privilege('authenticated', 'public.silo_api_access_token_hook(jsonb)', 'execute')
+    or has_function_privilege('anon', 'public.silo_api_access_token_hook(jsonb)', 'execute')
+   then 'CRITICAL: a client can call the access-token hook, which writes to the grant table'
+  when not has_function_privilege('supabase_auth_admin', 'public.silo_api_access_token_hook(jsonb)', 'execute')
+   then 'BROKEN — GoTrue cannot execute the access-token hook'
+  when not has_table_privilege('supabase_auth_admin', 'public.silo_api_grants', 'SELECT,UPDATE')
+   then 'BROKEN — GoTrue cannot bind a grant to its session'
+
+  -- One live grant per (client, person): v1 is one company per connection, so
+  -- a second consent must replace the first rather than leave two.
+  when not exists (
+    select 1 from pg_class i join pg_index x on x.indexrelid = i.oid
+    where i.relname = 'silo_api_grants_one_live' and x.indisunique)
+   then 'MISSING — silo_api_grants_one_live, so one person could hold two live grants for one client'
+  when not exists (
+    select 1 from pg_class i join pg_index x on x.indexrelid = i.oid
+    where i.relname = 'silo_api_grants_session' and x.indisunique)
+   then 'MISSING — silo_api_grants_session, so one session could answer for two grants'
+
+  -- Every grant expires, 90 days is the ceiling (Blake, 2026-10-19), and the
+  -- resolver must not read a null expiry as live. Two-factor approval is a
+  -- moment; an OAuth token reads aal1 and is re-issued hourly forever, so the
+  -- date is the only thing that ends a connection nobody revokes.
+  when exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'silo_api_grants'
+      and column_name = 'expires_at' and is_nullable = 'YES')
+   then 'CRITICAL: silo_api_grants.expires_at is nullable, so a connection can be permanent'
+  when not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.silo_api_grants'::regclass
+      and conname = 'silo_api_grants_max_lifetime')
+   then 'MISSING — the 90-day grant lifetime ceiling'
+  when pg_get_functiondef('public.silo_api_grant()'::regprocedure) like '%expires_at is null%'
+   then 'CRITICAL: silo_api_grant() treats a null expiry as live'
+  when exists (
+    select 1 from public.silo_api_grants
+    where revoked_at is null and expires_at > consented_at + interval '90 days')
+   then 'CRITICAL: a live grant outlives 90 days from its consent'
+
+  else 'ok' end as status;
+
+-- The server-side period boundaries must be the same set as the browser's
+-- PERIOD_SQL map in v3/js/report-params.js, or a report means one thing on a
+-- dashboard and another through the API. The names are asserted here; the
+-- scripts/tests/report-parameters-sql test asserts the set against the file.
+select 'developer API period tokens' as check_name, case
+  when to_regprocedure('public.silo_api_period_sql(text,text)') is null
+   then 'MISSING — silo_api_period_sql'
+  when exists (
+    select 1 from unnest(array[
+      'week_start','week_end','prior_week_start','prior_week_end',
+      'month_start','month_end','prior_month_start','prior_month_end',
+      'quarter_start','quarter_end','prior_quarter_start','prior_quarter_end',
+      'year_start','year_end','prior_year_start','prior_year_end']) t(tok)
+    where public.silo_api_period_sql(t.tok, 'X') is null)
+   then 'BROKEN — silo_api_period_sql is missing a period boundary the browser offers'
+  when public.silo_api_period_sql('today', 'X') is not null
+   then 'BROKEN — silo_api_period_sql treats a relative token as a boundary'
+  -- A date must resolve in the COMPANY's calendar, never the server's.
+  when pg_get_functiondef(to_regprocedure('public.silo_api_substitute(text,jsonb,jsonb)')) not like '%silo_business_today%'
+   then 'CRITICAL: report dates no longer resolve in the company''s calendar'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_substitute(text,jsonb,jsonb)')) like '%regexp_replace(v_out, v_ph%'
+   then 'CRITICAL: a parameter literal is substituted with regexp_replace, which interprets backslash escapes in its replacement'
+  else 'ok' end as status;

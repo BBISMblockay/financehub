@@ -298,6 +298,41 @@ storage.objects policy mfa_session_required -- RESTRICTIVE, same check (Storage 
 Rollback: `alter role authenticator reset pgrst.db_pre_request; notify pgrst, 'reload config';`. Accounts
 without a verified factor are untouched. See `docs/ops/two-step-login.md`.
 
+### Developer API integration access (20261020030000) — present, not enabled
+```
+silo_api_grants           -- one live grant per (client_id, user_id): company_entity_id, scopes text[],
+                          -- consented_aal, auth_session_id (bound at first issuance), expires_at,
+                          -- revoked_at. Company-scoped RLS to the approving user only; no client may
+                          -- read it. Two partial unique indexes: one live grant per client+user, and one
+                          -- grant per Auth session.
+silo_api_grant()          -- RETURNS SETOF (never a composite: a composite resolver returns one all-NULL
+                          -- row and `not exists` says false -- that fail-open cost a review cycle).
+                          -- Yields the row only if live, unexpired, session-matching and the user still
+                          -- holds an entity_memberships row for that company.
+silo_api_claims()         -- reads current_setting('request.jwt.claims'), NOT auth.jwt(): `grant usage on
+                          -- schema auth` is a silent no-op on Supabase, so a function owned by a custom
+                          -- role cannot call auth.jwt().
+silo_api_require_scope()  -- reads the GRANT ROW, not the silo_scopes claim (a claim is stamped at
+                          -- issuance and stays stale until the next refresh). Raises integration_revoked
+                          -- before insufficient_scope.
+silo_api_run_report()     -- the only thing silo_integration may execute. Global (source='system')
+                          -- reports only, 1000-row pages, SELECT-only, owned by silo_api_exec.
+silo_api_substitute()     -- the typed {{token}} substitution, ported from v3/js/report-params.js.
+silo_api_period_sql()     -- the 16 PERIOD_SQL boundaries, server-side.
+silo_api_access_token_hook() -- Custom Access Token hook. First-party claims untouched. A client_id with
+                          -- no usable grant gets role=silo_revoked (a dead end: an issued token cannot be
+                          -- relabelled later). Otherwise role=silo_integration + silo_company + silo_scopes.
+storage.objects policy no_third_party_clients -- RESTRICTIVE, client_id is null (Storage runs no hook).
+```
+`active_company_id()`, `mfa_session_satisfied()` and `silo_check_request()` gain an integration branch;
+their `else` branches are the pre-existing bodies verbatim. The company comes from the grant and is
+**NULL** when the grant is unusable — never `profiles.active_company_id`, or a revoked connection would
+inherit whichever company the person last had open in a browser tab. **Nothing is enabled:** the OAuth
+server, the OAuth client and the hook assignment are dashboard settings, so no token carries `client_id`
+and every branch above is unreachable. Edge functions are covered by the `request.path` allowlist only
+where they call PostgREST with the caller's token; the shared guard
+(`scripts/lib/integration-gate.mjs`) must be vendored into each one before the OAuth server is enabled.
+
 ### RPC functions (founding a company — platform-admin gated)
 ```
 is_platform_admin()
