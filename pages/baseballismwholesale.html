@@ -1385,7 +1385,15 @@
         `Balances and aging below may already be settled in Shopify: check there before contacting a customer or acting on an invoice. ` +
         `Current wholesale receivables live with the Shopify orders (payment terms and paid dates): ` +
         `<a href="/v3/dashboard.html?id=56ccb5cd-33a3-4033-bb42-8f7b4e79f5af" target="_blank" rel="noopener" style="font-weight:700;color:inherit">open Wholesale Tracking &rsaquo; Open AR</a>. ` +
-        `That board is read from the Shopify sync and is what to trust for a balance; this page is kept for the pre-2026-05 history and the collections notes.`;
+        // That board is NOT the whole balance, and saying so is the point: the Shopify
+        // connection for this store was made 2026-06-30 with a 90-day window, so orders
+        // older than that were never imported -- two of the open items below are open
+        // nowhere else. A collector told to trust the board would read their absence from
+        // it as "paid". Both halves of this sentence have to survive together.
+        `That board covers only the orders the Shopify sync imported that carry payment terms, so it ` +
+        `<span style="font-weight:700">is not the whole balance</span>: anything older than that import — including open items ` +
+        `listed below and nowhere else — is missing from it, and absence there is <span style="font-weight:700">not evidence of payment</span>. ` +
+        `Check both, and reconcile an old open item against Shopify itself before chasing or clearing it.`;
       els.staleBanner.hidden = false;
     }
 

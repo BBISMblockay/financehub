@@ -111,7 +111,15 @@ for (const profile of ['standard', 'grandfathered']) {
 const wholesaleBook = fs.readFileSync(path.join(root, 'pages/baseballismwholesale.html'), 'utf8');
 assert.ok(wholesaleBook.includes(`/v3/dashboard.html?id=${AR_DASHBOARD_ID}`),
   'frozen receivables book must link to the Shopify-fed AR dashboard');
-console.log('legacy retirement: receivables book is URL-only and points at the live AR board');
+// The destination alone is not a safe handoff. The Shopify connection for this
+// store only reaches back to its 2026-06-30 connect date, so some of the open
+// items on this page are open on no other screen -- a collector who read the
+// board as the whole balance would treat their absence from it as payment.
+for (const caveat of ['is not the whole balance', 'not evidence of payment']) {
+  assert.ok(wholesaleBook.includes(caveat),
+    `receivables banner must keep its coverage warning: ${caveat}`);
+}
+console.log('legacy retirement: receivables book is URL-only, points at the live AR board, and warns that the board is partial');
 
 const guide = fs.readFileSync(path.join(root, 'v2/launch-calendar-guide.html'), 'utf8');
 assert.ok(guide.includes('href="https://github.com/BBISMblockay/financehub/blob/main/CLAUDE.md"'), 'architecture link names authoritative guide');
