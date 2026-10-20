@@ -465,13 +465,6 @@ jobs:
       - name: Integration reconcile
         run: node scripts/tests/integration-reconcile.test.mjs
 
-      # The same pass end to end: the real script and the real Supabase
-      # client against a PostgREST stand-in, so a forgotten column, a probe
-      # that drops its company filter or a queue row in the wrong shape fails
-      # here rather than in production.
-      - name: Integration reconcile (end to end)
-        run: node scripts/tests/integration-reconcile-run.test.mjs
-
       # A Shopify store connected under two companies: order facts are keyed
       # without the company, so a second company's sync would MOVE the first
       # one's orders. The nightly, the first-import job and shopify-sync-run's
@@ -1898,3 +1891,22 @@ jobs:
             fi
             echo "$m failed the suite, as it must"
           done
+
+  # The reconcile pass end to end: the real script and the real Supabase
+  # client against a PostgREST stand-in, so a forgotten column, a probe that
+  # drops its company filter or a queue row in the wrong shape fails here
+  # rather than in production. Its own job because it spawns the script,
+  # which imports @supabase/supabase-js -- the unit job above is a bare
+  # checkout on purpose and installs nothing.
+  reconcile-end-to-end:
+    name: Integration reconcile (end to end)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Integration reconcile (end to end)
+        run: node --test scripts/tests/integration-reconcile-run.test.mjs
