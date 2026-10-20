@@ -36,6 +36,17 @@ Per-function behaviour, secrets and history: [`docs/agents/edge-functions.md`](.
   added to the list in `scripts/tests/mfa-gate.test.mjs`. A function whose first step is a
   caller-token PostgREST call whose error aborts is already covered. The gate fails closed: apply
   the migration before deploying a gated function.
+- **Third-party tokens (20261020030000, not yet enabled).** `verify_jwt = true` accepts the project's
+  anon key and will accept a developer-platform OAuth token, both of which reach the handler. The
+  Data API refuses those through the pre-request hook, but a function does not run it -- so every
+  function that accepts a caller token must either make its FIRST read a caller-token PostgREST call
+  whose error aborts (the hook then refuses it with `integration_revoked`, exactly as the MFA rule
+  above), or call `checkIntegrationToken` (`integration-gate.mjs`, a verbatim copy of
+  `scripts/lib/integration-gate.mjs`) right after `getUser` and before its first service-role call.
+  It refuses a token with no `sub`, `role = anon`, `role = silo_revoked`, or a `client_id` claim --
+  the MCP endpoint is the one deliberate exception, via `allowIntegration`. **Vendoring it into the
+  existing functions is PR1 and has to land before the OAuth server is enabled.** Until then no token
+  can carry `client_id`, so only the anon-key case is live, and that is unchanged from today.
 - Email sender comes from `SILO_MAIL_FROM` (fallback `SILO <noreply@silo-baseballism.com>`).
 - **Ask SILO (`silo-chat`):** prompt text lives in `prompt-lib.mjs`. `CORE_PROMPT` is cached and must
   stay byte-identical per request; never put per-request content in it. Brand and voice are company
