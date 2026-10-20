@@ -139,8 +139,9 @@ exists for the legacy Baseballism flow. Invites are the supported path.
 ## 3. Choose the module set
 
 New companies get the `standard` nav profile automatically — SILO's reusable
-departmental menu, with Baseballism-only links (BBISM Receivables, the licensing
-microsite) hidden. `grandfathered` is Baseballism's own fuller menu and should
+departmental menu, with Baseballism-only links (the licensing microsite) hidden.
+(BBISM Receivables was in that list until 2026-10-20, when the row was dropped
+from `grandfathered` too; the page is URL-only now.) `grandfathered` is Baseballism's own fuller menu and should
 stay that way.
 
 To change it for a client, set `entities.meta.nav_profile` to `'standard'` or
@@ -390,7 +391,9 @@ the whole question:
 Not every Baseballism-shaped thing is accidental coupling. Leave these alone:
 
 - `v2/licensing/` — leftover MLB microsite assets; its entry page was retired 2026-10-01
-- `baseballismwholesale.html` / BBISM Receivables — one company's AR flow
+- `baseballismwholesale.html` / BBISM Receivables — one company's AR flow, now
+  URL-only (nav row removed 2026-10-20; open balances moved to the Wholesale
+  Tracking dashboard)
 - the `grandfathered` nav profile itself — it is how one customer keeps a menu
   the product no longer leads with, which is exactly what per-tenant
   configuration is for

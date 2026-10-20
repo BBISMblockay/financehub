@@ -77,6 +77,10 @@ below is history, its daily cron is removed, and `/v2/baseballismwholesale.html`
 sheet's last order (2026-09-14). Its banner now says so, including that payments after that date are missing
 too. **So "BBISM Receivables is stale" is expected, not an incident** — nothing below needs doing unless
 somebody deliberately refreshes the old book, and a balance there may already be settled in Shopify.
+**Where to read what is owed now (2026-10-20):** the Wholesale Tracking dashboard, section "Open AR ·
+from the Shopify sync" (saved report "Wholesale AR — open balances (Shopify)"). It lists every unpaid
+order carrying payment terms across all Baseballism stores. The nav row for the old page was removed
+the same day; the page still answers at its URL.
 `ar-sync.yml` is still dispatchable for exactly that case, and the steps below are what to check if a
 dispatch comes back stale.
 
