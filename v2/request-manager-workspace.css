@@ -22,6 +22,33 @@
 .rm-review-page .rm-review-layout > * { min-width:0; }
 .rm-review-page .rm-queue-pane > .card { padding:0; overflow:hidden; }
 .rm-review-page .rm-queue-pane .rm-card-head { padding:10px 12px; }
+.rm-review-page .rm-queue-layout-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.rm-review-page .rm-queue-layout-tabs .btn.active { border-color:var(--bcn-accent); color:var(--bcn-accent); background:var(--bcn-accent-soft); }
+.rm-review-page .rm-queue-select-all { display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--bcn-border); font-size:11px; }
+.rm-review-page .rm-day-pane { padding:0 0 8px; }
+.rm-review-page .rm-day-section { border-bottom:1px solid var(--bcn-border); }
+.rm-review-page .rm-day-section--overdue .rm-day-title { color:var(--bcn-neg, #b91c1c); }
+.rm-review-page .rm-day-head { display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:10px 12px 6px; position:sticky; top:0; z-index:1; background:var(--bcn-surface); }
+.rm-review-page .rm-day-title { margin:0; font-size:12px; font-weight:650; color:var(--bcn-ink); }
+.rm-review-page .rm-day-meta { font-size:11px; color:var(--bcn-ink-3); white-space:nowrap; }
+.rm-review-page .rm-day-item { display:grid; grid-template-columns:32px minmax(0,1fr); align-items:stretch; border-top:1px solid var(--bcn-border); }
+.rm-review-page .rm-day-item input[type=checkbox] { margin:12px 8px; width:16px; height:16px; accent-color:var(--bcn-accent); }
+.rm-review-page .rm-day-item .rm-request-open { padding-left:0; }
+.rm-review-page .rm-day-item.is-current .rm-request-open { box-shadow:inset 3px 0 var(--bcn-accent); padding-left:8px; }
+.rm-review-page .rm-day-item.is-selected { background:var(--bcn-bg); }
+.rm-review-page .rm-day-item.is-current { background:var(--bcn-accent-soft); }
+.rm-review-page .rm-calendar-pane { padding:8px 10px 12px; }
+.rm-review-page .rm-cal-nav { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+.rm-review-page .rm-cal-label { flex:1; font-size:13px; font-weight:650; text-align:center; min-width:140px; }
+.rm-review-page .rm-cal-weekdays { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:4px; font-size:10px; color:var(--bcn-ink-3); text-align:center; }
+.rm-review-page .rm-cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:12px; }
+.rm-review-page .rm-cal-pad { min-height:36px; }
+.rm-review-page .rm-cal-day { position:relative; min-height:36px; border:1px solid var(--bcn-border); border-radius:6px; background:var(--bcn-surface); font:inherit; font-size:12px; cursor:pointer; padding:4px; color:var(--bcn-ink); }
+.rm-review-page .rm-cal-day.has-items { border-color:var(--bcn-accent-border); background:var(--bcn-accent-soft); }
+.rm-review-page .rm-cal-day.is-today { box-shadow:inset 0 0 0 1px var(--bcn-accent); }
+.rm-review-page .rm-cal-day.is-selected { border-color:var(--bcn-accent); color:var(--bcn-accent); font-weight:650; }
+.rm-review-page .rm-cal-count { display:block; font-size:9px; color:var(--bcn-ink-3); margin-top:2px; }
+.rm-review-page .rm-cal-day-detail { border-top:1px solid var(--bcn-border); padding-top:4px; max-height:42dvh; overflow:auto; }
 .rm-review-page .rm-queue-pane .rm-table-scroll { max-height:calc(100dvh - 310px); min-height:280px; border:0; border-radius:0; }
 .rm-review-page .rm-queue-pane table { min-width:0; width:100%; table-layout:fixed; }
 .rm-review-page .rm-queue-pane th { padding:8px; }

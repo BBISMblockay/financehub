@@ -45,7 +45,7 @@ const { startSuite, fakeSupabaseScript } = require('../lib/harness');
       assert.equal(await page.locator('#bulkActionBar').isVisible(), false);
       assert.equal(await page.locator('#requestFilters').isVisible(), false);
       assert.equal(await page.locator('#workbenchDrawer').isVisible(), false);
-      assert((await page.locator('#mainBody tr').first().boundingBox()).height < 95);
+      assert((await page.locator('.rm-day-item').first().boundingBox()).height < 95);
     });
     await check('selection and open request are independent; mixed select-all state', async () => {
       await page.getByRole('button', {name:'Review Northline Supply',exact:true}).click();
@@ -78,7 +78,7 @@ const { startSuite, fakeSupabaseScript } = require('../lib/harness');
       await page.locator('#toggleFiltersBtn').click();
       assert.equal(await page.locator('#requestFilters').isVisible(), true);
       await page.locator('#typeFilter').selectOption('customer_refund');
-      assert.match(await page.locator('#mainBody').textContent(), /No requests match/);
+      assert.match(await page.locator('#queueDayView').textContent(), /No requests match/);
       assert.equal(await page.locator('#drawerTitle').textContent(), 'Northline Supply');
       await page.locator('#clearFiltersBtn').click();
       await page.locator('#toggleFiltersBtn').click();
