@@ -50,7 +50,7 @@ const window = {};
   const TYPES = ['date', 'number', 'enum', 'text'];
   // Where a `text` parameter's dropdown choices come from. See
   // normalizeDeclarations: this picks the CONTROL, never the escaping.
-  const OPTION_SOURCES = ['location'];
+  const OPTION_SOURCES = ['location', 'channel'];
 
   // {{key}} — keys are snake_case identifiers so a token can never be
   // confused with SQL punctuation, and so the same regex validates a
