@@ -152,6 +152,11 @@
               <div class="rm-card-head">
                 <div>
                   <div class="section-title">Requests</div>
+                  <div class="rm-queue-layout-tabs" role="tablist" aria-label="Queue layout">
+                    <button type="button" class="btn btn-soft btn-xs" data-queue-layout="day" aria-pressed="true">By day</button>
+                    <button type="button" class="btn btn-soft btn-xs" data-queue-layout="calendar" aria-pressed="false">Calendar</button>
+                    <button type="button" class="btn btn-soft btn-xs" data-queue-layout="list" aria-pressed="false">List</button>
+                  </div>
                 </div>
                 <div class="rm-row-count"><span id="rowCount">0</span> rows</div>
               </div>
@@ -198,7 +203,9 @@
               </div>
 
               <div class="rm-table-scroll">
-                <table>
+                <div id="queueCalendarView" class="rm-calendar-pane" hidden></div>
+                <div id="queueDayView" class="rm-day-pane"></div>
+                <table id="queueListView" hidden>
                   <thead id="mainHead"></thead>
                   <tbody id="mainBody"></tbody>
                 </table>
@@ -613,8 +620,17 @@
       files: [],
       activeTab: "requests",
       queueFilter: "open",
+      queueLayout: "day",
+      calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+      calendarSelectedDay: null,
       selectedIds: new Set()
     };
+
+    const QUEUE_LAYOUT_KEY = "rm-queue-layout";
+    try {
+      const savedLayout = sessionStorage.getItem(QUEUE_LAYOUT_KEY);
+      if (savedLayout === "day" || savedLayout === "calendar" || savedLayout === "list") state.queueLayout = savedLayout;
+    } catch {}
 
     const els = {
       refreshBtn: document.getElementById("refreshBtn"),
@@ -650,6 +666,9 @@
       rowCount: document.getElementById("rowCount"),
       mainHead: document.getElementById("mainHead"),
       mainBody: document.getElementById("mainBody"),
+      queueListView: document.getElementById("queueListView"),
+      queueDayView: document.getElementById("queueDayView"),
+      queueCalendarView: document.getElementById("queueCalendarView"),
 
       bulkActionBar: document.getElementById("bulkActionBar"),
       bulkSelectedCount: document.getElementById("bulkSelectedCount"),
@@ -1715,9 +1734,237 @@
       });
     }
 
-    function renderTable() {
-      els.rowCount.textContent = formatNumber(state.filteredRows.length);
+    function todayStart() {
+      return new Date(new Date().toDateString());
+    }
 
+    function ymdLocal(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+
+    function daySectionTitle(dueYmd) {
+      if (!dueYmd) return "No due date";
+      const today = todayStart();
+      const due = new Date(dueYmd + "T00:00:00");
+      const diff = Math.floor((due - today) / 86400000);
+      const label = formatDate(dueYmd);
+      if (diff < 0) return `Overdue · ${label}`;
+      if (diff === 0) return `Today · ${label}`;
+      if (diff === 1) return `Tomorrow · ${label}`;
+      return label;
+    }
+
+    function requestOpenButtonHtml(r) {
+      return `<button class="rm-request-open" type="button" data-id="${escapeHtml(r.id)}" aria-label="Review ${escapeHtml(r.effective_vendor_name || "request")}" ${state.currentRow?.id === r.id ? 'aria-current="true"' : ''}>
+            <span class="rm-request-top"><span class="rm-request-name">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</span><span class="rm-request-amount mono">${formatMoney(r.amount_due)}</span></span>
+            <span class="rm-request-meta">${escapeHtml(requestTypeLabel(r.request_type))}${r.invoice_number ? ` · ${escapeHtml(r.invoice_number)}` : ""}${r.internal_po_number ? ` · PO ${escapeHtml(r.internal_po_number)}` : ""}</span>
+            <span class="rm-request-meta rm-request-due">${escapeHtml(String(r.workflow_status || "new").replaceAll("_", " "))} · ${r.due_date ? `Due ${escapeHtml(formatDate(r.due_date))}` : "No due date"}${filesForRequest(r).length ? ` · ${filesForRequest(r).length} file(s)` : ""}</span>
+          </button>`;
+    }
+
+    function queueItemClasses(r) {
+      return `${state.currentRow?.id === r.id ? "is-current" : ""} ${state.selectedIds.has(r.id) ? "is-selected" : ""}`.trim();
+    }
+
+    function bindQueueSelection(scope, rowsForSelectAll) {
+      const root = scope || document;
+      const selectRows = rowsForSelectAll || state.filteredRows;
+      root.querySelectorAll(".rm-request-open").forEach(btn => {
+        btn.addEventListener("click", () => openDrawer(btn.dataset.id));
+      });
+
+      const selectAllCheckbox = root.querySelector("#selectAllCheckbox") || document.getElementById("selectAllCheckbox");
+      const allFilteredSelected = selectRows.length > 0 &&
+        selectRows.every(r => state.selectedIds.has(r.id));
+
+      if (selectAllCheckbox) {
+        selectAllCheckbox.checked = allFilteredSelected;
+        selectAllCheckbox.indeterminate = !allFilteredSelected && selectRows.some(r => state.selectedIds.has(r.id));
+        selectAllCheckbox.onchange = () => {
+          if (selectAllCheckbox.checked) selectRows.forEach(r => state.selectedIds.add(r.id));
+          else selectRows.forEach(r => state.selectedIds.delete(r.id));
+          renderTable();
+          renderBulkBar();
+        };
+      }
+
+      root.querySelectorAll(".row-select-checkbox").forEach(cb => {
+        cb.onchange = () => {
+          const id = cb.getAttribute("data-id");
+          if (cb.checked) state.selectedIds.add(id);
+          else state.selectedIds.delete(id);
+          const row = cb.closest("tr, .rm-day-item");
+          if (row) row.classList.toggle("is-selected", cb.checked);
+          const all = root.querySelector("#selectAllCheckbox") || document.getElementById("selectAllCheckbox");
+          if (all) {
+            all.checked = selectRows.length > 0 && selectRows.every(r => state.selectedIds.has(r.id));
+            all.indeterminate = !all.checked && selectRows.some(r => state.selectedIds.has(r.id));
+          }
+          renderBulkBar();
+        };
+      });
+    }
+
+    function selectAllBarHtml(allFilteredSelected) {
+      return `<div class="rm-queue-select-all">
+        <input type="checkbox" id="selectAllCheckbox" aria-label="Select all filtered requests" ${allFilteredSelected ? "checked" : ""}>
+        <span class="rm-muted">Select all in view</span>
+      </div>`;
+    }
+
+    function sortDueDateKeys(keys) {
+      return keys.sort((a, b) => {
+        if (!a) return 1;
+        if (!b) return -1;
+        return new Date(a + "T00:00:00") - new Date(b + "T00:00:00");
+      });
+    }
+
+    function groupFilteredByDueDate() {
+      const groups = new Map();
+      for (const r of state.filteredRows) {
+        const key = r.due_date || "";
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(r);
+      }
+      for (const list of groups.values()) {
+        list.sort((a, b) => Number(b.amount_due || 0) - Number(a.amount_due || 0));
+      }
+      return groups;
+    }
+
+    function syncQueueLayoutPanels() {
+      const layout = state.queueLayout;
+      els.queueDayView.hidden = layout !== "day";
+      els.queueCalendarView.hidden = layout !== "calendar";
+      els.queueListView.hidden = layout !== "list";
+      document.querySelectorAll("[data-queue-layout]").forEach(btn => {
+        const on = btn.getAttribute("data-queue-layout") === layout;
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+        btn.classList.toggle("active", on);
+      });
+    }
+
+    function renderDayQueue() {
+      const allFilteredSelected = state.filteredRows.length > 0 &&
+        state.filteredRows.every(r => state.selectedIds.has(r.id));
+      const groups = groupFilteredByDueDate();
+      const keys = sortDueDateKeys([...groups.keys()]);
+
+      if (!keys.length) {
+        els.queueDayView.innerHTML = `${selectAllBarHtml(false)}<p class="rm-empty-cell">No requests match these filters.</p>`;
+        bindQueueSelection(els.queueDayView);
+        return;
+      }
+
+      els.queueDayView.innerHTML = selectAllBarHtml(allFilteredSelected) + keys.map(key => {
+        const rows = groups.get(key);
+        const total = rows.reduce((s, r) => s + Number(r.amount_due || 0), 0);
+        const overdue = key && dueBucket({ due_date: key, completed: false }) === "overdue";
+        return `<section class="rm-day-section ${overdue ? "rm-day-section--overdue" : ""}" data-due="${escapeHtml(key)}">
+          <header class="rm-day-head">
+            <h3 class="rm-day-title">${escapeHtml(daySectionTitle(key))}</h3>
+            <span class="rm-day-meta mono">${formatNumber(rows.length)} · ${formatMoney(total)}</span>
+          </header>
+          <div class="rm-day-items">${rows.map(r => `
+            <div class="rm-day-item ${queueItemClasses(r)}" data-request-id="${escapeHtml(r.id)}">
+              <input type="checkbox" class="row-select-checkbox" aria-label="Select ${escapeHtml(r.effective_vendor_name || "request")}" data-id="${escapeHtml(r.id)}" ${state.selectedIds.has(r.id) ? "checked" : ""}>
+              ${requestOpenButtonHtml(r)}
+            </div>`).join("")}</div>
+        </section>`;
+      }).join("");
+
+      bindQueueSelection(els.queueDayView);
+    }
+
+    function renderCalendarQueue() {
+      const month = state.calendarMonth;
+      const year = month.getFullYear();
+      const mon = month.getMonth();
+      const first = new Date(year, mon, 1);
+      const startPad = first.getDay();
+      const daysInMonth = new Date(year, mon + 1, 0).getDate();
+
+      const counts = new Map();
+      for (const r of state.filteredRows) {
+        if (!r.due_date) continue;
+        counts.set(r.due_date, (counts.get(r.due_date) || 0) + 1);
+      }
+
+      if (!state.calendarSelectedDay) state.calendarSelectedDay = ymdLocal(todayStart());
+      const selected = state.calendarSelectedDay;
+      const monthLabel = first.toLocaleString(undefined, { month: "long", year: "numeric" });
+
+      let cells = "";
+      for (let i = 0; i < startPad; i++) cells += `<div class="rm-cal-pad" aria-hidden="true"></div>`;
+      const todayYmd = ymdLocal(todayStart());
+      for (let day = 1; day <= daysInMonth; day++) {
+        const d = new Date(year, mon, day);
+        const ymd = ymdLocal(d);
+        const n = counts.get(ymd) || 0;
+        const classes = ["rm-cal-day"];
+        if (n) classes.push("has-items");
+        if (ymd === todayYmd) classes.push("is-today");
+        if (ymd === selected) classes.push("is-selected");
+        cells += `<button type="button" class="${classes.join(" ")}" data-cal-day="${escapeHtml(ymd)}" aria-pressed="${ymd === selected}">
+          <span class="rm-cal-num">${day}</span>${n ? `<span class="rm-cal-count mono">${n}</span>` : ""}
+        </button>`;
+      }
+
+      const dayRows = state.filteredRows.filter(r => r.due_date === selected);
+      dayRows.sort((a, b) => Number(b.amount_due || 0) - Number(a.amount_due || 0));
+      const allFilteredSelected = dayRows.length > 0 && dayRows.every(r => state.selectedIds.has(r.id));
+
+      els.queueCalendarView.innerHTML = `
+        <div class="rm-cal-nav">
+          <button type="button" class="btn btn-soft btn-xs" data-cal-nav="prev" aria-label="Previous month">‹</button>
+          <span class="rm-cal-label">${escapeHtml(monthLabel)}</span>
+          <button type="button" class="btn btn-soft btn-xs" data-cal-nav="next" aria-label="Next month">›</button>
+          <button type="button" class="btn btn-soft btn-xs" data-cal-nav="today">Today</button>
+        </div>
+        <div class="rm-cal-weekdays" aria-hidden="true"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+        <div class="rm-cal-grid">${cells}</div>
+        <div class="rm-cal-day-detail">
+          <header class="rm-day-head">
+            <h3 class="rm-day-title">${escapeHtml(daySectionTitle(selected))}</h3>
+            <span class="rm-day-meta mono">${formatNumber(dayRows.length)} due</span>
+          </header>
+          ${dayRows.length ? selectAllBarHtml(allFilteredSelected) : ""}
+          <div class="rm-day-items">${dayRows.length ? dayRows.map(r => `
+            <div class="rm-day-item ${queueItemClasses(r)}" data-request-id="${escapeHtml(r.id)}">
+              <input type="checkbox" class="row-select-checkbox" aria-label="Select ${escapeHtml(r.effective_vendor_name || "request")}" data-id="${escapeHtml(r.id)}" ${state.selectedIds.has(r.id) ? "checked" : ""}>
+              ${requestOpenButtonHtml(r)}
+            </div>`).join("") : `<p class="rm-empty-cell">Nothing due this day in the current filter.</p>`}
+          </div>
+        </div>`;
+
+      els.queueCalendarView.querySelectorAll("[data-cal-day]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          state.calendarSelectedDay = btn.getAttribute("data-cal-day");
+          renderCalendarQueue();
+        });
+      });
+      els.queueCalendarView.querySelectorAll("[data-cal-nav]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const nav = btn.getAttribute("data-cal-nav");
+          if (nav === "today") {
+            state.calendarMonth = new Date(todayStart().getFullYear(), todayStart().getMonth(), 1);
+            state.calendarSelectedDay = ymdLocal(todayStart());
+          } else if (nav === "prev") {
+            state.calendarMonth = new Date(year, mon - 1, 1);
+          } else if (nav === "next") {
+            state.calendarMonth = new Date(year, mon + 1, 1);
+          }
+          renderCalendarQueue();
+        });
+      });
+      bindQueueSelection(els.queueCalendarView, dayRows);
+    }
+
+    function renderTableList() {
       const allFilteredSelected = state.filteredRows.length > 0 &&
         state.filteredRows.every(r => state.selectedIds.has(r.id));
 
@@ -1726,45 +1973,30 @@
         <th>Select all filtered requests</th>
       </tr>`;
       els.mainBody.innerHTML = state.filteredRows.map(r => `
-        <tr class="${state.currentRow?.id === r.id ? "is-current" : ""} ${state.selectedIds.has(r.id) ? "is-selected" : ""}" data-request-id="${escapeHtml(r.id)}">
+        <tr class="${queueItemClasses(r)}" data-request-id="${escapeHtml(r.id)}">
           <td class="rm-row-select-col"><input type="checkbox" class="row-select-checkbox" aria-label="Select ${escapeHtml(r.effective_vendor_name || "request")}" data-id="${escapeHtml(r.id)}" ${state.selectedIds.has(r.id) ? "checked" : ""}></td>
-          <td><button class="rm-request-open" type="button" data-id="${escapeHtml(r.id)}" aria-label="Review ${escapeHtml(r.effective_vendor_name || "request")}" ${state.currentRow?.id === r.id ? 'aria-current="true"' : ''}>
-            <span class="rm-request-top"><span class="rm-request-name">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</span><span class="rm-request-amount mono">${formatMoney(r.amount_due)}</span></span>
-            <span class="rm-request-meta">${escapeHtml(requestTypeLabel(r.request_type))}${r.invoice_number ? ` · ${escapeHtml(r.invoice_number)}` : ""}${r.internal_po_number ? ` · PO ${escapeHtml(r.internal_po_number)}` : ""}</span>
-            <span class="rm-request-meta rm-request-due">${escapeHtml(String(r.workflow_status || "new").replaceAll("_", " "))} · ${r.due_date ? `Due ${escapeHtml(formatDate(r.due_date))}` : "No due date"}${filesForRequest(r).length ? ` · ${filesForRequest(r).length} file(s)` : ""}</span>
-          </button></td>
+          <td>${requestOpenButtonHtml(r)}</td>
         </tr>
       `).join("") || `<tr><td colspan="2" class="rm-empty-cell">No requests match these filters.</td></tr>`;
-      els.mainBody.querySelectorAll(".rm-request-open").forEach(btn => {
-        btn.addEventListener("click", () => openDrawer(btn.dataset.id));
-      });
+      bindQueueSelection(els.queueListView);
+    }
 
-      const selectAllCheckbox = document.getElementById("selectAllCheckbox");
-      if (selectAllCheckbox) {
-        selectAllCheckbox.indeterminate = !allFilteredSelected && state.filteredRows.some(r => state.selectedIds.has(r.id));
-        selectAllCheckbox.addEventListener("change", () => {
-          if (selectAllCheckbox.checked) {
-            state.filteredRows.forEach(r => state.selectedIds.add(r.id));
-          } else {
-            state.filteredRows.forEach(r => state.selectedIds.delete(r.id));
-          }
-          renderTable();
-          renderBulkBar();
-        });
+    function renderTable() {
+      els.rowCount.textContent = formatNumber(state.filteredRows.length);
+      syncQueueLayoutPanels();
+      if (state.queueLayout === "list") renderTableList();
+      else if (state.queueLayout === "calendar") renderCalendarQueue();
+      else renderDayQueue();
+    }
+
+    function setQueueLayout(layout) {
+      if (!["day", "calendar", "list"].includes(layout)) return;
+      state.queueLayout = layout;
+      try { sessionStorage.setItem(QUEUE_LAYOUT_KEY, layout); } catch {}
+      if (layout === "calendar" && !state.calendarSelectedDay) {
+        state.calendarSelectedDay = ymdLocal(todayStart());
       }
-
-      document.querySelectorAll(".row-select-checkbox").forEach(cb => {
-        cb.addEventListener("change", () => {
-          const id = cb.getAttribute("data-id");
-          if (cb.checked) state.selectedIds.add(id);
-          else state.selectedIds.delete(id);
-          cb.closest("tr").classList.toggle("is-selected", cb.checked);
-          const all = document.getElementById("selectAllCheckbox");
-          all.checked = state.filteredRows.length > 0 && state.filteredRows.every(r => state.selectedIds.has(r.id));
-          all.indeterminate = !all.checked && state.filteredRows.some(r => state.selectedIds.has(r.id));
-          renderBulkBar();
-        });
-      });
+      renderTable();
     }
 
     function renderBulkBar() {
@@ -2407,7 +2639,7 @@
       state.currentRow = null;
       savedFormState = "";
       renderTable();
-      [...els.mainBody.querySelectorAll(".rm-request-open")].find(el => el.dataset.id === previousId)?.focus();
+      [...document.querySelectorAll(".rm-request-open")].find(el => el.dataset.id === previousId)?.focus();
       return true;
     }
 
@@ -2708,6 +2940,10 @@
       els.tabRequestsBtn.addEventListener("click", () => setActiveTab("requests"));
       els.tabReportingBtn.addEventListener("click", () => setActiveTab("reporting"));
       els.tabActivityBtn.addEventListener("click", () => setActiveTab("activity"));
+
+      document.querySelectorAll("[data-queue-layout]").forEach(btn => {
+        btn.addEventListener("click", () => setQueueLayout(btn.getAttribute("data-queue-layout")));
+      });
 
       [
         els.statusFilter,
