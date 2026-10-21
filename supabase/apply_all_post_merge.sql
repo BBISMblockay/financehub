@@ -19289,3 +19289,9 @@ $c$select (select count(*) from v_po_header_summary
 -- carry client_id and every branch it adds is unreachable.
 \i migrations/20261020030000_developer_api_integration_access.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
+-- Sales by Channel gains a units column (from shopify_order_lines) and a
+-- channel slicer, plus silo_report_channels_v. Must come AFTER
+-- 20260922170000 above, which rewrites the same row's title and description,
+-- and after 20260920075344, whose version of the query and tie-out it
+-- replaces.
+\i migrations/20261021200000_channel_report_units_and_slicer.sql

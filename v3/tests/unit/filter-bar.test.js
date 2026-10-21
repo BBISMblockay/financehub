@@ -165,5 +165,27 @@ test("the 'all' sentinel folds the predicate away", () => {
   eq(P.substitute(sql, decls, { location: 'st_louis' }).sql,
     "select 1 where ('st_louis' = 'all' or location_tag = 'st_louis')");
 });
+// The channel slicer (20261021200000) is the same mechanism as location: a
+// text parameter whose choices come from a view, because channel names are
+// per company. These assert the ALLOWLIST and the escaping, which is what
+// would silently turn the dropdown into a plain text box or an injection
+// point.
+test('channel is an allowed options_source and keeps text escaping', () => {
+  const P = g.SiloReportParams;
+  const [decl] = P.normalizeDeclarations([
+    { key: 'channel', type: 'text', label: 'Channel', default: 'all', options_source: 'channel' }]);
+  eq(decl.options_source, 'channel');
+  eq(P.toLiteral(decl, "Faire (Wholesale)").literal, "'Faire (Wholesale)'");
+  truthy(P.toLiteral(decl, "x'; drop table t --").error, 'a semicolon is still refused');
+});
+test("the channel predicate folds away on 'all' and filters otherwise", () => {
+  const P = g.SiloReportParams;
+  const decls = [{ key: 'channel', type: 'text', label: 'Channel', default: 'all', options_source: 'channel' }];
+  const sql = "select 1 where ({{channel}} = 'all' or v.resolved_channel_name = {{channel}})";
+  eq(P.substitute(sql, decls, {}).sql,
+    "select 1 where ('all' = 'all' or v.resolved_channel_name = 'all')");
+  eq(P.substitute(sql, decls, { channel: 'Retail (POS)' }).sql,
+    "select 1 where ('Retail (POS)' = 'all' or v.resolved_channel_name = 'Retail (POS)')");
+});
 const r = R.summary();
 process.exit(r.fail ? 1 : 0);
