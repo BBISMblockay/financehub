@@ -7139,6 +7139,55 @@ select 'Report location filter' as check_name,
     else 'ok'
   end as status;
 
+-- Report channel filter (20261021200000). Same two halves as the location
+-- filter above: the choices view, and the one report that declares
+-- {{channel}}. A report carrying the token without the declaration (or the
+-- other way round) errors on every run with a message that names the wrong
+-- culprit, so both are checked.
+select 'Report channel filter' as check_name,
+  case
+    when not exists (select 1 from information_schema.views
+                     where table_schema = 'public' and table_name = 'silo_report_channels_v')
+      then 'MISSING — silo_report_channels_v is gone; a channel slicer has no choices to offer. Run 20261021200000_channel_report_units_and_slicer.sql'
+    -- security_invoker is the tenant boundary here: the view has no company
+    -- filter of its own and MUST NOT grow one, it relies on RLS through
+    -- shopify_orders and shopify_channel_map.
+    when not exists (select 1 from pg_class
+                     where relname = 'silo_report_channels_v'
+                       and 'security_invoker=true' = any(reloptions))
+      then 'CRITICAL — silo_report_channels_v is not security_invoker; it has no company filter of its own, so every workspace would see every other workspace''s channels'
+    when exists (select 1 from information_schema.table_privileges
+                 where table_schema = 'public' and table_name = 'silo_report_channels_v'
+                   and grantee = 'anon')
+      then 'CRITICAL — anon can read silo_report_channels_v. Run: revoke all on public.silo_report_channels_v from anon;'
+    -- Unbounded, the distinct scan reads every order the company ever took:
+    -- 393k rows / 3.5s under RLS on Baseballism, against the browser's 8s
+    -- cap, which leaves the dropdown silently empty.
+    when (select pg_get_viewdef('public.silo_report_channels_v'::regclass)) not ilike '%interval%'
+      then 'BROKEN — silo_report_channels_v scans every order a company ever took, which risks the browser''s 8s timeout and an empty channel slicer. Run 20261021200000_channel_report_units_and_slicer.sql'
+    when exists (
+      select 1 from public.silo_chat_saved_reports r
+       where r.id = 'c3000000-0000-4000-a000-000000000003'
+         and (exists (select 1 from unnest(r.queries_run) q where q like '%{{channel}}%'))
+            <> (r.parameters::jsonb @> '[{"key": "channel"}]'::jsonb))
+      then 'BROKEN — Sales by Channel uses {{channel}} without declaring it, or declares it without using it; every run of that report errors. Run 20261021200000_channel_report_units_and_slicer.sql'
+    -- Units come from shopify_order_lines; line_item_count counts LINES, not
+    -- units, and understates every channel by a different amount.
+    when not exists (select 1 from public.silo_chat_saved_reports r, unnest(r.queries_run) q
+                     where r.id = 'c3000000-0000-4000-a000-000000000003' and q like '%shopify_order_lines%')
+      then 'STALE — Sales by Channel no longer reads shopify_order_lines, so its units column is missing or counting lines. Run 20261021200000_channel_report_units_and_slicer.sql'
+    -- A tie-out whose report has changed reads NO DATA rather than passing
+    -- stale: correct, but the nightly run goes amber until it is regenerated.
+    when exists (
+      select 1 from public.silo_chat_saved_reports r
+        join public.silo_report_tieouts t on t.report_id = r.id
+       where r.id = 'c3000000-0000-4000-a000-000000000003'
+         and t.enabled
+         and t.check_sql not like '%' || md5(r.queries_run::text || r.parameters::text) || '%')
+      then 'BROKEN — Sales by Channel''s tie-outs still guard the previous definition, so report-tieouts-nightly will read NO DATA. Re-run the tie-out block of 20261021200000_channel_report_units_and_slicer.sql'
+    else 'ok'
+  end as status;
+
 -- Who keeps the books (20261015190000): the company-wide mode, the claim guard
 -- that makes reporting-only cover every posting surface, and the write RPC.
 select 'Bookkeeping mode' as check_name,

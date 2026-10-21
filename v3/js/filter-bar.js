@@ -93,7 +93,7 @@
      so the declaration carries no display text: a SILO report is shared by
      every client and its wording is ours, not a per-report field someone
      can leave blank. */
-  const ALL_LABELS = { location: 'All locations' };
+  const ALL_LABELS = { location: 'All locations', channel: 'All channels' };
 
   const START_RE = /^(.*?)(_?)(start|from|begin|since)(_date)?$/i;
   const END_RE = /^(.*?)(_?)(end|to|through|until)(_date)?$/i;

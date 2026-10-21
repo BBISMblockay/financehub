@@ -388,16 +388,25 @@
      the page on a dropdown. */
   async function loadChoiceSources(bar) {
     if (!bar || !bar.setChoices) return;
-    try {
-      const { data, error } = await sb.from('silo_report_locations_v')
-        .select('location_tag, label').order('label');
-      if (error) throw error;
-      bar.setChoices('location', (data || []).map((r) => ({ value: r.location_tag, label: r.label })));
-    } catch (e) {
-      // Not a page failure, but the control must not pass a failed read off
-      // as a workspace with no locations: null tells it the read failed.
-      if (bar.setChoices) bar.setChoices('location', null);
-      console.warn('[v3] location choices unavailable', e?.message || e);
+    // One source per entry; each is read and reported on its own, so a view
+    // that is missing or slow leaves the OTHER dropdown populated rather
+    // than emptying both.
+    const SOURCES = [
+      { key: 'location', view: 'silo_report_locations_v', value: 'location_tag' },
+      { key: 'channel', view: 'silo_report_channels_v', value: 'channel' },
+    ];
+    for (const src of SOURCES) {
+      try {
+        const { data, error } = await sb.from(src.view)
+          .select(`${src.value}, label`).order('label');
+        if (error) throw error;
+        bar.setChoices(src.key, (data || []).map((r) => ({ value: r[src.value], label: r.label })));
+      } catch (e) {
+        // Not a page failure, but the control must not pass a failed read off
+        // as a workspace with no locations: null tells it the read failed.
+        if (bar.setChoices) bar.setChoices(src.key, null);
+        console.warn(`[v3] ${src.key} choices unavailable`, e?.message || e);
+      }
     }
   }
 
