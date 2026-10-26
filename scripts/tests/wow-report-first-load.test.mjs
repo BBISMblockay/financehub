@@ -1,6 +1,6 @@
 /* The Marketing Report's first load, as the page actually runs it.
  *
- * Why this file exists. Of the ten RPCs v2/wow-report.html fires, nine degrade
+ * Why this file exists. Of the nine RPCs v2/wow-report.html fires, eight degrade
  * to an "unavailable" card. wow_report is thrown, because the window dates,
  * the KPI band and every sales table are built from it -- so it is the page's
  * single point of failure, and it is also the call with the least headroom:
@@ -110,6 +110,13 @@ function runLoad({ reportAttempts, seedFailed = [] }) {
     DATA: null, KPI: null, FUNNEL: null, PAID: null, REALITY: null,
     LANDING: null, CODES: null, COHORTS: null, ORGANIC: null,
     CREATIVES: null, CRE_SHOWN: null, DATA_THROUGH: null,
+    // Redo is read from redo_marketing_daily_v rather than an RPC, so it is a
+    // collaborator of load() rather than another sb.rpc call. Stubbed clean:
+    // this file is about wow_report's retry, and a Redo failure degrades to
+    // its own card like the other eight.
+    REDO: null, REDO_TRUNCATED: false, REDO_ROW_CAP: 20000,
+    async fetchRedo() { calls.push('redo_marketing_daily_v'); return { data: [], error: null }; },
+    groupRedo: () => ({ campaigns: [], automations: [] }),
     render() {}, buildManual() {}, renderCohorts() {}, initCollapse() {},
     async loadEntry() {},
     window: { __SILO_CONFIG__: { ensureActiveCompany: async () => ({ id: 'co' }) } },
@@ -220,6 +227,13 @@ function runLoad({ reportAttempts, seedFailed = [] }) {
     DATA: null, KPI: null, FUNNEL: null, PAID: null, REALITY: null,
     LANDING: null, CODES: null, COHORTS: null, ORGANIC: null,
     CREATIVES: null, CRE_SHOWN: null, DATA_THROUGH: null,
+    // Redo is read from redo_marketing_daily_v rather than an RPC, so it is a
+    // collaborator of load() rather than another sb.rpc call. Stubbed clean:
+    // this file is about wow_report's retry, and a Redo failure degrades to
+    // its own card like the other eight.
+    REDO: null, REDO_TRUNCATED: false, REDO_ROW_CAP: 20000,
+    async fetchRedo() { calls.push('redo_marketing_daily_v'); return { data: [], error: null }; },
+    groupRedo: () => ({ campaigns: [], automations: [] }),
     render() {}, buildManual() {}, renderCohorts() {}, initCollapse() {},
     async loadEntry() {},
     window: { __SILO_CONFIG__: { ensureActiveCompany: async () => ({ id: 'co' }) } },
