@@ -176,10 +176,10 @@ Two different lists, not to be confused:
 |---|---|---|
 | `ads_read` | `GET /{ad-account}/insights` (daily campaign and ad-level performance); `GET /{ad-account}/ads?fields=id`; batched `GET /{ad-id}?fields=creative…` (ad creative); `GET /me/adaccounts` (listing); `GET /{ad-account}?fields=id,name,currency,account_status` (Test). Meta's Instagram media-insights reference also lists `ads_read` when the Page role comes through Business Manager. | Reads performance (spend, impressions, clicks, conversions) and ad creative for the ad accounts the business selects, and shows them beside the business's sales in SILO's marketing reports. Read-only. SILO never creates or edits ads. |
 | `pages_show_list` | `GET /me/accounts?fields=id,name,instagram_business_account{id,username}`, which lists the granted Pages and each Page's linked Instagram account so the admin can choose one. | Lists the Pages the business granted, so the admin can choose which Page and linked Instagram account SILO reports on. |
-| `pages_read_engagement` | `GET /{page}?fields=access_token`, which gets the Page access token that Page Insights requires; `GET /{page}?fields=fan_count`, the follower count. Meta's references also list it for `GET /{ig-user}/media` and `GET /{ig-media}/insights`, and as a dependency of `read_insights`. **SILO does not read Page posts.** | Reads the selected Page's follower count and gets the Page access token used to read that Page's insights. It is also required for reading the linked Instagram account's media and media insights. |
+| `pages_read_engagement` | `GET /{page}?fields=id,name,fan_count` (identity and follower count); `GET /{page}?fields=access_token`, the Page access token that Page Insights requires; `GET /{page}/published_posts?fields=message,permalink_url,created_time,full_picture,shares,likes.summary(true),comments.summary(true)` with the Page token (the Page's OWN posts, stored in `facebook_page_posts`). Meta's references also list it for `GET /{ig-user}/media` and `GET /{ig-media}/insights`, and as a dependency of `read_insights`. **Not `/{page}/feed`:** feed also returns posts made by visitors and needs `pages_read_user_content`, which SILO does not hold. | Reads the selected Page's name, follower count and recent published posts (text, link, date, likes, comments, shares), shown on SILO's Organic marketing report, and gets the Page access token used to read that Page's insights. It is also required for reading the linked Instagram account's media and media insights. |
 | `read_insights` | `GET /{page}/insights?metric=page_media_view,page_total_media_view_unique,page_post_engagements&period=day` (with the Page token). | Reads daily Page insights (media views, unique media views, post engagements) for the selected Page, for SILO's organic marketing report. |
-| `instagram_basic` | `GET /{ig-user}/media?fields=id,media_type,caption,permalink,thumbnail_url,timestamp,like_count,comments_count`. | Reads the connected Instagram professional account's recent media list (type, caption, link, date, likes, comments). |
-| `instagram_manage_insights` | `GET /{ig-media}/insights?metric=views,reach,shares,saved`. | Reads views, reach, shares and saves for that media, for SILO's organic report. |
+| `instagram_basic` | `GET /{ig-user}?fields=username,name,biography,followers_count,media_count` (the account itself, stored in `instagram_account_profile`); `GET /{ig-user}/media?fields=id,media_type,caption,permalink,thumbnail_url,timestamp,like_count,comments_count`. | Reads the connected Instagram professional account's profile (handle, name, bio, follower and post counts) and its recent media list (type, caption, link, date, likes, comments), shown together on SILO's Organic marketing report. |
+| `instagram_manage_insights` | `GET /{ig-user}/insights?metric=reach&metric_type=time_series&period=day` (account-level daily reach, stored in `instagram_account_insights_daily`); `GET /{ig-user}/insights?metric=views,accounts_engaged,total_interactions&metric_type=total_value` (window totals, stored on the profile row); `GET /{ig-media}/insights?metric=views,reach,shares,saved`. | Reads the account's daily reach and its views, engaged accounts and interactions for the reporting window, plus views, reach, shares and saves for each recent post, for SILO's organic report. |
 | `business_management` | **No SILO call uses the Business Manager API. Not in the login configuration; was included in the App Review request (submitted but unused).** Meta's references note a possible need: IG User Media — *"If the app user was granted a role on the Page via the Business Manager, you will also need one of: ads_management business_management"*; Page — *"If using a business system user in your request, the business_management permission may be required."* | **Not needed (settled live 2026-10-08):** with the six-permission configuration, the Page token, follower count, Page insights, Instagram media and media insights all returned ok. Not used by SILO; if Meta asks, say so. The existing app permission is not removed. |
 | `ads_management` | **Not used. Not in the login configuration; was included in the App Review request (submitted but unused).** Meta lists it only as an alternative to `business_management` for Instagram media, and SILO writes nothing. | If Meta asks: "SILO does not use ads_management; it never creates or edits ads. Please disregard it." Expect rejection; leave it out of any resubmission. |
 
@@ -375,10 +375,15 @@ Per https://developers.facebook.com/docs/app-review/submission-guide/screen-reco
 - [ ] Sign in to SILO → `/testing/meta-oauth.html` → **Connect Meta**.
 - [ ] The full Facebook Login for Business dialog: business, assets, the permission list, approve.
 - [ ] The return to SILO, then choosing the ad account, Page and Instagram account → Save.
+- [ ] The **asset identity header** above the results: ad account name, Page name, Instagram
+      @handle. Hold on it. This is the single thing every 2026-10-26 rejection asked for (2.9).
 - [ ] For **each** permission, the row in **Verify permissions** with real values (annotated):
-      `ads_read`, `pages_show_list`, `pages_read_engagement` (Page token issued, follower
-      count), `read_insights`, `instagram_basic`, `instagram_manage_insights`, plus
-      `business_management` only if 2.2's live check shows it is needed.
+      `ads_read` (account name/id, then 30-day spend/impressions/clicks), `pages_show_list`,
+      `pages_read_engagement` (Page name, follower count, Page token issued, **and the Page's
+      recent published posts**), `read_insights` (the Page's name and the day-by-day values —
+      zeroes are fine if labelled), `instagram_basic` (@handle, **profile fields**, then the media
+      list), `instagram_manage_insights` (@handle, **account-level** reach and window totals, then
+      media insights). Do NOT record `ads_management` or `business_management`: both are withdrawn.
 - [ ] `ads_read` in the product: Sync now → Stored data (impressions, clicks, spend by day).
 - [ ] Optionally, a Reconnect, showing the same connection renewed in place.
 - [ ] No secrets, tokens or reviewer passwords on screen. The page never displays a token.
@@ -424,6 +429,79 @@ Access Tier, which were left in the request. Expected per item:
 - `public_profile`: normally granted by default.
 
 **After approval:** publish the app (Publish shows "Unpublished"), then Part 3's activation PR.
+
+### 2.9 The 2026-10-08 submission's result, and what changed for the resubmission (2026-10-26)
+
+Meta approved `pages_show_list` and `public_profile` and **rejected the other seven**: `ads_read`,
+`pages_read_engagement`, `read_insights`, `instagram_basic`, `instagram_manage_insights`,
+`ads_management` and `business_management`. Every one carried the same code —
+*Screencast Not Aligned with Use Case Details* (Developer Policy 1.6) — and every one said the same
+thing: **"your apps' use case is allowed, however, the submitted screencast fails to demonstrate the
+end-to-end experience"**. Nothing was wrong with the permissions SILO asks for. The video did not
+show each permission's data labelled with the asset it belongs to.
+
+Reviewer notes, and what each one actually means:
+
+| Permission | Reviewer's note | Reading |
+|---|---|---|
+| `read_insights` | "We see metrics but cannot confirm which Page they belong to." | Correct, and worse than they knew: the verify row reported `{metric, points: 7}` — a COUNT of datapoints, with no values at all. |
+| `instagram_basic` | "Unable to verify basic profile access… show the account selected with its handle visible, a live retrieval of profile fields (name, bio, followers), and a media list." | SILO never read the account, only its posts. |
+| `instagram_manage_insights` | "The metrics displayed aren't tied to a specific account… show profile-level and media-level insights." | SILO read media-level only. |
+| `pages_read_engagement` | "Unable to verify your app reading page content… show Page selection, retrieval of Page content such as posts, photos, videos, and the rendered results with the Page identity displayed." | SILO read the follower count and the Page token, never the Page's content. |
+| `ads_read` | "Does not show a live creation flow… demonstrate creating a campaign, ad set, or ad." | **The note is for the wrong permission.** `ads_read` is read-only by Meta's own definition; creation needs `ads_management`. The note attached to `ads_management` ("the ad account list with its name or ID visible, selection of a single account, and the same account identity visible when you pull metrics") is the one that describes `ads_read`. |
+| `business_management` | "Show the same campaign/ad in Ads Manager to confirm the publish or edit succeeded." | SILO publishes nothing. |
+| `ads_management` | "Unable to verify which ad account your app connects to." | See `ads_read` above. |
+
+**Withdrawn, not re-recorded:** `ads_management` and `business_management`. No SILO call uses either
+(2.2), there is no creation flow to film, and 2026-10-08's live check already settled that the
+six-permission configuration needs neither.
+
+**Resubmit five:** `ads_read`, `pages_read_engagement`, `read_insights`, `instagram_basic`,
+`instagram_manage_insights`.
+
+**Also required by every rejection, item 5:** say that the token is a business integration **system
+user** token and that the recurring pull is server-to-server, so Meta does not expect a frontend
+login flow around it. The login dialog itself is still in the video.
+
+#### What was built rather than argued
+
+Blake's call on 2026-10-26 was to show the reviewer real data instead of explaining its absence, so
+the three reads SILO never made are now part of the product (migration
+`20261026210000_meta_organic_profile_and_page_posts.sql`, `scripts/lib/ad-platforms-sync-core.mjs`,
+Marketing Overview's Organic tab):
+
+- **`instagram_account_profile`** — the account's handle, name, bio, follower and post counts, plus
+  Meta's `total_value` window metrics (`views`, `accounts_engaged`, `total_interactions`) with the
+  window they cover. A snapshot, not a series: a follower count has no honest backfill.
+- **`instagram_account_insights_daily`** — account-level `reach`, the only account metric Meta still
+  serves as a time series. It is NOT the sum of the posts' reach: one person reached by two posts is
+  one account-level reach.
+- **`facebook_page_posts`** — the Page's own published posts from `/{page}/published_posts` with the
+  Page token. `pages_read_engagement`'s reference says it "allows your app to read content (posts,
+  photos, videos, events) posted by the Page", which is the reviewer's wording.
+
+Each read fails soft (a warning and a null or an empty array, never a throw), because they were
+added to the nightly job that fills the marketing reports — the 2026-08-28 lesson, where one retired
+Page metric erased a successful Instagram pull from the summary. Tests:
+`scripts/tests/meta-organic-account-and-posts.test.mjs` (mutation-tested, five mutations) and the
+Organic-tab cases in `v2/tests/browser/marketing-launch-links.test.js`, which also cover the state
+between merge and migration, where the three tables do not exist yet.
+
+The review page now renders the selected assets **by name** above the results, and each result as
+labelled fields and small tables rather than a JSON blob; `read_insights` carries the day-by-day
+values. Its probe fields and metrics stay pinned equal to the sync's own by
+`scripts/tests/meta-oauth-review.test.mjs`, so the screencast can never demonstrate a call the
+product does not make.
+
+Not done, and deliberately: the WOW report's Organic card still reads media insights only, and
+`supabase/data_coverage.sql` was not extended (its row numbers are positional and its organic notes
+are already stale — it says those tables are EMPTY, which stopped being true in May 2026).
+
+**`meta-oauth-callback` deployment, settled 2026-10-26:** production runs version 5, which IS the
+review revision — `isReviewState`/`rt_` nonces, `REVIEW_PAGE_PATH = '/testing/meta-oauth.html'`, and
+the allow-listed-workspace / active-company / `mayConnect` re-check before the code exchange. Read
+directly from the deployed source, which closes the question 2.4a left open. `meta-oauth-review` and
+`ad-platform-sync-run` DO need deploying for the changes above.
 
 ## Part 3 — Activation (a later, separate PR; only after both approvals)
 

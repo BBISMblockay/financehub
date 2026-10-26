@@ -21,6 +21,12 @@ on:
           per-post, not date-windowed, so days_back does NOT affect it. Each post
           costs one extra API request.
         required: false
+      fb_post_limit:
+        description: >-
+          Facebook Page posts to walk back through (default 25). Like Instagram,
+          this edge is per-post rather than date-windowed, so days_back does NOT
+          affect it. Meta caps the per-request limit at 100.
+        required: false
   schedule:
     # 10:30 UTC — ad platforms have finalized the prior day by then.
     # (The old note here said "runs before the 11:00 Shopify sync"; that sync
@@ -86,6 +92,7 @@ jobs:
       # the 2-hourly spend refresh skips it and the nightly/catch-up run it.
       ADS_SKIP_SEARCH_CONSOLE: ${{ (github.event.schedule == '0 */2 * * *' && 'true') || 'false' }}
       ADS_IG_POST_LIMIT: ${{ github.event.inputs.ig_post_limit || '' }}
+      ADS_FB_POST_LIMIT: ${{ github.event.inputs.fb_post_limit || '' }}
 
     steps:
       - name: Checkout repo

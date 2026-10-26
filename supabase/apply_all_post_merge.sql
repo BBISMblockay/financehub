@@ -19296,4 +19296,9 @@ $c$select (select count(*) from v_po_header_summary
 -- for this report was updated to match: otherwise a full re-run would end by
 -- putting the pre-units wording back.
 \i migrations/20261021200000_channel_report_units_and_slicer.sql
+-- Instagram account profile + account-level daily reach + Facebook Page posts.
+-- Independent of every other include: three new tables, no view or function
+-- touched. Before the catalog cleanup only because that must stay last
+-- (supabase/CLAUDE.md).
+\i migrations/20261026210000_meta_organic_profile_and_page_posts.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

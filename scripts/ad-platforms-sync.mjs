@@ -35,6 +35,10 @@ const DAYS_BACK = process.env.ADS_DAYS_BACK ? Number(process.env.ADS_DAYS_BACK) 
 // its own knob -- ADS_DAYS_BACK has no effect on it. Each post costs an extra
 // insights request, hence opt-in rather than a raised default.
 const IG_POST_LIMIT = process.env.ADS_IG_POST_LIMIT ? Number(process.env.ADS_IG_POST_LIMIT) : null;
+// Facebook Page posts are walked the same way and for the same reason: the
+// Page's own published content has no date window on this edge, and Meta caps
+// the per-request limit at 100. 25 is enough for the recent-posts card.
+const FB_POST_LIMIT = process.env.ADS_FB_POST_LIMIT ? Number(process.env.ADS_FB_POST_LIMIT) : null;
 // The hourly refresh exists to keep SPEND current. Organic is the expensive
 // half -- one insights request per Instagram post, 50 by default -- and post
 // engagement does not need hourly resolution, so the hourly cron skips it and
@@ -229,11 +233,11 @@ async function syncConnection(connection) {
           throw new SkipOrganic();
         }
         const organicResult = await runMetaOrganicSync(supabase, connection, {
-          daysBackOverride: runDaysBack, igPostLimit: IG_POST_LIMIT,
+          daysBackOverride: runDaysBack, igPostLimit: IG_POST_LIMIT, pagePostLimit: FB_POST_LIMIT,
         });
         result.organic = organicResult;
         if (organicResult.configured) {
-          console.log(`[ok] ${label}: organic ${organicResult.media_upserted} posts, ${organicResult.page_days_upserted} page-days`);
+          console.log(`[ok] ${label}: organic ${organicResult.media_upserted} posts, ${organicResult.page_days_upserted} page-days, ${organicResult.page_posts_upserted} page posts, ${organicResult.ig_account_days_upserted} ig account-days`);
           // A fetch that stops exactly on the cap means there is more history
           // behind it -- say so, rather than letting a truncated walk look complete.
           if (IG_POST_LIMIT && organicResult.media_fetched >= IG_POST_LIMIT) {
