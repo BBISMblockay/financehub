@@ -2493,5 +2493,181 @@ await test('the same report for two windows is two sources; the same call twice 
   eq(json.silo_reports_used.map((u) => u.parameters.date_from), ['2026-08-01', '2026-09-01'], 'both windows kept, the repeat collapsed');
 });
 
+
+// ── a server tool left unfinished by a cut-off turn ───────────────────────
+//
+// Live 400 on 2026-10-26 (req_011CgRJNeUFvPP8n3X1aboZ4). The hosted
+// web_search tool runs CODE EXECUTION server-side for its dynamic filtering,
+// so a response can carry a `server_tool_use` block named `code_execution`
+// that this function never asked for. While the turn finishes, that block
+// arrives paired with its result and replays fine. A turn cut short can end
+// on the use with no result -- and every continuation path here replays the
+// turn, which the API rejects:
+//   messages.1: `code_execution` tool use with id `srvtoolu_...` was found
+//   without a corresponding `code_execution_tool_result` block
+// These assert on the REQUEST BODIES, because that is where the defect lives:
+// the handler's own output was fine, the message it sent was not.
+
+console.log('\n-- an unfinished server tool use is never replayed --');
+
+const SRV_USE = { type: 'server_tool_use', id: 'srvtoolu_01', name: 'code_execution', input: { code: 'x' } };
+const SRV_RESULT = { type: 'code_execution_tool_result', tool_use_id: 'srvtoolu_01', content: { stdout: 'ok' } };
+
+/** Every server tool use the handler sent back that had no result beside it
+ *  AND was not the last thing in the request -- i.e. exactly what the API
+ *  400s on. An unfinished server tool use at the very end of the transcript
+ *  is the legal case: that is a paused turn being resumed, and it is the
+ *  block the API reads to know where to pick up. Read off every request body,
+ *  since any one of them failing is the bug. */
+function unpairedServerUses(sent) {
+  const out = [];
+  for (const body of sent) {
+    const msgs = body.messages || [];
+    for (const [i, m] of msgs.entries()) {
+      if (m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+      if (i === msgs.length - 1) continue;
+      const results = new Set(
+        m.content.filter((b) => typeof b?.type === 'string' && b.type.endsWith('_tool_result')).map((b) => b.tool_use_id),
+      );
+      for (const b of m.content) {
+        if (typeof b?.type === 'string' && b.type !== 'tool_use' && b.type.endsWith('tool_use') && !results.has(b.id)) {
+          out.push(b.id);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+await test('a max_tokens turn ending on an unfinished search is replayed without it', async () => {
+  const model = installModel([
+    { content: [{ type: 'text', text: 'Checking the web.' }, SRV_USE], stop_reason: 'max_tokens' },
+    say(' Sonic sold 1,200 units.'),
+  ]);
+  const { json } = await ask(BASIC);
+  eq(unpairedServerUses(model.sent), [], 'unfinished server tool uses sent back to the API');
+  eq(json.answer, 'Checking the web. Sonic sold 1,200 units.', 'the half already written is still kept');
+});
+
+await test('a finished search IS replayed whole -- the pair is not touched', async () => {
+  const model = installModel([
+    { content: [{ type: 'text', text: 'Checked.' }, SRV_USE, SRV_RESULT], stop_reason: 'max_tokens' },
+    say(' Done.'),
+  ]);
+  await ask(BASIC);
+  const replayed = model.sent[1].messages.find((m) => m.role === 'assistant');
+  eq(replayed.content.map((b) => b.type), ['text', 'server_tool_use', 'code_execution_tool_result'], 'replayed blocks');
+});
+
+await test('a turn that was ONLY an unfinished search sends no empty assistant message', async () => {
+  const model = installModel([
+    { content: [SRV_USE], stop_reason: 'end_turn' },
+    say('Sonic sold 1,200 units.'),
+  ]);
+  const { json } = await ask(BASIC);
+  eq(unpairedServerUses(model.sent), [], 'unfinished server tool uses sent back to the API');
+  for (const m of model.sent[1].messages) {
+    assert(!(Array.isArray(m.content) && m.content.length === 0), 'an empty message was sent, which is itself a 400');
+  }
+  eq(json.answer, 'Sonic sold 1,200 units.', 'answer');
+});
+
+await test('a client tool_use is never dropped as if it were a server one', async () => {
+  const model = installModel([
+    { content: [{ type: 'tool_use', id: 'tu_1', name: 'run_sql', input: { query: 'select 1' } }, SRV_USE], stop_reason: 'tool_use' },
+    say('Sales were $10.'),
+  ]);
+  const { json } = await ask(BASIC);
+  const replayed = model.sent[1].messages.find((m) => m.role === 'assistant');
+  eq(replayed.content.map((b) => b.type), ['tool_use'], 'the client tool_use survived, the orphan server use did not');
+  eq(json.answer, 'Sales were $10.', 'answer');
+});
+
+console.log('\n-- a paused turn is resumed, not restarted --');
+
+// pause_turn means Anthropic's own tool loop hit its iteration limit
+// mid-search. The turn resumes only if it goes back UNTOUCHED and with
+// nothing appended -- the trailing server tool use is what the API reads to
+// know where to pick up. Before this, a paused turn with no text fell into
+// the "that last response had no text in it" nudge, which both abandoned the
+// search and was the shape that 400'd.
+await test('a paused turn goes back untouched, with no instruction appended', async () => {
+  const model = installModel([
+    { content: [SRV_USE], stop_reason: 'pause_turn' },
+    say('Sonic sold 1,200 units.'),
+  ]);
+  const { json } = await ask(BASIC);
+  const sentMessages = model.sent[1].messages;
+  const last = sentMessages[sentMessages.length - 1];
+  eq(last.role, 'assistant', 'the resumed turn must be the last message');
+  eq(last.content.map((b) => b.type), ['server_tool_use'], 'the block the API resumes from must survive');
+  eq(json.answer, 'Sonic sold 1,200 units.', 'answer');
+});
+
+await test('text written before the pause is kept, not thrown away', async () => {
+  installModel([
+    { content: [{ type: 'text', text: 'Sonic orders are up.' }, SRV_USE], stop_reason: 'pause_turn' },
+    say(' Net units lag by 11%.'),
+  ]);
+  const { json } = await ask(BASIC);
+  eq(json.answer, 'Sonic orders are up. Net units lag by 11%.', 'answer');
+});
+
+// Three instructions can land in the one moment a paused turn is waiting to
+// be resumed -- the budget-exhausted final answer, the investigation
+// checkpoint, and the correction-round grant -- and any user message appended
+// after that turn recreates the original 400. These cover the two reachable
+// without a scripted query failure.
+await test('a second pause seals the first: one unfinished block, at the end, text kept', async () => {
+  const model = installModel([
+    { content: [{ type: 'text', text: 'Orders are up.' }, SRV_USE], stop_reason: 'pause_turn' },
+    { content: [{ type: 'text', text: ' Net units lag.' }, { ...SRV_USE, id: 'srvtoolu_02' }], stop_reason: 'pause_turn' },
+    say(' Plan the March drop at 80%.'),
+  ]);
+  const { json } = await ask(BASIC);
+  eq(unpairedServerUses(model.sent), [], 'unfinished server tool uses sent back to the API');
+  const assistants = model.sent[2].messages.filter((m) => m.role === 'assistant');
+  eq(assistants.map((m) => m.content.map((b) => b.type)), [['text'], ['text', 'server_tool_use']], 'only the last turn keeps its block');
+  eq(json.answer, 'Orders are up. Net units lag. Plan the March drop at 80%.', 'answer');
+});
+
+await test('a pause that runs out of rounds is sealed before the forced answer', async () => {
+  const paused = { content: [SRV_USE], stop_reason: 'pause_turn' };
+  const model = installModel([
+    ...Array.from({ length: MAX_TOOL_ROUNDS }, () => paused),
+    say('Here is what the searches did turn up.'),
+  ]);
+  const { res, json } = await ask(BASIC);
+  eq(unpairedServerUses(model.sent), [], 'unfinished server tool uses sent back to the API');
+  eq(res.status, 200, 'status');
+  assert(/Here is what the searches did turn up\./.test(json.answer), `answer: ${json.answer}`);
+});
+
+await test('a pause interrupted by the investigation checkpoint is sealed first', async () => {
+  await withClock(async (advance) => {
+    const model = installModel([
+      { content: [SRV_USE], stop_reason: 'pause_turn' },
+      say('Sonic sold 1,200 units.'),
+    ], () => advance(45_000));
+    const { json } = await ask(BASIC);
+    eq(checkpointMessages(model.sent[1]).length, 1, 'the checkpoint should still fire');
+    eq(unpairedServerUses(model.sent), [], 'unfinished server tool uses sent back to the API');
+    eq(json.answer, 'Sonic sold 1,200 units.', 'answer');
+  });
+});
+
+await test('a paused turn that also calls a client tool runs the tool as usual', async () => {
+  const model = installModel([
+    { content: [{ type: 'tool_use', id: 'tu_1', name: 'run_sql', input: { query: 'select 1' } }, SRV_USE], stop_reason: 'pause_turn' },
+    say('Sales were $10.'),
+  ]);
+  const { json } = await ask(BASIC);
+  eq(unpairedServerUses(model.sent), [], 'unfinished server tool uses sent back to the API');
+  const results = model.sent[1].messages[model.sent[1].messages.length - 1];
+  eq(results.content[0].type, 'tool_result', 'the client tool still got its result');
+  eq(json.answer, 'Sales were $10.', 'answer');
+});
+
+
 console.log(`\n${run - failures}/${run} passed`);
 process.exit(failures ? 1 : 0);
