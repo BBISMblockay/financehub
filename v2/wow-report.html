@@ -600,6 +600,16 @@
   const money  = v => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v));
   const money2 = v => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(Number(v));
   const intFmt = v => (v==null||!isFinite(v)) ? '—' : Math.round(Number(v)).toLocaleString();
+  // Same two formatters, for a figure that carries its own currency. Redo's
+  // contract is the reason they exist: attributed revenue is in the STORE's
+  // currency while the sending cost is always USD, so one tenant's report can
+  // hold both and rendering either with a bare '$' would be a different number
+  // than it says. An unrecognised code falls back to USD rather than throwing,
+  // because Intl rejects anything but three letters and a report must not go
+  // blank over a currency label.
+  const CUR = c => (/^[A-Za-z]{3}$/.test(c || '') ? String(c).toUpperCase() : 'USD');
+  const moneyIn  = (v, c) => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:CUR(c),maximumFractionDigits:0}).format(Number(v));
+  const money2In = (v, c) => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:CUR(c),maximumFractionDigits:2}).format(Number(v));
   const xFmt   = v => (v==null||!isFinite(v)) ? '—' : `${Number(v).toFixed(2)}x`;
   const iso    = d => d.toISOString().slice(0,10);
 
@@ -967,7 +977,10 @@
     if (!w?.start || !w?.end) return { data:null, error:null };
     let q = sb.from('redo_marketing_daily_v')
       .select('kind,redo_id,name,channel,subject,sent_at,sends,delivered,'
-            + 'unique_opens,unique_clicks,unsubscribes,orders,revenue,spend')
+            + 'unique_opens,unique_clicks,unsubscribes,orders,'
+            // Both currencies, because they are not the same one: revenue is
+            // the store's, spend is Redo's USD sending cost.
+            + 'revenue,revenue_currency,spend,spend_currency')
       .gte('day_date', w.start).lte('day_date', w.end)
       .order('day_date', { ascending:true })
       .range(0, REDO_ROW_CAP - 1);
@@ -981,12 +994,16 @@
     const byKind = { campaign:new Map(), automation:new Map() };
     (rows || []).forEach(r => {
       const bucket = byKind[r.kind]; if (!bucket) return;
-      const key = `${r.redo_id}|${r.channel}`;
+      // Currency is part of the key, not a label on the side: two rows in
+      // different currencies are not addable, and a silent sum across them
+      // would be a wrong number that looks like a right one.
+      const key = `${r.redo_id}|${r.channel}|${r.revenue_currency || ''}|${r.spend_currency || ''}`;
       let g = bucket.get(key);
       if (!g){
         g = { redo_id:r.redo_id, name:r.name, subject:r.subject, channel:r.channel,
-              sent_at:r.sent_at, sends:0, delivered:0, opens:0, clicks:0,
-              unsubs:0, orders:0, revenue:0, spend:0 };
+              sent_at:r.sent_at, revenue_currency:r.revenue_currency,
+              spend_currency:r.spend_currency, sends:0, delivered:0, opens:0,
+              clicks:0, unsubs:0, orders:0, revenue:0, spend:0 };
         bucket.set(key, g);
       }
       g.sends     += Number(r.sends || 0);
@@ -1398,7 +1415,16 @@
   async function load(opts){
     setStatus('Loading…');
     try {
-      if (opts?.companyResolved !== true) await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+      // ASSIGNED, not merely awaited. `_co` is what the Redo read's explicit
+      // company filter and the entry load/save use, and it used to keep the
+      // value boot() resolved for the life of the tab. Switching the active
+      // company in another tab and pressing Refresh then left the RPCs reading
+      // the new company through active_company_id() while anything filtered on
+      // `_co` asked for the old one -- an intersection of two tenants, which
+      // is zero rows and reads as "no activity" rather than as a stale filter.
+      if (opts?.companyResolved !== true) {
+        _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+      }
       // One grain for every call. If these were allowed to drift, the KPI band
       // and the funnel below it would describe different periods while looking
       // like one report.
@@ -1657,17 +1683,26 @@
             ? `top ${intFmt(shown.length)} of ${intFmt(rows.length)} by credited revenue · message × channel`
             : `${intFmt(rows.length)} ${kindLabel} · message × channel`)
         : `no ${kindLabel} in window`;
+      // Counts add across everything; money adds only within one currency, so
+      // each currency gets its own figure. One currency is the normal case and
+      // reads exactly as before.
       const t = rows.reduce((a, g) => {
         a.delivered += g.delivered; a.opens += g.opens; a.clicks += g.clicks;
-        a.orders += g.orders; a.revenue += g.revenue; a.spend += g.spend;
+        a.orders += g.orders;
+        const rc = CUR(g.revenue_currency), sc = CUR(g.spend_currency);
+        a.revenue[rc] = (a.revenue[rc] || 0) + g.revenue;
+        a.spend[sc] = (a.spend[sc] || 0) + g.spend;
         return a;
-      }, { delivered:0, opens:0, clicks:0, orders:0, revenue:0, spend:0 });
+      }, { delivered:0, opens:0, clicks:0, orders:0, revenue:{}, spend:{} });
+      const perCur = (totals, fmt) => Object.entries(totals)
+        .sort((a, b) => b[1] - a[1])
+        .map(([cur, v]) => fmt(v, cur)).join(' · ') || '—';
       if (tot) tot.innerHTML = rows.length
         ? `<span style="display:flex;gap:18px;flex-wrap:wrap;text-transform:none;letter-spacing:0">`
           + `<span>Delivered <b>${intFmt(t.delivered)}</b></span>`
           + `<span>Orders <b>${intFmt(t.orders)}</b></span>`
-          + `<span>Revenue credited by Redo <b>${money(t.revenue)}</b></span>`
-          + `<span>Sending cost <b>${money2(t.spend)}</b></span>`
+          + `<span>Revenue credited by Redo <b>${perCur(t.revenue, moneyIn)}</b></span>`
+          + `<span>Sending cost <b>${perCur(t.spend, money2In)}</b></span>`
           + `</span>`
         : '';
       body.innerHTML = shown.length ? shown.map(g => {
@@ -1680,12 +1715,12 @@
           ? `<tr><td title="${esc(g.subject || '')}">${esc(name)}</td>${chan}
              <td>${sent}</td><td>${intFmt(g.delivered)}</td><td>${open}</td>
              <td>${rate(g.clicks, g.delivered)}</td><td>${rate(g.orders, g.delivered)}</td>
-             <td>${g.delivered > 0 ? money2(g.revenue / g.delivered) : '<span class="dim">—</span>'}</td>
-             <td>${money(g.revenue)}</td><td>${rate(g.unsubs, g.delivered)}</td></tr>`
+             <td>${g.delivered > 0 ? money2In(g.revenue / g.delivered, g.revenue_currency) : '<span class="dim">—</span>'}</td>
+             <td>${moneyIn(g.revenue, g.revenue_currency)}</td><td>${rate(g.unsubs, g.delivered)}</td></tr>`
           : `<tr><td>${esc(name)}</td>${chan}
              <td>${intFmt(g.sends)}</td><td>${intFmt(g.delivered)}</td><td>${open}</td>
              <td>${rate(g.clicks, g.delivered)}</td><td>${intFmt(g.orders)}</td>
-             <td>${money(g.revenue)}</td><td>${money2(g.spend)}</td>
+             <td>${moneyIn(g.revenue, g.revenue_currency)}</td><td>${money2In(g.spend, g.spend_currency)}</td>
              <td>${rate(g.unsubs, g.delivered)}</td></tr>`;
       }).join('') : `<tr><td class="wow-empty" colspan="${cols}">No ${kindLabel} with activity in this window.</td></tr>`;
     };
@@ -2370,19 +2405,23 @@
       const rd = REDO;
       section('REDO — campaigns (email / SMS)');
       push('Campaign','Channel','Sent','Delivered','Opens','Clicks','Orders',
-           'Revenue credited by Redo','Unsubscribes','Subject');
+           'Revenue credited by Redo','Revenue currency','Unsubscribes','Subject');
       (rd.campaigns || []).forEach(g => push(g.name || g.redo_id, g.channel,
         g.sent_at ? String(g.sent_at).slice(0,10) : '', g.delivered, g.opens,
-        g.clicks, g.orders, g.revenue, g.unsubs, g.subject ?? ''));
+        g.clicks, g.orders, g.revenue, CUR(g.revenue_currency), g.unsubs, g.subject ?? ''));
       section('REDO — automations (email / SMS)');
       push('Automation','Channel','Sends','Delivered','Opens','Clicks','Orders',
-           'Revenue credited by Redo','Sending cost','Unsubscribes');
+           'Revenue credited by Redo','Revenue currency','Sending cost',
+           'Sending cost currency','Unsubscribes');
       (rd.automations || []).forEach(g => push(g.name || g.redo_id, g.channel,
-        g.sends, g.delivered, g.opens, g.clicks, g.orders, g.revenue, g.spend, g.unsubs));
+        g.sends, g.delivered, g.opens, g.clicks, g.orders, g.revenue,
+        CUR(g.revenue_currency), g.spend, CUR(g.spend_currency), g.unsubs));
       // Counts, not rates: a rate belongs to a window, and a spreadsheet that
       // re-slices these rows would divide the wrong things. Open rate =
       // sum(opens)/sum(delivered) over whatever is being pooled; SMS has no
-      // opens. Revenue is credited by Redo, not incremental sales.
+      // opens. Revenue is credited by Redo, not incremental sales, and it
+      // carries its own currency -- the sending cost's is Redo's, always USD,
+      // so the two columns must not be added together.
       if (REDO_TRUNCATED) push(`PARTIAL: first ${REDO_ROW_CAP} rows only`);
     }
 

@@ -30,6 +30,8 @@
  *   WOW_REDO_MUTATION=zero-rate       (delivered 0 reads 0% instead of --)
  *   WOW_REDO_MUTATION=sms-opens       (SMS gets a real open rate)
  *   WOW_REDO_MUTATION=no-cap          (the row guard is removed)
+ *   WOW_REDO_MUTATION=usd-always      (every figure formatted as USD)
+ *   WOW_REDO_MUTATION=stale-company   (_co is not reassigned on a reload)
  *
  * Run:  node scripts/tests/wow-redo-marketing.test.mjs
  */
@@ -39,7 +41,8 @@ import vm from 'node:vm';
 
 const PAGE = new URL('../../v2/wow-report.html', import.meta.url);
 const mutation = process.env.WOW_REDO_MUTATION || '';
-assert.ok(['', 'per-day-rates', 'ignore-channel', 'zero-rate', 'sms-opens', 'no-cap'].includes(mutation),
+assert.ok(['', 'per-day-rates', 'ignore-channel', 'zero-rate', 'sms-opens', 'no-cap',
+  'usd-always', 'stale-company'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 const pristine = await readFile(PAGE, 'utf8');
@@ -58,6 +61,15 @@ if (mutation === 'ignore-channel') {
     '        const open = rate(g.opens, g.delivered);');
 } else if (mutation === 'no-cap') {
   html = html.replace('      .range(0, REDO_ROW_CAP - 1);', '      ;');
+} else if (mutation === 'usd-always') {
+  html = html.replace(/moneyIn\(([^)]*), g\.revenue_currency\)/g, 'money($1)')
+             .replace('money2In(g.spend, g.spend_currency)', 'money2(g.spend)')
+             .replace('money2In(g.revenue / g.delivered, g.revenue_currency)',
+                      'money2(g.revenue / g.delivered)');
+} else if (mutation === 'stale-company') {
+  html = html.replace(
+    '        _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;',
+    '        await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);');
 } else if (mutation === 'per-day-rates') {
   // Average each day's own rate instead of pooling the counts, which is the
   // mistake the view's own catalog entry warns about.
@@ -116,6 +128,16 @@ const FIXTURE = [
   row({ redo_id: 'quiet', name: 'Nothing happened' }),
 ];
 
+// The currency helpers are lifted too, not restated: Redo's contract is that
+// attributed revenue is in the STORE's currency while the sending cost is
+// always USD, so one report can hold both and a bare '$' on either would be a
+// different number than it says.
+const HELPERS = ['CUR', 'moneyIn', 'money2In'].map((n) => {
+  const m = html.match(new RegExp(`\\n  const ${n}\\s*=.*`));
+  assert.ok(m, `${n} not found in wow-report.html`);
+  return m[0];
+}).join('\n');
+
 function makeSandbox() {
   const nodes = new Map();
   const node = (id) => {
@@ -136,7 +158,8 @@ function makeSandbox() {
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
-  new vm.Script(`${lift('groupRedo')}\n${lift('renderRedo')}\n${lift('fetchRedo')}`).runInContext(sandbox);
+  new vm.Script(`${HELPERS}\n${lift('groupRedo')}\n${lift('renderRedo')}\n${lift('fetchRedo')}`)
+    .runInContext(sandbox);
   return sandbox;
 }
 
@@ -235,7 +258,8 @@ assert.equal(grouped.campaigns.map((g) => g.redo_id).join(','), 'c0,c1s,c1',
   const totals = s3.nodes.get('redoCampTotals').innerHTML;
   // Every group's revenue, including the ones below the cut.
   const all = many.reduce((a, r) => a + r.revenue, 0);
-  assert.match(totals, new RegExp(`\\$${all}`), 'the totals must cover every group, not the drawn ones');
+  assert.match(totals, new RegExp(`\\$${all.toLocaleString('en-US')}`),
+    'the totals must cover every group, not the drawn ones');
 }
 
 // 7. The read itself: the window, the company and the guard.
@@ -270,6 +294,124 @@ assert.equal(grouped.campaigns.map((g) => g.redo_id).join(','), 'c0,c1s,c1',
   const r = await vm.runInContext('fetchRedo(null)', s5);
   assert.equal(used, false, 'no window means no read');
   assert.equal(r.data, null); assert.equal(r.error, null);
+}
+
+// 9. Two currencies in one report. Redo's revenue is the STORE's currency and
+//    its sending cost is always USD, so neither may be rendered with a bare
+//    '$' and amounts in different currencies may never be added.
+{
+  const s6 = makeSandbox();
+  const CAD = [
+    row({ redo_id: 'cad', name: 'CAD campaign', revenue_currency: 'CAD', spend_currency: 'USD',
+          delivered: 100, unique_clicks: 10, orders: 2, revenue: 500, spend: 1.25 }),
+    row({ redo_id: 'usd', name: 'USD campaign', revenue_currency: 'USD', spend_currency: 'USD',
+          delivered: 100, unique_clicks: 10, orders: 2, revenue: 400, spend: 2 }),
+    // The same message with rows in two currencies must split, not sum.
+    row({ redo_id: 'both', name: 'Switched currency', revenue_currency: 'USD', spend_currency: 'USD',
+          delivered: 10, revenue: 10 }),
+    row({ redo_id: 'both', name: 'Switched currency', revenue_currency: 'CAD', spend_currency: 'USD',
+          delivered: 10, revenue: 20 }),
+    row({ kind: 'automation', redo_id: 'acad', name: 'CAD automation', sent_at: null,
+          revenue_currency: 'CAD', spend_currency: 'USD',
+          sends: 10, delivered: 10, orders: 1, revenue: 90, spend: 0.5 }),
+  ];
+  s6.REDO = vm.runInContext('groupRedo(__rows)', Object.assign(s6, { __rows: CAD }));
+  assert.equal(s6.REDO.campaigns.filter((g) => g.redo_id === 'both').length, 2,
+    'one message with rows in two currencies must be two groups, never one sum');
+  vm.runInContext('renderRedo()', s6);
+  const camp = s6.nodes.get('redoCampBody').innerHTML;
+  const cadRow = camp.split('<tr>').find((r) => /CAD campaign/.test(r));
+  assert.match(cadRow, /CA\$500/, 'CAD revenue must be rendered as CAD, not as a bare $');
+  const usdRow = camp.split('<tr>').find((r) => /USD campaign/.test(r));
+  assert.match(usdRow, /\$400/, 'USD revenue must still render as USD');
+  assert.ok(!/CA\$/.test(usdRow), 'a USD row must not be labelled CAD');
+  // The totals carry each currency on its own; 500 + 400 is not a number.
+  const totals = s6.nodes.get('redoCampTotals').innerHTML;
+  assert.match(totals, /CA\$520/, "the CAD revenue total must be CAD's own sum (500 + 20)");
+  assert.match(totals, /\$410/, "the USD revenue total must be USD's own sum (400 + 10)");
+  assert.ok(!/\$930|\$920/.test(totals), 'revenue must never be summed across currencies');
+  // The sending cost is Redo's, always USD, even next to CAD revenue.
+  const autoRow = s6.nodes.get('redoAutoBody').innerHTML;
+  assert.match(autoRow, /CA\$90/, 'the automation revenue must be CAD');
+  assert.match(autoRow, /\$0\.50/, 'the sending cost must be USD beside CAD revenue');
+  assert.ok(!/CA\$0\.50/.test(autoRow), 'the sending cost must never be labelled CAD');
+  // An unrecognised code must fall back rather than throw -- Intl rejects
+  // anything but three letters, and a report must not go blank over a label.
+  const s7 = makeSandbox();
+  s7.REDO = vm.runInContext('groupRedo(__rows)', Object.assign(s7, {
+    __rows: [row({ redo_id: 'junk', name: 'No currency', revenue_currency: null,
+                   delivered: 5, revenue: 7 })],
+  }));
+  vm.runInContext('renderRedo()', s7);
+  assert.match(s7.nodes.get('redoCampBody').innerHTML, /\$7/,
+    'a missing currency code must fall back to USD rather than blanking the card');
+}
+
+// 10. The company the Redo read asks for must be the one THIS load resolved.
+//     load() re-resolves the active company on every reload (a company
+//     switched in another tab must not leave the page on the previous
+//     tenant), and the Redo read carries an explicit company filter -- so if
+//     the resolve is not assigned back, the RPCs read the new tenant through
+//     active_company_id() while the Redo filter asks for the old one. RLS
+//     intersects those, which is zero rows: "no Redo activity" for a company
+//     that has plenty.
+{
+  const loadSrc = lift('load');
+  const asked = [];
+  // boot() resolved company A and told the first load so; the only resolve
+  // load() itself performs is the reload's, and by then the active company has
+  // been switched to B in another tab.
+  const resolved = [{ id: 'company-B' }];
+  let resolveN = 0;
+  const q = {
+    select(){ return q; }, gte(){ return q; }, lte(){ return q; },
+    order(){ return q; }, range(){ return q; },
+    eq(col, v){ if (col === 'company_entity_id') asked.push(v); return q; },
+    then(res){ return Promise.resolve({ data: [], error: null }).then(res); },
+  };
+  const sandbox = {
+    console: { warn() {}, error() {}, log() {} },
+    sb: {
+      async rpc(fn){
+        return fn === 'wow_report'
+          ? { data: { window: { start: '2026-10-19', end: '2026-10-25' } }, error: null }
+          : { data: {}, error: null };
+      },
+      from(){ return q; },
+    },
+    el: () => ({ value: '2026-10-25', textContent: '', classList: { add() {}, remove() {} } }),
+    setStatus() {},
+    GRAIN: 'week',
+    FAILED: new Set(),
+    DATA: null, KPI: null, FUNNEL: null, PAID: null, REALITY: null,
+    LANDING: null, CODES: null, COHORTS: null, ORGANIC: null,
+    CREATIVES: null, CRE_SHOWN: null, DATA_THROUGH: null,
+    REDO: null, REDO_TRUNCATED: false, REDO_ROW_CAP, REDO_SHOW,
+    _co: { id: 'company-A' },
+    groupRedo: () => ({ campaigns: [], automations: [] }),
+    render() {}, buildManual() {}, renderCohorts() {}, initCollapse() {},
+    async loadEntry() {},
+    window: { __SILO_CONFIG__: {
+      ensureActiveCompany: async () => resolved[Math.min(resolveN++, resolved.length - 1)],
+    } },
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  new vm.Script(`${lift('fetchRedo')}
+${loadSrc}`).runInContext(sandbox);
+
+  // First load: boot() has just resolved the company itself, so load() does
+  // not re-resolve -- and must use what boot resolved.
+  await vm.runInContext('load({ companyResolved: true })', sandbox);
+  assert.equal(asked[0], 'company-A', 'the first load must read the company boot resolved');
+
+  // Reload after a switch in another tab: the resolve returns B, so the Redo
+  // read must ask for B.
+  await vm.runInContext('load()', sandbox);
+  assert.equal(asked[1], 'company-B',
+    `a reload must read the company it just resolved, not the boot-time one (asked ${asked.join(', ')})`);
+  assert.equal(sandbox._co.id, 'company-B',
+    'the resolved company must be assigned back, since the entry load and save read it too');
 }
 
 console.log('wow-redo-marketing: all assertions passed');
