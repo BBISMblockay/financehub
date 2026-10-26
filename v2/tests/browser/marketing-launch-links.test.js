@@ -12,7 +12,11 @@ const R = createReporter('marketing-launch-links');
     const link = { id:'link-1', launch_id:'launch-1', company_entity_id:'test-company',
       link_type:'campaign', ref_table:'meta_ad_creatives', ref_id:'ad-1', ref_label:'Sonic video' };
     const tables = {
-      marketing_kpis_daily: [{id:'kpi-1',company_entity_id:'test-company',platform:'meta_ads',day_date:today,campaign_id:'campaign-1',campaign_name:'Sonic campaign',spend:100,impressions:1000,clicks:20,conversions:2,conversion_value:200}], v_marketing_mer_daily: [], instagram_media_insights: [], facebook_page_insights_daily: [],
+      marketing_kpis_daily: [{id:'kpi-1',company_entity_id:'test-company',platform:'meta_ads',day_date:today,campaign_id:'campaign-1',campaign_name:'Sonic campaign',spend:100,impressions:1000,clicks:20,conversions:2,conversion_value:200}], v_marketing_mer_daily: [], facebook_page_insights_daily: [],
+      instagram_media_insights: [{company_entity_id:'test-company',media_id:'m1',media_type:'IMAGE',caption:'Sonic reel',permalink:'https://instagram.com/p/x',posted_at:today,views:900,reach:700,likes:30,comments:4,shares:2,saved:1}],
+      instagram_account_profile: [{company_entity_id:'test-company',ig_user_id:'ig1',username:'demoshop',name:'Demo Shop',biography:'bio',followers_count:1234,media_count:56,views_window:4321,accounts_engaged_window:77,total_interactions_window:88,window_start:today,window_end:today}],
+      instagram_account_insights_daily: [{id:'iga-1',company_entity_id:'test-company',day_date:today,reach:900}],
+      facebook_page_posts: [{company_entity_id:'test-company',post_id:'p1_1',message:'Opening day',permalink:'https://facebook.com/p1_1',posted_at:today,likes:7,comments:2,shares:1}],
       redo_marketing_daily_v: [{company_entity_id:'test-company',kind:'campaign',redo_id:'redo-1',name:'Sonic email',channel:'EMAIL',day_date:today,sends:500,orders:4,revenue:190,revenue_currency:'USD'}],
       meta_ad_performance_daily: [
         { id:'perf-1', company_entity_id:'test-company', day_date:today, ad_id:'ad-1', ad_name:'Sonic video', campaign_name:'Sonic', spend:100, impressions:1000, clicks:20, conversions:2, conversion_value:200 },
@@ -116,6 +120,40 @@ const R = createReporter('marketing-launch-links');
     await focusedMessage.click('[data-link-source="redo_marketing_messages"][data-link-id="campaign:redo-1"]');
     R.ok('Redo duplicate excluded',await focusedMessage.locator('#creativeLaunchSave').isDisabled());
     await focusedMessage.close();
+
+    // ── Organic tab: the Instagram ACCOUNT and the Page's own posts ──────────
+    // Added 2026-10-26. Before this, the tab showed posts with nothing naming
+    // the account they belong to, and said nothing about what the Page
+    // published -- the three gaps Meta's App Review rejected.
+    const organic=await suite.open('/v2/marketing-overview.html',tables,{ready});
+    await organic.click('[data-tab="organic"]');
+    R.has(await organic.textContent('#igAccountMeta'),'@demoshop','the Instagram handle names the account above its posts');
+    R.ok('account stats shown',await organic.locator('#igStats').isVisible());
+    R.eq(await organic.textContent('#igFollowers'),'1,234','followers');
+    R.eq(await organic.textContent('#igPosts'),'56','post count');
+    R.eq(await organic.textContent('#igReach'),'900','ACCOUNT-level reach, not the sum of the posts\' reach');
+    R.eq(await organic.textContent('#igViews'),'4,321','window total views');
+    // A total_value metric is a total over a WINDOW; showing it without the
+    // window it covers is wrong by however wide that window is.
+    R.has(await organic.textContent('#igViewsSub'),today,'the window the total covers is shown with it');
+    R.has(await organic.locator('#fbPostsBody').innerText(),'Opening day','the Page\'s own published post');
+    R.ok('Page post links out',(await organic.locator('#fbPostsBody a[href="https://facebook.com/p1_1"]').count())===1);
+    await organic.close();
+
+    // The page merges BEFORE its migration is applied, so for that gap the
+    // three tables do not exist. The Organic tab must still load and keep its
+    // empty states rather than breaking.
+    const preMigration=await suite.open('/v2/marketing-overview.html',tables,{
+      ready,broken:['instagram_account_profile','instagram_account_insights_daily','facebook_page_posts'],
+    });
+    await preMigration.click('[data-tab="organic"]');
+    R.ok('Organic tab still renders without the new tables',await preMigration.locator('[data-panel="organic"]').isVisible());
+    R.ok('account stats stay hidden',await preMigration.locator('#igStats').isHidden());
+    R.eq(await preMigration.textContent('#igAccountMeta'),'','no account header without the table');
+    R.has(await preMigration.locator('#fbPostsBody').innerText(),'No Page posts yet','Page posts keep their empty state');
+    // The card that existed before the migration is unaffected by its absence.
+    R.has(await preMigration.locator('#organicBody').innerText(),'Sonic reel','the existing Instagram posts card still loads');
+    await preMigration.close();
 
     tables.launch_system_links=[];
     const beforeMigration=await suite.open('/v2/marketing-overview.html',tables,{

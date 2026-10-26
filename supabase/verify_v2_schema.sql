@@ -187,7 +187,13 @@ select
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='meta_ad_creatives') then 'ok' else 'MISSING' end as meta_ad_creatives,
   case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='marketing_kpis_daily' and column_name='view_content') then 'ok' else 'MISSING' end as meta_funnel_events_columns,
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='instagram_media_insights') then 'ok' else 'MISSING' end as instagram_media_insights,
-  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='facebook_page_insights_daily') then 'ok' else 'MISSING' end as facebook_page_insights_daily;
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='facebook_page_insights_daily') then 'ok' else 'MISSING' end as facebook_page_insights_daily,
+  -- 20261026210000: the Instagram account itself, its account-level reach, and
+  -- the Page's own published posts. Everything above them is per-POST or
+  -- per-day; none of it named the account or showed what the Page published.
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='instagram_account_profile') then 'ok' else 'MISSING' end as instagram_account_profile,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='instagram_account_insights_daily') then 'ok' else 'MISSING' end as instagram_account_insights_daily,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='facebook_page_posts') then 'ok' else 'MISSING' end as facebook_page_posts;
 
 -- 7d. Redo returns integration (20260812120000_redo_returns_integration.sql)
 select

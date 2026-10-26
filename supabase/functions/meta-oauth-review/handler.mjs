@@ -40,6 +40,15 @@ export const REVIEW_ACTIONS = ['status', 'list_assets', 'select_assets', 'verify
 export const PROBE_PAGE_METRICS = ['page_media_view', 'page_total_media_view_unique', 'page_post_engagements'];
 /** Instagram media insights metrics: the sync's own request (pinned likewise). */
 export const PROBE_IG_METRICS = 'views,reach,shares,saved';
+/** Instagram ACCOUNT fields: IG_PROFILE_FIELDS in
+ *  scripts/lib/ad-platforms-sync-core.mjs (pinned equal by the same test). */
+export const PROBE_IG_PROFILE_FIELDS = 'username,name,biography,followers_count,media_count';
+/** Instagram account-level total_value metrics: the sync's own request. `reach`
+ *  is asked for separately because it is the one account metric Meta still
+ *  serves as a time series. */
+export const PROBE_IG_ACCOUNT_METRICS = 'views,accounts_engaged,total_interactions';
+/** Facebook Page post fields: PAGE_POST_FIELDS in the sync core (pinned). */
+export const PROBE_PAGE_POST_FIELDS = 'message,permalink_url,created_time,full_picture,shares,likes.summary(true),comments.summary(true)';
 /** Discovery fields: test-ad-platform-connection's own requests (pinned likewise). */
 export const AD_ACCOUNT_FIELDS = 'id,name,currency';
 export const PAGE_FIELDS = 'id,name,instagram_business_account{id,username}';
@@ -117,6 +126,13 @@ export function createReviewHandler({ env, admin, fetchImpl, checkMfa, now = () 
     };
   }
 
+  /* Every row carries the ASSET IT BELONGS TO, not just a numeric id buried in
+   * an endpoint string. Meta's App Review rejected five permissions on
+   * 2026-10-26 because the screencast showed metrics the reviewer could not
+   * attribute to a Page or an Instagram account ("we see metrics but cannot
+   * confirm which Page they belong to"). The identity comes back with the
+   * checks, from the same calls that read the data, so the page can head each
+   * section with it and the reviewer can see the two together. */
   async function verify(conn) {
     const token = conn.access_token;
     const out = [];
@@ -124,56 +140,162 @@ export function createReviewHandler({ env, admin, fetchImpl, checkMfa, now = () 
     const act = conn.meta_ad_account_id;
     const page = conn.facebook_page_id;
     const ig = conn.instagram_business_account_id;
+    const assets = { ad_account: null, page: null, instagram: null };
 
     if (act) {
       const a = await getGraph(graph(act, { fields: 'id,name,currency,account_status', access_token: token }));
+      if (a.ok) assets.ad_account = { id: String(act), name: a.data.name ?? null, currency: a.data.currency ?? null };
       add('ads_read', `GET /${act}?fields=id,name,currency,account_status`, a, a.ok ? { name: a.data.name ?? null, currency: a.data.currency ?? null, account_status: a.data.account_status ?? null } : null);
       const ins = await getGraph(graph(`${act}/insights`, { fields: 'spend,impressions,clicks', date_preset: 'last_30d', access_token: token }));
       const row = ins.ok ? (ins.data.data ?? [])[0] ?? null : null;
       add('ads_read', `GET /${act}/insights?fields=spend,impressions,clicks&date_preset=last_30d`, ins,
-        ins.ok ? { spend: row?.spend ?? null, impressions: row?.impressions ?? null, clicks: row?.clicks ?? null, rows: (ins.data.data ?? []).length } : null);
+        ins.ok ? { ad_account: assets.ad_account?.name ?? String(act), spend: row?.spend ?? null, impressions: row?.impressions ?? null, clicks: row?.clicks ?? null, rows: (ins.data.data ?? []).length } : null);
     } else add('ads_read', 'GET /{ad-account}', 'skip', 'No ad account selected');
 
     const pl = await getGraph(graph('me/accounts', { fields: 'id,name', limit: '50', access_token: token }));
     add('pages_show_list', 'GET /me/accounts?fields=id,name', pl,
-      pl.ok ? { pages: (pl.data.data ?? []).length, selected_page_listed: page ? (pl.data.data ?? []).some((p) => String(p.id) === String(page)) : null } : null);
+      pl.ok ? {
+        pages: (pl.data.data ?? []).length,
+        page_names: (pl.data.data ?? []).map((p) => p.name ?? String(p.id)),
+        selected_page_listed: page ? (pl.data.data ?? []).some((p) => String(p.id) === String(page)) : null,
+      } : null);
 
     let pageToken = null;
     if (page) {
+      // Name and follower count in ONE call: the Page's identity has to be on
+      // screen beside its numbers, and a second request for the name would be
+      // one more thing to fail between the two.
+      const pn = await getGraph(graph(page, { fields: 'id,name,fan_count', access_token: token }));
+      if (pn.ok) assets.page = { id: String(page), name: pn.data.name ?? null, fan_count: pn.data.fan_count ?? null };
+      add('pages_read_engagement', `GET /${page}?fields=id,name,fan_count`, pn,
+        pn.ok ? { page: pn.data.name ?? String(page), fan_count: pn.data.fan_count ?? null } : null);
+
       const pt = await getGraph(graph(page, { fields: 'access_token', access_token: token }));
       pageToken = pt.ok ? pt.data.access_token ?? null : null;
       // The Page token itself is never returned: only whether one was issued.
       add('pages_read_engagement', `GET /${page}?fields=access_token`, pt.ok && !pageToken ? { ok: false, error: 'No Page access token issued' } : pt,
-        { page_token_issued: Boolean(pageToken) });
-      const fc = await getGraph(graph(page, { fields: 'fan_count', access_token: token }));
-      add('pages_read_engagement', `GET /${page}?fields=fan_count`, fc, fc.ok ? { fan_count: fc.data.fan_count ?? null } : null);
+        { page: assets.page?.name ?? String(page), page_token_issued: Boolean(pageToken) });
+
+      // The Page's OWN published content. /published_posts, not /feed: feed
+      // also returns posts made by VISITORS and needs pages_read_user_content,
+      // which SILO does not hold. This is the read the nightly sync now makes
+      // into facebook_page_posts, so what the reviewer sees here is what the
+      // product stores.
+      if (pageToken) {
+        const pp = await getGraph(graph(`${page}/published_posts`, {
+          fields: `id,${PROBE_PAGE_POST_FIELDS}`, limit: '3', access_token: pageToken,
+        }));
+        add('pages_read_engagement', `GET /${page}/published_posts?fields=${PROBE_PAGE_POST_FIELDS}&limit=3`, pp,
+          pp.ok ? {
+            page: assets.page?.name ?? String(page),
+            posts: (pp.data.data ?? []).map((p) => ({
+              id: p.id,
+              posted_at: p.created_time ?? null,
+              message: typeof p.message === 'string' ? p.message.slice(0, 120) : null,
+              permalink: p.permalink_url ?? null,
+              likes: p.likes?.summary?.total_count ?? null,
+              comments: p.comments?.summary?.total_count ?? null,
+              shares: p.shares?.count ?? null,
+            })),
+          } : null);
+      } else {
+        add('pages_read_engagement', `GET /${page}/published_posts`, 'skip',
+          'No Page access token issued — the System User is not assigned to this Page');
+      }
+
       const until = isoDay(now() - 86400000);
       const since = isoDay(now() - 7 * 86400000);
       const pi = await getGraph(graph(`${page}/insights`, {
         metric: PROBE_PAGE_METRICS.join(','), period: 'day', since, until, access_token: pageToken || token,
       }));
+      // The VALUES, not a count of them. This row used to report
+      // `{metric, points: 7}`, which is why the reviewer said the metrics were
+      // not tied to a Page: there were no metrics on screen at all, only a
+      // tally of how many had come back. Zero values are fine -- Meta's own
+      // note says so -- as long as they are labelled.
       add('read_insights', `GET /${page}/insights?metric=${PROBE_PAGE_METRICS.join(',')}&period=day&since=${since}&until=${until}`, pi,
-        pi.ok ? { series: (pi.data.data ?? []).map((s) => ({ metric: s.name, points: (s.values ?? []).length })) } : null);
+        pi.ok ? {
+          page: assets.page?.name ?? String(page),
+          series: (pi.data.data ?? []).map((s) => ({
+            metric: s.name,
+            days: (s.values ?? []).map((v) => ({ day: String(v.end_time || '').slice(0, 10), value: v.value ?? null })),
+          })),
+        } : null);
     } else {
-      add('pages_read_engagement', 'GET /{page}?fields=access_token|fan_count', 'skip', 'No Page selected');
+      add('pages_read_engagement', 'GET /{page}?fields=id,name,fan_count|access_token|published_posts', 'skip', 'No Page selected');
       add('read_insights', 'GET /{page}/insights', 'skip', 'No Page selected');
     }
 
     if (ig) {
-      const media = await getGraph(graph(`${ig}/media`, { fields: 'id,media_type,timestamp,permalink', limit: '3', access_token: token }));
+      // The ACCOUNT, before its posts: @handle, name, bio, followers, post
+      // count. "We were unable to verify basic profile access" was the
+      // instagram_basic rejection, and this is the read that answers it. It is
+      // also what the nightly sync now stores in instagram_account_profile.
+      const prof = await getGraph(graph(ig, { fields: `id,${PROBE_IG_PROFILE_FIELDS}`, access_token: token }));
+      if (prof.ok) assets.instagram = { id: String(ig), username: prof.data.username ?? null, name: prof.data.name ?? null };
+      add('instagram_basic', `GET /${ig}?fields=${PROBE_IG_PROFILE_FIELDS}`, prof,
+        prof.ok ? {
+          username: prof.data.username ?? null,
+          name: prof.data.name ?? null,
+          biography: prof.data.biography ?? null,
+          followers_count: prof.data.followers_count ?? null,
+          media_count: prof.data.media_count ?? null,
+        } : null);
+
+      const media = await getGraph(graph(`${ig}/media`, { fields: 'id,media_type,caption,timestamp,permalink,like_count,comments_count', limit: '3', access_token: token }));
       const items = media.ok ? media.data.data ?? [] : [];
-      add('instagram_basic', `GET /${ig}/media?fields=id,media_type,timestamp,permalink&limit=3`, media,
-        media.ok ? { media: items.map((m) => ({ id: m.id, media_type: m.media_type ?? null, timestamp: m.timestamp ?? null, permalink: m.permalink ?? null })) } : null);
+      add('instagram_basic', `GET /${ig}/media?fields=id,media_type,caption,timestamp,permalink,like_count,comments_count&limit=3`, media,
+        media.ok ? {
+          account: assets.instagram?.username ? `@${assets.instagram.username}` : String(ig),
+          media: items.map((m) => ({
+            id: m.id, media_type: m.media_type ?? null, timestamp: m.timestamp ?? null,
+            caption: typeof m.caption === 'string' ? m.caption.slice(0, 120) : null,
+            permalink: m.permalink ?? null, likes: m.like_count ?? null, comments: m.comments_count ?? null,
+          })),
+        } : null);
+
+      // ACCOUNT-level insights, which cannot be summed from the media rows:
+      // one person reached by two posts is one account-level reach. `reach` is
+      // the only account metric Meta still serves as a time series; the rest
+      // are total_value only, hence two calls. Both are what the sync stores.
+      const until = isoDay(now() - 86400000);
+      const since = isoDay(now() - 7 * 86400000);
+      const accReach = await getGraph(graph(`${ig}/insights`, {
+        metric: 'reach', metric_type: 'time_series', period: 'day', since, until, access_token: token,
+      }));
+      add('instagram_manage_insights', `GET /${ig}/insights?metric=reach&metric_type=time_series&period=day&since=${since}&until=${until}`, accReach,
+        accReach.ok ? {
+          account: assets.instagram?.username ? `@${assets.instagram.username}` : String(ig),
+          series: (accReach.data.data ?? []).map((s) => ({
+            metric: s.name,
+            days: (s.values ?? []).map((v) => ({ day: String(v.end_time || '').slice(0, 10), value: v.value ?? null })),
+          })),
+        } : null);
+
+      const accTotals = await getGraph(graph(`${ig}/insights`, {
+        metric: PROBE_IG_ACCOUNT_METRICS, metric_type: 'total_value', period: 'day', since, until, access_token: token,
+      }));
+      add('instagram_manage_insights', `GET /${ig}/insights?metric=${PROBE_IG_ACCOUNT_METRICS}&metric_type=total_value&period=day&since=${since}&until=${until}`, accTotals,
+        accTotals.ok ? {
+          account: assets.instagram?.username ? `@${assets.instagram.username}` : String(ig),
+          window: { since, until },
+          totals: Object.fromEntries((accTotals.data.data ?? []).map((r) => [r.name, r.total_value?.value ?? r.values?.[0]?.value ?? null])),
+        } : null);
+
       if (items[0]?.id) {
         const mi = await getGraph(graph(`${items[0].id}/insights`, { metric: PROBE_IG_METRICS, access_token: token }));
         add('instagram_manage_insights', `GET /${items[0].id}/insights?metric=${PROBE_IG_METRICS}`, mi,
-          mi.ok ? { metrics: Object.fromEntries((mi.data.data ?? []).map((r) => [r.name, r.values?.[0]?.value ?? r.total_value?.value ?? null])) } : null);
+          mi.ok ? {
+            account: assets.instagram?.username ? `@${assets.instagram.username}` : String(ig),
+            media_id: items[0].id,
+            metrics: Object.fromEntries((mi.data.data ?? []).map((r) => [r.name, r.values?.[0]?.value ?? r.total_value?.value ?? null])),
+          } : null);
       } else add('instagram_manage_insights', 'GET /{ig-media}/insights', 'skip', 'No Instagram media to read insights for');
     } else {
-      add('instagram_basic', 'GET /{ig-user}/media', 'skip', 'No Instagram account selected');
-      add('instagram_manage_insights', 'GET /{ig-media}/insights', 'skip', 'No Instagram account selected');
+      add('instagram_basic', 'GET /{ig-user}?fields=…|/{ig-user}/media', 'skip', 'No Instagram account selected');
+      add('instagram_manage_insights', 'GET /{ig-user}/insights|/{ig-media}/insights', 'skip', 'No Instagram account selected');
     }
-    return out;
+    return { assets, checks: out };
   }
 
   async function stored(conn) {
@@ -191,6 +313,12 @@ export function createReviewHandler({ env, admin, fetchImpl, checkMfa, now = () 
       // Company-grain tables: the review workspace holds only review data.
       facebook_page_insights_daily: await count('facebook_page_insights_daily', 'company_entity_id', conn.company_entity_id),
       instagram_media_insights: await count('instagram_media_insights', 'company_entity_id', conn.company_entity_id),
+      // The three tables added 2026-10-26, so "Stored data" shows the account
+      // and the Page's content alongside the per-post rows rather than
+      // implying those are everything the product keeps.
+      instagram_account_profile: await count('instagram_account_profile', 'company_entity_id', conn.company_entity_id),
+      instagram_account_insights_daily: await count('instagram_account_insights_daily', 'company_entity_id', conn.company_entity_id),
+      facebook_page_posts: await count('facebook_page_posts', 'company_entity_id', conn.company_entity_id),
       recent_campaign_days: recent ?? [],
     };
   }
@@ -278,7 +406,10 @@ export function createReviewHandler({ env, admin, fetchImpl, checkMfa, now = () 
       return json({ ok: true, connection_id: conn.id });
     }
 
-    if (action === 'verify') return json({ ok: true, checks: await verify(conn) });
+    if (action === 'verify') {
+      const { assets, checks } = await verify(conn);
+      return json({ ok: true, assets, checks });
+    }
 
     if (action === 'sync') {
       if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return json({ error: 'Sync is not configured' }, 503);

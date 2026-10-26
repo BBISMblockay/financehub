@@ -35,6 +35,15 @@ export function planMetaHistory(connection, { skipOrganic = false, daysBack = nu
  * organic report their own failure as `{ error }` without throwing, and the
  * organic sync catches a Facebook Page Insights failure separately as
  * `page_error` (Instagram may still have landed), which is just as missing.
+ *
+ * Deliberately NOT consulted here (2026-10-26): `organic.ig_account_error` and
+ * `organic.page_posts_error`. The two reads behind them -- the Instagram
+ * account snapshot and the Page's recent posts -- have no history to import:
+ * the profile is a CURRENT reading and the post walk is a fixed, shallow
+ * count, neither of which widens with daysBack. Letting either fail the import
+ * would make a 365-day re-pull (one insights request per Instagram post) hinge
+ * on a read a year's window would not have improved. `page_error` stays in the
+ * list because the Page insight series genuinely IS the history.
  */
 export function metaHistoryComplete(result) {
   return !result?.ad_level?.error && !result?.organic?.error && !result?.organic?.page_error;

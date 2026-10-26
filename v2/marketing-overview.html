@@ -66,6 +66,11 @@
     .mo-bar { display:inline-block; height:8px; border-radius:2px; background:var(--bcn-accent); opacity:.35; vertical-align:middle; margin-right:6px; }
     .mo-note { font-size:10.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); padding:8px 12px; }
     .mo-stats { display:flex; flex-wrap:wrap; gap:28px; padding:14px 16px; }
+    /* display:flex beats the hidden attribute, so a hidden stats row would
+       still show -- the same trap /testing/meta-oauth.html documents for
+       .bcn-card[hidden]. Caught by marketing-launch-links.test.js in the
+       pre-migration state, where #igStats must stay hidden. */
+    .mo-stats[hidden] { display:none; }
     .mo-stat-label { font-family:var(--bcn-mono); font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--bcn-ink-3); }
     .mo-stat-value { font-family:var(--bcn-mono); font-size:22px; font-weight:600; color:var(--bcn-ink); font-variant-numeric:tabular-nums; margin-top:3px; }
     .mo-stat-sub { font-family:var(--bcn-mono); font-size:10px; color:var(--bcn-ink-3); margin-top:2px; }
@@ -301,8 +306,19 @@
         </div>
 
         <div class="bcn-card">
-          <div class="bcn-card-header"><h2><svg class="mo-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FF0069" d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"/></svg>Instagram — top posts &amp; reels</h2></div>
+          <div class="bcn-card-header"><h2><svg class="mo-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FF0069" d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"/></svg>Instagram — top posts &amp; reels</h2><span class="bcn-card-meta" id="igAccountMeta"></span></div>
           <div class="bcn-card-body" style="padding:0;overflow:auto">
+            <!-- The ACCOUNT the posts below belong to. Until 2026-10-26 this
+                 card showed posts with nothing naming the account, which is
+                 also why Meta's reviewer could not verify instagram_basic.
+                 Account reach is NOT the sum of the posts' reach: one person
+                 reached by two posts is one account-level reach. -->
+            <div class="mo-stats" id="igStats" hidden>
+              <div><div class="mo-stat-label">Followers</div><div class="mo-stat-value" id="igFollowers">—</div><div class="mo-stat-sub" id="igFollowersSub">&nbsp;</div></div>
+              <div><div class="mo-stat-label">Posts</div><div class="mo-stat-value" id="igPosts">—</div><div class="mo-stat-sub">on the account</div></div>
+              <div><div class="mo-stat-label">Account reach</div><div class="mo-stat-value" id="igReach">—</div><div class="mo-stat-sub" id="igReachSub">&nbsp;</div></div>
+              <div><div class="mo-stat-label">Views</div><div class="mo-stat-value" id="igViews">—</div><div class="mo-stat-sub" id="igViewsSub">&nbsp;</div></div>
+            </div>
             <table class="mo-tbl">
               <thead><tr>
                 <th>Post</th><th>Type</th><th>Posted</th><th>Views</th>
@@ -312,6 +328,21 @@
             </table>
           </div>
           <div class="mo-note">Organic reach/engagement — no spend or attribution concept, not part of MER. "Views" unifies what used to be separate impression/video-view metrics (Meta's 2024 change).</div>
+        </div>
+
+        <!-- The Page's OWN published posts. The Facebook card above says how
+             the Page performed; this says what it posted. From
+             /{page}/published_posts, not /feed: feed also returns visitors'
+             posts and needs pages_read_user_content, which SILO does not hold. -->
+        <div class="bcn-card">
+          <div class="bcn-card-header"><h2><svg class="mo-brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#0866FF" d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"/></svg>Facebook Page — recent posts</h2><span class="bcn-card-meta" id="fbPostsMeta"></span></div>
+          <div class="bcn-card-body" style="padding:0;overflow:auto">
+            <table class="mo-tbl">
+              <thead><tr><th>Post</th><th>Posted</th><th>Likes</th><th>Comments</th><th>Shares</th></tr></thead>
+              <tbody id="fbPostsBody"><tr><td class="mo-empty" colspan="5">No Page posts yet — the nightly sync reads them once the Page is set on the Meta connection and the System User is assigned to that Page. <a href="/v2/integrations.html">Open Integrations</a></td></tr></tbody>
+            </table>
+          </div>
+          <div class="mo-note">Engagement counts are cumulative totals as of the last sync, not a daily series.</div>
         </div>
       </div>
 
@@ -433,6 +464,44 @@
           .select('media_id,media_type,caption,permalink,thumbnail_url,posted_at,views,reach,likes,comments,shares,saved')
           .order('posted_at', { ascending:false })));
     } catch(e){ console.warn('instagram_media_insights unavailable', e); return []; }
+  }
+
+  // The three reads added 2026-10-26. Each is its own try/catch returning an
+  // empty result: the tables ship in a migration that is applied AFTER this
+  // page merges, so for the gap between the two the card must simply stay in
+  // its empty state rather than breaking the Organic tab.
+  async function loadIgAccount(){
+    try {
+      // One row: the connection carries a single instagram_business_account_id,
+      // so a second row could only be an account no longer selected. Newest
+      // wins rather than showing a stale handle beside current posts.
+      const { data, error } = await scopeQ(sb.from('instagram_account_profile')
+        .select('ig_user_id,username,name,biography,followers_count,media_count,views_window,accounts_engaged_window,total_interactions_window,window_start,window_end')
+        .order('synced_at', { ascending:false }).limit(1));
+      if (error) throw error;
+      return (data || [])[0] || null;
+    } catch(e){ console.warn('instagram_account_profile unavailable', e); return null; }
+  }
+  async function loadIgAccountDays(){
+    try {
+      return await loadPaged(() => scopeQ(
+        sb.from('instagram_account_insights_daily')
+          .select('day_date,reach')
+          .gte('day_date', sinceIso())
+          // Same upper bound as the Page series, for the same reason: a sync
+          // bug once left zero-filled FUTURE rows, and a zero reads as a
+          // measured value no null-check can hide.
+          .lte('day_date', new Date().toISOString().slice(0,10))
+          .order('day_date', { ascending:false })));
+    } catch(e){ console.warn('instagram_account_insights_daily unavailable', e); return []; }
+  }
+  async function loadPagePosts(){
+    try {
+      return await loadPaged(() => scopeQ(
+        sb.from('facebook_page_posts')
+          .select('post_id,message,permalink,full_picture,posted_at,likes,comments,shares')
+          .order('posted_at', { ascending:false, nullsFirst:false })));
+    } catch(e){ console.warn('facebook_page_posts unavailable', e); return []; }
   }
 
   async function loadPageInsights(){
@@ -1001,6 +1070,63 @@
     { key: 'page_reach', label: 'Unique media views' },
   ];
 
+  // The Instagram ACCOUNT above its posts. `reach` here is account-level and
+  // is deliberately NOT compared with, or summed from, the per-post reach in
+  // the table below -- they measure different things.
+  function renderIgAccount(profile, days){
+    if (!profile && !days.length) return;
+    if (profile) {
+      const handle = profile.username ? `@${profile.username}` : (profile.ig_user_id || '');
+      el('igAccountMeta').textContent = [handle, profile.name].filter(Boolean).join(' · ');
+      el('igAccountMeta').title = profile.biography || '';
+      el('igFollowers').textContent = profile.followers_count == null ? '—' : numFmt(profile.followers_count);
+      el('igFollowersSub').textContent = handle || '\u00a0';
+      el('igPosts').textContent = profile.media_count == null ? '—' : numFmt(profile.media_count);
+      // A total_value metric is a TOTAL OVER A WINDOW, not a daily number, so
+      // the window it covers is shown with it. "Views" with no window attached
+      // is wrong by however wide that window happens to be.
+      const win = profile.window_start && profile.window_end
+        ? `${profile.window_start} → ${profile.window_end}` : 'last sync window';
+      el('igViews').textContent = profile.views_window == null ? '—' : numFmt(profile.views_window);
+      el('igViewsSub').textContent = profile.views_window == null ? '\u00a0' : win;
+    }
+    const withReach = days.filter(d => d.reach != null);
+    const total = withReach.reduce((a,d) => a + Number(d.reach||0), 0);
+    el('igReach').textContent = withReach.length ? numFmt(total) : '—';
+    el('igReachSub').textContent = withReach.length
+      ? `${withReach.length} day${withReach.length === 1 ? '' : 's'}, account level`
+      : '\u00a0';
+    el('igStats').hidden = false;
+  }
+
+  function renderPagePosts(posts){
+    if (!posts.length) return; // leaves the empty state in place
+    const fmtDate = iso => {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      return isNaN(d) ? '—' : d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    };
+    el('fbPostsMeta').textContent = `${posts.length} post${posts.length === 1 ? '' : 's'}`;
+    el('fbPostsBody').innerHTML = posts.slice(0, 100).map(p => {
+      const thumb = p.full_picture
+        ? `<img class="mo-thumb" loading="lazy" src="${esc(p.full_picture)}" alt="" onerror="this.style.visibility='hidden'" />`
+        : `<div class="mo-thumb"></div>`;
+      // A post can legitimately have no message (a photo or a share), so the
+      // id is the fallback label rather than an empty cell.
+      const label = (p.message || '').slice(0, 80) || p.post_id;
+      const link = p.permalink
+        ? `<a href="${esc(p.permalink)}" target="_blank" rel="noopener" class="mo-ad-name">${esc(label)}</a>`
+        : `<span class="mo-ad-name">${esc(label)}</span>`;
+      return `<tr>
+        <td><div class="mo-ad-cell">${thumb}<div>${link}</div></div></td>
+        <td>${fmtDate(p.posted_at)}</td>
+        <td>${p.likes == null ? '—' : numFmt(p.likes)}</td>
+        <td>${p.comments == null ? '—' : numFmt(p.comments)}</td>
+        <td>${p.shares == null ? '—' : numFmt(p.shares)}</td>
+      </tr>`;
+    }).join('');
+  }
+
   function renderPageInsights(rows){
     if (!rows.length) return; // leaves the empty state in place
 
@@ -1050,8 +1176,10 @@
     setStatus('Loading…');
     el('btnRefresh').disabled = true;
     try {
-      const [rows, merRows, adPerf, creatives, organic, pageDays, linksLoaded, redo] = await Promise.all([
+      const [rows, merRows, adPerf, creatives, organic, pageDays, linksLoaded, redo,
+             igProfile, igAccountDays, pagePosts] = await Promise.all([
         loadRows(), loadMer(), loadAdPerf(), loadCreatives(), loadOrganic(), loadPageInsights(), loadLaunchLinks(), loadRedo(),
+        loadIgAccount(), loadIgAccountDays(), loadPagePosts(),
       ]);
       _adPerf = adPerf; _creatives = creatives; _redo = redo; _campaignRows = rows;
       const hasAny = rows.length > 0 || (merRows||[]).some(m => Number(m.online_net_sales||0) > 0);
@@ -1066,6 +1194,8 @@
       renderFunnel(rows);
       renderChannels(rows, merRows);
       renderOrganic(organic);
+      renderIgAccount(igProfile, igAccountDays);
+      renderPagePosts(pagePosts);
       renderPageInsights(pageDays);
       setStatus(`${rows.length + adPerf.length} rows loaded.`);
     } catch(e){

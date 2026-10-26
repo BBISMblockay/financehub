@@ -67,7 +67,8 @@ if (mutation === 'trust-selection') edit('if (adAccountId && !assets.ad_accounts
 if (mutation === 'no-paging') edit('      url = safe;\n', '      url = null;\n');
 writeFileSync(join(tmp, 'fn', 'handler.mjs'), src);
 const { META_PERMISSIONS } = await import(pathToFileURL(join(tmp, 'fn', 'meta-oauth-lib.mjs')).href);
-const { createReviewHandler, PROBE_PAGE_METRICS, PROBE_IG_METRICS, AD_ACCOUNT_FIELDS, PAGE_FIELDS, REVIEW_ACTIONS } =
+const { createReviewHandler, PROBE_PAGE_METRICS, PROBE_IG_METRICS, PROBE_IG_PROFILE_FIELDS,
+  PROBE_IG_ACCOUNT_METRICS, PROBE_PAGE_POST_FIELDS, AD_ACCOUNT_FIELDS, PAGE_FIELDS, REVIEW_ACTIONS } =
   await import(pathToFileURL(join(tmp, 'fn', 'handler.mjs')).href);
 
 let n = 0;
@@ -133,6 +134,7 @@ function world({ active = CO, role = 'admin' } = {}) {
     ],
     marketing_kpis_daily: [{ connection_id: 'c-rev', company_entity_id: CO, day_date: '2026-10-07', campaign_name: 'Fall', impressions: 10, clicks: 1, spend: 2 }],
     meta_ad_performance_daily: [], facebook_page_insights_daily: [{ company_entity_id: CO }], instagram_media_insights: [],
+    instagram_account_profile: [{ company_entity_id: CO }], instagram_account_insights_daily: [], facebook_page_posts: [{ company_entity_id: CO }],
   });
   db.users = { jwt1: { id: 'u1' } };
   return db;
@@ -161,10 +163,34 @@ function fakeGraph({ paged = false, evilNext = false } = {}) {
     if (path === 'act_1') return ok({ id: 'act_1', name: 'Demo ads', currency: 'USD', account_status: 1 });
     if (path === 'act_1/insights') return ok({ data: [{ spend: '12.34', impressions: '1000', clicks: '20' }] });
     if (path === 'p1' && fields === 'access_token') return ok({ access_token: 'PAGE-TOKEN-SECRET', id: 'p1' });
-    if (path === 'p1' && fields === 'fan_count') return ok({ fan_count: 321 });
+    if (path === 'p1' && fields === 'id,name,fan_count') return ok({ id: 'p1', name: 'Demo Page', fan_count: 321 });
+    if (path === 'p1/published_posts') {
+      // published_posts, like Page insights, must use the PAGE token.
+      assert.equal(u.searchParams.get('access_token'), 'PAGE-TOKEN-SECRET', 'Page posts use the Page token, as the sync does');
+      return ok({ data: [{ id: 'p1_1', message: 'Opening day', permalink_url: 'https://facebook.com/p1_1',
+        created_time: '2026-10-05T12:00:00+0000', likes: { summary: { total_count: 7 } },
+        comments: { summary: { total_count: 2 } }, shares: { count: 1 } }] });
+    }
     if (path === 'p1/insights') {
       assert.equal(u.searchParams.get('access_token'), 'PAGE-TOKEN-SECRET', 'Page insights use the Page token, as the sync does');
-      return ok({ data: [{ name: 'page_media_view', values: [{}, {}] }] });
+      // Real VALUES, not empty objects: the rejection of read_insights was that
+      // the screencast showed a COUNT of datapoints and no numbers at all.
+      return ok({ data: [{ name: 'page_media_view', values: [
+        { end_time: '2026-10-07T07:00:00+0000', value: 11 },
+        { end_time: '2026-10-08T07:00:00+0000', value: 12 }] }] });
+    }
+    if (path === 'ig1' && fields === `id,${PROBE_IG_PROFILE_FIELDS}`) {
+      return ok({ id: 'ig1', username: 'demo', name: 'Demo Co', biography: 'We sell demos',
+        followers_count: 1234, media_count: 56 });
+    }
+    if (path === 'ig1/insights' && u.searchParams.get('metric_type') === 'time_series') {
+      return ok({ data: [{ name: 'reach', values: [{ end_time: '2026-10-07T07:00:00+0000', value: 900 }] }] });
+    }
+    if (path === 'ig1/insights') {
+      assert.equal(u.searchParams.get('metric_type'), 'total_value', 'account metrics other than reach are total_value only');
+      return ok({ data: [{ name: 'views', total_value: { value: 4321 } },
+        { name: 'accounts_engaged', total_value: { value: 77 } },
+        { name: 'total_interactions', total_value: { value: 88 } }] });
     }
     if (path === 'ig1/media') return ok({ data: [{ id: 'm1', media_type: 'IMAGE', timestamp: 't', permalink: 'https://instagram.com/p/x' }] });
     if (path === 'm1/insights') return ok({ data: [{ name: 'views', values: [{ value: 5 }] }, { name: 'reach', total_value: { value: 4 } }] });
@@ -298,9 +324,43 @@ await test('verify: each reporting permission probed with the sync\'s calls; not
   assert.ok(!r.body.checks.some((c) => /business_management|ads_management/.test(c.permission)), 'no write permission is exercised');
   assert.deepEqual([...new Set(r.body.checks.map((c) => c.permission))].sort(), [...META_PERMISSIONS].sort(),
     'the probe covers exactly the permissions the configuration requests');
-  assert.equal(by('pages_read_engagement')[0].detail.page_token_issued, true);
-  assert.equal(by('pages_read_engagement')[1].detail.fan_count, 321);
-  assert.equal(by('instagram_manage_insights')[0].detail.metrics.reach, 4);
+  // Each asset's NAME comes back with the checks, which is the whole point of
+  // the 2026-10-26 change: Meta rejected five permissions because the metrics
+  // on screen could not be attributed to a Page or an Instagram account.
+  assert.deepEqual(r.body.assets.ad_account, { id: 'act_1', name: 'Demo ads', currency: 'USD' });
+  assert.deepEqual(r.body.assets.page, { id: 'p1', name: 'Demo Page', fan_count: 321 });
+  assert.deepEqual(r.body.assets.instagram, { id: 'ig1', username: 'demo', name: 'Demo Co' });
+
+  const pre = by('pages_read_engagement');
+  assert.equal(pre.find((c) => /fan_count/.test(c.endpoint)).detail.fan_count, 321);
+  assert.equal(pre.find((c) => /access_token/.test(c.endpoint)).detail.page_token_issued, true);
+  // Page CONTENT, which pages_read_engagement was rejected for not showing.
+  const posts = pre.find((c) => /published_posts/.test(c.endpoint));
+  assert.equal(posts.detail.posts[0].message, 'Opening day');
+  assert.equal(posts.detail.posts[0].likes, 7);
+  assert.equal(posts.detail.page, 'Demo Page');
+  assert.ok(!pre.some((c) => /\/feed/.test(c.endpoint)),
+    '/feed needs pages_read_user_content, which SILO does not hold — only published_posts');
+
+  // read_insights carries the VALUES and says which Page they belong to.
+  const ri = by('read_insights')[0];
+  assert.equal(ri.detail.page, 'Demo Page');
+  assert.deepEqual(ri.detail.series[0].days.map((d) => d.value), [11, 12]);
+
+  // instagram_basic: the profile fields the reviewer could not verify.
+  const ib = by('instagram_basic');
+  const prof = ib.find((c) => c.detail && 'followers_count' in c.detail);
+  assert.equal(prof.detail.username, 'demo');
+  assert.equal(prof.detail.followers_count, 1234);
+  assert.equal(prof.detail.media_count, 56);
+
+  // instagram_manage_insights: account-level AND media-level, both labelled.
+  const imi = by('instagram_manage_insights');
+  assert.equal(imi.find((c) => c.detail?.series)?.detail.series[0].days[0].value, 900);
+  assert.equal(imi.find((c) => c.detail?.totals)?.detail.totals.views, 4321);
+  const media = imi.find((c) => c.detail?.metrics);
+  assert.equal(media.detail.metrics.reach, 4);
+  assert.ok(imi.every((c) => c.detail.account === '@demo'), 'every account-insight row names the account');
   assert.doesNotMatch(JSON.stringify(r.body), /tok-|PAGE-TOKEN-SECRET|access_token=/);
   assert.equal(writes(db).length, 0);
 
@@ -326,6 +386,8 @@ await test('stored: counts for this connection / workspace and its recent campai
   const r = await call(createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: world(), fetchImpl: fakeGraph().fetchImpl }), { action: 'stored', connection_id: 'c-rev' });
   assert.equal(r.body.stored.marketing_kpis_daily, 1);
   assert.equal(r.body.stored.facebook_page_insights_daily, 1);
+  assert.equal(r.body.stored.instagram_account_profile, 1);
+  assert.equal(r.body.stored.facebook_page_posts, 1);
   assert.equal(r.body.stored.recent_campaign_days[0].campaign_name, 'Fall');
 });
 
@@ -335,6 +397,15 @@ await test('the probe\'s metrics and discovery fields are the sync\'s and the te
   const block = /const PAGE_INSIGHT_METRICS = \[([\s\S]*?)\];/.exec(core)[1];
   assert.deepEqual(PROBE_PAGE_METRICS, [...block.matchAll(/metric: '([^']+)'/g)].map((m) => m[1]));
   assert.ok(core.includes(`metric: '${PROBE_IG_METRICS}'`), 'Instagram media insights metrics');
+  // The three reads added 2026-10-26 are pinned to the sync's own field and
+  // metric lists too, so the review page can never demonstrate a call the
+  // product does not make -- which is what makes the screencast honest.
+  const igFields = /const IG_PROFILE_FIELDS = \[([\s\S]*?)\];/.exec(core)[1];
+  assert.deepEqual(PROBE_IG_PROFILE_FIELDS.split(','), [...igFields.matchAll(/'([^']+)'/g)].map((m) => m[1]));
+  assert.ok(core.includes(`metric: '${PROBE_IG_ACCOUNT_METRICS}'`), 'Instagram account total_value metrics');
+  const postFields = /const PAGE_POST_FIELDS = \[([\s\S]*?)\];/.exec(core)[1];
+  assert.deepEqual(PROBE_PAGE_POST_FIELDS.split(','), [...postFields.matchAll(/'([^']+)'/g)].map((m) => m[1]));
+  assert.ok(core.includes('/published_posts?'), 'the sync reads published_posts, not /feed');
   const tester = read('supabase/functions/test-ad-platform-connection/index.ts');
   assert.ok(tester.includes(`me/adaccounts?fields=${AD_ACCOUNT_FIELDS}&`), 'ad account discovery fields');
   assert.ok(tester.includes(`fields: '${PAGE_FIELDS}'`), 'Page discovery fields');

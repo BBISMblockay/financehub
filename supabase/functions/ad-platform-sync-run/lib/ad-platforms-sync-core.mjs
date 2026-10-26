@@ -1458,6 +1458,275 @@ export async function fetchFacebookPageFanCount(connection) {
   }
 }
 
+/* ── Instagram account, Facebook Page content ────────────────────────────────
+ * The three reads below were added 2026-10-26. Everything above them reports
+ * on individual POSTS; none of it ever read the account that posts them, the
+ * account-level measurements that cannot be summed from per-post rows, or the
+ * Page's own published content. Meta's App Review rejected instagram_basic,
+ * instagram_manage_insights and pages_read_engagement for precisely those
+ * three absences.
+ *
+ * Every one of them fails SOFT: a null or an empty array, never a throw. They
+ * are additions to a nightly job that already fills the marketing reports, and
+ * a new read must not be able to cost the rows that do come back -- the lesson
+ * of 2026-08-28, where one retired Page metric erased a successful Instagram
+ * pull from the summary. */
+
+/** Instagram ACCOUNT fields. `biography` and `name` are optional in practice:
+ * a professional account may have neither, and Meta then returns the key
+ * absent rather than null. */
+const IG_PROFILE_FIELDS = ['username', 'name', 'biography', 'followers_count', 'media_count'];
+
+/** The bare field name Meta named in a refusal, as a plain lowercase key:
+ * `likes.summary(true)` and `likes{summary}` both normalise to `likes`, so a
+ * refusal can be matched against a field list that carries sub-selections. */
+function bareFieldName(named) {
+  return String(named || '').trim().toLowerCase().replace(/[.{(].*$/, '').trim();
+}
+
+/** Drop the field Meta named from `active`, or, when the refusal named nothing
+ * recognisable, the last field of `order` still present -- so each round of
+ * negotiation is guaranteed to remove exactly one field and the loop around it
+ * cannot spin. Returns what was dropped, or null when nothing is left. */
+function dropNamedField(active, order, named) {
+  const key = bareFieldName(named);
+  for (const f of active) {
+    if (bareFieldName(f) === key) { active.delete(f); return f; }
+  }
+  for (let i = order.length - 1; i >= 0; i -= 1) {
+    if (active.has(order[i])) { active.delete(order[i]); return order[i]; }
+  }
+  return null;
+}
+
+/** The Instagram account itself: @handle, name, bio, followers, post count.
+ *
+ * A CURRENT snapshot, not a series -- the same reason the Page's fan_count is
+ * stamped on the day it was read and never backfilled.
+ *
+ * One unknown field name refuses the WHOLE request (scripts/CLAUDE.md), so the
+ * field set is negotiated down rather than fixed: a profile that comes back
+ * without `biography` is still worth storing, because the reporting header
+ * needs the handle and the follower count, not the bio. */
+export async function fetchInstagramAccountProfile(connection) {
+  const token = connection.access_token;
+  const igId = connection.instagram_business_account_id;
+  if (!token || !igId) return null;
+
+  const active = new Set(IG_PROFILE_FIELDS);
+  const dropped = [];
+  while (active.size) {
+    try {
+      const data = await fetchJsonOrThrow(
+        `https://graph.facebook.com/${META_API_VERSION}/${igId}?` + new URLSearchParams({
+          fields: ['id', ...active].join(','), access_token: token,
+        }).toString(), {}, 'Instagram account profile',
+      );
+      if (dropped.length) {
+        console.warn(`[warn] Instagram account profile: Graph ${META_API_VERSION} refused ${dropped.join(', ')} — stored without`);
+      }
+      return {
+        igUserId: String(data.id ?? igId),
+        username: data.username ?? null,
+        name: data.name ?? null,
+        biography: data.biography ?? null,
+        followersCount: data.followers_count == null ? null : Math.round(num(data.followers_count)),
+        mediaCount: data.media_count == null ? null : Math.round(num(data.media_count)),
+        droppedFields: [...dropped],
+      };
+    } catch (err) {
+      if (!isMetaUnknownFieldError(err)) {
+        console.warn('[warn] Instagram account profile unavailable:', err.message);
+        return null;
+      }
+      const gone = dropNamedField(active, IG_PROFILE_FIELDS, metaFieldNameFromMessage(err.message));
+      if (!gone) {
+        console.warn('[warn] Instagram account profile unavailable:', err.message);
+        return null;
+      }
+      dropped.push(gone);
+    }
+  }
+  return null;
+}
+
+/** Account-level Instagram insights.
+ *
+ * Two shapes, not one, because Meta serves them differently
+ * (https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights):
+ *   * `reach` is the ONLY account metric still available as a time series
+ *     (metric_type=time_series, period=day), so it is the only one that can
+ *     honestly become a daily row.
+ *   * `views`, `accounts_engaged` and `total_interactions` are total_value
+ *     ONLY -- one number for the whole window. They are returned as window
+ *     totals with the window they cover, and stored on the profile row. A
+ *     window total written into a daily table would read as a daily value.
+ *   * `impressions` is deprecated (v22.0+, and all versions since
+ *     2025-04-21). It is deliberately not requested; `views` replaced it.
+ *   * `follows_and_unfollows` and the demographics metrics need 100+
+ *     followers/engagements and are not requested at all: a metric that
+ *     vanishes below a threshold would read as a measured zero.
+ *
+ * Each half has its own try/catch: a refused totals call must not cost the
+ * daily series, or the reverse. */
+export async function fetchInstagramAccountInsights(connection, window) {
+  const token = connection.access_token;
+  const igId = connection.instagram_business_account_id;
+  if (!token || !igId) return { days: [], totals: null };
+
+  const days = [];
+  try {
+    const data = await fetchJsonOrThrow(
+      `https://graph.facebook.com/${META_API_VERSION}/${igId}/insights?` + new URLSearchParams({
+        metric: 'reach', metric_type: 'time_series', period: 'day',
+        since: window.startDate, until: window.endDate, access_token: token,
+      }).toString(), {}, 'Instagram account insights (reach)',
+    );
+    for (const series of data.data ?? []) {
+      for (const point of series.values ?? []) {
+        // Meta stamps a day bucket with the END of the bucket -- midnight at
+        // the start of the following day -- exactly as the Page insights edge
+        // does, so each value describes the day BEFORE its end_time. Labelling
+        // rows with end_time's own date shifts the whole series one day late.
+        // The clamp is [startDate, endDate): endDate is today, today is still
+        // in progress, and a bucket stamped endDate shifts to endDate-1, so
+        // this is precisely the set of COMPLETE days asked for -- and no
+        // future-dated zero row can be written, which is the failure that put
+        // 87 zero-filled future rows in facebook_page_insights_daily.
+        const endDay = String(point.end_time || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(endDay)) continue;
+        const day = isoDateOnly(addDays(new Date(`${endDay}T00:00:00Z`), -1));
+        if (!day || day < window.startDate || day >= window.endDate) continue;
+        days.push({ day, reach: point.value == null ? null : Math.round(num(point.value)) });
+      }
+    }
+  } catch (err) {
+    console.warn('[warn] Instagram account reach unavailable:', err.message);
+  }
+
+  let totals = null;
+  try {
+    const data = await fetchJsonOrThrow(
+      `https://graph.facebook.com/${META_API_VERSION}/${igId}/insights?` + new URLSearchParams({
+        metric: 'views,accounts_engaged,total_interactions', metric_type: 'total_value', period: 'day',
+        since: window.startDate, until: window.endDate, access_token: token,
+      }).toString(), {}, 'Instagram account insights (totals)',
+    );
+    const by = {};
+    for (const series of data.data ?? []) {
+      const v = series.total_value?.value ?? series.values?.[0]?.value ?? null;
+      by[series.name] = v == null ? null : Math.round(num(v));
+    }
+    // Only a reply that actually carried a metric counts as totals: an empty
+    // `data` array would otherwise store three nulls over a real window, which
+    // reads as "measured, and zero" rather than "not returned".
+    if (Object.keys(by).length) {
+      totals = {
+        views: by.views ?? null,
+        accountsEngaged: by.accounts_engaged ?? null,
+        totalInteractions: by.total_interactions ?? null,
+        windowStart: window.startDate,
+        windowEnd: window.endDate,
+      };
+    }
+  } catch (err) {
+    console.warn('[warn] Instagram account totals unavailable:', err.message);
+  }
+
+  return { days, totals };
+}
+
+/** Page post fields. `shares` is an object ({count}), `likes`/`comments` are
+ * edges summarised to a count; the rest are scalars. */
+const PAGE_POST_FIELDS = [
+  'message', 'permalink_url', 'created_time', 'full_picture',
+  'shares', 'likes.summary(true)', 'comments.summary(true)',
+];
+
+/** The Page's OWN published posts.
+ *
+ * /{page}/published_posts, not /{page}/feed: feed also returns posts made BY
+ * VISITORS, which needs pages_read_user_content -- a permission SILO neither
+ * holds nor wants. published_posts is covered by pages_read_engagement, whose
+ * reference states it "allows your app to read content (posts, photos, videos,
+ * events) posted by the Page".
+ *
+ * Needs the PAGE token, like Page insights: the System User token answers
+ * "(#190) This method must be called with a Page Access Token". A null token
+ * therefore means the System User is not assigned to the Page in Business
+ * settings, not that the edge or the permission is wrong.
+ *
+ * `max` is a total count, not a page size, for the same reason as the
+ * Instagram media walk: overshooting costs real API budget. Meta caps `limit`
+ * at 100 on this edge and serves roughly 600 ranked posts per year. */
+export async function fetchFacebookPagePosts(connection, pageToken, { max = 25, pageSize = 25 } = {}) {
+  const pageId = connection.facebook_page_id;
+  if (!pageToken || !pageId) return [];
+
+  const active = new Set(PAGE_POST_FIELDS);
+  const dropped = [];
+  const out = [];
+  // A narrowed retry restarts from page one (see below), so a post already
+  // collected under a wider field set could otherwise be pushed twice and
+  // spend the `max` budget on a duplicate. The upsert key would dedupe the
+  // write, but the walk would stop short of the posts it was asked for.
+  const seen = new Set();
+
+  const firstUrl = () => `https://graph.facebook.com/${META_API_VERSION}/${pageId}/published_posts?` + new URLSearchParams({
+    fields: ['id', ...active].join(','),
+    limit: String(Math.min(pageSize, 100)),
+    access_token: pageToken,
+  }).toString();
+
+  let url = firstUrl();
+  while (url && out.length < max) {
+    let data;
+    try {
+      data = await fetchJsonOrThrow(url, {}, 'Facebook Page published posts');
+    } catch (err) {
+      if (!isMetaUnknownFieldError(err)) {
+        console.warn('[warn] Facebook Page posts unavailable:', err.message);
+        break;
+      }
+      const gone = dropNamedField(active, PAGE_POST_FIELDS, metaFieldNameFromMessage(err.message));
+      if (!gone) {
+        console.warn('[warn] Facebook Page posts unavailable:', err.message);
+        break;
+      }
+      dropped.push(gone);
+      // Restart from the first page: a narrowed field set invalidates the
+      // paging cursor, which encodes the request it was issued for. Anything
+      // already collected came back under a WIDER field set, so it is kept.
+      url = firstUrl();
+      continue;
+    }
+    for (const p of data.data ?? []) {
+      if (out.length >= max) break;
+      if (seen.has(String(p.id))) continue;
+      seen.add(String(p.id));
+      out.push({
+        postId: String(p.id),
+        pageId: String(pageId),
+        message: p.message ?? null,
+        permalink: p.permalink_url ?? null,
+        fullPicture: p.full_picture ?? null,
+        postedAt: p.created_time ?? null,
+        likes: p.likes?.summary?.total_count == null ? null : Math.round(num(p.likes.summary.total_count)),
+        comments: p.comments?.summary?.total_count == null ? null : Math.round(num(p.comments.summary.total_count)),
+        // shares is absent entirely on a post with none -- not zero, but Meta
+        // simply omits the object. Absent is reported as null, the same as
+        // every other unreturned metric in this file.
+        shares: p.shares?.count == null ? null : Math.round(num(p.shares.count)),
+      });
+    }
+    url = out.length < max ? (data.paging?.next ?? null) : null;
+  }
+  if (dropped.length) {
+    console.warn(`[warn] Facebook Page posts: Graph ${META_API_VERSION} refused ${dropped.join(', ')} — stored without`);
+  }
+  return out;
+}
+
 /** Sync organic Instagram + Facebook data for one meta_ads connection.
  * Called from the orchestrator alongside the ad-level sync, non-fatally —
  * returns a no-op summary until instagram_business_account_id/
@@ -1466,6 +1735,7 @@ export async function runMetaOrganicSync(supabase, connection, {
   now = new Date(),
   daysBackOverride = null,
   igPostLimit = null,
+  pagePostLimit = null,
 } = {}) {
   const window = computeWindow(now, daysBackOverride ?? connection.days_back ?? 30);
   const syncedAt = new Date().toISOString();
@@ -1491,6 +1761,62 @@ export async function runMetaOrganicSync(supabase, connection, {
   const mediaUpserted = mediaRows.length
     ? await upsertInChunks(supabase, 'instagram_media_insights', mediaRows, 'company_entity_id,media_id')
     : 0;
+
+  // The Instagram ACCOUNT, in its own try/catch for the same reason the
+  // Facebook half has one: a failure here must not erase the media rows that
+  // were just written two statements above.
+  let igProfileUpserted = 0;
+  let igAccountDaysUpserted = 0;
+  let igAccountError = null;
+  let igProfile = null;
+  try {
+    igProfile = await fetchInstagramAccountProfile(connection);
+    const { days: igDays, totals } = await fetchInstagramAccountInsights(connection, window);
+
+    if (igProfile) {
+      // The window totals are written only when the totals call returned
+      // something. Omitting the keys leaves whatever the last run stored
+      // rather than blanking a real reading with a null -- the same rule the
+      // Page fan_count stamp follows, and the "backfills ONLY ADD" rule in
+      // scripts/CLAUDE.md.
+      const { error } = await supabase.from('instagram_account_profile').upsert({
+        company_entity_id: connection.company_entity_id,
+        ig_user_id: igProfile.igUserId,
+        username: igProfile.username,
+        name: igProfile.name,
+        biography: igProfile.biography,
+        followers_count: igProfile.followersCount,
+        media_count: igProfile.mediaCount,
+        ...(totals ? {
+          views_window: totals.views,
+          accounts_engaged_window: totals.accountsEngaged,
+          total_interactions_window: totals.totalInteractions,
+          window_start: totals.windowStart,
+          window_end: totals.windowEnd,
+        } : {}),
+        synced_at: syncedAt,
+      }, { onConflict: 'company_entity_id,ig_user_id' });
+      if (error) {
+        igAccountError = error.message;
+        console.warn('[warn] Instagram account profile not stored:', error.message);
+      } else {
+        igProfileUpserted = 1;
+      }
+    }
+
+    const igRows = igDays.map((d) => ({
+      company_entity_id: connection.company_entity_id,
+      day_date: d.day,
+      reach: d.reach,
+      row_hash: hashRow([connection.company_entity_id, 'instagram_account', d.day]),
+      synced_at: syncedAt,
+    }));
+    igAccountDaysUpserted = igRows.length
+      ? await upsertInChunks(supabase, 'instagram_account_insights_daily', igRows, 'row_hash')
+      : 0;
+  } catch (err) {
+    igAccountError = String(err?.message || err);
+  }
 
   // The Facebook half gets its own try/catch so its failure cannot erase the
   // Instagram result: on 2026-08-28 a Page-metric error propagated out of
@@ -1553,14 +1879,54 @@ export async function runMetaOrganicSync(supabase, connection, {
     if (Array.isArray(err?.droppedMetrics)) droppedMetrics = err.droppedMetrics;
   }
 
+  // Page POSTS, separately again: the Page's own published content, which the
+  // insights series above says nothing about. It needs the Page token, so a
+  // missing asset assignment leaves posts empty while the daily series (which
+  // falls back to the user token) may still have landed.
+  let pagePostsUpserted = 0;
+  let pagePostsError = null;
+  try {
+    // A second Page-node read for the token, rather than threading it out of
+    // fetchFacebookPageInsights: that function derives its own and falls back
+    // to the user token, and posts cannot use that fallback. One extra request
+    // a night is cheaper than changing a signature the Page series depends on.
+    const pageToken = connection.facebook_page_id ? await fetchFacebookPageAccessToken(connection) : null;
+    const posts = pageToken ? await fetchFacebookPagePosts(connection, pageToken,
+      pagePostLimit ? { max: Number(pagePostLimit) } : {}) : [];
+    const postRows = posts.map((p) => ({
+      company_entity_id: connection.company_entity_id,
+      post_id: p.postId,
+      page_id: p.pageId,
+      message: p.message,
+      permalink: p.permalink,
+      full_picture: p.fullPicture,
+      posted_at: p.postedAt,
+      likes: p.likes,
+      comments: p.comments,
+      shares: p.shares,
+      synced_at: syncedAt,
+    }));
+    pagePostsUpserted = postRows.length
+      ? await upsertInChunks(supabase, 'facebook_page_posts', postRows, 'company_entity_id,post_id')
+      : 0;
+  } catch (err) {
+    pagePostsError = String(err?.message || err);
+  }
+
   return {
     configured: Boolean(connection.instagram_business_account_id || connection.facebook_page_id),
     media_fetched: media.length,
     media_upserted: mediaUpserted,
     page_days_upserted: pageUpserted,
+    ig_profile_upserted: igProfileUpserted,
+    ig_account_days_upserted: igAccountDaysUpserted,
+    page_posts_upserted: pagePostsUpserted,
     // Present only when there is something to say, so a clean run's summary
     // stays as small as it was before.
     ...(pageError ? { page_error: pageError } : {}),
+    ...(igAccountError ? { ig_account_error: igAccountError } : {}),
+    ...(pagePostsError ? { page_posts_error: pagePostsError } : {}),
+    ...(igProfile?.username ? { ig_username: igProfile.username } : {}),
     ...(droppedMetrics.length ? { page_metrics_dropped: droppedMetrics } : {}),
     ...(fanCount == null ? {} : { page_fan_count: fanCount }),
     synced_at: syncedAt,

@@ -100,6 +100,78 @@
     tbody.querySelectorAll('button[data-act]').forEach((b) => b.addEventListener('click', () => ACTIONS[b.dataset.act](b.dataset.id, b)));
   }
 
+
+  // ── Rendering the verify result as app UI, not a debug dump ──────────────
+  // Meta's App Review (2026-10-26) rejected five permissions because the
+  // screencast showed data the reviewer could not attribute to an asset, in a
+  // raw JSON blob. These two helpers put the asset's NAME on screen and render
+  // each result as labelled fields and small tables.
+  const LABEL = {
+    fan_count: 'Followers', followers_count: 'Followers', media_count: 'Posts',
+    page_token_issued: 'Page access token issued', account_status: 'Account status',
+    selected_page_listed: 'Selected Page is in the list', page_names: 'Pages',
+    media_id: 'Media', posted_at: 'Posted', permalink: 'Link',
+  };
+  const labelFor = (k) => LABEL[k] || (k.charAt(0).toUpperCase() + k.slice(1)).replace(/_/g, ' ');
+  const scalar = (v) => (v === true ? 'yes' : v === false ? 'no' : v === null || v === undefined ? '—' : esc(v));
+
+  /** A list of like-shaped objects as a small table; anything else as labelled
+   *  lines. Falls back to JSON only for a shape this does not know, so an
+   *  unexpected answer is still visible rather than silently dropped. */
+  function detailHtml(detail) {
+    if (detail === null || detail === undefined) return '<span class="mo-muted">—</span>';
+    if (typeof detail !== 'object') return `<div>${esc(detail)}</div>`;
+    if (Array.isArray(detail)) return rowsTable(detail);
+    return Object.entries(detail).map(([k, v]) => {
+      if (Array.isArray(v) && v.length && typeof v[0] === 'object') {
+        return `<div class="mo-field"><span class="mo-field-k">${esc(labelFor(k))}</span></div>${rowsTable(v)}`;
+      }
+      if (Array.isArray(v)) {
+        return `<div class="mo-field"><span class="mo-field-k">${esc(labelFor(k))}</span>
+          <span class="mo-field-v">${v.length ? v.map(scalar).join(', ') : '—'}</span></div>`;
+      }
+      if (v && typeof v === 'object') {
+        return `<div class="mo-field"><span class="mo-field-k">${esc(labelFor(k))}</span>
+          <span class="mo-field-v">${Object.entries(v).map(([k2, v2]) => `${esc(labelFor(k2))}: ${scalar(v2)}`).join(' · ')}</span></div>`;
+      }
+      return `<div class="mo-field"><span class="mo-field-k">${esc(labelFor(k))}</span>
+        <span class="mo-field-v">${scalar(v)}</span></div>`;
+    }).join('');
+  }
+
+  function rowsTable(items) {
+    if (!items.length) return '<div class="mo-muted">None returned</div>';
+    if (typeof items[0] !== 'object' || items[0] === null) {
+      return `<div class="mo-field-v">${items.map(scalar).join(', ')}</div>`;
+    }
+    // A metric series arrives as { metric, days:[{day,value}] }: render one
+    // row per day under the metric's name, so a day's VALUE is on screen.
+    if (items[0] && Array.isArray(items[0].days)) {
+      return items.map((sv) => `<div class="mo-field"><span class="mo-field-k">${esc(sv.metric || 'metric')}</span></div>
+        <table class="bcn-table mo-mini"><thead><tr><th class="bcn-th-left">Day</th><th>Value</th></tr></thead><tbody>
+        ${(sv.days || []).map((d) => `<tr><td class="bcn-mono">${esc(d.day)}</td><td class="bcn-num">${scalar(d.value)}</td></tr>`).join('')
+          || '<tr><td colspan="2" class="mo-muted">No days returned</td></tr>'}</tbody></table>`).join('');
+    }
+    const cols = [...new Set(items.flatMap((i) => Object.keys(i || {})))];
+    return `<table class="bcn-table mo-mini"><thead><tr>${cols.map((c) => `<th class="bcn-th-left">${esc(labelFor(c))}</th>`).join('')}</tr></thead><tbody>
+      ${items.map((i) => `<tr>${cols.map((c) => `<td class="mo-wrapcell">${scalar(i?.[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  }
+
+  /** The selected assets, by NAME, above the results. This is the single thing
+   *  every one of the five rejections asked for. */
+  function assetsHeaderHtml(assets) {
+    const a = assets || {};
+    const parts = [];
+    if (a.ad_account) parts.push(`<span class="mo-asset"><b>Ad account</b> ${esc(a.ad_account.name || a.ad_account.id)}
+      <small class="bcn-mono">${esc(a.ad_account.id)}${a.ad_account.currency ? ` · ${esc(a.ad_account.currency)}` : ''}</small></span>`);
+    if (a.page) parts.push(`<span class="mo-asset"><b>Facebook Page</b> ${esc(a.page.name || a.page.id)}
+      <small class="bcn-mono">${esc(a.page.id)}${a.page.fan_count == null ? '' : ` · ${esc(a.page.fan_count)} followers`}</small></span>`);
+    if (a.instagram) parts.push(`<span class="mo-asset"><b>Instagram</b> ${a.instagram.username ? `@${esc(a.instagram.username)}` : esc(a.instagram.id)}
+      <small class="bcn-mono">${esc(a.instagram.id)}${a.instagram.name ? ` · ${esc(a.instagram.name)}` : ''}</small></span>`);
+    if (!parts.length) return '';
+    return `<div class="mo-assets-head">${parts.join('')}</div>`;
+  }
+
   function showResult(title, html) {
     $('mo-result-title').textContent = title;
     $('mo-result').innerHTML = html;
@@ -168,11 +240,12 @@
     async verify(id, btn) {
       const { data } = await withBusy(btn, 'Checking…', () => review('verify', { connection_id: id }));
       if (!data.ok) { setStatus(data.error || 'Verify failed', 'neg', 10000); return; }
-      showResult('Permission check (read-only; nothing stored)', `<table class="bcn-table"><thead><tr>
+      showResult('Permission check (read-only; nothing stored)', `${assetsHeaderHtml(data.assets)}
+        <table class="bcn-table"><thead><tr>
         <th class="bcn-th-left">Permission</th><th class="bcn-th-left">Graph call</th><th class="bcn-th-left">Result</th><th class="bcn-th-left">What came back</th></tr></thead><tbody>
         ${data.checks.map((c) => `<tr><td class="bcn-mono">${esc(c.permission)}</td><td class="mo-wrapcell bcn-mono">${esc(c.endpoint)}</td>
           <td><span class="bcn-pill ${c.ok === true ? 'bcn-pill--pos' : c.ok === false ? 'bcn-pill--neg' : ''}">${c.ok === true ? 'ok' : c.ok === false ? 'error' : 'skipped'}</span></td>
-          <td class="mo-wrapcell"><pre class="mo-pre">${esc(typeof c.detail === 'string' ? c.detail : JSON.stringify(c.detail, null, 1))}</pre></td></tr>`).join('')}
+          <td class="mo-wrapcell">${typeof c.detail === 'string' ? esc(c.detail) : detailHtml(c.detail)}</td></tr>`).join('')}
         </tbody></table>`);
     },
     async sync(id, btn) {
@@ -187,7 +260,8 @@
       const s = data.stored;
       showResult('Stored in this workspace', `<p class="bcn-mono">marketing_kpis_daily: ${esc(s.marketing_kpis_daily)} ·
         meta_ad_performance_daily: ${esc(s.meta_ad_performance_daily)} · facebook_page_insights_daily: ${esc(s.facebook_page_insights_daily)} ·
-        instagram_media_insights: ${esc(s.instagram_media_insights)}</p>
+        instagram_media_insights: ${esc(s.instagram_media_insights)} · instagram_account_profile: ${esc(s.instagram_account_profile)} ·
+        instagram_account_insights_daily: ${esc(s.instagram_account_insights_daily)} · facebook_page_posts: ${esc(s.facebook_page_posts)}</p>
         <table class="bcn-table"><thead><tr><th class="bcn-th-left">Day</th><th class="bcn-th-left">Campaign</th><th>Impressions</th><th>Clicks</th><th>Spend</th></tr></thead><tbody>
         ${(s.recent_campaign_days || []).map((r) => `<tr><td class="bcn-mono">${esc(r.day_date)}</td><td class="mo-wrapcell">${esc(r.campaign_name)}</td>
           <td class="bcn-num">${esc(r.impressions)}</td><td class="bcn-num">${esc(r.clicks)}</td><td class="bcn-num">${esc(r.spend)}</td></tr>`).join('')
