@@ -204,10 +204,33 @@ channels are distinct from ad credit. Raw landing fields are first-touch
 evidence; they cannot override a later observed visit. Missing evidence stays
 Unattributed. This is observed attribution, not incrementality or causality.
 
+## Discount codes (2026-10-26)
+
+The journey fetch also records the discount codes applied to each order, taken
+from the `order()` query it already issues, so no extra request and no extra
+scope. They land in the evidence as `order.discountCodes` and surface on
+`silo_attribution_ledger_v` as `discount_codes` (the whole array) and
+`discount_code` (the first code, for grouping).
+
+Three states, kept apart on purpose: an array of codes; an empty array, meaning
+the order was collected and used no code; and NULL, meaning the evidence predates
+this change and nobody looked. Do not coalesce NULL to empty. Codes are captured
+going FORWARD only -- stored evidence is not backfilled, and day-grain code sales
+for earlier periods live in `shopify_discount_codes_daily`, which is a ShopifyQL
+gross-sales measure and will not tie to the ledger's net/total cents.
+
+An order can carry several codes, so exploding `discount_codes` across rows
+multiplies that order's revenue: group on `discount_code`, or aggregate money over
+distinct `order_id`. And a code is what the customer typed, not where they came
+from -- an affiliate code proxies for that partner, a sitewide code attaches to
+every channel. No code-means-channel rule is encoded anywhere; it would have to be
+an explicit, maintained list.
+
 ## Apply and verify
 
 Apply the two `*_silo_attribution_evidence.sql` and
-`*_silo_attribution_report.sql` migrations explicitly, in that order. The large
+`*_silo_attribution_report.sql` migrations explicitly, in that order, then
+`20261026180000_attribution_discount_codes.sql`. The large
 repository-wide rebuild/verifier files are unchanged; this feature's schema
 checks live in `supabase/verify_attribution_schema.sql`. Run both that verifier
 and the existing general verifier after apply. Snapshot allocation objects are
