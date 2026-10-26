@@ -131,9 +131,11 @@ Only root `*.html` / `*.txt`, `config.json` and those six directories reach the 
 top-level file or folder that must be reachable on get-silo.com needs this command edited** —
 adding it to the repo alone does nothing.
 
-`tiktok0TuY2TWaw6iTpy2L1IAYb8CVRf82hCT2.txt` at the repo root is TikTok's URL-prefix
-verification token for the "Silo" developer app (developers.tiktok.com), which must answer at
-`https://get-silo.com/<that filename>`. Do not rename or delete it; TikTok re-checks it.
+Two `tiktok*.txt` files at the repo root are TikTok's URL-prefix verification tokens for the
+"Silo" developer app (developers.tiktok.com) — `tiktok0TuY2TWaw6iTpy2L1IAYb8CVRf82hCT2.txt` for
+production and `tiktokkCKrbqtDWhG8yd6qJUQEdXlEyZVbS1C7.txt` for the sandbox. Each must answer at
+`https://get-silo.com/<that filename>`. Do not rename or delete either; TikTok re-checks them, and
+a sandbox is required to record the app-review demo video.
 
 Those ten functions must be **redeployed** for `SILO_MAIL_FROM` to take effect —
 merging does not deploy. `deployment-drift-check.yml` will be red for them until
