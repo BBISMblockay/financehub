@@ -160,13 +160,37 @@ export function mapObservations(taskResult) {
     const domain = bareDomain(it.domain);
     if (!domain || !it.url) continue;
     seen.add(position);
-    rows.push({ position, domain, url: String(it.url), title: it.title ? String(it.title).slice(0, 500) : null });
+    rows.push(jsonSafe({ position, domain, url: String(it.url), title: it.title ? String(it.title).slice(0, 500) : null }));
   }
   return { rows, itemTypes: Array.isArray(taskResult?.item_types) ? taskResult.item_types.map(String) : null };
 }
 
 const FEATURE_ENTRY_CAP = 20;
 const FEATURE_TEXT_CAP = 300;
+
+// A NUL and an UNPAIRED surrogate are both legal in a JS string and both
+// REFUSED by Postgres' json parser ("invalid input syntax for type json"), so
+// either one in a details value fails the whole seo_serp_features upsert --
+// and a failed write leaves its task uncollected, which every later run then
+// tries to resume and fails on again (seen 2026-10-19..26: one People Also
+// Ask block stalled Baseballism's sync for a week). A lone surrogate arrives
+// either from the provider or from a cap cutting an emoji in half, so every
+// details value goes through jsonSafe() before it is written. Observation
+// titles get the same scrub: a text column refuses the broken UTF-8 a lone
+// surrogate encodes to, and would stall a run the same way.
+const UNPAIRED_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/** The same value with every string safe to store in a jsonb column. */
+export function jsonSafe(value) {
+  if (typeof value === 'string') return value.replace(/\u0000/g, '').replace(UNPAIRED_SURROGATE, '');
+  if (Array.isArray(value)) return value.map(jsonSafe);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[jsonSafe(k)] = jsonSafe(v);
+    return out;
+  }
+  return value;
+}
 
 /** One bounded entry from an element of a SERP block: a question, a product,
  * a video, a reference. Strings (related searches) become a title. Never the
@@ -220,7 +244,7 @@ export function mapSerpFeatures(taskResult) {
     if (entries.length) details.entries = entries;
     if (it.asynchronous_ai_overview === true) details.asynchronous = true;
     const itemCount = Array.isArray(it.items) ? it.items.length : (Array.isArray(it.references) ? it.references.length : null);
-    rows.push({ feature_type: type, position, item_count: itemCount, details });
+    rows.push({ feature_type: type, position, item_count: itemCount, details: jsonSafe(details) });
   }
   return rows;
 }
