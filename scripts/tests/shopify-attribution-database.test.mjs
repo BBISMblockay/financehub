@@ -23,6 +23,12 @@ await db.exec(migration);await db.exec(migration);
 await db.exec("create table marketing_kpis_daily(company_entity_id uuid,platform text,campaign_id text,campaign_name text,day_date date,synced_at timestamptz); alter table marketing_kpis_daily enable row level security; grant select on marketing_kpis_daily to authenticated,service_role;");
 const report=files.find(n=>n.endsWith('_silo_attribution_report.sql'));
 if(report)await db.exec(await readFile(new URL('../../supabase/migrations/'+report,import.meta.url),'utf8'));
+const discounts=files.find(n=>n.endsWith('_attribution_discount_codes.sql'));
+if(report&&discounts){
+ let sql=await readFile(new URL('../../supabase/migrations/'+discounts,import.meta.url),'utf8');
+ if(process.env.ATTRIBUTION_DB_MUTATION==='discounts')sql=sql.replaceAll("jsonb_typeof(o.evidence->'order'->'discountCodes')='array'","true");
+ await db.exec(sql);await db.exec(sql);
+}
 const co='00000000-0000-0000-0000-000000000001',other='00000000-0000-0000-0000-000000000002',conn='00000000-0000-0000-0000-000000000003';
 await db.query('insert into entities values($1),($2)',[co,other]);await db.query('insert into shopify_connections values($1,$2)',[conn,co]);
 await db.exec('grant select on shopify_connections to service_role');
@@ -101,6 +107,41 @@ if(report){
  const text=JSON.stringify(projected[0].order_evidence);
  for(const dropped of ['sourceName','__typename','firstVisit','lastVisit'])assert.ok(!text.includes(dropped),`${dropped} is not read by the rollup and must not be sent`);
 }
+if(report&&discounts){
+ // Codes ride along on the evidence the journey fetch already stores, so the view must report
+ // three states apart: an array of codes, an order collected with none, and evidence written
+ // before the sync captured codes at all. The last is NOT "no code used" -- coalescing it to an
+ // empty array would turn every pre-change order into a sale that bought nothing on a code.
+ const codes=async()=>{
+  await db.exec('reset role; set role authenticated');await db.query("select set_config('test.company',$1,false)",[co]);
+  const rows=(await db.query("select distinct discount_codes, discount_code from silo_attribution_ledger_v where day='2026-09-01'::date")).rows;
+  assert.equal(rows.length,1,'one order, one code shape');
+  return rows[0];
+ };
+ const setEvidence=async order=>{
+  await db.exec('reset role; set role service_role');
+  await db.query('update shopify_attribution_orders set evidence=jsonb_set(evidence,$1,$2::jsonb)',['{order}',JSON.stringify(order)]);
+ };
+ await setEvidence({name:'#1',discountCodes:['TEAM50','PRESTON30']});
+ assert.deepEqual((await codes()).discount_codes,['TEAM50','PRESTON30'],'every applied code is kept');
+ assert.equal((await codes()).discount_code,'TEAM50','the first code applied is the one to group on');
+ await setEvidence({name:'#1',discountCodes:[]});
+ assert.deepEqual((await codes()).discount_codes,[],'an order collected with no code is an empty array');
+ assert.equal((await codes()).discount_code,null,'no code to group on');
+ await setEvidence({name:'#1'});
+ assert.equal((await codes()).discount_codes,null,'evidence from before the change is NOT MEASURED, not empty');
+ assert.equal((await codes()).discount_code,null);
+ // A non-array value is malformed evidence, not a code list to read through.
+ await setEvidence({name:'#1',discountCodes:'TEAM50'});
+ assert.equal((await codes()).discount_codes,null,'a malformed discountCodes must read as not measured');
+ await setEvidence({name:'#1',discountCodes:['TEAM50']});
+ await db.exec('reset role; set role authenticated');await db.query("select set_config('test.company',$1,false)",[co]);
+ // The page's own projection must be unaffected by the new columns.
+ const {LEDGER_SELECT}=await import('../../v2/silo-attribution-report.js');
+ const projected=(await db.query(LEDGER_SELECT+" where day='2026-09-01'::date and window_days=30")).rows[0];
+ for(const added of ['discount_codes','discount_code'])assert.ok(!(added in projected),`${added} must not be added to the Attribution page's payload`);
+}
+await db.exec('reset role; set role authenticated');await db.query("select set_config('test.company',$1,false)",[co]);
 await assert.rejects(publish(),/permission denied/);
 await assert.rejects(db.exec('delete from shopify_attribution_orders'),/permission denied/);
 await db.query("select set_config('test.company',$1,false)",[other]);
