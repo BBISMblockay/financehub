@@ -152,6 +152,14 @@ function fakeGraph({ paged = false, evilNext = false } = {}) {
     if (u.host !== 'graph.facebook.com') throw new Error(`token sent to ${u.host}`);
     const after = u.searchParams.get('after');
     const next = (cursor) => ({ next: `${u.origin}${u.pathname}?${new URLSearchParams({ ...Object.fromEntries(u.searchParams), after: cursor })}` });
+    if (path === 'me/permissions') {
+      return ok({ data: [
+        { permission: 'pages_show_list', status: 'granted' },
+        { permission: 'ads_read', status: 'granted' },
+        { permission: 'pages_read_engagement', status: 'declined' },
+        { permission: 'instagram_basic', status: 'expired' },
+      ] });
+    }
     if (path === 'me/adaccounts' && paged && !after) return ok({ data: [{ id: 'act_1', name: 'Demo ads', currency: 'USD' }], paging: next('A2') });
     if (path === 'me/adaccounts' && after === 'A2') return ok({ data: [{ id: 'act_2', name: 'Page-two ads', currency: 'EUR' }], ...(evilNext ? { paging: { next: 'https://evil.example/steal?x=1' } } : {}) });
     if (path === 'me/adaccounts') return ok({ data: [{ id: 'act_1', name: 'Demo ads', currency: 'USD' }] });
@@ -322,8 +330,21 @@ await test('verify: each reporting permission probed with the sync\'s calls; not
     assert.ok(by(p).length && by(p).every((c) => c.ok === true), `${p}: ${JSON.stringify(by(p))}`);
   }
   assert.ok(!r.body.checks.some((c) => /business_management|ads_management/.test(c.permission)), 'no write permission is exercised');
-  assert.deepEqual([...new Set(r.body.checks.map((c) => c.permission))].sort(), [...META_PERMISSIONS].sort(),
-    'the probe covers exactly the permissions the configuration requests');
+  assert.deepEqual([...new Set(r.body.checks.map((c) => c.permission))].filter((p) => p !== 'token').sort(),
+    [...META_PERMISSIONS].sort(),
+    'apart from the token row, the probe covers exactly the permissions the configuration requests');
+
+  // The token row comes FIRST and groups Meta's statuses, so a permission that
+  // was never granted is as visible as one that was declined. Without it a
+  // refusal like "(#10) requires the 'pages_read_engagement' permission"
+  // cannot be told apart from a missing Page role.
+  const tok = by('token');
+  assert.equal(tok.length, 1);
+  assert.equal(r.body.checks[0].permission, 'token', 'the token row is read before anything that depends on it');
+  assert.equal(tok[0].endpoint, 'GET /me/permissions');
+  assert.deepEqual(tok[0].detail, {
+    granted: ['ads_read', 'pages_show_list'], declined: ['pages_read_engagement'], expired: ['instagram_basic'],
+  });
   // Each asset's NAME comes back with the checks, which is the whole point of
   // the 2026-10-26 change: Meta rejected five permissions because the metrics
   // on screen could not be attributed to a Page or an Instagram account.

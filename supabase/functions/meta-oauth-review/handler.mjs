@@ -19,7 +19,9 @@
 //                  re-listing server-side: only an asset the token can reach is
 //                  accepted. sync_enabled is NOT switched on (no nightly sync)
 //   verify         read-only probe of each reporting permission, with the same
-//                  Graph calls the sync makes; stores nothing
+//                  Graph calls the sync makes, preceded by a `token` row
+//                  reading /me/permissions so a refusal can be told apart from
+//                  a permission the token never held; stores nothing
 //   sync           Sync now -- forwards to ad-platform-sync-run with the
 //                  caller's own JWT, which re-checks visibility under RLS
 //   stored         what the sync has stored for this connection / workspace
@@ -141,6 +143,20 @@ export function createReviewHandler({ env, admin, fetchImpl, checkMfa, now = () 
     const page = conn.facebook_page_id;
     const ig = conn.instagram_business_account_id;
     const assets = { ad_account: null, page: null, instagram: null };
+
+    // What the token ACTUALLY carries, before anything that depends on it.
+    // On 2026-10-26 the first live run refused /published_posts with
+    // "(#10) This endpoint requires the 'pages_read_engagement' permission",
+    // and nothing on this page could say whether that permission had been
+    // granted to the token at all -- which changes how every other row's
+    // failure should be read. Meta returns one row per permission with a
+    // status of granted, declined or expired; they are grouped here so an
+    // absent permission is as visible as a declined one.
+    const perms = await getGraph(graph('me/permissions', { access_token: token }));
+    const permRows = perms.ok ? perms.data.data ?? [] : [];
+    const withStatus = (s) => permRows.filter((p) => p.status === s).map((p) => p.permission).sort();
+    add('token', 'GET /me/permissions', perms,
+      perms.ok ? { granted: withStatus('granted'), declined: withStatus('declined'), expired: withStatus('expired') } : null);
 
     if (act) {
       const a = await getGraph(graph(act, { fields: 'id,name,currency,account_status', access_token: token }));

@@ -377,6 +377,12 @@ Per https://developers.facebook.com/docs/app-review/submission-guide/screen-reco
 - [ ] The return to SILO, then choosing the ad account, Page and Instagram account → Save.
 - [ ] The **asset identity header** above the results: ad account name, Page name, Instagram
       @handle. Hold on it. This is the single thing every 2026-10-26 rejection asked for (2.9).
+- [ ] The **token** row at the top of **Verify permissions** (`GET /me/permissions`), which lists
+      the permissions the token actually holds as granted, declined or expired. Added 2026-10-26
+      after the first live run refused `/published_posts` with `(#10) This endpoint requires the
+      'pages_read_engagement' permission` and nothing on the page could say whether the token
+      carried it. Read it before recording: a permission that is absent or declined here cannot be
+      demonstrated from this connection at all, whatever the UI does.
 - [ ] For **each** permission, the row in **Verify permissions** with real values (annotated):
       `ads_read` (account name/id, then 30-day spend/impressions/clicks), `pages_show_list`,
       `pages_read_engagement` (Page name, follower count, Page token issued, **and the Page's
@@ -496,6 +502,27 @@ product does not make.
 Not done, and deliberately: the WOW report's Organic card still reads media insights only, and
 `supabase/data_coverage.sql` was not extended (its row numbers are positional and its organic notes
 are already stale — it says those tables are EMPTY, which stopped being true in May 2026).
+
+**First live Verify run, 2026-10-26 19:33 UTC.** Eight of nine rows came back ok against the
+review connection (ad account `act_1656703769362753` reclaimedhairsalon/USD, Page 105378387580746
+"Reclaimed Hair Salon & Spa"/669 followers, Instagram 17841423253593547 @reclaimedhairsalon/172
+followers/38 posts), which confirms live what 2.2 had only from Meta's docs: `reach` serves as
+`metric_type=time_series`, and `views`/`accounts_engaged`/`total_interactions` serve as
+`total_value`. The Page and Instagram day values were all zero, which Meta's own note accepts as
+long as they are labelled, and they are.
+
+The one failure was `GET /{page}/published_posts`:
+
+> (#10) This endpoint requires the 'pages_read_engagement' permission or the 'Page Public Content
+> Access' feature.
+
+`Page Public Content Access` is for reading **other people's** Pages and is not what SILO needs, so
+it is not the answer. The open question is whether the token holds `pages_read_engagement` at all:
+an unapproved permission is granted only to accounts with a role on the app, and a client business's
+system user has none. That is why `verify` now begins with a `token` row reading `/me/permissions`
+(2.7). If it reports the permission absent or declined, the segment has to be recorded from an
+account that holds an app role, because a dev-mode role does get unapproved permissions on assets it
+owns — a connection that cannot exercise the permission cannot demonstrate it.
 
 **`meta-oauth-callback` deployment, settled 2026-10-26:** production runs version 5, which IS the
 review revision — `isReviewState`/`rt_` nonces, `REVIEW_PAGE_PATH = '/testing/meta-oauth.html'`, and
