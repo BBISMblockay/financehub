@@ -489,7 +489,50 @@
 
       <div id="man_competition"></div>
 
-      <div class="wow-sec" id="sec_redo"><span class="wow-sec-n">Redo — Email / SMS</span><span class="wow-sec-sub">no connector yet</span></div>
+      <div class="wow-sec" id="sec_redo"><span class="wow-sec-n">Redo — Email / SMS</span><span class="wow-sec-sub">live from Redo · subscribers typed</span></div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Redo — campaigns</h2><span class="bcn-card-meta" id="redoCampMeta"></span></div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="wow-grp-head" id="redoCampTotals"></div>
+          <div class="bcn-matrix-scroll">
+            <table class="wow-tbl"><thead><tr>
+              <th>Campaign</th><th>Channel</th><th>Sent</th><th>Delivered</th>
+              <th title="Unique opens ÷ delivered, pooled over the whole window. Email only — SMS has no opens.">Open %</th>
+              <th title="Unique clicks ÷ delivered, pooled over the whole window.">Click %</th>
+              <th title="Attributed orders ÷ delivered, pooled over the whole window.">Conv %</th>
+              <th title="Revenue Redo credits to the message ÷ delivered.">Rev / msg</th>
+              <th title="Revenue Redo credits to this message. Not incremental — it overlaps Meta, Google and TikTok claims.">Revenue</th>
+              <th title="Unsubscribes ÷ delivered, pooled over the whole window.">Unsub %</th>
+            </tr></thead>
+            <tbody id="redoCampBody"></tbody></table>
+          </div>
+        </div>
+        <div class="wow-note" id="redoNote" hidden></div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header"><h2>Redo — automations</h2><span class="bcn-card-meta" id="redoAutoMeta"></span></div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="wow-grp-head" id="redoAutoTotals"></div>
+          <div class="bcn-matrix-scroll">
+            <table class="wow-tbl"><thead><tr>
+              <th>Automation</th><th>Channel</th><th>Sends</th><th>Delivered</th>
+              <th title="Unique opens ÷ delivered. Email only — SMS has no opens.">Open %</th>
+              <th title="Unique clicks ÷ delivered.">Click %</th>
+              <th>Orders</th>
+              <th title="Revenue Redo credits to this automation. Not incremental.">Revenue</th>
+              <th title="Redo's own sending cost in USD. Not ad spend — keep it out of MER and ROAS.">Sending cost</th>
+              <th title="Unsubscribes ÷ delivered.">Unsub %</th>
+            </tr></thead>
+            <tbody id="redoAutoBody"></tbody></table>
+          </div>
+        </div>
+        <details class="wow-say" data-key="redo">
+          <summary>Notes on Redo</summary>
+          <div class="wow-say-body"><textarea id="say_redo" class="wow-say-box" data-say="redo" rows="3" placeholder="Your read — this is the part the numbers can't write."></textarea></div>
+        </details>
+      </div>
 
       <div id="man_redo"></div>
 
@@ -557,6 +600,16 @@
   const money  = v => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v));
   const money2 = v => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(Number(v));
   const intFmt = v => (v==null||!isFinite(v)) ? '—' : Math.round(Number(v)).toLocaleString();
+  // Same two formatters, for a figure that carries its own currency. Redo's
+  // contract is the reason they exist: attributed revenue is in the STORE's
+  // currency while the sending cost is always USD, so one tenant's report can
+  // hold both and rendering either with a bare '$' would be a different number
+  // than it says. An unrecognised code falls back to USD rather than throwing,
+  // because Intl rejects anything but three letters and a report must not go
+  // blank over a currency label.
+  const CUR = c => (/^[A-Za-z]{3}$/.test(c || '') ? String(c).toUpperCase() : 'USD');
+  const moneyIn  = (v, c) => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:CUR(c),maximumFractionDigits:0}).format(Number(v));
+  const money2In = (v, c) => (v==null||!isFinite(v)) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:CUR(c),maximumFractionDigits:2}).format(Number(v));
   const xFmt   = v => (v==null||!isFinite(v)) ? '—' : `${Number(v).toFixed(2)}x`;
   const iso    = d => d.toISOString().slice(0,10);
 
@@ -650,12 +703,20 @@
     { key:'kimonix_collections', section:'kimonix', title:'Kimonix — collections',
       cols:[['collectionName','Collection',0],['pageViews','Page views',110],
             ['sales','Sales $',110],['conversionRate','Conv. rate',100]] },
-    { key:'redo_campaigns', section:'redo', title:'Redo — campaigns',
-      cols:[['campaign','Campaign',0],['date','Date',100],['subject','Subject',0],
-            ['delivered','Delivered',100],['openRate','Open %',90],['clickRate','Click %',90],
-            ['conversionRate','Conv. %',90],['revPerMsg','Rev / msg',100],['unsubRate','Unsub %',90]] },
-    { key:'redo_automations', section:'redo', title:'Redo — automations',
-      cols:[['date','Date',100],['spend','Spend',100],['totalRevenue','Revenue',110],
+    // 'redo_campaigns' was a typed table here, and the automations table below
+    // carried typed spend and revenue. Both are live now, from
+    // redo_marketing_daily_v (synced nightly since 2026-09-24) -- the two Redo
+    // cards above. What is left is the only part Redo's reporting API does not
+    // return: subscriber gains. It reports unsubscribes, not subscribes, so
+    // those four counts and the notes stay typed. The key is kept as
+    // 'redo_automations' so subscriber numbers already typed still appear. The
+    // dropped Spend and Revenue columns are NOT re-saved -- those two numbers
+    // are now measured, and a typed copy of a measured figure is exactly the
+    // stale number this table is not for. Rows of the retired
+    // 'redo_campaigns' table are kept untouched (see collectTables).
+    { key:'redo_automations', section:'redo', title:'Redo — subscribers (typed)',
+      hint:'Type these in. Redo reports unsubscribes, not subscriber gains.',
+      cols:[['date','Date',100],
             ['emailSubs','Email subs',110],['emailNetSubs','Email net subs',120],
             ['smsSubs','SMS subs',110],['smsNetSubs','SMS net subs',115],['notes','Notes',0]] },
     // 'organic_posts' was here: twelve blank rows hinted "Fills in
@@ -805,6 +866,18 @@
       });
       if (rows.length) out[t.key] = rows;
     });
+    // Carry over tables that were saved under an earlier version of this page
+    // and are no longer rendered ('redo_campaigns', 'organic_posts', dropped
+    // columns of a table that shrank). sections is replaced wholesale on
+    // upsert, so without this the first save after a field went live would
+    // delete what somebody typed before it did. 'cohorts_manual' is excluded
+    // on purpose: it IS collected above, from the live cohort card, so
+    // carrying it over would undo clearing a cell.
+    Object.entries(ENTRY.tables || {}).forEach(([key, rows]) => {
+      if (key in out || key === 'cohorts_manual') return;
+      if (MANUAL_TABLES.some(t => t.key === key)) return;
+      if (Array.isArray(rows) && rows.length) out[key] = rows;
+    });
     return out;
   }
 
@@ -878,6 +951,80 @@
   let COHORTS = null;
   let ORGANIC = null;
   let CREATIVES = null;
+  let REDO = null;
+  let REDO_TRUNCATED = false;
+
+  // Redo's reporting data is read straight from redo_marketing_daily_v rather
+  // than through a wow_* RPC: the view is security_invoker and company-scoped,
+  // the page already knows the window's dates, and this way the card needs no
+  // migration to go live. The grain is message x channel x day, so the page
+  // pools the window itself.
+  //
+  // THE CAP IS A GUARD, NOT A LIMIT. Measured on production 2026-10-26 for
+  // Baseballism: 691 rows for a week, 8,855 for the year to date, 9,299 in the
+  // whole table. 20,000 is therefore several times the widest window this page
+  // offers, and if a company ever exceeds it the card says the window is
+  // partial instead of quietly reporting a short total.
+  const REDO_ROW_CAP = 20000;
+
+  // Measured on production 2026-10-26: one week of Baseballism is 120 campaign
+  // x channel groups. The totals line above each table covers every group;
+  // this caps only what is DRAWN, ranked by credited revenue, and the card's
+  // meta says which it is. The CSV export carries all of them.
+  const REDO_SHOW = 25;
+
+  async function fetchRedo(w){
+    if (!w?.start || !w?.end) return { data:null, error:null };
+    let q = sb.from('redo_marketing_daily_v')
+      .select('kind,redo_id,name,channel,subject,sent_at,sends,delivered,'
+            + 'unique_opens,unique_clicks,unsubscribes,orders,'
+            // Both currencies, because they are not the same one: revenue is
+            // the store's, spend is Redo's USD sending cost.
+            + 'revenue,revenue_currency,spend,spend_currency')
+      .gte('day_date', w.start).lte('day_date', w.end)
+      .order('day_date', { ascending:true })
+      .range(0, REDO_ROW_CAP - 1);
+    if (_co?.id) q = q.eq('company_entity_id', _co.id);
+    return q;
+  }
+
+  // Pool the window, then divide -- never average daily rates. A single day
+  // can read over 100% because clicks and orders land after the send day.
+  function groupRedo(rows){
+    const byKind = { campaign:new Map(), automation:new Map() };
+    (rows || []).forEach(r => {
+      const bucket = byKind[r.kind]; if (!bucket) return;
+      // Currency is part of the key, not a label on the side: two rows in
+      // different currencies are not addable, and a silent sum across them
+      // would be a wrong number that looks like a right one.
+      const key = `${r.redo_id}|${r.channel}|${r.revenue_currency || ''}|${r.spend_currency || ''}`;
+      let g = bucket.get(key);
+      if (!g){
+        g = { redo_id:r.redo_id, name:r.name, subject:r.subject, channel:r.channel,
+              sent_at:r.sent_at, revenue_currency:r.revenue_currency,
+              spend_currency:r.spend_currency, sends:0, delivered:0, opens:0,
+              clicks:0, unsubs:0, orders:0, revenue:0, spend:0 };
+        bucket.set(key, g);
+      }
+      g.sends     += Number(r.sends || 0);
+      g.delivered += Number(r.delivered || 0);
+      g.opens     += Number(r.unique_opens || 0);
+      g.clicks    += Number(r.unique_clicks || 0);
+      g.unsubs    += Number(r.unsubscribes || 0);
+      g.orders    += Number(r.orders || 0);
+      g.revenue   += Number(r.revenue || 0);
+      g.spend     += Number(r.spend || 0);
+    });
+    const sort = (a,b) => b.revenue - a.revenue || b.delivered - a.delivered;
+    // A message with a row but nothing in any count contributes nothing and
+    // only makes the reader scroll; the totals are unaffected either way.
+    const live = (g) => g.sends || g.delivered || g.opens || g.clicks
+                     || g.unsubs || g.orders || g.revenue || g.spend;
+    return {
+      campaigns:[...byKind.campaign.values()].filter(live).sort(sort),
+      automations:[...byKind.automation.values()].filter(live).sort(sort),
+    };
+  }
   // How many ads are revealed per objective. Sammie asked for ten, then the
   // next ten -- so this is per group and resets whenever the period changes.
   let CRE_SHOWN = {};
@@ -1268,7 +1415,16 @@
   async function load(opts){
     setStatus('Loading…');
     try {
-      if (opts?.companyResolved !== true) await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);
+      // ASSIGNED, not merely awaited. `_co` is what the Redo read's explicit
+      // company filter and the entry load/save use, and it used to keep the
+      // value boot() resolved for the life of the tab. Switching the active
+      // company in another tab and pressing Refresh then left the RPCs reading
+      // the new company through active_company_id() while anything filtered on
+      // `_co` asked for the old one -- an intersection of two tenants, which
+      // is zero rows and reads as "no activity" rather than as a stale filter.
+      if (opts?.companyResolved !== true) {
+        _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;
+      }
       // One grain for every call. If these were allowed to drift, the KPI band
       // and the funnel below it would describe different periods while looking
       // like one report.
@@ -1350,7 +1506,7 @@
       // and push the user's wait from two attempts to three timeouts before
       // the same banner. Failing now is the whole point of containing this.
       if (main.error) throw main.error;
-      const [funnel, paid, reality, landing, codes, cohorts, organic, creatives] = await Promise.all([
+      const [funnel, paid, reality, landing, codes, cohorts, organic, creatives, redo] = await Promise.all([
         sb.rpc('wow_funnel', { p_report_date: d, p_grain: gr }),
         sb.rpc('wow_paid_media', { p_report_date: d, p_grain: gr }),
         // Sub-second: six date-bounded aggregates over one window.
@@ -1365,6 +1521,10 @@
         // round trip, and bounded so a YTD window (380 purchase ads) does not
         // ship a megabyte of ad copy to render ten rows.
         sb.rpc('wow_creatives', { p_report_date: d, p_grain: gr, p_limit: 50 }),
+        // Reads the Redo view directly, so it needs the window main just
+        // returned -- main is already resolved here, which is why this sits in
+        // the second batch rather than alongside wow_report.
+        fetchRedo(main.data?.window),
       ]);
       DATA = main.data;
       // The funnel is additive -- a failure here must not take down the sales
@@ -1394,6 +1554,10 @@
       if (creatives.error) FAILED.add('creatives');
       if (creatives.error) console.warn('creatives unavailable:', creatives.error.message);
       CRE_SHOWN = {};
+      REDO = redo.error ? null : groupRedo(redo.data || []);
+      REDO_TRUNCATED = !redo.error && (redo.data || []).length >= REDO_ROW_CAP;
+      if (redo.error) FAILED.add('redo');
+      if (redo.error) console.warn('redo marketing unavailable:', redo.error.message);
       KPI = kpi.error ? null : (kpi.data || null);
       if (kpi.error) FAILED.add('kpi');
       if (kpi.error) console.warn('kpi compare unavailable:', kpi.error.message);
@@ -1484,6 +1648,102 @@
     renderReality();
     renderPaid();
     renderOrganic();
+    renderRedo();
+  }
+
+  // Redo email and SMS, live from redo_marketing_daily_v. Two rules the card
+  // must not break, both Redo's own:
+  //   1. Every rate is a count over DELIVERED, pooled over the window. A
+  //      campaign that sent before this window still earns orders inside it,
+  //      so delivered can be 0 with revenue above it -- the rates then read
+  //      '--', because a rate over nothing is not 0%, and the footnote says so.
+  //   2. Revenue is what Redo CREDITS to the message. It overlaps Meta,
+  //      Google and TikTok attribution and is not incremental sales, so the
+  //      header, the totals and the export all say 'credited', never 'sales'.
+  // SMS has no opens at all; its open rate is 'n/a', never 0%.
+  function renderRedo(){
+    const r = REDO;
+    const rate = (num, den) => den > 0
+      ? `${(num / den * 100).toFixed(num / den < 0.1 ? 2 : 1)}%`
+      : '<span class="dim">—</span>';
+    const fill = (bodyId, metaId, totId, rows, cols, kindLabel) => {
+      const body = el(bodyId), meta = el(metaId), tot = el(totId);
+      if (!body) return;
+      if (!r) {
+        if (meta) meta.textContent = '';
+        if (tot) tot.innerHTML = '';
+        body.innerHTML = `<tr><td class="wow-empty" colspan="${cols}">${FAILED.has('redo')
+          ? 'Could not load Redo — try Refresh.'
+          : 'No Redo activity in this window.'}</td></tr>`;
+        return;
+      }
+      const shown = rows.slice(0, REDO_SHOW);
+      if (meta) meta.textContent = rows.length
+        ? (rows.length > shown.length
+            ? `top ${intFmt(shown.length)} of ${intFmt(rows.length)} by credited revenue · message × channel`
+            : `${intFmt(rows.length)} ${kindLabel} · message × channel`)
+        : `no ${kindLabel} in window`;
+      // Counts add across everything; money adds only within one currency, so
+      // each currency gets its own figure. One currency is the normal case and
+      // reads exactly as before.
+      const t = rows.reduce((a, g) => {
+        a.delivered += g.delivered; a.opens += g.opens; a.clicks += g.clicks;
+        a.orders += g.orders;
+        const rc = CUR(g.revenue_currency), sc = CUR(g.spend_currency);
+        a.revenue[rc] = (a.revenue[rc] || 0) + g.revenue;
+        a.spend[sc] = (a.spend[sc] || 0) + g.spend;
+        return a;
+      }, { delivered:0, opens:0, clicks:0, orders:0, revenue:{}, spend:{} });
+      const perCur = (totals, fmt) => Object.entries(totals)
+        .sort((a, b) => b[1] - a[1])
+        .map(([cur, v]) => fmt(v, cur)).join(' · ') || '—';
+      if (tot) tot.innerHTML = rows.length
+        ? `<span style="display:flex;gap:18px;flex-wrap:wrap;text-transform:none;letter-spacing:0">`
+          + `<span>Delivered <b>${intFmt(t.delivered)}</b></span>`
+          + `<span>Orders <b>${intFmt(t.orders)}</b></span>`
+          + `<span>Revenue credited by Redo <b>${perCur(t.revenue, moneyIn)}</b></span>`
+          + `<span>Sending cost <b>${perCur(t.spend, money2In)}</b></span>`
+          + `</span>`
+        : '';
+      body.innerHTML = shown.length ? shown.map(g => {
+        const sms = String(g.channel || '').toUpperCase() === 'SMS';
+        const open = sms ? '<span class="dim">n/a</span>' : rate(g.opens, g.delivered);
+        const name = g.name || g.redo_id;
+        const sent = g.sent_at ? String(g.sent_at).slice(0, 10) : '<span class="dim">—</span>';
+        const chan = `<td>${esc(g.channel || '')}</td>`;
+        return kindLabel === 'campaigns'
+          ? `<tr><td title="${esc(g.subject || '')}">${esc(name)}</td>${chan}
+             <td>${sent}</td><td>${intFmt(g.delivered)}</td><td>${open}</td>
+             <td>${rate(g.clicks, g.delivered)}</td><td>${rate(g.orders, g.delivered)}</td>
+             <td>${g.delivered > 0 ? money2In(g.revenue / g.delivered, g.revenue_currency) : '<span class="dim">—</span>'}</td>
+             <td>${moneyIn(g.revenue, g.revenue_currency)}</td><td>${rate(g.unsubs, g.delivered)}</td></tr>`
+          : `<tr><td>${esc(name)}</td>${chan}
+             <td>${intFmt(g.sends)}</td><td>${intFmt(g.delivered)}</td><td>${open}</td>
+             <td>${rate(g.clicks, g.delivered)}</td><td>${intFmt(g.orders)}</td>
+             <td>${moneyIn(g.revenue, g.revenue_currency)}</td><td>${money2In(g.spend, g.spend_currency)}</td>
+             <td>${rate(g.unsubs, g.delivered)}</td></tr>`;
+      }).join('') : `<tr><td class="wow-empty" colspan="${cols}">No ${kindLabel} with activity in this window.</td></tr>`;
+    };
+
+    fill('redoCampBody', 'redoCampMeta', 'redoCampTotals', r?.campaigns || [], 10, 'campaigns');
+    fill('redoAutoBody', 'redoAutoMeta', 'redoAutoTotals', r?.automations || [], 10, 'automations');
+
+    const note = el('redoNote');
+    if (note) {
+      const lines = [
+        'Revenue is what Redo credits to the message within its attribution window. '
+        + 'It overlaps Meta, Google and TikTok attribution, keeps arriving for weeks after a '
+        + 'send, and is not incremental — never add it to net sales. Sending cost is Redo’s, '
+        + 'not ad spend: keep it out of MER and ROAS.',
+        'Rates are counts over delivered messages, pooled across the whole window. A campaign '
+        + 'that sent before this window can still earn orders inside it; its rates read — '
+        + 'because nothing was delivered in the window. SMS has no opens.',
+      ];
+      if (REDO_TRUNCATED) lines.unshift(
+        `Showing the first ${intFmt(REDO_ROW_CAP)} Redo rows for this window — totals below are partial.`);
+      note.innerHTML = lines.map(t => `<div>${esc(t)}</div>`).join('');
+      note.hidden = false;
+    }
   }
 
   // Organic posts, live from instagram_media_insights -- the same table
@@ -2140,6 +2400,30 @@
     (dc.codes||[]).forEach(c => push(c.code, c.sales, c.orders, c.aov ?? '',
       c.pct_of_total ?? '', c.sales_wow ?? ''));
     if (dc.total_sales) push('Coded / total', dc.coded_sales, dc.total_sales);
+
+    if (REDO) {
+      const rd = REDO;
+      section('REDO — campaigns (email / SMS)');
+      push('Campaign','Channel','Sent','Delivered','Opens','Clicks','Orders',
+           'Revenue credited by Redo','Revenue currency','Unsubscribes','Subject');
+      (rd.campaigns || []).forEach(g => push(g.name || g.redo_id, g.channel,
+        g.sent_at ? String(g.sent_at).slice(0,10) : '', g.delivered, g.opens,
+        g.clicks, g.orders, g.revenue, CUR(g.revenue_currency), g.unsubs, g.subject ?? ''));
+      section('REDO — automations (email / SMS)');
+      push('Automation','Channel','Sends','Delivered','Opens','Clicks','Orders',
+           'Revenue credited by Redo','Revenue currency','Sending cost',
+           'Sending cost currency','Unsubscribes');
+      (rd.automations || []).forEach(g => push(g.name || g.redo_id, g.channel,
+        g.sends, g.delivered, g.opens, g.clicks, g.orders, g.revenue,
+        CUR(g.revenue_currency), g.spend, CUR(g.spend_currency), g.unsubs));
+      // Counts, not rates: a rate belongs to a window, and a spreadsheet that
+      // re-slices these rows would divide the wrong things. Open rate =
+      // sum(opens)/sum(delivered) over whatever is being pooled; SMS has no
+      // opens. Revenue is credited by Redo, not incremental sales, and it
+      // carries its own currency -- the sending cost's is Redo's, always USD,
+      // so the two columns must not be added together.
+      if (REDO_TRUNCATED) push(`PARTIAL: first ${REDO_ROW_CAP} rows only`);
+    }
 
     // ---- typed sections, exported with their headers even when empty so the
     //      shape is obvious wherever this lands ----

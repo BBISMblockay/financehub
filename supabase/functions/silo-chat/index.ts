@@ -1153,6 +1153,54 @@ function collectSources(
   }
 }
 
+// The assistant turn, trimmed to what the API will accept back.
+//
+// Why this is needed at all (live 400, 2026-10-26, request
+// req_011CgRJNeUFvPP8n3X1aboZ4): the hosted `web_search_20260209` tool does
+// its dynamic filtering by running CODE EXECUTION on Anthropic's side, so a
+// response can carry `server_tool_use` blocks -- id `srvtoolu_...`, name
+// `code_execution` -- even though this function never declares a code
+// execution tool. The comment on the web_search definition above ("the
+// round-trip loop below never sees or handles this tool by name") holds only
+// while the turn FINISHES: every server tool use is then paired with its
+// `*_tool_result` block in the same response and the pair replays fine.
+//
+// A turn cut short -- paused at the server's tool-loop limit, or stopped by
+// max_tokens -- can end on a server tool use whose result block never
+// arrived. Replaying that turn verbatim, which every continuation path below
+// does, is rejected:
+//
+//   400 invalid_request_error: messages.1: `code_execution` tool use with id
+//   `srvtoolu_...` was found without a corresponding
+//   `code_execution_tool_result` block
+//
+// and the person sees a raw provider error instead of an answer. So drop any
+// SERVER tool use that has no result beside it. Client `tool_use` blocks are
+// never dropped: their results are what the caller appends next, and dropping
+// one would orphan the tool_result instead.
+//
+// Not used on the pause_turn resume path, which must send the turn untouched
+// -- see the branch in the round loop.
+function replayableBlocks(blocks: unknown[]): Array<Record<string, unknown>> {
+  const list = (Array.isArray(blocks) ? blocks : []) as Array<Record<string, unknown>>;
+  const resultIds = new Set<string>();
+  for (const raw of list) {
+    const b = raw as { type?: unknown; tool_use_id?: unknown };
+    if (typeof b?.type === 'string' && b.type.endsWith('_tool_result') && typeof b.tool_use_id === 'string') {
+      resultIds.add(b.tool_use_id);
+    }
+  }
+  return list.filter((raw) => {
+    const b = raw as { type?: unknown; id?: unknown };
+    if (typeof b?.type !== 'string') return false;
+    // `tool_use` exactly is the client tool; `server_tool_use` and any future
+    // `<something>_tool_use` are Anthropic's own, resolved server-side.
+    const isServerToolUse = b.type !== 'tool_use' && b.type.endsWith('tool_use');
+    if (!isServerToolUse) return true;
+    return typeof b.id === 'string' && resultIds.has(b.id);
+  });
+}
+
 // Wrapped so a long request starts its response before Supabase's 150s
 // gateway limit and keeps it open with heartbeats -- see keepalive-lib.mjs.
 // The worker may then run to the budget below instead of the gateway's.
@@ -1379,6 +1427,39 @@ Deno.serve(withKeepAlive(async (req: Request) => {
       }
       return { role, content: text };
     });
+
+    // Put an assistant turn back on the transcript so the model can be asked
+    // to continue it. Everything the API will not accept back is dropped
+    // first -- see replayableBlocks -- and a turn left with nothing at all
+    // (a response that was ONLY an unfinished server tool use) is not pushed:
+    // an assistant message with empty content is itself a 400. The user
+    // instruction that follows every one of these calls stands on its own
+    // without it; consecutive user messages are a single turn to the API.
+    const pushReplayableTurn = (blocks: unknown[]) => {
+      const replay = replayableBlocks(blocks);
+      if (replay.length) messages.push({ role: 'assistant', content: replay });
+    };
+
+    // Close off a turn that was left open to be RESUMED (see the pause_turn
+    // branch), because something else now needs to say its piece instead.
+    //
+    // A paused turn is the one assistant turn deliberately left on the
+    // transcript with its unfinished server tool use intact -- the API reads
+    // that block to know where to pick up, and it only works while NOTHING is
+    // appended after it. Three instructions can arrive at exactly that moment
+    // and do append: the budget-exhausted final answer, the investigation
+    // checkpoint, and the correction-round grant. Any of them would turn the
+    // block the resume depends on into the dangling block the API 400s on.
+    // Each calls this first, which trims it back to a turn that can be
+    // replayed (and drops the turn entirely if nothing is left of it).
+    const sealPausedTurn = () => {
+      const last = messages[messages.length - 1];
+      if (!last || last.role !== 'assistant' || !Array.isArray(last.content)) return;
+      const safe = replayableBlocks(last.content);
+      if (safe.length === last.content.length) return;
+      if (safe.length) last.content = safe;
+      else messages.pop();
+    };
 
     // Fetched once per request (not per tool-round) so the system prompt
     // stays byte-identical across every round of this request -- required
@@ -1934,6 +2015,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
         // the correction was the instruction NOT read last. Two contradictory
         // instructions in one round are worse than either alone.
         investigationCheckpointSent = true;
+        sealPausedTurn();
         messages.push({
           role: 'user',
           content: 'One extra round, granted because your last round hit a correctable error and the budget is otherwise spent. Spend it on the SINGLE most valuable query that failed, using the exact column names the error hint gave you. Do not start a new line of investigation, do not re-run discovery, and do not repeat a query that timed out. If the correction succeeds you will write the answer immediately afterwards, so make this the measure the question most depends on.',
@@ -1947,6 +2029,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
           && activeWorkflow !== 'product_concept' && !actingOnConcept
           && elapsedMs() >= INVESTIGATION_CHECKPOINT_MS) {
         investigationCheckpointSent = true;
+        sealPausedTurn();
         messages.push({
           role: 'user',
           content: 'Investigation checkpoint: the remaining query time is limited. Tools are still available. Revisit every part of the original question and prioritize the smallest useful aggregate for requested areas you have not measured yet before drilling further into areas already covered. Reuse existing results and exact columns already described; do not repeat discovery. Keep the comparison dates and units compatible. If a missing linkage or coverage gap blocks the decision, say what is missing rather than substituting a different metric. This is not an instruction to stop early or to write anything to the database.',
@@ -1982,6 +2065,38 @@ Deno.serve(withKeepAlive(async (req: Request) => {
       collectSources(blocks, sources);
       const toolUses = blocks.filter((b: { type: string }) => b.type === 'tool_use');
 
+      // A PAUSED turn: the model is mid-web-search and Anthropic's own tool
+      // loop hit its iteration limit. The turn is not over and not cut off --
+      // it is waiting to be resumed, which is done by sending it straight back
+      // with NOTHING appended. The API sees the trailing server tool use and
+      // picks the same turn up where it stopped.
+      //
+      // Before this branch a paused turn fell through to the two nudges below:
+      // with no text it got "That last response had no text in it. Answer the
+      // question now", which both abandoned the half-finished search AND was
+      // the request that produced the live 400 (the nudge made the dangling
+      // server tool block part of a replayed turn). Blocks go back UNTOUCHED
+      // here on purpose -- trimming the trailing server tool use is what tells
+      // the API where to resume.
+      //
+      // Bounded by MAX_TOOL_ROUNDS like every other round, so a model that
+      // keeps pausing runs out of rounds and lands on the forced answer below
+      // rather than looping. Any text written so far is kept, same as the
+      // max_tokens continuation: a resumed turn continues, it does not restart.
+      if (data.stop_reason === 'pause_turn' && !toolUses.length) {
+        // Seal the PREVIOUS paused turn first, if this is a second pause in a
+        // row. Only the last unfinished server tool use on the transcript is
+        // the one being resumed from; an earlier one is just a dangling block
+        // sitting mid-conversation, which is the 400 again. Sealing keeps the
+        // text that turn wrote and drops only the block it no longer needs,
+        // so the invariant holds however many times the search pauses: at
+        // most one unfinished server tool use, always at the very end.
+        sealPausedTurn();
+        answerSoFar += blocks.map((b: { text?: string }) => b.text || '').join('');
+        messages.push({ role: 'assistant', content: blocks });
+        continue;
+      }
+
       if (!toolUses.length) {
         // RAW, then trimmed separately. The seam between a cut-off segment and
         // its continuation is exactly one space wide, and it lives in the
@@ -2005,7 +2120,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
           // Keeping it is the half that was missing: without this line the
           // opening of every long answer was thrown away.
           answerSoFar += rawText;
-          messages.push({ role: 'assistant', content: blocks });
+          pushReplayableTurn(blocks);
           messages.push({
             role: 'user',
             content: "That last response got cut off by the output length limit before it finished. Continue directly from where it left off -- do not restart or repeat what you already wrote. If you were narrating a long answer, cut it down and lead with the key numbers/decisions instead of restating everything.",
@@ -2018,7 +2133,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
         // silently show the user nothing at all. Nudge for a real answer
         // instead of treating blank as done; naturally bounded by
         // MAX_TOOL_ROUNDS same as any other round.
-        messages.push({ role: 'assistant', content: blocks });
+        pushReplayableTurn(blocks);
         messages.push({
           role: 'user',
           // Branches on whether an answer was already part-written: telling a
@@ -2032,7 +2147,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
         continue;
       }
 
-      messages.push({ role: 'assistant', content: blocks });
+      pushReplayableTurn(blocks);
       // Back to running tools: whatever prose it had begun is abandoned, not
       // paused, so it must not be glued to the front of the eventual answer.
       answerSoFar = '';
@@ -2554,6 +2669,7 @@ Deno.serve(withKeepAlive(async (req: Request) => {
     // survives only as a fallback for when even that fails.
     const hitWallClock = elapsedMs() >= WALL_CLOCK_BUDGET_MS;
     try {
+      sealPausedTurn();
       messages.push({
         role: 'user',
         // Three cases, not two. If an answer was already part-written and cut
@@ -2604,7 +2720,7 @@ Then stop. Do not fill the shape of the question with the piece you did not get 
         // continuation rather than shipping a cut-off answer with no
         // chance to finish (there's no tool-round budget left to retry
         // more than once here).
-        messages.push({ role: 'assistant', content: finalData.content || [] });
+        pushReplayableTurn(finalData.content || []);
         messages.push({
           role: 'user',
           content: "That got cut off by the output length limit. Finish it concisely -- lead with the key numbers/decision, don't restate what you already said.",
