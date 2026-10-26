@@ -31,13 +31,27 @@ export function sanitizeVisit(v) {
     sourceType:v.sourceType || null, landingPage:safeUrl(v.landingPage), referrerUrl:safeUrl(v.referrerUrl),
     utmParameters:Object.fromEntries(['source','medium','campaign','content','term'].map(k => [k,String(utm[k] || '').slice(0,512)])) };
 }
+// Codes are what the customer typed, so they are evidence, not a channel: capped,
+// trimmed and de-duplicated the way visits are, and never interpreted here.
+export function sanitizeDiscountCodes(value) {
+  if (!Array.isArray(value)) return [];
+  const codes = [], seen = new Set();
+  for (const raw of value) {
+    const code = String(raw ?? '').trim().slice(0,128), key = code.toLowerCase();
+    // Shopify matches a code regardless of case, so the same code in two spellings is
+    // one code. The first spelling is kept: the evidence says what Shopify returned.
+    if (code && !seen.has(key)) { seen.add(key); codes.push(code); }
+    if (codes.length === 20) break;
+  }
+  return codes;
+}
 const visitFields = `__typename ... on CustomerVisit { id occurredAt source sourceType landingPage referrerUrl utmParameters { source medium campaign content term } }`;
 export async function fetchJourney(connection, id, { gql, maxPages = 100 } = {}) {
   let cursor = null, first = null, last = null, order = null;
   const visits = new Map(), cursors = new Set();
   for (let page = 0; page < maxPages; page++) {
     const data = await gql(connection, `query AttributionJourney($id: ID!, $after: String) {
-      order(id:$id) { id name createdAt sourceName customerJourneySummary {
+      order(id:$id) { id name createdAt sourceName discountCodes customerJourneySummary {
         ready firstVisit { ${visitFields} } lastVisit { ${visitFields} }
         moments(first:50,after:$after) { nodes { ${visitFields} } pageInfo { hasNextPage endCursor } }
       } }
@@ -45,12 +59,13 @@ export async function fetchJourney(connection, id, { gql, maxPages = 100 } = {})
     order = data.order;
     if (!order) return {id:'gid://shopify/Order/'+id,name:id,createdAt:null,sourceName:null,customerJourneySummary:null,evidence_status:'unavailable'};
     const j = order.customerJourneySummary;
-    if (!j || !j.ready) return { id:order.id,name:order.name,createdAt:order.createdAt,sourceName:order.sourceName,customerJourneySummary:j ? {ready:false} : null };
+    if (!j || !j.ready) return { id:order.id,name:order.name,createdAt:order.createdAt,sourceName:order.sourceName,discountCodes:sanitizeDiscountCodes(order.discountCodes),customerJourneySummary:j ? {ready:false} : null };
     first = sanitizeVisit(j.firstVisit); last = sanitizeVisit(j.lastVisit);
     for (const v of [first,...(j.moments?.nodes || []).map(sanitizeVisit),last]) if (v) visits.set(v.id,v);
     const info = j.moments?.pageInfo;
     if (!info) throw Error('Missing journey pagination');
     if (!info.hasNextPage) return { id:order.id,name:order.name,createdAt:order.createdAt,sourceName:order.sourceName,
+      discountCodes:sanitizeDiscountCodes(order.discountCodes),
       customerJourneySummary:{ready:true,firstVisit:first,lastVisit:last,moments:{nodes:[...visits.values()],pageInfo:{hasNextPage:false}}} };
     if (!info.endCursor || cursors.has(info.endCursor)) throw Error('Journey cursor did not advance');
     cursors.add(info.endCursor); cursor = info.endCursor;
