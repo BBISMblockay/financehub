@@ -101,6 +101,12 @@ on:
       - 'scripts/meta-creative-backfill.mjs'
       - 'scripts/meta-creative-images.mjs'
       - 'scripts/lib/creative-image-archive.mjs'
+      # Organic Meta reads: the Instagram account, its account-level reach and
+      # the Page's own posts (meta-organic-account-and-posts.test.mjs).
+      - 'scripts/lib/ad-platforms-sync-core.mjs'
+      - 'scripts/lib/meta-history-backfill.mjs'
+      - 'supabase/migrations/*meta_organic*.sql'
+      - '.github/workflows/ad-platforms-sync.yml'
       - '.github/workflows/meta-creative-images.yml'
       - 'scripts/qbo-sandbox-validation.mjs'
       - 'supabase/functions/plaid-scheduled-sync/**'
@@ -859,6 +865,24 @@ jobs:
               exit 1
             fi
             echo "$m failed the suite, as it must"
+          done
+
+      # The three organic reads added 2026-10-26 -- the Instagram account, its
+      # account-level reach and the Page's own published posts. They were
+      # bolted onto the nightly job that fills the marketing reports, so what
+      # the mutations defend is that each one FAILS SOFT and can never cost the
+      # media or Page-insight rows that did come back.
+      - name: Instagram account, account reach and Page posts
+        run: node scripts/tests/meta-organic-account-and-posts.test.mjs
+      - name: The organic account/post guards, removed, must break it
+        run: |
+          set -u
+          for m in 1 2 3 4 5; do
+            if node scripts/tests/meta-organic-account-and-posts.test.mjs --mutate=$m >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "mutation $m failed the suite, as it must"
           done
 
       # Click-to-connect: the account picker's stored values, and Reconnect
