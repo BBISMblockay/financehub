@@ -113,6 +113,28 @@ it is what a prospect sees first. Three things are set outside the repo:
 | `SILO_SITE_URL` edge-function secret | same | The link base. Already env-driven with the Baseballism domain as fallback; no code change was needed |
 | Add `https://get-silo.com/**` to the redirect allowlist | Supabase → Authentication → URL Configuration → Redirect URLs | The `/**` matters. Signup asks Supabase to come back to `/pages/login.html?next=/v2/company-onboarding.html?invite=...`; a redirect the allowlist does not match is silently replaced by the Site URL, and until 2026-10-09 every confirmation link on production came back to `https://get-silo.com/` with the invite gone (two founders stranded). `pages/login.html` now recovers in the same browser, but a founder who confirms on another device still depends on this entry |
 
+#### How get-silo.com is served
+
+`get-silo.com` is **not** GitHub Pages. It is the Render static site `get-silo`
+(`srv-damumlrtqb8s739uksv0`), built from this repo's `main` on every commit, behind
+Cloudflare. GitHub Pages serves the same repo at `silo-baseballism.com` (`CNAME`,
+`_config.yml`); the two publish different file sets, so a file can be live on one and 404
+on the other.
+
+Render's build command (set in its dashboard, not in this repo) is:
+
+```
+mkdir -p dist && cp *.html *.txt config.json dist/ && cp -R pages v2 v3 legal oauth assets dist/ && rm -rf dist/v2/tests dist/v3/tests
+```
+
+Only root `*.html` / `*.txt`, `config.json` and those six directories reach the site. **A new
+top-level file or folder that must be reachable on get-silo.com needs this command edited** —
+adding it to the repo alone does nothing.
+
+`tiktok0TuY2TWaw6iTpy2L1IAYb8CVRf82hCT2.txt` at the repo root is TikTok's URL-prefix
+verification token for the "Silo" developer app (developers.tiktok.com), which must answer at
+`https://get-silo.com/<that filename>`. Do not rename or delete it; TikTok re-checks it.
+
 Those ten functions must be **redeployed** for `SILO_MAIL_FROM` to take effect —
 merging does not deploy. `deployment-drift-check.yml` will be red for them until
 that happens, and that red is the reminder working as designed.
