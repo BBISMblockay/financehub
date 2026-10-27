@@ -171,9 +171,17 @@ export function createReviewHandler({ env, admin, fetchImpl, checkMfa, now = () 
     const covers = (scope, id) => {
       if (!id) return null;
       const e = gran.find((g) => g.scope === scope);
-      // No granular entry at all means the grant is not asset-limited.
-      if (!e) return gran.length ? 'no granular entry' : 'not asset-scoped';
-      return (e.target_ids ?? []).map(String).includes(String(id)) ? 'yes' : 'NO';
+      // Absence is NOT exclusion, and saying "NO" for either of these first
+      // two cases misreads the answer. Live on 2026-10-27 every scope on a
+      // business integration system user token came back with an entry and an
+      // EMPTY target_ids, including ads_read, whose calls succeed -- so an
+      // empty list means the grant is not limited to named assets, not that
+      // the asset is shut out. Only a non-empty list that omits the asset is
+      // an exclusion.
+      if (!e) return gran.length ? 'no entry for this scope (not asset-limited)' : 'not asset-scoped';
+      const ids = (e.target_ids ?? []).map(String);
+      if (!ids.length) return 'no assets named (not asset-limited)';
+      return ids.includes(String(id)) ? 'yes' : 'NO — this asset is excluded';
     };
     const detail = {
       token_type: d.type ?? null,
@@ -215,6 +223,10 @@ export function createReviewHandler({ env, admin, fetchImpl, checkMfa, now = () 
       ['selected_page_covered_by_pages_read_engagement', 'pages_read_engagement', page],
       ['selected_page_covered_by_read_insights', 'read_insights', page],
       ['selected_ad_account_covered_by_ads_read', 'ads_read', act ? String(act).replace(/^act_/, '') : null],
+      // The CONTROL. pages_show_list is approved and its call succeeds, so
+      // whatever this line says, an identical answer on another scope cannot
+      // be what is blocking that scope's call.
+      ['selected_page_covered_by_pages_show_list', 'pages_show_list', page],
     ]);
     add('token', 'GET /debug_token (connection token)', dbg.r, dbg.detail);
 
