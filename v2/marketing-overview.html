@@ -78,6 +78,11 @@
        one would be false. See the mo-note under the Facebook card. */
     .mo-na { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-4); font-style:italic; }
     .mo-filter-row { display:flex; align-items:center; gap:8px; margin-left:auto; }
+    /* A linked launch and its unlink control travel together: inline-flex so
+       the x sits with the pill it removes, never wrapping onto its own line. */
+    .mo-link-chip { display:inline-flex; align-items:center; gap:2px; margin:2px; }
+    .mo-unlink { border:0; background:none; cursor:pointer; color:var(--bcn-ink-3); font-size:13px; line-height:1; padding:2px 5px; border-radius:4px; }
+    .mo-unlink:hover, .mo-unlink:focus-visible { color:var(--bcn-neg); background:var(--bcn-sunken); }
 
     .mo-funnel { display:flex; flex-direction:column; gap:2px; }
     .mo-funnel-row { display:grid; grid-template-columns:150px 1fr 110px 90px; align-items:center; gap:12px; padding:8px 0; }
@@ -236,6 +241,17 @@
             <button type="submit" class="bcn-btn bcn-btn--primary" id="creativeLaunchSave">Link</button>
           </div>
         </form>
+      </dialog>
+
+      <dialog id="unlinkDialog" style="border:1px solid var(--bcn-border);border-radius:12px;padding:20px;max-width:min(440px,calc(100vw - 32px));width:100%;background:var(--bcn-surface);color:var(--bcn-ink);box-shadow:0 16px 48px #0004">
+        <h2 style="margin:0 0 6px;font-size:17px">Remove this launch link?</h2>
+        <p id="unlinkName" style="margin:0 0 6px;color:var(--bcn-ink);font-size:12px;font-weight:600"></p>
+        <p id="unlinkDetail" style="margin:0 0 16px;color:var(--bcn-ink-3);font-size:12px"></p>
+        <p id="unlinkError" role="alert" style="min-height:18px;color:#b42318;font-size:12px"></p>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button type="button" class="bcn-btn" id="unlinkCancel">Cancel</button>
+          <button type="button" class="bcn-btn bcn-btn--danger" id="unlinkConfirm">Unlink</button>
+        </div>
       </dialog>
 
       <!-- ── Funnel ───────────────────────────────────────────────── -->
@@ -723,8 +739,16 @@
   const REDO_REF = 'redo_marketing_messages';
   const launchCell = (source,id,type) => {
     const linked = _creativeLinks.filter(l=>l.ref_table===source && String(l.ref_id)===String(id))
-      .map(l=>({launch:_launches.find(x=>String(x.id)===String(l.launch_id)),channel_item_id:l.channel_item_id})).filter(x=>x.launch);
-    return linked.map(({launch,channel_item_id})=>{const initiative=_initiatives.find(c=>String(c.id)===String(channel_item_id));return `<a href="/v2/launch-calendar.html?launch=${encodeURIComponent(launch.id)}" class="bcn-pill mo-platform-pill" style="display:inline-block;margin:2px;color:var(--bcn-accent)" title="${esc(initiative?`Initiative: ${initiative.item_title}`:'Open launch')}">${esc(launch.title||'Launch')}${initiative?` · ${esc(initiative.item_title)}`:''} ↗</a>`;}).join('')
+      .map(l=>({link:l,launch:_launches.find(x=>String(x.id)===String(l.launch_id)),channel_item_id:l.channel_item_id})).filter(x=>x.launch);
+    return linked.map(({link,launch,channel_item_id})=>{
+      const initiative=_initiatives.find(c=>String(c.id)===String(channel_item_id));
+      const label=`${launch.title||'Launch'}${initiative?` · ${initiative.item_title}`:''}`;
+      // No link id (a pre-migration row, or an insert whose returning read was
+      // refused) means no unlink control: a delete needs the exact row.
+      const unlink = _linkable && link.id
+        ? `<button type="button" class="mo-unlink" data-unlink-id="${esc(link.id)}" title="Unlink from ${esc(label)}" aria-label="Unlink from ${esc(label)}">×</button>` : '';
+      return `<span class="mo-link-chip"><a href="/v2/launch-calendar.html?launch=${encodeURIComponent(launch.id)}" class="bcn-pill mo-platform-pill" style="color:var(--bcn-accent)" title="${esc(initiative?`Initiative: ${initiative.item_title}`:'Open launch')}">${esc(label)} ↗</a>${unlink}</span>`;
+    }).join('')
       + (_linkable ? `<button type="button" class="bcn-btn bcn-btn--ghost" data-link-source="${esc(source)}" data-link-id="${esc(id)}" data-link-type="${esc(type)}" style="padding:3px 6px;font-size:10px">+ Link</button>` : '—');
   };
   async function loadLaunchLinks(){
@@ -735,8 +759,8 @@
         (async()=>{
           const query=cols=>loadPaged(()=>scopeQ(sb.from('launch_system_links')
             .select(cols).eq('link_type','campaign').order('id',{ascending:true})));
-          try{return {links:await query('id,launch_id,ref_table,ref_id,channel_item_id'),ready:true};}
-          catch(e){if(e.code!=='42703') throw e;return {links:await query('id,launch_id,ref_table,ref_id'),ready:false};}
+          try{return {links:await query('id,launch_id,ref_table,ref_id,ref_label,channel_item_id'),ready:true};}
+          catch(e){if(e.code!=='42703') throw e;return {links:await query('id,launch_id,ref_table,ref_id,ref_label'),ready:false};}
         })(),
         loadPaged(()=>scopeQ(sb.from('launch_channel_items')
           .select('id,launch_id,company_entity_id,channel,item_title,scheduled_date')
@@ -807,6 +831,8 @@
   };
   el('clearCampaignFocus').onclick=()=>{focusedCampaign=null;const url=new URL(location.href);url.searchParams.delete('campaign');history.replaceState(null,'',url);renderCampaigns(_campaignRows);};
   for(const body of ['creativeBody','campaignBody','redoBody']) el(body).addEventListener('click',e=>{
+    const u=e.target.closest('[data-unlink-id]');
+    if(u){ openUnlink(u.dataset.unlinkId); return; }
     const b=e.target.closest('[data-link-source]');
     if(b) openMarketingLaunch(b.dataset.linkSource,b.dataset.linkId,b.dataset.linkType);
   });
@@ -825,14 +851,51 @@
       ref_table:selectedMarketing.source, ref_id:selectedMarketing.id, ref_label:selectedMarketing.name,
     };
     if(initiativeId) payload.channel_item_id=initiativeId;
-    const {error} = await sb.from('launch_system_links').insert(payload);
+    const {data:created,error} = await sb.from('launch_system_links').insert(payload).select('id').single();
     if (error){ el('creativeLaunchError').textContent = error.message; save.disabled = false; return; }
-    _creativeLinks.push({ launch_id:launchId, ref_table:selectedMarketing.source, ref_id:selectedMarketing.id, channel_item_id:initiativeId||null });
+    _creativeLinks.push({ id:created?.id, launch_id:launchId, ref_table:selectedMarketing.source, ref_id:selectedMarketing.id, ref_label:selectedMarketing.name, channel_item_id:initiativeId||null });
     el('creativeLaunchDialog').close();
     renderCampaigns(_campaignRows);
     renderCreatives();
     renderRedo();
   });
+  // ── Unlink ─────────────────────────────────────────────────────
+  // Deleting a launch link removes only the association row; the Meta, Redo
+  // and Shopify numbers behind it are untouched, and the same item can be
+  // linked again. Confirmed first because the row carries which launch a
+  // result was credited to, and nothing else records that.
+  let pendingUnlink = null;
+  function openUnlink(linkId){
+    const link = _creativeLinks.find(l=>String(l.id)===String(linkId));
+    if (!link) return;
+    pendingUnlink = link;
+    const launch = _launches.find(x=>String(x.id)===String(link.launch_id));
+    el('unlinkName').textContent = link.ref_label || 'This item';
+    el('unlinkDetail').textContent = `It stops counting toward “${launch?.title || 'this launch'}” on the Launch Workbench. No performance data changes, and you can link it again from this page.`;
+    el('unlinkError').textContent = '';
+    el('unlinkConfirm').disabled = false;
+    el('unlinkDialog').showModal();
+  }
+  el('unlinkCancel').onclick = () => { el('unlinkDialog').close(); pendingUnlink = null; };
+  el('unlinkConfirm').onclick = async () => {
+    if (!pendingUnlink?.id) return;
+    const linkId = pendingUnlink.id;
+    const btn = el('unlinkConfirm');
+    btn.disabled = true;
+    el('unlinkError').textContent = '';
+    // .select() so a refusal (RLS, or the row already gone) comes back as zero
+    // rows rather than a silent success that would blank the chip anyway.
+    const {data,error} = await sb.from('launch_system_links').delete().eq('id',linkId).select();
+    if (error){ el('unlinkError').textContent = error.message; btn.disabled = false; return; }
+    if (!data || !data.length){ el('unlinkError').textContent = 'Nothing was removed. The link may already be gone, or you may not have permission to change it.'; btn.disabled = false; return; }
+    _creativeLinks = _creativeLinks.filter(l=>String(l.id)!==String(linkId));
+    pendingUnlink = null;
+    el('unlinkDialog').close();
+    renderCampaigns(_campaignRows);
+    renderCreatives();
+    renderRedo();
+    setStatus('Launch link removed.');
+  };
   function renderCreatives(){
     el('creativeFocus').hidden = !focusedAd;
     const activeOnly = el('activeOnly').checked;

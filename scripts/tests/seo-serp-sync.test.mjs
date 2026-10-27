@@ -31,7 +31,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakeSupabase } from './lib/fake-supabase.mjs';
-import { DIRECT_FETCH_AFTER_MS, DataForSeoError, dataForSeoRequest, mapObservations, mapSerpFeatures, selectKeywords, syncSerpSchedule } from '../lib/seo-serp-sync-core.mjs';
+import { DIRECT_FETCH_AFTER_MS, DataForSeoError, dataForSeoRequest, jsonSafe, mapObservations, mapSerpFeatures, selectKeywords, syncSerpSchedule } from '../lib/seo-serp-sync-core.mjs';
 
 const CO = 'company-a';
 const noSleep = async () => {};
@@ -313,6 +313,51 @@ test('mapSerpFeatures records every non-organic block by absolute slot with a bo
   assert.equal(rows[6].details.entries[0].source, 'YouTube');
   assert.deepEqual(mapSerpFeatures({ items: [] }), []);
   assert.deepEqual(mapSerpFeatures(null), []);
+});
+
+test('mapSerpFeatures details survive Postgres json: no NUL, no unpaired surrogate, caps cut by code point', () => {
+  // Postgres refuses both in a json value; either one used to fail the whole
+  // seo_serp_features upsert and leave its task uncollected forever.
+  const unpaired = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  const rows = mapSerpFeatures({
+    items: [
+      { type: 'people_also_ask', rank_absolute: 2, title: `Back to School \u0000 New \ud83c\udf92 & Trending \ud83d`, items: [
+        { type: 'people_also_ask_element', title: `Which pack\udccc?`, expanded_element: [{ domain: 'www.bl101.com', url: 'https://www.bl101.com/x\u0000' }] },
+        'related \ud800 search',
+      ] },
+      // An emoji sitting exactly on the 300-char cap must not be cut in half.
+      { type: 'ai_overview', rank_absolute: 1, title: `${'a'.repeat(299)}\ud83c\udf92tail`, items: [] },
+    ],
+  });
+  for (const r of rows) {
+    const json = JSON.stringify(r.details);
+    assert.ok(!json.includes('\\u0000'), `${r.feature_type} details still carry a NUL`);
+    assert.ok(!unpaired.test(json), `${r.feature_type} details still carry an unpaired surrogate`);
+    assert.deepEqual(JSON.parse(json), r.details, 'details round-trip through JSON unchanged');
+  }
+  const paa = rows[0];
+  assert.equal(paa.details.title, 'Back to School  New \ud83c\udf92 & Trending ', 'the NUL and the lone high surrogate go, the real emoji stays');
+  assert.equal(paa.details.entries[0].title, 'Which pack?');
+  assert.equal(paa.details.entries[0].url, 'https://www.bl101.com/x');
+  assert.equal(paa.details.entries[1].title, 'related  search');
+  assert.equal(rows[1].details.title.length, 299, 'a cap landing inside a surrogate pair drops the pair rather than splitting it');
+  assert.ok(!rows[1].details.title.includes('\ud83c'), 'no half emoji survives the cap');
+});
+
+test('mapObservations scrubs a lone surrogate out of an organic title', () => {
+  const { rows } = mapObservations({ items: [
+    { type: 'organic', rank_group: 1, rank_absolute: 1, domain: 'bl101.com', url: 'https://bl101.com/a', title: 'Bags \ud83d for school' },
+  ] });
+  assert.equal(rows[0].title, 'Bags  for school');
+});
+
+test('jsonSafe scrubs strings anywhere in a value and leaves everything else alone', () => {
+  assert.deepEqual(
+    jsonSafe({ 'k\ud800': ['a\u0000', { b: 'c\udfff', n: 1.5, t: true, z: null }], ok: '\ud83c\udf92' }),
+    { k: ['a', { b: 'c', n: 1.5, t: true, z: null }], ok: '\ud83c\udf92' },
+  );
+  assert.equal(jsonSafe(7), 7);
+  assert.equal(jsonSafe(null), null);
 });
 
 test('selectKeywords: priority first (nulls last), then age, capped, inactive dropped', () => {
