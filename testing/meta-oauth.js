@@ -162,12 +162,17 @@
   function assetsHeaderHtml(assets) {
     const a = assets || {};
     const parts = [];
-    if (a.ad_account) parts.push(`<span class="mo-asset"><b>Ad account</b> ${esc(a.ad_account.name || a.ad_account.id)}
-      <small class="bcn-mono">${esc(a.ad_account.id)}${a.ad_account.currency ? ` · ${esc(a.ad_account.currency)}` : ''}</small></span>`);
-    if (a.page) parts.push(`<span class="mo-asset"><b>Facebook Page</b> ${esc(a.page.name || a.page.id)}
-      <small class="bcn-mono">${esc(a.page.id)}${a.page.fan_count == null ? '' : ` · ${esc(a.page.fan_count)} followers`}</small></span>`);
-    if (a.instagram) parts.push(`<span class="mo-asset"><b>Instagram</b> ${a.instagram.username ? `@${esc(a.instagram.username)}` : esc(a.instagram.id)}
-      <small class="bcn-mono">${esc(a.instagram.id)}${a.instagram.name ? ` · ${esc(a.instagram.name)}` : ''}</small></span>`);
+    // The NAME is the headline of each card; the id and the count are the
+    // supporting line. The reviewer has to be able to read the name at video
+    // resolution without pausing.
+    const card = (label, name, sub) => `<div class="mo-asset"><b>${esc(label)}</b>
+      <span class="mo-asset-name">${esc(name)}</span><small class="bcn-mono">${esc(sub)}</small></div>`;
+    if (a.ad_account) parts.push(card('Ad account', a.ad_account.name || a.ad_account.id,
+      `${a.ad_account.id}${a.ad_account.currency ? ` · ${a.ad_account.currency}` : ''}`));
+    if (a.page) parts.push(card('Facebook Page', a.page.name || a.page.id,
+      `${a.page.id}${a.page.fan_count == null ? '' : ` · ${a.page.fan_count} followers`}`));
+    if (a.instagram) parts.push(card('Instagram', a.instagram.username ? `@${a.instagram.username}` : a.instagram.id,
+      `${a.instagram.id}${a.instagram.name ? ` · ${a.instagram.name}` : ''}`));
     if (!parts.length) return '';
     return `<div class="mo-assets-head">${parts.join('')}</div>`;
   }
@@ -240,22 +245,30 @@
     async verify(id, btn) {
       const { data } = await withBusy(btn, 'Checking…', () => review('verify', { connection_id: id }));
       if (!data.ok) { setStatus(data.error || 'Verify failed', 'neg', 10000); return; }
-      // Each permission heads its own section, with WHY it is asked for: the
-      // reviewer sees the use case and the live answer together, which is what
-      // every 2026-10-26 rejection said was missing.
-      const rowHtml = (c) => {
+      // One SECTION per permission, not one wide table. A Graph URL is longer
+      // than any sane column, and squeezing it beside its result made both
+      // unreadable -- the endpoint now gets its own line and the answer gets
+      // the full width. Each section heads with WHY the permission is asked
+      // for, which is what every 2026-10-26 rejection said was missing.
+      const callHtml = (c) => {
         const note = c.ok === false ? noteForEndpoint(c.endpoint) : null;
-        return `<tr><td class="bcn-mono">${esc(c.permission)}</td><td class="mo-wrapcell bcn-mono">${esc(c.endpoint)}</td>
-          <td><span class="bcn-pill ${c.ok === true ? 'bcn-pill--pos' : c.ok === false ? 'bcn-pill--neg' : ''}">${c.ok === true ? 'ok' : c.ok === false ? 'error' : 'skipped'}</span></td>
-          <td class="mo-wrapcell">${typeof c.detail === 'string' ? esc(c.detail) : detailHtml(c.detail)}
-            ${note ? `<p class="mo-muted mo-note">${esc(note)}</p>` : ''}</td></tr>`;
+        const pill = c.ok === true ? 'bcn-pill--pos' : c.ok === false ? 'bcn-pill--neg' : '';
+        const label = c.ok === true ? 'ok' : c.ok === false ? 'error' : 'skipped';
+        return `<div class="mo-call">
+          <div class="mo-call-top">
+            <span class="mo-call-endpoint">${esc(c.endpoint)}</span>
+            <span class="bcn-pill ${pill}">${label}</span>
+          </div>
+          <div class="mo-call-body">${typeof c.detail === 'string' ? esc(c.detail) : detailHtml(c.detail)}</div>
+          ${note ? `<p class="mo-note">${esc(note)}</p>` : ''}</div>`;
       };
       showResult('Permission check (read-only; nothing stored)', `${assetsHeaderHtml(data.assets)}
-        <table class="bcn-table"><thead><tr>
-        <th class="bcn-th-left">Permission</th><th class="bcn-th-left">Graph call</th><th class="bcn-th-left">Result</th><th class="bcn-th-left">What came back</th></tr></thead><tbody>
-        ${groupChecks(data.checks).map((g) => `${g.purpose ? `<tr class="mo-group"><td colspan="4">
-            <span class="bcn-mono">${esc(g.permission)}</span> — ${esc(g.purpose)}</td></tr>` : ''}${g.rows.map(rowHtml).join('')}`).join('')}
-        </tbody></table>`);
+        ${groupChecks(data.checks).map((g) => `<section class="mo-perm">
+          <header class="mo-perm-head">
+            <span class="mo-perm-name">${esc(g.permission)}</span>
+            ${g.purpose ? `<p class="mo-perm-why">${esc(g.purpose)}</p>` : ''}
+          </header>
+          ${g.rows.map(callHtml).join('')}</section>`).join('')}`);
     },
     async sync(id, btn) {
       const { data } = await withBusy(btn, 'Syncing…', () => review('sync', { connection_id: id }));
