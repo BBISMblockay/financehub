@@ -1639,8 +1639,7 @@ export async function fetchInstagramAccountInsights(connection, window) {
 /** Page post fields. `shares` is an object ({count}), `likes`/`comments` are
  * edges summarised to a count; the rest are scalars. */
 const PAGE_POST_FIELDS = [
-  'message', 'permalink_url', 'created_time', 'full_picture',
-  'shares', 'likes.summary(true)', 'comments.summary(true)',
+  'message', 'permalink_url', 'created_time', 'full_picture', 'shares',
 ];
 
 /** The Page's OWN published posts.
@@ -1650,6 +1649,19 @@ const PAGE_POST_FIELDS = [
  * holds nor wants. published_posts is covered by pages_read_engagement, whose
  * reference states it "allows your app to read content (posts, photos, videos,
  * events) posted by the Page".
+ *
+ * NO likes.summary(true) / comments.summary(true), proven live 2026-10-27.
+ * Likes and comments are content OTHER PEOPLE wrote, so they need
+ * pages_read_user_content too -- and asking for them here does not merely drop
+ * those two values, it makes Meta refuse the WHOLE request with
+ * "(#10) This endpoint requires the 'pages_read_engagement' permission or the
+ * 'Page Public Content Access' feature". The error names the EDGE, not the
+ * offending field, which is why this read returned nothing from 2026-10-26
+ * until the field list was bisected in the Graph API Explorer: the same Page
+ * token that refused the full list returned the posts without those two.
+ * `shares` is a plain scalar count and is fine (verified the same way).
+ * So: when Meta refuses an edge, suspect the FIELD LIST before the permission.
+ * facebook_page_posts.likes/comments are consequently never written.
  *
  * Needs the PAGE token, like Page insights: the System User token answers
  * "(#190) This method must be called with a Page Access Token". A null token
@@ -1711,8 +1723,10 @@ export async function fetchFacebookPagePosts(connection, pageToken, { max = 25, 
         permalink: p.permalink_url ?? null,
         fullPicture: p.full_picture ?? null,
         postedAt: p.created_time ?? null,
-        likes: p.likes?.summary?.total_count == null ? null : Math.round(num(p.likes.summary.total_count)),
-        comments: p.comments?.summary?.total_count == null ? null : Math.round(num(p.comments.summary.total_count)),
+        // Never requested (see above), so never returned: reported as null, the
+        // same as any other metric Meta did not send.
+        likes: null,
+        comments: null,
         // shares is absent entirely on a post with none -- not zero, but Meta
         // simply omits the object. Absent is reported as null, the same as
         // every other unreturned metric in this file.

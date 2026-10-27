@@ -405,19 +405,12 @@ Per https://developers.facebook.com/docs/app-review/submission-guide/screen-reco
 - [ ] **Zeroes are fine, and several of these rows are zero on the review Page.** Meta's own
       `read_insights` note says so: *"zero values are acceptable if the dashboard is clearly
       labeled"*. Every row names its asset and its window, so do not go hunting for a busier Page.
-- [ ] **`published_posts` — connect through the user-token configuration first.** Before
-      recording, confirm `META_REVIEW_LOGIN_CONFIG_ID` is set and press **Connect Meta** again so
-      the review connection is rebuilt on it. The `debug_token` row should then say the token type
-      is a user token, not `SYSTEM_USER`, and the `published_posts` row should return real posts.
-      Record it succeeding, beside the Page name. Why this step exists: with the system user token
-      the same call returns `(#10) This endpoint requires the 'pages_read_engagement' permission or
-      the 'Page Public Content Access' feature`, because in Development mode an unapproved
-      permission reaches only identities holding a role on the app, and the client business's
-      system user holds none (2.9, 2026-10-27).
-- [ ] **If `published_posts` still refuses**, record it refused rather than cutting it: annotate
-      the row as the call the permission is being requested for and leave Meta's error text on
-      screen. The page prints that annotation under the row itself. Do **not** write in the notes
-      that approval alone will fix it — say what was run and what came back.
+- [ ] **`published_posts` — record it returning posts**, beside the Page name. It reads the Page's
+      own published content with the Page access token, which is the Page-content use case
+      `pages_read_engagement` is requested for. The page prints a line under the row saying that
+      likes and comments are deliberately NOT read, so their absence is visibly a choice rather
+      than a gap. Background, if you are asked: this call refused with `(#10)` from 2026-10-26 to
+      2026-10-27, and the cause was SILO's own field list, not the permission (2.9).
 - [ ] `ads_read` in the product: Sync now → Stored data (impressions, clicks, spend by day).
 - [ ] Optionally, a Reconnect, showing the same connection renewed in place.
 - [ ] No secrets, tokens or reviewer passwords on screen. The page never displays a token.
@@ -609,27 +602,34 @@ token. Only `/{page}/published_posts` refuses. Meta's error names two ways in: t
 is unapproved for this app (rejected 2026-10-21 and again 2026-10-26), and `Page Public Content
 Access`, which is for reading *other people's* Pages and which SILO neither needs nor requests.
 
-**Settled 2026-10-27: the cause is the token's IDENTITY, not the approval.** In the Graph API
-Explorer on the Silo app, a user token returns `(#210) A page access token is required`; switching
-the token selector to the Page itself — a Page token derived from an **app admin's** user token —
-returns the Page's posts, with `pages_read_engagement` still unapproved. So the endpoint is not
-gated on approval at all. In Development mode an unapproved permission reaches only identities that
-hold a role on the app. The review connection's Page token derives from the **client business's
-system user**, which holds none, so it is refused. (The admin is who clicks Connect, but
-configuration 2293747398051309 issues a system user token whoever authorizes it, so the derived
-Page token never belongs to the admin — which is why "the recorder is an app admin" did not help.)
+**SOLVED 2026-10-27, and it was ours.** It was never the permission, the approval, the token type
+or the grant. It was the **field list**. Bisected in the Graph API Explorer against the same Page
+with the same Page access token:
 
-**The fix:** a second Login for Business configuration, **1144171378137898**, same six permissions,
-token type **user access token**, used by the review flow only
-(`META_REVIEW_LOGIN_CONFIG_ID`; `meta-oauth-start` picks it when `return_to: 'review_test'`).
-Production stays on the system user configuration, because a user token expires in ~60 days and
-dies with the person's password. Reconnect through it and `published_posts` returns real posts, so
-the screencast shows the call succeeding rather than refusing.
+| Request | Result |
+|---------|--------|
+| `published_posts?fields=message,created_time` | the posts |
+| `…fields=message,permalink_url,created_time,full_picture` | the posts |
+| `…,shares` | the posts |
+| `…,shares,likes.summary(true),comments.summary(true)` | `(#10)` |
 
-Not proven, and not to be claimed to Meta: that approval will make the **system user** token read
-this endpoint. It is the expected outcome — approval lifts the Development-mode role restriction —
-but it has not been observed, and the product's nightly sync should be checked with Verify once the
-permissions are live. The `facebook_page_posts` table and its sync read are built either way.
+`likes.summary(true)` and `comments.summary(true)` read content **other people wrote**, which needs
+`pages_read_user_content` — a permission SILO must not request. Asking for them does not merely drop
+those two values: Meta refuses the **whole** request, and names the EDGE's permission
+(`pages_read_engagement`) rather than the offending field, which is what sent this a day in the
+wrong direction. The lesson for next time: **when Meta refuses an edge, bisect the field list before
+suspecting the permission.**
+
+Both the sync (`PAGE_POST_FIELDS`) and the Verify probe (`PROBE_PAGE_POST_FIELDS`) now stop at
+`shares`, pinned equal to each other by test, and the Page posts card drops its two permanently
+empty columns. `facebook_page_posts.likes/comments` stay in the table but are never written.
+
+Two things the detour left behind, both worth keeping. The user-token Login for Business
+configuration **1144171378137898** (`META_REVIEW_LOGIN_CONFIG_ID`, review flow only) is what first
+produced a non-empty `granular_scopes` — `pages_read_engagement -> 105378387580746` — which is the
+cleanest evidence we have that the grant covers the Page on screen, so record that row. And the
+earlier reading, that an empty `granular_scopes` list means "not asset-limited" rather than
+"excluded", still holds for the system user token.
 
 #### Submission notes to paste
 
@@ -660,13 +660,10 @@ Then per permission:
   customer's organic reporting shows which Page the numbers belong to. The screencast shows the
   Page selected, then its name and follower count rendered together in the app. Reading the
   Page's published posts is part of this use case and the product stores them in a dedicated
-  table; the screencast shows that call returning the Page's posts.
-  **If `published_posts` refuses in your recording instead:** say exactly that —
-  `GET /{page}/published_posts` with the Page access token returns
-  *"(#10) This endpoint requires the 'pages_read_engagement' permission or the 'Page Public
-  Content Access' feature"*, the screencast shows that request and its response, and SILO is not
-  requesting Page Public Content Access because it reads only the customer's own Page. Do not
-  claim approval will resolve it.
+  table; the screencast shows that call returning the Page's posts. SILO reads the post's text,
+  link, image, time and share count only — it does not read likes or comments, which are content
+  other people wrote, and it does not request `pages_read_user_content` or Page Public Content
+  Access, because it reads only the customer's own Page.
 - **`read_insights`** — SILO reads the Page's daily insights and stores them for the customer's
   marketing reports. The screencast shows the Page's name above a day-by-day table of each
   metric. The review Page is inactive, so these days read zero; every value is dated and labelled

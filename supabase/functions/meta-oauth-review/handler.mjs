@@ -54,7 +54,12 @@ export const PROBE_IG_PROFILE_FIELDS = 'username,name,biography,followers_count,
  *  serves as a time series. */
 export const PROBE_IG_ACCOUNT_METRICS = 'views,accounts_engaged,total_interactions';
 /** Facebook Page post fields: PAGE_POST_FIELDS in the sync core (pinned). */
-export const PROBE_PAGE_POST_FIELDS = 'message,permalink_url,created_time,full_picture,shares,likes.summary(true),comments.summary(true)';
+// Kept equal to PAGE_POST_FIELDS in ad-platforms-sync-core.mjs: the probe is
+// evidence for App Review, so it must issue the request the product issues.
+// No likes.summary(true)/comments.summary(true) -- those read what OTHER
+// PEOPLE wrote, need pages_read_user_content, and make Meta refuse the whole
+// call with a (#10) naming pages_read_engagement. Proven live 2026-10-27.
+export const PROBE_PAGE_POST_FIELDS = 'message,permalink_url,created_time,full_picture,shares';
 /** Discovery fields: test-ad-platform-connection's own requests (pinned likewise). */
 export const AD_ACCOUNT_FIELDS = 'id,name,currency';
 export const PAGE_FIELDS = 'id,name,instagram_business_account{id,username}';
@@ -292,8 +297,6 @@ export function createReviewHandler({ env, admin, fetchImpl, checkMfa, now = () 
               posted_at: p.created_time ?? null,
               message: typeof p.message === 'string' ? p.message.slice(0, 120) : null,
               permalink: p.permalink_url ?? null,
-              likes: p.likes?.summary?.total_count ?? null,
-              comments: p.comments?.summary?.total_count ?? null,
               shares: p.shares?.count ?? null,
             })),
           } : null);
