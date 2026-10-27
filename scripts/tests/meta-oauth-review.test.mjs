@@ -620,11 +620,27 @@ await test('page: every call goes through callFunction, every busy button throug
   // Page ink on it reads correctly in dark mode by luck and is black-on-black
   // in light -- which is exactly how the purpose band shipped on 2026-10-27,
   // unreadable. Anything painted on the band takes --bcn-band-ink*.
-  const bandRules = html.split('\n').filter((l) => l.includes('mo-group'));
-  assert.ok(bandRules.length, 'the purpose band has styling');
-  assert.ok(bandRules.some((l) => l.includes('--bcn-band-ink')), 'the band takes its text from the band ink');
-  for (const rule of bandRules) {
-    assert.doesNotMatch(rule, /var\(--bcn-ink(-\d)?\)/, `page ink on the band is black-on-black in light theme: ${rule.trim()}`);
+  // Every class that renders ON the band, container and children alike. A new
+  // one has to be added here, which the next assertion enforces.
+  const BAND_CLASSES = ['mo-group', 'mo-assets-head', 'mo-asset'];
+  // Whole rules, not lines: .mo-assets-head declares its background and its
+  // colour on different lines, and a line-wise check misses that.
+  const cssRules = (html.split('<style>')[1] || '').split('</style>')[0]
+    .split('}').map((r) => `${r.replace(/\/\*[\s\S]*?\*\//g, '')}}`.trim()).filter((r) => r.includes('{'));
+  for (const cls of BAND_CLASSES) {
+    const rules = cssRules.filter((r) => new RegExp(`\\.${cls}\\b`).test(r.split('{')[0]));
+    assert.ok(rules.length, `${cls} has styling`);
+    assert.ok(rules.some((l) => l.includes('--bcn-band-ink')), `${cls} takes its text from the band ink`);
+    for (const rule of rules) {
+      assert.doesNotMatch(rule, /var\(--bcn-ink(-\d)?\)/,
+        `page ink on the band is black-on-black in light theme: ${rule.trim()}`);
+    }
+  }
+  // A band surface this test does not know about would go unchecked, which is
+  // how .mo-assets-head stayed unreadable through the first fix.
+  for (const rule of cssRules.filter((r) => /background:[^;]*var\(--bcn-band\)/.test(r))) {
+    assert.ok(BAND_CLASSES.some((c) => new RegExp(`\\.${c}\\b`).test(rule.split('{')[0])),
+      `a band-backed surface that no contrast check covers: ${rule.split('{')[0].trim()}`);
   }
 });
 
