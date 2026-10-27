@@ -370,7 +370,10 @@ What was set up (2026-10-08):
 
 Per https://developers.facebook.com/docs/app-review/submission-guide/screen-recordings/:
 - [ ] English UI. 1080p or better; set the monitor to 1440 px wide or less. Mouse, not
-      keyboard; a large cursor. No audio. Annotate each permission.
+      keyboard; a large cursor. No audio. **The page annotates each permission for you:** every
+      permission's calls are headed by a band saying, in the customer's terms, what SILO does with
+      the answer (`PERMISSION_PURPOSE` in `testing/meta-oauth-client.js`). Hold on that band before
+      its rows instead of captioning in editing, and add a caption only where you want to say more.
 - [ ] Start **logged out** of SILO and Facebook, and show the URL bar.
 - [ ] Sign in to SILO → `/testing/meta-oauth.html` → **Connect Meta**.
 - [ ] The full Facebook Login for Business dialog: business, assets, the permission list, approve.
@@ -384,7 +387,8 @@ Per https://developers.facebook.com/docs/app-review/submission-guide/screen-reco
       the reviewer that the login granted what the use cases describe, for the Page on screen.
       Read them before recording — a permission that is absent, declined, or granted for a
       different Page cannot be demonstrated from this connection, whatever the UI does.
-- [ ] For **each** permission, the row in **Verify permissions** with real values (annotated):
+- [ ] For **each** permission, its purpose band and then its rows in **Verify permissions**, with
+      real values:
       `ads_read` (account name/id/currency, then the 30-day spend/impressions/clicks row),
       `pages_show_list` (the Page list and that the selected Page is in it),
       `pages_read_engagement` (Page name, follower count, Page token issued),
@@ -402,7 +406,8 @@ Per https://developers.facebook.com/docs/app-review/submission-guide/screen-reco
       what blocks this one call (2.9). Three other `pages_read_engagement` calls succeed on the
       same Page with the same token. Annotate the row as the call the permission is being requested
       for and leave Meta's error text on screen: a reviewer who asked to see Page content retrieved
-      should see the exact request and its response, not its absence. Do **not** write in the notes
+      should see the exact request and its response, not its absence. The page prints that
+      annotation under the row itself, so it is on screen without a caption. Do **not** write in the notes
       that approval alone will fix it — say what was run and what came back.
 - [ ] `ads_read` in the product: Sync now → Stored data (impressions, clicks, spend by day).
 - [ ] Optionally, a Reconnect, showing the same connection renewed in place.

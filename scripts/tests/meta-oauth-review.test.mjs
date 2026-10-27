@@ -558,6 +558,49 @@ await test('client: busy buttons are restored after success and after failure', 
   assert.deepEqual([btn.disabled, btn.textContent], [false, 'Sync now']);
 });
 
+await test('client: every permission the probe can report says on the page WHY it is asked for', () => {
+  // All five 2026-10-26 rejections said a variant of "we were unable to verify
+  // your app reading X". A permission name and an endpoint do not say what the
+  // app does with the answer, so the page heads each permission's calls with
+  // its purpose -- and a permission with no line would head nothing.
+  const probed = ['token', ...META_PERMISSIONS];
+  for (const p of probed) {
+    const line = C.PERMISSION_PURPOSE[p];
+    assert.ok(typeof line === 'string' && line.length > 30, `${p} has a purpose line`);
+  }
+  // SILO's own words, not Meta's permission blurb: each line has to say what
+  // SILO does with the answer.
+  for (const p of probed.filter((x) => x !== 'token')) {
+    assert.match(C.PERMISSION_PURPOSE[p], /SILO|customer|organic reporting/, `${p}'s line says what it is for`);
+  }
+  assert.match(C.PERMISSION_PURPOSE.ads_read, /never creates or edits/, 'ads_read says it is read-only: ads_management is withdrawn');
+
+  // Grouping preserves the function's order and every row.
+  const checks = [
+    { permission: 'token', endpoint: 'a' }, { permission: 'token', endpoint: 'b' },
+    { permission: 'ads_read', endpoint: 'c' }, { permission: 'pages_show_list', endpoint: 'd' },
+    { permission: 'ads_read', endpoint: 'e' },
+  ];
+  // groupChecks runs in the vm sandbox, so its arrays carry that realm's
+  // prototype; compare the values, not the objects.
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  const groups = C.groupChecks(checks);
+  assert.deepEqual(plain(groups.map((g) => [g.permission, g.rows.length])),
+    [['token', 2], ['ads_read', 1], ['pages_show_list', 1], ['ads_read', 1]]);
+  assert.deepEqual(plain(groups.flatMap((g) => g.rows.map((r) => r.endpoint))), ['a', 'b', 'c', 'd', 'e'],
+    'no row is reordered or dropped');
+  assert.deepEqual(plain(C.groupChecks(undefined)), []);
+  assert.equal(C.groupChecks([{ permission: 'made_up' }])[0].purpose, null, 'an unknown permission heads no claim');
+
+  // The refused Page-content call reads as a broken app without a line saying
+  // what it is. It gets one; nothing else does.
+  assert.match(C.noteForEndpoint('GET /1/published_posts?fields=message'), /pages_read_engagement is requested for/);
+  assert.match(C.noteForEndpoint('GET /1/published_posts'), /shown exactly as returned/,
+    'the note does not promise the call will start working');
+  assert.equal(C.noteForEndpoint('GET /me/permissions'), null);
+  assert.equal(C.noteForEndpoint(undefined), null);
+});
+
 await test('page: every call goes through callFunction, every busy button through withBusy, stale lists are checked', () => {
   const js = read('testing/meta-oauth.js');
   const html = read('testing/meta-oauth.html');
@@ -568,6 +611,11 @@ await test('page: every call goes through callFunction, every busy button throug
   assert.match(js, /if \(!assets\.isCurrent\(token\)\) return;/);
   assert.match(js, /connection_id: active\.connectionId/);
   assert.doesNotMatch(js, /assetConn|assetData/);
+  // The verify table is rendered through the client's grouping and notes, so
+  // the purpose lines the tests above pin are the ones the page shows.
+  assert.match(js, /groupChecks\(data\.checks\)/, 'verify renders per-permission groups');
+  assert.match(js, /esc\(g\.purpose\)/, "each group's purpose is shown, escaped");
+  assert.match(js, /noteForEndpoint\(c\.endpoint\)/, 'a refused call can carry its note');
 });
 
 // ── 8. static guards ────────────────────────────────────────────────────────

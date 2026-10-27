@@ -32,7 +32,7 @@
   }
   const co = await cfg.ensureActiveCompany?.(db) || null;
 
-  const { callFunction, createAssetSession, withBusy } = window.SiloMetaReviewClient;
+  const { callFunction, createAssetSession, withBusy, groupChecks, noteForEndpoint } = window.SiloMetaReviewClient;
 
   // Always { status, data }: a rejected fetch arrives as status 0 + data.error.
   async function call(fn, body) {
@@ -240,12 +240,21 @@
     async verify(id, btn) {
       const { data } = await withBusy(btn, 'Checking…', () => review('verify', { connection_id: id }));
       if (!data.ok) { setStatus(data.error || 'Verify failed', 'neg', 10000); return; }
+      // Each permission heads its own section, with WHY it is asked for: the
+      // reviewer sees the use case and the live answer together, which is what
+      // every 2026-10-26 rejection said was missing.
+      const rowHtml = (c) => {
+        const note = c.ok === false ? noteForEndpoint(c.endpoint) : null;
+        return `<tr><td class="bcn-mono">${esc(c.permission)}</td><td class="mo-wrapcell bcn-mono">${esc(c.endpoint)}</td>
+          <td><span class="bcn-pill ${c.ok === true ? 'bcn-pill--pos' : c.ok === false ? 'bcn-pill--neg' : ''}">${c.ok === true ? 'ok' : c.ok === false ? 'error' : 'skipped'}</span></td>
+          <td class="mo-wrapcell">${typeof c.detail === 'string' ? esc(c.detail) : detailHtml(c.detail)}
+            ${note ? `<p class="mo-muted mo-note">${esc(note)}</p>` : ''}</td></tr>`;
+      };
       showResult('Permission check (read-only; nothing stored)', `${assetsHeaderHtml(data.assets)}
         <table class="bcn-table"><thead><tr>
         <th class="bcn-th-left">Permission</th><th class="bcn-th-left">Graph call</th><th class="bcn-th-left">Result</th><th class="bcn-th-left">What came back</th></tr></thead><tbody>
-        ${data.checks.map((c) => `<tr><td class="bcn-mono">${esc(c.permission)}</td><td class="mo-wrapcell bcn-mono">${esc(c.endpoint)}</td>
-          <td><span class="bcn-pill ${c.ok === true ? 'bcn-pill--pos' : c.ok === false ? 'bcn-pill--neg' : ''}">${c.ok === true ? 'ok' : c.ok === false ? 'error' : 'skipped'}</span></td>
-          <td class="mo-wrapcell">${typeof c.detail === 'string' ? esc(c.detail) : detailHtml(c.detail)}</td></tr>`).join('')}
+        ${groupChecks(data.checks).map((g) => `${g.purpose ? `<tr class="mo-group"><td colspan="4">
+            <span class="bcn-mono">${esc(g.permission)}</span> — ${esc(g.purpose)}</td></tr>` : ''}${g.rows.map(rowHtml).join('')}`).join('')}
         </tbody></table>`);
     },
     async sync(id, btn) {
