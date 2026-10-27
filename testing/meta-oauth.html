@@ -26,7 +26,10 @@
     table.bcn-table td.mo-wrapcell { white-space: normal; text-align: left; overflow-wrap: anywhere; }
     /* The per-permission purpose row: one band across the table, so the
        reviewer reads what the permission is for before its calls. */
-    table.bcn-table tr.mo-group td { white-space: normal; background: var(--bcn-band); color: var(--bcn-ink-2); padding-top: 14px; }
+    /* --bcn-band is near-black in BOTH themes and carries its own ink; page
+       ink on it is black-on-black in light theme (docs/agents, 2026-10-15). */
+    table.bcn-table tr.mo-group td { white-space: normal; background: var(--bcn-band); color: var(--bcn-band-ink); padding-top: 14px; }
+    table.bcn-table tr.mo-group td .bcn-mono { color: var(--bcn-band-ink); font-weight: 600; }
     table.bcn-table td .mo-note { margin: 6px 0 0; }
     /* The selected assets, by name, above the results -- what every one of
        Meta's 2026-10-26 rejections asked to see beside the data. */

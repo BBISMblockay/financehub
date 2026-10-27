@@ -616,6 +616,16 @@ await test('page: every call goes through callFunction, every busy button throug
   assert.match(js, /groupChecks\(data\.checks\)/, 'verify renders per-permission groups');
   assert.match(js, /esc\(g\.purpose\)/, "each group's purpose is shown, escaped");
   assert.match(js, /noteForEndpoint\(c\.endpoint\)/, 'a refused call can carry its note');
+  // --bcn-band is near-black in BOTH themes and carries its own ink tokens.
+  // Page ink on it reads correctly in dark mode by luck and is black-on-black
+  // in light -- which is exactly how the purpose band shipped on 2026-10-27,
+  // unreadable. Anything painted on the band takes --bcn-band-ink*.
+  const bandRules = html.split('\n').filter((l) => l.includes('mo-group'));
+  assert.ok(bandRules.length, 'the purpose band has styling');
+  assert.ok(bandRules.some((l) => l.includes('--bcn-band-ink')), 'the band takes its text from the band ink');
+  for (const rule of bandRules) {
+    assert.doesNotMatch(rule, /var\(--bcn-ink(-\d)?\)/, `page ink on the band is black-on-black in light theme: ${rule.trim()}`);
+  }
 });
 
 // ── 8. static guards ────────────────────────────────────────────────────────
