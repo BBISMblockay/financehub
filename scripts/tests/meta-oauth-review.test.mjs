@@ -183,6 +183,10 @@ function fakeGraph({ paged = false, evilNext = false } = {}) {
           { scope: 'pages_read_engagement', target_ids: ['p1'] },
           { scope: 'read_insights', target_ids: ['p9'] },
           { scope: 'ads_read', target_ids: ['1'] },
+          // Live shape on a business integration system user token: an entry
+          // with NO assets named. It means the grant is not asset-limited --
+          // not that the asset is excluded.
+          { scope: 'pages_show_list', target_ids: [] },
         ],
       } });
     }
@@ -379,10 +383,14 @@ await test('verify: each reporting permission probed with the sync\'s calls; not
     token_type: 'SYSTEM_USER',
     app_scoped_to_app: '7',
     scopes: ['ads_read', 'pages_read_engagement', 'pages_show_list', 'read_insights'],
-    granular_scopes: ['ads_read -> 1', 'pages_read_engagement -> p1', 'read_insights -> p9'],
+    granular_scopes: [
+      'ads_read -> 1', 'pages_read_engagement -> p1', 'pages_show_list -> (no assets named)', 'read_insights -> p9',
+    ],
     selected_page_covered_by_pages_read_engagement: 'yes',
-    selected_page_covered_by_read_insights: 'NO',
+    // A non-empty list that omits the Page is the ONLY exclusion.
+    selected_page_covered_by_read_insights: 'NO — this asset is excluded',
     selected_ad_account_covered_by_ads_read: 'yes',
+    selected_page_covered_by_pages_show_list: 'no assets named (not asset-limited)',
   });
   const pdbg = r.body.checks.find((c) => c.endpoint === 'GET /debug_token (Page token)');
   assert.ok(pdbg, 'the PAGE token is debugged too: it is the token published_posts is read with');
