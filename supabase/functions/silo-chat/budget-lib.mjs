@@ -14,11 +14,14 @@
 /** The line no request may cross. It was 140s under Supabase's 150s gateway
  *  (a bare 504, no audit row). Since 2026-09-28 the response starts early and
  *  heartbeats (keepalive-lib.mjs), so the bound is the worker's own wall clock
- *  -- 400s on this project's Pro plan -- and 260s leaves a wide margin because
- *  a request may land on a worker that has already been running. Moved by the
- *  same 120s as index.ts's WALL_CLOCK_BUDGET_MS, so the 45s window the
- *  correction arithmetic below is tuned against is unchanged. */
-export const GATEWAY_SAFE_MS = 260_000;
+ *  -- 400s on this project's Pro plan -- and the margin below it is wide
+ *  because a request may land on a worker that has already been running.
+ *  RAISED 2026-10-27 from 260s to the largest value the margin invariant in
+ *  handler.test.mjs admits (WORKER_WALL_CLOCK_MS - 100s): four live MCA
+ *  underwriting questions spent 270-285s and were cut off with nothing. The
+ *  45s window above WALL_CLOCK_BUDGET_MS that the correction arithmetic is
+ *  tuned against is unchanged -- index.ts's budget moved by the same 40s. */
+export const GATEWAY_SAFE_MS = 300_000;
 
 /** The hard ceiling GATEWAY_SAFE_MS must stay under: the edge worker's wall
  *  clock on a paid plan. */
@@ -68,6 +71,28 @@ export function correctionRoundFits({
  *  having spent its last round on a query nobody gets told about. */
 export const MIN_FINAL_CALL_MS = 12_000;
 
+/** What an ORDINARY round must leave behind it, and why ordinary rounds are
+ *  bounded at all now.
+ *
+ *  Until 2026-10-27 only post-budget calls (a granted correction, the forced
+ *  final) carried a deadline. The loop checked the clock BEFORE starting a
+ *  round and never again, so a round admitted at 214s could spend a slow model
+ *  call and two queries and arrive at the forced final with the safe line
+ *  already behind it. That is not a hypothetical: it is what every one of the
+ *  four MCA underwriting requests of 2026-10-27 did (05:42, 05:47, 05:58,
+ *  06:03 UTC). Each reached `finalCallDeadline` with 0ms left, each threw
+ *  `ModelCallDeadlineError: ... 0ms deadline`, and each threw away 9-18
+ *  completed queries to show the user a bare "ran out of time" message.
+ *
+ *  So a round's model call now reserves what still has to happen after it: the
+ *  queries that round is about to run, plus the forced final that reports them.
+ *  TWO query ceilings, not one -- a round issues as many tool calls as the
+ *  model asked for, and they run one after another (18 queries across 12
+ *  rounds on the 05:42 request). Two is the observed shape, not a proof; the
+ *  floor under the forced final (finalAnswerTimeoutMs) is what holds when a
+ *  round runs more. */
+export const ROUND_RESERVE_MS = 2 * QUERY_CEILING_MS + MIN_FINAL_CALL_MS;
+
 /**
  * How long THIS model call may take, as an absolute deadline rather than a
  * prediction.
@@ -94,4 +119,29 @@ export function modelCallTimeoutMs({
   hardDeadlineMs = GATEWAY_SAFE_MS,
 } = {}) {
   return Math.max(0, hardDeadlineMs - elapsedMs - reserveMs);
+}
+
+/**
+ * How long the FORCED FINAL ANSWER may take.
+ *
+ * Not modelCallTimeoutMs: that returns 0 when the deadline has passed, and
+ * callers read 0 as "do not start this call". For every other call that is
+ * right. For this one it is the bug above -- the call that is refused is the
+ * only one that can turn an investigation into an answer, and refusing it is
+ * how a request with 18 good queries in hand ends as an error.
+ *
+ * So this never returns 0. Past the safe line it returns the floor, which is
+ * deliberately spent from the margin BELOW the worker's wall clock rather than
+ * from the budget above it: GATEWAY_SAFE_MS keeps 100s of room under
+ * WORKER_WALL_CLOCK_MS, and a floor of MIN_FINAL_CALL_MS plus the audit write
+ * is a small bite out of it. A worker killed mid-call still writes nothing --
+ * that has not changed -- but reaching it now takes an overrun 100s deep
+ * instead of a round that merely finished late.
+ */
+export function finalAnswerTimeoutMs({
+  elapsedMs,
+  hardDeadlineMs = GATEWAY_SAFE_MS,
+  floorMs = MIN_FINAL_CALL_MS,
+} = {}) {
+  return Math.max(floorMs, hardDeadlineMs - elapsedMs);
 }
