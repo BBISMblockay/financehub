@@ -366,6 +366,28 @@ await test('review start: unknown return_to, unset allow-list, outside workspace
   assert.equal((db.tables.ad_platform_oauth_states || []).length, 0);
 });
 
+await test('review start: a review-only login configuration overrides the production one, and only there', async () => {
+  const cfg = async (env, body) => {
+    const db = reviewStartDb();
+    const res = await createStartHandler({ checkMfa: MFA_OK, env, admin: db })(post(body, 'jwt-admin'));
+    assert.equal(res.status, 200);
+    return new URL((await res.json()).url).searchParams.get('config_id');
+  };
+  const REVIEW_ENV = { ...RENV, META_REVIEW_LOGIN_CONFIG_ID: 'cfg-review' };
+  // The review flow takes the override; a normal connect never does, because a
+  // user token expires and an overnight sync cannot survive that.
+  assert.equal(await cfg(REVIEW_ENV, rv()), 'cfg-review');
+  assert.equal(await cfg(REVIEW_ENV, { company_entity_id: CO }), 'cfg-1');
+  // Unset, the review flow falls back to the production configuration rather
+  // than refusing: the page still works, and Verify names the token type.
+  assert.equal(await cfg(RENV, rv()), 'cfg-1');
+  assert.equal(await cfg({ ...RENV, META_REVIEW_LOGIN_CONFIG_ID: '' }, rv()), 'cfg-1');
+  // The secret has to be wired through index.ts or the handler never sees it.
+  assert.match(read('supabase/functions/meta-oauth-start/index.ts'),
+    /META_REVIEW_LOGIN_CONFIG_ID:\s*Deno\.env\.get\('META_REVIEW_LOGIN_CONFIG_ID'\)/,
+    'index.ts must pass META_REVIEW_LOGIN_CONFIG_ID to the handler');
+});
+
 await test('review start: the state is rt_ + a full random uuid, stored like any other', async () => {
   for (const extra of [{}, { connection_id: 'c-review' }]) {
     const db = reviewStartDb();
