@@ -116,7 +116,8 @@ function fakeDb(tables) {
 
 const CO = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const BASEBALLISM = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7';
-const ENV = { META_REVIEW_COMPANY_IDS: CO, SUPABASE_URL: 'https://x.supabase.co', SUPABASE_ANON_KEY: 'anon' };
+const ENV = { META_REVIEW_COMPANY_IDS: CO, SUPABASE_URL: 'https://x.supabase.co', SUPABASE_ANON_KEY: 'anon',
+  META_APP_ID: 'APP7', META_APP_SECRET: 'APP-SECRET' };
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 
 function world({ active = CO, role = 'admin' } = {}) {
@@ -159,6 +160,31 @@ function fakeGraph({ paged = false, evilNext = false } = {}) {
         { permission: 'pages_read_engagement', status: 'declined' },
         { permission: 'instagram_basic', status: 'expired' },
       ] });
+    }
+    // debug_token: granular_scopes is per ASSET, which is what tells a refused
+    // call apart from a permission the grant never covered for that Page. The
+    // Page token here carries NO granular_scopes, the shape Meta returns when a
+    // grant is not asset-limited.
+    if (path === 'debug_token') {
+      const subject = u.searchParams.get('input_token');
+      // The credential is the APP, never the subject. Meta's debug_token
+      // refuses a business system user token or a Page token as access_token,
+      // so a self-authenticated call never reaches granular_scopes.
+      assert.equal(u.searchParams.get('access_token'), 'APP7|APP-SECRET',
+        'debug_token is authenticated with the app access token, not the token under inspection');
+      assert.notEqual(u.searchParams.get('access_token'), subject);
+      if (subject === 'PAGE-TOKEN-SECRET') {
+        return ok({ data: { type: 'PAGE', app_id: '7', scopes: ['pages_read_engagement'] } });
+      }
+      return ok({ data: {
+        type: 'SYSTEM_USER', app_id: '7',
+        scopes: ['pages_show_list', 'ads_read', 'pages_read_engagement', 'read_insights'],
+        granular_scopes: [
+          { scope: 'pages_read_engagement', target_ids: ['p1'] },
+          { scope: 'read_insights', target_ids: ['p9'] },
+          { scope: 'ads_read', target_ids: ['1'] },
+        ],
+      } });
     }
     if (path === 'me/adaccounts' && paged && !after) return ok({ data: [{ id: 'act_1', name: 'Demo ads', currency: 'USD' }], paging: next('A2') });
     if (path === 'me/adaccounts' && after === 'A2') return ok({ data: [{ id: 'act_2', name: 'Page-two ads', currency: 'EUR' }], ...(evilNext ? { paging: { next: 'https://evil.example/steal?x=1' } } : {}) });
@@ -339,12 +365,30 @@ await test('verify: each reporting permission probed with the sync\'s calls; not
   // refusal like "(#10) requires the 'pages_read_engagement' permission"
   // cannot be told apart from a missing Page role.
   const tok = by('token');
-  assert.equal(tok.length, 1);
   assert.equal(r.body.checks[0].permission, 'token', 'the token row is read before anything that depends on it');
   assert.equal(tok[0].endpoint, 'GET /me/permissions');
   assert.deepEqual(tok[0].detail, {
     granted: ['ads_read', 'pages_show_list'], declined: ['pages_read_engagement'], expired: ['instagram_basic'],
   });
+  // The second token row answers the question /me/permissions cannot: whether
+  // the grant names the Page that a refused call is about. read_insights is
+  // granted here but scoped to a DIFFERENT Page, and that has to be visible.
+  assert.equal(tok.length, 2);
+  assert.equal(tok[1].endpoint, 'GET /debug_token (connection token)');
+  assert.deepEqual(tok[1].detail, {
+    token_type: 'SYSTEM_USER',
+    app_scoped_to_app: '7',
+    scopes: ['ads_read', 'pages_read_engagement', 'pages_show_list', 'read_insights'],
+    granular_scopes: ['ads_read -> 1', 'pages_read_engagement -> p1', 'read_insights -> p9'],
+    selected_page_covered_by_pages_read_engagement: 'yes',
+    selected_page_covered_by_read_insights: 'NO',
+    selected_ad_account_covered_by_ads_read: 'yes',
+  });
+  const pdbg = r.body.checks.find((c) => c.endpoint === 'GET /debug_token (Page token)');
+  assert.ok(pdbg, 'the PAGE token is debugged too: it is the token published_posts is read with');
+  assert.equal(pdbg.detail.token_type, 'PAGE');
+  assert.equal(pdbg.detail.this_page_covered_by_pages_read_engagement, 'not asset-scoped',
+    'a grant with no granular_scopes is not asset-limited, which is not the same as missing');
   // Each asset's NAME comes back with the checks, which is the whole point of
   // the 2026-10-26 change: Meta rejected five permissions because the metrics
   // on screen could not be attributed to a Page or an Instagram account.
@@ -382,7 +426,7 @@ await test('verify: each reporting permission probed with the sync\'s calls; not
   const media = imi.find((c) => c.detail?.metrics);
   assert.equal(media.detail.metrics.reach, 4);
   assert.ok(imi.every((c) => c.detail.account === '@demo'), 'every account-insight row names the account');
-  assert.doesNotMatch(JSON.stringify(r.body), /tok-|PAGE-TOKEN-SECRET|access_token=/);
+  assert.doesNotMatch(JSON.stringify(r.body), /tok-|PAGE-TOKEN-SECRET|APP-SECRET|access_token=/);
   assert.equal(writes(db).length, 0);
 
   // Nothing chosen yet: every asset-bound check says so instead of failing.
@@ -534,10 +578,34 @@ await test('the page writes nothing itself, calls only the two review functions,
   }
 });
 
-await test('deploy: the review gateway keeps JWT verification', () => {
+await test('deploy: the review gateway keeps JWT verification, and the app credential is wired through', () => {
   const list = /NO_JWT_FUNCTIONS="([^"]*)"/.exec(read('.github/workflows/deploy-edge-function.yml'))[1].split(/\s+/);
   assert.ok(!list.includes('meta-oauth-review'));
   assert.ok(!list.includes('meta-oauth-start'));
+  // debug_token needs an APP credential. Both secrets are already set for
+  // meta-oauth-callback's code exchange and Supabase secrets are project-wide,
+  // so the only thing that can be missing is this wiring.
+  const idx = read('supabase/functions/meta-oauth-review/index.ts');
+  for (const k of ['META_APP_ID', 'META_APP_SECRET']) {
+    assert.match(idx, new RegExp(`${k}: Deno\\.env\\.get\\('${k}'\\)`), `${k} is passed to the handler`);
+  }
+});
+
+await test('verify: without the app credential the token rows SAY SO instead of failing silently', async () => {
+  const db = world();
+  Object.assign(db.tables.ad_platform_connections[0], { meta_ad_account_id: 'act_1', facebook_page_id: 'p1', instagram_business_account_id: 'ig1' });
+  const { fetchImpl } = fakeGraph();
+  const r = await call(createReviewHandler({
+    checkMfa: MFA_OK, env: { ...ENV, META_APP_SECRET: '' }, admin: db, fetchImpl, now: () => NOW,
+  }), { action: 'verify', connection_id: 'c-rev' });
+  const dbg = r.body.checks.filter((c) => /debug_token/.test(c.endpoint));
+  assert.equal(dbg.length, 2, 'both rows are still reported');
+  for (const row of dbg) {
+    assert.equal(row.ok, false);
+    assert.match(row.detail, /META_APP_ID \/ META_APP_SECRET not configured/);
+  }
+  // The other rows are unaffected: a missing diagnostic must not break the probe.
+  assert.equal(r.body.checks.find((c) => /fan_count/.test(c.endpoint)).ok, true);
 });
 
 console.log(`\n${n} passed`);

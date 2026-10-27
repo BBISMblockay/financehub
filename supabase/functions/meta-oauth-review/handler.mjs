@@ -19,9 +19,13 @@
 //                  re-listing server-side: only an asset the token can reach is
 //                  accepted. sync_enabled is NOT switched on (no nightly sync)
 //   verify         read-only probe of each reporting permission, with the same
-//                  Graph calls the sync makes, preceded by a `token` row
-//                  reading /me/permissions so a refusal can be told apart from
-//                  a permission the token never held; stores nothing
+//                  Graph calls the sync makes, preceded by two `token` rows:
+//                  /me/permissions (granted / declined / expired) and
+//                  /debug_token, whose granular_scopes name the exact assets
+//                  each grant covers -- so a refusal can be told apart both
+//                  from a permission the token never held and from one granted
+//                  for a different Page. The Page token is debugged too, since
+//                  it is the token the Page-content read uses. Stores nothing
 //   sync           Sync now -- forwards to ad-platform-sync-run with the
 //                  caller's own JWT, which re-checks visibility under RLS
 //   stored         what the sync has stored for this connection / workspace
@@ -135,6 +139,55 @@ export function createReviewHandler({ env, admin, fetchImpl, checkMfa, now = () 
    * confirm which Page they belong to"). The identity comes back with the
    * checks, from the same calls that read the data, so the page can head each
    * section with it and the reviewer can see the two together. */
+  /* What a token is actually allowed to do, per ASSET. /me/permissions says
+   * only whether a permission was granted to the app on this token; it cannot
+   * say which Pages or ad accounts that grant covers. debug_token's
+   * granular_scopes does: each entry pairs a permission with the exact asset
+   * ids it applies to. On 2026-10-26 /{page}/published_posts refused with
+   * "(#10) This endpoint requires the 'pages_read_engagement' permission"
+   * while /me/permissions reported that permission granted, and the two facts
+   * cannot both be read off one list -- a grant that does not name the Page
+   * looks identical to an unapproved permission. This row separates them, so a
+   * refusal is attributed to the grant (ours to fix) or to the app's review
+   * state (Meta's to approve). The token is sent as input_token and never
+   * comes back: only the scope names and the asset ids, which the page already
+   * shows. */
+  const debugToken = async (subject, selected) => {
+    // The CREDENTIAL is the app, never the subject. Meta's debug_token
+    // reference requires an app access token (or an app developer's own user
+    // token); a business system user token and a Page token are neither, so
+    // calling it with the subject as access_token fails before granular_scopes
+    // is ever returned. The app access token is app_id|app_secret, built here
+    // and sent only in the query string: it is never returned, logged, or
+    // stored, like every other token this function touches.
+    if (!env.META_APP_ID || !env.META_APP_SECRET) {
+      return { r: { ok: false, error: 'META_APP_ID / META_APP_SECRET not configured for this function' }, detail: null };
+    }
+    const appToken = `${env.META_APP_ID}|${env.META_APP_SECRET}`;
+    const r = await getGraph(graph('debug_token', { input_token: subject, access_token: appToken }));
+    if (!r.ok) return { r, detail: null };
+    const d = r.data.data ?? {};
+    const gran = Array.isArray(d.granular_scopes) ? d.granular_scopes : [];
+    const covers = (scope, id) => {
+      if (!id) return null;
+      const e = gran.find((g) => g.scope === scope);
+      // No granular entry at all means the grant is not asset-limited.
+      if (!e) return gran.length ? 'no granular entry' : 'not asset-scoped';
+      return (e.target_ids ?? []).map(String).includes(String(id)) ? 'yes' : 'NO';
+    };
+    const detail = {
+      token_type: d.type ?? null,
+      app_scoped_to_app: d.app_id ? String(d.app_id) : null,
+      scopes: Array.isArray(d.scopes) ? [...d.scopes].sort() : [],
+      granular_scopes: gran.map((g) => `${g.scope} -> ${(g.target_ids ?? []).map(String).join(', ') || '(no assets named)'}`).sort(),
+    };
+    for (const [label, scope, id] of selected) {
+      const v = covers(scope, id);
+      if (v !== null) detail[label] = v;
+    }
+    return { r, detail };
+  };
+
   async function verify(conn) {
     const token = conn.access_token;
     const out = [];
@@ -157,6 +210,13 @@ export function createReviewHandler({ env, admin, fetchImpl, checkMfa, now = () 
     const withStatus = (s) => permRows.filter((p) => p.status === s).map((p) => p.permission).sort();
     add('token', 'GET /me/permissions', perms,
       perms.ok ? { granted: withStatus('granted'), declined: withStatus('declined'), expired: withStatus('expired') } : null);
+
+    const dbg = await debugToken(token, [
+      ['selected_page_covered_by_pages_read_engagement', 'pages_read_engagement', page],
+      ['selected_page_covered_by_read_insights', 'read_insights', page],
+      ['selected_ad_account_covered_by_ads_read', 'ads_read', act ? String(act).replace(/^act_/, '') : null],
+    ]);
+    add('token', 'GET /debug_token (connection token)', dbg.r, dbg.detail);
 
     if (act) {
       const a = await getGraph(graph(act, { fields: 'id,name,currency,account_status', access_token: token }));
@@ -191,6 +251,17 @@ export function createReviewHandler({ env, admin, fetchImpl, checkMfa, now = () 
       // The Page token itself is never returned: only whether one was issued.
       add('pages_read_engagement', `GET /${page}?fields=access_token`, pt.ok && !pageToken ? { ok: false, error: 'No Page access token issued' } : pt,
         { page: assets.page?.name ?? String(page), page_token_issued: Boolean(pageToken) });
+
+      // The PAGE token is what /published_posts is read with, so it is the one
+      // whose scopes decide that call. A Page token derived from a business
+      // integration system user carries the tasks the granting business gave
+      // the system user on that Page, which can be narrower than the
+      // permissions on the token it came from.
+      if (pageToken) {
+        const pdbg = await debugToken(pageToken, [['this_page_covered_by_pages_read_engagement', 'pages_read_engagement', page]]);
+        add('pages_read_engagement', 'GET /debug_token (Page token)', pdbg.r,
+          pdbg.detail ? { page: assets.page?.name ?? String(page), ...pdbg.detail } : null);
+      }
 
       // The Page's OWN published content. /published_posts, not /feed: feed
       // also returns posts made by VISITORS and needs pages_read_user_content,
