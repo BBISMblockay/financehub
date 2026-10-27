@@ -652,6 +652,19 @@
   // assistant turn lands, by any route (a normal answer, or a recovery).
   let unansweredEntry = null;
 
+  // THE QUESTION THAT IS STILL RUNNING, remembered across a page load.
+  //
+  // A long answer is delivered by request id out of silo_chat_responses, and
+  // that id only ever lived in a closure. So a reload -- or a phone suspending
+  // the tab, which is the same thing to this page -- lost the only handle on
+  // an answer the server had already finished and saved. The user saw their
+  // own question and no reply, for an answer that exists. It rides in the
+  // history blob rather than a key of its own, so it inherits that blob's
+  // identity scoping and purge: a conversation restored for the wrong user or
+  // company is dropped with its pending id still inside it.
+  let pendingTurn = null;          // { request_id, asked_at } while in flight
+  let restoredPending = null;      // the same, read back on boot
+
   // A refresh (accidental, or the "refresh the page" prompt on an error
   // bubble) used to wipe the whole conversation -- history only ever lived
   // in this JS variable. sessionStorage is tab-scoped, which is exactly
@@ -743,6 +756,7 @@
         user_id: identity.userId,
         company_id: identity.companyId,
         messages: history,
+        pending: pendingTurn,
       }));
     } catch {}
   }
@@ -774,6 +788,14 @@
       return;
     }
     if (!Array.isArray(saved.messages) || !saved.messages.length) return;
+    // Only an id and a time, and only when the conversation really is waiting
+    // on an answer: a restored blob whose last turn is the assistant's was
+    // answered before the reload, whatever it still carries.
+    const p = saved.pending;
+    restoredPending = p && typeof p.request_id === 'string' && Number(p.asked_at) > 0
+      && saved.messages[saved.messages.length - 1]?.role === 'user'
+      ? { request_id: p.request_id, asked_at: Number(p.asked_at) }
+      : null;
     history = saved.messages;
     history.forEach((m, i) => {
       if (m.role === 'assistant') {
@@ -1462,6 +1484,10 @@
       }
 
       sent = true;
+      // From here the answer is recoverable by id even if this page goes away,
+      // so write the id down where a reload can find it.
+      pendingTurn = { request_id: requestId, asked_at: askedAt };
+      saveHistoryToSession();
       const res = await fetch(`${FUNCTIONS_URL}/silo-chat`, {
         method: 'POST',
         signal: controller.signal,
@@ -1579,7 +1605,7 @@
         // gateway or worker error page), so the function may still be
         // working -- wait out its window. An error SILO wrote itself is final.
         await recoverOrShowError(requestId, data.error || 'Something went wrong.', data.retryable, true,
-          data.error ? { isCurrent } : { untilMs: askedAt + 290_000, isCurrent });
+          data.error ? { isCurrent } : { untilMs: askedAt + WAIT_FOR_ANSWER_MS, isCurrent });
         return;
       }
       const historyEntry = { role: 'assistant', content: data.answer };
@@ -1624,15 +1650,65 @@
       // full re-ask.
       lastFailedRequestId = sent ? requestId : null;
       unansweredEntry = askedEntry;
-      // Wait out the server's whole working window (its safe line is 260s),
-      // not twenty seconds: the answer may still be on its way.
+      // Wait out the server's whole working window, not twenty seconds: the
+      // answer may still be on its way. One window, shared with the deferred
+      // path -- this was a separate 290_000 and stayed behind when the
+      // server's budget moved on 2026-10-27, which is exactly how a page ends
+      // up giving up 12 seconds before the answer lands.
       await recoverOrShowError(sent ? requestId : null, 'Request failed: ' + err.message, true, sent,
-        { untilMs: askedAt + 290_000, isCurrent });
+        { untilMs: askedAt + WAIT_FOR_ANSWER_MS, isCurrent });
     } finally {
+      // Whatever happened, this turn is no longer in flight: either it was
+      // rendered, or it left an error bubble with its own "Try again", which
+      // checks the same id. Leaving it set would have the next page load
+      // re-poll for an answer the user has already been shown.
+      if (pendingTurn?.request_id === requestId) {
+        pendingTurn = null;
+        saveHistoryToSession();
+      }
       if (activeTurn === turn) activeTurn = null;
       if (turn.generation === conversationGeneration) {
         el('btnSend').disabled = false;
         el('input').focus();
+      }
+    }
+  }
+
+  /** Picks up a question that was still running when the page went away.
+   *
+   *  Reuses recoverOrShowError rather than a second collection loop: it polls
+   *  the stored response and then the audit log by id, renders the answer the
+   *  same way a recovered one is rendered, and falls back to the same error
+   *  bubble -- whose "Try again" checks this very id before paying for a
+   *  re-ask. The window is measured from when the question was ASKED, so a
+   *  reload five minutes later does the short catch-up poll and stops, while a
+   *  reload ten seconds in waits out the rest of the server's budget. */
+  async function resumePendingAnswer(pending) {
+    const turn = { requestId: pending.request_id, generation: conversationGeneration, controller: new AbortController() };
+    activeTurn = turn;
+    const isCurrent = () => activeTurn === turn && turn.generation === conversationGeneration;
+    pendingTurn = pending;
+    lastFailedRequestId = pending.request_id;
+    unansweredEntry = history[history.length - 1] || null;
+    el('btnSend').disabled = true;
+    renderTyping();
+    try {
+      await recoverOrShowError(pending.request_id,
+        "This one was still running when the page reloaded, and the answer hasn't arrived. It may still finish -- ask again in a minute and I'll check for it first.",
+        true, true, { untilMs: pending.asked_at + WAIT_FOR_ANSWER_MS, isCurrent });
+    } finally {
+      // No `return` in here: it would swallow anything recoverOrShowError
+      // threw AND leave the composer disabled. The id is dropped either way --
+      // this turn is resolved, answered or not -- but only a turn that is
+      // still the current one may touch the screen or rewrite the stored
+      // conversation, which "New chat" has already replaced.
+      const stillMine = pendingTurn?.request_id === pending.request_id;
+      pendingTurn = stillMine ? null : pendingTurn;
+      if (isCurrent()) {
+        removeTyping();
+        if (stillMine) saveHistoryToSession();
+        activeTurn = null;
+        el('btnSend').disabled = false;
       }
     }
   }
@@ -2420,6 +2496,16 @@
       } catch {}
     }
     el('input').focus();
+
+    // LAST, and not awaited: a question that was still running when this page
+    // went away. Last because everything above has to be on screen first --
+    // the restored conversation, the chrome, the composer -- and not awaited
+    // because it can sit polling for minutes, and boot() must not.
+    if (restoredPending) {
+      const pending = restoredPending;
+      restoredPending = null;
+      resumePendingAnswer(pending);
+    }
   }
 
   boot();
