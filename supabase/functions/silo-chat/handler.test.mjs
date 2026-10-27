@@ -29,8 +29,9 @@
  */
 import { CATALOG_FIXTURE, COMBINED_SPEND_SQL, COMBINED_SPEND_ROWS, PER_PLATFORM_SQL, PER_PLATFORM_ROWS } from './evidence-fixtures.mjs';
 import {
-  correctionRoundFits, modelCallTimeoutMs,
+  correctionRoundFits, modelCallTimeoutMs, finalAnswerTimeoutMs,
   GATEWAY_SAFE_MS, MODEL_CALL_FLOOR_MS, QUERY_CEILING_MS, MIN_FINAL_CALL_MS, WORKER_WALL_CLOCK_MS,
+  ROUND_RESERVE_MS,
 } from './budget-lib.mjs';
 import { readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -285,7 +286,10 @@ function installModel(rounds, onCall = () => {}) {
 // starts: 8 x 12s calls still reach the round-start budget on the 8th call,
 // and so on. Model-call timings are untouched, which is what keeps the
 // correction arithmetic's inputs identical.
-const BUDGET_SHIFT_MS = 120_000;
+// Raised 2026-10-27 from 120_000, by the same 40s as WALL_CLOCK_BUDGET_MS and
+// GATEWAY_SAFE_MS, so every scenario below still lands where it was written to
+// land.
+const BUDGET_SHIFT_MS = 160_000;
 function installClock() {
   const realNow = Date.now;
   let offset = 0;
@@ -400,7 +404,7 @@ await test('prose abandoned for another tool call is not glued to the answer', a
 // only after the round or wall-clock budget is spent -- i.e. on the longest,
 // most expensive questions, which are exactly the ones whose answers were
 // being decapitated. Nothing else in the repo executes it.
-const MAX_TOOL_ROUNDS = 20;
+const MAX_TOOL_ROUNDS = 28;  // mirrors index.ts; raised with the wall-clock budget 2026-10-27
 const toolRound = (i) => ({
   stop_reason: 'tool_use',
   content: [{ type: 'tool_use', id: `tu_${i}`, name: 'run_sql', input: { query: `select ${i}` } }],
@@ -1062,7 +1066,7 @@ await test('which relations were in context, and which had to be fetched, is rec
 
 const HUGE_SQL = `select ${'x'.repeat(5000)} from marketing_kpis_daily where day_date = '2026-09-01'`;
 // Eight statements per round is well within what one model turn can ask for,
-// and it is the only way to reach the logging caps inside 20 rounds.
+// and it is the only way to reach the logging caps inside the round cap.
 const busyRound = () => ({
   content: Array.from({ length: 8 }, (_, i) => ({
     type: 'tool_use', id: `tu-${i}`, name: 'run_sql', input: { query: HUGE_SQL },
@@ -1150,7 +1154,7 @@ await test('eight slow rounds get one early checkpoint, then a visibly partial p
     const row = auditRow(client);
     eq(row.answer, json.answer, 'recovery and saved text must keep the label');
     eq(row.tool_rounds, 8, 'actual rounds');
-    eq(row.error_message, 'forced final answer at wall-clock budget (243s, 8 rounds)', 'stop reason');
+    eq(row.error_message, 'forced final answer at wall-clock budget (283s, 8 rounds)', 'stop reason');
     eq(row.diagnostics.context.partial, true, 'persisted partial status');
     eq(row.diagnostics.context.partial_reason, json.partial_reason, 'persisted reason');
     eq(row.diagnostics.context.investigation_checkpoint_sent, true, 'checkpoint audit');
@@ -1326,7 +1330,7 @@ await test('the hand-written traps still fire', async () => {
 
 console.log('\n-- one round is held back to use the correction --');
 
-const WALL_CLOCK_BUDGET_MS = 215_000;
+const WALL_CLOCK_BUDGET_MS = 255_000;
 
 /**
  * Runs a scripted request where each model call costs a DIFFERENT amount of
@@ -1396,7 +1400,7 @@ async function askWithClock(rounds, perCall, clientOpts) {
 console.log('\n-- the correction reservation, as exact arithmetic --');
 
 // Figures in the comments below were written against the 95s/140s budget;
-// since 2026-09-28 every elapsed value carries +120s (see BUDGET_SHIFT_MS).
+// since 2026-10-27 every elapsed value carries +160s (see BUDGET_SHIFT_MS).
 
 // The handler tests below prove the WIRING: that a grant and a refusal both
 // happen and that the request lands inside the gateway. They cannot pin the
@@ -1407,7 +1411,7 @@ console.log('\n-- the correction reservation, as exact arithmetic --');
 test('the floor is applied even when the observed calls are cheaper', () => {
   // 104s elapsed with 13s calls: trusting the observation fits (140s exactly),
   // the 15s floor does not (144s). Lower the floor away and this goes green.
-  const at = { elapsedMs: 224_000, modelCallMs: [13_000, 13_000] };
+  const at = { elapsedMs: 264_000, modelCallMs: [13_000, 13_000] };
   eq(correctionRoundFits(at), false, 'the floor stopped being applied');
   eq(correctionRoundFits({ ...at, floorMs: 1_000 }), true, 'the case does not actually discriminate');
 });
@@ -1415,7 +1419,7 @@ test('the floor is applied even when the observed calls are cheaper', () => {
 test('the MEASURED latency is read, not just the floor', () => {
   // 100s elapsed with 25s calls: the floor alone would fit (140s exactly), the
   // real timings do not (160s).
-  const at = { elapsedMs: 220_000, modelCallMs: [25_000, 24_000] };
+  const at = { elapsedMs: 260_000, modelCallMs: [25_000, 24_000] };
   eq(correctionRoundFits(at), false, 'measured latency stopped being read');
   eq(correctionRoundFits({ ...at, modelCallMs: [] }), true, 'the case does not actually discriminate');
 });
@@ -1424,7 +1428,7 @@ test('BOTH model calls are reserved -- the correction and the forced final', () 
   // 100s elapsed, 20s calls. One call reserved fits (130s); two do not (150s).
   // Dropping the final answer's own call is the mistake that produced a 157s
   // worst case against a 150s gateway.
-  const at = { elapsedMs: 220_000, modelCallMs: [20_000] };
+  const at = { elapsedMs: 260_000, modelCallMs: [20_000] };
   eq(correctionRoundFits(at), false, 'the forced final answer stopped being reserved for');
   const oneCall = at.elapsedMs + 20_000 + QUERY_CEILING_MS <= GATEWAY_SAFE_MS;
   eq(oneCall, true, 'the case does not actually discriminate');
@@ -1433,14 +1437,14 @@ test('BOTH model calls are reserved -- the correction and the forced final', () 
 test('the query ceiling is reserved too', () => {
   // 105s + two 15s calls = 135s, which fits; the 10s query pushes it to 145s,
   // which does not. 100s would have fitted either way and proven nothing.
-  const at = { elapsedMs: 225_000, modelCallMs: [15_000] };
+  const at = { elapsedMs: 265_000, modelCallMs: [15_000] };
   eq(correctionRoundFits(at), false, 'query time stopped being reserved');
   eq(correctionRoundFits({ ...at, queryCeilingMs: 0 }), true, 'the case does not actually discriminate');
 });
 
 test('a cheap request at the budget boundary still fits', () => {
   // The window this exists to keep open: reached 95s through many quick rounds.
-  eq(correctionRoundFits({ elapsedMs: 216_000, modelCallMs: [12_000, 11_000] }), true, 'the window is shut');
+  eq(correctionRoundFits({ elapsedMs: 256_000, modelCallMs: [12_000, 11_000] }), true, 'the window is shut');
 });
 
 test('the Sonic request would NOT have been granted one', () => {
@@ -1448,7 +1452,7 @@ test('the Sonic request would NOT have been granted one', () => {
   // because the first version of this feature was written for that request and
   // would not have fired on it either -- F1's catalog hint is the half that
   // works regardless of budget.
-  eq(correctionRoundFits({ elapsedMs: 240_893, modelCallMs: [17_094, 17_094] }), false, 'Sonic would have been granted a round');
+  eq(correctionRoundFits({ elapsedMs: 280_893, modelCallMs: [17_094, 17_094] }), false, 'Sonic would have been granted a round');
 });
 
 // --- the deadline that the estimate above is NOT ---
@@ -1462,24 +1466,24 @@ test('the Sonic request would NOT have been granted one', () => {
 test('a correction round reserves its query AND the forced final', () => {
   // 96s in, 44s of margin left. The correction call may have 22s of it; the
   // other 22s belongs to the query it will run and the answer that reports it.
-  eq(modelCallTimeoutMs({ elapsedMs: 216_000, reserveMs: QUERY_CEILING_MS + MIN_FINAL_CALL_MS }), 22_000,
+  eq(modelCallTimeoutMs({ elapsedMs: 256_000, reserveMs: QUERY_CEILING_MS + MIN_FINAL_CALL_MS }), 22_000,
     'the correction deadline stopped reserving what has to follow it');
-  eq(modelCallTimeoutMs({ elapsedMs: 216_000 }), 44_000,
+  eq(modelCallTimeoutMs({ elapsedMs: 256_000 }), 44_000,
     'the case does not actually discriminate');
 });
 
 test('the forced final may use the whole remaining margin', () => {
   // Nothing is reserved past it, so reserving anything would shorten the one
   // call that has to produce the answer.
-  eq(modelCallTimeoutMs({ elapsedMs: 238_000 }), 22_000, 'the final answer lost margin it was owed');
+  eq(modelCallTimeoutMs({ elapsedMs: 278_000 }), 22_000, 'the final answer lost margin it was owed');
 });
 
 test('a deadline already passed is 0, never negative', () => {
   // A negative would be handed to AbortSignal.timeout as a duration, which
   // rounds it to an immediate abort at best; 0 is what callers read as "do not
   // start this call".
-  eq(modelCallTimeoutMs({ elapsedMs: 265_000 }), 0, 'an expired deadline came back negative');
-  eq(modelCallTimeoutMs({ elapsedMs: 259_999 }), 1, 'the case does not actually discriminate');
+  eq(modelCallTimeoutMs({ elapsedMs: 305_000 }), 0, 'an expired deadline came back negative');
+  eq(modelCallTimeoutMs({ elapsedMs: 299_999 }), 1, 'the case does not actually discriminate');
 });
 
 test('the deadline is measured from the gateway-safe line, not the 150s gateway', () => {
@@ -1492,7 +1496,7 @@ test('every admissible grant leaves the correction call real time to run in', ()
   // dead code, so it is asserted where a change to either constant fails it.
   // Scanned rather than argued: any elapsed/latency pair the estimator admits
   // must leave the correction call more than nothing.
-  for (let elapsedMs = 215_000; elapsedMs <= 260_000; elapsedMs += 250) {
+  for (let elapsedMs = 255_000; elapsedMs <= 300_000; elapsedMs += 250) {
     for (const call of [0, 12_000, 15_000, 17_100, 25_000]) {
       const modelCallMs = call ? [call] : [];
       if (!correctionRoundFits({ elapsedMs, modelCallMs })) continue;
@@ -1666,8 +1670,13 @@ await test('the correction call is handed an absolute deadline, not a hope', asy
   );
   const ctx = auditRow(client).diagnostics.context;
   eq(ctx.correction_round_granted, true, 'the scenario did not actually grant a correction');
-  eq(ctx.model_call_deadline_ms.slice(0, 6), [0, 0, 0, 0, 0, 0],
-    'an ordinary in-budget round was given a deadline it does not need');
+  // Ordinary rounds carry a deadline too since 2026-10-27, and it shrinks as
+  // the clock runs: GATEWAY_SAFE_MS - elapsed - ROUND_RESERVE_MS, measured at
+  // each round's top (160s shift, then 16s a call).
+  ctx.model_call_deadline_ms.slice(0, 6).forEach((ms, i) => {
+    eqDeadline(ms, GATEWAY_SAFE_MS - (BUDGET_SHIFT_MS + i * 16_000) - ROUND_RESERVE_MS,
+      `ordinary round ${i + 1} was left unbounded, or reserved the wrong thing`);
+  });
   eqDeadline(ctx.model_call_deadline_ms[6], 22_000,
     'the correction call carried no deadline, or not the one that reserves what follows it');
 });
@@ -1725,22 +1734,58 @@ await test('...and prose already written is shipped rather than dropped', async 
     `the deadline cause was not recorded: ${row.error_message}`);
 });
 
-await test('one slow in-budget round cannot push an UNBOUNDED final past the gateway', async () => {
-  // Only post-budget calls carry a deadline, so an ordinary round that starts
-  // at 94s and runs long is the one way to arrive at the forced final with the
-  // safe line already spent. A remaining budget of 0 must not read as
-  // "unbounded" there -- that call is exactly the one the gateway kills, and a
-  // gateway kill writes nothing at all.
+await test('one slow round no longer costs the user the answer', async () => {
+  // THE 2026-10-27 FAILURE, as a test. A round that starts inside the budget
+  // and runs long arrives at the forced final with the safe line already spent.
+  // That used to raise at a 0ms deadline and return "ran out of time" on top of
+  // a finished investigation -- four live MCA underwriting requests, 9-18
+  // queries each, all four discarded. Now the final answer has a floor, so it
+  // is always attempted and the gathered work reaches the user.
   const { json, client, remaining } = await askWithSpike(
-    [sqlRound(AD_SQL), say('should never be asked for')],
-    [145_000],
+    [sqlRound(AD_SQL), say('the answer the user had already paid for')],
+    // One round that overruns the safe line, then an ordinary final call.
+    [145_000, 12_000],
     { rpcError: colErr('date') },
   );
-  eq(remaining(), 1, 'the forced final went out with no time left to run in');
-  assert(!json.answer, `an answer came back from a call that should not have been made: ${JSON.stringify(json).slice(0, 200)}`);
+  eq(remaining(), 0, 'the forced final was refused and the answer thrown away');
+  assert(json.answer && json.answer.includes('the answer the user had already paid for'),
+    `no answer came back: ${JSON.stringify(json).slice(0, 200)}`);
+  eq(json.partial, true, 'an out-of-time answer was reported as complete');
   const row = auditRow(client);
-  assert(row, 'no audit row was written -- the invisible-504 failure mode survived');
-  eq(row.status, 'error', 'an unanswered request was audited as ok');
+  eq(row.status, 'ok', 'an answered request was audited as an error');
+  // The floor is spent from the margin below the worker's wall clock, which is
+  // the only ceiling left once the response starts early. It must still fit.
+  assert(row.diagnostics.context.elapsed_ms < WORKER_WALL_CLOCK_MS,
+    `finished at ${row.diagnostics.context.elapsed_ms}ms, past the worker wall clock`);
+});
+
+test('the forced final is never refused, however late it is reached', () => {
+  // The unit half of the test above: past the safe line this returns the floor
+  // rather than 0, and 0 is what every caller reads as "do not start the call".
+  eq(finalAnswerTimeoutMs({ elapsedMs: 305_000 }), MIN_FINAL_CALL_MS, 'a late final answer was refused');
+  eq(modelCallTimeoutMs({ elapsedMs: 305_000 }), 0, 'the case does not actually discriminate');
+  eq(finalAnswerTimeoutMs({ elapsedMs: 278_000 }), 22_000, 'the floor shortened a final that had real margin');
+  // And the floor stays inside the margin the safe line keeps for it.
+  assert(GATEWAY_SAFE_MS + MIN_FINAL_CALL_MS < WORKER_WALL_CLOCK_MS,
+    'a floored final answer could now outlive the worker');
+});
+
+test('a round admitted by the clock always has real time to run in', () => {
+  // Why index.ts carries no zero-deadline guard at the round's model call: the
+  // loop refuses any round past WALL_CLOCK_BUDGET_MS, and the reserve still
+  // fits under the safe line at exactly that point. Asserted on the constants,
+  // where a change to either one fails, rather than as a dead branch.
+  assert(WALL_CLOCK_BUDGET_MS + ROUND_RESERVE_MS < GATEWAY_SAFE_MS,
+    'a round admitted at the budget boundary now has nothing left to run in');
+});
+
+test('an ordinary round reserves its queries AND the forced final', () => {
+  // A round issues as many tool calls as the model asked for, so two query
+  // ceilings, not one; plus the final that has to report them.
+  eq(ROUND_RESERVE_MS, 2 * QUERY_CEILING_MS + MIN_FINAL_CALL_MS, 'the round reserve stopped covering what follows a round');
+  eq(modelCallTimeoutMs({ elapsedMs: 255_000, reserveMs: ROUND_RESERVE_MS }), 13_000,
+    'a round at the budget boundary was handed time its reserve needs');
+  eq(modelCallTimeoutMs({ elapsedMs: 255_000 }), 45_000, 'the case does not actually discriminate');
 });
 
 await test('a forced final that also overruns still leaves an audit row behind', async () => {
