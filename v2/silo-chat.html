@@ -1286,7 +1286,15 @@
   // table is not there yet (migration not applied), falls back to the audit
   // log, which carries the answer text and SQL but not concept cards or web
   // sources. Returns { http_status, response } or null.
-  async function collectDeferredResponse(requestId, untilMs, isCurrent) {
+  // WAIT_FOR_ANSWER_MS: longer than anything the server can take. Its safe
+  // line is 300s (GATEWAY_SAFE_MS) plus a floored final answer and the audit
+  // write; the page waiting less than that is the page throwing away an answer
+  // that is about to land. Raised 2026-10-27 from 300_000 with the server's
+  // own budget.
+  const WAIT_FOR_ANSWER_MS = 420_000;
+
+  async function collectDeferredResponse(requestId, askedAt, isCurrent) {
+    const untilMs = askedAt + WAIT_FOR_ANSWER_MS;
     // No id, nothing that could be matched to THIS question -- never guess.
     if (!requestId) return null;
     let tableMissing = false;
@@ -1295,7 +1303,14 @@
       await sleep(polls < 10 ? 2000 : 4000);
       polls += 1;
       if (!isCurrent()) return null;
-      if (polls === 20) setStatus('Still working on this one -- big questions can take a few minutes.', 'info');
+      // The wait is the complaint, not the length of it: before this the page
+      // said one thing at ~46s and then nothing for four more minutes, which
+      // reads as a hang. From there on it counts, so a long investigation
+      // looks like one.
+      if (polls >= 20) {
+        const secs = Math.round((Date.now() - askedAt) / 1000);
+        setStatus(`Still working on this one -- ${secs}s so far. Big questions can take a few minutes.`, 'info');
+      }
       if (!tableMissing) {
         const { data, error } = await sb.from('silo_chat_responses')
           .select('http_status, response')
@@ -1435,9 +1450,10 @@
       }
       session = fresh.session;
       // A long answer is saved for this page WITH THIS TOKEN when it finishes,
-      // up to ~4.5 minutes from now. A token that would expire before then
-      // would have that save refused, and the answer would never arrive --
-      // so refresh one that is close to expiring before sending.
+      // up to ~5.5 minutes from now (the server's own budget, raised
+      // 2026-10-27). A token that would expire before then would have that
+      // save refused, and the answer would never arrive -- so refresh one that
+      // is close to expiring before sending.
       if (session.expires_at && session.expires_at * 1000 - Date.now() < 10 * 60 * 1000) {
         try {
           const { data: refreshed } = await sb.auth.refreshSession();
@@ -1476,7 +1492,7 @@
       // status is used. See supabase/functions/silo-chat/keepalive-lib.mjs.
       let status = Number(data?.http_status) || res.status;
       if (res.status === 202 && data?.pending && requestId) {
-        const collected = await collectDeferredResponse(requestId, askedAt + 300_000, isCurrent);
+        const collected = await collectDeferredResponse(requestId, askedAt, isCurrent);
         if (!isCurrent()) return;
         if (!collected) {
           removeTyping();
