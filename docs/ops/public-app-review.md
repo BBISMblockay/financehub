@@ -545,7 +545,10 @@ it is not the answer. The first question — does the token hold `pages_read_eng
 answered by the `token` row added to `verify` on 2026-10-26: `/me/permissions` reports it
 **granted**. The second question, which that row cannot answer, is whether the grant covers *this
 Page*; `granular_scopes` on `GET /debug_token` does, and a second `token` row reading it was added
-on 2026-10-27, on the connection token and on the derived Page token. Which of the two remaining
+on 2026-10-27, on the connection token and on the derived Page token. That row is authenticated
+with the app's own credential (`app_id|app_secret`, already set for the OAuth code exchange) —
+Meta refuses `debug_token` called with the token under inspection, so a self-authenticated call
+never reaches `granular_scopes` at all. Which of the two remaining
 causes applies, and what to record in each case, is set out at the end of 2.9.
 
 #### What each rejection asked for, what changed, and what proves it

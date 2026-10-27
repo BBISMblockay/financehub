@@ -153,7 +153,18 @@ export function createReviewHandler({ env, admin, fetchImpl, checkMfa, now = () 
    * comes back: only the scope names and the asset ids, which the page already
    * shows. */
   const debugToken = async (subject, selected) => {
-    const r = await getGraph(graph('debug_token', { input_token: subject, access_token: subject }));
+    // The CREDENTIAL is the app, never the subject. Meta's debug_token
+    // reference requires an app access token (or an app developer's own user
+    // token); a business system user token and a Page token are neither, so
+    // calling it with the subject as access_token fails before granular_scopes
+    // is ever returned. The app access token is app_id|app_secret, built here
+    // and sent only in the query string: it is never returned, logged, or
+    // stored, like every other token this function touches.
+    if (!env.META_APP_ID || !env.META_APP_SECRET) {
+      return { r: { ok: false, error: 'META_APP_ID / META_APP_SECRET not configured for this function' }, detail: null };
+    }
+    const appToken = `${env.META_APP_ID}|${env.META_APP_SECRET}`;
+    const r = await getGraph(graph('debug_token', { input_token: subject, access_token: appToken }));
     if (!r.ok) return { r, detail: null };
     const d = r.data.data ?? {};
     const gran = Array.isArray(d.granular_scopes) ? d.granular_scopes : [];

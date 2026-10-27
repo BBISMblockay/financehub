@@ -116,7 +116,8 @@ function fakeDb(tables) {
 
 const CO = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const BASEBALLISM = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7';
-const ENV = { META_REVIEW_COMPANY_IDS: CO, SUPABASE_URL: 'https://x.supabase.co', SUPABASE_ANON_KEY: 'anon' };
+const ENV = { META_REVIEW_COMPANY_IDS: CO, SUPABASE_URL: 'https://x.supabase.co', SUPABASE_ANON_KEY: 'anon',
+  META_APP_ID: 'APP7', META_APP_SECRET: 'APP-SECRET' };
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 
 function world({ active = CO, role = 'admin' } = {}) {
@@ -166,7 +167,12 @@ function fakeGraph({ paged = false, evilNext = false } = {}) {
     // grant is not asset-limited.
     if (path === 'debug_token') {
       const subject = u.searchParams.get('input_token');
-      assert.equal(u.searchParams.get('access_token'), subject, 'debug_token inspects the token it is called with');
+      // The credential is the APP, never the subject. Meta's debug_token
+      // refuses a business system user token or a Page token as access_token,
+      // so a self-authenticated call never reaches granular_scopes.
+      assert.equal(u.searchParams.get('access_token'), 'APP7|APP-SECRET',
+        'debug_token is authenticated with the app access token, not the token under inspection');
+      assert.notEqual(u.searchParams.get('access_token'), subject);
       if (subject === 'PAGE-TOKEN-SECRET') {
         return ok({ data: { type: 'PAGE', app_id: '7', scopes: ['pages_read_engagement'] } });
       }
@@ -420,7 +426,7 @@ await test('verify: each reporting permission probed with the sync\'s calls; not
   const media = imi.find((c) => c.detail?.metrics);
   assert.equal(media.detail.metrics.reach, 4);
   assert.ok(imi.every((c) => c.detail.account === '@demo'), 'every account-insight row names the account');
-  assert.doesNotMatch(JSON.stringify(r.body), /tok-|PAGE-TOKEN-SECRET|access_token=/);
+  assert.doesNotMatch(JSON.stringify(r.body), /tok-|PAGE-TOKEN-SECRET|APP-SECRET|access_token=/);
   assert.equal(writes(db).length, 0);
 
   // Nothing chosen yet: every asset-bound check says so instead of failing.
@@ -572,10 +578,34 @@ await test('the page writes nothing itself, calls only the two review functions,
   }
 });
 
-await test('deploy: the review gateway keeps JWT verification', () => {
+await test('deploy: the review gateway keeps JWT verification, and the app credential is wired through', () => {
   const list = /NO_JWT_FUNCTIONS="([^"]*)"/.exec(read('.github/workflows/deploy-edge-function.yml'))[1].split(/\s+/);
   assert.ok(!list.includes('meta-oauth-review'));
   assert.ok(!list.includes('meta-oauth-start'));
+  // debug_token needs an APP credential. Both secrets are already set for
+  // meta-oauth-callback's code exchange and Supabase secrets are project-wide,
+  // so the only thing that can be missing is this wiring.
+  const idx = read('supabase/functions/meta-oauth-review/index.ts');
+  for (const k of ['META_APP_ID', 'META_APP_SECRET']) {
+    assert.match(idx, new RegExp(`${k}: Deno\\.env\\.get\\('${k}'\\)`), `${k} is passed to the handler`);
+  }
+});
+
+await test('verify: without the app credential the token rows SAY SO instead of failing silently', async () => {
+  const db = world();
+  Object.assign(db.tables.ad_platform_connections[0], { meta_ad_account_id: 'act_1', facebook_page_id: 'p1', instagram_business_account_id: 'ig1' });
+  const { fetchImpl } = fakeGraph();
+  const r = await call(createReviewHandler({
+    checkMfa: MFA_OK, env: { ...ENV, META_APP_SECRET: '' }, admin: db, fetchImpl, now: () => NOW,
+  }), { action: 'verify', connection_id: 'c-rev' });
+  const dbg = r.body.checks.filter((c) => /debug_token/.test(c.endpoint));
+  assert.equal(dbg.length, 2, 'both rows are still reported');
+  for (const row of dbg) {
+    assert.equal(row.ok, false);
+    assert.match(row.detail, /META_APP_ID \/ META_APP_SECRET not configured/);
+  }
+  // The other rows are unaffected: a missing diagnostic must not break the probe.
+  assert.equal(r.body.checks.find((c) => /fan_count/.test(c.endpoint)).ok, true);
 });
 
 console.log(`\n${n} passed`);
