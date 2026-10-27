@@ -624,12 +624,19 @@ Both the sync (`PAGE_POST_FIELDS`) and the Verify probe (`PROBE_PAGE_POST_FIELDS
 `shares`, pinned equal to each other by test, and the Page posts card drops its two permanently
 empty columns. `facebook_page_posts.likes/comments` stay in the table but are never written.
 
-Two things the detour left behind, both worth keeping. The user-token Login for Business
-configuration **1144171378137898** (`META_REVIEW_LOGIN_CONFIG_ID`, review flow only) is what first
-produced a non-empty `granular_scopes` — `pages_read_engagement -> 105378387580746` — which is the
-cleanest evidence we have that the grant covers the Page on screen, so record that row. And the
-earlier reading, that an empty `granular_scopes` list means "not asset-limited" rather than
-"excluded", still holds for the system user token.
+**Record from the SYSTEM USER connection**, verified green end to end 2026-10-27 23:25Z: all nine
+rows ok, `pages_show_list` reporting 1 Page with the selected Page in it, and `published_posts`
+returning three real posts. It is also the token production uses, so it matches what the submission
+notes say. Do NOT record from the user-token connection: on it `GET /me/accounts` returns **0
+Pages** (a user token under a Business login does not enumerate them), so `pages_show_list` reads
+"Selected Page is in the list: no" on camera — a failing row for an already-approved permission.
+
+The user-token configuration **1144171378137898** (`META_REVIEW_LOGIN_CONFIG_ID`, review flow only)
+stays because it is the only thing that has produced a non-empty `granular_scopes` —
+`pages_read_engagement -> 105378387580746` — which is the cleanest proof that the grant covers the
+Page. Keep that as a screenshot if Meta asks again, not as the recording. On the system user token
+every scope still reads `(no assets named)`, which means "not asset-limited" and not "excluded",
+exactly as before — `ads_read` has the same shape and its calls succeed.
 
 #### Submission notes to paste
 
@@ -641,13 +648,8 @@ One opening paragraph on **every** permission, because item 5 of every rejection
 > happen server side. SILO only ever READS. No call in the product writes to a Page, an Instagram
 > account or an ad account.
 
-If the recording was made through the user-token configuration (2.9, 2026-10-27), add this
-sentence, so the note matches what the reviewer sees on screen:
-
-> SILO has two Facebook Login for Business configurations with the same permissions: in production
-> customers connect through one issuing a business integration system user token, which does not
-> expire and suits a nightly sync; this recording uses the other, which issues a user access token,
-> so that the Page content read can be demonstrated while the permission is unapproved.
+The recording is made from the system user connection (2.9), so that paragraph is literally what
+the reviewer sees and needs nothing added.
 
 Then per permission:
 
