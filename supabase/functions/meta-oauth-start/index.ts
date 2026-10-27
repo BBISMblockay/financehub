@@ -7,6 +7,9 @@ const handle = createStartHandler({
   env: {
     META_APP_ID: Deno.env.get('META_APP_ID'),
     META_LOGIN_CONFIG_ID: Deno.env.get('META_LOGIN_CONFIG_ID'),
+    // Optional: a second Login for Business configuration issuing a USER
+    // token, used ONLY by the App Review test flow. See handler.mjs.
+    META_REVIEW_LOGIN_CONFIG_ID: Deno.env.get('META_REVIEW_LOGIN_CONFIG_ID'),
     META_OAUTH_REDIRECT_URI: Deno.env.get('META_OAUTH_REDIRECT_URI')
       ?? `${Deno.env.get('SUPABASE_URL')}/functions/v1/meta-oauth-callback`,
     META_REVIEW_COMPANY_IDS: Deno.env.get('META_REVIEW_COMPANY_IDS'),

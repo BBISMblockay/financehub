@@ -14,7 +14,8 @@
   <link rel="stylesheet" href="../v2/beacon.css" />
   <link rel="stylesheet" href="../v2/silo-brand.css" />
   <style>
-    body { background: var(--bcn-canvas); margin: 0; }
+    /* --bcn-canvas is not a Beacon token; the page had no background at all. */
+    body { background: var(--bcn-bg); margin: 0; }
     /* .bcn-card sets display:flex, which beats the hidden attribute. */
     .bcn-card[hidden] { display: none; }
     .mo-wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; display: flex; flex-direction: column; gap: 16px; }
@@ -24,24 +25,44 @@
     .mo-muted { color: var(--bcn-ink-3); font-size: 13px; }
     .mo-pre { white-space: pre-wrap; word-break: break-word; font-family: var(--bcn-mono); font-size: 12px; margin: 0; }
     table.bcn-table td.mo-wrapcell { white-space: normal; text-align: left; overflow-wrap: anywhere; }
-    /* The per-permission purpose row: one band across the table, so the
-       reviewer reads what the permission is for before its calls. */
-    /* --bcn-band is near-black in BOTH themes and carries its own ink; page
-       ink on it is black-on-black in light theme (docs/agents, 2026-10-15). */
-    table.bcn-table tr.mo-group td { white-space: normal; background: var(--bcn-band); color: var(--bcn-band-ink); padding-top: 14px; }
-    table.bcn-table tr.mo-group td .bcn-mono { color: var(--bcn-band-ink); font-weight: 600; }
-    table.bcn-table td .mo-note { margin: 6px 0 0; }
+
     /* The selected assets, by name, above the results -- what every one of
-       Meta's 2026-10-26 rejections asked to see beside the data. */
-    .mo-assets-head { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 10px 12px; margin-bottom: 12px;
-      background: var(--bcn-band); color: var(--bcn-band-ink); border-radius: 8px; }
-    .mo-asset { font-size: 13px; }
-    .mo-asset b { display: block; color: var(--bcn-band-ink-2); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
-    .mo-asset small { display: block; color: var(--bcn-band-ink-2); }
+       Meta's 2026-10-26 rejections asked to see beside the data. Light cards,
+       not the near-black band: the name has to be the most readable thing on
+       the screen in the screencast, and page ink on --bcn-band is unreadable
+       in light theme. */
+    .mo-assets-head { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .mo-asset { background: var(--bcn-surface); border: 1px solid var(--bcn-border);
+      border-left: 3px solid var(--bcn-accent); border-radius: var(--bcn-radius); padding: 10px 12px; }
+    .mo-asset b { display: block; color: var(--bcn-ink-3); font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px; }
+    .mo-asset-name { display: block; font-size: 16px; font-weight: 700; color: var(--bcn-ink); line-height: 1.3; }
+    .mo-asset small { display: block; margin-top: 3px; color: var(--bcn-ink-2); font-size: 12px; overflow-wrap: anywhere; }
+
+    /* One section per permission, not one wide table: a Graph URL is longer
+       than any sane column, and squeezing it beside its result made both
+       unreadable. The purpose heads the section; each call is a block. */
+    .mo-perm { border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius);
+      background: var(--bcn-surface); margin-bottom: 14px; overflow: hidden; }
+    .mo-perm-head { padding: 10px 14px; background: var(--bcn-sunken); border-bottom: 1px solid var(--bcn-border); }
+    .mo-perm-name { font-family: var(--bcn-mono); font-size: 13px; font-weight: 600; color: var(--bcn-ink); }
+    .mo-perm-why { margin: 4px 0 0; font-size: 13px; line-height: 1.45; color: var(--bcn-ink-2); }
+    .mo-call { padding: 12px 14px; border-top: 1px solid var(--bcn-border); }
+    .mo-perm .mo-call:first-of-type { border-top: 0; }
+    .mo-call-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    .mo-call-endpoint { font-family: var(--bcn-mono); font-size: 12px; color: var(--bcn-ink-2);
+      overflow-wrap: anywhere; line-height: 1.5; }
+    .mo-call-body { font-size: 13px; }
+    .mo-note { margin: 8px 0 0; padding: 8px 10px; font-size: 12px; line-height: 1.5;
+      background: var(--bcn-neg-soft); border: 1px solid var(--bcn-neg-border);
+      border-radius: var(--bcn-radius-sm); color: var(--bcn-ink-2); }
+
     .mo-field { display: flex; gap: 8px; padding: 2px 0; font-size: 13px; }
     .mo-field-k { color: var(--bcn-ink-3); min-width: 150px; }
     .mo-field-v { font-family: var(--bcn-mono); overflow-wrap: anywhere; }
-    table.bcn-table.mo-mini { margin: 4px 0 10px; font-size: 12px; }
+    /* A two-column day/value series does not need the full card width; left
+       at 100% the value sits a screen away from its date. */
+    table.bcn-table.mo-mini { margin: 4px 0 10px; font-size: 12px; max-width: 420px; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../pages/config.js"></script>

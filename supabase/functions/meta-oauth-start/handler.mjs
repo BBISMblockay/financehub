@@ -79,9 +79,24 @@ export function createStartHandler({ env, admin, checkMfa }) {
     });
     if (error) return json({ error: 'Could not start the connection' }, 500);
 
+    // App Review needs a USER access token, not the business integration
+    // system user token production uses. Proven live 2026-10-27: with a
+    // system user token GET /{page}/published_posts returns
+    // "(#10) This endpoint requires the 'pages_read_engagement' permission",
+    // while the same Page read with a Page token derived from an app admin's
+    // USER token returns the posts -- an unapproved permission reaches only
+    // identities holding a role on the app, and a client business's system
+    // user holds none. So the review flow may open a second configuration.
+    // Production keeps META_LOGIN_CONFIG_ID: a user token expires (~60 days)
+    // and dies with the person's password, which an overnight sync cannot
+    // survive. Unset, the review flow falls back to the normal configuration
+    // and behaves exactly as before; Verify's debug_token row names the token
+    // type, so which one was used is visible rather than guessed.
+    const configId = (review && env.META_REVIEW_LOGIN_CONFIG_ID) || env.META_LOGIN_CONFIG_ID;
+
     return json({
       url: authorizeUrl({
-        appId: env.META_APP_ID, configId: env.META_LOGIN_CONFIG_ID,
+        appId: env.META_APP_ID, configId,
         redirectUri: env.META_OAUTH_REDIRECT_URI, state: nonce,
       }),
     });
