@@ -121,6 +121,31 @@ const R = createReporter('marketing-launch-links');
     R.ok('Redo duplicate excluded',await focusedMessage.locator('#creativeLaunchSave').isDisabled());
     await focusedMessage.close();
 
+    // ── Unlink ──────────────────────────────────────────────────────────────
+    // A link written by mistake is only visible on this page, so this is where
+    // it has to come off. Confirm first, then ONE delete by row id -- never a
+    // filter that could take the launch's other associations with it.
+    const unlinking=await suite.open('/v2/marketing-overview.html',tables,{ready});
+    await unlinking.click('[data-tab="redo"]');
+    R.eq(await unlinking.locator('#redoBody [data-unlink-id="link-3"]').count(),1,'Redo row offers an unlink control');
+    await unlinking.click('#redoBody [data-unlink-id="link-3"]');
+    R.ok('unlink asks before it deletes',await unlinking.locator('#unlinkDialog').isVisible());
+    R.has(await unlinking.textContent('#unlinkName'),'Sonic email','the confirm names what it removes');
+    R.has(await unlinking.textContent('#unlinkDetail'),'Sonic launch','the confirm names the launch it comes off');
+    await unlinking.click('#unlinkCancel');
+    R.eq(await unlinking.evaluate(()=>window.__QUERIES__.filter(q=>q.table==='launch_system_links'&&q._op==='delete').length),0,'cancel writes nothing');
+    R.has(await unlinking.locator('#redoBody').innerText(),'Sonic launch','cancel leaves the link in place');
+    await unlinking.click('#redoBody [data-unlink-id="link-3"]');
+    await unlinking.click('#unlinkConfirm');
+    await unlinking.waitForFunction(()=>!document.getElementById('unlinkDialog').open);
+    const deletes=await unlinking.evaluate(()=>window.__QUERIES__.filter(q=>q.table==='launch_system_links'&&q._op==='delete'));
+    R.eq(deletes.length,1,'one delete, not a bulk clear');
+    R.eq(JSON.stringify(deletes[0].filters),JSON.stringify([{op:'eq',col:'id',val:'link-3'}]),'deleted by row id alone');
+    R.not(await unlinking.locator('#redoBody').innerText(),'Sonic launch','the chip leaves the Redo row');
+    await unlinking.click('[data-tab="creatives"]');
+    R.has(await unlinking.locator('#creativeBody').innerText(),'Sonic launch','the creative\'s own link is untouched');
+    await unlinking.close();
+
     // ── Organic tab: the Instagram ACCOUNT and the Page's own posts ──────────
     // Added 2026-10-26. Before this, the tab showed posts with nothing naming
     // the account they belong to, and said nothing about what the Page

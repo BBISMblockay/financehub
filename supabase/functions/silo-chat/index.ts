@@ -153,8 +153,10 @@ import {
 import {
   correctionRoundFits,
   modelCallTimeoutMs,
+  finalAnswerTimeoutMs,
   MIN_FINAL_CALL_MS,
   QUERY_CEILING_MS,
+  ROUND_RESERVE_MS,
 } from './budget-lib.mjs';
 import {
   auditAnswerClaims,
@@ -808,10 +810,12 @@ async function callAnthropic(
 // analyses -- the 2026-08-20 uncrustables restock question executed 18
 // clean queries (launch date, daily rates, on-hand, Black Friday YoY) and
 // then hit the 12 cap with the finished analysis in hand and no round left
-// to write the answer. 20 gives that class of question room; the
-// forced-answer fallback below (not this cap) is what actually guarantees
-// the user gets an answer either way.
-const MAX_TOOL_ROUNDS = 20;
+// to write the answer. Then 20, and 28 since 2026-10-27, raised alongside the
+// wall-clock budget so that the clock stays the governor rather than this
+// number: a request that reaches 255s through cheap rounds should spend them
+// investigating. The forced-answer fallback below (not this cap) is what
+// actually guarantees the user gets an answer either way.
+const MAX_TOOL_ROUNDS = 28;
 
 // describe_relations budget. Six relations is a join plus its lookups; three
 // calls is enough for an investigation that moves twice. Bounded because the
@@ -908,9 +912,15 @@ const WRONG_COMPANY_ROW =
 // the same 120s, so the 45s between this budget and the safe line -- which the
 // correction-round arithmetic is tuned against -- is unchanged. Scale back here
 // if the model bill needs it.
-const WALL_CLOCK_BUDGET_MS = 215_000;
+// RAISED AGAIN 2026-10-27 from 215s, by the same 40s as GATEWAY_SAFE_MS, which
+// keeps that 45s window exactly. Longer runs cost more model calls and were
+// asked for explicitly (Blake, 2026-10-27) after four MCA underwriting
+// questions ran out of time. This is the last raise the margin under the
+// worker's wall clock allows: above it, GATEWAY_SAFE_MS would have to eat into
+// the 100s reserved for landing on a worker that has already been running.
+const WALL_CLOCK_BUDGET_MS = 255_000;
 // One checkpoint while tools remain available, not a larger gateway budget.
-const INVESTIGATION_CHECKPOINT_MS = 165_000;
+const INVESTIGATION_CHECKPOINT_MS = 205_000;
 
 // ONE ROUND HELD BACK FOR A CORRECTION, and why it is worth a hard-coded
 // exception to the wall-clock guard.
@@ -963,7 +973,7 @@ const INVESTIGATION_CHECKPOINT_MS = 165_000;
 const CORRECTABLE_QUERY_ERROR = /does not exist|no such (?:column|table|function)|could not identify|is ambiguous/i;
 // Past this, skip the max_tokens continuation in the forced-answer path and
 // ship what we have -- a slightly short answer beats a 504 with nothing.
-const FINAL_CONTINUATION_CUTOFF_MS = 245_000;
+const FINAL_CONTINUATION_CUTOFF_MS = 285_000;
 
 // DIAGNOSTIC EVIDENCE, bounded.
 //
@@ -1938,14 +1948,17 @@ Deno.serve(withKeepAlive(async (req: Request) => {
     // round only, then cleared.
     let correctionCallTimeoutMs = 0;
     /** The deadline for a forced final answer: everything left, since nothing
-     *  is reserved past it. A remaining budget of 0 is NOT "unbounded" -- an
-     *  unbounded call at 140s is precisely the one the gateway kills -- so it
-     *  raises instead, which still reaches the audit row. */
-    const finalCallDeadline = () => {
-      const ms = modelCallTimeoutMs({ elapsedMs: elapsedMs() });
-      if (!ms) throw new ModelCallDeadlineError(0);
-      return ms;
-    };
+     *  is reserved past it, and never less than MIN_FINAL_CALL_MS.
+     *
+     *  IT USED TO RAISE AT 0, and that is the bug this fix is about. Refusing
+     *  the call keeps the request inside the safe line, which is worth nothing:
+     *  the only thing left to do at that point IS this call, and without it the
+     *  user gets "ran out of time" on top of a complete investigation. Live,
+     *  2026-10-27: four MCA underwriting requests, 9-18 queries each, all four
+     *  discarded by this raise. The floor comes out of the 100s margin below
+     *  the worker's wall clock -- see finalAnswerTimeoutMs in budget-lib.mjs --
+     *  and the round deadline below is what keeps the overrun that small. */
+    const finalCallDeadline = () => finalAnswerTimeoutMs({ elapsedMs: elapsedMs() });
 
     // AI CREDIT: the first hold is taken BEFORE the first model call -- the
     // first call plus the forced final answer it may need. No hold, no call.
@@ -2021,6 +2034,25 @@ Deno.serve(withKeepAlive(async (req: Request) => {
           content: 'One extra round, granted because your last round hit a correctable error and the budget is otherwise spent. Spend it on the SINGLE most valuable query that failed, using the exact column names the error hint gave you. Do not start a new line of investigation, do not re-run discovery, and do not repeat a query that timed out. If the correction succeeds you will write the answer immediately afterwards, so make this the measure the question most depends on.',
         });
       }
+      // EVERY round is bounded, not just a granted correction. The clock was
+      // read once per round, at the top, and a round admitted a millisecond
+      // under the budget could then run as long as the model and its queries
+      // took -- arriving at the forced final with the safe line already behind
+      // it and nothing left to write the answer with. See ROUND_RESERVE_MS
+      // (budget-lib.mjs) for the four live requests that did exactly that.
+      // A call cut off here raises ModelCallDeadlineError, which the catch
+      // below turns into a normal break: the round is lost, the forced final
+      // and everything gathered before it are not.
+      const roundCallTimeoutMs = correctionCallTimeoutMs
+        || modelCallTimeoutMs({ elapsedMs: elapsedMs(), reserveMs: ROUND_RESERVE_MS });
+      // No zero-deadline guard here, and that is deliberate: the wall-clock
+      // check at the top of this loop already refused any round past
+      // WALL_CLOCK_BUDGET_MS, and that budget plus ROUND_RESERVE_MS sits under
+      // GATEWAY_SAFE_MS, so this is never 0. A branch nothing can reach would
+      // be credited as a safeguard while the test covering it passed either
+      // way -- the same mistake the correction grant's own guard was removed
+      // for. handler.test.mjs asserts the constants keep that invariant
+      // instead, where a change to either one is what actually fails.
       lastRoundHadCorrectableError = false;
       roundsUsed = round + 1;
       // Do not interrupt a cut-off prose continuation or the separate concept
@@ -2046,14 +2078,17 @@ Deno.serve(withKeepAlive(async (req: Request) => {
           tools,
           {
             ...(forceNudgeTool ? { forceTool: 'create_product_concept' as const } : {}),
-            ...(correctionCallTimeoutMs ? { timeoutMs: correctionCallTimeoutMs } : {}),
+            timeoutMs: roundCallTimeoutMs,
           },
         );
       } catch (err) {
-        // A correction round that runs past its deadline is not a failed
-        // request: everything gathered before it is still good, and the time
-        // it was holding back was reserved precisely so the forced final below
-        // can still write that up. Anything else propagates as before.
+        // A round that runs past its deadline is not a failed request:
+        // everything gathered before it is still good, and the time it was
+        // holding back was reserved precisely so the forced final below can
+        // still write that up. This covers an ordinary round as well as a
+        // granted correction since 2026-10-27 -- both carry a deadline now,
+        // and both mean the same thing when they hit it: stop investigating,
+        // answer with what is in hand. Anything else propagates as before.
         if (err instanceof CreditLowError) { creditLow = true; break; }
         if (!(err instanceof ModelCallDeadlineError)) throw err;
         correctionCallTimeoutMs = 0;

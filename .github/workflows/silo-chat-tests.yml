@@ -37,6 +37,10 @@ on:
     branches: [main]
     paths: &prompt_paths
       - 'supabase/functions/silo-chat/**'
+      # The page's half of answer delivery: the window it waits for a late
+      # answer, and recovering one across a reload.
+      - 'v2/silo-chat.html'
+      - 'scripts/tests/ask-silo-answer-delivery.test.mjs'
       # silo-chat ships a copy of this file (report-params-lib.mjs); the copy
       # check must run when the original changes.
       - 'v3/js/report-params.js'
@@ -86,6 +90,13 @@ jobs:
 
       - name: Run evidence-scope assertions
         run: node supabase/functions/silo-chat/evidence-scope.test.mjs
+
+      # The browser's half of delivery (v2/silo-chat.html): one waiting window
+      # rather than three, and an in-flight request id that survives a reload.
+      # Source-text assertions -- stated as such in the file -- because the
+      # page is one inline script with no harness to drive.
+      - name: Run answer-delivery assertions
+        run: node --test scripts/tests/ask-silo-answer-delivery.test.mjs
 
       # The value-identical rewrites of the two statement shapes that RLS turns
       # into full-history scans (query-shape-lib.mjs). Pure, no database.
