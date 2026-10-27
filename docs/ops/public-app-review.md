@@ -624,12 +624,19 @@ Both the sync (`PAGE_POST_FIELDS`) and the Verify probe (`PROBE_PAGE_POST_FIELDS
 `shares`, pinned equal to each other by test, and the Page posts card drops its two permanently
 empty columns. `facebook_page_posts.likes/comments` stay in the table but are never written.
 
-**Record from the SYSTEM USER connection**, verified green end to end 2026-10-27 23:25Z: all nine
-rows ok, `pages_show_list` reporting 1 Page with the selected Page in it, and `published_posts`
-returning three real posts. It is also the token production uses, so it matches what the submission
-notes say. Do NOT record from the user-token connection: on it `GET /me/accounts` returns **0
-Pages** (a user token under a Business login does not enumerate them), so `pages_show_list` reads
-"Selected Page is in the list: no" on camera — a failing row for an already-approved permission.
+**Record a fresh connection made on the SYSTEM USER configuration.** Meta asked to see the whole
+login flow, so pressing Connect Meta on camera is better than reusing a row — but a fresh connect
+takes whichever configuration the review flow is pointed at, so **unset (or blank)
+`META_REVIEW_LOGIN_CONFIG_ID` before recording**. No deploy is needed: `meta-oauth-start` falls back
+to `META_LOGIN_CONFIG_ID` on its own.
+
+Why not the user-token configuration: on a token it issues, `GET /me/accounts` returns **0 Pages**
+(a user token under a Business login does not enumerate them), so `pages_show_list` reads
+"Selected Page is in the list: no" on camera — a failing row for a permission Meta has already
+APPROVED. The system user path was verified green end to end 2026-10-27 23:25Z: all nine rows ok,
+`pages_show_list` reporting 1 Page with the selected Page in it, and `published_posts` returning
+three real posts. It is also the token production uses, so the recording matches the submission
+notes.
 
 The user-token configuration **1144171378137898** (`META_REVIEW_LOGIN_CONFIG_ID`, review flow only)
 stays because it is the only thing that has produced a non-empty `granular_scopes` —
