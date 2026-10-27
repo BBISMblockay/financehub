@@ -85,7 +85,7 @@
   const CALL_NOTES = [
     {
       match: '/published_posts',
-      note: 'This is the Page-content read pages_read_engagement is requested for, and what SILO stores for the customer\u2019s organic reporting. Meta\u2019s response is shown exactly as returned.',
+      note: 'This is the Page-content read pages_read_engagement is requested for, and what SILO stores for the customer\u2019s organic reporting. Likes and comments are deliberately NOT requested: they are content other people wrote, which needs pages_read_user_content \u2014 a permission SILO does not ask for.',
     },
   ];
 

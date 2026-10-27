@@ -220,14 +220,20 @@ await test('page posts: published_posts with the PAGE token, never /feed', async
   const f = withFetch({
     'p1/published_posts': (params) => {
       assert.equal(params.get('access_token'), 'PAGE-TOKEN', 'the Page token, not the system user token');
+      // Requesting likes/comments here does not merely lose those two values:
+      // Meta refuses the WHOLE call with a (#10) naming pages_read_engagement,
+      // because they are content other people wrote (pages_read_user_content).
+      // Proven live 2026-10-27; it left the read returning nothing for a day.
+      const fields = params.get('fields');
+      assert.ok(!/likes|comments/.test(fields), `never asks for likes or comments: ${fields}`);
       return { data: [{
         id: 'p1_1', message: 'Opening day', permalink_url: 'https://facebook.com/p1_1',
         created_time: '2026-10-02T12:00:00+0000', full_picture: 'https://img/1',
-        likes: { summary: { total_count: 7 } }, comments: { summary: { total_count: 2 } }, shares: { count: 1 },
+        shares: { count: 1 },
       }, {
         // A post with no shares object at all, and no message: Meta OMITS
         // `shares` rather than sending zero, and a photo post has no text.
-        id: 'p1_2', created_time: '2026-10-01T12:00:00+0000', likes: { summary: { total_count: 0 } },
+        id: 'p1_2', created_time: '2026-10-01T12:00:00+0000',
       }] };
     },
   });
@@ -236,12 +242,14 @@ await test('page posts: published_posts with the PAGE token, never /feed', async
     assert.equal(posts.length, 2);
     assert.deepEqual(posts[0], {
       postId: 'p1_1', pageId: 'p1', message: 'Opening day', permalink: 'https://facebook.com/p1_1',
-      fullPicture: 'https://img/1', postedAt: '2026-10-02T12:00:00+0000', likes: 7, comments: 2, shares: 1,
+      fullPicture: 'https://img/1', postedAt: '2026-10-02T12:00:00+0000', likes: null, comments: null, shares: 1,
     });
     // Absent is null, never 0: "Meta did not return it" is not "there were none".
     assert.equal(posts[1].shares, null);
+    // Never requested, so never a number -- not even when Meta would have sent
+    // one. The column stays in the table; the product shows it no longer.
     assert.equal(posts[1].comments, null);
-    assert.equal(posts[1].likes, 0, 'a returned zero IS zero');
+    assert.equal(posts[1].likes, null);
     assert.ok(f.calls.every((c) => !c.path.endsWith('/feed')),
       '/feed returns visitors\' posts and needs pages_read_user_content, which SILO does not hold');
   } finally { f.restore(); }

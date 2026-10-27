@@ -410,8 +410,22 @@ await test('verify: each reporting permission probed with the sync\'s calls; not
   // Page CONTENT, which pages_read_engagement was rejected for not showing.
   const posts = pre.find((c) => /published_posts/.test(c.endpoint));
   assert.equal(posts.detail.posts[0].message, 'Opening day');
-  assert.equal(posts.detail.posts[0].likes, 7);
+  assert.equal(posts.detail.posts[0].shares, 1);
   assert.equal(posts.detail.page, 'Demo Page');
+  // The probe is evidence for App Review, so it must issue the request the
+  // nightly sync issues -- including NOT asking for likes or comments, which
+  // need pages_read_user_content and make Meta refuse the whole call.
+  assert.equal(PROBE_PAGE_POST_FIELDS, 'message,permalink_url,created_time,full_picture,shares');
+  assert.ok(!/likes|comments/.test(posts.endpoint), `the probe never asks for them: ${posts.endpoint}`);
+  // Neither does the product. Asking for likes.summary(true) or
+  // comments.summary(true) alongside the posts does not merely lose those two
+  // values: Meta refuses the WHOLE call with a (#10) naming
+  // pages_read_engagement, because they are content other people wrote
+  // (pages_read_user_content). That is what blocked this read from 2026-10-26
+  // to 2026-10-27, and the equality below would not catch adding them to BOTH.
+  const coreFields = /const PAGE_POST_FIELDS = \[([\s\S]*?)\];/.exec(read('scripts/lib/ad-platforms-sync-core.mjs'))[1];
+  assert.ok(!/likes|comments/.test(coreFields),
+    `the sync core never asks Meta for likes or comments: ${coreFields.trim()}`);
   assert.ok(!pre.some((c) => /\/feed/.test(c.endpoint)),
     '/feed needs pages_read_user_content, which SILO does not hold — only published_posts');
 
@@ -592,11 +606,11 @@ await test('client: every permission the probe can report says on the page WHY i
   assert.deepEqual(plain(C.groupChecks(undefined)), []);
   assert.equal(C.groupChecks([{ permission: 'made_up' }])[0].purpose, null, 'an unknown permission heads no claim');
 
-  // The refused Page-content call reads as a broken app without a line saying
-  // what it is. It gets one; nothing else does.
+  // The Page-content call gets a line saying what it is and, as importantly,
+  // what it deliberately does NOT read; nothing else does.
   assert.match(C.noteForEndpoint('GET /1/published_posts?fields=message'), /pages_read_engagement is requested for/);
-  assert.match(C.noteForEndpoint('GET /1/published_posts'), /shown exactly as returned/,
-    'the note does not promise the call will start working');
+  assert.match(C.noteForEndpoint('GET /1/published_posts'), /pages_read_user_content/,
+    'the note says why likes and comments are absent, so their absence is a choice and not a gap');
   assert.equal(C.noteForEndpoint('GET /me/permissions'), null);
   assert.equal(C.noteForEndpoint(undefined), null);
 });
