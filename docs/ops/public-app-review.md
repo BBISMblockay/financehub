@@ -378,21 +378,34 @@ Per https://developers.facebook.com/docs/app-review/submission-guide/screen-reco
 - [ ] The **asset identity header** above the results: ad account name, Page name, Instagram
       @handle. Hold on it. This is the single thing every 2026-10-26 rejection asked for (2.9).
 - [ ] The **token** row at the top of **Verify permissions** (`GET /me/permissions`), which lists
-      the permissions the token actually holds as granted, declined or expired. Added 2026-10-26
-      after the first live run refused `/published_posts` with `(#10) This endpoint requires the
-      'pages_read_engagement' permission` and nothing on the page could say whether the token
-      carried it. Read it before recording: a permission that is absent or declined here cannot be
-      demonstrated from this connection at all, whatever the UI does.
+      the permissions the token actually holds as granted, declined or expired. It is worth a
+      second of screen time: it shows the reviewer that the login granted what the use cases
+      describe. Read it before recording too — a permission that is absent or declined here cannot
+      be demonstrated from this connection at all, whatever the UI does.
 - [ ] For **each** permission, the row in **Verify permissions** with real values (annotated):
-      `ads_read` (account name/id, then 30-day spend/impressions/clicks), `pages_show_list`,
-      `pages_read_engagement` (Page name, follower count, Page token issued, **and the Page's
-      recent published posts**), `read_insights` (the Page's name and the day-by-day values —
-      zeroes are fine if labelled), `instagram_basic` (@handle, **profile fields**, then the media
-      list), `instagram_manage_insights` (@handle, **account-level** reach and window totals, then
-      media insights). Do NOT record `ads_management` or `business_management`: both are withdrawn.
+      `ads_read` (account name/id/currency, then the 30-day spend/impressions/clicks row),
+      `pages_show_list` (the Page list and that the selected Page is in it),
+      `pages_read_engagement` (Page name, follower count, Page token issued),
+      `read_insights` (the Page's name and the day-by-day values), `instagram_basic` (@handle,
+      **profile fields**, then the media list), `instagram_manage_insights` (@handle,
+      **account-level** reach and window totals, then media insights). Do NOT record
+      `ads_management` or `business_management`: both are withdrawn.
+- [ ] **Zeroes are fine, and several of these rows are zero on the review Page.** Meta's own
+      `read_insights` note says so: *"zero values are acceptable if the dashboard is clearly
+      labeled"*. Every row names its asset and its window, so do not go hunting for a busier Page.
+- [ ] **Do NOT record the `published_posts` row.** It returns `(#10) This endpoint requires the
+      'pages_read_engagement' permission or the 'Page Public Content Access' feature` and will go
+      on doing so until the permission is approved — proven 2026-10-27 on a connection made fresh
+      through the login flow with the Page selected and the permission granted (2.9). It is not
+      required: Meta's `pages_read_engagement` note accepts *"posts, photos, videos, or events,
+      and/or followers' profile pictures/names **where permitted**"*, and the follower count and
+      the Page's insights are both of those. Say so in the submission notes instead.
 - [ ] `ads_read` in the product: Sync now → Stored data (impressions, clicks, spend by day).
 - [ ] Optionally, a Reconnect, showing the same connection renewed in place.
 - [ ] No secrets, tokens or reviewer passwords on screen. The page never displays a token.
+- [ ] **Do not publish the app to try to make anything work.** Everything demonstrable here is
+      demonstrable *because* the app is in Development mode and the recorder is an app admin;
+      going Live with these permissions unapproved would likely take that away (2.9).
 
 ### 2.8 Historical verification and reported submission (2026-10-08)
 
@@ -523,6 +536,77 @@ system user has none. That is why `verify` now begins with a `token` row reading
 (2.7). If it reports the permission absent or declined, the segment has to be recorded from an
 account that holds an app role, because a dev-mode role does get unapproved permissions on assets it
 owns — a connection that cannot exercise the permission cannot demonstrate it.
+
+#### What each rejection asked for, what changed, and what proves it
+
+Every row below is from the live **Verify permissions** run on the review connection,
+2026-10-27 20:18 UTC: ad account `act_1656703769362753` *reclaimedhairsalon* (USD), Page
+`105378387580746` *Reclaimed Hair Salon & Spa* (669 followers), Instagram
+`17841423253593547` *@reclaimedhairsalon* (172 followers, 38 posts). Meta's note on
+`read_insights` settles the zeroes: *"zero values are acceptable if the dashboard is clearly
+labeled"*.
+
+| Permission | What Meta said was missing | What changed | What the live run shows |
+|---|---|---|---|
+| `ads_read` | The reviewer's note asked for a **campaign creation flow**. That is `ads_management`; `ads_read` is read-only, and the two notes were swapped (see below). Read as the `ads_management` note intended: which ad account the app connects to was not visible beside the metrics. | The ad account's **name and currency** are read in the same call as its status and shown in the asset header above every result. | Header: *reclaimedhairsalon · act_1656703769362753 · USD*. Rows: `GET /{act}?fields=id,name,currency,account_status` → Name reclaimedhairsalon, Currency USD, Account status 1; `GET /{act}/insights?date_preset=last_30d` → the 30-day spend / impressions / clicks row, labelled with the account name. |
+| `pages_show_list` | Already **approved** 2026-10-21. Recorded only as the step that selects the Page. | — | `GET /me/accounts` → 1 Page, *Reclaimed Hair Salon & Spa*, "Selected Page is in the list: yes". |
+| `pages_read_engagement` | *"We were unable to verify your app reading page content"* — wanted (1) Page selection, (2) retrieval of Page content, (3) results rendered **with the Page identity visibly displayed**. | The Page's **name and follower count are read in one call** and shown beside every Page result, instead of a bare id buried in an endpoint string. | Header: *Facebook Page — Reclaimed Hair Salon & Spa · 105378387580746 · 669 followers*. Rows: `GET /{page}?fields=id,name,fan_count` → Page name + 669 followers; `GET /{page}?fields=access_token` → Page access token issued: yes. `published_posts` is **not** recorded — see below. |
+| `read_insights` | *"We see metrics but cannot confirm which Page they belong to… zero values are acceptable if the dashboard is clearly labeled."* | The row carried a **count of datapoints and no values at all**. It now carries the Page's name and the **day-by-day values**. | `GET /{page}/insights?metric=page_media_view,page_total_media_view_unique,page_post_engagements&period=day` → the Page named, then three metrics × six dated days, each value on screen. |
+| `instagram_basic` | *"Unable to verify basic profile access"* — wanted (1) the account with its **handle** visible, (2) a **live retrieval of profile fields** (name, bio, followers), (3) a media list **labelled for that account**. | The account profile is now read **before** its posts, and the media list is labelled with the handle. Both are stored by the nightly sync in `instagram_account_profile`. | Header: *Instagram — @reclaimedhairsalon · 17841423253593547*. Rows: profile fields → Username reclaimedhairsalon, Name, Biography, Followers 172, Posts 38; media list → three posts with type, timestamp, caption, permalink, likes and comments, under "Account: @reclaimedhairsalon". |
+| `instagram_manage_insights` | *"The metrics displayed aren't tied to a specific account and don't appear fetched live"* — wanted **profile-level and media-level** insights. | Only media-level insights existed. **Account-level** insights were added: `reach` as a time series, and `views` / `accounts_engaged` / `total_interactions` as window totals **with the window shown**, since a window total as a bare number is wrong by however wide the window is. | Three rows, each naming @reclaimedhairsalon: account `reach` day by day; account totals *Views 1 · Accounts engaged 0 · Total interactions 0* over *Since 2026-10-20 · Until 2026-10-26*; media insights for post `18207957895064147` → *Views 0 · Reach 43 · Shares 0 · Saved 1*. |
+| `ads_management` | Asked to see the campaign visible in Ads Manager after a publish or edit. | **Withdrawn.** No SILO call writes to an ad account. | — |
+| `business_management` | Asked for the same publish-then-confirm segment. | **Withdrawn.** No SILO call uses the Business Manager API. | — |
+
+**The two notes are swapped.** `ads_read`'s note demands a creation flow, which a read-only
+permission has no business having; `ads_management`'s note describes exactly what `ads_read`
+does (ad account list → select one → its identity beside its metrics). Treat a reviewer note as
+describing the submission, not as authoritative about which permission it belongs to.
+
+**`published_posts` cannot be demonstrated before approval, and is not required.** The call
+returns `(#10) This endpoint requires the 'pages_read_engagement' permission or the 'Page Public
+Content Access' feature`. Both fixable causes were ruled out on 2026-10-27: the token's own
+`/me/permissions` lists `pages_read_engagement` as **granted**, and a connection made fresh
+through the Facebook Login for Business dialog, with the Page selected and saved, returns the
+same refusal. Meta gates that endpoint on the permission being **approved**, which is what this
+submission is for. `Page Public Content Access` is not the answer and is not being requested — it
+is for reading *other people's* Pages. The product's `facebook_page_posts` table and its sync
+read are built and will fill the moment the permission is approved.
+
+#### Submission notes to paste
+
+One opening paragraph on **every** permission, because item 5 of every rejection asked for it:
+
+> SILO is a server-to-server reporting platform. The customer connects through Facebook Login for
+> Business, which issues a **business integration system user token** belonging to the customer's
+> own business; SILO then reads on a nightly schedule with no browser present. The screencast
+> shows the full login dialog, but after that point there is no Facebook login UI to show — the
+> reads happen server side. SILO only ever READS. No call in the product writes to a Page, an
+> Instagram account or an ad account.
+
+Then per permission:
+
+- **`ads_read`** — SILO reads the connected ad account's identity and its performance so the
+  customer sees spend, impressions and clicks per campaign per day in their marketing reporting.
+  The screencast shows the ad account chosen by name, then the same name beside its 30-day
+  figures. SILO does not create or edit campaigns; `ads_management` has been withdrawn from this
+  submission for that reason.
+- **`pages_read_engagement`** — SILO reads the connected Page's identity and engagement so the
+  customer's organic reporting shows which Page the numbers belong to. The screencast shows the
+  Page selected, then its name and follower count rendered together in the app. Reading the
+  Page's published posts is part of this use case and the product stores them, but
+  `/{page}/published_posts` returns error #10 until this permission is approved, so it could not
+  be filmed.
+- **`read_insights`** — SILO reads the Page's daily insights and stores them for the customer's
+  marketing reports. The screencast shows the Page's name above a day-by-day table of each
+  metric. The review Page is inactive, so these days read zero; every value is dated and labelled
+  with the Page it belongs to.
+- **`instagram_basic`** — SILO reads the connected Instagram professional account's profile and
+  media so organic reporting can name the account and list its posts. The screencast shows the
+  account's handle, a live retrieval of its profile fields (name, biography, followers, post
+  count), and its media list, all labelled with that handle.
+- **`instagram_manage_insights`** — SILO reads account-level and media-level insights for that
+  same account. The screencast shows account reach day by day, the account's window totals with
+  the window stated, and per-post insights, each labelled with the account's handle.
 
 **`meta-oauth-callback` deployment, settled 2026-10-26:** production runs version 5, which IS the
 review revision — `isReviewState`/`rt_` nonces, `REVIEW_PAGE_PATH = '/testing/meta-oauth.html'`, and
