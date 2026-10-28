@@ -1493,7 +1493,7 @@
     fillIfBlank('fldTitle', row.product_title);
     fillIfBlank('fldProductType', row.product_type);
     fillIfBlank('fldFactoryId', row.factory_id);
-    fillIfBlank('fldBulkEta', row.expected_arrival_date);
+    fillIfBlank('fldBulkEta', row.effective_arrival_date || row.expected_arrival_date);
     updateLinkedChip();
     setStatus(describePoPick(row), 'pos', 5000);
   }
@@ -1589,7 +1589,7 @@
     fillIfBlank('ptFldTitle', row.product_title);
     fillIfBlank('ptFldProductType', row.product_type);
     fillIfBlank('ptFldFactoryId', row.factory_id);
-    fillIfBlank('ptFldBulkEta', row.expected_arrival_date);
+    fillIfBlank('ptFldBulkEta', row.effective_arrival_date || row.expected_arrival_date);
     updatePtLinkedChip();
     setStatus(describePoPick(row), 'pos', 5000);
   }
@@ -1628,7 +1628,7 @@
       ({ data, error } = await sb.from('v_launch_po_product_lookup')
         .select('*')
         .or(`product_title.ilike.%${clean}%,po_name.ilike.%${clean}%,factory_name.ilike.%${clean}%`)
-        .order('expected_arrival_date', { ascending:true }).limit(25));
+        .order('effective_arrival_date', { ascending:true, nullsFirst:false }).limit(25));
     } else {
       let _qpm=sb.from('products_master').select('id,sku,product_title,product_type,vendor_original').or(`product_title.ilike.%${clean}%,sku.ilike.%${clean}%`).limit(25);
       if(_co?.id) _qpm=_qpm.eq('company_entity_id',_co.id);
@@ -1651,7 +1651,7 @@
         ? [r.po_name, r.product_type, r.factory_name,
            r.total_units != null ? `${Number(r.total_units).toLocaleString()} units` : null,
            r.variant_count ? `${r.variant_count} size line${Number(r.variant_count) !== 1 ? 's' : ''}` : null,
-           r.expected_arrival_date ? `ETA ${r.expected_arrival_date}` : null].filter(Boolean).join(' · ')
+           r.effective_arrival_date ? `ETA ${r.effective_arrival_date}${r.current_eta ? ' (shipments)' : ' (planned)'}` : null].filter(Boolean).join(' · ')
         : [r.product_type, r.vendor_original, r.variant_count ? `${r.variant_count} variants` : null].filter(Boolean).join(' · ');
       return `<div class="smp-prod-hit">
         <div class="smp-prod-hit-title">${esc(title)}</div>

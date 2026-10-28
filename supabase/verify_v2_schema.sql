@@ -1136,6 +1136,47 @@ select
     else 'ok'
   end as incoming_shipment_audit;
 
+-- 34c. Freight bookings above the shipment, and the single arrival date
+--      (migration 20261028220000)
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='shipment_bookings')
+      then 'MISSING — run 20261028220000_shipment_bookings_and_po_arrival.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='incoming_shipments' and column_name='booking_id')
+      then 'MISSING — incoming_shipments.booking_id'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='v_po_arrival')
+      then 'MISSING — v_po_arrival view (plan, current ETA, variance per PO)'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='v_shipment_booking_summary')
+      then 'MISSING — v_shipment_booking_summary view'
+    when (select count(*) from information_schema.columns
+          where table_schema='public' and table_name='v_po_incoming_summary'
+            and column_name in ('current_eta','effective_arrival_date','arrival_variance_days','arrival_state','shipment_count','status_conflicts_with_shipments')) <> 6
+      then 'MISSING — v_po_incoming_summary has not gained the arrival columns'
+    when (select count(*) from information_schema.columns
+          where table_schema='public' and table_name in ('v_po_header_summary','v_po_open_planning_lines','v_launch_po_product_lookup')
+            and column_name = 'current_eta') <> 3
+      then 'MISSING — one of the shared PO views has not gained current_eta'
+    when not exists (select 1 from pg_trigger
+                     where tgname='zz_incoming_shipments_booking_company' and not tgisinternal)
+      then 'MISSING — the cross-company booking guard trigger'
+    when (select count(*) from pg_policies
+          where schemaname='public' and tablename='shipment_bookings') < 4
+      then 'MISSING — shipment_bookings RLS policies'
+    when not exists (select 1 from pg_trigger
+                     where tgrelid='public.shipment_bookings'::regclass
+                       and tgname='stamp_company_entity_id' and not tgisinternal)
+      then 'MISSING — shipment_bookings company stamp trigger'
+    when (select count(*) from public.silo_chat_saved_reports
+          where id = 'c1000000-0000-4000-a000-000000000002'
+            and queries_run[1] like '%effective_arrival_date%') <> 1
+      then 'MISSING — the overdue PO report still measures lateness against the plan alone'
+    else 'ok'
+  end as shipment_bookings_and_arrival;
+
 -- 35. factories.country (migration 20260818220000) — powers the PO Report shipment map
 select
   case

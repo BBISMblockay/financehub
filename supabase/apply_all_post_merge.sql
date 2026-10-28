@@ -19306,4 +19306,13 @@ $c$select (select count(*) from v_po_header_summary
 -- touched. Before the catalog cleanup only because that must stay last
 -- (supabase/CLAUDE.md).
 \i migrations/20261026210000_meta_organic_profile_and_page_posts.sql
+-- Freight bookings above the shipment, and the single arrival date every PO
+-- surface reads. MUST come after the PO builder sections above, because it
+-- CREATE OR REPLACEs v_po_incoming_summary, v_po_header_summary,
+-- v_po_open_planning_lines, v_po_shipment_lines and v_launch_po_product_lookup
+-- -- a re-run of an earlier include would otherwise put the pre-arrival
+-- definitions back. It also rewrites three logistics reports and their
+-- tie-outs, so it stays before the catalog cleanup, which must be last
+-- (supabase/CLAUDE.md).
+\i migrations/20261028220000_shipment_bookings_and_po_arrival.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

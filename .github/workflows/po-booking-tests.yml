@@ -1,0 +1,76 @@
+name: PO booking and arrival tests
+on:
+  pull_request:
+    paths:
+      - 'v2/po-report.html'
+      - 'v2/po-report.css'
+      - 'v2/po-builder.html'
+      - 'v2/po-pipeline-sync.js'
+      - 'v2/products.html'
+      - 'v2/profile.html'
+      - 'v2/planning-scenarios.html'
+      - 'v2/launch-calendar.html'
+      - 'v2/v2/launch-calendar2.html'
+      - 'v2/underwriting/**'
+      - 'v2/tests/browser/po-report-*.test.js'
+      - 'supabase/migrations/*shipment_bookings*'
+      - 'scripts/tests/shipment-booking-arrival-database.test.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/po-booking-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: npm ci --prefix scripts/tests/finance-db --ignore-scripts
+      - run: npm install --prefix v2/tests --ignore-scripts --no-package-lock
+      - run: cd v2/tests && npx playwright install --with-deps chromium
+
+      # 20261028220000: a booking groups shipments across POs, its dates win
+      # over the shipments' own, and v_po_arrival publishes plan / actual /
+      # variance per PO without ever writing po_headers.
+      - name: Execute shipment booking and arrival migration regressions
+        run: node scripts/tests/shipment-booking-arrival-database.test.mjs
+
+      - name: Each arrival guarantee, removed one at a time, must break it
+        run: |
+          set -u
+          for m in min-eta ignore-ata no-tenant-guard plan-wins cascade-delete; do
+            echo "--- $m ---"
+            if ARRIVAL_MUTATION="$m" node scripts/tests/shipment-booking-arrival-database.test.mjs; then
+              echo "::error::mutation $m did not fail the suite -- the guarantee it removes is untested"
+              exit 1
+            fi
+          done
+
+      - name: PO Report shipment overview still behaves
+        run: node v2/tests/browser/po-report-shipments.test.js
+
+      - name: PO Report bookings
+        run: node v2/tests/browser/po-report-bookings.test.js
+
+      - name: Each booking behaviour, removed one at a time, must break it
+        run: |
+          set -u
+          for m in own-dates no-ata no-conflict no-slip; do
+            echo "--- $m ---"
+            if PO_BOOKING_MUTATION="$m" node v2/tests/browser/po-report-bookings.test.js; then
+              echo "::error::mutation $m did not fail the suite -- the behaviour it removes is untested"
+              exit 1
+            fi
+          done
+
+      # The underwriting extract reads v_po_arrival now; its own suite pins that
+      # the lender-facing arrival months still measure the PO's TYPED plan, so a
+      # PO with no arrival date stays a visible gap rather than a guessed date.
+      - name: Underwriting sources
+        run: node --test v2/underwriting/tests/*.test.mjs

@@ -447,8 +447,11 @@ export function businessQueries(companyId) {
       min(snapshot_at) as oldest_snapshot, max(snapshot_at) as newest_snapshot
       from public.inventory_on_hand_current_v where company_entity_id = ${company}
       group by product_type order by sum(total_available_quantity) desc nulls last, product_type limit 101`,
-    purchaseOrderExposure: `with headers as (select id, po_name, status, order_date, expected_arrival_date, updated_at
-      from public.po_headers where company_entity_id = ${company} and status in (${placed})),
+    purchaseOrderExposure: `with headers as (select h.id, h.po_name, h.status, h.order_date, h.expected_arrival_date,
+        h.updated_at, a.current_eta, a.arrival_variance_days
+      from public.po_headers h
+      left join public.v_po_arrival a on a.po_header_id = h.id
+      where h.company_entity_id = ${company} and h.status in (${placed})),
       lines as (select l.po_header_id, count(*) as line_count, sum(l.qty) as units,
         count(*) filter (where l.unit_cost is null) as missing_cost_lines,
         count(*) filter (where l.unit_cost = 0) as zero_cost_lines,
@@ -560,7 +563,9 @@ export function parsePurchaseOrderExposure(row) {
   if (Number(row.placed_count) < placed.length || (Number(row.placed_count) > 0 && !placed.length)) throw new Error('PO detail counts do not match the result');
   return { placedCount: Number(row.placed_count), placedTruncated: placed.length > 200 || Number(row.placed_count) > placed.length,
     placed: placed.slice(0,200).map((item) => ({ id: item.id, name: item.po_name || null, status: item.status,
-      orderDate: date(item.order_date), arrivalDate: date(item.expected_arrival_date), updatedAt: item.updated_at || null, ...counts(item) })),
+      orderDate: date(item.order_date), arrivalDate: date(item.expected_arrival_date), shipmentEta: date(item.current_eta),
+      arrivalVarianceDays: item.arrival_variance_days == null ? null : Number(item.arrival_variance_days),
+      updatedAt: item.updated_at || null, ...counts(item) })),
     arrivalMonths: arrivals.map((item) => ({ month: item.month || null, poCount: Number(item.po_count), posWithoutLines: Number(item.pos_without_lines), ...counts(item, true) })),
   };
 }

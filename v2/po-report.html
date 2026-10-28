@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="po-workbench.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
-  <link rel="stylesheet" href="po-report.css?v=20261028-shipment-export" />
+  <link rel="stylesheet" href="po-report.css?v=20261028-bookings" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="silo-chrome.js"></script>
@@ -34,6 +34,8 @@
           <a href="/v2/po-costing.html" class="bcn-btn bcn-btn--ghost bcn-btn--mono">LANDED COST</a>
         </div>
       </header>
+
+      <div class="bcn-status" id="status" hidden></div>
 
       <section class="bcn-kpi-band" aria-label="Report totals">
         <div class="bcn-kpi">
@@ -168,6 +170,9 @@
           <button class="bcn-tab po-report-tab" type="button" data-tab="shipments">
             Shipments <span class="po-report-tab-count" id="shipmentTableCount">0</span>
           </button>
+          <button class="bcn-tab po-report-tab" type="button" data-tab="bookings">
+            Bookings <span class="po-report-tab-count" id="bookingTableCount">0</span>
+          </button>
         </nav>
 
         <!-- PO Summary panel -->
@@ -223,12 +228,39 @@
             </div>
             <div class="bcn-card-body po-shipment-help">
               <p>Manually logged updates · not live tracking. Search is shared with other tabs. Filters above and KPI totals apply to POs; the shipment status filter applies only here.</p>
+              <p>Dates in <strong>bold</strong> come from the shipment's booking, which is shared with every other PO in the same container. A shipment with no booking uses its own dates.</p>
               <details><summary>How quantities and export work</summary><p>One row per shipment, including unassigned shipments. Blank assigned quantities use the full PO line quantity, marked *; split shipments stay separate. Unknown quantities show —. CSV exports exactly the rows shown, with explicit quantity basis and blank unknown values. Formula-like text is prefixed with an apostrophe for spreadsheet safety.</p></details>
             </div>
             <div class="bcn-matrix-scroll">
               <table class="bcn-table po-rpt-table po-rpt-table--shipments">
-                <thead><tr><th>PO / factory</th><th>Shipment status</th><th>Carrier / tracking</th><th>Shipment dates</th><th>Assigned products</th><th class="bcn-num">Units</th><th>Notes</th></tr></thead>
+                <thead><tr><th>PO / factory</th><th>Shipment status</th><th>Booking / container</th><th>Carrier / tracking</th><th>Shipment dates</th><th>Assigned products</th><th class="bcn-num">Units</th><th>Notes</th></tr></thead>
                 <tbody id="shipmentTbody"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <!-- Bookings: the container / forwarder booking a shipment rides on -->
+        <div class="po-report-panel" data-panel="bookings">
+          <section class="bcn-card">
+            <header class="bcn-card-header po-shipment-heading">
+              <div><span class="bcn-pill">BOOKINGS</span><h2>Freight bookings</h2></div>
+              <div class="po-ship-drawer-actions">
+                <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnExportBookings" type="button" disabled>Export bookings CSV</button>
+                <button class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnAddBooking" type="button">+ New booking</button>
+              </div>
+            </header>
+            <div class="bcn-card-body po-shipment-help">
+              <p>One booking is one container or forwarder booking. Several POs usually ride on the same one, so its ETD, ETA and actual arrival are entered <strong>once here</strong> and every PO inside it reads them. A PO's own planned arrival date is left exactly as it was — the gap between the two is shown as the slip.</p>
+              <p>Attach a shipment to a booking from the PO's shipment drawer (Open a PO → <strong>Shipments</strong> → Booking). Deleting a booking never deletes its shipments; they fall back to their own dates.</p>
+            </div>
+            <div class="bcn-card-body po-booking-toolbar">
+              <div class="po-shipment-summary" id="bookingSummary" aria-live="polite"></div>
+            </div>
+            <div class="bcn-matrix-scroll">
+              <table class="bcn-table po-rpt-table po-rpt-table--bookings">
+                <thead><tr><th>Booking</th><th>Forwarder / mode</th><th>Container</th><th>POs on it</th><th>ETD</th><th>ETA</th><th>Actual arrival</th><th>Status</th><th class="bcn-num">Units</th><th></th></tr></thead>
+                <tbody id="bookingTbody"></tbody>
               </table>
             </div>
           </section>
@@ -320,6 +352,20 @@
     ]);
 
     const SHIPMENT_STATUSES = ['Not Shipped','Booked','Shipped','In Transit','Delayed','Delivered','Received'];
+    const BOOKING_STATUSES = ['Draft','Booked','In Transit','Delayed','Arrived','Closed','Cancelled'];
+    const BOOKING_MODES = ['Ocean','Air','Truck','Rail','Parcel','Other'];
+
+    // What the shipments say about a PO, from v_po_arrival through
+    // v_po_incoming_summary. 'unknown' means no shipment is logged -- never
+    // that nothing has shipped.
+    const ARRIVAL_STATE_LABEL = {
+      unknown: 'No shipment logged',
+      not_shipped: 'Not shipped',
+      booked: 'Booked',
+      in_transit: 'In transit',
+      partially_received: 'Part received',
+      received: 'Received'
+    };
 
     const ICON_PACKAGE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>';
     const ICON_ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>';
@@ -477,6 +523,8 @@
       productRows: [],
       shipments: [],
       shipmentLines: [],
+      bookings: [],
+      newBookingFor: null,   // shipment id whose "new booking" form is open
       mapCountryGroups: new Map(),
       factories: [],
       shipDrawerPoId: null,
@@ -510,7 +558,13 @@
       poTbody: document.getElementById('poTbody'),
       productTbody: document.getElementById('productTbody'),
       lineTbody: document.getElementById('lineTbody'),
+      status: document.getElementById('status'),
       shipmentTbody: document.getElementById('shipmentTbody'),
+      bookingTbody: document.getElementById('bookingTbody'),
+      bookingSummary: document.getElementById('bookingSummary'),
+      bookingTableCount: document.getElementById('bookingTableCount'),
+      btnAddBooking: document.getElementById('btnAddBooking'),
+      btnExportBookings: document.getElementById('btnExportBookings'),
       shipmentSearch: document.getElementById('shipmentSearch'),
       shipmentStatusFilter: document.getElementById('shipmentStatusFilter'),
       shipmentSummary: document.getElementById('shipmentSummary'),
@@ -580,7 +634,9 @@
     function matchesDateRange(row){
       const from = el.arrivalFrom.value;
       const to = el.arrivalTo.value;
-      const d = row.expected_arrival_date || '';
+      // The date a person means by "arriving between" is the one it will
+      // actually arrive on, which is the shipments' ETA once one is logged.
+      const d = row.effective_arrival_date || row.expected_arrival_date || '';
       if(from && (!d || d < from)) return false;
       if(to && (!d || d > to)) return false;
       return true;
@@ -591,7 +647,7 @@
       if(scope === 'all') return true;
       if(scope === 'open') return isOpenStatus(row.status);
       if(scope === 'production') return PRODUCTION_STATUSES.has(row.status);
-      if(scope === 'arriving') return Boolean(row.expected_arrival_date);
+      if(scope === 'arriving') return Boolean(row.effective_arrival_date || row.expected_arrival_date);
       return true;
     }
 
@@ -613,7 +669,7 @@
       const { data: poData, error: poError } = await sb
         .from('v_po_incoming_summary')
         .select('*')
-        .order('expected_arrival_date', { ascending: true, nullsFirst: false })
+        .order('effective_arrival_date', { ascending: true, nullsFirst: false })
         .order('po_created_at', { ascending: false });
 
       if(poError) throw poError;
@@ -725,10 +781,36 @@
         .select('*');
       if(shipLineError) throw shipLineError;
 
+      const { data: bookingData, error: bookingError } = await sb
+        .from('v_shipment_booking_summary')
+        .select('*')
+        .order('effective_eta', { ascending: true, nullsFirst: false });
+      if(bookingError) throw bookingError;
+
       state.shipments = shipData || [];
       state.shipmentLines = shipLineData || [];
+      state.bookings = bookingData || [];
       renderShipmentMap();
       applyFilters();
+    }
+
+    function bookingById(id){
+      if(!id) return null;
+      return state.bookings.find(b => String(b.booking_id) === String(id)) || null;
+    }
+
+    // The dates a shipment actually travels on: its booking's where it has
+    // one, its own otherwise. Mirrors v_po_arrival exactly, so the page and
+    // every report agree.
+    function effectiveShipDates(s){
+      const b = bookingById(s.booking_id);
+      return {
+        booking: b,
+        ship_date: (b && b.etd) || s.ship_date || null,
+        eta: (b && (b.ata || b.eta)) || s.eta || null,
+        received: (b && b.ata) || s.received_date || null,
+        fromBooking: Boolean(b && (b.etd || b.eta || b.ata))
+      };
     }
 
     function shipmentsForPO(poId){
@@ -1014,6 +1096,16 @@
       el.bucketFilter.value = currentBucket;
     }
 
+    let statusTimer = null;
+    function setStatus(msg, type = 'info', ms = 4000){
+      if(!el.status) return;
+      el.status.className = `bcn-status bcn-status--${type}`;
+      el.status.textContent = msg;
+      el.status.hidden = false;
+      if(statusTimer) clearTimeout(statusTimer);
+      if(ms) statusTimer = setTimeout(() => { el.status.hidden = true; }, ms);
+    }
+
     function applyFilters(){
       const q = el.searchInput.value.trim().toLowerCase();
       const status = el.statusFilter.value;
@@ -1055,10 +1147,14 @@
       renderProductTable();
       renderLineTable();
       renderShipmentTable();
+      renderBookingTable();
     }
 
     function shipmentHaystack(shipment){
-      return [shipment.carrier, shipment.tracking_number, shipment.shipment_status, shipment.notes].join(' ').toLowerCase();
+      const b = bookingById(shipment.booking_id);
+      return [shipment.carrier, shipment.tracking_number, shipment.shipment_status, shipment.notes,
+        shipment.container_ref, b?.booking_ref, b?.forwarder, b?.container_ref]
+        .join(' ').toLowerCase();
     }
 
     function filteredShipmentRows(){
@@ -1115,16 +1211,143 @@
         <span class="bcn-pill">${rows.filter(r => !r.assignments.length).length} unassigned</span>`;
       el.shipmentTbody.innerHTML = rows.length ? rows.map(({ shipment: s, po, assignments, products, units, inferred, quantityBasis }) => {
         const quantity = units == null ? '—' : units.toLocaleString() + (inferred ? '*' : '');
+        const eff = effectiveShipDates(s);
+        const dateCell = eff.fromBooking
+          ? `<strong data-shipment-eta="${escapeHtml(eff.eta || '')}">ETA ${dateLabel(eff.eta)}</strong><div class="po-shipment-secondary">Shipped ${dateLabel(eff.ship_date)}<br>Received ${dateLabel(eff.received)}<br>From booking ${escapeHtml(eff.booking.booking_ref || '—')}</div>`
+          : `<strong data-shipment-eta="${escapeHtml(s.eta || '')}">ETA ${dateLabel(s.eta)}</strong><div class="po-shipment-secondary">Shipped ${dateLabel(s.ship_date)}<br>Received ${dateLabel(s.received_date)}</div>`;
+        const bookingCell = eff.booking
+          ? `<strong>${escapeHtml(eff.booking.booking_ref || 'Untitled booking')}</strong><div class="po-shipment-secondary">${escapeHtml([eff.booking.forwarder, eff.booking.mode].filter(Boolean).join(' · ') || 'No forwarder')}${eff.booking.po_count > 1 ? ` · ${eff.booking.po_count} POs` : ''}</div><div class="bcn-mono po-shipment-tracking">${escapeHtml(eff.booking.container_ref || s.container_ref || 'No container')}</div>`
+          : `<span class="po-shipment-secondary">No booking</span>${s.container_ref ? `<div class="bcn-mono po-shipment-tracking">${escapeHtml(s.container_ref)}</div>` : ''}`;
         return `<tr data-shipment-row="${escapeHtml(s.id)}">
           <td><button class="bcn-btn bcn-btn--ghost" type="button" data-ship-po="${escapeHtml(po.id)}">${escapeHtml(po.po_name || 'Untitled PO')}</button>
             <div>${escapeHtml(po.factory_name || 'Factory not set')}</div><div class="po-shipment-secondary bcn-mono" title="${escapeHtml(s.id)}">${escapeHtml(String(s.id).slice(0, 8))}</div></td>
           <td>${s.shipment_status ? statusBadge(s.shipment_status) : 'Unspecified'}</td>
+          <td>${bookingCell}</td>
           <td><strong>${escapeHtml(s.carrier || 'Carrier not set')}</strong><div class="bcn-mono po-shipment-tracking">${escapeHtml(s.tracking_number || 'No tracking number')}</div></td>
-          <td><strong>ETA ${dateLabel(s.eta)}</strong><div class="po-shipment-secondary">Shipped ${dateLabel(s.ship_date)}<br>Received ${dateLabel(s.received_date)}</div></td>
+          <td>${dateCell}</td>
           <td>${products.length ? `<details><summary>${assignments.length} assigned line${assignments.length === 1 ? '' : 's'}</summary>${products.map(product => `<div class="po-shipment-product">${escapeHtml(product.label)} <span class="bcn-mono">× ${product.qty == null ? '—' : product.qty.toLocaleString() + (product.basis === 'full PO line default' ? '*' : '')}</span></div>`).join('')}</details>` : '<span class="po-shipment-secondary">No lines assigned</span>'}</td>
           <td class="bcn-num" data-shipment-units title="${escapeHtml(quantityBasis)}">${quantity}</td><td class="po-shipment-notes">${escapeHtml(s.notes || '—')}</td>
         </tr>`;
-      }).join('') : '<tr class="po-rpt-table-empty"><td colspan="7">No logged shipments match the current PO filters, shipment status and search. Open a PO to log a shipment.</td></tr>';
+      }).join('') : '<tr class="po-rpt-table-empty"><td colspan="8">No logged shipments match the current PO filters, shipment status and search. Open a PO to log a shipment.</td></tr>';
+    }
+
+    function renderBookingTable(){
+      const rows = state.bookings;
+      el.bookingTableCount.textContent = rows.length.toLocaleString();
+      el.btnExportBookings.disabled = !rows.length;
+      const multi = rows.filter(b => num(b.po_count) > 1).length;
+      const landed = rows.filter(b => b.ata).length;
+      el.bookingSummary.innerHTML = `<span class="bcn-pill">${rows.length.toLocaleString()} booking${rows.length === 1 ? '' : 's'}</span>
+        <span class="bcn-pill">${multi} carrying more than one PO</span>
+        <span class="bcn-pill">${landed} landed</span>`;
+
+      el.bookingTbody.innerHTML = rows.length ? rows.map(b => `
+        <tr data-booking-row="${escapeHtml(b.booking_id)}">
+          <td><strong class="bcn-mono">${escapeHtml(b.booking_ref || 'Untitled booking')}</strong>
+            <div class="po-shipment-secondary">${num(b.shipment_count).toLocaleString()} shipment${num(b.shipment_count) === 1 ? '' : 's'}</div></td>
+          <td><input class="bcn-field" type="text" value="${escapeHtml(b.forwarder || '')}" placeholder="Forwarder" data-booking-field="forwarder" data-booking-id="${escapeHtml(b.booking_id)}" />
+            <select class="bcn-field" data-booking-field="mode" data-booking-id="${escapeHtml(b.booking_id)}"><option value="">Mode —</option>${BOOKING_MODES.map(m => `<option value="${m}" ${m === b.mode ? 'selected' : ''}>${m}</option>`).join('')}</select></td>
+          <td><input class="bcn-field bcn-field--mono" type="text" value="${escapeHtml(b.container_ref || '')}" placeholder="Container" data-booking-field="container_ref" data-booking-id="${escapeHtml(b.booking_id)}" /></td>
+          <td>${b.po_names ? escapeHtml(b.po_names) : '<span class="po-shipment-secondary">No shipments attached yet</span>'}</td>
+          <td><input class="bcn-field bcn-field--mono" type="date" value="${b.etd || ''}" data-booking-field="etd" data-booking-id="${escapeHtml(b.booking_id)}" /></td>
+          <td><input class="bcn-field bcn-field--mono" type="date" value="${b.eta || ''}" data-booking-field="eta" data-booking-id="${escapeHtml(b.booking_id)}" /></td>
+          <td><input class="bcn-field bcn-field--mono" type="date" value="${b.ata || ''}" data-booking-field="ata" data-booking-id="${escapeHtml(b.booking_id)}" title="Actual arrival. Once set it is used instead of the ETA, for every PO on this booking." /></td>
+          <td><select class="bcn-field" data-booking-field="status" data-booking-id="${escapeHtml(b.booking_id)}">${BOOKING_STATUSES.map(st => `<option value="${st}" ${st === b.status ? 'selected' : ''}>${st}</option>`).join('')}</select></td>
+          <td class="bcn-num">${b.assigned_units == null ? '—' : num(b.assigned_units).toLocaleString()}</td>
+          <td><button class="bcn-btn bcn-btn--ghost bcn-btn--danger bcn-btn--mono" type="button" data-delete-booking="${escapeHtml(b.booking_id)}">Delete</button></td>
+        </tr>
+      `).join('') : '<tr class="po-rpt-table-empty"><td colspan="10">No bookings yet. Create one here, or from a PO\u2019s shipment drawer, and attach the shipments that share the container.</td></tr>';
+    }
+
+    function showBookingError(msg){
+      setStatus(msg, 'error', 6000);
+    }
+
+    async function createBooking(fields, attachShipmentId){
+      const ref = (fields.ref || '').trim();
+      if(!ref){ showBookingError('A booking needs a reference, e.g. the forwarder\u2019s booking number.'); return; }
+      try{
+        const payload = {
+          booking_ref: ref,
+          forwarder: fields.forwarder?.trim() || null,
+          mode: fields.mode || null,
+          container_ref: fields.container?.trim() || null,
+          etd: fields.etd || null,
+          eta: fields.eta || null,
+          status: 'Booked'
+        };
+        const { data, error } = await sb.from('shipment_bookings').insert(payload).select('id').single();
+        if(error) throw error;
+        if(attachShipmentId && data?.id){
+          const { error: linkError } = await sb.from('incoming_shipments')
+            .update({ booking_id: data.id }).eq('id', attachShipmentId);
+          if(linkError) throw linkError;
+        }
+        state.newBookingFor = null;
+        await loadShipments();
+        renderShipDrawer();
+        setStatus(`Booking ${ref} created.`, 'ok', 2500);
+      }catch(e){
+        console.error(e);
+        // A duplicate reference is the common one, and it means the booking
+        // already exists -- attach to it instead of making a second.
+        showBookingError(/duplicate|unique/i.test(e.message || '')
+          ? `A booking called ${ref} already exists for this company. Pick it from the list instead.`
+          : (e.message || 'Could not create the booking'));
+      }
+    }
+
+    async function updateBookingField(id, field, value){
+      const payload = { [field]: value === '' ? null : value };
+      try{
+        const { error } = await sb.from('shipment_bookings').update(payload).eq('id', id);
+        if(error) throw error;
+        await loadShipments();
+        renderShipDrawer();
+      }catch(e){
+        console.error(e);
+        showBookingError(e.message || 'Could not save the booking');
+        await loadShipments();
+      }
+    }
+
+    async function setShipmentBooking(shipmentId, bookingId){
+      await updateShipmentField(shipmentId, 'booking_id', bookingId || '');
+      // A booking's PO count and attached-shipment count are computed by the
+      // view, so attaching or detaching has to re-read it -- otherwise the
+      // Bookings tab keeps showing the count from before the change.
+      await loadShipments();
+      renderShipDrawer();
+    }
+
+    async function deleteBooking(id){
+      const b = bookingById(id);
+      const attached = num(b?.shipment_count);
+      const msg = attached
+        ? `Delete booking ${b?.booking_ref || ''}? Its ${attached} shipment${attached === 1 ? '' : 's'} are kept and fall back to their own dates.`
+        : `Delete booking ${b?.booking_ref || ''}?`;
+      if(!confirm(msg)) return;
+      try{
+        const { error } = await sb.from('shipment_bookings').delete().eq('id', id);
+        if(error) throw error;
+        await loadShipments();
+        renderShipDrawer();
+        setStatus('Booking deleted. Its shipments were kept.', 'ok', 3000);
+      }catch(e){
+        console.error(e);
+        showBookingError(e.message || 'Could not delete the booking (admin only)');
+      }
+    }
+
+    function exportBookings(){
+      const rows = state.bookings.map(b => ({
+        booking_ref: b.booking_ref, forwarder: b.forwarder, mode: b.mode,
+        container_ref: b.container_ref, origin_port: b.origin_port, destination_port: b.destination_port,
+        etd: b.etd, eta: b.eta, actual_arrival: b.ata, effective_eta: b.effective_eta,
+        status: b.status, po_count: b.po_count, po_names: b.po_names,
+        shipment_count: b.shipment_count, assigned_units: b.assigned_units, notes: b.notes,
+      }));
+      if(rows.length) downloadCsv(`silo-freight-bookings-${new Date().toISOString().slice(0,10)}.csv`, rows, shipmentCsvValue);
     }
 
     function shipmentCsvValue(value){
@@ -1135,16 +1358,27 @@
     }
 
     function exportShipments(){
-      const rows = filteredShipmentRows().map(({ shipment: s, po, assignments, products, units, quantityBasis, inferred }) => ({
+      const rows = filteredShipmentRows().map(({ shipment: s, po, assignments, products, units, quantityBasis, inferred }) => {
+        const eff = effectiveShipDates(s);
+        return {
         shipment_id: s.id, po_id: po.id, po_name: po.po_name, factory: po.factory_name,
-        po_status: po.status, po_expected_arrival: po.expected_arrival_date,
+        po_status: po.status, po_planned_arrival: po.expected_arrival_date,
+        po_current_eta: po.current_eta, po_arrival_variance_days: po.arrival_variance_days,
+        po_shipments_say: po.arrival_state,
+        booking_ref: eff.booking?.booking_ref ?? '', forwarder: eff.booking?.forwarder ?? '',
+        booking_mode: eff.booking?.mode ?? '',
+        container_ref: eff.booking?.container_ref ?? s.container_ref ?? '',
+        booking_po_count: eff.booking?.po_count ?? '',
         shipment_status: s.shipment_status, carrier: s.carrier, tracking_number: s.tracking_number,
         ship_date: s.ship_date, eta: s.eta, received_date: s.received_date,
+        effective_ship_date: eff.ship_date, effective_eta: eff.eta, effective_received: eff.received,
+        dates_from: eff.fromBooking ? 'booking' : 'shipment',
         assigned_lines: assignments.length,
         assigned_products: products.map(p => p.label).join(' | '),
         assignment_quantities: products.map(p => `${p.qty ?? 'unknown'} (${p.basis})`).join(' | '),
         units, quantity_basis: quantityBasis, includes_inferred_quantities: inferred ? 'yes' : 'no', notes: s.notes,
-      }));
+        };
+      });
       if(rows.length) downloadCsv('incoming-shipments.csv', rows, shipmentCsvValue);
     }
 
@@ -1230,6 +1464,7 @@
             <div class="po-card-badges">
               ${r.date_bucket ? `<span class="po-rpt-pill">${escapeHtml(r.date_bucket)}</span>` : ''}
               ${statusBadge(r.status)}
+              ${r.status_conflicts_with_shipments ? `<span class="po-rpt-pill po-rpt-pill--warn" title="The PO status and its shipments disagree. Nothing is changed automatically \u2014 check which one is right.">Status vs shipments</span>` : ''}
             </div>
           </div>
 
@@ -1245,8 +1480,14 @@
             </div>
             <div class="po-tl-line"></div>
             <div class="po-tl-step ${r.expected_arrival_date ? 'is-set' : ''}">
-              <div class="po-tl-step-head"><span class="po-tl-dot"></span><span class="po-tl-label">Expected</span></div>
+              <div class="po-tl-step-head"><span class="po-tl-dot"></span><span class="po-tl-label">Planned</span></div>
               <span class="po-tl-date">${dateLabel(r.expected_arrival_date)}</span>
+            </div>
+            <div class="po-tl-line"></div>
+            <div class="po-tl-step ${r.current_eta ? 'is-set' : ''}" title="${r.current_eta ? 'From the shipments logged on this PO, and their booking where they have one.' : 'No shipment is logged on this PO, so there is nothing to compare the plan against.'}">
+              <div class="po-tl-step-head"><span class="po-tl-dot"></span><span class="po-tl-label">Shipments say</span></div>
+              <span class="po-tl-date">${dateLabel(r.current_eta)}</span>
+              <span class="po-tl-note">${escapeHtml(ARRIVAL_STATE_LABEL[r.arrival_state] || '—')}${arrivalSlipLabel(r)}</span>
             </div>
           </div>
 
@@ -1266,6 +1507,17 @@
         </article>
       `;
       }).join('');
+    }
+
+    // The slip, in the PO card and nowhere else written down: positive is
+    // later than planned. Blank when either date is missing, because "no
+    // shipment logged" is not "on time".
+    function arrivalSlipLabel(r){
+      const slip = r.arrival_variance_days;
+      if(slip == null || slip === '') return '';
+      const n = Number(slip);
+      if(!Number.isFinite(n) || n === 0) return n === 0 ? ' · on plan' : '';
+      return n > 0 ? ` · ${n} day${n === 1 ? '' : 's'} late` : ` · ${Math.abs(n)} day${Math.abs(n) === 1 ? '' : 's'} early`;
     }
 
     function renderProductTable(){
@@ -1363,7 +1615,12 @@
         date_bucket: r.date_bucket,
         order_date: r.order_date,
         req_ship_date: r.req_ship_date,
-        expected_arrival_date: r.expected_arrival_date,
+        planned_arrival_date: r.expected_arrival_date,
+        current_eta: r.current_eta,
+        arrival_variance_days: r.arrival_variance_days,
+        shipments_say: r.arrival_state,
+        shipment_count: r.shipment_count,
+        status_conflicts_with_shipments: r.status_conflicts_with_shipments ? 'yes' : 'no',
         line_count: r.line_count,
         style_count: r.style_count,
         total_units: r.total_units,
@@ -1454,6 +1711,65 @@
       }).join('');
     }
 
+    // The booking a shipment rides on. Choosing one is how a consolidated
+    // container stops being several unrelated rows: its ETD/ETA/actual arrival
+    // are entered once on the booking and read by every PO inside it.
+    function renderBookingPicker(s){
+      const eff = effectiveShipDates(s);
+      const options = state.bookings
+        .slice()
+        .sort((a, b) => String(a.booking_ref || '').localeCompare(String(b.booking_ref || '')))
+        .map(b => {
+          const bits = [b.booking_ref || 'Untitled booking'];
+          if(b.effective_eta) bits.push(`ETA ${b.effective_eta}`);
+          if(num(b.po_count) > 1) bits.push(`${num(b.po_count)} POs`);
+          return `<option value="${escapeHtml(b.booking_id)}" ${String(b.booking_id) === String(s.booking_id) ? 'selected' : ''}>${escapeHtml(bits.join(' · '))}</option>`;
+        }).join('');
+
+      const note = eff.fromBooking
+        ? `<div class="po-ship-booking-note">This shipment travels on <strong>${escapeHtml(eff.booking.booking_ref || 'the booking')}</strong>: ETD ${dateLabel(eff.booking.etd)}, ETA ${dateLabel(eff.booking.ata || eff.booking.eta)}${eff.booking.ata ? ' (actual)' : ''}. Those dates are used for this PO, and for every other PO in the same booking. The shipment's own dates above are a fallback for whatever the booking leaves blank.</div>`
+        : (eff.booking
+            ? `<div class="po-ship-booking-note">On booking <strong>${escapeHtml(eff.booking.booking_ref || '—')}</strong>, which has no dates yet, so this shipment's own dates are used. Fill the booking's dates once on the Bookings tab and every PO on it updates.</div>`
+            : `<div class="po-ship-booking-note">No booking. This shipment's own dates are used. Put it on a booking when several POs share one container, so the ETA is entered once.</div>`);
+
+      const newForm = String(state.newBookingFor || '') === String(s.id) ? `
+        <div class="po-ship-booking-new">
+          <div class="po-ship-field-grid">
+            <div><label class="po-ship-field-label">Booking ref *</label>
+              <input class="bcn-field bcn-field--mono" type="text" data-new-booking="ref" placeholder="BK-1042" /></div>
+            <div><label class="po-ship-field-label">Forwarder</label>
+              <input class="bcn-field" type="text" data-new-booking="forwarder" placeholder="Flexport" /></div>
+            <div><label class="po-ship-field-label">Mode</label>
+              <select class="bcn-field" data-new-booking="mode"><option value="">—</option>${BOOKING_MODES.map(m => `<option value="${m}">${m}</option>`).join('')}</select></div>
+            <div><label class="po-ship-field-label">Container</label>
+              <input class="bcn-field bcn-field--mono" type="text" data-new-booking="container" placeholder="MSKU7654321" /></div>
+            <div><label class="po-ship-field-label">${ICON_CALENDAR} ETD</label>
+              <input class="bcn-field bcn-field--mono" type="date" data-new-booking="etd" /></div>
+            <div><label class="po-ship-field-label">${ICON_CALENDAR} ETA</label>
+              <input class="bcn-field bcn-field--mono" type="date" data-new-booking="eta" /></div>
+          </div>
+          <div class="po-ship-booking-new-foot">
+            <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-create-booking="${escapeHtml(s.id)}">Create and attach</button>
+            <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-cancel-booking="1">Cancel</button>
+          </div>
+        </div>` : '';
+
+      return `
+        <div class="po-ship-booking">
+          <div class="po-ship-booking-row">
+            <label class="po-ship-field-label" for="booking-${escapeHtml(s.id)}">${ICON_TRUCK} Booking / container</label>
+            <select class="bcn-field" id="booking-${escapeHtml(s.id)}" data-booking-select="${escapeHtml(s.id)}">
+              <option value="">— No booking —</option>
+              ${options}
+            </select>
+            <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-new-booking-for="${escapeHtml(s.id)}">+ New booking</button>
+          </div>
+          ${note}
+          ${newForm}
+        </div>
+      `;
+    }
+
     function renderShipCard(s, poLines){
       return `
         <div class="po-ship-card" data-shipment-id="${escapeHtml(s.id)}">
@@ -1483,6 +1799,8 @@
               <input class="bcn-field bcn-field--mono" type="date" value="${s.received_date || ''}" data-ship-field="received_date" data-shipment-id="${escapeHtml(s.id)}" />
             </div>
           </div>
+
+          ${renderBookingPicker(s)}
           <div class="po-ship-notes-row">
             <label class="po-ship-field-label">Notes</label>
             <input class="bcn-field" type="text" value="${escapeHtml(s.notes || '')}" data-ship-field="notes" data-shipment-id="${escapeHtml(s.id)}" placeholder="e.g. 2nd half shipment" />
@@ -1693,6 +2011,27 @@
       const del = e.target.closest('[data-delete-shipment]');
       if(del){ deleteShipment(del.dataset.deleteShipment); return; }
 
+      const openNew = e.target.closest('[data-new-booking-for]');
+      if(openNew){
+        state.newBookingFor = openNew.dataset.newBookingFor;
+        renderShipDrawer();
+        return;
+      }
+
+      const cancelNew = e.target.closest('[data-cancel-booking]');
+      if(cancelNew){ state.newBookingFor = null; renderShipDrawer(); return; }
+
+      const create = e.target.closest('[data-create-booking]');
+      if(create){
+        const card = create.closest('.po-ship-booking-new');
+        const read = (name) => card?.querySelector(`[data-new-booking="${name}"]`)?.value || '';
+        createBooking({
+          ref: read('ref'), forwarder: read('forwarder'), mode: read('mode'),
+          container: read('container'), etd: read('etd'), eta: read('eta')
+        }, create.dataset.createBooking);
+        return;
+      }
+
       const step = e.target.closest('[data-status][data-ship-field="shipment_status"]');
       if(step){ updateShipmentField(step.dataset.shipmentId, 'shipment_status', step.dataset.status); return; }
 
@@ -1706,6 +2045,12 @@
     });
 
     el.shipDrawerBody.addEventListener('change', (e) => {
+      const bookingSelect = e.target.closest('[data-booking-select]');
+      if(bookingSelect){
+        setShipmentBooking(bookingSelect.dataset.bookingSelect, bookingSelect.value);
+        return;
+      }
+
       const field = e.target.closest('[data-ship-field]:not([data-status])');
       if(field){
         updateShipmentField(field.dataset.shipmentId, field.dataset.shipField, field.value);
@@ -1800,6 +2145,23 @@
       applyFilters();
     });
     el.shipmentStatusFilter.addEventListener('change', renderShipmentTable);
+    el.bookingTbody.addEventListener('change', (e) => {
+      const field = e.target.closest('[data-booking-field]');
+      if(field) updateBookingField(field.dataset.bookingId, field.dataset.bookingField, field.value);
+    });
+
+    el.bookingTbody.addEventListener('click', (e) => {
+      const del = e.target.closest('[data-delete-booking]');
+      if(del) deleteBooking(del.dataset.deleteBooking);
+    });
+
+    el.btnAddBooking.addEventListener('click', async () => {
+      const ref = prompt('Booking reference (the forwarder\u2019s booking or container number):');
+      if(ref == null) return;
+      await createBooking({ ref }, null);
+    });
+
+    el.btnExportBookings.addEventListener('click', exportBookings);
     el.btnExportShipments.addEventListener('click', exportShipments);
     el.btnExportPOs.addEventListener('click', exportPOs);
     el.btnExportProducts.addEventListener('click', exportProducts);
