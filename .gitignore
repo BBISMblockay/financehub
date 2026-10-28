@@ -28,3 +28,6 @@ v2/tests/*.png
 
 # Local screenshot scratch (PR screenshots are attached, not committed)
 .screenshots/
+
+# Private staged attribution evidence and execution receipts
+.attribution-stage/

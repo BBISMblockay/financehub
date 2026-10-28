@@ -24,6 +24,9 @@ jobs:
       - run: node scripts/tests/shopify-attribution-probe.test.mjs
       - run: node --test scripts/tests/shopify-attribution-coverage.test.mjs
       - run: node scripts/tests/shopify-attribution-database.test.mjs
+      - run: node scripts/tests/shopify-attribution-append.test.mjs
+      - run: node scripts/tests/shopify-attribution-append-database.test.mjs
+      - run: python3 scripts/tests/shopify-attribution-append-concurrency.py
       - run: node scripts/tests/silo-attribution-model.test.mjs
       - run: node scripts/tests/silo-attribution-report.test.mjs
       - run: node --test scripts/tests/silo-attribution-overview.test.mjs

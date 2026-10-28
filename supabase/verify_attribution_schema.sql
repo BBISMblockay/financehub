@@ -21,3 +21,13 @@ select 'silo_attribution_ledger_v discount columns' as check_name,
  and (select format_type(atttypid,atttypmod) from pg_attribute
       where attrelid='public.silo_attribution_ledger_v'::regclass and attname='discount_code')='text'
  then 'ok' else 'MISSING — apply 20261026180000_attribution_discount_codes.sql' end as status;
+
+select 'attribution additive history' as check_name,
+ case when to_regprocedure('public.append_shopify_attribution(uuid,uuid,text,uuid,jsonb)') is null then 'MISSING'
+ when has_function_privilege('anon','public.append_shopify_attribution(uuid,uuid,text,uuid,jsonb)','EXECUTE')
+   or has_function_privilege('authenticated','public.append_shopify_attribution(uuid,uuid,text,uuid,jsonb)','EXECUTE') then 'CRITICAL'
+ when not has_function_privilege('service_role','public.append_shopify_attribution(uuid,uuid,text,uuid,jsonb)','EXECUTE') then 'MISSING'
+ when not exists(select 1 from pg_trigger where tgrelid='public.shopify_attribution_orders'::regclass
+   and tgname='protect_attribution_backfilled_codes' and tgenabled='O'
+   and tgfoid=to_regprocedure('public.protect_attribution_backfilled_codes()')) then 'MISSING'
+ else 'ok' end as status;
