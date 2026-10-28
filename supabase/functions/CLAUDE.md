@@ -51,7 +51,9 @@ Per-function behaviour, secrets and history: [`docs/agents/edge-functions.md`](.
   the placement -- add a new service-role-only function to it. Three functions INJECT it the way
   they inject `checkMfa` (`meta-oauth-start`, `meta-oauth-review`, `shopify-install-claim`), and
   `card-categorize` must, because `prepare.ts` is executed in a vm sandbox that cannot resolve an
-  import; an unwired check refuses (503) rather than passing. Until the hook is set no token can
+  import; an unwired check refuses (503) rather than passing. Changing `prepare.ts` also means
+  deploying `card-coding-prepare-scheduled` (the shared-import rule above), so the gate's deployment
+  set is TWENTY functions. Until the hook is set no token can
   carry `client_id`, so only the anon-key case is live, and that is unchanged from today.
 - Email sender comes from `SILO_MAIL_FROM` (fallback `SILO <noreply@silo-baseballism.com>`).
 - **Ask SILO (`silo-chat`):** prompt text lives in `prompt-lib.mjs`. `CORE_PROMPT` is cached and must
