@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const screenshots = fileURLToPath(new URL('./screenshots/', import.meta.url));
 await mkdir(screenshots, { recursive: true });
-const browser = await chromium.launch();
+const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined });
 const sdk = `function createClient() {
   return {
     auth: {
@@ -116,7 +116,7 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
       return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Fixture destination</title><h1>Routing destination verified</h1>' });
     }
     const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-    const allowed = ['index.html', 'pages/login.html', 'pages/mfa.js', 'v2/company-onboarding.html', 'v2/beacon.css', 'v2/silo-brand.css', 'legal/privacy.html'];
+    const allowed = ['index.html', 'pages/login.html', 'pages/mfa.js', 'v2/company-onboarding.html', 'v2/beacon.css', 'v2/silo-brand.css', 'legal/privacy.html', 'legal/eula.html'];
     const motionAsset = relative === 'assets/landing/silo-hero-motion.js' || mediaPaths.includes(url.pathname);
     if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative) && !motionAsset) {
       failures.push('Unexpected fixture path: ' + relative);
@@ -259,6 +259,16 @@ try {
       assert.ok(media.width > 0 && media.width <= 720, `${name}: smaller mobile encode`);
       assert.ok(Math.abs(media.width / media.height - 1080 / 660) < .01, `${name}: mobile artwork aspect ratio`);
     } else assert.deepEqual([media.width, media.height], [1080, 660], `${name}: desktop encode dimensions`);
+    for (const heading of ['One workspace for your company’s operations.', 'Sales and reporting',
+      'Inventory and purchasing', 'Finance and reconciliation', 'Marketing performance', 'About SILO']) {
+      assert.equal(await page.getByRole('heading', { name: heading, exact: true }).isVisible(), true);
+    }
+    assert.match(await page.locator('.lp-about').textContent(), /operated by Baseballism/);
+    assert.match(await page.locator('.lp-details').textContent(), /Planned TikTok Ads reporting/);
+    for (const box of await page.locator('.lp-workflows article, .lp-about').evaluateAll(elements =>
+      elements.map(element => element.getBoundingClientRect().toJSON()))) {
+      assert.ok(box.x >= 0 && box.right <= width, `${name}: public content clipped`);
+    }
     await assertGeometry(page, name, width);
     await page.screenshot({ path: path.join(screenshots, `${name}.png`), fullPage: true });
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -284,6 +294,15 @@ try {
   assert.equal(await page.locator('#obSupport a').getAttribute('href'), 'mailto:support@get-silo.com');
   await page.screenshot({ path: path.join(screenshots, 'onboarding-support.png'), fullPage: true });
   pass('keyboard activation opens the invitation gate with visible support');
+
+  const legalPage = await context.newPage();
+  for (const [url, heading] of [['/legal/privacy.html', 'SILO — Privacy Policy'],
+    ['/legal/eula.html', 'SILO — End-User License Agreement']]) {
+    await legalPage.goto('https://get-silo.com' + url);
+    assert.equal(await legalPage.getByRole('heading', { name: heading, exact: true }).isVisible(), true);
+  }
+  await legalPage.close();
+  pass('privacy and terms are readable without authentication');
 
   await page.goBack();
   await page.waitForURL('https://get-silo.com/');
