@@ -8,11 +8,12 @@ const source = readFileSync(new URL('../assets/landing/early-access.js', import.
 const html = readFileSync(new URL('../demo.html', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../assets/landing/early-access.css', import.meta.url), 'utf8');
 
-test('existing home and shared config stay byte-identical to main c2b6f1e', () => {
-  // Pin the reviewed main bytes so shallow CI needs no git history. A demo
+test('home and shared config retain their explicit baselines', () => {
+  // Pin intentional homepage/config bytes so shallow CI needs no git history. A demo
   // change must never silently replace the user's existing homepage/router.
   const unchanged = {
-    'index.html': '9a4c9b997ef349698fc572a7769622a89afffeb21c6fb5988d9c11403ce9673e',
+    // Public product/company overview intentionally expanded for developer verification.
+    'index.html': '102a44ecbc1ae6c97ba8f40e1aa141e00d5699d355a4b4de87b84a0b46e9876d',
     // Deliberately changed 2026-10-14: MFA_ENROLLMENT_OPEN opens two-step login setup.
     'pages/config.js': '1790aa8ec2fee8c914faf6b13023508a7e8ea7845283029906719e05950560a0',
   };

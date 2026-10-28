@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SILO</title>
-  <meta name="description" content="Sales, inventory, purchasing, finance and marketing, in one workspace." />
+  <title>SILO — Operations and reporting workspace</title>
+  <meta name="description" content="SILO is an operations and reporting workspace operated by Baseballism for company teams working across sales, inventory, purchasing, finance and marketing." />
   <script>
     // Decided before first paint. On get-silo.com a signed-out visitor sees
-    // the small public page: Google's OAuth verification needs a home page
+    // the public product page: platform verification needs a home page
     // that says what the app is, links the privacy policy, and is not a
     // redirect to a login form. Everywhere else, and for an invite /
     // recovery link on any host, this page stays the auth router. A
@@ -270,6 +270,22 @@
       background: linear-gradient(90deg, #02070c 0%, transparent 20%),
                   linear-gradient(0deg, #02070c 0%, transparent 15%, transparent 85%, #02070c 100%);
     }
+    #landing .lp-details {
+      position: relative; width: 100%; max-width: 1600px; margin: 0 auto;
+      padding-block: 36px 48px; border-top: 1px solid var(--bcn-border-strong);
+    }
+    #landing .lp-details h2 { margin: 0 0 16px; font-size: clamp(24px, 3vw, 32px); line-height: 1.25; }
+    #landing .lp-details h3 { margin: 0 0 12px; font-size: 18px; line-height: 1.4; }
+    #landing .lp-details p { max-width: 780px; margin: 0; color: var(--bcn-ink-2); font-size: 16px; line-height: 1.75; }
+    #landing .lp-workflows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-block: 28px; }
+    #landing .lp-workflows .bcn-card-body { padding: 24px; }
+    #landing .lp-details a { color: var(--bcn-band-ink); text-underline-offset: 3px; overflow-wrap: anywhere; }
+    #landing .lp-about { margin-top: 40px; }
+    #landing .lp-about p + p { margin-top: 16px; }
+    @media (max-width: 600px) {
+      #landing .lp-workflows { grid-template-columns: 1fr; }
+      #landing .lp-workflows .bcn-card-body { padding: 20px; }
+    }
     #landing .lp-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px 24px; font-size: 12px; color: #a3b3c3; }
     #landing .lp-foot nav { display: flex; gap: 24px; flex-wrap: wrap; }
     #landing .lp-foot a { display: inline-flex; align-items: center; min-height: 44px; color: var(--bcn-ink-2); text-decoration: none; }
@@ -303,7 +319,8 @@
 <body>
   <div id="landing">
     <header class="lp-top" aria-label="SILO"><span class="lp-mark" aria-hidden="true">S</span>SILO</header>
-    <main class="lp-mid">
+    <main>
+    <div class="lp-mid">
       <div class="lp-copy">
         <h1>Welcome to Silo.</h1>
         <p class="lp-description">Sales, inventory, purchasing, finance and marketing, in one workspace.</p>
@@ -328,11 +345,54 @@
           <a class="bcn-btn lp-motion-fallback" id="lpMotionFallback" href="/assets/landing/silo-hero-motion.mp4" target="_blank" rel="noopener">Watch animation</a>
         </div>
       </div>
+    </div>
+    <section class="lp-details" aria-labelledby="lpOverview">
+      <h2 id="lpOverview">One workspace for your company&rsquo;s operations.</h2>
+      <p>SILO brings business data and day-to-day work together for finance, operations,
+        purchasing and marketing teams. Employees, contractors and agents of companies using
+        SILO work in their company&rsquo;s workspace, with access by invitation from an administrator.</p>
+      <div class="lp-workflows">
+        <article class="bcn-card"><div class="bcn-card-body">
+          <h3>Sales and reporting</h3>
+          <p>Review sales trends and product performance, compare reporting periods, and organize
+            saved reports into dashboards for your team.</p>
+        </div></article>
+        <article class="bcn-card"><div class="bcn-card-body">
+          <h3>Inventory and purchasing</h3>
+          <p>Review inventory, maintain product records, and build purchase orders with supplier,
+            cost and shipment details to keep purchasing work in one place.</p>
+        </div></article>
+        <article class="bcn-card"><div class="bcn-card-body">
+          <h3>Finance and reconciliation</h3>
+          <p>Review sales and payout records, reconcile operational data with accounting records,
+            and prepare journal entries for human review before posting.</p>
+        </div></article>
+        <article class="bcn-card"><div class="bcn-card-body">
+          <h3>Marketing performance</h3>
+          <p>Compare campaign spend and results from connected advertising accounts alongside
+            sales reporting. Review performance over time to inform your team&rsquo;s decisions.</p>
+        </div></article>
+      </div>
+      <p><strong>Planned TikTok Ads reporting:</strong> read campaign spend, impressions, clicks
+        and purchase metrics from a company&rsquo;s authorized ad account for internal reporting.
+        Availability is subject to TikTok approval and connection setup.</p>
+      <div class="lp-about" aria-labelledby="lpAbout">
+        <h2 id="lpAbout">About SILO</h2>
+        <p>SILO is an operations workspace operated by Baseballism. It supports internal business
+          work for Baseballism and other companies using SILO. Workspace access is invitation-only;
+          this public overview is available without an account.</p>
+        <p>For product questions, support or an invitation request, email
+          <a href="mailto:support@get-silo.com">support@get-silo.com</a>.
+          Read our <a href="/legal/privacy.html">Privacy Policy</a> for details on how SILO handles
+          company data and connected services.</p>
+      </div>
+    </section>
     </main>
     <footer class="lp-foot">
-      <span>&copy; <span id="lpYear">2026</span> SILO</span>
+      <span>&copy; <span id="lpYear">2026</span> SILO &middot; Operated by Baseballism</span>
       <nav aria-label="Legal and contact">
         <a href="/legal/privacy.html">Privacy</a>
+        <a href="/legal/eula.html">Terms of use</a>
         <a href="mailto:support@get-silo.com">Contact</a>
       </nav>
     </footer>
