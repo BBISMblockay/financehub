@@ -23,6 +23,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { mayConnect, mintClientCredentialsToken, normalizeShopDomain, ShopifyTokenError } from './shopify-auth-lib.mjs';
 import { checkMfaSession } from './mfa-gate.mjs';
+import { checkIntegrationToken } from './integration-gate.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -39,6 +40,12 @@ Deno.serve(async (req) => {
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data: { user }, error: authErr } = await admin.auth.getUser(authHeader.replace('Bearer ', ''));
   if (authErr || !user) return json({ ok: false, error: 'Unauthorized' }, 401);
+  // Third-party tokens (20261020030000): everything below runs with the
+  // service role, which the Data API's pre-request hook never sees. This
+  // check is pure, so it comes before the network round trip the two-step
+  // gate makes. See supabase/functions/CLAUDE.md.
+  const integ = checkIntegrationToken(req.headers.get('Authorization'));
+  if (!integ.ok) return json({ ok: false, error: integ.message, code: integ.code }, integ.status);
   // Two-step login: what follows runs with the service role, which the
   // Data API's gate (20261014000000) never sees. mfa-gate.mjs asks as the caller.
   const mfa = await checkMfaSession({

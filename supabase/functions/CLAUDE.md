@@ -44,9 +44,15 @@ Per-function behaviour, secrets and history: [`docs/agents/edge-functions.md`](.
   above), or call `checkIntegrationToken` (`integration-gate.mjs`, a verbatim copy of
   `scripts/lib/integration-gate.mjs`) right after `getUser` and before its first service-role call.
   It refuses a token with no `sub`, `role = anon`, `role = silo_revoked`, or a `client_id` claim --
-  the MCP endpoint is the one deliberate exception, via `allowIntegration`. **Vendoring it into the
-  existing functions is PR1 and has to land before the OAuth server is enabled.** Until then no token
-  can carry `client_id`, so only the anon-key case is live, and that is unchanged from today.
+  the MCP endpoint is the one deliberate exception, via `allowIntegration`. **Vendored into nineteen
+  functions by PR1** (20261028070000): the seventeen of the two-step-login rule, plus `silo-chat` and
+  `report-email-deliver`, which do work of their own before the caller's token ever reaches
+  PostgREST. `scripts/tests/integration-gate.test.mjs` pins that list, the byte-for-byte copies and
+  the placement -- add a new service-role-only function to it. Three functions INJECT it the way
+  they inject `checkMfa` (`meta-oauth-start`, `meta-oauth-review`, `shopify-install-claim`), and
+  `card-categorize` must, because `prepare.ts` is executed in a vm sandbox that cannot resolve an
+  import; an unwired check refuses (503) rather than passing. Until the hook is set no token can
+  carry `client_id`, so only the anon-key case is live, and that is unchanged from today.
 - Email sender comes from `SILO_MAIL_FROM` (fallback `SILO <noreply@silo-baseballism.com>`).
 - **Ask SILO (`silo-chat`):** prompt text lives in `prompt-lib.mjs`. `CORE_PROMPT` is cached and must
   stay byte-identical per request; never put per-request content in it. Brand and voice are company

@@ -312,8 +312,19 @@ silo_api_grants           -- NO CLIENT WRITES. authenticated has SELECT only; a 
                           -- grant per Auth session.
 silo_api_grant()          -- RETURNS SETOF (never a composite: a composite resolver returns one all-NULL
                           -- row and `not exists` says false -- that fail-open cost a review cycle).
-                          -- Yields the row only if live, unexpired, session-matching and the user still
-                          -- holds an entity_memberships row for that company.
+                          -- Yields the row only if live, unexpired, NOT IDLE, session-matching and the
+                          -- user still holds an entity_memberships row for that company. Idle is
+                          -- coalesce(last_used_at, consented_at) > now() - silo_api_idle_window():
+                          -- `last_used_at > ...` alone would kill a grant the moment it is created,
+                          -- `last_used_at is null or ...` would make a never-used one immortal.
+silo_api_idle_window()    -- 30 days (20261028070000). The policy number, in ONE place.
+silo_api_touch_grant()    -- records the use the idle window measures. Called by silo_api_run_report()
+                          -- AFTER the scope check, and keyed to silo_api_grant(), so an idle grant
+                          -- cannot touch itself back to life -- two independent guards, and the
+                          -- harness shows it takes removing BOTH to break it. At most one write an
+                          -- hour per grant, or parallel API requests serialise on one row lock.
+                          -- NOT executable by silo_integration: it is reached through the wrapper,
+                          -- whose owner is silo_api_exec.
 silo_api_claims()         -- reads current_setting('request.jwt.claims'), NOT auth.jwt(): `grant usage on
                           -- schema auth` is a silent no-op on Supabase, so a function owned by a custom
                           -- role cannot call auth.jwt().
@@ -349,7 +360,13 @@ inherit whichever company the person last had open in a browser tab. **Nothing i
 server, the OAuth client and the hook assignment are dashboard settings, so no token carries `client_id`
 and every branch above is unreachable. Edge functions are covered by the `request.path` allowlist only
 where they call PostgREST with the caller's token; the shared guard
-(`scripts/lib/integration-gate.mjs`) must be vendored into each one before the OAuth server is enabled.
+(`scripts/lib/integration-gate.mjs`) is vendored into the nineteen that do not (20261028070000 /
+PR1 — `scripts/tests/integration-gate.test.mjs` pins the list, the copies and their placement).
+
+An idle connection is **unusable, not revoked**: `revoked_at` stays null and nothing is deleted. A
+predicate is reversible where an automatic revoke written from a path that runs on every token
+refresh is not. So a connections screen must read usability from `silo_api_grant()`, never from
+`revoked_at`.
 
 ### RPC functions (founding a company — platform-admin gated)
 ```

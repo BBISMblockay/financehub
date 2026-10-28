@@ -41,6 +41,7 @@ import { tmpdir } from 'node:os';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INDEX = join(HERE, 'index.ts');
 const SEO_LIB_URL = pathToFileURL(join(HERE, 'seo-lib.mjs')).href;
+const INTEGRATION_GATE_URL = pathToFileURL(join(HERE, 'integration-gate.mjs')).href;
 const EVIDENCE_LIB_URL = pathToFileURL(join(HERE, 'evidence-scope.mjs')).href;
 const BUDGET_LIB_URL = pathToFileURL(join(HERE, 'budget-lib.mjs')).href;
 const PROMPT_LIB_URL = pathToFileURL(join(HERE, 'prompt-lib.mjs')).href;
@@ -107,10 +108,11 @@ const harnessPath = join(tmpdir(), `silo-chat-harness-${process.pid}.ts`);
     .replace("from './keepalive-lib.mjs';", `from ${JSON.stringify(KEEPALIVE_LIB_URL)};`)
     .replace("from './ai-credit-lib.mjs';", `from ${JSON.stringify(CREDIT_LIB_URL)};`)
     .replace("from './silo-reports-lib.mjs';", `from ${JSON.stringify(REPORTS_LIB_URL)};`)
-    .replace("from './report-params-lib.mjs';", `from ${JSON.stringify(REPORT_PARAMS_LIB_URL)};`);
+    .replace("from './report-params-lib.mjs';", `from ${JSON.stringify(REPORT_PARAMS_LIB_URL)};`)
+    .replace("from './integration-gate.mjs';", `from ${JSON.stringify(INTEGRATION_GATE_URL)};`);
   // A silently-unapplied rewrite would load a file that still imports npm:,
   // which fails with a confusing resolver error 40 lines away from the cause.
-  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, QUERY_SHAPE_LIB_URL, KEEPALIVE_LIB_URL, CREDIT_LIB_URL, REPORTS_LIB_URL, REPORT_PARAMS_LIB_URL, 'Buffer.from(bytes)']) {
+  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, QUERY_SHAPE_LIB_URL, KEEPALIVE_LIB_URL, CREDIT_LIB_URL, REPORTS_LIB_URL, REPORT_PARAMS_LIB_URL, INTEGRATION_GATE_URL, 'Buffer.from(bytes)']) {
     if (!rewritten.includes(marker)) {
       throw new Error(`harness rewrite failed: index.ts no longer matches the expected import for ${marker}`);
     }
@@ -325,10 +327,19 @@ const say = (text, stop_reason = 'end_turn') => ({
 
 const REQUEST_ID = '99999999-9999-4999-8999-999999999999';
 
+// A first-party session token, SHAPED like one: the third-party gate
+// (integration-gate.mjs, 20261020030000) reads the payload, so 'Bearer
+// test-jwt' is now refused 401 before the handler does anything. Unsigned --
+// nothing here verifies it, and Supabase's verify_jwt does that in front of
+// the real function. integration-gate.test.mjs owns the refusal cases.
+const TEST_JWT = ['eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9',
+  Buffer.from(JSON.stringify({ sub: USER.id, role: 'authenticated' })).toString('base64url'),
+  'signature'].join('.');
+
 function request(body) {
   return new Request('https://example.supabase.co/functions/v1/silo-chat', {
     method: 'POST',
-    headers: { Authorization: 'Bearer test-jwt', 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${TEST_JWT}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }
