@@ -41,6 +41,11 @@ on:
       - 'supabase/migrations/*integration_bootstrap_jobs.sql'
       - 'supabase/migrations/*mfa_enforcement.sql'
       - 'supabase/migrations/*developer_api_integration_access.sql'
+      # PR1's half, and the copies of the gate it vendors: a change to only a
+      # vendored copy would otherwise leave integration-gate.test.mjs unrun,
+      # which is the one thing that notices a copy drifting from the original.
+      - 'supabase/migrations/*developer_api_idle_disconnect.sql'
+      - 'supabase/functions/*/integration-gate.mjs'
       # Scheduled report email recipients (report-email-recipients-database.test.mjs).
       - 'supabase/migrations/*report_email_*.sql'
       - 'supabase/functions/comp-request-notify/**'

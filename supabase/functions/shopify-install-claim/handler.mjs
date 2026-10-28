@@ -11,7 +11,7 @@
 import { mayConnect } from './shopify-auth-lib.mjs';
 import { isClaimToken, hashClaim, claimPlan } from './shopify-install-lib.mjs';
 
-export function createClaimHandler({ admin, checkMfa }) {
+export function createClaimHandler({ admin, checkMfa, checkIntegration }) {
   const json = (body, status = 200) => new Response(JSON.stringify(body), {
     status, headers: { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
@@ -24,6 +24,18 @@ export function createClaimHandler({ admin, checkMfa }) {
     const { data: auth } = jwt ? await admin.auth.getUser(jwt) : { data: null };
     const user = auth?.user;
     if (!user) return json({ error: 'Sign in first' }, 401);
+
+    // Third-party tokens (20261020030000): everything below runs with the
+    // service role, which the Data API's pre-request hook never sees. This
+    // check is pure, so it comes before the two-step gate's network round
+    // trip. Injected the way checkMfa is, so a test can drive the handler
+    // without minting a token; index.ts wires the real
+    // integration-gate.mjs, and an unwired one refuses.
+    // See supabase/functions/CLAUDE.md.
+    const integ = checkIntegration
+      ? checkIntegration(req.headers.get('Authorization') ?? '')
+      : { ok: false, status: 503, code: 'integration_check_failed', message: 'Connection check is not configured.' };
+    if (!integ.ok) return json({ error: integ.message, code: integ.code }, integ.status);
 
     // Two-step login: what follows runs with the service role, which the
     // Data API's gate (20261014000000) never sees. Refused when not wired.

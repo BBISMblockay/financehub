@@ -1318,9 +1318,13 @@ export async function prepareCoding(supabase: any, request: PrepareRequest): Pro
 // ---------------------------------------------------------------------------
 // The bookkeeper's endpoint: authenticate a person, derive their company
 // ---------------------------------------------------------------------------
-export function createCategorizeHandler({ createDb, checkMfa }: {
+export function createCategorizeHandler({ createDb, checkMfa, checkIntegration }: {
   createDb: () => any;
   checkMfa?: (authorization: string) => Promise<{ ok: boolean; status?: number; code?: string; message?: string }>;
+  // Injected rather than imported: this module is executed in a vm sandbox by
+  // scripts/tests/lib/card-categorize-sandbox.mjs, which cannot resolve an
+  // import. index.ts wires the real integration-gate.mjs.
+  checkIntegration?: (authorization: string) => { ok: boolean; status?: number; code?: string; message?: string };
 }) {
   return async (req: Request): Promise<Response> => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -1337,6 +1341,15 @@ export function createCategorizeHandler({ createDb, checkMfa }: {
       authHeader.replace('Bearer ', ''),
     );
     if (authErr || !user) return json({ error: 'Unauthorized' }, 401);
+
+    // Third-party tokens (20261020030000): everything below runs with the
+    // service role, which the Data API's pre-request hook never sees. This
+    // check is pure, so it comes before the two-step gate's network round
+    // trip. See supabase/functions/CLAUDE.md. Refused when not wired.
+    const integ = checkIntegration
+      ? checkIntegration(req.headers.get('Authorization') ?? '')
+      : { ok: false, status: 503, code: 'integration_check_failed', message: 'Connection check is not configured.' };
+    if (!integ.ok) return json({ error: integ.message, code: integ.code }, integ.status);
 
     // Two-step login: what follows runs with the service role, which the
     // Data API's gate (20261014000000) never sees. Refused when not wired.

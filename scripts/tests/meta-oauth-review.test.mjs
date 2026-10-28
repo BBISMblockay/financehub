@@ -49,6 +49,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 const MFA_OK = async () => ({ ok: true }); // two-step check passes; its refusals: mfa-gate.test.mjs
+const INTEG_OK = () => ({ ok: true }); // first-party caller; the gate's own refusals: integration-gate.test.mjs
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
@@ -248,8 +249,8 @@ const CONNECTION_ACTIONS = [['list_assets', {}], ['select_assets', { ad_account_
 await test('gate: unset allow-list 503, no session 401, unknown action 400', async () => {
   const db = world();
   const { fetchImpl, calls } = fakeGraph();
-  assert.equal((await call(createReviewHandler({ checkMfa: MFA_OK, env: { ...ENV, META_REVIEW_COMPANY_IDS: '' }, admin: db, fetchImpl }), { action: 'status' })).status, 503);
-  const h = createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: db, fetchImpl });
+  assert.equal((await call(createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: { ...ENV, META_REVIEW_COMPANY_IDS: '' }, admin: db, fetchImpl }), { action: 'status' })).status, 503);
+  const h = createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db, fetchImpl });
   assert.equal((await call(h, { action: 'status' }, 'nope')).status, 401);
   assert.equal((await call(h, { action: 'delete_everything' })).status, 400);
   assert.equal(calls.length, 0);
@@ -259,7 +260,7 @@ await test('gate: a non-review workspace (Baseballism) and a non-admin are refus
   for (const opts of [{ active: BASEBALLISM }, { role: 'member' }]) {
     const db = world(opts);
     const { fetchImpl, calls } = fakeGraph();
-    const h = createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: db, fetchImpl });
+    const h = createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db, fetchImpl });
     for (const action of REVIEW_ACTIONS) {
       for (const id of ['c-rev', 'c-bb', 'c-manual']) {
         const r = await call(h, { action, connection_id: id, ad_account_id: 'act_1' });
@@ -276,7 +277,7 @@ await test('gate: a non-review workspace (Baseballism) and a non-admin are refus
 await test('a pasted-token row (same workspace) and a review row of another workspace are untouchable', async () => {
   const db = world();
   const { fetchImpl, calls } = fakeGraph();
-  const h = createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: db, fetchImpl, now: () => NOW });
+  const h = createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db, fetchImpl, now: () => NOW });
   for (const [action, extra] of CONNECTION_ACTIONS) {
     for (const id of ['c-manual', 'c-bb', 'nope']) {
       const r = await call(h, { action, connection_id: id, ...extra });
@@ -291,7 +292,7 @@ await test('a pasted-token row (same workspace) and a review row of another work
 
 // ── 3. status ───────────────────────────────────────────────────────────────
 await test('status: the workspace and its review rows only, never a token', async () => {
-  const r = await call(createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: world(), fetchImpl: fakeGraph().fetchImpl }), { action: 'status', company_entity_id: BASEBALLISM });
+  const r = await call(createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: world(), fetchImpl: fakeGraph().fetchImpl }), { action: 'status', company_entity_id: BASEBALLISM });
   assert.equal(r.status, 200);
   assert.equal(r.body.company.id, CO, 'the body cannot name the workspace');
   assert.deepEqual(r.body.connections.map((c) => c.id), ['c-rev']);
@@ -301,7 +302,7 @@ await test('status: the workspace and its review rows only, never a token', asyn
 
 // ── 4. asset selection ──────────────────────────────────────────────────────
 await test('list_assets: what the token reaches, ad accounts and Pages with linked Instagram', async () => {
-  const r = await call(createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: world(), fetchImpl: fakeGraph().fetchImpl }), { action: 'list_assets', connection_id: 'c-rev' });
+  const r = await call(createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: world(), fetchImpl: fakeGraph().fetchImpl }), { action: 'list_assets', connection_id: 'c-rev' });
   assert.deepEqual(r.body.ad_accounts, [{ id: 'act_1', name: 'Demo ads', currency: 'USD' }]);
   assert.deepEqual(r.body.pages.map((p) => [p.page_id, p.instagram_business_account_id]), [['p1', 'ig1'], ['p2', null]]);
   assert.doesNotMatch(JSON.stringify(r.body), /tok-/);
@@ -317,12 +318,12 @@ await test('select_assets: only reachable assets; Instagram only via its Page; s
     [{ page_id: 'p2', instagram_business_account_id: 'ig1' }, 'Page-only: Instagram not linked to that Page'],
   ]) {
     const db = world();
-    const r = await call(createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: db, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }), { action: 'select_assets', connection_id: 'c-rev', ...body });
+    const r = await call(createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }), { action: 'select_assets', connection_id: 'c-rev', ...body });
     assert.equal(r.status, 400, why);
     assert.equal(writes(db).length, 0, why);
   }
   const db = world();
-  const r = await call(createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: db, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }),
+  const r = await call(createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }),
     { action: 'select_assets', connection_id: 'c-rev', ad_account_id: 'act_1', page_id: 'p1', instagram_business_account_id: 'ig1' });
   assert.equal(r.status, 200);
   const row = db.tables.ad_platform_connections.find((x) => x.id === 'c-rev');
@@ -334,7 +335,7 @@ await test('select_assets: only reachable assets; Instagram only via its Page; s
 
 await test('select_assets: a login with Pages and no ad account saves Page + Instagram alone', async () => {
   const db = world();
-  const r = await call(createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: db, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }),
+  const r = await call(createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }),
     { action: 'select_assets', connection_id: 'c-rev', ad_account_id: null, page_id: 'p1', instagram_business_account_id: 'ig1' });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   const row = db.tables.ad_platform_connections.find((x) => x.id === 'c-rev');
@@ -342,7 +343,7 @@ await test('select_assets: a login with Pages and no ad account saves Page + Ins
   assert.equal(row.sync_enabled, false);
   // A Page the token cannot reach is still refused without an ad account.
   const db2 = world();
-  const r2 = await call(createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: db2, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }),
+  const r2 = await call(createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db2, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }),
     { action: 'select_assets', connection_id: 'c-rev', page_id: 'p9' });
   assert.equal(r2.status, 400);
   assert.equal(writes(db2).length, 0);
@@ -353,7 +354,7 @@ await test('verify: each reporting permission probed with the sync\'s calls; not
   const db = world();
   Object.assign(db.tables.ad_platform_connections[0], { meta_ad_account_id: 'act_1', facebook_page_id: 'p1', instagram_business_account_id: 'ig1' });
   const { fetchImpl } = fakeGraph();
-  const r = await call(createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: db, fetchImpl, now: () => NOW }), { action: 'verify', connection_id: 'c-rev' });
+  const r = await call(createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db, fetchImpl, now: () => NOW }), { action: 'verify', connection_id: 'c-rev' });
   assert.equal(r.status, 200);
   const by = (p) => r.body.checks.filter((c) => c.permission === p);
   for (const p of ['ads_read', 'pages_show_list', 'pages_read_engagement', 'read_insights', 'instagram_basic', 'instagram_manage_insights']) {
@@ -453,7 +454,7 @@ await test('verify: each reporting permission probed with the sync\'s calls; not
 
   // Nothing chosen yet: every asset-bound check says so instead of failing.
   const db2 = world();
-  const r2 = await call(createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: db2, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }), { action: 'verify', connection_id: 'c-rev' });
+  const r2 = await call(createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db2, fetchImpl: fakeGraph().fetchImpl, now: () => NOW }), { action: 'verify', connection_id: 'c-rev' });
   assert.deepEqual(r2.body.checks.filter((c) => c.ok === null).map((c) => c.permission).sort(),
     ['ads_read', 'instagram_basic', 'instagram_manage_insights', 'pages_read_engagement', 'read_insights']);
 });
@@ -461,7 +462,7 @@ await test('verify: each reporting permission probed with the sync\'s calls; not
 // ── 6. sync and stored ──────────────────────────────────────────────────────
 await test('sync: forwards to ad-platform-sync-run with the caller\'s own JWT, for the review row only', async () => {
   const { fetchImpl, calls } = fakeGraph();
-  const r = await call(createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: world(), fetchImpl }), { action: 'sync', connection_id: 'c-rev' });
+  const r = await call(createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: world(), fetchImpl }), { action: 'sync', connection_id: 'c-rev' });
   assert.equal(r.body.kpi_rows_upserted, 30);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'https://x.supabase.co/functions/v1/ad-platform-sync-run');
@@ -470,7 +471,7 @@ await test('sync: forwards to ad-platform-sync-run with the caller\'s own JWT, f
 });
 
 await test('stored: counts for this connection / workspace and its recent campaign days', async () => {
-  const r = await call(createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: world(), fetchImpl: fakeGraph().fetchImpl }), { action: 'stored', connection_id: 'c-rev' });
+  const r = await call(createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: world(), fetchImpl: fakeGraph().fetchImpl }), { action: 'stored', connection_id: 'c-rev' });
   assert.equal(r.body.stored.marketing_kpis_daily, 1);
   assert.equal(r.body.stored.facebook_page_insights_daily, 1);
   assert.equal(r.body.stored.instagram_account_profile, 1);
@@ -502,7 +503,7 @@ await test('the probe\'s metrics and discovery fields are the sync\'s and the te
 await test('discovery follows paging.next: a page-two ad account and Page are listed and selectable', async () => {
   const db = world();
   const { fetchImpl } = fakeGraph({ paged: true });
-  const h = createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: db, fetchImpl, now: () => NOW });
+  const h = createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db, fetchImpl, now: () => NOW });
   const list = await call(h, { action: 'list_assets', connection_id: 'c-rev' });
   assert.deepEqual(list.body.ad_accounts.map((a) => a.id), ['act_1', 'act_2']);
   assert.deepEqual(list.body.pages.map((p) => p.page_id), ['p1', 'p3']);
@@ -515,7 +516,7 @@ await test('discovery follows paging.next: a page-two ad account and Page are li
 
 await test('discovery never follows a paging.next off graph.facebook.com (the token is in it)', async () => {
   const { fetchImpl, calls } = fakeGraph({ paged: true, evilNext: true });
-  const r = await call(createReviewHandler({ checkMfa: MFA_OK, env: ENV, admin: world(), fetchImpl }), { action: 'list_assets', connection_id: 'c-rev' });
+  const r = await call(createReviewHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: world(), fetchImpl }), { action: 'list_assets', connection_id: 'c-rev' });
   assert.equal(r.status, 200);
   assert.equal(r.body.truncated, true, 'reported, not silently cut');
   assert.deepEqual(r.body.ad_accounts.map((a) => a.id), ['act_1', 'act_2']);
@@ -697,7 +698,7 @@ await test('verify: without the app credential the token rows SAY SO instead of 
   Object.assign(db.tables.ad_platform_connections[0], { meta_ad_account_id: 'act_1', facebook_page_id: 'p1', instagram_business_account_id: 'ig1' });
   const { fetchImpl } = fakeGraph();
   const r = await call(createReviewHandler({
-    checkMfa: MFA_OK, env: { ...ENV, META_APP_SECRET: '' }, admin: db, fetchImpl, now: () => NOW,
+    checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: { ...ENV, META_APP_SECRET: '' }, admin: db, fetchImpl, now: () => NOW,
   }), { action: 'verify', connection_id: 'c-rev' });
   const dbg = r.body.checks.filter((c) => /debug_token/.test(c.endpoint));
   assert.equal(dbg.length, 2, 'both rows are still reported');

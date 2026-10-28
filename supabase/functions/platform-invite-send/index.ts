@@ -10,6 +10,7 @@
 // email isn't configured.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { checkMfaSession } from './mfa-gate.mjs';
+import { checkIntegrationToken } from './integration-gate.mjs';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -95,6 +96,12 @@ Deno.serve(async (req: Request) => {
     const { data: userData, error: userErr } = await db.auth.getUser(jwt);
     if (userErr || !userData?.user) return json({ error: 'Not authenticated' }, 401);
 
+    // Third-party tokens (20261020030000): everything below runs with the
+    // service role, which the Data API's pre-request hook never sees. This
+    // check is pure, so it comes before the network round trip the two-step
+    // gate makes. See supabase/functions/CLAUDE.md.
+    const integ = checkIntegrationToken(req.headers.get('Authorization'));
+    if (!integ.ok) return json({ error: integ.message, code: integ.code }, integ.status);
     // Two-step login: everything below runs with the service role, which the
     // Data API's gate never sees. Ask as the caller before the first such call.
     const mfa = await checkMfaSession({

@@ -139,6 +139,10 @@ const post = (body) => new Request('https://fn.local/', {
   method: 'POST', headers: { Authorization: BEARER, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
 const REFUSE = async () => ({ ok: false, status: 403, code: 'mfa_required', message: MFA_REQUIRED_MESSAGE });
+// The third-party gate runs BEFORE this one in every gated handler, so these
+// cases wire it open to isolate the two-step refusal. integration-gate.test.mjs
+// owns its refusals.
+const INTEG_OK = () => ({ ok: true });
 const ENV = {
   META_APP_ID: 'app', META_LOGIN_CONFIG_ID: 'cfg', META_OAUTH_REDIRECT_URI: 'https://x/cb',
   META_REVIEW_COMPANY_IDS: '00000000-0000-0000-0000-000000000001', SUPABASE_URL: URL_, SUPABASE_ANON_KEY: ANON,
@@ -157,11 +161,11 @@ test('a refused check stops each handler before any service-role read; an unwire
   };
   for (const [fn, build] of Object.entries(builds)) {
     const admin = refusingAdmin();
-    const res = await build({ admin, checkMfa: REFUSE })(post(bodies[fn]));
+    const res = await build({ admin, checkMfa: REFUSE, checkIntegration: INTEG_OK })(post(bodies[fn]));
     assert.equal(res.status, 403, fn);
     assert.equal((await res.json()).code, 'mfa_required', fn);
     assert.deepEqual(admin.touched, [], `${fn}: nothing read with the service role`);
-    const unwired = await build({ admin: refusingAdmin() })(post(bodies[fn]));
+    const unwired = await build({ admin: refusingAdmin(), checkIntegration: INTEG_OK })(post(bodies[fn]));
     assert.equal(unwired.status, 503, `${fn}: no check wired is a refusal, not a pass`);
   }
 });
@@ -175,6 +179,7 @@ test('card-categorize: a refused check stops the request before the preparer tou
   };
   const { handler } = loadCategorizer(await prepareSource(), {
     createClient: () => client, fetch: async () => { throw new Error('no model call'); }, checkMfa: REFUSE,
+    checkIntegration: INTEG_OK,
   });
   const res = await handler(new Request('https://fn.local/', {
     method: 'POST', headers: { Authorization: BEARER },

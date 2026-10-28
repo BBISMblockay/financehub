@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { checkIntegrationToken } from './integration-gate.mjs';
 import {
   MAX_ATTACHMENT_BYTES,
   STORAGE_BUCKET,
@@ -223,6 +224,20 @@ export function createReportEmailDeliverHandler(deps = {}) {
     // difference was an existence oracle for schedule ids.
     if (!isCron && !userJwt) {
       return new Response(JSON.stringify({ error: 'authorization required' }), { status: 401, headers: CORS });
+    }
+
+    // Third-party tokens (20261020030000). Deliberately BEFORE the
+    // service-role read below rather than after auth.getUser(): the caller's
+    // own PostgREST read (the membership check, which is where the Data API's
+    // pre-request hook refuses an integration token) happens after that read,
+    // so without this the same existence oracle the check above closes would
+    // reopen for a developer token. The cron path carries no user JWT and is
+    // authenticated by its own secret, so it is not gated here.
+    if (!isCron) {
+      const integ = checkIntegrationToken(authHeader);
+      if (!integ.ok) {
+        return new Response(JSON.stringify({ error: integ.message, code: integ.code }), { status: integ.status, headers: CORS });
+      }
     }
 
     const serviceDb = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {

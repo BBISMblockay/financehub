@@ -19288,6 +19288,11 @@ $c$select (select count(*) from v_po_header_summary
 -- access-token hook are dashboard settings, so without them no token can
 -- carry client_id and every branch it adds is unreachable.
 \i migrations/20261020030000_developer_api_integration_access.sql
+-- PR1's half of the same feature: the 30-day idle disconnect. Must come AFTER
+-- 20261020030000, whose silo_api_grant(), silo_api_access_token_hook() and
+-- silo_api_run_report() bodies it replaces. Applying it turns nothing on
+-- either, for the same reason.
+\i migrations/20261028070000_developer_api_idle_disconnect.sql
 -- Sales by Channel gains a units column (from shopify_order_lines) and a
 -- channel slicer, plus silo_report_channels_v. Must come AFTER 20260920075344,
 -- whose version of the query and tie-out it replaces. It sits BEFORE the
