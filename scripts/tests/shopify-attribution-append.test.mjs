@@ -23,13 +23,15 @@ function fixture({snapshot=true,unknown=false,invalid=false,rows=1}={}) {
    if(query.includes('AttributionShop'))return{shop:{currencyCode:'USD',ianaTimezone:'UTC',primaryDomain:{host:'test.com'}}};
    if(query.includes('AdditiveCodes'))return{order:unknown?null:{id:vars.id,discountCodes:invalid?null:['RE-TEST']}};
    return{order:{id:vars.id,name:'#1',createdAt:'2026-01-01T12:00:00Z',sourceName:'web',discountCodes:[],customerJourneySummary:null}};
-  },ql:async(c,q)=>q.includes('GROUP BY')?[{day:'2026-01-01',order_id:'1',net_sales:'1.00',total_sales:'1.00'}]:[{net_sales:'1.00',total_sales:'1.00'}],
+  },ql:async(c,q)=>q.includes('GROUP BY')?ids.slice(Number(q.match(/OFFSET (\d+)/)[1]),Number(q.match(/OFFSET (\d+)/)[1])+500).map(order_id=>({day:'2026-01-01',order_id,net_sales:'1.00',total_sales:'1.00'})):[{net_sales:rows+'.00',total_sales:rows+'.00'}],
   fetcher:async()=>({ok:true,json:async()=>({order:{landing_site:'/'}})})};
  deps.stageFile=(path,bytes)=>deps.write(path,bytes,{flag:'wx',mode:0o600});
  return{deps,files,calls,writes,ids,known,get rpcCalls(){return rpcCalls;}};
 }
 assert.throws(()=>config({...env,ATTRIBUTION_COMMIT:'false'}),/Legacy/);
 assert.throws(()=>config({...env,ATTRIBUTION_START:'2026-01-01',ATTRIBUTION_END:'2026-03-01'}),/31/);
+assert.equal(config(env).maxRequests,1000,'the conservative default is unchanged');
+for(const budget of ['0','-1','1.5','Infinity','NaN','9007199254740992'])assert.throws(()=>config({...env,ATTRIBUTION_MAX_REQUESTS:budget}),/positive safe integer/);
 let f=fixture();const staged=await runAppend(env,f.deps);
 assert.equal(f.rpcCalls,0,'stage is database read-only');assert.equal(staged.length,1);
 const artifact=JSON.parse(f.files.get(staged[0].file));assert.deepEqual(artifact.payload.orders[0].discount_codes,['RE-TEST']);
@@ -53,6 +55,22 @@ assert.equal(f.files.size,2);assert.equal(f.files.get(firstFile),firstBytes,'res
 f=fixture({snapshot:false});await runAppend({...env,ATTRIBUTION_APPEND_KIND:'day'},f.deps);
 const dayArtifact=JSON.parse([...f.files.values()][0]);assert.equal(dayArtifact.payload.net_cents,100);assert.ok(dayArtifact.payload.orders[0].evidence.allocations);assert.equal(f.rpcCalls,0);
 assert.ok(f.calls.some(q=>q.includes('AttributionJourney')));
+// 4,994 orders need 1 preflight + 1 shop + 10 sales pages + 1 control
+// + 4,994 journeys + 4,994 landing reads: 10,001 logical operations.
+f=fixture({snapshot:false,rows:4994});
+await assert.rejects(runAppend({...env,ATTRIBUTION_APPEND_KIND:'day',ATTRIBUTION_MAX_REQUESTS:'10000'},f.deps),/workload/);
+assert.equal(f.files.size,0,'a budget-exhausted day is never published partially');
+f=fixture({snapshot:false,rows:4994});
+const large=await runAppend({...env,ATTRIBUTION_APPEND_KIND:'day',ATTRIBUTION_MAX_REQUESTS:'10001'},f.deps);
+assert.equal(large.length,1);assert.equal(large[0].requests,10001);
+const largeDay=JSON.parse(f.files.get(large[0].file)).payload;
+assert.equal(largeDay.orders.length,4994);assert.equal(largeDay.ledger.length,4994);
+assert.equal(largeDay.net_cents,499400);assert.equal(largeDay.total_cents,499400);
+assert.equal(f.rpcCalls,0,'large-budget staging still makes no database writes');
+f=fixture({snapshot:false});
+f.deps.now=()=>Date.parse('2026-10-28T12:00:00Z')+(f.calls.length>=2?30*60*1000+1:0);
+await assert.rejects(runAppend({...env,ATTRIBUTION_APPEND_KIND:'day',ATTRIBUTION_MAX_REQUESTS:'1000000'},f.deps),/workload/);
+assert.equal(f.files.size,0,'a larger budget never bypasses the admission deadline');
 // Apply failure creates an explicit uncertain receipt; same artifact stays replayable.
 const failed=fixture();failed.files.set('/file',JSON.stringify({...dayArtifact,payload:{...dayArtifact.payload,collected_at:'2026-10-28T12:00:00Z'}}));
 const create=failed.deps.createClient;failed.deps.createClient=()=>({...create(),rpc:async()=>{throw Error('network secret response');}});

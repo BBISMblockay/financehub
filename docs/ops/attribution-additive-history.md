@@ -68,7 +68,7 @@ Stage codes for existing days (default mode/kind), or stage absent days with
 - `ATTRIBUTION_START` and `ATTRIBUTION_END` (inclusive; 1–31 complete local days)
 - `ATTRIBUTION_STAGE_DIR` (private directory outside the served tree, or ignored
   `.attribution-stage/` for synthetic/local use)
-- Optional `ATTRIBUTION_MAX_REQUESTS` (default 1000; maximum 10000)
+- Optional `ATTRIBUTION_MAX_REQUESTS` (default 1000; explicit positive safe integer)
 
 Run `node scripts/shopify-attribution-append.mjs`. Each artifact is a complete
 reconciled day or at most 100 code observations. The printed SHA-256 identifies
@@ -94,6 +94,10 @@ An incomplete day writes no artifact; completed code batches survive interruptio
 High-volume days may require an explicitly raised budget and still have the
 existing collector's 9,999 order/day cap. No runtime estimate is promised until a
 pilot measures throttling and API cost. Code-only work avoids journey fetches.
+There is no separate 10,000-operation ceiling: a 4,994-order day already needs at
+least 10,001 operations, and 9,999 accessible orders need at least 20,021 before
+extra journey pages. Choose the finite budget explicitly for the reviewed workload;
+raising it never bypasses the 30-minute admission deadline or enables database writes.
 
 The apply RPC records one atomic success/identical-day receipt in `sync_jobs`
 (job_type `attribution_append`), keyed by the artifact run ID and payload fingerprint.

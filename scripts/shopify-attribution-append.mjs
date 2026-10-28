@@ -26,7 +26,9 @@ export function config(env) {
  const company=env.ATTRIBUTION_COMPANY_ID,connection=env.ATTRIBUTION_CONNECTION_ID,domain=normalizeShopDomain(env.ATTRIBUTION_SHOP_DOMAIN);
  if(!uuid.test(company||'')||!uuid.test(connection||'')||!domain)throw new AppendError('Explicit company, connection and domain required');
  const maxRequests=Number(env.ATTRIBUTION_MAX_REQUESTS||1000);
- if(!Number.isInteger(maxRequests)||maxRequests<1||maxRequests>10000)throw new AppendError('Request budget must be 1–10000');
+ // A supported day can exceed 10k operations (journey + landing per order,
+ // plus pagination). The operator sets a finite budget; the deadline still holds.
+ if(!Number.isSafeInteger(maxRequests)||maxRequests<1)throw new AppendError('Request budget must be a positive safe integer');
  if(mode==='apply'&&(!env.ATTRIBUTION_STAGE_FILE||!/^[a-f0-9]{64}$/.test(env.ATTRIBUTION_STAGE_SHA256||'')))throw new AppendError('Apply requires staged file and its SHA-256');
  if(mode==='stage'&&!env.ATTRIBUTION_STAGE_DIR)throw new AppendError('Private stage directory required');
  return {mode,kind,company,connection,domain,maxRequests,days:mode==='stage'?dayRange(env.ATTRIBUTION_START,env.ATTRIBUTION_END):[],
