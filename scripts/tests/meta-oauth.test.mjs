@@ -44,6 +44,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 const MFA_OK = async () => ({ ok: true }); // two-step check passes; its refusals: mfa-gate.test.mjs
+const INTEG_OK = () => ({ ok: true }); // first-party caller; the gate's own refusals: integration-gate.test.mjs
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
@@ -187,8 +188,8 @@ const post = (body, jwt) => new Request('https://x/functions/v1/meta-oauth-start
 
 await test('start: unconfigured, unsigned and non-admin callers record nothing', async () => {
   const db = startDb();
-  assert.equal((await createStartHandler({ checkMfa: MFA_OK, env: {}, admin: db })(post({ company_entity_id: CO }, 'jwt-admin'))).status, 503);
-  const h = createStartHandler({ checkMfa: MFA_OK, env: ENV, admin: db });
+  assert.equal((await createStartHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: {}, admin: db })(post({ company_entity_id: CO }, 'jwt-admin'))).status, 503);
+  const h = createStartHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db });
   assert.equal((await h(post({ company_entity_id: CO }, 'nope'))).status, 401);
   assert.equal((await h(post({ company_entity_id: CO }, 'jwt-member'))).status, 403);
   assert.equal((await h(post({ company_entity_id: CO, connection_id: 'c-other' }, 'jwt-admin'))).status, 404,
@@ -198,7 +199,7 @@ await test('start: unconfigured, unsigned and non-admin callers record nothing',
 
 await test('start: an admin gets the dialog URL and a meta_ads state', async () => {
   const db = startDb();
-  const res = await createStartHandler({ checkMfa: MFA_OK, env: ENV, admin: db })(post({ company_entity_id: CO }, 'jwt-admin'));
+  const res = await createStartHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db })(post({ company_entity_id: CO }, 'jwt-admin'));
   assert.equal(res.status, 200);
   const u = new URL((await res.json()).url);
   const st = db.tables.ad_platform_oauth_states[0];
@@ -353,14 +354,14 @@ const rv = (extra = {}) => ({ company_entity_id: CO, return_to: 'review_test', .
 
 await test('review start: unknown return_to, unset allow-list, outside workspace, inactive workspace, member -> no state', async () => {
   const db = reviewStartDb();
-  const h = createStartHandler({ checkMfa: MFA_OK, env: RENV, admin: db });
+  const h = createStartHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: RENV, admin: db });
   assert.equal((await h(post(rv({ return_to: 'https://evil' }), 'jwt-admin'))).status, 400);
-  assert.equal((await createStartHandler({ checkMfa: MFA_OK, env: ENV, admin: db })(post(rv(), 'jwt-admin'))).status, 503, 'no allow-list, no review mode');
-  assert.equal((await createStartHandler({ checkMfa: MFA_OK, env: { ...ENV, META_REVIEW_COMPANY_IDS: 'not-a-uuid' }, admin: db })(post(rv(), 'jwt-admin'))).status, 503,
+  assert.equal((await createStartHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: ENV, admin: db })(post(rv(), 'jwt-admin'))).status, 503, 'no allow-list, no review mode');
+  assert.equal((await createStartHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: { ...ENV, META_REVIEW_COMPANY_IDS: 'not-a-uuid' }, admin: db })(post(rv(), 'jwt-admin'))).status, 503,
     'a malformed allow-list narrows to nothing');
   assert.equal((await h(post(rv({ company_entity_id: OTHER }), 'jwt-admin'))).status, 403, 'an admin of a workspace NOT on the list (e.g. Baseballism)');
   assert.equal((await h(post(rv(), 'jwt-member'))).status, 403);
-  assert.equal((await createStartHandler({ checkMfa: MFA_OK, env: RENV, admin: reviewStartDb({ active: OTHER }) })(post(rv(), 'jwt-admin'))).status, 403,
+  assert.equal((await createStartHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: RENV, admin: reviewStartDb({ active: OTHER }) })(post(rv(), 'jwt-admin'))).status, 403,
     'the allow-listed workspace must be the caller\'s ACTIVE one');
   assert.equal((await h(post(rv({ connection_id: 'c-manual' }), 'jwt-admin'))).status, 404, 'a pasted-token row is never a review reconnect target');
   assert.equal((db.tables.ad_platform_oauth_states || []).length, 0);
@@ -369,7 +370,7 @@ await test('review start: unknown return_to, unset allow-list, outside workspace
 await test('review start: a review-only login configuration overrides the production one, and only there', async () => {
   const cfg = async (env, body) => {
     const db = reviewStartDb();
-    const res = await createStartHandler({ checkMfa: MFA_OK, env, admin: db })(post(body, 'jwt-admin'));
+    const res = await createStartHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env, admin: db })(post(body, 'jwt-admin'));
     assert.equal(res.status, 200);
     return new URL((await res.json()).url).searchParams.get('config_id');
   };
@@ -391,7 +392,7 @@ await test('review start: a review-only login configuration overrides the produc
 await test('review start: the state is rt_ + a full random uuid, stored like any other', async () => {
   for (const extra of [{}, { connection_id: 'c-review' }]) {
     const db = reviewStartDb();
-    const res = await createStartHandler({ checkMfa: MFA_OK, env: RENV, admin: db })(post(rv(extra), 'jwt-admin'));
+    const res = await createStartHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: RENV, admin: db })(post(rv(extra), 'jwt-admin'));
     assert.equal(res.status, 200);
     const st = db.tables.ad_platform_oauth_states[0];
     assert.match(st.nonce, /^rt_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
@@ -401,7 +402,7 @@ await test('review start: the state is rt_ + a full random uuid, stored like any
   }
   // Without return_to nothing changes: a plain uuid, as before.
   const db = reviewStartDb();
-  await createStartHandler({ checkMfa: MFA_OK, env: RENV, admin: db })(post({ company_entity_id: CO }, 'jwt-admin'));
+  await createStartHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, env: RENV, admin: db })(post({ company_entity_id: CO }, 'jwt-admin'));
   assert.match(db.tables.ad_platform_oauth_states[0].nonce, /^[0-9a-f-]{36}$/);
   assert.throws(() => M.reviewNonce('short'), /random uuid/);
   assert.equal(M.isReviewState('rt_x'), false);

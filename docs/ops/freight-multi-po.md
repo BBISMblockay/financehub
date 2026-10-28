@@ -60,6 +60,20 @@ What phase 1 does **not** do:
 - check that the shares saved across a shared invoice's POs add up to the invoice;
 - link requests to `po_headers` rows.
 
+## Update 2026-10-28: the booking now exists, so phase 2 should hang off it
+
+`20261028220000_shipment_bookings_and_po_arrival.sql` added `shipment_bookings`
+(a forwarder booking / container) with `incoming_shipments.booking_id`. A
+consolidated shipment is therefore now one row with one set of dates and a known
+set of POs, which is exactly what a shared forwarder invoice covers.
+
+So when phase 2 below is built, `payment_request_po_links` should carry a
+nullable `shipment_booking_id`: a deposit or invoice attaches to the **booking**,
+the booking already knows its POs and their units, and the split is proposed
+from that instead of being parsed out of `internal_po_number`. The four
+decisions below are unchanged and still needed first. Nothing in phase 1
+changed.
+
 ## Phase 2: link requests to POs and record the allocation (planned)
 
 ### Proposed shape (to confirm before writing the migration)

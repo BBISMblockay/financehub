@@ -2490,7 +2490,7 @@ function productPayloadFromForm(){
 function productPayloadFromPO(r){
   // factory_id is the real selection made on the PO -- carry it through
   // directly rather than only the factory_name text label.
-  return { product_title:r.product_title||'Incoming product', product_type:r.product_type||null, collection_name:r.collection_name||null, manufacturer:r.factory_name||null, vendor_name:r.factory_name||null, factory_id:r.factory_id||null, po_number:r.po_name||null, bulk_eta:r.expected_arrival_date||null, expected_units:r.total_units!=null?Number(r.total_units):null, readiness_status:'not_reviewed', product_shot_status:'not_started', copy_status:'not_started', notes:null };
+  return { product_title:r.product_title||'Incoming product', product_type:r.product_type||null, collection_name:r.collection_name||null, manufacturer:r.factory_name||null, vendor_name:r.factory_name||null, factory_id:r.factory_id||null, po_number:r.po_name||null, bulk_eta:r.effective_arrival_date||r.expected_arrival_date||null, expected_units:r.total_units!=null?Number(r.total_units):null, readiness_status:'not_reviewed', product_shot_status:'not_started', copy_status:'not_started', notes:null };
 }
 function productPayloadFromMaster(r){
   return { product_title:r.product_title||'Product', product_type:r.product_type||null, collection_name:null, manufacturer:r.vendor_original||null, vendor_name:r.vendor_original||null, po_number:null, bulk_eta:null, expected_units:null, readiness_status:'not_reviewed', product_shot_status:'not_started', copy_status:'not_started', notes:null };
@@ -2853,10 +2853,10 @@ async function searchPOProducts(q, opts={}){
   container.innerHTML=`<div class="bcn-empty">Searching…</div>`;
   const {data,error}=await db.from('v_launch_po_product_lookup').select('*')
     .or(`product_title.ilike.%${clean}%,po_name.ilike.%${clean}%,factory_name.ilike.%${clean}%`)
-    .order('expected_arrival_date',{ascending:true}).limit(30);
+    .order('effective_arrival_date',{ascending:true,nullsFirst:false}).limit(30);
   if(error||!data?.length){ container.innerHTML=`<div class="bcn-empty">${error?error.message:'No PO products found.'}</div>`; return; }
   container.innerHTML=data.map(row=>{
-    const meta=esc([row.po_name,row.product_type,row.factory_name,row.total_units?`${row.total_units} units`:null,row.expected_arrival_date?`ETA ${row.expected_arrival_date}`:null].filter(Boolean).join(' · '));
+    const meta=esc([row.po_name,row.product_type,row.factory_name,row.total_units?`${row.total_units} units`:null,row.effective_arrival_date||row.expected_arrival_date?`ETA ${row.effective_arrival_date||row.expected_arrival_date}${row.current_eta?' (shipments)':' (planned)'}`:null].filter(Boolean).join(' · '));
     const blob=esc(JSON.stringify(row));
     if(mode==='products') return `<div class="prod-lookup-hit"><div class="prod-lookup-hit-body"><div class="prod-lookup-hit-title">${esc(row.product_title||'Incoming product')}</div><div class="prod-lookup-hit-meta">${meta}</div></div><div class="prod-lookup-actions"><button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" data-quick-po="${blob}">ADD</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-fill-po="${blob}">EDIT FIRST</button></div></div>`;
     return `<div class="prod-lookup-hit" style="cursor:pointer;" data-pick-po="${blob}"><div class="prod-lookup-hit-body"><div class="prod-lookup-hit-title">${esc(row.product_title||'Incoming product')}</div><div class="prod-lookup-hit-meta">${meta}</div></div></div>`;
@@ -2919,7 +2919,7 @@ function renderPoLinkStatus(){
   }
 }
 function applyProductToShell(r){ $('productTitleInput').value=r.product_title||''; $('productTypeInput').value=r.product_type||''; $('vendorInput').value=r.vendor_original||''; $('skuInput').value=r.sample_sku||''; if(!$('titleInput').value)$('titleInput').value=r.product_title||''; if(r.image_url&&!$('imageInput').value){$('imageInput').value=r.image_url;showImgPreview(r.image_url);} $('lookupBox').style.display='none'; }
-function applyPOToProductForm(r){ openProductForm(null); pendingProductSource={kind:'po',raw:r}; $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.factory_name||''; $('prodPo').value=r.po_name||''; $('prodEta').value=r.expected_arrival_date||''; $('prodUnits').value=r.total_units??''; $('prodLookupResults').innerHTML=''; }
+function applyPOToProductForm(r){ openProductForm(null); pendingProductSource={kind:'po',raw:r}; $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.factory_name||''; $('prodPo').value=r.po_name||''; $('prodEta').value=r.effective_arrival_date||r.expected_arrival_date||''; $('prodUnits').value=r.total_units??''; $('prodLookupResults').innerHTML=''; }
 function applyProductToProductForm(r){ openProductForm(null); pendingProductSource={kind:'master',raw:r}; $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.vendor_original||''; $('prodLookupResults').innerHTML=''; }
 
 </script>

@@ -1022,3 +1022,86 @@ body.po-report-page.v2-mirror--po .silo-main {
 
 .po-rpt-table--products { min-width: 850px; }
 .po-rpt-table--lines { min-width: 1400px; }
+
+/* Shipment overview keeps related fields together and long references readable. */
+.po-shipment-heading, .po-shipment-heading > div { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.po-shipment-heading { justify-content: space-between; }
+.po-shipment-toolbar { display: flex; flex-direction: row; align-items: end; gap: 16px; flex-wrap: wrap; }
+.po-shipment-toolbar .bcn-field-group:first-child { flex: 1 1 320px; }
+.po-shipment-toolbar .bcn-field-group { min-width: 200px; }
+.po-shipment-summary { display: flex; gap: 6px; flex-wrap: wrap; padding-bottom: 4px; }
+.po-shipment-help { padding-top: 0; color: var(--bcn-ink-2); font-size: 12px; }
+.po-shipment-help p { margin: 0 0 8px; }
+.po-shipment-help summary, .po-rpt-table--shipments summary { cursor: pointer; }
+.po-rpt-table--shipments { min-width: 1080px; }
+table.po-rpt-table--shipments th:not(.bcn-num) { text-align: left; }
+table.po-rpt-table--shipments td { vertical-align: top; white-space: normal; }
+.po-shipment-secondary { color: var(--bcn-ink-3); font-size: 11px; margin-top: 6px; }
+.po-shipment-tracking { margin-top: 6px; overflow-wrap: anywhere; max-width: 220px; }
+.po-shipment-product { margin-top: 8px; max-width: 260px; }
+table.po-rpt-table--shipments td.po-shipment-notes { min-width: 140px; max-width: 260px; overflow-wrap: anywhere; white-space: pre-line; }
+@media (max-width: 600px) {
+  .po-shipment-heading .bcn-btn { width: 100%; }
+  .po-shipment-toolbar .bcn-field-group { flex: 1 1 100%; min-width: 0; }
+}
+
+/* ── Freight bookings (2026-10-28) ──────────────────────────────────────
+   A booking is the container several POs ride on. In the shipment drawer it
+   sits between the shipment's own dates and its product picker, because the
+   booking is what those dates come from once one is attached. */
+
+.po-ship-booking {
+  margin: 4px 0 12px;
+  padding: 10px;
+  border: 1px solid var(--bcn-border, #e2e8f0);
+  border-radius: var(--bcn-radius-sm, 8px);
+  background: var(--bcn-sunken, #f8fafc);
+}
+
+.po-ship-booking-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.po-ship-booking-row .po-ship-field-label { margin-bottom: 0; }
+.po-ship-booking-row .bcn-field { flex: 1 1 200px; min-width: 0; }
+
+.po-ship-booking-note {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--bcn-ink-2, #475569);
+}
+
+.po-ship-booking-new {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--bcn-border, #e2e8f0);
+}
+
+.po-ship-booking-new-foot {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.po-booking-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+.po-rpt-table--bookings td { vertical-align: top; }
+.po-rpt-table--bookings .bcn-field { width: 100%; min-width: 120px; }
+
+/* The PO card's "Shipments say" step: the state and the slip under the date. */
+.po-tl-note {
+  display: block;
+  margin-left: 14px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--bcn-ink-3, #94a3b8);
+}
+
+.po-rpt-pill--warn {
+  border-color: var(--bcn-warn, #d97706);
+  color: var(--bcn-warn, #d97706);
+}

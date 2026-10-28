@@ -181,6 +181,7 @@ import {
 } from './provider-lib.mjs';
 import { buildReportsSection, normalizeReports, prepareReportRun, resolveReport, shapeReportResult } from './silo-reports-lib.mjs';
 import { SiloReportParams } from './report-params-lib.mjs';
+import { checkIntegrationToken } from './integration-gate.mjs';
 
 const TOOLS = [
   {
@@ -1304,6 +1305,16 @@ Deno.serve(withKeepAlive(async (req: Request) => {
     });
     const { data: userData, error: userErr } = await callerClient.auth.getUser();
     if (userErr || !userData?.user) return reply({ error: 'Not authenticated' }, 401);
+
+    // Third-party tokens (20261020030000). Ask SILO is a first-party surface:
+    // the integration role holds no EXECUTE on chat_run_readonly_query and the
+    // pre-request hook refuses every path but the report RPC, so a developer
+    // token already loses here -- but this function also does work of its own
+    // (credit metering, the audit log, the answer row) before any of that, and
+    // the service-role client below never meets the hook at all. Refuse the
+    // token outright instead. See supabase/functions/CLAUDE.md.
+    const integ = checkIntegrationToken(req.headers.get('Authorization'));
+    if (!integ.ok) return reply({ error: integ.message, code: integ.code }, integ.status);
 
     const body = await req.json();
     ({ history } = body);

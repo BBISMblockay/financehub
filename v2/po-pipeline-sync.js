@@ -115,7 +115,8 @@
   /**
    * Decide what to write. Pure: no I/O.
    *
-   *   po         { id, po_name, factory_id, factory_name, expected_arrival_date }
+   *   po         { id, po_name, factory_id, factory_name, expected_arrival_date,
+   *                effective_arrival_date }
    *   totals     productTotals(lines) -- EVERY product on the PO
    *   trackers   the company's product_tracker rows
    *   create     who may be created or claimed (see mayCreate)
@@ -140,7 +141,10 @@
     var fills = {
       factory_id: hasText(p.factory_id) ? p.factory_id : null,
       manufacturer: hasText(p.factory_name) ? String(p.factory_name).trim() : null,
-      bulk_eta: hasText(p.expected_arrival_date) ? String(p.expected_arrival_date).slice(0, 10) : null,
+      // The shipments' ETA where the PO has one, its plan otherwise: a launch
+      // seeded from a PO should carry the date the stock actually lands.
+      bulk_eta: hasText(p.effective_arrival_date) ? String(p.effective_arrival_date).slice(0, 10)
+        : hasText(p.expected_arrival_date) ? String(p.expected_arrival_date).slice(0, 10) : null,
     };
 
     var onPo = new Set();

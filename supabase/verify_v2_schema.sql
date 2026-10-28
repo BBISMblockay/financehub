@@ -1136,6 +1136,47 @@ select
     else 'ok'
   end as incoming_shipment_audit;
 
+-- 34c. Freight bookings above the shipment, and the single arrival date
+--      (migration 20261028220000)
+select
+  case
+    when not exists (select 1 from information_schema.tables
+                     where table_schema='public' and table_name='shipment_bookings')
+      then 'MISSING — run 20261028220000_shipment_bookings_and_po_arrival.sql'
+    when not exists (select 1 from information_schema.columns
+                     where table_schema='public' and table_name='incoming_shipments' and column_name='booking_id')
+      then 'MISSING — incoming_shipments.booking_id'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='v_po_arrival')
+      then 'MISSING — v_po_arrival view (plan, current ETA, variance per PO)'
+    when not exists (select 1 from information_schema.views
+                     where table_schema='public' and table_name='v_shipment_booking_summary')
+      then 'MISSING — v_shipment_booking_summary view'
+    when (select count(*) from information_schema.columns
+          where table_schema='public' and table_name='v_po_incoming_summary'
+            and column_name in ('current_eta','effective_arrival_date','arrival_variance_days','arrival_state','shipment_count','status_conflicts_with_shipments')) <> 6
+      then 'MISSING — v_po_incoming_summary has not gained the arrival columns'
+    when (select count(*) from information_schema.columns
+          where table_schema='public' and table_name in ('v_po_header_summary','v_po_open_planning_lines','v_launch_po_product_lookup')
+            and column_name = 'current_eta') <> 3
+      then 'MISSING — one of the shared PO views has not gained current_eta'
+    when not exists (select 1 from pg_trigger
+                     where tgname='zz_incoming_shipments_booking_company' and not tgisinternal)
+      then 'MISSING — the cross-company booking guard trigger'
+    when (select count(*) from pg_policies
+          where schemaname='public' and tablename='shipment_bookings') < 4
+      then 'MISSING — shipment_bookings RLS policies'
+    when not exists (select 1 from pg_trigger
+                     where tgrelid='public.shipment_bookings'::regclass
+                       and tgname='stamp_company_entity_id' and not tgisinternal)
+      then 'MISSING — shipment_bookings company stamp trigger'
+    when (select count(*) from public.silo_chat_saved_reports
+          where id = 'c1000000-0000-4000-a000-000000000002'
+            and queries_run[1] like '%effective_arrival_date%') <> 1
+      then 'MISSING — the overdue PO report still measures lateness against the plan alone'
+    else 'ok'
+  end as shipment_bookings_and_arrival;
+
 -- 35. factories.country (migration 20260818220000) — powers the PO Report shipment map
 select
   case
@@ -7580,4 +7621,58 @@ select 'developer API period tokens' as check_name, case
    then 'CRITICAL: report dates no longer resolve in the company''s calendar'
   when pg_get_functiondef(to_regprocedure('public.silo_api_substitute(text,jsonb,jsonb)')) like '%regexp_replace(v_out, v_ph%'
    then 'CRITICAL: a parameter literal is substituted with regexp_replace, which interprets backslash escapes in its replacement'
+  else 'ok' end as status;
+-- The idle half of the connection lifetime (20261028070000). The expiry above
+-- bounds a connection somebody is still using; this retires one nobody is. It
+-- is asserted the same way: as INVARIANTS of the live definitions, because the
+-- way this breaks is quietly -- a predicate dropped from one of the three
+-- places that has to carry it, or the touch reachable from outside the
+-- wrapper, and nothing anywhere says so.
+select 'developer API idle window' as check_name, case
+  when to_regprocedure('public.silo_api_idle_window()') is null
+   then 'MISSING — run supabase/migrations/20261028070000_developer_api_idle_disconnect.sql'
+  when to_regprocedure('public.silo_api_touch_grant()') is null
+   then 'MISSING — silo_api_touch_grant'
+  when public.silo_api_idle_window() <> interval '30 days'
+   then 'BROKEN — the idle window is ' || public.silo_api_idle_window()::text || ', not the 30 days policy says'
+
+  -- coalesce(last_used_at, consented_at), both halves. `last_used_at > ...`
+  -- alone makes a never-used grant unusable the moment it is created;
+  -- `last_used_at is null or ...` makes it immortal. Opposite mistakes, one
+  -- correct expression, so the expression itself is what is asserted.
+  when pg_get_functiondef(to_regprocedure('public.silo_api_grant()'))
+       not like '%coalesce(g.last_used_at, g.consented_at) > now() - public.silo_api_idle_window()%'
+   then 'CRITICAL: silo_api_grant() no longer applies the idle window, so an abandoned connection keeps working'
+  when (select count(*) from regexp_matches(
+          pg_get_functiondef(to_regprocedure('public.silo_api_access_token_hook(jsonb)')),
+          'coalesce\(last_used_at, consented_at\) > now\(\) - public\.silo_api_idle_window\(\)', 'g')) <> 2
+   then 'CRITICAL: the access-token hook does not apply the idle window to BOTH of its grant lookups'
+
+  -- The order inside the wrapper is the safety argument: the touch is called
+  -- after a scope check that resolves through silo_api_grant(), so a grant
+  -- that has gone idle is refused before the write that would revive it.
+  when strpos(pg_get_functiondef(to_regprocedure('public.silo_api_run_report(uuid,jsonb,integer,integer)')),
+              'silo_api_touch_grant()') = 0
+   then 'CRITICAL: silo_api_run_report() no longer records use, so nothing ever moves last_used_at'
+  when strpos(pg_get_functiondef(to_regprocedure('public.silo_api_run_report(uuid,jsonb,integer,integer)')),
+              'silo_api_touch_grant()')
+     < strpos(pg_get_functiondef(to_regprocedure('public.silo_api_run_report(uuid,jsonb,integer,integer)')),
+              'silo_api_require_scope(''reports:read'')')
+   then 'CRITICAL: the use is recorded BEFORE the scope check, so a refused request extends the connection it was refused for'
+  -- and the touch's own keying, which is the independent second guard: each of
+  -- these alone is enough, and the harness proves it takes both to break.
+  when pg_get_functiondef(to_regprocedure('public.silo_api_touch_grant()'))
+       not like '%public.silo_api_grant()%'
+   then 'CRITICAL: silo_api_touch_grant() is not keyed to the live grant, so it can write to an unusable one'
+
+  -- The token's role holds EXECUTE on the wrapper and nothing else. The touch
+  -- is reached THROUGH the wrapper, whose owner is silo_api_exec.
+  when has_function_privilege('silo_integration', 'public.silo_api_touch_grant()', 'execute')
+    or has_function_privilege('silo_revoked', 'public.silo_api_touch_grant()', 'execute')
+    or has_function_privilege('authenticated', 'public.silo_api_touch_grant()', 'execute')
+    or has_function_privilege('anon', 'public.silo_api_touch_grant()', 'execute')
+   then 'CRITICAL: silo_api_touch_grant() is executable outside the API wrapper'
+  when not has_function_privilege('silo_api_exec', 'public.silo_api_touch_grant()', 'execute')
+   then 'BROKEN — the wrapper''s owner cannot record use; every API request will fail'
+
   else 'ok' end as status;

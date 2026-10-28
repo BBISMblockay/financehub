@@ -36,6 +36,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import vm from 'node:vm';
 const MFA_OK = async () => ({ ok: true }); // two-step check passes; its refusals: mfa-gate.test.mjs
+const INTEG_OK = () => ({ ok: true }); // first-party caller; the gate's own refusals: integration-gate.test.mjs
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
@@ -304,7 +305,7 @@ const post = (body, jwt = 'jwt1') => new Request('https://x/functions/v1/shopify
 });
 
 await test('claim: sign-in required, malformed claims refused, unknown claims expired', async () => {
-  const h = createClaimHandler({ checkMfa: MFA_OK, admin: claimDb() });
+  const h = createClaimHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, admin: claimDb() });
   assert.equal((await h(post({ action: 'peek', claim: CLAIM }, 'nobody'))).status, 401);
   assert.equal((await h(post({ action: 'peek', claim: 'short' }))).status, 400);
   assert.equal((await h(post({ action: 'drop', claim: CLAIM }))).status, 400);
@@ -312,7 +313,7 @@ await test('claim: sign-in required, malformed claims refused, unknown claims ex
 });
 
 await test('claim: peek lists only workspaces this person may connect, with the plan for each', async () => {
-  const h = createClaimHandler({ checkMfa: MFA_OK, admin: claimDb() });
+  const h = createClaimHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, admin: claimDb() });
   const res = await h(post({ action: 'peek', claim: CLAIM }));
   assert.equal(res.status, 200);
   const body = await res.json();
@@ -322,7 +323,7 @@ await test('claim: peek lists only workspaces this person may connect, with the 
 
 await test('claim: a workspace the person does not administer never reaches the database', async () => {
   const db = claimDb();
-  const h = createClaimHandler({ checkMfa: MFA_OK, admin: db });
+  const h = createClaimHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, admin: db });
   const res = await h(post({ action: 'claim', claim: CLAIM, company_entity_id: coB }));
   assert.equal(res.status, 403);
   assert.equal(db.log.some((e) => e[0] === 'rpc'), false, 'the claim RPC was not called');
@@ -330,7 +331,7 @@ await test('claim: a workspace the person does not administer never reaches the 
 
 await test('claim: a good claim calls the RPC with the hash, never the token', async () => {
   const db = claimDb();
-  const h = createClaimHandler({ checkMfa: MFA_OK, admin: db });
+  const h = createClaimHandler({ checkMfa: MFA_OK, checkIntegration: INTEG_OK, admin: db });
   const res = await h(post({ action: 'claim', claim: CLAIM, company_entity_id: coA }));
   assert.equal(res.status, 200);
   assert.equal((await res.json()).outcome, 'connected');

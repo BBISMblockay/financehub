@@ -366,14 +366,16 @@
       const weekEnd = addDaysIso(today, 7);
       let poRows = [];
       try {
-        let _q = db.from('v_po_incoming_summary').select('id,status,expected_arrival_date,po_name').limit(2000);
+        let _q = db.from('v_po_incoming_summary').select('id,status,expected_arrival_date,effective_arrival_date,po_name').limit(2000);
         if (_co?.id) _q = _q.eq('company_entity_id', _co.id);
         const { data, error } = await _q;
         if (error) throw error;
         poRows = data || [];
       } catch (e) { return; }
       const open = poRows.filter(r => OPEN.includes(r.status));
-      const arriving = open.filter(r => { const d = r.expected_arrival_date; return d && d >= today && d <= weekEnd; });
+      // The shipments' own ETA where one is logged, the PO's plan otherwise --
+      // "arriving this week" has to mean the week it will actually arrive.
+      const arriving = open.filter(r => { const d = r.effective_arrival_date || r.expected_arrival_date; return d && d >= today && d <= weekEnd; });
       if (open.length > 0) {
         pushFeedItem(items, { kind: 'po_open', title: `${open.length} open incoming PO${open.length === 1 ? '' : 's'}`, detail: 'Review receiving on PO Report.', href: '/v2/po-report.html', severity: open.length > 8 ? 'warn' : 'info', count: open.length });
       }
