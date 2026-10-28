@@ -46,9 +46,10 @@ multi-order conflict; repeat artifacts; receipt collision; old publisher before/
 enrichment; unknown Order nodes; API budget exhaustion; no credential-refresh calls;
 staged digest and scope validation; partial failure followed by resume.
 
-Live gates: recheck Shopify granted scopes and old-order samples; measure rate/cost,
-high-volume-day capacity and real PostgreSQL multi-session lock ordering; inspect
-staged samples against Shopify. No claim of complete YTD coverage until every expected
+Execution gates: inspect the first approved staged historical window for exact code
+coverage, rate/cost and high-volume-day capacity. Existing sync evidence already
+proves historical Shopify access; no standalone sampling pipeline is needed. The
+maintenance runner rechecks live identity/scopes as part of its normal preflight. No claim of complete YTD coverage until every expected
 day and unresolved order is accounted for. See the CLI usage and verification below.
 
 
@@ -74,7 +75,10 @@ reconciled day or at most 100 code observations. The printed SHA-256 identifies
 exact bytes for review. Existing days are skipped in day mode; code mode explicitly
 reports absent days. Unknown/inaccessible orders remain null observations. Stage
 never writes Supabase, including credentials or sync_jobs. Existing stage files
-are checked for scope and resumed without overwriting or re-fetching.
+are checked for scope, complete batch candidate IDs and coverage of currently missing
+observations, then resumed without overwriting or re-fetching. A changed cohort stops
+with an explicit restage instruction. Complete artifacts are published atomically from
+private temporary files; interrupted partial files are ignored.
 
 For an approved apply, set `ATTRIBUTION_APPEND_MODE=apply`,
 `ATTRIBUTION_STAGE_FILE` and `ATTRIBUTION_STAGE_SHA256`, keeping the explicit company,
@@ -131,15 +135,24 @@ or browser privilege is introduced. It extends the live sync_jobs allowlist and
 adds a service-only RPC plus a trigger. Run the dedicated attribution schema
 verifier and general verifier after an approved migration apply.
 
-## Verification limits
+## Independent review and real PostgreSQL verification
 
-Synthetic PGlite tests exercise actual migration SQL, role denial, tenant checks,
-atomic rollback, preserved fields, idempotent receipts and publisher-before/after
-interleavings. They do not simulate separate PostgreSQL backends. Before release,
-run two sessions against an isolated PostgreSQL database: pause the normal publisher
-while holding its day lock; start append, release, and verify it skips/conflicts
-without replacement. Reverse the order; test shared-order updates across different
-days, disconnect during apply, and timeout/deadlock replay. This is a release gate.
+Independent review found two P2 recovery defects: changed candidate cohorts could be
+silently skipped on resume, and interrupted writes could leave a truncated final
+artifact. Both are fixed with regressions: full candidate coverage checks and atomic
+non-overwriting artifact publication. The corrective independent review passed with
+no further blocker. The reviewer confirmed this is maintenance orchestration around
+the unchanged collector, not another ongoing report-specific Shopify sync.
+
+The standalone `scripts/tests/shopify-attribution-append-concurrency.py` owns a
+network-less PostgreSQL 17 Docker container with temporary storage, no host ports,
+no production credentials and automatic cleanup. It runs real simultaneous sessions,
+observes their PostgreSQL lock waits, and verifies publisher-first and append-first
+ordering, shared-order/different-day races, concurrent receipt replay, unique-key
+races, disconnect during apply, lock timeout/replay, conflicting code rollback, and
+a deliberately forced publisher/append deadlock with safe replay. All nine scenarios
+passed on PostgreSQL 17.11 on 2026-10-28. Test containers were removed.
+The image is pinned by digest. This test is also included in Attribution tests CI.
 No live Shopify collection, production migration, deploy or backfill has run.
 
 Local verification on 2026-10-28: additive CLI and database suites passed; existing
@@ -154,3 +167,27 @@ requires an unwritable home directory; the timestamped migration was authored
 locally under the repository convention. Supabase changelog access also failed
 (403 / unsupported markdown response); implementation uses existing repository SQL
 patterns, validated by the local database harness, with live deployment unverified.
+
+## Existing Shopify evidence reused (2026-10-28 read-only assessment)
+
+No new Shopify probe or workflow was dispatched. Production SELECTs establish:
+
+- Main-store `orders_backfill` run `fb4e1613-e52d-4ccb-87ad-5d47adcccd32`
+  succeeded October 6: July 7–October 5, 76,229 orders fetched/upserted.
+- Run `d2859cfe-39a8-4191-a998-d4b1675f4b4c` succeeded August 18:
+  May 20–August 18, 90,577 orders fetched/upserted.
+- Existing attribution evidence contains five orders captured more than 60 days
+  after creation with actual discount-code arrays. Earliest is July 11 order
+  `6537757687878`, fetched October 27. Latest such capture is October 28.
+  All five arrays are empty: measured no-code evidence, not missing evidence.
+- The October 28 discount-code aggregate sync succeeded with 2,461 rows and 2,120
+  distinct codes over 30 requested days. Three days hit its top-200 cap. This is
+  useful ingestion evidence, but the aggregate is not a complete order-level source.
+
+These records establish functioning ingestion and older-order access. They do not
+establish the missing January–June `discountCodes` values, full YTD ledger coverage,
+or the throughput of this exact historical journey collection. The first approved
+bounded stage will establish those specific facts; repeating generic access probes
+adds no useful evidence. Ongoing capture remains in the existing `fetchJourney` /
+attribution sync pipeline already shipped in PR #1031. This CLI is targeted repair
+and replay tooling only; no production schedule or report-specific sync was added.

@@ -1,6 +1,6 @@
 // Explicit stage/apply CLI. Never imports token refresh or the replacement publisher.
 import {createHash,randomUUID} from 'node:crypto';
-import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,link,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {collectDay,dayRange,sanitizeDiscountCodes} from './lib/shopify-attribution-evidence.mjs';
@@ -12,6 +12,13 @@ import {allocationWindows} from '../v2/silo-attribution-model.js';
 class AppendError extends Error {}
 const uuid=/^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i;
 export const digest=text=>createHash('sha256').update(text).digest('hex');
+// Publish a complete checkpoint atomically without replacing an existing artifact.
+// Interrupted private temporary files are never considered resumable checkpoints.
+export async function atomicStage(file,bytes,{write=writeFile,publish=link,remove=unlink}={}) {
+ const temp=file+'.partial-'+randomUUID();
+ try {await write(temp,bytes,{flag:'wx',mode:0o600});await publish(temp,file);}
+ finally {await remove(temp).catch(()=>{});}
+}
 export function config(env) {
  const mode=env.ATTRIBUTION_APPEND_MODE||'stage',kind=env.ATTRIBUTION_APPEND_KIND||'codes';
  if(!['stage','apply'].includes(mode)||!['codes','day'].includes(kind))throw new AppendError('Invalid append mode/kind');
@@ -27,7 +34,7 @@ export function config(env) {
 }
 const checked=async q=>{const {data,error}=await q;if(error)throw new AppendError('Database operation failed');return data;};
 export async function runAppend(env,{createClient,gql=shopifyGraphql,ql=shopifyql,fetcher=fetchWithRetry,
- read=readFile,write=writeFile,makeDir=mkdir,now=()=>Date.now(),log=console.log}={}) {
+ read=readFile,write=writeFile,stageFile=atomicStage,makeDir=mkdir,now=()=>Date.now(),log=console.log}={}) {
  const cfg=config(env),started=now();let requests=0;
  // Validate file BEFORE credentials, including exact scope, version and age.
  let artifact;
@@ -71,19 +78,21 @@ export async function runAppend(env,{createClient,gql=shopifyGraphql,ql=shopifyq
  if(cfg.days.some(d=>d>=today))throw new AppendError('Only complete store-local days may be staged');
  const catalog=kind==='day'?await loadCatalog(db,cfg.company):null;
  const staged=[];
- const resume=async(label,day)=>{
+ const resume=async(label,day,candidates=null,missing=[])=>{
   let bytes;
   try{bytes=await read(join(cfg.dir,label+'.json'),'utf8');}catch(e){if(e.code==='ENOENT')return false;throw e;}
   const saved=JSON.parse(bytes);
   if(saved.version!==1||saved.company!==cfg.company||saved.connection!==cfg.connection||saved.domain!==cfg.domain
     ||saved.payload?.kind!==kind||saved.payload.day!==day)throw new AppendError('Existing stage scope conflict');
+  if(candidates&&(JSON.stringify(saved.payload.candidate_ids)!==JSON.stringify(candidates)
+    ||missing.some(id=>!saved.payload.orders.some(o=>o.order_id===id))))throw new AppendError('Stage candidate coverage changed; restage in a fresh directory');
   const receipt={mode:'resumed_stage',file:join(cfg.dir,label+'.json'),sha256:digest(bytes),day};
   staged.push(receipt);log(JSON.stringify(receipt));return true;
  };
  const save=async(payload,label)=>{
   const value={version:1,company:cfg.company,connection:cfg.connection,domain:cfg.domain,run_id:randomUUID(),payload};
   const bytes=JSON.stringify(value)+'\n',file=join(cfg.dir,label+'.json');
-  await write(file,bytes,{flag:'wx',mode:0o600});
+  await stageFile(file,bytes);
   const receipt={mode:'staged',file,sha256:digest(bytes),kind:payload.kind,day:payload.day,orders:payload.orders.length,requests};
   staged.push(receipt);log(JSON.stringify(receipt));
  };
@@ -99,9 +108,9 @@ export async function runAppend(env,{createClient,gql=shopifyGraphql,ql=shopifyq
    if(!snapshot){log(JSON.stringify({day,status:'missing_day_requires_day_stage'}));continue;}
    const ids=[...new Set(snapshot.ledger.map(l=>l.order_id))].sort();
    for(let offset=0;offset<ids.length;offset+=100) {
-    if(await resume(day+'-codes-'+ids[offset],day))continue;
     const rows=await checked(db.from('shopify_attribution_orders').select('order_id,evidence').eq('company_entity_id',cfg.company).eq('connection_id',cfg.connection).in('order_id',ids.slice(offset,offset+100)).order('order_id'));
     if(rows.length!==Math.min(100,ids.length-offset))throw new AppendError('Missing ledger evidence row');
+    if(await resume(day+'-codes-'+ids[offset],day,ids.slice(offset,offset+100),rows.filter(r=>r.evidence?.order?.discountCodes==null).map(r=>r.order_id)))continue;
     const orders=[];
     for(const row of rows) {
      if(row.evidence?.order?.discountCodes!=null)continue; // including malformed non-null: never overwrite it
@@ -110,7 +119,7 @@ export async function runAppend(env,{createClient,gql=shopifyGraphql,ql=shopifyq
      if(data.order?.id!=='gid://shopify/Order/'+row.order_id||!Array.isArray(data.order.discountCodes)||data.order.discountCodes.some(x=>typeof x!=='string'))throw new AppendError('Invalid Shopify code evidence');
      orders.push({order_id:row.order_id,discount_codes:sanitizeDiscountCodes(data.order.discountCodes)});
     }
-    if(orders.length)await save({kind:'codes',day,collected_at:new Date(now()).toISOString(),orders},day+'-codes-'+ids[offset]);
+    if(orders.length)await save({kind:'codes',day,collected_at:new Date(now()).toISOString(),candidate_ids:ids.slice(offset,offset+100),orders},day+'-codes-'+ids[offset]);
    }
   }
  }
