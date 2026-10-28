@@ -29,6 +29,10 @@
     .po-header-card--collapsed .bcn-card-body { display: none; }
     #btnToggleHeader { color: rgba(255,255,255,.7); border-color: rgba(255,255,255,.2); font-size: 11px; height: 28px; padding: 0 10px; }
     #btnToggleHeader:hover { color: #fff; background: rgba(255,255,255,.1); }
+
+    /* What the shipments say about arrival, beside the planned date. */
+    .po-arrival-hint { margin-top: 4px; font-size: 10px; line-height: 1.4; color: var(--bcn-ink-3); }
+    .po-arrival-hint--late { color: var(--bcn-warn); }
   </style>
 </head>
 <body class="v2-mirror--po">
@@ -154,6 +158,10 @@
               <div class="bcn-field-group">
                 <label class="bcn-label">Expected arrival</label>
                 <input id="expectedArrivalDate" class="bcn-field bcn-field--mono" type="date" />
+                <!-- What the shipments logged on this PO say, from v_po_arrival
+                     through v_po_header_summary. Read-only on purpose: this
+                     field stays the PLAN, and the gap is the signal. -->
+                <div id="arrivalFromShipments" class="po-arrival-hint" hidden></div>
               </div>
               <div class="bcn-field-group">
                 <label class="bcn-label">Date bucket</label>
@@ -375,7 +383,7 @@
     const el = {
       poList: document.getElementById('poList'), poCount: document.getElementById('poCount'), poSearch: document.getElementById('poSearch'), poStatusFilter: document.getElementById('poStatusFilter'), poFactoryFilter: document.getElementById('poFactoryFilter'),
       btnRefresh: document.getElementById('btnRefresh'), btnNewPO: document.getElementById('btnNewPO'), btnToggleHeader: document.getElementById('btnToggleHeader'), btnSaveHeader: document.getElementById('btnSaveHeader'), btnGeneratePdf: document.getElementById('btnGeneratePdf'), btnDuplicatePO: document.getElementById('btnDuplicatePO'), btnAddCatalogLine: document.getElementById('btnAddCatalogLine'), btnBulkSku: document.getElementById('btnBulkSku'), btnImportLines: document.getElementById('btnImportLines'), btnAddManualLine: document.getElementById('btnAddManualLine'),
-      detailTitle: document.getElementById('detailTitle'), detailStatusWrap: document.getElementById('detailStatusWrap'), poName: document.getElementById('poName'), factoryId: document.getElementById('factoryId'), orderDate: document.getElementById('orderDate'), reqShipDate: document.getElementById('reqShipDate'), expectedArrivalDate: document.getElementById('expectedArrivalDate'), dateBucket: document.getElementById('dateBucket'), status: document.getElementById('status'), wholesaleTriggered: document.getElementById('wholesaleTriggered'), isNewProductPO: document.getElementById('isNewProductPO'), notes: document.getElementById('notes'), internalNotes: document.getElementById('internalNotes'),
+      detailTitle: document.getElementById('detailTitle'), detailStatusWrap: document.getElementById('detailStatusWrap'), poName: document.getElementById('poName'), factoryId: document.getElementById('factoryId'), orderDate: document.getElementById('orderDate'), reqShipDate: document.getElementById('reqShipDate'), expectedArrivalDate: document.getElementById('expectedArrivalDate'), arrivalFromShipments: document.getElementById('arrivalFromShipments'), dateBucket: document.getElementById('dateBucket'), status: document.getElementById('status'), wholesaleTriggered: document.getElementById('wholesaleTriggered'), isNewProductPO: document.getElementById('isNewProductPO'), notes: document.getElementById('notes'), internalNotes: document.getElementById('internalNotes'),
       kpiUnits: document.getElementById('kpiUnits'), kpiRetail: document.getElementById('kpiRetail'), kpiCost: document.getElementById('kpiCost'), kpiLanded: document.getElementById('kpiLanded'), linesTbody: document.getElementById('linesTbody'),
       catalogModal: document.getElementById('catalogModal'), catalogSearch: document.getElementById('catalogSearch'), btnSearchCatalog: document.getElementById('btnSearchCatalog'), btnAddSelectedCatalog: document.getElementById('btnAddSelectedCatalog'), catalogResults: document.getElementById('catalogResults'),
       manualModal: document.getElementById('manualModal'), manualProductType: document.getElementById('manualProductType'), manualTitle: document.getElementById('manualTitle'), manualVariant: document.getElementById('manualVariant'), manualSku: document.getElementById('manualSku'), manualUpc: document.getElementById('manualUpc'), manualBarcode: document.getElementById('manualBarcode'), manualRetail: document.getElementById('manualRetail'), manualCost: document.getElementById('manualCost'), manualQty: document.getElementById('manualQty'), manualNotes: document.getElementById('manualNotes'), btnSaveManualLine: document.getElementById('btnSaveManualLine'), btnSaveManualAnother: document.getElementById('btnSaveManualAnother'),
@@ -552,9 +560,35 @@
       }).join('');
     }
 
+    // The arrival the shipments imply, shown beside the planned date rather
+    // than written into it. `po` is a v_po_header_summary row when the PO came
+    // from the list, and a bare po_headers row straight after an insert -- in
+    // which case there are no shipments yet and there is nothing to show.
+    function renderArrivalFromShipments(po){
+      const hint = el.arrivalFromShipments;
+      if(!hint) return;
+      const count = Number(po?.shipment_count || 0);
+      if(!count || !po?.current_eta){
+        hint.hidden = true;
+        hint.textContent = '';
+        hint.classList.remove('po-arrival-hint--late');
+        return;
+      }
+      const slip = po.arrival_variance_days == null ? null : Number(po.arrival_variance_days);
+      const slipText = slip == null || !Number.isFinite(slip)
+        ? ''
+        : slip === 0 ? ' · on plan'
+        : slip > 0 ? ` · ${slip} day${slip === 1 ? '' : 's'} later than planned`
+        : ` · ${Math.abs(slip)} day${Math.abs(slip) === 1 ? '' : 's'} earlier than planned`;
+      hint.textContent = `Shipments say ${po.current_eta}${slipText} (${count} shipment${count === 1 ? '' : 's'} logged). This field stays the plan.`;
+      hint.hidden = false;
+      hint.classList.toggle('po-arrival-hint--late', Number.isFinite(slip) && slip > 0);
+    }
+
     function fillEditor(po){
       el.poName.value=po.po_name||''; el.factoryId.value=po.factory_id||''; el.orderDate.value=po.order_date||''; el.reqShipDate.value=po.req_ship_date||''; el.expectedArrivalDate.value=po.expected_arrival_date||''; el.dateBucket.value=po.date_bucket||''; el.status.value=po.status||'Draft'; el.wholesaleTriggered.checked=!!po.wholesale_triggered; el.isNewProductPO.checked=!!po.is_new_product_po; el.notes.value=po.notes||''; el.internalNotes.value=po.internal_notes||'';
       el.detailTitle.textContent=po.po_name||'Untitled PO';
+      renderArrivalFromShipments(po);
       syncContextBar(po);
       el.kpiUnits.textContent=Number(po.total_units||0).toLocaleString();
       el.kpiRetail.textContent=money(po.total_retail_value||0);
@@ -568,6 +602,7 @@
       state.currentPO=null; state.currentLines=[]; state.costingCtx=null;
       el.poName.value=''; el.factoryId.value=''; el.orderDate.value=todayStr(); el.reqShipDate.value=plusDaysStr(45);
       el.expectedArrivalDate.value=''; el.dateBucket.value=''; el.status.value='Draft';
+      renderArrivalFromShipments(null);
       el.wholesaleTriggered.checked=false; el.isNewProductPO.checked=false;
       el.notes.value=''; el.internalNotes.value='';
       el.detailTitle.textContent='New purchase order';

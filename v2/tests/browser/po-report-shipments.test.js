@@ -55,15 +55,31 @@ function parseCsv(csv) {
       return route.abort();
     });
     await page.addInitScript(() => {
-      const po = { id: 'p1', po_name: 'Autumn PO', status: 'Approved', factory_name: 'Factory A', expected_arrival_date: '2026-11-01', date_bucket: 'Fall' };
+      // The arrival columns are what v_po_incoming_summary serves now: the
+      // PO's own plan, plus what its shipments say, plus the gap.
+      const po = { id: 'p1', po_name: 'Autumn PO', status: 'Approved', factory_name: 'Factory A',
+        expected_arrival_date: '2026-11-01', date_bucket: 'Fall',
+        current_eta: '2027-01-01', effective_arrival_date: '2027-01-01', arrival_variance_days: 61,
+        arrival_state: 'in_transit', shipment_count: 4, status_conflicts_with_shipments: false };
       const line = { po_header_id: 'p1', po_line_id: 'l1', product_title: 'Cap', sku: 'CAP', qty: 100, status: 'Approved' };
       window.fixture = {
-        v_po_incoming_summary: [po, { ...po, id: 'p2', po_name: 'Closed PO', status: 'Received' }],
+        v_po_incoming_summary: [po, { ...po, id: 'p2', po_name: 'Closed PO', status: 'Received',
+          current_eta: null, effective_arrival_date: '2026-11-01', arrival_variance_days: null,
+          arrival_state: 'in_transit', shipment_count: 1, status_conflicts_with_shipments: true }],
         v_po_incoming_lines: [line, { ...line, po_line_id: 'l2', product_title: 'Tee', sku: 'TEE', qty: 20 }],
         factories: [],
+        v_shipment_booking_summary: [
+          { booking_id: 'b1', booking_ref: 'BK-1042', forwarder: 'Flexport', mode: 'Ocean',
+            container_ref: 'MSKU7654321', etd: '2026-12-02', eta: '2026-12-20', ata: null,
+            effective_eta: '2026-12-20', status: 'Booked', po_count: 2, shipment_count: 2,
+            po_names: 'Autumn PO, Closed PO', assigned_units: 100, notes: null },
+          { booking_id: 'b2', booking_ref: 'BK-EMPTY', forwarder: null, mode: null, container_ref: null,
+            etd: null, eta: null, ata: null, effective_eta: null, status: 'Draft', po_count: 0,
+            shipment_count: 0, po_names: null, assigned_units: 0, notes: null },
+        ],
         incoming_shipments: [
-          { id: 's1', po_header_id: 'p1', carrier: 'Ocean Carrier', tracking_number: 'TRACK-1', shipment_status: 'Delayed', eta: '2027-01-01', notes: '<img src=x onerror=alert(1)>' },
-          { id: 's2', po_header_id: 'p1', tracking_number: 'TRACK-2' },
+          { id: 's1', po_header_id: 'p1', carrier: 'Ocean Carrier', tracking_number: 'TRACK-1', shipment_status: 'Delayed', eta: '2027-01-01', booking_id: null, notes: '<img src=x onerror=alert(1)>' },
+          { id: 's2', po_header_id: 'p1', tracking_number: 'TRACK-2', booking_id: 'b1', eta: '2027-06-06' },
           { id: 's3', po_header_id: 'p1' },
           { id: 's4', po_header_id: 'p1' },
           { id: 's5', po_header_id: 'p2' },
@@ -78,9 +94,10 @@ function parseCsv(csv) {
       };
       window.__SILO_CONFIG__ = { SUPABASE_URL: 'https://fixture.test', SUPABASE_ANON_KEY: 'fixture' };
       window.supabase = { createClient: () => ({ from(table) {
-        let payload, op = 'select', ids;
+        let payload, op = 'select', ids, single = false;
         const query = {
           select() { return query; }, order() { return query; },
+          single() { single = true; return query; },
           insert(value) { op = 'insert'; payload = value; return query; },
           update(value) { op = 'update'; payload = value; return query; },
           delete() { op = 'delete'; return query; },
@@ -90,8 +107,13 @@ function parseCsv(csv) {
             let rows = window.fixture[table];
             if(op === 'update') rows.filter(r => ids.includes(r.id)).forEach(r => Object.assign(r, payload));
             if(op === 'delete') window.fixture[table] = rows = rows.filter(r => !ids.includes(r.id));
-            if(op === 'insert') rows.push(...[payload].flat().map((r, i) => ({ id: 'new-' + rows.length + i, ...r })));
-            return Promise.resolve({ data: JSON.parse(JSON.stringify(rows)), error: null }).then(resolve);
+            let inserted = [];
+            if(op === 'insert') {
+              inserted = [payload].flat().map((r, i) => ({ id: 'new-' + rows.length + i, ...r }));
+              rows.push(...inserted);
+            }
+            const out = single ? (inserted[0] || rows[0] || null) : rows;
+            return Promise.resolve({ data: JSON.parse(JSON.stringify(out ?? null)), error: null }).then(resolve);
           }
         };
         return query;
@@ -108,7 +130,12 @@ function parseCsv(csv) {
     assert.match(await row('s3').textContent(), /No lines assigned/);
     assert.equal(await row('s4').locator('[data-shipment-units]').textContent(), '20*');
     assert.equal(await page.locator('#shipmentTbody img').count(), 0);
-    await page.fill('#arrivalTo', '2026-12-01'); // PO date, not shipment ETA
+    // "Arriving before" now means the date it will ACTUALLY arrive: this PO is
+    // planned for 2026-11-01 but its shipments say 2027-01-01, so a cut-off of
+    // 2026-12-01 excludes it. Before 2026-10-28 the stale plan let it through.
+    await page.fill('#arrivalTo', '2026-12-01');
+    assert.equal(await page.locator('#shipmentTableCount').textContent(), '0');
+    await page.fill('#arrivalTo', '2027-01-31');
     assert.equal(await page.locator('#shipmentTableCount').textContent(), '4');
     await page.selectOption('#statusFilter', 'Approved');
     assert.equal(await page.locator('#shipmentTableCount').textContent(), '4');
@@ -143,7 +170,20 @@ function parseCsv(csv) {
     assert.equal(exported[3].quantity_basis, 'includes full PO line defaults');
     assert.equal(exported[3].includes_inferred_quantities, 'yes');
     assert.equal(exported[1].shipment_status, '');
-    assert.equal(exported[1].eta, '');
+    // s2 is on booking BK-1042, so the BOOKING's dates are the ones it travels
+    // on -- its own ETA is kept in the file but is not what is used anywhere.
+    assert.equal(exported[1].eta, '2027-06-06');
+    assert.equal(exported[1].booking_ref, 'BK-1042');
+    assert.equal(exported[1].forwarder, 'Flexport');
+    assert.equal(exported[1].container_ref, 'MSKU7654321');
+    assert.equal(exported[1].effective_eta, '2026-12-20');
+    assert.equal(exported[1].dates_from, 'booking');
+    assert.equal(exported[0].booking_ref, '');
+    assert.equal(exported[0].effective_eta, '2027-01-01', 'no booking: the shipment\u2019s own ETA');
+    assert.equal(exported[0].dates_from, 'shipment');
+    assert.equal(exported[0].po_planned_arrival, '2026-11-01');
+    assert.equal(exported[0].po_current_eta, '2027-01-01');
+    assert.equal(exported[0].po_arrival_variance_days, '61');
     for(const [query, expected] of [['Autumn', 4], ['Factory A', 4], ['ocean', 1], ['TRACK-2', 1], ['Cap', 2], ['TEE', 2]]) {
       await page.fill('#shipmentSearch', query);
       assert.equal(await page.locator('#searchInput').inputValue(), query);
@@ -208,7 +248,11 @@ function parseCsv(csv) {
     exported = await exportRows();
     assert.equal(exported.find(r => r.shipment_id === 's3').units, '');
     assert.equal(exported.find(r => r.shipment_id === 's3').quantity_basis, 'unknown');
+    // "Arriving from" reads the same effective date: 2027-01-01 is exactly when
+    // the shipments say this PO lands, so it is still in; a month later is not.
     await page.fill('#arrivalFrom', '2027-01-01');
+    assert.equal(await page.locator('#btnExportShipments').isDisabled(), false);
+    await page.fill('#arrivalFrom', '2027-02-01');
     assert.equal(await page.locator('#btnExportShipments').isDisabled(), true);
     await page.fill('#arrivalFrom', '');
     await page.setViewportSize({ width: 390, height: 844 });

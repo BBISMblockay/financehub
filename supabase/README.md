@@ -330,6 +330,7 @@ supabase/
     20260818190000_sample_pps_full_run_received.sql
     20260818200000_sample_received_transition_within_family.sql
     20260818210000_incoming_shipment_lines.sql
+    20261028220000_shipment_bookings_and_po_arrival.sql
     20260818220000_factories_country.sql
     20260820130000_sales_by_day_trgm_search_indexes.sql
     20260820140000_inventory_on_hand_trgm_search_indexes.sql
@@ -2980,3 +2981,40 @@ destination permission and duplicate-approval gates remain enforced. Apply befor
 static/worker release; no Edge change or new secret. Live policy/schema checks
 and authorized synthetic-company acceptance remain rollout gates. See
 `docs/ops/on-deck-review-action.md` for verification and rollback.
+
+## Freight bookings and one arrival date — `20261028220000`
+
+Adds `shipment_bookings` (a forwarder booking / container) and
+`incoming_shipments.booking_id`, so a consolidated container carrying several
+POs is one object with one set of dates instead of a row per PO with the dates
+re-typed. `container_ref` was set on 0 of 13 production shipments, so nothing
+had to be migrated into it.
+
+Adds `v_po_arrival`: per PO, `planned_arrival` (the PO's own typed date),
+`current_eta` (the latest ETA across its shipments and their bookings, actual
+arrival winning over estimate), `effective_arrival_date` (current ETA falling
+back to the plan — the one to display and sort by), `arrival_variance_days`,
+a dates-first `arrival_state` and `status_conflicts_with_shipments`. Those
+columns are appended to `v_po_incoming_summary`, `v_po_header_summary`,
+`v_po_open_planning_lines` and `v_launch_po_product_lookup`, and
+`v_po_shipment_lines` gains the booking and the effective dates. No existing
+view column is renamed, retyped or reordered, and `po_headers` is never
+written: the plan stays the plan and the variance is the signal.
+
+`v_po_open_planning_lines.planning_date` and `month_key` now prefer the
+shipments' ETA, and the three logistics reports (`c1000000-…-0002/0003/0004`)
+measure arrival against `effective_arrival_date` instead of the plan alone —
+their two tie-outs are rebuilt accordingly and a third is added for the
+booking join. Dashboard tiles that listed `expected_arrival_date` gain
+`current_eta` and `arrival_state` beside it. Blake approved the re-baseline on
+2026-10-28 ("we aren't utilizing dates properly so not worried about the
+re baseline").
+
+RLS on `shipment_bookings` matches `incoming_shipments` exactly (company-scoped
+read and write, admin-only delete), plus a trigger that refuses to pair a
+shipment with another company's booking even for a service-role write.
+Deleting a booking sets its shipments' `booking_id` to NULL and never deletes
+them. Re-run `refresh_chat_schema_catalog()` after applying (the migration does
+it). Verified by the "Freight bookings above the shipment" check in
+`verify_v2_schema.sql` and by
+`scripts/tests/shipment-booking-arrival-database.test.mjs`.
