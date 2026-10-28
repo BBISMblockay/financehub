@@ -2978,3 +2978,5 @@ destination permission and duplicate-approval gates remain enforced. Apply befor
 static/worker release; no Edge change or new secret. Live policy/schema checks
 and authorized synthetic-company acceptance remain rollout gates. See
 `docs/ops/on-deck-review-action.md` for verification and rollback.
+
+**Additive attribution history (not applied):** `20261028205139_attribution_additive_history.sql` adds a service-only append RPC, atomic `sync_jobs` receipts, and protection for backfilled codes against concurrent normal publication. Apply separately after the attribution evidence migrations; like those migrations it is deliberately outside the repository-wide rebuild (which lacks the prerequisite tables). No new table or client grant. Run `verify_attribution_schema.sql` after approved apply. See `docs/ops/attribution-additive-history.md`.

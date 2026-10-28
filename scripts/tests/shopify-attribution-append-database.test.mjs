@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {PGlite} from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
+const db=new PGlite();
+await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;
+create table entities(id uuid primary key);
+create table shopify_connections(id uuid primary key,company_entity_id uuid,shop_domain text,is_active boolean,sync_enabled boolean);
+create function active_company_id() returns uuid language sql as $$select nullif(current_setting('test.company',true),'')::uuid$$;
+create function attach_stamp_company_entity_id_triggers() returns void language sql as $$select$$;
+create table sync_jobs(id uuid primary key,company_entity_id uuid,connection_id uuid,job_type text constraint sync_jobs_job_type_check check(job_type=any(array['test_connection'::text])),status text,params jsonb,result jsonb,started_at timestamptz,finished_at timestamptz);
+grant select,update on shopify_connections to service_role;grant all on sync_jobs to service_role;`);
+await db.exec(await readFile(new URL('../../supabase/migrations/20261007014722_silo_attribution_evidence.sql',import.meta.url),'utf8'));
+let sql=await readFile(new URL('../../supabase/migrations/20261028205139_attribution_additive_history.sql',import.meta.url),'utf8');
+if(process.env.APPEND_MUTATION==='tenant')sql=sql.replace('c.company_entity_id<>p_company or ','');
+if(process.env.APPEND_MUTATION==='revenue')sql=sql.replace("n is distinct from (p_payload->>'net_cents')::bigint or t is distinct from (p_payload->>'total_cents')::bigint","false");
+if(process.env.APPEND_MUTATION==='protect')sql=sql.replace("if old.evidence ? 'discount_codes_backfill' then","if false then");
+await db.exec(sql);await db.exec(sql);
+const co='00000000-0000-0000-0000-000000000001',other='00000000-0000-0000-0000-000000000002',conn='00000000-0000-0000-0000-000000000003';
+await db.query('insert into entities values($1),($2)',[co,other]);
+await db.query("insert into shopify_connections values($1,$2,'test.myshopify.com',true,true)",[conn,co]);
+let sequence=10;
+const run=()=>`00000000-0000-0000-0000-${String(sequence++).padStart(12,'0')}`;
+const stamp='2026-01-03T00:00:00Z';
+const evidence=(id,codes)=>({order:{id:'gid://shopify/Order/'+id,customerJourneySummary:{ready:true},...(codes===undefined?{}:{discountCodes:codes})},allocations:{30:{channel:'Original'}},raw:{tracking:{utm_source:'original'}}});
+const day=(id='1',codes)=>({kind:'day',day:'2026-01-01',currency:'USD',timezone:'UTC',collected_at:stamp,ledger:[{order_id:id,net_cents:100,total_cents:120}],orders:[{order_id:id,evidence:evidence(id,codes)}],net_cents:100,total_cents:120});
+const codes=(id,value)=>({kind:'codes',collected_at:stamp,orders:[{order_id:id,discount_codes:value}]});
+const append=(payload,id=run(),company=co)=>db.query('select append_shopify_attribution($1,$2,$3,$4,$5::jsonb) result',[company,conn,'test.myshopify.com',id,JSON.stringify(payload)]);
+const snapshot=async()=>({orders:(await db.query('select * from shopify_attribution_orders order by order_id')).rows,days:(await db.query('select * from shopify_attribution_days order by day')).rows});
+await db.exec('set role service_role');
+await assert.rejects(append(day(),run(),other),/scope/);
+await assert.rejects(append({...day(),net_cents:101}),/Revenue/);
+const first=run();assert.equal((await append(day(),first)).rows[0].result.days_inserted,1);
+assert.deepEqual((await append(day(),first)).rows[0].result,(await append(day(),first)).rows[0].result);
+await assert.rejects(append(day('2'),first),/receipt conflict/);
+const before=await snapshot();
+assert.equal((await append(day('1',['NEW']))).rows[0].result.status,'existing_day');
+assert.deepEqual(await snapshot(),before,'existing day is not a covert evidence refresh');
+await assert.rejects(append({...day(),ledger:[{order_id:'1',net_cents:200,total_cents:120}],net_cents:200}),/day conflict/);
+assert.deepEqual(await snapshot(),before);
+assert.equal((await append(codes('1',null))).rows[0].result.codes_unavailable,1);
+assert.deepEqual(await snapshot(),before,'unknown stays unknown');
+assert.equal((await append(codes('1',[]))).rows[0].result.codes_filled,1);
+let after=await snapshot();
+assert.equal(after.orders[0].fetched_at.getTime(),before.orders[0].fetched_at.getTime());
+assert.deepEqual(after.orders[0].evidence.allocations,before.orders[0].evidence.allocations);
+assert.deepEqual(after.days,before.days);
+assert.equal((await append(codes('1',[]))).rows[0].result.codes_preserved,1);
+await assert.rejects(append(codes('1',['DIFFERENT'])),/code conflict/);
+for(const value of ['wrong',[null],['x'.repeat(129)]])await assert.rejects(append(codes('1',value)),/Invalid code/);
+await assert.rejects(append({kind:'codes',collected_at:stamp,orders:Array(101).fill({order_id:'1',discount_codes:[]})}),/bounds/);
+// Missing day reuses existing evidence verbatim, except filling missing codes.
+assert.equal((await append({...day('1',[]),day:'2026-01-02'})).rows[0].result.orders_inserted,0);
+assert.deepEqual((await snapshot()).orders,after.orders);
+// Late conflict rolls back earlier inserted evidence and the day, including receipt.
+const conflict={...day('2',['X']),day:'2026-01-03',ledger:[{order_id:'2',net_cents:100,total_cents:120},{order_id:'1',net_cents:0,total_cents:0}],orders:[{order_id:'2',evidence:evidence('2',['X'])},{order_id:'1',evidence:evidence('1',['CONFLICT'])}]};
+const safe=await snapshot();await assert.rejects(append(conflict),/code conflict/);assert.deepEqual(await snapshot(),safe);
+// Existing publisher still works, but cannot erase a code captured during its fetch.
+let publishDay=5;
+const publish=(ev)=>db.query('select publish_shopify_attribution_day($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9)',[conn,'2026-01-01','USD','UTC',JSON.stringify(day().ledger),JSON.stringify([{order_id:'1',evidence:ev}]),100,120,`2026-01-${String(publishDay++).padStart(2,'0')}T00:00:00Z`]);
+await publish(evidence('1'));
+assert.deepEqual((await snapshot()).orders[0].evidence.order.discountCodes,[],'concurrent old publisher retains codes');
+await assert.rejects(publish(evidence('1',['CONFLICT'])),/code conflict/);
+// Non-backfilled existing code arrays (including empty) are immutable to append.
+await db.query('insert into shopify_attribution_orders values($1,$2,$3,$4::jsonb,$5)',[co,conn,'3',JSON.stringify(evidence('3',['A'])),stamp]);
+await assert.rejects(append(codes('3',[])),/code conflict/);
+const late={...day('2',['X']),day:'2026-01-03',ledger:[{order_id:'2',net_cents:100,total_cents:120},{order_id:'3',net_cents:0,total_cents:0}],orders:[{order_id:'2',evidence:evidence('2',['X'])},{order_id:'3',evidence:evidence('3',['CONFLICT'])}]};
+const preLate=await snapshot();await assert.rejects(append(late),/code conflict/);assert.deepEqual(await snapshot(),preLate,'new order inserted earlier in transaction must roll back');
+await db.query('insert into shopify_attribution_orders values($1,$2,$3,$4::jsonb,$5)',[co,conn,'4',JSON.stringify(evidence('4',null)),stamp]);
+assert.equal((await append(codes('4',['FILLED']))).rows[0].result.codes_filled,1,'JSON null is missing, not empty');
+const unknownDay={...day('5'),day:'2026-01-04'};
+assert.equal((await append(unknownDay)).rows[0].result.codes_unavailable,1);
+// A normal publisher that wins first leaves evidence append cannot replace.
+await db.query('insert into shopify_attribution_orders values($1,$2,$3,$4::jsonb,$5)',[co,conn,'6',JSON.stringify(evidence('6',['FIRST'])),stamp]);
+await assert.rejects(append({...day('6',['SECOND']),day:'2026-01-05'}),/code conflict/);
+for(const role of ['anon','authenticated']){
+ await db.exec('reset role;set role '+role);
+ await assert.rejects(append(codes('1',[])),/permission denied/);
+}
+await db.exec('reset role;set role authenticated');
+await db.query("select set_config('test.company',$1,false)",[other]);
+assert.equal((await db.query('select * from shopify_attribution_orders')).rows.length,0);
+await db.close();console.log('Additive attribution database: isolation, preservation, rollback, replay, publisher interleavings passed');
