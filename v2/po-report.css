@@ -1022,3 +1022,5 @@ body.po-report-page.v2-mirror--po .silo-main {
 
 .po-rpt-table--products { min-width: 850px; }
 .po-rpt-table--lines { min-width: 1400px; }
+
+.po-rpt-table--shipments { min-width: 1500px; }

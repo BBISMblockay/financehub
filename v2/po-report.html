@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="po-workbench.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
-  <link rel="stylesheet" href="po-report.css?v=20261006-filters" />
+  <link rel="stylesheet" href="po-report.css?v=20261028-shipments" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="silo-chrome.js"></script>
@@ -74,7 +74,7 @@
           <div class="po-report-filters-grid">
             <div class="po-report-field po-report-field--search">
               <label class="bcn-label" for="searchInput">Search</label>
-              <input id="searchInput" class="bcn-field" type="search" placeholder="PO, factory, product, SKU…" autocomplete="off" />
+              <input id="searchInput" class="bcn-field" type="search" placeholder="PO, product, SKU, carrier, tracking…" autocomplete="off" />
             </div>
             <div class="po-report-field">
               <label class="bcn-label" for="statusFilter">Status</label>
@@ -165,6 +165,9 @@
           <button class="bcn-tab po-report-tab" type="button" data-tab="lines">
             Line detail <span class="po-report-tab-count" id="lineTableCount">0</span>
           </button>
+          <button class="bcn-tab po-report-tab" type="button" data-tab="shipments">
+            Shipments <span class="po-report-tab-count" id="shipmentTableCount">0</span>
+          </button>
         </nav>
 
         <!-- PO Summary panel -->
@@ -195,6 +198,23 @@
                   </tr>
                 </thead>
                 <tbody id="productTbody"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <!-- Shipment-level view of the existing logged records -->
+        <div class="po-report-panel" data-panel="shipments">
+          <section class="bcn-card">
+            <header class="bcn-card-header"><span class="bcn-pill">SHIPMENTS</span><h2>Logged shipments</h2></header>
+            <div class="bcn-card-body">
+              <p>One row per logged shipment; status and dates are manually recorded, not live tracking. Scope, status, factory, bucket and arrival filters above apply to the PO, not shipment status or ETA. KPI totals remain PO totals.</p>
+              <p>Search matches PO details, shipment carrier, tracking, notes or assigned products. Units use assigned quantities; blank quantities use the full PO line quantity (marked *). Split shipments are shown separately. Unassigned or unavailable quantities show —.</p>
+            </div>
+            <div class="bcn-matrix-scroll">
+              <table class="bcn-table po-rpt-table po-rpt-table--shipments">
+                <thead><tr><th>PO / shipment</th><th>Factory</th><th>Shipment status</th><th>Carrier</th><th>Tracking</th><th>Ship date</th><th>ETA</th><th>Received</th><th>Assigned products</th><th class="bcn-num">Units</th><th>Notes</th></tr></thead>
+                <tbody id="shipmentTbody"></tbody>
               </table>
             </div>
           </section>
@@ -476,6 +496,8 @@
       poTbody: document.getElementById('poTbody'),
       productTbody: document.getElementById('productTbody'),
       lineTbody: document.getElementById('lineTbody'),
+      shipmentTbody: document.getElementById('shipmentTbody'),
+      shipmentTableCount: document.getElementById('shipmentTableCount'),
 
       poTableCount: document.getElementById('poTableCount'),
       productTableCount: document.getElementById('productTableCount'),
@@ -688,6 +710,7 @@
       state.shipments = shipData || [];
       state.shipmentLines = shipLineData || [];
       renderShipmentMap();
+      applyFilters();
     }
 
     function shipmentsForPO(poId){
@@ -986,9 +1009,12 @@
         ? new Set(state.lineRows.filter(l => rowHaystack(l).includes(q)).map(l => String(l.po_header_id)))
         : null;
 
+      const matchingShipmentPOIds = new Set(state.shipments
+        .filter(s => shipmentHaystack(s).includes(q)).map(s => String(s.po_header_id)));
+
       state.filteredPOs = state.poRows.filter(row => {
         const hay = rowHaystack(row);
-        return (!q || hay.includes(q) || matchingLinePOIds.has(String(row.id)))
+        return (!q || hay.includes(q) || matchingLinePOIds.has(String(row.id)) || matchingShipmentPOIds.has(String(row.id)))
           && (!status || row.status === status)
           && (!factory || row.factory_name === factory)
           && (!bucket || row.date_bucket === bucket)
@@ -1010,6 +1036,51 @@
       renderPOTable();
       renderProductTable();
       renderLineTable();
+      renderShipmentTable();
+    }
+
+    function shipmentHaystack(shipment){
+      return [shipment.carrier, shipment.tracking_number, shipment.shipment_status, shipment.notes].join(' ').toLowerCase();
+    }
+
+    function renderShipmentTable(){
+      const q = el.searchInput.value.trim().toLowerCase();
+      const pos = new Map(state.filteredPOs.map(po => [String(po.id), po]));
+      const lines = new Map(state.lineRows.map(line => [String(line.po_line_id), line]));
+      const rows = state.shipments.flatMap(shipment => {
+        const po = pos.get(String(shipment.po_header_id));
+        if(!po) return [];
+        const assignments = shipmentLinesFor(shipment.id).map(assignment => {
+          const candidate = lines.get(String(assignment.po_line_id));
+          // Never borrow a quantity or product from a different PO.
+          const line = candidate && String(candidate.po_header_id) === String(po.id) ? candidate : null;
+          return { assignment, line };
+        });
+        if(q && !rowHaystack(po).includes(q) && !shipmentHaystack(shipment).includes(q)
+          && !assignments.some(({ line }) => line && rowHaystack(line).includes(q))) return [];
+        return [{ shipment, po, assignments }];
+      });
+      el.shipmentTableCount.textContent = rows.length.toLocaleString();
+      el.shipmentTbody.innerHTML = rows.length ? rows.map(({ shipment: s, po, assignments }) => {
+        let units = 0, unknown = false, inferred = false;
+        const products = assignments.map(({ assignment, line }) => {
+          const value = assignment.qty ?? line?.qty;
+          if(value == null || value === '' || !Number.isFinite(Number(value))) unknown = true;
+          else units += Number(value);
+          if(assignment.qty == null && line?.qty != null) inferred = true;
+          return escapeHtml(line ? [line.product_title, line.variant_title, line.sku].filter(Boolean).join(' · ') || 'Untitled line' : 'Line details unavailable');
+        });
+        const quantity = !assignments.length || unknown ? '—' : units.toLocaleString() + (inferred ? '*' : '');
+        return `<tr>
+          <td><button class="bcn-btn bcn-btn--ghost" type="button" data-ship-po="${escapeHtml(po.id)}">${escapeHtml(po.po_name || 'Untitled PO')}</button><div class="bcn-mono">${escapeHtml(s.id)}</div></td>
+          <td>${escapeHtml(po.factory_name || '—')}</td>
+          <td>${s.shipment_status ? statusBadge(s.shipment_status) : '—'}</td>
+          <td>${escapeHtml(s.carrier || '—')}</td><td class="bcn-mono">${escapeHtml(s.tracking_number || '—')}</td>
+          <td>${dateLabel(s.ship_date)}</td><td>${dateLabel(s.eta)}</td><td>${dateLabel(s.received_date)}</td>
+          <td>${products.length ? products.join('<br>') : 'No lines assigned'}</td>
+          <td class="bcn-num">${quantity}</td><td>${escapeHtml(s.notes || '—')}</td>
+        </tr>`;
+      }).join('') : '<tr class="po-rpt-table-empty"><td colspan="11">No logged shipments match the current PO filters and search. Open a PO to log a shipment.</td></tr>';
     }
 
     function buildProductRollup(lines){
@@ -1430,7 +1501,9 @@
         if(error) throw error;
         const idx = state.shipments.findIndex(s => String(s.id) === String(id));
         if(idx >= 0) state.shipments[idx] = { ...state.shipments[idx], ...payload };
-        if(field === 'shipment_status'){ renderShipDrawer(); renderLineTable(); }
+        if(field === 'shipment_status') renderShipDrawer();
+        renderShipmentMap();
+        applyFilters();
       }catch(e){
         console.error(e);
         showShipError(e.message || 'Failed to save — reverting');
@@ -1522,6 +1595,7 @@
         if(error) throw error;
         const idx = state.shipmentLines.findIndex(sl => String(sl.id) === String(id));
         if(idx >= 0) state.shipmentLines[idx] = { ...state.shipmentLines[idx], ...payload };
+        applyFilters();
       }catch(e){
         console.error(e);
         showShipError(e.message || 'Failed to save qty');
@@ -1538,6 +1612,11 @@
 
     document.addEventListener('keydown', (e) => {
       if(e.key === 'Escape' && state.shipDrawerPoId) closeShipDrawer();
+    });
+
+    el.shipmentTbody.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-ship-po]');
+      if(btn) openShipDrawer(btn.dataset.shipPo);
     });
 
     el.poTbody.addEventListener('click', (e) => {
