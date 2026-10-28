@@ -18,9 +18,20 @@
 -- with a random suffix, so there is no list to maintain. The same caveat as the
 -- main report applies: a campaign code named RE-SOMETHING would be counted here.
 --
--- `distinct` in the scope CTE is load-bearing. silo_attribution_ledger_v holds
--- one row per order PER attribution window; window_days is bound by parameter,
--- but the distinct also protects the channel totals from any future duplicate.
+-- Two things the grain demands, both found in review:
+--
+-- The view is a DAY ledger. One order appears once per day it carries money, so
+-- a sale and a later refund are separate rows (31 such orders in the last week).
+-- Counting rows would call that two orders, and de-duplicating on the values
+-- would silently drop a refund that happens to equal another. So the day rows
+-- are SUMMED per order first, in per_order, and only then counted.
+--
+-- The match is over the whole `discount_codes` array, not the scalar
+-- `discount_code`, which is only the FIRST code applied. An order carrying a
+-- campaign code first and an RE- code second would otherwise be missing from
+-- the Redo count while still sitting in the channel denominator, understating
+-- the share. `bool_or(exists ...)` collapses to one boolean per order, so the
+-- array is never left exploded at the final sum, which would multiply revenue.
 
 insert into public.silo_chat_saved_reports
   (id, company_entity_id, created_by, title, description, source, visibility, queries_run, parameters)
@@ -35,21 +46,28 @@ values (
   array[$q$with params as (
   select least({{report_end}}::date, (now() at time zone 'America/Los_Angeles')::date - 1) as report_end,
          greatest({{period_days}}::integer, 1) as period_days
-), scope as (
-  select distinct l.order_id, l.channel, l.net_cents, l.discount_code
+), day_rows as (
+  select l.order_id, l.channel, l.net_cents, l.discount_codes
   from public.silo_attribution_ledger_v l, params p
   where l.window_days = {{attribution_window}}::integer
     and l.day between p.report_end - (p.period_days - 1) and p.report_end
+), per_order as (
+  select d.order_id, d.channel,
+         sum(d.net_cents) as net_cents,
+         bool_or(exists (select 1 from jsonb_array_elements_text(coalesce(d.discount_codes, '[]'::jsonb)) c(code)
+                         where c.code ilike 'RE-%')) as has_redo_code
+  from day_rows d
+  group by d.order_id, d.channel
 )
-select s.channel as "Channel",
-       count(*) filter (where s.discount_code ilike 'RE-%') as "Orders with a Redo code",
-       round(sum(s.net_cents) filter (where s.discount_code ilike 'RE-%') / 100.0, 2) as "Net on those orders",
-       round(sum(s.net_cents) / 100.0, 2) as "Channel net (all orders)",
-       round(100.0 * coalesce(sum(s.net_cents) filter (where s.discount_code ilike 'RE-%'), 0)
-             / nullif(sum(s.net_cents), 0), 1) as "% of channel net"
-from scope s
+select o.channel as "Channel",
+       count(*) filter (where o.has_redo_code) as "Orders with a Redo code",
+       round(sum(o.net_cents) filter (where o.has_redo_code) / 100.0, 2) as "Net on those orders",
+       round(sum(o.net_cents) / 100.0, 2) as "Channel net (all orders)",
+       round(100.0 * coalesce(sum(o.net_cents) filter (where o.has_redo_code), 0)
+             / nullif(sum(o.net_cents), 0), 1) as "% of channel net"
+from per_order o
 group by 1
-having count(*) filter (where s.discount_code ilike 'RE-%') > 0
+having count(*) filter (where o.has_redo_code) > 0
 order by 3 desc nulls last$q$],
   $p$[
     {"key":"report_end","type":"date","label":"Through date (defaults to yesterday)","default":"today-1d"},
