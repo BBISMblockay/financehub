@@ -117,10 +117,18 @@ function parseCsv(csv) {
       assert.equal(await page.locator('#shipmentTableCount').textContent(), expected, query);
     }
     await page.fill('#searchInput', '');
+    let lastExportAt = 0;
     const exportRows = async () => {
-      const downloadPromise = page.waitForEvent('download');
-      await page.click('#btnExportShipments');
-      const download = await downloadPromise;
+      // Chromium drops rapid download bursts (reproduced at export 11). Fast CI
+      // reaches that limit while slower local runs do not. Pace actual clicks,
+      // retaining the native download event and byte-level CSV assertions.
+      const delay = Math.max(0, 200 - (Date.now() - lastExportAt));
+      if(delay) await new Promise(resolve => setTimeout(resolve, delay));
+      lastExportAt = Date.now();
+      const [download] = await Promise.all([
+        page.waitForEvent('download'),
+        page.click('#btnExportShipments'),
+      ]);
       assert.equal(download.suggestedFilename(), 'incoming-shipments.csv');
       return parseCsv(fs.readFileSync(await download.path(), 'utf8'));
     };
