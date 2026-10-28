@@ -1023,4 +1023,24 @@ body.po-report-page.v2-mirror--po .silo-main {
 .po-rpt-table--products { min-width: 850px; }
 .po-rpt-table--lines { min-width: 1400px; }
 
-.po-rpt-table--shipments { min-width: 1500px; }
+/* Shipment overview keeps related fields together and long references readable. */
+.po-shipment-heading, .po-shipment-heading > div { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.po-shipment-heading { justify-content: space-between; }
+.po-shipment-toolbar { display: flex; flex-direction: row; align-items: end; gap: 16px; flex-wrap: wrap; }
+.po-shipment-toolbar .bcn-field-group:first-child { flex: 1 1 320px; }
+.po-shipment-toolbar .bcn-field-group { min-width: 200px; }
+.po-shipment-summary { display: flex; gap: 6px; flex-wrap: wrap; padding-bottom: 4px; }
+.po-shipment-help { padding-top: 0; color: var(--bcn-ink-2); font-size: 12px; }
+.po-shipment-help p { margin: 0 0 8px; }
+.po-shipment-help summary, .po-rpt-table--shipments summary { cursor: pointer; }
+.po-rpt-table--shipments { min-width: 1080px; }
+table.po-rpt-table--shipments th:not(.bcn-num) { text-align: left; }
+table.po-rpt-table--shipments td { vertical-align: top; white-space: normal; }
+.po-shipment-secondary { color: var(--bcn-ink-3); font-size: 11px; margin-top: 6px; }
+.po-shipment-tracking { margin-top: 6px; overflow-wrap: anywhere; max-width: 220px; }
+.po-shipment-product { margin-top: 8px; max-width: 260px; }
+table.po-rpt-table--shipments td.po-shipment-notes { min-width: 140px; max-width: 260px; overflow-wrap: anywhere; white-space: pre-line; }
+@media (max-width: 600px) {
+  .po-shipment-heading .bcn-btn { width: 100%; }
+  .po-shipment-toolbar .bcn-field-group { flex: 1 1 100%; min-width: 0; }
+}
