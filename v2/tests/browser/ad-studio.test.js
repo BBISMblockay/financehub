@@ -45,7 +45,32 @@ const IDEAS = [
     baseline_ad_ids: ['101'], live_ad_ids: ['101'], updated_at: '2026-09-26T00:00:00Z',
     baseline_snapshot: { objective: 'purchase', metric: 'roas', value: 4, data_through: '2026-09-01', ad_ids: ['101'] } },
   { id: 'idea-draft', company_entity_id: CO, title: 'Catalog refresh', hook: null, status: 'idea',
-    baseline_ad_ids: [], live_ad_ids: [], baseline_snapshot: null, updated_at: '2026-09-25T00:00:00Z' },
+    baseline_ad_ids: [], live_ad_ids: [], baseline_snapshot: null, updated_at: '2026-09-25T00:00:00Z',
+    testing_element: null },
+  // Two ideas already name what they are testing, one of them past the testing
+  // stage: the suggestion list is what the company has USED, not what is being
+  // tested right now, and the element stays on the record afterwards.
+  { id: 'idea-testing', company_entity_id: CO, title: 'Product fill-out shot', hook: null, status: 'testing',
+    baseline_ad_ids: [], live_ad_ids: [], baseline_snapshot: null, updated_at: '2026-09-24T00:00:00Z',
+    testing_element: 'Product fill out' },
+  // A test with its ad already linked: its result has to be readable on the
+  // card while it is still in Testing, because that stage IS the test record now.
+  { id: 'idea-testing-measured', company_entity_id: CO, title: 'Hook cut, in test', hook: null, status: 'testing',
+    baseline_ad_ids: ['101'], live_ad_ids: ['101'], updated_at: '2026-09-21T00:00:00Z',
+    testing_element: 'Hook',
+    baseline_snapshot: { objective: 'purchase', metric: 'roas', value: 4, data_through: '2026-09-01', ad_ids: ['101'] } },
+  // A test with a bar and nothing running yet: the picker has to be reachable
+  // without parking the idea in Live to get at it.
+  { id: 'idea-testing-empty', company_entity_id: CO, title: 'Offer threshold test', hook: null, status: 'testing',
+    baseline_ad_ids: ['101'], live_ad_ids: [], updated_at: '2026-09-20T00:00:00Z',
+    testing_element: 'Offer',
+    baseline_snapshot: { objective: 'purchase', metric: 'roas', value: 4, data_through: '2026-09-01', ad_ids: ['101'] } },
+  { id: 'idea-plain', company_entity_id: CO, title: 'Bat bag carousel', hook: null, status: 'idea',
+    baseline_ad_ids: [], live_ad_ids: [], baseline_snapshot: null, updated_at: '2026-09-22T00:00:00Z',
+    testing_element: null },
+  { id: 'idea-retired', company_entity_id: CO, title: 'Founder story cut', hook: null, status: 'retired',
+    baseline_ad_ids: [], live_ad_ids: [], baseline_snapshot: null, updated_at: '2026-09-23T00:00:00Z',
+    testing_element: 'Hook' },
 ];
 
 (async () => {
@@ -205,6 +230,117 @@ const IDEAS = [
     const up = await page.evaluate(() => window.__QUERIES__.filter((q) => q._op === 'update').map((q) => q.patch || q.rows));
     R.eq(JSON.stringify(up[0].live_ad_ids), '["202"]', 'the ticked ad is what is saved');
     R.eq(up[0].status, 'live');
+
+    // ── The testing element ──────────────────────────────────────────────
+    // One optional box, and the reason it is one box: Sammie asked for the
+    // element to be named where the idea already lives, so the result comes
+    // off the linked ads and nothing else is typed twice. It must not become
+    // an empty box on every card, so it is hidden on a plain idea.
+    R.has(await page.locator('#board').innerText(), 'Testing Product fill out',
+      'the card says what the idea is testing');
+    R.not(await page.locator('[data-idea="idea-plain"]').innerText(), 'Testing ',
+      'an idea that is testing nothing says nothing');
+
+    await page.click('[data-edit="idea-plain"]');
+    await page.waitForFunction(() => document.getElementById('dlgIdea').open);
+    R.eq(await page.locator('#iElementWrap').isHidden(), true, 'a plain idea is not asked for an element');
+    await page.selectOption('#iStatus', 'testing');
+    R.eq(await page.locator('#iElementWrap').isVisible(), true, 'moving it to Testing asks for one');
+    // The suggestions are every element the company has used, in both
+    // directions: a value from an idea still testing, and one from an idea
+    // that has moved on. Retyping either of them by hand is what splits a
+    // list meant to group tests.
+    const sugg = await page.$$eval('#iElementList option', (o) => o.map((x) => x.value).sort());
+    R.eq(JSON.stringify(sugg), JSON.stringify(['Hook', 'Offer', 'Product fill out']),
+      'the datalist offers what has been used before, deduplicated and sorted');
+    R.has(await page.locator('#iElementNote').innerText(), '3 elements have been used before');
+
+    // Too long is said before the save, not by the database's constraint name.
+    // The box's own maxlength stops a person getting here, so the value is set
+    // the way a bug or a future caller would -- past the attribute -- and what
+    // is asserted is that the check behind it still refuses to write.
+    const updatesSoFar = await page.evaluate(() => window.__QUERIES__.filter((q) => q._op === 'update').length);
+    await page.evaluate(() => { document.getElementById('iElement').value = 'x'.repeat(121); });
+    await page.click('#btnIdeaSave');
+    R.has(await page.locator('#iError').innerText(), 'under 120 characters');
+    R.eq(await page.evaluate(() => window.__QUERIES__.filter((q) => q._op === 'update').length), updatesSoFar,
+      'nothing written while the element is too long');
+    R.eq(await page.evaluate(() => document.getElementById('dlgIdea').open), true, 'and the dialog stays open');
+
+    await page.fill('#iElement', '  Product fill out  ');
+    await page.click('#btnIdeaSave');
+    await page.waitForFunction(() => !document.getElementById('dlgIdea').open);
+    const el = (await page.evaluate(() => window.__QUERIES__.filter((q) => q._op === 'update').map((q) => q.patch))).pop();
+    R.eq(el.testing_element, 'Product fill out', 'the element is saved trimmed, so it matches the suggestion');
+    R.eq(el.status, 'testing');
+
+    // An emptied box is NULL, not an empty string: "nobody said" and "the
+    // empty element" must not become two different stored values.
+    await page.click('[data-edit="idea-testing"]');
+    await page.waitForFunction(() => document.getElementById('dlgIdea').open);
+    R.eq(await page.inputValue('#iElement'), 'Product fill out', 'an existing element is shown for editing');
+    await page.fill('#iElement', '   ');
+    await page.click('#btnIdeaSave');
+    await page.waitForFunction(() => !document.getElementById('dlgIdea').open);
+    const cleared = (await page.evaluate(() => window.__QUERIES__.filter((q) => q._op === 'update').map((q) => q.patch))).pop();
+    R.eq(cleared.testing_element, null, 'a whitespace-only element is written as null');
+
+    // And the element a live or retired idea was testing is still on the
+    // record: it is not hidden again once the idea moves past Testing.
+    await page.click('[data-edit="idea-retired"]');
+    await page.waitForFunction(() => document.getElementById('dlgIdea').open);
+    R.eq(await page.locator('#iElementWrap').isVisible(), true, 'a retired idea still shows what it tested');
+    R.eq(await page.inputValue('#iElement'), 'Hook');
+    await page.click('#dlgIdea [data-close]');
+    R.ok('the testing element: hidden on a plain idea, suggested from what the company used, '
+      + 'trimmed on save, null when emptied, and kept once the idea moves on', true);
+
+    // ── A test can name its ads, and shows its result in Testing ────────
+    // The element says WHAT is being tested; the linked ads are how it is
+    // judged, and this PR made Testing the whole test record. So the stage has
+    // to reach the ad picker without parking the idea in Live to get at it,
+    // and the card has to show the measurement while it is still a test.
+    R.has(await page.locator('[data-idea="idea-testing-measured"]').innerText(), 'Beating the bar',
+      'a test with its ad linked is measured against its bar on the card');
+    R.has(await page.locator('[data-idea="idea-testing-empty"]').innerText(), 'No ads linked yet',
+      'and a test with nothing running says so, rather than showing nothing');
+
+    await page.click('[data-edit="idea-testing-empty"]');
+    await page.waitForFunction(() => document.getElementById('dlgIdea').open);
+    R.eq(await page.locator('#iLiveWrap').isVisible(), true,
+      'a test in Testing can name the ads carrying it');
+    await page.evaluate(() => { window.__QUERIES__.length = 0; });
+    await page.fill('#iLiveSearch', 'gus');
+    await page.check('#iLiveList [data-live="101"]');
+    await page.click('#btnIdeaSave');
+    await page.waitForFunction(() => !document.getElementById('dlgIdea').open);
+    const linked = (await page.evaluate(() => window.__QUERIES__
+      .filter((q) => q._op === 'update').map((q) => q.patch))).pop();
+    R.eq(JSON.stringify(linked.live_ad_ids), '["101"]', 'the link is saved');
+    R.eq(linked.status, 'testing', 'and the idea stays in Testing to do it');
+    R.eq(linked.testing_element, 'Offer', 'with the element it was already testing intact');
+
+    // ── Before the migration is applied ─────────────────────────────────
+    // The migration is applied by hand after the merge, so this page runs for
+    // a while against a database with no testing_element. The field has to be
+    // absent AND absent from the payload: PostgREST refuses a whole write for
+    // one unknown column, so a patch carrying it would turn every edit of an
+    // idea past the idea stage into "Could not save".
+    const pre = await suite.open('/v2/ad-studio.html?view=ideas',
+      { ad_ideas: IDEAS, ad_studio_ads: ADS },
+      { ready, missingColumns: { ad_ideas: ['testing_element'] } });
+    await pre.waitForFunction(() => !!document.querySelector('[data-edit="idea-retired"]'));
+    await pre.click('[data-edit="idea-retired"]');
+    await pre.waitForFunction(() => document.getElementById('dlgIdea').open);
+    R.eq(await pre.locator('#iElementWrap').isHidden(), true,
+      'the field is not offered while the database has nowhere to put it');
+    await pre.click('#btnIdeaSave');
+    await pre.waitForFunction(() => !document.getElementById('dlgIdea').open);
+    const prePatch = (await pre.evaluate(() => window.__QUERIES__
+      .filter((q) => q._op === 'update').map((q) => q.patch))).pop();
+    R.eq('testing_element' in prePatch, false, 'and it is not in the payload either');
+    R.eq(await pre.textContent('#iError'), '', 'so the edit saves, rather than failing on an unknown column');
+    await pre.close();
   } finally {
     await suite.close();
     if (R.summary().fail) process.exitCode = 1;

@@ -10,7 +10,7 @@
 //     keep working.
 //  2. The sidebar shows ONE Ad Studio row. A row per tab beside a tab strip is
 //     two navigations for one place, which is what this work removed.
-//  3. Testing & schedule is Baseballism-only for now (Blake, 2026-10-13) while
+//  3. The Schedule tab is Baseballism-only for now (Blake, 2026-10-13) while
 //     the page is shaped around how Baseballism runs tests -- and it is the
 //     FIRST tab in SILO narrowed on its own, so the per-tab profiles list is
 //     tested in both directions. This is discovery, not access: marketing_tests
@@ -118,7 +118,7 @@ test('the sidebar carries ONE Ad Studio destination, not one row per tab', () =>
   assert.match(chromeSource, /SiloAdStudioSuite\?\.mount\(mainEl, opts\.active\)/);
 });
 
-test('Testing & schedule is a Baseballism-only tab; the row itself is not narrowed', () => {
+test('the Schedule is a Baseballism-only tab; the row itself is not narrowed', () => {
   assert.deepEqual(nav.AD_STUDIO_SUITE_PAGES.find(([id]) => id === 'ads/testing')[3], ['grandfathered']);
   assert.deepEqual(nav.NAV_ITEMS.find((i) => i.id === 'reports/ad-studio').profiles,
     ['grandfathered', 'standard']);

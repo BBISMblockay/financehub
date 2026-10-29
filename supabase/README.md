@@ -2566,6 +2566,17 @@ measured against them.
   `testing` stage was added by `20261029180000_ad_ideas_testing_status.sql`,
   which also makes a move back to it clear `approved_by` / `approved_at`,
   since it sits before approval.
+- **`ad_ideas.testing_element`**
+  (`20261029210000_ad_ideas_testing_element.sql`). What an idea in the
+  `testing` stage is testing, in the team's own words ("Product fill out").
+  Free text, not an enum: marketing names what it varies, and a fixed list
+  would be wrong the first week — `/v2/ad-studio.html` offers the values the
+  company has already used as a datalist instead, which is what keeps them
+  consistent. The CHECK only bounds it (trimmed, 1–120 characters), so
+  `' Hook '` can never become a second entry beside `'Hook'` in that list.
+  Nothing clears it when the idea moves on: the element a live idea was
+  testing is part of its record, and how the test went is read off the linked
+  ads, never typed in. NULL means nobody said.
 
 `scripts/tests/ad-studio-database.test.mjs` runs the migration twice against
 PGlite and covers each of those, with four mutations.
@@ -2573,7 +2584,20 @@ PGlite and covers each of those, with four mutations.
 
 ## Marketing tests — `20261013120000_marketing_tests.sql`
 
-Backs `/v2/marketing-ops.html`. Marketing already had everything around a
+**No UI reads this table since 2026-10-29.** It backed the Tests and Learnings
+tabs of `/v2/marketing-ops.html`, which were removed at Blake's direction: a
+test is now a stage of an idea in the Ad Studio idea bank
+(`ad_ideas.status = 'testing'` with `testing_element`), its result is read off
+the summary card of the ads the idea is linked to, and that page is the
+schedule alone. The table, its guards, its policies and its one existing row
+are UNCHANGED and still covered by
+`scripts/tests/marketing-tests-database.test.mjs` and the `marketing_tests`
+check in `verify_v2_schema.sql`; so is
+`launch_channel_items.marketing_test_id`, which no row uses. Nothing was
+dropped, so a later surface can read it again. The rest of this section
+describes what it enforces.
+
+Marketing already had everything around a
 test: `launch_channel_items` is the schedule, `launch_tasks` hangs work off
 it, `ad_ideas` is the idea bank, and the v3 creative workspaces are where the
 numbers are read. What nothing held was the test itself.

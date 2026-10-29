@@ -17,6 +17,9 @@
 //      approval is stamped by the database, and delete is creator-or-admin.
 //   6. The 'testing' stage (20261029180000) is accepted, and moving an
 //      approved idea back to it clears the approval stamp.
+//   7. testing_element (20261029210000): optional, bounded, and TRIMMED, so
+//      the suggestion list the field feeds cannot be split by whitespace; it
+//      survives the idea moving on past testing.
 //
 // Run:  node scripts/tests/ad-studio-database.test.mjs
 // Needs: npm ci --prefix scripts/tests/finance-db
@@ -26,6 +29,7 @@
 //   AD_STUDIO_DB_MUTATION=stale-image-shown    (an image of a replaced creative is returned)
 //   AD_STUDIO_DB_MUTATION=approval-from-client (approved_by is taken from the client)
 //   AD_STUDIO_DB_MUTATION=testing-keeps-approval (a demotion to testing leaves the approval stamp on)
+//   AD_STUDIO_DB_MUTATION=element-untrimmed     (testing_element accepts an untrimmed value)
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -34,7 +38,7 @@ import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/co
 
 const mutation = process.env.AD_STUDIO_DB_MUTATION || '';
 assert.ok(['', 'policy-bucket-only', 'snapshot-thaws', 'stale-image-shown', 'approval-from-client',
-  'testing-keeps-approval'].includes(mutation),
+  'testing-keeps-approval', 'element-untrimmed'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -148,6 +152,17 @@ if (mutation === 'snapshot-thaws') {
     "elsif tg_op = 'INSERT' or new.status = 'idea' then");
 }
 await db.exec(testingSql); await db.exec(testingSql);
+
+// testing_element, applied on top the same way. It drops and recreates its own
+// CHECK, so a re-run must land on the same constraint.
+let elementSql = await read('supabase/migrations/20261029210000_ad_ideas_testing_element.sql');
+if (mutation === 'element-untrimmed') {
+  const from = `      testing_element = btrim(testing_element)
+      and char_length(testing_element) between 1 and 120`;
+  assert.ok(elementSql.includes(from), 'mutation anchor missing in 20261029210000');
+  elementSql = elementSql.replace(from, '      char_length(testing_element) between 1 and 120');
+}
+await db.exec(elementSql); await db.exec(elementSql);
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 await q("insert into entities(id,title) values ($1,'Co'),($2,'Other')", [co, otherCo]);
@@ -351,9 +366,52 @@ await test('delete: another member cannot; the creator or an admin can', async (
   assert.equal(byAdmin.length, 1, 'an admin can');
 });
 
+// The element is what the team is testing, in its own words. The database's
+// only job is to keep that list usable: optional, bounded, and trimmed -- ' Hook '
+// stored beside 'Hook' would be two entries in the datalist the field exists to
+// keep consistent, and nothing in the page would ever show them as the same.
+await test('testing_element is optional, bounded and trimmed', async () => {
+  const id = (await asUser(member, () => one(
+    "insert into ad_ideas (company_entity_id, title, status) values ($1,'Element idea','testing') returning id", [co]))).id;
+  const bare = await one('select testing_element from ad_ideas where id=$1', [id]);
+  assert.equal(bare.testing_element, null, 'nobody has said yet, which is not "nothing"');
+
+  const set = await asUser(member, () => one(
+    "update ad_ideas set testing_element='Product fill out' where id=$1 returning testing_element", [id]));
+  assert.equal(set.testing_element, 'Product fill out');
+
+  await refused(() => asUser(member, () => q(
+    "update ad_ideas set testing_element=' Hook ' where id=$1", [id])),
+  /testing_element_check/, 'an untrimmed value would split the suggestion list');
+  await refused(() => asUser(member, () => q(
+    "update ad_ideas set testing_element='' where id=$1", [id])),
+  /testing_element_check/, 'an empty string is not an element; NULL is "nobody said"');
+  await refused(() => asUser(member, () => q(
+    'update ad_ideas set testing_element=$2 where id=$1', [id, 'x'.repeat(121)])),
+  /testing_element_check/, 'over the 120-character bound');
+  const edge = await asUser(member, () => one(
+    'update ad_ideas set testing_element=$2 where id=$1 returning length(testing_element) as n', [id, 'x'.repeat(120)]));
+  assert.equal(Number(edge.n), 120, 'exactly 120 is accepted, so the bound is not off by one');
+
+  // What a live idea was testing is part of its record: nothing clears it as
+  // the idea moves on, which is what lets the result be read off its ads later.
+  await asUser(member, () => q(
+    "update ad_ideas set testing_element='Product fill out', status='approved' where id=$1", [id]));
+  await asUser(member, () => q("update ad_ideas set status='live', live_ad_ids=array['A'] where id=$1", [id]));
+  const live = await one('select testing_element, status from ad_ideas where id=$1', [id]);
+  assert.equal(live.status, 'live');
+  assert.equal(live.testing_element, 'Product fill out', 'the element survives the idea going live');
+
+  // And it can be taken back off, for an idea that was never really a test.
+  const cleared = await asUser(member, () => one(
+    'update ad_ideas set testing_element=null where id=$1 returning testing_element', [id]));
+  assert.equal(cleared.testing_element, null);
+});
+
 await test('Ask SILO\'s catalog knows the idea bank', async () => {
   const row = await one("select description, columns from silo_chat_schema_catalog where relname='ad_ideas'");
   assert.match(row.description, /FROZEN/);
+  assert.match(row.description, /testing_element/, 'the newest column is described, not just stored');
   assert.equal((row.description.match(/Ad Studio's idea bank/g) || []).length, 1, 'applied twice, described once');
   assert.ok(row.columns.length > 5, 'the refresh gave it columns');
 });

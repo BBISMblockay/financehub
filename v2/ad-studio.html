@@ -96,6 +96,8 @@
     .as-result--beating { color:color-mix(in oklch, var(--bcn-pos) 70%, var(--bcn-ink)); }
     .as-result--behind { color:color-mix(in oklch, var(--bcn-neg) 70%, var(--bcn-ink)); }
     .as-result--early, .as-result--no_data, .as-result--not_live, .as-result--no_bar { color:var(--bcn-ink-3); font-weight:500; }
+    .as-testing { font-size:12px; color:var(--bcn-ink-2); }
+    .as-testing b { font-family:var(--bcn-mono); font-weight:600; color:var(--bcn-ink); }
     .as-idea-acts { display:flex; gap:6px; align-items:center; }
     .as-idea-acts select { flex:1; font-size:12px; padding:3px 6px; }
     .as-idea-acts .bcn-btn { padding:3px 10px; font-size:12px; }
@@ -214,6 +216,10 @@
         <div class="bcn-field-group"><label class="bcn-label" for="iObjective">Objective</label><select id="iObjective" class="bcn-field"></select></div>
         <div class="bcn-field-group"><label class="bcn-label" for="iStatus">Status</label><select id="iStatus" class="bcn-field"></select></div>
       </div>
+      <div class="bcn-field-group" id="iElementWrap" hidden><label class="bcn-label" for="iElement">Testing element</label>
+        <input id="iElement" class="bcn-field" list="iElementList" maxlength="120" placeholder="e.g. Product fill out" autocomplete="off" />
+        <datalist id="iElementList"></datalist>
+        <span class="as-note" id="iElementNote"></span></div>
       <div class="bcn-field-group"><label class="bcn-label" for="iDest">Destination</label><input id="iDest" class="bcn-field" placeholder="https://…" /></div>
       <div class="bcn-field-group" id="iLiveWrap" hidden><label class="bcn-label" for="iLiveSearch">Ads carrying this idea</label>
         <input id="iLiveSearch" class="bcn-field" type="search" placeholder="Search ad name, campaign or id" autocomplete="off" />
@@ -235,7 +241,7 @@
 <script src="nav-config.js"></script>
 <script src="marketing-suite.js"></script>
 <script src="silo-chrome.js"></script>
-<script src="ad-studio.js?v=15d0f074e56e"></script>
+<script src="ad-studio.js?v=598679ece765"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
   const SUPABASE_URL = cfg.SUPABASE_URL || '';
@@ -283,6 +289,7 @@
     objective: null, sort: 'best', running: false, shown: PAGE, selected: null, picked: new Set(),
     signed: {}, ideas: [], view: 'baselines', editing: null, draft: null,
     draftAds: null, barChoices: null, basis: 'selected', liveChosen: new Set(),
+    elements: [], elementsOk: true,
   };
 
   // ── Loads ────────────────────────────────────────────────────────────────
@@ -317,6 +324,37 @@
     if (error) { S.ideas = []; S.ideasError = explain(error); return; }
     S.ideasError = null;
     S.ideas = data || [];
+  }
+  // The testing elements this company has already used, for the datalist. Read
+  // separately from the board because a ?idea= deep link narrows loadIdeas() to
+  // one row, and the suggestions are the whole point of the field: typing
+  // "Product fill-out" next to an existing "Product fill out" is how a list
+  // meant to group tests stops grouping them. RLS scopes it; the company
+  // filter keeps a company-less session from reading nothing in silence.
+  async function loadTestingElements() {
+    if (!_co?.id) { S.elements = []; return; }
+    const { data, error } = await sb.from('ad_ideas')
+      .select('testing_element').eq('company_entity_id', _co.id)
+      .not('testing_element', 'is', null).limit(1000);
+    // The migration is applied by hand AFTER the merge, so this page runs for
+    // a while against a database with no such column. PostgREST answers 42703
+    // for it, and that is the one error that hides the field altogether:
+    // offering a box whose save the database would refuse is worse than not
+    // offering it, and a payload carrying the column would break every edit of
+    // an idea past the idea stage. Any OTHER error (a network blip, RLS) keeps
+    // the field, just without suggestions.
+    if (error) {
+      S.elements = [];
+      S.elementsOk = !/42703|does not exist/i.test(String(error.code || '') + ' ' + String(error.message || ''));
+      return;
+    }
+    S.elementsOk = true;
+    const seen = new Map();
+    for (const r of data || []) {
+      const v = String(r.testing_element || '').trim();
+      if (v && !seen.has(v.toLowerCase())) seen.set(v.toLowerCase(), v);
+    }
+    S.elements = [...seen.values()].sort((a, b) => a.localeCompare(b));
   }
 
   function prepare() {
@@ -487,12 +525,17 @@
     }).join('');
     const snap = i.baseline_snapshot;
     const bar = snap && snap.metric ? barLine(snap) : 'No bar set';
-    const m = i.status === 'live' ? A.measureIdea(i, S.byId) : null;
+    // Measured in testing as well as live: the test record moved here, and a
+    // test whose result nobody can see on the card is not a record of it.
+    // measureIdea carries its own honest states -- no bar, no ads linked yet,
+    // too early to call -- so a test with nothing to show says which.
+    const m = i.status === 'live' || i.status === 'testing' ? A.measureIdea(i, S.byId) : null;
     const opts = A.IDEA_STATUSES.map(s => `<option value="${s.key}" ${s.key === i.status ? 'selected' : ''}>${esc(s.label)}</option>`).join('');
     return `<div class="as-idea" data-idea="${esc(i.id)}">
       <h4>${esc(i.title)}</h4>
       ${i.hook ? `<q>${esc(i.hook)}</q>` : ''}
       ${thumbs ? `<div class="as-idea-thumbs">${thumbs}</div>` : ''}
+      ${i.testing_element ? `<div class="as-testing">Testing <b>${esc(i.testing_element)}</b></div>` : ''}
       <div class="as-bar">${esc(bar)}</div>
       ${m ? `<div class="as-result as-result--${m.state}">${esc(m.state === 'beating' ? 'Beating the bar — ' : m.state === 'behind' ? 'Behind the bar — ' : '')}${esc(m.note)}</div>` : ''}
       <div class="as-idea-acts">
@@ -552,9 +595,30 @@
     el('iLiveNote').textContent = (matches.length > LIVE_SHOWN ? `Showing the ${LIVE_SHOWN} newest of ${matches.length} — search to narrow. ` : '')
       + 'A new ad shows up here the morning after it launches, once the nightly sync has run.';
   }
+  // 'testing' included (2026-10-29): a test's result is read off the ads
+  // carrying it, so the stage that IS the test record has to be able to name
+  // them. Nothing requires them there -- only a live idea must name its ads
+  // (ad_ideas' live_names_ads CHECK) -- so a test with nothing running yet
+  // saves exactly as before.
   function syncLiveVisibility() {
     const st = el('iStatus').value;
-    el('iLiveWrap').hidden = !(st === 'live' || st === 'retired' || S.liveChosen.size);
+    el('iLiveWrap').hidden = !(st === 'testing' || st === 'live' || st === 'retired' || S.liveChosen.size);
+  }
+  // The field is for an idea being tested, and for every stage after it: what
+  // an idea was testing is part of its record once it is live. A plain idea
+  // that has never been tested does not show the box at all -- an empty box on
+  // every card is the thing this field was asked not to become.
+  function syncElementVisibility() {
+    const st = el('iStatus').value;
+    el('iElementWrap').hidden = !S.elementsOk
+      || !(st !== 'idea' || el('iElement').value.trim());
+  }
+  function fillElementList() {
+    el('iElementList').innerHTML = S.elements
+      .map(v => `<option value="${esc(v)}"></option>`).join('');
+    el('iElementNote').textContent = S.elements.length
+      ? `What this idea is testing. ${S.elements.length === 1 ? 'One element has' : S.elements.length + ' elements have'} been used before — start typing to pick one, or name a new one. How it went is read off the ads linked to the idea; anything else about the test goes in Notes.`
+      : 'What this idea is testing, in your own words — "Product fill out", "Hook", "Offer". Later ideas offer it back as a suggestion. How it went is read off the ads linked to the idea; anything else about the test goes in Notes.';
   }
   function fillLive(selectedIds) {
     S.liveChosen = new Set((selectedIds || []).map(String));
@@ -597,6 +661,9 @@
     el('iFormat').value = idea?.format || '';
     el('iObjective').value = idea?.objective || '';
     el('iStatus').value = idea?.status || 'idea';
+    el('iElement').value = idea?.testing_element || '';
+    fillElementList();
+    syncElementVisibility();
     el('iDest').value = idea?.destination_url || '';
     el('iNotes').value = idea?.notes || '';
     fillLive(idea?.live_ad_ids);
@@ -626,10 +693,15 @@
       format: el('iFormat').value || null,
       objective: el('iObjective').value || null,
       status: el('iStatus').value,
+      testing_element: el('iElement').value.trim() || null,
       destination_url: el('iDest').value.trim() || null,
       notes: el('iNotes').value.trim() || null,
       live_ad_ids: [...S.liveChosen],
     };
+    // Not sent at all where the column does not exist yet: PostgREST refuses
+    // the whole write for one unknown column, which would turn every edit into
+    // "Could not save" until the migration is applied.
+    if (!S.elementsOk) delete fields.testing_element;
     const errs = A.validateIdea(fields);
     if (errs.length) { el('iError').textContent = errs.join(' '); el('iError').hidden = false; return; }
     el('btnIdeaSave').disabled = true;
@@ -649,7 +721,7 @@
       el('dlgIdea').close();
       setStatus(S.editing ? 'Idea saved.' : 'Idea added to the idea bank.', 'pos', 3000);
       S.picked.clear();
-      await loadIdeas();
+      await Promise.all([loadIdeas(), loadTestingElements()]);
       renderSelection();
       renderIdeas();
       if (S.view === 'baselines') renderGrid();
@@ -709,6 +781,7 @@
   });
   el('btnNewIdea').addEventListener('click', () => { S.draftAds = null; openIdea({ status: 'idea', source: 'manual' }); });
   el('iStatus').addEventListener('change', syncLiveVisibility);
+  el('iStatus').addEventListener('change', syncElementVisibility);
   el('iLiveSearch').addEventListener('input', renderLive);
   el('iLiveList').addEventListener('change', (e) => {
     const c = e.target.closest('[data-live]');
@@ -749,6 +822,11 @@
     if (error) { mv.value = i.status; setStatus(`Could not move it: ${explain(error)}`, 'neg', 6000); return; }
     i.status = status;
     renderIdeas();
+    // The element is optional, so moving a card to Testing does not stop to
+    // ask for it -- it says where it is, once, and leaves the card alone.
+    if (status === 'testing' && !i.testing_element) {
+      setStatus('Moved to Testing. Edit the idea to name the element it is testing.', 'info', 6000);
+    }
   });
 
   let loadId = 0;
@@ -757,7 +835,7 @@
     el('btnRefresh').disabled = true;
     try {
       const days = Number(el('selWindow').value) || 365;
-      const [ads] = await Promise.all([loadAds(days), loadIdeas()]);
+      const [ads] = await Promise.all([loadAds(days), loadIdeas(), loadTestingElements()]);
       if (id !== loadId) return;
       S.ads = ads;
       prepare();
