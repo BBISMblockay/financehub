@@ -196,6 +196,35 @@ test('disconnect goes through silo_api_revoke, never a table write', () => {
     'nothing writes the grants table from a browser');
 });
 
+test('the app name lookup uses the method the SDK actually ships', () => {
+  // Supabase's guide documents getUserGrants(); the SDK ships listGrants().
+  // Coding only the documented name shipped a lookup that silently did
+  // nothing, so every row read "Application 0307bcaf" (2026-10-29, first live
+  // connection). Both names plus the HTTP endpoint they wrap.
+  assert.match(APPS, /o\.listGrants \|\| o\.getUserGrants/);
+  // Anchored to the fetch, not just the path: the disconnect comment below
+  // names the same endpoint, so a bare path match passes on prose alone.
+  assert.match(APPS, /fetch\(SUPABASE_URL[^\n]*'\/auth\/v1\/user\/oauth\/grants'/,
+    'falls back to the endpoint when neither method exists');
+});
+
+test('a name lookup failure never breaks the list', () => {
+  const i = APPS.indexOf('async function loadNames');
+  const fn = APPS.slice(i, APPS.indexOf('async function grantsOverHttp'));
+  assert.match(fn, /catch \(_\)/, 'the lookup swallows its own failure');
+  assert.doesNotMatch(fn, /setStatus\(/, 'a missing name is cosmetic, not an error banner');
+});
+
+test('the company column reads a title the query actually selects', () => {
+  // An earlier version rendered g.company_title, which no query selected, so
+  // the column was always "—" (2026-10-29).
+  assert.doesNotMatch(APPS, /g\.company_title/,
+    'nothing renders a field no query selects');
+  assert.match(APPS, /_cos\[g\.company_entity_id\]/);
+  assert.match(APPS, /from\('entities'\)\s*\.select\('id, title'\)\.in\('id', ids\)/,
+    'the titles are fetched for the company ids actually present');
+});
+
 test('the owner section is gated on owner_admin of the active company', () => {
   assert.match(APPS, /_isOwner = mem\?\.role === 'owner_admin'/,
     "matches silo_api_revoke()'s own test, not is_admin_user()");
