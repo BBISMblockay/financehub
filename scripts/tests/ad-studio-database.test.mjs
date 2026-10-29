@@ -15,6 +15,8 @@
 //   5. ad_ideas: company-scoped, created_by cannot be spoofed, the bar
 //      (baseline_snapshot) is frozen once set, a live idea names its ads,
 //      approval is stamped by the database, and delete is creator-or-admin.
+//   6. The 'testing' stage (20261029180000) is accepted, and moving an
+//      approved idea back to it clears the approval stamp.
 //
 // Run:  node scripts/tests/ad-studio-database.test.mjs
 // Needs: npm ci --prefix scripts/tests/finance-db
@@ -23,6 +25,7 @@
 //   AD_STUDIO_DB_MUTATION=snapshot-thaws       (baseline_snapshot can be rewritten)
 //   AD_STUDIO_DB_MUTATION=stale-image-shown    (an image of a replaced creative is returned)
 //   AD_STUDIO_DB_MUTATION=approval-from-client (approved_by is taken from the client)
+//   AD_STUDIO_DB_MUTATION=testing-keeps-approval (a demotion to testing leaves the approval stamp on)
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -30,7 +33,8 @@ import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/inde
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
 const mutation = process.env.AD_STUDIO_DB_MUTATION || '';
-assert.ok(['', 'policy-bucket-only', 'snapshot-thaws', 'stale-image-shown', 'approval-from-client'].includes(mutation),
+assert.ok(['', 'policy-bucket-only', 'snapshot-thaws', 'stale-image-shown', 'approval-from-client',
+  'testing-keeps-approval'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 const db = new PGlite({ extensions: { pgcrypto } });
@@ -120,6 +124,30 @@ if (mutation === 'policy-bucket-only') {
 // Applied TWICE: it runs against production by hand, and a migration nobody
 // can safely re-run after a partial failure is one nobody will re-run.
 await db.exec(sql); await db.exec(sql);
+
+// The 'testing' stage, applied on top the same way: it recreates ad_ideas's
+// status CHECK and ad_ideas_guard(), so a re-run must land on the same schema.
+let testingSql = await read('supabase/migrations/20261029180000_ad_ideas_testing_status.sql');
+// This migration CREATE OR REPLACEs ad_ideas_guard(), so a mutation of that
+// function has to be carried into it as well -- otherwise it would quietly
+// restore the guard and the mutation would prove nothing.
+const swapTesting = (from, to) => {
+  assert.ok(testingSql.includes(from), `mutation anchor missing in 20261029180000: ${from.slice(0, 60)}`);
+  testingSql = testingSql.replace(from, to);
+};
+if (mutation === 'snapshot-thaws') {
+  swapTesting('if old.baseline_snapshot is not null and new.baseline_snapshot is distinct from old.baseline_snapshot then',
+    'if false then');
+} else if (mutation === 'approval-from-client') {
+  swapTesting(`  else
+    new.approved_by := old.approved_by;
+    new.approved_at := old.approved_at;
+  end if;`, '  end if;');
+} else if (mutation === 'testing-keeps-approval') {
+  swapTesting("elsif tg_op = 'INSERT' or new.status in ('idea', 'testing') then",
+    "elsif tg_op = 'INSERT' or new.status = 'idea' then");
+}
+await db.exec(testingSql); await db.exec(testingSql);
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 await q("insert into entities(id,title) values ($1,'Co'),($2,'Other')", [co, otherCo]);
@@ -278,6 +306,32 @@ await test('approval is stamped by the database, not taken from the client', asy
   assert.equal(moved.approved_by, admin, 'moving on keeps who approved it, whatever the client sends');
 });
 
+// verify_v2_schema.sql's ad_studio block, run against this schema. It is read
+// here as well as at the end so a mutation that stops the suite early still
+// exercises the drift check: a guard that does not clear the stamp must not
+// read ok to the daily drift run either.
+async function adStudioVerify() {
+  const verify = await read('supabase/verify_v2_schema.sql');
+  const start = verify.indexOf('-- ── Ad Studio (20260927190000)');
+  const end = verify.indexOf('end as ad_studio;', start);
+  assert.ok(start > 0 && end > start, 'the check exists');
+  const block = verify.slice(start, end + 'end as ad_studio;'.length);
+  return (await one(block.slice(block.indexOf('select')))).ad_studio;
+}
+
+await test("'testing' sits before approval: the stage is accepted and a demotion to it clears the stamp", async () => {
+  assert.equal(await adStudioVerify(), 'ok', 'drift reads ok only when the CHECK and the guard both carry the stage');
+  const back = await asUser(member, () => one("update ad_ideas set status='testing' where id=$1 returning *", [ideaId]));
+  assert.equal(back.status, 'testing', "the CHECK accepts the stage the board offers");
+  assert.equal(back.approved_by, null, 'an idea back in testing is not an approved idea');
+  assert.equal(back.approved_at, null);
+  const again = await asUser(admin, () => one("update ad_ideas set status='approved' where id=$1 returning *", [ideaId]));
+  assert.equal(again.approved_by, admin, 'moving forward stamps it again');
+  await asUser(member, () => q("update ad_ideas set status='in_production' where id=$1", [ideaId]));
+  await refused(() => asUser(member, () => q("update ad_ideas set status='trialling' where id=$1", [ideaId])),
+    /status_check/, 'a stage the board does not offer');
+});
+
 await test('a live idea must name the ads that carry it', async () => {
   await refused(() => asUser(member, () => q("update ad_ideas set status='live' where id=$1", [ideaId])), /live_names_ads/, 'live with no ads');
   const row = await asUser(member, () => one("update ad_ideas set status='live', live_ad_ids=array['B'] where id=$1 returning status", [ideaId]));
@@ -305,13 +359,7 @@ await test('Ask SILO\'s catalog knows the idea bank', async () => {
 });
 
 await test('verify_v2_schema.sql\'s ad_studio check reads ok on this schema', async () => {
-  const verify = await read('supabase/verify_v2_schema.sql');
-  const start = verify.indexOf('-- ── Ad Studio (20260927190000)');
-  const end = verify.indexOf('end as ad_studio;', start);
-  assert.ok(start > 0 && end > start, 'the check exists');
-  const block = verify.slice(start, end + 'end as ad_studio;'.length);
-  const row = await one(block.slice(block.indexOf('select')));
-  assert.equal(row.ad_studio, 'ok');
+  assert.equal(await adStudioVerify(), 'ok');
 });
 
 console.log(`\n${passed} passed`);
