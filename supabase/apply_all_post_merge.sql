@@ -19320,4 +19320,10 @@ $c$select (select count(*) from v_po_header_summary
 -- payment_requests_payment_type_check. Before the catalog cleanup only
 -- because that must stay last (supabase/CLAUDE.md).
 \i migrations/20261029170000_payment_request_payroll_payment_type.sql
+-- The Ad Studio idea bank gains a 'testing' stage before 'approved'. MUST come
+-- after 20260927190000_ad_studio.sql, which creates ad_ideas, its status CHECK
+-- and ad_ideas_guard() -- this one recreates both. Before the catalog cleanup
+-- because that must stay last (supabase/CLAUDE.md), and also because it
+-- rewrites ad_ideas's Ask SILO description to list the new stage.
+\i migrations/20261029180000_ad_ideas_testing_status.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

@@ -2561,6 +2561,10 @@ measured against them.
   beat (`baseline_snapshot`) at creation; a trigger refuses any later change.
   A live idea must name the ads carrying it. Approval is stamped by the
   database. Company-scoped RLS; delete is creator-or-admin.
+  `idea -> testing -> approved -> in_production -> live -> retired`; the
+  `testing` stage was added by `20261029180000_ad_ideas_testing_status.sql`,
+  which also makes a move back to it clear `approved_by` / `approved_at`,
+  since it sits before approval.
 
 `scripts/tests/ad-studio-database.test.mjs` runs the migration twice against
 PGlite and covers each of those, with four mutations.

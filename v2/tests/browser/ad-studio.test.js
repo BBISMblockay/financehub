@@ -175,6 +175,17 @@ const IDEAS = [
     R.has(board, 'Beating the bar', 'a live idea is measured against its frozen bar');
     R.has(board, 'No bar set', 'an idea with no baselines says it has nothing to beat');
     R.ok('the view is kept in the address bar', (await page.evaluate(() => location.search)).includes('view=ideas'));
+    const cols = (await page.locator('#board .as-col h3').allInnerTexts())
+      .map((t) => t.replace(/\s+/g, ' ').replace(/ \d+$/, '').trim());
+    R.eq(cols.join(' > '), 'Ideas > Testing > Approved > In production > Live > Retired', 'the board stages, in order');
+
+    // Testing is a plain move: no dialog, and the write is just the status.
+    await page.selectOption('[data-move="idea-draft"]', 'testing');
+    await page.waitForFunction(() => window.__QUERIES__.some((q) => q._op === 'update'));
+    R.eq(await page.evaluate(() => document.getElementById('dlgIdea').open), false, 'moving to testing asks nothing');
+    const toTesting = await page.evaluate(() => window.__QUERIES__.filter((q) => q._op === 'update').map((q) => q.patch));
+    R.eq(JSON.stringify(toTesting[0]), '{"status":"testing"}', 'the move writes the status alone');
+    await page.evaluate(() => { window.__QUERIES__.length = 0; });
 
     // Moving an idea to live without its ads asks for them first.
     await page.selectOption('[data-move="idea-draft"]', 'live');

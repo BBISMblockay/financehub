@@ -281,6 +281,7 @@ on:
       - 'supabase/migrations/*seo_recommendations.sql'
       - 'supabase/migrations/*seo_landscape_28d_rollup.sql'
       - 'supabase/migrations/*ad_studio.sql'
+      - 'supabase/migrations/*ad_ideas_testing_status.sql'
       - 'scripts/tests/ad-studio-database.test.mjs'
       - 'supabase/migrations/*marketing_tests.sql'
       - 'scripts/tests/marketing-tests-database.test.mjs'
@@ -1660,15 +1661,16 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
-      # Ad Studio (20260927190000): the private image bucket's parent-row
-      # policy, ad_studio_ads' sums and window, and the idea bank's frozen bar.
-      # Mutations: AD_STUDIO_DB_MUTATION=policy-bucket-only | snapshot-thaws | stale-image-shown | approval-from-client
+      # Ad Studio (20260927190000 + the 'testing' stage, 20261029180000): the
+      # private image bucket's parent-row policy, ad_studio_ads' sums and
+      # window, and the idea bank's frozen bar and approval stamp.
+      # Mutations: AD_STUDIO_DB_MUTATION=policy-bucket-only | snapshot-thaws | stale-image-shown | approval-from-client | testing-keeps-approval
       - name: Execute Ad Studio database regressions
         run: node scripts/tests/ad-studio-database.test.mjs
       - name: The Ad Studio guards, removed, must break it
         run: |
           set -u
-          for m in policy-bucket-only snapshot-thaws stale-image-shown approval-from-client; do
+          for m in policy-bucket-only snapshot-thaws stale-image-shown approval-from-client testing-keeps-approval; do
             echo "--- $m ---"
             if AD_STUDIO_DB_MUTATION="$m" node scripts/tests/ad-studio-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
