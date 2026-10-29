@@ -22,12 +22,24 @@ process.on('unhandledRejection', (error) => { console.error('\nFAILED:', error?.
 //   MODERATOR_MUTATION=no-split-guard   a share with no agreement to split
 //   MODERATOR_MUTATION=overpay-allowed  a share larger than the slot's commission
 //   MODERATOR_MUTATION=split-default-on the split is on unless turned off
+//   MODERATOR_MUTATION=self-allowed     the host can be their own moderator
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 
 const root = new URL('../../', import.meta.url);
 const MIGRATION = 'supabase/migrations/20261029190000_live_schedule_moderator_payout.sql';
+// The deployment check's own SQL, run here rather than described: a verifier
+// that only looks for constraint NAMES reports 'ok' for a constraint replaced
+// by a weaker one of the same name, which is the failure it exists to catch.
+const VERIFIER_SQL = await (async () => {
+  const all = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+  const start = all.indexOf('-- 21b. Live schedule moderator payout');
+  assert.ok(start > 0, 'the verifier section is still there');
+  const end = all.indexOf('as live_schedule_moderator_payout;', start);
+  assert.ok(end > start, 'the verifier section still ends where it did');
+  return all.slice(start, end + 'as live_schedule_moderator_payout;'.length);
+})();
 let migration = await readFile(new URL(MIGRATION, root), 'utf8');
 
 const mutation = process.env.MODERATOR_MUTATION || '';
@@ -42,6 +54,7 @@ if (mutation === 'cascade-delete') mutate('references public.payment_requests(id
 if (mutation === 'no-split-guard') mutate('    or (moderator_commission_split\n        and moderator_commission_amount >= 0', '    or (true\n        and moderator_commission_amount >= 0');
 if (mutation === 'overpay-allowed') mutate('        and moderator_commission_amount <= coalesce(commission_amount, 0))', '        and moderator_commission_amount <= 1e9)');
 if (mutation === 'split-default-on') mutate('add column if not exists moderator_commission_split boolean not null default false;', 'add column if not exists moderator_commission_split boolean not null default true;');
+if (mutation === 'self-allowed') mutate('  check (moderator_user_id is null or moderator_user_id <> claimed_by);', '  check (true);');
 if (mutation === 'no-view-columns') mutate('  moderator.name as moderator_user_name,\n  moderator.email as moderator_user_email', '  null::text as moderator_user_name,\n  null::text as moderator_user_email');
 
 const db = new PGlite();
@@ -187,6 +200,13 @@ await test('a share cannot exceed what the slot earned', async () => {
     "the two shares are the slot's commission exactly, with the odd cent on the host");
 });
 
+await test('the host cannot be their own moderator', async () => {
+  await refuses(`insert into public.live_sessions (company_entity_id, slot_start, claimed_by,
+      moderator_name, moderator_user_id, moderator_pay_type)
+    values ($1, '2026-11-02T23:45:00Z', $2, 'Blake Host', $2, 'payroll_payment')`, [CO, HOST],
+    /live_sessions_moderator_not_self_check/);
+});
+
 await test('a split cannot be recorded with nobody to split with', async () => {
   await refuses(`insert into public.live_sessions (company_entity_id, slot_start, claimed_by,
       moderator_commission_split)
@@ -231,6 +251,33 @@ await test('live_sessions_v carries the moderator AND everything the board alrea
   assert.equal(row.moderator_user_name, 'Dana Reyes',
     'a linked teammate resolves to their current profile');
   assert.equal(row.moderator_user_email, 'dana@baseballism.com');
+});
+
+await test("the deployment check reads this schema as applied, and notices a guard weakened in place", async () => {
+  const verdict = async () => (await q(VERIFIER_SQL))[0].live_schedule_moderator_payout;
+  assert.equal(await verdict(), 'ok', 'the applied schema passes its own check');
+
+  // Each guard replaced, in turn, by one that forbids nothing -- the same
+  // NAME, a weaker definition. Every one must be caught by name AND meaning.
+  const weakened = [
+    ['live_sessions_moderator_pay_type_check', 'both routes'],
+    ['live_sessions_moderator_payout_check', 'no payout without a name'],
+    ['live_sessions_moderator_commission_check', 'split agreed'],
+    ['live_sessions_moderator_not_self_check', 'not_self'],
+  ];
+  for (const [name, why] of weakened) {
+    const [{ def }] = await q(
+      `select pg_get_constraintdef(oid) as def from pg_constraint
+        where conrelid = 'public.live_sessions'::regclass and conname = $1`, [name]);
+    await db.exec(`alter table public.live_sessions drop constraint ${name};
+                   alter table public.live_sessions add constraint ${name} check (true);`);
+    const said = await verdict();
+    assert.notEqual(said, 'ok', `a check(true) named ${name} must NOT read ok (${why})`);
+    assert.match(said, /^MISSING/);
+    await db.exec(`alter table public.live_sessions drop constraint ${name};
+                   alter table public.live_sessions add constraint ${name} ${def};`);
+    assert.equal(await verdict(), 'ok', `restoring ${name} restores the verdict`);
+  }
 });
 
 console.log(`\n${checks} checks passed${mutation ? ` (mutation: ${mutation})` : ''}`);

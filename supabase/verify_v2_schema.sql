@@ -867,24 +867,45 @@ select
       then 'MISSING — run 20261029190000_live_schedule_moderator_payout.sql'
     when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='live_sessions' and column_name='moderator_payment_request_id')
       then 'MISSING — live_sessions.moderator_payment_request_id'
-    -- The two guards are asserted SEPARATELY: each forbids a different
-    -- impossible row (a pay route with nobody to pay, a filed payout with
-    -- nobody to pay), and losing either one is silent in the UI.
-    when not exists (select 1 from pg_constraint where conname='live_sessions_moderator_pay_type_check'
-                     and pg_get_constraintdef(oid) like '%invoice_vendor_payment%')
-      then 'MISSING — live_sessions_moderator_pay_type_check'
-    when not exists (select 1 from pg_constraint where conname='live_sessions_moderator_payout_check')
-      then 'MISSING — live_sessions_moderator_payout_check'
+    -- Every guard is asserted on its DEFINITION, scoped to this table, and
+    -- each clause separately: a constraint replaced by a weaker one of the
+    -- same name (check (true), one pay route dropped, the ceiling removed)
+    -- is exactly the failure this row exists to catch, and a name-only
+    -- lookup would still read 'ok'. Each one forbids a different impossible
+    -- row, and losing any single one is silent in the UI.
+    when not exists (select 1 from pg_constraint
+                     where conrelid = 'public.live_sessions'::regclass
+                       and conname = 'live_sessions_moderator_pay_type_check'
+                       and pg_get_constraintdef(oid) like '%payroll_payment%'
+                       and pg_get_constraintdef(oid) like '%invoice_vendor_payment%'
+                       and pg_get_constraintdef(oid) like '%moderator_name IS NOT NULL%')
+      then 'MISSING — live_sessions_moderator_pay_type_check (both routes, and only with a name)'
+    when not exists (select 1 from pg_constraint
+                     where conrelid = 'public.live_sessions'::regclass
+                       and conname = 'live_sessions_moderator_payout_check'
+                       and pg_get_constraintdef(oid) like '%moderator_name IS NOT NULL%'
+                       and pg_get_constraintdef(oid) like '%moderator_payout_total IS NULL%'
+                       and pg_get_constraintdef(oid) like '%moderator_payment_request_id IS NULL%')
+      then 'MISSING — live_sessions_moderator_payout_check (no payout without a name)'
     when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='live_sessions' and column_name='moderator_commission_split')
       then 'MISSING — live_sessions.moderator_commission_split'
     -- Two halves of one rule, each silent on its own: a share with nobody
     -- having agreed to it, and a share bigger than the slot earned.
-    when not exists (select 1 from pg_constraint where conname='live_sessions_moderator_commission_check'
-                     and pg_get_constraintdef(oid) like '%moderator_commission_split%')
+    when not exists (select 1 from pg_constraint
+                     where conrelid = 'public.live_sessions'::regclass
+                       and conname = 'live_sessions_moderator_commission_check'
+                       and pg_get_constraintdef(oid) like '%moderator_commission_split%')
       then 'MISSING — live_sessions_moderator_commission_check (split agreed)'
-    when not exists (select 1 from pg_constraint where conname='live_sessions_moderator_commission_check'
-                     and pg_get_constraintdef(oid) like '%commission_amount%')
+    when not exists (select 1 from pg_constraint
+                     where conrelid = 'public.live_sessions'::regclass
+                       and conname = 'live_sessions_moderator_commission_check'
+                       and pg_get_constraintdef(oid) like '%<= COALESCE(commission_amount%')
       then 'MISSING — live_sessions_moderator_commission_check (share ≤ commission)'
+    when not exists (select 1 from pg_constraint
+                     where conrelid = 'public.live_sessions'::regclass
+                       and conname = 'live_sessions_moderator_not_self_check'
+                       and pg_get_constraintdef(oid) like '%claimed_by%')
+      then 'MISSING — live_sessions_moderator_not_self_check (moderator <> claimer)'
     when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='live_sessions_v' and column_name='moderator_user_email')
       then 'MISSING — live_sessions_v not recreated with the moderator columns'
     else 'ok'

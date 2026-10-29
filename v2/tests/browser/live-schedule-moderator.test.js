@@ -6,8 +6,11 @@
  *   - a moderator named on the CLAIM is stored on the slot, linked to a
  *     teammate's profile when the name is one and left a bare name when it is
  *     not (a contractor with no SILO login still has to be paid);
- *   - finalizing files the host's AP request and the moderator's in ONE
- *     insert, so AP cannot end up with one of the two people;
+ *   - finalizing TAKES the slot before it files anything, so the loser of a
+ *     race files nothing at all, and then files the host's AP request and the
+ *     moderator's in ONE insert, so AP cannot end up with one of the two;
+ *   - the host cannot be their own moderator, by name, email or profile;
+ *   - an ambiguous name is left unlinked rather than pointed at a guess;
  *   - the moderator is paid the hourly rate, and a HALF SHARE of the 3% only
  *     where the host ticked the split box -- otherwise the commission is the
  *     host's share of what the stream sold;
@@ -32,6 +35,10 @@
  *                                         as well as the moderator's half
  *   LIVE_MOD_MUTATION=split-not-stored    the moderator's share is not stamped
  *   LIVE_MOD_MUTATION=clear-keeps-split   a cleared moderator keeps the split
+ *   LIVE_MOD_MUTATION=ignores-lost-race   a finalize that took no row files anyway
+ *   LIVE_MOD_MUTATION=self-moderator-ok   the host may be their own moderator
+ *   LIVE_MOD_MUTATION=ambiguous-links     a colliding name is linked to a guess
+ *   LIVE_MOD_MUTATION=host-in-suggestions the host is suggested as moderator
  *   LIVE_MOD_MUTATION=no-feature-detect   the moderator keys are written before
  *                                         the migration is applied, which
  *                                         PostgREST rejects WHOLE -- so the page
@@ -74,6 +81,10 @@ const MUTATIONS = {
   'host-keeps-all': ['    const total = Math.round((share.host + HOURLY_RATE) * 100) / 100;', '    const total = Math.round((commission + HOURLY_RATE) * 100) / 100;'],
   'split-not-stored': ['          moderator_commission_amount: split ? share.moderator : null,', '          moderator_commission_amount: null,'],
   'clear-keeps-split': ['          moderator_commission_split: split,', '          moderator_commission_split: split || !!s.moderator_commission_split,'],
+  'ignores-lost-race': ['      if (!taken || !taken.length) {', '      if (false) {'],
+  'self-moderator-ok': ['    if (!typed) return false;', '    return false;'],
+  'ambiguous-links': ['    return byName.length === 1 ? byName[0].id : null;', '    return byName.length ? byName[0].id : null;'],
+  'host-in-suggestions': ['    state.people = (data || []).filter((pr) => pr.id !== state.user.id);', '    state.people = (data || []);'],
 };
 
 function writePageUnderTest() {
@@ -98,9 +109,13 @@ function writePageUnderTest() {
   fs.writeFileSync(UNDER_TEST, source);
 }
 
+// Two active members share a name, which is the case that must NOT resolve to
+// a guess, and the host is in the list because the real profiles table has them.
 const PROFILES = [
   { id: 'test-user', name: 'Blake Host', email: 'test@baseballism.com', role: 'admin', is_active: true },
   { id: 'u-dana', name: 'Dana Reyes', email: 'dana@baseballism.com', role: 'member', is_active: true },
+  { id: 'u-alex-1', name: 'Alex Smith', email: 'alex.smith@baseballism.com', role: 'member', is_active: true },
+  { id: 'u-alex-2', name: 'Alex Smith', email: 'alex.smith2@baseballism.com', role: 'member', is_active: true },
 ];
 
 const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -133,8 +148,10 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
     await page.waitForFunction(() => document.querySelectorAll('#boardTbody tr').length === 20);
 
     // ── The moderator is offered, and is a suggestion, not a constraint ──
-    assert.match(await page.locator('#moderatorNames').innerHTML(), /Dana Reyes/,
-      'teammates are suggested for the moderator field');
+    const suggestions = await page.locator('#moderatorNames').innerHTML();
+    assert.match(suggestions, /Dana Reyes/, 'teammates are suggested for the moderator field');
+    assert.equal(/Blake Host/.test(suggestions), false,
+      'the host is not suggested as their own moderator — they are already paid for this slot');
     assert.equal(await page.locator('#claimModeratorPay').count(), 1);
 
     // ── Claim with a teammate as moderator ──────────────────────────────
@@ -214,6 +231,13 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
     await page.waitForFunction(() => !document.getElementById('finalizeBackdrop').classList.contains('open'));
 
     let q = await queries();
+    // Order matters: the slot is taken before any money is filed, so the loser
+    // of a race writes nothing at all.
+    const order = q.filter((x) => (x.table === 'live_sessions' && x.op === 'update')
+      || (x.table === 'payment_requests' && x.op === 'insert'));
+    assert.deepEqual(order.map((x) => `${x.table}:${x.op}`),
+      ['live_sessions:update', 'payment_requests:insert', 'live_sessions:update'],
+      'take the slot, file the money, link what was filed');
     const apInserts = q.filter((x) => x.table === 'payment_requests' && x.op === 'insert');
     assert.equal(apInserts.length, 1,
       'ONE insert: AP gets both people or neither, never the host alone');
@@ -231,13 +255,17 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
     assert.equal(mod.workflow_status, 'new');
     assert.notEqual(mod.id, host.id, 'two requests, two ids');
 
-    const upd = q.find((x) => x.table === 'live_sessions' && x.op === 'update');
+    const upd = order[0];
+    const link = order[2];
+    assert.equal(upd.patch.status, 'finalized');
+    assert.equal(upd.patch.payment_request_id, undefined,
+      'the request ids are foreign keys to rows that do not exist yet — they are attached after');
     assert.equal(upd.patch.moderator_name, 'Dana Reyes');
     assert.equal(upd.patch.moderator_hourly_rate, 25, 'the rate is stamped, so history survives a rate change');
     assert.equal(upd.patch.moderator_payout_total, 25);
     assert.equal(upd.patch.moderator_pay_type, 'payroll_payment');
-    assert.equal(upd.patch.moderator_payment_request_id, mod.id, 'the slot links the request it filed');
-    assert.equal(upd.patch.payment_request_id, host.id);
+    assert.equal(link.patch.moderator_payment_request_id, mod.id, 'the slot links the request it filed');
+    assert.equal(link.patch.payment_request_id, host.id);
     assert.equal(upd.patch.moderator_commission_split, false);
     assert.equal(upd.patch.moderator_commission_amount, null, 'nothing was shared, so no share is stamped');
     assert.equal(upd.patch.commission_amount, 30, 'the slot earned the full 3% either way');
@@ -279,7 +307,7 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
     assert.match(splitRows[1].notes_comments, /half of the \$10\.01 commission/,
       'the moderator request says where the extra came from');
     assert.match(splitRows[0].notes_comments, /split 50\/50/);
-    const splitUpd = q.find((x) => x.table === 'live_sessions' && x.op === 'update').patch;
+    const splitUpd = q.filter((x) => x.table === 'live_sessions' && x.op === 'update')[0].patch;
     assert.equal(splitUpd.commission_amount, 10.01, 'the slot still records the whole 3% it earned');
     assert.equal(splitUpd.moderator_commission_split, true);
     assert.equal(splitUpd.moderator_commission_amount, 5,
@@ -309,11 +337,13 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
     q = await queries();
     assert.equal([].concat(q.find((x) => x.table === 'payment_requests' && x.op === 'insert').rows).length, 1,
       'nobody moderated it, so nobody is paid for moderating it');
-    const cleared = q.find((x) => x.table === 'live_sessions' && x.op === 'update').patch;
+    const cleared = q.filter((x) => x.table === 'live_sessions' && x.op === 'update')[0].patch;
     assert.equal(cleared.moderator_name, null);
     assert.equal(cleared.moderator_pay_type, null);
     assert.equal(cleared.moderator_payout_total, null, 'a cleared moderator leaves no payout behind');
-    assert.equal(cleared.moderator_payment_request_id, null);
+    assert.equal(
+      q.filter((x) => x.table === 'live_sessions' && x.op === 'update')[1].patch.moderator_payment_request_id,
+      null, 'and no request linked to them');
     assert.equal(cleared.moderator_commission_split, false, 'and no split behind either');
     assert.equal(cleared.moderator_commission_amount, null);
     assert.equal(cleared.payout_total, 40, 'the host keeps the whole commission once nobody is sharing it');
@@ -335,6 +365,87 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
       'a contractor is filed as a vendor payment, not as payroll');
     assert.equal(vendorRows[1].amount_due, 25);
     assert.equal(vendorRows[0].request_type, 'payroll_payment', 'the host is unaffected by the moderator route');
+
+    // ── Losing the race files nothing ──────────────────────────────────
+    // Two tabs finalizing the same slot: the conditional update affects ONE
+    // row, and PostgREST calls affecting zero rows a success, so the loser has
+    // to notice the empty result. Before the slot was taken first, the loser
+    // filed a second host payout AND a second moderator payout, reported
+    // success and sent the notifications.
+    await setSessions([claimed('sess-race', await slotIso(8), {
+      moderator_name: 'Dana Reyes', moderator_user_id: 'u-dana', moderator_pay_type: 'payroll_payment',
+    })]);
+    await reset();
+    await page.evaluate(() => {
+      const realFrom = supabaseClient.from.bind(supabaseClient);
+      window.__RACE__ = true;
+      supabaseClient.from = (table) => {
+        const api = realFrom(table);
+        if (table !== 'live_sessions' || !window.__RACE__) return api;
+        const realUpdate = api.update.bind(api);
+        api.update = (patch) => {
+          const chain = realUpdate(patch);
+          const wrap = (node) => ({
+            eq: () => wrap(node),
+            select: () => wrap(node),
+            // Somebody else got there first: zero rows, and no error.
+            then: (res, rej) => Promise.resolve({ data: [], error: null }).then(res, rej),
+          });
+          return { eq: () => wrap(chain) };
+        };
+        return api;
+      };
+    });
+    await page.locator('#boardTbody tr').nth(8).locator('[data-finalize]').click();
+    await page.fill('#grossSalesInput', '1000');
+    await page.click('#finalizeSubmitBtn');
+    await page.waitForFunction(() => !document.getElementById('finalizeBackdrop').classList.contains('open'));
+    q = await queries();
+    assert.deepEqual(q.filter((x) => x.table === 'payment_requests' && x.op === 'insert'), [],
+      'the loser of the race files NOTHING — no duplicate host payout, no duplicate moderator payout');
+    assert.match(await page.locator('#status').textContent(), /already finalized somewhere else/,
+      'and says so instead of reporting success');
+    const raceInvokes = await page.evaluate(() => (window.__INVOKES__ || []).length);
+    await page.evaluate(() => { window.__RACE__ = false; });
+
+    // ── The host is not their own moderator ────────────────────────────
+    await setSessions([]);
+    await page.waitForFunction(() => document.querySelectorAll('#boardTbody tr').length === 20);
+    await reset();
+    await page.locator('#boardTbody tr').nth(9).locator('[data-claim]').click();
+    await page.fill('#claimModerator', 'Blake Host');
+    await page.click('#claimSubmitBtn');
+    assert.match(await page.locator('#status').textContent(), /you are the host on this slot/i,
+      'typing your own name is refused, not filed twice');
+    assert.deepEqual(await page.evaluate(() => window.__QUERIES__
+      .filter((x) => x.table === 'live_sessions' && x._op === 'insert')), [],
+      'and nothing is written');
+    // The same by email, because the field is free text.
+    await page.fill('#claimModerator', 'test@baseballism.com');
+    await page.click('#claimSubmitBtn');
+    assert.match(await page.locator('#status').textContent(), /you are the host on this slot/i);
+    assert.deepEqual(await page.evaluate(() => window.__QUERIES__
+      .filter((x) => x.table === 'live_sessions' && x._op === 'insert')), []);
+    await page.click('[data-close="claim"]');
+
+    // ── A name two people share is left unlinked ───────────────────────
+    await reset();
+    await page.locator('#boardTbody tr').nth(10).locator('[data-claim]').click();
+    await page.fill('#claimModerator', 'Alex Smith');
+    await page.click('#claimSubmitBtn');
+    await page.waitForFunction(() => !document.getElementById('claimBackdrop').classList.contains('open'));
+    let ambiguous = (await queries()).find((x) => x.table === 'live_sessions' && x.op === 'insert');
+    assert.equal(ambiguous.rows.moderator_name, 'Alex Smith', 'the payout is filed against the name typed');
+    assert.equal(ambiguous.rows.moderator_user_id, null,
+      'two active members are called Alex Smith, so neither profile is guessed at');
+    // An email is unambiguous, so it links.
+    await reset();
+    await page.locator('#boardTbody tr').nth(11).locator('[data-claim]').click();
+    await page.fill('#claimModerator', 'alex.smith2@baseballism.com');
+    await page.click('#claimSubmitBtn');
+    await page.waitForFunction(() => !document.getElementById('claimBackdrop').classList.contains('open'));
+    ambiguous = (await queries()).find((x) => x.table === 'live_sessions' && x.op === 'insert');
+    assert.equal(ambiguous.rows.moderator_user_id, 'u-alex-2', 'an exact email names exactly one person');
 
     // ── What a finalized slot reports having cost ───────────────────────
     const finalized = {

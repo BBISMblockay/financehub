@@ -591,7 +591,10 @@
     const { data, error } = await supabaseClient.from('profiles')
       .select('id, name, email').eq('is_active', true).order('name');
     if (error) { state.people = []; return; }
-    state.people = data || [];
+    // The host is left out: they are already being paid for this slot as the
+    // host, and suggesting their own name invites a second $25 request to the
+    // same person for the same hour.
+    state.people = (data || []).filter((pr) => pr.id !== state.user.id);
     els.moderatorNames.innerHTML = state.people
       .map((pr) => `<option value="${escapeHtml(pr.name || pr.email || '')}"></option>`)
       .filter((o) => !o.includes('value=""'))
@@ -599,14 +602,20 @@
   }
 
   // A typed name that IS a teammate links the row to their profile; anything
-  // else stays a name only. Never guess at a partial match -- a payout filed
-  // against the wrong person is worse than one filed against a bare name.
+  // else stays a name only. Never guess -- a payout filed against the wrong
+  // person is worse than one filed against a bare name. So: an exact email
+  // wins, a name links only when exactly ONE active profile normalises to it,
+  // and two teammates called "Alex Smith" leave the row unlinked rather than
+  // silently pointing at whichever of them sorts first.
   function moderatorProfileId(name) {
+    const typed = String(name || '').trim().toLowerCase();
+    if (!typed) return null;
+    const byEmail = state.people.filter((pr) => String(pr.email || '').trim().toLowerCase() === typed);
+    if (byEmail.length === 1) return byEmail[0].id;
     const want = normalizeName(name);
     if (!want) return null;
-    const hit = state.people.find((pr) => normalizeName(pr.name) === want
-      || String(pr.email || '').trim().toLowerCase() === String(name || '').trim().toLowerCase());
-    return hit ? hit.id : null;
+    const byName = state.people.filter((pr) => normalizeName(pr.name) === want);
+    return byName.length === 1 ? byName[0].id : null;
   }
 
   // The host's decision, so the host keeps the odd cent: the two shares add
@@ -621,6 +630,19 @@
       moderator: moderatorCents / 100,
       host: (cents - moderatorCents) / 100,
     };
+  }
+
+  // The moderator is the OTHER person on the stream. Checked by profile id,
+  // by name and by email, because the field is free text: typing your own name
+  // would otherwise file the host payout and a $25 moderator payout to the same
+  // person for the same hour.
+  function isSelfModerator(name) {
+    const typed = String(name || '').trim().toLowerCase();
+    if (!typed) return false;
+    if (typed === String(state.user.email || '').trim().toLowerCase()) return true;
+    const want = normalizeName(name);
+    if (want && (want === normalizeName(state.profile?.name) || want === normalizeName(payeeName()))) return true;
+    return false;
   }
 
   function moderatorPayType(value) {
@@ -860,6 +882,10 @@
     els.claimSubmitBtn.disabled = true;
     try {
       const moderator = state.moderatorReady ? els.claimModerator.value.trim() : '';
+      if (isSelfModerator(moderator)) {
+        setStatus('You are the host on this slot — the moderator has to be the other person on the stream. Leave it blank if you are on your own.', 'neg', 8000);
+        return;
+      }
       const { error } = await supabaseClient.from('live_sessions').insert({
         slot_start: state.pendingSlot.toISOString(),
         live_location: els.claimLocation.value.trim() || null,
@@ -998,13 +1024,14 @@
     const moderatorTotal = moderator
       ? Math.round((MODERATOR_HOURLY_RATE + share.moderator) * 100) / 100 : 0;
     const total = Math.round((share.host + HOURLY_RATE) * 100) / 100;
+    if (isSelfModerator(moderator)) {
+      setStatus('You are the host on this slot — the moderator has to be the other person on the stream. Clear the field if you worked it on your own.', 'neg', 8000);
+      return;
+    }
 
     state.busy = true;
     els.finalizeSubmitBtn.disabled = true;
     try {
-      // AP request first, then the session update that links it — the same
-      // payload shape as /v2/purchase_request.html so it rides the normal
-      // Request Manager pipeline.
       const requestId = crypto.randomUUID();
       const moderatorRequestId = moderator ? crypto.randomUUID() : null;
       const apRows = [{
@@ -1060,13 +1087,21 @@
         });
       }
 
-      const { error: apError } = await supabaseClient.from('payment_requests').insert(apRows);
-      if (apError) {
-        setStatus(`Could not file the AP request${moderator ? 's' : ''}: ${apError.message}`, 'neg');
-        return;
-      }
-
-      const { error: updError } = await supabaseClient.from('live_sessions').update({
+      // ── Step 1: take the slot, BEFORE any money is filed ──────────────
+      // This update is the lock. It is conditional on the slot still being
+      // `claimed` and keyed to one id, so of two tabs (or two devices)
+      // finalizing the same slot, exactly one changes a row -- and PostgREST
+      // reports affecting ZERO rows as a successful request, which is why the
+      // written rows are read back rather than only the error inspected. The
+      // AP rows used to be filed first, and then the loser of that race
+      // filed a second host payout and a second moderator payout, reported
+      // success and sent the notifications. Nobody is paid twice now: the
+      // loser stops here having written nothing.
+      //
+      // The request ids are NOT written here, because payment_request_id and
+      // moderator_payment_request_id are foreign keys to rows that do not
+      // exist yet; they are attached in step 3.
+      const { data: taken, error: takeError } = await supabaseClient.from('live_sessions').update({
         status: 'finalized',
         gross_sales: gross,
         commission_rate: COMMISSION_RATE,
@@ -1074,7 +1109,6 @@
         hourly_rate: HOURLY_RATE,
         payout_total: total,
         payee_name: payee,
-        payment_request_id: requestId,
         // Written on every finalize, nulls included: a moderator cleared in
         // this modal must come off the row, not linger from the claim.
         ...moderatorPayload({
@@ -1088,14 +1122,48 @@
           // reconcile against it exactly.
           moderator_commission_split: split,
           moderator_commission_amount: split ? share.moderator : null,
-          moderator_payment_request_id: moderatorRequestId,
         }),
         finalized_at: new Date().toISOString(),
         updated_by: state.user.id,
         updated_at: new Date().toISOString(),
-      }).eq('id', s.id).eq('status', 'claimed');
-      if (updError) {
-        setStatus(`AP request${moderator ? 's' : ''} ${[requestId, moderatorRequestId].filter(Boolean).join(' and ')} ${moderator ? 'were' : 'was'} filed, but closing the session failed: ${updError.message}. Reload and try again — do not re-finalize, or AP will get a duplicate.`, 'neg');
+      }).eq('id', s.id).eq('status', 'claimed').select('id');
+      if (takeError) {
+        setStatus(`Could not close the session: ${takeError.message}. Nothing was filed with AP.`, 'neg');
+        return;
+      }
+      if (!taken || !taken.length) {
+        // Either someone else finalized this slot, or this tab is looking at
+        // a stale board. Nothing was filed, which is the whole point.
+        setStatus('That slot was already finalized somewhere else — nothing was filed with AP. Board refreshed.', 'neg', 9000);
+        closeModals();
+        await loadDay();
+        return;
+      }
+
+      // ── Step 2: file the money ────────────────────────────────────────
+      const { error: apError } = await supabaseClient.from('payment_requests').insert(apRows);
+      if (apError) {
+        // The session is closed and nothing was paid. The slot renders with no
+        // AP FILED pill, so it is findable, and re-finalizing is impossible by
+        // construction (step 1 would now affect zero rows) -- which is what
+        // keeps this from becoming a duplicate payout.
+        setStatus(`The session is closed, but AP was NOT filed: ${apError.message}. The slot shows no "AP FILED" — file the ${money(total)}${moderator ? ` and ${money(moderatorTotal)}` : ''} by hand in Request Manager.`, 'neg');
+        await loadDay();
+        return;
+      }
+
+      // ── Step 3: link what was filed ──────────────────────────────────
+      const { error: linkError } = await supabaseClient.from('live_sessions').update({
+        payment_request_id: requestId,
+        ...moderatorPayload({ moderator_payment_request_id: moderatorRequestId }),
+        updated_by: state.user.id,
+        updated_at: new Date().toISOString(),
+      }).eq('id', s.id);
+      if (linkError) {
+        // AP has both requests and the session is closed; only the link is
+        // missing, so say which ids to reconcile rather than inviting a retry.
+        setStatus(`Filed with AP, but the slot could not be linked to ${[requestId, moderatorRequestId].filter(Boolean).join(' and ')}: ${linkError.message}. Do NOT re-finalize — AP already has the request${moderator ? 's' : ''}.`, 'neg');
+        await loadDay();
         return;
       }
 

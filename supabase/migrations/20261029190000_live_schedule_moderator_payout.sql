@@ -118,6 +118,16 @@ alter table public.live_sessions
         and moderator_commission_amount <= coalesce(commission_amount, 0))
   );
 
+-- The moderator is the OTHER person on the stream. Linking the host's own
+-- profile would file the host payout and a $25 moderator payout to the same
+-- person for the same hour; the page refuses it by name and email too, but a
+-- linked profile is the case the database can see.
+alter table public.live_sessions
+  drop constraint if exists live_sessions_moderator_not_self_check;
+alter table public.live_sessions
+  add constraint live_sessions_moderator_not_self_check
+  check (moderator_user_id is null or moderator_user_id <> claimed_by);
+
 create index if not exists live_sessions_moderator_user_idx
   on public.live_sessions (moderator_user_id)
   where moderator_user_id is not null;
