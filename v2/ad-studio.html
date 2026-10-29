@@ -525,7 +525,11 @@
     }).join('');
     const snap = i.baseline_snapshot;
     const bar = snap && snap.metric ? barLine(snap) : 'No bar set';
-    const m = i.status === 'live' ? A.measureIdea(i, S.byId) : null;
+    // Measured in testing as well as live: the test record moved here, and a
+    // test whose result nobody can see on the card is not a record of it.
+    // measureIdea carries its own honest states -- no bar, no ads linked yet,
+    // too early to call -- so a test with nothing to show says which.
+    const m = i.status === 'live' || i.status === 'testing' ? A.measureIdea(i, S.byId) : null;
     const opts = A.IDEA_STATUSES.map(s => `<option value="${s.key}" ${s.key === i.status ? 'selected' : ''}>${esc(s.label)}</option>`).join('');
     return `<div class="as-idea" data-idea="${esc(i.id)}">
       <h4>${esc(i.title)}</h4>
@@ -591,9 +595,14 @@
     el('iLiveNote').textContent = (matches.length > LIVE_SHOWN ? `Showing the ${LIVE_SHOWN} newest of ${matches.length} — search to narrow. ` : '')
       + 'A new ad shows up here the morning after it launches, once the nightly sync has run.';
   }
+  // 'testing' included (2026-10-29): a test's result is read off the ads
+  // carrying it, so the stage that IS the test record has to be able to name
+  // them. Nothing requires them there -- only a live idea must name its ads
+  // (ad_ideas' live_names_ads CHECK) -- so a test with nothing running yet
+  // saves exactly as before.
   function syncLiveVisibility() {
     const st = el('iStatus').value;
-    el('iLiveWrap').hidden = !(st === 'live' || st === 'retired' || S.liveChosen.size);
+    el('iLiveWrap').hidden = !(st === 'testing' || st === 'live' || st === 'retired' || S.liveChosen.size);
   }
   // The field is for an idea being tested, and for every stage after it: what
   // an idea was testing is part of its record once it is live. A plain idea

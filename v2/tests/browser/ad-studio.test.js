@@ -53,6 +53,18 @@ const IDEAS = [
   { id: 'idea-testing', company_entity_id: CO, title: 'Product fill-out shot', hook: null, status: 'testing',
     baseline_ad_ids: [], live_ad_ids: [], baseline_snapshot: null, updated_at: '2026-09-24T00:00:00Z',
     testing_element: 'Product fill out' },
+  // A test with its ad already linked: its result has to be readable on the
+  // card while it is still in Testing, because that stage IS the test record now.
+  { id: 'idea-testing-measured', company_entity_id: CO, title: 'Hook cut, in test', hook: null, status: 'testing',
+    baseline_ad_ids: ['101'], live_ad_ids: ['101'], updated_at: '2026-09-21T00:00:00Z',
+    testing_element: 'Hook',
+    baseline_snapshot: { objective: 'purchase', metric: 'roas', value: 4, data_through: '2026-09-01', ad_ids: ['101'] } },
+  // A test with a bar and nothing running yet: the picker has to be reachable
+  // without parking the idea in Live to get at it.
+  { id: 'idea-testing-empty', company_entity_id: CO, title: 'Offer threshold test', hook: null, status: 'testing',
+    baseline_ad_ids: ['101'], live_ad_ids: [], updated_at: '2026-09-20T00:00:00Z',
+    testing_element: 'Offer',
+    baseline_snapshot: { objective: 'purchase', metric: 'roas', value: 4, data_through: '2026-09-01', ad_ids: ['101'] } },
   { id: 'idea-plain', company_entity_id: CO, title: 'Bat bag carousel', hook: null, status: 'idea',
     baseline_ad_ids: [], live_ad_ids: [], baseline_snapshot: null, updated_at: '2026-09-22T00:00:00Z',
     testing_element: null },
@@ -239,9 +251,9 @@ const IDEAS = [
     // that has moved on. Retyping either of them by hand is what splits a
     // list meant to group tests.
     const sugg = await page.$$eval('#iElementList option', (o) => o.map((x) => x.value).sort());
-    R.eq(JSON.stringify(sugg), JSON.stringify(['Hook', 'Product fill out']),
-      'the datalist offers what has been used before');
-    R.has(await page.locator('#iElementNote').innerText(), '2 elements have been used before');
+    R.eq(JSON.stringify(sugg), JSON.stringify(['Hook', 'Offer', 'Product fill out']),
+      'the datalist offers what has been used before, deduplicated and sorted');
+    R.has(await page.locator('#iElementNote').innerText(), '3 elements have been used before');
 
     // Too long is said before the save, not by the database's constraint name.
     // The box's own maxlength stops a person getting here, so the value is set
@@ -282,6 +294,31 @@ const IDEAS = [
     await page.click('#dlgIdea [data-close]');
     R.ok('the testing element: hidden on a plain idea, suggested from what the company used, '
       + 'trimmed on save, null when emptied, and kept once the idea moves on', true);
+
+    // ── A test can name its ads, and shows its result in Testing ────────
+    // The element says WHAT is being tested; the linked ads are how it is
+    // judged, and this PR made Testing the whole test record. So the stage has
+    // to reach the ad picker without parking the idea in Live to get at it,
+    // and the card has to show the measurement while it is still a test.
+    R.has(await page.locator('[data-idea="idea-testing-measured"]').innerText(), 'Beating the bar',
+      'a test with its ad linked is measured against its bar on the card');
+    R.has(await page.locator('[data-idea="idea-testing-empty"]').innerText(), 'No ads linked yet',
+      'and a test with nothing running says so, rather than showing nothing');
+
+    await page.click('[data-edit="idea-testing-empty"]');
+    await page.waitForFunction(() => document.getElementById('dlgIdea').open);
+    R.eq(await page.locator('#iLiveWrap').isVisible(), true,
+      'a test in Testing can name the ads carrying it');
+    await page.evaluate(() => { window.__QUERIES__.length = 0; });
+    await page.fill('#iLiveSearch', 'gus');
+    await page.check('#iLiveList [data-live="101"]');
+    await page.click('#btnIdeaSave');
+    await page.waitForFunction(() => !document.getElementById('dlgIdea').open);
+    const linked = (await page.evaluate(() => window.__QUERIES__
+      .filter((q) => q._op === 'update').map((q) => q.patch))).pop();
+    R.eq(JSON.stringify(linked.live_ad_ids), '["101"]', 'the link is saved');
+    R.eq(linked.status, 'testing', 'and the idea stays in Testing to do it');
+    R.eq(linked.testing_element, 'Offer', 'with the element it was already testing intact');
 
     // ── Before the migration is applied ─────────────────────────────────
     // The migration is applied by hand after the merge, so this page runs for
