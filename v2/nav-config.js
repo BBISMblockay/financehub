@@ -75,6 +75,7 @@
     ['settings/integrations','Integrations','integrations.html'],
     ['settings/billing','Billing','billing.html'],
     ['settings/notifications','Notifications','settings-notifications.html'],
+    ['settings/connected-apps','Connected apps','settings-connected-apps.html'],
   ];
 
   // The SEO suite, drawn as one tab strip by seo-suite.js exactly as the

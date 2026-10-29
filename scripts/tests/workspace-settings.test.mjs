@@ -48,15 +48,15 @@ function mountStrip(active) {
 
 const nav = (() => { const w = {}; new Function('window', navSource)(w); return w.SiloNav; })();
 
-test('the five settings tabs are one click apart and the current one is identified', () => {
+test('the settings tabs are one click apart and the current one is identified', () => {
   const ids = nav.WORKSPACE_SETTINGS_PAGES.map(([id]) => id);
   assert.deepEqual(ids, [
     'settings/company', 'settings/team', 'settings/integrations',
-    'settings/billing', 'settings/notifications',
+    'settings/billing', 'settings/notifications', 'settings/connected-apps',
   ]);
   for (const active of ids) {
     const m = mountStrip(active);
-    assert.equal(m.links.length, 5);
+    assert.equal(m.links.length, ids.length);
     assert.equal(m.links.filter((l) => l.attributes['aria-current'] === 'page').length, 1);
     assert.ok(m.links.every((l) => l.href.startsWith('/v2/')));
   }

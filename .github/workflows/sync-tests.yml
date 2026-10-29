@@ -184,6 +184,9 @@ on:
       # Workspace Settings: the tab shell, the pages it collapses, and the
       # membership RPCs behind the Team tab.
       - 'v2/workspace-settings.*'
+      - 'v2/settings-connected-apps.html'
+      - 'v2/api-consent.html'
+      - 'v2/api-connections.js'
       - 'v2/settings-company.html'
       - 'v2/po-builder.html'
       - 'v2/po-document-identity.js'
