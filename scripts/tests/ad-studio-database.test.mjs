@@ -306,7 +306,21 @@ await test('approval is stamped by the database, not taken from the client', asy
   assert.equal(moved.approved_by, admin, 'moving on keeps who approved it, whatever the client sends');
 });
 
+// verify_v2_schema.sql's ad_studio block, run against this schema. It is read
+// here as well as at the end so a mutation that stops the suite early still
+// exercises the drift check: a guard that does not clear the stamp must not
+// read ok to the daily drift run either.
+async function adStudioVerify() {
+  const verify = await read('supabase/verify_v2_schema.sql');
+  const start = verify.indexOf('-- ── Ad Studio (20260927190000)');
+  const end = verify.indexOf('end as ad_studio;', start);
+  assert.ok(start > 0 && end > start, 'the check exists');
+  const block = verify.slice(start, end + 'end as ad_studio;'.length);
+  return (await one(block.slice(block.indexOf('select')))).ad_studio;
+}
+
 await test("'testing' sits before approval: the stage is accepted and a demotion to it clears the stamp", async () => {
+  assert.equal(await adStudioVerify(), 'ok', 'drift reads ok only when the CHECK and the guard both carry the stage');
   const back = await asUser(member, () => one("update ad_ideas set status='testing' where id=$1 returning *", [ideaId]));
   assert.equal(back.status, 'testing', "the CHECK accepts the stage the board offers");
   assert.equal(back.approved_by, null, 'an idea back in testing is not an approved idea');
@@ -345,13 +359,7 @@ await test('Ask SILO\'s catalog knows the idea bank', async () => {
 });
 
 await test('verify_v2_schema.sql\'s ad_studio check reads ok on this schema', async () => {
-  const verify = await read('supabase/verify_v2_schema.sql');
-  const start = verify.indexOf('-- ── Ad Studio (20260927190000)');
-  const end = verify.indexOf('end as ad_studio;', start);
-  assert.ok(start > 0 && end > start, 'the check exists');
-  const block = verify.slice(start, end + 'end as ad_studio;'.length);
-  const row = await one(block.slice(block.indexOf('select')));
-  assert.equal(row.ad_studio, 'ok');
+  assert.equal(await adStudioVerify(), 'ok');
 });
 
 console.log(`\n${passed} passed`);

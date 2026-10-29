@@ -3928,6 +3928,14 @@ select
     when not exists (select 1 from pg_constraint where conname='ad_ideas_status_check'
                        and pg_get_constraintdef(oid) like '%testing%')
       then 'MISSING — run 20261029180000_ad_ideas_testing_status.sql; the idea bank shows a Testing column the database rejects'
+    -- The CHECK and the guard are one change: a partial apply could take the
+    -- stage and stop before the guard, and then an approved idea demoted to
+    -- testing would keep the stamp naming who approved it while this check
+    -- still read ok.
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                       where n.nspname='public' and p.proname='ad_ideas_guard'
+                         and pg_get_functiondef(p.oid) like '%new.status in (''idea'', ''testing'')%')
+      then 'CRITICAL — ad_ideas takes the testing stage but ad_ideas_guard() does not clear approved_by there; a demoted idea would keep the stamp naming who approved it'
     else 'ok'
   end as ad_studio;
 
