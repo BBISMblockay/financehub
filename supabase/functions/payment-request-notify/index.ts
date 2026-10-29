@@ -71,6 +71,7 @@ const PAYMENT_TYPE_LABELS: Record<string, string> = {
   wire: 'Wire transfer',
   flexfin: 'FlexFin',
   credit_card: 'Credit card',
+  payroll_payment: 'Payroll payment',
   other: 'Other',
 };
 
