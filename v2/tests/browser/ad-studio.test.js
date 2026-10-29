@@ -277,6 +277,29 @@ const IDEAS = [
     R.eq(await page.evaluate(() => document.getElementById('dlgIdea').open), true,
       'and Enter on the list does not close the dialog');
 
+    // The arrow means "show me everything", whatever is already in the box:
+    // it must not come back filtered by the text it is meant to replace.
+    await page.fill('#iElement', 'Hook');
+    await page.click('#iElementOpen');
+    R.eq(JSON.stringify(await page.$$eval('#iElementList li', (o) => o.map((x) => x.textContent).sort())),
+      JSON.stringify(['Hook', 'Offer', 'Product fill out']),
+      'the arrow shows every element even with one already chosen');
+    await page.fill('#iElement', 'Thumbnail');
+    await page.click('#iElementOpen');
+    R.eq(JSON.stringify(await page.$$eval('#iElementList li', (o) => o.map((x) => x.textContent).sort())),
+      JSON.stringify(['Hook', 'Offer', 'Product fill out']),
+      'and with a value that matches none of them');
+    await page.click('#iElementOpen');
+    R.eq(await page.locator('#iElementList').isHidden(), true, 'a second click on the arrow closes it');
+    // Including when the box is not the focused field: the focus the arrow
+    // hands back must not refilter the list it just opened.
+    await page.fill('#iElement', 'Hook');
+    await page.focus('#iNotes');
+    await page.click('#iElementOpen');
+    R.eq(JSON.stringify(await page.$$eval('#iElementList li', (o) => o.map((x) => x.textContent).sort())),
+      JSON.stringify(['Hook', 'Offer', 'Product fill out']),
+      'the arrow shows every element from another field too');
+
     // A value nobody has used before is still just typed in.
     await page.fill('#iElement', 'Thumbnail');
     R.eq(await page.locator('#iElementList').isHidden(), true, 'a new element matches nothing, so no list is in the way');

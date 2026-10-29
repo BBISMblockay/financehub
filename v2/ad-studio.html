@@ -298,7 +298,7 @@
     objective: null, sort: 'best', running: false, shown: PAGE, selected: null, picked: new Set(),
     signed: {}, ideas: [], view: 'baselines', editing: null, draft: null,
     draftAds: null, barChoices: null, basis: 'selected', liveChosen: new Set(),
-    elements: [], elementsOk: true, elementHi: -1,
+    elements: [], elementsOk: true, elementHi: -1, elementAll: false,
   };
 
   // ── Loads ────────────────────────────────────────────────────────────────
@@ -637,6 +637,7 @@
     S.elementHi = -1;
     list.innerHTML = items.map((v, i) => `<li role="option" id="iElementOpt${i}" data-el="${esc(v)}">${esc(v)}</li>`).join('');
     list.hidden = !items.length;
+    S.elementAll = !list.hidden && !!all;
     el('iElement').setAttribute('aria-expanded', String(!list.hidden));
     el('iElement').removeAttribute('aria-activedescendant');
   }
@@ -816,10 +817,18 @@
   el('iStatus').addEventListener('change', syncLiveVisibility);
   el('iStatus').addEventListener('change', syncElementVisibility);
   el('iElement').addEventListener('input', () => showElementList(true));
-  el('iElement').addEventListener('focus', () => showElementList(true));
-  el('iElementOpen').addEventListener('click', () => {
-    const wasOpen = !el('iElementList').hidden;
-    showElementList(!wasOpen, true);
+  // Only when the list is shut: focus that arrives while the arrow's full list
+  // is up must not rebuild it, filtered, from the text the arrow was pressed
+  // to look past.
+  el('iElement').addEventListener('focus', () => { if (el('iElementList').hidden) showElementList(true); });
+  // mousedown, not click, and the default prevented: a button that takes focus
+  // takes it back off the input, and the focus coming back is what used to
+  // refilter the list. The arrow always shows everything.
+  el('iElementOpen').addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    // It closes only the list it opened. A list narrowed by typing is not
+    // that list, so the arrow opens the full one instead of shutting it.
+    showElementList(!(S.elementAll && !el('iElementList').hidden), true);
     el('iElement').focus();
   });
   el('iElement').addEventListener('keydown', (e) => {
