@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
@@ -235,5 +236,21 @@ const { pathToFileURL } = require('node:url');
     await submitRequest({ ...f.args, draft: d });
     assert.equal(f.state.insertAttempts, 0); assert.equal(f.state.uploads, 0);
   });
+  await test('the form offers exactly the request types the submit path accepts', () => {
+    // validateFields rejects anything outside REQUEST_TYPES, so an option in
+    // the page that the map does not carry is a dropdown the submitter can
+    // choose and then be refused with "Choose a request type."; a key the
+    // page does not offer is a type nobody can file. The two must be equal.
+    const html = fs.readFileSync(path.resolve(__dirname, '../../purchase_request2.html'), 'utf8');
+    const select = /<select[^>]*id="request_type"[\s\S]*?<\/select>/.exec(html);
+    assert.ok(select, 'the request_type select is in purchase_request2.html');
+    const offered = [...select[0].matchAll(/<option value="([^"]*)"/g)].map(m => m[1]).filter(Boolean);
+    assert.deepEqual(offered, Object.keys(core.REQUEST_TYPES));
+    for (const type of offered) {
+      const d = fresh(); d.fields.request_type = type;
+      core.validateFields(d.fields, d.files, d.poNames);
+    }
+  });
+
   console.log(`${checks} Payment Request 2 checks passed.`);
 })().catch(error => { console.error(error); process.exit(1); });
