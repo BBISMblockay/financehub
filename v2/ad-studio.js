@@ -324,6 +324,7 @@
   /* ── Ideas ─────────────────────────────────────────────────────────────── */
   var IDEA_STATUSES = [
     { key: 'idea', label: 'Ideas' },
+    { key: 'testing', label: 'Testing' },
     { key: 'approved', label: 'Approved' },
     { key: 'in_production', label: 'In production' },
     { key: 'live', label: 'Live' },

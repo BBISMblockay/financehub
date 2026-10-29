@@ -3925,6 +3925,9 @@ select
       then 'CRITICAL — ad_ideas no longer freezes baseline_snapshot; a launched idea could be re-measured against a moved bar'
     when has_function_privilege('anon', 'public.ad_studio_ads(integer)', 'execute')
       then 'CRITICAL — anon can execute ad_studio_ads()'
+    when not exists (select 1 from pg_constraint where conname='ad_ideas_status_check'
+                       and pg_get_constraintdef(oid) like '%testing%')
+      then 'MISSING — run 20261029180000_ad_ideas_testing_status.sql; the idea bank shows a Testing column the database rejects'
     else 'ok'
   end as ad_studio;
 
