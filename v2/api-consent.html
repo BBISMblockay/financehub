@@ -95,7 +95,7 @@
            read back from Supabase, so the application's name is never a guess. -->
       <div id="paneAsk" class="cs-hide">
         <h1 class="cs-title" id="askTitle">Approve access</h1>
-        <p class="cs-sub">An application is asking to act for you in SILO. Read what it gets before you approve.</p>
+        <p class="cs-sub" id="askSub">An application is asking to act for you in SILO. Read what it gets before you approve.</p>
 
         <div class="cs-app">
           <div class="cs-app-mark" id="appMark">?</div>
@@ -272,6 +272,14 @@
 
   let PLAN = null;
   let COMPANIES = [];
+  let CLIENT_ID = '';
+  let CLIENT_NAME = '';
+  /* True when Supabase auto-approved: there is no authorization to
+     approve or deny, only a redirect already issued. Everything else on
+     this page still happens, because SILO's own grant is a separate
+     decision -- see the boot() comment. */
+  let REPEAT = false;
+  let PRIOR_COMPANY = '';
 
   /* Which application is this? On the fresh path the authorization details say
      so. On the auto-approved repeat path they do NOT -- measured in production
@@ -287,6 +295,35 @@
     });
     if (error) throw new Error(error.message);
     return data || '';
+  }
+
+  /* The application's NAME on the repeat path. getAuthorizationDetails()
+     does not carry it there, and a consent screen headed "Approve Application
+     0307bcaf?" asks a person to approve a UUID -- the exact thing this screen
+     exists to avoid. Their own grants list names every client they have
+     consented to, and the auto-approval proves this one is in it. Cosmetic:
+     a failure here falls back to the short id, never to blocking the flow.
+     The same SDK-or-HTTP fallback is in settings-connected-apps.html, for the
+     same reason -- the @2 CDN tag floats and listGrants() is recent. */
+  async function resolveClientName(clientId) {
+    if (PLAN.clientName) return PLAN.clientName;
+    if (!clientId) return '';
+    try {
+      let rows = null;
+      const list = oauth && (oauth.listGrants || oauth.getUserGrants);
+      if (list) {
+        const { data, error } = await list.call(oauth);
+        if (!error) rows = data;
+      }
+      if (!Array.isArray(rows)) {
+        const body = await authFetch('/user/oauth/grants', { method: 'GET' });
+        rows = Array.isArray(body) ? body : (Array.isArray(body?.grants) ? body.grants : null);
+      }
+      const hit = (rows || []).find((g) => K.clientIdOf(g) === clientId);
+      return hit ? K.clientNameOf(hit) : '';
+    } catch (_) {
+      return '';
+    }
   }
 
   /* The write SILO owns. Called on BOTH paths -- a fresh approval and a repeat
@@ -324,9 +361,17 @@
          The other order would hand the application a live token backed by no
          grant -- dead on arrival at the token hook, but reported to the
          person as success, which reads as a SILO bug. */
-      await writeGrant(await resolveClientId());
-      const out = await decide(PLAN.authorizationId, 'approve');
-      const url = out?.redirect_url || out?.redirectUrl;
+      await writeGrant(CLIENT_ID);
+
+      /* On the repeat path there is nothing left to approve: Supabase decided
+         that before this page loaded and handed us the redirect. Calling the
+         consent endpoint again for an authorization that no longer exists
+         would only fail after the grant was already written. */
+      let url = PLAN.redirectUrl;
+      if (!REPEAT) {
+        const out = await decide(PLAN.authorizationId, 'approve');
+        url = out?.redirect_url || out?.redirectUrl;
+      }
       if (!url) throw new Error('Supabase approved the request but returned nowhere to send you.');
       show('paneDone');
       window.location.href = url;
@@ -339,6 +384,18 @@
   async function onDeny() {
     el('btnDeny').disabled = true; el('btnApprove').disabled = true;
     try {
+      /* Denying a repeat authorization cannot un-approve it -- Supabase
+         already did that, and revokeGrant needs a separate round trip this
+         page is not the place for. What it CAN do, and what actually decides
+         access, is refuse to write SILO's grant and refuse to follow the
+         redirect: the application never receives the code, and any token it
+         somehow holds resolves to no grant and reads nothing. */
+      if (REPEAT) {
+        el('doneTitle').textContent = 'Access denied';
+        el('doneSub').textContent = 'The application was not given access. You can close this tab.';
+        show('paneDone');
+        return;
+      }
       const out = await decide(PLAN.authorizationId, 'deny');
       const url = out?.redirect_url || out?.redirectUrl;
       el('doneTitle').textContent = 'Access denied';
@@ -352,8 +409,12 @@
   }
 
   function renderAsk() {
-    const name = K.displayName(PLAN.clientName, PLAN.clientId);
-    el('askTitle').textContent = 'Approve ' + name + '?';
+    const name = K.displayName(CLIENT_NAME, CLIENT_ID);
+    el('askTitle').textContent = (REPEAT ? 'Reconnect ' : 'Approve ') + name + '?';
+    if (REPEAT) {
+      el('askSub').textContent = 'You have connected this application before. '
+        + 'Confirm the company it may read, because that is set again now.';
+    }
     el('appName').textContent = name;
     el('appMark').textContent = name.slice(0, 2).toUpperCase();
     el('appUri').textContent = PLAN.redirectUri || '';
@@ -371,6 +432,7 @@
       .map((c) => '<option value="' + esc(c.id) + '">' + esc(c.title || c.entity_key) + '</option>')
       .join('');
     if (COMPANIES.length <= 1) el('coSelect').disabled = true;
+    el('btnApprove').textContent = REPEAT ? 'Reconnect' : 'Approve';
     show('paneAsk');
   }
 
@@ -408,24 +470,33 @@
     /* THE REPEAT-AUTHORIZATION PATH. Supabase auto-approves a client this
        person has consented to before: no authorization_id comes back, only a
        redirect_url, and the documented example follows it at once. Following
-       it without writing the grant is what would make a connection that went
-       idle, expired or was disconnected impossible to restore -- the person
-       reconnects, sees success, and nothing works. So the grant is written
-       here too, and only then are they sent on. */
-    if (PLAN.kind === 'already_consented') {
-      try {
-        await writeGrant(await resolveClientId());
-      } catch (e) {
-        /* Worth stopping for rather than redirecting anyway: continuing would
-           send them back to an application that believes it is connected and
-           is not. */
-        fail('SILO could not restore this connection: ' + (e?.message || e));
-        return;
-      }
-      show('paneDone');
-      window.location.href = PLAN.redirectUrl;
+       it without writing SILO's grant is what would make a connection that
+       went idle, expired or was disconnected impossible to restore -- the
+       person reconnects, sees success, and nothing works.
+
+       But writing that grant is NOT a formality, which an earlier version of
+       this page got wrong by writing it and redirecting with nothing on
+       screen. silo_api_consent() binds the connection to whatever company is
+       active RIGHT NOW, and revokes the previous grant in the same breath. So
+       someone who first connected an application to company A, later switched
+       SILO to company B, and then reconnects would have handed that
+       application company B's numbers without a click. Supabase's
+       auto-approval says they still trust the application; it says nothing
+       about which company, and the company is the part this screen exists to
+       make explicit.
+
+       So the repeat path goes through the SAME pane as a fresh one. What it
+       skips is only the thing Supabase already did: there is no authorization
+       left to approve or deny, just a redirect to follow afterwards. */
+    REPEAT = PLAN.kind === 'already_consented';
+
+    try {
+      CLIENT_ID = await resolveClientId();
+    } catch (e) {
+      fail('SILO could not read which application this is: ' + (e?.message || e));
       return;
     }
+    if (!CLIENT_ID) { fail('This request did not name an application.'); return; }
 
     const { data: rows, error: memErr } = await db
       .from('entity_memberships')
@@ -436,9 +507,29 @@
     COMPANIES = (rows || []).map((r) => r.entity).filter(Boolean);
     if (!COMPANIES.length) { fail('You are not a member of any company.'); return; }
 
+    /* What the selector should START on. On a reconnect the honest default is
+       the company this application already had, not whichever tab the person
+       happened to leave open -- so the one-click case stays correct and a
+       change of company is a thing they have to actually choose. Their own
+       grants are readable to them by policy; a failure here is cosmetic and
+       falls back to the active company. */
+    if (REPEAT) {
+      const { data: prior } = await db.from('silo_api_grants')
+        .select('company_entity_id, consented_at')
+        .eq('user_id', user.id).eq('client_id', CLIENT_ID)
+        .order('consented_at', { ascending: false }).limit(1).maybeSingle();
+      PRIOR_COMPANY = prior?.company_entity_id || '';
+      CLIENT_NAME = await resolveClientName(CLIENT_ID);
+    } else {
+      CLIENT_NAME = PLAN.clientName || '';
+    }
+
     const active = await cfg.ensureActiveCompany?.(db) || null;
     renderAsk();
-    if (active?.id && COMPANIES.some((c) => c.id === active.id)) el('coSelect').value = active.id;
+    const prefer = (PRIOR_COMPANY && COMPANIES.some((c) => c.id === PRIOR_COMPANY))
+      ? PRIOR_COMPANY
+      : (active?.id && COMPANIES.some((c) => c.id === active.id) ? active.id : '');
+    if (prefer) el('coSelect').value = prefer;
 
     el('btnApprove').addEventListener('click', onApprove);
     el('btnDeny').addEventListener('click', onDeny);
