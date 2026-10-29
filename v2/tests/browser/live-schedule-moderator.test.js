@@ -8,8 +8,11 @@
  *     not (a contractor with no SILO login still has to be paid);
  *   - finalizing files the host's AP request and the moderator's in ONE
  *     insert, so AP cannot end up with one of the two people;
- *   - the moderator is paid the hourly rate and NOTHING else -- the 3%
- *     commission is the host's share of what the stream sold;
+ *   - the moderator is paid the hourly rate, and a HALF SHARE of the 3% only
+ *     where the host ticked the split box -- otherwise the commission is the
+ *     host's share of what the stream sold;
+ *   - a split pays the two shares out to the cent, with the odd cent going to
+ *     the host, while commission_amount stays the whole 3% the slot earned;
  *   - the pay route chosen (payroll vs vendor) is the request_type filed;
  *   - clearing the moderator at finalize clears the row and files one request;
  *   - the payout a finalized slot reports, on the day board and in the month
@@ -23,6 +26,12 @@
  *   LIVE_MOD_MUTATION=split-insert        the two AP rows are filed separately
  *   LIVE_MOD_MUTATION=day-payout          the day KPI drops the moderator
  *   LIVE_MOD_MUTATION=month-payout        the month KPI drops the moderator
+ *   LIVE_MOD_MUTATION=split-ignored       the split box is not honoured
+ *   LIVE_MOD_MUTATION=split-loses-cent    the odd cent is paid to nobody
+ *   LIVE_MOD_MUTATION=host-keeps-all      the host is paid the WHOLE commission
+ *                                         as well as the moderator's half
+ *   LIVE_MOD_MUTATION=split-not-stored    the moderator's share is not stamped
+ *   LIVE_MOD_MUTATION=clear-keeps-split   a cleared moderator keeps the split
  *   LIVE_MOD_MUTATION=no-feature-detect   the moderator keys are written before
  *                                         the migration is applied, which
  *                                         PostgREST rejects WHOLE -- so the page
@@ -60,6 +69,11 @@ const MUTATIONS = {
   'day-payout': ['        commission += payout + moderatorPayout;', '        commission += payout;'],
   'month-payout': ['          + (Number(row.moderator_payout_total) || 0);', '          + 0;'],
   'no-feature-detect': ['    return state.moderatorReady ? fields : {};', '    return fields;'],
+  'split-ignored': ['    const split = !!moderator && els.finalizeSplitCommission.checked;', '    const split = false;'],
+  'split-loses-cent': ['      host: (cents - moderatorCents) / 100,', '      host: (split ? Math.floor(cents / 2) : cents) / 100,'],
+  'host-keeps-all': ['    const total = Math.round((share.host + HOURLY_RATE) * 100) / 100;', '    const total = Math.round((commission + HOURLY_RATE) * 100) / 100;'],
+  'split-not-stored': ['          moderator_commission_amount: split ? share.moderator : null,', '          moderator_commission_amount: null,'],
+  'clear-keeps-split': ['          moderator_commission_split: split,', '          moderator_commission_split: split || !!s.moderator_commission_split,'],
 };
 
 function writePageUnderTest() {
@@ -126,7 +140,13 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
     // ── Claim with a teammate as moderator ──────────────────────────────
     await reset();
     await page.locator('#boardTbody tr').nth(0).locator('[data-claim]').click();
+    assert.equal(await page.locator('#claimSplitCommission').isDisabled(), true,
+      'there is nothing to split with nobody');
     await page.fill('#claimModerator', 'Dana Reyes');
+    assert.equal(await page.locator('#claimSplitCommission').isDisabled(), false);
+    assert.equal(await page.locator('#claimSplitCommission').isChecked(), false,
+      'keeping the whole commission is the default — it is what happened before a moderator could be named');
+    await page.check('#claimSplitCommission');
     await page.click('#claimSubmitBtn');
     await page.waitForFunction(() => !document.getElementById('claimBackdrop').classList.contains('open'));
     let claim = (await queries()).find((q) => q.table === 'live_sessions' && q.op === 'insert');
@@ -134,6 +154,7 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
     assert.equal(claim.rows.moderator_name, 'Dana Reyes');
     assert.equal(claim.rows.moderator_user_id, 'u-dana', 'a teammate is linked to their profile');
     assert.equal(claim.rows.moderator_pay_type, 'payroll_payment', 'payroll is the default route');
+    assert.equal(claim.rows.moderator_commission_split, true, 'the host chose to split the 3%');
     assert.equal(claim.rows.moderator_hourly_rate, undefined,
       'the rate is stamped at finalize, not at claim, so the hour is paid at the rate it was worked at');
 
@@ -148,6 +169,7 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
     assert.equal(claim.rows.moderator_name, 'Outside Moderator');
     assert.equal(claim.rows.moderator_user_id, null, 'a name that is not a teammate stays a name');
     assert.equal(claim.rows.moderator_pay_type, 'invoice_vendor_payment');
+    assert.equal(claim.rows.moderator_commission_split, false, 'unticked, so the commission stays with the host');
 
     // ── Claiming alone is still a claim, with nothing to pay ────────────
     await reset();
@@ -158,6 +180,7 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
     assert.equal(claim.rows.moderator_name, null);
     assert.equal(claim.rows.moderator_pay_type, null,
       'no moderator means no pay route — the CHECK constraint forbids one without a name');
+    assert.equal(claim.rows.moderator_commission_split, false);
 
     // ── Finalize: two people, one insert ────────────────────────────────
     const claimed = (id, iso, extra) => ({
@@ -185,6 +208,8 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
     assert.equal(await page.locator('#totalPreview').textContent(), money(55), 'host: $25 + 3% of $1,000');
     assert.equal(await page.locator('#moderatorPreview').textContent(), money(25), 'moderator: the hour, no commission');
     assert.equal(await page.locator('#apTotalPreview').textContent(), money(80), 'what AP is actually being asked for');
+    assert.equal(await page.locator('#commissionSplitRow').isHidden(), true,
+      'with no split there is one commission number, not two');
     await page.click('#finalizeSubmitBtn');
     await page.waitForFunction(() => !document.getElementById('finalizeBackdrop').classList.contains('open'));
 
@@ -213,18 +238,69 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
     assert.equal(upd.patch.moderator_pay_type, 'payroll_payment');
     assert.equal(upd.patch.moderator_payment_request_id, mod.id, 'the slot links the request it filed');
     assert.equal(upd.patch.payment_request_id, host.id);
+    assert.equal(upd.patch.moderator_commission_split, false);
+    assert.equal(upd.patch.moderator_commission_amount, null, 'nothing was shared, so no share is stamped');
+    assert.equal(upd.patch.commission_amount, 30, 'the slot earned the full 3% either way');
 
     const invokes = await page.evaluate(() => (window.__INVOKES__ || []).map((i) => i.body.payment_request_id));
     assert.ok(invokes.includes(host.id) && invokes.includes(mod.id),
       'both requests are announced, or one of the two people is invisible to AP notifications');
 
+    // ── The split: half the commission each, to the cent ───────────────
+    // $333.67 of net sales is $10.01 of commission, which does not halve into
+    // cents. The host keeps the odd one, and the two shares still add up to
+    // exactly what the slot earned.
+    await setSessions([claimed('sess-split', await slotIso(7), {
+      moderator_name: 'Dana Reyes', moderator_user_id: 'u-dana',
+      moderator_pay_type: 'payroll_payment', moderator_commission_split: true,
+    })]);
+    const splitRow = page.locator('#boardTbody tr').nth(7);
+    assert.match(await splitRow.textContent(), /half the 3%/,
+      'the board says the commission is being shared before the slot is closed');
+    await reset();
+    await splitRow.locator('[data-finalize]').click();
+    assert.equal(await page.locator('#finalizeSplitCommission').isChecked(), true,
+      'the arrangement made at claim is the one presented at finalize');
+    await page.fill('#grossSalesInput', '333.67');
+    assert.equal(await page.locator('#commissionPreview').textContent(), money(10.01),
+      'the slot earned $10.01, whoever it goes to');
+    assert.equal(await page.locator('#hostCommissionPreview').textContent(), money(5.01),
+      'the host keeps the odd cent');
+    assert.equal(await page.locator('#moderatorPreview').textContent(), money(30),
+      'the moderator: the $25 hour plus $5.00');
+    assert.equal(await page.locator('#totalPreview').textContent(), money(30.01));
+    assert.equal(await page.locator('#apTotalPreview').textContent(), money(60.01));
+    await page.click('#finalizeSubmitBtn');
+    await page.waitForFunction(() => !document.getElementById('finalizeBackdrop').classList.contains('open'));
+    q = await queries();
+    const splitRows = [].concat(q.find((x) => x.table === 'payment_requests' && x.op === 'insert').rows);
+    assert.equal(splitRows[0].amount_due, 30.01, 'the host is paid their HALF, not the whole commission');
+    assert.equal(splitRows[1].amount_due, 30);
+    assert.match(splitRows[1].notes_comments, /half of the \$10\.01 commission/,
+      'the moderator request says where the extra came from');
+    assert.match(splitRows[0].notes_comments, /split 50\/50/);
+    const splitUpd = q.find((x) => x.table === 'live_sessions' && x.op === 'update').patch;
+    assert.equal(splitUpd.commission_amount, 10.01, 'the slot still records the whole 3% it earned');
+    assert.equal(splitUpd.moderator_commission_split, true);
+    assert.equal(splitUpd.moderator_commission_amount, 5,
+      'and the part of it the moderator was paid, so the two payouts reconcile against it');
+    assert.equal(splitUpd.payout_total, 30.01);
+    assert.equal(splitUpd.moderator_payout_total, 30);
+    assert.equal(
+      Math.round((splitUpd.moderator_commission_amount + (splitUpd.payout_total - 25)) * 100) / 100,
+      splitUpd.commission_amount,
+      'the two shares are the commission exactly — no cent paid twice, none paid to nobody');
+
     // ── A moderator cleared at finalize comes off the row ───────────────
     await setSessions([claimed('sess-2', await slotIso(4), {
       moderator_name: 'Dana Reyes', moderator_user_id: 'u-dana', moderator_pay_type: 'payroll_payment',
+      moderator_commission_split: true,
     })]);
     await reset();
     await page.locator('#boardTbody tr').nth(4).locator('[data-finalize]').click();
     await page.fill('#finalizeModerator', '');
+    assert.equal(await page.locator('#finalizeSplitCommission').isDisabled(), true,
+      'with the moderator gone there is nobody to split with');
     await page.fill('#grossSalesInput', '500');
     assert.equal(await page.locator('#moderatorPreview').textContent(), '—');
     assert.equal(await page.locator('#apTotalPreview').textContent(), money(40));
@@ -238,6 +314,9 @@ const money = (n) => Number(n).toLocaleString('en-US', { style: 'currency', curr
     assert.equal(cleared.moderator_pay_type, null);
     assert.equal(cleared.moderator_payout_total, null, 'a cleared moderator leaves no payout behind');
     assert.equal(cleared.moderator_payment_request_id, null);
+    assert.equal(cleared.moderator_commission_split, false, 'and no split behind either');
+    assert.equal(cleared.moderator_commission_amount, null);
+    assert.equal(cleared.payout_total, 40, 'the host keeps the whole commission once nobody is sharing it');
 
     // ── The vendor route is the request type that gets filed ────────────
     await setSessions([claimed('sess-3', await slotIso(5), {

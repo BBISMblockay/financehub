@@ -875,6 +875,16 @@ select
       then 'MISSING — live_sessions_moderator_pay_type_check'
     when not exists (select 1 from pg_constraint where conname='live_sessions_moderator_payout_check')
       then 'MISSING — live_sessions_moderator_payout_check'
+    when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='live_sessions' and column_name='moderator_commission_split')
+      then 'MISSING — live_sessions.moderator_commission_split'
+    -- Two halves of one rule, each silent on its own: a share with nobody
+    -- having agreed to it, and a share bigger than the slot earned.
+    when not exists (select 1 from pg_constraint where conname='live_sessions_moderator_commission_check'
+                     and pg_get_constraintdef(oid) like '%moderator_commission_split%')
+      then 'MISSING — live_sessions_moderator_commission_check (split agreed)'
+    when not exists (select 1 from pg_constraint where conname='live_sessions_moderator_commission_check'
+                     and pg_get_constraintdef(oid) like '%commission_amount%')
+      then 'MISSING — live_sessions_moderator_commission_check (share ≤ commission)'
     when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='live_sessions_v' and column_name='moderator_user_email')
       then 'MISSING — live_sessions_v not recreated with the moderator columns'
     else 'ok'

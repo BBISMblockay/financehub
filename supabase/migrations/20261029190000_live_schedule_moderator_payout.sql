@@ -4,9 +4,10 @@
 -- TikTok Live slots are worked by two people, not one. The host
 -- claims the slot and is paid $25/hr + 3% of that slot's net
 -- sales (20260807150000). The second person on the stream -- the
--- MODERATOR -- is paid $25/hr for the same hour and nothing else:
--- no commission, because the commission is the host's share of
--- what the stream sold.
+-- MODERATOR -- is paid $25/hr for the same hour, and a share of
+-- the 3% only where the host chooses to split it with them: by
+-- default the commission is the host's share of what the stream
+-- sold.
 --
 -- The moderator is named ON THE CLAIM, so the slot carries who is
 -- working it before it runs rather than only at close-out, and the
@@ -33,6 +34,17 @@
 -- row at finalize, same reasoning as commission_rate and
 -- payout_total: history survives a future rate change.
 --
+-- moderator_commission_split is the HOST's decision, recorded on the
+-- slot (offered on the claim, confirmable at finalize) rather than
+-- inferred from the amounts. commission_amount stays what the SLOT
+-- earned -- the whole 3% -- so a report of what a live generated does
+-- not change shape depending on who it went to;
+-- moderator_commission_amount is the moderator's share of that same
+-- number and the host's share is the remainder, so the two always add
+-- up to commission_amount exactly, with the odd cent going to the
+-- host. payout_total and moderator_payout_total each carry their own
+-- person's hour plus their own share.
+--
 -- Rows claimed or finalized before this migration carry NULL in
 -- every column below, which reads as "no moderator on that slot" --
 -- correct, since there was no way to name one.
@@ -56,6 +68,14 @@ alter table public.live_sessions
 alter table public.live_sessions
   add column if not exists moderator_payout_total numeric(14,2);
 
+-- Off unless the host says otherwise: the default is the arrangement
+-- that was in force before a moderator could be named at all.
+alter table public.live_sessions
+  add column if not exists moderator_commission_split boolean not null default false;
+
+alter table public.live_sessions
+  add column if not exists moderator_commission_amount numeric(14,2);
+
 alter table public.live_sessions
   add column if not exists moderator_payment_request_id uuid
     references public.payment_requests(id) on delete set null;
@@ -78,7 +98,24 @@ alter table public.live_sessions
   add constraint live_sessions_moderator_payout_check
   check (
     moderator_name is not null
-    or (moderator_payout_total is null and moderator_payment_request_id is null)
+    or (moderator_payout_total is null
+        and moderator_payment_request_id is null
+        and moderator_commission_amount is null
+        and moderator_commission_split = false)
+  );
+
+-- A share of the commission only where the host agreed to split it, and
+-- never more than the slot earned: either of those quietly pays out money
+-- the live did not make.
+alter table public.live_sessions
+  drop constraint if exists live_sessions_moderator_commission_check;
+alter table public.live_sessions
+  add constraint live_sessions_moderator_commission_check
+  check (
+    moderator_commission_amount is null
+    or (moderator_commission_split
+        and moderator_commission_amount >= 0
+        and moderator_commission_amount <= coalesce(commission_amount, 0))
   );
 
 create index if not exists live_sessions_moderator_user_idx

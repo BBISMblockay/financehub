@@ -95,6 +95,10 @@
     .ls-net-sales-tip span { color: var(--bcn-ink-2); }
     .ls-net-sales-label { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
     .ls-hint { font-size: 11.5px; color: var(--bcn-ink-3); line-height: 1.45; }
+    .ls-check { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.45; }
+    .ls-check input { margin: 2px 0 0; flex: none; }
+    .ls-check-label { display: flex; flex-direction: column; gap: 2px; }
+    .ls-check input:disabled + .ls-check-label { opacity: .55; }
     .ls-moderator { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     .ls-moderator-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ls-moderator-pay { font-family: var(--bcn-mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--bcn-ink-3); }
@@ -241,6 +245,16 @@
         <div class="ls-hint">Pick a teammate or type any name. A moderator is paid <strong>$25.00 for the hour</strong>
           &mdash; no commission, that is the host's &mdash; filed with AP when you finalize. Leave it blank if you are on your own.</div>
       </div>
+      <div class="bcn-field-group" id="claimSplitFields">
+        <label class="ls-check" for="claimSplitCommission">
+          <input type="checkbox" id="claimSplitCommission" disabled />
+          <span class="ls-check-label">
+            <strong>Split the 3% commission with the moderator</strong>
+            <span class="ls-hint">Half each, on top of both $25 hours. Leave it off and the whole 3% stays
+              with you. You can still change this when you finalize.</span>
+          </span>
+        </label>
+      </div>
       <div class="bcn-field-group" id="claimModeratorPayFields">
         <label class="bcn-label" for="claimModeratorPay">Moderator paid as</label>
         <select class="bcn-field" id="claimModeratorPay">
@@ -288,6 +302,10 @@
         <span>Commission (3% of net sales)</span>
         <span class="bcn-mono" id="commissionPreview">$0.00</span>
       </div>
+      <div class="ls-commission-preview" id="commissionSplitRow" hidden>
+        <span>Your share of the commission</span>
+        <span class="bcn-mono" id="hostCommissionPreview">$0.00</span>
+      </div>
       <div class="ls-commission-preview">
         <span><strong>Host payout</strong></span>
         <span class="bcn-mono" id="totalPreview"><strong>$25.00</strong></span>
@@ -303,6 +321,15 @@
         <div class="ls-hint">Carried over from the claim. Add or correct it here &mdash; a moderator is paid
           <strong>$25.00 for the hour</strong>, with no commission, as a second AP request.</div>
       </div>
+      <div class="bcn-field-group" id="finalizeSplitFields">
+        <label class="ls-check" for="finalizeSplitCommission">
+          <input type="checkbox" id="finalizeSplitCommission" disabled />
+          <span class="ls-check-label">
+            <strong>Split the 3% commission with the moderator</strong>
+            <span class="ls-hint">Half each. The slot still earned the full 3% &mdash; this is who it goes to.</span>
+          </span>
+        </label>
+      </div>
       <div class="bcn-field-group" id="finalizeModeratorPayFields">
         <label class="bcn-label" for="finalizeModeratorPay">Moderator paid as</label>
         <select class="bcn-field" id="finalizeModeratorPay">
@@ -311,7 +338,7 @@
         </select>
       </div>
       <div class="ls-commission-preview" id="moderatorPreviewRow">
-        <span>Moderator (1 hr @ $25.00)</span>
+        <span id="moderatorPreviewLabel">Moderator (1 hr @ $25.00)</span>
         <span class="bcn-mono" id="moderatorPreview">—</span>
       </div>
       <div class="ls-commission-preview" id="apTotalPreviewRow">
@@ -403,14 +430,20 @@
     claimNotes: el('claimNotes'),
     claimModerator: el('claimModerator'),
     claimModeratorPay: el('claimModeratorPay'),
+    claimSplitCommission: el('claimSplitCommission'),
     claimSubmitBtn: el('claimSubmitBtn'),
     moderatorNames: el('moderatorNames'),
     finalizeModerator: el('finalizeModerator'),
     finalizeModeratorPay: el('finalizeModeratorPay'),
+    finalizeSplitCommission: el('finalizeSplitCommission'),
     moderatorPreview: el('moderatorPreview'),
+    moderatorPreviewLabel: el('moderatorPreviewLabel'),
+    commissionSplitRow: el('commissionSplitRow'),
+    hostCommissionPreview: el('hostCommissionPreview'),
     apTotalPreview: el('apTotalPreview'),
     moderatorFields: [el('claimModeratorFields'), el('claimModeratorPayFields'),
       el('finalizeModeratorFields'), el('finalizeModeratorPayFields'),
+      el('claimSplitFields'), el('finalizeSplitFields'),
       el('moderatorPreviewRow'), el('apTotalPreviewRow')],
     finalizeBackdrop: el('finalizeBackdrop'),
     finalizeSlotLabel: el('finalizeSlotLabel'),
@@ -542,6 +575,8 @@
       els.moderatorFields.forEach((node) => { if (node) node.hidden = true; });
       els.claimModerator.value = '';
       els.finalizeModerator.value = '';
+      els.claimSplitCommission.checked = false;
+      els.finalizeSplitCommission.checked = false;
     }
   }
 
@@ -572,6 +607,20 @@
     const hit = state.people.find((pr) => normalizeName(pr.name) === want
       || String(pr.email || '').trim().toLowerCase() === String(name || '').trim().toLowerCase());
     return hit ? hit.id : null;
+  }
+
+  // The host's decision, so the host keeps the odd cent: the two shares add
+  // up to the slot's commission EXACTLY, which is what lets commission_amount
+  // stay the whole 3% and still reconcile against what the two people were
+  // paid. Splitting $30.01 pays the moderator $15.00 and the host $15.01 --
+  // never $15.005 each, and never a cent that nobody was paid.
+  function commissionShares(commission, split) {
+    const cents = Math.round((Number.isFinite(commission) ? commission : 0) * 100);
+    const moderatorCents = split ? Math.floor(cents / 2) : 0;
+    return {
+      moderator: moderatorCents / 100,
+      host: (cents - moderatorCents) / 100,
+    };
   }
 
   function moderatorPayType(value) {
@@ -776,8 +825,8 @@
     const paid = Number(s.moderator_payout_total);
     const route = MODERATOR_PAY_TYPES[s.moderator_pay_type] || MODERATOR_PAY_TYPES[MODERATOR_PAY_DEFAULT];
     const sub = s.status === 'finalized'
-      ? `${Number.isFinite(paid) && paid > 0 ? money(paid) : '—'} · ${escapeHtml(route)}${s.moderator_payment_request_id ? ' · AP FILED' : ''}`
-      : `${money(MODERATOR_HOURLY_RATE)}/hr · ${escapeHtml(route)}`;
+      ? `${Number.isFinite(paid) && paid > 0 ? money(paid) : '—'}${s.moderator_commission_split ? ' · split 3%' : ''} · ${escapeHtml(route)}${s.moderator_payment_request_id ? ' · AP FILED' : ''}`
+      : `${money(MODERATOR_HOURLY_RATE)}/hr${s.moderator_commission_split ? ' + half the 3%' : ''} · ${escapeHtml(route)}`;
     return `<span class="ls-moderator-name" title="${escapeHtml(s.moderator_user_email || '')}">${escapeHtml(s.moderator_name)}</span>`
       + `<span class="ls-moderator-pay">${sub}</span>`;
   }
@@ -790,8 +839,19 @@
     els.claimNotes.value = '';
     els.claimModerator.value = '';
     els.claimModeratorPay.value = MODERATOR_PAY_DEFAULT;
+    els.claimSplitCommission.checked = false;
+    syncClaimSplit();
     els.claimBackdrop.classList.add('open');
     els.claimLocation.focus();
+  }
+
+  // Nothing to split with nobody: the CHECK constraint refuses a split with no
+  // moderator, and an enabled checkbox with no name would be an error the host
+  // only discovers on submit.
+  function syncClaimSplit() {
+    const has = !!els.claimModerator.value.trim();
+    els.claimSplitCommission.disabled = !has;
+    if (!has) els.claimSplitCommission.checked = false;
   }
 
   async function submitClaim() {
@@ -813,6 +873,7 @@
           moderator_name: moderator || null,
           moderator_user_id: moderator ? moderatorProfileId(moderator) : null,
           moderator_pay_type: moderator ? moderatorPayType(els.claimModeratorPay.value) : null,
+          moderator_commission_split: !!moderator && els.claimSplitCommission.checked,
         }),
         status: 'claimed',
         updated_by: state.user.id,
@@ -829,8 +890,10 @@
         return;
       }
       closeModals();
+      const splitting = !!moderator && els.claimSplitCommission.checked;
       setStatus(moderator
-        ? `Slot claimed — ${moderator} is down as moderator (${money(MODERATOR_HOURLY_RATE)} for the hour, filed when you finalize).`
+        ? `Slot claimed — ${moderator} is down as moderator (${money(MODERATOR_HOURLY_RATE)} for the hour`
+          + `${splitting ? ' plus half the 3%' : ', no commission'}, filed when you finalize).`
         : 'Slot claimed.', 'pos', moderator ? 7000 : 4000);
       await loadDay();
     } finally {
@@ -875,6 +938,8 @@
     els.payeePreview.textContent = payeeName();
     els.finalizeModerator.value = s.moderator_name || '';
     els.finalizeModeratorPay.value = moderatorPayType(s.moderator_pay_type);
+    els.finalizeSplitCommission.checked = !!s.moderator_commission_split;
+    syncFinalizeSplit();
     renderFinalizePreview();
     els.finalizeBackdrop.classList.add('open');
     els.grossSalesInput.focus();
@@ -890,13 +955,29 @@
   function renderFinalizePreview() {
     const gross = Number(els.grossSalesInput.value);
     const commission = Number.isFinite(gross) && gross >= 0 ? commissionFor(gross) : 0;
-    const hostTotal = Math.round((commission + HOURLY_RATE) * 100) / 100;
-    const moderatorTotal = state.moderatorReady && els.finalizeModerator.value.trim()
-      ? MODERATOR_HOURLY_RATE : 0;
+    const moderator = state.moderatorReady ? els.finalizeModerator.value.trim() : '';
+    const split = !!moderator && els.finalizeSplitCommission.checked;
+    const share = commissionShares(commission, split);
+    const hostTotal = Math.round((share.host + HOURLY_RATE) * 100) / 100;
+    const moderatorTotal = moderator
+      ? Math.round((MODERATOR_HOURLY_RATE + share.moderator) * 100) / 100 : 0;
     els.commissionPreview.textContent = money(commission);
+    // The slot's commission and the host's share are DIFFERENT numbers once it
+    // is split, so both are on screen rather than one standing in for the other.
+    els.commissionSplitRow.hidden = !split;
+    els.hostCommissionPreview.textContent = money(share.host);
     els.totalPreview.innerHTML = `<strong>${money(hostTotal)}</strong>`;
-    els.moderatorPreview.textContent = moderatorTotal ? money(moderatorTotal) : '—';
+    els.moderatorPreviewLabel.textContent = split
+      ? `Moderator (1 hr @ ${money(MODERATOR_HOURLY_RATE)} + ${money(share.moderator)} share)`
+      : `Moderator (1 hr @ ${money(MODERATOR_HOURLY_RATE)})`;
+    els.moderatorPreview.textContent = moderator ? money(moderatorTotal) : '—';
     els.apTotalPreview.innerHTML = `<strong>${money(Math.round((hostTotal + moderatorTotal) * 100) / 100)}</strong>`;
+  }
+
+  function syncFinalizeSplit() {
+    const has = state.moderatorReady && !!els.finalizeModerator.value.trim();
+    els.finalizeSplitCommission.disabled = !has;
+    if (!has) els.finalizeSplitCommission.checked = false;
   }
 
   async function submitFinalize() {
@@ -908,12 +989,15 @@
     }
     const s = state.pendingSession;
     const commission = commissionFor(gross);
-    const total = Math.round((commission + HOURLY_RATE) * 100) / 100;
     const payee = payeeName();
     const label = slotLabel(new Date(s.slot_start));
     const moderator = state.moderatorReady ? els.finalizeModerator.value.trim() : '';
     const moderatorPay = moderatorPayType(els.finalizeModeratorPay.value);
-    const moderatorTotal = moderator ? MODERATOR_HOURLY_RATE : 0;
+    const split = !!moderator && els.finalizeSplitCommission.checked;
+    const share = commissionShares(commission, split);
+    const moderatorTotal = moderator
+      ? Math.round((MODERATOR_HOURLY_RATE + share.moderator) * 100) / 100 : 0;
+    const total = Math.round((share.host + HOURLY_RATE) * 100) / 100;
 
     state.busy = true;
     els.finalizeSubmitBtn.disabled = true;
@@ -935,7 +1019,9 @@
         requester_email: state.user.email,
         requester_email_norm: String(state.user.email || '').trim().toLowerCase(),
         location_name: s.live_location || null,
-        notes_comments: `TikTok Live payroll — ${payee} (W-2) — ${label} — $${HOURLY_RATE.toFixed(2)}/hr + net sales ${money(gross)} × 3% = ${money(commission)} → total ${money(total)}`,
+        notes_comments: `TikTok Live payroll — ${payee} (W-2) — ${label} — $${HOURLY_RATE.toFixed(2)}/hr + net sales ${money(gross)} × 3% = ${money(commission)}`
+          + (split ? ` split 50/50 with moderator ${moderator} (their half ${money(share.moderator)}, yours ${money(share.host)})` : '')
+          + ` → total ${money(total)}`,
         workflow_status: 'new',
         completed: false,
         created_by: state.user.id,
@@ -961,7 +1047,11 @@
           requester_email: state.user.email,
           requester_email_norm: String(state.user.email || '').trim().toLowerCase(),
           location_name: s.live_location || null,
-          notes_comments: `TikTok Live moderator — ${moderator} (${MODERATOR_PAY_TYPES[moderatorPay]}) — ${label} — $${MODERATOR_HOURLY_RATE.toFixed(2)}/hr × 1 hr = ${money(moderatorTotal)} — no commission (host ${payee} is paid separately)`,
+          notes_comments: `TikTok Live moderator — ${moderator} (${MODERATOR_PAY_TYPES[moderatorPay]}) — ${label} — $${MODERATOR_HOURLY_RATE.toFixed(2)}/hr × 1 hr`
+            + (split
+              ? ` + half of the ${money(commission)} commission = ${money(share.moderator)} → total ${money(moderatorTotal)}`
+              : ` = ${money(moderatorTotal)} — no commission`)
+            + ` (host ${payee} is paid separately)`,
           workflow_status: 'new',
           completed: false,
           created_by: state.user.id,
@@ -993,6 +1083,11 @@
           moderator_pay_type: moderator ? moderatorPay : null,
           moderator_hourly_rate: moderator ? MODERATOR_HOURLY_RATE : null,
           moderator_payout_total: moderator ? moderatorTotal : null,
+          // commission_amount above stays the WHOLE 3% the slot earned; this
+          // is the part of it the moderator was paid, so the two payouts
+          // reconcile against it exactly.
+          moderator_commission_split: split,
+          moderator_commission_amount: split ? share.moderator : null,
           moderator_payment_request_id: moderatorRequestId,
         }),
         finalized_at: new Date().toISOString(),
@@ -1011,7 +1106,8 @@
       });
 
       closeModals();
-      setStatus(`Session finalized — ${money(total)} payroll payment filed with AP (${money(HOURLY_RATE)}/hr + ${money(commission)} commission)`
+      setStatus(`Session finalized — ${money(total)} payroll payment filed with AP (${money(HOURLY_RATE)}/hr + ${money(share.host)} commission`
+        + (split ? ` — half of ${money(commission)})` : ')')
         + (moderator ? `, plus ${money(moderatorTotal)} for ${moderator} as moderator (${MODERATOR_PAY_TYPES[moderatorPay]}).` : '.'), 'pos', 9000);
       await loadDay();
     } finally {
@@ -1094,7 +1190,9 @@
     els.claimSubmitBtn.addEventListener('click', submitClaim);
     els.finalizeSubmitBtn.addEventListener('click', submitFinalize);
     els.grossSalesInput.addEventListener('input', renderFinalizePreview);
-    els.finalizeModerator.addEventListener('input', renderFinalizePreview);
+    els.claimModerator.addEventListener('input', syncClaimSplit);
+    els.finalizeModerator.addEventListener('input', () => { syncFinalizeSplit(); renderFinalizePreview(); });
+    els.finalizeSplitCommission.addEventListener('change', renderFinalizePreview);
     els.finalizeModeratorPay.addEventListener('change', renderFinalizePreview);
     document.querySelectorAll('[data-close]').forEach((btn) =>
       btn.addEventListener('click', closeModals));

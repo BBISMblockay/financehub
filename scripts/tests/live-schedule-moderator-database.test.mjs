@@ -4,7 +4,9 @@ process.on('unhandledRejection', (error) => { console.error('\nFAILED:', error?.
 // 20261029190000_live_schedule_moderator_payout.sql against a real
 // PostgreSQL: a TikTok Live slot can name the moderator working it, the pay
 // route is one of the two AP request types and cannot exist without someone
-// to pay, the filed request is linked without owning the slot's life, and
+// to pay, a share of the commission exists only where the host agreed to split
+// it and never exceeds what the slot earned, the filed request is linked
+// without owning the slot's life, and
 // live_sessions_v gains the moderator columns WITHOUT moving the columns the
 // board already reads.
 //
@@ -17,6 +19,9 @@ process.on('unhandledRejection', (error) => { console.error('\nFAILED:', error?.
 //   MODERATOR_MUTATION=no-payout-guard a filed payout needs no one to pay
 //   MODERATOR_MUTATION=cascade-delete  deleting the AP request deletes the slot
 //   MODERATOR_MUTATION=no-view-columns the view does not expose the moderator
+//   MODERATOR_MUTATION=no-split-guard   a share with no agreement to split
+//   MODERATOR_MUTATION=overpay-allowed  a share larger than the slot's commission
+//   MODERATOR_MUTATION=split-default-on the split is on unless turned off
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
@@ -34,6 +39,9 @@ if (mutation === 'no-name-guard') mutate('    or (moderator_name is not null\n  
 if (mutation === 'any-pay-type') mutate("and moderator_pay_type in ('payroll_payment', 'invoice_vendor_payment'))", 'and moderator_pay_type is not null)');
 if (mutation === 'no-payout-guard') mutate('    moderator_name is not null\n    or (moderator_payout_total is null', '    true\n    or (moderator_payout_total is null');
 if (mutation === 'cascade-delete') mutate('references public.payment_requests(id) on delete set null;', 'references public.payment_requests(id) on delete cascade;');
+if (mutation === 'no-split-guard') mutate('    or (moderator_commission_split\n        and moderator_commission_amount >= 0', '    or (true\n        and moderator_commission_amount >= 0');
+if (mutation === 'overpay-allowed') mutate('        and moderator_commission_amount <= coalesce(commission_amount, 0))', '        and moderator_commission_amount <= 1e9)');
+if (mutation === 'split-default-on') mutate('add column if not exists moderator_commission_split boolean not null default false;', 'add column if not exists moderator_commission_split boolean not null default true;');
 if (mutation === 'no-view-columns') mutate('  moderator.name as moderator_user_name,\n  moderator.email as moderator_user_email', '  null::text as moderator_user_name,\n  null::text as moderator_user_email');
 
 const db = new PGlite();
@@ -102,10 +110,15 @@ await test('the migration applies, and applying it twice changes nothing', async
   await db.exec(migration);
   await db.exec(migration);
   const [old] = await q(`select moderator_name, moderator_pay_type, moderator_payout_total,
-    moderator_payment_request_id, moderator_hourly_rate, moderator_user_id
+    moderator_payment_request_id, moderator_hourly_rate, moderator_user_id,
+    moderator_commission_amount
     from public.live_sessions where id = '44444444-4444-4444-4444-444444444444'`);
-  assert.deepEqual(Object.values(old), [null, null, null, null, null, null],
+  assert.deepEqual(Object.values(old), [null, null, null, null, null, null, null],
     'a slot that ran before the moderator existed reports no moderator, not a zero payout');
+  const [shared] = await q(`select moderator_commission_split from public.live_sessions
+    where id = '44444444-4444-4444-4444-444444444444'`);
+  assert.equal(shared.moderator_commission_split, false,
+    'and its commission was NOT shared — the default is the arrangement that was in force');
 });
 
 await test('a slot can name a moderator who is a teammate, or one who is not', async () => {
@@ -142,6 +155,45 @@ await test('a filed moderator payout cannot exist without someone to pay', async
     /live_sessions_moderator_payout_check/);
 });
 
+await test('a share of the commission needs the host to have agreed to split it', async () => {
+  await refuses(`insert into public.live_sessions (company_entity_id, slot_start, claimed_by,
+      moderator_name, moderator_pay_type, commission_amount, moderator_commission_amount)
+    values ($1, '2026-11-02T21:00:00Z', $2, 'Dana Reyes', 'payroll_payment', 30.00, 15.00)`, [CO, HOST],
+    /live_sessions_moderator_commission_check/);
+});
+
+await test('a share cannot exceed what the slot earned', async () => {
+  await refuses(`insert into public.live_sessions (company_entity_id, slot_start, claimed_by,
+      moderator_name, moderator_pay_type, moderator_commission_split,
+      commission_amount, moderator_commission_amount)
+    values ($1, '2026-11-02T22:00:00Z', $2, 'Dana Reyes', 'payroll_payment', true, 30.00, 30.01)`, [CO, HOST],
+    /live_sessions_moderator_commission_check/);
+  // Exactly the half the page files is fine, and the two shares add back up to
+  // the slot's own commission -- the odd cent on the host, never on nobody.
+  await db.query(`insert into public.live_sessions (company_entity_id, slot_start, claimed_by, status,
+      moderator_name, moderator_pay_type, moderator_commission_split,
+      gross_sales, commission_amount, moderator_commission_amount,
+      payout_total, moderator_payout_total, moderator_hourly_rate, finalized_at)
+    values ($1, '2026-11-02T23:00:00Z', $2, 'finalized', 'Dana Reyes', 'payroll_payment', true,
+      333.67, 10.01, 5.00, 30.01, 30.00, 25.00, now())`, [CO, HOST]);
+  const [row] = await q(`select commission_amount, moderator_commission_amount, payout_total
+      from public.live_sessions where slot_start = '2026-11-02T23:00:00Z'`);
+  // In cents: floating point has no business deciding whether a payout
+  // reconciles.
+  const cents = (v) => Math.round(Number(v) * 100);
+  assert.equal(
+    cents(row.moderator_commission_amount) + (cents(row.payout_total) - 2500),
+    cents(row.commission_amount),
+    "the two shares are the slot's commission exactly, with the odd cent on the host");
+});
+
+await test('a split cannot be recorded with nobody to split with', async () => {
+  await refuses(`insert into public.live_sessions (company_entity_id, slot_start, claimed_by,
+      moderator_commission_split)
+    values ($1, '2026-11-02T23:30:00Z', $2, true)`, [CO, HOST],
+    /live_sessions_moderator_payout_check/);
+});
+
 await test('the linked AP request does not own the slot', async () => {
   await db.query(`insert into public.payment_requests (id, company_entity_id, vendor_name, request_type, amount_due)
     values ('55555555-5555-5555-5555-555555555555', $1, 'Dana Reyes', 'payroll_payment', 25.00)`, [CO]);
@@ -163,7 +215,8 @@ await test('live_sessions_v carries the moderator AND everything the board alrea
   const cols = (await q(`select column_name from information_schema.columns
     where table_schema='public' and table_name='live_sessions_v'`)).map((r) => r.column_name);
   for (const c of ['moderator_name', 'moderator_user_id', 'moderator_pay_type', 'moderator_hourly_rate',
-    'moderator_payout_total', 'moderator_payment_request_id', 'moderator_user_name', 'moderator_user_email']) {
+    'moderator_payout_total', 'moderator_payment_request_id', 'moderator_user_name', 'moderator_user_email',
+    'moderator_commission_split', 'moderator_commission_amount']) {
     assert.ok(cols.includes(c), `view is missing ${c}`);
   }
   for (const c of ['claimed_by_name', 'claimed_by_email', 'claimed_by_avatar_url', 'payout_total',
