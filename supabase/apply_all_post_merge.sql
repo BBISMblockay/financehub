@@ -19293,6 +19293,7 @@ $c$select (select count(*) from v_po_header_summary
 -- silo_api_run_report() bodies it replaces. Applying it turns nothing on
 -- either, for the same reason.
 \i migrations/20261028070000_developer_api_idle_disconnect.sql
+\i migrations/20261029234000_developer_api_client_for_authorization.sql
 -- Sales by Channel gains a units column (from shopify_order_lines) and a
 -- channel slicer, plus silo_report_channels_v. Must come AFTER 20260920075344,
 -- whose version of the query and tie-out it replaces. It sits BEFORE the

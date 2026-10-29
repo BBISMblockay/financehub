@@ -273,6 +273,22 @@
   let PLAN = null;
   let COMPANIES = [];
 
+  /* Which application is this? On the fresh path the authorization details say
+     so. On the auto-approved repeat path they do NOT -- measured in production
+     2026-10-29, where the restore failed with "This request did not name an
+     application" because there was nothing to write the grant against.
+     auth.oauth_authorizations knows, and the browser cannot read schema auth,
+     so one SECURITY DEFINER lookup scoped to the caller's own authorizations
+     answers it (20261029234000). */
+  async function resolveClientId() {
+    if (PLAN.clientId) return PLAN.clientId;
+    const { data, error } = await db.rpc('silo_api_client_for_authorization', {
+      p_authorization_id: AUTH_ID,
+    });
+    if (error) throw new Error(error.message);
+    return data || '';
+  }
+
   /* The write SILO owns. Called on BOTH paths -- a fresh approval and a repeat
      authorization Supabase auto-approves -- because the grant row is what
      every boundary in the database reads. See planFromAuthorizationDetails()
@@ -308,7 +324,7 @@
          The other order would hand the application a live token backed by no
          grant -- dead on arrival at the token hook, but reported to the
          person as success, which reads as a SILO bug. */
-      await writeGrant(PLAN.clientId);
+      await writeGrant(await resolveClientId());
       const out = await decide(PLAN.authorizationId, 'approve');
       const url = out?.redirect_url || out?.redirectUrl;
       if (!url) throw new Error('Supabase approved the request but returned nowhere to send you.');
@@ -398,7 +414,7 @@
        here too, and only then are they sent on. */
     if (PLAN.kind === 'already_consented') {
       try {
-        await writeGrant(PLAN.clientId);
+        await writeGrant(await resolveClientId());
       } catch (e) {
         /* Worth stopping for rather than redirecting anyway: continuing would
            send them back to an application that believes it is connected and

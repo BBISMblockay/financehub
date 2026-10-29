@@ -82,6 +82,28 @@ test('the consent page writes the grant on the already-consented path', () => {
     'writeGrant() must come BEFORE the redirect, or the grant is never written');
 });
 
+test('the repeat path resolves the client it was never told', () => {
+  // Supabase's auto-approve response does not name the client, so the grant
+  // had nothing to write against -- measured in production 2026-10-29, where
+  // the restore failed with "did not name an application". The lookup is
+  // scoped in the database to the caller's own authorizations.
+  assert.match(CONSENT, /rpc\('silo_api_client_for_authorization',\s*\{\s*\n?\s*p_authorization_id: AUTH_ID/);
+  const i = CONSENT.indexOf("PLAN.kind === 'already_consented'");
+  const branch = CONSENT.slice(i, i + 1200);
+  assert.match(branch, /writeGrant\(await resolveClientId\(\)\)/,
+    'the repeat path writes the grant against the resolved client');
+});
+
+test('both paths go through the same resolver', () => {
+  // The fresh path has the client in hand and resolveClientId() returns it
+  // unchanged; routing both through one function means a details shape that
+  // ever stops carrying it is recovered rather than refused.
+  const calls = CONSENT.match(/writeGrant\(await resolveClientId\(\)\)/g) || [];
+  assert.equal(calls.length, 2, 'the fresh path and the repeat path');
+  assert.match(CONSENT, /if \(PLAN\.clientId\) return PLAN\.clientId;/,
+    'a client already named costs no round trip');
+});
+
 test('a failed grant write on the repeat path stops rather than redirecting', () => {
   const i = CONSENT.indexOf("PLAN.kind === 'already_consented'");
   const branch = CONSENT.slice(i, i + 1200);
@@ -95,7 +117,7 @@ test('writeGrant calls silo_api_consent with SILO scopes, not the OAuth scope st
 });
 
 test('the fresh path writes the grant before asking Supabase to approve', () => {
-  const write = CONSENT.indexOf('await writeGrant(PLAN.clientId)');
+  const write = CONSENT.indexOf('await writeGrant(await resolveClientId())');
   const approve = CONSENT.indexOf("decide(PLAN.authorizationId, 'approve')");
   assert.ok(write > 0 && approve > 0);
   assert.ok(write < approve,
