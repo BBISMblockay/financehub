@@ -19315,4 +19315,9 @@ $c$select (select count(*) from v_po_header_summary
 -- tie-outs, so it stays before the catalog cleanup, which must be last
 -- (supabase/CLAUDE.md).
 \i migrations/20261028220000_shipment_bookings_and_po_arrival.sql
+-- Payment requests accept 'payroll_payment' as a payment type. Independent of
+-- every other include: it only drops and recreates
+-- payment_requests_payment_type_check. Before the catalog cleanup only
+-- because that must stay last (supabase/CLAUDE.md).
+\i migrations/20261029170000_payment_request_payroll_payment_type.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

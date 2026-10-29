@@ -7676,3 +7676,30 @@ select 'developer API idle window' as check_name, case
    then 'BROKEN — the wrapper''s owner cannot record use; every API request will fail'
 
   else 'ok' end as status;
+
+-- Payment requests: 'payroll_payment' as a PAYMENT type (migration
+-- 20261029170000). The request-type constraint has carried a value of the same
+-- name since 20260807150000, so this asserts the payment_type constraint by
+-- name -- checking only that some constraint mentions 'payroll_payment' would
+-- pass on the request-type one and report a migration that was never applied.
+select 'payment request payroll payment type' as check_name, case
+  when not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.payment_requests'::regclass
+      and conname = 'payment_requests_payment_type_check')
+   then 'MISSING — payment_requests_payment_type_check does not exist'
+  when pg_get_constraintdef((
+    select oid from pg_constraint
+    where conrelid = 'public.payment_requests'::regclass
+      and conname = 'payment_requests_payment_type_check')) not like '%payroll_payment%'
+   then 'MISSING — run 20261029170000_payment_request_payroll_payment_type.sql'
+  -- The migration must ADD a value, not replace the set: a request saved as
+  -- any earlier type has to keep validating.
+  when exists (
+    select 1 from unnest(array['check','wire','flexfin','credit_card','other']) t(v)
+    where pg_get_constraintdef((
+      select oid from pg_constraint
+      where conrelid = 'public.payment_requests'::regclass
+        and conname = 'payment_requests_payment_type_check')) not like '%''' || t.v || '''%')
+   then 'CRITICAL: payment_requests_payment_type_check dropped a payment type that is already stored'
+  else 'ok' end as status;
