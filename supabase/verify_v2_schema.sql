@@ -906,6 +906,11 @@ select
                        and conname = 'live_sessions_moderator_not_self_check'
                        and pg_get_constraintdef(oid) like '%claimed_by%')
       then 'MISSING — live_sessions_moderator_not_self_check (moderator <> claimer)'
+    when not exists (select 1 from pg_constraint
+                     where conrelid = 'public.live_sessions'::regclass
+                       and conname = 'live_sessions_moderator_split_settled_check'
+                       and pg_get_constraintdef(oid) like '%moderator_commission_amount IS NOT NULL%')
+      then 'MISSING — live_sessions_moderator_split_settled_check (a finalized split has a share)'
     when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='live_sessions_v' and column_name='moderator_user_email')
       then 'MISSING — live_sessions_v not recreated with the moderator columns'
     else 'ok'

@@ -23,6 +23,7 @@ process.on('unhandledRejection', (error) => { console.error('\nFAILED:', error?.
 //   MODERATOR_MUTATION=overpay-allowed  a share larger than the slot's commission
 //   MODERATOR_MUTATION=split-default-on the split is on unless turned off
 //   MODERATOR_MUTATION=self-allowed     the host can be their own moderator
+//   MODERATOR_MUTATION=unsettled-split  a finalized split with no share recorded
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
@@ -55,6 +56,7 @@ if (mutation === 'no-split-guard') mutate('    or (moderator_commission_split\n 
 if (mutation === 'overpay-allowed') mutate('        and moderator_commission_amount <= coalesce(commission_amount, 0))', '        and moderator_commission_amount <= 1e9)');
 if (mutation === 'split-default-on') mutate('add column if not exists moderator_commission_split boolean not null default false;', 'add column if not exists moderator_commission_split boolean not null default true;');
 if (mutation === 'self-allowed') mutate('  check (moderator_user_id is null or moderator_user_id <> claimed_by);', '  check (true);');
+if (mutation === 'unsettled-split') mutate("    status <> 'finalized'\n    or not moderator_commission_split", "    true\n    or not moderator_commission_split");
 if (mutation === 'no-view-columns') mutate('  moderator.name as moderator_user_name,\n  moderator.email as moderator_user_email', '  null::text as moderator_user_name,\n  null::text as moderator_user_email');
 
 const db = new PGlite();
@@ -200,6 +202,23 @@ await test('a share cannot exceed what the slot earned', async () => {
     "the two shares are the slot's commission exactly, with the odd cent on the host");
 });
 
+await test('an agreed split is unsettled while claimed and settled once finalized', async () => {
+  // Claimed: the share is not knowable yet, because net sales are not in.
+  await db.query(`insert into public.live_sessions (company_entity_id, slot_start, claimed_by,
+      moderator_name, moderator_pay_type, moderator_commission_split)
+    values ($1, '2026-11-04T18:00:00Z', $2, 'Dana Reyes', 'payroll_payment', true)`, [CO, HOST]);
+  // Finalized with the agreement and no share is a moderator promised half and
+  // paid none -- and it reads on the board as though nothing was agreed.
+  await refuses(`update public.live_sessions set status = 'finalized', gross_sales = 1000,
+      commission_amount = 30.00, payout_total = 55.00, finalized_at = now()
+    where slot_start = '2026-11-04T18:00:00Z'`, [],
+    /live_sessions_moderator_split_settled_check/);
+  await db.exec(`update public.live_sessions set status = 'finalized', gross_sales = 1000,
+      commission_amount = 30.00, moderator_commission_amount = 15.00, payout_total = 40.00,
+      moderator_payout_total = 40.00, moderator_hourly_rate = 25.00, finalized_at = now()
+    where slot_start = '2026-11-04T18:00:00Z'`);
+});
+
 await test('the host cannot be their own moderator', async () => {
   await refuses(`insert into public.live_sessions (company_entity_id, slot_start, claimed_by,
       moderator_name, moderator_user_id, moderator_pay_type)
@@ -264,6 +283,7 @@ await test("the deployment check reads this schema as applied, and notices a gua
     ['live_sessions_moderator_payout_check', 'no payout without a name'],
     ['live_sessions_moderator_commission_check', 'split agreed'],
     ['live_sessions_moderator_not_self_check', 'not_self'],
+    ['live_sessions_moderator_split_settled_check', 'a finalized split has a share'],
   ];
   for (const [name, why] of weakened) {
     const [{ def }] = await q(

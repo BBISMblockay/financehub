@@ -128,6 +128,20 @@ alter table public.live_sessions
   add constraint live_sessions_moderator_not_self_check
   check (moderator_user_id is null or moderator_user_id <> claimed_by);
 
+-- A slot that is CLAIMED may carry the agreement with no share yet: the share
+-- is not knowable until net sales are entered. A FINALIZED one may not -- an
+-- agreed split with no share recorded is a moderator who was promised half and
+-- paid none, and it would read on the board as though nothing was agreed.
+alter table public.live_sessions
+  drop constraint if exists live_sessions_moderator_split_settled_check;
+alter table public.live_sessions
+  add constraint live_sessions_moderator_split_settled_check
+  check (
+    status <> 'finalized'
+    or not moderator_commission_split
+    or moderator_commission_amount is not null
+  );
+
 create index if not exists live_sessions_moderator_user_idx
   on public.live_sessions (moderator_user_id)
   where moderator_user_id is not null;
