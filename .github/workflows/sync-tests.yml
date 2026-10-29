@@ -614,6 +614,13 @@ jobs:
       - name: Team settings feature access helpers
         run: node --test scripts/tests/team-feature-access.test.mjs
 
+      # The consent screen and the Connected apps tab. Supabase AUTO-APPROVES a
+      # repeat authorization, so the page must still write SILO's grant row on
+      # that path or a connection that went idle, expired or was disconnected
+      # could never be restored. Both write orders are pinned here.
+      - name: Connected applications screens
+        run: node --test scripts/tests/api-connections.test.mjs
+
       # One SEO row in the sidebar; Studio, Search performance and Keywords
       # are tabs across their existing pages.
       - name: SEO suite navigation
