@@ -113,6 +113,15 @@ jobs:
       - name: Run provider-retry assertions
         run: node supabase/functions/silo-chat/provider.test.mjs
 
+      # The database map the model is shown (schema-map-lib.mjs): which
+      # relations get a full column card, and that an index line carries the
+      # EXACT column names. Pinned by execution rather than source text,
+      # because the defect it was written for -- an index line that dropped the
+      # curated sentence naming the real column -- left that sentence in the
+      # file and so passed every string assertion. Pure, no network.
+      - name: Run schema-map assertions
+        run: node supabase/functions/silo-chat/schema-map.test.mjs
+
       # The model EVALUATION is deliberately NOT run here -- it makes paid
       # Anthropic calls and its results are not deterministic, so it would be a
       # red check for reasons unrelated to the change under review (see

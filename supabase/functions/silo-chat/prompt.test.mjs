@@ -499,9 +499,16 @@ test('the always-sent core never names run_silo_report: it is not always offered
   lacks(CONCEPT, 'run_silo_report');
 });
 
-test('the schema index tells the model its slice is a slice', () => {
-  has(SRC, 'a one-line entry below is a POINTER, not a description', 'index.ts');
-  has(SRC, 'call describe_relations for its full card', 'index.ts');
+// The schema map moved to schema-map-lib.mjs on 2026-10-29, and its behaviour
+// is now asserted by EXECUTION in schema-map.test.mjs -- which is the point of
+// the move: this source-text pair passed throughout the defect that suite was
+// written for (the index line dropping the curated sentence that named the real
+// column). What is left here is the one thing a source assertion can still
+// usefully hold: that index.ts has not quietly grown a second copy of the map.
+test('index.ts delegates the schema map rather than rebuilding it', () => {
+  has(SRC, "from './schema-map-lib.mjs'", 'index.ts');
+  lacks(SRC, 'const SCHEMA_DETAIL_LIMIT');
+  lacks(SRC, 'const indexLine =');
 });
 
 test('ordinary analysis gets whole-question planning and compatible comparison instructions', () => {

@@ -19341,4 +19341,18 @@ $c$select (select count(*) from v_po_header_summary
 -- constraint already allows. Before the catalog cleanup only because that must
 -- stay last (supabase/CLAUDE.md).
 \i migrations/20261029190000_live_schedule_moderator_payout.sql
+-- Ask SILO's schema catalog: name the real order-date column on
+-- shopify_orders / shopify_order_lines (created_at is SILO's row-insert time,
+-- which a backfill makes useless as a date filter), and give keywords and a
+-- description to the twelve relations the 2026-10-29 audit found Ask SILO
+-- querying and failing on. Data-only, idempotent, keyed by relname: three
+-- guarded appends and nine absolute sets, so a re-run is a no-op. Companion to
+-- the schema-map-lib.mjs change, which puts exact column names on every index
+-- line -- that cures a guessed name but not a real column that means something
+-- else, which is what the first two statements are for. MUST come after
+-- 20260821210000_silo_chat_schema_catalog.sql (creates the table and the
+-- refresh), and after any migration that rewrites one of these twelve
+-- descriptions, since the last writer wins. Before the catalog cleanup, which
+-- must stay last (supabase/CLAUDE.md).
+\i migrations/20261029230000_chat_catalog_date_columns_and_gaps.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
