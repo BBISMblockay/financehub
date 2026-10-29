@@ -1,0 +1,437 @@
+<!doctype html>
+<!-- The OAuth consent screen. Supabase's OAuth 2.1 server has no approval UI
+     of its own: /auth/v1/oauth/authorize validates the request and redirects
+     here with ?authorization_id=..., and this page is what the person reads
+     before an outside application is allowed to act for them.
+
+     Chrome-less on purpose, like company-picker and company-onboarding. A
+     person who lands here came from another application and is mid-flow; a
+     sidebar inviting them to Marketing Performance is the wrong offer.
+
+     beacon.css defines every --bcn-* token under :root[data-theme] only, so
+     data-theme must be set here (see company-picker's note). -->
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Silo — Approve access</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../pages/config.js"></script>
+  <script src="api-connections.js"></script>
+  <style>
+    .cs-wrap {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: var(--bcn-canvas, #f4f5f7); padding: 24px 16px;
+    }
+    .cs-card {
+      width: 100%; max-width: 460px; background: var(--bcn-surface, #fff);
+      border: 1px solid var(--bcn-border, #e2e5ea); border-radius: 14px;
+      padding: 30px 28px; box-shadow: 0 8px 28px rgba(2,6,23,.07);
+    }
+    .cs-logo {
+      width: 40px; height: 40px; background: var(--bcn-band, #0f1117); border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 700; font-size: 18px; margin-bottom: 20px;
+    }
+    .cs-title { font-size: 17px; font-weight: 600; color: var(--bcn-ink, #0f1117); margin: 0 0 6px; }
+    .cs-sub { font-size: 13px; color: var(--bcn-ink-2, #5b6472); margin: 0 0 22px; line-height: 1.5; }
+    .cs-app {
+      display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+      border: 1px solid var(--bcn-border, #e2e5ea); border-radius: 10px; margin-bottom: 18px;
+      background: var(--bcn-canvas, #f8f9fb);
+    }
+    .cs-app-mark {
+      width: 32px; height: 32px; border-radius: 8px; flex: 0 0 32px;
+      background: var(--bcn-accent, #2f6df6); color: #fff;
+      display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px;
+    }
+    .cs-app-name { font-size: 14px; font-weight: 600; color: var(--bcn-ink, #0f1117); }
+    .cs-app-uri { font-size: 11.5px; color: var(--bcn-ink-3, #828b99); word-break: break-all; }
+    .cs-label {
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+      color: var(--bcn-ink-3, #828b99); margin: 0 0 7px;
+    }
+    .cs-list { list-style: none; margin: 0 0 20px; padding: 0; }
+    .cs-list li {
+      font-size: 13px; color: var(--bcn-ink, #0f1117); padding: 6px 0 6px 22px;
+      position: relative; line-height: 1.45;
+    }
+    .cs-list li::before {
+      content: ''; position: absolute; left: 4px; top: 12px; width: 6px; height: 6px;
+      border-radius: 50%; background: var(--bcn-accent, #2f6df6);
+    }
+    .cs-cannot { color: var(--bcn-ink-2, #5b6472); }
+    .cs-cannot li::before { background: var(--bcn-ink-3, #c3c9d2); }
+    .cs-co { margin-bottom: 20px; }
+    .cs-co select {
+      width: 100%; font: inherit; font-size: 13.5px; padding: 9px 10px;
+      border: 1px solid var(--bcn-border, #e2e5ea); border-radius: 8px;
+      background: var(--bcn-surface, #fff); color: var(--bcn-ink, #0f1117);
+    }
+    .cs-note { font-size: 12px; color: var(--bcn-ink-2, #5b6472); line-height: 1.5; margin: 8px 0 0; }
+    .cs-actions { display: flex; gap: 10px; margin-top: 22px; }
+    .cs-actions .bcn-btn { flex: 1; justify-content: center; }
+    .cs-foot {
+      font-size: 11.5px; color: var(--bcn-ink-3, #828b99); margin: 18px 0 0;
+      line-height: 1.55; text-align: center;
+    }
+    .cs-hide { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="cs-wrap">
+    <div class="cs-card">
+      <div class="cs-logo">S</div>
+      <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
+
+      <div id="paneLoading">
+        <h1 class="cs-title">Checking the request…</h1>
+        <p class="cs-sub">One moment.</p>
+      </div>
+
+      <!-- The whole decision. Nothing below renders until the request has been
+           read back from Supabase, so the application's name is never a guess. -->
+      <div id="paneAsk" class="cs-hide">
+        <h1 class="cs-title" id="askTitle">Approve access</h1>
+        <p class="cs-sub">An application is asking to act for you in SILO. Read what it gets before you approve.</p>
+
+        <div class="cs-app">
+          <div class="cs-app-mark" id="appMark">?</div>
+          <div>
+            <div class="cs-app-name" id="appName">—</div>
+            <div class="cs-app-uri" id="appUri"></div>
+          </div>
+        </div>
+
+        <!-- The company is a DECISION on this page, not something inherited
+             from whichever tab the person happened to have open.
+             silo_api_consent() reads active_company_id(), and the company
+             active at the moment of approval is the one this connection can
+             read for its whole life. Approving from the wrong tab otherwise
+             points an outside application at the wrong company's numbers with
+             nothing on screen admitting it. -->
+        <div class="cs-co" id="coBlock">
+          <p class="cs-label">Company it may read</p>
+          <select id="coSelect" aria-label="Company this application may read"></select>
+          <p class="cs-note">This is fixed once you approve. To change it later you approve again, which replaces this connection.</p>
+        </div>
+
+        <p class="cs-label">It will be able to</p>
+        <ul class="cs-list" id="canList"></ul>
+
+        <p class="cs-label">It will not be able to</p>
+        <ul class="cs-list cs-cannot">
+          <li>Change, add or delete anything</li>
+          <li>See any other company's data</li>
+          <li>Read your files, your team or your settings</li>
+          <li>Sign in as you anywhere else</li>
+        </ul>
+
+        <div class="cs-actions">
+          <button class="bcn-btn bcn-btn--ghost" id="btnDeny" type="button">Deny</button>
+          <button class="bcn-btn bcn-btn--primary" id="btnApprove" type="button">Approve</button>
+        </div>
+        <p class="cs-foot">
+          Access ends after 90 days, and stops working sooner if unused for 30.
+          You can disconnect it at any time in Workspace settings.
+        </p>
+      </div>
+
+      <!-- Two-step login is a precondition, not an error. silo_api_consent()
+           refuses any session that is not aal2, because a grant consented
+           below aal2 could never be used. Most people here have no second
+           factor enrolled yet, so this pane treats enrolling as the next step
+           of the flow rather than as a failure. -->
+      <div id="paneMfa" class="cs-hide">
+        <h1 class="cs-title">Two-step login required</h1>
+        <p class="cs-sub">
+          Connecting an outside application needs your second factor. It is the only evidence that
+          you — and not something holding your password — approved this.
+        </p>
+        <div class="cs-actions">
+          <button class="bcn-btn bcn-btn--ghost" id="btnMfaDeny" type="button">Cancel</button>
+          <a class="bcn-btn bcn-btn--primary" id="btnMfaGo" href="/v2/settings-company.html">Set it up</a>
+        </div>
+        <p class="cs-foot">Once it is set up, start the connection again from the application.</p>
+      </div>
+
+      <div id="paneDone" class="cs-hide">
+        <h1 class="cs-title" id="doneTitle">Sending you back…</h1>
+        <p class="cs-sub" id="doneSub">Returning to the application.</p>
+      </div>
+
+      <div id="paneErr" class="cs-hide">
+        <h1 class="cs-title">This request can't be completed</h1>
+        <p class="cs-sub" id="errSub">Something about the link is wrong.</p>
+        <p class="cs-foot">Start the connection again from the application. If it keeps failing, contact support.</p>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  const K = window.SiloApiConnections;
+
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const n = el('status');
+    n.className = 'bcn-status bcn-status--' + type;
+    n.textContent = msg; n.hidden = false;
+    if (ms) setTimeout(() => { n.hidden = true; }, ms);
+  }
+  function show(pane) {
+    ['paneLoading', 'paneAsk', 'paneMfa', 'paneDone', 'paneErr']
+      .forEach((p) => el(p).classList.toggle('cs-hide', p !== pane));
+  }
+  function fail(msg) { el('errSub').textContent = msg; show('paneErr'); }
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) { fail('Missing Supabase config.'); return; }
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const AUTH_ID = new URLSearchParams(location.search).get('authorization_id') || '';
+
+  /* Supabase's own documentation drives this flow through
+     supabase.auth.oauth.*, which exists only in recent builds of supabase-js.
+     The CDN tag here is pinned to @2, so the build that actually loads is
+     whatever v2 is current -- which may or may not carry those methods. The
+     HTTP endpoints underneath were measured directly on a hosted branch
+     (specs/pr0-proof-round4-hosted-2026-10-20.md), so when the SDK method is
+     missing we call them ourselves rather than failing at the one screen a
+     person cannot route around. */
+  const oauth = db.auth && db.auth.oauth ? db.auth.oauth : null;
+
+  async function authFetch(path, init) {
+    const { data: s } = await db.auth.getSession();
+    const token = s?.session?.access_token;
+    if (!token) throw new Error('not_authenticated');
+    const res = await fetch(SUPABASE_URL.replace(/\/+$/, '') + '/auth/v1' + path, {
+      ...init,
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        ...(init && init.headers),
+      },
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error_description || body.msg || body.error || ('HTTP ' + res.status));
+    return body;
+  }
+
+  async function getDetails(id) {
+    if (oauth?.getAuthorizationDetails) {
+      const { data, error } = await oauth.getAuthorizationDetails(id);
+      if (error) throw new Error(error.message);
+      return data;
+    }
+    return authFetch('/oauth/authorizations/' + encodeURIComponent(id), { method: 'GET' });
+  }
+  async function decide(id, action) {
+    if (action === 'approve' && oauth?.approveAuthorization) {
+      const { data, error } = await oauth.approveAuthorization(id);
+      if (error) throw new Error(error.message);
+      return data;
+    }
+    if (action === 'deny' && oauth?.denyAuthorization) {
+      const { data, error } = await oauth.denyAuthorization(id);
+      if (error) throw new Error(error.message);
+      return data;
+    }
+    return authFetch('/oauth/authorizations/' + encodeURIComponent(id) + '/consent', {
+      method: 'POST', body: JSON.stringify({ action }),
+    });
+  }
+
+  /* aal2, as the session itself reports it. Asked here so that someone with no
+     second factor sees the enrol pane instead of an Approve button that
+     silo_api_consent() will refuse. The database check remains the boundary --
+     this is the courtesy in front of it. */
+  async function isAal2() {
+    try {
+      const { data } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
+      return data?.currentLevel === 'aal2';
+    } catch (_) {
+      /* Fail OPEN here, deliberately, and only here: this decides which pane
+         to draw, not whether access is granted. Sending someone to enrol a
+         factor they already have, because one SDK call failed, strands them
+         with no way forward -- whereas letting them press Approve costs at
+         worst a refusal from the database, which is the real gate and which
+         says exactly what is wrong. */
+      return true;
+    }
+  }
+
+  let PLAN = null;
+  let COMPANIES = [];
+
+  /* The write SILO owns. Called on BOTH paths -- a fresh approval and a repeat
+     authorization Supabase auto-approves -- because the grant row is what
+     every boundary in the database reads. See planFromAuthorizationDetails()
+     in api-connections.js for why the repeat path is the dangerous one. */
+  async function writeGrant(clientId) {
+    if (!clientId) throw new Error('This request did not name an application.');
+    const { error } = await db.rpc('silo_api_consent', {
+      p_client_id: clientId, p_scopes: K.SILO_SCOPES,
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  async function setCompany(entityId) {
+    const { error } = await db.rpc('set_active_company', { p_entity_id: entityId });
+    if (error) throw new Error('Could not switch company: ' + error.message);
+    const co = COMPANIES.find((c) => c.id === entityId);
+    if (co && cfg.setActiveCompany) cfg.setActiveCompany(co);
+  }
+
+  async function onApprove() {
+    const btn = el('btnApprove');
+    btn.disabled = true; el('btnDeny').disabled = true;
+    try {
+      const chosen = el('coSelect').value;
+      if (chosen) await setCompany(chosen);
+
+      /* Ours first, Supabase second. The two writes cannot be one
+         transaction, so one of them has to be able to fail alone:
+           ours fails first  -> nothing approved, nothing issued, honest error.
+           Supabase fails    -> an orphan grant row and no client session,
+                                which is harmless and which the next approval
+                                revokes by bumping generation.
+         The other order would hand the application a live token backed by no
+         grant -- dead on arrival at the token hook, but reported to the
+         person as success, which reads as a SILO bug. */
+      await writeGrant(PLAN.clientId);
+      const out = await decide(PLAN.authorizationId, 'approve');
+      const url = out?.redirect_url || out?.redirectUrl;
+      if (!url) throw new Error('Supabase approved the request but returned nowhere to send you.');
+      show('paneDone');
+      window.location.href = url;
+    } catch (e) {
+      btn.disabled = false; el('btnDeny').disabled = false;
+      setStatus(String(e?.message || e), 'neg');
+    }
+  }
+
+  async function onDeny() {
+    el('btnDeny').disabled = true; el('btnApprove').disabled = true;
+    try {
+      const out = await decide(PLAN.authorizationId, 'deny');
+      const url = out?.redirect_url || out?.redirectUrl;
+      el('doneTitle').textContent = 'Access denied';
+      el('doneSub').textContent = url ? 'Returning to the application.' : 'You can close this tab.';
+      show('paneDone');
+      if (url) window.location.href = url;
+    } catch (e) {
+      el('btnDeny').disabled = false; el('btnApprove').disabled = false;
+      setStatus(String(e?.message || e), 'neg');
+    }
+  }
+
+  function renderAsk() {
+    const name = K.displayName(PLAN.clientName, PLAN.clientId);
+    el('askTitle').textContent = 'Approve ' + name + '?';
+    el('appName').textContent = name;
+    el('appMark').textContent = name.slice(0, 2).toUpperCase();
+    el('appUri').textContent = PLAN.redirectUri || '';
+
+    /* What SILO grants, not what the OAuth request asked for. OIDC scopes
+       govern identity claims and not database access, and silo_api_consent()
+       ignores anything outside its own allowlist -- so echoing the request's
+       scope string here would describe a permission that is not the one being
+       given. */
+    el('canList').innerHTML = K.describeScopes(K.SILO_SCOPES)
+      .map((s) => '<li>' + esc(s) + '</li>').join('');
+
+    const sel = el('coSelect');
+    sel.innerHTML = COMPANIES
+      .map((c) => '<option value="' + esc(c.id) + '">' + esc(c.title || c.entity_key) + '</option>')
+      .join('');
+    if (COMPANIES.length <= 1) el('coSelect').disabled = true;
+    show('paneAsk');
+  }
+
+  (async function boot() {
+    if (!AUTH_ID) { fail('This link is missing its authorization id.'); return; }
+
+    const { data: s } = await db.auth.getSession();
+    if (!s?.session?.user) {
+      /* Preserve the authorization_id across the login round trip, or the
+         person comes back to a page that cannot do anything. */
+      window.location.href = '/pages/login.html?next='
+        + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    const user = s.session.user;
+
+    let details;
+    try {
+      details = await getDetails(AUTH_ID);
+    } catch (e) {
+      fail('SILO could not read this request: ' + (e?.message || e));
+      return;
+    }
+
+    PLAN = K.planFromAuthorizationDetails(details);
+    if (PLAN.kind === 'error') {
+      fail(PLAN.reason === 'no_redirect'
+        ? 'This request has already been handled and there is nowhere to send you.'
+        : 'This request could not be read.');
+      return;
+    }
+
+    if (!await isAal2()) { show('paneMfa'); return; }
+
+    /* THE REPEAT-AUTHORIZATION PATH. Supabase auto-approves a client this
+       person has consented to before: no authorization_id comes back, only a
+       redirect_url, and the documented example follows it at once. Following
+       it without writing the grant is what would make a connection that went
+       idle, expired or was disconnected impossible to restore -- the person
+       reconnects, sees success, and nothing works. So the grant is written
+       here too, and only then are they sent on. */
+    if (PLAN.kind === 'already_consented') {
+      try {
+        await writeGrant(PLAN.clientId);
+      } catch (e) {
+        /* Worth stopping for rather than redirecting anyway: continuing would
+           send them back to an application that believes it is connected and
+           is not. */
+        fail('SILO could not restore this connection: ' + (e?.message || e));
+        return;
+      }
+      show('paneDone');
+      window.location.href = PLAN.redirectUrl;
+      return;
+    }
+
+    const { data: rows, error: memErr } = await db
+      .from('entity_memberships')
+      .select('role, entity:entities!inner(id, title, entity_key)')
+      .eq('user_id', user.id)
+      .eq('entity.entity_type', 'company');
+    if (memErr) { fail('Could not load your companies: ' + memErr.message); return; }
+    COMPANIES = (rows || []).map((r) => r.entity).filter(Boolean);
+    if (!COMPANIES.length) { fail('You are not a member of any company.'); return; }
+
+    const active = await cfg.ensureActiveCompany?.(db) || null;
+    renderAsk();
+    if (active?.id && COMPANIES.some((c) => c.id === active.id)) el('coSelect').value = active.id;
+
+    el('btnApprove').addEventListener('click', onApprove);
+    el('btnDeny').addEventListener('click', onDeny);
+    el('btnMfaDeny').addEventListener('click', onDeny);
+  })().catch((e) => {
+    console.error(e);
+    fail(String(e?.message || e));
+  });
+})();
+</script>
+</body>
+</html>
