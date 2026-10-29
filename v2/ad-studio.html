@@ -117,6 +117,12 @@
     .as-basis b { font-family:var(--bcn-mono); }
     .as-basis small { display:block; color:var(--bcn-ink-2); font-size:12px; margin-top:2px; }
     .as-basis-locked { padding:10px 12px; border-radius:8px; background:var(--bcn-bg); font-size:13px; color:var(--bcn-ink); }
+    .as-combo { position:relative; }
+    .as-combo .bcn-field { width:100%; padding-right:30px; }
+    .as-combo-btn { position:absolute; top:0; right:0; height:100%; width:28px; padding:0; border:0; background:none; color:var(--bcn-ink-3); font-size:11px; line-height:1; cursor:pointer; }
+    .as-combo-list { position:absolute; z-index:5; top:100%; left:0; right:0; max-height:200px; overflow:auto; margin:2px 0 0; padding:0; list-style:none; background:var(--bcn-surface); border:1px solid var(--bcn-border); border-radius:6px; }
+    .as-combo-list li { padding:6px 10px; font-size:12.5px; color:var(--bcn-ink); cursor:pointer; }
+    .as-combo-list li:hover, .as-combo-list li[aria-selected="true"] { background:var(--bcn-band); }
     .as-picklist { max-height:220px; overflow:auto; border:1px solid var(--bcn-border); border-radius:6px; margin-top:6px; }
     .as-picklist label { display:flex; gap:8px; align-items:center; padding:6px 10px; font-size:12.5px; color:var(--bcn-ink); border-bottom:1px solid var(--bcn-border); cursor:pointer; }
     .as-picklist label:last-child { border-bottom:0; }
@@ -217,9 +223,12 @@
         <div class="bcn-field-group"><label class="bcn-label" for="iStatus">Status</label><select id="iStatus" class="bcn-field"></select></div>
       </div>
       <div class="bcn-field-group" id="iElementWrap" hidden><label class="bcn-label" for="iElement">Testing element</label>
-        <input id="iElement" class="bcn-field" list="iElementList" maxlength="120" placeholder="e.g. Product fill out" autocomplete="off" />
-        <datalist id="iElementList"></datalist>
-        <span class="as-note" id="iElementNote"></span></div>
+        <div class="as-combo">
+          <input id="iElement" class="bcn-field" maxlength="120" placeholder="e.g. Product fill out" autocomplete="off"
+            role="combobox" aria-expanded="false" aria-controls="iElementList" aria-autocomplete="list" />
+          <button type="button" class="as-combo-btn" id="iElementOpen" tabindex="-1" aria-label="Show elements used before" hidden>▼</button>
+          <ul class="as-combo-list" id="iElementList" role="listbox" aria-label="Elements used before" hidden></ul>
+        </div></div>
       <div class="bcn-field-group"><label class="bcn-label" for="iDest">Destination</label><input id="iDest" class="bcn-field" placeholder="https://…" /></div>
       <div class="bcn-field-group" id="iLiveWrap" hidden><label class="bcn-label" for="iLiveSearch">Ads carrying this idea</label>
         <input id="iLiveSearch" class="bcn-field" type="search" placeholder="Search ad name, campaign or id" autocomplete="off" />
@@ -289,7 +298,7 @@
     objective: null, sort: 'best', running: false, shown: PAGE, selected: null, picked: new Set(),
     signed: {}, ideas: [], view: 'baselines', editing: null, draft: null,
     draftAds: null, barChoices: null, basis: 'selected', liveChosen: new Set(),
-    elements: [], elementsOk: true,
+    elements: [], elementsOk: true, elementHi: -1,
   };
 
   // ── Loads ────────────────────────────────────────────────────────────────
@@ -613,12 +622,36 @@
     el('iElementWrap').hidden = !S.elementsOk
       || !(st !== 'idea' || el('iElement').value.trim());
   }
+  // The box carries its own list of what this company has tested before: a
+  // <datalist> looked like a plain text box, so nothing told a person the
+  // prior values were there. Typing filters the list; the arrow shows all of
+  // them. Either way the value is whatever is typed, so a new element is still
+  // just typed in.
+  function elementOptions(all) {
+    const q = all ? '' : el('iElement').value.trim().toLowerCase();
+    return S.elements.filter(v => !q || v.toLowerCase().includes(q));
+  }
+  function showElementList(open, all) {
+    const list = el('iElementList');
+    const items = open ? elementOptions(all) : [];
+    S.elementHi = -1;
+    list.innerHTML = items.map((v, i) => `<li role="option" id="iElementOpt${i}" data-el="${esc(v)}">${esc(v)}</li>`).join('');
+    list.hidden = !items.length;
+    el('iElement').setAttribute('aria-expanded', String(!list.hidden));
+    el('iElement').removeAttribute('aria-activedescendant');
+  }
+  /** Keyboard: the arrows walk the list, Enter takes the walked-to value. */
+  function highlightElement(step) {
+    const items = [...el('iElementList').querySelectorAll('li')];
+    if (!items.length) return;
+    S.elementHi = (S.elementHi + step + items.length) % items.length;
+    items.forEach((li, i) => li.setAttribute('aria-selected', String(i === S.elementHi)));
+    items[S.elementHi].scrollIntoView({ block: 'nearest' });
+    el('iElement').setAttribute('aria-activedescendant', items[S.elementHi].id);
+  }
   function fillElementList() {
-    el('iElementList').innerHTML = S.elements
-      .map(v => `<option value="${esc(v)}"></option>`).join('');
-    el('iElementNote').textContent = S.elements.length
-      ? `What this idea is testing. ${S.elements.length === 1 ? 'One element has' : S.elements.length + ' elements have'} been used before — start typing to pick one, or name a new one. How it went is read off the ads linked to the idea; anything else about the test goes in Notes.`
-      : 'What this idea is testing, in your own words — "Product fill out", "Hook", "Offer". Later ideas offer it back as a suggestion. How it went is read off the ads linked to the idea; anything else about the test goes in Notes.';
+    el('iElementOpen').hidden = !S.elements.length;
+    showElementList(false);
   }
   function fillLive(selectedIds) {
     S.liveChosen = new Set((selectedIds || []).map(String));
@@ -782,6 +815,48 @@
   el('btnNewIdea').addEventListener('click', () => { S.draftAds = null; openIdea({ status: 'idea', source: 'manual' }); });
   el('iStatus').addEventListener('change', syncLiveVisibility);
   el('iStatus').addEventListener('change', syncElementVisibility);
+  el('iElement').addEventListener('input', () => showElementList(true));
+  el('iElement').addEventListener('focus', () => showElementList(true));
+  el('iElementOpen').addEventListener('click', () => {
+    const wasOpen = !el('iElementList').hidden;
+    showElementList(!wasOpen, true);
+    el('iElement').focus();
+  });
+  el('iElement').addEventListener('keydown', (e) => {
+    // preventDefault as well as stopPropagation: a <dialog> closes itself on
+    // Escape, and closing the whole idea dialog is not what "close this list"
+    // means. With the list shut, Escape is the dialog's again.
+    if (e.key === 'Escape' && !el('iElementList').hidden) { e.preventDefault(); e.stopPropagation(); showElementList(false); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      // Opening with a key lands on the first item going down, the last going
+      // up, rather than wherever a wrap-around from "nothing" would put it.
+      if (el('iElementList').hidden) {
+        showElementList(true, true);
+        S.elementHi = e.key === 'ArrowDown' ? -1 : 0;
+        highlightElement(e.key === 'ArrowDown' ? 1 : -1);
+        return;
+      }
+      highlightElement(e.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+    if (e.key === 'Enter' && S.elementHi >= 0 && !el('iElementList').hidden) {
+      e.preventDefault();
+      pickElement(el('iElementList').querySelectorAll('li')[S.elementHi]);
+    }
+  });
+  function pickElement(li) {
+    if (!li) return;
+    el('iElement').value = li.dataset.el;
+    showElementList(false);
+    el('iElement').focus();
+  }
+  el('iElementList').addEventListener('mousedown', (e) => { e.preventDefault(); pickElement(e.target.closest('li')); });
+  // A click anywhere else closes it; the dialog is modal, so this listener
+  // only ever runs while the idea dialog is the thing on screen.
+  document.addEventListener('click', (e) => {
+    if (!el('iElementList').hidden && !e.target.closest('.as-combo')) showElementList(false);
+  });
   el('iLiveSearch').addEventListener('input', renderLive);
   el('iLiveList').addEventListener('change', (e) => {
     const c = e.target.closest('[data-live]');

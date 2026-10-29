@@ -250,10 +250,37 @@ const IDEAS = [
     // directions: a value from an idea still testing, and one from an idea
     // that has moved on. Retyping either of them by hand is what splits a
     // list meant to group tests.
-    const sugg = await page.$$eval('#iElementList option', (o) => o.map((x) => x.value).sort());
+    R.eq(await page.locator('#iElementList').isHidden(), true, 'the list starts closed');
+    await page.click('#iElementOpen');
+    const sugg = await page.$$eval('#iElementList li', (o) => o.map((x) => x.textContent).sort());
     R.eq(JSON.stringify(sugg), JSON.stringify(['Hook', 'Offer', 'Product fill out']),
-      'the datalist offers what has been used before, deduplicated and sorted');
-    R.has(await page.locator('#iElementNote').innerText(), '3 elements have been used before');
+      'the arrow shows what has been used before, deduplicated and sorted');
+
+    // Typing filters the same list, and picking one fills the box.
+    await page.fill('#iElement', 'oo');
+    R.eq(JSON.stringify(await page.$$eval('#iElementList li', (o) => o.map((x) => x.textContent))),
+      JSON.stringify(['Hook']), 'typing narrows it');
+    await page.click('#iElementList li');
+    R.eq(await page.inputValue('#iElement'), 'Hook', 'picking one fills the box');
+    R.eq(await page.locator('#iElementList').isHidden(), true, 'and closes the list');
+
+    // The same list by keyboard: the arrow opens and walks it, Enter takes it.
+    await page.fill('#iElement', '');
+    // Escape shuts the list, not the dialog behind it.
+    await page.keyboard.press('Escape');
+    R.eq(await page.locator('#iElementList').isHidden(), true, 'Escape closes the list');
+    R.eq(await page.evaluate(() => document.getElementById('dlgIdea').open), true, 'and leaves the dialog open');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    R.eq(await page.inputValue('#iElement'), 'Offer', 'the arrows walk the list and Enter takes the value');
+    R.eq(await page.evaluate(() => document.getElementById('dlgIdea').open), true,
+      'and Enter on the list does not close the dialog');
+
+    // A value nobody has used before is still just typed in.
+    await page.fill('#iElement', 'Thumbnail');
+    R.eq(await page.locator('#iElementList').isHidden(), true, 'a new element matches nothing, so no list is in the way');
+    R.eq(await page.locator('#iElementNote').count(), 0, 'no instructions under the field');
 
     // Too long is said before the save, not by the database's constraint name.
     // The box's own maxlength stops a person getting here, so the value is set
