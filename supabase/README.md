@@ -331,6 +331,7 @@ supabase/
     20260818200000_sample_received_transition_within_family.sql
     20260818210000_incoming_shipment_lines.sql
     20261028220000_shipment_bookings_and_po_arrival.sql
+    20261029190000_live_schedule_moderator_payout.sql
     20260818220000_factories_country.sql
     20260820130000_sales_by_day_trgm_search_indexes.sql
     20260820140000_inventory_on_hand_trgm_search_indexes.sql

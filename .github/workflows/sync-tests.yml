@@ -199,6 +199,10 @@ on:
       # (shipment-booking-arrival-database.test.mjs; also its own workflow).
       - 'supabase/migrations/*shipment_bookings*.sql'
       - 'scripts/tests/shipment-booking-arrival-database.test.mjs'
+      # The moderator on a TikTok Live slot and their $25 hour
+      # (live-schedule-moderator-database.test.mjs).
+      - 'supabase/migrations/*live_schedule_moderator*.sql'
+      - 'scripts/tests/live-schedule-moderator-database.test.mjs'
       - 'v2/settings-team.html'
       - 'v2/team-feature-access.js'
       - 'scripts/tests/team-feature-access.test.mjs'
@@ -1468,6 +1472,15 @@ jobs:
       # shipments, and no existing view column was renamed or reordered.
       - name: Execute shipment booking and arrival migration regressions
         run: node scripts/tests/shipment-booking-arrival-database.test.mjs
+
+      # 20261029190000: the moderator working a TikTok Live slot beside the
+      # host, paid the hourly rate and no commission. Proves a pay route and a
+      # filed payout cannot exist without someone to pay, that the route is one
+      # of the two AP request types, that deleting the AP request does not take
+      # the slot with it, and that live_sessions_v gained the moderator columns
+      # without losing one the board reads.
+      - name: Execute live schedule moderator migration regressions
+        run: node scripts/tests/live-schedule-moderator-database.test.mjs
 
       # The entity admin gate answered about the wrong company: is_owner_admin()
       # asked "am I an admin ANYWHERE" and then said yes for every tenant. The

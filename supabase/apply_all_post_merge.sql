@@ -19326,4 +19326,12 @@ $c$select (select count(*) from v_po_header_summary
 -- because that must stay last (supabase/CLAUDE.md), and also because it
 -- rewrites ad_ideas's Ask SILO description to list the new stage.
 \i migrations/20261029180000_ad_ideas_testing_status.sql
+-- The moderator on a TikTok Live slot and their $25 hour. Independent of every
+-- other include except that it DROPS AND RECREATES live_sessions_v, so it must
+-- come after the inline TikTok Live sections above (a re-run of those would
+-- otherwise put the pre-moderator view definition back). It changes nothing
+-- about payment_requests: both moderator pay routes are request types the
+-- constraint already allows. Before the catalog cleanup only because that must
+-- stay last (supabase/CLAUDE.md).
+\i migrations/20261029190000_live_schedule_moderator_payout.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
