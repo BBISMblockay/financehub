@@ -860,6 +860,26 @@ select
     else 'ok'
   end as live_schedule_payroll_payout;
 
+-- 21b. Live schedule moderator payout (migration 20261029190000)
+select
+  case
+    when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='live_sessions' and column_name='moderator_name')
+      then 'MISSING — run 20261029190000_live_schedule_moderator_payout.sql'
+    when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='live_sessions' and column_name='moderator_payment_request_id')
+      then 'MISSING — live_sessions.moderator_payment_request_id'
+    -- The two guards are asserted SEPARATELY: each forbids a different
+    -- impossible row (a pay route with nobody to pay, a filed payout with
+    -- nobody to pay), and losing either one is silent in the UI.
+    when not exists (select 1 from pg_constraint where conname='live_sessions_moderator_pay_type_check'
+                     and pg_get_constraintdef(oid) like '%invoice_vendor_payment%')
+      then 'MISSING — live_sessions_moderator_pay_type_check'
+    when not exists (select 1 from pg_constraint where conname='live_sessions_moderator_payout_check')
+      then 'MISSING — live_sessions_moderator_payout_check'
+    when not exists (select 1 from information_schema.columns where table_schema='public' and table_name='live_sessions_v' and column_name='moderator_user_email')
+      then 'MISSING — live_sessions_v not recreated with the moderator columns'
+    else 'ok'
+  end as live_schedule_moderator_payout;
+
 -- 22. Organization calendar (migration 20260810120000)
 select
   case

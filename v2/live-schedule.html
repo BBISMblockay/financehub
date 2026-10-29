@@ -94,6 +94,10 @@
     .ls-net-sales-tip strong { color: var(--bcn-ink); font-size: 12.5px; }
     .ls-net-sales-tip span { color: var(--bcn-ink-2); }
     .ls-net-sales-label { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .ls-hint { font-size: 11.5px; color: var(--bcn-ink-3); line-height: 1.45; }
+    .ls-moderator { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .ls-moderator-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ls-moderator-pay { font-family: var(--bcn-mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--bcn-ink-3); }
     .ls-net-sales-label .bcn-pill { font-size: 10px; letter-spacing: .04em; }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -109,7 +113,7 @@
           <h1>TikTok Live Schedule</h1>
         </div>
         <div class="bcn-header-sub">
-          Claim a slot, go live, close it out — one live at a time, company-wide. Each finalized slot pays $25/hr + 3% of net sales, auto-filed as an AP payroll payment.
+          Claim a slot, go live, close it out — one live at a time, company-wide. Each finalized slot pays the host $25/hr + 3% of net sales, and a named moderator $25/hr, each auto-filed with AP.
         </div>
       </div>
       <div class="bcn-header-actions">
@@ -200,13 +204,14 @@
                   <th class="bcn-mono">EST</th>
                   <th>Status</th>
                   <th>Claimed by</th>
+                  <th>Moderator</th>
                   <th>Live location</th>
                   <th class="bcn-num">Net sales → payout</th>
                   <th style="text-align:right;">Actions</th>
                 </tr>
               </thead>
               <tbody id="boardTbody">
-                <tr><td colspan="9">Loading…</td></tr>
+                <tr><td colspan="10">Loading…</td></tr>
               </tbody>
             </table>
           </div>
@@ -228,6 +233,20 @@
       <div class="bcn-field-group">
         <label class="bcn-label" for="claimLocation">Live location (optional)</label>
         <input class="bcn-field" type="text" id="claimLocation" maxlength="120" placeholder="Where you're going live from" />
+      </div>
+      <div class="bcn-field-group" id="claimModeratorFields">
+        <label class="bcn-label" for="claimModerator">Moderator (optional)</label>
+        <input class="bcn-field" type="text" id="claimModerator" maxlength="120" list="moderatorNames"
+               autocomplete="off" placeholder="Who is moderating this live with you" />
+        <div class="ls-hint">Pick a teammate or type any name. A moderator is paid <strong>$25.00 for the hour</strong>
+          &mdash; no commission, that is the host's &mdash; filed with AP when you finalize. Leave it blank if you are on your own.</div>
+      </div>
+      <div class="bcn-field-group" id="claimModeratorPayFields">
+        <label class="bcn-label" for="claimModeratorPay">Moderator paid as</label>
+        <select class="bcn-field" id="claimModeratorPay">
+          <option value="payroll_payment">Payroll (W-2)</option>
+          <option value="invoice_vendor_payment">Vendor / contractor invoice</option>
+        </select>
       </div>
       <div class="bcn-field-group">
         <label class="bcn-label" for="claimNotes">Notes (optional)</label>
@@ -270,23 +289,51 @@
         <span class="bcn-mono" id="commissionPreview">$0.00</span>
       </div>
       <div class="ls-commission-preview">
-        <span><strong>Total payout</strong></span>
+        <span><strong>Host payout</strong></span>
         <span class="bcn-mono" id="totalPreview"><strong>$25.00</strong></span>
       </div>
       <div class="ls-commission-preview">
         <span>Payee</span>
         <span id="payeePreview">—</span>
       </div>
+      <div class="bcn-field-group" id="finalizeModeratorFields">
+        <label class="bcn-label" for="finalizeModerator">Moderator (optional)</label>
+        <input class="bcn-field" type="text" id="finalizeModerator" maxlength="120" list="moderatorNames"
+               autocomplete="off" placeholder="Nobody moderated this live" />
+        <div class="ls-hint">Carried over from the claim. Add or correct it here &mdash; a moderator is paid
+          <strong>$25.00 for the hour</strong>, with no commission, as a second AP request.</div>
+      </div>
+      <div class="bcn-field-group" id="finalizeModeratorPayFields">
+        <label class="bcn-label" for="finalizeModeratorPay">Moderator paid as</label>
+        <select class="bcn-field" id="finalizeModeratorPay">
+          <option value="payroll_payment">Payroll (W-2)</option>
+          <option value="invoice_vendor_payment">Vendor / contractor invoice</option>
+        </select>
+      </div>
+      <div class="ls-commission-preview" id="moderatorPreviewRow">
+        <span>Moderator (1 hr @ $25.00)</span>
+        <span class="bcn-mono" id="moderatorPreview">—</span>
+      </div>
+      <div class="ls-commission-preview" id="apTotalPreviewRow">
+        <span><strong>Total filed with AP</strong></span>
+        <span class="bcn-mono" id="apTotalPreview"><strong>$25.00</strong></span>
+      </div>
       <div style="color:var(--bcn-ink-3);font-size:12px;">
-        Finalizing closes the session and files an AP payroll payment for the total. It can't be re-opened from here.
+        Finalizing closes the session and files the host's AP payroll payment, plus a second request for the
+        moderator when one is named. It can't be re-opened from here.
       </div>
     </div>
     <div class="ls-modal-foot">
       <button class="bcn-btn bcn-btn--ghost" type="button" data-close="finalize">Cancel</button>
-      <button class="bcn-btn bcn-btn--primary" type="button" id="finalizeSubmitBtn">Finalize &amp; file AP request</button>
+      <button class="bcn-btn bcn-btn--primary" type="button" id="finalizeSubmitBtn">Finalize &amp; file AP</button>
     </div>
   </div>
 </div>
+
+<!-- One datalist, referenced by the moderator input in BOTH modals: the
+     moderator is usually a teammate, but the field stays free text because a
+     contractor who has no SILO login still has to be paid. -->
+<datalist id="moderatorNames"></datalist>
 
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -320,6 +367,19 @@
   const SLOT_LAST_HOUR_ET = 27;   // midnight PT = 3am ET next day
   const COMMISSION_RATE = 0.03;
   const HOURLY_RATE = 25.00; // W-2 hourly pay per claimed slot (slots are 1 hour)
+  // The moderator -- the second person working the stream -- is paid the same
+  // $25 for the hour and NO commission: the 3% is the host's share of what the
+  // stream sold. Their payout is filed exactly like the host's, as a
+  // payment_requests row at finalize, so there is no second payroll path.
+  const MODERATOR_HOURLY_RATE = 25.00;
+  // Both values already exist in payment_requests_request_type_check, so a
+  // moderator's hour lands in the payroll or the vendor bucket AP already has
+  // rather than inventing a request type every downstream surface must learn.
+  const MODERATOR_PAY_TYPES = {
+    payroll_payment: 'Payroll (W-2)',
+    invoice_vendor_payment: 'Vendor / contractor invoice',
+  };
+  const MODERATOR_PAY_DEFAULT = 'payroll_payment';
 
   const SLOTS_PER_DAY = SLOT_LAST_HOUR_ET - SLOT_FIRST_HOUR_ET + 1; // 20
 
@@ -341,7 +401,17 @@
     claimSlotLabel: el('claimSlotLabel'),
     claimLocation: el('claimLocation'),
     claimNotes: el('claimNotes'),
+    claimModerator: el('claimModerator'),
+    claimModeratorPay: el('claimModeratorPay'),
     claimSubmitBtn: el('claimSubmitBtn'),
+    moderatorNames: el('moderatorNames'),
+    finalizeModerator: el('finalizeModerator'),
+    finalizeModeratorPay: el('finalizeModeratorPay'),
+    moderatorPreview: el('moderatorPreview'),
+    apTotalPreview: el('apTotalPreview'),
+    moderatorFields: [el('claimModeratorFields'), el('claimModeratorPayFields'),
+      el('finalizeModeratorFields'), el('finalizeModeratorPayFields'),
+      el('moderatorPreviewRow'), el('apTotalPreviewRow')],
     finalizeBackdrop: el('finalizeBackdrop'),
     finalizeSlotLabel: el('finalizeSlotLabel'),
     grossSalesInput: el('grossSalesInput'),
@@ -370,6 +440,8 @@
     sessions: new Map(), // slot_start ms → live_sessions_v row
     pendingSlot: null,   // Date being claimed/finalized
     pendingSession: null,
+    people: [],          // active profiles, for the moderator datalist
+    moderatorReady: true, // false until 20261029190000 is applied — see detectModerator()
     busy: false,
     monthDate: null,      // 'YYYY-MM-01' — the displayed month, in ET
     dayCounts: new Map(), // 'YYYY-MM-DD' -> { open, claimed, finalized, payout }
@@ -454,6 +526,59 @@
     return new Date(Date.UTC(y, m, 0)).getUTCDate();
   }
 
+  // ── Moderators ────────────────────────────────────────────
+  // Merging does not apply a migration, so between the merge and Blake
+  // applying 20261029190000 the moderator columns do not exist -- and a write
+  // naming a column PostgREST has never heard of is rejected WHOLE, so sending
+  // `moderator_name: null` would break claiming a slot at all. Ask the database
+  // once which state it is in: unapplied means the moderator surface is hidden
+  // and every moderator key is left out of both writes, so the page keeps
+  // working exactly as it did before this change.
+  async function detectModerator() {
+    const { error } = await supabaseClient.from('live_sessions_v').select('moderator_name').limit(1);
+    const missing = !!error && (error.code === '42703' || /moderator_name/.test(error.message || ''));
+    state.moderatorReady = !missing;
+    if (missing) {
+      els.moderatorFields.forEach((node) => { if (node) node.hidden = true; });
+      els.claimModerator.value = '';
+      els.finalizeModerator.value = '';
+    }
+  }
+
+  // The moderator fields of a write, or NOTHING at all before the migration.
+  function moderatorPayload(fields) {
+    return state.moderatorReady ? fields : {};
+  }
+  // Suggestions only. The input stays free text because a moderator who is
+  // not a SILO user still has to be paid, so a dropdown of profiles would
+  // make the common case easier and the real case impossible.
+  async function loadPeople() {
+    const { data, error } = await supabaseClient.from('profiles')
+      .select('id, name, email').eq('is_active', true).order('name');
+    if (error) { state.people = []; return; }
+    state.people = data || [];
+    els.moderatorNames.innerHTML = state.people
+      .map((pr) => `<option value="${escapeHtml(pr.name || pr.email || '')}"></option>`)
+      .filter((o) => !o.includes('value=""'))
+      .join('');
+  }
+
+  // A typed name that IS a teammate links the row to their profile; anything
+  // else stays a name only. Never guess at a partial match -- a payout filed
+  // against the wrong person is worse than one filed against a bare name.
+  function moderatorProfileId(name) {
+    const want = normalizeName(name);
+    if (!want) return null;
+    const hit = state.people.find((pr) => normalizeName(pr.name) === want
+      || String(pr.email || '').trim().toLowerCase() === String(name || '').trim().toLowerCase());
+    return hit ? hit.id : null;
+  }
+
+  function moderatorPayType(value) {
+    return Object.prototype.hasOwnProperty.call(MODERATOR_PAY_TYPES, value)
+      ? value : MODERATOR_PAY_DEFAULT;
+  }
+
   // ── Data ──────────────────────────────────────────────────
   async function loadDay() {
     const slots = [];
@@ -495,7 +620,11 @@
       const c = counts.get(day);
       if (row.status === 'finalized') {
         c.finalized++;
-        c.payout += Number(row.payout_total ?? row.commission_amount) || 0;
+        // What the slot COST: the host's payout plus the moderator's hour.
+        // Leaving the moderator out would make the month read low by $25 for
+        // every slot that had one, which is a wrong number, not a missing one.
+        c.payout += (Number(row.payout_total ?? row.commission_amount) || 0)
+          + (Number(row.moderator_payout_total) || 0);
       } else {
         c.claimed++;
       }
@@ -570,7 +699,7 @@
       const zoneCells = ZONES.map((z, i) =>
         `<td class="bcn-mono ls-slot-time${z.key === 'EST' ? ' ls-slot-time--anchor' : ''}">${fmtHour(slot, z.tz)}</td>`).join('');
 
-      let statusCell, claimerCell, locationCell, entryCell, actionsCell;
+      let statusCell, claimerCell, moderatorCell, locationCell, entryCell, actionsCell;
       const rowClasses = [];
       if (ms < now) rowClasses.push('ls-row--past');
 
@@ -578,6 +707,7 @@
         open++;
         statusCell = '<span class="bcn-pill">OPEN</span>';
         claimerCell = '<span style="color:var(--bcn-ink-3);">—</span>';
+        moderatorCell = '<span style="color:var(--bcn-ink-3);">—</span>';
         locationCell = '—';
         entryCell = '—';
         actionsCell = `<button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-claim="${ms}">CLAIM</button>`;
@@ -585,10 +715,12 @@
         finalized++;
         // Pre-payroll rows have no payout_total (they were commission-only).
         const payout = Number(s.payout_total ?? s.commission_amount) || 0;
-        commission += payout;
+        const moderatorPayout = Number(s.moderator_payout_total) || 0;
+        commission += payout + moderatorPayout;
         rowClasses.push('ls-row--finalized');
         statusCell = '<span class="bcn-pill bcn-pill--pos">FINALIZED</span>';
         claimerCell = renderClaimer(s);
+        moderatorCell = renderModerator(s);
         locationCell = escapeHtml(s.live_location || '—');
         entryCell = `<span class="bcn-mono ls-entry" title="Net sales ${money(Number(s.gross_sales))} · $${Number(s.hourly_rate ?? HOURLY_RATE).toFixed(2)}/hr + ${money(Number(s.commission_amount))} commission">${money(Number(s.gross_sales))} → ${money(payout)}</span>`;
         actionsCell = s.payment_request_id
@@ -601,6 +733,7 @@
           ? '<span class="bcn-pill bcn-pill--accent">YOURS</span>'
           : '<span class="bcn-pill bcn-pill--dark">CLAIMED</span>';
         claimerCell = renderClaimer(s);
+        moderatorCell = renderModerator(s);
         locationCell = escapeHtml(s.live_location || '—');
         entryCell = '<span style="color:var(--bcn-ink-3);">pending</span>';
         const btns = [];
@@ -616,6 +749,7 @@
       return `<tr class="${rowClasses.join(' ')}">${zoneCells}` +
         `<td>${statusCell}</td>` +
         `<td><div class="ls-claimer">${claimerCell}</div></td>` +
+        `<td><div class="ls-moderator">${moderatorCell}</div></td>` +
         `<td>${locationCell}</td>` +
         `<td class="bcn-num">${entryCell}</td>` +
         `<td><div class="ls-actions">${actionsCell}</div></td></tr>`;
@@ -633,12 +767,29 @@
     return `<span class="ls-claimer-name" title="${escapeHtml(s.claimed_by_email || '')}">${escapeHtml(name)}</span>`;
   }
 
+  // No moderator is a legitimate state (a host working alone), so it reads as
+  // a dash rather than as something missing. On a finalized slot the amount
+  // shown is the one that was FILED, from the row, never recomputed from the
+  // current rate.
+  function renderModerator(s) {
+    if (!s.moderator_name) return '<span style="color:var(--bcn-ink-3);">—</span>';
+    const paid = Number(s.moderator_payout_total);
+    const route = MODERATOR_PAY_TYPES[s.moderator_pay_type] || MODERATOR_PAY_TYPES[MODERATOR_PAY_DEFAULT];
+    const sub = s.status === 'finalized'
+      ? `${Number.isFinite(paid) && paid > 0 ? money(paid) : '—'} · ${escapeHtml(route)}${s.moderator_payment_request_id ? ' · AP FILED' : ''}`
+      : `${money(MODERATOR_HOURLY_RATE)}/hr · ${escapeHtml(route)}`;
+    return `<span class="ls-moderator-name" title="${escapeHtml(s.moderator_user_email || '')}">${escapeHtml(s.moderator_name)}</span>`
+      + `<span class="ls-moderator-pay">${sub}</span>`;
+  }
+
   // ── Claim / unclaim ───────────────────────────────────────
   function openClaimModal(ms) {
     state.pendingSlot = new Date(ms);
     els.claimSlotLabel.textContent = slotLabel(state.pendingSlot);
     els.claimLocation.value = '';
     els.claimNotes.value = '';
+    els.claimModerator.value = '';
+    els.claimModeratorPay.value = MODERATOR_PAY_DEFAULT;
     els.claimBackdrop.classList.add('open');
     els.claimLocation.focus();
   }
@@ -648,11 +799,21 @@
     state.busy = true;
     els.claimSubmitBtn.disabled = true;
     try {
+      const moderator = state.moderatorReady ? els.claimModerator.value.trim() : '';
       const { error } = await supabaseClient.from('live_sessions').insert({
         slot_start: state.pendingSlot.toISOString(),
         live_location: els.claimLocation.value.trim() || null,
         notes: els.claimNotes.value.trim() || null,
         claimed_by: state.user.id,
+        // Named on the claim so the slot says who is working it before it
+        // runs. The RATE is not stamped here -- it is stamped at finalize,
+        // same as the host's hourly_rate, so the rate in force when the hour
+        // was actually worked is the one that gets paid.
+        ...moderatorPayload({
+          moderator_name: moderator || null,
+          moderator_user_id: moderator ? moderatorProfileId(moderator) : null,
+          moderator_pay_type: moderator ? moderatorPayType(els.claimModeratorPay.value) : null,
+        }),
         status: 'claimed',
         updated_by: state.user.id,
         ...(_co?.id ? { company_entity_id: _co.id } : {}),
@@ -668,7 +829,9 @@
         return;
       }
       closeModals();
-      setStatus('Slot claimed.', 'pos', 4000);
+      setStatus(moderator
+        ? `Slot claimed — ${moderator} is down as moderator (${money(MODERATOR_HOURLY_RATE)} for the hour, filed when you finalize).`
+        : 'Slot claimed.', 'pos', moderator ? 7000 : 4000);
       await loadDay();
     } finally {
       state.busy = false;
@@ -710,12 +873,30 @@
     els.commissionPreview.textContent = money(0);
     els.totalPreview.innerHTML = `<strong>${money(HOURLY_RATE)}</strong>`;
     els.payeePreview.textContent = payeeName();
+    els.finalizeModerator.value = s.moderator_name || '';
+    els.finalizeModeratorPay.value = moderatorPayType(s.moderator_pay_type);
+    renderFinalizePreview();
     els.finalizeBackdrop.classList.add('open');
     els.grossSalesInput.focus();
   }
 
   function commissionFor(gross) {
     return Math.round(gross * COMMISSION_RATE * 100) / 100;
+  }
+
+  // Host payout, the moderator's hour and what AP will actually receive, from
+  // the fields as they stand. One function so the three numbers cannot drift
+  // apart -- the AP total is the only one that says what is being spent.
+  function renderFinalizePreview() {
+    const gross = Number(els.grossSalesInput.value);
+    const commission = Number.isFinite(gross) && gross >= 0 ? commissionFor(gross) : 0;
+    const hostTotal = Math.round((commission + HOURLY_RATE) * 100) / 100;
+    const moderatorTotal = state.moderatorReady && els.finalizeModerator.value.trim()
+      ? MODERATOR_HOURLY_RATE : 0;
+    els.commissionPreview.textContent = money(commission);
+    els.totalPreview.innerHTML = `<strong>${money(hostTotal)}</strong>`;
+    els.moderatorPreview.textContent = moderatorTotal ? money(moderatorTotal) : '—';
+    els.apTotalPreview.innerHTML = `<strong>${money(Math.round((hostTotal + moderatorTotal) * 100) / 100)}</strong>`;
   }
 
   async function submitFinalize() {
@@ -730,6 +911,9 @@
     const total = Math.round((commission + HOURLY_RATE) * 100) / 100;
     const payee = payeeName();
     const label = slotLabel(new Date(s.slot_start));
+    const moderator = state.moderatorReady ? els.finalizeModerator.value.trim() : '';
+    const moderatorPay = moderatorPayType(els.finalizeModeratorPay.value);
+    const moderatorTotal = moderator ? MODERATOR_HOURLY_RATE : 0;
 
     state.busy = true;
     els.finalizeSubmitBtn.disabled = true;
@@ -738,7 +922,8 @@
       // payload shape as /v2/purchase_request.html so it rides the normal
       // Request Manager pipeline.
       const requestId = crypto.randomUUID();
-      const { error: apError } = await supabaseClient.from('payment_requests').insert({
+      const moderatorRequestId = moderator ? crypto.randomUUID() : null;
+      const apRows = [{
         id: requestId,
         vendor_name: payee,
         vendor_name_norm: normalizeName(payee),
@@ -756,8 +941,40 @@
         created_by: state.user.id,
         updated_by: state.user.id,
         ...(_co?.id ? { company_entity_id: _co.id } : {}),
-      });
-      if (apError) { setStatus(`Could not file the AP request: ${apError.message}`, 'neg'); return; }
+      }];
+
+      // The moderator's hour: the same payload shape, the same pipeline, the
+      // hourly rate and NO commission. Pushed into the SAME insert as the
+      // host's row on purpose -- one statement, so AP either gets both people
+      // or neither, and there is no state where the host was filed and the
+      // moderator was silently dropped.
+      if (moderator) {
+        apRows.push({
+          id: moderatorRequestId,
+          vendor_name: moderator,
+          vendor_name_norm: normalizeName(moderator),
+          vendor_name_manual: null,
+          vendor_name_manual_norm: normalizeName(moderator),
+          request_type: moderatorPay,
+          invoice_number: null,
+          amount_due: moderatorTotal,
+          requester_email: state.user.email,
+          requester_email_norm: String(state.user.email || '').trim().toLowerCase(),
+          location_name: s.live_location || null,
+          notes_comments: `TikTok Live moderator — ${moderator} (${MODERATOR_PAY_TYPES[moderatorPay]}) — ${label} — $${MODERATOR_HOURLY_RATE.toFixed(2)}/hr × 1 hr = ${money(moderatorTotal)} — no commission (host ${payee} is paid separately)`,
+          workflow_status: 'new',
+          completed: false,
+          created_by: state.user.id,
+          updated_by: state.user.id,
+          ...(_co?.id ? { company_entity_id: _co.id } : {}),
+        });
+      }
+
+      const { error: apError } = await supabaseClient.from('payment_requests').insert(apRows);
+      if (apError) {
+        setStatus(`Could not file the AP request${moderator ? 's' : ''}: ${apError.message}`, 'neg');
+        return;
+      }
 
       const { error: updError } = await supabaseClient.from('live_sessions').update({
         status: 'finalized',
@@ -768,21 +985,34 @@
         payout_total: total,
         payee_name: payee,
         payment_request_id: requestId,
+        // Written on every finalize, nulls included: a moderator cleared in
+        // this modal must come off the row, not linger from the claim.
+        ...moderatorPayload({
+          moderator_name: moderator || null,
+          moderator_user_id: moderator ? moderatorProfileId(moderator) : null,
+          moderator_pay_type: moderator ? moderatorPay : null,
+          moderator_hourly_rate: moderator ? MODERATOR_HOURLY_RATE : null,
+          moderator_payout_total: moderator ? moderatorTotal : null,
+          moderator_payment_request_id: moderatorRequestId,
+        }),
         finalized_at: new Date().toISOString(),
         updated_by: state.user.id,
         updated_at: new Date().toISOString(),
       }).eq('id', s.id).eq('status', 'claimed');
       if (updError) {
-        setStatus(`AP request ${requestId} was filed, but closing the session failed: ${updError.message}. Reload and try again — do not re-finalize, or AP will get a duplicate.`, 'neg');
+        setStatus(`AP request${moderator ? 's' : ''} ${[requestId, moderatorRequestId].filter(Boolean).join(' and ')} ${moderator ? 'were' : 'was'} filed, but closing the session failed: ${updError.message}. Reload and try again — do not re-finalize, or AP will get a duplicate.`, 'neg');
         return;
       }
 
-      supabaseClient.functions.invoke('payment-request-submitted-notify', {
-        body: { payment_request_id: requestId },
-      }).catch((err) => console.error('submission notification failed', err));
+      [requestId, moderatorRequestId].filter(Boolean).forEach((id) => {
+        supabaseClient.functions.invoke('payment-request-submitted-notify', {
+          body: { payment_request_id: id },
+        }).catch((err) => console.error('submission notification failed', err));
+      });
 
       closeModals();
-      setStatus(`Session finalized — ${money(total)} payroll payment filed with AP (${money(HOURLY_RATE)}/hr + ${money(commission)} commission).`, 'pos', 8000);
+      setStatus(`Session finalized — ${money(total)} payroll payment filed with AP (${money(HOURLY_RATE)}/hr + ${money(commission)} commission)`
+        + (moderator ? `, plus ${money(moderatorTotal)} for ${moderator} as moderator (${MODERATOR_PAY_TYPES[moderatorPay]}).` : '.'), 'pos', 9000);
       await loadDay();
     } finally {
       state.busy = false;
@@ -863,12 +1093,9 @@
 
     els.claimSubmitBtn.addEventListener('click', submitClaim);
     els.finalizeSubmitBtn.addEventListener('click', submitFinalize);
-    els.grossSalesInput.addEventListener('input', () => {
-      const gross = Number(els.grossSalesInput.value);
-      const commission = Number.isFinite(gross) && gross >= 0 ? commissionFor(gross) : 0;
-      els.commissionPreview.textContent = money(commission);
-      els.totalPreview.innerHTML = `<strong>${money(commission + HOURLY_RATE)}</strong>`;
-    });
+    els.grossSalesInput.addEventListener('input', renderFinalizePreview);
+    els.finalizeModerator.addEventListener('input', renderFinalizePreview);
+    els.finalizeModeratorPay.addEventListener('change', renderFinalizePreview);
     document.querySelectorAll('[data-close]').forEach((btn) =>
       btn.addEventListener('click', closeModals));
     [els.claimBackdrop, els.finalizeBackdrop].forEach((bd) =>
@@ -899,6 +1126,10 @@
       els.dateInput.value = state.date;
       state.monthDate = state.date.slice(0, 8) + '01';
       wireEvents();
+      // Suggestions only, so a failure here must not stop the board loading:
+      // the moderator field still accepts any name typed into it.
+      await loadPeople();
+      await detectModerator();
       await loadMonth();
     } catch (err) {
       console.error(err);
