@@ -108,6 +108,7 @@
 
   let _co = null, _user = null, _isOwner = false;
   let _names = {};   // client_id -> readable name, from Supabase's own grant list
+  let _cos = {};     // company_entity_id -> title
 
   function setStatus(msg, type = 'info', ms = 0) {
     const n = el('status');
@@ -119,21 +120,47 @@
   const fmtDate = (v) => (v ? new Date(v).toLocaleDateString(undefined,
     { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
 
-  /* Names come from Supabase's own record of what this person authorized
-     (getUserGrants -> client_name), because silo_api_grants stores only the
-     client_id. Available for the person's OWN connections only -- there is no
-     admin-side listing -- so an owner looking at someone else's connection
-     sees the id. Better that than a name we invented. */
+  /* Names come from Supabase's own record of what this person authorized,
+     because silo_api_grants stores only the client_id. Available for the
+     person's OWN connections only -- there is no admin-side listing -- so an
+     owner looking at someone else's connection sees the id. Better that than
+     a name we invented.
+
+     The SDK method is `listGrants`. Supabase's own guide calls it
+     `getUserGrants()`, and coding the documented name shipped a lookup that
+     silently did nothing: every row read "Application 0307bcaf" instead of
+     "SILO Test Client" (found on the first live connection, 2026-10-29). Both
+     names are tried, then the HTTP endpoint they both wrap, because the CDN
+     tag here floats and this is exactly the kind of thing that moves. */
   async function loadNames() {
+    let rows = null;
     try {
       const o = db.auth && db.auth.oauth;
-      if (!o?.getUserGrants) return;
-      const { data, error } = await o.getUserGrants();
-      if (error || !Array.isArray(data)) return;
-      for (const g of data) {
-        if (g?.client_id && g?.client_name) _names[g.client_id] = g.client_name;
+      const list = o && (o.listGrants || o.getUserGrants);
+      if (list) {
+        const { data, error } = await list.call(o);
+        if (!error) rows = data;
       }
+      if (!Array.isArray(rows)) rows = await grantsOverHttp();
     } catch (_) { /* a missing name is cosmetic; never let it fail the page */ }
+    for (const g of (Array.isArray(rows) ? rows : [])) {
+      const id = g?.client_id || g?.client?.id;
+      const name = g?.client_name || g?.client?.name;
+      if (id && name) _names[id] = name;
+    }
+  }
+
+  async function grantsOverHttp() {
+    const { data: s } = await db.auth.getSession();
+    const token = s?.session?.access_token;
+    if (!token) return null;
+    const res = await fetch(SUPABASE_URL.replace(/\/+$/, '') + '/auth/v1/user/oauth/grants', {
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + token },
+    });
+    if (!res.ok) return null;
+    const body = await res.json().catch(() => null);
+    // The endpoint has answered as a bare array; tolerate a wrapper too.
+    return Array.isArray(body) ? body : (Array.isArray(body?.grants) ? body.grants : null);
   }
 
   function statusCell(g) {
@@ -152,7 +179,7 @@
       const live = !g.revoked_at;
       const who = opts.showWho
         ? '<td>' + esc(g.user_id === _user.id ? 'You' : (g.approver_email || g.user_id)) + '</td>'
-        : '<td>' + esc(g.company_title || '—') + '</td>';
+        : '<td>' + esc(_cos[g.company_entity_id] || '—') + '</td>';
       const btn = live
         ? '<button class="bcn-btn bcn-btn--danger" data-revoke="' + esc(g.id)
           + '" data-client="' + esc(g.client_id) + '" data-own="' + (g.user_id === _user.id ? '1' : '0')
@@ -206,6 +233,17 @@
     const { data: mine, error: e1 } = await db.from('silo_api_grants')
       .select(sel).eq('user_id', _user.id).order('consented_at', { ascending: false });
     if (e1) { setStatus('Could not load your connections: ' + e1.message, 'neg'); return; }
+
+    /* The company column reads from here. An earlier version rendered a
+       title field off the grant row itself -- a field no query ever selected
+       -- so the column was always "—" (found 2026-10-29, on the first live
+       connection). A person's grant can name a company other than the active
+       one, so the ids actually present are what gets looked up. */
+    const ids = [...new Set((mine || []).map((g) => g.company_entity_id).filter(Boolean))];
+    if (ids.length) {
+      const { data: ents } = await db.from('entities').select('id, title').in('id', ids);
+      for (const e of (ents || [])) _cos[e.id] = e.title;
+    }
 
     el('tblMine').querySelector('tbody').innerHTML = rowsFor(mine || [], {
       empty: 'No applications are connected to your account.', showWho: false,
