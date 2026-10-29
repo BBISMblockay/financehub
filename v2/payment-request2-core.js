@@ -7,6 +7,7 @@ export const REQUEST_TYPES = {
   inventory_freight: 'Inventory freight',
   employee_reimbursement: 'Employee reimbursement',
   customer_refund: 'Customer refund',
+  payroll_payment: 'Payroll payment',
 };
 export const ACTIVE_PO_STATUSES = ['Sent to Factory', 'Confirmed', 'In Production', 'Shipped', 'In Transit', 'Partially Received', 'Received'];
 export const FIELD_NAMES = ['vendor_name', 'request_type', 'amount_due', 'invoice_number', 'due_date', 'flex_id', 'location_name', 'notes_comments', 'requester_email', 'currency'];

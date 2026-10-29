@@ -74,6 +74,7 @@ const REQUEST_TYPE_LABELS: Record<string, string> = {
   inventory_freight: 'Inventory freight',
   employee_reimbursement: 'Employee reimbursement',
   customer_refund: 'Customer refund',
+  payroll_payment: 'Payroll payment',
 };
 
 function money(n: number | null): string {
