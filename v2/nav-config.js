@@ -95,14 +95,14 @@
   // destination for marketing's own work, which is how Sammie's mockup reads
   // it, rather than a sidebar row per page.
   // The fourth element is the OPTIONAL profiles list for that tab alone: a tab
-  // without one shows wherever the row does. Testing & schedule is
+  // without one shows wherever the row does. The Schedule tab is
   // Baseballism-only for now (Blake, 2026-10-13) while the page is shaped
-  // around how Baseballism runs tests, so the row stays on both profiles and
-  // only the tab narrows. Discovery only -- marketing_tests RLS is the
+  // around how Baseballism schedules, so the row stays on both profiles and
+  // only the tab narrows. Discovery only -- the schedule's own RLS is the
   // boundary, and a direct URL is not a leak.
   const AD_STUDIO_SUITE_PAGES = [
     ['ads/studio','Ad Studio','ad-studio.html'],
-    ['ads/testing','Testing & schedule','marketing-ops.html',['grandfathered']],
+    ['ads/testing','Schedule','marketing-ops.html',['grandfathered']],
   ];
 
   const FINANCE_DEPTS = ['exec', 'finance'];
@@ -351,12 +351,14 @@
     // loses it, and ad_ideas RLS (company-scoped, any member reads/writes)
     // is unchanged and remains the boundary. ad-studio.html has no
     // page-level role check, so this row was the whole gate.
-    // ONE Ad Studio destination (2026-10-13), not a row per page: the test
-    // record and the schedule (/v2/marketing-ops.html) are a TAB of it
-    // (AD_STUDIO_SUITE_PAGES above), the same collapse as SEO, Accounting and
-    // Workspace settings. silo-chrome.js maps any AD_STUDIO_SUITE_PAGES id
-    // onto this row. Testing & schedule shipped as its own row for a few
-    // hours; it keeps its URL, so nothing that was linked to it breaks.
+    // ONE Ad Studio destination (2026-10-13), not a row per page: the schedule
+    // (/v2/marketing-ops.html) is a TAB of it (AD_STUDIO_SUITE_PAGES above),
+    // the same collapse as SEO, Accounting and Workspace settings.
+    // silo-chrome.js maps any AD_STUDIO_SUITE_PAGES id onto this row. That tab
+    // shipped as its own row for a few hours on 2026-10-13 and as "Testing &
+    // schedule" until 2026-10-29, when the test record moved into the idea
+    // bank (an idea in Testing names the element it is testing). The URL is
+    // unchanged either way, so nothing that was linked to it breaks.
     { id: 'reports/ad-studio', section: 'Marketing', label: 'Ad Studio', href: '/v2/ad-studio.html', profiles: ['grandfathered', 'standard'] },
     // ONE SEO destination (2026-09-27), not a row per page: Studio, Search
     // performance and Keywords are TABS of it (SEO_SUITE_PAGES above), the

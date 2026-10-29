@@ -19326,6 +19326,13 @@ $c$select (select count(*) from v_po_header_summary
 -- because that must stay last (supabase/CLAUDE.md), and also because it
 -- rewrites ad_ideas's Ask SILO description to list the new stage.
 \i migrations/20261029180000_ad_ideas_testing_status.sql
+-- The idea in Testing names what it is testing (ad_ideas.testing_element).
+-- MUST come after 20260927190000_ad_studio.sql, which creates ad_ideas. It is
+-- independent of the stage migration above, but is included after it because
+-- both rewrite ad_ideas's Ask SILO description and the LAST one wins -- this
+-- one's text names the column. Before the catalog cleanup, which must stay
+-- last (supabase/CLAUDE.md).
+\i migrations/20261029210000_ad_ideas_testing_element.sql
 -- The moderator on a TikTok Live slot and their $25 hour. Independent of every
 -- other include except that it DROPS AND RECREATES live_sessions_v, so it must
 -- come after the inline TikTok Live sections above (a re-run of those would

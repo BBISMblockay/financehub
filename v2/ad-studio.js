@@ -387,6 +387,10 @@
     if (!title) errs.push('Give the idea a title.');
     if (title.length > 200) errs.push('Keep the title under 200 characters.');
     if (f && f.destination_url && !/^https?:\/\/\S+$/i.test(str(f.destination_url).trim())) errs.push('The destination must be a web address starting with https://.');
+    // Mirrors ad_ideas_testing_element_check: trimmed, and at most 120
+    // characters. The page trims before sending, so the length is the only one
+    // a person can actually hit, and it says so before the save does.
+    if (f && str(f.testing_element).trim().length > 120) errs.push('Keep the testing element under 120 characters.');
     if (f && f.status === 'live' && !((f.live_ad_ids || []).length)) errs.push('A live idea needs the ads that carry it.');
     return errs;
   }

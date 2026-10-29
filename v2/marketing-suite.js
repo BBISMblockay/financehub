@@ -1,12 +1,12 @@
-/* Ad Studio suite navigation only: Ad Studio and Testing & schedule as one tab
+/* Ad Studio suite navigation only: Ad Studio and the Schedule as one tab
    strip across their own pages. Same shape as seo-suite.js, workspace-settings.js
    and accounting-suite.js -- a strip of REAL links across REAL pages, so every
    existing URL and bookmark keeps working and no page is implemented twice.
 
    One difference from the other strips: a tab may carry its own profiles list
-   (AD_STUDIO_SUITE_PAGES' fourth element), because Testing & schedule is
+   (AD_STUDIO_SUITE_PAGES' fourth element), because the Schedule tab is
    Baseballism-only for now while the row itself is not. That is discovery, not
-   access -- marketing_tests RLS is the boundary and a direct URL is not a leak. */
+   access -- the schedule's own RLS is the boundary and a direct URL is not a leak. */
 (function () {
   'use strict';
   // Tolerate a cached nav-config from before AD_STUDIO_SUITE_PAGES existed.
@@ -35,7 +35,7 @@
     // A frame with a spark: the creative being made.
     'ads/studio': '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 14l3-3 2.5 2.5L17 10"/>',
     // A beaker: what is being tried and read.
-    'ads/testing': '<path d="M9 3h6"/><path d="M10 3v5l-4.5 9A2 2 0 0 0 7.3 20h9.4a2 2 0 0 0 1.8-3L14 8V3"/><path d="M7.5 15h9"/>',
+    'ads/testing': '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4"/><path d="M16 3v4"/><path d="M3 11h18"/>',
   };
   const FALLBACK = '<path d="M14 3H6v18h12V7z"/><polyline points="14 3 14 7 18 7"/>';
   const svg = (id) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"'

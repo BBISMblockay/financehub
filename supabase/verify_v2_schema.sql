@@ -3992,6 +3992,15 @@ select
                        where n.nspname='public' and p.proname='ad_ideas_guard'
                          and pg_get_functiondef(p.oid) like '%new.status in (''idea'', ''testing'')%')
       then 'CRITICAL — ad_ideas takes the testing stage but ad_ideas_guard() does not clear approved_by there; a demoted idea would keep the stamp naming who approved it'
+    -- The idea in Testing says WHAT it is testing. Without the column the
+    -- field saves nothing; without the CHECK, ' Hook ' and 'Hook' become two
+    -- entries in the suggestion list the field exists to keep consistent.
+    when not exists (select 1 from information_schema.columns where table_schema='public'
+                       and table_name='ad_ideas' and column_name='testing_element')
+      then 'MISSING — run 20261029210000_ad_ideas_testing_element.sql; the idea dialog offers a Testing element the database has nowhere to put'
+    when not exists (select 1 from pg_constraint where conname='ad_ideas_testing_element_check'
+                       and pg_get_constraintdef(oid) like '%btrim%')
+      then 'CRITICAL — ad_ideas.testing_element lost its trim/length CHECK; untrimmed values split the suggestion list the field exists to keep consistent'
     else 'ok'
   end as ad_studio;
 

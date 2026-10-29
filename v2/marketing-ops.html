@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>SILO · Testing &amp; schedule</title>
+  <title>SILO · Schedule</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="beacon.css" />
@@ -62,34 +62,12 @@
     .mo-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     @media (max-width: 560px) { .mo-grid2 { grid-template-columns: 1fr; } }
 
-    /* A frozen field still shows its value; it just cannot be edited, and the
-       note says why rather than leaving a dead input. */
-    .mo-frozen-note {
-      font-size: 11px; color: var(--bcn-ink-3); margin-top: 4px;
-    }
-
     .mo-empty { text-align: center; color: var(--bcn-ink-3); padding: 22px 10px; }
     .mo-sub { font-size: 11px; color: var(--bcn-ink-3); display: block; }
     .mo-linkbtn {
       background: none; border: 0; padding: 0; cursor: pointer;
       color: var(--bcn-accent); font: inherit; text-align: left;
     }
-    .mo-hyp {
-      display: block; max-width: 420px; overflow: hidden;
-      text-overflow: ellipsis; white-space: nowrap;
-    }
-    .mo-pane[hidden] { display: none; }
-    .mo-learn-group { margin-top: 16px; }
-    .mo-learn-head {
-      display: flex; align-items: baseline; gap: 8px; margin: 0 2px 8px;
-      font-size: 12px; font-weight: 650; color: var(--bcn-ink);
-    }
-    .mo-learn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
-    .mo-learn-card { padding: 14px 16px; }
-    .mo-learn-card h3 { margin: 0 0 2px; font-size: 13px; color: var(--bcn-ink); }
-    .mo-learn-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-    .mo-learn-read { margin: 8px 0 0; font-size: 12px; color: var(--bcn-ink-2); white-space: pre-wrap; }
-    .mo-learn-vs { font-size: 11px; color: var(--bcn-ink-3); margin: 4px 0 0; }
   </style>
   <link rel="stylesheet" href="marketing-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -104,96 +82,38 @@
     <header class="bcn-header">
       <div style="flex:1;min-width:0;">
         <div class="bcn-header-title">
-          <h1>Testing &amp; schedule</h1>
+          <h1>Schedule</h1>
         </div>
-        <div class="bcn-header-sub bcn-header-sub--trimmed">What is scheduled to go out, and the record of what was tested.</div>
+        <div class="bcn-header-sub bcn-header-sub--trimmed">What is scheduled to go out, across every channel.</div>
       </div>
       <div class="bcn-header-actions">
-        <button class="bcn-btn bcn-btn--primary" id="btnNewTest">+ New Test</button>
-        <button class="bcn-btn bcn-btn--ghost" id="btnNewItem">+ Scheduled Item</button>
+        <button class="bcn-btn bcn-btn--primary" id="btnNewItem">+ Scheduled Item</button>
       </div>
     </header>
 
     <div class="bcn-status" id="status" hidden></div>
 
-    <div class="bcn-tabs" style="margin:12px 0 0;">
-      <button class="bcn-tab bcn-tab--active" id="tabTests">Tests</button>
-      <button class="bcn-tab" id="tabQueue">Schedule</button>
-      <button class="bcn-tab" id="tabLearn">Learnings</button>
-    </div>
-
     <section class="bcn-kpi-band" id="kpiBand">
       <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Running</div>
-        <div class="bcn-kpi-value bcn-mono" id="kpiRunning">—</div>
-      </div>
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Waiting to be read</div>
-        <div class="bcn-kpi-value bcn-mono" id="kpiReading">—</div>
-      </div>
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Concluded (90d)</div>
-        <div class="bcn-kpi-value bcn-mono" id="kpiConcluded">—</div>
-      </div>
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Scheduled next 7 days</div>
+        <div class="bcn-kpi-label">Next 7 days</div>
         <div class="bcn-kpi-value bcn-mono" id="kpiScheduled">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Needs copy or creative</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiNeeds">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">No date yet</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiUndated">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Past, still open</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiOverdue">—</div>
       </div>
     </section>
 
-    <!-- ── Tests ──────────────────────────────────────────────────────── -->
-    <div class="mo-pane" id="paneTests">
-      <section class="bcn-filter-bar">
-        <div class="bcn-filter">
-          <input class="bcn-field" type="text" id="fTestSearch" placeholder="Search tests…" style="min-width:200px;" />
-        </div>
-        <div class="bcn-filter">
-          <select class="bcn-field" id="fTestStatus">
-            <option value="open" selected>Open (planned, running, reading)</option>
-            <option value="">All statuses</option>
-            <option value="planned">Planned</option>
-            <option value="running">Running</option>
-            <option value="reading">Reading</option>
-            <option value="concluded">Concluded</option>
-            <option value="abandoned">Abandoned</option>
-          </select>
-        </div>
-        <div class="bcn-filter">
-          <select class="bcn-field" id="fTestChannel"><option value="">All channels</option></select>
-        </div>
-        <div class="bcn-filter">
-          <select class="bcn-field" id="fTestElement"><option value="">Anything varying</option></select>
-        </div>
-      </section>
-
-      <div class="bcn-card" style="margin-top:16px;">
-        <div class="bcn-matrix-scroll">
-          <div class="bcn-matrix-wrap">
-            <table class="bcn-table" id="testsTable">
-              <thead>
-                <tr>
-                  <th>Test</th>
-                  <th>Channel</th>
-                  <th>What varied</th>
-                  <th>Judged on</th>
-                  <th>Window</th>
-                  <th>Items</th>
-                  <th>Status</th>
-                  <th>Outcome</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="testsTbody">
-                <tr><td colspan="9" class="mo-empty">Loading…</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- ── Schedule ───────────────────────────────────────────────────── -->
-    <div class="mo-pane" id="paneQueue" hidden>
+    <div id="paneQueue">
       <section class="bcn-filter-bar">
         <div class="bcn-filter">
           <input class="bcn-field" type="text" id="fItemSearch" placeholder="Search scheduled items…" style="min-width:200px;" />
@@ -209,10 +129,7 @@
           <select class="bcn-field" id="fItemChannel"><option value="">All channels</option></select>
         </div>
         <div class="bcn-filter">
-          <select class="bcn-field" id="fItemTest">
-            <option value="">Any test</option>
-            <option value="__none__">Not part of a test</option>
-          </select>
+          <select class="bcn-field" id="fItemStatus"><option value="">All statuses</option></select>
         </div>
       </section>
 
@@ -228,13 +145,12 @@
                   <th>Owner</th>
                   <th>Needs</th>
                   <th>Attached to</th>
-                  <th>Test</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody id="itemsTbody">
-                <tr><td colspan="9" class="mo-empty">Loading…</td></tr>
+                <tr><td colspan="8" class="mo-empty">Loading…</td></tr>
               </tbody>
             </table>
           </div>
@@ -248,163 +164,12 @@
       </p>
     </div>
 
-    <!-- ── Learnings ──────────────────────────────────────────────────── -->
-    <!-- Concluded tests only. The database already guarantees a concluded test
-         carries an outcome AND a non-empty result_summary, so every card here
-         has something to say; nothing is inferred and no number is computed
-         from the two readings. -->
-    <div class="mo-pane" id="paneLearn" hidden>
-      <section class="bcn-filter-bar">
-        <div class="bcn-filter">
-          <input class="bcn-field" type="text" id="fLearnSearch" placeholder="Search what was learned…" style="min-width:220px;" />
-        </div>
-        <div class="bcn-filter">
-          <select class="bcn-field" id="fLearnOutcome">
-            <option value="">Every outcome</option>
-            <option value="win">Wins</option>
-            <option value="loss">Losses</option>
-            <option value="inconclusive">Inconclusive</option>
-          </select>
-        </div>
-        <div class="bcn-filter">
-          <select class="bcn-field" id="fLearnChannel"><option value="">All channels</option></select>
-        </div>
-        <div class="bcn-filter">
-          <select class="bcn-field" id="fLearnElement"><option value="">Anything varying</option></select>
-        </div>
-      </section>
-
-      <div id="learnBody">
-        <p class="mo-empty">Loading…</p>
-      </div>
-      <p class="mo-sub" style="margin:12px 2px 0;">
-        Grouped by what varied, so the next test of the same element starts from
-        what the last one found. A test appears here the moment it is concluded.
-      </p>
-    </div>
-
   </main>
 </div>
 
-<!-- ── Drawer: test ───────────────────────────────────────────────────── -->
+<!-- ── Drawer: scheduled item ─────────────────────────────────────────── -->
 <div class="mo-overlay" id="moOverlay"></div>
 
-<div class="mo-drawer" id="testDrawer" role="dialog" aria-modal="true" aria-labelledby="testDrawerTitle">
-  <div class="mo-drawer-head">
-    <h2 id="testDrawerTitle">New test</h2>
-    <button class="mo-x" id="testClose" aria-label="Close">×</button>
-  </div>
-  <div class="mo-drawer-body">
-    <div class="mo-row">
-      <label for="tTitle">Title</label>
-      <input class="bcn-field" id="tTitle" maxlength="200" placeholder="Hook test — founder story vs product demo" />
-    </div>
-    <div class="mo-grid2">
-      <div class="mo-row">
-        <label for="tChannel">Channel</label>
-        <select class="bcn-field" id="tChannel"></select>
-      </div>
-      <div class="mo-row">
-        <label for="tElement">What is varying</label>
-        <select class="bcn-field" id="tElement"></select>
-      </div>
-    </div>
-    <div class="mo-row">
-      <label for="tHypothesis">Hypothesis</label>
-      <textarea class="bcn-field" id="tHypothesis" maxlength="2000" placeholder="If the first three seconds show a player, thumb-stop improves and cost per purchase drops."></textarea>
-    </div>
-    <div class="mo-grid2">
-      <div class="mo-row">
-        <label for="tControl">Control</label>
-        <input class="bcn-field" id="tControl" maxlength="500" placeholder="Current best creative" />
-      </div>
-      <div class="mo-row">
-        <label for="tVariant">Variant</label>
-        <input class="bcn-field" id="tVariant" maxlength="500" placeholder="New founder-story cut" />
-      </div>
-    </div>
-    <div class="mo-grid2">
-      <div class="mo-row">
-        <label for="tMetric">Judged on</label>
-        <select class="bcn-field" id="tMetric"></select>
-      </div>
-      <div class="mo-row">
-        <label for="tMetricNote">Read where</label>
-        <input class="bcn-field" id="tMetricNote" maxlength="500" placeholder="Purchase Objective workspace" />
-      </div>
-    </div>
-    <p class="mo-frozen-note" id="tFrozenNote" hidden>
-      This test has run, so what it is testing and the measure it is judged on are fixed — moving it
-      back to Planned does not reopen them. A new test is the way to change what is measured, and it
-      keeps the record of what this one was actually judged on.
-    </p>
-    <div class="mo-grid2">
-      <div class="mo-row">
-        <label for="tStart">Starts</label>
-        <input class="bcn-field" type="date" id="tStart" />
-      </div>
-      <div class="mo-row">
-        <label for="tEnd">Read on / ends</label>
-        <input class="bcn-field" type="date" id="tEnd" />
-      </div>
-    </div>
-    <div class="mo-grid2">
-      <div class="mo-row">
-        <label for="tStatus">Status</label>
-        <select class="bcn-field" id="tStatus"></select>
-      </div>
-      <div class="mo-row">
-        <label for="tOutcome">Outcome</label>
-        <select class="bcn-field" id="tOutcome">
-          <option value="">—</option>
-          <option value="win">Win</option>
-          <option value="loss">Loss</option>
-          <option value="inconclusive">Inconclusive</option>
-        </select>
-      </div>
-    </div>
-    <div class="mo-grid2">
-      <div class="mo-row">
-        <label for="tControlValue">Control read</label>
-        <input class="bcn-field" id="tControlValue" inputmode="decimal" placeholder="e.g. 2.1" />
-      </div>
-      <div class="mo-row">
-        <label for="tVariantValue">Variant read</label>
-        <input class="bcn-field" id="tVariantValue" inputmode="decimal" placeholder="e.g. 2.8" />
-      </div>
-    </div>
-    <p class="mo-frozen-note">
-      Both reads are what you wrote down off the report named above. SILO does not compute them, and
-      an empty box means not measured — never zero.
-    </p>
-    <div class="mo-row">
-      <label for="tResult">What happened / what we learned</label>
-      <textarea class="bcn-field" id="tResult" maxlength="5000" placeholder="Required to conclude a test."></textarea>
-    </div>
-    <div class="mo-grid2">
-      <div class="mo-row">
-        <label for="tLaunch">Launch</label>
-        <select class="bcn-field" id="tLaunch"><option value="">—</option></select>
-      </div>
-      <div class="mo-row">
-        <label for="tAdIdea">Ad Studio idea</label>
-        <select class="bcn-field" id="tAdIdea"><option value="">—</option></select>
-      </div>
-    </div>
-    <div class="mo-row">
-      <label for="tNotes">Notes</label>
-      <textarea class="bcn-field" id="tNotes" maxlength="5000"></textarea>
-    </div>
-    <div id="tLinkedItems"></div>
-  </div>
-  <div class="mo-drawer-foot">
-    <button class="bcn-btn bcn-btn--danger" id="testDelete" hidden>Delete</button>
-    <button class="bcn-btn bcn-btn--ghost" id="testCancel">Cancel</button>
-    <button class="bcn-btn bcn-btn--primary" id="testSave">Save test</button>
-  </div>
-</div>
-
-<!-- ── Drawer: scheduled item ─────────────────────────────────────────── -->
 <div class="mo-drawer" id="itemDrawer" role="dialog" aria-modal="true" aria-labelledby="itemDrawerTitle">
   <div class="mo-drawer-head">
     <h2 id="itemDrawerTitle">New scheduled item</h2>
@@ -457,15 +222,9 @@
         <input type="checkbox" id="iCreative" /> Creative needed
       </label>
     </div>
-    <div class="mo-grid2">
-      <div class="mo-row">
-        <label for="iTestSel">Part of test</label>
-        <select class="bcn-field" id="iTestSel"><option value="">—</option></select>
-      </div>
-      <div class="mo-row">
-        <label for="iLaunchSel">Launch</label>
-        <select class="bcn-field" id="iLaunchSel"><option value="">— none</option></select>
-      </div>
+    <div class="mo-row">
+      <label for="iLaunchSel">Launch</label>
+      <select class="bcn-field" id="iLaunchSel"><option value="">— none</option></select>
     </div>
     <div class="mo-row">
       <label for="iLink">Link</label>
@@ -525,42 +284,24 @@
   const _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(db) || null;
 
   /* ── Vocabularies ───────────────────────────────────────────────
-     CHANNELS and ELEMENTS, METRICS and TEST_STATUS mirror the CHECK
-     constraints in 20261013120000_marketing_tests.sql. A value this page
-     offers that the constraint rejects is a save that fails at the database
-     with a constraint name in the message, so they are kept in one place and
-     the lists are asserted against the migration by
-     scripts/tests/marketing-ops-page.test.mjs.
-     ITEM_* are launch_channel_items' observed vocabulary. That table has NO
-     check constraint (it has other writers), so these are suggestions, and a
-     value already stored outside the list still renders. */
+     CHANNELS and the two ITEM_* lists are launch_channel_items' observed
+     vocabulary. That table has NO check constraint (it has other writers),
+     so these are suggestions, and a value already stored outside the list
+     still renders. The page's shape is asserted by
+     scripts/tests/marketing-ops-page.test.mjs. */
   const CHANNELS = [
     ['meta', 'Meta'], ['google', 'Google'], ['tiktok', 'TikTok'], ['email', 'Email'],
     ['sms', 'SMS'], ['organic', 'Organic'], ['website', 'Website'], ['other', 'Other'],
   ];
-  const ELEMENTS = [
-    ['creative', 'Creative'], ['copy', 'Copy'], ['audience', 'Audience'], ['offer', 'Offer'],
-    ['landing_page', 'Landing page'], ['send_time', 'Send time'], ['subject_line', 'Subject line'],
-    ['product', 'Product'], ['other', 'Other'],
-  ];
-  const METRICS = [
-    ['roas', 'ROAS'], ['cpa', 'CPA'], ['ctr', 'CTR'], ['cvr', 'Conversion rate'],
-    ['thruplay_rate', 'ThruPlay rate'], ['open_rate', 'Open rate'], ['click_rate', 'Click rate'],
-    ['revenue', 'Revenue'], ['orders', 'Orders'], ['subscribers', 'Subscribers'], ['other', 'Other'],
-  ];
-  const TEST_STATUS = [
-    ['planned', 'Planned'], ['running', 'Running'], ['reading', 'Reading'],
-    ['concluded', 'Concluded'], ['abandoned', 'Abandoned'],
-  ];
   const ITEM_STATUS   = ['planned', 'scheduled', 'live', 'done', 'cancelled'];
   const ITEM_PRIORITY = ['low', 'normal', 'high', 'critical'];
+  // The statuses that still want somebody's attention: everything that is not
+  // finished or called off. Used by three of the four KPIs, so a count never
+  // quietly means something different from the one beside it.
+  const OPEN_STATUS = new Set(['planned', 'scheduled', 'live']);
+  const isOpen = (i) => OPEN_STATUS.has(String(i.status || 'planned'));
 
   const LABEL = (pairs, v) => (pairs.find(p => p[0] === v) || [v, v])[1];
-  const TEST_STATUS_TONE = {
-    planned: '', running: 'bcn-pill--accent', reading: 'bcn-pill--warn',
-    concluded: 'bcn-pill--pos', abandoned: '',
-  };
-  const OUTCOME_TONE = { win: 'bcn-pill--pos', loss: 'bcn-pill--neg', inconclusive: 'bcn-pill--warn' };
 
   /* ── Helpers ────────────────────────────────────────────────────── */
   // Escapes the five characters that matter, quotes included: an esc() without
@@ -578,16 +319,9 @@
     const s = String(v ?? '').trim();
     return s === '' ? null : s;
   };
-  // An empty box is "not measured", so it stays NULL rather than becoming 0.
-  const numOrNull = (v) => {
-    const s = String(v ?? '').trim();
-    if (s === '') return null;
-    const n = Number(s);
-    return Number.isFinite(n) ? n : undefined;   // undefined = typed but not a number
-  };
-  // Both of these are LOCAL dates. scheduled_date and starts_on are plain
-  // dates, so comparing them against a UTC-derived string is off by a day for
-  // part of every evening in Pacific -- which is where this is read.
+  // These are LOCAL dates. scheduled_date is a plain date, so comparing it
+  // against a UTC-derived string is off by a day for part of every evening in
+  // Pacific -- which is where this is read.
   const localISO = (d) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const todayISO = () => localISO(new Date());
@@ -597,11 +331,6 @@
     const d = new Date(s + 'T00:00:00');
     return isNaN(d) ? esc(s) : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
-  const fmtWindow = (a, b) => {
-    if (!a && !b) return '—';
-    if (a && b) return `${fmtDate(a)} → ${fmtDate(b)}`;
-    return a ? `${fmtDate(a)} →` : `→ ${fmtDate(b)}`;
-  };
   const fillSelect = (el, pairs, { placeholder = null } = {}) => {
     if (!el) return;
     el.innerHTML = (placeholder ? `<option value="">${esc(placeholder)}</option>` : '')
@@ -610,10 +339,8 @@
   const $ = (id) => document.getElementById(id);
 
   /* ── State ──────────────────────────────────────────────────────── */
-  let tests = [], items = [], launches = [], ideas = [];
-  let editingTest = null;    // the row being edited, or null for a new one
+  let items = [], launches = [];
   let editingItem = null;
-  let activeTab = 'tests';
 
   /* ── Load ───────────────────────────────────────────────────────── */
   // Every read is filtered on the active company as well as being behind RLS:
@@ -623,132 +350,55 @@
 
   async function loadAll(withStatus = true) {
     if (withStatus) setStatus('Loading…', 'info');
-    const [tRes, iRes, lRes, aRes] = await Promise.all([
-      scope(db.from('marketing_tests').select('*')
-        .order('starts_on', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })),
+    const [iRes, lRes] = await Promise.all([
       scope(db.from('launch_channel_items')
-        .select('id,launch_id,company_entity_id,channel,item_title,item_type,scheduled_date,scheduled_time,time_zone,status,priority,owner,copy_needed,creative_needed,link_url,notes,marketing_test_id')
+        .select('id,launch_id,company_entity_id,channel,item_title,item_type,scheduled_date,scheduled_time,time_zone,status,priority,owner,copy_needed,creative_needed,link_url,notes')
         .order('scheduled_date', { ascending: true, nullsFirst: false })),
       scope(db.from('launch_calendar').select('id,title,launch_date')
         .order('launch_date', { ascending: false })),
-      scope(db.from('ad_ideas').select('id,title,status').order('updated_at', { ascending: false })),
     ]);
 
-    if (tRes.error) {
-      // The page is useless without its own table, so this one is fatal and
-      // names the migration rather than showing an empty board that looks
-      // like "no tests yet".
-      setStatus(`Tests could not be loaded: ${tRes.error.message}`, 'neg');
-      $('testsTbody').innerHTML = '<tr><td colspan="9" class="mo-empty">Unavailable.</td></tr>';
-      tests = [];
+    if (iRes.error) {
+      // The page is the schedule, so this one is fatal: an empty table that
+      // looks like "nothing scheduled" is worse than a message.
+      setStatus(`The schedule could not be loaded: ${iRes.error.message}`, 'neg');
+      $('itemsTbody').innerHTML = '<tr><td colspan="8" class="mo-empty">Unavailable.</td></tr>';
+      items = [];
     } else {
-      tests = tRes.data || [];
+      items = iRes.data || [];
     }
-
-    // The schedule and the two link pickers are each optional: a workspace
-    // without them still gets the tests board, and a failure says which part
-    // is missing instead of blanking the page.
-    items    = iRes.error ? [] : (iRes.data || []);
     // PostgREST answers at most its configured page size (1000 on this
     // project). A list that is quietly one page of many is the kind of thing
     // nobody notices until a number is wrong, so it says so.
-    for (const [rows, what] of [[tests, 'tests'], [items, 'scheduled items']]) {
-      if (rows.length >= 1000) setStatus(`Showing the first ${rows.length} ${what}; there are more. Filter to narrow the list.`, 'warn', 9000);
+    if (items.length >= 1000) {
+      setStatus(`Showing the first ${items.length} scheduled items; there are more. Filter to narrow the list.`, 'warn', 9000);
     }
+    // The launch picker is optional: a workspace without it still gets the
+    // schedule, and the item just shows no launch to attach to.
     launches = lRes.error ? [] : (lRes.data || []);
-    ideas    = aRes.error ? [] : (aRes.data || []);
-    if (iRes.error) setStatus(`Schedule unavailable: ${iRes.error.message}`, 'warn', 6000);
 
     fillLinkPickers();
     render();
-    if (withStatus && !tRes.error && !iRes.error) document.getElementById('status').hidden = true;
+    if (withStatus && !iRes.error) document.getElementById('status').hidden = true;
   }
 
   function fillLinkPickers() {
     const launchPairs = launches.map(l => [l.id, `${l.title || 'Launch'}${l.launch_date ? ` · ${fmtDate(l.launch_date)}` : ''}`]);
-    fillSelect($('tLaunch'), launchPairs, { placeholder: '—' });
     fillSelect($('iLaunchSel'), launchPairs, { placeholder: '— none' });
-    fillSelect($('tAdIdea'), ideas.map(i => [i.id, `${i.title}${i.status ? ` · ${i.status}` : ''}`]), { placeholder: '—' });
-    const testPairs = tests
-      .filter(t => t.status !== 'concluded' && t.status !== 'abandoned')
-      .map(t => [t.id, t.title]);
-    fillSelect($('iTestSel'), testPairs, { placeholder: '—' });
-    fillSelect($('fItemTest'), [['__none__', 'Not part of a test'], ...tests.map(t => [t.id, t.title])], { placeholder: 'Any test' });
   }
 
   /* ── KPIs ───────────────────────────────────────────────────────── */
   function renderKpis() {
     const today = todayISO();
-    const since90 = shiftISO(-90);
     const until7 = shiftISO(7);
 
-    $('kpiRunning').textContent   = tests.filter(t => t.status === 'running').length;
-    $('kpiReading').textContent   = tests.filter(t => t.status === 'reading').length;
-    $('kpiConcluded').textContent = tests.filter(t => t.status === 'concluded'
-      && String(t.concluded_at || '').slice(0, 10) >= since90).length;
     $('kpiScheduled').textContent = items.filter(i => i.scheduled_date
       && i.scheduled_date >= today && i.scheduled_date <= until7).length;
-  }
-
-  /* ── Tests table ────────────────────────────────────────────────── */
-  function visibleTests() {
-    const q  = $('fTestSearch').value.trim().toLowerCase();
-    const st = $('fTestStatus').value;
-    const ch = $('fTestChannel').value;
-    const el = $('fTestElement').value;
-    return tests.filter(t => {
-      if (st === 'open') { if (!['planned', 'running', 'reading'].includes(t.status)) return false; }
-      else if (st && t.status !== st) return false;
-      if (ch && t.channel !== ch) return false;
-      if (el && t.element !== el) return false;
-      if (q) {
-        const hay = [t.title, t.hypothesis, t.control, t.variant, t.result_summary, t.metric_note]
-          .map(v => String(v || '').toLowerCase()).join(' ');
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-  }
-
-  function renderTests() {
-    const rows = visibleTests();
-    const tbody = $('testsTbody');
-    if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="9" class="mo-empty">${
-        tests.length ? 'No test matches these filters.'
-                     : 'No tests yet. “+ New Test” records what you are trying, and what it is judged on, before the numbers come in.'
-      }</td></tr>`;
-      return;
-    }
-    const itemCount = new Map();
-    for (const i of items) {
-      if (i.marketing_test_id) itemCount.set(i.marketing_test_id, (itemCount.get(i.marketing_test_id) || 0) + 1);
-    }
-    tbody.innerHTML = rows.map(t => {
-      const n = itemCount.get(t.id) || 0;
-      const reads = (t.control_value != null || t.variant_value != null)
-        ? `<span class="mo-sub bcn-mono">${t.control_value ?? '—'} → ${t.variant_value ?? '—'}</span>` : '';
-      return `<tr>
-        <td>
-          <button class="mo-linkbtn" data-test="${esc(t.id)}">${esc(t.title)}</button>
-          ${t.hypothesis ? `<span class="mo-sub mo-hyp" title="${esc(t.hypothesis)}">${esc(t.hypothesis)}</span>` : ''}
-        </td>
-        <td>${esc(LABEL(CHANNELS, t.channel))}</td>
-        <td>${esc(LABEL(ELEMENTS, t.element))}
-          ${(t.control || t.variant) ? `<span class="mo-sub">${esc(t.control || '—')} vs ${esc(t.variant || '—')}</span>` : ''}
-        </td>
-        <td class="bcn-mono">${esc(LABEL(METRICS, t.metric))}${reads}</td>
-        <td class="bcn-mono">${esc(fmtWindow(t.starts_on, t.ends_on))}</td>
-        <td class="bcn-num">${n || '—'}</td>
-        <td><span class="bcn-pill ${TEST_STATUS_TONE[t.status] || ''}">${esc(LABEL(TEST_STATUS, t.status))}</span></td>
-        <td>${t.outcome ? `<span class="bcn-pill ${OUTCOME_TONE[t.outcome] || ''}">${esc(t.outcome)}</span>` : '—'}</td>
-        <td><button class="bcn-btn bcn-btn--ghost" data-test="${esc(t.id)}">Open</button></td>
-      </tr>`;
-    }).join('');
-    tbody.querySelectorAll('[data-test]').forEach(b => {
-      b.addEventListener('click', () => openTest(tests.find(t => t.id === b.dataset.test) || null));
-    });
+    $('kpiNeeds').textContent = items.filter(i => isOpen(i)
+      && (i.copy_needed || i.creative_needed)).length;
+    $('kpiUndated').textContent = items.filter(i => !i.scheduled_date && isOpen(i)).length;
+    $('kpiOverdue').textContent = items.filter(i => i.scheduled_date
+      && i.scheduled_date < today && isOpen(i)).length;
   }
 
   /* ── Schedule table ─────────────────────────────────────────────── */
@@ -756,7 +406,7 @@
     const q    = $('fItemSearch').value.trim().toLowerCase();
     const when = $('fItemWhen').value;
     const ch   = $('fItemChannel').value;
-    const tst  = $('fItemTest').value;
+    const st   = $('fItemStatus').value;
     const today = todayISO();
     return items.filter(i => {
       // Undated items ride with "upcoming": an item with no date is work that
@@ -764,8 +414,7 @@
       if (when === 'upcoming' && i.scheduled_date && i.scheduled_date < today) return false;
       if (when === 'past' && (!i.scheduled_date || i.scheduled_date >= today)) return false;
       if (ch && i.channel !== ch) return false;
-      if (tst === '__none__' && i.marketing_test_id) return false;
-      if (tst && tst !== '__none__' && i.marketing_test_id !== tst) return false;
+      if (st && String(i.status || 'planned') !== st) return false;
       if (q) {
         const hay = [i.item_title, i.item_type, i.owner, i.notes]
           .map(v => String(v || '').toLowerCase()).join(' ');
@@ -779,15 +428,13 @@
     const rows = visibleItems();
     const tbody = $('itemsTbody');
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="9" class="mo-empty">${
+      tbody.innerHTML = `<tr><td colspan="8" class="mo-empty">${
         items.length ? 'No item matches these filters.' : 'Nothing scheduled yet.'
       }</td></tr>`;
       return;
     }
-    const testById = new Map(tests.map(t => [t.id, t]));
     const launchById = new Map(launches.map(l => [l.id, l]));
     tbody.innerHTML = rows.map(i => {
-      const t = i.marketing_test_id ? testById.get(i.marketing_test_id) : null;
       const l = i.launch_id ? launchById.get(i.launch_id) : null;
       const needs = [i.copy_needed ? 'copy' : null, i.creative_needed ? 'creative' : null].filter(Boolean).join(', ');
       const url = safeUrl(i.link_url);
@@ -802,8 +449,6 @@
         <td>${esc(i.owner || '—')}</td>
         <td>${needs ? esc(needs) : '—'}</td>
         <td>${l ? `<a href="/v2/launch-calendar.html?launch=${encodeURIComponent(l.id)}">${esc(l.title || 'Launch')} ↗</a>` : '—'}</td>
-        <td>${t ? `<button class="mo-linkbtn" data-test="${esc(t.id)}">${esc(t.title)}</button>`
-                : (i.marketing_test_id ? '<span class="mo-sub">another company</span>' : '—')}</td>
         <td><span class="bcn-pill">${esc(i.status || 'planned')}</span></td>
         <td><button class="bcn-btn bcn-btn--ghost" data-item="${esc(i.id)}">Open</button></td>
       </tr>`;
@@ -811,149 +456,16 @@
     tbody.querySelectorAll('[data-item]').forEach(b => {
       b.addEventListener('click', () => openItem(items.find(i => i.id === b.dataset.item) || null));
     });
-    tbody.querySelectorAll('[data-test]').forEach(b => {
-      b.addEventListener('click', () => openTest(tests.find(t => t.id === b.dataset.test) || null));
-    });
   }
 
-  /* ── Learnings ──────────────────────────────────────────────────── */
-  // Concluded tests, grouped by what varied. The grouping is the point: a
-  // winning element is only useful if the next person testing that element
-  // finds it, which is the one thing a finished test used to leave nowhere.
-  function visibleLearnings() {
-    const q  = $('fLearnSearch').value.trim().toLowerCase();
-    const oc = $('fLearnOutcome').value;
-    const ch = $('fLearnChannel').value;
-    const el = $('fLearnElement').value;
-    return tests.filter(t => {
-      if (t.status !== 'concluded') return false;
-      if (oc && t.outcome !== oc) return false;
-      if (ch && t.channel !== ch) return false;
-      if (el && t.element !== el) return false;
-      if (q) {
-        const hay = [t.title, t.hypothesis, t.result_summary, t.control, t.variant, t.metric_note]
-          .map(v => String(v || '').toLowerCase()).join(' ');
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-  }
+  function render() { renderKpis(); renderItems(); }
 
-  function renderLearn() {
-    const rows = visibleLearnings();
-    const body = $('learnBody');
-    const concluded = tests.filter(t => t.status === 'concluded').length;
-    if (!rows.length) {
-      body.innerHTML = `<p class="mo-empty">${
-        concluded ? 'No concluded test matches these filters.'
-                  : 'Nothing concluded yet. A test lands here when it is given an outcome and a line on what was learned.'
-      }</p>`;
-      return;
-    }
-    // Newest first inside each group, and the groups follow ELEMENTS' own
-    // order so the page does not reshuffle as tests are concluded.
-    const byElement = new Map();
-    for (const t of rows) {
-      if (!byElement.has(t.element)) byElement.set(t.element, []);
-      byElement.get(t.element).push(t);
-    }
-    const order = [...ELEMENTS.map(([v]) => v), ...[...byElement.keys()].filter(k => !ELEMENTS.some(([v]) => v === k))];
-    body.innerHTML = order.filter(el => byElement.has(el)).map(el => {
-      const group = byElement.get(el).slice().sort((a, b) =>
-        String(b.concluded_at || b.ends_on || '').localeCompare(String(a.concluded_at || a.ends_on || '')));
-      const wins = group.filter(t => t.outcome === 'win').length;
-      return `<div class="mo-learn-group">
-        <div class="mo-learn-head">
-          <span>${esc(LABEL(ELEMENTS, el))}</span>
-          <span class="mo-sub" style="display:inline;">${group.length} concluded${wins ? ` · ${wins} won` : ''}</span>
-        </div>
-        <div class="mo-learn-grid">
-          ${group.map(t => {
-            // Both readings are values a person recorded off the report named
-            // in metric_note. NULL is "not measured", so it shows as a dash
-            // rather than a zero, and no lift is computed from a missing side.
-            const reads = (t.control_value != null || t.variant_value != null)
-              ? `<p class="mo-learn-vs bcn-mono">${esc(LABEL(METRICS, t.metric))}: ${t.control_value ?? '—'} → ${t.variant_value ?? '—'}</p>`
-              : `<p class="mo-learn-vs">Judged on ${esc(LABEL(METRICS, t.metric))}; no reading recorded.</p>`;
-            return `<div class="bcn-card mo-learn-card">
-              <h3><button class="mo-linkbtn" data-test="${esc(t.id)}">${esc(t.title)}</button></h3>
-              ${(t.control || t.variant) ? `<p class="mo-learn-vs">${esc(t.control || '—')} vs ${esc(t.variant || '—')}</p>` : ''}
-              <div class="mo-learn-meta">
-                <span class="bcn-pill ${OUTCOME_TONE[t.outcome] || ''}">${esc(t.outcome || '—')}</span>
-                <span class="bcn-pill">${esc(LABEL(CHANNELS, t.channel))}</span>
-                <span class="bcn-pill bcn-mono">${esc(fmtWindow(t.starts_on, t.ends_on))}</span>
-              </div>
-              ${reads}
-              <p class="mo-learn-read">${esc(t.result_summary || '')}</p>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>`;
-    }).join('');
-    body.querySelectorAll('[data-test]').forEach(b => {
-      b.addEventListener('click', () => openTest(tests.find(t => t.id === b.dataset.test) || null));
-    });
-  }
-
-  function render() { renderKpis(); renderTests(); renderItems(); renderLearn(); }
-
-  /* ── Drawers ────────────────────────────────────────────────────── */
+  /* ── Drawer ─────────────────────────────────────────────────────── */
   function openOverlay()  { $('moOverlay').classList.add('open'); }
   function closeDrawers() {
     $('moOverlay').classList.remove('open');
-    $('testDrawer').classList.remove('open');
     $('itemDrawer').classList.remove('open');
-    editingTest = null; editingItem = null;
-  }
-
-  function openTest(row) {
-    editingTest = row;
-    // `started_at`, not the status: the database freezes the design the first
-    // time a test runs and never thaws it, so a test moved back to planned is
-    // still frozen and the drawer has to say so.
-    const started = !!row?.started_at;
-    $('testDrawerTitle').textContent = row ? 'Test' : 'New test';
-    $('tTitle').value       = row?.title || '';
-    $('tChannel').value     = row?.channel || 'meta';
-    $('tElement').value     = row?.element || 'creative';
-    $('tHypothesis').value  = row?.hypothesis || '';
-    $('tControl').value     = row?.control || '';
-    $('tVariant').value     = row?.variant || '';
-    $('tMetric').value      = row?.metric || 'roas';
-    $('tMetricNote').value  = row?.metric_note || '';
-    $('tStart').value       = row?.starts_on || '';
-    $('tEnd').value         = row?.ends_on || '';
-    $('tStatus').value      = row?.status || 'planned';
-    $('tOutcome').value     = row?.outcome || '';
-    $('tControlValue').value = row?.control_value ?? '';
-    $('tVariantValue').value = row?.variant_value ?? '';
-    $('tResult').value      = row?.result_summary || '';
-    $('tLaunch').value      = row?.launch_id || '';
-    $('tAdIdea').value      = row?.ad_idea_id || '';
-    $('tNotes').value       = row?.notes || '';
-
-    // The database refuses these edits once a test has started; disabling them
-    // says so before the save fails, and the note explains why.
-    for (const id of ['tHypothesis', 'tElement', 'tControl', 'tVariant', 'tMetric']) {
-      $(id).disabled = started;
-    }
-    $('tFrozenNote').hidden = !started;
-    $('testDelete').hidden = !row;
-
-    // The items this test has borrowed from the schedule, read-only here: they
-    // are attached from the item itself, which is where they are edited.
-    const mine = row ? items.filter(i => i.marketing_test_id === row.id) : [];
-    $('tLinkedItems').innerHTML = !row ? '' : `
-      <div class="mo-row">
-        <label>Scheduled items in this test</label>
-        ${mine.length
-          ? `<ul style="margin:0;padding-left:18px;">${mine.map(i => `<li>${esc(i.item_title || 'Untitled')} <span class="mo-sub" style="display:inline;">${esc(LABEL(CHANNELS, i.channel))} · ${esc(fmtDate(i.scheduled_date))}</span></li>`).join('')}</ul>`
-          : '<div class="mo-sub">None yet — attach one from the Schedule tab.</div>'}
-      </div>`;
-
-    openOverlay();
-    $('testDrawer').classList.add('open');
-    $('tTitle').focus();
+    editingItem = null;
   }
 
   function openItem(row) {
@@ -971,115 +483,11 @@
     $('iCreative').checked = !!row?.creative_needed;
     $('iLink').value     = row?.link_url || '';
     $('iNotes').value    = row?.notes || '';
-    // A concluded test is still a valid home for an item already in it, so the
-    // row's own test is added to the picker even though new attachments only
-    // offer open tests.
-    const sel = $('iTestSel');
-    if (row?.marketing_test_id && !Array.from(sel.options).some(o => o.value === row.marketing_test_id)) {
-      const t = tests.find(x => x.id === row.marketing_test_id);
-      if (t) sel.insertAdjacentHTML('beforeend', `<option value="${esc(t.id)}">${esc(t.title)}</option>`);
-    }
-    sel.value = row?.marketing_test_id || '';
     $('iLaunchSel').value = row?.launch_id || '';
     $('itemDelete').hidden = !row;
     openOverlay();
     $('itemDrawer').classList.add('open');
     $('iTitle').focus();
-  }
-
-  /* ── Save: test ─────────────────────────────────────────────────── */
-  async function saveTest() {
-    if (!_co?.id) { setStatus('No active company — reopen SILO from the company picker.', 'neg', 5000); return; }
-    const title = trimOrNull($('tTitle').value);
-    const hypothesis = trimOrNull($('tHypothesis').value);
-    const status = $('tStatus').value;
-    const outcome = $('tOutcome').value || null;
-    const result = trimOrNull($('tResult').value);
-    const starts = $('tStart').value || null;
-    const ends = $('tEnd').value || null;
-    const cv = numOrNull($('tControlValue').value);
-    const vv = numOrNull($('tVariantValue').value);
-
-    // Each of these is also a CHECK in the database. They are repeated here so
-    // the person is told which box to fix, instead of reading a constraint
-    // name; the database stays the thing that actually enforces them.
-    if (!title) { setStatus('A test needs a title.', 'neg', 4000); return; }
-    if (!hypothesis) { setStatus('A test needs a hypothesis — what you expect to happen.', 'neg', 4000); return; }
-    if (cv === undefined || vv === undefined) { setStatus('A recorded read must be a number, or empty.', 'neg', 4000); return; }
-    if (starts && ends && ends < starts) { setStatus('The end of the window is before its start.', 'neg', 4000); return; }
-    if (status !== 'planned' && status !== 'abandoned' && !starts) {
-      setStatus('A test that has started needs a start date.', 'neg', 4000); return;
-    }
-    if (status === 'concluded' && (!outcome || !result)) {
-      setStatus('To conclude a test, record the outcome and what you learned.', 'neg', 5000); return;
-    }
-    if (outcome && status !== 'concluded') {
-      setStatus('An outcome belongs to a concluded test — set the status to Concluded.', 'neg', 5000); return;
-    }
-
-    const payload = {
-      title,
-      channel: $('tChannel').value,
-      element: $('tElement').value,
-      hypothesis,
-      control: trimOrNull($('tControl').value),
-      variant: trimOrNull($('tVariant').value),
-      metric: $('tMetric').value,
-      metric_note: trimOrNull($('tMetricNote').value),
-      starts_on: starts,
-      ends_on: ends,
-      status,
-      outcome,
-      control_value: cv,
-      variant_value: vv,
-      result_summary: result,
-      launch_id: $('tLaunch').value || null,
-      ad_idea_id: $('tAdIdea').value || null,
-      notes: trimOrNull($('tNotes').value),
-    };
-
-    let error, affected = null;
-    if (editingTest) {
-      // The frozen fields are not sent for a started test: the trigger compares
-      // values, so re-sending an identical one is harmless, but not sending it
-      // keeps a disabled input from ever being the thing that breaks a save.
-      if (editingTest.started_at) {
-        for (const k of ['hypothesis', 'element', 'control', 'variant', 'metric']) delete payload[k];
-      }
-      const res = await db.from('marketing_tests').update(payload)
-        .eq('id', editingTest.id).select('id');
-      error = res.error; affected = res.data?.length ?? 0;
-    } else {
-      // created_by must equal auth.uid(): the insert policy checks it, and the
-      // company id is explicit rather than left to the trigger backstop.
-      const res = await db.from('marketing_tests')
-        .insert([{ ...payload, company_entity_id: _co.id, created_by: currentUser.id }])
-        .select('id');
-      error = res.error; affected = res.data?.length ?? 0;
-    }
-    if (error) { setStatus(error.message, 'neg', 6000); return; }
-    // An RLS-refused UPDATE is not an error: it succeeds and changes nothing.
-    if (editingTest && affected === 0) {
-      setStatus('That test was not updated — it may belong to another company, or have been deleted.', 'neg', 6000);
-      return;
-    }
-    closeDrawers();
-    setStatus(editingTest ? 'Test updated.' : 'Test saved.', 'pos', 2500);
-    await loadAll(false);
-  }
-
-  async function deleteTest() {
-    if (!editingTest) return;
-    if (!confirm('Delete this test? Scheduled items stay, and are unlinked from it.')) return;
-    const { data, error } = await db.from('marketing_tests').delete().eq('id', editingTest.id).select('id');
-    if (error) { setStatus(error.message, 'neg', 6000); return; }
-    if (!data?.length) {
-      setStatus('Not deleted — only the person who created a test, or an admin, can delete it.', 'neg', 6000);
-      return;
-    }
-    closeDrawers();
-    setStatus('Test deleted. Its scheduled items were kept.', 'pos', 3000);
-    await loadAll(false);
   }
 
   /* ── Save: scheduled item ───────────────────────────────────────── */
@@ -1090,6 +498,10 @@
     const link = trimOrNull($('iLink').value);
     if (link && !safeUrl(link)) { setStatus('A link must start with http:// or https://', 'neg', 4000); return; }
 
+    // marketing_test_id is deliberately absent: the test record left this page
+    // (the Ad Studio idea bank carries what an idea is testing), and the
+    // column still exists on rows that had one. Not sending it is what leaves
+    // those links untouched instead of nulling them on the next edit.
     const payload = {
       item_title: title,
       channel: $('iChannel').value,
@@ -1103,7 +515,6 @@
       creative_needed: $('iCreative').checked,
       link_url: link,
       notes: trimOrNull($('iNotes').value),
-      marketing_test_id: $('iTestSel').value || null,
       launch_id: $('iLaunchSel').value || null,
     };
 
@@ -1119,6 +530,7 @@
       error = res.error; affected = res.data?.length ?? 0;
     }
     if (error) { setStatus(error.message, 'neg', 6000); return; }
+    // An RLS-refused UPDATE is not an error: it succeeds and changes nothing.
     if (editingItem && affected === 0) {
       setStatus('That item was not updated — it may belong to another company, or have been deleted.', 'neg', 6000);
       return;
@@ -1139,75 +551,34 @@
     await loadAll(false);
   }
 
-  /* ── Tabs ───────────────────────────────────────────────────────── */
-  function setTab(tab) {
-    activeTab = tab;
-    $('paneTests').hidden = tab !== 'tests';
-    $('paneQueue').hidden = tab !== 'queue';
-    $('paneLearn').hidden = tab !== 'learnings';
-    $('tabTests').classList.toggle('bcn-tab--active', tab === 'tests');
-    $('tabQueue').classList.toggle('bcn-tab--active', tab === 'queue');
-    $('tabLearn').classList.toggle('bcn-tab--active', tab === 'learnings');
-    const url = new URL(location.href);
-    url.searchParams.set('tab', tab);
-    history.replaceState(null, '', url);
-  }
-
   /* ── Wiring ─────────────────────────────────────────────────────── */
-  fillSelect($('tChannel'), CHANNELS);
-  fillSelect($('tElement'), ELEMENTS);
-  fillSelect($('tMetric'), METRICS);
-  fillSelect($('tStatus'), TEST_STATUS);
   fillSelect($('iChannel'), CHANNELS);
   fillSelect($('iStatus'), ITEM_STATUS.map(s => [s, s]));
   fillSelect($('iPriority'), ITEM_PRIORITY.map(s => [s, s]));
-  fillSelect($('fTestChannel'), CHANNELS, { placeholder: 'All channels' });
-  fillSelect($('fTestElement'), ELEMENTS, { placeholder: 'Anything varying' });
   fillSelect($('fItemChannel'), CHANNELS, { placeholder: 'All channels' });
-  fillSelect($('fLearnChannel'), CHANNELS, { placeholder: 'All channels' });
-  fillSelect($('fLearnElement'), ELEMENTS, { placeholder: 'Anything varying' });
+  fillSelect($('fItemStatus'), ITEM_STATUS.map(s => [s, s]), { placeholder: 'All statuses' });
 
-  $('tabTests').addEventListener('click', () => setTab('tests'));
-  $('tabQueue').addEventListener('click', () => setTab('queue'));
-  $('tabLearn').addEventListener('click', () => setTab('learnings'));
-  $('btnNewTest').addEventListener('click', () => { setTab('tests'); openTest(null); });
-  $('btnNewItem').addEventListener('click', () => { setTab('queue'); openItem(null); });
-  $('testSave').addEventListener('click', saveTest);
-  $('testDelete').addEventListener('click', deleteTest);
+  $('btnNewItem').addEventListener('click', () => openItem(null));
   $('itemSave').addEventListener('click', saveItem);
   $('itemDelete').addEventListener('click', deleteItem);
-  for (const id of ['testClose', 'testCancel', 'itemClose', 'itemCancel', 'moOverlay']) {
+  for (const id of ['itemClose', 'itemCancel', 'moOverlay']) {
     $(id).addEventListener('click', closeDrawers);
   }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawers(); });
-  for (const id of ['fTestSearch', 'fTestStatus', 'fTestChannel', 'fTestElement']) {
-    $(id).addEventListener('input', renderTests);
-  }
-  for (const id of ['fItemSearch', 'fItemWhen', 'fItemChannel', 'fItemTest']) {
+  for (const id of ['fItemSearch', 'fItemWhen', 'fItemChannel', 'fItemStatus']) {
     $(id).addEventListener('input', renderItems);
   }
-  for (const id of ['fLearnSearch', 'fLearnOutcome', 'fLearnChannel', 'fLearnElement']) {
-    $(id).addEventListener('input', renderLearn);
-  }
-  // Choosing Concluded puts the cursor where the two required answers are,
-  // rather than letting the save be the thing that mentions them.
-  $('tStatus').addEventListener('change', () => {
-    if ($('tStatus').value === 'concluded' && !$('tOutcome').value) $('tOutcome').focus();
-  });
 
   /* ── Bootstrap ──────────────────────────────────────────────────── */
   await loadAll();
 
-  // ?tab=queue|learnings|tests, and ?test=<id> to open one directly from a link.
+  // Links into the retired test record still exist (?tab=tests|learnings,
+  // ?test=<id>). They land here rather than on a 404, so they say where that
+  // record went instead of showing the schedule as though nothing changed.
   {
     const qp = new URLSearchParams(location.search);
-    const wanted = qp.get('tab');
-    setTab(['queue', 'learnings'].includes(wanted) ? wanted : 'tests');
-    const id = qp.get('test');
-    if (id) {
-      const t = tests.find(x => x.id === id);
-      if (t) openTest(t);
-      else setStatus('That test is not in this company.', 'neg', 5000);
+    if (qp.get('test') || ['tests', 'learnings'].includes(qp.get('tab'))) {
+      setStatus('The test record moved into the Ad Studio idea bank: an idea in Testing names the element it is testing, and how it went is read off the ads linked to it.', 'info', 12000);
     }
   }
 
@@ -1223,7 +594,7 @@
       appEl: '#silo-app',
       active: 'ads/testing',
       user: { email: currentEmail, role: currentRole },
-      crumbs: ['Marketing', 'Ad Studio', 'Testing & schedule'],
+      crumbs: ['Marketing', 'Ad Studio', 'Schedule'],
       supabaseClient: db,
     });
   }
