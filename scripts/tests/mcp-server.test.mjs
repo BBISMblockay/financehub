@@ -184,7 +184,10 @@ test('a forged or expired token, which only PostgREST can detect, is also a 401'
 test('two tools, both read-only, and listing them reads no data', async () => {
   const { handle, calls } = harness();
   const body = await (await handle(post(rpc('tools/list')))).json();
-  assert.deepEqual(body.result.tools.map((t) => t.name), ['list_reports', 'run_report']);
+  // how_to_use_silo is the training layer's own tool and reads no data
+  // (supabase/functions/mcp/guide.mjs, scripts/tests/mcp-guide.test.mjs).
+  assert.deepEqual(body.result.tools.map((t) => t.name), ['list_reports', 'run_report', 'how_to_use_silo']);
+  for (const t of body.result.tools) assert.equal(t.annotations.readOnlyHint, true, t.name);
   for (const t of TOOLS) assert.equal(t.annotations.readOnlyHint, true, t.name);
   assert.equal(calls.length, 0);
 });
