@@ -23,6 +23,7 @@
     .ca-row-where code {font-family:var(--bcn-mono);font-size:10.5px;background:var(--bcn-sunken);
       border:1px solid var(--bcn-border);border-radius:4px;padding:1px 5px;}
     .ca-row-act {flex:none;display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;}
+    .ca-fallback {width:100%;margin-top:8px;font-family:var(--bcn-mono);font-size:11.5px;}
     @media (max-width:640px) {
       .ca-row {flex-wrap:wrap;}
       .ca-row-act {width:100%;justify-content:flex-start;}
@@ -454,13 +455,38 @@
     renderClients();
   }
 
-  async function copy(text, label) {
+  /* Clipboard access can be denied outright (permissions, an insecure origin,
+     a locked-down browser), and the command is not written anywhere else on
+     the page any more -- the rows carry it in a data attribute. So a refused
+     copy puts the text on screen, selected, instead of telling the person to
+     select text that is not there. */
+  async function copy(text, label, btn) {
     try {
       await navigator.clipboard.writeText(text);
       setStatus(label + ' copied.', 'pos', 2500);
+      return true;
     } catch (_) {
-      setStatus('Could not copy automatically — select the text and copy it.', 'warn', 5000);
+      setStatus('Could not copy automatically — here is the text to copy by hand.', 'warn', 8000);
+      showFallback(text, btn);
+      return false;
     }
+  }
+
+  function showFallback(text, btn) {
+    const host = (btn && btn.closest('.ca-row, .ca-prompt, .ca-url')) || btn?.parentElement;
+    if (!host) return;
+    let field = host.querySelector('.ca-fallback');
+    if (!field) {
+      field = document.createElement('input');
+      field.type = 'text';
+      field.readOnly = true;
+      field.className = 'bcn-field ca-fallback';
+      field.setAttribute('aria-label', 'Text to copy');
+      host.append(field);
+    }
+    field.value = text;
+    field.focus();
+    field.select();
   }
 
   /* One entry per client. `steps` is HTML (the only interpolation is MCP_URL,
@@ -570,7 +596,7 @@
     }).join('');
 
     el('clientRows').querySelectorAll('[data-copy]').forEach((b) => {
-      b.addEventListener('click', () => copy(b.dataset.copy, b.dataset.copyName || 'Text'));
+      b.addEventListener('click', () => copy(b.dataset.copy, b.dataset.copyName || 'Text', b));
     });
   }
 
@@ -590,7 +616,7 @@
     el('prompts').innerHTML = PROMPTS.map((p) => '<div class="ca-prompt"><span>' + esc(p) + '</span>'
       + '<button class="bcn-btn bcn-btn--ghost" type="button" data-prompt="' + esc(p) + '">Copy</button></div>').join('');
     el('prompts').querySelectorAll('[data-prompt]').forEach((b) => {
-      b.addEventListener('click', () => copy(b.dataset.prompt, 'Prompt'));
+      b.addEventListener('click', () => copy(b.dataset.prompt, 'Prompt', b));
     });
   }
 
@@ -633,7 +659,7 @@
 
     renderClients();
     renderPrompts();
-    el('btnCopyUrl').addEventListener('click', () => copy(MCP_URL, 'Address'));
+    el('btnCopyUrl').addEventListener('click', (e) => copy(MCP_URL, 'Address', e.currentTarget));
 
     /* owner_admin of THIS company, read from entity_memberships directly --
        not is_admin_user(), which passes for nearly everyone here. It matches

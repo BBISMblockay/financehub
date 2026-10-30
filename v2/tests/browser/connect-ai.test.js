@@ -57,6 +57,22 @@ const r = createReporter('connect-ai');
   r.test('Cursor deeplink config is base64 JSON naming the server',
     () => r.eq(decoded.url, 'https://api.get-silo.com/functions/v1/mcp'));
 
+  /* The command lives only in a data attribute now, so a refused clipboard
+     must put it on screen -- otherwise "select the text and copy it" points at
+     nothing. Review cycle 1 on #1075. */
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error('denied')) },
+    });
+  });
+  await page.click('.ca-row[data-client="claude-code"] [data-copy]');
+  const fallback = await page.inputValue('.ca-row[data-client="claude-code"] .ca-fallback');
+  r.test('a refused copy shows the command to copy by hand',
+    () => r.eq(fallback, 'claude mcp add --transport http silo --scope user https://api.get-silo.com/functions/v1/mcp'));
+  const warned = await page.textContent('#status');
+  r.ok('and says so', /copy by hand/.test(warned));
+
   const grokHref = await page.getAttribute('.ca-row[data-client="grok"] a.bcn-btn', 'href');
   r.test('Grok points at its own connectors page, not a made-up install link',
     () => r.eq(grokHref, 'https://grok.com/connectors'));
