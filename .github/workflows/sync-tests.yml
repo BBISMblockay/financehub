@@ -188,6 +188,10 @@ on:
       - 'v2/api-consent.html'
       - 'v2/api-connections.js'
       - 'supabase/migrations/*developer_api_client_for_authorization.sql'
+      # SILO's MCP server and the report catalog it reads.
+      - 'supabase/functions/mcp/**'
+      - 'supabase/migrations/*developer_api_report_catalog.sql'
+      - 'scripts/tests/mcp-server.test.mjs'
       - 'v2/settings-company.html'
       - 'v2/po-builder.html'
       - 'v2/po-document-identity.js'
@@ -621,6 +625,14 @@ jobs:
       # could never be restored. Both write orders are pinned here.
       - name: Connected applications screens
         run: node --test scripts/tests/api-connections.test.mjs
+
+      # SILO's MCP server. It holds no authority of its own: no service role,
+      # and every data call is PostgREST with the caller's token, so the
+      # database decides. Pinned here: discovery (401 + WWW-Authenticate ->
+      # Supabase's issuer, from configuration and never from a Host header),
+      # a dead connection told to sign in again, and only the two report RPCs.
+      - name: MCP server
+        run: node --test scripts/tests/mcp-server.test.mjs
 
       # One SEO row in the sidebar; Studio, Search performance and Keywords
       # are tabs across their existing pages.

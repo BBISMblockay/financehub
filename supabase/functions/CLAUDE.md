@@ -44,7 +44,8 @@ Per-function behaviour, secrets and history: [`docs/agents/edge-functions.md`](.
   above), or call `checkIntegrationToken` (`integration-gate.mjs`, a verbatim copy of
   `scripts/lib/integration-gate.mjs`) right after `getUser` and before its first service-role call.
   It refuses a token with no `sub`, `role = anon`, `role = silo_revoked`, or a `client_id` claim --
-  the MCP endpoint is the one deliberate exception, via `allowIntegration`. **Vendored into nineteen
+  `mcp/` (20261030050000) is the one function that exists FOR integrations: it uses no service role at all, so every
+  call it makes is refused or allowed by the database, and its own `checkShape` refuses first-party sessions instead. **Vendored into nineteen
   functions by PR1** (20261028070000): the seventeen of the two-step-login rule, plus `silo-chat` and
   `report-email-deliver`, which do work of their own before the caller's token ever reaches
   PostgREST. `scripts/tests/integration-gate.test.mjs` pins that list, the byte-for-byte copies and

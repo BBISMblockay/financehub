@@ -7470,7 +7470,7 @@ select 'developer API boundary' as check_name, case
   -- them and listing those here would report a known least-privilege backlog
   -- as a boundary break every night. What makes them unreachable for an
   -- integration is the path allowlist below, asserted separately -- PostgREST
-  -- only ever offers /rpc/silo_api_run_report. So what is asked here is the
+  -- only ever offers the two report RPCs. So what is asked here is the
   -- thing that would be a real mistake: an explicit grant to the integration
   -- roles of something outside the API surface.
   when exists (
@@ -7480,9 +7480,11 @@ select 'developer API boundary' as check_name, case
       and a.grantee in ('silo_integration'::regrole, 'silo_revoked'::regrole)
       and a.privilege_type = 'EXECUTE'
       and p.proname not in (
-        -- The API surface, the gate the pre-request hook calls, and the
-        -- helpers those two need in order to answer at all.
-        'silo_api_run_report', 'silo_check_request', 'mfa_session_satisfied',
+        -- The API surface (running a report, and since 20261030050000
+        -- listing them), the gate the pre-request hook calls, and the
+        -- helpers those need in order to answer at all.
+        'silo_api_run_report', 'silo_api_list_reports',
+        'silo_check_request', 'mfa_session_satisfied',
         'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
         'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id'))
    then 'CRITICAL: an integration role is granted EXECUTE outside the API surface: '
@@ -7493,7 +7495,8 @@ select 'developer API boundary' as check_name, case
               and a.grantee in ('silo_integration'::regrole, 'silo_revoked'::regrole)
               and a.privilege_type = 'EXECUTE'
               and p.proname not in (
-                'silo_api_run_report', 'silo_check_request', 'mfa_session_satisfied',
+                'silo_api_run_report', 'silo_api_list_reports',
+                'silo_check_request', 'mfa_session_satisfied',
                 'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
                 'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id'))
 
@@ -7808,5 +7811,48 @@ select 'developer API client lookup' as check_name, case
    then 'CRITICAL: a role that must not reach the lookup can execute it'
   when not has_function_privilege('authenticated', 'public.silo_api_client_for_authorization(text)', 'execute')
    then 'BROKEN — a signed-in person cannot reconnect an application'
+
+  else 'ok' end as status;
+
+-- ---------------------------------------------------------------------------
+-- developer API report catalog (20261030050000)
+-- ---------------------------------------------------------------------------
+-- What lets a connected application -- an MCP client above all -- find out
+-- which reports it can run. The allowlist is the tenant boundary for every
+-- Data API request an integration makes, so it is asserted by CONTENT: exactly
+-- the two report paths, and in particular never the arbitrary-SQL runner.
+select 'developer API report catalog' as check_name, case
+  when to_regprocedure('public.silo_api_list_reports()') is null
+   then 'MISSING — run supabase/migrations/20261030050000_developer_api_report_catalog.sql'
+  when not (select p.prosecdef from pg_proc p where p.oid = to_regprocedure('public.silo_api_list_reports()'))
+   then 'BROKEN — the catalog is not SECURITY DEFINER, so a connection (which holds no table privileges) can never read it'
+  -- Owned by a role that owns tables, a definer function bypasses their RLS.
+  when (select pg_get_userbyid(p.proowner) from pg_proc p
+        where p.oid = to_regprocedure('public.silo_api_list_reports()')) <> 'silo_api_exec'
+   then 'CRITICAL: the catalog is not owned by silo_api_exec, so it runs with the privileges of a role that owns tables'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_list_reports()'))
+       not like '%silo_api_require_scope(''reports:read'')%'
+   then 'CRITICAL: the catalog skips the scope check, so a revoked or narrowed connection can still list reports'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_list_reports()'))
+       not like '%s.source = ''system''%'
+   then 'CRITICAL: the catalog is not limited to SILO''s own reports, so it lists company reports by title and description'
+  -- The SQL behind a report never leaves the database. Counting its queries is
+  -- the one permitted use, so that is removed before looking for any other.
+  when replace(pg_get_functiondef(to_regprocedure('public.silo_api_list_reports()')),
+               'array_length(s.queries_run', '') like '%queries_run%'
+   then 'CRITICAL: the catalog returns report SQL'
+
+  when not has_function_privilege('silo_integration', 'public.silo_api_list_reports()', 'execute')
+   then 'BROKEN — a connection cannot list reports; MCP clients will connect and see nothing'
+  when has_function_privilege('anon', 'public.silo_api_list_reports()', 'execute')
+    or has_function_privilege('silo_revoked', 'public.silo_api_list_reports()', 'execute')
+   then 'CRITICAL: a role that must not reach the catalog can execute it'
+
+  when pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure) like '%chat_run_readonly_query%'
+   then 'CRITICAL: the integration path allowlist admits the arbitrary-SQL runner'
+  when pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure) not like '%/rpc/silo_api_list_reports%'
+   then 'BROKEN — the catalog path is not on the allowlist, so every call to it is refused'
+  when pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure) not like '%/rpc/silo_api_run_report%'
+   then 'BROKEN — the report runner''s path fell off the allowlist'
 
   else 'ok' end as status;
