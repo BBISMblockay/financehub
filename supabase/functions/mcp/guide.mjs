@@ -130,9 +130,10 @@ export const GLOSSARY = {
     + 'means.',
   'journal entry': 'An accounting entry in SILO. It is drafted, approved, then posted to QuickBooks; those '
     + 'are three separate states and the close report counts each.',
-  verified: 'SILO\'s built-in reports are tied out against their sources every night; a report someone in the '
-    + 'company saved is not checked by SILO at all. Where the catalog says which a report is, prefer the '
-    + 'verified one when it answers the question, and say so when you use one that is not.',
+  verified: '`verified: true` is one of SILO\'s own built-in reports, tied out against its sources every '
+    + 'night. `verified: false` is a report someone in the company saved, which SILO has not checked at all. '
+    + 'Prefer a verified report when one answers the question; when nothing built-in fits, search the saved '
+    + 'ones (list_reports with kind "company") and say plainly that the number is not SILO-verified.',
 };
 
 /* ── Which report answers which question ───────────────────────────────────
