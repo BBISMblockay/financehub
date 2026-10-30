@@ -24,6 +24,14 @@ const iso = (daysAgo) => new Date(Date.now() - daysAgo * DAY).toISOString();
     ]),
   }));
 
+  /* The sign-out half: DELETE .../grants?client_id=... . Its own route,
+     because the glob above has no query string and so never sees it. */
+  const deletes = [];
+  await suite.context.route('**/auth/v1/user/oauth/grants?*', (route) => {
+    deletes.push({ method: route.request().method(), url: route.request().url() });
+    return route.fulfill({ status: 204, body: '' });
+  });
+
   const page = await suite.open('/v2/settings-connect-ai.html', {
     silo_api_grants: [
       {
@@ -116,6 +124,17 @@ const iso = (daysAgo) => new Date(Date.now() - daysAgo * DAY).toISOString();
   const sub1 = (await page.textContent('#mineSub')).trim();
   r.test('the count follows', () => r.eq(sub1, '1 connected'));
 
+  /* Shipped broken on 2026-10-30: the SDK wanted `{ clientId }` and got a
+     bare string, so the browser sent `client_id=undefined`, Supabase answered
+     400, and the page still said the app was signed out. Claude kept its
+     token, the MCP server kept 401ing it, and it showed no tools. */
+  r.test('the sign-out carries that card’s real client id', () => r.eq(
+    deletes.map((d) => d.method + ' ' + new URL(d.url).searchParams.get('client_id')),
+    ['DELETE c-1']));
+  const okStatus = (await page.textContent('#status')).trim();
+  r.ok('and only then does it say the application was signed out',
+    /signed out/i.test(okStatus));
+
   await page.click('#gridMine .cn-app[data-grant="g-cursor"] [data-ask]');
   await page.click('#gridMine .cn-app[data-grant="g-cursor"] [data-confirm]');
   await page.waitForFunction(() => !document.querySelector('#gridMine .cn-app'));
@@ -167,6 +186,44 @@ const iso = (daysAgo) => new Date(Date.now() - daysAgo * DAY).toISOString();
 
   release();
   await stalled.close();
+
+  /* A refused sign-out must read as refused. The SDK's own DELETE is
+     noResolveJson with no status check, so it reports success on a 400 --
+     which is the other half of what shipped broken. */
+  const refused = await startSuite({ viewport: { width: 1280, height: 900 }, secureContext: true });
+  await refused.context.route('**/auth/v1/user/oauth/grants?*', (route) => route.fulfill({
+    status: 400, contentType: 'application/json',
+    body: JSON.stringify({ msg: 'invalid client_id format' }),
+  }));
+  const page3 = await refused.open('/v2/settings-connect-ai.html', {
+    silo_api_grants: [{
+      id: 'g-bad', client_id: 'c-bad', user_id: 'test-user', company_entity_id: 'test-company',
+      scopes: ['reports:read'], consented_at: iso(2), expires_at: iso(-88),
+      revoked_at: null, last_used_at: iso(1),
+    }],
+    entities: [{ id: 'test-company', title: 'Baseballism' }],
+    profiles: [{ id: 'test-user', email: 'test@baseballism.com', role: 'admin', active_company_id: 'test-company' }],
+    entity_memberships: [{ entity_id: 'test-company', user_id: 'test-user', role: 'admin' }],
+  }, {
+    rpc: { silo_api_revoke: () => true },
+    ready: () => !!document.querySelector('#gridMine .cn-app'),
+  });
+
+  await page3.click('#gridMine .cn-app[data-grant="g-bad"] [data-ask]');
+  await page3.click('#gridMine .cn-app[data-grant="g-bad"] [data-confirm]');
+  await page3.waitForFunction(() => !document.querySelector('#gridMine .cn-app'));
+  const badStatus = (await page3.textContent('#status')).trim();
+  r.ok('a refused sign-out is not reported as a clean one',
+    !/signed out/i.test(badStatus));
+  r.ok('it says SILO access stopped and the app still needs removing there',
+    /could not be revoked/i.test(badStatus) && /remove it in the application/i.test(badStatus));
+  r.ok('and it passes on what Supabase said',
+    /invalid client_id format/.test(badStatus));
+  r.ok('the status reads as a warning, not a success',
+    (await page3.getAttribute('#status', 'class') || '').includes('bcn-status--warn'));
+
+  await refused.close();
+
 
   await suite.close();
   const out = r.summary();

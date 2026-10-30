@@ -334,6 +334,31 @@
     }
   }
 
+  /* DELETE /auth/v1/user/oauth/grants?client_id=... is accepted only with
+     THAT PERSON'S OWN session; there is no admin form of it. Returns why it
+     failed, so the status line can say it. */
+  async function revokeSignIn(clientId) {
+    if (!clientId) return { ok: false, why: 'no client id on the record' };
+    try {
+      const { data: s } = await db.auth.getSession();
+      const token = s?.session?.access_token;
+      if (!token) return { ok: false, why: 'your session has expired' };
+      const res = await fetch(SUPABASE_URL.replace(/\/+$/, '')
+        + '/auth/v1/user/oauth/grants?client_id=' + encodeURIComponent(clientId), {
+        method: 'DELETE',
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + token },
+      });
+      if (res.ok) return { ok: true, why: '' };
+      const body = await res.text().catch(() => '');
+      let msg = '';
+      try { const j = JSON.parse(body); msg = j?.msg || j?.error_description || j?.error || ''; }
+      catch (_) { msg = ''; }
+      return { ok: false, why: msg || ('HTTP ' + res.status) };
+    } catch (e) {
+      return { ok: false, why: (e && e.message) || 'network error' };
+    }
+  }
+
   /* Disconnect is two halves against two systems and SILO can only do one of
      them for everybody.
 
@@ -359,17 +384,39 @@
     }
     if (data === false) { setStatus('That connection was already disconnected.', 'warn', 4000); }
 
+    /* Half 2, the application's own Supabase sign-in. Two traps here, both
+       hit live on 2026-10-30, minutes after this page shipped:
+
+         - `oauth.revokeGrant` takes an OBJECT, `{ clientId }`. Handing it the
+           id as a string sent `client_id=undefined` and Supabase answered
+           400 "invalid client_id format".
+         - That SDK call is a `noResolveJson` DELETE with no status check, so
+           it returns success whatever comes back -- the 400 included.
+
+       Together they told Blake "the application has been signed out" while
+       Claude went on refreshing its token, got 401s from the MCP server,
+       never re-ran OAuth, and showed "no tools available".
+
+       So the call is made here, against the same endpoint the SDK wraps, and
+       the status IS checked. A failure says so instead of claiming a clean
+       disconnect that did not happen. */
     let signOutDone = false;
+    let signOutWhy = '';
     if (own) {
-      try {
-        const o = db.auth && db.auth.oauth;
-        if (o?.revokeGrant) { await o.revokeGrant(g.client_id); signOutDone = true; }
-      } catch (_) { signOutDone = false; }
+      const out = await revokeSignIn(g.client_id);
+      signOutDone = out.ok;
+      signOutWhy = out.why;
     }
-    setStatus(signOutDone
-      ? 'Removed. The application has been signed out.'
-      : 'Removed. SILO access stopped immediately; the application’s sign-in lapses on its own.',
-      'pos', 7000);
+    if (own && !signOutDone) {
+      setStatus('Removed from SILO, but the application’s sign-in could not be revoked'
+        + (signOutWhy ? ' (' + signOutWhy + ')' : '')
+        + '. SILO access stopped immediately — remove it in the application too.', 'warn', 14000);
+    } else {
+      setStatus(signOutDone
+        ? 'Removed. The application has been signed out.'
+        : 'Removed. SILO access stopped immediately; the application’s sign-in lapses on its own.',
+        'pos', 7000);
+    }
     dropCard(g.id);
   }
 

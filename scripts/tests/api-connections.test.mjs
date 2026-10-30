@@ -246,12 +246,27 @@ test('a nameless client shows its id rather than nothing', () => {
 
 test('disconnect reports the two halves separately', () => {
   // Only the approving person's own browser can end the Supabase session --
-  // there is no admin-side revokeGrant -- so an owner disconnecting someone
-  // else's connection must not claim it signed the application out.
-  assert.match(APPS, /revokeGrant\(/);
+  // there is no admin form of it -- so an owner disconnecting someone else's
+  // connection must not claim it signed the application out.
   assert.match(APPS, /signOutDone\s*\?/,
     'the message branches on whether the sign-out actually happened');
   assert.match(APPS, /sign-in lapses on its own/);
+});
+
+test('the sign-out is a DELETE this page can see the result of', () => {
+  // `oauth.revokeGrant` takes an OBJECT ({ clientId }) and its DELETE is
+  // noResolveJson with no status check, so a bare string sent
+  // client_id=undefined and a 400 came back reported as success (2026-10-30,
+  // Blake's first removal: Claude kept its token and showed no tools).
+  assert.doesNotMatch(APPS, /revokeGrant\(/,
+    'the SDK call cannot report failure, so the page does not use it');
+  assert.match(APPS, /method: 'DELETE'/);
+  assert.match(APPS, /'\/auth\/v1\/user\/oauth\/grants\?client_id=' \+ encodeURIComponent\(clientId\)/,
+    'the real client id goes on the query string');
+  assert.match(APPS, /if \(res\.ok\) return \{ ok: true/,
+    'success is the HTTP status, not the call returning');
+  assert.match(APPS, /could not be revoked/,
+    'a refused sign-out says so instead of claiming a clean disconnect');
 });
 
 test('disconnect goes through silo_api_revoke, never a table write', () => {
