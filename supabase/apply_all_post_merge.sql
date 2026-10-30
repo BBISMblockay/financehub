@@ -19294,6 +19294,10 @@ $c$select (select count(*) from v_po_header_summary
 -- either, for the same reason.
 \i migrations/20261028070000_developer_api_idle_disconnect.sql
 \i migrations/20261029234000_developer_api_client_for_authorization.sql
+-- The report catalog, so a connection (an MCP client above all) can find out
+-- which reports it may run. Must come AFTER 20261020030000, whose
+-- silo_api_path_allowed() it replaces and whose silo_api_exec role owns it.
+\i migrations/20261030050000_developer_api_report_catalog.sql
 -- Sales by Channel gains a units column (from shopify_order_lines) and a
 -- channel slicer, plus silo_report_channels_v. Must come AFTER 20260920075344,
 -- whose version of the query and tie-out it replaces. It sits BEFORE the
