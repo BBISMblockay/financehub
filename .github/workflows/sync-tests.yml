@@ -191,6 +191,7 @@ on:
       - 'supabase/migrations/*developer_api_client_for_authorization.sql'
       # SILO's MCP server and the report catalog it reads.
       - 'supabase/functions/mcp/**'
+      - 'mcp-forwarder/**'
       - 'supabase/migrations/*developer_api_report_catalog.sql'
       - 'scripts/tests/mcp-server.test.mjs'
       - 'supabase/migrations/*developer_api_company_reports.sql'
@@ -639,6 +640,12 @@ jobs:
       # a dead connection told to sign in again, and only the two report RPCs.
       - name: MCP server
         run: node --test scripts/tests/mcp-server.test.mjs
+
+      # The forwarder at mcp.get-silo.com (Grok reads OAuth metadata only at
+      # the host root, which Supabase does not let a function answer). Run as
+      # real HTTP servers in front of the real MCP handler. Mutation-tested.
+      - name: MCP forwarder
+        run: node --test scripts/tests/mcp-forwarder.test.mjs
 
       # What SILO teaches a bot about itself (supabase/functions/mcp/guide.mjs):
       # the rules at connect, and the how_to_use_silo tool holding the glossary,
