@@ -7970,3 +7970,21 @@ select 'Developer API company reports' as check_name,
       then 'BROKEN — a connection cannot list company reports'
     else 'ok'
   end as status;
+
+-- Gross Sales and Discounts by Location (20261030110000): the report exists,
+-- reads the deduplicated verification view, and carries its two tie-outs.
+select 'Gross sales and discounts by location report' as check_name,
+  case
+    when not exists (select 1 from public.silo_chat_saved_reports
+                     where id = '5110de50-0000-4000-a000-000000000005'
+                       and source = 'system')
+      then 'MISSING — run 20261030110000_gross_sales_discounts_by_location_report.sql'
+    when (select queries_run[1] from public.silo_chat_saved_reports
+           where id = '5110de50-0000-4000-a000-000000000005')
+         not like '%sales_by_day_verification_v%'
+      then 'BROKEN — the report reads sales_by_day directly, so cutover days double-count'
+    when (select count(*) from public.silo_report_tieouts
+           where report_id = '5110de50-0000-4000-a000-000000000005') <> 2
+      then 'MISSING — the report''s tie-outs were not regenerated after an edit'
+    else 'ok'
+  end as status;

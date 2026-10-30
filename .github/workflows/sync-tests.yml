@@ -1504,6 +1504,14 @@ jobs:
       - name: Execute developer API company report regressions
         run: node scripts/tests/developer-api-company-reports-database.test.mjs
 
+      # 20261030110000: gross sales and discounts by location. Proves the six
+      # measures per location, that the discount rate is blank (not 0%) where
+      # gross is 0, that a Shopify-API / Better-Reports cutover day is counted
+      # once, and that both tie-outs fail when what they watch breaks.
+      # Mutation-tested.
+      - name: Execute gross sales and discounts by location regressions
+        run: node scripts/tests/gross-sales-discounts-by-location-database.test.mjs
+
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a
       # later edit, and a cleared flag carries no stale author or note.
