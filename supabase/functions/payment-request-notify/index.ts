@@ -231,8 +231,17 @@ Deno.serve(async (req: Request) => {
     if (prErr || !pr) {
       return new Response(JSON.stringify({ error: 'Payment request not found' }), { status: 404, headers: CORS });
     }
-    if (!pr.completed) {
-      return new Response(JSON.stringify({ error: 'Request is not marked completed/paid yet' }), { status: 400, headers: CORS });
+    // PAID, not merely completed. Since 20261030120000 a rejected or cancelled
+    // request is completed too (completion and workflow_status are one decision),
+    // and this email says "has been paid" -- so an authorised AP manager calling
+    // this endpoint with a rejected request's id must not send a payment
+    // confirmation for a payment that never happened.
+    if (pr.workflow_status !== 'paid') {
+      return new Response(JSON.stringify({
+        error: pr.completed
+          ? `Request is ${pr.workflow_status || 'not paid'}, so there is no payment to confirm`
+          : 'Request is not marked paid yet'
+      }), { status: 400, headers: CORS });
     }
     if (!pr.requester_email) {
       return new Response(JSON.stringify({ error: 'No requester email on file for this request' }), { status: 400, headers: CORS });
