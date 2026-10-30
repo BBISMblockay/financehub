@@ -68,10 +68,7 @@
                            aria-label="SILO MCP server address" />
                     <button class="bcn-btn bcn-btn--primary" id="btnCopyUrl" type="button">Copy</button>
                   </div>
-                  <p class="ca-hero-note" id="heroMfaNote"
-                     title="Outside apps connect only after you approve here with your authenticator code. Turn on two-step login under Two-step login in My profile if you have not yet.">
-                    No API key — the app sends you back here and you approve with your two-step code.
-                  </p>
+                  <p class="ca-hero-note" id="heroMfaNote">Checking two-step login…</p>
                 </div>
                 <div class="ca-rows" id="clientRows"></div>
               </div>
@@ -625,17 +622,35 @@
     el('reportsList').innerHTML = reports.map((r) => '<li>' + esc(r.title) + '</li>').join('');
   }
 
-  async function loadMfaNote() {
+  const PROFILE_MFA_HREF = '/v2/profile.html';
+
+  /* Hero + Access copy depend on whether two-step login is already on.
+     Approval always needs aal2; without a factor, setup in My profile first. */
+  async function loadMfaUi() {
+    const hero = el('heroMfaNote');
     const note = el('mfaNote');
-    if (!window.SiloMfa) { note.hidden = true; return; }
+    note.hidden = true;
+    if (!window.SiloMfa) {
+      hero.textContent = 'No API key — when you connect an app, it sends you back here to approve.';
+      return;
+    }
     try {
       const factor = await window.SiloMfa.status(db);
-      if (factor) { note.hidden = true; return; }
+      if (factor) {
+        hero.textContent = 'No API key — when you connect an app, it sends you back here and you '
+          + 'approve with your authenticator code.';
+        hero.removeAttribute('title');
+        return;
+      }
+      hero.innerHTML = 'No API key. Turn on <strong>two-step login</strong> in '
+        + '<a href="' + PROFILE_MFA_HREF + '">My profile</a> before you connect an app — '
+        + 'then, when the app asks, it sends you back here and you approve with your authenticator code.';
+      hero.title = 'Use the Two-step login section in My profile (authenticator app). '
+        + 'Connecting an outside app is refused until that is set up and you enter a code at approval.';
       note.hidden = false;
-      note.innerHTML = 'Two-step login is required before an app can connect. Turn it on in '
-        + '<a href="/v2/profile.html">My profile</a> (Two-step login).';
+      note.textContent = 'Two-step login is not on for this account yet.';
     } catch (_) {
-      note.hidden = true;
+      hero.textContent = 'No API key — when you connect an app, it sends you back here to approve.';
     }
   }
 
@@ -676,7 +691,7 @@
        do with reading or removing a connection. Chaining them meant a stalled
        discovery call left "Your apps" on "Loading…" with no Remove button,
        on a page that is now the only place to remove one. */
-    await Promise.all([resolveUrl(), loadAccess(), loadMfaNote(), loadNames().then(load)]);
+    await Promise.all([resolveUrl(), loadAccess(), loadMfaUi(), loadNames().then(load)]);
   })().catch((e) => {
     console.error(e);
     setStatus('Unexpected error: ' + (e?.message || e), 'neg');
