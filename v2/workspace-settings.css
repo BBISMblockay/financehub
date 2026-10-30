@@ -57,7 +57,12 @@
 .workspace-settings .ws-dept-select {min-width:108px;max-width:140px;}
 
 /* Connect AI — lighter settings tab (MCP connections). */
-.connect-ai-page {max-width:1080px;}
+/* Do not cap .ws-page width here — connect-ai-page IS the scroll pane; a
+   max-width on it left ~30% empty canvas beside the scrollbar on wide screens. */
+.connect-ai-page {width:100%;min-width:0;box-sizing:border-box;}
+.connect-ai-page .ws-card,
+.connect-ai-page .ws-card--flat {max-width:none;}
+.connect-ai-page .ca-layout {max-width:none;}
 .connect-ai-page .ws-card--flat {box-shadow:none;margin-bottom:12px;}
 .connect-ai-page .ws-card-head {padding:8px 14px;}
 .connect-ai-page .ws-body--tight {padding:12px 14px 14px;}
@@ -68,7 +73,7 @@
 .connect-ai-page .ca-hero {margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--bcn-border);}
 .connect-ai-page .ca-hero-note {margin:8px 0 0;font-size:11.5px;color:var(--bcn-ink-3);line-height:1.45;}
 .connect-ai-page .ca-url {display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;margin-top:4px;}
-.connect-ai-page .ca-url input {flex:1 1 280px;min-width:0;font-family:var(--bcn-mono);font-size:11.5px;}
+.connect-ai-page .ca-url input {flex:1 1 280px;min-width:0;max-width:100%;font-family:var(--bcn-mono);font-size:11.5px;}
 .connect-ai-page .ca-rows {display:flex;flex-direction:column;--ca-act-width:158px;}
 .connect-ai-page .ca-row {display:grid;grid-template-columns:28px minmax(0,1fr) var(--ca-act-width);gap:10px 16px;
   align-items:start;padding:12px 0;border-top:1px solid var(--bcn-border);}
@@ -114,6 +119,8 @@
 .connect-ai-page .btn-xs {padding:5px 10px;font-size:11px;border-radius:6px;min-height:0;line-height:1.2;}
 .connect-ai-page .bcn-btn--ghost.bcn-btn--danger {color:var(--bcn-neg);border-color:transparent;}
 .connect-ai-page .bcn-btn--ghost.bcn-btn--danger:hover {background:var(--bcn-neg-soft);color:var(--bcn-neg);}
+/* One scroll surface: let .silo-main scroll instead of a narrow inner pane. */
+.workspace-settings .connect-ai-page.ws-page {overflow:visible;flex:0 1 auto;min-height:0;}
 .workspace-settings .bcn-header--compact {padding-bottom:8px;}
 @media (max-width:900px) {
   .connect-ai-page .ca-layout {grid-template-columns:1fr;}
