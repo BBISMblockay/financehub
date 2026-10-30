@@ -59,6 +59,14 @@
       body: '<path d="M17.4 3.2 9.1 11 4.9 7.9 3 9l3.6 3L3 15l1.9 1.1L9.1 13l8.3 7.8L21 19V5z"'
         + ' fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
     },
+    // xAI's angular X.
+    grok: {
+      tint: '',
+      body: '<g stroke="currentColor" stroke-width="2.2" stroke-linecap="round">'
+        + '<line x1="4.5" y1="4.5" x2="19.5" y2="19.5"/>'
+        + '<line x1="19.5" y1="4.5" x2="13.2" y2="10.8"/>'
+        + '<line x1="10.8" y1="13.2" x2="4.5" y2="19.5"/></g>',
+    },
     // Anything else that speaks MCP.
     generic: {
       tint: '',
@@ -76,6 +84,7 @@
     [/chatgpt|openai/i, 'chatgpt'],
     [/\bcursor\b/i, 'cursor'],
     [/vs\s*code|visual studio code|vscode/i, 'vscode'],
+    [/\bgrok\b|\bxai\b/i, 'grok'],
   ];
 
   function keyForName(name) {

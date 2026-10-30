@@ -37,7 +37,7 @@ const r = createReporter('connect-ai');
     () => r.eq(url, 'https://api.get-silo.com/functions/v1/mcp'));
 
   r.ok('each app is a card with its own mark, not a table row',
-    (await page.locator('.ca-app svg, .ca-app .app-mark-letter').count()) === 6);
+    (await page.locator('.ca-app svg, .ca-app .app-mark-letter').count()) === 7);
 
   r.ok('starts on the Claude pane',
     !(await page.locator('.ca-pane[data-client="claude"][hidden]').count()));
@@ -64,6 +64,15 @@ const r = createReporter('connect-ai');
     String(href).startsWith('cursor://anysphere.cursor-deeplink/mcp/install?name=silo&config='));
   r.test('Cursor deeplink config is base64 JSON naming the server',
     () => r.eq(decoded.url, 'https://api.get-silo.com/functions/v1/mcp'));
+
+  await page.click('.ca-app[data-client="grok"]');
+  const grokHref = await page.getAttribute('.ca-pane[data-client="grok"] a.bcn-btn', 'href');
+  r.test('Grok points at its own connectors page, not a made-up install link',
+    () => r.eq(grokHref, 'https://grok.com/connectors'));
+  // The <ol> in the steps closes the <p> the browser put it in, so read the pane.
+  const grokSteps = await page.textContent('.ca-pane[data-client="grok"]');
+  r.ok('and says why the API path is not the one offered',
+    /does not issue one/.test(grokSteps));
 
   await page.click('.ca-app[data-client="vscode"]');
   const vs = await page.getAttribute('.ca-pane[data-client="vscode"] a.bcn-btn', 'href');

@@ -394,15 +394,22 @@
   const DERIVED = SUPABASE_URL.replace(/\/+$/, '') + '/functions/v1/mcp';
   let MCP_URL = DERIVED;
 
+  /* Bounded, because this is a nice-to-have: the derived address is already
+     correct, and a hung fetch must not keep the field reading "Loading…". */
+  const DISCOVERY_TIMEOUT_MS = 6000;
+
   async function resolveUrl() {
     el('mcpUrl').value = MCP_URL;
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), DISCOVERY_TIMEOUT_MS);
     try {
-      const res = await fetch(DERIVED + '/.well-known/oauth-protected-resource');
+      const res = await fetch(DERIVED + '/.well-known/oauth-protected-resource', { signal: stop.signal });
       if (!res.ok) return;
       const body = await res.json();
       const r = typeof body?.resource === 'string' ? body.resource.replace(/\/+$/, '') : '';
       if (/^https:\/\/[^\s]+$/.test(r)) MCP_URL = r;
     } catch (_) { /* derived value stands */ }
+    finally { clearTimeout(timer); }
     el('mcpUrl').value = MCP_URL;
     renderClients();
   }
@@ -482,6 +489,22 @@
         cmd: "code --add-mcp '" + JSON.stringify({ name: 'silo', type: 'http', url: u }) + "'",
         actions: [
           { kind: 'link', label: 'Add to VS Code', href: 'https://vscode.dev/redirect/mcp/install?name=silo&config=' + vscodeCfg },
+        ],
+      },
+      {
+        id: 'grok',
+        label: 'Grok',
+        what: 'Custom connector at grok.com',
+        steps: 'Grok takes a custom MCP connector on the web; there is no install link to click.<ol class="ca-steps">'
+          + '<li>Open <strong>grok.com/connectors</strong>.</li>'
+          + '<li>Click <strong>New Connector</strong>, then <strong>Custom</strong>.</li>'
+          + '<li>Paste the address above and finish the sign-in it asks for.</li>'
+          + '</ol>On Grok Business or Enterprise an admin provisions connectors for the team. '
+          + 'Grok\u2019s API has a remote-MCP tool too, but it sends a fixed token you paste in, and SILO '
+          + 'does not issue one \u2014 it signs you in instead \u2014 so the connector above is the way in.',
+        actions: [
+          { kind: 'link', label: 'Open Grok connectors', href: 'https://grok.com/connectors' },
+          { kind: 'copy', label: 'Copy address', value: u, name: 'Address' },
         ],
       },
       {
@@ -609,8 +632,12 @@
       _isOwner = mem?.role === 'owner_admin';
     }
 
-    await resolveUrl();
-    await Promise.all([loadReports(), loadNames().then(load)]);
+    /* All three in parallel, and the apps list in particular NOT behind
+       resolveUrl(): that one talks to the MCP function, which has nothing to
+       do with reading or removing a connection. Chaining them meant a stalled
+       discovery call left "Your apps" on "Loading…" with no Remove button,
+       on a page that is now the only place to remove one. */
+    await Promise.all([resolveUrl(), loadReports(), loadNames().then(load)]);
   })().catch((e) => {
     console.error(e);
     setStatus('Unexpected error: ' + (e?.message || e), 'neg');

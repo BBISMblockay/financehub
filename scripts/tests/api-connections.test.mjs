@@ -346,6 +346,7 @@ test('"Claude Code" is not matched by the bare Claude rule', () => {
   assert.equal(M.keyForName('Claude Code'), 'claude-code');
   assert.equal(M.keyForName('Claude'), 'claude');
   assert.equal(M.keyForName('VS Code'), 'vscode');
+  assert.equal(M.keyForName('Grok'), 'grok');
   assert.equal(M.keyForName('Power BI'), null, 'an app with no mark gets none');
 });
 

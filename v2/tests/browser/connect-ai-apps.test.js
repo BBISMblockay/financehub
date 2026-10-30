@@ -104,6 +104,48 @@ const iso = (daysAgo) => new Date(Date.now() - daysAgo * DAY).toISOString();
   try { await page.screenshot({ path: shot, fullPage: true }); }
   catch (_) { console.log('  note: screenshot not written (' + shot + ')'); }
 
+  /* The apps list must not sit behind MCP discovery: that call is about the
+     server address, and this page is now the only place to remove an app.
+     Review cycle 1 on #1073 caught the two chained. */
+  const stalled = await startSuite({ viewport: { width: 1280, height: 900 }, secureContext: true });
+  let release;
+  const held = new Promise((res) => { release = res; });
+  await stalled.context.route('**/functions/v1/mcp/.well-known/oauth-protected-resource', async (route) => {
+    await held;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+  const page2 = await stalled.open('/v2/settings-connect-ai.html', {
+    silo_api_grants: [{
+      id: 'g-one', client_id: 'c-9', user_id: 'test-user', company_entity_id: 'test-company',
+      scopes: ['reports:read'], consented_at: iso(2), expires_at: iso(-88),
+      revoked_at: null, last_used_at: iso(1),
+    }],
+    entities: [{ id: 'test-company', title: 'Baseballism' }],
+    profiles: [{ id: 'test-user', email: 'test@baseballism.com', role: 'admin', active_company_id: 'test-company' }],
+    entity_memberships: [{ entity_id: 'test-company', user_id: 'test-user', role: 'admin' }],
+  }, {
+    rpc: {
+      silo_api_revoke: (args) => {
+        window.__REVOKED__ = (window.__REVOKED__ || []).concat([args]);
+        return true;
+      },
+    },
+    ready: () => !!document.querySelector('#gridMine .cn-app'),
+  });
+
+  r.ok('the apps load while discovery is still hanging',
+    (await page2.locator('#gridMine .cn-app[data-grant="g-one"]').count()) === 1);
+
+  await page2.click('#gridMine .cn-app[data-grant="g-one"] [data-ask]');
+  await page2.click('#gridMine .cn-app[data-grant="g-one"] [data-confirm]');
+  await page2.waitForFunction(() => !document.querySelector('#gridMine .cn-app'));
+  const stalledCalls = await page2.evaluate(() => window.__REVOKED__ || []);
+  r.test('removal still reaches exactly that grant with discovery hanging',
+    () => r.eq(stalledCalls, [{ p_grant_id: 'g-one' }]));
+
+  release();
+  await stalled.close();
+
   await suite.close();
   const out = r.summary();
   process.exit(out.fail ? 1 : 0);
