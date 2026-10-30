@@ -51,6 +51,7 @@ const KEEPALIVE_LIB_URL = pathToFileURL(join(HERE, 'keepalive-lib.mjs')).href;
 const CREDIT_LIB_URL = pathToFileURL(join(HERE, 'ai-credit-lib.mjs')).href;
 const REPORTS_LIB_URL = pathToFileURL(join(HERE, 'silo-reports-lib.mjs')).href;
 const REPORT_PARAMS_LIB_URL = pathToFileURL(join(HERE, 'report-params-lib.mjs')).href;
+const SCHEMA_MAP_LIB_URL = pathToFileURL(join(HERE, 'schema-map-lib.mjs')).href;
 
 let failures = 0;
 let run = 0;
@@ -109,10 +110,11 @@ const harnessPath = join(tmpdir(), `silo-chat-harness-${process.pid}.ts`);
     .replace("from './ai-credit-lib.mjs';", `from ${JSON.stringify(CREDIT_LIB_URL)};`)
     .replace("from './silo-reports-lib.mjs';", `from ${JSON.stringify(REPORTS_LIB_URL)};`)
     .replace("from './report-params-lib.mjs';", `from ${JSON.stringify(REPORT_PARAMS_LIB_URL)};`)
-    .replace("from './integration-gate.mjs';", `from ${JSON.stringify(INTEGRATION_GATE_URL)};`);
+    .replace("from './integration-gate.mjs';", `from ${JSON.stringify(INTEGRATION_GATE_URL)};`)
+    .replace("from './schema-map-lib.mjs';", `from ${JSON.stringify(SCHEMA_MAP_LIB_URL)};`);
   // A silently-unapplied rewrite would load a file that still imports npm:,
   // which fails with a confusing resolver error 40 lines away from the cause.
-  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, QUERY_SHAPE_LIB_URL, KEEPALIVE_LIB_URL, CREDIT_LIB_URL, REPORTS_LIB_URL, REPORT_PARAMS_LIB_URL, INTEGRATION_GATE_URL, 'Buffer.from(bytes)']) {
+  for (const marker of ["globalThis.__silo_test_createClient", SEO_LIB_URL, EVIDENCE_LIB_URL, BUDGET_LIB_URL, PROMPT_LIB_URL, PROVIDER_LIB_URL, QUERY_SHAPE_LIB_URL, KEEPALIVE_LIB_URL, CREDIT_LIB_URL, REPORTS_LIB_URL, REPORT_PARAMS_LIB_URL, INTEGRATION_GATE_URL, SCHEMA_MAP_LIB_URL, 'Buffer.from(bytes)']) {
     if (!rewritten.includes(marker)) {
       throw new Error(`harness rewrite failed: index.ts no longer matches the expected import for ${marker}`);
     }

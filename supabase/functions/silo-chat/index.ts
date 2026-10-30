@@ -182,6 +182,7 @@ import {
 import { buildReportsSection, normalizeReports, prepareReportRun, resolveReport, shapeReportResult } from './silo-reports-lib.mjs';
 import { SiloReportParams } from './report-params-lib.mjs';
 import { checkIntegrationToken } from './integration-gate.mjs';
+import { buildSchemaSection } from './schema-map-lib.mjs';
 
 const TOOLS = [
   {
@@ -552,89 +553,11 @@ type CatalogRow = {
   keywords: string[] | null;
 };
 
-// Replaces the hand-typed schema cheat sheet that used to sit between the
-// two prompt halves (and rotted -- every column-name failure in the
-// 2026-08 audit logs traced back to it). Column names/types come from
-// silo_chat_schema_catalog, auto-generated from pg_catalog, so they cannot
-// drift from the live database; curated business meaning rides along in
-// description/keywords. The tables most relevant to this question get full
-// column detail; everything else appears as a one-line index so the model
-// knows it exists without paying for its columns.
-const SCHEMA_DETAIL_LIMIT = 8;
-// Topped up when keyword matching finds fewer than the limit -- a generic
-// business question ("how are we doing?") still deserves detail on the
-// workhorse tables.
-const SCHEMA_CORE_RELS = [
-  'sales_by_day_verification_v',
-  'inventory_workboard_v',
-  'products_master',
-  'shopify_orders_v',
-];
-
-function buildSchemaSection(question: string, rows: CatalogRow[]): { text: string; detailRelations: string[] } {
-  if (!rows.length) {
-    // Catalog unavailable (fetch failed / table empty) -- degrade to
-    // discovery guidance rather than breaking chat.
-    return {
-      text: '\n\nSchema map unavailable for this request -- discover table and column names via information_schema before querying; never guess a column name.',
-      detailRelations: [],
-    };
-  }
-  const q = question.toLowerCase();
-  const tokens = [...new Set(q.match(/[a-z0-9_]{4,}/g) || [])];
-  const scored = rows.map((r) => {
-    const name = r.relname.toLowerCase();
-    const desc = (r.description || '').toLowerCase();
-    const kws = (r.keywords || []).map((k) => k.toLowerCase());
-    let score = 0;
-    for (const t of tokens) {
-      if (name.includes(t)) score += 5;
-      if (kws.some((k) => k.includes(t) || t.includes(k))) score += 3;
-      else if (desc.includes(t)) score += 1;
-    }
-    if (q.includes(name)) score += 10;
-    return { r, score };
-  });
-  const detail = scored
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, SCHEMA_DETAIL_LIMIT)
-    .map((s) => s.r);
-  for (const core of SCHEMA_CORE_RELS) {
-    if (detail.length >= SCHEMA_DETAIL_LIMIT) break;
-    const row = rows.find((r) => r.relname === core);
-    if (row && !detail.includes(row)) detail.push(row);
-  }
-  const detailNames = new Set(detail.map((r) => r.relname));
-  const card = (r: CatalogRow) =>
-    `### ${r.relname} (${r.relkind})\nColumns: ${(r.columns || []).map((c) => `${c.name} (${c.type})`).join(', ')}${
-      r.description ? `\n${r.description}` : ''
-    }`;
-  const indexLine = (r: CatalogRow) => {
-    const firstSentence = ((r.description || '').split('. ')[0] || '').trim();
-    const short = firstSentence.length > 140 ? firstSentence.slice(0, 137) + '...' : firstSentence;
-    return `- ${r.relname} (${r.relkind})${short ? ` -- ${short}` : ''}`;
-  };
-  return {
-    // The detail slice is ranked on the OPENING QUESTION's own words, and an
-    // investigation does not stay where its first sentence pointed: both
-    // traced failures of 2026-09-16 ended up querying relations that had only
-    // a one-line entry here. So the index now says, in the map itself, that a
-    // one-liner is not the guidance -- and names the tool that fetches the
-    // rest. Selection stays question-ranked because the alternative is paying
-    // for the whole catalog on every question; what changes is that the model
-    // is told the slice is a slice, and can widen it.
-    text: `\n\nDatabase map (auto-generated from the live schema -- the table/view names and column names below are EXACT; trust them over memory, and never guess a column that isn't listed):
-
-Most relevant to this question, with full columns:
-
-${detail.map(card).join('\n\n')}
-
-Everything else available: a one-line entry below is a POINTER, not a description -- it carries no columns and none of the caveats that decide whether a figure means what it looks like. Before you query, join or conclude anything from one of these, call describe_relations for its full card:
-${rows.filter((r) => !detailNames.has(r.relname)).map(indexLine).join('\n')}`,
-    detailRelations: detail.map((r) => r.relname),
-  };
-}
+// The schema map -- which relations get a full card, which appear as index
+// lines, and what an index line carries -- now lives in schema-map-lib.mjs so
+// its output text can be tested by execution instead of by grepping this file.
+// See that file's header for the 2026-10-29 measurement that moved the column
+// names onto the index line.
 
 // The system prompt itself -- core rules, the specialised guidance modules and
 // the concept block -- lives in prompt-lib.mjs, along with the deterministic
