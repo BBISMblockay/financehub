@@ -43,10 +43,14 @@ vm.createContext(ctx);
 vm.runInContext(src + '\nmodule.exports = { dueBucket, dayGroupIsOverdue, daySectionTitle };', ctx);
 const { dueBucket, dayGroupIsOverdue, daySectionTitle } = ctx.module.exports;
 
+// Local parts, not toISOString(): the page reads a due date as local midnight,
+// so a fixture converted to UTC is yesterday's date east of UTC and the
+// today/tomorrow cases below would fail on a correct page (review of #1094).
 const ymd = (offsetDays) => {
   const d = new Date(new Date().toDateString());
   d.setDate(d.getDate() + offsetDays);
-  return d.toISOString().slice(0, 10);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
 const PAST = ymd(-30);
 const FUTURE = ymd(30);
