@@ -1,4 +1,4 @@
-// Work-queue SILO reports (20261030060000), executed in a real PostgreSQL
+// Work-queue SILO reports (20261030060000, + On Deck in Open work 20261030080000), executed in a real PostgreSQL
 // (PGlite): the deployed SQL from the migration over fixtures whose answers
 // are known. Covers what each row says (open vs done, overdue, blank when
 // there is no due date), whose work is "mine", the deep links, and every
@@ -67,6 +67,22 @@ create view card_import_batches_v as
     from card_transactions group by 1, 2;
 create table journal_adjustments(id uuid primary key default gen_random_uuid(), company_entity_id uuid, entry_date date, status text);
 create view journal_adjustments_v as select * from journal_adjustments where company_entity_id = active_company_id();
+create table on_deck_proposals(id uuid primary key default gen_random_uuid(), company_entity_id uuid, kind text, title text, status text);
+-- Production's only policy: active company AND on_deck_can_review().
+set test.reviewer = 'true';
+create function on_deck_can_review() returns boolean language sql stable as $$ select current_setting('test.reviewer')::boolean $$;
+alter table on_deck_proposals enable row level security;
+create policy on_deck_read on on_deck_proposals for select using (company_entity_id = active_company_id() and on_deck_can_review());
+insert into on_deck_proposals(company_entity_id, kind, title, status) values
+  ('${CO}', 'seo', 'Fix hat page title', 'ready'),
+  ('${CO}', 'ads', 'Refresh winter ad', 'needs_info'),
+  ('${CO}', 'launch', 'Turkey cap brief', 'failed'),
+  ('${CO}', 'ads', 'Screened only', 'screened'),
+  ('${CO}', 'seo', 'Still drafting', 'preparing'),
+  ('${CO}', 'seo', 'Being revised', 'revision'),
+  ('${CO}', 'restock', 'Done one', 'completed'),
+  ('${CO}', 'ads', 'Dismissed one', 'dismissed'),
+  ('${OTHER}', 'seo', 'Other company draft', 'ready');
 
 insert into launch_calendar(id, company_entity_id, title, launch_date, launch_end_date, status, launch_readiness) values
   ('10000000-0000-4000-a000-000000000001', '${CO}', 'Today launch', '2026-10-29', null, 'planned', 'not_reviewed'),
@@ -123,7 +139,9 @@ insert into journal_adjustments(company_entity_id, entry_date, status) values
   ('${OTHER}', '2026-01-01', 'draft');
 `);
 
-await db.exec(readFileSync('supabase/migrations/20261030060000_work_queue_reports.sql', 'utf8'));
+const MIGRATIONS = ['20261030060000_work_queue_reports.sql', '20261030080000_open_work_on_deck.sql'];
+const migrate = async () => { for (const m of MIGRATIONS) await db.exec(readFileSync(`supabase/migrations/${m}`, 'utf8')); };
+await migrate();
 const sqlOf = async (id) => (await q(`select queries_run[1] as s from silo_chat_saved_reports where id = '${id}'`))[0].s;
 const asReader = async (sql) => {
   await db.exec('set role reader');
@@ -152,6 +170,9 @@ await test('Open work lists open items only, for this company only', async () =>
     'Initiative:SMS (SMS)',
     'Initiative:Standalone send (Email)',
     'Initiative:Teaser (Email)',
+    'On Deck:Ads: Refresh winter ad',
+    'On Deck:Launch: Turkey cap brief',
+    'On Deck:SEO: Fix hat page title',
     'Payment request:Acme · $1,234.50 · invoice',
     'Payment request:Globex',
     'Payment request:Initech · $10.00 · invoice',
@@ -198,6 +219,26 @@ await test('every row links to the exact place in SILO', async () => {
   assert.equal(num(standalone.days_overdue), 1);
 });
 
+await test('On Deck: ready, needs info and failed drafts only, waiting on reviewers, linked to the draft', async () => {
+  const od = work.filter((r) => r.work_type === 'On Deck');
+  assert.deepEqual(od.map((r) => r.status).sort(), ['failed', 'needs_info', 'ready']);
+  for (const r of od) {
+    assert.equal(r.assigned_to, 'On Deck reviewers');
+    assert.equal(r.is_mine, false);
+    assert.equal(r.due_date, null);
+    assert.equal(r.days_overdue, null);
+    assert.match(r.open_in_silo, /^https:\/\/get-silo\.com\/v2\/on-deck\.html\?proposal=[0-9a-f-]{36}$/);
+  }
+});
+
+await test('someone who cannot review On Deck sees no On Deck rows, and the rest unchanged', async () => {
+  await db.exec(`set test.reviewer = 'false'`);
+  const rows = await asReader(await sqlOf(OPEN_WORK));
+  await db.exec(`set test.reviewer = 'true'`);
+  assert.equal(rows.filter((r) => r.work_type === 'On Deck').length, 0);
+  assert.equal(rows.length, work.length - 3);
+});
+
 await test('Launches next 30 days: today through day 30, plus a launch still running', async () => {
   const rows = await asReader(await sqlOf(LAUNCHES));
   assert.deepEqual(rows.map((r) => r.launch), ['Still running', 'Today launch', 'In 30 days']);
@@ -229,7 +270,7 @@ const checks = await q(`select report_id, name, kind, check_sql, tolerance from 
 const runCheck = async (name) => (await asReader(checks.find((c) => c.name === name).check_sql))[0];
 
 await test('every tie-out passes, and each report has a reconciliation', async () => {
-  assert.equal(checks.length, 7);
+  assert.equal(checks.length, 8);
   for (const id of [OPEN_WORK, LAUNCHES, CLOSE]) {
     assert.ok(checks.some((c) => c.report_id === id && c.kind === 'reconciliation'), id);
   }
@@ -247,6 +288,16 @@ await test('an initiative the report drops fails its reconciliation', async () =
   const c = checks.find((x) => x.name === 'Open initiatives tie to launch_channel_items');
   const broken = c.check_sql
     .replace('left join public.launch_calendar l on l.id = i.launch_id', 'join public.launch_calendar l on l.id = i.launch_id')
+    .replace(/\(select md5\(queries_run::text \|\| parameters::text\) = '[0-9a-f]+' from public\.silo_chat_saved_reports where id = '[^']+'\)/, 'true');
+  assert.notEqual(broken, c.check_sql);
+  const [r] = await asReader(broken);
+  assert.equal(num(r.right_value) - num(r.left_value), 1);
+});
+
+await test('an On Deck draft the report drops fails its reconciliation', async () => {
+  const c = checks.find((x) => x.name === 'On Deck drafts tie to on_deck_proposals');
+  const broken = c.check_sql
+    .replace("p.status in ('ready', 'needs_info', 'failed')\n", "p.status in ('ready', 'needs_info')\n")
     .replace(/\(select md5\(queries_run::text \|\| parameters::text\) = '[0-9a-f]+' from public\.silo_chat_saved_reports where id = '[^']+'\)/, 'true');
   assert.notEqual(broken, c.check_sql);
   const [r] = await asReader(broken);
@@ -283,8 +334,9 @@ await test('a changed definition turns its tie-outs to NO DATA', async () => {
 });
 
 await test('the migration is idempotent', async () => {
-  await db.exec(readFileSync('supabase/migrations/20261030060000_work_queue_reports.sql', 'utf8'));
-  assert.equal(num((await q(`select count(*) as n from silo_report_tieouts`))[0].n), 7);
+  await migrate();
+  assert.equal(num((await q(`select count(*) as n from silo_report_tieouts`))[0].n), 8);
+  assert.match(await sqlOf(OPEN_WORK), /on_deck_proposals/);
   assert.equal(num((await q(`select count(*) as n from silo_chat_saved_reports`))[0].n), 3);
 });
 
