@@ -132,6 +132,7 @@
   let _co = null, _user = null, _isOwner = false;
   let _names = {};   // client_id -> readable name, from Supabase's own grant list
   let _cos = {};     // company_entity_id -> title
+  let _who = {};     // grant id -> approver's name or email
 
   const fmtDate = (v) => (v ? new Date(v).toLocaleDateString(undefined,
     { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
@@ -235,7 +236,7 @@
           + esc(String(g.client_id || '').slice(0, 8)) + '</span>'
         : '';
       const who = opts.showWho
-        ? 'Approved by ' + esc(g.user_id === _user.id ? 'you' : (g.approver_email || g.user_id))
+        ? 'Approved by ' + esc(g.user_id === _user.id ? 'you' : (_who[g.id] || 'someone else'))
         : esc(_cos[g.company_entity_id] || 'Company unknown');
       return '<div class="cn-app" data-grant="' + esc(g.id) + '">'
         + '<div class="cn-mark">' + window.SiloAppMarks.forName(name, 22) + '</div>'
@@ -359,20 +360,47 @@
        whether the removal worked. */
     const live = (rows) => (rows || []).filter((g) => !g.revoked_at);
 
+    let co = null;
+    if (_isOwner && _co) {
+      const { data, error: e2 } = await db.from('silo_api_grants')
+        .select(sel).eq('company_entity_id', _co.id).order('consented_at', { ascending: false });
+      if (!e2) co = data;
+    }
+
+    await loadLabels([...live(mine), ...live(co)]);
+
     paint('gridMine', 'mineSub', live(mine), {
       empty: 'No applications are connected to your account.', showWho: false,
     });
-
-    if (_isOwner && _co) {
-      const { data: co, error: e2 } = await db.from('silo_api_grants')
-        .select(sel).eq('company_entity_id', _co.id).order('consented_at', { ascending: false });
-      if (!e2) {
-        el('cardCompany').hidden = false;
-        paint('gridCompany', 'coSub', live(co), {
-          empty: 'No applications are connected to this company.', showWho: true,
-        });
-      }
+    if (co) {
+      el('cardCompany').hidden = false;
+      paint('gridCompany', 'coSub', live(co), {
+        empty: 'No applications are connected to this company.', showWho: true,
+      });
     }
+  }
+
+  /* loadNames() only knows the viewer's OWN connections, so a colleague's
+     ChatGPT read "Application 8d035da1, approved by 35539e42-..." (Blake,
+     2026-10-30). The database has both names; this RPC returns them for
+     exactly the grants the viewer can already read. Before its migration is
+     applied it does not exist, and the page keeps what loadNames() found. */
+  async function loadLabels(list) {
+    // Your own connection is in both lists; ask for it once.
+    const ids = [...new Set(list.map((g) => g.id))];
+    if (!ids.length) return;
+    try {
+      const { data, error } = await db.rpc('silo_api_connection_labels', { p_grant_ids: ids });
+      if (error || !Array.isArray(data)) return;
+      const byGrant = Object.fromEntries(list.map((g) => [g.id, g]));
+      for (const r of data) {
+        const g = byGrant[r.grant_id];
+        if (!g) continue;
+        if (r.client_name && !_names[g.client_id]) _names[g.client_id] = r.client_name;
+        const who = r.approver_name || r.approver_email;
+        if (who) _who[g.id] = who;
+      }
+    } catch (_) { /* a missing name is cosmetic; never let it fail the page */ }
   }
 
   function paint(gridId, subId, list, opts) {

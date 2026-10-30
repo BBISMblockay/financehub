@@ -195,6 +195,7 @@ on:
       - 'scripts/tests/mcp-server.test.mjs'
       - 'supabase/migrations/*developer_api_company_reports.sql'
       - 'supabase/migrations/*developer_api_query_tool.sql'
+      - 'supabase/migrations/*developer_api_connection_labels.sql'
       - 'scripts/tests/mcp-guide.test.mjs'
       - 'v2/settings-company.html'
       - 'v2/po-builder.html'
@@ -1584,6 +1585,13 @@ jobs:
       # other schemas, definer functions and set_config by name. Mutation-tested.
       - name: Execute developer API query tool regressions
         run: node scripts/tests/developer-api-query-tool-database.test.mjs
+
+      # 20261030190000: Connect AI names other people's connections. Proves the
+      # lookup is scoped exactly like silo_api_grants_select (own, or the
+      # owner_admin's company), absent rather than refused outside it, and
+      # refused to a connection. Mutation-tested.
+      - name: Execute developer API connection label regressions
+        run: node scripts/tests/developer-api-connection-labels-database.test.mjs
 
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a
