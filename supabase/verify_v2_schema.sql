@@ -7891,6 +7891,35 @@ select 'developer API client lookup' as check_name, case
 
   else 'ok' end as status;
 
+-- ── Developer API connection labels (20261030190000) ──────────────────
+-- Connect AI names a colleague's connection ("ChatGPT", approved by a person)
+-- through this lookup. It reads auth.oauth_clients and profiles as definer, so
+-- its scope must stay exactly silo_api_grants_select: own grants, or grants of
+-- a company where the caller is owner_admin.
+select 'developer API connection labels' as check_name, case
+  when to_regprocedure('public.silo_api_connection_labels(uuid[])') is null
+   then 'MISSING — run supabase/migrations/20261030190000_developer_api_connection_labels.sql'
+  when not (select p.prosecdef from pg_proc p
+            where p.oid = to_regprocedure('public.silo_api_connection_labels(uuid[])'))
+   then 'BROKEN — the labels lookup is not SECURITY DEFINER, so it cannot read application names'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_connection_labels(uuid[])'))
+       not like '%g.user_id = v_user%'
+    or pg_get_functiondef(to_regprocedure('public.silo_api_connection_labels(uuid[])'))
+       not like '%em.entity_id = g.company_entity_id%'
+    or pg_get_functiondef(to_regprocedure('public.silo_api_connection_labels(uuid[])'))
+       not like '%em.role = ''owner_admin''%'
+   then 'CRITICAL: the labels lookup is no longer scoped like silo_api_grants_select, so it can name anyone''s connections'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_connection_labels(uuid[])'))
+       not like '%silo_api_is_integration()%'
+   then 'CRITICAL: a connection can list connections'
+  when has_function_privilege('silo_integration', 'public.silo_api_connection_labels(uuid[])', 'execute')
+    or has_function_privilege('silo_revoked', 'public.silo_api_connection_labels(uuid[])', 'execute')
+    or has_function_privilege('anon', 'public.silo_api_connection_labels(uuid[])', 'execute')
+   then 'CRITICAL: a role that must not reach the labels lookup can execute it'
+  when not has_function_privilege('authenticated', 'public.silo_api_connection_labels(uuid[])', 'execute')
+   then 'BROKEN — Connect AI cannot name other people''s connections'
+  else 'ok' end as status;
+
 -- ---------------------------------------------------------------------------
 -- developer API report catalog (20261030050000)
 -- ---------------------------------------------------------------------------

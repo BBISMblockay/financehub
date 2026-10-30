@@ -19411,4 +19411,7 @@ $c$select (select count(*) from v_po_header_summary
 -- Describes po_status_history, incoming_shipments and redo_return_items, which
 -- had none. Must run BEFORE the catalog cleanup.
 \i migrations/20261030150000_catalog_status_traps.sql
+-- Connect AI: name a colleague's connection (application and approver) for
+-- owner_admins, scoped exactly like silo_api_grants_select. No deploy.
+\i migrations/20261030190000_developer_api_connection_labels.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
