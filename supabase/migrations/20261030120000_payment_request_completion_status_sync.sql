@@ -66,13 +66,19 @@ create trigger trg_payment_request_sync_completion
   for each row
   execute function public.payment_request_sync_completion();
 
--- 1. Completed rows stranded in a non-terminal status become paid.
+-- 1. Completed rows stranded in a non-terminal status become paid, and keep a
+--    historical completion date. The date is set in THIS statement, not a later
+--    one: the trigger above is already installed, so a row left with a null
+--    date_completed would be stamped current_date here and no longer qualify
+--    for step 2 -- moving a September completion to migration day.
 update public.payment_requests
-   set workflow_status = 'paid'
+   set workflow_status = 'paid',
+       date_completed = coalesce(date_completed, updated_at::date, created_at::date, submitted_at::date)
  where completed
    and coalesce(workflow_status, '') <> all (array['paid', 'rejected', 'cancelled']);
 
--- 2. Completed rows with no completion date get the best date on the row.
+-- 2. Any remaining completed row with no completion date (already terminal)
+--    gets the best date on the row.
 update public.payment_requests
    set date_completed = coalesce(updated_at, created_at, submitted_at)::date
  where completed

@@ -26,6 +26,7 @@ on:
       - 'supabase/migrations/*generate_po_from_concept*.sql'
       - 'v3/product-workflow-model.js'
       - 'supabase/migrations/*canned_report_accuracy.sql'
+      - 'supabase/migrations/*payment_request_completion_status_sync.sql'
       - 'supabase/migrations/*shopify_order_paid_at.sql'
       # The SILO report catalog seeds and the migration that re-asserts the
       # 2026-09-22 cleanup after them (report-catalog-cleanup-database.test.mjs).
@@ -1281,6 +1282,21 @@ jobs:
         run: node scripts/tests/canned-reports-database.test.mjs
       - name: Execute finance migration, approval and void regressions
         run: node scripts/tests/finance-v1-database.test.mjs
+      # The completion trio on payment_requests, and the ordering trap in its
+      # backfill: the trigger is installed first, so a statement that moves the
+      # status without also filling a missing date_completed has today's date
+      # stamped by its own trigger, moving a September completion to migration
+      # day. Each mutation must turn the suite red.
+      - name: Execute payment request completion sync regressions
+        run: |
+          node scripts/tests/payment-request-completion-database.test.mjs
+          for mutation in date-after-status no-trigger overwrite-terminal; do
+            if PAYMENT_COMPLETION_MUTATION="$mutation" node scripts/tests/payment-request-completion-database.test.mjs; then
+              echo "::error::$mutation did not fail the payment request completion suite"
+              exit 1
+            fi
+            echo "$mutation failed the suite, as it must"
+          done
       - name: Execute Plaid authority, lifecycle and audit regressions
         run: node scripts/tests/plaid-bank-feed-database.test.mjs
 

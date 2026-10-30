@@ -162,5 +162,25 @@ r.test('the drawer save and the bulk status action both call syncCompletionField
   r.has(bulkSrc, 'completed: synced.completed');
 });
 
+// ── 8. The paid-confirmation email follows "paid", not "completed" ─────────
+// Rejected and cancelled also mark a request completed, and the requester email
+// says "has been paid" -- found in review of PR #1081.
+r.test('the requester is notified on becoming paid, not on becoming completed', () => {
+  const saveSrc = grab('async function saveRow({ markPaid = false } = {}) {', 'async function quickMarkPaid(');
+  r.has(saveSrc, 'const justPaid = oldRow.workflow_status !== "paid" && payload.workflow_status === "paid"');
+  r.has(saveSrc, 'if (justPaid) {');
+  r.not(saveSrc, '!oldRow.completed && payload.completed',
+    'completion alone must not trigger the paid confirmation');
+
+  const quickSrc = grab('async function quickMarkPaid(id) {', 'function clearFilters(');
+  r.has(quickSrc, 'const wasPaid = row?.workflow_status === "paid"');
+  const bulkSrc = grab('async function bulkMarkPaid() {', 'async function bulkForwardMelio(');
+  r.has(bulkSrc, 'if (!wasPaid) notifyPromises.push(');
+
+  const rowSrc = grab('function renderNotifyRequesterRow(row) {', 'async function notifyRequester(');
+  r.has(rowSrc, 'row?.workflow_status !== "paid"',
+    'the manual resend row belongs to paid requests only');
+});
+
 const out = r.summary();
 if (out.fail) process.exitCode = 1;

@@ -1404,7 +1404,9 @@
     }
 
     function renderNotifyRequesterRow(row) {
-      if (!row?.completed) {
+      // Paid, not merely completed: a rejected or cancelled request is completed
+      // too, and there is no payment to confirm.
+      if (row?.workflow_status !== "paid") {
         els.notifyRequesterRow.hidden = true;
         return;
       }
@@ -2164,7 +2166,7 @@
           const id = ids[i];
           els.bulkActionStatus.textContent = `Marking paid ${i + 1}/${ids.length}…`;
           const row = state.rows.find(r => r.id === id);
-          const wasCompleted = !!row?.completed;
+          const wasPaid = row?.workflow_status === "paid";
 
           if (file) {
             const uploaded = await uploadConfirmationFiles([file], id);
@@ -2195,7 +2197,7 @@
             message: `Marked paid via bulk action (${ids.length} requests)${file ? " with shared confirmation document" : ""}.`
           });
 
-          if (!wasCompleted) notifyPromises.push(notifyRequester(id, { silent: true }));
+          if (!wasPaid) notifyPromises.push(notifyRequester(id, { silent: true }));
         }
 
         await Promise.all(notifyPromises);
@@ -2892,13 +2894,16 @@
 
         await Promise.all(activityPromises);
 
-        const justCompleted = !oldRow.completed && payload.completed;
+        // The requester email says "has been paid", so it fires only when the request
+        // actually became paid -- never when it was rejected or cancelled (which also
+        // mark it completed), and still when a rejected request is later paid.
+        const justPaid = oldRow.workflow_status !== "paid" && payload.workflow_status === "paid";
 
         await loadData();
         await openDrawer(oldRow.id, { force: true });
         showToast(markPaid ? "Request marked paid." : "Request updated.");
 
-        if (justCompleted) {
+        if (justPaid) {
           await notifyRequester(oldRow.id);
         }
       } catch (err) {
@@ -2913,7 +2918,7 @@
     async function quickMarkPaid(id) {
       try {
         const row = state.rows.find(r => r.id === id);
-        const wasCompleted = !!row?.completed;
+        const wasPaid = row?.workflow_status === "paid";
         const payload = {
           workflow_status: "paid",
           completed: true,
@@ -2938,7 +2943,7 @@
         await loadData();
         showToast("Request marked paid.");
 
-        if (!wasCompleted) {
+        if (!wasPaid) {
           await notifyRequester(id);
         }
       } catch (err) {
