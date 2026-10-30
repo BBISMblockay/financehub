@@ -1297,6 +1297,49 @@ jobs:
             fi
             echo "$mutation failed the suite, as it must"
           done
+      # The same class of bug on product samples: the pipeline pill and its
+      # date input were written independently, so 169 of 171 warehouse_ready
+      # samples had no date. The guards that matter are stamping only on
+      # ENTERING a stage (so a cleared date stays cleared), never overwriting a
+      # date, and backfilling from the activity log rather than migration day.
+      - name: Execute product sample stage-date regressions
+        run: |
+          node scripts/tests/product-sample-stage-dates-database.test.mjs
+          for mutation in no-trigger always-stamp overwrite-date backfill-today backfill-min backfill-any-status; do
+            if SAMPLE_STAGE_MUTATION="$mutation" node scripts/tests/product-sample-stage-dates-database.test.mjs; then
+              echo "::error::$mutation did not fail the product sample stage-date suite"
+              exit 1
+            fi
+            echo "$mutation failed the suite, as it must"
+          done
+      # launch_product_readiness.live_status has no writer at all, so it reads
+      # 'not_live' for products that are published and selling. The derived
+      # view must separate 'unknown' (title does not resolve) from 'not_live',
+      # must not resolve a title across tenants, and must not drop unresolved
+      # rows out of the view.
+      - name: Execute launch readiness live-status regressions
+        run: |
+          node scripts/tests/launch-product-readiness-live-database.test.mjs
+          for mutation in unknown-as-not-live published-only no-company-scope inner-join; do
+            if LAUNCH_LIVE_MUTATION="$mutation" node scripts/tests/launch-product-readiness-live-database.test.mjs; then
+              echo "::error::$mutation did not fail the launch readiness live-status suite"
+              exit 1
+            fi
+            echo "$mutation failed the suite, as it must"
+          done
+      # The same audit's four findings that are documented rather than fixed.
+      # The migration only writes catalog text, so the risk is an append that
+      # fires twice or replaces an existing description.
+      - name: Execute catalog status-trap regressions
+        run: |
+          node scripts/tests/catalog-status-traps-database.test.mjs
+          for mutation in no-append-guard clobber-description no-reportable; do
+            if CATALOG_TRAPS_MUTATION="$mutation" node scripts/tests/catalog-status-traps-database.test.mjs; then
+              echo "::error::$mutation did not fail the catalog status-trap suite"
+              exit 1
+            fi
+            echo "$mutation failed the suite, as it must"
+          done
       - name: Execute Plaid authority, lifecycle and audit regressions
         run: node scripts/tests/plaid-bank-feed-database.test.mjs
 

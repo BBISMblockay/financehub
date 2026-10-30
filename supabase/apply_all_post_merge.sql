@@ -19393,4 +19393,22 @@ $c$select (select count(*) from v_po_header_summary
 -- completed-and-'new' (65 on Baseballism) and the completed rows with no
 -- date_completed. Frontend-only otherwise; no deploy needed.
 \i migrations/20261030120000_payment_request_completion_status_sync.sql
+-- Product samples: entering a pipeline stage stamps its paired date
+-- (received_at / warehouse_ready_at / picked_up_at) via a BEFORE trigger, plus
+-- a backfill of the stranded rows from product_sample_activity (169
+-- warehouse_ready and 6 picked_up on Baseballism). Frontend-only otherwise; no
+-- deploy needed. Before the catalog cleanup.
+\i migrations/20261030130000_product_sample_stage_dates.sql
+-- launch_product_readiness_v: live_status derived from the catalog, because
+-- nothing writes the stored column (all 224 rows read 'not_live' while 46 of
+-- those products are published). Describes the view and warns on the base
+-- table in the chat/MCP catalog, so it must run BEFORE the catalog cleanup.
+\i migrations/20261030140000_launch_product_readiness_live_derived.sql
+-- Catalog text only (no row changes): the four status traps that are not
+-- SILO's to fix -- launch_calendar.status never advancing, po_headers having
+-- no arrival date (po_status_history does), cancelled Shopify orders keeping
+-- their financial_status, and Redo return status existing at two grains.
+-- Describes po_status_history, incoming_shipments and redo_return_items, which
+-- had none. Must run BEFORE the catalog cleanup.
+\i migrations/20261030150000_catalog_status_traps.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

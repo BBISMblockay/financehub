@@ -8042,3 +8042,73 @@ select 'Payment request completion sync' as check_name,
       then 'DRIFT — completed payment requests with no date_completed'
     else 'ok'
   end as status;
+
+-- Product sample stage dates (20261030130000): entering a pipeline stage
+-- stamps the paired date. Before this, 169 of 171 warehouse_ready samples on
+-- Baseballism had no warehouse_ready_at and sample lead time was unmeasurable.
+-- DRIFT here means the trigger is installed but a row got past it, or the
+-- backfill never ran.
+select 'Product sample stage dates' as check_name,
+  case
+    when to_regprocedure('public.product_sample_stamp_stage_date()') is null
+      then 'MISSING — a sample can enter a stage with no date. Run 20261030130000_product_sample_stage_dates.sql'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.product_samples'::regclass
+                        and tgname = 'trg_product_sample_stage_date'
+                        and not tgisinternal)
+      then 'MISSING — trg_product_sample_stage_date is not on product_samples'
+    when exists (select 1 from public.product_samples s
+                  where s.sample_status = 'warehouse_ready' and s.warehouse_ready_at is null
+                    and exists (select 1 from public.product_sample_activity a
+                                 where a.sample_id = s.id and a.to_value = 'warehouse_ready'))
+      then 'DRIFT — warehouse_ready samples with no warehouse_ready_at, though the activity log has the date'
+    when exists (select 1 from public.product_samples s
+                  where s.sample_status = 'picked_up' and s.picked_up_at is null
+                    and exists (select 1 from public.product_sample_activity a
+                                 where a.sample_id = s.id and a.to_value = 'picked_up'))
+      then 'DRIFT — picked_up samples with no picked_up_at, though the activity log has the date'
+    else 'ok'
+  end as status;
+
+-- Launch readiness live status (20261030140000): launch_product_readiness
+-- .live_status has no writer, so it reads 'not_live' for every row including
+-- products that are published and selling. The view derives it from the
+-- catalog, and the chat/MCP catalog has to point the model at the view --
+-- otherwise a connection reads the stored column and states something false.
+select 'Launch readiness live status' as check_name,
+  case
+    when to_regclass('public.launch_product_readiness_v') is null
+      then 'MISSING — live_status is not derived anywhere. Run 20261030140000_launch_product_readiness_live_derived.sql'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                      where relname = 'launch_product_readiness_v'
+                        and coalesce(description, '') like '%USE THIS, not the base table%')
+      then 'MISSING — launch_product_readiness_v is not described in the chat/MCP catalog'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                      where relname = 'launch_product_readiness'
+                        and coalesce(description, '') like '%UNWRITTEN COLUMNS%')
+      then 'MISSING — the base table does not warn that live_status is never written'
+    else 'ok'
+  end as status;
+
+-- Catalog status traps (20261030150000): the four discrepancies that are not
+-- defects to repair -- an unmaintained column, a missing date column, Shopify's
+-- own behaviour, and two legitimate grains. The only thing between them and a
+-- bot stating something false is this catalog text, and a catalog refresh or a
+-- description rewrite can drop it silently, so it is verified like any other
+-- contract.
+select 'Catalog status traps' as check_name,
+  coalesce((
+    select 'MISSING — ' || string_agg(t.relname || ' (' || t.marker || ')', ', ')
+      from (values
+              ('launch_calendar',   'STATUS IS NOT MAINTAINED'),
+              ('po_headers',        'NO ARRIVAL DATE ON THIS TABLE'),
+              ('shopify_orders',    'CANCELLED ORDERS KEEP THEIR FINANCIAL STATUS'),
+              ('redo_returns',      'STATUS EXISTS AT TWO GRAINS'),
+              ('redo_return_items', 'STATUS EXISTS AT TWO GRAINS'),
+              ('po_status_history', 'WHERE PO DATES THAT ACTUALLY HAPPENED LIVE'),
+              ('incoming_shipments', 'NOT a complete record')
+           ) as t(relname, marker)
+     where not exists (select 1 from public.silo_chat_schema_catalog c
+                        where c.relname = t.relname
+                          and coalesce(c.description, '') like '%' || t.marker || '%')
+  ), 'ok') as status;
