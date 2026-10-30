@@ -47,7 +47,7 @@ test('Overview is deliberately limited to six starter insights', () => {
 
 test('the full shipped catalog is divided into focused business tabs', () => {
   const counts = C.tabCounts(reports);
-  eq(counts, { overview: 6, sales: 7, marketing: 4, inventory: 6, purchasing: 4, saved: 1 });
+  eq(counts, { overview: 6, sales: 7, marketing: 4, inventory: 6, purchasing: 4, work: 0, saved: 1 });
 });
 
 test('every runnable report has one non-Overview home', () => {
@@ -112,6 +112,19 @@ test('Creative Performance files under Marketing', () => {
 test('SEO Performance files under Marketing, not Sales', () => {
   eq(C.categoryFor(system('c3000000-0000-4000-a000-00000000000b', 'SEO Performance',
     'Google Search Console clicks by page and search query; the pages and products behind sales.')), 'marketing');
+});
+
+test('the work-queue reports file under Work, by id, whatever their titles say', () => {
+  eq(C.TABS.map((tab) => tab.id).includes('work'), true);
+  eq(C.categoryFor(system('c7000000-0000-4000-a000-000000000001', 'Open work',
+    'Open tasks, initiatives and payment requests, with who each is waiting on.')), 'work');
+  eq(C.categoryFor(system('c7000000-0000-4000-a000-000000000002', 'Launches next 30 days',
+    'Launches on the calendar with their open tasks and marketing initiatives.')), 'work');
+  eq(C.categoryFor(system('c7000000-0000-4000-a000-000000000003', 'Accounting close status',
+    'Bank transactions and journal entries still waiting on someone.')), 'work');
+  // The same title on a company's own saved copy is still that company's.
+  eq(C.categoryFor({ id: 'c7000000-0000-4000-a000-000000000002', title: 'Launches next 30 days',
+    source: 'manual', queries_run: ['select 1'] }), 'saved');
 });
 
 const result = R.summary();

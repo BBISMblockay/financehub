@@ -19360,4 +19360,10 @@ $c$select (select count(*) from v_po_header_summary
 -- descriptions, since the last writer wins. Before the catalog cleanup, which
 -- must stay last (supabase/CLAUDE.md).
 \i migrations/20261029230000_chat_catalog_date_columns_and_gaps.sql
+-- Work-queue SILO reports: Open work, Launches next 30 days and Accounting
+-- close status, three system rows plus their seven tie-outs. Data-only and
+-- idempotent (fixed ids, upsert, tie-outs rewritten for these ids only). Needs
+-- silo_report_tieouts (20260920*) and the launch, payment-request, card and
+-- journal tables. Before the catalog cleanup, which must stay last.
+\i migrations/20261030060000_work_queue_reports.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
