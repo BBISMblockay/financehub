@@ -140,3 +140,7 @@ grant execute on function public.silo_api_touch_grant() to silo_api_exec;
 -- 3. More room for a report run through MCP or the API
 -- ---------------------------------------------------------------------------
 alter role silo_integration set statement_timeout = '30s';
+
+-- PostgREST reads per-role settings (statement_timeout) with its schema cache,
+-- so ask it to reload; otherwise the API keeps 15s until its next reload.
+notify pgrst, 'reload schema';
