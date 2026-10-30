@@ -242,9 +242,10 @@
         + esc(ago(g.last_used_at)) + '</span>'
         + ' · <span title="' + esc(exact(g.consented_at)) + '">added '
         + esc(ago(g.consented_at)) + '</span></div>'
+        + '</div>'
         + '<div class="cn-actions" data-actions>'
         + '<button class="bcn-btn bcn-btn--ghost bcn-btn--danger btn-xs" type="button" data-ask="' + esc(g.id) + '">Remove</button>'
-        + '</div></div></div>';
+        + '</div></div>';
     }).join('');
   }
 
@@ -538,19 +539,19 @@
 
   function renderClients() {
     el('clientRows').innerHTML = clients().map((c) => {
-      const acts = (c.cmd
+      const actHtml = (c.cmd
         ? ['<button class="bcn-btn bcn-btn--primary btn-xs" type="button" data-copy="' + esc(c.cmd)
             + '" data-copy-name="Command">Copy command</button>']
         : []).concat((c.actions || []).map((a) => (a.kind === 'link'
           ? '<a class="bcn-btn bcn-btn--primary btn-xs" href="' + esc(a.href) + '"'
             + (a.sameTab ? '' : ' target="_blank" rel="noopener noreferrer"') + '>' + esc(a.label) + '</a>'
           : '<button class="bcn-btn bcn-btn--ghost btn-xs" type="button" data-copy="' + esc(a.value)
-            + '" data-copy-name="' + esc(a.name || 'Text') + '">' + esc(a.label) + '</button>'))).join('');
+            + '" data-copy-name="' + esc(a.name || 'Text') + '">' + esc(a.label) + '</button>')));
       return '<div class="ca-row" data-client="' + esc(c.id) + '">'
         + '<div class="ca-row-mark">' + window.SiloAppMarks.svg(c.id, 20) + '</div>'
         + '<div class="ca-row-text"><div class="ca-row-name">' + esc(c.label) + '</div>'
         + '<div class="ca-row-where">' + c.where + '</div></div>'
-        + '<div class="ca-row-act">' + acts + '</div></div>';
+        + '<div class="ca-row-act">' + actHtml.join('') + '</div></div>';
     }).join('');
 
     el('clientRows').querySelectorAll('[data-copy]').forEach((b) => {
