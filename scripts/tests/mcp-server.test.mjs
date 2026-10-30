@@ -21,7 +21,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
-import { createMcpHandler, checkShape, decodeRefusal, TOOLS, SUPPORTED_PROTOCOLS } from '../../supabase/functions/mcp/handler.mjs';
+import { createMcpHandler, checkShape, decodeRefusal, TOOLS, SUPPORTED_PROTOCOLS, fitRows, ROW_BUDGET_CHARS } from '../../supabase/functions/mcp/handler.mjs';
 
 const read = (p) => fs.readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 const BASE = 'https://ref.supabase.co';
@@ -181,12 +181,12 @@ test('a forged or expired token, which only PostgREST can detect, is also a 401'
 
 // ── 4. tools ───────────────────────────────────────────────────────────────
 
-test('two tools, both read-only, and listing them reads no data', async () => {
+test('four tools, all read-only, and listing them reads no data', async () => {
   const { handle, calls } = harness();
   const body = await (await handle(post(rpc('tools/list')))).json();
   // how_to_use_silo is the training layer's own tool and reads no data
   // (supabase/functions/mcp/guide.mjs, scripts/tests/mcp-guide.test.mjs).
-  assert.deepEqual(body.result.tools.map((t) => t.name), ['list_reports', 'run_report', 'how_to_use_silo']);
+  assert.deepEqual(body.result.tools.map((t) => t.name), ['list_reports', 'run_report', 'describe_tables', 'query', 'how_to_use_silo']);
   for (const t of body.result.tools) assert.equal(t.annotations.readOnlyHint, true, t.name);
   for (const t of TOOLS) assert.equal(t.annotations.readOnlyHint, true, t.name);
   assert.equal(calls.length, 0);
@@ -325,7 +325,7 @@ test('decodeRefusal reads both the gate\'s JSON shape and a plain prefixed excep
 
 // ── 6. the server holds no authority of its own ────────────────────────────
 
-test('the function never reaches for the service role, and talks to nothing but the two RPCs', () => {
+test('the function never reaches for the service role, and talks to nothing but the four RPCs', () => {
   for (const f of ['handler.mjs', 'index.ts']) {
     const src = read(`supabase/functions/mcp/${f}`);
     assert.ok(!/SERVICE_ROLE|service_role|serviceRole/.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')),
@@ -334,7 +334,8 @@ test('the function never reaches for the service role, and talks to nothing but 
   }
   const src = read('supabase/functions/mcp/handler.mjs');
   const rpcs = [...src.matchAll(/callRpc\(authorization, '([a-z_]+)'/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(rpcs)].sort(), ['silo_api_list_reports', 'silo_api_run_report']);
+  assert.deepEqual([...new Set(rpcs)].sort(),
+    ['silo_api_describe_tables', 'silo_api_list_reports', 'silo_api_query', 'silo_api_run_report']);
 });
 
 test('the claims reader is the shared gate, byte for byte', () => {
@@ -391,3 +392,84 @@ test('the icon is served publicly as a real 256x256 PNG', async () => {
   assert.equal(calls.length, 0, 'no token and no data read');
   assert.equal((await handle(new Request('https://ref.supabase.co/mcp/icon.png', { method: 'POST' }))).status, 405);
 });
+
+// ── data:read: describe_tables and query (20261030110000) ─────────────────
+
+test('describe_tables passes only the arguments given, and checks them first', async () => {
+  const { handle, calls } = harness(() => [200, { tables: [] }]);
+  await handle(post(rpc('tools/call', { name: 'describe_tables', arguments: {} })));
+  await handle(post(rpc('tools/call', { name: 'describe_tables', arguments: { tables: [' launch_tasks ', 'po_lines'] } })));
+  await handle(post(rpc('tools/call', { name: 'describe_tables', arguments: { search: ' launch ' } })));
+  await handle(post(rpc('tools/call', { name: 'describe_tables', arguments: { notes: true } })));
+  assert.deepEqual(calls.map((c) => [c.fn, c.body]), [
+    ['silo_api_describe_tables', {}],
+    ['silo_api_describe_tables', { p_tables: ['launch_tasks', 'po_lines'] }],
+    ['silo_api_describe_tables', { p_search: 'launch' }],
+    ['silo_api_describe_tables', { p_notes: true }],
+  ]);
+  for (const args of [{ tables: [] }, { tables: Array(11).fill('t') }, { tables: [5] }, { search: 'x' }, { notes: 'yes' }]) {
+    const h = harness();
+    const b = await (await h.handle(post(rpc('tools/call', { name: 'describe_tables', arguments: args })))).json();
+    assert.equal(b.result.isError, true, JSON.stringify(args));
+    assert.equal(h.calls.length, 0, JSON.stringify(args));
+  }
+});
+
+test('query sends the SQL and offset to silo_api_query, and refuses an empty one locally', async () => {
+  const page = { offset: 0, page_size: 1000, row_count: 1, has_more: false, rows: [{ n: 1 }] };
+  const { handle, calls } = harness(() => [200, page]);
+  const body = await (await handle(post(rpc('tools/call', { name: 'query', arguments: { sql: ' select 1 as n ', offset: 0 } })))).json();
+  assert.equal(body.result.isError, false);
+  assert.deepEqual(calls[0], { ...calls[0], fn: 'silo_api_query', body: { p_sql: 'select 1 as n', p_offset: 0 } });
+  assert.equal(body.result.structuredContent.next_offset, null);
+  for (const args of [{ sql: '' }, { sql: 5 }, { sql: 'select 1', offset: -1 }]) {
+    const h = harness();
+    const b = await (await h.handle(post(rpc('tools/call', { name: 'query', arguments: args })))).json();
+    assert.equal(b.result.isError, true, JSON.stringify(args));
+    assert.equal(h.calls.length, 0);
+  }
+});
+
+test('a database refusal of a query reaches the model as a readable tool error', async () => {
+  const { handle } = harness(() => [400, { code: 'P0001', message: 'query_not_allowed: plaid_accounts is not available to connections; describe_tables lists what is' }]);
+  const body = await (await handle(post(rpc('tools/call', { name: 'query', arguments: { sql: 'select * from plaid_accounts' } })))).json();
+  assert.equal(body.result.isError, true);
+  assert.match(body.result.content[0].text, /plaid_accounts is not available/);
+});
+
+test('a connection approved before data:read is told to reconnect, not sent round an OAuth loop', async () => {
+  const { handle } = harness(() => [403, gateRefusal('insufficient_scope', 'This connection is not allowed to do that.', 'Reconnect the application in SILO and approve the access it needs.')]);
+  for (const call of [{ name: 'query', arguments: { sql: 'select 1' } }, { name: 'describe_tables', arguments: {} }]) {
+    const res = await handle(post(rpc('tools/call', call)));
+    assert.equal(res.status, 200, 'a scope refusal must not be a 401');
+    const body = await res.json();
+    assert.equal(body.result.isError, true);
+    assert.match(body.result.content[0].text, /approved before SILO allowed data queries/);
+  }
+});
+
+test('a page too large for the AI app is cut, never skipped, and says where to resume', async () => {
+  const rows = Array.from({ length: 1000 }, (_, i) => ({ i, pad: 'x'.repeat(100) }));
+  const { handle } = harness(() => [200, { offset: 2000, page_size: 1000, row_count: 1000, has_more: true, rows }]);
+  const body = await (await handle(post(rpc('tools/call', { name: 'query', arguments: { sql: 'select 1', offset: 2000 } })))).json();
+  const out = body.result.structuredContent;
+  assert.ok(body.result.content[0].text.length <= ROW_BUDGET_CHARS, 'still over the budget');
+  assert.ok(out.rows.length > 0 && out.rows.length < 1000);
+  assert.equal(out.rows[0].i, 0, 'the page starts where it was asked to');
+  assert.equal(out.row_count, out.rows.length);
+  assert.equal(out.has_more, true);
+  assert.equal(out.next_offset, 2000 + out.rows.length);
+  assert.match(out.truncated, /offset \d+/);
+});
+
+test('run_report pages are cut the same way, and a small page is left alone', () => {
+  const small = { offset: 0, page_size: 1000, row_count: 2, has_more: false, rows: [{ a: 1 }, { a: 2 }] };
+  assert.deepEqual(fitRows(small), { ...small, next_offset: null });
+  const full = { offset: 1000, page_size: 1000, row_count: 1000, has_more: true, rows: Array(1000).fill({ a: 1 }) };
+  assert.equal(fitRows(full).next_offset, 2000, 'an uncut full page resumes at the next page');
+  const one = { offset: 0, has_more: false, rows: [{ huge: 'y'.repeat(50000) }] };
+  assert.equal(fitRows(one).rows.length, 1, 'a single huge row still moves the caller on');
+  assert.equal(fitRows(one).next_offset, 1);
+  assert.equal(fitRows({ reports: [] }).reports.length, 0, 'not a page of rows: untouched');
+});
+

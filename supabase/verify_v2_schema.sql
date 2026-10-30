@@ -1739,6 +1739,53 @@ select
     else 'ok'
   end as readonly_query_identity_guard;
 
+-- ── Developer API query tool (20261030110000) ─────────────────────────
+-- data:read: describe_tables (Ask SILO's catalog, never rows) and query (one
+-- read-only SELECT as the person under RLS). The runner must stay owned by
+-- silo_api_exec (no relations, no BYPASSRLS), read only, and behind both
+-- name guards; nothing errors if any of that reverts.
+select
+  case
+    when to_regprocedure('public.silo_api_query(text,integer)') is null
+      or to_regprocedure('public.silo_api_describe_tables(text[],text,boolean)') is null
+      or to_regprocedure('public.silo_api_refused_name(text)') is null
+      then 'MISSING — run 20261030110000_developer_api_query_tool.sql'
+    when (select pg_get_userbyid(proowner) from pg_proc where oid = 'public.silo_api_query(text,integer)'::regprocedure) <> 'silo_api_exec'
+      then 'CRITICAL — silo_api_query is not owned by silo_api_exec, so it may bypass RLS'
+    when (select pg_get_userbyid(proowner) from pg_proc where oid = 'public.silo_api_describe_tables(text[],text,boolean)'::regprocedure) = 'silo_api_exec'
+      then 'BROKEN — silo_api_describe_tables is owned by silo_api_exec and cannot read the schema catalog (its policy admits role authenticated only)'
+    when lower(pg_get_functiondef('public.silo_api_query(text,integer)'::regprocedure)) not like '%set transaction read only%'
+      then 'CRITICAL — silo_api_query no longer runs read only'
+    when pg_get_functiondef('public.silo_api_query(text,integer)'::regprocedure) not like '%silo_sql_refused_function(v_sql)%'
+      or pg_get_functiondef('public.silo_api_query(text,integer)'::regprocedure) not like '%silo_api_refused_name(v_sql)%'
+      then 'CRITICAL — silo_api_query no longer calls both guards (set_config / hidden relations / definer functions)'
+    when pg_get_functiondef('public.silo_api_query(text,integer)'::regprocedure) not like '%silo_api_require_scope(''data:read'')%'
+      or pg_get_functiondef('public.silo_api_describe_tables(text[],text,boolean)'::regprocedure) not like '%silo_api_require_scope(''data:read'')%'
+      then 'CRITICAL — the query tool no longer checks data:read'
+    when public.silo_api_refused_name('select * from plaid_accounts') is null
+      or public.silo_api_refused_name('select * from auth.users') is null
+      or public.silo_api_refused_name('select set_active_company(null)') is null
+      or public.silo_api_refused_name('select * from silo_api_grants') is null
+      then 'CRITICAL — silo_api_refused_name no longer refuses a hidden relation, another schema, a definer function or silo_api_grants'
+    when public.silo_api_refused_name('select count(*) from launch_tasks where company_entity_id = active_company_id()') is not null
+      then 'BROKEN — silo_api_refused_name refuses an ordinary query'
+    when has_function_privilege('silo_integration', 'public.silo_api_refused_name(text)', 'execute')
+         and not pg_has_role('silo_integration', 'silo_api_exec', 'member')
+      then 'MISSING — silo_integration can call silo_api_refused_name directly'
+    when has_function_privilege('anon', 'public.silo_api_query(text,integer)', 'execute')
+      or has_function_privilege('silo_revoked', 'public.silo_api_query(text,integer)', 'execute')
+      or has_function_privilege('anon', 'public.silo_api_describe_tables(text[],text,boolean)', 'execute')
+      then 'CRITICAL — anon or silo_revoked can reach the query tool'
+    when not has_function_privilege('silo_integration', 'public.silo_api_query(text,integer)', 'execute')
+      then 'BROKEN — silo_integration cannot run silo_api_query'
+    when pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure) not like '%/rpc/silo_api_query%'
+      or pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure) not like '%/rpc/silo_api_describe_tables%'
+      then 'BROKEN — the path allowlist does not admit the query tool, so every call is refused'
+    when pg_get_functiondef('public.silo_api_consent(text,text[])'::regprocedure) not like '%''data:read''%'
+      then 'MISSING — consent does not offer data:read, so no connection can use the query tool'
+    else 'ok'
+  end as developer_api_query_tool;
+
 -- ── Ask SILO request identity (20260916121000) ────────────────────────
 -- Without request_id the chat page's crash-recovery path matches on question
 -- TEXT, which repeats inside a conversation ("yes", "keep going") and which
@@ -7504,6 +7551,8 @@ select 'developer API boundary' as check_name, case
         -- listing them), the gate the pre-request hook calls, and the
         -- helpers those need in order to answer at all.
         'silo_api_run_report', 'silo_api_list_reports',
+        -- data:read since 20261030110000: the MCP query tool.
+        'silo_api_query', 'silo_api_describe_tables',
         'silo_check_request', 'mfa_session_satisfied',
         'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
         'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id'))
@@ -7516,6 +7565,7 @@ select 'developer API boundary' as check_name, case
               and a.privilege_type = 'EXECUTE'
               and p.proname not in (
                 'silo_api_run_report', 'silo_api_list_reports',
+                'silo_api_query', 'silo_api_describe_tables',
                 'silo_check_request', 'mfa_session_satisfied',
                 'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
                 'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id'))

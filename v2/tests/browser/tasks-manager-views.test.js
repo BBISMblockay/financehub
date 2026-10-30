@@ -30,7 +30,11 @@ const OTHER = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const LAUNCH = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 
 const iso = (d) => d.toISOString().slice(0, 10);
-const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+// Every date is relative to the 15th of this month, and the page's clock is
+// pinned there too. Relative to the real today, day(+2) fell in next month on
+// the last two days of a month, off the calendar the page opens on.
+const NOW = (() => { const d = new Date(); d.setDate(15); d.setHours(12, 0, 0, 0); return d; })();
+const day = (n) => { const d = new Date(NOW); d.setDate(d.getDate() + n); return iso(d); };
 
 const PROFILES = [
   { id: USER, name: 'Alex Rivera', email: 'test@baseballism.com', avatar_url: null, is_active: true, role: 'admin' },
@@ -104,6 +108,7 @@ const colCounts = (page) => page.$$eval('#tmKanban .tm-k-col', (cs) => cs.map((c
 (async () => {
   const suite = await startSuite({ viewport: { width: 1500, height: 900 } });
   try {
+    await suite.context.clock.setFixedTime(NOW);
     const page = await suite.open('/v2/tasks.html', TABLES(), { ready: READY });
 
     // ── 1: Table is the default; the panes toggle ───────────────────────

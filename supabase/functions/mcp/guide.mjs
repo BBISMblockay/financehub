@@ -63,8 +63,8 @@ const RULES = [
   'HOW TO ANSWER WITH SILO.',
   'Call how_to_use_silo once before your first answer: it holds SILO\'s glossary, which report answers which',
   'question, what each report is for, and where each page lives in the app.',
-  'A report is the unit of truth: SILO\'s own reports are tied out against their sources, so prefer',
-  'answering from one report rather than combining several.',
+  'When one of SILO\'s own reports answers the question, use it: those are tied out against their sources,',
+  'so prefer one report over combining several. For anything else, query the tables (describe_tables first).',
   'Blank is not zero. A blank measure means that source had no rows for that day, which is usually a sync',
   'that has not landed. Never fill a blank with 0, average over it, or call it a decline.',
   'Credited is not earned. "Claimed", "credited" and "attributed" revenue is what an ad platform or Redo',
@@ -78,8 +78,8 @@ const RULES = [
   'days in any marketing report are still rising and are not a trend yet.',
   'Say where a number came from. Name the report and its window, and pass the report\'s own caveats on',
   'rather than smoothing them away -- its description says what it does and does not count.',
-  'If no report fits, say so. Do not assemble an answer from reports that measure different things.',
-  'This connection reads reports. It cannot see the screen, open a page or change anything, so point the',
+  'Do not assemble an answer from reports that measure different things; query the tables instead.',
+  'This connection only reads. It cannot see the screen, open a page or change anything, so point the',
   'person at the page (how_to_use_silo has the paths) rather than describing what you did there.',
 ].join(' ');
 

@@ -73,7 +73,7 @@ test('initialize carries the rules on top of the server\'s own instructions', as
   const { handle } = harness();
   const res = await (await handle(post(rpc('initialize', { protocolVersion: '2025-06-18' })))).json();
   const text = res.result.instructions;
-  assert.match(text, /This connection can run/, 'the server\'s own instructions survive');
+  assert.match(text, /This connection reads ONE company/, 'the server\'s own instructions survive');
   assert.match(text, /Blank is not zero/);
   assert.match(text, /never add them to net sales/i);
   assert.match(text, /last\s+COMPLETE day/);
