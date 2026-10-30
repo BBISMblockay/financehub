@@ -8020,3 +8020,25 @@ select 'Developer API company reports' as check_name,
       then 'BROKEN — a connection cannot list company reports'
     else 'ok'
   end as status;
+
+-- Payment request completion sync (20261030120000): completed, workflow_status
+-- and date_completed cannot contradict each other. The browser writes
+-- payment_requests directly, so the invariant has to be enforced in the
+-- database, not only in the Request Manager page.
+select 'Payment request completion sync' as check_name,
+  case
+    when to_regprocedure('public.payment_request_sync_completion()') is null
+      then 'MISSING — a completed payment request can still read workflow_status ''new''. Run 20261030120000_payment_request_completion_status_sync.sql'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.payment_requests'::regclass
+                        and tgname = 'trg_payment_request_sync_completion'
+                        and not tgisinternal)
+      then 'MISSING — trg_payment_request_sync_completion is not on payment_requests'
+    when exists (select 1 from public.payment_requests
+                  where completed
+                    and coalesce(workflow_status, '') <> all (array['paid', 'rejected', 'cancelled']))
+      then 'DRIFT — completed payment requests are sitting in a non-terminal workflow_status'
+    when exists (select 1 from public.payment_requests where completed and date_completed is null)
+      then 'DRIFT — completed payment requests with no date_completed'
+    else 'ok'
+  end as status;
