@@ -7,56 +7,6 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="workspace-settings.css" />
-  <style>
-    /* Page-specific only. Everything structural is Beacon or workspace-settings.css. */
-    .ca-url {display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;}
-    .ca-url input {flex:1 1 320px;min-width:0;font-family:var(--bcn-mono);font-size:12px;}
-    .ca-rows {display:flex;flex-direction:column;}
-    .ca-row {display:flex;align-items:center;gap:12px;padding:11px 2px;
-      border-top:1px solid var(--bcn-border);}
-    .ca-row:first-child {border-top:0;}
-    .ca-row-mark {flex:none;width:30px;height:30px;border-radius:7px;background:var(--bcn-sunken);
-      display:flex;align-items:center;justify-content:center;}
-    .ca-row-text {flex:1;min-width:0;}
-    .ca-row-name {font-size:13px;font-weight:650;}
-    .ca-row-where {font-size:11.5px;color:var(--bcn-ink-3);line-height:1.45;}
-    .ca-row-where code {font-family:var(--bcn-mono);font-size:10.5px;background:var(--bcn-sunken);
-      border:1px solid var(--bcn-border);border-radius:4px;padding:1px 5px;}
-    .ca-row-act {flex:none;display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;}
-    .ca-fallback {width:100%;margin-top:8px;font-family:var(--bcn-mono);font-size:11.5px;}
-    @media (max-width:640px) {
-      .ca-row {flex-wrap:wrap;}
-      .ca-row-act {width:100%;justify-content:flex-start;}
-    }
-    .ca-cmd {display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;margin-bottom:10px;}
-    .ca-cmd input {flex:1 1 320px;min-width:0;font-family:var(--bcn-mono);font-size:11.5px;}
-    .ca-prompt {display:flex;gap:10px;align-items:center;justify-content:space-between;
-      padding:9px 12px;border:1px solid var(--bcn-border);border-radius:7px;background:var(--bcn-surface);
-      margin-bottom:8px;font-size:12.5px;color:var(--bcn-ink);}
-    .ca-prompt:last-child {margin-bottom:0;}
-    .ca-prompt span {min-width:0;}
-    .ca-reports {margin:10px 0 0;font-size:12px;}
-    .ca-reports summary {cursor:pointer;font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3);}
-    .ca-reports ul {margin:10px 0 0;padding-left:20px;line-height:1.7;color:var(--bcn-ink-2);columns:2;}
-    .cn-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:12px;}
-    .cn-app {display:flex;gap:12px;padding:13px 14px;border:1px solid var(--bcn-border);
-      border-radius:9px;background:var(--bcn-surface);}
-    .cn-mark {flex:none;width:38px;height:38px;border-radius:9px;background:var(--bcn-sunken);
-      display:flex;align-items:center;justify-content:center;}
-    .app-mark-letter {font-family:var(--bcn-mono);font-size:15px;font-weight:650;color:var(--bcn-ink-2);}
-    .cn-body {min-width:0;flex:1;}
-    .cn-name {font-size:13.5px;font-weight:650;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-    .cn-tag {font-family:var(--bcn-mono);font-size:10px;font-weight:500;color:var(--bcn-ink-3);
-      background:var(--bcn-sunken);border-radius:4px;padding:1px 5px;}
-    .cn-meta {margin-top:5px;font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3);
-      line-height:1.65;}
-    .cn-actions {margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
-    .cn-ask {font-size:11.5px;color:var(--bcn-ink-2);}
-    .cn-empty {padding:22px;text-align:center;color:var(--bcn-ink-3);font-size:13px;
-      border:1px dashed var(--bcn-border);border-radius:9px;}
-
-    @media (max-width:760px) { .ca-reports ul {columns:1;} }
-  </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -72,84 +22,87 @@
 <body>
   <div class="silo-app" id="silo-app">
     <main class="silo-main workspace-settings">
-      <header class="bcn-header">
+      <header class="bcn-header bcn-header--compact">
         <div class="bcn-header-title">
           <div>Connect AI</div>
-          <div class="bcn-header-sub bcn-header-sub--trimmed">Your own AI, reading this workspace’s reports and data.</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed">Link Claude, Cursor, or other MCP apps to this workspace — read-only, as you.</div>
         </div>
       </header>
 
-      <div class="ws-page">
+      <div class="ws-page connect-ai-page">
         <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
 
-        <div class="ws-card">
+        <div class="ws-card ws-card--flat">
           <div class="ws-card-head">
             <div class="ws-title">Your apps</div>
             <div class="ws-sub" id="mineSub">—</div>
           </div>
-          <div class="ws-body">
+          <div class="ws-body ws-body--tight">
             <div class="cn-grid" id="gridMine"><div class="cn-empty">Loading…</div></div>
           </div>
         </div>
 
-        <!-- Owners only, and REMOVED rather than hidden when it does not
-             apply: an empty card titled "Everyone's apps" reads as a
-             permission problem to someone who simply is not an owner. -->
-        <div class="ws-card" id="cardCompany" hidden>
+        <div class="ws-card ws-card--flat" id="cardCompany" hidden>
           <div class="ws-card-head">
             <div class="ws-title">Everyone’s apps</div>
             <div class="ws-sub" id="coSub">—</div>
           </div>
-          <div class="ws-body">
+          <div class="ws-body ws-body--tight">
             <div class="cn-grid" id="gridCompany"><div class="cn-empty">Loading…</div></div>
           </div>
         </div>
 
-        <div class="ws-card">
-          <div class="ws-card-head">
-            <div class="ws-title">Add an app</div>
-            <div class="ws-sub" id="clientSub">Read-only, this company, as you</div>
-          </div>
-          <div class="ws-body">
-            <div class="ca-url">
-              <input type="text" class="bcn-field" id="mcpUrl" readonly value="Loading…"
-                     aria-label="SILO MCP server address" />
-              <button class="bcn-btn bcn-btn--primary" id="btnCopyUrl" type="button">Copy address</button>
+        <div class="ca-layout">
+          <div class="ca-main">
+            <div class="ws-card ws-card--flat">
+              <div class="ws-card-head">
+                <div class="ws-title">Connect an app</div>
+                <div class="ws-sub" id="clientSub">Read-only · this company · as you</div>
+              </div>
+              <div class="ws-body ws-body--tight">
+                <div class="ca-hero">
+                  <label class="ws-label" for="mcpUrl">Server address</label>
+                  <div class="ca-url">
+                    <input type="text" class="bcn-field" id="mcpUrl" readonly value="Loading…"
+                           aria-label="SILO MCP server address" />
+                    <button class="bcn-btn bcn-btn--primary" id="btnCopyUrl" type="button">Copy</button>
+                  </div>
+                  <p class="ca-hero-note">No API key — the app sends you back here and you approve with your two-step code.</p>
+                </div>
+                <div class="ca-rows" id="clientRows"></div>
+              </div>
             </div>
-            <p class="ws-note" style="margin:10px 0 16px;">
-              No key to paste. The app sends you back here and you approve it with your two-step code.
-            </p>
-            <div class="ca-rows" id="clientRows"></div>
           </div>
-        </div>
 
-        <div class="ws-card">
-          <div class="ws-card-head">
-            <div class="ws-title">What an app can read</div>
-            <div class="ws-sub" id="scopeSub">Read-only</div>
-          </div>
-          <div class="ws-body">
-            <p class="ws-note">
-              Runs SILO’s reports and read-only queries over what you can see in SILO, for
-              <strong id="coName">this company</strong> and nothing else: no writes, no logins or
-              connection secrets, no other company. Ends after 90 days, or 30 days unused. An app
-              connected before 30 Oct 2026 needs connecting again to run queries.
-            </p>
-            <details class="ca-reports" id="reportsBox">
-              <summary id="reportsSummary">Loading the report list…</summary>
-              <ul id="reportsList"></ul>
-            </details>
-          </div>
-        </div>
+          <aside class="ca-aside">
+            <div class="ws-card ws-card--flat">
+              <div class="ws-card-head">
+                <div class="ws-title">Access</div>
+                <div class="ws-sub" id="scopeSub">Read-only</div>
+              </div>
+              <div class="ws-body ws-body--tight">
+                <p class="ws-note ws-note--tight">
+                  Reports and read-only queries for <strong id="coName">this company</strong> only —
+                  no writes, no secrets. Sessions end after 90 days or 30 days idle.
+                </p>
+                <details class="ca-reports" id="reportsBox">
+                  <summary id="reportsSummary">Loading the report list…</summary>
+                  <ul id="reportsList"></ul>
+                </details>
+                <p class="ws-note ws-note--tight ca-legacy-note">Apps connected before 30 Oct 2026 need connecting again to run queries.</p>
+              </div>
+            </div>
 
-        <div class="ws-card">
-          <div class="ws-card-head">
-            <div class="ws-title">Try asking</div>
-            <div class="ws-sub">Copy into your app</div>
-          </div>
-          <div class="ws-body">
-            <div id="prompts"></div>
-          </div>
+            <div class="ws-card ws-card--flat">
+              <div class="ws-card-head">
+                <div class="ws-title">Try asking</div>
+                <div class="ws-sub">Copy into your app</div>
+              </div>
+              <div class="ws-body ws-body--tight">
+                <div id="prompts" class="ca-prompt-list"></div>
+              </div>
+            </div>
+          </aside>
         </div>
       </div>
     </main>
@@ -285,12 +238,12 @@
         + '<div class="cn-body">'
         + '<div class="cn-name">' + esc(name) + tag + statusPill(g) + '</div>'
         + '<div class="cn-meta">' + who
-        + '<br /><span title="' + esc(exact(g.last_used_at)) + '">Last used '
+        + ' · <span title="' + esc(exact(g.last_used_at)) + '">Last used '
         + esc(ago(g.last_used_at)) + '</span>'
         + ' · <span title="' + esc(exact(g.consented_at)) + '">added '
         + esc(ago(g.consented_at)) + '</span></div>'
         + '<div class="cn-actions" data-actions>'
-        + '<button class="bcn-btn bcn-btn--danger" type="button" data-ask="' + esc(g.id) + '">Remove app</button>'
+        + '<button class="bcn-btn bcn-btn--ghost bcn-btn--danger btn-xs" type="button" data-ask="' + esc(g.id) + '">Remove</button>'
         + '</div></div></div>';
     }).join('');
   }
@@ -312,8 +265,8 @@
 
   function wireCard(card, g) {
     const box = card.querySelector('[data-actions]');
-    box.innerHTML = '<button class="bcn-btn bcn-btn--danger" type="button" data-ask="'
-      + esc(g.id) + '">Remove app</button>';
+    box.innerHTML = '<button class="bcn-btn bcn-btn--ghost bcn-btn--danger btn-xs" type="button" data-ask="'
+      + esc(g.id) + '">Remove</button>';
     box.querySelector('[data-ask]').addEventListener('click', () => askToRemove(card, g));
   }
 
@@ -583,12 +536,12 @@
   function renderClients() {
     el('clientRows').innerHTML = clients().map((c) => {
       const acts = (c.cmd
-        ? ['<button class="bcn-btn bcn-btn--primary" type="button" data-copy="' + esc(c.cmd)
+        ? ['<button class="bcn-btn bcn-btn--primary btn-xs" type="button" data-copy="' + esc(c.cmd)
             + '" data-copy-name="Command">Copy command</button>']
         : []).concat((c.actions || []).map((a) => (a.kind === 'link'
-          ? '<a class="bcn-btn bcn-btn--primary" href="' + esc(a.href) + '"'
+          ? '<a class="bcn-btn bcn-btn--primary btn-xs" href="' + esc(a.href) + '"'
             + (a.sameTab ? '' : ' target="_blank" rel="noopener noreferrer"') + '>' + esc(a.label) + '</a>'
-          : '<button class="bcn-btn bcn-btn--ghost" type="button" data-copy="' + esc(a.value)
+          : '<button class="bcn-btn bcn-btn--ghost btn-xs" type="button" data-copy="' + esc(a.value)
             + '" data-copy-name="' + esc(a.name || 'Text') + '">' + esc(a.label) + '</button>'))).join('');
       return '<div class="ca-row" data-client="' + esc(c.id) + '">'
         + '<div class="ca-row-mark">' + window.SiloAppMarks.svg(c.id, 20) + '</div>'
@@ -616,7 +569,7 @@
 
   function renderPrompts() {
     el('prompts').innerHTML = PROMPTS.map((p) => '<div class="ca-prompt"><span>' + esc(p) + '</span>'
-      + '<button class="bcn-btn bcn-btn--ghost" type="button" data-prompt="' + esc(p) + '">Copy</button></div>').join('');
+      + '<button class="bcn-btn bcn-btn--ghost btn-xs" type="button" data-prompt="' + esc(p) + '">Copy</button></div>').join('');
     el('prompts').querySelectorAll('[data-prompt]').forEach((b) => {
       b.addEventListener('click', () => copy(b.dataset.prompt, 'Prompt', b));
     });
