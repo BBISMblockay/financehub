@@ -1487,6 +1487,13 @@ jobs:
       - name: Execute work-queue report regressions
         run: node scripts/tests/work-queue-reports-database.test.mjs
 
+      # 20261030070000: MCP report speed. Proves the policy rewrite changes how
+      # a policy is evaluated (once per query, not per row) and never what it
+      # admits, leaves a VOLATILE gate bare, is a no-op on re-run, and that the
+      # connection touch uses SKIP LOCKED. Mutation-tested.
+      - name: Execute MCP report speed regressions
+        run: node scripts/tests/mcp-report-speed-database.test.mjs
+
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a
       # later edit, and a cleared flag carries no stale author or note.

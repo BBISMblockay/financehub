@@ -19366,4 +19366,9 @@ $c$select (select count(*) from v_po_header_summary
 -- silo_report_tieouts (20260920*) and the launch, payment-request, card and
 -- journal tables. Before the catalog cleanup, which must stay last.
 \i migrations/20261030060000_work_queue_reports.sql
+-- MCP report speed: RLS policies on the report tables rewritten to evaluate
+-- active_company_id() and the role gates once per query, the connection touch
+-- takes SKIP LOCKED, silo_integration statement_timeout 30s. Idempotent.
+-- Needs silo_api_touch_grant (20261028070000). Before the catalog cleanup.
+\i migrations/20261030070000_mcp_report_speed.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
