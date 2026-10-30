@@ -7886,3 +7886,32 @@ select 'Work-queue reports' as check_name,
       then 'BROKEN — a work-queue report''s tie-outs still guard the previous definition, so report-tieouts-nightly will read NO DATA. Re-run the tie-out block of 20261030060000_work_queue_reports.sql'
     else 'ok'
   end as status;
+
+-- MCP report speed (20261030070000). A bare active_company_id() in a policy is
+-- evaluated once per row, which through an integration token is a grant
+-- lookup per row: Sales by Channel went 2.6s in the app to 20.4s over MCP.
+-- The touch must not wait on a parallel call's row lock (authenticator's
+-- lock_timeout is 8s), and the integration role gets 30s.
+select 'MCP report speed' as check_name,
+  case
+    when exists (
+      select 1 from pg_policies p
+       where p.schemaname = 'public'
+         and p.tablename in ('search_console_query_daily', 'search_console_page_daily', 'search_console_site_daily',
+                             'shopify_order_lines', 'shopify_orders', 'shopify_channel_map', 'sales_by_day',
+                             'inventory_on_hand', 'products_master', 'locations', 'factories',
+                             'meta_ad_performance_daily', 'meta_ad_creatives', 'marketing_kpis_daily',
+                             'redo_marketing_daily', 'redo_marketing_messages',
+                             'po_headers', 'po_lines', 'incoming_shipments', 'shipment_bookings',
+                             'launch_tasks', 'launch_calendar', 'launch_channel_items', 'payment_requests',
+                             'card_transactions', 'card_import_batches', 'journal_adjustments')
+         and (coalesce(p.qual, '') ~ '(?<!SELECT )(?<![A-Za-z0-9_])(public\.)?active_company_id\(\)'
+           or coalesce(p.with_check, '') ~ '(?<!SELECT )(?<![A-Za-z0-9_])(public\.)?active_company_id\(\)'))
+      then 'SLOW — a report table''s policy calls active_company_id() once per row again, so MCP reports time out. Run section 1 of 20261030070000_mcp_report_speed.sql'
+    when pg_get_functiondef('public.silo_api_touch_grant()'::regprocedure) not ilike '%for update skip locked%'
+      then 'BROKEN — silo_api_touch_grant() waits on the grant row lock, so parallel MCP calls fail at lock_timeout. Run 20261030070000_mcp_report_speed.sql'
+    when not exists (select 1 from pg_roles r, unnest(r.rolconfig) c
+                      where r.rolname = 'silo_integration' and c = 'statement_timeout=30s')
+      then 'DRIFT — silo_integration statement_timeout is not 30s'
+    else 'ok'
+  end as status;
