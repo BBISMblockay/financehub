@@ -62,7 +62,7 @@ export const GUIDE_VERSION = '2026-10-30';
 const RULES = [
   'HOW TO ANSWER WITH SILO.',
   'Call how_to_use_silo once before your first answer: it holds SILO\'s glossary, which report answers which',
-  'question, and what each report is for.',
+  'question, what each report is for, and where each page lives in the app.',
   'A report is the unit of truth: SILO\'s own reports are tied out against their sources, so prefer',
   'answering from one report rather than combining several.',
   'Blank is not zero. A blank measure means that source had no rows for that day, which is usually a sync',
@@ -79,6 +79,8 @@ const RULES = [
   'Say where a number came from. Name the report and its window, and pass the report\'s own caveats on',
   'rather than smoothing them away -- its description says what it does and does not count.',
   'If no report fits, say so. Do not assemble an answer from reports that measure different things.',
+  'This connection reads reports. It cannot see the screen, open a page or change anything, so point the',
+  'person at the page (how_to_use_silo has the paths) rather than describing what you did there.',
 ].join(' ');
 
 export function instructionsWithTraining(base) {
@@ -338,6 +340,87 @@ export const REPORT_NOTES = {
   },
 };
 
+/* ── Where things are in SILO ───────────────────────────────────────────────
+ *
+ * A bot is asked "where do I do X in SILO" at least as often as it is asked
+ * for a number, and over MCP it has nothing to answer with -- it cannot see
+ * the app. This is the sidebar, written out: the page, what it is for, and
+ * its path.
+ *
+ * It is NOT an access list. Which pages a person sees depends on their role,
+ * their department, grants and which workspace they are in, and the real
+ * boundary is RLS rather than the menu, so each entry is a pointer and never a
+ * promise. Paths are relative on purpose: every customer reaches SILO at their
+ * own address.
+ *
+ * Tenant-neutral by construction -- it is one codebase's own menu, not
+ * Baseballism's. Pages SILO staff use, and pages deliberately kept out of the
+ * menu, are left out. scripts/tests/mcp-guide.test.mjs checks every path
+ * against the repository and every page and section against v2/nav-config.js,
+ * so a renamed or retired page shows up as a failing test rather than as a
+ * bot sending someone to a dead link.
+ */
+export const WHERE_IN_SILO = {
+  note: 'SILO\'s own pages. Join a path to the address the person uses for SILO. What someone can open '
+    + 'depends on their role, department, grants and workspace, so offer the page rather than promising '
+    + 'access, and never state what another person is allowed to see.',
+  pages: [
+    { section: 'Start', page: 'Home', path: '/v2/finance.html', what: 'The workspace home page and the way into every area.' },
+    { section: 'Start', page: 'Setup', path: '/v2/setup-checklist.html', what: 'A new workspace\'s setup checklist: what is connected and what is still missing.' },
+    { section: 'Start', page: 'My Profile', path: '/v2/profile.html', what: 'Your own details.' },
+    { section: 'Start', page: 'Help', path: '/v2/help.html', what: 'SILO\'s help and training pages.' },
+
+    { section: 'Ask SILO', page: 'Ask SILO', path: '/v2/silo-chat.html', what: 'Ask a question in plain language; SILO writes and runs a read-only query and can save the answer as a report.' },
+
+    { section: 'Insights', page: 'On Deck', path: '/v2/on-deck.html', what: 'Purchase orders SILO has drafted, waiting for a person to review, accept or dismiss.' },
+    { section: 'Reports', page: 'Reports', path: '/v3/dashboards.html', what: 'The report library and dashboards -- SILO\'s own reports and the ones people here have saved.' },
+    { section: 'Reports', page: 'Report builder', path: '/v3/report-builder.html', what: 'Build and save a report, and set its parameters.' },
+
+    { section: 'Accounting', page: 'Accounting', path: '/v2/transactions.html', what: 'Bank and card transactions: coding them, and the journal entries that follow.' },
+    { section: 'Accounting', page: 'Customers', path: '/v2/customers.html', what: 'Customers and the invoices raised to them.' },
+
+    { section: 'Requests', page: 'Payment Request', path: '/v2/purchase_request2.html', what: 'Raise a request to pay someone or to be reimbursed.' },
+    { section: 'Requests', page: 'Request Manager', path: '/v2/request_manager.html', what: 'Review, approve and follow payment requests. A single request opens at ?request=<id>.' },
+    { section: 'Requests', page: 'Mailroom', path: '/v2/mailroom.html', what: 'Post and documents that have arrived, and mail intake.' },
+
+    { section: 'Planning', page: 'Org Calendar', path: '/v2/calendar.html', what: 'The company-wide calendar.' },
+    { section: 'Planning', page: 'Revenue Projection', path: '/v2/projections.html', what: 'Revenue projections.' },
+    { section: 'Planning', page: 'Planning scenarios', path: '/v2/planning-scenarios.html', what: 'Planning scenarios, side by side.' },
+    { section: 'Planning', page: 'Launch calendar', path: '/v2/launch-calendar.html', what: 'The Launch Workbench: each dated launch with its tasks and marketing initiatives.' },
+    { section: 'Planning', page: 'Task Manager', path: '/v2/tasks.html', what: 'Tasks: raising them, assigning them and following them.' },
+    { section: 'Planning', page: 'TikTok Live Schedule', path: '/v2/live-schedule.html', what: 'The TikTok live schedule.' },
+
+    { section: 'Team', page: 'Performance Reviews', path: '/v2/reviews.html', what: 'Performance reviews.' },
+    { section: 'Team', page: 'My Reviews', path: '/v2/my-review.html', what: 'Your own reviews.' },
+    { section: 'Team', page: 'Compensation', path: '/v2/comp-requests.html', what: 'Compensation requests.' },
+
+    { section: 'Purchasing', page: 'PO Builder', path: '/v2/po-builder.html', what: 'Build a purchase order.' },
+    { section: 'Purchasing', page: 'PO Landed Cost', path: '/v2/po-costing.html', what: 'A purchase order\'s landed cost.' },
+    { section: 'Purchasing', page: 'PO Report', path: '/v2/po-report.html', what: 'Incoming purchase orders, their arrivals and their shipment bookings.' },
+    { section: 'Purchasing', page: 'Factories', path: '/v2/factories.html', what: 'The factories purchase orders are placed with.' },
+
+    { section: 'Inventory', page: 'Inventory Manager', path: '/v2/inventory.html', what: 'Stock by product and location, with filters.' },
+    { section: 'Inventory', page: 'Products', path: '/v2/products.html', what: 'The product catalogue.' },
+    { section: 'Product & inventory', page: 'Product Studio', path: '/v3/product-workflow.html', what: 'Where a product concept is confirmed and marked Ready for PO, which is the way a concept becomes a draft purchase order.' },
+
+    { section: 'Marketing', page: 'Performance', path: '/v2/marketing-overview.html', what: 'Marketing Performance: spend, platform claims and sales together.' },
+    { section: 'Marketing', page: 'Explorer', path: '/v2/marketing-explorer.html', what: 'Marketing Explorer: the same data, to dig through.' },
+    { section: 'Marketing', page: 'Marketing Report', path: '/v2/wow-report.html', what: 'The Marketing Report: day, week, month-to-date and year-to-date.' },
+    { section: 'Marketing', page: 'Silo Attribution', path: '/v2/silo-attribution.html', what: 'SILO\'s own attribution, next to what the platforms claim.' },
+    { section: 'Marketing', page: 'Ad Studio', path: '/v2/ad-studio.html', what: 'Past ads as the bar a new one has to beat, and the idea bank where ideas are drafted and moved from idea to live.' },
+    { section: 'Marketing', page: 'SEO', path: '/v2/seo-studio.html', what: 'SEO Studio: search performance and keywords.' },
+
+    { section: 'Sales', page: 'Sales Performance Overview', path: '/v2/bi-sales-overview.html', what: 'Compare sales performance across locations and periods.' },
+    { section: 'Sales', page: 'Daily Sales Trend', path: '/v2/bi-daily-trend.html', what: 'Daily sales with prior-year comparisons and a seven-day average.' },
+    { section: 'Sales', page: 'Top Sellers', path: '/v2/bi-top-sellers.html', what: 'Products ranked by sales alongside stock, velocity and days of cover.' },
+    { section: 'Sales', page: 'Product Type Performance', path: '/v2/bi-product-types.html', what: 'Product categories by month, then their products.' },
+    { section: 'Sales', page: 'Product Search', path: '/v2/bi-product-search.html', what: 'Sales by product name or SKU, with store and month breakdowns.' },
+    { section: 'Sales', page: 'Sales Report', path: '/v2/sales-verification.html', what: 'Sales records, and exceptions such as blank SKUs or negative net sales.' },
+
+    { section: 'Settings', page: 'Workspace settings', path: '/v2/settings-company.html', what: 'The workspace: people, connections, billing, and Connect AI -- the address and setup steps for pointing your own assistant at SILO.' },
+  ],
+};
+
 /* ── The tools ─────────────────────────────────────────────────────────────*/
 
 export const GUIDE_TOOL_NAME = 'how_to_use_silo';
@@ -351,9 +434,11 @@ export const GUIDE_TOOL = {
   description: 'Read this before answering a question with SILO data, once per conversation. Returns SILO\'s '
     + 'glossary (what net sales, cover, momentum, product type, a company-calendar day and "credited" revenue '
     + 'mean here), a table matching the questions people ask to the report that answers each one, and a note '
-    + 'per report saying what it is for and which report to prefer instead. Without it the usual mistakes are '
-    + 'adding up revenue several ad platforms each claim, reading a blank day as a zero, and picking a report '
-    + 'that measures something adjacent to the question. Takes no arguments, reads no data.',
+    + 'per report saying what it is for and which report to prefer instead. It also maps SILO\'s own pages -- '
+    + 'what each one is for and its path -- so a question about where something lives in the app, or what a '
+    + 'page does, can be answered. Without it the usual mistakes are adding up revenue several ad platforms '
+    + 'each claim, reading a blank day as a zero, picking a report that measures something adjacent to the '
+    + 'question, and inventing a page. Takes no arguments, reads no data.',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
 };
@@ -385,5 +470,6 @@ export function buildGuide() {
     how_to_choose: HOW_TO_CHOOSE,
     glossary: GLOSSARY,
     reports: Object.entries(REPORT_NOTES).map(([id, r]) => ({ id, ...r })),
+    where_in_silo: WHERE_IN_SILO,
   };
 }

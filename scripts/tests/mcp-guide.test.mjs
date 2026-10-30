@@ -20,6 +20,9 @@
 //  5. The notes are keyed by report id, so they drift the moment a report is
 //     retired or renamed. Every id and title is checked against the migrations
 //     that define the reports.
+//  6. The page map is the one part of this that can send a person to a dead
+//     link, so every path is checked against the repository and every page and
+//     section against v2/nav-config.js.
 //
 // Run: node --test scripts/tests/mcp-guide.test.mjs
 import test from 'node:test';
@@ -28,7 +31,7 @@ import fs from 'node:fs';
 import { createMcpHandler, TOOLS } from '../../supabase/functions/mcp/handler.mjs';
 import {
   buildGuide, toolsWithGuide, instructionsWithTraining,
-  GLOSSARY, HOW_TO_CHOOSE, REPORT_NOTES, GUIDE_TOOL, GUIDE_TOOL_NAME, GUIDE_VERSION,
+  GLOSSARY, HOW_TO_CHOOSE, REPORT_NOTES, WHERE_IN_SILO, GUIDE_TOOL, GUIDE_TOOL_NAME, GUIDE_VERSION,
 } from '../../supabase/functions/mcp/guide.mjs';
 
 const BASE = 'https://ref.supabase.co';
@@ -104,6 +107,7 @@ test('the guide tool answers the glossary, the routing table and a note per repo
   assert.equal(note.title, 'Sales vs Last Year');
   assert.match(note.when_to_use, /how are sales doing/i);
   assert.equal(g.reports.length, Object.keys(REPORT_NOTES).length);
+  assert.ok(g.where_in_silo.pages.some((x) => x.page === 'Ask SILO'), 'and where things are in the app');
   // The point of a tool rather than a field on the catalog.
   assert.equal(calls.length, 0, 'the guide reaches no database, so it needs no token, scope or company');
   assert.deepEqual(JSON.parse(out.content[0].text), g, 'the text and the structured result agree');
@@ -193,10 +197,52 @@ test('a note is a sentence or two, and no two reports share one', () => {
 
 test('the guide is one modest call, and the instructions are compact', () => {
   const guide = JSON.stringify(buildGuide()).length;
-  assert.ok(guide < 20000, `${guide} characters -- one call, but it still has to fit beside the catalog`);
+  // One call, but a client returns it twice (text plus structured), and it has
+  // to fit in the same conversation as a ~63k catalog.
+  assert.ok(guide < 24000, `${guide} characters -- one call, but it still has to fit beside the catalog`);
   // The instructions can land in a system prompt on every turn, so they are
   // held far tighter than the guide itself.
   assert.ok(instructionsWithTraining('').length < 2500, 'the connect-time instructions are compact');
+});
+
+test('every page in the map is a page that exists', () => {
+  const root = new URL('../../', import.meta.url);
+  const missing = WHERE_IN_SILO.pages
+    .filter((x) => !fs.existsSync(new URL(x.path.replace(/^\//, ''), root)))
+    .map((x) => `${x.page} -> ${x.path}`);
+  assert.deepEqual(missing, [], 'a bot would send someone to a dead link');
+  const paths = WHERE_IN_SILO.pages.map((x) => x.path);
+  assert.equal(new Set(paths).size, paths.length, 'a page is listed twice');
+});
+
+test('every page in the map is named and filed the way the sidebar names it', () => {
+  const nav = fs.readFileSync(new URL('../../v2/nav-config.js', import.meta.url), 'utf8');
+  const wrong = WHERE_IN_SILO.pages.filter((x) => {
+    // The sidebar holds the label and the section (or sectionStandard) as
+    // literals, and the Sales pages as a title. Either spelling is the menu's
+    // own; neither being present means this map has drifted from it.
+    const named = nav.includes(`'${x.page}'`);
+    const filed = nav.includes(`'${x.section}'`);
+    return !named || !filed;
+  }).map((x) => `${x.section} / ${x.page}`);
+  assert.deepEqual(wrong, [], 'the map calls a page or a section something the sidebar does not');
+});
+
+test('the map points at pages and promises nothing about access', () => {
+  for (const x of WHERE_IN_SILO.pages) {
+    assert.match(x.path, /^\/v[23]\/[a-z0-9_.-]+\.html$/, x.page);
+    assert.ok(x.what.length > 10 && x.what.length < 200, `${x.page}: ${x.what.length} characters`);
+  }
+  assert.match(WHERE_IN_SILO.note, /depends on their role/,
+    'the map has to say that what a person can open is not for the bot to assert');
+  // SILO staff pages and pages deliberately kept out of the menu stay out.
+  for (const path of ['/v2/platform-admin.html', '/v2/returns-overview.html']) {
+    assert.equal(WHERE_IN_SILO.pages.some((x) => x.path === path), false, path);
+  }
+});
+
+test('the rules say the connection cannot act in the app', () => {
+  assert.match(instructionsWithTraining(''), /cannot see the screen, open a page or change anything/);
 });
 
 test('the guide reads nothing and holds no secrets', () => {
