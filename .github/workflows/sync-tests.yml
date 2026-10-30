@@ -193,6 +193,7 @@ on:
       - 'supabase/migrations/*developer_api_report_catalog.sql'
       - 'scripts/tests/mcp-server.test.mjs'
       - 'supabase/migrations/*developer_api_company_reports.sql'
+      - 'scripts/tests/mcp-guide.test.mjs'
       - 'v2/settings-company.html'
       - 'v2/po-builder.html'
       - 'v2/po-document-identity.js'
@@ -635,6 +636,19 @@ jobs:
       # a dead connection told to sign in again, and only the two report RPCs.
       - name: MCP server
         run: node --test scripts/tests/mcp-server.test.mjs
+
+      # What SILO teaches a bot about itself (supabase/functions/mcp/guide.mjs):
+      # the rules at connect, and the how_to_use_silo tool holding the glossary,
+      # the question-to-report routing table, a note per report and the map of
+      # SILO's own pages. Pinned here: that all three delivery points still
+      # carry it (a refactor that drops one is otherwise silent -- the answers
+      # just get worse), that the guide stays OFF the ~63k catalog result and
+      # reaches no database, that no note or routing entry names a report that
+      # has been retired or retitled, and that every page in the map exists and
+      # is named the way v2/nav-config.js names it -- the one part of this that
+      # could send a person to a dead link.
+      - name: MCP training layer
+        run: node --test scripts/tests/mcp-guide.test.mjs
 
       # One SEO row in the sidebar; Studio, Search performance and Keywords
       # are tabs across their existing pages.
