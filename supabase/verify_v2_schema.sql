@@ -1719,6 +1719,26 @@ select
     else 'ok'
   end as chat_query_read_only_txn;
 
+-- ── Read-only query identity guard (20261030100000) ───────────────────
+-- Read-only transactions allow set_config, and set_config('request.jwt.claims')
+-- changes auth.uid(), so without this any signed-in user could read another
+-- company's rows through chat_run_readonly_query. Nothing errors if it reverts.
+select
+  case
+    when to_regprocedure('public.silo_sql_refused_function(text)') is null
+      then 'CRITICAL — silo_sql_refused_function missing. Run 20261030100000_readonly_query_refuse_identity_switch.sql'
+    when public.silo_sql_refused_function('select pg_catalog.set_config(''request.jwt.claims'', ''{}'', true)') is null
+      or public.silo_sql_refused_function('select query_to_xml(''x'', true, false, '''')') is null
+      or public.silo_sql_refused_function('select 1 as offset_config') is not null
+      then 'CRITICAL — silo_sql_refused_function no longer refuses set_config / query_to_xml, or refuses ordinary names'
+    when lower(pg_get_functiondef('public.chat_run_readonly_query(text,integer)'::regprocedure)) not like '%silo_sql_refused_function(trimmed)%'
+      then 'CRITICAL — chat_run_readonly_query does not call silo_sql_refused_function; a query can switch auth.uid() with set_config. Run 20261030100000'
+    when has_function_privilege('anon', 'public.silo_sql_refused_function(text)', 'execute')
+      or has_function_privilege('anon', 'public.chat_run_readonly_query(text,integer)', 'execute')
+      then 'MISSING — anon can execute the read-only runner or its guard'
+    else 'ok'
+  end as readonly_query_identity_guard;
+
 -- ── Ask SILO request identity (20260916121000) ────────────────────────
 -- Without request_id the chat page's crash-recovery path matches on question
 -- TEXT, which repeats inside a conversation ("yes", "keep going") and which

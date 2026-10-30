@@ -19376,4 +19376,8 @@ $c$select (select count(*) from v_po_header_summary
 -- c7...01 and rewrites its tie-outs (8 across the work-queue reports). Needs
 -- 20261030060000. Before the catalog cleanup.
 \i migrations/20261030080000_open_work_on_deck.sql
+-- Read-only query runner refuses set_config (which switches auth.uid(), so
+-- RLS identity) and functions that run SQL text. Replaces
+-- chat_run_readonly_query in place (grants kept). Before the catalog cleanup.
+\i migrations/20261030100000_readonly_query_refuse_identity_switch.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
