@@ -37,6 +37,9 @@
 --     place in SILO where a person does the work. SILO stays the context
 --     layer; the person acts.
 --
+-- An initiative need not belong to a launch: Schedule saves one with no
+-- launch as launch_id NULL. Those are kept (left join) and link to Schedule.
+--
 -- Initiatives (launch_channel_items) carry their owner as free text
 -- ("Grant", "benny", an email), so is_mine matches it only against the
 -- person's full name or email, case-insensitive. A first name alone is not
@@ -84,9 +87,11 @@ values
          coalesce(nullif(btrim(i.owner), ''), 'Unassigned'),
          coalesce(lower(btrim(i.owner)) in ((select email from me), (select name from me)), false),
          l.title,
-         'https://get-silo.com/v2/launch-calendar.html?launch=' || i.launch_id
+         case when i.launch_id is not null
+              then 'https://get-silo.com/v2/launch-calendar.html?launch=' || i.launch_id
+              else 'https://get-silo.com/v2/marketing-ops.html' end
     from public.launch_channel_items i
-    join public.launch_calendar l on l.id = i.launch_id
+    left join public.launch_calendar l on l.id = i.launch_id
    where i.status <> 'live'
   union all
   select 'Payment request',

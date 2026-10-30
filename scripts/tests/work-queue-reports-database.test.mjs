@@ -87,6 +87,8 @@ insert into launch_channel_items(company_entity_id, launch_id, channel, item_tit
   ('${CO}', '10000000-0000-4000-a000-000000000001', 'Email', 'Teaser', 'planned', '2026-10-27', ' pat lee '),
   ('${CO}', '10000000-0000-4000-a000-000000000001', 'SMS', null, 'blocked', '2026-11-01', 'pat'),
   ('${CO}', '10000000-0000-4000-a000-000000000001', 'IG', 'Post', 'live', '2026-10-29', 'pat@example.com'),
+  -- Schedule saves an initiative with no launch as launch_id NULL.
+  ('${CO}', null, 'Email', 'Standalone send', 'scheduled', '2026-10-28', 'Sam Roe'),
   ('${OTHER}', '10000000-0000-4000-a000-000000000006', 'Email', 'X', 'planned', '2026-10-30', 'Pat Lee');
 
 insert into payment_requests(company_entity_id, effective_vendor_name, amount_due, request_type, workflow_status,
@@ -148,6 +150,7 @@ await test('Open work lists open items only, for this company only', async () =>
   const items = work.map((r) => `${r.work_type}:${r.item}`).sort();
   assert.deepEqual(items, [
     'Initiative:SMS (SMS)',
+    'Initiative:Standalone send (Email)',
     'Initiative:Teaser (Email)',
     'Payment request:Acme · $1,234.50 · invoice',
     'Payment request:Globex',
@@ -189,6 +192,10 @@ await test('every row links to the exact place in SILO', async () => {
   assert.match(work.find((r) => r.item === 'Globex').open_in_silo, /^https:\/\/get-silo\.com\/v2\/request_manager\.html\?request=[0-9a-f-]{36}$/);
   assert.equal(work.find((r) => r.item === 'Teaser (Email)').open_in_silo,
     'https://get-silo.com/v2/launch-calendar.html?launch=10000000-0000-4000-a000-000000000001');
+  const standalone = work.find((r) => r.item === 'Standalone send (Email)');
+  assert.equal(standalone.open_in_silo, 'https://get-silo.com/v2/marketing-ops.html');
+  assert.equal(standalone.launch, null);
+  assert.equal(num(standalone.days_overdue), 1);
 });
 
 await test('Launches next 30 days: today through day 30, plus a launch still running', async () => {
@@ -234,11 +241,15 @@ await test('every tie-out passes, and each report has a reconciliation', async (
   }
 });
 
-await test('an initiative whose launch is gone fails its reconciliation', async () => {
-  await db.exec(`insert into launch_channel_items(company_entity_id, launch_id, channel, item_title, status)
-                 values ('${CO}', '10000000-0000-4000-a000-0000000000ff', 'Email', 'Orphan', 'planned')`);
-  const r = await runCheck('Open initiatives tie to launch_channel_items');
-  await db.exec(`delete from launch_channel_items where item_title = 'Orphan'`);
+await test('an initiative the report drops fails its reconciliation', async () => {
+  // Break the report, not the check: the inner join the first version used
+  // silently lost every initiative with no launch.
+  const c = checks.find((x) => x.name === 'Open initiatives tie to launch_channel_items');
+  const broken = c.check_sql
+    .replace('left join public.launch_calendar l on l.id = i.launch_id', 'join public.launch_calendar l on l.id = i.launch_id')
+    .replace(/\(select md5\(queries_run::text \|\| parameters::text\) = '[0-9a-f]+' from public\.silo_chat_saved_reports where id = '[^']+'\)/, 'true');
+  assert.notEqual(broken, c.check_sql);
+  const [r] = await asReader(broken);
   assert.equal(num(r.right_value) - num(r.left_value), 1);
 });
 
