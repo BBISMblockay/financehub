@@ -313,3 +313,35 @@ test('index.ts parses and wires only configuration and fetch', () => {
   assert.match(idx, /SUPABASE_ANON_KEY: Deno\.env\.get\('SUPABASE_ANON_KEY'\)/);
   assert.match(idx, /fetchImpl: fetch/);
 });
+
+// ── 7. SILO's mark, not the host's ─────────────────────────────────────────
+
+test('initialize announces SILO\'s icon, as a URL and inline', async () => {
+  const { handle } = harness();
+  const body = await (await handle(post(rpc('initialize')))).json();
+  const icons = body.result.serverInfo.icons;
+  assert.equal(icons.length, 2);
+  assert.equal(icons[0].src, RESOURCE + '/icon.png', 'a URL under this resource, not the Host header');
+  assert.match(icons[1].src, /^data:image\/png;base64,iVBORw0KGgo/, 'an inline PNG');
+  for (const i of icons) { assert.equal(i.mimeType, 'image/png'); assert.deepEqual(i.sizes, ['256x256']); }
+  assert.equal(body.result.serverInfo.title, 'SILO');
+});
+
+test('the discovery document carries the logo too', async () => {
+  const { handle } = harness();
+  const doc = await (await handle(new Request('https://ref.supabase.co/mcp/.well-known/oauth-protected-resource'))).json();
+  assert.equal(doc.logo_uri, RESOURCE + '/icon.png');
+});
+
+test('the icon is served publicly as a real 256x256 PNG', async () => {
+  const { handle, calls } = harness();
+  const res = await handle(new Request('https://ref.supabase.co/mcp/icon.png'));
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('Content-Type'), 'image/png');
+  const buf = Buffer.from(await res.arrayBuffer());
+  assert.equal(buf.subarray(1, 4).toString(), 'PNG');
+  assert.equal(buf.readUInt32BE(16), 256);
+  assert.equal(buf.readUInt32BE(20), 256);
+  assert.equal(calls.length, 0, 'no token and no data read');
+  assert.equal((await handle(new Request('https://ref.supabase.co/mcp/icon.png', { method: 'POST' }))).status, 405);
+});

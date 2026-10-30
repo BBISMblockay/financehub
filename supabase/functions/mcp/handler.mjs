@@ -38,9 +38,11 @@
  */
 
 import { readTokenClaims } from './integration-gate.mjs';
+import { ICON_PNG_BASE64 } from './icon.mjs';
 
 export const SUPPORTED_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
-export const SERVER_INFO = { name: 'silo', title: 'SILO', version: '1.0.0' };
+export const SERVER_INFO = { name: 'silo', title: 'SILO', version: '1.0.0', websiteUrl: 'https://get-silo.com' };
+const ICON_DATA_URI = 'data:image/png;base64,' + ICON_PNG_BASE64;
 
 const INSTRUCTIONS = [
   'SILO is an operations platform. This connection can run SILO\'s built-in reports for ONE company,',
@@ -116,6 +118,19 @@ export function createMcpHandler({ env, fetchImpl }) {
   const resource = String(env.SILO_MCP_PUBLIC_URL || (base + '/functions/v1/mcp')).replace(/\/+$/, '');
   const metadataUrl = resource + '/.well-known/oauth-protected-resource';
   const issuer = base + '/auth/v1';
+  const iconUrl = resource + '/icon.png';
+
+  /* How a client shows SILO's mark rather than its host's. Each client looks
+     in a different place, so the mark is offered in all of them: MCP's own
+     `icons` on serverInfo (both as a URL and inline, since a client may
+     refuse one form), and RFC 9728's `logo_uri` on the discovery document. */
+  const serverInfo = {
+    ...SERVER_INFO,
+    icons: [
+      { src: iconUrl, mimeType: 'image/png', sizes: ['256x256'] },
+      { src: ICON_DATA_URI, mimeType: 'image/png', sizes: ['256x256'] },
+    ],
+  };
 
   const json = (status, body, extra = {}) => new Response(JSON.stringify(body), {
     status, headers: { ...CORS, 'Content-Type': 'application/json', ...extra },
@@ -168,7 +183,7 @@ export function createMcpHandler({ env, fetchImpl }) {
     return rpcResult(id, {
       protocolVersion: SUPPORTED_PROTOCOLS.includes(asked) ? asked : SUPPORTED_PROTOCOLS[0],
       capabilities: { tools: { listChanged: false } },
-      serverInfo: SERVER_INFO,
+      serverInfo,
       instructions: INSTRUCTIONS,
     });
   }
@@ -239,6 +254,20 @@ export function createMcpHandler({ env, fetchImpl }) {
         scopes_supported: ['openid'],
         resource_name: 'SILO',
         resource_documentation: 'https://get-silo.com',
+        logo_uri: iconUrl,
+      });
+    }
+
+    // The mark, public like the discovery document: a client fetches it
+    // before anyone has signed in.
+    if (path.endsWith('/icon.png')) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        return json(405, { error: 'method_not_allowed' }, { Allow: 'GET, HEAD' });
+      }
+      const bytes = Uint8Array.from(atob(ICON_PNG_BASE64), (c) => c.charCodeAt(0));
+      return new Response(req.method === 'HEAD' ? null : bytes, {
+        status: 200,
+        headers: { ...CORS, 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' },
       });
     }
 
