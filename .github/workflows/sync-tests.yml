@@ -192,6 +192,7 @@ on:
       - 'supabase/functions/mcp/**'
       - 'supabase/migrations/*developer_api_report_catalog.sql'
       - 'scripts/tests/mcp-server.test.mjs'
+      - 'supabase/migrations/*developer_api_company_reports.sql'
       - 'v2/settings-company.html'
       - 'v2/po-builder.html'
       - 'v2/po-document-identity.js'
@@ -1494,6 +1495,14 @@ jobs:
       # connection touch uses SKIP LOCKED. Mutation-tested.
       - name: Execute MCP report speed regressions
         run: node scripts/tests/mcp-report-speed-database.test.mjs
+
+      # 20261030090000: the API / MCP catalog and runner reach a company's own
+      # saved reports. Proves the rows are exactly what RLS shows the person
+      # (shared, own private, system; never another's private or another
+      # company's), the catalog never returns SQL, and every report runs READ
+      # ONLY. Mutation-tested.
+      - name: Execute developer API company report regressions
+        run: node scripts/tests/developer-api-company-reports-database.test.mjs
 
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a

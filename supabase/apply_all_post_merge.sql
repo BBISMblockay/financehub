@@ -19380,4 +19380,8 @@ $c$select (select count(*) from v_po_header_summary
 -- RLS identity) and functions that run SQL text. Replaces
 -- chat_run_readonly_query in place (grants kept). Before the catalog cleanup.
 \i migrations/20261030100000_readonly_query_refuse_identity_switch.sql
+-- Developer API / MCP: list and run a company's own saved reports (RLS
+-- decides which), every report in a READ ONLY transaction, a second catalog
+-- overload for company reports. Then deploy `mcp`. Before the catalog cleanup.
+\i migrations/20261030090000_developer_api_company_reports.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

@@ -198,6 +198,33 @@ test('list_reports returns the catalog exactly as the database gave it', async (
   assert.equal(calls[0].fn, 'silo_api_list_reports');
 });
 
+test('list_reports kind "company" calls the saved-reports search overload, and needs a search', async () => {
+  const { handle, calls } = harness(() => [200, { reports: [], total: 0 }]);
+  const body = await (await handle(post(rpc('tools/call', {
+    name: 'list_reports', arguments: { kind: 'company', search: ' restock ' } })))).json();
+  assert.equal(body.result.isError, false);
+  assert.equal(calls[0].fn, 'silo_api_list_reports');
+  assert.deepEqual(calls[0].body, { p_search: 'restock' });
+  for (const args of [{ kind: 'company' }, { kind: 'company', search: ' x ' }]) {
+    const { handle: h2, calls: c2 } = harness(() => [200, { reports: [] }]);
+    const b2 = await (await h2(post(rpc('tools/call', { name: 'list_reports', arguments: args })))).json();
+    assert.equal(b2.result.isError, true, 'a company listing without a real search term was allowed');
+    assert.equal(c2.length, 0, 'the database was called without a search term');
+  }
+  const { handle: h3, calls: c3 } = harness();
+  await h3(post(rpc('tools/call', { name: 'list_reports', arguments: { kind: 'silo' } })));
+  assert.deepEqual(c3[0].body, {}, 'the built-in catalog is the no-argument overload');
+});
+
+test('list_reports refuses a bad kind or search without reaching the database', async () => {
+  for (const args of [{ kind: 'all' }, { kind: 'company', search: 5 }, { kind: 'company', search: '' }]) {
+    const { handle, calls } = harness();
+    const body = await (await handle(post(rpc('tools/call', { name: 'list_reports', arguments: args })))).json();
+    assert.equal(body.result.isError, true, JSON.stringify(args));
+    assert.equal(calls.length, 0, JSON.stringify(args));
+  }
+});
+
 test('run_report passes exactly the four arguments the database function takes', async () => {
   const { handle, calls } = harness(() => [200, { rows: [{ a: 1 }], has_more: false }]);
   const params = { date_from: '2026-10-01', platform: 'meta_ads' };
