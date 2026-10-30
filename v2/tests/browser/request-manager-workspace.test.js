@@ -202,6 +202,15 @@ const { startSuite, fakeSupabaseScript } = require('../lib/harness');
       assert.equal(await page.locator('#documentPreview iframe').count(),0);
     });
     assert.deepEqual(errors,[]);
+    // SILO's "Open work" report links every payment request here by id.
+    await check('?request=<id> opens that request; an id this person cannot see says so', async () => {
+      const linked = await suite.open('/v2/request_manager.html?request=request-1', fixture, { ready: () => document.getElementById('rowCount')?.textContent === '12' });
+      await linked.waitForFunction(() => document.getElementById('drawerTitle')?.textContent === 'Harbor Freight');
+      assert.equal(await linked.locator('#workbenchDrawer').isVisible(), true);
+      const missing = await suite.open('/v2/request_manager.html?request=not-here', fixture, { ready: () => document.getElementById('rowCount')?.textContent === '12' });
+      await missing.waitForFunction(() => /not available to you/.test(document.getElementById('statusText')?.textContent || ''));
+      assert.equal(await missing.locator('#workbenchDrawer').isVisible(), false);
+    });
     console.log(`${passed} Request Manager checks passed`);
   } finally { await suite.close(); }
 })().catch(err=>{ console.error(err); process.exit(1); });

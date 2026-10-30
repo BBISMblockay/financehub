@@ -34,8 +34,9 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   ok('the first view is curated rather than dumping the whole catalog',
      (await page.locator('.v3-report-card').count()) <= 6
      && (await page.locator('.v3-report-card').count()) < withSql);
-  ok('the catalog is divided into six business-language tabs',
-    (await page.locator('[data-report-tab]').count()) === 6);
+  ok('the catalog is divided into seven business-language tabs, Work among them',
+    (await page.locator('[data-report-tab]').count()) === 7
+      && (await page.locator('[data-report-tab="work"]').count()) === 1);
   ok('a central SILO definition is offered as a widget source',
     (await page.locator('.v3-report-card[data-report="S1"]').count()) === 1);
   ok('the system definition is badged simply as SILO',

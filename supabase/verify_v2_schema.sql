@@ -7856,3 +7856,33 @@ select 'developer API report catalog' as check_name, case
    then 'BROKEN — the report runner''s path fell off the allowlist'
 
   else 'ok' end as status;
+
+-- Work-queue SILO reports (20261030060000): Open work, Launches next 30 days,
+-- Accounting close status. Global rows the MCP server, the developer API,
+-- Ask SILO and dashboards all read, so a missing one is missing everywhere.
+select 'Work-queue reports' as check_name,
+  case
+    when (select count(*) from public.silo_chat_saved_reports
+           where id in ('c7000000-0000-4000-a000-000000000001',
+                        'c7000000-0000-4000-a000-000000000002',
+                        'c7000000-0000-4000-a000-000000000003')
+             and source = 'system' and company_entity_id is null and archived_at is null) <> 3
+      then 'MISSING — a work-queue report is absent or archived. Run 20261030060000_work_queue_reports.sql'
+    -- Never point a global report at a matview: no RLS there.
+    when exists (select 1 from public.silo_chat_saved_reports r, unnest(r.queries_run) q
+                  where r.id in ('c7000000-0000-4000-a000-000000000001',
+                                 'c7000000-0000-4000-a000-000000000002',
+                                 'c7000000-0000-4000-a000-000000000003')
+                    and q ~ '_mv\M')
+      then 'BROKEN — a work-queue report reads a materialized view, which has no RLS and would show every company''s rows'
+    when exists (
+      select 1 from public.silo_chat_saved_reports r
+        join public.silo_report_tieouts t on t.report_id = r.id
+       where r.id in ('c7000000-0000-4000-a000-000000000001',
+                      'c7000000-0000-4000-a000-000000000002',
+                      'c7000000-0000-4000-a000-000000000003')
+         and t.enabled
+         and t.check_sql not like '%' || md5(r.queries_run::text || r.parameters::text) || '%')
+      then 'BROKEN — a work-queue report''s tie-outs still guard the previous definition, so report-tieouts-nightly will read NO DATA. Re-run the tie-out block of 20261030060000_work_queue_reports.sql'
+    else 'ok'
+  end as status;

@@ -18,6 +18,7 @@
     { id: 'marketing', label: 'Marketing' },
     { id: 'inventory', label: 'Inventory' },
     { id: 'purchasing', label: 'Purchasing' },
+    { id: 'work', label: 'Work' },
     { id: 'saved', label: 'Saved' },
   ]);
 
@@ -43,6 +44,16 @@
     'logistics · running thin',
     'ownership · sales vs last year',
     'ownership · marketing efficiency by day',
+  ]);
+
+  // The work-queue reports (20261030060000) answer "what needs doing", not a
+  // business metric, and their titles would otherwise file a launch list
+  // under Marketing and the rest under Saved. Matched by id, so a retitle
+  // cannot move them.
+  const WORK_IDS = new Set([
+    'c7000000-0000-4000-a000-000000000001', // Open work
+    'c7000000-0000-4000-a000-000000000002', // Launches next 30 days
+    'c7000000-0000-4000-a000-000000000003', // Accounting close status
   ]);
 
   const textFor = (report) => [report.title, report.description, report.question]
@@ -74,6 +85,7 @@
 
   function categoryFor(report) {
     if (!report || report.source !== 'system') return 'saved';
+    if (WORK_IDS.has(report.id)) return 'work';
     const title = String(report.title || '').toLowerCase();
     for (const [tab, rule] of TITLE_RULES) if (rule.test(title)) return tab;
     const text = textFor(report);

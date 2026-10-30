@@ -3036,6 +3036,16 @@
         if (qQueue) state.queueFilter = qQueue;
 
         await loadData();
+
+        // Deep link: ?request=<id> opens that request's drawer. SILO's work
+        // reports (and anything reading them over the API) link each row
+        // here. RLS already decided which rows loaded, so a request this
+        // person cannot see is simply not found.
+        const qRequest = new URLSearchParams(location.search).get("request");
+        if (qRequest) {
+          if (state.rows.some(r => r.id === qRequest)) await openDrawer(qRequest);
+          else setStatus("That payment request is not available to you in this company.", true);
+        }
       } catch (err) {
         console.error(err);
         setStatus(`Init failed: ${err.message || "Unknown error"}`, true);

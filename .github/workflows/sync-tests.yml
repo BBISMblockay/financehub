@@ -1479,6 +1479,14 @@ jobs:
       - name: Execute SEO report regressions
         run: node scripts/tests/seo-silo-report-database.test.mjs
 
+      # 20261030060000: work-queue SILO reports (Open work, Launches next 30
+      # days, Accounting close status). Runs the deployed SQL as a non-owner
+      # role over two companies behind RLS, checks whose work is "mine", the
+      # deep links, and every tie-out, each shown to fail when its report
+      # drops or gains rows.
+      - name: Execute work-queue report regressions
+        run: node scripts/tests/work-queue-reports-database.test.mjs
+
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a
       # later edit, and a cleared flag carries no stale author or note.
