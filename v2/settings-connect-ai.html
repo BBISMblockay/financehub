@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO · Connect AI</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="workspace-settings.css" />
+  <style>
+    /* Page-specific only. Everything structural is Beacon or workspace-settings.css. */
+    .ca-url {display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;}
+    .ca-url input {flex:1 1 320px;min-width:0;font-family:var(--bcn-mono);font-size:12px;}
+    .ca-panes {margin-top:14px;}
+    .ca-pane[hidden] {display:none;}
+    .ca-steps {margin:0 0 14px;padding-left:20px;font-size:12px;color:var(--bcn-ink-2);line-height:1.7;max-width:76ch;}
+    .ca-steps code, .ca-inline-code {font-family:var(--bcn-mono);font-size:11px;background:var(--bcn-sunken);
+      border:1px solid var(--bcn-border);border-radius:4px;padding:1px 5px;}
+    .ca-cmd {display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;margin-bottom:10px;}
+    .ca-cmd input {flex:1 1 320px;min-width:0;font-family:var(--bcn-mono);font-size:11.5px;}
+    .ca-prompt {display:flex;gap:10px;align-items:center;justify-content:space-between;
+      padding:9px 12px;border:1px solid var(--bcn-border);border-radius:7px;background:var(--bcn-surface);
+      margin-bottom:8px;font-size:12.5px;color:var(--bcn-ink);}
+    .ca-prompt:last-child {margin-bottom:0;}
+    .ca-prompt span {min-width:0;}
+    .ca-reports {margin:10px 0 0;font-size:12px;}
+    .ca-reports summary {cursor:pointer;font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3);}
+    .ca-reports ul {margin:10px 0 0;padding-left:20px;line-height:1.7;color:var(--bcn-ink-2);columns:2;}
+    @media (max-width:760px) { .ca-reports ul {columns:1;} }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="workspace-settings.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main workspace-settings">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>Connect AI</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed">Let your own AI assistant read this workspace's reports.</div>
+        </div>
+      </header>
+
+      <div class="ws-page">
+        <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
+
+        <div class="ws-card">
+          <div class="ws-card-head">
+            <div class="ws-title">SILO's server address</div>
+            <div class="ws-sub">Paste this wherever your assistant asks for an MCP server</div>
+          </div>
+          <div class="ws-body">
+            <div class="ca-url">
+              <input type="text" class="bcn-field" id="mcpUrl" readonly value="Loading…"
+                     aria-label="SILO MCP server address" />
+              <button class="bcn-btn bcn-btn--primary" id="btnCopyUrl" type="button">Copy address</button>
+            </div>
+            <p class="ws-note" style="margin-top:12px;">
+              There is no key or password to paste. Your assistant sends you back here to sign in to
+              SILO and approve it, which needs your two-step code, and you can disconnect it at any
+              time on <a href="/v2/settings-connected-apps.html">Connected apps</a>.
+            </p>
+          </div>
+        </div>
+
+        <div class="ws-card">
+          <div class="ws-card-head">
+            <div class="ws-title">Set it up</div>
+            <div class="ws-sub" id="clientSub">Pick the assistant you use</div>
+          </div>
+          <div class="ws-body">
+            <nav class="bcn-tabs" id="clientTabs" role="tablist" aria-label="AI assistant"></nav>
+            <div class="ca-panes" id="clientPanes"></div>
+          </div>
+        </div>
+
+        <div class="ws-card">
+          <div class="ws-card-head">
+            <div class="ws-title">What a connection can do</div>
+            <div class="ws-sub" id="scopeSub">Read-only</div>
+          </div>
+          <div class="ws-body">
+            <p class="ws-note">
+              A connected assistant can run SILO's built-in reports and read the rows they return. It
+              cannot change anything, cannot read a table directly, and cannot see any company other
+              than <strong id="coName">this one</strong>. It acts as you, so it sees exactly what you
+              can see. Connections end after 90 days, and stop working after 30 days unused.
+            </p>
+            <details class="ca-reports" id="reportsBox">
+              <summary id="reportsSummary">Loading the report list…</summary>
+              <ul id="reportsList"></ul>
+            </details>
+          </div>
+        </div>
+
+        <div class="ws-card">
+          <div class="ws-card-head">
+            <div class="ws-title">Something to ask it first</div>
+            <div class="ws-sub">Copy one of these into your assistant</div>
+          </div>
+          <div class="ws-body">
+            <div id="prompts"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+    return;
+  }
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const n = el('status');
+    n.className = 'bcn-status bcn-status--' + type;
+    n.textContent = msg; n.hidden = false;
+    if (ms) setTimeout(() => { n.hidden = true; }, ms);
+  }
+
+  /* The address a client is told to use is the edge function's own
+     configuration (SILO_MCP_PUBLIC_URL), which a static page cannot read. So
+     the default is derived, and then the server's RFC 9728 discovery document
+     -- public, no token -- is asked what it actually calls itself. That way the
+     day the custom domain is switched on, this page is right without a deploy.
+     A failed fetch leaves the derived value, which is correct today. */
+  const DERIVED = SUPABASE_URL.replace(/\/+$/, '') + '/functions/v1/mcp';
+  let MCP_URL = DERIVED;
+
+  async function resolveUrl() {
+    el('mcpUrl').value = MCP_URL;
+    try {
+      const res = await fetch(DERIVED + '/.well-known/oauth-protected-resource');
+      if (!res.ok) return;
+      const body = await res.json();
+      const r = typeof body?.resource === 'string' ? body.resource.replace(/\/+$/, '') : '';
+      if (/^https:\/\/[^\s]+$/.test(r)) MCP_URL = r;
+    } catch (_) { /* derived value stands */ }
+    el('mcpUrl').value = MCP_URL;
+    renderClients();
+  }
+
+  async function copy(text, label) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus(label + ' copied.', 'pos', 2500);
+    } catch (_) {
+      setStatus('Could not copy automatically — select the text and copy it.', 'warn', 5000);
+    }
+  }
+
+  /* One entry per client. `steps` is HTML (the only interpolation is MCP_URL,
+     which is built above from configuration, never from anything a user typed).
+     Each action is either a copy button or a real link; nothing here pretends
+     to be a one-click install where the client does not publish one.
+
+     Checked 2026-10-30: Cursor documents an install deeplink
+     (docs.cursor.com/deeplinks); VS Code documents `code --add-mcp` and its
+     badge links point at vscode.dev/redirect/mcp/install; Claude Code
+     documents `claude mcp add --transport http`; claude.ai and ChatGPT are
+     paste-the-URL flows with no documented deeplink. */
+  function clients() {
+    const u = MCP_URL;
+    const cursorCfg = encodeURIComponent(btoa(JSON.stringify({ url: u })));
+    const vscodeCfg = encodeURIComponent(JSON.stringify({ name: 'silo', type: 'http', url: u }));
+    return [
+      {
+        id: 'claude',
+        label: 'Claude',
+        steps: 'Works in Claude on the web, desktop and mobile.<ol class="ca-steps">'
+          + '<li>Open <strong>Settings → Connectors</strong> in Claude.</li>'
+          + '<li>Choose <strong>Add custom connector</strong>.</li>'
+          + '<li>Name it <span class="ca-inline-code">SILO</span> and paste the address above as the URL.</li>'
+          + '<li>Click <strong>Connect</strong>. Claude sends you to SILO; approve it with your two-step code.</li>'
+          + '</ol>',
+        actions: [
+          { kind: 'link', label: 'Open Claude connectors', href: 'https://claude.ai/settings/connectors' },
+          { kind: 'copy', label: 'Copy address', value: u, name: 'Address' },
+        ],
+      },
+      {
+        id: 'claude-code',
+        label: 'Claude Code',
+        steps: 'Run this once in a terminal, then <span class="ca-inline-code">/mcp</span> inside Claude Code to sign in.',
+        cmd: 'claude mcp add --transport http silo --scope user ' + u,
+      },
+      {
+        id: 'chatgpt',
+        label: 'ChatGPT',
+        steps: 'ChatGPT reaches outside servers through its own connector settings; there is no install link to click.<ol class="ca-steps">'
+          + '<li>Open <strong>Settings → Connectors</strong> in ChatGPT and turn on <strong>developer mode</strong> if it is offered.</li>'
+          + '<li>Add an <strong>MCP server</strong> and paste the address above.</li>'
+          + '<li>Finish the sign-in it sends you to, and approve SILO with your two-step code.</li>'
+          + '</ol>Custom MCP connectors are not available on every ChatGPT plan.',
+        actions: [{ kind: 'copy', label: 'Copy address', value: u, name: 'Address' }],
+      },
+      {
+        id: 'cursor',
+        label: 'Cursor',
+        steps: 'The button opens Cursor and offers to add SILO. Cursor then asks you to sign in, which brings you back here to approve it.',
+        actions: [
+          { kind: 'link', label: 'Add to Cursor', href: 'cursor://anysphere.cursor-deeplink/mcp/install?name=silo&config=' + cursorCfg, sameTab: true },
+          { kind: 'copy', label: 'Copy config', value: JSON.stringify({ mcpServers: { silo: { url: u } } }, null, 2), name: 'Config' },
+        ],
+      },
+      {
+        id: 'vscode',
+        label: 'VS Code',
+        steps: 'The button hands the server to VS Code; the command does the same thing from a terminal.',
+        cmd: "code --add-mcp '" + JSON.stringify({ name: 'silo', type: 'http', url: u }) + "'",
+        actions: [
+          { kind: 'link', label: 'Add to VS Code', href: 'https://vscode.dev/redirect/mcp/install?name=silo&config=' + vscodeCfg },
+        ],
+      },
+      {
+        id: 'other',
+        label: 'Something else',
+        steps: 'Any client that speaks MCP over Streamable HTTP can connect. Give it the address above; it registers itself and starts the sign-in on its own, so there is nothing to create here first.<ol class="ca-steps">'
+          + '<li>Transport: <span class="ca-inline-code">http</span> (Streamable HTTP).</li>'
+          + '<li>Authentication: OAuth 2.1 with dynamic client registration — no key, no secret.</li>'
+          + '<li>Tools: list reports, run report. Read-only.</li>'
+          + '</ol>',
+        actions: [
+          { kind: 'copy', label: 'Copy config', value: JSON.stringify({ mcpServers: { silo: { type: 'http', url: u } } }, null, 2), name: 'Config' },
+        ],
+      },
+    ];
+  }
+
+  let _active = 'claude';
+
+  function renderClients() {
+    const list = clients();
+    if (!list.some((c) => c.id === _active)) _active = list[0].id;
+
+    el('clientTabs').innerHTML = list.map((c) => '<button class="bcn-tab'
+      + (c.id === _active ? ' bcn-tab--active' : '') + '" role="tab" type="button"'
+      + ' aria-selected="' + (c.id === _active ? 'true' : 'false') + '"'
+      + ' data-client="' + esc(c.id) + '">' + esc(c.label) + '</button>').join('');
+
+    el('clientPanes').innerHTML = list.map((c) => {
+      const cmd = c.cmd
+        ? '<div class="ca-cmd"><input type="text" class="bcn-field" readonly value="' + esc(c.cmd)
+          + '" aria-label="Command for ' + esc(c.label) + '" />'
+          + '<button class="bcn-btn bcn-btn--primary" data-copy="' + esc(c.cmd) + '" data-copy-name="Command" type="button">Copy command</button></div>'
+        : '';
+      const actions = (c.actions || []).map((a) => (a.kind === 'link'
+        ? '<a class="bcn-btn bcn-btn--primary" href="' + esc(a.href) + '"'
+          + (a.sameTab ? '' : ' target="_blank" rel="noopener noreferrer"') + '>' + esc(a.label) + '</a>'
+        : '<button class="bcn-btn bcn-btn--ghost" type="button" data-copy="' + esc(a.value)
+          + '" data-copy-name="' + esc(a.name || 'Text') + '">' + esc(a.label) + '</button>')).join('');
+      return '<section class="ca-pane" data-client="' + esc(c.id) + '"'
+        + (c.id === _active ? '' : ' hidden') + '>'
+        + '<p class="ws-note" style="margin-bottom:12px;">' + c.steps + '</p>'
+        + cmd + (actions ? '<div class="ws-actions">' + actions + '</div>' : '')
+        + '</section>';
+    }).join('');
+
+    el('clientTabs').querySelectorAll('[data-client]').forEach((b) => {
+      b.addEventListener('click', () => { _active = b.dataset.client; renderClients(); });
+    });
+    el('clientPanes').querySelectorAll('[data-copy]').forEach((b) => {
+      b.addEventListener('click', () => copy(b.dataset.copy, b.dataset.copyName || 'Text'));
+    });
+  }
+
+  /* Deliberately about what SILO can answer rather than about MCP: the point
+     of the connection is the question, and someone who has just connected has
+     no idea what to type. Each one is answerable by the report catalog below. */
+  const PROMPTS = [
+    'Using SILO, what needs my attention today?',
+    'Using SILO, which payment requests are overdue, and who is waiting on them?',
+    'Using SILO, how did sales run last week against the week before?',
+    'Using SILO, which product launches are coming up in the next 30 days?',
+    'Using SILO, where does the accounting close stand right now?',
+    'Using SILO, which discount codes cost us the most margin last month?',
+  ];
+
+  function renderPrompts() {
+    el('prompts').innerHTML = PROMPTS.map((p) => '<div class="ca-prompt"><span>' + esc(p) + '</span>'
+      + '<button class="bcn-btn bcn-btn--ghost" type="button" data-prompt="' + esc(p) + '">Copy</button></div>').join('');
+    el('prompts').querySelectorAll('[data-prompt]').forEach((b) => {
+      b.addEventListener('click', () => copy(b.dataset.prompt, 'Prompt'));
+    });
+  }
+
+  /* The real catalog, read with this person's own session from the same view
+     silo_api_list_reports() reads (source = 'system', not archived). Hard-coding
+     a count would be wrong within the week -- it went 21 -> 24 on 2026-10-30. */
+  async function loadReports() {
+    const { data, error } = await db.from('silo_chat_saved_reports_v')
+      .select('title, source, archived_at')
+      .eq('source', 'system')
+      .is('archived_at', null)
+      .order('title');
+    if (error || !Array.isArray(data)) {
+      el('reportsSummary').textContent = 'The report list could not be loaded.';
+      el('reportsBox').open = false;
+      return;
+    }
+    el('reportsSummary').textContent = data.length + ' reports it can run — see the list';
+    el('scopeSub').textContent = data.length + ' reports, read-only';
+    el('reportsList').innerHTML = data.map((r) => '<li>' + esc(r.title) + '</li>').join('');
+  }
+
+  (async function boot() {
+    const sess = await db.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname);
+      return;
+    }
+    const user = sess.data.session.user;
+    const co = await cfg.ensureActiveCompany?.(db) || null;
+    const { data: profile } = await db.from('profiles').select('email, role').eq('id', user.id).maybeSingle();
+
+    window.SiloChrome?.mount({
+      appEl: '#silo-app', active: 'settings/connect-ai',
+      user: { email: profile?.email || user.email || '', role: profile?.role || '' },
+      crumbs: ['Settings', 'Connect AI'], supabaseClient: db,
+    });
+
+    if (co?.title) el('coName').textContent = co.title;
+
+    renderClients();
+    renderPrompts();
+    el('btnCopyUrl').addEventListener('click', () => copy(MCP_URL, 'Address'));
+
+    await resolveUrl();
+    await loadReports();
+  })().catch((e) => {
+    console.error(e);
+    setStatus('Unexpected error: ' + (e?.message || e), 'neg');
+  });
+})();
+</script>
+</body>
+</html>

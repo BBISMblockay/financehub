@@ -52,7 +52,8 @@ test('the settings tabs are one click apart and the current one is identified', 
   const ids = nav.WORKSPACE_SETTINGS_PAGES.map(([id]) => id);
   assert.deepEqual(ids, [
     'settings/company', 'settings/team', 'settings/integrations',
-    'settings/billing', 'settings/notifications', 'settings/connected-apps',
+    'settings/billing', 'settings/notifications', 'settings/connect-ai',
+    'settings/connected-apps',
   ]);
   for (const active of ids) {
     const m = mountStrip(active);
