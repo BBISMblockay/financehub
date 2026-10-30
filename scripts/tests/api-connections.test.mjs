@@ -31,7 +31,9 @@ vm.runInContext(readFileSync('v2/api-connections.js', 'utf8'), ctx);
 const K = ctx.window.SiloApiConnections;
 
 const CONSENT = readFileSync('v2/api-consent.html', 'utf8');
-const APPS = readFileSync('v2/settings-connected-apps.html', 'utf8');
+// Connected apps merged into Connect AI on 2026-10-30; the old URL is a stub.
+const APPS = readFileSync('v2/settings-connect-ai.html', 'utf8');
+const STUB = readFileSync('v2/settings-connected-apps.html', 'utf8');
 const IDLE_MIG = readFileSync(
   'supabase/migrations/20261028070000_developer_api_idle_disconnect.sql', 'utf8');
 
@@ -292,6 +294,61 @@ test('the owner section is gated on owner_admin of the active company', () => {
     "matches silo_api_revoke()'s own test, not is_admin_user()");
 });
 
+// ── 4b. Removing an app, as the person reads it ───────────────────────────
+
+test('removing takes a confirm, and only the confirm revokes', () => {
+  // A one-click Remove sits beside other cards; the wrong application being
+  // disconnected is a silent, annoying failure to recover from.
+  const ask = APPS.indexOf('function askToRemove');
+  const rpc = APPS.indexOf("rpc('silo_api_revoke'");
+  assert.ok(ask > 0, 'there is a confirm step');
+  assert.match(APPS.slice(ask, APPS.indexOf('function wireCard')), /data-confirm/);
+  const wire = APPS.slice(APPS.indexOf('function wireCard'), APPS.indexOf('/* A removed application'));
+  assert.match(wire, /data-ask/, 'the resting state is Remove, not Confirm');
+  assert.match(wire, /addEventListener\('click', \(\) => askToRemove\(card, g\)\)/,
+    'the first click asks');
+  assert.doesNotMatch(wire, /revoke\(card/, 'the first click never revokes');
+  assert.ok(rpc > ask, 'the revoke lives past the confirm');
+});
+
+test('a removed application leaves the page, and never comes back on a reload', () => {
+  assert.match(APPS, /function dropCard/, 'the card is taken off the page');
+  assert.match(APPS, /const live = \(rows\) => \(rows \|\| \[\]\)\.filter\(\(g\) => !g\.revoked_at\)/,
+    'the lists carry live connections only');
+  assert.match(APPS, /paint\('gridMine', 'mineSub', live\(mine\)/);
+});
+
+test('the grant row itself is still never written from the browser', () => {
+  // dropCard() is a DOM removal. The database record stays; silo_api_revoke()
+  // is what stops the access.
+  const fn = APPS.slice(APPS.indexOf('function dropCard'), APPS.indexOf('async function load'));
+  assert.doesNotMatch(fn, /\.delete\(|\.update\(/);
+});
+
+test('both pages draw an application mark, and fall back to its initial', () => {
+  const CONNECT = readFileSync('v2/settings-connect-ai.html', 'utf8');
+  const MARKS = readFileSync('v2/app-marks.js', 'utf8');
+  assert.match(APPS, /src="app-marks\.js"/, 'the page loads the marks');
+  assert.match(APPS, /SiloAppMarks\.forName\(/, 'a connected app gets its own mark');
+  assert.match(APPS, /SiloAppMarks\.svg\(/, 'so does each app you can add');
+  // A logo beside the WRONG application is worse than no logo.
+  assert.match(MARKS, /function letterBadge/);
+  assert.match(MARKS, /for \(const \[re, key\] of NAME_RULES\) if \(re\.test\(s\)\) return key;\n\s*return null;/,
+    'an unrecognised name resolves to no mark, not to a default logo');
+  // Drawn here, so the settings page needs no third-party request.
+  assert.doesNotMatch(MARKS, /https?:\/\//);
+});
+
+test('"Claude Code" is not matched by the bare Claude rule', () => {
+  const ctx2 = vm.createContext({ window: {} });
+  vm.runInContext(readFileSync('v2/app-marks.js', 'utf8'), ctx2);
+  const M = ctx2.window.SiloAppMarks;
+  assert.equal(M.keyForName('Claude Code'), 'claude-code');
+  assert.equal(M.keyForName('Claude'), 'claude');
+  assert.equal(M.keyForName('VS Code'), 'vscode');
+  assert.equal(M.keyForName('Power BI'), null, 'an app with no mark gets none');
+});
+
 // ── 5. Page wiring ────────────────────────────────────────────────────────
 
 test('the consent page preserves authorization_id across login', () => {
@@ -304,7 +361,7 @@ test('the consent page makes the company a choice, not an inheritance', () => {
 });
 
 test('both pages load the shared module and neither hardcodes credentials', () => {
-  for (const [name, src] of [['api-consent', CONSENT], ['settings-connected-apps', APPS]]) {
+  for (const [name, src] of [['api-consent', CONSENT], ['settings-connect-ai', APPS]]) {
     assert.match(src, /src="api-connections\.js"/, `${name} loads the shared module`);
     assert.match(src, /cfg\.SUPABASE_ANON_KEY/, `${name} reads config`);
     assert.doesNotMatch(src, /eyJ[A-Za-z0-9_-]{20,}/, `${name} has no baked-in key`);
@@ -312,10 +369,17 @@ test('both pages load the shared module and neither hardcodes credentials', () =
   }
 });
 
-test('Connected apps is a Workspace Settings tab with an icon', () => {
+test('Connect AI is the one Workspace Settings tab, with an icon', () => {
   const nav = readFileSync('v2/nav-config.js', 'utf8');
   const strip = readFileSync('v2/workspace-settings.js', 'utf8');
-  assert.match(nav, /\['settings\/connected-apps','Connected apps','settings-connected-apps\.html'\]/);
-  assert.match(strip, /'settings\/connected-apps':\s*'</,
+  assert.match(nav, /\['settings\/connect-ai','Connect AI','settings-connect-ai\.html'\]/);
+  assert.doesNotMatch(nav, /settings\/connected-apps/,
+    'the two tabs merged; a second one would be the same subject twice');
+  assert.match(strip, /'settings\/connect-ai':\s*'</,
     'a tab with no icon falls back to a plain page mark and reads as unfinished');
+});
+
+test('the old Connected apps URL still lands somewhere, carrying no logic', () => {
+  assert.match(STUB, /location\.replace\('\/v2\/settings-connect-ai\.html'/);
+  assert.doesNotMatch(STUB, /createClient|silo_api_/, 'a stub redirect, not a second copy');
 });

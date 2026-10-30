@@ -53,7 +53,6 @@ test('the settings tabs are one click apart and the current one is identified', 
   assert.deepEqual(ids, [
     'settings/company', 'settings/team', 'settings/integrations',
     'settings/billing', 'settings/notifications', 'settings/connect-ai',
-    'settings/connected-apps',
   ]);
   for (const active of ids) {
     const m = mountStrip(active);

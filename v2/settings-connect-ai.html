@@ -11,7 +11,15 @@
     /* Page-specific only. Everything structural is Beacon or workspace-settings.css. */
     .ca-url {display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;}
     .ca-url input {flex:1 1 320px;min-width:0;font-family:var(--bcn-mono);font-size:12px;}
-    .ca-panes {margin-top:14px;}
+    .ca-apps {display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
+    .ca-app {display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:12px 13px;
+      border:1px solid var(--bcn-border);border-radius:9px;background:var(--bcn-surface);cursor:pointer;
+      text-align:left;font:inherit;color:var(--bcn-ink);transition:border-color .12s,box-shadow .12s;}
+    .ca-app:hover {border-color:var(--bcn-ink-3);}
+    .ca-app[aria-pressed="true"] {border-color:var(--bcn-accent);box-shadow:inset 0 0 0 1px var(--bcn-accent);}
+    .ca-app-name {font-size:13px;font-weight:650;}
+    .ca-app-what {font-size:11px;color:var(--bcn-ink-3);line-height:1.4;}
+    .ca-panes {margin-top:16px;padding-top:14px;border-top:1px solid var(--bcn-border);}
     .ca-pane[hidden] {display:none;}
     .ca-steps {margin:0 0 14px;padding-left:20px;font-size:12px;color:var(--bcn-ink-2);line-height:1.7;max-width:76ch;}
     .ca-steps code, .ca-inline-code {font-family:var(--bcn-mono);font-size:11px;background:var(--bcn-sunken);
@@ -26,6 +34,21 @@
     .ca-reports {margin:10px 0 0;font-size:12px;}
     .ca-reports summary {cursor:pointer;font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3);}
     .ca-reports ul {margin:10px 0 0;padding-left:20px;line-height:1.7;color:var(--bcn-ink-2);columns:2;}
+    .cn-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:12px;}
+    .cn-app {display:flex;gap:12px;padding:13px 14px;border:1px solid var(--bcn-border);
+      border-radius:9px;background:var(--bcn-surface);}
+    .cn-mark {flex:none;width:38px;height:38px;border-radius:9px;background:var(--bcn-sunken);
+      display:flex;align-items:center;justify-content:center;}
+    .app-mark-letter {font-family:var(--bcn-mono);font-size:15px;font-weight:650;color:var(--bcn-ink-2);}
+    .cn-body {min-width:0;flex:1;}
+    .cn-name {font-size:13.5px;font-weight:650;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    .cn-meta {margin-top:5px;font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3);
+      line-height:1.65;}
+    .cn-actions {margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+    .cn-ask {font-size:11.5px;color:var(--bcn-ink-2);}
+    .cn-empty {padding:22px;text-align:center;color:var(--bcn-ink-3);font-size:13px;
+      border:1px dashed var(--bcn-border);border-radius:9px;}
+
     @media (max-width:760px) { .ca-reports ul {columns:1;} }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -37,6 +60,8 @@
   <script src="silo-chrome.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
+  <script src="app-marks.js"></script>
+  <script src="api-connections.js"></script>
 </head>
 <body>
   <div class="silo-app" id="silo-app">
@@ -44,7 +69,7 @@
       <header class="bcn-header">
         <div class="bcn-header-title">
           <div>Connect AI</div>
-          <div class="bcn-header-sub bcn-header-sub--trimmed">Let your own AI assistant read this workspace's reports.</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed">Your own AI, reading this workspace’s reports.</div>
         </div>
       </header>
 
@@ -53,8 +78,31 @@
 
         <div class="ws-card">
           <div class="ws-card-head">
-            <div class="ws-title">SILO's server address</div>
-            <div class="ws-sub">Paste this wherever your assistant asks for an MCP server</div>
+            <div class="ws-title">Your apps</div>
+            <div class="ws-sub" id="mineSub">—</div>
+          </div>
+          <div class="ws-body">
+            <div class="cn-grid" id="gridMine"><div class="cn-empty">Loading…</div></div>
+          </div>
+        </div>
+
+        <!-- Owners only, and REMOVED rather than hidden when it does not
+             apply: an empty card titled "Everyone's apps" reads as a
+             permission problem to someone who simply is not an owner. -->
+        <div class="ws-card" id="cardCompany" hidden>
+          <div class="ws-card-head">
+            <div class="ws-title">Everyone’s apps</div>
+            <div class="ws-sub" id="coSub">—</div>
+          </div>
+          <div class="ws-body">
+            <div class="cn-grid" id="gridCompany"><div class="cn-empty">Loading…</div></div>
+          </div>
+        </div>
+
+        <div class="ws-card">
+          <div class="ws-card-head">
+            <div class="ws-title">Add an app</div>
+            <div class="ws-sub" id="clientSub">Read-only, this company, as you</div>
           </div>
           <div class="ws-body">
             <div class="ca-url">
@@ -62,36 +110,23 @@
                      aria-label="SILO MCP server address" />
               <button class="bcn-btn bcn-btn--primary" id="btnCopyUrl" type="button">Copy address</button>
             </div>
-            <p class="ws-note" style="margin-top:12px;">
-              There is no key or password to paste. Your assistant sends you back here to sign in to
-              SILO and approve it, which needs your two-step code, and you can disconnect it at any
-              time on <a href="/v2/settings-connected-apps.html">Connected apps</a>.
+            <p class="ws-note" style="margin:10px 0 16px;">
+              No key to paste. The app sends you back here and you approve it with your two-step code.
             </p>
-          </div>
-        </div>
-
-        <div class="ws-card">
-          <div class="ws-card-head">
-            <div class="ws-title">Set it up</div>
-            <div class="ws-sub" id="clientSub">Pick the assistant you use</div>
-          </div>
-          <div class="ws-body">
-            <nav class="bcn-tabs" id="clientTabs" role="tablist" aria-label="AI assistant"></nav>
+            <div class="ca-apps" id="clientTabs" role="group" aria-label="AI assistant"></div>
             <div class="ca-panes" id="clientPanes"></div>
           </div>
         </div>
 
         <div class="ws-card">
           <div class="ws-card-head">
-            <div class="ws-title">What a connection can do</div>
+            <div class="ws-title">What an app can read</div>
             <div class="ws-sub" id="scopeSub">Read-only</div>
           </div>
           <div class="ws-body">
             <p class="ws-note">
-              A connected assistant can run SILO's built-in reports and read the rows they return. It
-              cannot change anything, cannot read a table directly, and cannot see any company other
-              than <strong id="coName">this one</strong>. It acts as you, so it sees exactly what you
-              can see. Connections end after 90 days, and stop working after 30 days unused.
+              Runs SILO’s reports for <strong id="coName">this company</strong> and nothing else: no
+              writes, no tables, no other company. Ends after 90 days, or 30 days unused.
             </p>
             <details class="ca-reports" id="reportsBox">
               <summary id="reportsSummary">Loading the report list…</summary>
@@ -102,8 +137,8 @@
 
         <div class="ws-card">
           <div class="ws-card-head">
-            <div class="ws-title">Something to ask it first</div>
-            <div class="ws-sub">Copy one of these into your assistant</div>
+            <div class="ws-title">Try asking</div>
+            <div class="ws-sub">Copy into your app</div>
           </div>
           <div class="ws-body">
             <div id="prompts"></div>
@@ -125,15 +160,229 @@
     return;
   }
   const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const K = window.SiloApiConnections;
   const el = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  let _co = null, _user = null, _isOwner = false;
+  let _active = 'claude';
+  let _names = {};   // client_id -> readable name, from Supabase's own grant list
+  let _cos = {};     // company_entity_id -> title
+
+  const fmtDate = (v) => (v ? new Date(v).toLocaleDateString(undefined,
+    { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
 
   function setStatus(msg, type = 'info', ms = 0) {
     const n = el('status');
     n.className = 'bcn-status bcn-status--' + type;
     n.textContent = msg; n.hidden = false;
     if (ms) setTimeout(() => { n.hidden = true; }, ms);
+  }
+
+  /* Names come from Supabase's own record of what this person authorized,
+     because silo_api_grants stores only the client_id. Available for the
+     person's OWN connections only -- there is no admin-side listing -- so an
+     owner looking at someone else's connection sees the id. Better that than
+     a name we invented.
+
+     The SDK method is `listGrants`. Supabase's own guide calls it
+     `getUserGrants()`, and coding the documented name shipped a lookup that
+     silently did nothing: every row read "Application 0307bcaf" instead of
+     "SILO Test Client" (found on the first live connection, 2026-10-29). Both
+     names are tried, then the HTTP endpoint they both wrap, because the CDN
+     tag here floats and this is exactly the kind of thing that moves. */
+  async function loadNames() {
+    let rows = null;
+    try {
+      const o = db.auth && db.auth.oauth;
+      const list = o && (o.listGrants || o.getUserGrants);
+      if (list) {
+        const { data, error } = await list.call(o);
+        if (!error) rows = data;
+      }
+      if (!Array.isArray(rows)) rows = await grantsOverHttp();
+    } catch (_) { /* a missing name is cosmetic; never let it fail the page */ }
+    for (const g of (Array.isArray(rows) ? rows : [])) {
+      const id = g?.client_id || g?.client?.id;
+      const name = g?.client_name || g?.client?.name;
+      if (id && name) _names[id] = name;
+    }
+  }
+
+  async function grantsOverHttp() {
+    const { data: s } = await db.auth.getSession();
+    const token = s?.session?.access_token;
+    if (!token) return null;
+    const res = await fetch(SUPABASE_URL.replace(/\/+$/, '') + '/auth/v1/user/oauth/grants', {
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + token },
+    });
+    if (!res.ok) return null;
+    const body = await res.json().catch(() => null);
+    // The endpoint has answered as a bare array; tolerate a wrapper too.
+    return Array.isArray(body) ? body : (Array.isArray(body?.grants) ? body.grants : null);
+  }
+
+  function statusPill(g) {
+    const st = K.grantStatus(g, new Date());
+    const c = K.STATUS_COPY[st] || K.STATUS_COPY.unknown;
+    return '<span class="bcn-pill bcn-pill--' + esc(c.tone) + '" title="' + esc(c.detail) + '">'
+      + esc(c.label) + '</span>';
+  }
+
+  /* One card per connection, with the application's own mark where SILO has
+     one and its initial where it does not -- never a guessed logo beside a
+     live connection. */
+  function cardsFor(list, opts) {
+    if (!list.length) return '<div class="cn-empty">' + esc(opts.empty) + '</div>';
+    return list.map((g) => {
+      const name = K.displayName(_names[g.client_id], g.client_id);
+      const who = opts.showWho
+        ? 'Approved by ' + esc(g.user_id === _user.id ? 'you' : (g.approver_email || g.user_id))
+        : esc(_cos[g.company_entity_id] || 'Company unknown');
+      return '<div class="cn-app" data-grant="' + esc(g.id) + '">'
+        + '<div class="cn-mark">' + window.SiloAppMarks.forName(name, 22) + '</div>'
+        + '<div class="cn-body">'
+        + '<div class="cn-name">' + esc(name) + statusPill(g) + '</div>'
+        + '<div class="cn-meta">' + who + '<br />Approved ' + esc(fmtDate(g.consented_at))
+        + ' · Last used ' + esc(g.last_used_at ? fmtDate(g.last_used_at) : 'never') + '</div>'
+        + '<div class="cn-actions" data-actions>'
+        + '<button class="bcn-btn bcn-btn--danger" type="button" data-ask="' + esc(g.id) + '">Remove app</button>'
+        + '</div></div></div>';
+    }).join('');
+  }
+
+  /* Removing an app is one click plus a confirm, in the card itself rather
+     than a dialog: the question is about THIS row, and a modal that names an
+     application is how someone disconnects the wrong one. */
+  function askToRemove(card, g) {
+    const box = card.querySelector('[data-actions]');
+    box.innerHTML = '<span class="cn-ask">Remove this app\u2019s access?</span>'
+      + '<button class="bcn-btn bcn-btn--danger" type="button" data-confirm>Remove</button>'
+      + '<button class="bcn-btn bcn-btn--ghost" type="button" data-cancel>Keep</button>';
+    box.querySelector('[data-cancel]').addEventListener('click', () => { wireCard(card, g); });
+    box.querySelector('[data-confirm]').addEventListener('click', async () => {
+      box.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+      await revoke(card, g);
+    });
+  }
+
+  function wireCard(card, g) {
+    const box = card.querySelector('[data-actions]');
+    box.innerHTML = '<button class="bcn-btn bcn-btn--danger" type="button" data-ask="'
+      + esc(g.id) + '">Remove app</button>';
+    box.querySelector('[data-ask]').addEventListener('click', () => askToRemove(card, g));
+  }
+
+  /* A removed application LEAVES the page, both copies of it: the person said
+     this app should not be able to read SILO, and a row that stays behind
+     reading "Disconnected" invites the question of whether it worked. The
+     grant row itself is untouched -- the database keeps the record, and
+     silo_api_revoke() is what stops the access. */
+  function dropCard(grantId) {
+    document.querySelectorAll('.cn-app[data-grant="' + CSS.escape(grantId) + '"]').forEach((n) => {
+      const grid = n.parentElement;
+      n.remove();
+      if (grid && !grid.querySelector('.cn-app')) {
+        grid.innerHTML = '<div class="cn-empty">' + esc(grid.dataset.empty || 'Nothing connected.') + '</div>';
+      }
+    });
+    for (const [gridId, subId] of [['gridMine', 'mineSub'], ['gridCompany', 'coSub']]) {
+      const grid = el(gridId);
+      if (grid) el(subId).textContent = grid.querySelectorAll('.cn-app').length + ' connected';
+    }
+  }
+
+  /* Disconnect is two halves against two systems and SILO can only do one of
+     them for everybody.
+
+       1. silo_api_revoke() stops SILO access on the connection's very next
+          request. Immediate, and ours.
+       2. Killing the application's Supabase sign-in is
+          DELETE /auth/v1/user/oauth/grants?client_id=..., which Supabase
+          accepts only with THAT PERSON'S OWN session. There is no admin form
+          of it.
+
+     So an owner disconnecting someone else's connection can do (1) and not
+     (2). The residue is bounded -- the token keeps refreshing but the access
+     token hook stamps silo_revoked and silo_check_request() refuses it, so it
+     reaches nothing -- but it is not nothing, and this must not claim a clean
+     disconnect it did not perform. Hence two different messages. */
+  async function revoke(card, g) {
+    const own = g.user_id === _user.id;
+    const { data, error } = await db.rpc('silo_api_revoke', { p_grant_id: g.id });
+    if (error) {
+      setStatus('Could not remove it: ' + error.message, 'neg');
+      wireCard(card, g);
+      return;
+    }
+    if (data === false) { setStatus('That connection was already disconnected.', 'warn', 4000); }
+
+    let signOutDone = false;
+    if (own) {
+      try {
+        const o = db.auth && db.auth.oauth;
+        if (o?.revokeGrant) { await o.revokeGrant(g.client_id); signOutDone = true; }
+      } catch (_) { signOutDone = false; }
+    }
+    setStatus(signOutDone
+      ? 'Removed. The application has been signed out.'
+      : 'Removed. SILO access stopped immediately; the application’s sign-in lapses on its own.',
+      'pos', 7000);
+    dropCard(g.id);
+  }
+
+  async function load() {
+    const sel = 'id, client_id, user_id, company_entity_id, scopes, consented_at,'
+      + ' expires_at, revoked_at, last_used_at';
+
+    const { data: mine, error: e1 } = await db.from('silo_api_grants')
+      .select(sel).eq('user_id', _user.id).order('consented_at', { ascending: false });
+    if (e1) { setStatus('Could not load your connections: ' + e1.message, 'neg'); return; }
+
+    /* The company column reads from here. An earlier version rendered a
+       title field off the grant row itself -- a field no query ever selected
+       -- so the column was always "—" (found 2026-10-29, on the first live
+       connection). A person's grant can name a company other than the active
+       one, so the ids actually present are what gets looked up. */
+    const ids = [...new Set((mine || []).map((g) => g.company_entity_id).filter(Boolean))];
+    if (ids.length) {
+      const { data: ents } = await db.from('entities').select('id, title').in('id', ids);
+      for (const e of (ents || [])) _cos[e.id] = e.title;
+    }
+
+    /* An application that was removed is gone from this screen, so the lists
+       carry the LIVE connections only. The grant rows stay in the database --
+       they are the record of who approved what -- but a row reading
+       "Disconnected" on a page whose only verb is Remove just asks the person
+       whether the removal worked. */
+    const live = (rows) => (rows || []).filter((g) => !g.revoked_at);
+
+    paint('gridMine', 'mineSub', live(mine), {
+      empty: 'No applications are connected to your account.', showWho: false,
+    });
+
+    if (_isOwner && _co) {
+      const { data: co, error: e2 } = await db.from('silo_api_grants')
+        .select(sel).eq('company_entity_id', _co.id).order('consented_at', { ascending: false });
+      if (!e2) {
+        el('cardCompany').hidden = false;
+        paint('gridCompany', 'coSub', live(co), {
+          empty: 'No applications are connected to this company.', showWho: true,
+        });
+      }
+    }
+  }
+
+  function paint(gridId, subId, list, opts) {
+    const grid = el(gridId);
+    grid.dataset.empty = opts.empty;
+    grid.innerHTML = cardsFor(list, opts);
+    el(subId).textContent = list.length + ' connected';
+    for (const g of list) {
+      const card = grid.querySelector('.cn-app[data-grant="' + CSS.escape(g.id) + '"]');
+      if (card) wireCard(card, g);
+    }
   }
 
   /* The address a client is told to use is the edge function's own
@@ -185,6 +434,7 @@
       {
         id: 'claude',
         label: 'Claude',
+        what: 'Web, desktop and mobile',
         steps: 'Works in Claude on the web, desktop and mobile.<ol class="ca-steps">'
           + '<li>Open <strong>Settings → Connectors</strong> in Claude.</li>'
           + '<li>Choose <strong>Add custom connector</strong>.</li>'
@@ -199,12 +449,14 @@
       {
         id: 'claude-code',
         label: 'Claude Code',
+        what: 'One terminal command',
         steps: 'Run this once in a terminal, then <span class="ca-inline-code">/mcp</span> inside Claude Code to sign in.',
         cmd: 'claude mcp add --transport http silo --scope user ' + u,
       },
       {
         id: 'chatgpt',
         label: 'ChatGPT',
+        what: 'Through its connector settings',
         steps: 'ChatGPT reaches outside servers through its own connector settings; there is no install link to click.<ol class="ca-steps">'
           + '<li>Open <strong>Settings → Connectors</strong> in ChatGPT and turn on <strong>developer mode</strong> if it is offered.</li>'
           + '<li>Add an <strong>MCP server</strong> and paste the address above.</li>'
@@ -215,6 +467,7 @@
       {
         id: 'cursor',
         label: 'Cursor',
+        what: 'One-click install link',
         steps: 'The button opens Cursor and offers to add SILO. Cursor then asks you to sign in, which brings you back here to approve it.',
         actions: [
           { kind: 'link', label: 'Add to Cursor', href: 'cursor://anysphere.cursor-deeplink/mcp/install?name=silo&config=' + cursorCfg, sameTab: true },
@@ -224,6 +477,7 @@
       {
         id: 'vscode',
         label: 'VS Code',
+        what: 'One-click install link',
         steps: 'The button hands the server to VS Code; the command does the same thing from a terminal.',
         cmd: "code --add-mcp '" + JSON.stringify({ name: 'silo', type: 'http', url: u }) + "'",
         actions: [
@@ -233,6 +487,7 @@
       {
         id: 'other',
         label: 'Something else',
+        what: 'Any MCP client',
         steps: 'Any client that speaks MCP over Streamable HTTP can connect. Give it the address above; it registers itself and starts the sign-in on its own, so there is nothing to create here first.<ol class="ca-steps">'
           + '<li>Transport: <span class="ca-inline-code">http</span> (Streamable HTTP).</li>'
           + '<li>Authentication: OAuth 2.1 with dynamic client registration — no key, no secret.</li>'
@@ -245,16 +500,17 @@
     ];
   }
 
-  let _active = 'claude';
 
   function renderClients() {
     const list = clients();
     if (!list.some((c) => c.id === _active)) _active = list[0].id;
 
-    el('clientTabs').innerHTML = list.map((c) => '<button class="bcn-tab'
-      + (c.id === _active ? ' bcn-tab--active' : '') + '" role="tab" type="button"'
-      + ' aria-selected="' + (c.id === _active ? 'true' : 'false') + '"'
-      + ' data-client="' + esc(c.id) + '">' + esc(c.label) + '</button>').join('');
+    el('clientTabs').innerHTML = list.map((c) => '<button class="ca-app" type="button"'
+      + ' aria-pressed="' + (c.id === _active ? 'true' : 'false') + '"'
+      + ' data-client="' + esc(c.id) + '">'
+      + window.SiloAppMarks.svg(c.id, 26)
+      + '<span class="ca-app-name">' + esc(c.label) + '</span>'
+      + '<span class="ca-app-what">' + esc(c.what) + '</span></button>').join('');
 
     el('clientPanes').innerHTML = list.map((c) => {
       const cmd = c.cmd
@@ -327,24 +583,34 @@
       window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname);
       return;
     }
-    const user = sess.data.session.user;
-    const co = await cfg.ensureActiveCompany?.(db) || null;
-    const { data: profile } = await db.from('profiles').select('email, role').eq('id', user.id).maybeSingle();
+    _user = sess.data.session.user;
+    _co = await cfg.ensureActiveCompany?.(db) || null;
+    const { data: profile } = await db.from('profiles').select('email, role').eq('id', _user.id).maybeSingle();
 
     window.SiloChrome?.mount({
       appEl: '#silo-app', active: 'settings/connect-ai',
-      user: { email: profile?.email || user.email || '', role: profile?.role || '' },
+      user: { email: profile?.email || _user.email || '', role: profile?.role || '' },
       crumbs: ['Settings', 'Connect AI'], supabaseClient: db,
     });
 
-    if (co?.title) el('coName').textContent = co.title;
+    if (_co?.title) el('coName').textContent = _co.title;
 
     renderClients();
     renderPrompts();
     el('btnCopyUrl').addEventListener('click', () => copy(MCP_URL, 'Address'));
 
+    /* owner_admin of THIS company, read from entity_memberships directly --
+       not is_admin_user(), which passes for nearly everyone here. It matches
+       silo_api_revoke()'s own test, so the button this draws is the button
+       the database will honour. */
+    if (_co) {
+      const { data: mem } = await db.from('entity_memberships')
+        .select('role').eq('entity_id', _co.id).eq('user_id', _user.id).maybeSingle();
+      _isOwner = mem?.role === 'owner_admin';
+    }
+
     await resolveUrl();
-    await loadReports();
+    await Promise.all([loadReports(), loadNames().then(load)]);
   })().catch((e) => {
     console.error(e);
     setStatus('Unexpected error: ' + (e?.message || e), 'neg');
