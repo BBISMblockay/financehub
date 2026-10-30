@@ -19371,4 +19371,9 @@ $c$select (select count(*) from v_po_header_summary
 -- takes SKIP LOCKED, silo_integration statement_timeout 30s. Idempotent.
 -- Needs silo_api_touch_grant (20261028070000). Before the catalog cleanup.
 \i migrations/20261030070000_mcp_report_speed.sql
+-- Open work lists On Deck drafts that are ready, need info or failed (scoped
+-- by on_deck_proposals' own policy: company + reviewers). Updates report
+-- c7...01 and rewrites its tie-outs (8 across the work-queue reports). Needs
+-- 20261030060000. Before the catalog cleanup.
+\i migrations/20261030080000_open_work_on_deck.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

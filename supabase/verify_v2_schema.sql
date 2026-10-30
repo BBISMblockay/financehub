@@ -7868,6 +7868,10 @@ select 'Work-queue reports' as check_name,
                         'c7000000-0000-4000-a000-000000000003')
              and source = 'system' and company_entity_id is null and archived_at is null) <> 3
       then 'MISSING — a work-queue report is absent or archived. Run 20261030060000_work_queue_reports.sql'
+    when not exists (select 1 from public.silo_chat_saved_reports
+                      where id = 'c7000000-0000-4000-a000-000000000001'
+                        and queries_run[1] like '%public.on_deck_proposals%')
+      then 'MISSING — Open work does not list On Deck drafts. Run 20261030080000_open_work_on_deck.sql'
     -- Never point a global report at a matview: no RLS there.
     when exists (select 1 from public.silo_chat_saved_reports r, unnest(r.queries_run) q
                   where r.id in ('c7000000-0000-4000-a000-000000000001',
