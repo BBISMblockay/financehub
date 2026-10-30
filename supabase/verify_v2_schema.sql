@@ -7593,8 +7593,15 @@ select 'developer API boundary' as check_name, case
    then 'CRITICAL: scopes are being read from the token claim, so narrowing a connection would not take effect'
   when pg_get_functiondef(to_regprocedure('public.silo_api_run_report(uuid,jsonb,integer,integer)')) not like '%silo_api_require_scope%'
    then 'CRITICAL: the report surface no longer checks scope'
-  when pg_get_functiondef(to_regprocedure('public.silo_api_run_report(uuid,jsonb,integer,integer)')) not like '%''system''%'
-   then 'CRITICAL: the report surface no longer restricts itself to global reports'
+  -- Since 20261030090000 the runner also runs a company's saved reports (RLS
+  -- decides which), so what must hold is that every report runs READ ONLY and
+  -- a saved report's SQL is a single SELECT/WITH.
+  when pg_get_functiondef(to_regprocedure('public.silo_api_run_report(uuid,jsonb,integer,integer)')) not like '%set transaction read only%'
+   then 'CRITICAL: the report runner no longer runs reports in a read-only transaction, so a saved report''s SQL could write'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_run_report(uuid,jsonb,integer,integer)')) not like '%report_not_runnable%'
+   then 'CRITICAL: the report runner no longer refuses a saved report that is not a single SELECT/WITH'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_run_report(uuid,jsonb,integer,integer)')) not like '%silo_sql_refused_function(v_final)%'
+   then 'CRITICAL: the report runner no longer refuses set_config, so a saved report could switch auth.uid() and read as another user'
 
   -- Storage runs none of the above.
   when not exists (
@@ -7861,6 +7868,19 @@ select 'developer API report catalog' as check_name, case
   when replace(pg_get_functiondef(to_regprocedure('public.silo_api_list_reports()')),
                'array_length(s.queries_run', '') like '%queries_run%'
    then 'CRITICAL: the catalog returns report SQL'
+  -- The company-reports overload (20261030090000).
+  when to_regprocedure('public.silo_api_list_reports(text)') is not null and (
+         (select pg_get_userbyid(p.proowner) from pg_proc p
+           where p.oid = to_regprocedure('public.silo_api_list_reports(text)')) <> 'silo_api_exec'
+      or pg_get_functiondef(to_regprocedure('public.silo_api_list_reports(text)'))
+           not like '%silo_api_require_scope(''reports:read'')%'
+      or has_function_privilege('anon', 'public.silo_api_list_reports(text)', 'execute')
+      or has_function_privilege('silo_revoked', 'public.silo_api_list_reports(text)', 'execute'))
+   then 'CRITICAL: the company-reports catalog is not owned by silo_api_exec, skips the scope check, or is reachable by anon/silo_revoked'
+  when to_regprocedure('public.silo_api_list_reports(text)') is not null
+   and replace(replace(pg_get_functiondef(to_regprocedure('public.silo_api_list_reports(text)')),
+               'array_length(s.queries_run', ''), 'array_length(p.queries_run', '') like '%queries_run%'
+   then 'CRITICAL: the company-reports catalog returns report SQL'
 
   when not has_function_privilege('silo_integration', 'public.silo_api_list_reports()', 'execute')
    then 'BROKEN — a connection cannot list reports; MCP clients will connect and see nothing'
@@ -7937,5 +7957,16 @@ select 'MCP report speed' as check_name,
     when not exists (select 1 from pg_roles r, unnest(r.rolconfig) c
                       where r.rolname = 'silo_integration' and c = 'statement_timeout=30s')
       then 'DRIFT — silo_integration statement_timeout is not 30s'
+    else 'ok'
+  end as status;
+
+-- Developer API company reports (20261030090000): the MCP / API catalog can
+-- list a company's saved reports and the runner runs them read-only.
+select 'Developer API company reports' as check_name,
+  case
+    when to_regprocedure('public.silo_api_list_reports(text)') is null
+      then 'MISSING — company saved reports are not listable over MCP. Run 20261030090000_developer_api_company_reports.sql'
+    when not has_function_privilege('silo_integration', 'public.silo_api_list_reports(text)', 'execute')
+      then 'BROKEN — a connection cannot list company reports'
     else 'ok'
   end as status;

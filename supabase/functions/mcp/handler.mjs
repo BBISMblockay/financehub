@@ -45,8 +45,11 @@ export const SERVER_INFO = { name: 'silo', title: 'SILO', version: '1.0.0', webs
 const ICON_DATA_URI = 'data:image/png;base64,' + ICON_PNG_BASE64;
 
 const INSTRUCTIONS = [
-  'SILO is an operations platform. This connection can run SILO\'s built-in reports for ONE company,',
-  'read-only. Call list_reports first to see what exists and what parameters each report takes, then',
+  'SILO is an operations platform. This connection can run reports for ONE company, read-only: SILO\'s',
+  'built-in reports, and reports saved in the company (shared ones and your own; report builder, Ask SILO).',
+  'SILO\'s reports are verified; saved ones are not (verified: false), so prefer a SILO report when one',
+  'answers the question. Call list_reports first to see what exists and what parameters each report',
+  'takes (pass kind "company" with a search term to find a saved one), then',
   'run_report with a report id. Dates are in the company\'s own timezone. Results come in pages of up to',
   '1000 rows; when has_more is true, call again with offset increased by page_size. A report with',
   'query_count above 1 has several result sets: pass query_index 0, 1, ... to read each one.',
@@ -56,10 +59,24 @@ export const TOOLS = [
   {
     name: 'list_reports',
     title: 'List SILO reports',
-    description: 'List every report this connection can run, with each one\'s id, title, description, '
+    description: 'List the reports this connection can run, with each one\'s id, title, description, '
       + 'parameters (key, type, default, and the allowed options for an enum), number of result sets '
-      + '(query_count) and columns. Call this before run_report.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      + '(query_count) and columns. With no arguments: SILO\'s built-in, verified reports, plus how many '
+      + 'saved reports you can see. With kind "company" and a search term: saved reports (shared and your own) '
+      + 'whose title or description matches, which SILO has not verified, 10 at most. There is no full list '
+      + 'of saved reports; search for the one you want. '
+      + 'Call this before run_report.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: {
+          type: 'string', enum: ['silo', 'company'], default: 'silo',
+          description: '"silo" for SILO\'s built-in reports, "company" for reports saved by people in the company.',
+        },
+        search: { type: 'string', description: 'Required for kind "company": text (2+ characters) in the report title or description.' },
+      },
+      additionalProperties: false,
+    },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
   {
@@ -197,7 +214,18 @@ export function createMcpHandler({ env, fetchImpl }) {
     const args = (params && params.arguments && typeof params.arguments === 'object') ? params.arguments : {};
 
     if (name === 'list_reports') {
-      const r = await callRpc(authorization, 'silo_api_list_reports', {});
+      const kind = args.kind == null ? 'silo' : args.kind;
+      if (kind !== 'silo' && kind !== 'company') return rpcResult(id, toolErr('kind must be "silo" or "company".'));
+      if (args.search != null && typeof args.search !== 'string') return rpcResult(id, toolErr('search must be text.'));
+      const search = typeof args.search === 'string' ? args.search.trim() : '';
+      if (kind === 'company' && search.length < 2) {
+        return rpcResult(id, toolErr('kind "company" needs a search term of 2 or more characters; there is no full list of saved reports.'));
+      }
+      // Two overloads of one function (20261030090000): no arguments is the
+      // built-in catalog, (p_search) a search of the company's saved reports.
+      const r = kind === 'company'
+        ? await callRpc(authorization, 'silo_api_list_reports', { p_search: search })
+        : await callRpc(authorization, 'silo_api_list_reports', {});
       if (!r.ok) return refusalResponse(id, r, true);
       return rpcResult(id, toolOk(r.data));
     }
