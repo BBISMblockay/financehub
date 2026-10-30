@@ -2,7 +2,7 @@
    SILO — connected applications, shared logic
    --------------------------------------------------------------------------
    Used by v2/api-consent.html (approving a connection) and
-   v2/settings-connected-apps.html (seeing and disconnecting one). Pure
+   v2/settings-connect-ai.html (seeing and removing one). Pure
    functions only: no network, no DOM. The two pages do the talking.
 
    The one rule that matters here: every judgement this file makes about a
