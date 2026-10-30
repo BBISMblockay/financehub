@@ -19384,4 +19384,8 @@ $c$select (select count(*) from v_po_header_summary
 -- decides which), every report in a READ ONLY transaction, a second catalog
 -- overload for company reports. Then deploy `mcp`. Before the catalog cleanup.
 \i migrations/20261030090000_developer_api_company_reports.sql
+-- Developer API / MCP query tool: data:read scope, describe_tables and query
+-- (read-only SQL as the person under RLS, Ask SILO's catalog only). Needs
+-- 20261030100000. Then deploy `mcp`. Before the catalog cleanup.
+\i migrations/20261030110000_developer_api_query_tool.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

@@ -155,7 +155,7 @@ test('denying a repeat gives the application nothing', () => {
 
 test('writeGrant calls silo_api_consent with SILO scopes, not the OAuth scope string', () => {
   assert.match(CONSENT, /rpc\('silo_api_consent',\s*\{[\s\S]{0,120}?K\.SILO_SCOPES/);
-  assert.deepEqual(here(K.SILO_SCOPES), ['reports:read']);
+  assert.deepEqual(here(K.SILO_SCOPES), ['reports:read', 'data:read']);
 });
 
 test('the fresh path writes the grant before asking Supabase to approve', () => {

@@ -193,6 +193,7 @@ on:
       - 'supabase/migrations/*developer_api_report_catalog.sql'
       - 'scripts/tests/mcp-server.test.mjs'
       - 'supabase/migrations/*developer_api_company_reports.sql'
+      - 'supabase/migrations/*developer_api_query_tool.sql'
       - 'v2/settings-company.html'
       - 'v2/po-builder.html'
       - 'v2/po-document-identity.js'
@@ -1503,6 +1504,13 @@ jobs:
       # ONLY. Mutation-tested.
       - name: Execute developer API company report regressions
         run: node scripts/tests/developer-api-company-reports-database.test.mjs
+
+      # 20261030110000: the MCP query tool (data:read). describe_tables shows
+      # Ask SILO's catalog and the company's notes, never rows; query runs one
+      # read-only SELECT as the person under RLS and refuses hidden relations,
+      # other schemas, definer functions and set_config by name. Mutation-tested.
+      - name: Execute developer API query tool regressions
+        run: node scripts/tests/developer-api-query-tool-database.test.mjs
 
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a

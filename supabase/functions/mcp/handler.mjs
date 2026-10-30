@@ -30,7 +30,10 @@
  *
  * WHAT IT EXPOSES
  *
- * Two tools, deliberately generic: list_reports and run_report. A tool per
+ * Four tools, deliberately generic. list_reports and run_report (reports:read)
+ * run SILO's reports; describe_tables and query (data:read, 20261030110000)
+ * read the same catalog Ask SILO is shown and run one read-only SELECT as the
+ * person, under RLS, on the database's own runner. A tool per
  * report would give the model typed arguments, but would make the tool list a
  * data read, rename tools whenever a report is retitled, and double the
  * surface. list_reports returns each report's parameter spec, which is what
@@ -45,14 +48,18 @@ export const SERVER_INFO = { name: 'silo', title: 'SILO', version: '1.0.0', webs
 const ICON_DATA_URI = 'data:image/png;base64,' + ICON_PNG_BASE64;
 
 const INSTRUCTIONS = [
-  'SILO is an operations platform. This connection can run reports for ONE company, read-only: SILO\'s',
-  'built-in reports, and reports saved in the company (shared ones and your own; report builder, Ask SILO).',
-  'SILO\'s reports are verified; saved ones are not (verified: false), so prefer a SILO report when one',
-  'answers the question. Call list_reports first to see what exists and what parameters each report',
-  'takes (pass kind "company" with a search term to find a saved one), then',
-  'run_report with a report id. Dates are in the company\'s own timezone. Results come in pages of up to',
-  '1000 rows; when has_more is true, call again with offset increased by page_size. A report with',
-  'query_count above 1 has several result sets: pass query_index 0, 1, ... to read each one.',
+  'SILO is an operations platform. This connection reads ONE company\'s SILO data, read-only, as the person',
+  'who connected it: it sees exactly what they can see in SILO. Two ways in.',
+  '(1) Raw data, for analysis and any question: describe_tables lists the tables and views (pass names for',
+  'their columns, or notes: true for the company\'s business rules, which you should follow), then query runs',
+  'one read-only SELECT. Prefer views ending _v; they are the cleaned, reconciled versions.',
+  '(2) SILO\'s built-in reports, which are verified and carry SILO\'s own context: Open work (tasks, payment',
+  'requests and drafts waiting on someone), launches, accounting close, sales, ads, SEO. list_reports shows',
+  'them; run_report runs one. Saved reports from people in the company are found by search (kind "company"),',
+  'are not verified, and are best used only when asked for by name.',
+  'Dates are in the company\'s own timezone. Results come in pages; when has_more is true, call again with',
+  'the next_offset given (or offset increased by row_count). A report with query_count above 1 has several',
+  'result sets: pass query_index 0, 1, ... to read each one.',
 ].join(' ');
 
 export const TOOLS = [
@@ -104,6 +111,45 @@ export const TOOLS = [
         },
       },
       required: ['report_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'describe_tables',
+    title: 'Describe SILO tables',
+    description: 'What data this connection can query. With no arguments: the names of every table and view. '
+      + 'With tables: up to 10 names, each with its description and columns. With search: tables whose name, '
+      + 'description or columns match. With notes: true: the company\'s business rules and definitions. '
+      + 'Never returns rows; use query for that.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tables: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 10, description: 'Table or view names to describe.' },
+        search: { type: 'string', description: 'Text (2+ characters) in a table name, description or column name.' },
+        notes: { type: 'boolean', description: 'true for the company\'s business rules instead of tables.' },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'query',
+    title: 'Query SILO data',
+    description: 'Run one read-only SELECT (or WITH) over the tables and views describe_tables lists, as the '
+      + 'person who connected, for their company only. No semicolons, no writes. 30 seconds at most; up to 1000 '
+      + 'rows a page, fewer if the rows are large. Returns row_count, has_more, next_offset and the rows. '
+      + 'Aggregate in SQL rather than paging raw rows.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sql: { type: 'string', description: 'One SELECT or WITH statement.' },
+        offset: {
+          type: 'integer', minimum: 0, default: 0,
+          description: 'Rows to skip, for the next page: pass next_offset from the previous result.',
+        },
+      },
+      required: ['sql'],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
@@ -248,7 +294,41 @@ export function createMcpHandler({ env, fetchImpl }) {
         p_report_id: reportId, p_params: params, p_query_index: qi, p_offset: off,
       });
       if (!r.ok) return refusalResponse(id, r, true);
+      return rpcResult(id, toolOk(fitRows(r.data)));
+    }
+
+    if (name === 'describe_tables') {
+      const body = {};
+      if (args.notes != null) {
+        if (typeof args.notes !== 'boolean') return rpcResult(id, toolErr('notes must be true or false.'));
+        body.p_notes = args.notes;
+      }
+      if (args.tables != null) {
+        if (!Array.isArray(args.tables) || !args.tables.length || args.tables.length > 10
+            || !args.tables.every((t) => typeof t === 'string' && t.trim())) {
+          return rpcResult(id, toolErr('tables must be a list of 1 to 10 table names.'));
+        }
+        body.p_tables = args.tables.map((t) => t.trim());
+      }
+      if (args.search != null) {
+        if (typeof args.search !== 'string' || args.search.trim().length < 2) {
+          return rpcResult(id, toolErr('search must be text of 2 or more characters.'));
+        }
+        body.p_search = args.search.trim();
+      }
+      const r = await callRpc(authorization, 'silo_api_describe_tables', body);
+      if (!r.ok) return refusalResponse(id, dataScopeHint(r), true);
       return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'query') {
+      const sql = typeof args.sql === 'string' ? args.sql.trim() : '';
+      if (!sql) return rpcResult(id, toolErr('sql must be one SELECT or WITH statement.'));
+      const off = args.offset == null ? 0 : args.offset;
+      if (!Number.isInteger(off) || off < 0) return rpcResult(id, toolErr('offset must be a whole number, 0 or more.'));
+      const r = await callRpc(authorization, 'silo_api_query', { p_sql: sql, p_offset: off });
+      if (!r.ok) return refusalResponse(id, dataScopeHint(r), true);
+      return rpcResult(id, toolOk(fitRows(r.data)));
     }
 
     return rpcError(id, -32602, 'Unknown tool: ' + String(name));
@@ -392,6 +472,48 @@ export function decodeRefusal(data) {
 
   const text = (prefixed ? prefixed[2] : message) || 'SILO refused this request.';
   return { code, reauth: Boolean(reauth), message: hint ? text + ' ' + hint : text };
+}
+
+/* A connection approved before data:read existed (20261030110000) holds
+   reports:read only; grants are frozen, so the fix is approving it again. */
+function dataScopeHint(r) {
+  if (r.code !== 'insufficient_scope') return r;
+  return { ...r, message: 'This connection was approved before SILO allowed data queries. '
+    + 'Disconnect SILO in your AI app and connect it again to allow them; reports still work meanwhile.' };
+}
+
+/* An AI app refuses a tool result past roughly 60k characters, and toolOk
+   sends the data twice (text and structuredContent), so a page of rows is cut
+   to fit and says where to resume. The database pages at 1000 rows; this only
+   ever shortens a page, never skips a row. */
+export const ROW_BUDGET_CHARS = 24000;
+export function fitRows(data, budget = ROW_BUDGET_CHARS) {
+  if (!data || typeof data !== 'object' || !Array.isArray(data.rows)) return data;
+  if (JSON.stringify(data).length <= budget) {
+    return { ...data, next_offset: data.has_more ? (data.offset || 0) + data.rows.length : null };
+  }
+  const base = JSON.stringify({ ...data, rows: [] }).length + 200;
+  let used = base;
+  let keep = 0;
+  for (const row of data.rows) {
+    const n = JSON.stringify(row).length + 1;
+    if (used + n > budget) break;
+    used += n;
+    keep += 1;
+  }
+  // Always at least one row, so a caller paging by next_offset moves on.
+  keep = Math.max(keep, Math.min(1, data.rows.length));
+  const offset = data.offset || 0;
+  return {
+    ...data,
+    rows: data.rows.slice(0, keep),
+    row_count: keep,
+    has_more: true,
+    next_offset: offset + keep,
+    truncated: 'This page was cut to ' + keep + ' of ' + data.rows.length
+      + ' rows to fit the AI app\'s size limit. Call again with offset ' + (offset + keep)
+      + ' for the rest, or select fewer columns or aggregate in SQL.',
+  };
 }
 
 function toolOk(data) {

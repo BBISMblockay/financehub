@@ -62,6 +62,7 @@
      page does not recognise is exactly the one not to approve silently. */
   const SCOPE_COPY = {
     'reports:read': 'Read your reports',
+    'data:read': 'Look up and read your company\'s data, read-only: what you can see in SILO, never logins or connection secrets',
   };
   function describeScopes(scopes) {
     const list = Array.isArray(scopes) ? scopes : [];
@@ -135,7 +136,7 @@
      silo_api_consent() ignores anything outside its allowlist. So the page
      asks for exactly what SILO offers and says so plainly, rather than
      echoing an OAuth scope string as though it were the permission. */
-  const SILO_SCOPES = ['reports:read'];
+  const SILO_SCOPES = ['reports:read', 'data:read'];
 
   /* A name to show when the client has none. Not "Unknown application" as a
      label on its own -- the client_id is the only identifying thing left, so
