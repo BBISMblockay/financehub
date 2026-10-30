@@ -1327,6 +1327,19 @@ jobs:
             fi
             echo "$mutation failed the suite, as it must"
           done
+      # The same audit's four findings that are documented rather than fixed.
+      # The migration only writes catalog text, so the risk is an append that
+      # fires twice or replaces an existing description.
+      - name: Execute catalog status-trap regressions
+        run: |
+          node scripts/tests/catalog-status-traps-database.test.mjs
+          for mutation in no-append-guard clobber-description no-reportable; do
+            if CATALOG_TRAPS_MUTATION="$mutation" node scripts/tests/catalog-status-traps-database.test.mjs; then
+              echo "::error::$mutation did not fail the catalog status-trap suite"
+              exit 1
+            fi
+            echo "$mutation failed the suite, as it must"
+          done
       - name: Execute Plaid authority, lifecycle and audit regressions
         run: node scripts/tests/plaid-bank-feed-database.test.mjs
 

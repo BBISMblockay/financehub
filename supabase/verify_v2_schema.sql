@@ -8089,3 +8089,26 @@ select 'Launch readiness live status' as check_name,
       then 'MISSING — the base table does not warn that live_status is never written'
     else 'ok'
   end as status;
+
+-- Catalog status traps (20261030150000): the four discrepancies that are not
+-- defects to repair -- an unmaintained column, a missing date column, Shopify's
+-- own behaviour, and two legitimate grains. The only thing between them and a
+-- bot stating something false is this catalog text, and a catalog refresh or a
+-- description rewrite can drop it silently, so it is verified like any other
+-- contract.
+select 'Catalog status traps' as check_name,
+  coalesce((
+    select 'MISSING — ' || string_agg(t.relname || ' (' || t.marker || ')', ', ')
+      from (values
+              ('launch_calendar',   'STATUS IS NOT MAINTAINED'),
+              ('po_headers',        'NO ARRIVAL DATE ON THIS TABLE'),
+              ('shopify_orders',    'CANCELLED ORDERS KEEP THEIR FINANCIAL STATUS'),
+              ('redo_returns',      'STATUS EXISTS AT TWO GRAINS'),
+              ('redo_return_items', 'STATUS EXISTS AT TWO GRAINS'),
+              ('po_status_history', 'WHERE PO DATES THAT ACTUALLY HAPPENED LIVE'),
+              ('incoming_shipments', 'NOT a complete record')
+           ) as t(relname, marker)
+     where not exists (select 1 from public.silo_chat_schema_catalog c
+                        where c.relname = t.relname
+                          and coalesce(c.description, '') like '%' || t.marker || '%')
+  ), 'ok') as status;
