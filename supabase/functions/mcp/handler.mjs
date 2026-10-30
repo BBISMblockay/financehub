@@ -104,7 +104,7 @@ const CORS = {
 
 /**
  * @param {{
- *   env: { SUPABASE_URL?: string, SUPABASE_ANON_KEY?: string, SILO_MCP_PUBLIC_URL?: string },
+ *   env: { SUPABASE_URL?: string, SUPABASE_ANON_KEY?: string, SILO_MCP_PUBLIC_URL?: string, SILO_MCP_ISSUER?: string },
  *   fetchImpl: typeof fetch,
  * }} deps
  */
@@ -117,7 +117,14 @@ export function createMcpHandler({ env, fetchImpl }) {
   // tells clients where to send their tokens.
   const resource = String(env.SILO_MCP_PUBLIC_URL || (base + '/functions/v1/mcp')).replace(/\/+$/, '');
   const metadataUrl = resource + '/.well-known/oauth-protected-resource';
-  const issuer = base + '/auth/v1';
+  // Supabase Auth names itself by the project's public domain, which becomes
+  // the custom domain once one is activated. A client checks that the issuer
+  // it was sent to matches the one Auth publishes, so this must follow the
+  // domain too: SILO_MCP_ISSUER if set, else the custom domain's /auth/v1 when
+  // SILO_MCP_PUBLIC_URL moved this server there, else the project's own.
+  const issuer = String(env.SILO_MCP_ISSUER || (env.SILO_MCP_PUBLIC_URL
+    ? new URL(resource).origin + '/auth/v1'
+    : base + '/auth/v1')).replace(/\/+$/, '');
   const iconUrl = resource + '/icon.png';
 
   /* How a client shows SILO's mark rather than its host's. Each client looks
