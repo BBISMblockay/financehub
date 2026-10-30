@@ -272,6 +272,7 @@ on:
       - 'supabase/migrations/*plaid_bank_feed.sql'
       - 'supabase/migrations/*profiles_active_company_scope.sql'
       - 'supabase/migrations/*chat_readonly_query_read_only_txn.sql'
+      - 'supabase/migrations/*readonly_query_refuse_identity_switch.sql'
       - 'supabase/migrations/*seo_measurement_capture.sql'
       - 'supabase/migrations/*nav_badge_counts.sql'
       - 'supabase/migrations/*seo_project_workflow.sql'
@@ -1648,6 +1649,12 @@ jobs:
       # is what the next person will reach for.
       - name: Execute Ask SILO read-only query boundary regressions
         run: node scripts/tests/chat-readonly-query-database.test.mjs
+
+      # set_config inside a read-only query switches auth.uid(), so RLS would
+      # judge the query as another user. Refused by name, along with every
+      # function that runs SQL text (which could build the name at run time).
+      - name: Execute read-only query identity guard regressions
+        run: node scripts/tests/readonly-query-identity-database.test.mjs
 
       - name: Execute cashflow override, liquidity and audit regressions
         run: node scripts/tests/cashflow-database.test.mjs
