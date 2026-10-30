@@ -13,7 +13,8 @@ test('home and shared config retain their explicit baselines', () => {
   // change must never silently replace the user's existing homepage/router.
   const unchanged = {
     // Public product/company overview intentionally expanded for developer verification.
-    'index.html': '102a44ecbc1ae6c97ba8f40e1aa141e00d5699d355a4b4de87b84a0b46e9876d',
+    // Deliberately changed 2026-10-30: site icon link, so get-silo.com and the MCP connector show SILO's mark.
+    'index.html': '2d1628553670d8a492345124dc9a40fdaf6cfab20e87d2b7ca9be868f7254a54',
     // Deliberately changed 2026-10-14: MFA_ENROLLMENT_OPEN opens two-step login setup.
     'pages/config.js': '1790aa8ec2fee8c914faf6b13023508a7e8ea7845283029906719e05950560a0',
   };
