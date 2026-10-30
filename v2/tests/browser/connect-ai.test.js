@@ -28,7 +28,7 @@ const r = createReporter('connect-ai');
     ],
     profiles: [{ id: 'test-user', email: 'test@baseballism.com', role: 'admin' }],
   }, {
-    ready: () => !!document.querySelector('.ca-pane[data-client="claude"]'),
+    ready: () => !!document.querySelector('.ca-row[data-client="claude"]'),
   });
 
   await page.waitForFunction(() => document.getElementById('mcpUrl').value.startsWith('https://'));
@@ -36,28 +36,20 @@ const r = createReporter('connect-ai');
   r.test('shows the address the server advertises, not the derived default',
     () => r.eq(url, 'https://api.get-silo.com/functions/v1/mcp'));
 
-  r.ok('each app is a card with its own mark, not a table row',
-    (await page.locator('.ca-app svg, .ca-app .app-mark-letter').count()) === 7);
+  r.ok('one row per app, each with its own mark',
+    (await page.locator('.ca-row .ca-row-mark svg').count()) === 7);
+  r.ok('no tabs to click through', (await page.locator('.ca-app, .ca-pane').count()) === 0);
 
-  r.ok('starts on the Claude pane',
-    !(await page.locator('.ca-pane[data-client="claude"][hidden]').count()));
+  /* The rows are drawn before the address resolves, so the resolved value has
+     to be painted back into them. */
+  const rowCopy = await page.getAttribute('.ca-row[data-client="claude"] [data-copy]', 'data-copy');
+  r.test('a row\'s copy button is repainted with the resolved address',
+    () => r.eq(rowCopy, 'https://api.get-silo.com/functions/v1/mcp'));
 
-  /* The panes are drawn before the address resolves, so the resolved value has
-     to be painted back into them. Read WITHOUT clicking a tab first -- a click
-     redraws them and would hide the bug. */
-  const paneCopy = await page.getAttribute('.ca-pane[data-client="claude"] [data-copy]', 'data-copy');
-  r.test('the pane\'s copy button is repainted with the resolved address',
-    () => r.eq(paneCopy, 'https://api.get-silo.com/functions/v1/mcp'));
-
-  await page.click('.ca-app[data-client="claude-code"]');
-  const cmd = await page.inputValue('.ca-pane[data-client="claude-code"] input');
+  const cmd = await page.getAttribute('.ca-row[data-client="claude-code"] [data-copy]', 'data-copy');
   r.test('Claude Code command carries the resolved address',
     () => r.eq(cmd, 'claude mcp add --transport http silo --scope user https://api.get-silo.com/functions/v1/mcp'));
-  r.ok('switching tabs hides the previous pane',
-    (await page.locator('.ca-pane[data-client="claude"][hidden]').count()) === 1);
-
-  await page.click('.ca-app[data-client="cursor"]');
-  const href = await page.getAttribute('.ca-pane[data-client="cursor"] a.bcn-btn', 'href');
+  const href = await page.getAttribute('.ca-row[data-client="cursor"] a.bcn-btn', 'href');
   const cfgParam = decodeURIComponent(String(href).split('config=')[1] || '');
   const decoded = JSON.parse(Buffer.from(cfgParam, 'base64').toString('utf8'));
   r.ok('Cursor deeplink uses the documented scheme',
@@ -65,17 +57,14 @@ const r = createReporter('connect-ai');
   r.test('Cursor deeplink config is base64 JSON naming the server',
     () => r.eq(decoded.url, 'https://api.get-silo.com/functions/v1/mcp'));
 
-  await page.click('.ca-app[data-client="grok"]');
-  const grokHref = await page.getAttribute('.ca-pane[data-client="grok"] a.bcn-btn', 'href');
+  const grokHref = await page.getAttribute('.ca-row[data-client="grok"] a.bcn-btn', 'href');
   r.test('Grok points at its own connectors page, not a made-up install link',
     () => r.eq(grokHref, 'https://grok.com/connectors'));
-  // The <ol> in the steps closes the <p> the browser put it in, so read the pane.
-  const grokSteps = await page.textContent('.ca-pane[data-client="grok"]');
+  const grokSteps = await page.textContent('.ca-row[data-client="grok"]');
   r.ok('and says why the API path is not the one offered',
-    /does not issue one/.test(grokSteps));
+    /does not issue/.test(grokSteps));
 
-  await page.click('.ca-app[data-client="vscode"]');
-  const vs = await page.getAttribute('.ca-pane[data-client="vscode"] a.bcn-btn', 'href');
+  const vs = await page.getAttribute('.ca-row[data-client="vscode"] a.bcn-btn', 'href');
   const vsCfg = JSON.parse(decodeURIComponent(String(vs).split('config=')[1] || ''));
   r.test('VS Code link declares an http server', () => r.eq(vsCfg.type, 'http'));
   r.test('VS Code link carries the resolved address',
@@ -84,7 +73,6 @@ const r = createReporter('connect-ai');
   const summary = await page.textContent('#reportsSummary');
   r.ok('report count comes from the catalog, not a constant', /^3 reports/.test(summary.trim()));
 
-  await page.click('.ca-app[data-client="claude"]');
   // Reviewing this page is largely looking at it, so leave a shot behind --
   // but a shot that cannot be written (a CI runner has no /opt/cursor) must
   // not be the thing that fails the suite.

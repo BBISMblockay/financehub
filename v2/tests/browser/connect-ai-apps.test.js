@@ -13,6 +13,17 @@ const iso = (daysAgo) => new Date(Date.now() - daysAgo * DAY).toISOString();
 (async () => {
   const suite = await startSuite({ viewport: { width: 1280, height: 1000 }, secureContext: true });
 
+  /* Both connections report the same NAME with different client ids, which is
+     exactly what reconnecting Claude produces (Blake, 2026-10-30). */
+  await suite.context.route('**/auth/v1/user/oauth/grants', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify([
+      { client_id: 'c-1', client_name: 'Claude' },
+      { client_id: 'c-2', client_name: 'Claude' },
+    ]),
+  }));
+
   const page = await suite.open('/v2/settings-connect-ai.html', {
     silo_api_grants: [
       {
@@ -57,7 +68,18 @@ const iso = (daysAgo) => new Date(Date.now() - daysAgo * DAY).toISOString();
     (await page.locator('#gridMine .cn-mark svg, #gridMine .cn-mark .app-mark-letter').count()) === 2);
   r.ok('no table is left on the page', (await page.locator('.ws-table').count()) === 0);
   r.ok('the setup half is on the same page now',
-    (await page.locator('.ca-app[data-client="claude"]').count()) === 1);
+    (await page.locator('.ca-row[data-client="claude"]').count()) === 1);
+
+  /* Two connections to the SAME app, which is what you get by reconnecting:
+     each card has to say which is which, or Remove is a coin flip. */
+  const names = await page.locator('#gridMine .cn-name').allTextContents();
+  r.ok('both cards name the same app', names.filter((n) => /Claude/.test(n)).length === 2);
+  const tags = await page.locator('#gridMine .cn-tag').allTextContents();
+  r.test('and each carries its own client id, which is what differs',
+    () => r.eq(tags, ['c-1', 'c-2']));
+  const used = await page.locator('#gridMine .cn-meta span').first().textContent();
+  r.ok('last used itself reads as a relative time, not a bare date',
+    /^Last used (\d+ (minute|hour|day)s? ago|just now|never)$/.test(used.trim()));
   const sub0 = (await page.textContent('#mineSub')).trim();
   r.test('the count names live connections only', () => r.eq(sub0, '2 connected'));
 
