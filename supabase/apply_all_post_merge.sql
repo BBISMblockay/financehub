@@ -19388,4 +19388,9 @@ $c$select (select count(*) from v_po_header_summary
 -- (read-only SQL as the person under RLS, Ask SILO's catalog only). Needs
 -- 20261030100000. Then deploy `mcp`. Before the catalog cleanup.
 \i migrations/20261030110000_developer_api_query_tool.sql
+-- Payment requests: completed, workflow_status and date_completed kept in sync
+-- by a BEFORE trigger, plus a one-off backfill of the rows that were stored
+-- completed-and-'new' (65 on Baseballism) and the completed rows with no
+-- date_completed. Frontend-only otherwise; no deploy needed.
+\i migrations/20261030120000_payment_request_completion_status_sync.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

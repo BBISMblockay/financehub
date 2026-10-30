@@ -859,6 +859,46 @@
       return `<span class="badge ${cls}">${escapeHtml(p || "normal")}</span>`;
     }
 
+    // Completion and workflow status are one decision, not two: a request that is
+    // completed must sit in a terminal status, and a terminal status means completed.
+    // Rows saved before 2026-10-30 could be completed while still status "new".
+    const TERMINAL_STATUSES = ["paid", "rejected", "cancelled"];
+
+    function isTerminalStatus(status) {
+      return TERMINAL_STATUSES.includes(status);
+    }
+
+    function todayIso() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    // Resolves the completion trio from what the user actually changed, so a status
+    // edit and a completed edit never leave the row contradicting itself.
+    function syncCompletionFields({ workflowStatus, completed, dateCompleted, previous }) {
+      const was = previous || {};
+      const statusChanged = was.workflow_status !== undefined && was.workflow_status !== workflowStatus;
+      let status = workflowStatus;
+      let done = !!completed;
+
+      if (statusChanged) {
+        // The status the user just picked decides whether the request is done.
+        done = isTerminalStatus(status);
+      } else if (done && !isTerminalStatus(status)) {
+        // Completing a request -- or saving one of the legacy completed+new rows --
+        // always lands it in a terminal status.
+        status = "paid";
+      } else if (!done && isTerminalStatus(status)) {
+        // Reopening: a terminal status cannot stand on an open request.
+        status = "approved";
+      }
+
+      return {
+        workflowStatus: status,
+        completed: done,
+        dateCompleted: done ? (dateCompleted || todayIso()) : null
+      };
+    }
+
     function badgeHtmlCompleted(val) {
       return val
         ? `<span class="badge badge-complete">Completed</span>`
@@ -1364,7 +1404,9 @@
     }
 
     function renderNotifyRequesterRow(row) {
-      if (!row?.completed) {
+      // Paid, not merely completed: a rejected or cancelled request is completed
+      // too, and there is no payment to confirm.
+      if (row?.workflow_status !== "paid") {
         els.notifyRequesterRow.hidden = true;
         return;
       }
@@ -2027,15 +2069,40 @@
         for (const id of ids) {
           const row = state.rows.find(r => r.id === id);
           if (!row || row.workflow_status === status) continue;
-          await updatePaymentRequestOrThrow(id, { workflow_status: status, updated_by: state.currentUser?.id || null });
+          const synced = syncCompletionFields({
+            workflowStatus: status,
+            completed: row.completed,
+            dateCompleted: row.date_completed || null,
+            previous: { workflow_status: row.workflow_status, completed: row.completed }
+          });
+          const payload = {
+            workflow_status: synced.workflowStatus,
+            completed: synced.completed,
+            date_completed: synced.dateCompleted,
+            updated_by: state.currentUser?.id || null
+          };
+          await updatePaymentRequestOrThrow(id, payload);
+          state.rows = state.rows.map(r => r.id === id ? { ...r, ...payload } : r);
           await logActivity({
             requestId: id,
             activityType: "status_changed",
             fieldName: "workflow_status",
             oldValue: row.workflow_status || "",
-            newValue: status,
-            message: `Status changed from ${row.workflow_status || "—"} to ${status} (bulk action, ${ids.length} requests)`
+            newValue: synced.workflowStatus,
+            message: `Status changed from ${row.workflow_status || "—"} to ${synced.workflowStatus} (bulk action, ${ids.length} requests)`
           });
+          if (!!row.completed !== synced.completed) {
+            await logActivity({
+              requestId: id,
+              activityType: "completed_changed",
+              fieldName: "completed",
+              oldValue: row.completed ? "Completed" : "Open",
+              newValue: synced.completed ? "Completed" : "Open",
+              message: synced.completed
+                ? `Marked completed because status became ${synced.workflowStatus} (bulk action).`
+                : `Reopened because status became ${synced.workflowStatus} (bulk action).`
+            });
+          }
         }
         els.bulkStatusSelect.value = "";
         await loadData();
@@ -2099,7 +2166,7 @@
           const id = ids[i];
           els.bulkActionStatus.textContent = `Marking paid ${i + 1}/${ids.length}…`;
           const row = state.rows.find(r => r.id === id);
-          const wasCompleted = !!row?.completed;
+          const wasPaid = row?.workflow_status === "paid";
 
           if (file) {
             const uploaded = await uploadConfirmationFiles([file], id);
@@ -2115,7 +2182,7 @@
           const payload = {
             workflow_status: "paid",
             completed: true,
-            date_completed: new Date().toISOString().slice(0, 10),
+            date_completed: todayIso(),
             updated_by: state.currentUser?.id || null
           };
           await updatePaymentRequestOrThrow(id, payload);
@@ -2130,7 +2197,7 @@
             message: `Marked paid via bulk action (${ids.length} requests)${file ? " with shared confirmation document" : ""}.`
           });
 
-          if (!wasCompleted) notifyPromises.push(notifyRequester(id, { silent: true }));
+          if (!wasPaid) notifyPromises.push(notifyRequester(id, { silent: true }));
         }
 
         await Promise.all(notifyPromises);
@@ -2704,11 +2771,15 @@
           els.submittedFileInput.value = "";
         }
 
-        const completed = markPaid ? true : els.fCompleted.value === "true";
-        const workflowStatus = markPaid ? "paid" : els.fWorkflowStatus.value;
-        const dateCompleted = markPaid
-          ? new Date().toISOString().slice(0, 10)
-          : (els.fDateCompleted.value || null);
+        const synced = syncCompletionFields({
+          workflowStatus: markPaid ? "paid" : els.fWorkflowStatus.value,
+          completed: markPaid ? true : els.fCompleted.value === "true",
+          dateCompleted: markPaid ? todayIso() : (els.fDateCompleted.value || null),
+          previous: { workflow_status: oldRow.workflow_status, completed: oldRow.completed }
+        });
+        const completed = synced.completed;
+        const workflowStatus = synced.workflowStatus;
+        const dateCompleted = synced.dateCompleted;
 
         const amountDueRaw = els.fAmountDue.value.trim();
         const amountDue = Number(amountDueRaw);
@@ -2722,7 +2793,7 @@
           priority: els.fPriority.value,
           payment_type: els.fPaymentType.value || null,
           completed: completed,
-          date_completed: completed ? dateCompleted : null,
+          date_completed: dateCompleted,
           payment_detail: els.fPaymentDetail.value.trim() || null,
           internal_notes: els.fInternalNotes.value.trim() || null,
           amount_due: Math.round(amountDue * 100) / 100,
@@ -2823,13 +2894,16 @@
 
         await Promise.all(activityPromises);
 
-        const justCompleted = !oldRow.completed && payload.completed;
+        // The requester email says "has been paid", so it fires only when the request
+        // actually became paid -- never when it was rejected or cancelled (which also
+        // mark it completed), and still when a rejected request is later paid.
+        const justPaid = oldRow.workflow_status !== "paid" && payload.workflow_status === "paid";
 
         await loadData();
         await openDrawer(oldRow.id, { force: true });
         showToast(markPaid ? "Request marked paid." : "Request updated.");
 
-        if (justCompleted) {
+        if (justPaid) {
           await notifyRequester(oldRow.id);
         }
       } catch (err) {
@@ -2844,11 +2918,11 @@
     async function quickMarkPaid(id) {
       try {
         const row = state.rows.find(r => r.id === id);
-        const wasCompleted = !!row?.completed;
+        const wasPaid = row?.workflow_status === "paid";
         const payload = {
           workflow_status: "paid",
           completed: true,
-          date_completed: new Date().toISOString().slice(0, 10),
+          date_completed: todayIso(),
           updated_by: state.currentUser?.id || null
         };
 
@@ -2869,7 +2943,7 @@
         await loadData();
         showToast("Request marked paid.");
 
-        if (!wasCompleted) {
+        if (!wasPaid) {
           await notifyRequester(id);
         }
       } catch (err) {
@@ -2963,6 +3037,23 @@
 
       els.closeDrawerBtn.addEventListener("click", closeDrawer);
       els.drawerBackdrop.addEventListener("click", closeDrawer);
+      // The two dropdowns move together: the one the user touched drives the other.
+      els.fCompleted.addEventListener("change", () => {
+        const done = els.fCompleted.value === "true";
+        if (done && !isTerminalStatus(els.fWorkflowStatus.value)) {
+          els.fWorkflowStatus.value = "paid";
+        } else if (!done && isTerminalStatus(els.fWorkflowStatus.value)) {
+          els.fWorkflowStatus.value = "approved";
+        }
+        els.fDateCompleted.value = done ? (els.fDateCompleted.value || todayIso()) : "";
+      });
+
+      els.fWorkflowStatus.addEventListener("change", () => {
+        const done = isTerminalStatus(els.fWorkflowStatus.value);
+        els.fCompleted.value = String(done);
+        els.fDateCompleted.value = done ? (els.fDateCompleted.value || todayIso()) : "";
+      });
+
       els.saveDrawerBtn.addEventListener("click", () => saveRow());
       els.markPaidBtn.addEventListener("click", () => saveRow({ markPaid: true }));
       els.openFileBtn.addEventListener("click", async () => {

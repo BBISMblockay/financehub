@@ -52,6 +52,17 @@ test('payment-request-notify reads the request as the caller, not the service ro
   assert.match(s, /const \{ data: pr, error: prErr \} = await callerClient\s*\.from\('payment_requests'\)/);
   assert.match(s, /\.eq\('id', payment_request_id\)\s*\.eq\('company_entity_id', pr\.company_entity_id\);/);
 });
+// The paid confirmation email cannot be sent for a rejected or cancelled
+// request. Since 20261030120000 those are `completed` as well, so `completed`
+// alone stopped being the eligibility test (PR #1081 review cycle 2).
+test('payment-request-notify sends only for a PAID request, not any completed one', () => {
+  const s = read('supabase/functions/payment-request-notify/index.ts');
+  assert.match(s, /if \(pr\.workflow_status !== 'paid'\) \{/);
+  before(s, "pr.workflow_status !== 'paid'", 'const emailSent = await sendEmail(',
+    'the paid check must run before the send');
+  assert.doesNotMatch(s, /if \(!pr\.completed\) \{/,
+    'completed alone is not eligibility: rejected and cancelled are completed too');
+});
 test('comp-request-notify "decided" proves RLS visibility before sending', () => {
   const s = read('supabase/functions/comp-request-notify/index.ts');
   before(s, "await callerClient\n      .from('comp_adjustment_requests')", "sendEmail(sender, [reqRow.requested_by_email]",

@@ -99,7 +99,7 @@ The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`
 | `launch_channel_items` | Channel plan per launch |
 | `launch_product_readiness` | SKU readiness per launch |
 | `launch_system_links` | System links per launch |
-| `payment_requests` | Payment/approval requests |
+| `payment_requests` | Payment/approval requests. **`completed`, `workflow_status` and `date_completed` are one decision, enforced by `trg_payment_request_sync_completion` since 2026-10-30** (`payment_request_sync_completion()`): a completed request sits in a terminal status (`paid`, `rejected`, `cancelled`) and a terminal status means completed; completing one that is not already terminal makes it `paid`, reopening a terminal one makes it `approved`, and `date_completed` is stamped when completed and cleared when not. The trigger normalises rather than raising, because the browser writes this table directly and a CHECK would turn old contradictions into failed saves. Before it, the Request Manager drawer let the two fields be saved independently: 65 Baseballism rows were `completed` while still reading `new` (15 `approved`), so the table badge said Completed while the org calendar feed and every status-sliced report counted them as New; `20261030120000_payment_request_completion_status_sync.sql` backfilled them |
 | `payment_request_files` | File attachments for requests |
 | `payment_request_activity` | Activity log per request |
 | `revenue_projections` | Monthly revenue plan by location + type |
