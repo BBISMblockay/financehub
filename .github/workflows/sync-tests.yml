@@ -1305,7 +1305,7 @@ jobs:
       - name: Execute product sample stage-date regressions
         run: |
           node scripts/tests/product-sample-stage-dates-database.test.mjs
-          for mutation in no-trigger always-stamp overwrite-date backfill-today backfill-min backfill-any-status; do
+          for mutation in no-trigger always-stamp overwrite-date backfill-today backfill-min backfill-any-status backfill-every-apply; do
             if SAMPLE_STAGE_MUTATION="$mutation" node scripts/tests/product-sample-stage-dates-database.test.mjs; then
               echo "::error::$mutation did not fail the product sample stage-date suite"
               exit 1

@@ -90,12 +90,6 @@ comment on function public.product_sample_stamp_stage_date() is
   'with the date empty. Only on entering a stage, never overwrites a date, never clears '
   'one, and never infers a date for a stage that was skipped. See 20261030130000.';
 
-drop trigger if exists trg_product_sample_stage_date on public.product_samples;
-create trigger trg_product_sample_stage_date
-  before insert or update of sample_status
-  on public.product_samples
-  for each row
-  execute function public.product_sample_stamp_stage_date();
 
 -- ── Backfill from the activity log ─────────────────────────────────────────
 -- product_sample_activity has logged every status change since 2026-08-11
@@ -110,46 +104,77 @@ create trigger trg_product_sample_stage_date
 --
 -- A row with no activity evidence is left NULL on purpose. NULL means "not
 -- captured"; a fabricated date would mean "captured, and wrong".
-update public.product_samples s
-   set warehouse_ready_at = a.stage_date
-  from (
-    select act.sample_id,
-           (max(act.created_at) at time zone public.silo_company_timezone(smp.company_entity_id))::date as stage_date
-      from public.product_sample_activity act
-      join public.product_samples smp on smp.id = act.sample_id
-     where act.to_value = 'warehouse_ready'
-     group by act.sample_id, smp.company_entity_id
-  ) a
- where a.sample_id = s.id
-   and s.sample_status = 'warehouse_ready'
-   and s.warehouse_ready_at is null;
+--
+-- RUNS ONLY ON THE FIRST APPLY, gated on the trigger's absence. Without that
+-- gate the backfill is not idempotent in the one case this migration is
+-- careful about everywhere else: a row whose stage date someone deliberately
+-- CLEARED still has its logged transition, so a second apply would resurrect
+-- the date they removed. apply_all_post_merge.sql is re-run after merges, so
+-- that is a real sequence, not a hypothetical. Found by the idempotence
+-- assertion in the test suite while fixing review finding 2 on PR #1084.
+--
+-- It also runs BEFORE the trigger is created, which removes the hazard
+-- #1081's review had to correct by hand: nothing can be stamped with
+-- migration day by its own trigger mid-backfill.
+do $backfill$
+begin
+  if exists (select 1 from pg_trigger
+              where tgrelid = 'public.product_samples'::regclass
+                and tgname = 'trg_product_sample_stage_date'
+                and not tgisinternal) then
+    raise notice '20261030130000: trigger already present, skipping the one-off backfill';
+    return;
+  end if;
 
-update public.product_samples s
-   set picked_up_at = a.stage_date
-  from (
-    select act.sample_id,
-           (max(act.created_at) at time zone public.silo_company_timezone(smp.company_entity_id))::date as stage_date
-      from public.product_sample_activity act
-      join public.product_samples smp on smp.id = act.sample_id
-     where act.to_value = 'picked_up'
-     group by act.sample_id, smp.company_entity_id
-  ) a
- where a.sample_id = s.id
-   and s.sample_status = 'picked_up'
-   and s.picked_up_at is null;
+  update public.product_samples s
+     set warehouse_ready_at = a.stage_date
+    from (
+      select act.sample_id,
+             (max(act.created_at) at time zone public.silo_company_timezone(smp.company_entity_id))::date as stage_date
+        from public.product_sample_activity act
+        join public.product_samples smp on smp.id = act.sample_id
+       where act.to_value = 'warehouse_ready'
+       group by act.sample_id, smp.company_entity_id
+    ) a
+   where a.sample_id = s.id
+     and s.sample_status = 'warehouse_ready'
+     and s.warehouse_ready_at is null;
 
-update public.product_samples s
-   set received_at = a.stage_date
-  from (
-    select act.sample_id,
-           (max(act.created_at) at time zone public.silo_company_timezone(smp.company_entity_id))::date as stage_date
-      from public.product_sample_activity act
-      join public.product_samples smp on smp.id = act.sample_id
-     where act.to_value in ('received', 'pps_received', 'full_run_received')
-     group by act.sample_id, smp.company_entity_id
-  ) a
- where a.sample_id = s.id
-   and s.sample_status in ('received', 'pps_received', 'full_run_received')
-   and s.received_at is null;
+  update public.product_samples s
+     set picked_up_at = a.stage_date
+    from (
+      select act.sample_id,
+             (max(act.created_at) at time zone public.silo_company_timezone(smp.company_entity_id))::date as stage_date
+        from public.product_sample_activity act
+        join public.product_samples smp on smp.id = act.sample_id
+       where act.to_value = 'picked_up'
+       group by act.sample_id, smp.company_entity_id
+    ) a
+   where a.sample_id = s.id
+     and s.sample_status = 'picked_up'
+     and s.picked_up_at is null;
+
+  update public.product_samples s
+     set received_at = a.stage_date
+    from (
+      select act.sample_id,
+             (max(act.created_at) at time zone public.silo_company_timezone(smp.company_entity_id))::date as stage_date
+        from public.product_sample_activity act
+        join public.product_samples smp on smp.id = act.sample_id
+       where act.to_value in ('received', 'pps_received', 'full_run_received')
+       group by act.sample_id, smp.company_entity_id
+    ) a
+   where a.sample_id = s.id
+     and s.sample_status in ('received', 'pps_received', 'full_run_received')
+     and s.received_at is null;
+end
+$backfill$;
+
+drop trigger if exists trg_product_sample_stage_date on public.product_samples;
+create trigger trg_product_sample_stage_date
+  before insert or update of sample_status
+  on public.product_samples
+  for each row
+  execute function public.product_sample_stamp_stage_date();
 
 commit;
