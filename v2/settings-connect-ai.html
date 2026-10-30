@@ -428,7 +428,10 @@
   }
 
   function showFallback(text, btn) {
-    const host = (btn && btn.closest('.ca-row, .ca-prompt, .ca-url')) || btn?.parentElement;
+    const row = btn && btn.closest('.ca-row');
+    const host = row
+      ? row.querySelector('.ca-row-text')
+      : ((btn && btn.closest('.ca-prompt, .ca-url')) || btn?.parentElement);
     if (!host) return;
     let field = host.querySelector('.ca-fallback');
     if (!field) {
