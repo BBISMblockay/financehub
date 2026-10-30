@@ -42,6 +42,10 @@
 
 import { readTokenClaims } from './integration-gate.mjs';
 import { ICON_PNG_BASE64 } from './icon.mjs';
+// The training layer: SILO's rules, glossary, routing table and per-report
+// notes. Kept whole in one file and composed in at the three points a
+// client shows it -- see guide.mjs for why it lives there and not here.
+import { buildGuide, GUIDE_TOOL_NAME, instructionsWithTraining, toolsWithGuide } from './guide.mjs';
 
 export const SUPPORTED_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 export const SERVER_INFO = { name: 'silo', title: 'SILO', version: '1.0.0', websiteUrl: 'https://get-silo.com' };
@@ -251,7 +255,7 @@ export function createMcpHandler({ env, fetchImpl }) {
       protocolVersion: SUPPORTED_PROTOCOLS.includes(asked) ? asked : SUPPORTED_PROTOCOLS[0],
       capabilities: { tools: { listChanged: false } },
       serverInfo,
-      instructions: INSTRUCTIONS,
+      instructions: instructionsWithTraining(INSTRUCTIONS),
     });
   }
 
@@ -331,6 +335,10 @@ export function createMcpHandler({ env, fetchImpl }) {
       return rpcResult(id, toolOk(fitRows(r.data)));
     }
 
+    // Text, not data: no PostgREST call, so nothing here can be a way to
+    // read anything. The caller has still been through the shape check above.
+    if (name === GUIDE_TOOL_NAME) return rpcResult(id, toolOk(buildGuide()));
+
     return rpcError(id, -32602, 'Unknown tool: ' + String(name));
   }
 
@@ -407,7 +415,7 @@ export function createMcpHandler({ env, fetchImpl }) {
       switch (msg.method) {
         case 'initialize': return await onInitialize(msg.id, msg.params, authorization);
         case 'ping':       return rpcResult(msg.id, {});
-        case 'tools/list': return rpcResult(msg.id, { tools: TOOLS });
+        case 'tools/list': return rpcResult(msg.id, { tools: toolsWithGuide(TOOLS) });
         case 'tools/call': return await onToolCall(msg.id, msg.params, authorization);
         default:           return rpcError(msg.id, -32601, 'Method not found: ' + msg.method);
       }
