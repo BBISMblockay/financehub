@@ -1788,13 +1788,20 @@
       return `${y}-${m}-${day}`;
     }
 
-    function daySectionTitle(dueYmd) {
+    // A day is overdue because of the requests sitting in it, not because the date
+    // has passed: a day holding only paid, rejected or cancelled requests is done,
+    // whatever its due date. `rows` is the group being titled.
+    function dayGroupIsOverdue(rows) {
+      return (rows || []).some(r => dueBucket(r) === "overdue");
+    }
+
+    function daySectionTitle(dueYmd, rows) {
       if (!dueYmd) return "No due date";
       const today = todayStart();
       const due = new Date(dueYmd + "T00:00:00");
       const diff = Math.floor((due - today) / 86400000);
       const label = formatDate(dueYmd);
-      if (diff < 0) return `Overdue · ${label}`;
+      if (diff < 0) return dayGroupIsOverdue(rows) ? `Overdue · ${label}` : label;
       if (diff === 0) return `Today · ${label}`;
       if (diff === 1) return `Tomorrow · ${label}`;
       return label;
@@ -1906,10 +1913,10 @@
       els.queueDayView.innerHTML = selectAllBarHtml(allFilteredSelected) + keys.map(key => {
         const rows = groups.get(key);
         const total = rows.reduce((s, r) => s + Number(r.amount_due || 0), 0);
-        const overdue = key && dueBucket({ due_date: key, completed: false }) === "overdue";
+        const overdue = dayGroupIsOverdue(rows);
         return `<section class="rm-day-section ${overdue ? "rm-day-section--overdue" : ""}" data-due="${escapeHtml(key)}">
           <header class="rm-day-head">
-            <h3 class="rm-day-title">${escapeHtml(daySectionTitle(key))}</h3>
+            <h3 class="rm-day-title">${escapeHtml(daySectionTitle(key, rows))}</h3>
             <span class="rm-day-meta mono">${formatNumber(rows.length)} · ${formatMoney(total)}</span>
           </header>
           <div class="rm-day-items">${rows.map(r => `
@@ -1972,7 +1979,7 @@
         <div class="rm-cal-grid">${cells}</div>
         <div class="rm-cal-day-detail">
           <header class="rm-day-head">
-            <h3 class="rm-day-title">${escapeHtml(daySectionTitle(selected))}</h3>
+            <h3 class="rm-day-title">${escapeHtml(daySectionTitle(selected, dayRows))}</h3>
             <span class="rm-day-meta mono">${formatNumber(dayRows.length)} due</span>
           </header>
           ${dayRows.length ? selectAllBarHtml(allFilteredSelected) : ""}
