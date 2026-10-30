@@ -11,19 +11,22 @@
     /* Page-specific only. Everything structural is Beacon or workspace-settings.css. */
     .ca-url {display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;}
     .ca-url input {flex:1 1 320px;min-width:0;font-family:var(--bcn-mono);font-size:12px;}
-    .ca-apps {display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
-    .ca-app {display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:12px 13px;
-      border:1px solid var(--bcn-border);border-radius:9px;background:var(--bcn-surface);cursor:pointer;
-      text-align:left;font:inherit;color:var(--bcn-ink);transition:border-color .12s,box-shadow .12s;}
-    .ca-app:hover {border-color:var(--bcn-ink-3);}
-    .ca-app[aria-pressed="true"] {border-color:var(--bcn-accent);box-shadow:inset 0 0 0 1px var(--bcn-accent);}
-    .ca-app-name {font-size:13px;font-weight:650;}
-    .ca-app-what {font-size:11px;color:var(--bcn-ink-3);line-height:1.4;}
-    .ca-panes {margin-top:16px;padding-top:14px;border-top:1px solid var(--bcn-border);}
-    .ca-pane[hidden] {display:none;}
-    .ca-steps {margin:0 0 14px;padding-left:20px;font-size:12px;color:var(--bcn-ink-2);line-height:1.7;max-width:76ch;}
-    .ca-steps code, .ca-inline-code {font-family:var(--bcn-mono);font-size:11px;background:var(--bcn-sunken);
+    .ca-rows {display:flex;flex-direction:column;}
+    .ca-row {display:flex;align-items:center;gap:12px;padding:11px 2px;
+      border-top:1px solid var(--bcn-border);}
+    .ca-row:first-child {border-top:0;}
+    .ca-row-mark {flex:none;width:30px;height:30px;border-radius:7px;background:var(--bcn-sunken);
+      display:flex;align-items:center;justify-content:center;}
+    .ca-row-text {flex:1;min-width:0;}
+    .ca-row-name {font-size:13px;font-weight:650;}
+    .ca-row-where {font-size:11.5px;color:var(--bcn-ink-3);line-height:1.45;}
+    .ca-row-where code {font-family:var(--bcn-mono);font-size:10.5px;background:var(--bcn-sunken);
       border:1px solid var(--bcn-border);border-radius:4px;padding:1px 5px;}
+    .ca-row-act {flex:none;display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;}
+    @media (max-width:640px) {
+      .ca-row {flex-wrap:wrap;}
+      .ca-row-act {width:100%;justify-content:flex-start;}
+    }
     .ca-cmd {display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;margin-bottom:10px;}
     .ca-cmd input {flex:1 1 320px;min-width:0;font-family:var(--bcn-mono);font-size:11.5px;}
     .ca-prompt {display:flex;gap:10px;align-items:center;justify-content:space-between;
@@ -42,6 +45,8 @@
     .app-mark-letter {font-family:var(--bcn-mono);font-size:15px;font-weight:650;color:var(--bcn-ink-2);}
     .cn-body {min-width:0;flex:1;}
     .cn-name {font-size:13.5px;font-weight:650;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    .cn-tag {font-family:var(--bcn-mono);font-size:10px;font-weight:500;color:var(--bcn-ink-3);
+      background:var(--bcn-sunken);border-radius:4px;padding:1px 5px;}
     .cn-meta {margin-top:5px;font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3);
       line-height:1.65;}
     .cn-actions {margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
@@ -113,8 +118,7 @@
             <p class="ws-note" style="margin:10px 0 16px;">
               No key to paste. The app sends you back here and you approve it with your two-step code.
             </p>
-            <div class="ca-apps" id="clientTabs" role="group" aria-label="AI assistant"></div>
-            <div class="ca-panes" id="clientPanes"></div>
+            <div class="ca-rows" id="clientRows"></div>
           </div>
         </div>
 
@@ -166,7 +170,6 @@
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   let _co = null, _user = null, _isOwner = false;
-  let _active = 'claude';
   let _names = {};   // client_id -> readable name, from Supabase's own grant list
   let _cos = {};     // company_entity_id -> title
 
@@ -233,19 +236,56 @@
   /* One card per connection, with the application's own mark where SILO has
      one and its initial where it does not -- never a guessed logo beside a
      live connection. */
+  /* "3 minutes ago" rather than a date, because the date is what made two
+     connections to the SAME app impossible to tell apart. Claude registers a
+     fresh client every time you connect, so reconnecting leaves the old grant
+     behind, and both cards read "Last used Oct 30" -- Blake, 2026-10-30, with
+     two live Claude connections and no way to see which one was dead. The
+     exact timestamp stays in the title attribute. */
+  function ago(v) {
+    if (!v) return 'never';
+    const mins = Math.round((Date.now() - new Date(v).getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + (mins === 1 ? ' minute ago' : ' minutes ago');
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return hrs + (hrs === 1 ? ' hour ago' : ' hours ago');
+    const days = Math.round(hrs / 24);
+    if (days <= 14) return days + (days === 1 ? ' day ago' : ' days ago');
+    return 'on ' + fmtDate(v);
+  }
+
+  const exact = (v) => (v ? new Date(v).toLocaleString() : '');
+
   function cardsFor(list, opts) {
     if (!list.length) return '<div class="cn-empty">' + esc(opts.empty) + '</div>';
+
+    /* Two cards both reading "Claude" with the same dates are a coin flip,
+       and the verb on them is Remove. Where a name repeats, each card also
+       carries the head of its own client id -- the thing that differs. */
+    const seen = {};
+    for (const g of list) {
+      const n = K.displayName(_names[g.client_id], g.client_id);
+      seen[n] = (seen[n] || 0) + 1;
+    }
+
     return list.map((g) => {
       const name = K.displayName(_names[g.client_id], g.client_id);
+      const tag = seen[name] > 1
+        ? '<span class="cn-tag" title="Each connection registers its own client">'
+          + esc(String(g.client_id || '').slice(0, 8)) + '</span>'
+        : '';
       const who = opts.showWho
         ? 'Approved by ' + esc(g.user_id === _user.id ? 'you' : (g.approver_email || g.user_id))
         : esc(_cos[g.company_entity_id] || 'Company unknown');
       return '<div class="cn-app" data-grant="' + esc(g.id) + '">'
         + '<div class="cn-mark">' + window.SiloAppMarks.forName(name, 22) + '</div>'
         + '<div class="cn-body">'
-        + '<div class="cn-name">' + esc(name) + statusPill(g) + '</div>'
-        + '<div class="cn-meta">' + who + '<br />Approved ' + esc(fmtDate(g.consented_at))
-        + ' · Last used ' + esc(g.last_used_at ? fmtDate(g.last_used_at) : 'never') + '</div>'
+        + '<div class="cn-name">' + esc(name) + tag + statusPill(g) + '</div>'
+        + '<div class="cn-meta">' + who
+        + '<br /><span title="' + esc(exact(g.last_used_at)) + '">Last used '
+        + esc(ago(g.last_used_at)) + '</span>'
+        + ' · <span title="' + esc(exact(g.consented_at)) + '">added '
+        + esc(ago(g.consented_at)) + '</span></div>'
         + '<div class="cn-actions" data-actions>'
         + '<button class="bcn-btn bcn-btn--danger" type="button" data-ask="' + esc(g.id) + '">Remove app</button>'
         + '</div></div></div>';
@@ -433,130 +473,103 @@
      badge links point at vscode.dev/redirect/mcp/install; Claude Code
      documents `claude mcp add --transport http`; claude.ai and ChatGPT are
      paste-the-URL flows with no documented deeplink. */
+  /* One line per app, because they ARE one step: paste this address where
+     that app keeps its MCP servers. Only the places that differ get more --
+     a real install link (Cursor, VS Code), or a command (Claude Code).
+
+     Checked 2026-10-30: Cursor documents an install deeplink
+     (docs.cursor.com/deeplinks); VS Code documents `code --add-mcp` and its
+     badges point at vscode.dev/redirect/mcp/install; Claude Code documents
+     `claude mcp add --transport http`. Claude, ChatGPT and Grok are
+     paste-the-URL flows with no deeplink, and are not dressed up as one. */
   function clients() {
     const u = MCP_URL;
     const cursorCfg = encodeURIComponent(btoa(JSON.stringify({ url: u })));
     const vscodeCfg = encodeURIComponent(JSON.stringify({ name: 'silo', type: 'http', url: u }));
+    const copyAddr = { kind: 'copy', label: 'Copy address', value: u, name: 'Address' };
     return [
       {
         id: 'claude',
         label: 'Claude',
-        what: 'Web, desktop and mobile',
-        steps: 'Works in Claude on the web, desktop and mobile.<ol class="ca-steps">'
-          + '<li>Open <strong>Settings → Connectors</strong> in Claude.</li>'
-          + '<li>Choose <strong>Add custom connector</strong>.</li>'
-          + '<li>Name it <span class="ca-inline-code">SILO</span> and paste the address above as the URL.</li>'
-          + '<li>Click <strong>Connect</strong>. Claude sends you to SILO; approve it with your two-step code.</li>'
-          + '</ol>',
+        where: 'Settings → Connectors → <strong>Add custom connector</strong>, then paste the address.',
         actions: [
-          { kind: 'link', label: 'Open Claude connectors', href: 'https://claude.ai/settings/connectors' },
-          { kind: 'copy', label: 'Copy address', value: u, name: 'Address' },
+          { kind: 'link', label: 'Open', href: 'https://claude.ai/settings/connectors' },
+          copyAddr,
         ],
       },
       {
         id: 'claude-code',
         label: 'Claude Code',
-        what: 'One terminal command',
-        steps: 'Run this once in a terminal, then <span class="ca-inline-code">/mcp</span> inside Claude Code to sign in.',
+        where: 'Run it once, then <code>/mcp</code> inside Claude Code to sign in.',
         cmd: 'claude mcp add --transport http silo --scope user ' + u,
       },
       {
         id: 'chatgpt',
         label: 'ChatGPT',
-        what: 'Through its connector settings',
-        steps: 'ChatGPT reaches outside servers through its own connector settings; there is no install link to click.<ol class="ca-steps">'
-          + '<li>Open <strong>Settings → Connectors</strong> in ChatGPT and turn on <strong>developer mode</strong> if it is offered.</li>'
-          + '<li>Add an <strong>MCP server</strong> and paste the address above.</li>'
-          + '<li>Finish the sign-in it sends you to, and approve SILO with your two-step code.</li>'
-          + '</ol>Custom MCP connectors are not available on every ChatGPT plan.',
-        actions: [{ kind: 'copy', label: 'Copy address', value: u, name: 'Address' }],
+        where: 'Settings → Connectors → add an <strong>MCP server</strong>, then paste the address. '
+          + 'Not on every plan.',
+        actions: [copyAddr],
+      },
+      {
+        id: 'grok',
+        label: 'Grok',
+        where: 'grok.com → Connectors → <strong>New Connector</strong> → <strong>Custom</strong>. '
+          + 'On Business and Enterprise an admin provisions it. Grok’s API takes a fixed token instead, '
+          + 'which SILO does not issue.',
+        actions: [
+          { kind: 'link', label: 'Open', href: 'https://grok.com/connectors' },
+          copyAddr,
+        ],
       },
       {
         id: 'cursor',
         label: 'Cursor',
-        what: 'One-click install link',
-        steps: 'The button opens Cursor and offers to add SILO. Cursor then asks you to sign in, which brings you back here to approve it.',
+        where: 'One click. Cursor asks you to sign in, which brings you back here.',
         actions: [
-          { kind: 'link', label: 'Add to Cursor', href: 'cursor://anysphere.cursor-deeplink/mcp/install?name=silo&config=' + cursorCfg, sameTab: true },
-          { kind: 'copy', label: 'Copy config', value: JSON.stringify({ mcpServers: { silo: { url: u } } }, null, 2), name: 'Config' },
+          { kind: 'link', label: 'Add to Cursor', sameTab: true,
+            href: 'cursor://anysphere.cursor-deeplink/mcp/install?name=silo&config=' + cursorCfg },
         ],
       },
       {
         id: 'vscode',
         label: 'VS Code',
-        what: 'One-click install link',
-        steps: 'The button hands the server to VS Code; the command does the same thing from a terminal.',
+        where: 'One click, or <code>code --add-mcp</code> from a terminal.',
         cmd: "code --add-mcp '" + JSON.stringify({ name: 'silo', type: 'http', url: u }) + "'",
         actions: [
-          { kind: 'link', label: 'Add to VS Code', href: 'https://vscode.dev/redirect/mcp/install?name=silo&config=' + vscodeCfg },
-        ],
-      },
-      {
-        id: 'grok',
-        label: 'Grok',
-        what: 'Custom connector at grok.com',
-        steps: 'Grok takes a custom MCP connector on the web; there is no install link to click.<ol class="ca-steps">'
-          + '<li>Open <strong>grok.com/connectors</strong>.</li>'
-          + '<li>Click <strong>New Connector</strong>, then <strong>Custom</strong>.</li>'
-          + '<li>Paste the address above and finish the sign-in it asks for.</li>'
-          + '</ol>On Grok Business or Enterprise an admin provisions connectors for the team. '
-          + 'Grok\u2019s API has a remote-MCP tool too, but it sends a fixed token you paste in, and SILO '
-          + 'does not issue one \u2014 it signs you in instead \u2014 so the connector above is the way in.',
-        actions: [
-          { kind: 'link', label: 'Open Grok connectors', href: 'https://grok.com/connectors' },
-          { kind: 'copy', label: 'Copy address', value: u, name: 'Address' },
+          { kind: 'link', label: 'Add to VS Code',
+            href: 'https://vscode.dev/redirect/mcp/install?name=silo&config=' + vscodeCfg },
         ],
       },
       {
         id: 'other',
-        label: 'Something else',
-        what: 'Any MCP client',
-        steps: 'Any client that speaks MCP over Streamable HTTP can connect. Give it the address above; it registers itself and starts the sign-in on its own, so there is nothing to create here first.<ol class="ca-steps">'
-          + '<li>Transport: <span class="ca-inline-code">http</span> (Streamable HTTP).</li>'
-          + '<li>Authentication: OAuth 2.1 with dynamic client registration — no key, no secret.</li>'
-          + '<li>Tools: list reports, run report. Read-only.</li>'
-          + '</ol>',
+        label: 'Anything else',
+        where: 'Streamable HTTP, OAuth 2.1, no key to create — the client registers itself.',
         actions: [
-          { kind: 'copy', label: 'Copy config', value: JSON.stringify({ mcpServers: { silo: { type: 'http', url: u } } }, null, 2), name: 'Config' },
+          { kind: 'copy', label: 'Copy config', name: 'Config',
+            value: JSON.stringify({ mcpServers: { silo: { type: 'http', url: u } } }, null, 2) },
         ],
       },
     ];
   }
 
-
   function renderClients() {
-    const list = clients();
-    if (!list.some((c) => c.id === _active)) _active = list[0].id;
-
-    el('clientTabs').innerHTML = list.map((c) => '<button class="ca-app" type="button"'
-      + ' aria-pressed="' + (c.id === _active ? 'true' : 'false') + '"'
-      + ' data-client="' + esc(c.id) + '">'
-      + window.SiloAppMarks.svg(c.id, 26)
-      + '<span class="ca-app-name">' + esc(c.label) + '</span>'
-      + '<span class="ca-app-what">' + esc(c.what) + '</span></button>').join('');
-
-    el('clientPanes').innerHTML = list.map((c) => {
-      const cmd = c.cmd
-        ? '<div class="ca-cmd"><input type="text" class="bcn-field" readonly value="' + esc(c.cmd)
-          + '" aria-label="Command for ' + esc(c.label) + '" />'
-          + '<button class="bcn-btn bcn-btn--primary" data-copy="' + esc(c.cmd) + '" data-copy-name="Command" type="button">Copy command</button></div>'
-        : '';
-      const actions = (c.actions || []).map((a) => (a.kind === 'link'
-        ? '<a class="bcn-btn bcn-btn--primary" href="' + esc(a.href) + '"'
-          + (a.sameTab ? '' : ' target="_blank" rel="noopener noreferrer"') + '>' + esc(a.label) + '</a>'
-        : '<button class="bcn-btn bcn-btn--ghost" type="button" data-copy="' + esc(a.value)
-          + '" data-copy-name="' + esc(a.name || 'Text') + '">' + esc(a.label) + '</button>')).join('');
-      return '<section class="ca-pane" data-client="' + esc(c.id) + '"'
-        + (c.id === _active ? '' : ' hidden') + '>'
-        + '<p class="ws-note" style="margin-bottom:12px;">' + c.steps + '</p>'
-        + cmd + (actions ? '<div class="ws-actions">' + actions + '</div>' : '')
-        + '</section>';
+    el('clientRows').innerHTML = clients().map((c) => {
+      const acts = (c.cmd
+        ? ['<button class="bcn-btn bcn-btn--primary" type="button" data-copy="' + esc(c.cmd)
+            + '" data-copy-name="Command">Copy command</button>']
+        : []).concat((c.actions || []).map((a) => (a.kind === 'link'
+          ? '<a class="bcn-btn bcn-btn--primary" href="' + esc(a.href) + '"'
+            + (a.sameTab ? '' : ' target="_blank" rel="noopener noreferrer"') + '>' + esc(a.label) + '</a>'
+          : '<button class="bcn-btn bcn-btn--ghost" type="button" data-copy="' + esc(a.value)
+            + '" data-copy-name="' + esc(a.name || 'Text') + '">' + esc(a.label) + '</button>'))).join('');
+      return '<div class="ca-row" data-client="' + esc(c.id) + '">'
+        + '<div class="ca-row-mark">' + window.SiloAppMarks.svg(c.id, 20) + '</div>'
+        + '<div class="ca-row-text"><div class="ca-row-name">' + esc(c.label) + '</div>'
+        + '<div class="ca-row-where">' + c.where + '</div></div>'
+        + '<div class="ca-row-act">' + acts + '</div></div>';
     }).join('');
 
-    el('clientTabs').querySelectorAll('[data-client]').forEach((b) => {
-      b.addEventListener('click', () => { _active = b.dataset.client; renderClients(); });
-    });
-    el('clientPanes').querySelectorAll('[data-copy]').forEach((b) => {
+    el('clientRows').querySelectorAll('[data-copy]').forEach((b) => {
       b.addEventListener('click', () => copy(b.dataset.copy, b.dataset.copyName || 'Text'));
     });
   }
