@@ -15,7 +15,9 @@
  *     PR #1081's review caught (`backfill-today`);
  *   * taking the FIRST entry into a stage rather than the most recent, which
  *     is wrong for the 5 samples that re-entered one (`backfill-min`);
- *   * backfilling rows that have since moved on (`backfill-any-status`).
+ *   * backfilling rows that have since moved on (`backfill-any-status`);
+ *   * re-running the backfill on a later apply, which resurrects a date
+ *     someone deliberately cleared (`backfill-every-apply`).
  *
  * Runs on PGlite against stand-in tables carrying only the columns the
  * migration touches.
@@ -29,7 +31,7 @@ const db = new PGlite();
 const root = new URL('../../', import.meta.url);
 const MIGRATION = '20261030130000_product_sample_stage_dates.sql';
 const MUTATIONS = ['', 'no-trigger', 'always-stamp', 'overwrite-date',
-  'backfill-today', 'backfill-min', 'backfill-any-status'];
+  'backfill-today', 'backfill-min', 'backfill-any-status', 'backfill-every-apply'];
 const mutation = process.env.SAMPLE_STAGE_MUTATION || '';
 assert.ok(MUTATIONS.includes(mutation), `Unknown mutation ${mutation}`);
 
@@ -160,8 +162,14 @@ if (mutation === 'backfill-today') {
 if (mutation === 'backfill-min') {
   sql = sql.replace(/max\(act\.created_at\)/g, 'min(act.created_at)');
 }
+if (mutation === 'backfill-every-apply') {
+  // Remove the first-apply gate, so re-applying resurrects a date someone
+  // deliberately cleared.
+  sql = sql.replace(/  if exists \(select 1 from pg_trigger\n[\s\S]*?    return;\n  end if;\n/,
+    '');
+}
 if (mutation === 'backfill-any-status') {
-  sql = sql.replace(/   and s\.sample_status = 'warehouse_ready'\n/, '');
+  sql = sql.replace(/     and s\.sample_status = 'warehouse_ready'\n/, '');
 }
 assert.ok(!mutation || sql !== original,
   `mutation ${mutation} changed nothing -- the migration no longer looks the way it did`);
@@ -172,8 +180,24 @@ for (const statement of splitSqlStatements(sql)) {
 }
 
 const row = (title) => first('select * from public.product_samples where product_title = $1', [title]);
-const today = (await first('select current_date as d')).d;
 const iso = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
+
+// The expected date is the COMPANY's business day, computed the way the
+// trigger computes it -- never SQL current_date, which is the session's UTC
+// day. Between 00:00 and 07:00 UTC the Pacific company is still on the
+// previous date, so a `current_date` comparison fails on correct behaviour
+// and takes the finance-database job red for those hours every night.
+const businessDay = async (company) =>
+  (await first('select (now() at time zone public.silo_company_timezone($1))::date as d', [company])).d;
+const today = await businessDay(PACIFIC);
+// Proof that the distinction is not theoretical: a UTC+14 and a UTC-11
+// company are 25 hours apart, so at every instant at least one of them is on
+// a different calendar date from UTC.
+const utcToday = (await first('select current_date as d')).d;
+assert.ok(
+  [await businessDay(FAR_EAST), await businessDay(FAR_WEST)]
+    .some((d) => iso(d) !== iso(utcToday)),
+  'at least one fixture company must differ from the UTC date at any instant');
 
 // ── 1. The backfill ───────────────────────────────────────────────────────
 check('a stranded warehouse_ready row gets the logged date, not migration day');
@@ -275,6 +299,27 @@ for (const [sample, tz] of [[east, 'Pacific/Kiritimati'], [west, 'Pacific/Midway
   assert.equal(iso(sample.warehouse_ready_at), iso(expected));
 }
 
+check('the stamp follows the company, not the SESSION timezone');
+// The reviewer's scenario on PR #1084, made deterministic: with the session
+// ahead of Pacific, current_date and the Pacific business day are different
+// calendar dates (verified: session Pacific/Kiritimati gives current_date
+// 2026-10-31 while Pacific is still 2026-10-30). The trigger must follow the
+// company, and an assertion must never be written against current_date.
+await db.exec("set timezone = 'Pacific/Kiritimati'");
+try {
+  const sessionDate = (await first('select current_date as d')).d;
+  const pacificDay = await businessDay(PACIFIC);
+  r = await newSample('session-shifted', 'warehouse_ready');
+  assert.equal(iso(r.warehouse_ready_at), iso(pacificDay),
+    'the stamp must be the company business day whatever the session timezone is');
+  if (iso(sessionDate) !== iso(pacificDay)) {
+    assert.notEqual(iso(r.warehouse_ready_at), iso(sessionDate),
+      'the session date and the company date differ right now, and the stamp followed the session');
+  }
+} finally {
+  await db.exec("set timezone = 'UTC'");
+}
+
 check('a company with no settings row still gets a date');
 r = await newSample('no-settings', 'warehouse_ready', '44444444-4444-4444-8444-444444444444');
 assert.notEqual(r.warehouse_ready_at, null);
@@ -290,7 +335,34 @@ assert.equal(Number((await first(`select count(*) n from public.product_samples
      and exists (select 1 from public.product_sample_activity a
                   where a.sample_id = product_samples.id and a.to_value = 'warehouse_ready')`)).n), 0);
 
-// ── 3. Idempotence ────────────────────────────────────────────────────────
+// ── 3. The committed verification check, against this same fixture ────────
+// Finding 2 on PR #1084: the first version of this check reported DRIFT for
+// any current warehouse_ready sample with a NULL date and a logged transition
+// -- which is a legitimate row (enter the stage, then clear the date and save
+// without changing status). Run the committed check here so that condition
+// cannot come back.
+check('the committed schema check tolerates transition -> clear -> same-status save');
+const verifySql = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+const stageCheck = splitSqlStatements(verifySql)
+  .find((st) => st.text.includes("'Product sample stage dates' as check_name"));
+assert.ok(stageCheck, 'the Product sample stage dates check must stay committed');
+
+// Build exactly that row: enter the stage (logging the transition, as the
+// page does), then clear the date without touching the status.
+await newSample('cleared-on-purpose', 'pps_received');
+const clearedId = await idOf('cleared-on-purpose');
+await q(`update public.product_samples set sample_status = 'warehouse_ready' where id = $1`, [clearedId]);
+await q(`insert into public.product_sample_activity (sample_id, action, to_value)
+         values ($1, 'status_changed', 'warehouse_ready')`, [clearedId]);
+await q(`update public.product_samples set warehouse_ready_at = null, notes = 'wrong date' where id = $1`, [clearedId]);
+assert.equal((await row('cleared-on-purpose')).warehouse_ready_at, null,
+  'the trigger must have preserved the cleared date for this case to mean anything');
+
+const verdict = (await q(stageCheck.text))[0];
+assert.equal(verdict.status, 'ok',
+  `a deliberately cleared stage date must not read as drift (got: ${verdict.status})`);
+
+// ── 4. Idempotence ────────────────────────────────────────────────────────
 check('re-running the migration changes nothing');
 const cols = 'product_title, sample_status, received_at, warehouse_ready_at, picked_up_at';
 const before = await q(`select ${cols} from public.product_samples order by product_title`);

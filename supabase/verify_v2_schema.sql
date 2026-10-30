@@ -8057,18 +8057,18 @@ select 'Product sample stage dates' as check_name,
                         and tgname = 'trg_product_sample_stage_date'
                         and not tgisinternal)
       then 'MISSING — trg_product_sample_stage_date is not on product_samples'
-    when exists (select 1 from public.product_samples s
-                  where s.sample_status = 'warehouse_ready' and s.warehouse_ready_at is null
-                    and exists (select 1 from public.product_sample_activity a
-                                 where a.sample_id = s.id and a.to_value = 'warehouse_ready'))
-      then 'DRIFT — warehouse_ready samples with no warehouse_ready_at, though the activity log has the date'
-    when exists (select 1 from public.product_samples s
-                  where s.sample_status = 'picked_up' and s.picked_up_at is null
-                    and exists (select 1 from public.product_sample_activity a
-                                 where a.sample_id = s.id and a.to_value = 'picked_up'))
-      then 'DRIFT — picked_up samples with no picked_up_at, though the activity log has the date'
     else 'ok'
   end as status;
+-- Deliberately NOT checked here: a current warehouse_ready/picked_up sample
+-- whose paired date is NULL. That looks like a missed backfill and is also the
+-- exact shape of a legitimate row -- enter the stage (which logs the
+-- transition), then clear the date and save without changing status, which the
+-- trigger preserves on purpose and the test suite requires. An absence-only
+-- condition cannot tell the two apart from stored state alone, so it would
+-- report DRIFT forever on a valid row. The structural checks above are what
+-- this file can honestly assert; the backfill itself is proved by
+-- scripts/tests/product-sample-stage-dates-database.test.mjs against the
+-- committed migration. Found in review on PR #1084.
 
 -- Launch readiness live status (20261030140000): launch_product_readiness
 -- .live_status has no writer, so it reads 'not_live' for every row including
