@@ -12,8 +12,8 @@ const handle = createMcpHandler({
     // Optional: the URL clients are told to use, if it is ever served from a
     // custom domain. Defaults to <SUPABASE_URL>/functions/v1/mcp.
     SILO_MCP_PUBLIC_URL: Deno.env.get('SILO_MCP_PUBLIC_URL'),
-    // Optional override of the OAuth issuer clients are sent to. Without it the
-    // issuer follows SILO_MCP_PUBLIC_URL's domain. See handler.mjs.
+    // Optional override of the OAuth issuer clients are sent to. Defaults to
+    // <SUPABASE_URL>/auth/v1, also on a custom domain. See handler.mjs.
     SILO_MCP_ISSUER: Deno.env.get('SILO_MCP_ISSUER'),
   },
   fetchImpl: fetch,

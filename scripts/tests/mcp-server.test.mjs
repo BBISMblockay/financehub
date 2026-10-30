@@ -90,15 +90,16 @@ test('a custom public URL is honoured when configured', async () => {
   assert.equal(doc.resource, 'https://mcp.get-silo.com');
 });
 
-test('on a custom domain the issuer follows it, since Supabase Auth renames itself there', async () => {
+test('on a custom domain the issuer stays on the project, where Supabase Auth keeps it', async () => {
   const cd = 'https://api.get-silo.com';
   const moved = harness(undefined, { SILO_MCP_PUBLIC_URL: cd + '/functions/v1/mcp' });
   const doc = await (await moved.handle(new Request('https://x/mcp/.well-known/oauth-protected-resource'))).json();
-  assert.deepEqual(doc.authorization_servers, [cd + '/auth/v1']);
+  assert.deepEqual(doc.authorization_servers, [BASE + '/auth/v1'],
+    'Auth keeps its issuer on the project domain; a client that checks it would stop at discovery');
   assert.equal(doc.resource, cd + '/functions/v1/mcp');
-  const pinned = harness(undefined, { SILO_MCP_PUBLIC_URL: cd + '/functions/v1/mcp', SILO_MCP_ISSUER: BASE + '/auth/v1/' });
+  const pinned = harness(undefined, { SILO_MCP_PUBLIC_URL: cd + '/functions/v1/mcp', SILO_MCP_ISSUER: cd + '/auth/v1/' });
   const doc2 = await (await pinned.handle(new Request('https://x/mcp/.well-known/oauth-protected-resource'))).json();
-  assert.deepEqual(doc2.authorization_servers, [BASE + '/auth/v1'], 'an explicit issuer wins');
+  assert.deepEqual(doc2.authorization_servers, [cd + '/auth/v1'], 'an explicit issuer wins');
   // Data calls stay on the project URL, which keeps working after activation.
   await moved.handle(post(rpc('initialize')));
   assert.ok(moved.calls.length > 0);
