@@ -86,6 +86,14 @@ const r = createReporter('connect-ai');
   const grokSteps = await page.textContent('.ca-row[data-client="grok"]');
   r.ok('and says why the API path is not the one offered',
     /does not issue/.test(grokSteps));
+  /* Grok reads sign-in metadata only at the host root, which Supabase does not
+     let SILO answer, so its row copies the forwarder's address (2026-10-30). */
+  const grokCopy = await page.getAttribute('.ca-row[data-client="grok"] [data-copy]', 'data-copy');
+  r.test('Grok copies its own address, the forwarder, not the shared one',
+    () => r.eq(grokCopy, 'https://mcp.get-silo.com/mcp'));
+  const claudeCopy = await page.getAttribute('.ca-row[data-client="claude"] [data-copy]', 'data-copy');
+  r.test('Claude still copies the shared address',
+    () => r.eq(claudeCopy, 'https://api.get-silo.com/functions/v1/mcp'));
 
   const vs = await page.getAttribute('.ca-row[data-client="vscode"] a.bcn-btn', 'href');
   const vsCfg = JSON.parse(decodeURIComponent(String(vs).split('config=')[1] || ''));

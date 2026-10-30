@@ -423,6 +423,14 @@
   const DERIVED = SUPABASE_URL.replace(/\/+$/, '') + '/functions/v1/mcp';
   let MCP_URL = DERIVED;
 
+  /* Grok's own address. Grok looks for the sign-in metadata at the ROOT of
+     the host (RFC 9728's inserted path) and ignores the address the server
+     hands it; on Supabase that root belongs to the gateway, so Grok stopped
+     at discovery on every Supabase address (logs, 2026-10-30). The forwarder
+     in mcp-forwarder/ (Render service silo-mcp) answers there and passes
+     everything through. Claude, ChatGPT and the rest stay on MCP_URL. */
+  const GROK_URL = 'https://mcp.get-silo.com/mcp';
+
   /* Bounded, because this is a nice-to-have: the derived address is already
      correct, and a hung fetch must not keep the field reading "Loading…". */
   const DISCOVERY_TIMEOUT_MS = 6000;
@@ -530,12 +538,13 @@
       {
         id: 'grok',
         label: 'Grok',
-        where: 'grok.com → Connectors → <strong>New Connector</strong> → <strong>Custom</strong>. '
+        where: 'grok.com → Connectors → <strong>New Connector</strong> → <strong>Custom</strong>, '
+          + 'then paste <strong>Grok’s own address</strong>, <code>' + esc(GROK_URL) + '</code>, not the one above. '
           + 'On Business and Enterprise an admin provisions it. Grok’s API takes a fixed token instead, '
           + 'which SILO does not issue.',
         actions: [
           { kind: 'link', label: 'Open', href: 'https://grok.com/connectors' },
-          copyAddr,
+          { kind: 'copy', label: 'Copy Grok address', value: GROK_URL, name: 'Grok address' },
         ],
       },
       {
