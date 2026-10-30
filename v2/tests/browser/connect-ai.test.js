@@ -100,10 +100,11 @@ const r = createReporter('connect-ai');
   r.ok('access subtitle reflects catalog plus data scope', /3 SILO reports/.test(scopeSub) && /read-only data/.test(scopeSub));
   const scopes = await page.locator('#scopeList li').count();
   r.ok('lists both SILO scopes an approved app gets', scopes === 2);
-  const mfaNote = await page.textContent('#mfaNote');
-  r.ok('prompts for two-step login when none is on the account', /My profile/.test(mfaNote));
+  const heroNote = await page.textContent('#heroMfaNote');
+  r.ok('hero tells you to turn on two-step login in My profile before connecting',
+    /My profile/.test(heroNote) && /before you connect/i.test(heroNote));
   const heroTitle = await page.getAttribute('#heroMfaNote', 'title');
-  r.ok('hero note explains two-step login in profile', /My profile/i.test(heroTitle || ''));
+  r.ok('hero tooltip points at profile two-step login setup', /Two-step login/i.test(heroTitle || ''));
 
   // Reviewing this page is largely looking at it, so leave a shot behind --
   // but a shot that cannot be written (a CI runner has no /opt/cursor) must
