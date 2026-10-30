@@ -623,34 +623,42 @@
   }
 
   const PROFILE_MFA_HREF = '/v2/profile.html';
+  const MFA_HERO_TITLE = 'Two-step login lives under Two-step login in My profile (authenticator app). '
+    + 'Connecting an outside app is refused until it is on and you enter a code at approval.';
 
-  /* Hero + Access copy depend on whether two-step login is already on.
-     Approval always needs aal2; without a factor, setup in My profile first. */
+  /* Hero always names My profile — never the old line that only mentioned approving
+     with a code, which read as if two-step login were already set up. */
   async function loadMfaUi() {
     const hero = el('heroMfaNote');
     const note = el('mfaNote');
     note.hidden = true;
+    const setNeedsSetup = () => {
+      hero.innerHTML = 'No API key. Turn on <strong>two-step login</strong> in '
+        + '<a href="' + PROFILE_MFA_HREF + '">My profile</a> before you connect an app — '
+        + 'when the app asks, it sends you back here and you approve with your authenticator code.';
+      hero.title = MFA_HERO_TITLE;
+      note.hidden = false;
+      note.textContent = 'Two-step login is not on for this account yet.';
+    };
+    const setReady = () => {
+      hero.innerHTML = 'No API key. Your account uses <strong>two-step login</strong> from '
+        + '<a href="' + PROFILE_MFA_HREF + '">My profile</a> — when you connect an app, '
+        + 'it sends you back here and you approve with your authenticator code.';
+      hero.title = MFA_HERO_TITLE;
+    };
     if (!window.SiloMfa) {
-      hero.textContent = 'No API key — when you connect an app, it sends you back here to approve.';
+      setNeedsSetup();
+      note.hidden = false;
+      note.textContent = 'Could not check two-step login — set it up in My profile before connecting.';
       return;
     }
     try {
       const factor = await window.SiloMfa.status(db);
-      if (factor) {
-        hero.textContent = 'No API key — when you connect an app, it sends you back here and you '
-          + 'approve with your authenticator code.';
-        hero.removeAttribute('title');
-        return;
-      }
-      hero.innerHTML = 'No API key. Turn on <strong>two-step login</strong> in '
-        + '<a href="' + PROFILE_MFA_HREF + '">My profile</a> before you connect an app — '
-        + 'then, when the app asks, it sends you back here and you approve with your authenticator code.';
-      hero.title = 'Use the Two-step login section in My profile (authenticator app). '
-        + 'Connecting an outside app is refused until that is set up and you enter a code at approval.';
-      note.hidden = false;
-      note.textContent = 'Two-step login is not on for this account yet.';
+      if (factor) setReady();
+      else setNeedsSetup();
     } catch (_) {
-      hero.textContent = 'No API key — when you connect an app, it sends you back here to approve.';
+      setNeedsSetup();
+      note.textContent = 'Could not check two-step login — set it up in My profile before connecting.';
     }
   }
 

@@ -101,10 +101,15 @@ const r = createReporter('connect-ai');
   const scopes = await page.locator('#scopeList li').count();
   r.ok('lists both SILO scopes an approved app gets', scopes === 2);
   const heroNote = await page.textContent('#heroMfaNote');
-  r.ok('hero tells you to turn on two-step login in My profile before connecting',
-    /My profile/.test(heroNote) && /before you connect/i.test(heroNote));
+  r.ok('hero always names two-step login in My profile',
+    /My profile/.test(heroNote) && /two-step login/i.test(heroNote));
+  r.ok('hero tells you to turn on two-step login before connecting when none is on',
+    /before you connect/i.test(heroNote));
   const heroTitle = await page.getAttribute('#heroMfaNote', 'title');
   r.ok('hero tooltip points at profile two-step login setup', /Two-step login/i.test(heroTitle || ''));
+  r.ok('hero never uses the vague approval-only line',
+    !/^No API key — when you connect an app, it sends you back here and you approve with your authenticator code\.$/
+      .test(heroNote.trim()));
 
   // Reviewing this page is largely looking at it, so leave a shot behind --
   // but a shot that cannot be written (a CI runner has no /opt/cursor) must
