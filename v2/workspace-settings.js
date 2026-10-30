@@ -27,6 +27,8 @@
     'settings/billing': '<rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="7" y1="15" x2="11" y2="15"/>',
     // A bell: who gets told.
     'settings/notifications': '<path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"/><path d="M10.5 20a2 2 0 0 0 3 0"/>',
+    // A spark over a plug: handing your own assistant a way in.
+    'settings/connect-ai': '<path d="M9 7V4"/><path d="M15 7V4"/><path d="M7 7h10v4a5 5 0 0 1-5 5 5 5 0 0 1-5-5z"/><path d="M12 16v4"/><path d="M19 3.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/>',
     // A key: what an outside application was handed.
     'settings/connected-apps': '<circle cx="8" cy="15" r="4"/><line x1="10.8" y1="12.2" x2="20" y2="3"/><line x1="17" y1="6" x2="19" y2="8"/>',
   };

@@ -75,6 +75,7 @@
     ['settings/integrations','Integrations','integrations.html'],
     ['settings/billing','Billing','billing.html'],
     ['settings/notifications','Notifications','settings-notifications.html'],
+    ['settings/connect-ai','Connect AI','settings-connect-ai.html'],
     ['settings/connected-apps','Connected apps','settings-connected-apps.html'],
   ];
 
