@@ -7779,3 +7779,34 @@ select 'developer API idle window' as check_name, case
    then 'BROKEN — the wrapper''s owner cannot record use; every API request will fail'
 
   else 'ok' end as status;
+
+-- The consent screen's client lookup. Supabase auto-approves a REPEAT
+-- authorization and does not name the client in that response, so without this
+-- the screen cannot write a grant and an idle, expired or owner-disconnected
+-- connection can never be reconnected (measured in production 2026-10-29).
+select 'developer API client lookup' as check_name, case
+  when to_regprocedure('public.silo_api_client_for_authorization(text)') is null
+   then 'MISSING — run supabase/migrations/20261029234000_developer_api_client_for_authorization.sql'
+  when not (select p.prosecdef from pg_proc p
+            where p.oid = to_regprocedure('public.silo_api_client_for_authorization(text)'))
+   then 'CRITICAL: the lookup is not SECURITY DEFINER, so it cannot read schema auth and the restore silently stops working'
+
+  -- Scoped to the caller's OWN authorizations. Without this predicate anyone
+  -- holding an authorization id resolves somebody else's application.
+  when pg_get_functiondef(to_regprocedure('public.silo_api_client_for_authorization(text)'))
+       not like '%a.user_id = v_user%'
+   then 'CRITICAL: the lookup is not scoped to the caller, so one authorization id resolves anyone''s application'
+  -- A connection must never resolve an authorization: that is the first line
+  -- of silo_api_consent() too.
+  when pg_get_functiondef(to_regprocedure('public.silo_api_client_for_authorization(text)'))
+       not like '%silo_api_is_integration()%'
+   then 'CRITICAL: a connection can resolve an authorization'
+
+  when has_function_privilege('silo_integration', 'public.silo_api_client_for_authorization(text)', 'execute')
+    or has_function_privilege('silo_revoked', 'public.silo_api_client_for_authorization(text)', 'execute')
+    or has_function_privilege('anon', 'public.silo_api_client_for_authorization(text)', 'execute')
+   then 'CRITICAL: a role that must not reach the lookup can execute it'
+  when not has_function_privilege('authenticated', 'public.silo_api_client_for_authorization(text)', 'execute')
+   then 'BROKEN — a signed-in person cannot reconnect an application'
+
+  else 'ok' end as status;

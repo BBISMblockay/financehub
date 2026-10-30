@@ -69,24 +69,86 @@ test('a repeat with nowhere to send the person is an error, not a silent pass', 
   assert.equal(K.planFromAuthorizationDetails(null).kind, 'error');
 });
 
-test('the consent page writes the grant on the already-consented path', () => {
-  const i = CONSENT.indexOf("PLAN.kind === 'already_consented'");
-  assert.ok(i > 0, 'the page handles the already-consented plan');
-
-  const branch = CONSENT.slice(i, i + 1200);
-  const write = branch.indexOf('writeGrant(');
-  const redirect = branch.indexOf('window.location.href = PLAN.redirectUrl');
-  assert.ok(write > 0, 'the repeat path calls writeGrant()');
-  assert.ok(redirect > 0, 'the repeat path redirects');
-  assert.ok(write < redirect,
-    'writeGrant() must come BEFORE the redirect, or the grant is never written');
+test('the repeat path asks before it writes anything', () => {
+  // The dangerous version of this page wrote the grant and redirected from
+  // inside this branch, with nothing on screen. silo_api_consent() binds the
+  // connection to whatever company is active right now and revokes the
+  // previous grant, so that silently moved an application from company A to
+  // company B for anyone who had switched companies since.
+  const i = CONSENT.indexOf("REPEAT = PLAN.kind === 'already_consented'");
+  assert.ok(i > 0, 'the page recognises the auto-approved repeat');
+  const j = CONSENT.indexOf('renderAsk()', i);
+  assert.ok(j > i, 'it falls through to the same pane a fresh request gets');
+  const between = CONSENT.slice(i, j);
+  assert.ok(!/writeGrant\(/.test(between),
+    'nothing is granted between recognising the repeat and showing the pane');
+  assert.ok(!/window\.location\.href/.test(between),
+    'and the person is not sent back to the application before deciding');
 });
 
-test('a failed grant write on the repeat path stops rather than redirecting', () => {
-  const i = CONSENT.indexOf("PLAN.kind === 'already_consented'");
-  const branch = CONSENT.slice(i, i + 1200);
-  assert.match(branch, /catch[\s\S]{0,200}?fail\(/,
-    'a refused restore is reported, not followed by a redirect to an app that thinks it is connected');
+test('the repeat path resolves the client it was never told', () => {
+  // Supabase's auto-approve response does not name the client, so the grant
+  // had nothing to write against -- measured in production 2026-10-29, where
+  // the restore failed with "did not name an application". The lookup is
+  // scoped in the database to the caller's own authorizations.
+  assert.match(CONSENT, /rpc\('silo_api_client_for_authorization',\s*\{\s*\n?\s*p_authorization_id: AUTH_ID/);
+  assert.match(CONSENT, /CLIENT_ID = await resolveClientId\(\)/,
+    'both paths resolve through one function before the pane is drawn');
+  assert.match(CONSENT, /if \(PLAN\.clientId\) return PLAN\.clientId;/,
+    'a client already named costs no round trip');
+  assert.match(CONSENT, /if \(!CLIENT_ID\) \{ fail\(/,
+    'an unresolvable application is an honest refusal, not a blank pane');
+});
+
+test('the only grant write is behind the Approve button', () => {
+  const calls = CONSENT.match(/writeGrant\(/g) || [];
+  assert.equal(calls.length, 2, 'the definition and exactly one call site');
+  const approve = CONSENT.indexOf('async function onApprove');
+  const call = CONSENT.indexOf('await writeGrant(CLIENT_ID)');
+  const deny = CONSENT.indexOf('async function onDeny');
+  assert.ok(approve > 0 && call > approve && call < deny,
+    'the write happens inside onApprove and nowhere else');
+});
+
+test('the company is chosen before the grant is written, on every path', () => {
+  const approve = CONSENT.indexOf('async function onApprove');
+  const body = CONSENT.slice(approve, CONSENT.indexOf('async function onDeny'));
+  const chosen = body.indexOf("el('coSelect').value");
+  const set = body.indexOf('await setCompany(chosen)');
+  const write = body.indexOf('await writeGrant(CLIENT_ID)');
+  assert.ok(chosen > 0 && set > chosen && write > set,
+    'silo_api_consent() reads the ACTIVE company, so it is set first');
+});
+
+test('a reconnect starts on the company the application already had', () => {
+  // Not the active company: someone who switched companies since would
+  // otherwise be one unchanged click away from repointing the application.
+  assert.match(CONSENT, /\.eq\('client_id', CLIENT_ID\)/,
+    'the prior grant is looked up by the resolved client');
+  assert.match(CONSENT, /PRIOR_COMPANY && COMPANIES\.some/,
+    'and only if the person is still a member of that company');
+  const prefer = CONSENT.indexOf('const prefer =');
+  assert.ok(prefer > 0 && CONSENT.indexOf('PRIOR_COMPANY', prefer) < CONSENT.indexOf('active?.id', prefer),
+    'the prior company wins over the active one');
+});
+
+test('approving a repeat follows the redirect Supabase already issued', () => {
+  // There is no authorization left to approve; calling the consent endpoint
+  // again would fail AFTER the grant had been written.
+  const body = CONSENT.slice(CONSENT.indexOf('async function onApprove'),
+    CONSENT.indexOf('async function onDeny'));
+  assert.match(body, /let url = PLAN\.redirectUrl;/);
+  assert.match(body, /if \(!REPEAT\) \{[\s\S]{0,200}?decide\(PLAN\.authorizationId, 'approve'\)/);
+});
+
+test('denying a repeat gives the application nothing', () => {
+  const body = CONSENT.slice(CONSENT.indexOf('async function onDeny'));
+  const guard = body.indexOf('if (REPEAT)');
+  const ret = body.indexOf('return;', guard);
+  const redirect = body.indexOf('window.location.href');
+  assert.ok(guard > 0 && ret > guard, 'the repeat branch returns');
+  assert.ok(ret < redirect,
+    'it returns BEFORE any redirect: no code reaches the application, and with no grant row a token reads nothing');
 });
 
 test('writeGrant calls silo_api_consent with SILO scopes, not the OAuth scope string', () => {
@@ -95,7 +157,7 @@ test('writeGrant calls silo_api_consent with SILO scopes, not the OAuth scope st
 });
 
 test('the fresh path writes the grant before asking Supabase to approve', () => {
-  const write = CONSENT.indexOf('await writeGrant(PLAN.clientId)');
+  const write = CONSENT.indexOf('await writeGrant(CLIENT_ID)');
   const approve = CONSENT.indexOf("decide(PLAN.authorizationId, 'approve')");
   assert.ok(write > 0 && approve > 0);
   assert.ok(write < approve,
