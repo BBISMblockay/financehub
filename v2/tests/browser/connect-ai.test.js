@@ -21,13 +21,20 @@ const r = createReporter('connect-ai');
   }));
 
   const page = await suite.open('/v2/settings-connect-ai.html', {
-    silo_chat_saved_reports_v: [
-      { title: 'Daily sales', source: 'system', archived_at: null },
-      { title: 'Open work', source: 'system', archived_at: null },
-      { title: 'Launches next 30 days', source: 'system', archived_at: null },
-    ],
     profiles: [{ id: 'test-user', email: 'test@baseballism.com', role: 'admin' }],
   }, {
+    rpc: {
+      silo_api_list_reports: `function () {
+        return {
+          reports: [
+            { title: 'Daily sales' },
+            { title: 'Open work' },
+            { title: 'Launches next 30 days' },
+          ],
+          company_reports: { count: 2 },
+        };
+      }`,
+    },
     ready: () => !!document.querySelector('.ca-row[data-client="claude"]'),
   });
 
@@ -87,7 +94,16 @@ const r = createReporter('connect-ai');
     () => r.eq(vsCfg.url, 'https://api.get-silo.com/functions/v1/mcp'));
 
   const summary = await page.textContent('#reportsSummary');
-  r.ok('report count comes from the catalog, not a constant', /^3 reports/.test(summary.trim()));
+  r.ok('report count comes from silo_api_list_reports, not a constant',
+    /^3 SILO reports/.test(summary.trim()) && /2 saved company reports/.test(summary));
+  const scopeSub = await page.textContent('#scopeSub');
+  r.ok('access subtitle reflects catalog plus data scope', /3 SILO reports/.test(scopeSub) && /read-only data/.test(scopeSub));
+  const scopes = await page.locator('#scopeList li').count();
+  r.ok('lists both SILO scopes an approved app gets', scopes === 2);
+  const mfaNote = await page.textContent('#mfaNote');
+  r.ok('prompts for two-step login when none is on the account', /My profile/.test(mfaNote));
+  const heroTitle = await page.getAttribute('#heroMfaNote', 'title');
+  r.ok('hero note explains two-step login in profile', /My profile/i.test(heroTitle || ''));
 
   // Reviewing this page is largely looking at it, so leave a shot behind --
   // but a shot that cannot be written (a CI runner has no /opt/cursor) must

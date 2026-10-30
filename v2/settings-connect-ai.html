@@ -18,6 +18,7 @@
   <script src="/pages/config.js"></script>
   <script src="app-marks.js"></script>
   <script src="api-connections.js"></script>
+  <script src="/pages/mfa.js"></script>
 </head>
 <body>
   <div class="silo-app" id="silo-app">
@@ -67,7 +68,10 @@
                            aria-label="SILO MCP server address" />
                     <button class="bcn-btn bcn-btn--primary" id="btnCopyUrl" type="button">Copy</button>
                   </div>
-                  <p class="ca-hero-note">No API key — the app sends you back here and you approve with your two-step code.</p>
+                  <p class="ca-hero-note" id="heroMfaNote"
+                     title="Outside apps connect only after you approve here with your authenticator code. Turn on two-step login under Two-step login in My profile if you have not yet.">
+                    No API key — the app sends you back here and you approve with your two-step code.
+                  </p>
                 </div>
                 <div class="ca-rows" id="clientRows"></div>
               </div>
@@ -78,13 +82,16 @@
             <div class="ws-card ws-card--flat">
               <div class="ws-card-head">
                 <div class="ws-title">Access</div>
-                <div class="ws-sub" id="scopeSub">Read-only</div>
+                <div class="ws-sub" id="scopeSub">Loading access…</div>
               </div>
               <div class="ws-body ws-body--tight">
                 <p class="ws-note ws-note--tight">
-                  Reports and read-only queries for <strong id="coName">this company</strong> only —
+                  What you approve is read-only for <strong id="coName">this company</strong>, as you —
                   no writes, no secrets. Sessions end after 90 days or 30 days idle.
                 </p>
+                <ul class="ca-scopes" id="scopeList" aria-label="What an approved app can do"></ul>
+                <p class="ws-note ws-note--tight ca-mfa-note" id="mfaNote" hidden
+                   title="Connecting an outside app needs your authenticator code at approval time. Set up two-step login under Two-step login in My profile."></p>
                 <details class="ca-reports" id="reportsBox">
                   <summary id="reportsSummary">Loading the report list…</summary>
                   <ul id="reportsList"></ul>
@@ -579,23 +586,57 @@
     });
   }
 
-  /* The real catalog, read with this person's own session from the same view
-     silo_api_list_reports() reads (source = 'system', not archived). Hard-coding
-     a count would be wrong within the week -- it went 21 -> 24 on 2026-10-30. */
-  async function loadReports() {
-    const { data, error } = await db.from('silo_chat_saved_reports_v')
-      .select('title, source, archived_at')
-      .eq('source', 'system')
-      .is('archived_at', null)
-      .order('title');
-    if (error || !Array.isArray(data)) {
-      el('reportsSummary').textContent = 'The report list could not be loaded.';
+  const SCOPE_LABEL = {
+    'reports:read': 'SILO reports (run and read results)',
+    'data:read': 'Company data (read-only lookups)',
+  };
+
+  function renderGrantedScopes() {
+    const items = (K.SILO_SCOPES || []).map((key) => {
+      const detail = (K.SCOPE_COPY && K.SCOPE_COPY[key]) || key;
+      const label = SCOPE_LABEL[key] || key;
+      return '<li title="' + esc(detail) + '">' + esc(label) + '</li>';
+    });
+    el('scopeList').innerHTML = items.join('');
+  }
+
+  /* Same RPC the MCP server calls for its catalog — one source of truth for
+     counts and titles, including saved company reports the integration may
+     find by search (not listed here in full). */
+  async function loadAccess() {
+    renderGrantedScopes();
+    const { data, error } = await db.rpc('silo_api_list_reports');
+    const catalog = (data && typeof data === 'object' && !Array.isArray(data)) ? data : null;
+    if (error || !catalog) {
+      el('reportsSummary').textContent = 'The access preview could not be loaded.';
+      el('scopeSub').textContent = 'Read-only · as you';
       el('reportsBox').open = false;
       return;
     }
-    el('reportsSummary').textContent = data.length + ' reports it can run — see the list';
-    el('scopeSub').textContent = data.length + ' reports, read-only';
-    el('reportsList').innerHTML = data.map((r) => '<li>' + esc(r.title) + '</li>').join('');
+    const reports = Array.isArray(catalog.reports) ? catalog.reports : [];
+    const coCount = Number(catalog.company_reports && catalog.company_reports.count) || 0;
+    el('scopeSub').textContent = reports.length + ' SILO reports · read-only data · as you';
+    let summary = reports.length + ' SILO report' + (reports.length === 1 ? '' : 's') + ' it can run';
+    if (coCount > 0) {
+      summary += ', plus ' + coCount + ' saved company report' + (coCount === 1 ? '' : 's')
+        + ' findable by search';
+    }
+    el('reportsSummary').textContent = summary + ' — see SILO list';
+    el('reportsList').innerHTML = reports.map((r) => '<li>' + esc(r.title) + '</li>').join('');
+  }
+
+  async function loadMfaNote() {
+    const note = el('mfaNote');
+    if (!window.SiloMfa) { note.hidden = true; return; }
+    try {
+      const factor = await window.SiloMfa.status(db);
+      if (factor) { note.hidden = true; return; }
+      note.hidden = false;
+      note.innerHTML = 'Two-step login is required before an app can connect. Turn it on in '
+        + '<a href="/v2/profile.html">My profile</a> (Two-step login).';
+    } catch (_) {
+      note.hidden = true;
+    }
   }
 
   (async function boot() {
@@ -635,7 +676,7 @@
        do with reading or removing a connection. Chaining them meant a stalled
        discovery call left "Your apps" on "Loading…" with no Remove button,
        on a page that is now the only place to remove one. */
-    await Promise.all([resolveUrl(), loadReports(), loadNames().then(load)]);
+    await Promise.all([resolveUrl(), loadAccess(), loadMfaNote(), loadNames().then(load)]);
   })().catch((e) => {
     console.error(e);
     setStatus('Unexpected error: ' + (e?.message || e), 'neg');
