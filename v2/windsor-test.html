@@ -247,12 +247,12 @@
   $('reconcileBtn').addEventListener('click', () => busy($('reconcileBtn'), async () => {
     // The function checks a bounded batch of links per call; walk them all.
     const s = { links: 0, found: 0, added: 0, refreshed: 0, conflicts: [], errors: [],
-      rejected: { token_mismatch: 0, token_missing: 0, malformed: 0 } };
+      rejected: { token_mismatch: 0, token_missing: 0, malformed: 0, deactivated: 0 } };
     let offset = resumeAt;
     for (let page = 0; page < 40; page += 1) {
       const r = await broker({ action: 'reconcile', offset });
       for (const k of ['links', 'found', 'added', 'refreshed']) s[k] += r[k];
-      for (const k of Object.keys(s.rejected)) s.rejected[k] += r.rejected[k];
+      for (const k of Object.keys(s.rejected)) s.rejected[k] += r.rejected?.[k] || 0;
       s.conflicts.push(...r.conflicts); s.errors.push(...r.errors);
       if (r.next_offset === null) { offset = null; break; }
       offset = r.next_offset;
@@ -261,7 +261,7 @@
     if (offset !== null) s.errors.push('Stopped after 1,000 links; press Refresh again to continue from there.');
     const lines = [
       `Links checked: ${s.links}   accounts found: ${s.found}   added: ${s.added}   refreshed: ${s.refreshed}`,
-      `Not attributable — other link's token: ${s.rejected.token_mismatch}, no token: ${s.rejected.token_missing}, unreadable: ${s.rejected.malformed}`,
+      `Not attributable — other link's token: ${s.rejected.token_mismatch}, no token: ${s.rejected.token_missing}, unreadable: ${s.rejected.malformed}, replaced by a newer link: ${s.rejected.deactivated}`,
     ];
     if (s.conflicts.length) lines.push(`Already held by another company (left alone): ${s.conflicts.map((c) => `${c.ds_id} ${c.account_id}`).join(', ')}`);
     if (s.errors.length) lines.push(`Errors: ${s.errors.join(' | ')}`);

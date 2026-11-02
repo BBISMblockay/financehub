@@ -14,6 +14,7 @@
 //   WINDSOR_MUTATION=redact       errors echo Windsor's text unredacted
 //   WINDSOR_MUTATION=connector    preview lets the caller choose the endpoint
 //   WINDSOR_MUTATION=linkwindow   reconcile only ever checks one batch of links
+//   WINDSOR_MUTATION=grouptoken   a grouped account takes the request's token, not its group's
 //
 // Run: node scripts/tests/windsor-broker.test.mjs
 import assert from 'node:assert/strict';
@@ -41,6 +42,7 @@ async function loadHandler() {
   if (MUT === 'connector') handler = sub(handler, 'const conn = connectorForSource(own.row.ds_id);', "const conn = connectorForSource(body?.connector || own.row.ds_id);")
     .replace("&& connectorForSource(String(body.connector).trim().toLowerCase()).value !== connectorForSource(own.row.ds_id).value", '&& false');
   if (MUT === 'linkwindow') handler = sub(handler, 'const offset = Number.isInteger(body?.offset) && body.offset >= 0 ? body.offset : 0;', 'const offset = 0;');
+  if (MUT === 'grouptoken') lib = sub(lib, 'for (const r of flattenLinkedAccounts(rows)) {', 'for (const r of flattenLinkedAccounts(rows).map((x) => ({ ...x, access_token: token }))) {');
   if (MUT === 'redact') lib = sub(lib, "if (key) s = s.split(key).join('***');\n  s = s.replace(/(api_key=)[^&\\s\"']+/gi, '$1***');", '');
   fs.writeFileSync(path.join(dir, 'handler.mjs'), handler);
   fs.writeFileSync(path.join(dir, 'windsor-lib.mjs'), lib);
@@ -154,9 +156,31 @@ test('reconcile files only rows carrying this company\'s own token', async () =>
   const r = await call(handlerFor(w, fw), { action: 'reconcile' });
   assert.equal(r.status, 200);
   assert.equal(r.body.added, 1);
-  assert.deepEqual(r.body.rejected, { token_mismatch: 1, token_missing: 1, malformed: 1 });
+  assert.deepEqual(r.body.rejected, { token_mismatch: 1, token_missing: 1, malformed: 1, deactivated: 0 });
   const mine = w.fake.rows('windsor_linked_accounts').filter((x) => x.company_entity_id === A);
   assert.deepEqual(mine.map((x) => [x.ds_id, x.account_id, x.link_id]), [['klaviyo', 'ka-1', 'link-a']]);
+});
+
+test('reconcile reads the grouped shape Windsor returns live, token taken from each group', async () => {
+  const w = world();
+  // The live shape (2026-11-02): one entry per link. Windsor here also
+  // ignores the access_token filter and returns company B's group.
+  const fw = fakeWindsor({ [LINKED]: () => ({ body: [
+    { link: { access_token: 'tok-A-0000001', issued_at: '2026-11-02T22:18:03', revoked_at: '2026-11-02T22:19:49' }, accounts: [
+      { datasource: 'klaviyo', account_id: 'ka-old', account_name: 'Old', is_deactivated: true },
+      { datasource: 'tiktok', account_id: '7000000000000000001', account_name: 'A TikTok', is_deactivated: false },
+    ] },
+    { link: { access_token: 'tok-B-0000001' }, accounts: [
+      { datasource: 'klaviyo', account_id: 'kb-2', account_name: 'B Store', is_deactivated: false },
+    ] },
+  ] }) });
+  const r = await call(handlerFor(w, fw), { action: 'reconcile' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.added, 1);
+  assert.deepEqual(r.body.rejected, { token_mismatch: 1, token_missing: 0, malformed: 0, deactivated: 1 });
+  const mine = w.fake.rows('windsor_linked_accounts').filter((x) => x.company_entity_id === A);
+  assert.deepEqual(mine.map((x) => [x.ds_id, x.account_id, x.account_name]), [['tiktok', '7000000000000000001', 'A TikTok']]);
+  assert.ok(!w.fake.rows('windsor_linked_accounts').some((x) => x.account_id === 'kb-2'), 'B\'s group is not filed under A');
 });
 
 test('reconcile never takes an account another company already holds', async () => {

@@ -148,6 +148,24 @@ export function rowsOf(body) {
   return null;
 }
 
+/** What co-user-linked-accounts actually returns (seen live 2026-11-02): one
+ *  entry per link, `{ link: { access_token, issued_at, expires_at, revoked_at },
+ *  accounts: [{ datasource, account_id, account_name, is_deactivated, ... }] }`.
+ *  Each account takes its token from its own group's `link`, never from the
+ *  request. A flat row (the shape the docs describe) passes through as is. */
+export function flattenLinkedAccounts(rows) {
+  const out = [];
+  for (const r of rows ?? []) {
+    if (r && typeof r === 'object' && !Array.isArray(r) && r.link && typeof r.link === 'object' && Array.isArray(r.accounts)) {
+      const groupToken = typeof r.link.access_token === 'string' ? r.link.access_token : null;
+      for (const a of r.accounts) {
+        out.push(a && typeof a === 'object' && !Array.isArray(a) ? { ...a, access_token: groupToken } : a);
+      }
+    } else out.push(r);
+  }
+  return out;
+}
+
 /** Sort co-user-linked-accounts rows, fetched for ONE link token, into the
  *  ones SILO may attribute to that link's company and the ones it may not.
  *
@@ -160,9 +178,9 @@ export function rowsOf(body) {
  *  unattributable and is reported, not guessed. */
 export function partitionLinkedAccounts(rows, token) {
   const accepted = [];
-  const rejected = { token_mismatch: 0, token_missing: 0, malformed: 0 };
+  const rejected = { token_mismatch: 0, token_missing: 0, malformed: 0, deactivated: 0 };
   const seen = new Set();
-  for (const r of rows ?? []) {
+  for (const r of flattenLinkedAccounts(rows)) {
     if (!r || typeof r !== 'object') { rejected.malformed += 1; continue; }
     const ds = String(r.datasource ?? r.ds_id ?? r.data_source ?? '').trim().toLowerCase();
     const acct = r.account_id === undefined || r.account_id === null ? '' : String(r.account_id).trim();
@@ -170,6 +188,9 @@ export function partitionLinkedAccounts(rows, token) {
     const rowToken = typeof r.access_token === 'string' ? r.access_token : null;
     if (!rowToken) { rejected.token_missing += 1; continue; }
     if (rowToken !== token) { rejected.token_mismatch += 1; continue; }
+    // Re-authorizing through a newer link leaves the account under the old
+    // link marked deactivated; the live copy arrives under the new link.
+    if (r.is_deactivated === true) { rejected.deactivated += 1; continue; }
     const key = `${ds}\u0000${acct}`;
     if (seen.has(key)) continue;
     seen.add(key);

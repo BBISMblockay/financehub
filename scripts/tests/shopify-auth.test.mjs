@@ -291,12 +291,12 @@ await test('deploy workflow: the public webhook stays public on EVERY path, "all
   };
   try {
     const all = run('all');
-    assert.ok(all.includes('functions deploy shopify-compliance-webhook --no-verify-jwt --project-ref ref'),
+    assert.ok(all.includes('functions deploy shopify-compliance-webhook --no-verify-jwt --project-ref ref --yes'),
       `"all" must redeploy the compliance webhook without JWT verification; calls were:\n${all.join('\n')}`);
-    assert.ok(all.indexOf('functions deploy --project-ref ref') < all.indexOf('functions deploy shopify-compliance-webhook --no-verify-jwt --project-ref ref'),
+    assert.ok(all.indexOf('functions deploy --project-ref ref --yes') < all.indexOf('functions deploy shopify-compliance-webhook --no-verify-jwt --project-ref ref --yes'),
       'the public redeploy must come AFTER the plain deploy, or the plain deploy re-enables JWT');
-    assert.deepEqual(run('shopify-compliance-webhook'), ['functions deploy shopify-compliance-webhook --no-verify-jwt --project-ref ref']);
-    assert.deepEqual(run('shopify-connect-dev-app'), ['functions deploy shopify-connect-dev-app --project-ref ref'], 'a JWT function keeps JWT');
+    assert.deepEqual(run('shopify-compliance-webhook'), ['functions deploy shopify-compliance-webhook --no-verify-jwt --project-ref ref --yes']);
+    assert.deepEqual(run('shopify-connect-dev-app'), ['functions deploy shopify-connect-dev-app --project-ref ref --yes'], 'a JWT function keeps JWT');
   } finally { rmSync(bin, { recursive: true, force: true }); }
 });
 
