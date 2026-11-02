@@ -1600,6 +1600,16 @@ jobs:
       - name: Execute developer API connection label regressions
         run: node scripts/tests/developer-api-connection-labels-database.test.mjs
 
+      # 20261102180000: one live connection per person per APPLICATION. Every
+      # MCP client registers itself afresh on each connect, so the old
+      # (client_id, user_id) rule never fired. Proves the replace is keyed on
+      # the application and on the USER, never on the company, that an
+      # unreadable registration dedupes nothing, and that the duplicates that
+      # already existed collapse to the one most recently used.
+      # Mutation-tested.
+      - name: Execute developer API one-connection-per-app regressions
+        run: node scripts/tests/developer-api-one-connection-per-app-database.test.mjs
+
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a
       # later edit, and a cleared flag carries no stale author or note.

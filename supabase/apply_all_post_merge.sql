@@ -19414,4 +19414,11 @@ $c$select (select count(*) from v_po_header_summary
 -- Connect AI: name a colleague's connection (application and approver) for
 -- owner_admins, scoped exactly like silo_api_grants_select. No deploy.
 \i migrations/20261030190000_developer_api_connection_labels.sql
+-- One live connection per person per APPLICATION, not per client
+-- registration: every MCP client registers itself afresh on each connect, so
+-- the old (client_id, user_id) rule never fired and connections accumulated
+-- (Travis held four live Cursor connections). Adds app_key, collapses the
+-- duplicates that already exist to the one most recently used, and keys
+-- consent on the application. Per user, never per company. No deploy.
+\i migrations/20261102180000_developer_api_one_connection_per_app.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
