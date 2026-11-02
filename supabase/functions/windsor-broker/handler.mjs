@@ -142,7 +142,7 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       const summary = { links: batch.length, offset,
         next_offset: batch.length === MAX_LINKS_PER_RECONCILE ? offset + batch.length : null,
         found: 0, added: 0, refreshed: 0, conflicts: [],
-        rejected: { token_mismatch: 0, token_missing: 0, malformed: 0 }, errors: [] };
+        rejected: { token_mismatch: 0, token_missing: 0, malformed: 0, deactivated: 0 }, errors: [] };
       for (const link of batch) {
         const r = await windsor(windsorUrl(WINDSOR_ONBOARD, '/api/team/co-user-linked-accounts/', {
           api_key: key, access_token: link.access_token,
