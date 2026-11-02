@@ -220,6 +220,24 @@ test('preview reads one own account and drops rows for any other account', async
   assert.match(u.searchParams.get('fields'), /^account_id,/, 'account_id is always requested');
 });
 
+test('a TikTok preview includes inactive campaigns; other connectors send no options', async () => {
+  const w = world();
+  w.fake.tables.get('windsor_linked_accounts').push(
+    { id: 'acc-t', company_entity_id: A, link_id: 'link-a', ds_id: 'tiktok', account_id: '7000000000000000001' },
+    { id: 'acc-k', company_entity_id: A, link_id: 'link-a', ds_id: 'klaviyo', account_id: 'ka-1' });
+  const fw = fakeWindsor({
+    'GET connectors.windsor.ai/tiktok': () => ({ body: { data: [{ account_id: '7000000000000000001', date: '2026-11-01', spend: 0 }] } }),
+    'GET connectors.windsor.ai/klaviyo': () => ({ body: { data: [] } }),
+  });
+  const h = handlerFor(w, fw);
+  const r = await call(h, { action: 'preview', linked_account_id: 'acc-t', fields: 'date,spend' });
+  assert.equal(r.body.rows.length, 1);
+  assert.deepEqual(JSON.parse(fw.log[0].url.searchParams.get('options')), { tiktok: { include_inactive: 'true' } });
+  assert.equal(fw.log[0].url.searchParams.get('select_accounts'), '7000000000000000001', 'still one account only');
+  await call(h, { action: 'preview', linked_account_id: 'acc-k', fields: 'date' });
+  assert.equal(fw.log[1].url.searchParams.get('options'), null);
+});
+
 test('preview cannot reach another company\'s account, or the all connector', async () => {
   const w = world(); const fw = fakeWindsor({});
   assert.equal((await call(handlerFor(w, fw), { action: 'preview', linked_account_id: 'acc-b', fields: 'date' })).status, 404);
