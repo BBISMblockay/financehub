@@ -144,14 +144,21 @@ update public.silo_api_grants
 
 -- Blake chose "always replace" (2026-11-02), so the duplicates that already
 -- exist collapse here rather than waiting for each person to reconnect. The
--- survivor is the one that has actually been used most recently, falling back
--- to the most recent consent -- for Travis's four Cursor rows that is the only
--- one with a last_used_at. The others were never used by anything.
+-- survivor is the one that has actually been USED most recently; consent time
+-- only breaks a tie among connections nobody has ever used. For Travis's four
+-- Cursor rows that is the only one with a last_used_at.
+--
+-- Use is ranked ahead of consent rather than through
+-- coalesce(last_used_at, consented_at), which compares a never-used row's
+-- consent time against another row's actual use and so revokes a WORKING
+-- connection in favour of an unused one consented five minutes later (review
+-- of #1095, cycle 1; the test has a fixture for exactly that shape). A
+-- revocation is monotonic, so getting this backwards is not recoverable.
 with ranked as (
   select id,
          row_number() over (
            partition by app_key, user_id
-           order by coalesce(last_used_at, consented_at) desc, consented_at desc, id) as rn
+           order by last_used_at desc nulls last, consented_at desc, id) as rn
   from public.silo_api_grants
   where revoked_at is null
 )

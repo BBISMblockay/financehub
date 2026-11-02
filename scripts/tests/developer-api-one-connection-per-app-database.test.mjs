@@ -42,9 +42,11 @@ const CURSOR_1 = '00000000-0000-4000-c000-000000000001';
 const CURSOR_2 = '00000000-0000-4000-c000-000000000002';
 const CURSOR_3 = '00000000-0000-4000-c000-000000000003';
 const CLAUDE_1 = '00000000-0000-4000-c000-000000000011';
+const CLAUDE_2 = '00000000-0000-4000-c000-000000000012';
 const CODEX_1   = '00000000-0000-4000-c000-000000000021';
 const CODEX_2   = '00000000-0000-4000-c000-000000000022';
 const NAMELESS  = '00000000-0000-4000-c000-000000000031';
+const GROK      = '00000000-0000-4000-c000-000000000051';
 const GONE      = '00000000-0000-4000-c000-000000000041';
 
 const CURSOR_URIS = 'https://www.cursor.com/agents/mcp/oauth/callback,http://localhost:8787/callback';
@@ -55,6 +57,11 @@ const CURSOR_URIS = 'https://www.cursor.com/agents/mcp/oauth/callback,http://loc
 const G_OLD_1 = '00000000-0000-4000-d000-000000000001';
 const G_OLD_2 = '00000000-0000-4000-d000-000000000002';
 const G_OLD_3 = '00000000-0000-4000-d000-000000000003';
+// And the shape the first review of #1095 asked for: a WORKING connection
+// whose last use is older than a never-used duplicate's consent. Ranking by
+// coalesce(last_used_at, consented_at) revokes the working one.
+const G_USED  = '00000000-0000-4000-d000-000000000011';
+const G_FRESH = '00000000-0000-4000-d000-000000000012';
 
 await db.exec(`
 create schema auth;
@@ -70,10 +77,13 @@ insert into auth.oauth_clients values
   ('${CURSOR_2}', 'Cursor', '${CURSOR_URIS}', null),
   ('${CURSOR_3}', 'Cursor', '${CURSOR_URIS}', null),
   ('${CLAUDE_1}', 'Claude', 'https://claude.ai/api/mcp/auth_callback', null),
+  ('${CLAUDE_2}', 'Claude', 'https://claude.ai/api/mcp/auth_callback', null),
   -- Codex: a fresh localhost PORT and a per-install path token every launch.
   ('${CODEX_1}', 'Codex', 'http://127.0.0.1:59105/callback/FhTdkr4QLGqV', null),
   ('${CODEX_2}', 'Codex', 'http://127.0.0.1:59065/callback/ZZtopQ9z', null),
   ('${NAMELESS}', '  ', '', null),
+  -- Registered, never consented by anyone: the no-history case.
+  ('${GROK}', 'Grok', 'https://grok.com/connectors-oauth-exchange-code/', null),
   ('${GONE}', 'Cursor', '${CURSOR_URIS}', now());
 
 create function auth.uid() returns uuid language sql stable as $$
@@ -138,7 +148,13 @@ values
   ('${G_OLD_2}', '${CURSOR_2}', '${TRAVIS}', '${CO_A}', '{reports:read}',
    now() - interval '2 days', null),
   ('${G_OLD_3}', '${CURSOR_3}', '${TRAVIS}', '${CO_A}', '{reports:read}',
-   now() - interval '1 day', now() - interval '1 hour');
+   now() - interval '1 day', now() - interval '1 hour'),
+  -- Sammie's Claude: used at T-3h, and a duplicate consented at T-2h that
+  -- nothing has ever touched. The working one must survive.
+  ('${G_USED}', '${CLAUDE_1}', '${SAMMIE}', '${CO_A}', '{reports:read}',
+   now() - interval '5 hours', now() - interval '3 hours'),
+  ('${G_FRESH}', '${CLAUDE_2}', '${SAMMIE}', '${CO_A}', '{reports:read}',
+   now() - interval '2 hours', null);
 `);
 
 // The migration, DO-block guards and all. It runs as one statement batch, the
@@ -163,6 +179,18 @@ await test('the duplicates that already existed collapsed to the one that was us
   assert.equal(rows.length, 3);
   assert.deepEqual(rows.map((r) => r.is_live), [false, false, true]);
   assert.equal(rows[2].id, G_OLD_3, 'the survivor is the one with a last_used_at');
+});
+
+await test('a working connection outlives a newer duplicate nobody has used', async () => {
+  // The whole point: last use ranks ahead of consent time. Ordering by
+  // coalesce(last_used_at, consented_at) picks G_FRESH -- consented an hour
+  // after G_USED was last used -- and permanently revokes the one that works.
+  const rows = await q(`select id, revoked_at is null as is_live
+    from public.silo_api_grants where user_id = '${SAMMIE}' order by id`);
+  assert.deepEqual(rows, [
+    { id: G_USED, is_live: true },
+    { id: G_FRESH, is_live: false },
+  ]);
 });
 
 await test('the collapsed rows all carry the same application key', async () => {
@@ -195,12 +223,13 @@ await test('a reconnect for another company moves the one connection', async () 
 
 await test('another person in the same company keeps their own connection', async () => {
   await as(SAMMIE, CO_A);
+  const before = (await live(SAMMIE)).length;   // their surviving Claude
   await consent(CURSOR_1);
-  assert.equal((await live(SAMMIE)).length, 1);
+  assert.equal((await live(SAMMIE)).length, before + 1, 'Cursor joins, Claude stays');
   assert.equal((await live(TRAVIS)).length, 1, 'Travis was not touched');
   // And Sammie reconnecting does not touch Travis either.
   await consent(CURSOR_2);
-  assert.equal((await live(SAMMIE)).length, 1);
+  assert.equal((await live(SAMMIE)).length, before + 1);
   assert.equal((await live(TRAVIS)).length, 1);
 });
 
@@ -231,7 +260,7 @@ await test('a registration SILO cannot read dedupes nothing', async () => {
   await consent(NAMELESS);
   const rows = await live(SAMMIE);
   assert.equal(rows.length, before + 3, 'each unreadable registration is its own connection');
-  for (const r of rows.filter((x) => x.client_id !== CURSOR_2)) {
+  for (const r of rows.filter((x) => [GONE, 'not-a-uuid', NAMELESS].includes(x.client_id))) {
     assert.match(r.app_key, /^client:/);
   }
   // Repeating the SAME unreadable registration still replaces.
@@ -267,7 +296,7 @@ await test('silo_api_prior_company answers a reconnect under a new client_id', a
   await as(SAMMIE, CO_A);
   assert.equal((await q(`select public.silo_api_prior_company('${CURSOR_3}') as co`))[0].co, CO_A);
   // No history at all: NULL, not an error and not somebody else's company.
-  assert.equal((await q(`select public.silo_api_prior_company('${CLAUDE_1}') as co`))[0].co, null);
+  assert.equal((await q(`select public.silo_api_prior_company('${GROK}') as co`))[0].co, null);
 });
 
 await test('a connection can neither approve nor read a history', async () => {

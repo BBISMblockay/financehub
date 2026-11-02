@@ -521,14 +521,21 @@
        carried: the direct match found nothing every single time, and this
        default has in practice always been the active company
        (20261102180000). The function keys on the APPLICATION instead, and
-       still only ever reads this person's own grants. */
-    if (REPEAT) {
-      const { data: prior } = await db.rpc('silo_api_prior_company', { p_client_id: CLIENT_ID });
-      PRIOR_COMPANY = prior || '';
-      CLIENT_NAME = await resolveClientName(CLIENT_ID);
-    } else {
-      CLIENT_NAME = PLAN.clientName || '';
-    }
+       still only ever reads this person's own grants.
+
+       It runs on BOTH paths, not just the repeat one. REPEAT means Supabase
+       auto-approved -- PLAN.kind === 'already_consented' -- which is about
+       that CLIENT REGISTRATION, not about whether this person has used this
+       application. A reconnect under a fresh registration has never been
+       consented, so Supabase returns an authorization_id and the page takes
+       the FRESH path; gating the lookup on REPEAT left exactly the
+       cross-company default this is meant to fix in place for the common
+       case (review of #1095, cycle 1). Only the client-name handling stays
+       conditional, because on the fresh path the name is in the
+       authorization details already. */
+    const { data: prior } = await db.rpc('silo_api_prior_company', { p_client_id: CLIENT_ID });
+    PRIOR_COMPANY = prior || '';
+    CLIENT_NAME = REPEAT ? await resolveClientName(CLIENT_ID) : (PLAN.clientName || '');
 
     const active = await cfg.ensureActiveCompany?.(db) || null;
     renderAsk();

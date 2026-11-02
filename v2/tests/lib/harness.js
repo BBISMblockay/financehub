@@ -360,7 +360,17 @@ window.__QUERIES__ = [];
             return {
               getAuthenticatorAssuranceLevel: function () {
                 var on = state().factors.some(function (f) { return f.status === 'verified'; });
-                return done({ data: { currentLevel: 'aal1', nextLevel: on ? 'aal2' : 'aal1' }, error: null });
+                // A suite that needs a session already AT aal2 -- not merely
+                // able to reach it -- sets __FIXTURE_MFA__.currentLevel.
+                // v2/api-consent.html draws its enrol pane below aal2, so
+                // without this no suite can reach that page's own screen.
+                return done({
+                  data: {
+                    currentLevel: state().currentLevel || 'aal1',
+                    nextLevel: on ? 'aal2' : (state().currentLevel || 'aal1'),
+                  },
+                  error: null,
+                });
               },
               listFactors: function () {
                 var all = state().factors.slice();
