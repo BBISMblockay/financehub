@@ -29,15 +29,21 @@ export function parseSource(raw) {
   return { ok: true, value: s };
 }
 
-/** A connector for the data endpoint. `all` multiplexes every source on the
- *  team, which is exactly the read this broker must never make on a
- *  company's behalf, so it is refused by name. */
-export function parseConnector(raw) {
-  const r = parseSource(raw);
+// Windsor data source id -> connectors.windsor.ai endpoint name, where the two
+// differ. Server-owned on purpose: the endpoint a preview reads must be
+// derived from the account's STORED source, never chosen by the caller.
+// Empty until the live trial shows a source whose endpoint name differs.
+export const CONNECTOR_FOR_SOURCE = Object.freeze({});
+
+/** The data endpoint for a stored data source id. `all` multiplexes every
+ *  source on the team, so it is refused even if it were ever stored. */
+export function connectorForSource(dsId) {
+  const r = parseSource(dsId);
   if (!r.ok) return r;
   if (!r.value) return { ok: false, reason: 'connector required' };
-  if (r.value === 'all') return { ok: false, reason: 'the all connector reads every client at once and is not allowed' };
-  return r;
+  const c = CONNECTOR_FOR_SOURCE[r.value] ?? r.value;
+  if (c === 'all') return { ok: false, reason: 'the all connector reads every client at once and is not allowed' };
+  return { ok: true, value: c };
 }
 
 /** Comma-separated field list -> array. account_id is always requested,

@@ -94,7 +94,7 @@
           <p class="wt-muted">Reads straight from Windsor for this one account. Nothing is stored.
             Field names differ by connector; account_id is always added.</p>
           <div class="wt-row">
-            <div class="bcn-field-group"><label class="bcn-label">Connector</label><input class="bcn-field" id="pvConnector" type="text" autocomplete="off" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">Connector</label><input class="bcn-field" id="pvConnector" type="text" readonly title="Fixed by the account's own data source" /></div>
             <div class="bcn-field-group" style="flex:1;min-width:260px"><label class="bcn-label">Fields</label><input class="bcn-field" id="pvFields" type="text" value="date,account_name,clicks,impressions,spend" autocomplete="off" /></div>
             <div class="bcn-field-group"><label class="bcn-label">Range</label><select class="bcn-field" id="pvRange"><option value="last_7d">Last 7 days</option><option value="last_14d">Last 14 days</option>
                 <option value="last_30d">Last 30 days</option></select></div>
@@ -243,8 +243,22 @@
   }
   await loadAccounts();
 
+  let resumeAt = 0;
   $('reconcileBtn').addEventListener('click', () => busy($('reconcileBtn'), async () => {
-    const s = await broker({ action: 'reconcile' });
+    // The function checks a bounded batch of links per call; walk them all.
+    const s = { links: 0, found: 0, added: 0, refreshed: 0, conflicts: [], errors: [],
+      rejected: { token_mismatch: 0, token_missing: 0, malformed: 0 } };
+    let offset = resumeAt;
+    for (let page = 0; page < 40; page += 1) {
+      const r = await broker({ action: 'reconcile', offset });
+      for (const k of ['links', 'found', 'added', 'refreshed']) s[k] += r[k];
+      for (const k of Object.keys(s.rejected)) s.rejected[k] += r.rejected[k];
+      s.conflicts.push(...r.conflicts); s.errors.push(...r.errors);
+      if (r.next_offset === null) { offset = null; break; }
+      offset = r.next_offset;
+    }
+    resumeAt = offset ?? 0;
+    if (offset !== null) s.errors.push('Stopped after 1,000 links; press Refresh again to continue from there.');
     const lines = [
       `Links checked: ${s.links}   accounts found: ${s.found}   added: ${s.added}   refreshed: ${s.refreshed}`,
       `Not attributable — other link's token: ${s.rejected.token_mismatch}, no token: ${s.rejected.token_missing}, unreadable: ${s.rejected.malformed}`,
@@ -261,7 +275,7 @@
     if (!selected) return;
     const out = await broker({
       action: 'preview', linked_account_id: selected.id,
-      connector: $('pvConnector').value.trim(), fields: $('pvFields').value, date_preset: $('pvRange').value,
+      fields: $('pvFields').value, date_preset: $('pvRange').value,
     });
     const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
     const notes = [`Windsor returned ${n(out.returned, 'row', 'rows')}; showing ${out.rows.length} for this account.`];

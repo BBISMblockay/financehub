@@ -12,6 +12,8 @@
 //   WINDSOR_MUTATION=bodycompany  the company comes from the request body
 //   WINDSOR_MUTATION=conflict     reconcile files another company's account
 //   WINDSOR_MUTATION=redact       errors echo Windsor's text unredacted
+//   WINDSOR_MUTATION=connector    preview lets the caller choose the endpoint
+//   WINDSOR_MUTATION=linkwindow   reconcile only ever checks one batch of links
 //
 // Run: node scripts/tests/windsor-broker.test.mjs
 import assert from 'node:assert/strict';
@@ -36,6 +38,9 @@ async function loadHandler() {
   if (MUT === 'rowfilter') handler = sub(handler, 'rows: kept,', 'rows,');
   if (MUT === 'bodycompany') handler = sub(handler, 'const companyId = profile?.active_company_id ?? null;', 'const companyId = body?.company_entity_id ?? profile?.active_company_id ?? null;');
   if (MUT === 'conflict') lib = sub(lib, 'else conflicts.push({ ds_id: a.ds_id, account_id: a.account_id });', 'else inserts.push(a);');
+  if (MUT === 'connector') handler = sub(handler, 'const conn = connectorForSource(own.row.ds_id);', "const conn = connectorForSource(body?.connector || own.row.ds_id);")
+    .replace("&& connectorForSource(String(body.connector).trim().toLowerCase()).value !== connectorForSource(own.row.ds_id).value", '&& false');
+  if (MUT === 'linkwindow') handler = sub(handler, 'const offset = Number.isInteger(body?.offset) && body.offset >= 0 ? body.offset : 0;', 'const offset = 0;');
   if (MUT === 'redact') lib = sub(lib, "if (key) s = s.split(key).join('***');\n  s = s.replace(/(api_key=)[^&\\s\"']+/gi, '$1***');", '');
   fs.writeFileSync(path.join(dir, 'handler.mjs'), handler);
   fs.writeFileSync(path.join(dir, 'windsor-lib.mjs'), lib);
@@ -226,6 +231,57 @@ test('without the key, everything but status refuses', async () => {
   const h = handlerFor(w, fw, {});
   assert.deepEqual((await call(h, { action: 'status' })).body, { configured: false });
   assert.equal((await call(h, { action: 'reconcile' })).status, 503);
+});
+
+test('preview reads the account\'s own source: the same account id on another source is another company\'s', async () => {
+  const w = world();
+  // A owns (klaviyo, 123); B owns (tiktok, 123). Identical ids, different accounts.
+  w.fake.tables.get('windsor_linked_accounts').push(
+    { id: 'acc-a', company_entity_id: A, link_id: 'link-a', ds_id: 'klaviyo', account_id: '123' },
+    { id: 'acc-b2', company_entity_id: B, link_id: 'link-b', ds_id: 'tiktok', account_id: '123' },
+  );
+  const fw = fakeWindsor({
+    'GET connectors.windsor.ai/tiktok': () => ({ body: [{ account_id: '123', spend: 500 }] }),
+    'GET connectors.windsor.ai/klaviyo': () => ({ body: [{ account_id: '123', clicks: 4 }] }),
+  });
+  const h = handlerFor(w, fw);
+  const r = await call(h, { action: 'preview', linked_account_id: 'acc-a', connector: 'tiktok', fields: 'spend' });
+  assert.equal(r.status, 400, 'a connector other than the account\'s own source is refused');
+  assert.equal(fw.log.length, 0, 'refused before Windsor is asked');
+  const ok = await call(h, { action: 'preview', linked_account_id: 'acc-a', fields: 'clicks' });
+  assert.equal(ok.status, 200);
+  assert.equal(fw.log[0].url.pathname, '/klaviyo', 'the endpoint is the stored source');
+  assert.deepEqual(ok.body.rows, [{ account_id: '123', clicks: 4 }]);
+});
+
+test('reconcile reaches every link, oldest included, in bounded batches', async () => {
+  const w = world();
+  const links = w.fake.tables.get('windsor_links');
+  links.length = 0;
+  for (let i = 0; i < 26; i += 1) {
+    links.push({ id: `link-${String(i).padStart(2, '0')}`, company_entity_id: A,
+      access_token: `tok-${String(i).padStart(2, '0')}-000000`, created_at: `2026-10-${String(i + 1).padStart(2, '0')}` });
+  }
+  // The OLDEST link is the one a client finally connected through.
+  const fw = fakeWindsor({ [LINKED]: (u) => ({ body: u.searchParams.get('access_token') === 'tok-00-000000'
+    ? [{ datasource: 'klaviyo', account_id: 'old-1', access_token: 'tok-00-000000' }] : [] }) });
+  const h = handlerFor(w, fw);
+  const seen = new Set();
+  let offset = 0; let added = 0; let guard = 0;
+  for (;;) {
+    const r = await call(h, { action: 'reconcile', offset });
+    assert.equal(r.status, 200);
+    assert.ok(r.body.links <= 25, 'each call is bounded');
+    added += r.body.added;
+    if (r.body.next_offset === null) break;
+    offset = r.body.next_offset;
+    assert.ok(++guard < 5);
+  }
+  for (const l of fw.log) seen.add(l.url.searchParams.get('access_token'));
+  assert.equal(seen.size, 26, 'every link was checked exactly across the batches');
+  assert.equal(fw.log.length, 26, 'and none twice');
+  assert.equal(added, 1);
+  assert.ok(w.fake.rows('windsor_linked_accounts').some((x) => x.account_id === 'old-1' && x.company_entity_id === A));
 });
 
 test('vendored copies match their originals byte for byte', () => {

@@ -541,7 +541,7 @@ jobs:
       - name: The broker's guards, removed, must break it
         run: |
           set -u
-          for m in trustfilter notoken rowfilter bodycompany conflict redact; do
+          for m in trustfilter notoken rowfilter bodycompany conflict redact connector linkwindow; do
             if WINDSOR_MUTATION="$m" node --test scripts/tests/windsor-broker.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1

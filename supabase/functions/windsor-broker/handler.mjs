@@ -11,10 +11,13 @@
 //   status     -- is the key configured. No Windsor call.
 //   mint_link  -- { source? } -> { url }. Records the link's token for the
 //                 caller's company BEFORE handing the URL out.
-//   reconcile  -- asks Windsor which accounts each of this company's links
-//                 brought in and records them. Never attributes an account
-//                 whose row does not carry this company's own link token.
-//   preview    -- { linked_account_id, connector?, fields, date_preset } ->
+//   reconcile  -- { offset? } asks Windsor which accounts each of this
+//                 company's links brought in and records them, a bounded batch
+//                 of links at a time in a fixed order; `next_offset` says where
+//                 the next batch starts (null when every link was checked).
+//                 Never attributes an account whose row does not carry this
+//                 company's own link token.
+//   preview    -- { linked_account_id, fields, date_preset } ->
 //                 rows for ONE of this company's accounts. Read-only, stores
 //                 nothing.
 //   unlink     -- { linked_account_id } -> removes it from SILO's Windsor team
@@ -25,7 +28,7 @@
 import { mayConnect } from './google-oauth-lib.mjs';
 import {
   WINDSOR_ONBOARD, WINDSOR_CONNECTORS, PREVIEW_MAX_ROWS, MAX_LINKS_PER_RECONCILE,
-  parseSource, parseConnector, parseFields, parseDatePreset, windsorUrl, redact,
+  parseSource, connectorForSource, parseFields, parseDatePreset, windsorUrl, redact,
   parseBody, describeShape, extractLink, rowsOf, partitionLinkedAccounts, planUpserts,
   filterRowsToAccount,
 } from './windsor-lib.mjs';
@@ -124,14 +127,23 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
 
     // ── reconcile ────────────────────────────────────────────────────────
     if (action === 'reconcile') {
+      // Every link, a bounded batch per call, in a fixed order (oldest first,
+      // id as the tie-break) so a continuation never skips or repeats one. A
+      // link minted long ago can still be the one a client connects through
+      // today, so no link is ever left permanently unchecked.
+      const offset = Number.isInteger(body?.offset) && body.offset >= 0 ? body.offset : 0;
       const { data: links, error: linksErr } = await admin.from(LINKS)
         .select('id, access_token').eq('company_entity_id', companyId)
-        .order('created_at', { ascending: false }).limit(MAX_LINKS_PER_RECONCILE);
+        .order('created_at', { ascending: true }).order('id', { ascending: true })
+        .range(offset, offset + MAX_LINKS_PER_RECONCILE - 1);
       if (linksErr) return json({ error: 'Could not read this company\'s links' }, 500);
 
-      const summary = { links: (links ?? []).length, found: 0, added: 0, refreshed: 0, conflicts: [],
+      const batch = links ?? [];
+      const summary = { links: batch.length, offset,
+        next_offset: batch.length === MAX_LINKS_PER_RECONCILE ? offset + batch.length : null,
+        found: 0, added: 0, refreshed: 0, conflicts: [],
         rejected: { token_mismatch: 0, token_missing: 0, malformed: 0 }, errors: [] };
-      for (const link of links ?? []) {
+      for (const link of batch) {
         const r = await windsor(windsorUrl(WINDSOR_ONBOARD, '/api/team/co-user-linked-accounts/', {
           api_key: key, access_token: link.access_token,
         }));
@@ -189,7 +201,15 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
     if (action === 'preview') {
       const own = await ownAccount();
       if (own.error) return own.error;
-      const conn = parseConnector(body.connector || own.row.ds_id);
+      // The endpoint is the STORED account's own source, never the caller's
+      // choice. An account is (ds_id, account_id): the same account_id can be
+      // another company's account on another source, and the shared key would
+      // read it, with every returned row passing the account_id filter below.
+      if (body?.connector !== undefined && body.connector !== null && body.connector !== ''
+          && connectorForSource(String(body.connector).trim().toLowerCase()).value !== connectorForSource(own.row.ds_id).value) {
+        return json({ error: 'The connector is fixed by the account\'s own data source' }, 400);
+      }
+      const conn = connectorForSource(own.row.ds_id);
       if (!conn.ok) return json({ error: conn.reason }, 400);
       const fields = parseFields(body.fields);
       if (!fields.ok) return json({ error: fields.reason }, 400);
