@@ -41,6 +41,7 @@ const HANDLERS = {
   'meta-oauth-review': 'handler.mjs',
   'shopify-install-claim': 'handler.mjs',
   'card-categorize': 'prepare.ts',
+  'windsor-broker': 'handler.mjs',
 };
 
 test('asks PostgREST as the caller, and only `true` lets the request through', async () => {
