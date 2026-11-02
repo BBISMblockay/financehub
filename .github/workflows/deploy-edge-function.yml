@@ -105,17 +105,17 @@ jobs:
           #     a signed-in admin created is the authorization.
           NO_JWT_FUNCTIONS="shopify-compliance-webhook plaid-scheduled-sync card-coding-prepare-scheduled onboarding-interest tiktok-oauth-callback shopify-app-install meta-oauth-callback mcp"
           if [ "$FN" = "all" ]; then
-            supabase functions deploy --project-ref "$PROJECT_REF"
+            supabase functions deploy --project-ref "$PROJECT_REF" --yes
             # A plain deploy applies the default verify_jwt, which would leave
             # these rejecting their callers before the handler runs. Redeploy
             # each one public, from the same checkout.
             for fn in $NO_JWT_FUNCTIONS; do
-              supabase functions deploy "$fn" --no-verify-jwt --project-ref "$PROJECT_REF"
+              supabase functions deploy "$fn" --no-verify-jwt --project-ref "$PROJECT_REF" --yes
             done
           elif [[ " $NO_JWT_FUNCTIONS " == *" $FN "* ]]; then
-            supabase functions deploy "$FN" --no-verify-jwt --project-ref "$PROJECT_REF"
+            supabase functions deploy "$FN" --no-verify-jwt --project-ref "$PROJECT_REF" --yes
           else
-            supabase functions deploy "$FN" --project-ref "$PROJECT_REF"
+            supabase functions deploy "$FN" --project-ref "$PROJECT_REF" --yes
           fi
 
       - name: Confirm deployed version
