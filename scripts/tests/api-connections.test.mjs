@@ -125,8 +125,13 @@ test('the company is chosen before the grant is written, on every path', () => {
 test('a reconnect starts on the company the application already had', () => {
   // Not the active company: someone who switched companies since would
   // otherwise be one unchanged click away from repointing the application.
-  assert.match(CONSENT, /\.eq\('client_id', CLIENT_ID\)/,
-    'the prior grant is looked up by the resolved client');
+  // Keyed on the APPLICATION, not on the client registration: dynamic
+  // registration gives every reconnect a brand-new client_id, so a direct
+  // client_id match found nothing every time (20261102180000).
+  assert.match(CONSENT, /rpc\('silo_api_prior_company',\s*\{\s*p_client_id/,
+    'the prior company comes from the per-application lookup');
+  assert.doesNotMatch(CONSENT, /\.eq\('client_id', CLIENT_ID\)/,
+    'and not from a client_id match, which a reconnect never satisfies');
   assert.match(CONSENT, /PRIOR_COMPANY && COMPANIES\.some/,
     'and only if the person is still a member of that company');
   const prefer = CONSENT.indexOf('const prefer =');
@@ -248,10 +253,20 @@ test('disconnect reports the two halves separately', () => {
   // Only the approving person's own browser can end the Supabase session --
   // there is no admin-side revokeGrant -- so an owner disconnecting someone
   // else's connection must not claim it signed the application out.
-  assert.match(APPS, /revokeGrant\(/);
   assert.match(APPS, /signOutDone\s*\?/,
     'the message branches on whether the sign-out actually happened');
   assert.match(APPS, /sign-in lapses on its own/);
+  // The sign-out is the DELETE itself, so the page can read the status rather
+  // than assume it. supabase-js reads `clientId` off an OBJECT and discards
+  // the response; a bare string went out as client_id=undefined and still
+  // reported success (20261102180000).
+  assert.match(APPS, /user\/oauth\/grants\?client_id=' \+ encodeURIComponent/,
+    'the DELETE carries the client id');
+  assert.match(APPS, /method: 'DELETE'/);
+  assert.match(APPS, /return res\.ok/,
+    'and the claim of a sign-out is the endpoint answering, not the call returning');
+  assert.doesNotMatch(APPS, /revokeGrant\((?!\{)/,
+    'revokeGrant is never passed a bare client id');
 });
 
 test('disconnect goes through silo_api_revoke, never a table write', () => {

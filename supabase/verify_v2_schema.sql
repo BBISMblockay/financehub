@@ -7681,6 +7681,38 @@ select 'developer API boundary' as check_name, case
     select 1 from pg_class i join pg_index x on x.indexrelid = i.oid
     where i.relname = 'silo_api_grants_one_live' and x.indisunique)
    then 'MISSING — silo_api_grants_one_live, so one person could hold two live grants for one client'
+
+  -- And one live grant per (APPLICATION, person), which is the rule that
+  -- actually bites: dynamic client registration gives every reconnect a fresh
+  -- client_id, so the index above never once fired and connections
+  -- accumulated. 20261102180000.
+  when not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'silo_api_grants'
+      and column_name = 'app_key' and is_nullable = 'NO')
+   then 'MISSING — silo_api_grants.app_key, or it is nullable, so connections are counted per client registration again'
+  when not exists (
+    select 1 from pg_class i join pg_index x on x.indexrelid = i.oid
+    where i.relname = 'silo_api_grants_one_live_app' and x.indisunique)
+   then 'MISSING — silo_api_grants_one_live_app, so one person could hold two live connections to one application'
+  -- Reads app_key through to_jsonb, not as a column: this file has to PLAN
+  -- before the migration is applied, and a bare app_key here would make the
+  -- whole check error out instead of reporting the branch above.
+  when exists (
+    select 1 from public.silo_api_grants g
+    where g.revoked_at is null
+    group by to_jsonb(g) ->> 'app_key', g.user_id having count(*) > 1)
+   then 'BROKEN — somebody holds two live connections to one application'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_consent(text, text[])'))
+         not like '%app_key = v_app%'
+   then 'BROKEN — silo_api_consent no longer replaces by application, so reconnecting adds a connection'
+  when has_function_privilege('authenticated', 'public.silo_api_app_key(text)', 'execute')
+    or has_function_privilege('anon', 'public.silo_api_app_key(text)', 'execute')
+    or has_function_privilege('silo_integration', 'public.silo_api_app_key(text)', 'execute')
+   then 'CRITICAL: a client can call silo_api_app_key, which reads auth.oauth_clients'
+  when has_function_privilege('silo_integration', 'public.silo_api_prior_company(text)', 'execute')
+    or has_function_privilege('anon', 'public.silo_api_prior_company(text)', 'execute')
+   then 'CRITICAL: a connection can read a person''s connection history'
   when not exists (
     select 1 from pg_class i join pg_index x on x.indexrelid = i.oid
     where i.relname = 'silo_api_grants_session' and x.indisunique)

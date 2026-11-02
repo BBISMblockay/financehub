@@ -15,14 +15,26 @@ const iso = (daysAgo) => new Date(Date.now() - daysAgo * DAY).toISOString();
 
   /* Both connections report the same NAME with different client ids, which is
      exactly what reconnecting Claude produces (Blake, 2026-10-30). */
-  await suite.context.route('**/auth/v1/user/oauth/grants', (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify([
-      { client_id: 'c-1', client_name: 'Claude' },
-      { client_id: 'c-2', client_name: 'Claude' },
-    ]),
-  }));
+  /* The same endpoint answers the name lookup (GET) and the sign-out
+     (DELETE). The DELETEs are recorded, because the whole bug was that one
+     went out carrying client_id=undefined and the page still said the
+     application had been signed out. */
+  const signOuts = [];
+  await suite.context.route('**/auth/v1/user/oauth/grants**', (route) => {
+    const req = route.request();
+    if (req.method() === 'DELETE') {
+      signOuts.push(new URL(req.url()).searchParams.get('client_id'));
+      return route.fulfill({ status: 204, body: '' });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { client_id: 'c-1', client_name: 'Claude' },
+        { client_id: 'c-2', client_name: 'Claude' },
+      ]),
+    });
+  });
 
   const page = await suite.open('/v2/settings-connect-ai.html', {
     silo_api_grants: [
@@ -109,6 +121,12 @@ const iso = (daysAgo) => new Date(Date.now() - daysAgo * DAY).toISOString();
   const calls = await page.evaluate(() => window.__REVOKED__ || []);
   r.test('confirming revokes that grant and only that one',
     () => r.eq(calls, [{ p_grant_id: 'g-claude' }]));
+  /* Half two: the application's own Supabase sign-in, carrying the client id
+     of the card that was removed and no other. */
+  r.test('and signs that application out by its real client id',
+    () => r.eq(signOuts, ['c-1']));
+  r.ok('so the page can say the application was signed out',
+    /signed out/.test((await page.textContent('#status')) || ''));
   r.ok('the removed app leaves the page',
     (await page.locator('#gridMine .cn-app').count()) === 1);
   r.ok('the other connection is untouched',

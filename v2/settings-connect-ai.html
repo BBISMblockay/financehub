@@ -310,6 +310,50 @@
      token hook stamps silo_revoked and silo_check_request() refuses it, so it
      reaches nothing -- but it is not nothing, and this must not claim a clean
      disconnect it did not perform. Hence two different messages. */
+  /* Half (2): kill the application's Supabase sign-in.
+
+     supabase-js takes an OBJECT here and reads `clientId` off it --
+     `query: { client_id: e.clientId }` in the shipped bundle -- and this passed
+     the id as a bare string, so every call went out as
+     `client_id=undefined`, which revokes nothing. The SDK also discards the
+     response, so it reported success either way and the page has been claiming
+     "the application has been signed out" since the first live connection
+     (found 2026-11-02). The person reads that sentence and stops looking.
+
+     So the endpoint it wraps is called directly, for the same reason
+     grantsOverHttp() exists above: it is the one thing here that cannot change
+     shape under us, and it is the only form that lets the page know whether
+     the sign-out happened instead of assuming it. The SDK stays as the
+     fallback for the case where the fetch itself cannot be made.
+
+     Returns whether a sign-out actually happened. A false is the honest
+     second message, not a failure: SILO access is already stopped by then. */
+  async function signOutApp(clientId) {
+    if (!clientId) return false;
+    try {
+      const { data: s } = await db.auth.getSession();
+      const token = s?.session?.access_token;
+      if (token) {
+        const res = await fetch(SUPABASE_URL.replace(/\/+$/, '')
+          + '/auth/v1/user/oauth/grants?client_id=' + encodeURIComponent(clientId), {
+          method: 'DELETE',
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + token },
+        });
+        return res.ok;
+      }
+    } catch (_) { /* fall through to the SDK */ }
+    try {
+      const o = db.auth && db.auth.oauth;
+      if (o?.revokeGrant) {
+        // Both spellings: the bundle reads `clientId`, the documentation says
+        // `client_id`, and this page has already been bitten by that gap once.
+        const { error } = (await o.revokeGrant({ clientId, client_id: clientId })) || {};
+        return !error;
+      }
+    } catch (_) { /* nothing left to try */ }
+    return false;
+  }
+
   async function revoke(card, g) {
     const own = g.user_id === _user.id;
     const { data, error } = await db.rpc('silo_api_revoke', { p_grant_id: g.id });
@@ -320,13 +364,7 @@
     }
     if (data === false) { setStatus('That connection was already disconnected.', 'warn', 4000); }
 
-    let signOutDone = false;
-    if (own) {
-      try {
-        const o = db.auth && db.auth.oauth;
-        if (o?.revokeGrant) { await o.revokeGrant(g.client_id); signOutDone = true; }
-      } catch (_) { signOutDone = false; }
-    }
+    const signOutDone = own ? await signOutApp(g.client_id) : false;
     setStatus(signOutDone
       ? 'Removed. The application has been signed out.'
       : 'Removed. SILO access stopped immediately; the application’s sign-in lapses on its own.',
