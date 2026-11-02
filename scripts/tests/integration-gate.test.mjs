@@ -126,6 +126,7 @@ const INJECTED = {
   'meta-oauth-review': 'handler.mjs',
   'shopify-install-claim': 'handler.mjs',
   'card-categorize': 'prepare.ts',
+  'windsor-broker': 'handler.mjs',
 };
 const PRE_AUTH = { 'report-email-deliver': 'handler.mjs' };
 const readFn = (p) => fs.readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');

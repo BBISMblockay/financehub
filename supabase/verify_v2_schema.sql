@@ -8173,3 +8173,45 @@ select 'Catalog status traps' as check_name,
                         where c.relname = t.relname
                           and coalesce(c.description, '') like '%' || t.marker || '%')
   ), 'ok') as status;
+
+-- Windsor tenant broker (20261102220000): one Windsor owner key serves every
+-- company, so the account -> company mapping IS the tenant boundary. Link
+-- tokens are capabilities no client may read; accounts are readable only by
+-- admins of their own company; one account belongs to one company; and an
+-- account's company is the company of the link it came through.
+select 'Windsor tenant broker' as check_name,
+  case
+    when to_regclass('public.windsor_links') is null or to_regclass('public.windsor_linked_accounts') is null
+      then 'MISSING — run 20261102220000_windsor_connections.sql'
+    when not (select relrowsecurity from pg_class where oid = 'public.windsor_links'::regclass)
+      or not (select relrowsecurity from pg_class where oid = 'public.windsor_linked_accounts'::regclass)
+      then 'CRITICAL — RLS is off on a Windsor table'
+    when has_table_privilege('authenticated', 'public.windsor_links', 'select')
+      or has_table_privilege('anon', 'public.windsor_links', 'select')
+      then 'CRITICAL — a client role can read Windsor link tokens'
+    when has_table_privilege('anon', 'public.windsor_linked_accounts', 'select')
+      or has_table_privilege('authenticated', 'public.windsor_linked_accounts', 'insert')
+      or has_table_privilege('authenticated', 'public.windsor_linked_accounts', 'update')
+      or has_table_privilege('authenticated', 'public.windsor_linked_accounts', 'delete')
+      then 'CRITICAL — a client role can write Windsor accounts, or anon can read them'
+    when exists (select 1 from pg_policy where polrelid = 'public.windsor_links'::regclass)
+      then 'CRITICAL — windsor_links has a policy; no client may ever read a link token'
+    when (select count(*) from pg_policy where polrelid = 'public.windsor_linked_accounts'::regclass) <> 1
+      or not exists (select 1 from pg_policy
+                      where polrelid = 'public.windsor_linked_accounts'::regclass
+                        and polname = 'windsor_linked_accounts_admin_select'
+                        and polcmd = 'r'
+                        and pg_get_expr(polqual, polrelid) like '%active_company_id()%'
+                        and pg_get_expr(polqual, polrelid) like '%is_admin_user()%')
+      then 'CRITICAL — windsor_linked_accounts is not admin-select-only within the active company'
+    when not exists (select 1 from pg_constraint
+                      where conrelid = 'public.windsor_linked_accounts'::regclass
+                        and conname = 'windsor_linked_accounts_account_uniq' and contype = 'u')
+      then 'CRITICAL — one Windsor account can be attributed to two companies'
+    when not exists (select 1 from pg_constraint
+                      where conrelid = 'public.windsor_linked_accounts'::regclass
+                        and conname = 'windsor_linked_accounts_link_fk' and contype = 'f'
+                        and array_length(conkey, 1) = 2)
+      then 'CRITICAL — an account''s company is not tied to the company of its link'
+    else 'ok'
+  end as status;

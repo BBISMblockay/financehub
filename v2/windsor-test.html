@@ -1,0 +1,295 @@
+<!doctype html>
+<!-- Windsor connection test. URL-only on purpose: not in nav-config.js.
+     Exercises the windsor-broker edge function end to end for the ACTIVE
+     company: mint a connect link, let Windsor report which accounts came in
+     through it, preview one account's rows, unlink. Every action is
+     authorized by the function (signed in, two-step login, admin of the active
+     company); the page writes nothing to the database itself and reads the
+     connection list through RLS, which is the isolation being tested. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Silo — Windsor connection test</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    .wt-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+    .wt-row .bcn-field-group { min-width: 180px; }
+    .wt-muted { color: var(--bcn-ink-3); font-size: 13px; line-height: 1.5; margin: 0 0 12px; }
+    .wt-link { font-family: 'IBM Plex Mono', monospace; font-size: 12px; overflow-wrap: anywhere;
+               padding: 8px 10px; border: 1px solid var(--bcn-border); border-radius: 8px; margin-top: 10px; }
+    .wt-summary { font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin: 10px 0 0; white-space: pre-wrap; }
+    .wt-scroll { overflow-x: auto; }
+    table.bcn-table td.wt-mono { font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+    /* .silo-main is a fixed-height flex column and .bcn-card sets min-height:0,
+       so without this the cards shrink to fit and clip their own contents. */
+    .silo-main > .bcn-card { flex-shrink: 0; }
+    [hidden] { display: none !important; }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../pages/config.js"></script>
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="silo-chrome.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div>
+          <div class="bcn-header-title">Windsor connection test</div>
+          <div class="wt-muted" id="hdrSub" style="margin:0">Checking access…</div>
+        </div>
+        <div class="bcn-header-actions"><span class="bcn-pill" id="keyPill">—</span></div>
+      </header>
+
+      <div class="bcn-status" id="status" hidden></div>
+
+      <section class="bcn-card">
+        <div class="bcn-card-header"><span>1. Connect an account through Windsor</span></div>
+        <div class="bcn-card-body">
+          <p class="wt-muted">Creates a connect link for this company only. The sign-in screen that opens is
+            Windsor's, not SILO's. Whatever is connected through it is filed under this company and nobody else.</p>
+          <div class="wt-row">
+            <div class="bcn-field-group"><label class="bcn-label">Data source (optional)</label><input class="bcn-field" id="source" type="text" placeholder="e.g. klaviyo" autocomplete="off" />
+            </div>
+            <button class="bcn-btn bcn-btn--primary" id="mintBtn">Create connect link</button>
+          </div>
+          <div id="linkBox" hidden>
+            <div class="wt-link" id="linkText"></div>
+            <div class="wt-row" style="margin-top:8px">
+              <a class="bcn-btn bcn-btn--dark" id="linkOpen" target="_blank" rel="noopener">Open link</a>
+              <button class="bcn-btn bcn-btn--ghost" id="linkCopy">Copy link</button>
+            </div>
+            <p class="wt-muted" style="margin-top:8px">After connecting, come back and press Refresh from Windsor below.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="bcn-card">
+        <div class="bcn-card-header">
+          <span>2. Accounts connected for this company</span>
+          <button class="bcn-btn bcn-btn--ghost" id="reconcileBtn">Refresh from Windsor</button>
+        </div>
+        <div class="bcn-card-body">
+          <div class="wt-summary" id="reconcileSummary" hidden></div>
+          <div class="wt-scroll">
+            <table class="bcn-table">
+              <thead><tr><th class="bcn-th-left">Source</th><th class="bcn-th-left">Account</th>
+                <th class="bcn-th-left">Name</th><th class="bcn-th-left">Last seen</th><th class="bcn-th-left">Actions</th></tr></thead>
+              <tbody id="accounts"><tr><td colspan="5" class="wt-muted">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="bcn-card" id="previewCard" hidden>
+        <div class="bcn-card-header"><span id="previewTitle">3. Preview</span></div>
+        <div class="bcn-card-body">
+          <p class="wt-muted">Reads straight from Windsor for this one account. Nothing is stored.
+            Field names differ by connector; account_id is always added.</p>
+          <div class="wt-row">
+            <div class="bcn-field-group"><label class="bcn-label">Connector</label><input class="bcn-field" id="pvConnector" type="text" autocomplete="off" /></div>
+            <div class="bcn-field-group" style="flex:1;min-width:260px"><label class="bcn-label">Fields</label><input class="bcn-field" id="pvFields" type="text" value="date,account_name,clicks,impressions,spend" autocomplete="off" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">Range</label><select class="bcn-field" id="pvRange"><option value="last_7d">Last 7 days</option><option value="last_14d">Last 14 days</option>
+                <option value="last_30d">Last 30 days</option></select></div>
+            <button class="bcn-btn bcn-btn--primary" id="pvRun">Run preview</button>
+          </div>
+          <div class="wt-summary" id="pvSummary" hidden></div>
+          <div class="wt-scroll"><table class="bcn-table" id="pvTable" hidden><thead></thead><tbody></tbody></table></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+<script>
+(async function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  const $ = (id) => document.getElementById(id);
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const el = $('status');
+    el.className = `bcn-status bcn-status--${type}`;
+    el.textContent = msg;
+    el.hidden = false;
+    if (ms) setTimeout(() => { el.hidden = true; }, ms);
+  }
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) { setStatus('Missing Supabase config.', 'neg'); return; }
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) { location.href = '/pages/login.html?next=/v2/windsor-test.html'; return; }
+
+  const co = await cfg.ensureActiveCompany?.(db) || null;
+  if (!co?.id) { setStatus('No active company for this session. Pick a company first.', 'neg'); return; }
+  let role = 'user';
+  try { role = (await db.from('profiles').select('role').eq('id', session.user.id).single()).data?.role || 'user'; } catch (_) {}
+  $('hdrSub').textContent = `Trial page, not in the menu. Everything here belongs to ${co.title || co.entity_key || 'this company'}.`;
+
+  if (window.SiloChrome) {
+    window.SiloChrome.mount({
+      appEl: '#silo-app', active: 'settings/integrations',
+      user: { email: session.user.email || '', role },
+      crumbs: ['Settings', 'Integrations', 'Windsor test'], supabaseClient: db,
+    });
+  }
+
+  // Every action goes through windsor-broker, which holds the Windsor key and
+  // decides the company from the caller's profile. The page never sends one.
+  async function broker(body) {
+    const { data: { session: s } } = await db.auth.getSession();
+    let res;
+    try {
+      res = await fetch(`${SUPABASE_URL}/functions/v1/windsor-broker`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${s?.access_token || ''}`, apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (_) {
+      throw new Error('Could not reach the windsor-broker function. It may not be deployed yet.');
+    }
+    let out = null;
+    try { out = await res.json(); } catch (_) {}
+    if (!res.ok) {
+      const parts = [out?.error || `Request failed (${res.status})`];
+      if (out?.detail) parts.push(out.detail);
+      if (out?.shape) parts.push(`Windsor response shape: ${out.shape}`);
+      throw new Error(parts.join(' — '));
+    }
+    return out;
+  }
+
+  const busy = async (btn, fn) => {
+    btn.disabled = true;
+    try { await fn(); } catch (e) { setStatus(e.message || String(e), 'neg'); } finally { btn.disabled = false; }
+  };
+
+  // ── Key status ──────────────────────────────────────────────────────────
+  try {
+    const st = await broker({ action: 'status' });
+    $('keyPill').textContent = st.configured ? 'Windsor key set' : 'Windsor key missing';
+    $('keyPill').className = 'bcn-pill ' + (st.configured ? 'bcn-pill--pos' : 'bcn-pill--neg');
+  } catch (e) {
+    $('keyPill').textContent = 'Function unavailable';
+    setStatus(e.message, 'neg');
+  }
+
+  // ── 1. Mint a link ──────────────────────────────────────────────────────
+  $('mintBtn').addEventListener('click', () => busy($('mintBtn'), async () => {
+    const out = await broker({ action: 'mint_link', source: $('source').value.trim() || null });
+    $('linkText').textContent = out.url;
+    $('linkOpen').href = out.url;
+    $('linkBox').hidden = false;
+    setStatus(out.source ? `Connect link created for ${out.source}.` : 'Connect link created (any source).', 'pos', 4000);
+  }));
+  $('linkCopy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('linkText').textContent); setStatus('Link copied.', 'pos', 2500); }
+    catch (_) { setStatus('Could not copy. Select the link text instead.', 'warn', 4000); }
+  });
+
+  // ── 2. Accounts, read through RLS ───────────────────────────────────────
+  let selected = null;
+  async function loadAccounts() {
+    const { data, error } = await db.from('windsor_linked_accounts')
+      .select('id, ds_id, account_id, account_name, last_seen_at')
+      .eq('company_entity_id', co.id).order('ds_id').order('account_id');
+    const tbody = $('accounts');
+    tbody.replaceChildren();
+    const msgRow = (text) => {
+      const tr = document.createElement('tr'); const td = document.createElement('td');
+      td.colSpan = 5; td.className = 'wt-muted'; td.textContent = text; tr.appendChild(td); tbody.appendChild(tr);
+    };
+    if (error) { msgRow(`Could not read connections: ${error.message}`); return; }
+    if (!data.length) { msgRow('No accounts connected yet for this company.'); return; }
+    for (const a of data) {
+      const tr = document.createElement('tr');
+      const cell = (text, mono) => { const td = document.createElement('td'); td.textContent = text ?? '—'; if (mono) td.className = 'wt-mono'; tr.appendChild(td); };
+      cell(a.ds_id, true); cell(a.account_id, true); cell(a.account_name);
+      cell(a.last_seen_at ? new Date(a.last_seen_at).toLocaleString() : '—');
+      const td = document.createElement('td');
+      const pv = document.createElement('button'); pv.className = 'bcn-btn bcn-btn--ghost'; pv.textContent = 'Preview';
+      pv.addEventListener('click', () => {
+        selected = a;
+        $('previewTitle').textContent = `3. Preview — ${a.ds_id} ${a.account_id}`;
+        $('pvConnector').value = a.ds_id;
+        $('previewCard').hidden = false;
+        $('pvTable').hidden = true; $('pvSummary').hidden = true;
+        $('previewCard').scrollIntoView({ behavior: 'smooth' });
+      });
+      // Two clicks, not confirm(): unlinking removes the account from SILO's
+      // Windsor team, and the client has to reconnect to get it back.
+      const un = document.createElement('button'); un.className = 'bcn-btn bcn-btn--danger'; un.textContent = 'Unlink';
+      let armed = false;
+      un.addEventListener('click', () => {
+        if (!armed) { armed = true; un.textContent = 'Click again to unlink'; setTimeout(() => { armed = false; un.textContent = 'Unlink'; }, 4000); return; }
+        busy(un, async () => {
+          await broker({ action: 'unlink', linked_account_id: a.id });
+          setStatus(`Unlinked ${a.ds_id} ${a.account_id}.`, 'pos', 4000);
+          if (selected?.id === a.id) $('previewCard').hidden = true;
+          await loadAccounts();
+        });
+      });
+      td.append(pv, document.createTextNode(' '), un);
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+  }
+  await loadAccounts();
+
+  $('reconcileBtn').addEventListener('click', () => busy($('reconcileBtn'), async () => {
+    const s = await broker({ action: 'reconcile' });
+    const lines = [
+      `Links checked: ${s.links}   accounts found: ${s.found}   added: ${s.added}   refreshed: ${s.refreshed}`,
+      `Not attributable — other link's token: ${s.rejected.token_mismatch}, no token: ${s.rejected.token_missing}, unreadable: ${s.rejected.malformed}`,
+    ];
+    if (s.conflicts.length) lines.push(`Already held by another company (left alone): ${s.conflicts.map((c) => `${c.ds_id} ${c.account_id}`).join(', ')}`);
+    if (s.errors.length) lines.push(`Errors: ${s.errors.join(' | ')}`);
+    $('reconcileSummary').textContent = lines.join('\n');
+    $('reconcileSummary').hidden = false;
+    await loadAccounts();
+  }));
+
+  // ── 3. Preview ──────────────────────────────────────────────────────────
+  $('pvRun').addEventListener('click', () => busy($('pvRun'), async () => {
+    if (!selected) return;
+    const out = await broker({
+      action: 'preview', linked_account_id: selected.id,
+      connector: $('pvConnector').value.trim(), fields: $('pvFields').value, date_preset: $('pvRange').value,
+    });
+    const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+    const notes = [`Windsor returned ${n(out.returned, 'row', 'rows')}; showing ${out.rows.length} for this account.`];
+    if (out.foreign) notes.push(`${n(out.foreign, 'row', 'rows')} for other accounts ${out.foreign === 1 ? 'was' : 'were'} dropped.`);
+    if (out.unattributed) notes.push(`${n(out.unattributed, 'row', 'rows')} with no account_id ${out.unattributed === 1 ? 'was' : 'were'} dropped.`);
+    if (out.maybe_truncated) notes.push('This hit the 200-row preview cap, so it may be cut short.');
+    $('pvSummary').textContent = notes.join(' ');
+    $('pvSummary').hidden = false;
+    const table = $('pvTable');
+    const cols = out.fields;
+    const thead = table.querySelector('thead'); const tbody = table.querySelector('tbody');
+    thead.replaceChildren(); tbody.replaceChildren();
+    const hr = document.createElement('tr');
+    for (const c of cols) { const th = document.createElement('th'); th.className = 'bcn-th-left'; th.textContent = c; hr.appendChild(th); }
+    thead.appendChild(hr);
+    for (const r of out.rows) {
+      const tr = document.createElement('tr');
+      for (const c of cols) {
+        const td = document.createElement('td'); const v = r[c];
+        td.textContent = v === null || v === undefined ? '' : String(v);
+        if (typeof v === 'number') td.className = 'wt-mono';
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    table.hidden = false;
+  }));
+})();
+</script>
+</body>
+</html>

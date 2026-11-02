@@ -66,6 +66,9 @@ on:
       - 'supabase/functions/meta-oauth-review/**'
       - 'supabase/functions/shopify-install-claim/**'
       - 'supabase/functions/card-categorize/**'
+      # Windsor tenant broker (windsor-broker.test.mjs, windsor-connections-database.test.mjs).
+      - 'supabase/functions/windsor-broker/**'
+      - 'supabase/migrations/*windsor_connections.sql'
       - 'v2/integration-bootstrap.js'
       - 'v2/integration-enrolment.js'
       - 'scripts/integration-bootstrap.mjs'
@@ -528,6 +531,23 @@ jobs:
       # stop refusing with the same code and message.
       - name: Developer API gate in edge functions
         run: node scripts/tests/integration-gate.test.mjs
+
+      # Windsor tenant broker: one owner key serves every company, so an
+      # account is filed under a company only when Windsor reports it under
+      # that company's own link token, previews drop other accounts' rows, and
+      # the key is never echoed back.
+      - name: Windsor tenant broker
+        run: node --test scripts/tests/windsor-broker.test.mjs
+      - name: The broker's guards, removed, must break it
+        run: |
+          set -u
+          for m in trustfilter notoken rowfilter bodycompany conflict redact; do
+            if WINDSOR_MUTATION="$m" node --test scripts/tests/windsor-broker.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
 
       # Running one job: that a connection which had already synced is NOT
       # re-imported, that a job cancelled from the page while a stage runs
@@ -2125,6 +2145,22 @@ jobs:
           set -u
           for m in rls admin lease attempts uniq grant anongrant skiplocked; do
             if INTEGRATION_BOOTSTRAP_DB_MUTATION="$m" node scripts/tests/integration-bootstrap-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Windsor tenant broker's database half (20261102220000): company A's
+      # admin never sees company B's accounts, no client reads a link token or
+      # writes a mapping, one account belongs to one company.
+      - name: Windsor connections (real PostgreSQL)
+        run: node scripts/tests/windsor-connections-database.test.mjs
+      - name: The Windsor tables' guards, removed, must break it
+        run: |
+          set -u
+          for m in rls company tokens writes uniq linkfk; do
+            if WINDSOR_DB_MUTATION="$m" node scripts/tests/windsor-connections-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

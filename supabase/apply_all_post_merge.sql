@@ -19421,4 +19421,8 @@ $c$select (select count(*) from v_po_header_summary
 -- duplicates that already exist to the one most recently used, and keys
 -- consent on the application. Per user, never per company. No deploy.
 \i migrations/20261102180000_developer_api_one_connection_per_app.sql
+-- Windsor tenant broker, test phase: link tokens and attributed accounts for
+-- the windsor-broker edge function (/v2/windsor-test.html). Turns nothing on
+-- by itself. Deploy windsor-broker and set WINDSOR_API_KEY to use it.
+\i migrations/20261102220000_windsor_connections.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
