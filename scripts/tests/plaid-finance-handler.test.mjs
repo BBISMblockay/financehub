@@ -13,8 +13,21 @@ const source = await readFile(new URL('../../supabase/functions/plaid-finance/ha
 const mutations = {
   tenant: s => s.replaceAll(".eq('company_entity_id', companyId)", ''),
   state: s => s.replace('await verifyLinkState(input.link_state, key, { userId, companyId })', '{ connectionId: null }'),
-  cursor: s => s.replace('p_expected_cursor: claim.cursor', 'p_expected_cursor: null'),
+  // Anchored on the cursor sync's own apply call: the date-range import also
+  // passes p_expected_cursor, and a bare replace would mutate that one instead.
+  cursor: s => s.replace('p_expected_cursor: claim.cursor,\n          p_next_cursor: changes.next_cursor', 'p_expected_cursor: null,\n          p_next_cursor: changes.next_cursor'),
   context: s => s.replace('companyId = context.data;', "companyId = (await db.from('profiles').select('active_company_id').eq('id', userId).maybeSingle()).data.active_company_id;"),
+  // Recovering a stalled feed by clearing the cursor replays the whole history,
+  // and a replayed row whose merchant name or category drifted is rewritten
+  // with its coding cleared. A refresh must never take that shortcut.
+  // The backfill's whole promise is that it adds and never rewrites. Drop the
+  // subtraction and every row the bank returns is resubmitted, which sends
+  // already-imported rows back through plaid_project_transaction's UPDATE
+  // branch and clears their coding.
+  backfillOverwrites: s => s.replace('.filter((entry: any) => !existing.has(entry.transaction_id))', ''),
+  backfillMovesCursor: s => s.replace('p_next_cursor: claim.cursor, p_added: added', "p_next_cursor: 'cursor-moved-by-backfill', p_added: added"),
+  refreshResetsCursor: s => s.replace('return json({ account_id: account.id, requested: true });',
+    "await db.from('plaid_accounts').update({ cursor: null }).eq('id', account.id).eq('company_entity_id', companyId);\n      return json({ account_id: account.id, requested: true });"),
 };
 const selectedMutation = process.env.PLAID_HANDLER_MUTATION;
 const effectiveSource = (selectedMutation ? mutations[selectedMutation](source) : source)
@@ -55,6 +68,11 @@ async function fixture(options = {}) {
     plaid_accounts: [{ id: ids.account, company_entity_id: ids.company, connection_id: ids.connection,
       provider_account_id: providerAccount.account_id, source_id: ids.source, cursor: 'cursor-saved', ...options.account }],
     plaid_connection_secrets: [{ company_entity_id: ids.company, connection_id: ids.connection, token_ciphertext: ciphertext }],
+    card_sources: [{ id: ids.source, company_entity_id: ids.company, authoritative_from: '2026-07-01', ...options.source }],
+    card_transactions: (options.held ?? ['held-1']).map((external, index) => ({
+      company_entity_id: ids.company, plaid_account_id: ids.account,
+      external_transaction_id: external, txn_date: options.heldDates?.[index] || '2026-09-01',
+    })),
   };
   const events = [];
   let handler;
@@ -65,12 +83,20 @@ async function fixture(options = {}) {
     constructor(table) { this.table = table; this.filters = []; this.op = 'select'; }
     select() { return this; }
     eq(key, value) { this.filters.push([key, value]); return this; }
+    order(key, opts = {}) { this.sort = [key, opts.ascending !== false]; return this; }
+    limit(count) { this.window = [0, count - 1]; return this; }
+    range(from, to) { this.window = [from, to]; return this; }
     update(values) { this.op = 'update'; this.values = values; return this; }
     execute(single = false) {
       events.push({ query: this.table, op: this.op, filters: clone(this.filters), values: this.values && clone(this.values) });
       if (options.lookupFails && this.table === 'plaid_connections' && this.op === 'select') return { data: null, error: { message: 'synthetic lookup failed' } };
       if (options.repairRace && this.table === 'plaid_connections' && this.op === 'update' && this.values.status === 'active') records.plaid_connections[0].updated_at = '2026-09-02T00:00:00Z';
-      const selected = (records[this.table] || []).filter(row => this.filters.every(([key, value]) => row[key] === value));
+      let selected = (records[this.table] || []).filter(row => this.filters.every(([key, value]) => row[key] === value));
+      if (this.sort) {
+        const [key, ascending] = this.sort;
+        selected = [...selected].sort((a, b) => (ascending ? 1 : -1) * String(a[key]).localeCompare(String(b[key])));
+      }
+      if (this.window) selected = selected.slice(this.window[0], this.window[1] + 1);
       if (this.op === 'update') {
         if (options.connectionUpdateFails) return { data: null, error: { message: 'synthetic write failed' } };
         selected.forEach(row => Object.assign(row, this.values));
@@ -144,6 +170,12 @@ async function fixture(options = {}) {
       if (options.accountsFail) return Response.json({ error_code: 'PRODUCT_NOT_READY', error_message: accessToken }, { status: 400 });
       return Response.json({ item: { item_id: options.wrongItem ? 'wrong-item' : 'item-1' },
         accounts: options.accounts || [providerAccount] });
+    }
+    if (parsed.pathname === '/transactions/refresh') return Response.json({ request_id: 'synthetic-refresh-request' });
+    if (parsed.pathname === '/transactions/get') {
+      const all = options.ranged || [transaction('held-1'), transaction('missing-1', { date: '2026-10-28' })];
+      const slice = all.slice(body.options.offset, body.options.offset + body.options.count);
+      return Response.json({ transactions: slice, total_transactions: all.length });
     }
     if (parsed.pathname === '/transactions/sync') {
       const next = (options.pages || [page({ added: [transaction('new-1')] })])[syncCalls++];
@@ -538,6 +570,148 @@ for (const options of [{ providerError: `UNRECOGNIZED_${accessToken}` }, { netwo
   const f=await fixture();
   const out=await f.request({action:'exchange',public_token:'public-token',link_state:await f.state({daysRequested:180})});
   assert.equal(out.status,200);assert.equal(f.records.plaid_connections[0].history_days_requested,180);
+  scenarios++;
+}
+{
+  // The recovery that matters: read the window from the bank and import only
+  // what is missing, without consuming or moving the cursor.
+  const f = await fixture();
+  const out = await f.request({ action: 'backfill_missing', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.imported, 1);
+  assert.equal(out.body.examined, 2);
+  assert.equal(out.body.end_date, new Date().toISOString().slice(0, 10), 'the window ends today, never on a written-in date');
+  assert.equal(out.body.start_date, '2026-08-25', 'seven days before the newest row the account holds');
+  const apply = f.rpcs('plaid_apply_sync')[0].args;
+  assert.deepEqual(apply.p_added.map(entry => entry.transaction_id), ['missing-1'], 'a transaction already held is never resubmitted');
+  assert.deepEqual([apply.p_modified, apply.p_removed], [[], []], 'a date-range import only ever adds');
+  assert.equal(apply.p_expected_cursor, 'cursor-saved');
+  assert.equal(apply.p_next_cursor, 'cursor-saved', 'the feed position is handed back exactly as it was');
+  assert.equal(f.records.plaid_accounts[0].cursor, 'cursor-saved');
+  assert.equal(f.calls('/transactions/sync').length, 0);
+  scenarios++;
+}
+{
+  const f = await fixture({ ranged: [transaction('held-1')] });
+  const out = await f.request({ action: 'backfill_missing', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.deepEqual([out.body.imported, out.body.examined], [0, 1]);
+  assert.equal(f.rpcs('plaid_apply_sync').length, 0, 'nothing missing writes nothing at all');
+  assert.equal(f.rpcs('plaid_release_sync').length, 1, 'the lease is still released');
+  assert.equal(f.records.plaid_accounts[0].cursor, 'cursor-saved');
+  scenarios++;
+}
+{
+  const f = await fixture({ held: [] });
+  const out = await f.request({ action: 'backfill_missing', account_id: ids.account });
+  assert.equal(out.body.start_date, '2026-07-01', 'with nothing held the window starts at the account cutover');
+  scenarios++;
+}
+{
+  const f = await fixture({ source: { authoritative_from: '2026-08-30' } });
+  const out = await f.request({ action: 'backfill_missing', account_id: ids.account });
+  assert.equal(out.body.start_date, '2026-08-30', 'the overlap never reaches behind the permanent import start');
+  scenarios++;
+}
+for (const options of [{ account: { source_id: null } }, { connection: { status: 'error' } }]) {
+  const f = await fixture(options);
+  const out = await f.request({ action: 'backfill_missing', account_id: ids.account });
+  assert.equal(out.status, 409);
+  assert.equal(f.calls('/transactions/get').length, 0);
+  assert.equal(f.rpcs('plaid_claim_sync').length, 0);
+  scenarios++;
+}
+{
+  const f = await fixture({ account: { company_entity_id: ids.otherCompany } });
+  const out = await f.request({ action: 'backfill_missing', account_id: ids.account });
+  assert.ok(out.status >= 400);
+  assert.equal(f.calls('/transactions/get').length, 0, 'a date-range import cannot reach another company account');
+  scenarios++;
+}
+{
+  // Forward protection: a cursor that returns nothing while the account has
+  // received nothing for days tops itself up by date, unattended.
+  const f = await fixture({ pages: [page()] });
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.added, 0, 'the cursor itself still delivered nothing');
+  assert.equal(out.body.top_up.imported, 1);
+  assert.ok(Array.isArray(out.body.batch_ids), 'the scheduled runner can still read the sync result');
+  assert.equal(f.calls('/transactions/get').length, 1);
+  scenarios++;
+}
+{
+  const f = await fixture();
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.top_up, undefined, 'a sync that delivered rows does not go looking by date');
+  assert.equal(f.calls('/transactions/get').length, 0);
+  scenarios++;
+}
+{
+  const f = await fixture({ pages: [page()], heldDates: [new Date().toISOString().slice(0, 10)] });
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.top_up, undefined, 'an empty sync on a current feed is a quiet day, not a stall');
+  assert.equal(f.calls('/transactions/get').length, 0);
+  scenarios++;
+}
+{
+  const f = await fixture({ pages: [page()], held: [] });
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.top_up, undefined, 'an account awaiting its first sync is not a stalled feed');
+  assert.equal(f.calls('/transactions/get').length, 0);
+  scenarios++;
+}
+{
+  // A failed top-up must not turn a committed sync into an error, or a
+  // scheduled run red for an opportunistic recovery.
+  const f = await fixture({ pages: [page()], source: { authoritative_from: null } });
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  // Reported through safePlaidError like every other provider-side failure,
+  // so a top-up can never leak a provider message to the browser.
+  assert.equal(out.body.top_up.failed, 'PLAID_REQUEST_FAILED');
+  assert.ok(Array.isArray(out.body.batch_ids));
+  scenarios++;
+}
+{
+  // A refresh asks the institution to fetch again. It must change nothing on
+  // our side: no row, no cursor, no lease -- so a stalled feed can be kicked
+  // without risking the coding on history already imported.
+  const f = await fixture();
+  const out = await f.request({ action: 'refresh_transactions', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.deepEqual(out.body, { account_id: ids.account, requested: true });
+  assert.equal(f.calls('/transactions/refresh').length, 1);
+  assert.equal(f.calls('/transactions/refresh')[0].body.access_token, accessToken);
+  assert.equal(f.calls('/transactions/sync').length, 0, 'a refresh does not consume the saved cursor');
+  assert.equal(f.records.plaid_accounts[0].cursor, 'cursor-saved');
+  assert.equal(f.rpcs('plaid_claim_sync').length, 0);
+  assert.equal(f.rpcs('plaid_apply_sync').length, 0);
+  assert.equal(f.events.filter(event => event.op === 'update').length, 0, 'a refresh writes nothing');
+  scenarios++;
+}
+for (const options of [{ account: { source_id: null } }, { connection: { status: 'disconnected' } }]) {
+  const f = await fixture(options);
+  const out = await f.request({ action: 'refresh_transactions', account_id: ids.account });
+  assert.equal(out.status, 409);
+  assert.equal(f.calls('/transactions/refresh').length, 0, 'an unmapped or paused account reaches no provider');
+  scenarios++;
+}
+{
+  const f = await fixture({ account: { company_entity_id: ids.otherCompany } });
+  const out = await f.request({ action: 'refresh_transactions', account_id: ids.account });
+  assert.ok(out.status >= 400);
+  assert.equal(f.calls('/transactions/refresh').length, 0, 'a refresh cannot reach another company account');
+  scenarios++;
+}
+{
+  const f = await fixture({ providerError: 'ITEM_LOGIN_REQUIRED' });
+  const out = await f.request({ action: 'refresh_transactions', account_id: ids.account });
+  assert.ok(out.status >= 400);
+  assert.equal(f.records.plaid_accounts[0].cursor, 'cursor-saved');
   scenarios++;
 }
 if (!selectedMutation) {
