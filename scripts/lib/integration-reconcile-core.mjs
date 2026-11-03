@@ -468,3 +468,42 @@ export function planFirstImport({ priorJob = null, priorError = null, dryRun = f
 export function reconcileExitCode(verdicts) {
   return (verdicts || []).some((v) => v.severity === 'action' && !v.autoStart?.start) ? 1 : 0;
 }
+
+/** One verdict as the row `integration_feed_health` holds, so that what SILO
+ *  shows is literally what this pass judged -- not a second judgement written
+ *  in SQL. See 20261103220000.
+ *
+ *  Three things it is careful about:
+ *   - `connection_label` is the label this script already prints (a shop
+ *     domain, a platform, an account mask). No token, secret or email goes
+ *     into a row every member of the company can read.
+ *   - `lag_days` and `measured_through` are null unless the feed was actually
+ *     judged on freshness. A feed that never got that far (never imported, an
+ *     expired authorisation, an event-driven feed) must not report a lag of 0,
+ *     which would read as "up to date".
+ *   - `observed_at` is passed in rather than defaulted in the database, so one
+ *     run stamps every row with the same instant and the pruning step below
+ *     can tell this run's rows from the last one's.
+ */
+export function feedHealthRow({ feed, connection, verdict, detail = null, label = null, observedAt }) {
+  const judged = verdict?.fresh && verdict.fresh.state !== 'n/a';
+  const expiry = verdict?.expiry && verdict.expiry.state !== 'n/a' ? verdict.expiry : null;
+  return {
+    company_entity_id: connection?.company_entity_id || null,
+    feed: feed.label,
+    // A company-grained feed has no connection of its own to name.
+    connection_id: feed.match?.connColumn === 'company_entity_id' ? null : (connection?.id || null),
+    connection_label: label || null,
+    integration: integrationFor(feed, connection),
+    state: verdict.state,
+    severity: verdict.severity,
+    detail: detail ? String(detail).slice(0, 500) : null,
+    coverage: verdict.coverage || null,
+    lag_days: judged && Number.isFinite(verdict.fresh.lag) ? verdict.fresh.lag : null,
+    tolerance_days: Number.isFinite(feed.maxLagDays) ? feed.maxLagDays : null,
+    measured_through: judged && verdict.fresh.measured ? String(verdict.fresh.measured).slice(0, 40) : null,
+    expires_in_days: expiry && Number.isFinite(expiry.days) ? expiry.days : null,
+    event_driven: Boolean(feed.eventDriven),
+    observed_at: observedAt,
+  };
+}

@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import {
   INTEGRATION_FEEDS, EXPIRY_WARN_DAYS, coverageState, daysBetween, expiryState, feedCovers,
   clientBlock, freshnessState, integrationFor, interpretProbe, lastAttemptIso, mayAutoStart,
-  planFirstImport, probeColumn,
+  feedHealthRow, planFirstImport, probeColumn,
   reconcileConnection, reconcileExitCode,
 } from '../lib/integration-reconcile-core.mjs';
 import { BOOTSTRAP_PLANS } from '../lib/integration-bootstrap-core.mjs';
@@ -382,4 +382,78 @@ test('the scheduled run is report-only until somebody changes the default', () =
     'day one must start nothing on its own');
   assert.match(WORKFLOW, /node scripts\/reconcile-integrations\.mjs/);
   assert.match(WORKFLOW, /cron: "0 15 \* \* \*"/);
+});
+
+// ── The row SILO shows (20261103220000) ────────────────────────────────────
+// What reaches the database is what people and bots read, so the row must not
+// invent a measurement the verdict never made, must not carry a secret, and
+// must keep a company-grained feed to one row.
+
+test('an unjudged feed publishes no lag, because 0 reads as up to date', () => {
+  const verdict = reconcileConnection({
+    feed: feed('sales'), connection: offStore(), everProduced: false, today: '2026-10-20',
+  });
+  const row = feedHealthRow({
+    feed: feed('sales'), connection: offStore(), verdict, label: 'suticompany.myshopify.com',
+    observedAt: '2026-10-20T15:00:00.000Z',
+  });
+  assert.equal(row.state, 'never_imported');
+  assert.equal(row.lag_days, null);
+  assert.equal(row.measured_through, null);
+  assert.equal(row.tolerance_days, 1, 'the tolerance travels with the row, so a reader can see what behind means');
+  assert.equal(row.connection_id, 'c1');
+  assert.equal(row.integration, 'shopify');
+  assert.equal(row.observed_at, '2026-10-20T15:00:00.000Z');
+});
+
+test('a judged feed publishes the lag it actually measured', () => {
+  const conn = offStore({ sync_enabled: true, meta: { last_sales_sync_at: '2026-10-18T09:00:00Z' } });
+  const verdict = reconcileConnection({
+    feed: feed('sales'), connection: conn, everProduced: true, newestIso: '2026-10-18', today: '2026-10-20',
+  });
+  const row = feedHealthRow({ feed: feed('sales'), connection: conn, verdict, observedAt: 'now' });
+  assert.equal(row.lag_days, 2);
+  assert.equal(row.measured_through, '2026-10-18');
+  assert.equal(row.severity, 'action', 'two days against a one-day tolerance is somebody job');
+});
+
+test('a company-grained feed publishes one row, not one per connection', () => {
+  const redo = feed('redo');
+  const conn = { id: 'redo-1', company_entity_id: 'e1', is_active: true, last_event_at: '2026-10-19T00:00:00Z', meta: {} };
+  const verdict = reconcileConnection({ feed: redo, connection: conn, everProduced: true, today: '2026-10-20' });
+  const row = feedHealthRow({ feed: redo, connection: conn, verdict, observedAt: 'now' });
+  assert.equal(row.connection_id, null,
+    'Redo is one row per company; keying on a connection id would duplicate it every run');
+  assert.equal(row.event_driven, true, 'a webhook feed is never judged on lag and the row must say so');
+  assert.equal(row.lag_days, null);
+});
+
+test('an expiring authorisation publishes the days left', () => {
+  const qbo = feed('quickbooks');
+  const conn = {
+    id: 'qb-1', company_entity_id: 'e1', is_active: true, meta: {},
+    refresh_token_expires_at: '2026-10-23T00:00:00Z',
+  };
+  const verdict = reconcileConnection({
+    feed: qbo, connection: conn, everProduced: true, today: '2026-10-20', now: new Date('2026-10-20T00:00:00Z'),
+  });
+  const row = feedHealthRow({ feed: qbo, connection: conn, verdict, observedAt: 'now' });
+  assert.equal(row.expires_in_days, 3);
+  assert.equal(row.severity, 'action');
+});
+
+test('the published row carries no credential-shaped field', () => {
+  const conn = offStore({ access_token: 'shpat_secret', refresh_token: 'rt_secret' });
+  const verdict = reconcileConnection({ feed: feed('sales'), connection: conn, everProduced: true, newestIso: '2026-10-20', today: '2026-10-20' });
+  const row = feedHealthRow({ feed: feed('sales'), connection: conn, verdict, label: conn.shop_domain, observedAt: 'now' });
+  assert.ok(!JSON.stringify(row).includes('secret'),
+    'every member of the company can read this table');
+});
+
+test('a long detail is truncated rather than rejected by the column', () => {
+  const verdict = reconcileConnection({ feed: feed('sales'), connection: offStore(), everProduced: false, today: '2026-10-20' });
+  const row = feedHealthRow({
+    feed: feed('sales'), connection: offStore(), verdict, detail: 'x'.repeat(900), observedAt: 'now',
+  });
+  assert.equal(row.detail.length, 500);
 });
