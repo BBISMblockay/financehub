@@ -8280,7 +8280,14 @@ select 'Windsor any connector' as check_name,
       or not exists (select 1 from pg_trigger
                       where tgrelid = 'public.windsor_field_mappings'::regclass
                         and tgname = 'windsor_field_mappings_rewind')
-      then 'MISSING — windsor_field_mappings or its history rewind'
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'windsor_linked_accounts'
+                        and column_name = 'mapping_generation')
+      or not exists (select 1 from pg_proc
+                      where oid = 'public.windsor_field_mappings_rewind()'::regprocedure
+                        and prosrc like '%history_from = null%'
+                        and prosrc like '%mapping_generation = mapping_generation + 1%')
+      then 'MISSING — windsor_field_mappings, its history rewind or mapping_generation'
     when not (select relrowsecurity from pg_class where oid = 'public.windsor_field_mappings'::regclass)
       or has_table_privilege('anon', 'public.windsor_field_mappings', 'select')
       or (select count(*) from pg_policy where polrelid = 'public.windsor_field_mappings'::regclass) <> 1

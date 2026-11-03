@@ -44,8 +44,15 @@ if (!KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
+// 20261103080000 (any connector) may be merged before it is applied. Until it
+// is, run exactly as before it: hand-made connectors only, no refused_fields
+// bookkeeping, no mappings. Probed, not assumed.
+const { error: anyErr } = await supabase.from('windsor_field_mappings').select('id').limit(1);
+const anyConnector = !anyErr;
+if (!anyConnector) console.log(`Any-connector tables not found (${anyErr.message}); only TikTok and Klaviyo run until 20261103080000 is applied.`);
+
 let q = supabase.from('windsor_linked_accounts')
-  .select('id, company_entity_id, ds_id, account_id, account_name, history_from')
+  .select(`id, company_entity_id, ds_id, account_id, account_name, history_from${anyConnector ? ', mapping_generation' : ''}`)
   .order('company_entity_id').order('ds_id').order('account_id');
 if (ONLY_COMPANY_ID) q = q.eq('company_entity_id', ONLY_COMPANY_ID);
 const { data: accounts, error } = await q;
@@ -53,13 +60,6 @@ if (error) throw new Error(`could not read windsor_linked_accounts: ${error.mess
 
 console.log(`${accounts.length} Windsor account(s); history ${HISTORY_MONTHS} months, `
   + `${MAX_HISTORY_WINDOWS} history window(s) per account, ${MAX_CALLS} call budget${DRY_RUN ? ', DRY RUN' : ''}`);
-
-// 20261103080000 (any connector) may be merged before it is applied. Until it
-// is, run exactly as before it: hand-made connectors only, no refused_fields
-// bookkeeping, no mappings. Probed, not assumed.
-const { error: anyErr } = await supabase.from('windsor_field_mappings').select('id').limit(1);
-const anyConnector = !anyErr;
-if (!anyConnector) console.log(`Any-connector tables not found (${anyErr.message}); only TikTok and Klaviyo run until 20261103080000 is applied.`);
 
 // Each company's own field choices (windsor_field_mappings), by company and
 // data source: { measure: field_id | null }.

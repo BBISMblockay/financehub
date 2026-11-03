@@ -15,6 +15,8 @@
 //   WINDSOR_SYNC_MUTATION=directsync      Meta/Google through Windsor go into marketing_kpis_daily (double count)
 //   WINDSOR_SYNC_MUTATION=huntmerge       hunted values are matched without the account (another client's leak in)
 //   WINDSOR_SYNC_MUTATION=override        a company's field mapping is ignored
+//   WINDSOR_SYNC_MUTATION=transient       a timeout / 5xx on a hunted batch counts as a refusal
+//   WINDSOR_SYNC_MUTATION=generation      a run under an old mapping saves its cursor over a rewind
 //   WINDSOR_SYNC_MUTATION=skiprefused     a refused hunted field is asked again in every window
 //   WINDSOR_SYNC_MUTATION=nullnotzero     a measure the connector lacks is stored as 0
 //
@@ -43,6 +45,8 @@ async function loadCore() {
   if (MUT === 'directsync') sub("if (choice.kind === 'ad') {", "if (choice.kind !== 'fixed') {");
   if (MUT === 'huntmerge') sub("const mergeId = (dataset, r) => `${r?.account_id ?? ''}\u0000", "const mergeId = (dataset, r) => `\u0000");
   if (MUT === 'override') sub('const auto = autoDataset(account.ds_id, catalog, overrides);', 'const auto = autoDataset(account.ds_id, catalog);');
+  if (MUT === 'transient') sub('return r.transient ? readOnce(io) : r;', 'return r.transient ? { ...r, transient: false } : r;');
+  if (MUT === 'generation') sub(".eq('mapping_generation', account.mapping_generation)\n", '\n');
   if (MUT === 'skiprefused') sub('refusedThisRun.add(f);', '');
   if (MUT === 'nullnotzero') sub("out[col] = chosen[col] ? numOrNull(r[chosen[col]]) : null;", "out[col] = chosen[col] ? (numOrNull(r[chosen[col]]) ?? 0) : 0;");
   // Absolute imports so the temp copy resolves the repo's modules.
@@ -364,6 +368,52 @@ test('before 20261103080000 is applied: hand-made connectors run as before, othe
   assert.equal(p.status, 'unsupported');
   assert.equal(fake.rows('marketing_kpis_daily').length, 1);
   for (const m of fake.rows('windsor_linked_accounts')) assert.ok(!('refused_fields' in m), 'refused_fields does not exist yet');
+});
+
+test('a hunted batch Windsor does not answer (timeout / 5xx / 429) is not a refusal: stored values and history stay', async () => {
+  const acct = { ...pinAcct, history_from: '2026-08-01' };
+  const fake = world([acct]);
+  let fail = false;
+  let failedAsks = 0;
+  const fw = fakeWindsor((c, u) => {
+    const f = u.searchParams.get('fields').split(',');
+    if (f.includes('spend')) return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1 }];
+    if (fail) { failedAsks += 1; return { status: 503, text: 'upstream timeout' }; }
+    return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', saves: 7, ctr: 1, video_p100: 3 }];
+  }, { pinterest: pinCatalog });
+  const first = await run(fake, fw, acct);
+  assert.equal(first.status, 'success');
+  assert.equal(fake.rows('marketing_kpis_daily')[0].extra.saves, 7);
+  fail = true;
+  const second = await run(fake, fw, { ...acct, history_from: fake.rows('windsor_linked_accounts')[0].history_from },
+    { historyMonths: 6, maxHistoryWindows: 2 });
+  assert.equal(second.status, 'partial');
+  assert.deepEqual(second.refused_fields, [], 'no answer is not a refusal');
+  assert.ok(failedAsks >= 2, 'asked again once before giving up');
+  assert.equal(fake.rows('marketing_kpis_daily')[0].extra.saves, 7, 'the stored hunted value is not wiped');
+  const m = fake.rows('windsor_linked_accounts')[0];
+  assert.equal(m.history_from, '2026-08-01', 'coverage does not advance past a window that was not fully read');
+  assert.match(m.last_sync_error, /did not answer/);
+});
+
+test('a mapping saved while a run is in flight is not undone by that run', async () => {
+  const acct = { ...pinAcct, history_from: '2025-01-01', mapping_generation: 4 };
+  const fake = world([acct]);
+  const fw = fakeWindsor((c, u) => {
+    const f = u.searchParams.get('fields').split(',');
+    if (f.includes('spend')) {
+      // An admin saves a mapping mid-run: the trigger clears history_from and
+      // bumps the generation.
+      Object.assign(fake.tables.get('windsor_linked_accounts')[0], { history_from: null, mapping_generation: 5 });
+      return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1 }];
+    }
+    return [];
+  }, { pinterest: pinCatalog });
+  const r = await run(fake, fw, acct, { historyMonths: 6, maxHistoryWindows: 2 });
+  const m = fake.rows('windsor_linked_accounts')[0];
+  assert.equal(m.history_from, null, 'the rewind stands; the next run re-pulls history under the new mapping');
+  assert.equal(m.mapping_generation, 5);
+  assert.equal(r.mapping_changed, true);
 });
 
 test('fixed connectors are exactly the ones with a hand-made dataset', async () => {

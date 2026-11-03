@@ -17,6 +17,7 @@
 //   WINDSOR_SYNC_DB_MUTATION=mapcompany  windsor_field_mappings' policy drops the company filter
 //   WINDSOR_SYNC_DB_MUTATION=mapadmin    windsor_field_mappings' policy drops the admin check
 //   WINDSOR_SYNC_DB_MUTATION=rewind      a changed mapping does not re-pull history
+//   WINDSOR_SYNC_DB_MUTATION=mapgen      a changed mapping does not move the generation
 //
 // 20261103080000 (any connector) is applied on top, twice, and pinned the same
 // way, plus: marketing_kpis_daily accepts a new ad platform name and still
@@ -73,6 +74,7 @@ if (MUT === 'mapcompany') mutateAny("  using (company_entity_id = (select public
 if (MUT === 'mapadmin') mutateAny("  using (company_entity_id = (select public.active_company_id()) and (select public.is_admin_user()))\n  with check (company_entity_id = (select public.active_company_id()) and (select public.is_admin_user()));",
   "  using (company_entity_id = (select public.active_company_id()))\n  with check (company_entity_id = (select public.active_company_id()));");
 if (MUT === 'rewind') mutateAny('     set history_from = null', '     set history_from = history_from');
+if (MUT === 'mapgen') mutateAny('         mapping_generation = mapping_generation + 1', '         mapping_generation = mapping_generation');
 if (MUT === 'anywrites') mutateAny('revoke all on public.windsor_metrics_daily from anon, authenticated;', 'revoke all on public.windsor_metrics_daily from anon;');
 
 await db.exec(broker);
@@ -96,7 +98,7 @@ async function verifyStatusOf(name) {
 }
 const verifyStatus = await verifyStatusOf('Windsor sync');
 const anyStatus = await verifyStatusOf('Windsor any connector');
-const ANY_MUTS = ['anyrls', 'anycompany', 'anywrites', 'mapcompany', 'mapadmin'];
+const ANY_MUTS = ['anyrls', 'anycompany', 'anywrites', 'mapcompany', 'mapadmin', 'rewind', 'mapgen'];
 if (MUT && !ANY_MUTS.includes(MUT)) assert.notEqual(verifyStatus, 'ok', `verify reports ok under the ${MUT} mutation`);
 else assert.equal(verifyStatus, 'ok', `a correctly applied migration must verify ok (got ${verifyStatus})`);
 if (ANY_MUTS.includes(MUT)) assert.notEqual(anyStatus, 'ok', `any-connector verify reports ok under the ${MUT} mutation`);
@@ -199,10 +201,12 @@ async function asAdmin(company, admin, fn) {
   } catch (e) { await db.exec('rollback'); throw e; }
 }
 await asAdmin(A, true, () => db.query("insert into windsor_field_mappings(company_entity_id, ds_id, measure, field_id) values($1,'pinterest','conversions','total_conversions')", [A]));
-const hist = (await db.query("select company_entity_id, history_from from windsor_linked_accounts where ds_id = 'pinterest' order by account_id")).rows;
+const hist = (await db.query("select company_entity_id, history_from, mapping_generation from windsor_linked_accounts where ds_id = 'pinterest' order by account_id")).rows;
 if (MUT === 'rewind') assert.notEqual(hist[0].history_from, null, 'rewind mutation leaves history');
 assert.equal(hist[0].history_from, null, "A's mapping change re-pulls A's Pinterest history");
 assert.notEqual(hist[1].history_from, null, "B's history is untouched");
+assert.equal(Number(hist[0].mapping_generation), 1, "A's mapping generation moves, so a run under the old mapping cannot save its cursor");
+assert.equal(Number(hist[1].mapping_generation), 0, "B's generation is untouched");
 await assert.rejects(asAdmin(A, true, () => db.query("insert into windsor_field_mappings(company_entity_id, ds_id, measure, field_id) values($1,'pinterest','spend','cost')", [B])),
   'an admin of A cannot set B\'s mapping');
 await assert.rejects(asAdmin(A, false, () => db.query("insert into windsor_field_mappings(company_entity_id, ds_id, measure, field_id) values($1,'pinterest','spend','cost')", [A])),

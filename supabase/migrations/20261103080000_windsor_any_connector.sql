@@ -31,6 +31,11 @@ alter table public.marketing_kpis_daily
 -- ── Fields Windsor refused, by name, so a gap is visible ────────────────────
 alter table public.windsor_linked_accounts
   add column if not exists refused_fields text[] not null default '{}';
+-- Bumped by every mapping change (windsor_field_mappings_rewind). The sync
+-- saves history progress only while it still matches the value it read, so a
+-- run working under the old mapping cannot undo a rewind.
+alter table public.windsor_linked_accounts
+  add column if not exists mapping_generation bigint not null default 0;
 
 -- ── Every other connector ───────────────────────────────────────────────────
 create table if not exists public.windsor_metrics_daily (
@@ -157,7 +162,8 @@ begin
   else co := new.company_entity_id; ds := new.ds_id;
   end if;
   update public.windsor_linked_accounts
-     set history_from = null
+     set history_from = null,
+         mapping_generation = mapping_generation + 1
    where company_entity_id = co
      and ds_id = ds;
   return null;

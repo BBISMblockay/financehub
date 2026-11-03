@@ -308,8 +308,16 @@
   // makes the next runs pull this connector's history again.
   let mapAccount = null;
   let mapRows = [];
+  let mapSaving = false;
+  let mapOpenSeq = 0;
   async function openMapping(a) {
+    // The card is not swapped to another connector while a save is running:
+    // the save writes what was on screen when Save was pressed.
+    if (mapSaving) { setStatus('Wait for the mapping save to finish.', 'warn', 3000); return; }
+    const seq = ++mapOpenSeq;
     const out = await broker({ action: 'field_catalog', linked_account_id: a.id });
+    // A later click wins; an older answer arriving late does not replace it.
+    if (seq !== mapOpenSeq || mapSaving) return;
     mapAccount = a;
     $('mapTitle').textContent = `4. Field mapping — ${a.ds_id}`;
     const tbody = $('mapTable').querySelector('tbody');
@@ -347,24 +355,35 @@
     $('mapCard').scrollIntoView({ behavior: 'smooth' });
   }
   $('mapSave').addEventListener('click', () => busy($('mapSave'), async () => {
-    if (!mapAccount) return;
-    const changed = mapRows.filter((r) => r.sel.value !== r.initial);
+    if (!mapAccount || mapSaving) return;
+    // Snapshot company, connector and every chosen value before the first
+    // await, so nothing clicked during the save changes what is written.
+    const coId = co.id;
+    const ds = mapAccount.ds_id;
+    const changed = mapRows.filter((r) => r.sel.value !== r.initial).map((r) => ({ row: r, measure: r.measure, value: r.sel.value }));
     if (!changed.length) { setStatus('Nothing changed.', 'info', 2500); return; }
-    for (const r of changed) {
-      if (r.sel.value === '__auto') {
-        const { error } = await db.from('windsor_field_mappings').delete()
-          .eq('company_entity_id', co.id).eq('ds_id', mapAccount.ds_id).eq('measure', r.measure);
-        if (error) throw new Error(`Could not reset ${r.measure}: ${error.message}`);
-      } else {
-        const { error } = await db.from('windsor_field_mappings').upsert({
-          company_entity_id: co.id, ds_id: mapAccount.ds_id, measure: r.measure,
-          field_id: r.sel.value === '__blank' ? null : r.sel.value, updated_at: new Date().toISOString(),
-        }, { onConflict: 'company_entity_id,ds_id,measure' });
-        if (error) throw new Error(`Could not save ${r.measure}: ${error.message}`);
+    mapSaving = true;
+    for (const r of mapRows) r.sel.disabled = true;
+    try {
+      for (const c of changed) {
+        if (c.value === '__auto') {
+          const { error } = await db.from('windsor_field_mappings').delete()
+            .eq('company_entity_id', coId).eq('ds_id', ds).eq('measure', c.measure);
+          if (error) throw new Error(`Could not reset ${c.measure}: ${error.message}`);
+        } else {
+          const { error } = await db.from('windsor_field_mappings').upsert({
+            company_entity_id: coId, ds_id: ds, measure: c.measure,
+            field_id: c.value === '__blank' ? null : c.value, updated_at: new Date().toISOString(),
+          }, { onConflict: 'company_entity_id,ds_id,measure' });
+          if (error) throw new Error(`Could not save ${c.measure}: ${error.message}`);
+        }
+        c.row.initial = c.value;
       }
-      r.initial = r.sel.value;
+    } finally {
+      mapSaving = false;
+      for (const r of mapRows) r.sel.disabled = false;
     }
-    setStatus(`Saved ${changed.length} mapping change(s) for ${mapAccount.ds_id}. History is re-pulled on the next nightly runs.`, 'pos', 5000);
+    setStatus(`Saved ${changed.length} mapping change(s) for ${ds}. History is re-pulled on the next nightly runs.`, 'pos', 5000);
     await loadAccounts();
   }));
 

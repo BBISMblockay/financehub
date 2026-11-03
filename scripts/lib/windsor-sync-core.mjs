@@ -455,28 +455,44 @@ async function readOnce({ key, fetchImpl, connector, accountId, fields, from, to
   try {
     res = await fetchImpl(url, { method: 'GET', signal: AbortSignal.timeout(120000) });
   } catch (e) {
-    return { error: e?.name === 'TimeoutError' ? 'timed out' : 'network error', named: [] };
+    // No answer is not a refusal: the fields may well exist.
+    return { error: e?.name === 'TimeoutError' ? 'timed out' : 'network error', named: [], transient: true };
   }
   const text = await res.text().catch(() => '');
   const body = parseBody(text);
   const errText = !res.ok ? text : (body && typeof body === 'object' && !Array.isArray(body) && body.error ? JSON.stringify(body.error) : '');
-  if (errText) return { error: `Windsor answered ${res.status}: ${redact(errText, key)}`, named: fieldsNamedIn(errText, fields) };
+  if (errText) {
+    return { error: `Windsor answered ${res.status}: ${redact(errText, key)}`, named: fieldsNamedIn(errText, fields),
+      // A server error or rate limit says nothing about the fields asked for.
+      transient: res.status >= 500 || res.status === 429 };
+  }
   const rows = rowsOf(body);
   if (!rows) return { error: `not a list of rows (${describeShape(body)})`, named: [] };
   return { rows };
 }
 
+/** One read, asked once more if Windsor did not answer (timeout, network,
+ *  5xx, 429). A second non-answer stays transient: the caller must not treat
+ *  it as a refusal. */
+async function readOnceRetrying(io) {
+  const r = await readOnce(io);
+  return r.transient ? readOnce(io) : r;
+}
+
 /** Read one batch of hunted fields. A field Windsor names is dropped and the
  *  rest asked again; a refusal that names nothing is retried once per Windsor
  *  table, so one table that cannot be combined does not cost the others.
- *  Returns { rows: [...] per successful read, refused: [...] }. */
+ *  Returns { rows: [...] per successful read, refused: [...], incomplete }.
+ *  `incomplete` = Windsor did not answer for some fields: the window must not
+ *  be written (it would replace stored values) nor counted as covered. */
 async function readHuntBatch({ fields, tableOf, ...io }) {
-  const out = { rows: [], refused: [] };
+  const out = { rows: [], refused: [], incomplete: false };
   const dims = io.dims;
   let batch = [...fields];
   for (let attempt = 0; attempt <= MAX_FIELD_RETRIES && batch.length; attempt += 1) {
-    const r = await readOnce({ ...io, fields: [...dims, ...batch] });
+    const r = await readOnceRetrying({ ...io, fields: [...dims, ...batch] });
     if (r.rows) { out.rows.push(r.rows); return out; }
+    if (r.transient) { out.incomplete = true; return out; }
     const named = r.named.filter((f) => batch.includes(f));
     if (named.length) { out.refused.push(...named); batch = batch.filter((f) => !named.includes(f)); continue; }
     // Nothing named: split by Windsor table once, then give up on a part.
@@ -488,8 +504,9 @@ async function readHuntBatch({ fields, tableOf, ...io }) {
     }
     if (byTable.size <= 1) { out.refused.push(...batch); return out; }
     for (const part of byTable.values()) {
-      const p = await readOnce({ ...io, fields: [...dims, ...part] });
+      const p = await readOnceRetrying({ ...io, fields: [...dims, ...part] });
       if (p.rows) out.rows.push(p.rows);
+      else if (p.transient) out.incomplete = true;
       else out.refused.push(...part);
     }
     return out;
@@ -523,24 +540,26 @@ export function mergeHunted(dataset, coreRows, huntedRowSets) {
  *  batches. Fields refused earlier this run (`skip`) are not asked again. */
 export async function fetchDatasetHunted({ key, fetchImpl, connector, accountId, dataset, from, to, counter, catalog, skip = new Set() }) {
   const core = await fetchDataset({ key, fetchImpl, connector, accountId, dataset, from, to, counter });
-  if (!dataset.hunt || !catalog || !core.rows.length) return { ...core, refused: [], unmatched: 0 };
+  if (!dataset.hunt || !catalog || !core.rows.length) return { ...core, refused: [], unmatched: 0, incomplete: false };
   const have = new Set(dataset.fields);
   const extra = huntFields(catalog, dataset.hunt).filter((f) => !have.has(f) && !skip.has(f));
-  if (!extra.length) return { ...core, refused: [], unmatched: 0 };
+  if (!extra.length) return { ...core, refused: [], unmatched: 0, incomplete: false };
   const tableOf = new Map(catalog.map((f) => [f.id, f.table]));
   // The identity fields go in every batch so hunted rows can be matched.
   const dims = dataset.fields.filter((f) => f === 'date' || f === 'account_id'
     || ['campaign_id', 'campaign', 'flow_id', 'flow_message_id'].includes(f));
   const sets = [];
   const refused = [];
+  let incomplete = false;
   for (let i = 0; i < extra.length; i += HUNT_BATCH_SIZE) {
     const b = await readHuntBatch({ key, fetchImpl, connector, accountId, from, to, counter, dims,
       fields: extra.slice(i, i + HUNT_BATCH_SIZE), tableOf });
     sets.push(...b.rows);
     refused.push(...b.refused);
+    if (b.incomplete) incomplete = true;
   }
   const merged = mergeHunted(dataset, core.rows, sets);
-  return { rows: merged.rows, dropped: core.dropped, refused, unmatched: merged.unmatched };
+  return { rows: merged.rows, dropped: core.dropped, refused, unmatched: merged.unmatched, incomplete };
 }
 
 /** Fields whose value lands in a typed column. If Windsor refuses one of
@@ -598,6 +617,24 @@ export async function syncAccount({
       .eq('id', account.id).eq('company_entity_id', ctx.companyId);
     if (error) throw new Error(`could not record sync state: ${error.message}`);
   };
+  // History progress is saved only if the company's field mapping has not
+  // changed since this run read it. A change (windsor_field_mappings_rewind)
+  // bumps mapping_generation and clears history_from; a run still working
+  // under the old mapping must not put its old cursor back over that rewind.
+  // Returns false when the mapping moved: stop advancing, the next run
+  // re-pulls history under the new mapping.
+  const guarded = anyConnector && Number.isInteger(account.mapping_generation);
+  const recordProgress = async (patch) => {
+    if (dryRun) return true;
+    if (!guarded) { await record(patch); return true; }
+    const { data, error } = await supabase.from('windsor_linked_accounts')
+      .update({ last_synced_at: ctx.syncedAt, ...patch })
+      .eq('id', account.id).eq('company_entity_id', ctx.companyId)
+      .eq('mapping_generation', account.mapping_generation)
+      .select('id');
+    if (error) throw new Error(`could not record sync state: ${error.message}`);
+    return Array.isArray(data) && data.length > 0;
+  };
   if (!ctx.companyId) throw new Error('mapping row has no company');
   if (!conn.ok) {
     summary.status = 'unsupported';
@@ -642,7 +679,7 @@ export async function syncAccount({
       const wSum = { ...w, datasets: {} };
       summary.windows.push(wSum);
       for (const dataset of datasets) {
-        const { rows: raw, dropped, refused, unmatched } = await fetchDatasetHunted({
+        const { rows: raw, dropped, refused, unmatched, incomplete: unanswered } = await fetchDatasetHunted({
           key, fetchImpl, connector: conn.value, accountId: ctx.accountId, dataset, from: w.from, to: w.to, counter,
           catalog, skip: refusedThisRun,
         });
@@ -652,6 +689,15 @@ export async function syncAccount({
         }
         for (const d of dropped) if (!summary.dropped_fields.includes(`${dataset.key}.${d}`)) summary.dropped_fields.push(`${dataset.key}.${d}`);
         const prep = prepareRows(raw, { accountId: ctx.accountId, from: w.from, to: w.to, dataset, ctx });
+        if (unanswered) {
+          // Windsor did not answer for some hunted fields. Writing would
+          // replace the stored extra/metrics JSON without them, so this
+          // dataset's window is left as it is and asked again next run.
+          incomplete = true;
+          summary.unanswered = true;
+          wSum.datasets[dataset.key] = { returned: raw.length, skipped: 'Windsor did not answer for some fields; asked again next run' };
+          continue;
+        }
         const blocking = dropped.filter((d) => columnFields(dataset).includes(d));
         if (blocking.length) {
           // Writing would replace stored values of a refused field with 0 or
@@ -676,16 +722,22 @@ export async function syncAccount({
       // so the next run asks again rather than moving past missing data.
       if (incomplete) break;
       if (w.kind === 'history') historyFrom = w.from;
-      if (w.kind === 'recent') await record({ synced_through: plan.end, history_from: historyFrom });
-      else await record({ history_from: historyFrom });
+      const kept = w.kind === 'recent'
+        ? await recordProgress({ synced_through: plan.end, history_from: historyFrom })
+        : await recordProgress({ history_from: historyFrom });
+      if (!kept) { summary.mapping_changed = true; break; }
     }
     const historyDone = historyFrom <= plan.target;
     summary.history_from = historyFrom;
     summary.history_complete = historyDone;
-    summary.status = summary.dropped_fields.length ? 'partial' : 'success';
+    summary.status = summary.dropped_fields.length || summary.unanswered ? 'partial' : 'success';
+    const problems = [
+      summary.dropped_fields.length ? `Windsor refused: ${summary.dropped_fields.join(', ')}` : null,
+      summary.unanswered ? 'Windsor did not answer for some fields; that window is asked again next run' : null,
+    ].filter(Boolean);
     await record({
       last_sync_status: summary.status,
-      last_sync_error: summary.dropped_fields.length ? `Windsor refused: ${summary.dropped_fields.join(', ')}`.slice(0, 500) : null,
+      last_sync_error: problems.length ? problems.join('. ').slice(0, 500) : null,
       // Hunted fields Windsor would not return for this account, by name:
       // visible on the mapping row rather than silently missing.
       ...(anyConnector ? { refused_fields: summary.refused_fields.slice(0, 2000) } : {}),
