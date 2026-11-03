@@ -1397,9 +1397,19 @@ jobs:
       - name: Execute chat catalog coverage regressions
         run: |
           node scripts/tests/chat-catalog-coverage-database.test.mjs
-          for mutation in clobber-curated no-missing-guard no-hide touch-everything; do
+          for mutation in clobber-curated no-missing-guard no-hide bloat-lead touch-everything; do
             if CATALOG_COVERAGE_MUTATION="$mutation" node scripts/tests/chat-catalog-coverage-database.test.mjs; then
               echo "::error::$mutation did not fail the catalog coverage suite"
+              exit 1
+            fi
+            echo "$mutation failed the suite, as it must"
+          done
+      - name: Execute integration feed health regressions
+        run: |
+          node scripts/tests/integration-feed-health-database.test.mjs
+          for mutation in no-refresh keep-dates ledger-books open-policy one-tieout owner-view; do
+            if FEED_HEALTH_MUTATION="$mutation" node scripts/tests/integration-feed-health-database.test.mjs; then
+              echo "::error::$mutation did not fail the feed health suite"
               exit 1
             fi
             echo "$mutation failed the suite, as it must"

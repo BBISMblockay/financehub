@@ -19450,4 +19450,12 @@ $c$select (select count(*) from v_po_header_summary
 -- the provider has said nothing about for days. Makes hand-entered days safe
 -- on an account with orphaned pending rows. No deploy.
 \i migrations/20261103200000_plaid_discard_stale_pending.sql
+
+-- Where the daily integration reconciler's verdicts land (integration_feed_health),
+-- the view and SILO report that show them, and the catalog text that sends a bot
+-- there before it calls data missing. Also strips the dated staleness notes from
+-- 20261103190000 and stops silo_ledger_lines_v calling itself the books. Needs
+-- 20261103190000. No deploy; the reconciler runs from the Integration reconcile
+-- workflow. Before the catalog cleanup.
+\i migrations/20261103220000_integration_feed_health.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

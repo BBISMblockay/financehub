@@ -54,6 +54,20 @@
         </div>
       </section>
 
+      <section class="bcn-card" id="feedCard" hidden>
+        <div class="bcn-card-header">
+          <span>Is your data arriving?</span>
+          <span class="bcn-pill" id="feedPill" hidden>&mdash;</span>
+        </div>
+        <div class="bcn-card-body">
+          <div class="sc-why" id="feedNote"></div>
+          <table class="bcn-table" id="feedTable" hidden>
+            <thead><tr><th>Feed</th><th>Connection</th><th>State</th><th>What it means</th><th>Judged</th></tr></thead>
+            <tbody id="feedRows"></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="bcn-card" id="emptyCard" hidden>
         <div class="bcn-card-header"><span>Why your pages look empty</span></div>
         <div class="bcn-card-body">
@@ -130,7 +144,7 @@
     catch (e) { return { ok: false, error: e?.message || String(e) }; }
   }
 
-  const [members, invites, shopify, qbo, syncs, settings] = await Promise.all([
+  const [members, invites, shopify, qbo, syncs, settings, feedHealth] = await Promise.all([
     probe(async () => must(await db.from('entity_memberships').select('user_id').eq('entity_id', co.id)) || []),
     probe(async () => must(await db.rpc('list_org_invites')) || []),
     probe(async () => must(await q('shopify_connections', 'id, shop_domain, is_active')) || []),
@@ -140,6 +154,12 @@
                               .limit(50)) || []),
     probe(async () => must(await db.from('company_settings').select('business_timezone, default_currency')
                               .eq('company_entity_id', co.id).maybeSingle()) || null),
+    // The daily reconciler's own verdicts (20261103200000). Until this card
+    // existed they lived in a GitHub Actions log, which is why a stalled Plaid
+    // feed went eight days unnoticed with every sync reading green.
+    probe(async () => must(await db.from('silo_feed_health_v')
+                              .select('feed, connection_label, state, severity, detail, lag_days, tolerance_days, observed_at, observed_hours_ago, observation_stale')
+                              .eq('company_entity_id', co.id)) || []),
   ]);
 
   const teamCount = members.ok ? members.value.length : null;
@@ -270,6 +290,68 @@
     document.getElementById('emptyBody').innerHTML = parts.join('</p><p style="margin:10px 0 0">');
     document.getElementById('emptyCard').hidden = false;
   }
+
+  // ── Is your data arriving? ───────────────────────────────────────────────
+  // Three states, and the difference between them is the whole point of the
+  // card: we could not check, nothing has been judged yet, or here is the
+  // verdict. None of them may render as "everything is fine", and a verdict
+  // nobody has refreshed since yesterday says so above the table rather than
+  // being served as news.
+  (function renderFeedHealth() {
+    const card = document.getElementById('feedCard');
+    const note = document.getElementById('feedNote');
+    const pill = document.getElementById('feedPill');
+    const table = document.getElementById('feedTable');
+    const body = document.getElementById('feedRows');
+    card.hidden = false;
+
+    if (!feedHealth.ok) {
+      note.textContent = 'Could not check — ' + (feedHealth.error || 'the freshness view could not be read') + '. This is not a verdict on your data.';
+      return;
+    }
+    const rows = (feedHealth.value || []).slice().sort((a, b) => {
+      const order = { action: 0, warn: 1, ok: 2 };
+      return (order[a.severity] ?? 3) - (order[b.severity] ?? 3) || String(a.feed).localeCompare(String(b.feed));
+    });
+    if (!rows.length) {
+      note.textContent = 'Nothing judged yet. The daily check has not covered this company, so this says nothing about whether your feeds are healthy.';
+      return;
+    }
+
+    const stale = rows.some(r => r.observation_stale);
+    const needing = rows.filter(r => r.severity === 'action').length;
+    const warned = rows.filter(r => r.severity === 'warn').length;
+    pill.hidden = false;
+    pill.textContent = needing ? `${needing} need attention` : (warned ? `${warned} warning${warned === 1 ? '' : 's'}` : 'all arriving');
+    // Beacon has no --warn pill variant, so a warning keeps the plain pill.
+    pill.className = 'bcn-pill' + (needing ? ' bcn-pill--neg' : (warned ? '' : ' bcn-pill--pos'));
+    note.textContent = stale
+      ? 'These verdicts are over a day old, so they are unconfirmed: the daily check has not run. Treat them as the last known state, not as now.'
+      : 'One row per feed, from the daily check. A feed that is behind means rows were never delivered — that is not a drop in the numbers.';
+
+    for (const r of rows) {
+      const tr = document.createElement('tr');
+      const cell = (text, mono) => {
+        const td = document.createElement('td');
+        if (mono) td.className = 'bcn-mono';
+        td.textContent = text;
+        return td;
+      };
+      const lag = Number.isFinite(r.lag_days)
+        ? `${r.state} · ${r.lag_days}d behind${Number.isFinite(r.tolerance_days) ? ` of ${r.tolerance_days}d` : ''}`
+        : r.state;
+      const judged = r.observed_at ? new Date(r.observed_at).toLocaleString() : '—';
+      tr.append(
+        cell(r.feed),
+        cell(r.connection_label || 'company-wide'),
+        cell(lag, true),
+        cell(r.detail || '—'),
+        cell(judged + (r.observation_stale ? ' (stale)' : ''), true),
+      );
+      body.appendChild(tr);
+    }
+    table.hidden = false;
+  })();
 
   if (window.SiloChrome) {
     window.SiloChrome.mount({

@@ -53,12 +53,25 @@ function filters(url) {
   return out;
 }
 
-async function runPass(env = {}, rows = fixture()) {
+async function runPass(env = {}, rows = fixture(), { failTable = null } = {}) {
   const seen = [];
   const posted = [];
+  const deleted = [];
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     const table = url.pathname.replace('/rest/v1/', '');
+    if (table === failTable) {
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ message: `${table} is unavailable` }));
+      req.resume();
+      return;
+    }
+    if (req.method === 'DELETE') {
+      deleted.push({ table, where: filters(url) });
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     if (req.method === 'POST') {
       let body = '';
       req.on('data', (c) => { body += c; });
@@ -94,7 +107,13 @@ async function runPass(env = {}, rows = fixture()) {
   child.stderr.on('data', (c) => { out += c; });
   const code = await new Promise((done) => child.on('close', done));
   server.close();
-  return { code, out, seen, posted };
+  // Feed-health writes are separated out: every assertion about the queue
+  // predates them and must keep meaning "nothing was QUEUED".
+  return {
+    code, out, seen, deleted,
+    posted: posted.filter((p) => p.table !== 'integration_feed_health'),
+    health: posted.filter((p) => p.table === 'integration_feed_health'),
+  };
 }
 
 test('report-only: it names the store nobody imported and queues nothing', async () => {
@@ -146,4 +165,73 @@ test('a store that is syncing is not mentioned as a problem', async () => {
   const { out } = await runPass();
   const problems = out.split('\n').filter((l) => l.startsWith('  ['));
   assert.ok(problems.every((l) => !l.includes('live.myshopify.com')), 'a healthy store belongs in the count, not the list');
+});
+
+// ── Publishing the verdicts (20261103220000) ───────────────────────────────
+// The judgement used to live in this log and nowhere else, which is how a
+// stalled Plaid feed went eight days unnoticed with every sync green. These
+// cover the wiring of putting it in the database: the row shape SILO reads,
+// that an unjudged feed does not report a lag of 0, that a run prunes only
+// what it looked at, and that a failed write cannot take the pass down with it.
+
+test('every verdict is published for SILO to show, in the shape the view reads', async () => {
+  const { health } = await runPass();
+  assert.equal(health.length, 1, 'one upsert call carries the run');
+  const rows = health[0].body;
+  assert.equal(rows.length, 2, 'both stores are published, healthy one included');
+
+  const brandnew = rows.find((r) => r.connection_id === 'conn-new');
+  assert.equal(brandnew.company_entity_id, CO);
+  assert.equal(brandnew.feed, 'sales');
+  assert.equal(brandnew.state, 'never_imported');
+  assert.equal(brandnew.severity, 'action');
+  assert.equal(brandnew.connection_label, 'brandnew.myshopify.com');
+  assert.equal(brandnew.integration, 'shopify');
+  assert.equal(brandnew.tolerance_days, 1);
+  assert.equal(brandnew.event_driven, false);
+  assert.ok(brandnew.observed_at, 'the run stamps its own instant');
+  assert.equal(brandnew.lag_days, null,
+    'a connection that never imported has no lag: 0 would read as up to date');
+  assert.equal(brandnew.measured_through, null);
+  assert.match(brandnew.detail, /never imported/);
+
+  const live = rows.find((r) => r.connection_id === 'conn-live');
+  assert.equal(live.state, 'ok');
+  assert.equal(live.severity, 'ok');
+  assert.equal(live.lag_days, 0, 'a store that synced today is 0 days behind, which is a real measurement');
+
+  assert.equal(new Set(rows.map((r) => r.observed_at)).size, 1,
+    'one run, one instant -- the prune below depends on it');
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      assert.ok(!/token|secret|password|email/i.test(key), `${key} must not be published to every member of the company`);
+    }
+  }
+});
+
+test('a run prunes only the company and feed it actually looked at', async () => {
+  const { deleted, health } = await runPass();
+  const prune = deleted.find((d) => d.table === 'integration_feed_health');
+  assert.ok(prune, 'a connection that has gone away must stop being reported');
+  assert.match(prune.where.company_entity_id || '', /in\.|11111111/);
+  assert.match(prune.where.feed || '', /in\.|sales/);
+  const stamp = health[0].body[0].observed_at;
+  assert.ok(String(prune.where.observed_at || '').includes(stamp.slice(0, 19)),
+    'the prune is bounded by this run stamp, so a feed it skipped keeps its last verdict and ages honestly');
+});
+
+test('a dry run publishes nothing and says so', async () => {
+  const { health, deleted, out } = await runPass({ RECONCILE_DRY_RUN: 'true' });
+  assert.equal(health.length, 0);
+  assert.equal(deleted.filter((d) => d.table === 'integration_feed_health').length, 0);
+  assert.match(out, /would have published/);
+});
+
+test('a failed publish is reported loudly and does not change the pass', async () => {
+  const clean = await runPass();
+  const broken = await runPass({}, fixture(), { failTable: 'integration_feed_health' });
+  assert.equal(broken.code, clean.code, 'the verdict about the client data is unchanged by our own write failing');
+  assert.match(broken.out, /could not publish feed health/);
+  assert.match(broken.out, /stale/, 'it must say what the consequence is, because the surface will look current');
+  assert.match(broken.out, /brandnew\.myshopify\.com/, 'the log is still the primary output');
 });

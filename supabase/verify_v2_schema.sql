@@ -8414,3 +8414,42 @@ select 'Windsor live MCP authorization' as check_name,
     and exists (select 1 from pg_policies where schemaname='public' and tablename='windsor_linked_accounts'
       and policyname='windsor_linked_accounts_mcp_select' and qual like '%active_company_id%' and qual like '%mcp_enabled%')
   then 'ok' else 'BROKEN: live connector authorization/defaults' end as status;
+
+-- ── Feed health, the surface that makes a stalled sync visible (20261103220000) ──
+-- A missing table or a widened policy here is worse than no surface at all: a
+-- freshness card that cannot be trusted is read as reassurance. The report's
+-- own 48-hour tie-out covers the reconciler stopping; this covers the shape.
+select 'integration feed health' as check_name,
+  case
+    when to_regclass('public.integration_feed_health') is null
+      then 'MISSING — integration_feed_health (20261103220000 not applied)'
+    when not (select relrowsecurity from pg_class where oid = 'public.integration_feed_health'::regclass)
+      or has_table_privilege('anon', 'public.integration_feed_health', 'select')
+      or has_table_privilege('authenticated', 'public.integration_feed_health', 'insert')
+      or has_table_privilege('authenticated', 'public.integration_feed_health', 'update')
+      or has_table_privilege('authenticated', 'public.integration_feed_health', 'delete')
+      then 'CRITICAL — a client role can write integration_feed_health, or anon can read it'
+    when (select count(*) from pg_policy where polrelid = 'public.integration_feed_health'::regclass) <> 1
+      or not exists (select 1 from pg_policy
+                      where polrelid = 'public.integration_feed_health'::regclass
+                        and polcmd = 'r'
+                        and pg_get_expr(polqual, polrelid) like '%active_company_id()%')
+      then 'CRITICAL — integration_feed_health is not select-only within the active company'
+    when to_regclass('public.silo_feed_health_v') is null
+      or not exists (select 1 from pg_class where relname = 'silo_feed_health_v'
+                      and 'security_invoker=true' = any(reloptions))
+      then 'CRITICAL — silo_feed_health_v is missing or does not run as its caller'
+    when not exists (select 1 from public.silo_chat_saved_reports
+                      where id = 'c8000000-0000-4000-a000-000000000001'
+                        and source = 'system' and company_entity_id is null
+                        and archived_at is null)
+      then 'MISSING — the Data freshness system report'
+    when (select count(*) from public.silo_report_tieouts
+           where report_id = 'c8000000-0000-4000-a000-000000000001') < 2
+      then 'MISSING — the Data freshness report has lost a tie-out, including the one that catches the reconciler stopping'
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                      where relname = 'silo_feed_health_v' and keywords is not null
+                        and description like '%BLANK IS NOT ZERO%')
+      then 'MISSING — the catalog no longer tells a bot to check feed health before calling data missing'
+    else 'ok'
+  end as status;
