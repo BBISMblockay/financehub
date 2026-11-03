@@ -54,6 +54,28 @@ if (error) throw new Error(`could not read windsor_linked_accounts: ${error.mess
 console.log(`${accounts.length} Windsor account(s); history ${HISTORY_MONTHS} months, `
   + `${MAX_HISTORY_WINDOWS} history window(s) per account, ${MAX_CALLS} call budget${DRY_RUN ? ', DRY RUN' : ''}`);
 
+// 20261103080000 (any connector) may be merged before it is applied. Until it
+// is, run exactly as before it: hand-made connectors only, no refused_fields
+// bookkeeping, no mappings. Probed, not assumed.
+const { error: anyErr } = await supabase.from('windsor_field_mappings').select('id').limit(1);
+const anyConnector = !anyErr;
+if (!anyConnector) console.log(`Any-connector tables not found (${anyErr.message}); only TikTok and Klaviyo run until 20261103080000 is applied.`);
+
+// Each company's own field choices (windsor_field_mappings), by company and
+// data source: { measure: field_id | null }.
+let mappingRows = [];
+if (anyConnector) {
+  const { data, error: mapErr } = await supabase.from('windsor_field_mappings')
+    .select('company_entity_id, ds_id, measure, field_id');
+  if (mapErr) throw new Error(`could not read windsor_field_mappings: ${mapErr.message}`);
+  mappingRows = data ?? [];
+}
+const overridesFor = (companyId, dsId) => {
+  const out = {};
+  for (const m of mappingRows) if (m.company_entity_id === companyId && m.ds_id === dsId) out[m.measure] = m.field_id;
+  return out;
+};
+
 const byCompany = new Map();
 for (const a of accounts) {
   if (!byCompany.has(a.company_entity_id)) byCompany.set(a.company_entity_id, []);
@@ -61,6 +83,8 @@ for (const a of accounts) {
 }
 
 const counter = { used: 0, limit: MAX_CALLS };
+// Windsor's field list per connector, read once for the whole run.
+const catalogCache = new Map();
 let failed = 0;
 for (const [companyId, list] of byCompany) {
   let jobId = null;
@@ -77,9 +101,13 @@ for (const [companyId, list] of byCompany) {
     const r = await syncAccount({
       supabase, fetchImpl: fetch, key: KEY, account, historyMonths: HISTORY_MONTHS,
       maxHistoryWindows: MAX_HISTORY_WINDOWS, counter, batchId: BATCH_ID, dryRun: DRY_RUN, log: console.log,
+      catalogCache, overrides: overridesFor(companyId, account.ds_id), anyConnector,
     });
     results.push(r);
     console.log(`${companyId} ${r.ds_id} ${r.account_id}: ${r.status}, ${r.rows_written} rows`
+      + `${r.mapped_to ? ` (auto-mapped to ${r.mapped_to})` : ''}`
+      + `${r.refused_fields?.length ? `, ${r.refused_fields.length} hunted field(s) not returned by Windsor` : ''}`
+      + `${r.ignored_mappings?.length ? `, mapping ignored for ${r.ignored_mappings.join(', ')} (field not offered by Windsor)` : ''}`
       + `${r.history_from ? `, history from ${r.history_from}${r.history_complete ? ' (complete)' : ''}` : ''}`
       + `${r.dropped_fields.length ? `, Windsor refused ${r.dropped_fields.join(', ')}` : ''}${r.error ? `, ${r.error}` : ''}`);
     if (DRY_RUN) console.log(JSON.stringify(r.windows, null, 2));
@@ -90,7 +118,8 @@ for (const [companyId, list] of byCompany) {
     const status = errors.length ? 'error' : 'success';
     await supabase.from('sync_jobs').update({
       status, finished_at: new Date().toISOString(),
-      result: { accounts: results.map(({ windows, ...rest }) => rest), windsor_calls_used: counter.used },
+      result: { accounts: results.map(({ windows, refused_fields, ...rest }) => ({ ...rest, refused_count: refused_fields?.length ?? 0 })),
+        windsor_calls_used: counter.used },
       error: errors.length ? errors.map((r) => `${r.ds_id} ${r.account_id}: ${r.error}`).join('; ').slice(0, 1000) : null,
     }).eq('id', jobId);
   }

@@ -8246,3 +8246,50 @@ select 'Windsor sync' as check_name,
       then 'MISSING — sync_jobs does not accept windsor_sync'
     else 'ok'
   end as status;
+
+-- Windsor any connector (20261103080000): connectors with no table of their
+-- own land in windsor_metrics_daily (select within the active company only,
+-- written only by the sync); marketing_kpis_daily accepts any well-formed
+-- platform name so a new ad platform needs no migration.
+select 'Windsor any connector' as check_name,
+  case
+    when to_regclass('public.windsor_metrics_daily') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'windsor_linked_accounts'
+                        and column_name = 'refused_fields')
+      then 'MISSING — run 20261103080000_windsor_any_connector.sql'
+    when not (select relrowsecurity from pg_class where oid = 'public.windsor_metrics_daily'::regclass)
+      then 'CRITICAL — RLS is off on windsor_metrics_daily'
+    when has_table_privilege('anon', 'public.windsor_metrics_daily', 'select')
+      or has_table_privilege('authenticated', 'public.windsor_metrics_daily', 'insert')
+      or has_table_privilege('authenticated', 'public.windsor_metrics_daily', 'update')
+      or has_table_privilege('authenticated', 'public.windsor_metrics_daily', 'delete')
+      then 'CRITICAL — a client role can write windsor_metrics_daily, or anon can read it'
+    when (select count(*) from pg_policy where polrelid = 'public.windsor_metrics_daily'::regclass) <> 1
+      or not exists (select 1 from pg_policy
+                      where polrelid = 'public.windsor_metrics_daily'::regclass
+                        and polcmd = 'r'
+                        and pg_get_expr(polqual, polrelid) like '%active_company_id()%')
+      then 'CRITICAL — windsor_metrics_daily is not select-only within the active company'
+    when not exists (select 1 from pg_constraint
+                      where conrelid = 'public.marketing_kpis_daily'::regclass
+                        and conname = 'marketing_kpis_daily_platform_check'
+                        and pg_get_constraintdef(oid) like '%~%')
+      then 'MISSING — marketing_kpis_daily still limits platform to a fixed list'
+    when to_regclass('public.windsor_field_mappings') is null
+      or not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.windsor_field_mappings'::regclass
+                        and tgname = 'windsor_field_mappings_rewind')
+      then 'MISSING — windsor_field_mappings or its history rewind'
+    when not (select relrowsecurity from pg_class where oid = 'public.windsor_field_mappings'::regclass)
+      or has_table_privilege('anon', 'public.windsor_field_mappings', 'select')
+      or (select count(*) from pg_policy where polrelid = 'public.windsor_field_mappings'::regclass) <> 1
+      or not exists (select 1 from pg_policy
+                      where polrelid = 'public.windsor_field_mappings'::regclass
+                        and pg_get_expr(polqual, polrelid) like '%active_company_id()%'
+                        and pg_get_expr(polqual, polrelid) like '%is_admin_user()%'
+                        and pg_get_expr(polwithcheck, polrelid) like '%active_company_id()%'
+                        and pg_get_expr(polwithcheck, polrelid) like '%is_admin_user()%')
+      then 'CRITICAL — windsor_field_mappings is not confined to admins of the active company'
+    else 'ok'
+  end as status;

@@ -73,6 +73,7 @@ on:
       - 'scripts/windsor-sync.mjs'
       - 'scripts/lib/windsor-sync-core.mjs'
       - 'supabase/migrations/*windsor_sync.sql'
+      - 'supabase/migrations/*windsor_any_connector.sql'
       - 'v2/integration-bootstrap.js'
       - 'v2/integration-enrolment.js'
       - 'scripts/integration-bootstrap.mjs'
@@ -545,7 +546,7 @@ jobs:
       - name: The broker's guards, removed, must break it
         run: |
           set -u
-          for m in trustfilter notoken rowfilter bodycompany conflict redact connector linkwindow grouptoken; do
+          for m in trustfilter notoken rowfilter bodycompany conflict redact connector linkwindow grouptoken mapcompany; do
             if WINDSOR_MUTATION="$m" node --test scripts/tests/windsor-broker.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
@@ -560,7 +561,7 @@ jobs:
       - name: The Windsor sync's guards, removed, must break it
         run: |
           set -u
-          for m in accountfilter payloadcompany selectaccounts resume window refusedcolumn syncoptions; do
+          for m in accountfilter payloadcompany selectaccounts resume window refusedcolumn syncoptions directsync huntmerge skiprefused nullnotzero override; do
             if WINDSOR_SYNC_MUTATION="$m" node --test scripts/tests/windsor-sync.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
@@ -2194,7 +2195,7 @@ jobs:
       - name: The Windsor sync tables' guards, removed, must break it
         run: |
           set -u
-          for m in rls company writes; do
+          for m in rls company writes anyrls anycompany anywrites mapcompany mapadmin rewind; do
             if WINDSOR_SYNC_DB_MUTATION="$m" node scripts/tests/windsor-sync-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
