@@ -317,6 +317,47 @@ await test('an unconfirmed re-fetch request never claims the bank was asked', as
     assert.equal(h.statuses.at(-1).kind, 'neg');
   }
 });
+await test('a Plaid plan without Transactions Refresh stops offering the re-fetch button', async () => {
+  const h = harness({ receivedAt: new Date(Date.now() - 7 * 86400_000).toISOString(),
+    refreshResult: { error: 'Transactions is not enabled for this Plaid configuration.', code: 'INVALID_PRODUCT' } });
+  await h.controller.load();
+  assert.match(h.el('bankAccounts').innerHTML, /Ask bank to re-fetch/, 'the button is offered until Plaid rejects it');
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-refresh-txns]') });
+  assert.equal(h.statuses.at(-1).kind, 'neg');
+  // Repeating Plaid's wording sends someone to check an account status that is
+  // fine. Name the add-on, which is the only thing that would make it work.
+  assert.match(h.statuses.at(-1).message, /Transactions Refresh/);
+  const html = h.el('bankAccounts').innerHTML;
+  assert.doesNotMatch(html, /Ask bank to re-fetch/, 'a button that can never work is withdrawn');
+  assert.match(html, /does not include Transactions Refresh/);
+  // The stale and missing-days hints must stop naming a button that is gone.
+  assert.match(html, /handed over nothing for 7 days/);
+  assert.doesNotMatch(html, /wait about a minute/);
+});
+await test('after the add-on is known missing, an empty import stops recommending re-fetch', async () => {
+  const h = harness({ refreshResult: { error: 'Transactions is not enabled for this Plaid configuration.', code: 'INVALID_PRODUCT' },
+    backfillResult: { account_id: 'account-one', start_date: '2026-10-19', end_date: '2026-11-03', examined: 146, imported: 0, batch_ids: [], exceptions: 0 } });
+  await h.controller.load();
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-refresh-txns]') });
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-backfill]') });
+  const message = h.statuses.at(-1).message;
+  assert.match(message, /already had every one/);
+  assert.doesNotMatch(message, /ask the bank to re-fetch/i, 'the recovery must not point back at the withdrawn action');
+  assert.match(message, /only the bank can close that gap/);
+  // The same result on a plan that does have the add-on still points there.
+  const able = harness({ backfillResult: { account_id: 'account-one', start_date: '2026-10-19', end_date: '2026-11-03', examined: 146, imported: 0, batch_ids: [], exceptions: 0 } });
+  await able.controller.load();
+  await able.el('bankAccounts').fire('click', { target: target(able.row, '[data-bank-backfill]') });
+  assert.match(able.statuses.at(-1).message, /ask the bank to re-fetch/i);
+});
+await test('a re-fetch failure that is not the missing add-on keeps the button', async () => {
+  const h = harness({ refreshResult: { error: 'The bank is temporarily unavailable. Try again later.', code: 'INSTITUTION_DOWN' } });
+  await h.controller.load();
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-refresh-txns]') });
+  assert.equal(h.statuses.at(-1).kind, 'neg');
+  assert.doesNotMatch(h.statuses.at(-1).message, /Transactions Refresh/);
+  assert.match(h.el('bankAccounts').innerHTML, /Ask bank to re-fetch/, 'a temporary failure withdraws nothing');
+});
 await test('failed or malformed sync never claims success or reloads coding', async () => {
   for (const options of [{ invokeError: 'Sync lease held' }, { syncResult: {} }]) {
     const h = harness(options); await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-sync]') });

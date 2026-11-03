@@ -97,7 +97,11 @@
       if (error || data?.error) {
         let detail=data;
         if(error?.context?.json) {try {detail=await error.context.json();} catch { /* gateway supplied no JSON */ }}
-        throw new Error((detail?.error || error?.message || 'Bank feed request failed.')+' Check the account status and retry.');
+        // The provider code is the only machine-readable part of a failure.
+        // Carrying it lets a caller react to a specific cause; the message
+        // stays the allowlisted text the Edge Function chose.
+        throw Object.assign(new Error((detail?.error || error?.message || 'Bank feed request failed.')+' Check the account status and retry.'),
+          detail?.code ? { code: detail.code } : {});
       }
       if (!data || typeof data !== 'object') throw new Error('Bank feed returned an invalid response.');
       return data;
@@ -141,6 +145,11 @@
       render();
       win.dispatchEvent?.(new win.Event('silo-bank-feeds-updated'));
     }
+    // Plaid only reveals that the Transactions Refresh add-on is missing by
+    // rejecting a call, so this is learned at press time and kept for the
+    // page session. A reload re-offers the button, which is correct once the
+    // add-on is enabled.
+    const refreshUnsupported = new Set();
     const money = (value, currency) => value == null ? 'Not supplied' : `${currency || 'Unknown currency'} ${Number(value).toFixed(2)}`;
     function render() {
       const { sources, allAccounts } = references();
@@ -165,6 +174,7 @@
           ${value.connectionId === source?.qbo_connection_id && value.id === source?.credit_qbo_account_id ? 'selected' : ''}>${esc(value.name)} · ${esc(value.type)} · ${esc(String(value.connectionId || '').slice(0, 8))}</option>`).join('');
         const disabled = !supported || source || connection?.status === 'disconnected';
         const staleness = feedStaleness({ lastReceivedAt: received.get(account.id) || null, lastSyncedAt: account.last_synced_at || null });
+        const canRefetch = !refreshUnsupported.has(account.id);
         return `<div class="cc-card" data-bank-account="${esc(account.id)}"><div class="cc-card-head"><div>
           <div class="cc-title">${esc(account.name)}${account.mask ? ` · ${esc(account.mask)}` : ''}</div>
           <div class="cc-sub">${esc(account.type)} / ${esc(account.subtype || '')} · ${esc(connection?.institution_name || '')}</div></div>
@@ -185,11 +195,12 @@
           ${!source ? `<button class="bcn-btn" data-bank-map ${disabled ? 'disabled' : ''}>Review account mapping</button>` : ''}
           <button class="bcn-btn bcn-btn--primary" data-bank-sync ${!source || connection?.status !== 'active' ? 'disabled' : ''}>Sync transactions</button>
           <button class="bcn-btn" data-bank-backfill ${!source || connection?.status !== 'active' ? 'disabled' : ''}>Import missing days</button>
-          <button class="bcn-btn" data-bank-refresh-txns ${!source || connection?.status !== 'active' ? 'disabled' : ''}>Ask bank to re-fetch</button>
+          ${canRefetch ? `<button class="bcn-btn" data-bank-refresh-txns ${!source || connection?.status !== 'active' ? 'disabled' : ''}>Ask bank to re-fetch</button>` : ''}
           <span class="cc-note">${source ? `Uses ${esc(source.display_name)}. Review activity in Transactions.` : 'Mapping does not enable QBO posting.'}</span>
-          ${staleness.stale ? `<div class="cc-hint cc-warn" data-bank-stale>Syncs are running, but this bank has handed over nothing for ${esc(staleness.days)} days. That is usually the bank, not SILO: press <b>Ask bank to re-fetch</b>, wait about a minute, then sync. Check the account at the bank for days you are missing.</div>`
+          ${!canRefetch ? '<div class="cc-hint cc-warn" data-bank-no-refetch>This Plaid plan does not include Transactions Refresh, so SILO cannot ask the bank to re-fetch. Enable that add-on in the Plaid dashboard, or raise the gap with Plaid support.</div>' : ''}
+          ${staleness.stale ? `<div class="cc-hint cc-warn" data-bank-stale>Syncs are running, but this bank has handed over nothing for ${esc(staleness.days)} days. That is usually the bank, not SILO.${canRefetch ? ' Press <b>Ask bank to re-fetch</b>, wait about a minute, then sync.' : ''} Check the account at the bank for days you are missing.</div>`
             : source ? `<div class="cc-note" data-bank-received>Bank last handed over data ${received.has(account.id) ? esc(String(received.get(account.id)).slice(0, 10)) : 'never'}</div>` : ''}
-          ${source ? '<div class="cc-hint">Missing days even though syncs succeed? <b>Import missing days</b> reads the dates straight from the bank and imports only transactions SILO does not already have — it never changes or re-codes a transaction you already hold. If it finds nothing, the bank has not handed the days over yet: <b>Ask bank to re-fetch</b>, wait about a minute, then import again.</div>' : ''}</div></div>`;
+          ${source ? `<div class="cc-hint">Missing days even though syncs succeed? <b>Import missing days</b> reads the dates straight from the bank and imports only transactions SILO does not already have — it never changes or re-codes a transaction you already hold. If it finds nothing, the bank has not handed the days over yet${canRefetch ? ': <b>Ask bank to re-fetch</b>, wait about a minute, then import again.' : ' and only the bank can close that gap.'}</div>` : ''}</div></div>`;
       }).join('');
       byId('bankExceptions').innerHTML = exceptions.length ? `<div class="cc-card-head"><div class="cc-title">${exceptions.length} bank changes need review</div></div>`
         + exceptions.map((exception) => `<div class="cc-pad" data-bank-exception="${esc(exception.id)}">
@@ -342,12 +353,24 @@
         // nothing SILO is missing. Saying so points at the next step instead
         // of leaving someone pressing the same button.
         status(Number(result.imported) === 0
-          ? `Nothing to import. The bank offered ${Number(result.examined)} transaction(s) for ${result.start_date} to ${result.end_date} and SILO already had every one. If days are still missing, ask the bank to re-fetch.`
+          ? `Nothing to import. The bank offered ${Number(result.examined)} transaction(s) for ${result.start_date} to ${result.end_date} and SILO already had every one. ${refreshUnsupported.has(accountId)
+            ? 'If days are still missing, only the bank can close that gap: this Plaid plan cannot ask it to re-fetch.'
+            : 'If days are still missing, ask the bank to re-fetch.'}`
           : `Imported ${Number(result.imported)} transaction(s) SILO was missing, ${result.start_date} to ${result.end_date}. Nothing already imported was changed.`, 'pos');
         if (Number(result.imported) > 0 && result.batch_ids.length === 1) await openBatch(result.batch_ids[0]);
       });
       if (event.target.closest('[data-bank-refresh-txns]')) return run(async () => {
-        const result = await invoke('refresh_transactions', { account_id: accountId });
+        let result;
+        try { result = await invoke('refresh_transactions', { account_id: accountId }); }
+        catch (error) {
+          // INVALID_PRODUCT here means the Transactions Refresh add-on is not
+          // on this Plaid plan. The button can never work, so stop offering it
+          // and say what would make it work instead of repeating Plaid.
+          if (error?.code !== 'INVALID_PRODUCT') throw error;
+          refreshUnsupported.add(accountId);
+          render();
+          throw new Error('This Plaid plan does not include Transactions Refresh, so SILO cannot ask the bank to re-fetch. Enable that add-on in the Plaid dashboard, or raise the missing days with Plaid support.');
+        }
         // Plaid answers the request, not the data: the institution fetches
         // afterwards. Claiming the days have landed would be a guess, so say
         // what was asked for and leave the sync to the person.
