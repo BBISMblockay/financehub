@@ -1445,6 +1445,34 @@ try {
     assert.equal((await rowsFor(frozen)).length, 2, 'the approved month is intact');
   });
 
+  await test('with one row frozen in an approved month and one in an open one, only the open one is eligible', async () => {
+    // The page must not offer the frozen row: the clear takes the exact list
+    // it is given and refuses if that is not the set it would remove, so
+    // offering an ineligible row makes the button fail for ever.
+    const account = await abandonedAccount({ posted: 1, pending: 1 });
+    // A second pending row in a later month, which stays open.
+    await apply(account, { added: [providerTransaction(account, { date: '2026-10-14', amount: 77, pending: true })] });
+    // Age the feed before freezing the month: an approved row cannot be touched.
+    await silentFor(account, 10);
+    const settled = (await rowsFor(account)).find((row) => row.provider_status === 'posted');
+    await code(settled);
+    await approve(settled.batch_id);
+    const all = await pendingIds(account);
+    assert.equal(all.length, 2);
+    const openRow = (await rowsFor(account)).find((row) => row.provider_status === 'pending'
+      && row.batch_id !== settled.batch_id);
+    const frozenRow = (await rowsFor(account)).find((row) => row.provider_status === 'pending'
+      && row.batch_id === settled.batch_id);
+    // Handing it both -- which is what an unfiltered page would do -- is
+    // refused, and no reload could ever make it succeed.
+    await assert.rejects(() => discard(account, all), /changed since the page loaded/);
+    // Handing it only the open month's row clears exactly that one.
+    assert.equal((await discard(account, [openRow.external_transaction_id])).discarded, 1);
+    const left = await rowsFor(account);
+    assert.ok(left.some((row) => row.id === frozenRow.id), 'the approved month keeps its row');
+    assert.ok(!left.some((row) => row.id === openRow.id));
+  });
+
   await test('clearing is finance work: no signed-out caller, no ordinary member, no other company', async () => {
     const account = await abandonedAccount({ posted: 0, pending: 1 });
     const ids = await pendingIds(account);

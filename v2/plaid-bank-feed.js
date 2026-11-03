@@ -264,13 +264,19 @@
         db.from('plaid_connections').select('id,institution_name,environment,status,last_error_code,history_days_requested').eq('company_entity_id', current.companyId).order('created_at'),
         db.from('plaid_accounts').select('id,connection_id,name,mask,type,subtype,iso_currency_code,current_balance,available_balance,balance_updated_at,source_id,last_synced_at,last_error_code,cursor,sync_lease_expires_at').eq('company_entity_id', current.companyId).order('name'),
         db.from('plaid_sync_exceptions').select('id,account_id,transaction_id,external_transaction_id,status,previous_payload,provider_payload,created_at').eq('company_entity_id', current.companyId).eq('status', 'open').order('created_at'),
-        // Pending rows the feed may have abandoned. The page only ever shows
-        // these; whether they are actually clearable is the database's call,
-        // and it re-decides it against this exact list when the button is
-        // pressed. Excluded means none of them is in the books.
-        db.from('card_transactions').select('plaid_account_id,external_transaction_id,txn_date,amount,description')
+        // Pending rows the feed may have abandoned. Excluded means none of
+        // them is in the books, and the batch filter is not decoration: the
+        // database clears only rows in a batch that is still open, and it
+        // refuses outright if the list it is given is not exactly the set it
+        // would clear. A row frozen in an approved month shown here would
+        // therefore make the button fail every time, with no way for the
+        // person to fix it. Whether a row is really clearable stays the
+        // database's call; this only has to not offer the impossible.
+        db.from('card_transactions')
+          .select('plaid_account_id,external_transaction_id,txn_date,amount,description,card_import_batches!inner(status)')
           .eq('company_entity_id', current.companyId).eq('origin', 'plaid')
           .eq('provider_status', 'pending').eq('status', 'excluded')
+          .in('card_import_batches.status', ['draft', 'categorized'])
           .order('txn_date').limit(1000),
       ]);
       for (const result of results) {
