@@ -22,6 +22,9 @@
                padding: 8px 10px; border: 1px solid var(--bcn-border); border-radius: 8px; margin-top: 10px; }
     .wt-summary { font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin: 10px 0 0; white-space: pre-wrap; }
     .wt-scroll { overflow-x: auto; }
+    .wt-picker { display: flex; flex-wrap: wrap; gap: 8px; max-height: 240px; overflow-y: auto; margin: 12px 0; }
+    .wt-picker button[aria-pressed="true"] { outline: 2px solid var(--bcn-accent); }
+    .wt-field-option { display: block; min-width: 220px; padding: 6px; }
     table.bcn-table td.wt-mono { font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
     /* .silo-main is a fixed-height flex column and .bcn-card sets min-height:0,
        so without this the cards shrink to fit and clip their own contents. */
@@ -56,10 +59,13 @@
           <p class="wt-muted">Creates a connect link for this company only. The sign-in screen that opens is
             Windsor's, not SILO's. Whatever is connected through it is filed under this company and nobody else.</p>
           <div class="wt-row">
-            <div class="bcn-field-group"><label class="bcn-label">Data source (optional)</label><input class="bcn-field" id="source" type="text" placeholder="e.g. klaviyo" autocomplete="off" />
-            </div>
-            <button class="bcn-btn bcn-btn--primary" id="mintBtn">Create connect link</button>
+            <div class="bcn-field-group"><label class="bcn-label" for="sourceSearch">Find an integration</label>
+              <input class="bcn-field" id="sourceSearch" type="search" placeholder="Search integrations" autocomplete="off" /></div>
+            <button class="bcn-btn bcn-btn--ghost" id="sourceReload">Reload integrations</button>
+            <button class="bcn-btn bcn-btn--primary" id="mintBtn" disabled>Create connect link</button>
           </div>
+          <p class="wt-muted" id="sourceStatus" role="status">Loading integrations…</p>
+          <div class="wt-picker" id="sourceList" role="group" aria-label="Integrations"></div>
           <div id="linkBox" hidden>
             <div class="wt-link" id="linkText"></div>
             <div class="wt-row" style="margin-top:8px">
@@ -92,14 +98,16 @@
         <div class="bcn-card-header"><span id="previewTitle">3. Preview</span></div>
         <div class="bcn-card-body">
           <p class="wt-muted">Reads straight from Windsor for this one account. Nothing is stored.
-            Field names differ by connector; account_id is always added.</p>
+            Choose from the fields this integration offers. Start with the suggested selection; combining report tables may be refused by the source.</p>
           <div class="wt-row">
-            <div class="bcn-field-group"><label class="bcn-label">Connector</label><input class="bcn-field" id="pvConnector" type="text" readonly title="Fixed by the account's own data source" /></div>
-            <div class="bcn-field-group" style="flex:1;min-width:260px"><label class="bcn-label">Fields</label><input class="bcn-field" id="pvFields" type="text" value="date,account_name,clicks,impressions,spend" autocomplete="off" /></div>
+            <div class="bcn-field-group"><label class="bcn-label" for="pvConnector">Integration</label><input class="bcn-field" id="pvConnector" type="text" readonly title="Fixed by the account's own data source" /></div>
+            <div class="bcn-field-group"><label class="bcn-label" for="fieldSearch">Find a field</label><input class="bcn-field" id="fieldSearch" type="search" placeholder="Search available fields" /></div>
             <div class="bcn-field-group"><label class="bcn-label">Range</label><select class="bcn-field" id="pvRange"><option value="last_7d">Last 7 days</option><option value="last_14d">Last 14 days</option>
                 <option value="last_30d">Last 30 days</option></select></div>
-            <button class="bcn-btn bcn-btn--primary" id="pvRun">Run preview</button>
+            <button class="bcn-btn bcn-btn--primary" id="pvRun" disabled>Run preview</button>
           </div>
+          <p class="wt-muted" id="fieldStatus" role="status"></p>
+          <div class="wt-picker" id="fieldList" role="group" aria-label="Preview fields"></div>
           <div class="wt-summary" id="pvSummary" hidden></div>
           <div class="wt-scroll"><table class="bcn-table" id="pvTable" hidden><thead></thead><tbody></tbody></table></div>
         </div>
@@ -123,6 +131,7 @@
     </main>
   </div>
 
+<script src="windsor-picker.js"></script>
 <script>
 (async function () {
   const cfg = window.__SILO_CONFIG__ || {};
@@ -197,9 +206,48 @@
     setStatus(e.message, 'neg');
   }
 
+  let source = null;
+  let integrations = [];
+  const integrationName = (id) => integrations.find((x) => x.id === id)?.name || id;
+  const sourcePicker = WindsorPicker.integrationPicker({ search: $('sourceSearch'), list: $('sourceList'), status: $('sourceStatus'),
+    onSelect(item) { source = item; $('mintBtn').disabled = !item; $('linkBox').hidden = true; } });
+  async function loadIntegrations() {
+    sourcePicker.setItems([]);
+    $('sourceStatus').textContent = 'Loading integrations…';
+    try { const out = await broker({ action: 'connector_catalog' }); integrations = out.connectors; sourcePicker.setItems(integrations); }
+    catch (e) { $('sourceStatus').textContent = e.message + ' Use Reload integrations to retry.'; }
+  }
+  $('sourceReload').addEventListener('click', () => busy($('sourceReload'), loadIntegrations));
+  await loadIntegrations();
+  let previewVersion = 0;
+  let previewBusy = false;
+  const fieldsPicker = WindsorPicker.fieldPicker({ search: $('fieldSearch'), list: $('fieldList'), status: $('fieldStatus'),
+    onChange(ids) { $('pvRun').disabled = previewBusy || !ids.includes('account_id'); } });
+  async function openPreview(a) {
+    const version = ++previewVersion;
+    selected = a;
+    $('previewTitle').textContent = `3. Preview — ${a.account_name || a.ds_id}`;
+    $('pvConnector').value = integrationName(a.ds_id);
+    $('previewCard').hidden = false;
+    $('pvTable').hidden = true; $('pvSummary').hidden = true;
+    fieldsPicker.setFields([], []);
+    $('fieldStatus').textContent = 'Loading available fields…';
+    $('previewCard').scrollIntoView({ behavior: 'smooth' });
+    try {
+      const out = await broker({ action: 'field_catalog', linked_account_id: a.id });
+      if (version !== previewVersion) return;
+      fieldsPicker.setFields(out.fields || [], out.default_fields || []);
+      if (!out.default_fields?.length) $('fieldStatus').textContent = 'This source has no verifiable account identity field. Preview is unavailable.';
+    } catch (e) { if (version === previewVersion) $('fieldStatus').textContent = e.message + ' Click Preview to retry.'; }
+  }
+
   // ── 1. Mint a link ──────────────────────────────────────────────────────
   $('mintBtn').addEventListener('click', () => busy($('mintBtn'), async () => {
-    const out = await broker({ action: 'mint_link', source: $('source').value.trim() || null });
+    if (!source) return;
+    const chosen = source;
+    $('linkBox').hidden = true;
+    const out = await broker({ action: 'mint_link', source: chosen.id });
+    if (source !== chosen) return;
     $('linkText').textContent = out.url;
     $('linkOpen').href = out.url;
     $('linkBox').hidden = false;
@@ -214,7 +262,7 @@
   let selected = null;
   async function loadAccounts() {
     const { data, error } = await db.from('windsor_linked_accounts')
-      .select('id, ds_id, account_id, account_name, last_seen_at, last_sync_status, last_synced_at, history_from, refused_fields')
+      .select('id, ds_id, account_id, account_name, last_seen_at, last_sync_status, last_synced_at, history_from, refused_fields, last_sync_error')
       .eq('company_entity_id', co.id).order('ds_id').order('account_id');
     const tbody = $('accounts');
     tbody.replaceChildren();
@@ -227,7 +275,7 @@
     for (const a of data) {
       const tr = document.createElement('tr');
       const cell = (text, mono) => { const td = document.createElement('td'); td.textContent = text ?? '—'; if (mono) td.className = 'wt-mono'; tr.appendChild(td); };
-      cell(a.ds_id, true); cell(a.account_id, true); cell(a.account_name);
+      cell(integrationName(a.ds_id)); cell(a.account_id, true); cell(a.account_name);
       cell(a.last_seen_at ? new Date(a.last_seen_at).toLocaleString() : '—');
       // What the nightly Windsor Sync did with it (null before the first run).
       const syncTd = document.createElement('td');
@@ -237,20 +285,14 @@
         pill.textContent = a.last_sync_status;
         syncTd.appendChild(pill);
         const extra = [a.history_from ? `history from ${a.history_from}` : null,
+          a.last_sync_error || null,
           a.refused_fields?.length ? `${a.refused_fields.length} field(s) not returned` : null].filter(Boolean).join(', ');
         if (extra) syncTd.appendChild(document.createTextNode(` ${extra}`));
       } else syncTd.textContent = 'not synced yet';
       tr.appendChild(syncTd);
       const td = document.createElement('td');
       const pv = document.createElement('button'); pv.className = 'bcn-btn bcn-btn--ghost'; pv.textContent = 'Preview';
-      pv.addEventListener('click', () => {
-        selected = a;
-        $('previewTitle').textContent = `3. Preview — ${a.ds_id} ${a.account_id}`;
-        $('pvConnector').value = a.ds_id;
-        $('previewCard').hidden = false;
-        $('pvTable').hidden = true; $('pvSummary').hidden = true;
-        $('previewCard').scrollIntoView({ behavior: 'smooth' });
-      });
+      pv.addEventListener('click', () => openPreview(a));
       // Two clicks, not confirm(): unlinking removes the account from SILO's
       // Windsor team, and the client has to reconnect to get it back.
       const un = document.createElement('button'); un.className = 'bcn-btn bcn-btn--danger'; un.textContent = 'Unlink';
@@ -332,13 +374,13 @@
       for (const m of out.measures) {
         const tr = document.createElement('tr');
         const c1 = document.createElement('td'); c1.textContent = m.measure; tr.appendChild(c1);
-        const c2 = document.createElement('td'); c2.className = 'wt-mono'; c2.textContent = m.auto || '— none —'; tr.appendChild(c2);
+        const c2 = document.createElement('td'); c2.className = 'wt-mono'; c2.textContent = out.numeric_fields.find((f) => f.id === m.auto)?.name || m.auto || '— none —'; tr.appendChild(c2);
         const c3 = document.createElement('td');
         const sel = document.createElement('select'); sel.className = 'bcn-field';
         const opt = (value, label) => { const o = document.createElement('option'); o.value = value; o.textContent = label; sel.appendChild(o); };
         opt('__auto', 'Automatic');
         opt('__blank', 'Leave blank');
-        for (const f of out.numeric_fields) opt(f.id, f.name && f.name !== f.id ? `${f.id} — ${f.name}` : f.id);
+        for (const f of out.numeric_fields) opt(f.id, f.name && f.name !== f.id ? `${f.name} (${f.id})` : f.id);
         sel.value = m.override === undefined ? '__auto' : m.override === null ? '__blank' : m.override;
         if (m.ignored) { const w = document.createElement('div'); w.className = 'wt-muted'; w.textContent = 'Your choice is not a field Windsor offers now; the automatic pick is used.'; c3.appendChild(w); }
         c3.prepend(sel);
@@ -388,38 +430,45 @@
   }));
 
   // ── 3. Preview ──────────────────────────────────────────────────────────
-  $('pvRun').addEventListener('click', () => busy($('pvRun'), async () => {
-    if (!selected) return;
-    const out = await broker({
-      action: 'preview', linked_account_id: selected.id,
-      fields: $('pvFields').value, date_preset: $('pvRange').value,
-    });
-    const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
-    const notes = [`Windsor returned ${n(out.returned, 'row', 'rows')}; showing ${out.rows.length} for this account.`];
-    if (out.foreign) notes.push(`${n(out.foreign, 'row', 'rows')} for other accounts ${out.foreign === 1 ? 'was' : 'were'} dropped.`);
-    if (out.unattributed) notes.push(`${n(out.unattributed, 'row', 'rows')} with no account_id ${out.unattributed === 1 ? 'was' : 'were'} dropped.`);
-    if (out.maybe_truncated) notes.push('This hit the 200-row preview cap, so it may be cut short.');
-    $('pvSummary').textContent = notes.join(' ');
-    $('pvSummary').hidden = false;
-    const table = $('pvTable');
-    const cols = out.fields;
-    const thead = table.querySelector('thead'); const tbody = table.querySelector('tbody');
-    thead.replaceChildren(); tbody.replaceChildren();
-    const hr = document.createElement('tr');
-    for (const c of cols) { const th = document.createElement('th'); th.className = 'bcn-th-left'; th.textContent = c; hr.appendChild(th); }
-    thead.appendChild(hr);
-    for (const r of out.rows) {
-      const tr = document.createElement('tr');
-      for (const c of cols) {
-        const td = document.createElement('td'); const v = r[c];
-        td.textContent = v === null || v === undefined ? '' : String(v);
-        if (typeof v === 'number') td.className = 'wt-mono';
-        tr.appendChild(td);
+  $('pvRun').addEventListener('click', async () => {
+    if (previewBusy) return;
+    previewBusy = true;
+    await busy($('pvRun'), async () => {
+      if (!selected) return;
+      const version = previewVersion;
+      $('pvTable').hidden = true; $('pvSummary').hidden = true;
+      const out = await broker({
+        action: 'preview', linked_account_id: selected.id,
+        fields: fieldsPicker.values().join(','), date_preset: $('pvRange').value,
+      });
+      if (version !== previewVersion) return;
+      const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+      const notes = [`Windsor returned ${n(out.returned, 'row', 'rows')}; showing ${out.rows.length} for this account.`];
+      if (out.maybe_truncated) notes.push('This hit the 200-row preview cap, so it may be cut short.');
+      $('pvSummary').textContent = notes.join(' ');
+      $('pvSummary').hidden = false;
+      const table = $('pvTable');
+      const cols = out.fields;
+      const thead = table.querySelector('thead'); const tbody = table.querySelector('tbody');
+      thead.replaceChildren(); tbody.replaceChildren();
+      const hr = document.createElement('tr');
+      for (const c of cols) { const th = document.createElement('th'); th.className = 'bcn-th-left'; th.textContent = fieldsPicker.label(c); hr.appendChild(th); }
+      thead.appendChild(hr);
+      for (const r of out.rows) {
+        const tr = document.createElement('tr');
+        for (const c of cols) {
+          const td = document.createElement('td'); const v = r[c];
+          td.textContent = v === null || v === undefined ? '' : String(v);
+          if (typeof v === 'number') td.className = 'wt-mono';
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
       }
-      tbody.appendChild(tr);
-    }
-    table.hidden = false;
-  }));
+      table.hidden = false;
+    });
+    previewBusy = false;
+    $('pvRun').disabled = !fieldsPicker.values().includes('account_id');
+  });
 })();
 </script>
 </body>

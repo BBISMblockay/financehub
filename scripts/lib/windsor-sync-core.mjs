@@ -7,8 +7,8 @@
 // a company (20261102220000). This sync never decides a company itself:
 //   - it reads one mapping row at a time and asks Windsor for THAT account
 //     only (select_accounts);
-//   - it keeps only returned rows whose account_id is that account's
-//     (filterRowsToAccount; a row without one is dropped, not guessed);
+//   - every response must contain only rows attributable to that account;
+//     unexpected identity fails the window before progress is recorded;
 //   - company_entity_id on every written row is copied from the mapping row,
 //     never from Windsor's payload.
 //
@@ -38,7 +38,7 @@
 import {
   WINDSOR_CONNECTORS, connectorForSource, windsorUrl, redact, parseBody, rowsOf,
   describeShape, filterRowsToAccount, previewOptions, FIXED_SOURCES, DIRECT_SYNC_SOURCES,
-  STANDARD_FIELDS, NUMERIC_TYPES, adPlatformName, chooseMeasures,
+  STANDARD_FIELDS, NUMERIC_TYPES, adPlatformName, chooseMeasures, assertAccountRows,
 } from '../../supabase/functions/windsor-broker/windsor-lib.mjs';
 
 export { DIRECT_SYNC_SOURCES, STANDARD_FIELDS };
@@ -431,6 +431,7 @@ export async function fetchDataset({ key, fetchImpl, connector, accountId, datas
     }
     const rows = rowsOf(body);
     if (!rows) throw new Error(`${dataset.key}: not a list of rows (${describeShape(body)})`);
+    assertAccountRows(rows, accountId);
     return { rows, dropped };
   }
   throw new Error(`${dataset.key}: too many refused fields`);
@@ -468,6 +469,7 @@ async function readOnce({ key, fetchImpl, connector, accountId, fields, from, to
   }
   const rows = rowsOf(body);
   if (!rows) return { error: `not a list of rows (${describeShape(body)})`, named: [] };
+  assertAccountRows(rows, accountId);
   return { rows };
 }
 
@@ -622,6 +624,7 @@ const TIKTOK_COLUMN_FIELDS = ['impressions', 'clicks', 'spend', 'complete_paymen
  *  rows only, with a real date inside the window, one per identity. */
 export function prepareRows(rows, { accountId, from, to, dataset, ctx }) {
   const { kept, foreign, unattributed } = filterRowsToAccount(rows, accountId);
+  if (foreign || unattributed) throw new Error('Windsor account identity could not be verified; window not saved');
   let outOfWindow = 0;
   let duplicates = 0;
   const byHash = new Map();

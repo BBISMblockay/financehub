@@ -66,6 +66,7 @@ export function parseFields(raw) {
   if (parts.length > MAX_FIELDS) return { ok: false, reason: `at most ${MAX_FIELDS} fields` };
   for (const p of parts) if (!FIELD_RE.test(p)) return { ok: false, reason: `not a field name: ${p.slice(0, 64)}` };
   const out = [...new Set(['account_id', ...parts])];
+  if (out.length > MAX_FIELDS) return { ok: false, reason: `at most ${MAX_FIELDS} fields including account identity` };
   return { ok: true, value: out };
 }
 
@@ -331,4 +332,56 @@ export function chooseMeasures(dsId, catalog, overrides = {}) {
     else ignored.push(m);
   }
   return { kind, measures, auto, chosen, ignored };
+}
+
+
+export const IDENTITY_ERROR = 'Windsor returned rows whose account identity could not be verified. No data from this response was used. Verify the selector-to-resource relationship before retrying.';
+
+/** Validate EVERY response, including metric batches, before merging or writing.
+ * A selector is not evidence of ownership of a differently identified resource.
+ * Do not include returned IDs or values in this error (they may be another tenant's).
+ */
+export function assertAccountRows(rows, accountId) {
+  const { foreign, unattributed } = filterRowsToAccount(rows, accountId);
+  if (foreign || unattributed) throw Object.assign(new Error(IDENTITY_ERROR), { code: 'identity_unverified' });
+}
+
+export function readableName(id) {
+  return String(id).replace(/[_.]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export function normalizeFields(list) {
+  const seen = new Set();
+  return list.filter((f) => {
+    if (!f || typeof f.id !== 'string' || !FIELD_RE.test(f.id) || seen.has(f.id)) return false;
+    seen.add(f.id); return true;
+  }).map((f) => ({ id: f.id, name: typeof f.name === 'string' && f.name.trim() ? f.name.slice(0, 120) : readableName(f.id),
+    type: String(f.type || '').toUpperCase(), table: typeof f.table === 'string' ? f.table.slice(0, 80) : null }));
+}
+
+/** Conservative preview: identity/date plus a few measures from one report table.
+ * Never add all dimensions: they change a source's row grain.
+ */
+export function previewDefaults(catalog) {
+  const ids = new Set(catalog.map((f) => f.id));
+  if (!ids.has('account_id')) return [];
+  const numeric = catalog.filter((f) => NUMERIC_TYPES.includes(f.type));
+  const table = numeric[0]?.table;
+  return ['account_id', ...['date', 'account_name'].filter((id) => ids.has(id)),
+    ...numeric.filter((f) => f.table === table).slice(0, 5).map((f) => f.id)]
+    .filter((id, i, all) => all.indexOf(id) === i);
+}
+
+const SOURCE_NAMES = { youtube: 'YouTube', tiktok: 'TikTok', googleanalytics4: 'Google Analytics 4',
+  google_ads: 'Google Ads', facebook: 'Meta Ads', bing: 'Microsoft Ads', linkedin: 'LinkedIn',
+  klaviyo: 'Klaviyo', shopify: 'Shopify', hubspot: 'HubSpot' };
+
+export function normalizeConnectors(list) {
+  const seen = new Set();
+  return list.flatMap((item) => {
+    const id = typeof item === 'string' ? item : item?.id;
+    if (typeof id !== 'string' || !ID_RE.test(id) || id === 'all' || seen.has(id)) return [];
+    seen.add(id);
+    return [{ id, name: SOURCE_NAMES[id] || (typeof item?.name === 'string' ? item.name.slice(0, 120) : readableName(id)) }];
+  }).sort((a, b) => a.name.localeCompare(b.name));
 }

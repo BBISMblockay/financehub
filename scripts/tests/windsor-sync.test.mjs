@@ -37,6 +37,7 @@ const libUrl = new URL('../lib/windsor-sync-core.mjs', import.meta.url);
 async function loadCore() {
   let src = fs.readFileSync(libUrl, 'utf8');
   const sub = (from, to) => { assert.ok(src.includes(from), `mutation ${MUT}: pattern missing`); src = src.split(from).join(to); };
+  if (MUT === 'identity') sub('assertAccountRows(rows, accountId);', '');
   if (MUT === 'accountfilter') sub('const { kept, foreign, unattributed } = filterRowsToAccount(rows, accountId);', 'const kept = rows; const foreign = 0; const unattributed = 0;');
   if (MUT === 'payloadcompany') sub('const row = dataset.toRow({ ...r, date: day }, ctx);', 'const row = dataset.toRow({ ...r, date: day }, { ...ctx, companyId: r.company_entity_id ?? ctx.companyId });');
   if (MUT === 'selectaccounts') sub('date_from: from, date_to: to, select_accounts: accountId,', 'date_from: from, date_to: to,');
@@ -112,8 +113,6 @@ test('TikTok lands in marketing_kpis_daily under the mapping row\'s company, thi
     assert.equal(c, 'tiktok');
     return [
       { date: '2026-11-01', account_id: '7000000000000000001', campaign_id: 'c1', campaign: 'Spring', impressions: '1,000', clicks: 12, spend: 5.5, complete_payment: 2, total_complete_payment_rate: 80, reach: 900, company_entity_id: B },
-      { date: '2026-11-01', account_id: '7999999999999999999', campaign_id: 'cX', campaign: 'Other client', spend: 99 },
-      { date: '2026-11-01', campaign_id: 'cY', spend: 1 },
     ];
   });
   const r = await run(fake, fw, tiktokAcct);
@@ -262,16 +261,14 @@ test('an ad-like connector with no hand-made mapping lands in marketing_kpis_dai
     const f = u.searchParams.get('fields').split(',');
     const base = { date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', campaign: 'Fall' };
     if (f.includes('spend')) {
-      return [{ ...base, account_name: 'A Pins', spend: 12, impressions: 3000, clicks: 40, total_conversions: 3, company_entity_id: B },
-        { date: '2026-11-01', account_id: '549999999999', campaign_id: 'other', spend: 500, impressions: 1, clicks: 1 }];
+      return [{ ...base, account_name: 'A Pins', spend: 12, impressions: 3000, clicks: 40, total_conversions: 3, company_entity_id: B }];
     }
     // Hunted batch: the identity fields come along so it can be matched.
     assert.ok(f.includes('date') && f.includes('account_id') && f.includes('campaign_id'));
     const out = { ...base };
     for (const k of f) if (!(k in out)) out[k] = k === 'saves' ? 7 : k === 'ctr' ? 1.3 : 99;
-    // Another account's row for the same campaign and day comes FIRST: it
-    // must not lend its values to this account's row.
-    return [{ date: '2026-11-01', account_id: '549999999999', campaign_id: 'pc1', saves: 1000 }, out];
+    // The identity failure cases below exercise foreign hunted rows.
+    return [out];
   }, { pinterest: pinCatalog });
   const r = await run(fake, fw, pinAcct);
   assert.equal(r.status, 'success');
@@ -533,4 +530,55 @@ test('the sync asks TikTok for inactive campaigns too; Klaviyo gets no options',
   const fk = fakeWindsor(() => []);
   await run(fake, fk, klaviyoAcct);
   assert.ok(fk.log.every((u) => u.searchParams.get('options') === null));
+});
+
+
+for (const ds of ['tiktok', 'youtube', 'some_new_source']) {
+  for (const mode of ['mixed', 'mismatched', 'missing']) {
+    test(`${ds}: ${mode} identity fails without writes or progress, and retries the same window`, async () => {
+      const account = { ...tiktokAcct, ds_id: ds, history_from: '2026-09-01', synced_through: '2026-10-01' };
+      const fake = world([account]);
+      const own = { account_id: account.account_id, date: '2026-11-01', impressions: 2 };
+      let bad = true;
+      const fw = fakeWindsor(() => bad ? (mode === 'mixed' ? [own, { ...own, account_id: 'other' }]
+        : [{ ...own, account_id: mode === 'missing' ? null : 'other' }]) : [own],
+        { [ds]: [{ id: 'account_id' }, { id: 'date' }, { id: 'impressions', type: 'NUMERIC' }] });
+      const result = await run(fake, fw, account, { historyMonths: 2, maxHistoryWindows: 1 });
+      assert.equal(result.status, 'error');
+      assert.match(result.error, /identity/);
+      assert.equal(result.rows_written, 0);
+      const stored = fake.rows('windsor_linked_accounts')[0];
+      assert.equal(stored.history_from, account.history_from);
+      assert.equal(stored.synced_through, account.synced_through);
+      assert.equal(stored.last_sync_status, 'error');
+      bad = false;
+      const retry = await run(fake, fw, account);
+      assert.equal(retry.status, 'success');
+      assert.equal(fw.log[0].searchParams.get('date_from'), fw.log[1].searchParams.get('date_from'));
+    });
+  }
+}
+
+test('foreign hunted metrics fail before writing core rows or advancing', async () => {
+  const fake = world([pinAcct]);
+  const fw = fakeWindsor((c, u) => [{ account_id: u.searchParams.get('fields').includes('spend') ? PIN : 'other',
+    date: '2026-11-01', campaign_id: 'pc1', spend: 10, saves: 999 }], { pinterest: pinCatalog });
+  const result = await run(fake, fw, pinAcct);
+  assert.equal(result.status, 'error');
+  assert.equal(result.rows_written, 0);
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
+});
+
+test('prepareRows independently rejects mixed identities', () => {
+  assert.throws(() => core.prepareRows([{ account_id: 'other' }], {
+    accountId: PIN, from: '2026-11-01', to: '2026-11-02', dataset: DATASETS.tiktok[0], ctx: {},
+  }), /identity/);
+});
+
+test('hunted merging cannot borrow another account metrics', () => {
+  const result = core.mergeHunted({ mergeKey: (r) => r.campaign_id },
+    [{ account_id: 'own', date: '2026-11-01', campaign_id: 'c' }],
+    [[{ account_id: 'other', date: '2026-11-01', campaign_id: 'c', clicks: 999 }]]);
+  assert.equal(result.rows[0].clicks, undefined);
+  assert.equal(result.unmatched, 1);
 });
