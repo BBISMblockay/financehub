@@ -3068,4 +3068,4 @@ it). Verified by the "Freight bookings above the shipment" check in
 
 - `20261103210000_windsor_live_mcp.sql`: default-off live LLM publication, grant-company RLS resolver, no stored source rows. Deploy `mcp` and `windsor-broker` separately with approval.
 
-- `20261103220000_windsor_live_mcp_activity.sql`: records authorized live MCP activity using the existing hourly-throttled grant touch. Apply after the live MCP migration; does not extend expiry or revive idle grants. No function deployment required for this SQL-only correction.
+- `20261103230000_windsor_live_mcp_activity.sql`: records authorized live MCP activity using the existing hourly-throttled grant touch. Apply after the live MCP migration; does not extend expiry or revive idle grants. No function deployment required for this SQL-only correction.

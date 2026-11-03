@@ -19440,7 +19440,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261103080000_windsor_any_connector.sql
 \i migrations/20261103201000_windsor_sync_consent.sql
 \i migrations/20261103210000_windsor_live_mcp.sql
-\i migrations/20261103220000_windsor_live_mcp_activity.sql
+\i migrations/20261103230000_windsor_live_mcp_activity.sql
 -- Business meaning in the schema catalog for the 60 relations bots ask about
 -- (ledger, payroll, AR, AP, landed cost, reorder, work) and is_hidden on 11
 -- install/claim/staging tables plus one credentials table. Catalog text only;

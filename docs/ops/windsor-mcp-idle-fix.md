@@ -6,7 +6,7 @@ for 30 days, so successful live-only use did not keep its connection active.
 The initial test fixture used the original pre-idle grant definition and missed
 this behavior. Independent review reproduced it with the current SQL.
 
-The forward migration `20261103220000_windsor_live_mcp_activity.sql` calls the
+The forward migration `20261103230000_windsor_live_mcp_activity.sql` calls the
 existing activity helper immediately after the integration/data:read scope gate,
 matching existing data/report RPCs. The helper updates only the resolved usable
 grant, at most once an hour; it cannot revive an idle/revoked/expired grant or

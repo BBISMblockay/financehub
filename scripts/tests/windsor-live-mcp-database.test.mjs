@@ -69,7 +69,7 @@ await db.exec(`revoke all on function silo_api_touch_grant() from public,anon,au
 grant execute on function silo_api_touch_grant() to silo_api_exec;`);
 await db.exec(readFileSync('supabase/migrations/20261102220000_windsor_connections.sql','utf8'));
 let migration=readFileSync('supabase/migrations/20261103210000_windsor_live_mcp.sql','utf8')
- + readFileSync('supabase/migrations/20261103220000_windsor_live_mcp_activity.sql','utf8');
+ + readFileSync('supabase/migrations/20261103230000_windsor_live_mcp_activity.sql','utf8');
 if(mutation==='idle-touch') migration=replaceOnce(migration,'perform public.silo_api_touch_grant();','');
 if(mutation==='scope') migration=migration.replaceAll("perform public.silo_api_require_scope('data:read');",'');
 if(mutation==='rls') migration=replaceOnce(migration,'using (company_entity_id = (select public.active_company_id()) and mcp_enabled)','using (true)');
