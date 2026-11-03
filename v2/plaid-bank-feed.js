@@ -150,7 +150,9 @@
           </div><div class="cc-foot">
           ${!source ? `<button class="bcn-btn" data-bank-map ${disabled ? 'disabled' : ''}>Review account mapping</button>` : ''}
           <button class="bcn-btn bcn-btn--primary" data-bank-sync ${!source || connection?.status !== 'active' ? 'disabled' : ''}>Sync transactions</button>
-          <span class="cc-note">${source ? `Uses ${esc(source.display_name)}. Review activity in Transactions.` : 'Mapping does not enable QBO posting.'}</span></div></div>`;
+          <button class="bcn-btn" data-bank-refresh-txns ${!source || connection?.status !== 'active' ? 'disabled' : ''}>Ask bank to re-fetch</button>
+          <span class="cc-note">${source ? `Uses ${esc(source.display_name)}. Review activity in Transactions.` : 'Mapping does not enable QBO posting.'}</span>
+          ${source ? '<div class="cc-hint">Sync collects whatever the bank has already given Plaid. If days are missing even though syncs succeed, the bank stopped handing them over: use <b>Ask bank to re-fetch</b>, wait about a minute, then sync. It adds nothing to your books on its own and cannot change or re-code a transaction you already have.</div>' : ''}</div></div>`;
       }).join('');
       byId('bankExceptions').innerHTML = exceptions.length ? `<div class="cc-card-head"><div class="cc-title">${exceptions.length} bank changes need review</div></div>`
         + exceptions.map((exception) => `<div class="cc-pad" data-bank-exception="${esc(exception.id)}">
@@ -294,6 +296,14 @@
         await changed(); await load(); status('Account mapped. Sync its transactions when you are ready.', 'pos');
       });
       if (event.target.closest('[data-bank-sync]')) return sync(accountId);
+      if (event.target.closest('[data-bank-refresh-txns]')) return run(async () => {
+        const result = await invoke('refresh_transactions', { account_id: accountId });
+        // Plaid answers the request, not the data: the institution fetches
+        // afterwards. Claiming the days have landed would be a guess, so say
+        // what was asked for and leave the sync to the person.
+        if (result.account_id !== accountId || result.requested !== true) throw new Error('The bank was not asked to re-fetch. Try again.');
+        status('Asked the bank to re-fetch this account. Wait about a minute, then press Sync transactions.', 'pos');
+      });
     });
     byId('bankExceptions').addEventListener('click', (event) => {
       const row = event.target.closest('[data-bank-exception]');

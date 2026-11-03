@@ -226,6 +226,32 @@ export async function handlePlaidFinance(req: Request) {
       return json({ paused: true });
     }
 
+    // Ask the institution to go and fetch again. A feed can stop delivering
+    // while the item stays healthy: /accounts/get keeps answering, balances
+    // keep moving and /transactions/sync returns empty pages, so every check
+    // we have reports success and the missing days look like a quiet week.
+    // This writes nothing, touches no row and leaves the saved cursor alone --
+    // the refreshed transactions arrive through the normal sync afterwards.
+    // Resetting the cursor would also recover them, but a sync from an empty
+    // cursor replays the whole history, and a replayed row whose merchant name
+    // or Plaid category has since drifted is rewritten by
+    // plaid_project_transaction, which clears its coding. Never reach for that
+    // when a refresh is what is needed.
+    if (input.action === 'refresh_transactions') {
+      if (!validId(input.account_id)) return json({ error: 'Account required' }, 400);
+      if (!account) account = await checked(db.from('plaid_accounts').select('*')
+        .eq('id', input.account_id).eq('company_entity_id', companyId).maybeSingle(), 'account_not_found');
+      const connection = await loadConnection(account.connection_id);
+      if (!account.source_id || connection.status === 'disconnected') {
+        return json({ error: 'Map and enable the account before refreshing' }, 409);
+      }
+      const token = await loadToken(connection);
+      // A refresh outside the sync lease cannot corrupt an in-flight cycle: it
+      // adds provider-side data and the next claim reads the cursor as it is.
+      await request('/transactions/refresh', { access_token: token });
+      return json({ account_id: account.id, requested: true });
+    }
+
     if (input.action === 'sync' || input.action === 'sync_background') {
       if (!validId(input.account_id)) return json({ error: 'Account required' }, 400);
       if (!account) account = await checked(db.from('plaid_accounts').select('*')

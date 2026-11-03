@@ -53,7 +53,8 @@ function query(data, writes, table) {
     then(resolve, reject) { const rows = data[table] || []; return Promise.resolve({ data: window ? rows.slice(window[0], window[1] + 1) : rows, error: null }).then(resolve, reject); } };
   return q;
 }
-function harness({ dirty = false, invokeError = null, syncResult = { exceptions: 0, batch_ids: ['batch-one'] }, exchangeResult = { connection_id: 'connection-one' } } = {}) {
+function harness({ dirty = false, invokeError = null, syncResult = { exceptions: 0, batch_ids: ['batch-one'] }, exchangeResult = { connection_id: 'connection-one' },
+  refreshResult = { account_id: 'account-one', requested: true } } = {}) {
   const d = dom(), calls = [], writes = [], statuses = [], opened = [], links = [], storageData = new Map();
   const data = {
     plaid_connections: [{ id: 'connection-one', environment: 'sandbox', status: 'active', institution_name: 'Test Bank' }],
@@ -68,7 +69,8 @@ function harness({ dirty = false, invokeError = null, syncResult = { exceptions:
       const action = request.body.action;
       const result = action === 'link_token' ? { link_token: 'link-token', link_state: 'signed-state', expires_at: '2099-01-01T00:00:00Z', environment: 'sandbox' }
         : action === 'history_preview' ? {account_id:'account-one',earliest_date:'2026-08-01',returned_count:22,history_days_requested:90}
-        : action === 'exchange' ? exchangeResult : action === 'sync' ? syncResult : action === 'refresh_accounts' ? { connection_id: 'connection-one' } : {};
+        : action === 'exchange' ? exchangeResult : action === 'sync' ? syncResult : action === 'refresh_accounts' ? { connection_id: 'connection-one' }
+        : action === 'refresh_transactions' ? refreshResult : {};
       return { data: result, error: null };
     } },
     from: (table) => query(data, writes, table), rpc: async (name, args) => { calls.push({ rpc: name, args: clone(args) }); return { data: { source_id: source.id } }; },
@@ -248,6 +250,20 @@ await test('sync opens returned batch in the existing coding flow', async () => 
   const h = harness(); await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-sync]') });
   assert.deepEqual(h.calls[0].body, { action: 'sync', account_id: 'account-one' });
   assert.deepEqual(h.opened, ['batch-one']); assert.equal(h.changed, 1);
+});
+await test('asking the bank to re-fetch imports nothing by itself and points at the next step', async () => {
+  const h = harness(); await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-refresh-txns]') });
+  assert.deepEqual(h.calls[0].body, { action: 'refresh_transactions', account_id: 'account-one' });
+  assert.equal(h.opened.length, 0, 'nothing has been imported yet, so no batch opens');
+  assert.equal(h.changed, 0);
+  assert.equal(h.statuses.at(-1).kind, 'pos');
+  assert.match(h.statuses.at(-1).message, /then press Sync/i);
+});
+await test('an unconfirmed re-fetch request never claims the bank was asked', async () => {
+  for (const options of [{ invokeError: 'Provider unavailable' }, { refreshResult: {} }, { refreshResult: { account_id: 'account-two', requested: true } }]) {
+    const h = harness(options); await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-refresh-txns]') });
+    assert.equal(h.statuses.at(-1).kind, 'neg');
+  }
 });
 await test('failed or malformed sync never claims success or reloads coding', async () => {
   for (const options of [{ invokeError: 'Sync lease held' }, { syncResult: {} }]) {

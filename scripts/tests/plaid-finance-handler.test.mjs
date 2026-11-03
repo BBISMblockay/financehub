@@ -15,6 +15,11 @@ const mutations = {
   state: s => s.replace('await verifyLinkState(input.link_state, key, { userId, companyId })', '{ connectionId: null }'),
   cursor: s => s.replace('p_expected_cursor: claim.cursor', 'p_expected_cursor: null'),
   context: s => s.replace('companyId = context.data;', "companyId = (await db.from('profiles').select('active_company_id').eq('id', userId).maybeSingle()).data.active_company_id;"),
+  // Recovering a stalled feed by clearing the cursor replays the whole history,
+  // and a replayed row whose merchant name or category drifted is rewritten
+  // with its coding cleared. A refresh must never take that shortcut.
+  refreshResetsCursor: s => s.replace('return json({ account_id: account.id, requested: true });',
+    "await db.from('plaid_accounts').update({ cursor: null }).eq('id', account.id).eq('company_entity_id', companyId);\n      return json({ account_id: account.id, requested: true });"),
 };
 const selectedMutation = process.env.PLAID_HANDLER_MUTATION;
 const effectiveSource = (selectedMutation ? mutations[selectedMutation](source) : source)
@@ -145,6 +150,7 @@ async function fixture(options = {}) {
       return Response.json({ item: { item_id: options.wrongItem ? 'wrong-item' : 'item-1' },
         accounts: options.accounts || [providerAccount] });
     }
+    if (parsed.pathname === '/transactions/refresh') return Response.json({ request_id: 'synthetic-refresh-request' });
     if (parsed.pathname === '/transactions/sync') {
       const next = (options.pages || [page({ added: [transaction('new-1')] })])[syncCalls++];
       assert.ok(next, 'no unexpected provider retry');
@@ -538,6 +544,44 @@ for (const options of [{ providerError: `UNRECOGNIZED_${accessToken}` }, { netwo
   const f=await fixture();
   const out=await f.request({action:'exchange',public_token:'public-token',link_state:await f.state({daysRequested:180})});
   assert.equal(out.status,200);assert.equal(f.records.plaid_connections[0].history_days_requested,180);
+  scenarios++;
+}
+{
+  // A refresh asks the institution to fetch again. It must change nothing on
+  // our side: no row, no cursor, no lease -- so a stalled feed can be kicked
+  // without risking the coding on history already imported.
+  const f = await fixture();
+  const out = await f.request({ action: 'refresh_transactions', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.deepEqual(out.body, { account_id: ids.account, requested: true });
+  assert.equal(f.calls('/transactions/refresh').length, 1);
+  assert.equal(f.calls('/transactions/refresh')[0].body.access_token, accessToken);
+  assert.equal(f.calls('/transactions/sync').length, 0, 'a refresh does not consume the saved cursor');
+  assert.equal(f.records.plaid_accounts[0].cursor, 'cursor-saved');
+  assert.equal(f.rpcs('plaid_claim_sync').length, 0);
+  assert.equal(f.rpcs('plaid_apply_sync').length, 0);
+  assert.equal(f.events.filter(event => event.op === 'update').length, 0, 'a refresh writes nothing');
+  scenarios++;
+}
+for (const options of [{ account: { source_id: null } }, { connection: { status: 'disconnected' } }]) {
+  const f = await fixture(options);
+  const out = await f.request({ action: 'refresh_transactions', account_id: ids.account });
+  assert.equal(out.status, 409);
+  assert.equal(f.calls('/transactions/refresh').length, 0, 'an unmapped or paused account reaches no provider');
+  scenarios++;
+}
+{
+  const f = await fixture({ account: { company_entity_id: ids.otherCompany } });
+  const out = await f.request({ action: 'refresh_transactions', account_id: ids.account });
+  assert.ok(out.status >= 400);
+  assert.equal(f.calls('/transactions/refresh').length, 0, 'a refresh cannot reach another company account');
+  scenarios++;
+}
+{
+  const f = await fixture({ providerError: 'ITEM_LOGIN_REQUIRED' });
+  const out = await f.request({ action: 'refresh_transactions', account_id: ids.account });
+  assert.ok(out.status >= 400);
+  assert.equal(f.records.plaid_accounts[0].cursor, 'cursor-saved');
   scenarios++;
 }
 if (!selectedMutation) {
