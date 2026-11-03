@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 const mutation=process.env.WINDSOR_LIVE_MUTATION || '';
-const mutations=['identity','tail','reauthorize','scope','rls','published','default','client-execute','idle-touch','idle-predicate'];
+const mutations=['identity','tail','reauthorize','scope','rls','published','default','client-execute','idle-touch','idle-predicate','resolver-publication'];
 assert.ok(!mutation || mutations.includes(mutation),'known mutation');
 function replaceOnce(text,from,to){assert.ok(text.includes(from),'mutation target exists');return text.replace(from,to);}
 const temp=mkdtempSync(`${tmpdir()}/windsor-live-`);
@@ -53,7 +53,7 @@ create table entity_memberships(user_id uuid,entity_id uuid); insert into entity
 create table silo_api_grants(id uuid primary key default gen_random_uuid(),client_id text,user_id uuid,company_entity_id uuid,auth_session_id uuid,scopes text[],revoked_at timestamptz,expires_at timestamptz,consented_aal text,consented_at timestamptz not null default now(),last_used_at timestamptz,updated_at timestamptz not null default now());
 insert into silo_api_grants(client_id,user_id,company_entity_id,auth_session_id,scopes,expires_at,consented_aal)
  values('app','${USER}','${A}','${SESSION}',array['reports:read','data:read'],now()+interval '1 day','aal2');
-create function is_admin_user() returns boolean language sql as $$ select false $$;
+create function is_admin_user() returns boolean language sql as $$ select coalesce(nullif(current_setting('test.is_admin',true),''),'false')::boolean $$;
 create function attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;
 create table silo_chat_schema_catalog(relname text primary key,is_hidden boolean default false,reportable boolean default false);
 create function refresh_chat_schema_catalog() returns void language sql as $$
@@ -73,6 +73,7 @@ let migration=readFileSync('supabase/migrations/20261103210000_windsor_live_mcp.
 if(mutation==='idle-touch') migration=replaceOnce(migration,'perform public.silo_api_touch_grant();','');
 if(mutation==='scope') migration=migration.replaceAll("perform public.silo_api_require_scope('data:read');",'');
 if(mutation==='rls') migration=replaceOnce(migration,'using (company_entity_id = (select public.active_company_id()) and mcp_enabled)','using (true)');
+if(mutation==='resolver-publication') migration=migration.replaceAll(' and a.mcp_enabled','').replaceAll('where company_entity_id=v_company and mcp_enabled','where company_entity_id=v_company');
 if(mutation==='published') migration=migration.replaceAll(' and a.mcp_enabled','').replaceAll(' and mcp_enabled','');
 if(mutation==='default') migration=replaceOnce(migration,'not null default false','not null default true');
 if(mutation==='client-execute') migration=migration.replaceAll('to silo_integration;','to silo_integration,authenticated;');
@@ -188,6 +189,17 @@ await check('RLS itself hides other-company and unpublished rows; no direct inte
  await db.exec('begin;set local role silo_integration');
  await assert.rejects(db.query('select id from windsor_linked_accounts'),/permission denied/);await db.exec('rollback');
  const acl=(await db.query("select has_function_privilege('anon','silo_api_windsor_connections(uuid,integer)','execute') a,has_function_privilege('authenticated','silo_api_windsor_connections(uuid,integer)','execute') b")).rows[0];assert.deepEqual(acl,{a:false,b:false});
+});
+await check('legacy admin RLS can read own unpublished mapping, but live resolver still refuses it',async()=>{
+ await db.query("select set_config('test.is_admin','true',false)");
+ try {
+  await db.exec('begin');await db.query("select set_config('request.jwt.claims',$1,true)",[JSON.stringify(claims)]);await db.exec('set local role silo_api_exec');
+  assert.deepEqual((await db.query('select id from windsor_linked_accounts order by id')).rows.map(r=>r.id),[CA,OFF]);await db.exec('rollback');
+  assert.deepEqual((await tool('list_connections')).data.connections.map(c=>c.id),[CA]);
+  for(const id of [OFF,CB]){
+   calls=[];const r=await tool('query_connection',{...queryArgs,connection_id:id});assert.ok(r.body.error||r.body.result?.isError);assert.equal(calls.length,0);
+  }
+ } finally { await db.query("select set_config('test.is_admin','false',false)"); }
 });
 await check('a second grant company reads only its own connector and account',async()=>{
  await db.exec(`update silo_api_grants set company_entity_id='${B}'`);expectedAccount='account-b';

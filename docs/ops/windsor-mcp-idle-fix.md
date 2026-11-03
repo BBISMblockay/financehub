@@ -26,3 +26,12 @@ This is a draft follow-up to a merged PR, not an amendment of applied history.
 No SQL was applied or production settings changed. Release owner must apply the
 forward migration after review and verify live grant activity with an authorized
 client. General live MCP activation gates from windsor-mcp-connectors.md remain.
+
+RLS caveat verified in the fixture: PostgreSQL ORs the new permissive SELECT
+policy with the existing company-admin policy. An admin executor can therefore
+read its own unpublished mapping directly (but not another company's mapping).
+The integration role has no direct SELECT grant; the resolver's explicit
+company/publication predicates independently refuse unpublished IDs and omit
+them from lists, before any source call. Both admin and non-admin cases are
+tested. This fix does not claim that RLS alone enforces publication, and does
+not narrow the existing admin UI's legitimate mapping visibility.
