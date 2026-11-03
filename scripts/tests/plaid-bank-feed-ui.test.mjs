@@ -55,6 +55,12 @@ function fileTarget(row, text, name = 'export.csv') {
     return value === '[data-bank-manual-file]' ? input : value === '[data-bank-account]' ? row : null;
   } };
 }
+// A change event from the "import without those lines" checkbox.
+function ackTarget(row, checked) {
+  const box = { checked };
+  return { matches: (value) => value === '[data-bank-manual-ack]',
+    closest(value) { return value === '[data-bank-manual-ack]' ? box : value === '[data-bank-account]' ? row : null; } };
+}
 function query(data, writes, table) {
   let window = null;
   const q = { select() { return q; }, eq() { return q; }, in() { return q; }, gte() { return q; }, lte() { return q; }, not() { return q; }, order() { return q; }, range(start, end) { window = [start, end]; return q; }, limit() { return q; }, single() { return q; },
@@ -425,9 +431,16 @@ await test('amounts written the way portals write them are read, and anything el
   ].join('\n'));
   assert.deepEqual(parsed.rows.map((row) => [row.name, row.amount]),
     [['Bracketed outflow', -1234.56], ['Dollar sign', 89.1]]);
-  // A zero, a sub-cent amount, an unparseable amount, a blank description and
-  // an impossible date are all refused rather than coerced into the books.
-  assert.deepEqual(parsed.skipped.map((row) => row.why), ['amount', 'amount', 'amount', 'description', 'date']);
+  // A zero is the one drop that is quietly safe: there is nothing to book.
+  assert.deepEqual(parsed.skipped.map((row) => [row.line, row.why]), [[4, 'the amount is zero, so there is nothing to book']]);
+  // Everything else carries content that would have been money in the books,
+  // so each one is named by line and reason instead of being dropped.
+  assert.deepEqual(parsed.problems.map((row) => [row.line, row.why]), [
+    [5, 'no amount in "10.005"'],
+    [6, 'no amount in "pending"'],
+    [7, 'no description'],
+    [8, 'no date in "31/13/2026"'],
+  ]);
 });
 
 await test('a two-digit year is refused rather than guessed at a century', () => {
@@ -495,6 +508,76 @@ await test('an import the database did not fully confirm never reports success',
     assert.equal(h.statuses.at(-1).kind, 'neg');
     assert.equal(h.changed, 0, 'nothing downstream is told the books moved');
   }
+});
+
+await test('lines SILO cannot read block the import by line and reason until the person says otherwise', async () => {
+  const h = harness();
+  await h.controller.load();
+  // Two readable days, and two lines that carry real money SILO cannot read.
+  // Because the import window is forward-only, importing the readable two
+  // would put the broken two permanently out of reach, so it is refused.
+  const broken = ['Date,Description,Amount',
+    '2026-10-27,ACH VENDOR,100.00',
+    '2026-10-28,WIRE FEE,pending',
+    '2026-10-28,,42.00',
+    '2026-10-29,CARD PAYMENT,-250.00'].join('\n');
+  await h.el('bankAccounts').fire('change', { target: fileTarget(h.row, broken, 'columbia.csv') });
+  const html = h.el('bankAccounts').innerHTML;
+  assert.match(html, /2 line\(s\) cannot be read/);
+  // The reasons are escaped on the way into the card, quotes included.
+  assert.match(html, /line 3 &mdash; no amount in &quot;pending&quot;|line 3 . no amount in &quot;pending&quot;/,
+    'the bad line is named by its line number in the file');
+  assert.match(html, /line 4 . no description/);
+  assert.match(html, /cannot be added later/, 'and it says why leaving them out is not recoverable');
+  assert.match(html, /data-bank-manual-send disabled/, 'sending is disabled while they are unresolved');
+  assert.equal(h.statuses.at(-1).kind, 'neg');
+
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-manual-send]') });
+  assert.equal(h.calls.filter((call) => call.rpc === 'plaid_import_manual_days').length, 0,
+    'and the gate holds even if the disabled button is pressed anyway');
+  assert.match(h.statuses.at(-1).message, /2 line\(s\) cannot be read/);
+
+  // Path one: fix the file and choose it again. The corrected file imports in
+  // full, with no acknowledgement carried over from the broken read.
+  const fixed = ['Date,Description,Amount',
+    '2026-10-27,ACH VENDOR,100.00',
+    '2026-10-28,WIRE FEE,35.00',
+    '2026-10-28,ACH REFUND,42.00',
+    '2026-10-29,CARD PAYMENT,-250.00'].join('\n');
+  await h.el('bankAccounts').fire('change', { target: fileTarget(h.row, fixed, 'columbia-fixed.csv') });
+  assert.doesNotMatch(h.el('bankAccounts').innerHTML, /cannot be read/);
+  assert.doesNotMatch(h.el('bankAccounts').innerHTML, /data-bank-manual-send disabled/);
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-manual-send]') });
+  assert.deepEqual(h.calls.find((entry) => entry.rpc === 'plaid_import_manual_days').args.p_rows, [
+    { date: '2026-10-27', amount: 100, name: 'ACH VENDOR' },
+    { date: '2026-10-28', amount: 35, name: 'WIRE FEE' },
+    { date: '2026-10-28', amount: 42, name: 'ACH REFUND' },
+    { date: '2026-10-29', amount: -250, name: 'CARD PAYMENT' }]);
+  assert.equal(h.statuses.at(-1).kind, 'pos');
+});
+
+await test('saying so in as many words imports only the readable rows, and unticking takes it back', async () => {
+  const h = harness();
+  await h.controller.load();
+  await h.el('bankAccounts').fire('change', { target: fileTarget(h.row, ['Date,Description,Amount',
+    '2026-10-27,ACH VENDOR,100.00', '2026-10-28,WIRE FEE,pending'].join('\n')) });
+  await h.el('bankAccounts').fire('change', { target: ackTarget(h.row, true) });
+  assert.doesNotMatch(h.el('bankAccounts').innerHTML, /data-bank-manual-send disabled/);
+  assert.match(h.el('bankAccounts').innerHTML, /1 line\(s\) cannot be read/, 'the lines left out stay on screen');
+
+  // Untaking it closes the gate again, so a stray tick is not a decision.
+  await h.el('bankAccounts').fire('change', { target: ackTarget(h.row, false) });
+  assert.match(h.el('bankAccounts').innerHTML, /data-bank-manual-send disabled/);
+  await h.el('bankAccounts').fire('change', { target: ackTarget(h.row, true) });
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-manual-send]') });
+  assert.deepEqual(h.calls.find((entry) => entry.rpc === 'plaid_import_manual_days').args.p_rows,
+    [{ date: '2026-10-27', amount: 100, name: 'ACH VENDOR' }], 'only the row that was readable');
+
+  // And the decision does not carry: a later file with its own bad lines is
+  // gated again rather than inheriting the tick from the one before it.
+  await h.el('bankAccounts').fire('change', { target: fileTarget(h.row, ['Date,Description,Amount',
+    '2026-11-01,ACH VENDOR,100.00', '2026-11-02,WIRE FEE,pending'].join('\n'), 'later.csv') });
+  assert.match(h.el('bankAccounts').innerHTML, /data-bank-manual-send disabled/);
 });
 
 await test('cancelling a read file leaves no trace and sends nothing', async () => {

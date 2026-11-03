@@ -1148,6 +1148,91 @@ try {
       'it reaches the review queue instead of the ledger');
   });
 
+
+  // A frozen placeholder keeps origin='manual' for ever, so the provider
+  // transaction that matched it is never findable by external id afterwards.
+  // Every later delivery of that same transaction comes back down the insert
+  // branch, which is where this could go very wrong very quietly.
+  await test('a provider transaction redelivered against a frozen placeholder never wedges the feed', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 250, name: 'Typed and posted' }]);
+    const placeholder = (await rowsFor(account))[0];
+    await code(placeholder);
+    await approve(placeholder.batch_id);
+    await markPosted('card_import_batches', placeholder.batch_id);
+    const provider = providerTransaction(account, { date: '2026-09-21', amount: 250, name: 'THE REAL ONE' });
+    await apply(account, { added: [provider] });
+    const openNow = () => scalar(`select count(*)::integer from plaid_sync_exceptions where account_id=$1 and status='open'`, [account.id]);
+    assert.equal(await openNow(), 1);
+    // The same id again, revised. uq_plaid_open_exception is unique on
+    // (account, external id) where status='open', so a second insert would
+    // abort the whole sync and strand the cursor permanently.
+    await apply(account, { modified: [{ ...provider, name: 'THE REAL ONE, RENAMED' }] });
+    assert.equal(await openNow(), 1, 'the existing exception is reused, not duplicated');
+    assert.equal((await first(`select provider_payload->>'name' as name from plaid_sync_exceptions
+      where account_id=$1 and status='open'`, [account.id])).name, 'THE REAL ONE, RENAMED',
+    'and it carries what the provider now says');
+    // The cursor advanced, which is the thing a failed sync would have lost.
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-22', amount: 11, name: 'Later' })] });
+    assert.equal((await rowsFor(account)).length, 2, 'the feed keeps flowing');
+  });
+
+  await test('a second provider row of the same amount never contests a placeholder already spoken for', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 250, name: 'Typed and posted' }]);
+    const placeholder = (await rowsFor(account))[0];
+    await code(placeholder);
+    await approve(placeholder.batch_id);
+    await markPosted('card_import_batches', placeholder.batch_id);
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-20', amount: 250, name: 'First' })] });
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-20', amount: 250, name: 'Second' })] });
+    const rows = await rowsFor(account);
+    // The frozen placeholder, plus one ordinary row for the second provider
+    // transaction, which is a different transaction and needs its own home.
+    assert.equal(rows.length, 2);
+    assert.equal(rows.filter((row) => row.origin === 'manual').length, 1);
+    assert.equal(rows.filter((row) => row.origin === 'plaid' && row.description === 'Second').length, 1);
+    assert.equal(await scalar(`select count(*)::integer from plaid_sync_exceptions where account_id=$1 and status='open'`, [account.id]), 1,
+      'only the first raised a review; the second simply landed');
+  });
+
+  // The treatment is part of the review, not of the provider's facts, and for
+  // a depository account the provider never supplies one. Overwriting it on
+  // claim leaves a row that reads 'coded' but that approval and the ledger
+  // both refuse -- the worst possible state to hand someone.
+  await test('claiming keeps the reviewed accounting treatment, and the batch still approves', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 120.55, name: 'ACH DEBIT ACME' }]);
+    const placeholder = (await rowsFor(account))[0];
+    await code(placeholder, { accounting_treatment: 'purchase' });
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-21', amount: 120.55,
+      name: 'PREAUTHORIZED ACH DEBIT ACME CORP' })] });
+    const row = await first('select * from card_transactions where id=$1', [placeholder.id]);
+    assert.equal(row.origin, 'plaid');
+    assert.equal(row.accounting_treatment, 'purchase', 'the review survived the claim');
+    assert.equal(row.status, 'coded');
+    await approve(row.batch_id);
+    assert.equal((await load('card_import_batches', row.batch_id)).status, 'approved',
+      'a claimed row is approvable, which it would not be with the treatment wiped');
+  });
+
+  await test('a hand-entered row clears the same approval bar as a provider row', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 120.55, name: 'ACH DEBIT ACME' }]);
+    const placeholder = (await rowsFor(account))[0];
+    // Coded, but with no treatment chosen: it posts to the same accounts as a
+    // provider row, so the direction rules must not be skippable by origin.
+    await code(placeholder, { accounting_treatment: 'unknown' });
+    await assert.rejects(approve(placeholder.batch_id), /require posted USD data and an accounting treatment/i);
+    // And a treatment pointing the wrong way is caught, exactly as it is for
+    // a provider row: a purchase cannot be money arriving.
+    await asFinance(() => q(`update card_transactions set accounting_treatment='refund' where id=$1`, [placeholder.id]));
+    await assert.rejects(approve(placeholder.batch_id), /direction/i);
+    await asFinance(() => q(`update card_transactions set accounting_treatment='purchase' where id=$1`, [placeholder.id]));
+    await approve(placeholder.batch_id);
+    assert.equal((await load('card_import_batches', placeholder.batch_id)).status, 'approved');
+  });
+
   console.log(`${passed} Plaid database tests passed (local PostgreSQL only).`);
 } finally {
   await db.close();

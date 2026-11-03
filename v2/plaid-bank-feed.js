@@ -124,29 +124,51 @@
     if (column.name === undefined) throw new Error('No description column. The file needs a header row with a description, memo or details column.');
     const paired = column.debit !== undefined || column.credit !== undefined;
     if (!paired && column.amount === undefined) throw new Error('No amount column. The file needs an amount column, or separate debit and credit columns.');
-    const rows = [], skipped = [];
+    // A dropped line is not recoverable later: the import window is
+    // forward-only, so once the days around it are in, there is no second pass
+    // that could add it. So a line is only ever dropped quietly when there is
+    // demonstrably nothing in it to book -- an empty line, or a real zero.
+    // Anything else that carries content but cannot be read is a PROBLEM, and
+    // the caller is expected to refuse the import until the person has either
+    // fixed the file or said in as many words to leave those lines out.
+    const rows = [], skipped = [], problems = [];
     table.slice(1).forEach((cells, index) => {
       const line = index + 2;
-      const date = manualDate(cells[column.date]);
+      const blank = cells.every((cell) => !String(cell ?? '').trim());
+      const rawDate = String(cells[column.date] ?? '').trim();
+      const date = manualDate(rawDate);
       const name = String(cells[column.name] ?? '').trim().slice(0, 500);
-      let amount;
+      let amount, rawAmount;
       if (paired) {
-        const debit = manualAmount(cells[column.debit]) || 0;
-        const credit = manualAmount(cells[column.credit]) || 0;
+        const debitText = String(cells[column.debit] ?? '').trim();
+        const creditText = String(cells[column.credit] ?? '').trim();
+        const debit = manualAmount(debitText), credit = manualAmount(creditText);
+        rawAmount = [debitText, creditText].filter(Boolean).join(' / ');
         // Money out is positive, matching how the feed states this account.
-        amount = Math.round((Math.abs(debit) - Math.abs(credit)) * 100) / 100;
+        if (!debitText && !creditText) amount = null;
+        else if ((debitText && debit === null) || (creditText && credit === null)) amount = null;
+        else amount = Math.round((Math.abs(debit || 0) - Math.abs(credit || 0)) * 100) / 100;
       } else {
-        amount = manualAmount(cells[column.amount]);
+        rawAmount = String(cells[column.amount] ?? '').trim();
+        amount = manualAmount(rawAmount);
       }
-      if (!date) return skipped.push({ line, why: 'date' });
-      if (amount === null || amount === 0) return skipped.push({ line, why: 'amount' });
-      if (!name) return skipped.push({ line, why: 'description' });
+      if (blank) return skipped.push({ line, why: 'the line is empty' });
+      const reasons = [];
+      if (!date) reasons.push(rawDate ? `no date in "${rawDate}"` : 'no date');
+      if (amount === null) reasons.push(rawAmount ? `no amount in "${rawAmount}"` : 'no amount');
+      if (!name) reasons.push('no description');
+      if (reasons.length) return problems.push({ line, why: reasons.join(', ') });
+      if (amount === 0) return skipped.push({ line, why: 'the amount is zero, so there is nothing to book' });
       rows.push({ date, amount: invert && !paired ? -amount : amount, name });
     });
-    if (!rows.length) throw new Error('No usable rows. Every line was missing a date, an amount or a description.');
+    if (!rows.length) {
+      throw new Error(problems.length
+        ? `No usable rows: ${problems.length} line(s) could not be read (line ${problems.slice(0, 5).map((p) => `${p.line} (${p.why})`).join(', line ')}). Fix the file and choose it again.`
+        : 'No usable rows. Every line was empty, zero, or missing a date, an amount or a description.');
+    }
     const dates = rows.map((row) => row.date).sort();
     const outflow = rows.filter((row) => row.amount > 0), inflow = rows.filter((row) => row.amount < 0);
-    return { rows, skipped, paired,
+    return { rows, skipped, problems, paired,
       startDate: dates[0], endDate: dates[dates.length - 1],
       outflow: outflow.length, inflow: inflow.length,
       largestOutflow: outflow.reduce((most, row) => Math.max(most, row.amount), 0),
@@ -329,7 +351,14 @@
             <div class="cc-title">${esc(manual.rows.length)} row(s) read, ${esc(manual.startDate)} to ${esc(manual.endDate)}</div>
             <div class="cc-note">${esc(manual.outflow)} out of the account, ${esc(manual.inflow)} into it.
               Largest out ${esc(manual.largestOutflow.toFixed(2))}, largest in ${esc(manual.largestInflow.toFixed(2))}.
-              ${manual.skipped.length ? `${esc(manual.skipped.length)} line(s) skipped for a missing date, amount or description.` : ''}</div>
+              ${manual.skipped.length ? `${esc(manual.skipped.length)} empty or zero line(s) ignored.` : ''}</div>
+            ${manual.problems.length ? `<div class="cc-hint cc-warn" data-bank-manual-problems>
+              <b>${esc(manual.problems.length)} line(s) cannot be read</b> and would be left out:
+              ${esc(manual.problems.slice(0, 8).map((problem) => `line ${problem.line} — ${problem.why}`).join('; '))}${manual.problems.length > 8 ? ` … and ${esc(manual.problems.length - 8)} more` : ''}.
+              These days can only be typed in once, so a line left out now cannot be added later. Fix those lines in the file and choose it
+              again, or say so here to import the ${esc(manual.rows.length)} readable row(s) without them.
+              <label style="display:block;margin-top:6px"><input type="checkbox" data-bank-manual-ack ${manual.ack ? 'checked' : ''} />
+              Import without those ${esc(manual.problems.length)} line(s)</label></div>` : ''}
             ${manual.paired
               ? '<div class="cc-note">The file has separate debit and credit columns, so the direction came from the file itself.</div>'
               : `<div class="cc-hint cc-warn">This file has one signed amount column, so SILO cannot tell which way it means.
@@ -337,7 +366,7 @@
                  <button class="bcn-btn" data-bank-manual-flip>Flip the signs</button>`}
             <div class="cc-hint">These rows enter the books with no bank-feed record behind them. They are marked as typed in, and when the feed
               finally delivers these days it takes each one over and keeps your coding.</div>
-            <div class="cc-foot"><button class="bcn-btn bcn-btn--primary" data-bank-manual-send>Add ${esc(manual.rows.length)} row(s)</button>
+            <div class="cc-foot"><button class="bcn-btn bcn-btn--primary" data-bank-manual-send ${manual.problems.length && !manual.ack ? 'disabled' : ''}>Add ${esc(manual.rows.length)} row(s)</button>
             <button class="bcn-btn" data-bank-manual-cancel>Cancel</button></div></div></div>` : ''}
           ${source ? `<div class="cc-hint">Missing days even though syncs succeed? <b>Import missing days</b> reads the dates straight from the bank and imports only transactions SILO does not already have — it never changes or re-codes a transaction you already hold. If it finds nothing, the bank has not handed the days over yet${canRefetch ? ': <b>Ask bank to re-fetch</b>, wait about a minute, then import again.' : ' and only the bank can close that gap.'}</div>` : ''}</div></div>`;
       }).join('');
@@ -510,12 +539,18 @@
         pendingManual.set(accountId, parseManualDays(held.text, { invert: !held.invert }));
         pendingManual.get(accountId).text = held.text;
         pendingManual.get(accountId).invert = !held.invert;
+        pendingManual.get(accountId).ack = held.ack;
         render();
         return;
       }
       if (event.target.closest('[data-bank-manual-send]')) return run(async () => {
         const held = pendingManual.get(accountId);
         if (!held) throw new Error('Choose a file first.');
+        // The button is disabled in this state, but the gate lives here too:
+        // a dropped line cannot be added in a later import.
+        if (held.problems.length && !held.ack) {
+          throw new Error(`${held.problems.length} line(s) cannot be read. Fix them in the file and choose it again, or tick the box to import without them.`);
+        }
         const current = await context();
         const { data, error } = await db.rpc('plaid_import_manual_days',
           { p_account_id: accountId, p_rows: held.rows.map(({ date, amount, name }) => ({ date, amount, name })) });
@@ -549,6 +584,12 @@
       });
     });
     byId('bankAccounts').addEventListener('change', (event) => {
+      const ack = event.target.closest?.('[data-bank-manual-ack]');
+      if (ack) {
+        const held = pendingManual.get(event.target.closest('[data-bank-account]')?.dataset?.bankAccount);
+        if (held) { held.ack = !!ack.checked; render(); }
+        return;
+      }
       const input = event.target.closest?.('[data-bank-manual-file]');
       if (!input) return;
       const row = event.target.closest('[data-bank-account]');
@@ -560,11 +601,13 @@
         // Parsing is the only thing that happens here. The person sees what it
         // read and presses again, so a misread file costs a glance, not a row.
         const parsed = parseManualDays(text);
-        parsed.text = text; parsed.invert = false;
+        parsed.text = text; parsed.invert = false; parsed.ack = false;
         pendingManual.set(accountId, parsed);
         if (input.value !== undefined) input.value = '';
         render();
-        status(`Read ${parsed.rows.length} row(s) from ${file.name}. Check them, then add them.`, 'info');
+        status(parsed.problems.length
+          ? `Read ${parsed.rows.length} row(s) from ${file.name}, but ${parsed.problems.length} line(s) could not be read. Fix them in the file, or say so before adding.`
+          : `Read ${parsed.rows.length} row(s) from ${file.name}. Check them, then add them.`, parsed.problems.length ? 'neg' : 'info');
       });
     });
     byId('bankExceptions').addEventListener('click', (event) => {

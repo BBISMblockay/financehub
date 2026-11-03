@@ -203,10 +203,32 @@ begin
     -- re-checks this predicate, so a placeholder another transaction has just
     -- claimed is correctly not returned, whereas skipping it would insert a
     -- second copy of a transaction that already has a home.
-    select * into v_manual from public.card_transactions
-      where plaid_account_id=p_account_id and origin='manual' and amount=v_amount
-        and txn_date between v_date-3 and v_date+3
-      order by abs(txn_date-v_date),row_no limit 1 for update;
+    -- A placeholder frozen in a posted batch stays 'manual' for ever: it is in
+    -- the books and nothing may rewrite it. So the same provider transaction
+    -- arrives again on the next sync (as a modification, or simply redelivered)
+    -- and finds no row by external id. Without this, it would match the frozen
+    -- placeholder a second time and insert a second open exception for the same
+    -- (account, transaction_id), which uq_plaid_open_exception rejects --
+    -- aborting the whole sync and leaving the cursor where it was, for ever.
+    select * into v_exception from public.plaid_sync_exceptions
+      where account_id=p_account_id and external_transaction_id=v_payload->>'transaction_id'
+        and status='open' order by created_at desc,id desc limit 1;
+    if v_exception.id is not null then
+      if v_exception.provider_payload is distinct from v_payload then
+        update public.plaid_sync_exceptions set provider_payload=v_payload,updated_at=now() where id=v_exception.id;
+      end if;
+      return jsonb_build_object('exception',true,
+        'batch_id',(select batch_id from public.card_transactions where id=v_exception.transaction_id));
+    end if;
+    -- A placeholder an open exception already speaks for is spoken for: a
+    -- second provider transaction of the same amount is a different
+    -- transaction and must land on its own row, not contest a claimed one.
+    select * into v_manual from public.card_transactions t
+      where t.plaid_account_id=p_account_id and t.origin='manual' and t.amount=v_amount
+        and t.txn_date between v_date-3 and v_date+3
+        and not exists(select 1 from public.plaid_sync_exceptions e
+          where e.account_id=p_account_id and e.transaction_id=t.id and e.status='open')
+      order by abs(t.txn_date-v_date),t.row_no limit 1 for update;
     if v_manual.id is not null then
       select * into v_batch from public.card_import_batches where id=v_manual.batch_id for update;
       -- A placeholder already in the books cannot be rewritten from under an
@@ -234,7 +256,14 @@ begin
         clean_merchant=v_payload->>'merchant_name',raw=v_payload,origin='plaid',
         external_transaction_id=v_payload->>'transaction_id',pending_transaction_id=v_payload->>'pending_transaction_id',
         provider_status=v_provider_status,removed_from_status=v_removed_from,provider_updated_at=now(),
-        accounting_treatment=v_treatment,last4=v_account.mask,
+        -- The treatment is part of the review, not of the provider's facts:
+        -- v_treatment is only ever derived for a credit account and is
+        -- 'unknown' for every depository row. Overwriting a reviewed treatment
+        -- with it leaves a row that reads 'coded' but that approval and the
+        -- daily ledger both refuse, which is the worst of both.
+        accounting_treatment=case when v_manual.accounting_treatment<>'unknown'
+          then v_manual.accounting_treatment else v_treatment end,
+        last4=v_account.mask,
         status=case when v_status='uncoded' and v_manual.status in ('coded','excluded') then v_manual.status else v_status end,
         exclude_reason=case when v_status='uncoded' and v_manual.status='excluded' then v_manual.exclude_reason else v_reason end,
         updated_at=now()
@@ -433,3 +462,176 @@ declare v_batch public.card_import_batches%rowtype; v_source public.card_sources
   end if;
   return new;
 end $gt$;
+
+-- Approval and the daily ledger both judge a bank row by its origin being
+-- 'plaid'. A hand-entered day posts to the same accounts through the same
+-- path, so leaving it outside those rules would let it reach QuickBooks with
+-- no treatment and no direction check. Both are widened to include it.
+create or replace function public.plaid_guard_batch()
+returns trigger language plpgsql security invoker set search_path='public','pg_temp' as $gb$
+declare v_source public.card_sources%rowtype; begin
+  if tg_op='UPDATE' and (new.source_id,new.company_entity_id) is distinct from (old.source_id,old.company_entity_id)
+    and exists(select 1 from public.card_transactions where batch_id=old.id) then
+    raise exception 'A populated import batch cannot change its source or company';
+  end if;
+  if current_user in ('anon','authenticated') then
+    if tg_op='DELETE' and old.origin='plaid' then raise exception 'Feed batches cannot be deleted'; end if;
+    if tg_op='INSERT' and new.origin='plaid' then raise exception 'Feed batches are server-owned'; end if;
+    if tg_op='UPDATE' and (old.origin='plaid' or new.origin='plaid') and
+      (new.origin,new.source_id,new.period_start,new.period_end,new.feed_sequence,new.company_entity_id)
+      is distinct from (old.origin,old.source_id,old.period_start,old.period_end,old.feed_sequence,old.company_entity_id) then
+      raise exception 'Feed batch identity is server-owned';
+    end if;
+  end if;
+  if tg_op='DELETE' then return old; end if;
+  if new.status='approved' and (tg_op='INSERT' or old.status<>'approved') then
+    -- Existing Mark unposted preserves its reviewed snapshot while retiring
+    -- the old posting claim. It must remain possible to reopen next, even
+    -- when a provider exception is the reason the QBO entry was removed.
+    if tg_op='UPDATE' and old.status='posted' and new.approval_snapshot is not distinct from old.approval_snapshot
+      and new.approval_hash is not distinct from old.approval_hash and new.approval_version=old.approval_version then return new; end if;
+    select * into v_source from public.card_sources where id=new.source_id;
+    if exists(select 1 from public.plaid_sync_exceptions e join public.plaid_accounts a on a.id=e.account_id
+      where a.source_id=new.source_id and e.status='open') then raise exception 'Resolve the bank feed change before approval'; end if;
+    -- A hand-entered day posts to the same accounts as a provider row, so it
+    -- clears the same bar. It has no provider_status to judge (the provider
+    -- has not delivered it yet), but USD and an explicit treatment are the
+    -- two things the direction and account-type rules below are built on, and
+    -- without them a row would post with neither rule ever running.
+    if exists(select 1 from public.card_transactions t where t.batch_id=new.id and t.status='coded'
+      and ((t.origin='plaid' and (t.provider_status<>'posted' or t.currency is distinct from 'USD' or t.accounting_treatment='unknown'))
+        or (t.origin='manual' and (t.currency is distinct from 'USD' or t.accounting_treatment='unknown')))) then
+      raise exception 'Included feed transactions require posted USD data and an accounting treatment';
+    end if;
+    -- Direction: the transaction's own amount against its treatment. No
+    -- account join, so a split row is checked like any other.
+    if exists(select 1 from public.card_transactions t
+      where t.batch_id=new.id and t.origin in ('plaid','manual') and t.status='coded'
+        and ((t.accounting_treatment='purchase' and t.amount<=0)
+        or (t.accounting_treatment in ('refund','deposit') and t.amount>=0))) then
+      raise exception 'Review feed direction and clearing-account treatment; the bank feed owns card payments';
+    end if;
+    -- Account type: per POSTED LINE, so each line of a split is judged on the
+    -- account it actually hits.
+    if exists(select 1 from public.card_coding_effective_lines e
+      join public.card_transactions t on t.id=e.transaction_id
+      join public.quickbooks_accounts a
+      on a.connection_id=new.qbo_connection_id and a.qbo_account_id=e.qbo_account_id and a.company_entity_id=new.company_entity_id
+      where e.batch_id=new.id and t.origin='plaid' and
+        ((t.accounting_treatment in ('transfer','payroll_settlement','shopify_settlement') and a.account_type not in ('Other Current Asset','Other Current Liability'))
+        or (t.accounting_treatment='card_payment' and (v_source.source_type='card' or a.account_type not in ('Credit Card','Accounts Payable'))))) then
+      raise exception 'Review feed direction and clearing-account treatment; the bank feed owns card payments';
+    end if;
+  end if;
+  return new;
+end $gb$;
+
+create or replace function public.silo_ledger_blocker(p_txn uuid)
+returns text language plpgsql stable security definer set search_path = public, pg_temp as $lb$
+declare
+  t public.card_transactions%rowtype; b public.card_import_batches%rowtype; s public.card_sources%rowtype;
+  v_start date; v_conn uuid; v_bal text;
+begin
+  select * into t from public.card_transactions where id = p_txn;
+  if not found or t.status <> 'coded' then return null; end if;
+  if t.origin = 'plaid' and t.provider_status is distinct from 'posted' then return null; end if;
+  select * into b from public.card_import_batches where id = t.batch_id;
+  if b.status in ('approved', 'posted') and b.approval_snapshot is not null then
+    -- Frozen: recorded from the snapshot. A zero-net batch's snapshot does not
+    -- record the balancing account, so a transaction with no entry yet cannot be
+    -- rebuilt faithfully (today's source may have been remapped since) and is
+    -- held rather than recorded against the wrong account.
+    if public.silo_ledger_snapshot_settlement(b.id) is null
+       and not exists (select 1 from public.silo_ledger_freeze f where f.batch_id = b.id)
+       and not exists (select 1 from public.ledger_entries e
+                        where e.company_entity_id = t.company_entity_id and e.source = 'card_transaction'
+                          and e.source_id = t.id and e.kind = 'original'
+                          and not exists (select 1 from public.ledger_entries r where r.reverses_entry_id = e.id))
+       and (select coalesce(round(sum(round(x.amount, 2)), 2), 0) from public.card_coding_effective_lines x
+             where x.transaction_id = t.id and round(x.amount, 2) <> 0) <> 0
+    then return 'This approved import netted to zero, so its approval did not record the balancing account'; end if;
+    return null;
+  end if;
+  if b.status = 'posted' then return null; end if;
+  select * into s from public.card_sources where id = b.source_id;
+  if s.id is null then return 'The card or bank account for this import is missing'; end if;
+  v_start := public.silo_ledger_start(s);
+  if v_start is null then return 'The SILO ledger starts once opening balances are accepted'; end if;
+  if t.txn_date is null or t.txn_date < v_start then return null; end if;   -- inside the opening balances
+  if not s.is_active then return 'This card or bank account is switched off'; end if;
+  v_conn := public.silo_ledger_connection(b.id);
+  if v_conn is null then return 'Choose one active QuickBooks connection for this account'; end if;
+
+  if s.credit_qbo_account_id is null then return 'Choose the balancing account for this card or bank account'; end if;
+  select account_type into v_bal from public.quickbooks_accounts
+   where connection_id = v_conn and company_entity_id = s.company_entity_id
+     and qbo_account_id = s.credit_qbo_account_id and is_active;
+  if not found then return 'The balancing account is not active in the chart of accounts'; end if;
+  if s.default_qbo_location_id is not null and not exists (
+    select 1 from public.quickbooks_locations where connection_id = v_conn and company_entity_id = s.company_entity_id
+      and qbo_location_id = s.default_qbo_location_id and is_active)
+  then return 'The default location is not active'; end if;
+  if v_bal = 'Accounts Payable' and (s.credit_vendor_qbo_id is null or not exists (
+    select 1 from public.quickbooks_vendors where connection_id = v_conn and company_entity_id = s.company_entity_id
+      and qbo_vendor_id = s.credit_vendor_qbo_id and is_active))
+  then return 'The balancing payable account needs a valid vendor'; end if;
+  if v_bal = 'Accounts Receivable' and (s.credit_vendor_qbo_id is null or not exists (
+    select 1 from public.quickbooks_customers where connection_id = v_conn and company_entity_id = s.company_entity_id
+      and qbo_customer_id = s.credit_vendor_qbo_id and is_active))
+  then return 'The balancing receivable account needs a valid customer'; end if;
+
+  -- Per posted line, through the ONE definition of a posted line.
+  if exists (select 1 from public.card_coding_effective_lines e
+             left join public.quickbooks_accounts a on a.connection_id = v_conn and a.company_entity_id = t.company_entity_id
+              and a.qbo_account_id = e.qbo_account_id and a.is_active
+             where e.transaction_id = t.id and round(e.amount, 2) <> 0 and (e.qbo_account_id is null or a.id is null))
+  then return 'A category is not an active account in the chart of accounts'; end if;
+  if exists (select 1 from public.card_coding_effective_lines e
+             where e.transaction_id = t.id and e.qbo_location_id is not null and not exists (
+               select 1 from public.quickbooks_locations l where l.connection_id = v_conn
+                 and l.company_entity_id = t.company_entity_id and l.qbo_location_id = e.qbo_location_id and l.is_active))
+  then return 'A location is not active'; end if;
+  if exists (select 1 from public.card_coding_effective_lines e
+             join public.quickbooks_accounts a on a.connection_id = v_conn and a.company_entity_id = t.company_entity_id
+              and a.qbo_account_id = e.qbo_account_id
+             where e.transaction_id = t.id and a.account_type in ('Accounts Receivable', 'Accounts Payable')
+               and e.entity_qbo_id is null)
+  then return 'Receivable and payable categories need a customer or vendor'; end if;
+  if exists (select 1 from public.card_coding_effective_lines e
+             where e.transaction_id = t.id and ((e.entity_qbo_id is null) <> (e.entity_type is null)))
+  then return 'A customer or vendor is incomplete'; end if;
+  if exists (select 1 from public.card_coding_effective_lines e
+             where e.transaction_id = t.id and e.entity_qbo_id is not null and not (
+               (e.entity_type = 'Customer' and exists (select 1 from public.quickbooks_customers c where c.connection_id = v_conn
+                  and c.company_entity_id = t.company_entity_id and c.qbo_customer_id = e.entity_qbo_id and c.is_active)) or
+               (e.entity_type = 'Vendor' and exists (select 1 from public.quickbooks_vendors ve where ve.connection_id = v_conn
+                  and ve.company_entity_id = t.company_entity_id and ve.qbo_vendor_id = e.entity_qbo_id and ve.is_active))))
+  then return 'A customer or vendor is not active'; end if;
+  if exists (select 1 from (select sum(amount) total from public.card_transaction_splits where transaction_id = t.id) x
+             where x.total is not null and round(x.total, 2) <> round(t.amount, 2))
+  then return 'A split does not total its transaction'; end if;
+
+  -- Hand-entered days are bank rows without a provider id yet, so the same
+  -- treatment, direction and clearing-account rules apply. The provider_status
+  -- guard above is written for 'plaid' alone and correctly ignores them: there
+  -- is no provider status to be waiting on.
+  if t.origin in ('plaid', 'manual') then
+    if exists (select 1 from public.plaid_sync_exceptions e join public.plaid_accounts a on a.id = e.account_id
+               where a.source_id = s.id and e.status = 'open')
+    then return 'Resolve the bank feed change first'; end if;
+    if t.currency is distinct from 'USD' or t.accounting_treatment = 'unknown'
+    then return 'Bank transactions need USD data and an accounting treatment'; end if;
+    if (t.accounting_treatment = 'purchase' and t.amount <= 0)
+       or (t.accounting_treatment in ('refund', 'deposit') and t.amount >= 0)
+       or exists (select 1 from public.card_coding_effective_lines e
+                  join public.quickbooks_accounts a on a.connection_id = v_conn and a.company_entity_id = t.company_entity_id
+                   and a.qbo_account_id = e.qbo_account_id
+                  where e.transaction_id = t.id and (
+                    (t.accounting_treatment in ('transfer', 'payroll_settlement', 'shopify_settlement')
+                      and a.account_type not in ('Other Current Asset', 'Other Current Liability'))
+                    or (t.accounting_treatment = 'card_payment'
+                      and (s.source_type = 'card' or a.account_type not in ('Credit Card', 'Accounts Payable')))))
+    then return 'Review the direction and treatment: card payments and transfers belong on clearing, card or payable accounts'; end if;
+  end if;
+  return null;
+end $lb$;
