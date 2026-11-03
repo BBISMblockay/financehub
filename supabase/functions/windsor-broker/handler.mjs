@@ -22,15 +22,20 @@
 //                 nothing.
 //   unlink     -- { linked_account_id } -> removes it from SILO's Windsor team
 //                 and from SILO.
+//   field_catalog -- { linked_account_id } -> the numeric fields Windsor lists
+//                 for that account's connector, and which field the nightly
+//                 sync picks for each SILO measure (chooseMeasures, the same
+//                 function the sync runs). Reads Windsor's PUBLIC field list:
+//                 no key is sent and nothing is stored.
 //
 // The company is ALWAYS the caller's active company, read from their profile,
 // never from the request body (supabase/functions/CLAUDE.md).
 import { mayConnect } from './google-oauth-lib.mjs';
 import {
   WINDSOR_ONBOARD, WINDSOR_CONNECTORS, PREVIEW_MAX_ROWS, MAX_LINKS_PER_RECONCILE,
-  parseSource, connectorForSource, parseFields, parseDatePreset, windsorUrl, redact,
+  parseSource, connectorForSource, previewOptions, parseFields, parseDatePreset, windsorUrl, redact,
   parseBody, describeShape, extractLink, rowsOf, partitionLinkedAccounts, planUpserts,
-  filterRowsToAccount,
+  filterRowsToAccount, chooseMeasures, adPlatformName, NUMERIC_TYPES,
 } from './windsor-lib.mjs';
 
 export const CORS = {
@@ -219,6 +224,7 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       const r = await windsor(windsorUrl(WINDSOR_CONNECTORS, `/${conn.value}`, {
         api_key: key, date_preset: preset.value, fields: fields.value.join(','),
         select_accounts: own.row.account_id, _max_rows: PREVIEW_MAX_ROWS,
+        options: previewOptions(conn.value),
       }));
       if (!r.ok) return json({ error: `Windsor answered ${r.status || 'nothing'}`, detail: r.detail }, 502);
       const rows = rowsOf(r.body);
@@ -231,6 +237,41 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
         // full page may be a truncated one. Said, not hidden.
         maybe_truncated: rows.length >= PREVIEW_MAX_ROWS,
         rows: kept,
+      });
+    }
+
+    // ── field_catalog ────────────────────────────────────────────────────
+    if (action === 'field_catalog') {
+      const own = await ownAccount();
+      if (own.error) return own.error;
+      const conn = connectorForSource(own.row.ds_id);
+      if (!conn.ok) return json({ error: conn.reason }, 400);
+      // Public list: built without the key, so nothing secret can leak.
+      const r = await windsor(windsorUrl(WINDSOR_CONNECTORS, `/${conn.value}/fields`, {}));
+      if (!r.ok) return json({ error: `Windsor answered ${r.status || 'nothing'}`, detail: r.detail }, 502);
+      const list = Array.isArray(r.body) ? r.body : rowsOf(r.body);
+      if (!list) return json({ error: 'Windsor did not return a field list', shape: describeShape(r.body) }, 502);
+      const catalog = list
+        .filter((f) => f && typeof f === 'object' && typeof f.id === 'string' && /^[a-z0-9_.]{1,64}$/i.test(f.id))
+        .map((f) => ({ id: f.id, name: typeof f.name === 'string' ? f.name.slice(0, 120) : f.id,
+          type: String(f.type || '').toUpperCase(), table: typeof f.table === 'string' ? f.table.slice(0, 80) : null }));
+      // The company's own choices, so `chosen` is what the next run will use.
+      const { data: maps, error: mapErr } = await admin.from('windsor_field_mappings')
+        .select('measure, field_id').eq('company_entity_id', companyId).eq('ds_id', own.row.ds_id);
+      // Before 20261103080000 is applied there is no mapping table: show the
+      // automatic picks rather than fail.
+      const overrides = mapErr ? {} : Object.fromEntries((maps ?? []).map((m) => [m.measure, m.field_id]));
+      const choice = chooseMeasures(own.row.ds_id, catalog, overrides);
+      return json({
+        ds_id: own.row.ds_id, connector: conn.value, kind: choice.kind,
+        destination: choice.kind === 'ad' ? `marketing_kpis_daily (${adPlatformName(own.row.ds_id)})`
+          : choice.kind === 'fixed' ? 'its own SILO table (fields fixed by SILO)' : 'windsor_metrics_daily',
+        measures: choice.measures.map((m) => ({ measure: m, auto: choice.auto[m], chosen: choice.chosen[m],
+          override: Object.prototype.hasOwnProperty.call(overrides, m) ? overrides[m] : undefined,
+          ignored: choice.ignored.includes(m) })),
+        numeric_fields: catalog.filter((f) => NUMERIC_TYPES.includes(f.type)).slice(0, 3000),
+        total_fields: catalog.length,
+        mapping_unavailable: Boolean(mapErr),
       });
     }
 

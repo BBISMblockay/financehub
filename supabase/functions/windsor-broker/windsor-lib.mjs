@@ -35,6 +35,17 @@ export function parseSource(raw) {
 // Empty until the live trial shows a source whose endpoint name differs.
 export const CONNECTOR_FOR_SOURCE = Object.freeze({});
 
+// Extra `options` a connector needs for a preview to match Windsor's own
+// screen. TikTok sends no daily rows for days its ads did not deliver unless
+// inactive campaigns are included (seen live 2026-11-02; Windsor's UI adds it).
+const PREVIEW_OPTIONS = Object.freeze({ tiktok: { include_inactive: 'true' } });
+
+/** The `options` query value for a connector's preview, or null. */
+export function previewOptions(connector) {
+  const o = PREVIEW_OPTIONS[connector];
+  return o ? JSON.stringify({ [connector]: o }) : null;
+}
+
 /** The data endpoint for a stored data source id. `all` multiplexes every
  *  source on the team, so it is refused even if it were ever stored. */
 export function connectorForSource(dsId) {
@@ -240,4 +251,84 @@ export function filterRowsToAccount(rows, accountId) {
     kept.push(r);
   }
   return { kept, foreign, unattributed };
+}
+
+// ── Mapping a connector's fields onto SILO's measures ───────────────────────
+// Shared by the nightly sync (scripts/lib/windsor-sync-core.mjs) and the
+// broker's field_catalog action, so the page shows exactly the choice the
+// sync will make.
+
+// Connectors with a hand-made dataset in the sync. Their fields are fixed in
+// code; a company's mapping does not apply to them.
+export const FIXED_SOURCES = Object.freeze(['tiktok', 'klaviyo']);
+
+// SILO syncs these directly. Through Windsor they would be a second copy under
+// a different identity and be counted twice in marketing_kpis_daily, so they
+// go to windsor_metrics_daily instead.
+export const DIRECT_SYNC_SOURCES = Object.freeze(['facebook', 'google_ads', 'googleanalytics4', 'ga4']);
+
+// Where Windsor's connector id is not the platform name SILO shows.
+const AD_PLATFORM_NAMES = Object.freeze({ bing: 'microsoft_ads', tiktok: 'tiktok_ads' });
+const PLATFORM_RE = /^[a-z][a-z0-9_]{1,63}$/;
+
+// SILO's common measures and the Windsor field ids that mean them, best
+// first. The first one a connector has is used, unless the company chose
+// another (windsor_field_mappings).
+export const STANDARD_FIELDS = Object.freeze({
+  impressions: ['impressions'],
+  clicks: ['clicks', 'link_clicks'],
+  spend: ['spend', 'cost', 'amount_spent'],
+  // Names seen in Windsor's live field lists (2026-11-03): Pinterest
+  // total_conversions / total_conversions_value, Snapchat conversion_purchases
+  // / conversion_purchases_value, LinkedIn conversionvalueinlocalcurrency.
+  conversions: ['conversions', 'purchases', 'total_purchases', 'website_purchases', 'checkout_conversions',
+    'total_conversions', 'conversion_purchases'],
+  revenue: ['revenue', 'conversion_value', 'purchase_value', 'total_purchase_value', 'conversions_value',
+    'total_conversion_value', 'total_conversions_value', 'conversion_purchases_value', 'conversionvalueinlocalcurrency',
+    'total_sales', 'sales'],
+  sends: ['sent_emails', 'emails_sent', 'sends', 'recipients'],
+  delivered: ['received_emails', 'delivered', 'emails_delivered'],
+  opens: ['opens', 'emails_opened', 'unique_opens'],
+  sessions: ['sessions'],
+  users: ['users', 'active_users', 'total_users'],
+  orders: ['orders', 'total_orders', 'orders_count', 'order_count'],
+});
+// The measures marketing_kpis_daily has columns for.
+export const AD_MEASURES = Object.freeze(['impressions', 'clicks', 'spend', 'conversions', 'revenue']);
+export const NUMERIC_TYPES = Object.freeze(['NUMERIC', 'PERCENT']);
+
+export function isAdLike(dsId, ids) {
+  return !DIRECT_SYNC_SOURCES.includes(dsId)
+    && ids.has('spend') && ids.has('impressions') && ids.has('clicks')
+    && (ids.has('campaign_id') || ids.has('campaign'));
+}
+
+export function adPlatformName(dsId) {
+  const name = AD_PLATFORM_NAMES[dsId] ?? (String(dsId).endsWith('_ads') ? dsId : `${dsId}_ads`);
+  return PLATFORM_RE.test(name) ? name : null;
+}
+
+/** Which field fills each measure for this connector.
+ *  `catalog` is Windsor's field list ([{ id, type }]); `overrides` is the
+ *  company's choices ({ measure: field_id | null }, null = leave blank). An
+ *  override naming a field the connector does not list as numeric is not
+ *  used, and is reported in `ignored`. */
+export function chooseMeasures(dsId, catalog, overrides = {}) {
+  const ids = new Set((catalog || []).map((f) => f.id));
+  const numeric = new Set((catalog || []).filter((f) => NUMERIC_TYPES.includes(String(f.type || '').toUpperCase())).map((f) => f.id));
+  const kind = FIXED_SOURCES.includes(dsId) ? 'fixed' : isAdLike(dsId, ids) ? 'ad' : 'metrics';
+  const measures = kind === 'ad' ? AD_MEASURES : Object.keys(STANDARD_FIELDS);
+  const auto = {};
+  const chosen = {};
+  const ignored = [];
+  for (const m of measures) {
+    auto[m] = STANDARD_FIELDS[m].find((c) => ids.has(c)) ?? null;
+    chosen[m] = auto[m];
+    if (kind === 'fixed' || !Object.prototype.hasOwnProperty.call(overrides, m)) continue;
+    const o = overrides[m];
+    if (o === null) chosen[m] = null;
+    else if (numeric.has(o)) chosen[m] = o;
+    else ignored.push(m);
+  }
+  return { kind, measures, auto, chosen, ignored };
 }
