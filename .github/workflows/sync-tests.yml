@@ -1388,6 +1388,20 @@ jobs:
             fi
             echo "$mutation failed the suite, as it must"
           done
+      # Business meaning for the 60 relations that had none, and is_hidden on the
+      # install/claim/credentials plumbing. Catalog text only, so the risks are
+      # clobbering a curated description, a seeded name that lands nowhere, and
+      # reaching a relation it was not asked to touch.
+      - name: Execute chat catalog coverage regressions
+        run: |
+          node scripts/tests/chat-catalog-coverage-database.test.mjs
+          for mutation in clobber-curated no-missing-guard no-hide touch-everything; do
+            if CATALOG_COVERAGE_MUTATION="$mutation" node scripts/tests/chat-catalog-coverage-database.test.mjs; then
+              echo "::error::$mutation did not fail the catalog coverage suite"
+              exit 1
+            fi
+            echo "$mutation failed the suite, as it must"
+          done
       - name: Execute Plaid authority, lifecycle and audit regressions
         run: node scripts/tests/plaid-bank-feed-database.test.mjs
 

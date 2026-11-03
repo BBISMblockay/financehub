@@ -19438,4 +19438,9 @@ $c$select (select count(*) from v_po_header_summary
 -- Windsor any connector: windsor_metrics_daily for connectors with no table of
 -- their own; marketing_kpis_daily.platform becomes a name-shape check.
 \i migrations/20261103080000_windsor_any_connector.sql
+-- Business meaning in the schema catalog for the 60 relations bots ask about
+-- (ledger, payroll, AR, AP, landed cost, reorder, work) and is_hidden on 11
+-- install/claim/staging tables plus one credentials table. Catalog text only;
+-- no business row changes, no deploy. Before the catalog cleanup.
+\i migrations/20261103190000_chat_catalog_coverage.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
