@@ -423,3 +423,17 @@ test('sync consent is company-scoped, boolean-only and limited to explicit datas
   w.fake.tables.get('entity_memberships')[0].role = 'member';
   assert.equal((await set('own-fixed', true)).status, 403);
 });
+
+test('LLM publication is separate, explicitly boolean, company-admin scoped and source read-only', async () => {
+  const w=world(), fw=fakeWindsor({}), h=handlerFor(w,fw,{});
+  w.fake.tables.get('windsor_linked_accounts').push({id:'own-live',company_entity_id:A,ds_id:'klaviyo',account_id:'own',mcp_enabled:false,sync_enabled:false});
+  const set=(id,enabled,extra={})=>call(h,{action:'set_mcp',linked_account_id:id,enabled,...extra});
+  assert.equal((await set('acc-b',true,{company_entity_id:B})).status,404);
+  assert.equal((await set('own-live','true')).status,400);
+  assert.equal((await set('own-live',true)).body.mcp_enabled,true);
+  assert.equal(w.fake.rows('windsor_linked_accounts').find(r=>r.id==='own-live').sync_enabled,false);
+  assert.equal((await set('own-live',false)).body.mcp_enabled,false);
+  assert.equal(fw.log.length,0);
+  w.fake.tables.get('entity_memberships')[0].role='member';
+  assert.equal((await set('own-live',true)).status,403);
+});

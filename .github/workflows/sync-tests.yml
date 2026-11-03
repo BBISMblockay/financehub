@@ -75,6 +75,7 @@ on:
       - 'supabase/migrations/*windsor_sync.sql'
       - 'supabase/migrations/*windsor_any_connector.sql'
       - 'supabase/migrations/*windsor_sync_consent.sql'
+      - 'supabase/migrations/*windsor_live_mcp.sql'
       - 'v2/integration-bootstrap.js'
       - 'v2/integration-enrolment.js'
       - 'scripts/integration-bootstrap.mjs'
@@ -2205,6 +2206,16 @@ jobs:
       # Windsor sync's database half (20261103060000): Klaviyo rows readable
       # only within the active company, never client-writable, sync_jobs
       # accepts windsor_sync.
+      - name: Windsor live MCP tenant authorization and external response validation
+        run: |
+          node scripts/tests/windsor-live-mcp-database.test.mjs
+          for m in identity tail reauthorize scope rls published default client-execute; do
+            if WINDSOR_LIVE_MUTATION="$m" node scripts/tests/windsor-live-mcp-database.test.mjs > /tmp/windsor-live-mutation.log 2>&1; then
+              echo "::error::mutation $m survived"; exit 1
+            fi
+            echo "$m rejected"
+          done
+
       - name: Windsor sync tables (real PostgreSQL)
         run: node scripts/tests/windsor-sync-database.test.mjs
       - name: The Windsor sync tables' guards, removed, must break it

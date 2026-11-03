@@ -8401,3 +8401,16 @@ select 'Windsor sync consent' as check_name,
     and not has_table_privilege('authenticated', 'public.windsor_linked_accounts', 'UPDATE')
     and not has_table_privilege('anon', 'public.windsor_linked_accounts', 'UPDATE')
   then 'ok' else 'BROKEN: Windsor sync consent default/grants' end as status;
+
+select 'Windsor live MCP authorization' as check_name,
+  case when exists (select 1 from information_schema.columns where table_schema='public'
+    and table_name='windsor_linked_accounts' and column_name='mcp_enabled'
+    and is_nullable='NO' and column_default='false')
+    and exists (select 1 from pg_proc p join pg_roles r on r.oid=p.proowner
+      where p.oid=to_regprocedure('public.silo_api_windsor_connections(uuid,integer)')
+        and r.rolname='silo_api_exec' and not r.rolsuper and not r.rolbypassrls and p.prosecdef)
+    and not coalesce(has_function_privilege('anon',to_regprocedure('public.silo_api_windsor_connections(uuid,integer)'),'EXECUTE'),true)
+    and not coalesce(has_function_privilege('authenticated',to_regprocedure('public.silo_api_windsor_connections(uuid,integer)'),'EXECUTE'),true)
+    and exists (select 1 from pg_policies where schemaname='public' and tablename='windsor_linked_accounts'
+      and policyname='windsor_linked_accounts_mcp_select' and qual like '%active_company_id%' and qual like '%mcp_enabled%')
+  then 'ok' else 'BROKEN: live connector authorization/defaults' end as status;

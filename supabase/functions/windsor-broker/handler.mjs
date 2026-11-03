@@ -109,7 +109,7 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
     }
 
     if (action === 'status') return json({ configured: Boolean(key) });
-    if (!key && action !== 'set_sync') return json({ error: 'Windsor is not configured (WINDSOR_API_KEY is not set)' }, 503);
+    if (!key && !['set_sync','set_mcp'].includes(action)) return json({ error: 'Windsor is not configured (WINDSOR_API_KEY is not set)' }, 503);
 
     if (action === 'connector_catalog') {
       const r = await windsor(`${WINDSOR_CONNECTORS}/list_connectors`);
@@ -212,6 +212,21 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       if (error) return { error: json({ error: 'Could not read the account' }, 500) };
       if (!data) return { error: json({ error: 'Account not found' }, 404) };
       return { row: data };
+    }
+
+    // Publication is distinct from ingestion consent. Existing grants still
+    // require data:read; this admin action opts only this company/account in.
+    if (action === 'set_mcp') {
+      const own = await ownAccount();
+      if (own.error) return own.error;
+      if (typeof body.enabled !== 'boolean') return json({ error:'enabled must be a boolean' },400);
+      const source = connectorForSource(own.row.ds_id);
+      if (body.enabled && (!source.ok || typeof source.value !== 'string')) return json({error:'Source cannot be published'},409);
+      const {data,error} = await admin.from(ACCOUNTS).update({mcp_enabled:body.enabled})
+        .eq('id',own.row.id).eq('company_entity_id',companyId).select('id,mcp_enabled');
+      if (error) return json({error:'Could not save LLM access. The live connector migration may be required.'},503);
+      if (!data?.length) return json({error:'Account no longer exists. Reload connections.'},409);
+      return json({mcp_enabled:data[0].mcp_enabled});
     }
 
     // Sync consent is a local setting, scoped by the authenticated active company.
