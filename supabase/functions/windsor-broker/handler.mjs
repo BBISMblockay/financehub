@@ -35,7 +35,8 @@ import {
   WINDSOR_ONBOARD, WINDSOR_CONNECTORS, PREVIEW_MAX_ROWS, MAX_LINKS_PER_RECONCILE,
   parseSource, connectorForSource, previewOptions, parseFields, parseDatePreset, windsorUrl, redact,
   parseBody, describeShape, extractLink, rowsOf, partitionLinkedAccounts, planUpserts,
-  filterRowsToAccount, chooseMeasures, adPlatformName, NUMERIC_TYPES,
+  filterRowsToAccount, chooseMeasures, adPlatformName, NUMERIC_TYPES, IDENTITY_ERROR,
+  normalizeFields, previewDefaults, normalizeConnectors,
 } from './windsor-lib.mjs';
 
 export const CORS = {
@@ -107,6 +108,15 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
 
     if (action === 'status') return json({ configured: Boolean(key) });
     if (!key) return json({ error: 'Windsor is not configured (WINDSOR_API_KEY is not set)' }, 503);
+
+    if (action === 'connector_catalog') {
+      const r = await windsor(`${WINDSOR_CONNECTORS}/list_connectors`);
+      const list = rowsOf(r.body);
+      if (!r.ok || !list) return json({ error: 'Could not load integrations. Try again.' }, 502);
+      const connectors = normalizeConnectors(list);
+      if (!connectors.length) return json({ error: 'Windsor returned no recognizable integrations.' }, 502);
+      return json({ connectors });
+    }
 
     // ── mint_link ────────────────────────────────────────────────────────
     if (action === 'mint_link') {
@@ -229,7 +239,8 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       if (!r.ok) return json({ error: `Windsor answered ${r.status || 'nothing'}`, detail: r.detail }, 502);
       const rows = rowsOf(r.body);
       if (!rows) return json({ error: 'Windsor did not return a list of rows', shape: describeShape(r.body) }, 502);
-      const { kept, foreign, unattributed } = filterRowsToAccount(rows, own.row.account_id);
+      const { kept, foreign, unattributed } = filterRowsToAccount(rows, own.row.account_id, own.row.ds_id);
+      if (foreign || unattributed) return json({ error: IDENTITY_ERROR, code: 'identity_unverified' }, 409);
       return json({
         connector: conn.value, fields: fields.value, date_preset: preset.value,
         returned: rows.length, foreign, unattributed,
@@ -251,10 +262,7 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       if (!r.ok) return json({ error: `Windsor answered ${r.status || 'nothing'}`, detail: r.detail }, 502);
       const list = Array.isArray(r.body) ? r.body : rowsOf(r.body);
       if (!list) return json({ error: 'Windsor did not return a field list', shape: describeShape(r.body) }, 502);
-      const catalog = list
-        .filter((f) => f && typeof f === 'object' && typeof f.id === 'string' && /^[a-z0-9_.]{1,64}$/i.test(f.id))
-        .map((f) => ({ id: f.id, name: typeof f.name === 'string' ? f.name.slice(0, 120) : f.id,
-          type: String(f.type || '').toUpperCase(), table: typeof f.table === 'string' ? f.table.slice(0, 80) : null }));
+      const catalog = normalizeFields(list);
       // The company's own choices, so `chosen` is what the next run will use.
       const { data: maps, error: mapErr } = await admin.from('windsor_field_mappings')
         .select('measure, field_id').eq('company_entity_id', companyId).eq('ds_id', own.row.ds_id);
@@ -269,6 +277,7 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
         measures: choice.measures.map((m) => ({ measure: m, auto: choice.auto[m], chosen: choice.chosen[m],
           override: Object.prototype.hasOwnProperty.call(overrides, m) ? overrides[m] : undefined,
           ignored: choice.ignored.includes(m) })),
+        fields: catalog, default_fields: previewDefaults(catalog),
         numeric_fields: catalog.filter((f) => NUMERIC_TYPES.includes(f.type)).slice(0, 3000),
         total_fields: catalog.length,
         mapping_unavailable: Boolean(mapErr),

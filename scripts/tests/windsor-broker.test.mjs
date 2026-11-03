@@ -37,7 +37,7 @@ async function loadHandler() {
   const sub = (src, from, to) => { assert.ok(src.includes(from), `mutation ${MUT}: pattern missing`); return src.replace(from, to); };
   if (MUT === 'trustfilter') lib = sub(lib, "if (!rowToken) { rejected.token_missing += 1; continue; }\n    if (rowToken !== token) { rejected.token_mismatch += 1; continue; }", '');
   if (MUT === 'notoken') lib = sub(lib, "if (!token || token.length < 8 || token.length > 512) return { ok: false };", "if (!token) token = 'none-found';");
-  if (MUT === 'rowfilter') handler = sub(handler, 'rows: kept,', 'rows,');
+  if (MUT === 'rowfilter') handler = sub(handler, 'if (foreign || unattributed) return json(', 'if (false) return json(');
   if (MUT === 'bodycompany') handler = sub(handler, 'const companyId = profile?.active_company_id ?? null;', 'const companyId = body?.company_entity_id ?? profile?.active_company_id ?? null;');
   if (MUT === 'conflict') lib = sub(lib, 'else conflicts.push({ ds_id: a.ds_id, account_id: a.account_id });', 'else inserts.push(a);');
   if (MUT === 'connector') handler = sub(handler, 'const conn = connectorForSource(own.row.ds_id);', "const conn = connectorForSource(body?.connector || own.row.ds_id);")
@@ -204,7 +204,7 @@ test('reconcile refreshes an account already filed under the same company', asyn
   assert.notEqual(w.fake.rows('windsor_linked_accounts').find((x) => x.id === 'acc-a').last_seen_at, 'old');
 });
 
-test('preview reads one own account and drops rows for any other account', async () => {
+test('preview fails closed on mixed identities', async () => {
   const w = world();
   w.fake.tables.get('windsor_linked_accounts').push({ id: 'acc-a', company_entity_id: A, link_id: 'link-a', ds_id: 'klaviyo', account_id: 'ka-1' });
   const fw = fakeWindsor({ 'GET connectors.windsor.ai/klaviyo': () => ({ body: { data: [
@@ -213,10 +213,10 @@ test('preview reads one own account and drops rows for any other account', async
     { date: '2026-11-01', clicks: 7 },
   ] } }) });
   const r = await call(handlerFor(w, fw), { action: 'preview', linked_account_id: 'acc-a', fields: 'date,clicks' });
-  assert.equal(r.status, 200);
-  assert.deepEqual(r.body.rows.map((x) => x.account_id), ['ka-1']);
-  assert.equal(r.body.foreign, 1);
-  assert.equal(r.body.unattributed, 1);
+  assert.equal(r.status, 409);
+  assert.equal(r.body.code, 'identity_unverified');
+  assert.equal(r.body.rows, undefined);
+  assert.ok(!JSON.stringify(r.body).includes('kb-1'));
   const u = fw.log[0].url;
   assert.equal(u.searchParams.get('select_accounts'), 'ka-1');
   assert.match(u.searchParams.get('fields'), /^account_id,/, 'account_id is always requested');
@@ -363,4 +363,43 @@ test('vendored copies match their originals byte for byte', () => {
   assert.equal(read('mfa-gate.mjs'), r('scripts/lib/mfa-gate.mjs'));
   assert.equal(read('integration-gate.mjs'), r('scripts/lib/integration-gate.mjs'));
   assert.equal(read('google-oauth-lib.mjs'), r('supabase/functions/google-oauth-start/google-oauth-lib.mjs'));
+});
+
+
+test('connector catalog uses public metadata and excludes multiplexed/unsafe IDs', async () => {
+  const w = world();
+  const fw = fakeWindsor({ 'GET connectors.windsor.ai/list_connectors': () => ({ body:
+    ['youtube', 'klaviyo', 'future_source', 'all', '../secret', 'youtube'] }) });
+  const r = await call(handlerFor(w, fw), { action: 'connector_catalog' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.connectors.map((x) => x.name), ['Future Source', 'Klaviyo', 'YouTube']);
+  assert.equal(fw.log[0].url.searchParams.get('api_key'), null);
+});
+
+test('field discovery returns readable dimensions and source-specific defaults for a new connector', async () => {
+  const w = world();
+  w.fake.tables.get('windsor_linked_accounts').push({ id: 'acc-a', company_entity_id: A, ds_id: 'new_source', account_id: 'ka-1' });
+  const fw = fakeWindsor({ 'GET connectors.windsor.ai/new_source/fields': () => ({ body: [
+    { id: 'account_id', type: 'TEXT' }, { id: 'date', type: 'DATE' },
+    { id: 'watch_minutes', name: 'Minutes watched', type: 'NUMERIC', table: 'daily' },
+    { id: 'video_id', type: 'TEXT' }, { id: 'other_report', type: 'NUMERIC', table: 'video' },
+  ] }) });
+  const r = await call(handlerFor(w, fw), { action: 'field_catalog', linked_account_id: 'acc-a' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.fields.find((f) => f.id === 'video_id').name, 'Video Id');
+  assert.deepEqual(r.body.default_fields, ['account_id', 'date', 'watch_minutes']);
+  assert.equal(fw.log[0].url.searchParams.get('api_key'), null);
+  const denied = await call(handlerFor(w, fw), { action: 'field_catalog', linked_account_id: 'acc-b' });
+  assert.equal(denied.status, 404);
+});
+
+
+test('preview only normalizes Facebook account aliases for Facebook', async () => {
+  for (const ds of ['youtube', 'facebook']) {
+    const w = world();
+    w.fake.tables.get('windsor_linked_accounts').push({ id: 'acc-a', company_entity_id: A, ds_id: ds, account_id: '42' });
+    const fw = fakeWindsor({ [`GET connectors.windsor.ai/${ds}`]: () => ({ body: [{ account_id: 'act_42', clicks: 1 }] }) });
+    const result = await call(handlerFor(w, fw), { action: 'preview', linked_account_id: 'acc-a', fields: 'clicks' });
+    assert.equal(result.status, ds === 'facebook' ? 200 : 409);
+  }
 });
