@@ -52,7 +52,7 @@
  * This file adds no authority and reads nothing. It is text.
  */
 
-export const GUIDE_VERSION = '2026-10-30';
+export const GUIDE_VERSION = '2026-11-03';
 
 /* ── The rules, for the system prompt ───────────────────────────────────────
  *
@@ -65,6 +65,12 @@ const RULES = [
   'question, what each report is for, and where each page lives in the app.',
   'When one of SILO\'s own reports answers the question, use it: those are tied out against their sources,',
   'so prefer one report over combining several. For anything else, query the tables (describe_tables first).',
+  'Live connections are sources the company published to AI (for example Klaviyo or TikTok through a data',
+  'connector). list_connections shows them; describe_connection lists every field the source offers;',
+  'query_connection reads the source live, for the last 7 to 30 days. Use them when the person asks what is',
+  'connected, for a field SILO does not store, or for the newest days. SILO\'s stored copies of these sources',
+  '(klaviyo_performance_daily, windsor_metrics_daily, marketing_kpis_daily where source is windsor) hold',
+  'longer history but are only as fresh as the last nightly sync. Say which one a number came from.',
   'Blank is not zero. A blank measure means that source had no rows for that day, which is usually a sync',
   'that has not landed. Never fill a blank with 0, average over it, or call it a decline.',
   'Credited is not earned. "Claimed", "credited" and "attributed" revenue is what an ad platform or Redo',
@@ -445,6 +451,8 @@ export const GUIDE_TOOL = {
 };
 
 const TOOL_NOTES = {
+  query: 'For a source the company connected for AI (list_connections), query_connection reads it live and '
+    + 'can return fields these tables do not store.',
   list_reports: 'Each report\'s description carries its own caveats: read them, and read '
     + GUIDE_TOOL_NAME + ' for which report to choose.',
   run_report: 'Prefer one report\'s own answer over combining reports. A blank measure means that source '

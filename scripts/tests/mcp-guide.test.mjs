@@ -251,3 +251,14 @@ test('the guide reads nothing and holds no secrets', () => {
     assert.equal(src.includes(forbidden), false, `guide.mjs must stay text, but mentions ${forbidden}`);
   }
 });
+
+test('the rules send a bot to the live tools for connected sources, and say what the stored copies are', () => {
+  const rules = instructionsWithTraining('');
+  for (const tool of ['list_connections', 'describe_connection', 'query_connection']) {
+    assert.ok(rules.includes(tool), `rules name ${tool}`);
+    assert.ok(TOOLS.some((t) => t.name === tool), `${tool} is a real tool`);
+  }
+  assert.match(rules, /only as fresh as the last nightly sync/);
+  const listed = toolsWithGuide(TOOLS).find((t) => t.name === 'query');
+  assert.match(listed.description, /query_connection reads it live/);
+});
