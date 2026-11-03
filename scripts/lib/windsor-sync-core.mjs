@@ -485,14 +485,20 @@ async function readOnceRetrying(io) {
  *  Returns { rows: [...] per successful read, refused: [...], incomplete }.
  *  `incomplete` = Windsor did not answer for some fields: the window must not
  *  be written (it would replace stored values) nor counted as covered. */
-async function readHuntBatch({ fields, tableOf, ...io }) {
-  const out = { rows: [], refused: [], incomplete: false };
+async function readHuntBatch({ fields, tableOf, state, ...io }) {
+  const out = { rows: [], refused: [], unanswered: [], incomplete: false };
   const dims = io.dims;
   let batch = [...fields];
   for (let attempt = 0; attempt <= MAX_FIELD_RETRIES && batch.length; attempt += 1) {
     const r = await readOnceRetrying({ ...io, fields: [...dims, ...batch] });
-    if (r.rows) { out.rows.push(r.rows); return out; }
-    if (r.transient) { out.incomplete = true; return out; }
+    if (r.rows) { state.answered += 1; out.rows.push(r.rows); return out; }
+    if (r.transient) {
+      // Windsor did not answer this batch. A wide batch can be too slow for
+      // it even when each field is fine, so ask again in halves.
+      state.failures += 1;
+      await readSplitting({ ...io, fields: batch, state, out });
+      return out;
+    }
     const named = r.named.filter((f) => batch.includes(f));
     if (named.length) { out.refused.push(...named); batch = batch.filter((f) => !named.includes(f)); continue; }
     // Nothing named: split by Windsor table once, then give up on a part.
@@ -505,14 +511,43 @@ async function readHuntBatch({ fields, tableOf, ...io }) {
     if (byTable.size <= 1) { out.refused.push(...batch); return out; }
     for (const part of byTable.values()) {
       const p = await readOnceRetrying({ ...io, fields: [...dims, ...part] });
-      if (p.rows) out.rows.push(p.rows);
-      else if (p.transient) out.incomplete = true;
+      if (p.rows) { state.answered += 1; out.rows.push(p.rows); }
+      else if (p.transient) { state.failures += 1; await readSplitting({ ...io, fields: part, state, out }); }
       else out.refused.push(...part);
     }
     return out;
   }
   if (batch.length) out.refused.push(...batch);
   return out;
+}
+
+/** Unanswered reads a window may spend splitting before it gives up. Each
+ *  costs up to two timeouts, so this bounds a Windsor outage's cost. */
+export const MAX_UNANSWERED_PER_WINDOW = 8;
+
+/** Ask for `fields` in halves until each part answers. A part that is down to
+ *  one field and still gets no answer goes to out.unanswered; when the
+ *  window's unanswered budget is spent, whatever is left marks the window
+ *  incomplete instead. */
+async function readSplitting({ fields, state, out, ...io }) {
+  if (state.failures > MAX_UNANSWERED_PER_WINDOW) { out.incomplete = true; return; }
+  if (fields.length <= 1) { out.unanswered.push(...fields); return; }
+  const mid = Math.ceil(fields.length / 2);
+  for (const half of [fields.slice(0, mid), fields.slice(mid)]) {
+    if (state.failures > MAX_UNANSWERED_PER_WINDOW) { out.incomplete = true; return; }
+    const r = await readOnce({ ...io, fields: [...io.dims, ...half] });
+    if (r.rows) { state.answered += 1; out.rows.push(r.rows); continue; }
+    if (r.transient) { state.failures += 1; await readSplitting({ ...io, fields: half, state, out }); continue; }
+    const named = r.named.filter((f) => half.includes(f));
+    if (named.length) {
+      out.refused.push(...named);
+      const rest = half.filter((f) => !named.includes(f));
+      if (rest.length) await readSplitting({ ...io, fields: rest, state, out });
+      continue;
+    }
+    if (half.length === 1) out.refused.push(...half);
+    else await readSplitting({ ...io, fields: half, state, out });
+  }
 }
 
 const mergeId = (dataset, r) => `${r?.account_id ?? ''}\u0000${String(r?.date ?? '').slice(0, 10)}\u0000${dataset.mergeKey ? (dataset.mergeKey(r) ?? '') : ''}`;
@@ -550,13 +585,24 @@ export async function fetchDatasetHunted({ key, fetchImpl, connector, accountId,
     || ['campaign_id', 'campaign', 'flow_id', 'flow_message_id'].includes(f));
   const sets = [];
   const refused = [];
+  const unanswered = [];
   let incomplete = false;
+  const state = { answered: 0, failures: 0 };
   for (let i = 0; i < extra.length; i += HUNT_BATCH_SIZE) {
     const b = await readHuntBatch({ key, fetchImpl, connector, accountId, from, to, counter, dims,
-      fields: extra.slice(i, i + HUNT_BATCH_SIZE), tableOf });
+      fields: extra.slice(i, i + HUNT_BATCH_SIZE), tableOf, state });
     sets.push(...b.rows);
     refused.push(...b.refused);
+    unanswered.push(...b.unanswered);
     if (b.incomplete) incomplete = true;
+  }
+  if (unanswered.length) {
+    // Windsor answered for other hunted fields in this window but never for
+    // these, even one at a time: the field is the problem, not Windsor. They
+    // are dropped like a refusal so the rest of the window still lands. If
+    // Windsor answered for none, it is down: keep the window unwritten.
+    if (state.answered === 0) incomplete = true;
+    else refused.push(...unanswered);
   }
   const merged = mergeHunted(dataset, core.rows, sets);
   return { rows: merged.rows, dropped: core.dropped, refused, unmatched: merged.unmatched, incomplete };
