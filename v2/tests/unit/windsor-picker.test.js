@@ -31,3 +31,14 @@ list.children[0].handlers.click();
 assert.equal(picked.id, 'new_source');
 integration.setItems([]); assert.equal(picked, null);
 console.log('windsor-picker unit: limits, identity, safe labels, selection and reset passed');
+
+const { previewCatalogProblem, discoveryError, SERVICE_UPDATE } = window.WindsorPicker;
+assert.equal(previewCatalogProblem({ numeric_fields: [{ id: 'clicks' }], total_fields: 99 }), SERVICE_UPDATE);
+assert.equal(discoveryError('connector_catalog', 400, { error: 'Unknown action' }), SERVICE_UPDATE);
+assert.equal(discoveryError('connector_catalog', 403, { error: 'Admin access required' }), null, 'authorization failures stay distinct');
+assert.equal(discoveryError('preview', 400, { error: 'Unknown action' }), null);
+assert.match(previewCatalogProblem({ fields: [], default_fields: [] }), /did not list an account identity field/);
+assert.match(previewCatalogProblem({ fields: [{ id: 'account_id' }], default_fields: [] }), /valid field selection/);
+assert.match(previewCatalogProblem({ fields: [{ id: 'account_id' }], default_fields: ['account_id', 'unknown'] }), /valid field selection/);
+assert.equal(previewCatalogProblem({ fields: [{ id: 'account_id' }], default_fields: ['account_id'] }), null);
+console.log('windsor compatibility: old schema, absent identity, bad defaults and valid recovery distinguished');
