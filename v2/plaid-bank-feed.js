@@ -264,12 +264,33 @@
         db.from('plaid_connections').select('id,institution_name,environment,status,last_error_code,history_days_requested').eq('company_entity_id', current.companyId).order('created_at'),
         db.from('plaid_accounts').select('id,connection_id,name,mask,type,subtype,iso_currency_code,current_balance,available_balance,balance_updated_at,source_id,last_synced_at,last_error_code,cursor,sync_lease_expires_at').eq('company_entity_id', current.companyId).order('name'),
         db.from('plaid_sync_exceptions').select('id,account_id,transaction_id,external_transaction_id,status,previous_payload,provider_payload,created_at').eq('company_entity_id', current.companyId).eq('status', 'open').order('created_at'),
+        // Pending rows the feed may have abandoned. Excluded means none of
+        // them is in the books, and the batch filter is not decoration: the
+        // database clears only rows in a batch that is still open, and it
+        // refuses outright if the list it is given is not exactly the set it
+        // would clear. A row frozen in an approved month shown here would
+        // therefore make the button fail every time, with no way for the
+        // person to fix it. Whether a row is really clearable stays the
+        // database's call; this only has to not offer the impossible.
+        db.from('card_transactions')
+          .select('plaid_account_id,external_transaction_id,txn_date,amount,description,card_import_batches!inner(status)')
+          .eq('company_entity_id', current.companyId).eq('origin', 'plaid')
+          .eq('provider_status', 'pending').eq('status', 'excluded')
+          .in('card_import_batches.status', ['draft', 'categorized'])
+          .order('txn_date').limit(1000),
       ]);
       for (const result of results) {
         if (result.error) throw new Error(`Bank feeds are unavailable: ${result.error.message}`);
       }
       if (company()?.id !== current.companyId) throw new Error('Company changed. Refresh bank feeds.');
-      [connections, accounts, exceptions] = results.map((result) => result.data || []);
+      let stuckRows;
+      [connections, accounts, exceptions, stuckRows] = results.map((result) => result.data || []);
+      stuckPending.clear();
+      for (const row of stuckRows) {
+        if (!row.plaid_account_id) continue;
+        if (!stuckPending.has(row.plaid_account_id)) stuckPending.set(row.plaid_account_id, []);
+        stuckPending.get(row.plaid_account_id).push(row);
+      }
       // When the feed last handed us anything, which is the only way to tell a
       // stalled feed from a quiet week: last_synced_at reports that WE asked.
       // A failed read leaves the account unknown rather than claiming it is
@@ -291,6 +312,8 @@
     // page session. A reload re-offers the button, which is correct once the
     // add-on is enabled.
     const refreshUnsupported = new Set();
+    // Pending rows per account that an abandoned feed may never retire.
+    const stuckPending = new Map();
     // A parsed file waiting for the person to confirm it, per account. Held
     // only until they send or cancel it: nothing is written on choosing a file.
     const pendingManual = new Map();
@@ -320,6 +343,9 @@
         const staleness = feedStaleness({ lastReceivedAt: received.get(account.id) || null, lastSyncedAt: account.last_synced_at || null });
         const canRefetch = !refreshUnsupported.has(account.id);
         const manual = pendingManual.get(account.id) || null;
+        // Offered only when the feed has gone quiet. While it is delivering, a
+        // pending row is the bank still working and clears itself.
+        const stuck = (staleness.stale && stuckPending.get(account.id)) || [];
         return `<div class="cc-card" data-bank-account="${esc(account.id)}"><div class="cc-card-head"><div>
           <div class="cc-title">${esc(account.name)}${account.mask ? ` · ${esc(account.mask)}` : ''}</div>
           <div class="cc-sub">${esc(account.type)} / ${esc(account.subtype || '')} · ${esc(connection?.institution_name || '')}</div></div>
@@ -347,6 +373,15 @@
           ${!canRefetch ? '<div class="cc-hint cc-warn" data-bank-no-refetch>This Plaid plan does not include Transactions Refresh, so SILO cannot ask the bank to re-fetch. Enable that add-on in the Plaid dashboard, or raise the gap with Plaid support.</div>' : ''}
           ${staleness.stale ? `<div class="cc-hint cc-warn" data-bank-stale>Syncs are running, but this bank has handed over nothing for ${esc(staleness.days)} days. That is usually the bank, not SILO.${canRefetch ? ' Press <b>Ask bank to re-fetch</b>, wait about a minute, then sync.' : ''} Check the account at the bank for days you are missing.</div>`
             : source ? `<div class="cc-note" data-bank-received>Bank last handed over data ${received.has(account.id) ? esc(String(received.get(account.id)).slice(0, 10)) : 'never'}</div>` : ''}
+          ${stuck.length ? `<div class="cc-card" data-bank-stuck-pending style="margin-top:8px"><div class="cc-pad">
+            <div class="cc-title">${esc(stuck.length)} pending transaction(s) the bank never finished</div>
+            <div class="cc-note">Dated ${esc(stuck[0].txn_date)} to ${esc(stuck[stuck.length - 1].txn_date)}. A pending row is the bank saying a
+              transaction is coming; it normally posts or is withdrawn within a day or two. These have been waiting since this feed went quiet,
+              so they are not in your books and nothing will ever finish them.</div>
+            <div class="cc-hint">Clearing them matters before you type those days in by hand: these rows still carry the bank's own ids, so if the
+              feed ever returns it would post against them and you would hold the transaction twice. Nothing is lost by clearing — the bank's
+              copies come back if it ever delivers them, and a row you typed will take them over then.</div>
+            <div class="cc-foot"><button class="bcn-btn" data-bank-clear-stuck>Clear ${esc(stuck.length)} unfinished row(s)</button></div></div></div>` : ''}
           ${manual ? `<div class="cc-card" data-bank-manual-preview style="margin-top:8px"><div class="cc-pad">
             <div class="cc-title">${esc(manual.rows.length)} row(s) read, ${esc(manual.startDate)} to ${esc(manual.endDate)}</div>
             <div class="cc-note">${esc(manual.outflow)} out of the account, ${esc(manual.inflow)} into it.
@@ -510,6 +545,30 @@
         if (error) throw new Error(error.message);
         if (!data?.source_id) throw new Error('Account mapping could not be confirmed. Refresh bank feeds.');
         await changed(); await load(); status('Account mapped. Sync its transactions when you are ready.', 'pos');
+      });
+      if (event.target.closest('[data-bank-clear-stuck]')) return run(async () => {
+        const stuck = stuckPending.get(accountId) || [];
+        if (!stuck.length) throw new Error('Nothing to clear. Reload bank feeds.');
+        const current = await context();
+        const confirmed = await win.SiloFinanceDialog.ask({
+          title: 'Clear unfinished pending rows',
+          message: `${stuck.length} pending transaction(s) dated ${stuck[0].txn_date} to ${stuck[stuck.length - 1].txn_date} will be removed from this account.\n`
+            + 'None of them is in your books and none has been sent to QuickBooks. If the bank ever delivers them, they come back as new rows '
+            + 'and anything you typed in for those days takes them over.',
+          confirmation: `Remove ${stuck.length} unfinished pending row(s) from this account.`,
+          label: 'Clear them' });
+        if (confirmed !== true) return;
+        // The exact list the person just saw. If a sync has landed since, the
+        // database refuses rather than clearing something they never read.
+        const { data, error } = await db.rpc('plaid_discard_stale_pending',
+          { p_account_id: accountId, p_expected_ids: stuck.map((row) => row.external_transaction_id) });
+        if (error) throw new Error(error.message);
+        if (!data || data.account_id !== accountId || Number(data.discarded) !== stuck.length) {
+          throw new Error('The rows could not be confirmed as cleared. Reload bank feeds before retrying.');
+        }
+        if (company()?.id !== current.companyId) throw new Error('Company changed. Refresh bank feeds.');
+        await changed(); await load();
+        status(`Cleared ${Number(data.discarded)} unfinished pending row(s). You can now enter the days the feed is missing.`, 'pos');
       });
       if (event.target.closest('[data-bank-sync]')) return sync(accountId);
       if (event.target.closest('[data-bank-backfill]')) return run(async () => {

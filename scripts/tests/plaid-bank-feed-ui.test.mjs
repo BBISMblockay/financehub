@@ -61,12 +61,26 @@ function ackTarget(row, checked) {
   return { matches: (value) => value === '[data-bank-manual-ack]',
     closest(value) { return value === '[data-bank-manual-ack]' ? box : value === '[data-bank-account]' ? row : null; } };
 }
-function query(data, writes, table) {
-  let window = null;
-  const q = { select() { return q; }, eq() { return q; }, in() { return q; }, gte() { return q; }, lte() { return q; }, not() { return q; }, order() { return q; }, range(start, end) { window = [start, end]; return q; }, limit() { return q; }, single() { return q; },
+function query(data, writes, table, reads = null) {
+  let window = null, pendingFilter = false;
+  const seen = { table, select: null, eq: {}, in: {} };
+  if (reads) reads.push(seen);
+  const q = { select(columns) { seen.select = columns; return q; },
+    // The page reads card_transactions two ways: one row for feed freshness,
+    // and the list of pending rows an abandoned feed left behind. Only the
+    // second filters on provider_status, so that is what tells them apart.
+    eq(column, value) { seen.eq[column] = value; if (column === 'provider_status' && value === 'pending') pendingFilter = true; return q; },
+    in(column, values) { seen.in[column] = values; return q; }, gte() { return q; }, lte() { return q; }, not() { return q; }, order() { return q; }, range(start, end) { window = [start, end]; return q; }, limit() { return q; }, single() { return q; },
     upsert(value) { writes.push({ table, value: clone(value) }); return q; },
     maybeSingle() { const rows = data[table]; return Promise.resolve({ data: Array.isArray(rows) ? rows[0] ?? null : rows ?? null, error: null }); },
-    then(resolve, reject) { const rows = data[table] || []; return Promise.resolve({ data: window ? rows.slice(window[0], window[1] + 1) : rows, error: null }).then(resolve, reject); } };
+    then(resolve, reject) {
+      // Only the pending-row list is forced to an array; single()-shaped
+      // fixtures elsewhere still come back exactly as written.
+      const rows = pendingFilter
+        ? (Array.isArray(data.stuck_pending) ? data.stuck_pending : [])
+        : (data[table] || []);
+      return Promise.resolve({ data: window ? rows.slice(window[0], window[1] + 1) : rows, error: null }).then(resolve, reject);
+    } };
   return q;
 }
 function harness({ dirty = false, invokeError = null, rpcResult = {}, syncResult = { exceptions: 0, batch_ids: ['batch-one'] }, exchangeResult = { connection_id: 'connection-one' },
@@ -75,12 +89,14 @@ function harness({ dirty = false, invokeError = null, rpcResult = {}, syncResult
   // Both relative to now, so no written-in date decides whether a feed reads
   // as current: a feed that last delivered an hour ago, synced a minute ago.
   receivedAt = new Date(Date.now() - 3600_000).toISOString(),
-  lastSyncedAt = new Date(Date.now() - 60_000).toISOString() } = {}) {
-  const d = dom(), calls = [], writes = [], statuses = [], opened = [], links = [], storageData = new Map();
+  lastSyncedAt = new Date(Date.now() - 60_000).toISOString(),
+  stuckPending = [], dialogAnswer = true } = {}) {
+  const d = dom(), calls = [], writes = [], statuses = [], opened = [], links = [], dialogs = [], reads = [], storageData = new Map();
   const data = {
     plaid_connections: [{ id: 'connection-one', environment: 'sandbox', status: 'active', institution_name: 'Test Bank' }],
     plaid_accounts: [{ id: 'account-one', connection_id: 'connection-one', type: 'depository', name: 'Checking', iso_currency_code: 'USD', source_id: source.id, last_synced_at: lastSyncedAt }],
     plaid_sync_exceptions: [], card_transactions: { batch_id: 'batch-one', provider_updated_at: receivedAt },
+    stuck_pending: stuckPending,
   };
   const user = { id: 'user-one' }, company = { id: 'company-one' };
   const db = { auth: { getSession: async () => ({ data: { session: { user } } }) },
@@ -94,7 +110,7 @@ function harness({ dirty = false, invokeError = null, rpcResult = {}, syncResult
         : action === 'refresh_transactions' ? refreshResult : action === 'backfill_missing' ? backfillResult : {};
       return { data: result, error: null };
     } },
-    from: (table) => query(data, writes, table),
+    from: (table) => query(data, writes, table, reads),
     rpc: async (name, args) => {
       calls.push({ rpc: name, args: clone(args) });
       if (Object.prototype.hasOwnProperty.call(rpcResult, name)) return { error: null, ...rpcResult[name] };
@@ -106,7 +122,7 @@ function harness({ dirty = false, invokeError = null, rpcResult = {}, syncResult
     },
   };
   const window = { location: { href: 'https://silo.test/v2/transactions.html' }, history: { replaceState() {} },
-    SiloFinanceDialog:{ask:async()=>true},
+    SiloFinanceDialog:{ask:async(options)=>{dialogs.push(clone(options));return dialogAnswer;}},
     Plaid: { create(options) { links.push(options); return { open() {}, destroy() {} }; } } };
   const storage = { getItem: (key) => storageData.get(key), setItem: (key, value) => storageData.set(key, value), removeItem: (key) => storageData.delete(key) };
   vm.runInNewContext(moduleSource, { window, URL, Date, console });
@@ -120,7 +136,7 @@ function harness({ dirty = false, invokeError = null, rpcResult = {}, syncResult
   for (const [key, value] of [['qbo', 'qbo-one:1'], ['source', 'source-one'], ['cutover', '2026-09-01']]) {
     const field = new Element(); field.value = value; row.fields.set(`[data-bank-${key}]`, field);
   }
-  return { ...d, db, calls, writes, statuses, opened, links, storageData, window, data, user, company, controller, row,
+  return { ...d, db, calls, writes, statuses, opened, links, dialogs, reads, storageData, window, data, user, company, controller, row,
     bank: window.SiloBankFeeds, get changed() { return changed; } };
 }
 async function pageHarness({ status = 'draft', sourceType = 'bank', origin = 'plaid', amount = 10, treatment = 'unknown', fetchImpl, confirmImpl } = {}) {
@@ -578,6 +594,86 @@ await test('saying so in as many words imports only the readable rows, and untic
   await h.el('bankAccounts').fire('change', { target: fileTarget(h.row, ['Date,Description,Amount',
     '2026-11-01,ACH VENDOR,100.00', '2026-11-02,WIRE FEE,pending'].join('\n'), 'later.csv') });
   assert.match(h.el('bankAccounts').innerHTML, /data-bank-manual-send disabled/);
+});
+
+const STUCK = [
+  { plaid_account_id: 'account-one', external_transaction_id: 'txn-a', txn_date: '2026-10-26', amount: 1707922.84, description: 'COLUMBIA BANK CR CD PMT' },
+  { plaid_account_id: 'account-one', external_transaction_id: 'txn-b', txn_date: '2026-10-26', amount: -92543.31, description: 'SHOPIFY TRANSFER' },
+];
+// A feed that has handed over nothing for days, which is the only state in
+// which a pending row stops being the bank still working.
+const abandoned = { receivedAt: new Date(Date.now() - 8 * 86400_000).toISOString(),
+  lastSyncedAt: new Date(Date.now() - 60_000).toISOString(), stuckPending: STUCK };
+
+await test('pending rows an abandoned feed left behind are offered for clearing, and say why it matters', async () => {
+  const h = harness(abandoned);
+  await h.controller.load();
+  const html = h.el('bankAccounts').innerHTML;
+  assert.match(html, /2 pending transaction\(s\) the bank never finished/);
+  assert.match(html, /not in your books/, 'it says they were never in the books');
+  assert.match(html, /you would hold the transaction twice/, 'and why clearing comes before typing days in');
+  assert.match(html, /come back if it ever delivers them/, 'and that clearing is not the end of them');
+  assert.match(html, /data-bank-clear-stuck/);
+});
+
+await test('only rows in a month still open are offered, because a frozen one could never be cleared', async () => {
+  const h = harness(abandoned);
+  await h.controller.load();
+  // The database clears only rows in an open batch and refuses unless the
+  // list it is handed is exactly that set. A row frozen in an approved month
+  // shown here would make the button fail every time, with nothing the
+  // person could do about it -- so the page must not offer it.
+  const read = h.reads.find((entry) => entry.table === 'card_transactions' && entry.eq.provider_status === 'pending');
+  assert.ok(read, 'the pending rows are read');
+  assert.match(read.select, /card_import_batches!inner\(status\)/, 'the read joins the parent month');
+  // Array.from: the page builds its array inside the vm realm, whose
+  // Array prototype is not this one's, which assert/strict compares.
+  assert.ok(read.in['card_import_batches.status'], "and filters on that month's status");
+  assert.deepEqual(Array.from(read.in['card_import_batches.status']), ['draft', 'categorized']);
+  assert.equal(read.eq.status, 'excluded', 'and never anything that is in the books');
+});
+
+await test('a feed still delivering never offers to clear its pending rows', async () => {
+  // Same rows, but the bank handed something over an hour ago.
+  const h = harness({ stuckPending: STUCK });
+  await h.controller.load();
+  assert.doesNotMatch(h.el('bankAccounts').innerHTML, /data-bank-clear-stuck/,
+    'a pending row on a live feed is the bank working, not a row to remove');
+});
+
+await test('clearing confirms first, sends exactly the rows shown, and reports what went', async () => {
+  const h = harness({ ...abandoned, rpcResult: { plaid_discard_stale_pending:
+    { data: { account_id: 'account-one', discarded: 2, rows: STUCK } } } });
+  await h.controller.load();
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-clear-stuck]') });
+  assert.equal(h.dialogs.length, 1, 'it asks before removing anything');
+  assert.match(h.dialogs[0].message, /2 pending transaction\(s\) dated 2026-10-26 to 2026-10-26/);
+  assert.match(h.dialogs[0].message, /None of them is in your books/);
+  const call = h.calls.find((entry) => entry.rpc === 'plaid_discard_stale_pending');
+  assert.deepEqual(call.args, { p_account_id: 'account-one', p_expected_ids: ['txn-a', 'txn-b'] },
+    'the exact list on screen is what the database is asked to clear');
+  assert.equal(h.statuses.at(-1).kind, 'pos');
+  assert.match(h.statuses.at(-1).message, /enter the days the feed is missing/);
+});
+
+await test('declining the confirmation clears nothing', async () => {
+  const h = harness({ ...abandoned, dialogAnswer: false });
+  await h.controller.load();
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-clear-stuck]') });
+  assert.equal(h.dialogs.length, 1);
+  assert.equal(h.calls.filter((entry) => entry.rpc === 'plaid_discard_stale_pending').length, 0);
+});
+
+await test('a clear the database did not fully confirm never reports success', async () => {
+  for (const reply of [{ data: null }, { data: { account_id: 'account-two', discarded: 2 } },
+    { data: { account_id: 'account-one', discarded: 1 } },
+    { error: { message: 'These rows have changed since the page loaded.' } }]) {
+    const h = harness({ ...abandoned, rpcResult: { plaid_discard_stale_pending: reply } });
+    await h.controller.load();
+    await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-clear-stuck]') });
+    assert.equal(h.statuses.at(-1).kind, 'neg');
+    assert.equal(h.changed, 0, 'nothing downstream is told the books moved');
+  }
 });
 
 await test('cancelling a read file leaves no trace and sends nothing', async () => {

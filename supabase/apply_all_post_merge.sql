@@ -19443,4 +19443,9 @@ $c$select (select count(*) from v_po_header_summary
 -- install/claim/staging tables plus one credentials table. Catalog text only;
 -- no business row changes, no deploy. Before the catalog cleanup.
 \i migrations/20261103190000_chat_catalog_coverage.sql
+-- Clearing pending rows an abandoned feed will never retire: a gated,
+-- audited function that removes only excluded, unapproved rows on an account
+-- the provider has said nothing about for days. Makes hand-entered days safe
+-- on an account with orphaned pending rows. No deploy.
+\i migrations/20261103200000_plaid_discard_stale_pending.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

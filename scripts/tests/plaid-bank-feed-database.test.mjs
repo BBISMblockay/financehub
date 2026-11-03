@@ -193,7 +193,7 @@ try {
     // "End of Plaid fixture checks" marker, so each migration whose check lands after that marker must
     // be applied here first. #684 and #686 appended checks without doing so and
     // the finance-database job went red on every push to main from then on.
-    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql', '20260915220000_plaid_removed_from_status.sql', '20260923120000_card_coding_suggestions.sql', '20260923130000_card_coding_background_preparation.sql', '20260923140000_card_coding_evidence_and_rules.sql', '20261103070000_plaid_manual_days.sql']) {
+    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql', '20260915220000_plaid_removed_from_status.sql', '20260923120000_card_coding_suggestions.sql', '20260923130000_card_coding_background_preparation.sql', '20260923140000_card_coding_evidence_and_rules.sql', '20261103070000_plaid_manual_days.sql', '20261103200000_plaid_discard_stale_pending.sql']) {
       const sql = await readFile(new URL(`supabase/migrations/${later}`, root), 'utf8');
       await db.exec(sql); await db.exec(sql);
     }
@@ -1314,6 +1314,182 @@ try {
     await asFinance(() => q(`update card_transactions set accounting_treatment='purchase' where id=$1`, [placeholder.id]));
     await approve(placeholder.batch_id);
     assert.equal((await load('card_import_batches', placeholder.batch_id)).status, 'approved');
+  });
+
+  /* Clearing pending rows an abandoned feed will never retire (20261103200000).
+
+     A pending row is a promise the bank makes and later keeps, by posting the
+     transaction or listing its id in removed[]. When the institution stops
+     answering, that promise is never kept and SILO has no way to let go of
+     it -- and once hand-entered days exist, those orphaned ids are a double
+     waiting to happen, because the bank's eventual post UPDATES them by id
+     and never meets the claim. */
+  const discard = (account, ids) => asRole('authenticated', account.actor,
+    () => rpc('plaid_discard_stale_pending', [account.id, ids]));
+  const pendingIds = (account) => q(`select external_transaction_id from card_transactions
+    where plaid_account_id=$1 and provider_status='pending' order by external_transaction_id`, [account.id])
+    .then((rows) => rows.map((row) => row.external_transaction_id));
+  // The feed goes quiet: age every provider write past the silence threshold.
+  const silentFor = (account, days) => q(`update card_transactions
+    set provider_updated_at = now() - make_interval(days => $2) where plaid_account_id=$1`, [account.id, days]);
+  async function abandonedAccount({ posted = 1, pending = 2 } = {}) {
+    const account = await bankAccount();
+    const added = [];
+    for (let i = 0; i < posted; i += 1) added.push(providerTransaction(account, { date: '2026-09-10', amount: 10 + i }));
+    for (let i = 0; i < pending; i += 1) added.push(providerTransaction(account, { date: '2026-09-12', amount: 100 + i, pending: true }));
+    await apply(account, { added });
+    await silentFor(account, 10);
+    return account;
+  }
+
+  await test('a feed that stopped answering lets its stuck pending rows go, and nothing else', async () => {
+    const account = await abandonedAccount();
+    const ids = await pendingIds(account);
+    assert.equal(ids.length, 2);
+    const result = await discard(account, ids);
+    assert.equal(result.discarded, 2);
+    assert.equal(result.rows.length, 2, 'and says exactly what it removed');
+    const left = await rowsFor(account);
+    assert.equal(left.length, 1, 'the posted row is untouched');
+    assert.equal(left[0].provider_status, 'posted');
+    // The batch is left telling the truth about itself.
+    const batch = await first('select * from card_import_batches where id=$1', [left[0].batch_id]);
+    assert.equal(batch.row_count, 1);
+    // And it is answerable later, though the rows are gone.
+    const audit = await first(`select * from finance_audit_events where object_id=$1
+      and event_type='stale_pending_discarded'`, [account.id]);
+    assert.equal(audit.old_values.length, 2, 'the audit carries every discarded row in full');
+  });
+
+  await test('the bank can still deliver a cleared transaction, and a typed row claims it', async () => {
+    const account = await abandonedAccount({ posted: 0, pending: 1 });
+    const [id] = await pendingIds(account);
+    const cleared = await first('select * from card_transactions where external_transaction_id=$1', [id]);
+    await discard(account, [id]);
+    assert.equal((await rowsFor(account)).length, 0, 'nothing is left holding that id');
+    // Books cannot wait, so the day is typed in from the bank statement.
+    await manual(account, [{ date: day(-1), amount: Number(cleared.amount), name: 'ACH DEBIT VENDOR' }]);
+    const placeholder = (await rowsFor(account))[0];
+    assert.equal(placeholder.origin, 'manual');
+    await code(placeholder, { expected_provider_updated_at: null });
+    // Months later the institution comes back with that same transaction.
+    await apply(account, { added: [providerTransaction(account,
+      { transaction_id: id, date: day(-1), amount: Number(cleared.amount), name: 'ACH DEBIT VENDOR' })] });
+    const rows = await rowsFor(account);
+    assert.equal(rows.length, 1, 'it lands on the typed row, not beside it');
+    assert.equal(rows[0].id, placeholder.id);
+    assert.equal(rows[0].origin, 'plaid');
+    assert.equal(rows[0].external_transaction_id, id);
+    assert.equal(rows[0].qbo_account_id, 'expense', 'and the coding survives');
+  });
+
+  await test('a feed that is still delivering is never cleared, however stuck a row looks', async () => {
+    const account = await bankAccount();
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-12', amount: 100, pending: true })] });
+    const ids = await pendingIds(account);
+    await assert.rejects(() => discard(account, ids), /still delivering/,
+      'an ordinary pending row is the bank working, not the bank gone');
+    assert.equal((await rowsFor(account)).length, 1);
+    // Only once the provider has said nothing for days does it become clearable.
+    await silentFor(account, 10);
+    assert.equal((await discard(account, ids)).discarded, 1);
+  });
+
+  await test('one row re-sent yesterday means the feed is answering, so nothing on it clears', async () => {
+    const account = await abandonedAccount({ posted: 0, pending: 2 });
+    const ids = await pendingIds(account);
+    // The judgement is about the FEED, not the row: if the bank said anything
+    // at all recently, a pending row is just a pending row again.
+    await q(`update card_transactions set provider_updated_at = now() - interval '1 day'
+      where external_transaction_id=$1`, [ids[0]]);
+    await assert.rejects(() => discard(account, ids), /still delivering/);
+    await assert.rejects(() => discard(account, [ids[1]]), /still delivering/);
+    assert.equal((await rowsFor(account)).length, 2, 'both are left where they are');
+  });
+
+  await test('clearing confirms the exact list the person was shown, or does nothing', async () => {
+    const account = await abandonedAccount({ posted: 0, pending: 2 });
+    const ids = await pendingIds(account);
+    await assert.rejects(() => discard(account, [ids[0]]), /changed since the page loaded/,
+      'a partial list is a stale page, not a selection');
+    await assert.rejects(() => discard(account, [...ids, 'txn-not-here']), /changed since the page loaded/);
+    await assert.rejects(() => discard(account, []), /Name the rows to clear/);
+    assert.equal((await rowsFor(account)).length, 2, 'and none of that removed anything');
+  });
+
+  await test('a pending row in the books, under review, or in an approved batch is never cleared', async () => {
+    // In the books: impossible by construction, and worth pinning. A pending
+    // row cannot be anything but excluded -- the row guard refuses it -- so
+    // nothing this clears can ever have been in the books.
+    const booked = await abandonedAccount({ posted: 0, pending: 1 });
+    const [bookedId] = await pendingIds(booked);
+    await assert.rejects(() => q(`update card_transactions set status='uncoded' where external_transaction_id=$1`, [bookedId]),
+      /must remain excluded/);
+
+    // Under review: a bank change is open against it.
+    const reviewed = await abandonedAccount({ posted: 0, pending: 1 });
+    const [reviewedId] = await pendingIds(reviewed);
+    const row = await first('select * from card_transactions where external_transaction_id=$1', [reviewedId]);
+    await q(`insert into plaid_sync_exceptions(company_entity_id,account_id,transaction_id,
+      external_transaction_id,previous_payload,provider_payload,status)
+      values($1,$2,$3,$4,'{}'::jsonb,'{}'::jsonb,'open')`, [co, reviewed.id, row.id, reviewedId]);
+    await assert.rejects(() => discard(reviewed, [reviewedId]), /bank change is under review/);
+
+    // Frozen: the batch has been approved, so nothing in it may move.
+    const frozen = await abandonedAccount({ posted: 1, pending: 1 });
+    const frozenIds = await pendingIds(frozen);
+    const settled = (await rowsFor(frozen)).find((r) => r.provider_status === 'posted');
+    await code(settled);
+    await approve(settled.batch_id);
+    await assert.rejects(() => discard(frozen, frozenIds), /No abandoned pending rows/);
+    assert.equal((await rowsFor(frozen)).length, 2, 'the approved month is intact');
+  });
+
+  await test('with one row frozen in an approved month and one in an open one, only the open one is eligible', async () => {
+    // The page must not offer the frozen row: the clear takes the exact list
+    // it is given and refuses if that is not the set it would remove, so
+    // offering an ineligible row makes the button fail for ever.
+    const account = await abandonedAccount({ posted: 1, pending: 1 });
+    // A second pending row in a later month, which stays open.
+    await apply(account, { added: [providerTransaction(account, { date: '2026-10-14', amount: 77, pending: true })] });
+    // Age the feed before freezing the month: an approved row cannot be touched.
+    await silentFor(account, 10);
+    const settled = (await rowsFor(account)).find((row) => row.provider_status === 'posted');
+    await code(settled);
+    await approve(settled.batch_id);
+    const all = await pendingIds(account);
+    assert.equal(all.length, 2);
+    const openRow = (await rowsFor(account)).find((row) => row.provider_status === 'pending'
+      && row.batch_id !== settled.batch_id);
+    const frozenRow = (await rowsFor(account)).find((row) => row.provider_status === 'pending'
+      && row.batch_id === settled.batch_id);
+    // Handing it both -- which is what an unfiltered page would do -- is
+    // refused, and no reload could ever make it succeed.
+    await assert.rejects(() => discard(account, all), /changed since the page loaded/);
+    // Handing it only the open month's row clears exactly that one.
+    assert.equal((await discard(account, [openRow.external_transaction_id])).discarded, 1);
+    const left = await rowsFor(account);
+    assert.ok(left.some((row) => row.id === frozenRow.id), 'the approved month keeps its row');
+    assert.ok(!left.some((row) => row.id === openRow.id));
+  });
+
+  await test('clearing is finance work: no signed-out caller, no ordinary member, no other company', async () => {
+    const account = await abandonedAccount({ posted: 0, pending: 1 });
+    const ids = await pendingIds(account);
+    await assert.rejects(() => asRole('anon', null, () => rpc('plaid_discard_stale_pending', [account.id, ids])),
+      /permission denied|Finance access required/i);
+    await assert.rejects(() => asRole('authenticated', outsider, () => rpc('plaid_discard_stale_pending', [account.id, ids])),
+      /Finance access required/);
+    await assert.rejects(() => asRole('authenticated', otherFinance, () => rpc('plaid_discard_stale_pending', [account.id, ids])),
+      /Plaid account not found/, 'another company cannot even see the account');
+    assert.equal((await rowsFor(account)).length, 1, 'and none of that removed anything');
+  });
+
+  await test('a sync in flight holds the clear off, exactly as it holds off an import', async () => {
+    const account = await abandonedAccount({ posted: 0, pending: 1 });
+    const ids = await pendingIds(account);
+    await claim(account);
+    await assert.rejects(() => discard(account, ids), /Wait for account sync to finish/);
   });
 
   console.log(`${passed} Plaid database tests passed (local PostgreSQL only).`);
