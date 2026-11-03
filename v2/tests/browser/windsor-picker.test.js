@@ -10,6 +10,7 @@ const { startSuite } = require('../lib/harness');
   let catalogMode = 'current';
   let releaseCatalog;
   let delayed = false;
+  let failSync = false;
   const fields = [{ id: 'account_id', name: 'Account ID', type: 'TEXT' },
     { id: 'date', name: 'Date', type: 'DATE' },
     { id: 'watch_minutes', name: 'Minutes watched', type: 'NUMERIC' }];
@@ -28,6 +29,13 @@ const { startSuite } = require('../lib/harness');
       if (catalogMode === 'missing_identity') data = { fields: [fields[2]], default_fields: [] };
       if (catalogMode === 'bad_defaults') data = { fields, default_fields: [] };
     }
+    if (body.action === 'set_sync') {
+      data = { sync_enabled: body.enabled };
+      if (failSync) { status = 503; data = { error: 'Could not save sync setting' }; }
+      else await route.request().frame().evaluate(({ id, enabled }) => {
+        window.__FIXTURE_TABLES__.windsor_linked_accounts.find(a => a.id === id).sync_enabled = enabled;
+      }, { id: body.linked_account_id, enabled: body.enabled });
+    }
     if (body.action === 'preview') {
       if (failPreview) { status = 409; data = { error: 'Account identity could not be verified.' }; }
       else data = { fields: body.fields.split(','), returned: 1, rows: [{ account_id: 'own', date: '2026-11-01', watch_minutes: 42 }] };
@@ -38,7 +46,9 @@ const { startSuite } = require('../lib/harness');
     const page = await suite.open('/v2/windsor-test.html', {
       profiles: [{ id: 'test-user', role: 'admin' }],
       windsor_linked_accounts: [{ id: 'a', ds_id: 'youtube', account_id: 'own', account_name: 'First' },
-        { id: 'b', ds_id: 'new_source', account_id: 'own-b', account_name: 'Second' }],
+        { id: 'b', ds_id: 'new_source', account_id: 'own-b', account_name: 'Second', sync_enabled: false },
+        { id: 'c', ds_id: 'klaviyo', account_id: 'own-c', account_name: 'Third', sync_enabled: false },
+        { id: 'd', ds_id: 'tiktok', account_id: 'own-d', account_name: 'Fourth', sync_enabled: true }],
     }, { ready: () => document.querySelectorAll('#accounts button').length >= 2 });
     assert.equal(await page.locator('#mintBtn').isDisabled(), true);
     await page.locator('#sourceSearch').fill('You');
@@ -94,6 +104,21 @@ const { startSuite } = require('../lib/harness');
     await page.waitForFunction(() => !document.getElementById('pvRun').disabled);
     await page.locator('#pvRun').click();
     await page.waitForFunction(() => !document.getElementById('pvTable').hidden);
+    assert.equal(await page.getByRole('button', { name: 'Sync blocked', exact: true }).count(), 2);
+    assert.equal(await page.getByRole('button', { name: 'Sync blocked', exact: true }).first().isDisabled(), true);
+    failSync = true;
+    await page.getByRole('button', { name: 'Enable sync', exact: true }).click();
+    await page.waitForFunction(() => document.getElementById('status').textContent.includes('Could not save sync'));
+    assert.equal(await page.getByRole('button', { name: 'Enable sync', exact: true }).count(), 1);
+    failSync = false;
+    await page.getByRole('button', { name: 'Enable sync', exact: true }).click();
+    await page.waitForFunction(() => document.getElementById('status').textContent.includes('Sync enabled'));
+    assert.deepEqual(calls.filter(c => c.action === 'set_sync').at(-1), { action: 'set_sync', linked_account_id: 'c', enabled: true });
+    assert.equal(await page.getByRole('button', { name: 'Enable sync', exact: true }).count(), 0);
+    await page.locator('#accounts tr').filter({ hasText: 'own-d' }).getByRole('button', { name: 'Pause sync', exact: true }).click();
+    await page.waitForFunction(() => document.getElementById('status').textContent.includes('Sync paused'));
+    assert.deepEqual(calls.filter(c => c.action === 'set_sync').at(-1), { action: 'set_sync', linked_account_id: 'd', enabled: false });
+    await page.waitForFunction(() => Array.from(document.querySelectorAll('#accounts tr')).find(r => r.textContent.includes('own-d')).textContent.includes('Enable sync'));
     console.log('windsor-picker: real page journey, compatibility failures and recovery passed');
   } finally { await suite.close(); }
 })().catch((e) => { console.error(e); process.exitCode = 1; });

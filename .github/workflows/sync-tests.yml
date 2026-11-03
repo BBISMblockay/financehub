@@ -74,6 +74,7 @@ on:
       - 'scripts/lib/windsor-sync-core.mjs'
       - 'supabase/migrations/*windsor_sync.sql'
       - 'supabase/migrations/*windsor_any_connector.sql'
+      - 'supabase/migrations/*windsor_sync_consent.sql'
       - 'v2/integration-bootstrap.js'
       - 'v2/integration-enrolment.js'
       - 'scripts/integration-bootstrap.mjs'
@@ -561,7 +562,7 @@ jobs:
       - name: The Windsor sync's guards, removed, must break it
         run: |
           set -u
-          for m in identity accountfilter payloadcompany selectaccounts resume window refusedcolumn syncoptions directsync huntmerge skiprefused nullnotzero override transient generation split outage; do
+          for m in identity accountfilter payloadcompany selectaccounts resume window refusedcolumn syncoptions huntmerge skiprefused consent sourcecontract grain huntedgrain huntunmatched transient generation split outage; do
             if WINDSOR_SYNC_MUTATION="$m" node --test scripts/tests/windsor-sync.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
@@ -2209,7 +2210,7 @@ jobs:
       - name: The Windsor sync tables' guards, removed, must break it
         run: |
           set -u
-          for m in rls company writes anyrls anycompany anywrites mapcompany mapadmin rewind mapgen; do
+          for m in rls company writes anyrls anycompany anywrites mapcompany mapadmin rewind mapgen consentdefault consentbackfill consentreplay; do
             if WINDSOR_SYNC_DB_MUTATION="$m" node scripts/tests/windsor-sync-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1

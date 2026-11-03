@@ -12,15 +12,12 @@
 //   WINDSOR_SYNC_MUTATION=window          rows outside the requested window are written
 //   WINDSOR_SYNC_MUTATION=refusedcolumn   a refused column field still writes (overwriting with 0)
 //   WINDSOR_SYNC_MUTATION=syncoptions     the sync omits TikTok's include_inactive option
-//   WINDSOR_SYNC_MUTATION=directsync      Meta/Google through Windsor go into marketing_kpis_daily (double count)
 //   WINDSOR_SYNC_MUTATION=huntmerge       hunted values are matched without the account (another client's leak in)
-//   WINDSOR_SYNC_MUTATION=override        a company's field mapping is ignored
 //   WINDSOR_SYNC_MUTATION=transient       a timeout / 5xx on a hunted batch counts as a refusal
 //   WINDSOR_SYNC_MUTATION=generation      a run under an old mapping saves its cursor over a rewind
 //   WINDSOR_SYNC_MUTATION=split           a batch Windsor will not answer whole is not asked in halves
 //   WINDSOR_SYNC_MUTATION=outage          fields are dropped as refused even when Windsor answered nothing
 //   WINDSOR_SYNC_MUTATION=skiprefused     a refused hunted field is asked again in every window
-//   WINDSOR_SYNC_MUTATION=nullnotzero     a measure the connector lacks is stored as 0
 //
 // Run: node --test scripts/tests/windsor-sync.test.mjs
 import assert from 'node:assert/strict';
@@ -42,18 +39,20 @@ async function loadCore() {
   if (MUT === 'payloadcompany') sub('const row = dataset.toRow({ ...r, date: day }, ctx);', 'const row = dataset.toRow({ ...r, date: day }, { ...ctx, companyId: r.company_entity_id ?? ctx.companyId });');
   if (MUT === 'selectaccounts') sub('date_from: from, date_to: to, select_accounts: accountId,', 'date_from: from, date_to: to,');
   if (MUT === 'resume') sub("if (w.kind === 'history') historyFrom = w.from;", '');
-  if (MUT === 'window') sub("if (!DATE_RE.test(day) || day < from || day > to) { outOfWindow += 1; continue; }", "if (!DATE_RE.test(day)) { outOfWindow += 1; continue; }");
   if (MUT === 'refusedcolumn') sub('if (blocking.length) {', 'if (false) {');
   if (MUT === 'syncoptions') sub('options: previewOptions(connector),', '');
-  if (MUT === 'directsync') sub("if (choice.kind === 'ad') {", "if (choice.kind !== 'fixed') {");
   if (MUT === 'huntmerge') sub("const mergeId = (dataset, r) => `${r?.account_id ?? ''}\\u0000", "const mergeId = (dataset, r) => `\\u0000");
-  if (MUT === 'override') sub('const auto = autoDataset(account.ds_id, catalog, overrides);', 'const auto = autoDataset(account.ds_id, catalog);');
   if (MUT === 'transient') sub('return r.transient ? readOnce(io) : r;', 'return r.transient ? { ...r, transient: false } : r;');
   if (MUT === 'generation') sub(".eq('mapping_generation', account.mapping_generation)\n", '\n');
   if (MUT === 'split') sub('      await readSplitting({ ...io, fields: batch, state, out });\n      return out;', '      out.incomplete = true;\n      return out;');
   if (MUT === 'outage') sub('    if (state.answered === 0) incomplete = true;\n    else refused.push(...unanswered);', '    refused.push(...unanswered);');
   if (MUT === 'skiprefused') sub('refusedThisRun.add(f);', '');
-  if (MUT === 'nullnotzero') sub("out[col] = chosen[col] ? numOrNull(r[chosen[col]]) : null;", "out[col] = chosen[col] ? (numOrNull(r[chosen[col]]) ?? 0) : 0;");
+  if (MUT === 'consent') sub('account.sync_enabled !== true', 'false');
+  if (MUT === 'sourcecontract') sub('const datasets = Object.hasOwn(DATASETS, account.ds_id) ? DATASETS[account.ds_id] : null;', 'const datasets = DATASETS[account.ds_id] || DATASETS.tiktok;');
+  if (MUT === 'grain') sub("if (byHash.has(row.row_hash)) throw new Error('Ambiguous duplicate row grain; window not saved');", '');
+  if (MUT === 'window') sub('|| day < from || day > to)', ')');
+  if (MUT === 'huntedgrain') sub('for (const rows of b.rows) validate(rows);', '');
+  if (MUT === 'huntunmatched') sub("if (merged.unmatched) throw new Error('Hunted rows do not match the core row grain; window not saved');", '');
   // Absolute imports so the temp copy resolves the repo's modules.
   src = src.replace("'../../supabase/functions/windsor-broker/windsor-lib.mjs'", `'${new URL('../../supabase/functions/windsor-broker/windsor-lib.mjs', libUrl).href}'`)
     .replace("'./shopify-sync-core.mjs'", `'${new URL('./shopify-sync-core.mjs', libUrl).href}'`);
@@ -100,8 +99,8 @@ function fakeWindsor(rowsFor, catalogs = {}) {
   return { fetchImpl, log, catalogLog };
 }
 
-const tiktokAcct = { id: 'm-t', company_entity_id: A, ds_id: 'tiktok', account_id: '7000000000000000001', account_name: 'A TikTok' };
-const klaviyoAcct = { id: 'm-k', company_entity_id: A, ds_id: 'klaviyo', account_id: 'KA1', account_name: 'A Klaviyo' };
+const tiktokAcct = { id: 'm-t', sync_enabled: true, company_entity_id: A, ds_id: 'tiktok', account_id: '7000000000000000001', account_name: 'A TikTok' };
+const klaviyoAcct = { id: 'm-k', sync_enabled: true, company_entity_id: A, ds_id: 'klaviyo', account_id: 'KA1', account_name: 'A Klaviyo' };
 
 const run = (fake, fw, account, opts = {}) => syncAccount({
   supabase: fake, fetchImpl: fw.fetchImpl, key: KEY, account, now: NOW, historyMonths: 0, maxHistoryWindows: 0, ...opts,
@@ -174,8 +173,9 @@ test('rows dated outside the requested window are not written', async () => {
     { date: '2025-01-01', account_id: '7000000000000000001', campaign_id: 'c1', spend: 1 },
   ]);
   const r = await run(fake, fw, tiktokAcct);
-  assert.deepEqual(fake.rows('marketing_kpis_daily').map((x) => x.day_date), ['2026-11-01']);
-  assert.equal(r.windows[0].datasets.campaign.out_of_window, 2);
+  assert.equal(r.status, 'error');
+  assert.equal(r.rows_written, 0);
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
 });
 
 test('history walks back month by month, saves progress, and resumes there', async () => {
@@ -223,13 +223,14 @@ test('an error is recorded on the mapping row with the key redacted, and does no
   assert.ok(!m.last_sync_error.includes(KEY), 'the owner key never lands in the database');
 });
 
-test('a connector whose field list cannot be read makes no data call and is recorded as an error', async () => {
+test('an unreviewed connector makes no catalog or data call and is recorded as unsupported', async () => {
   const fake = world([{ ...tiktokAcct, id: 'm-x', ds_id: 'mysql' }]);
   const fw = fakeWindsor(() => []);
   const r = await run(fake, fw, { ...tiktokAcct, id: 'm-x', ds_id: 'mysql' });
-  assert.equal(r.status, 'error');
+  assert.equal(r.status, 'unsupported');
   assert.equal(fw.log.length, 0);
-  assert.match(fake.rows('windsor_linked_accounts')[0].last_sync_error, /field list/);
+  assert.equal(fw.catalogLog.length, 0);
+  assert.match(fake.rows('windsor_linked_accounts')[0].last_sync_error, /row-grain contract/);
 });
 
 test('a connector whose field list has no date or account cannot place a row: unsupported', async () => {
@@ -243,7 +244,7 @@ test('a connector whose field list has no date or account cannot place a row: un
 
 // ── Any connector, mapped from Windsor's field list ─────────────────────────
 const PIN = '549000000001';
-const pinAcct = { id: 'm-p', company_entity_id: A, ds_id: 'pinterest', account_id: PIN, account_name: 'A Pins' };
+const pinAcct = { id: 'm-p', company_entity_id: A, ds_id: 'tiktok', sync_enabled: true, account_id: PIN, account_name: 'A Pins' };
 const pinCatalog = [
   { id: 'date', type: 'DATE', table: null }, { id: 'account_id', type: 'TEXT' }, { id: 'account_name', type: 'TEXT' },
   { id: 'campaign_id', type: 'TEXT', table: 'Campaign' }, { id: 'campaign', type: 'TEXT', table: 'Campaign' },
@@ -253,87 +254,15 @@ const pinCatalog = [
   { id: 'video_p100', type: 'NUMERIC', table: 'Video' },
 ];
 
-test('an ad-like connector with no hand-made mapping lands in marketing_kpis_daily with every numeric field', async () => {
-  const fake = world([pinAcct]);
-  const fw = fakeWindsor((c, u) => {
-    assert.equal(c, 'pinterest');
-    assert.equal(u.searchParams.get('select_accounts'), PIN);
-    const f = u.searchParams.get('fields').split(',');
-    const base = { date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', campaign: 'Fall' };
-    if (f.includes('spend')) {
-      return [{ ...base, account_name: 'A Pins', spend: 12, impressions: 3000, clicks: 40, total_conversions: 3, company_entity_id: B }];
-    }
-    // Hunted batch: the identity fields come along so it can be matched.
-    assert.ok(f.includes('date') && f.includes('account_id') && f.includes('campaign_id'));
-    const out = { ...base };
-    for (const k of f) if (!(k in out)) out[k] = k === 'saves' ? 7 : k === 'ctr' ? 1.3 : 99;
-    // The identity failure cases below exercise foreign hunted rows.
-    return [out];
-  }, { pinterest: pinCatalog });
-  const r = await run(fake, fw, pinAcct);
-  assert.equal(r.status, 'success');
-  assert.equal(r.mapped_to, 'marketing_kpis_daily');
-  const rows = fake.rows('marketing_kpis_daily');
-  assert.equal(rows.length, 1, 'only this account\'s campaign row');
-  const row = rows[0];
-  assert.equal(row.company_entity_id, A);
-  assert.equal(row.platform, 'pinterest_ads');
-  assert.equal(row.source, 'windsor');
-  assert.equal(row.spend, 12);
-  assert.equal(row.conversions, 3);
-  assert.equal(row.extra.saves, 7, 'a hunted field lands on the row');
-  assert.equal(row.extra.ctr, 1.3);
-  assert.equal(row.extra.video_p100, 99);
-  assert.deepEqual(row.extra._unmapped, ['revenue'], 'a measure the connector lacks is said, not shown as zero');
-  assert.equal(row.row_hash, hashRow([A, 'pinterest_ads', 'pinterest_ads', PIN, 'pc1', '2026-11-01']));
-  assert.ok(fw.log.every((u) => u.searchParams.get('select_accounts') === PIN), 'every batch is limited to the one account');
-});
-
-test('Meta through Windsor never lands in marketing_kpis_daily (SILO syncs it directly)', async () => {
-  const acct = { ...pinAcct, id: 'm-f', ds_id: 'facebook' };
-  const fake = world([acct]);
-  const fw = fakeWindsor(() => [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', campaign: 'Fall', spend: 12, impressions: 3, clicks: 1 }],
-    { facebook: pinCatalog });
-  const r = await run(fake, fw, acct);
-  assert.equal(r.mapped_to, 'windsor_metrics_daily');
-  assert.equal(fake.rows('marketing_kpis_daily').length, 0);
-  const row = fake.rows('windsor_metrics_daily')[0];
-  assert.equal(row.ds_id, 'facebook');
-  assert.equal(row.spend, 12);
-  assert.equal(row.object_type, 'campaign');
-});
-
-test('a non-ad connector lands in windsor_metrics_daily with common columns and NULL for what it lacks', async () => {
-  const acct = { id: 'm-y', company_entity_id: A, ds_id: 'yotpo', account_id: 'Y1', account_name: 'A Reviews' };
-  const fake = world([acct]);
-  const fw = fakeWindsor((c, u) => {
-    const f = u.searchParams.get('fields').split(',');
-    if (f.includes('orders')) return [{ date: '2026-11-01', account_id: 'Y1', orders: 5, revenue: '1,200', company_entity_id: B }];
-    return [{ date: '2026-11-01', account_id: 'Y1', reviews: 9 }];
-  }, { yotpo: [{ id: 'date', type: 'DATE' }, { id: 'account_id', type: 'TEXT' }, { id: 'orders', type: 'NUMERIC', table: 't' },
-    { id: 'revenue', type: 'NUMERIC', table: 't' }, { id: 'reviews', type: 'NUMERIC', table: 'r' }] });
-  const r = await run(fake, fw, acct);
-  assert.equal(r.status, 'success');
-  const row = fake.rows('windsor_metrics_daily')[0];
-  assert.equal(row.company_entity_id, A);
-  assert.equal(row.object_type, 'account');
-  assert.equal(row.object_id, '');
-  assert.equal(row.orders, 5);
-  assert.equal(row.revenue, 1200);
-  assert.equal(row.spend, null, 'not reported is NULL, never 0');
-  assert.equal(row.metrics.reviews, 9);
-  assert.equal(row.row_hash, hashRow([A, 'windsor', 'yotpo', 'Y1', '', '2026-11-01']));
-});
-
 test('a hunted field Windsor refuses is recorded by name and not asked again this run; the row still lands', async () => {
   const fake = world([pinAcct]);
   let refusedAsks = 0;
   const fw = fakeWindsor((c, u) => {
     const f = u.searchParams.get('fields').split(',');
     if (f.includes('video_p100')) { refusedAsks += 1; return { status: 400, text: 'Unknown field: video_p100' }; }
-    if (f.includes('spend')) return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1 }];
-    return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', saves: 2 }];
-  }, { pinterest: pinCatalog });
+    if (f.includes('spend')) return [{ date: u.searchParams.get('date_to'), account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1 }];
+    return [{ date: u.searchParams.get('date_to'), account_id: PIN, campaign_id: 'pc1', saves: 2 }];
+  }, { tiktok: pinCatalog });
   const r = await run(fake, fw, pinAcct, { historyMonths: 3, maxHistoryWindows: 2 });
   assert.equal(r.status, 'success', 'a refused hunted field does not fail the account');
   assert.deepEqual(r.refused_fields, ['video_p100']);
@@ -342,30 +271,13 @@ test('a hunted field Windsor refuses is recorded by name and not asked again thi
   assert.equal(fake.rows('marketing_kpis_daily')[0].extra.saves, 2);
 });
 
-test('a company\'s mapping picks the field for a measure; an unknown field is ignored and said', async () => {
-  const fake = world([pinAcct]);
-  const fw = fakeWindsor((c, u) => {
-    const f = u.searchParams.get('fields').split(',');
-    if (f.includes('spend')) {
-      assert.ok(f.includes('saves'), 'the chosen field is read with the core fields');
-      assert.ok(!f.includes('total_conversions'), 'the automatic pick is replaced, not added');
-      return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1, saves: 6, video_p100: 2 }];
-    }
-    return [];
-  }, { pinterest: pinCatalog });
-  const r = await run(fake, fw, pinAcct, { overrides: { conversions: 'saves', revenue: 'not_a_field' } });
-  const row = fake.rows('marketing_kpis_daily')[0];
-  assert.equal(row.conversions, 6);
-  assert.deepEqual(r.ignored_mappings, ['revenue']);
-});
-
 test('before 20261103080000 is applied: hand-made connectors run as before, others wait, no new column is written', async () => {
   const fake = world([tiktokAcct, pinAcct]);
   const fw = fakeWindsor((c) => (c === 'tiktok' ? [{ date: '2026-11-01', account_id: '7000000000000000001', campaign_id: 'c1', spend: 2 }] : []),
-    { pinterest: pinCatalog });
+    { tiktok: pinCatalog });
   const t = await run(fake, fw, tiktokAcct, { anyConnector: false });
   assert.equal(t.status, 'success');
-  const p = await run(fake, fw, pinAcct, { anyConnector: false });
+  const p = await run(fake, fw, { ...pinAcct, ds_id: 'pinterest' }, { anyConnector: false });
   assert.equal(p.status, 'unsupported');
   assert.equal(fake.rows('marketing_kpis_daily').length, 1);
   for (const m of fake.rows('windsor_linked_accounts')) assert.ok(!('refused_fields' in m), 'refused_fields does not exist yet');
@@ -381,7 +293,7 @@ test('a hunted batch Windsor does not answer (timeout / 5xx / 429) is not a refu
     if (f.includes('spend')) return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1 }];
     if (fail) { failedAsks += 1; return { status: 503, text: 'upstream timeout' }; }
     return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', saves: 7, ctr: 1, video_p100: 3 }];
-  }, { pinterest: pinCatalog });
+  }, { tiktok: pinCatalog });
   const first = await run(fake, fw, acct);
   assert.equal(first.status, 'success');
   assert.equal(fake.rows('marketing_kpis_daily')[0].extra.saves, 7);
@@ -403,17 +315,17 @@ test('a hunted batch that is too slow as a whole is asked again in halves, and o
   const asks = [];
   const fw = fakeWindsor((c, u) => {
     const f = u.searchParams.get('fields').split(',');
-    if (f.includes('spend')) return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1 }];
+    if (f.includes('spend')) return [{ date: u.searchParams.get('date_to'), account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1 }];
     asks.push(f);
     // Windsor times out on any ask that includes video_p100.
     if (f.includes('video_p100')) return { status: 504, text: 'gateway timeout' };
-    const row = { date: '2026-11-01', account_id: PIN, campaign_id: 'pc1' };
+    const row = { date: u.searchParams.get('date_to'), account_id: PIN, campaign_id: 'pc1' };
     if (f.includes('saves')) row.saves = 7;
     if (f.includes('ctr')) row.ctr = 1.5;
     return [row];
-  }, { pinterest: pinCatalog });
+  }, { tiktok: pinCatalog });
   const r = await run(fake, fw, acct, { historyMonths: 6, maxHistoryWindows: 1 });
-  const stored = fake.rows('marketing_kpis_daily').find((x) => x.day_date === '2026-11-01');
+  const stored = fake.rows('marketing_kpis_daily').find((x) => x.day_date === '2026-11-02');
   assert.ok(stored, 'the window is written');
   assert.equal(stored.extra.saves, 7, 'fields that answer in a smaller ask are kept');
   assert.equal(stored.extra.ctr, 1.5);
@@ -434,7 +346,7 @@ test('when Windsor answers no hunted ask at all, splitting stops early and the w
     if (f.includes('spend')) return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1 }];
     hunted += 1;
     return { status: 503, text: 'down' };
-  }, { pinterest: pinCatalog });
+  }, { tiktok: pinCatalog });
   const r = await run(fake, fw, acct, { historyMonths: 6, maxHistoryWindows: 1 });
   assert.equal(r.status, 'partial');
   assert.deepEqual(r.refused_fields, []);
@@ -454,7 +366,7 @@ test('a mapping saved while a run is in flight is not undone by that run', async
       return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1 }];
     }
     return [];
-  }, { pinterest: pinCatalog });
+  }, { tiktok: pinCatalog });
   const r = await run(fake, fw, acct, { historyMonths: 6, maxHistoryWindows: 2 });
   const m = fake.rows('windsor_linked_accounts')[0];
   assert.equal(m.history_from, null, 'the rewind stands; the next run re-pulls history under the new mapping');
@@ -474,7 +386,7 @@ test('a hunted batch refused without naming a field is retried per Windsor table
     if (f.includes('spend')) return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1 }];
     if (f.includes('video_p100')) return { status: 400, text: 'incompatible combination' };
     return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', saves: 4, total_conversions: 1, ctr: 2 }];
-  }, { pinterest: pinCatalog });
+  }, { tiktok: pinCatalog });
   const r = await run(fake, fw, pinAcct);
   assert.deepEqual(r.refused_fields, ['video_p100'], 'only the table that cannot combine is lost');
   assert.equal(fake.rows('marketing_kpis_daily')[0].extra.saves, 4);
@@ -533,12 +445,12 @@ test('the sync asks TikTok for inactive campaigns too; Klaviyo gets no options',
 });
 
 
-for (const ds of ['tiktok', 'youtube', 'some_new_source']) {
+for (const ds of ['tiktok']) {
   for (const mode of ['mixed', 'mismatched', 'missing']) {
     test(`${ds}: ${mode} identity fails without writes or progress, and retries the same window`, async () => {
       const account = { ...tiktokAcct, ds_id: ds, history_from: '2026-09-01', synced_through: '2026-10-01' };
       const fake = world([account]);
-      const own = { account_id: account.account_id, date: '2026-11-01', impressions: 2 };
+      const own = { account_id: account.account_id, date: '2026-11-01', campaign_id: 'c', impressions: 2 };
       let bad = true;
       const fw = fakeWindsor(() => bad ? (mode === 'mixed' ? [own, { ...own, account_id: 'other' }]
         : [{ ...own, account_id: mode === 'missing' ? null : 'other' }]) : [own],
@@ -562,7 +474,7 @@ for (const ds of ['tiktok', 'youtube', 'some_new_source']) {
 test('foreign hunted metrics fail before writing core rows or advancing', async () => {
   const fake = world([pinAcct]);
   const fw = fakeWindsor((c, u) => [{ account_id: u.searchParams.get('fields').includes('spend') ? PIN : 'other',
-    date: '2026-11-01', campaign_id: 'pc1', spend: 10, saves: 999 }], { pinterest: pinCatalog });
+    date: '2026-11-01', campaign_id: 'pc1', spend: 10, saves: 999 }], { tiktok: pinCatalog });
   const result = await run(fake, fw, pinAcct);
   assert.equal(result.status, 'error');
   assert.equal(result.rows_written, 0);
@@ -584,14 +496,83 @@ test('hunted merging cannot borrow another account metrics', () => {
 });
 
 
-test('Facebook account aliases are not applied to another source during sync', async () => {
-  for (const ds of ['youtube', 'facebook']) {
-    const account = { ...tiktokAcct, ds_id: ds, account_id: '42' };
+
+for (const ds of ['googlesheets', 'youtube', 'mysql', 'pinterest', 'some_new_source', '__proto__', 'constructor']) {
+  test(`${ds}: consent cannot enable an unreviewed arbitrary schema`, async () => {
+    const account = { ...tiktokAcct, ds_id: ds, sync_enabled: true, history_from: '2026-01-01' };
     const fake = world([account]);
-    const fw = fakeWindsor(() => [{ account_id: 'act_42', date: '2026-11-01', impressions: 2 }],
-      { [ds]: [{ id: 'account_id' }, { id: 'date' }, { id: 'impressions', type: 'NUMERIC' }] });
-    const result = await run(fake, fw, account);
-    assert.equal(result.status, ds === 'facebook' ? 'success' : 'error');
-    assert.equal(result.rows_written, ds === 'facebook' ? 1 : 0);
+    const fw = fakeWindsor(() => { throw new Error('Must not fetch unsupported data'); });
+    const r = await run(fake, fw, account);
+    assert.equal(r.status, 'unsupported');
+    assert.equal(r.rows_written, 0);
+    assert.equal(fw.catalogLog.length, 0);
+    assert.equal(fake.rows('windsor_linked_accounts')[0].history_from, account.history_from);
+    assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
+  });
+}
+for (const consent of [false, undefined, null, 'true']) {
+  test(`explicit boolean consent required: ${consent}`, async () => {
+    const account = { ...tiktokAcct, sync_enabled: consent };
+    const fake = world([account]); const fw = fakeWindsor(() => []);
+    const r = await run(fake, fw, account);
+    assert.equal(r.status, 'paused'); assert.equal(fw.catalogLog.length, 0);
+    assert.equal(fake.calls.updates.length, 0);
+  });
+}
+for (const date of [null, undefined, '', '2026-02-30', '2026-11-01T12:30:00Z', '2026-13-01', '2026-11-03']) {
+  test(`invalid date ${date} fails before progress`, async () => {
+    const fake = world([tiktokAcct]);
+    const fw = fakeWindsor(() => [{ account_id: tiktokAcct.account_id, date, campaign_id: 'c', spend: 2 }]);
+    const r = await run(fake, fw, tiktokAcct);
+    assert.equal(r.status, 'error'); assert.match(r.error, /date/);
+    assert.equal(r.rows_written, 0); assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
+  });
+}
+test('distinct same-day campaigns survive, ambiguous same-key text rows fail, retry remains possible', async () => {
+  const fake = world([tiktokAcct]);
+  const row = { account_id: tiktokAcct.account_id, date: '2026-11-01', campaign_id: 'c1', campaign: 'First', spend: 2 };
+  let rows = [row, { ...row, campaign: 'Different text', spend: 3 }];
+  const fw = fakeWindsor(() => rows);
+  const bad = await run(fake, fw, tiktokAcct);
+  assert.equal(bad.status, 'error'); assert.match(bad.error, /grain/);
+  assert.equal(bad.rows_written, 0); assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
+  rows = [row, { ...row, campaign_id: 'c2', campaign: 'Second' }];
+  const good = await run(fake, fw, tiktokAcct);
+  assert.equal(good.status, 'success');
+  assert.deepEqual(fake.rows('marketing_kpis_daily').map(r => r.campaign_name), ['First', 'Second']);
+});
+for (const kind of ['duplicate', 'missing-date', 'unmatched']) {
+  test(`hunted ${kind} fails before core writes and cursor advancement`, async () => {
+    const fake = world([pinAcct]);
+    const base = { account_id: PIN, date: '2026-11-01', campaign_id: 'pc1' };
+    const fw = fakeWindsor((c, u) => {
+      if (u.searchParams.get('fields').includes('spend')) return [{ ...base, spend: 1 }];
+      if (kind === 'duplicate') return [{ ...base, saves: 1 }, { ...base, saves: 2 }];
+      return [{ ...base, ...(kind === 'missing-date' ? { date: null } : { campaign_id: 'other' }), saves: 9 }];
+    }, { tiktok: pinCatalog });
+    const r = await run(fake, fw, pinAcct);
+    assert.equal(r.status, 'error'); assert.equal(r.rows_written, 0);
+    assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
+  });
+}
+
+test('raw core fetch validates identity before exposing rows to any caller', async () => {
+  const fw = fakeWindsor(() => [{ account_id: 'foreign', date: '2026-11-01' }]);
+  await assert.rejects(core.fetchDataset({ key: KEY, fetchImpl: fw.fetchImpl, connector: 'tiktok',
+    accountId: tiktokAcct.account_id, dataset: DATASETS.tiktok[0], from: '2026-11-01', to: '2026-11-02' }), /identity/);
+});
+
+test('missing campaign/flow identity cannot become an account-level row', () => {
+  for (const dataset of [DATASETS.tiktok[0], DATASETS.klaviyo[1], DATASETS.klaviyo[2]]) {
+    assert.throws(() => core.prepareRows([{ account_id: 'own', date: '2026-11-01', spend: 2 }], {
+      accountId: 'own', from: '2026-11-01', to: '2026-11-02', dataset, ctx: { companyId: A, dsId: 'klaviyo' },
+    }), /object identity/);
   }
+});
+
+test('explicit report text and stable object IDs are not truncated to 500 characters', () => {
+  const long = 'x'.repeat(700);
+  const row = DATASETS.klaviyo[1].toRow({ date: '2026-11-01', account_id: 'own', campaign_id: long, subject: long }, { companyId: A, accountId: 'own' });
+  assert.equal(row.object_id, long); assert.equal(row.attributes.subject, long);
+  assert.notEqual(row.row_hash, DATASETS.klaviyo[1].toRow({ date: '2026-11-01', campaign_id: long + 'y' }, { companyId: A, accountId: 'own' }).row_hash);
 });

@@ -52,11 +52,11 @@ const anyConnector = !anyErr;
 if (!anyConnector) console.log(`Any-connector tables not found (${anyErr.message}); only TikTok and Klaviyo run until 20261103080000 is applied.`);
 
 let q = supabase.from('windsor_linked_accounts')
-  .select(`id, company_entity_id, ds_id, account_id, account_name, history_from${anyConnector ? ', mapping_generation' : ''}`)
+  .select(`id, company_entity_id, ds_id, account_id, account_name, history_from, sync_enabled${anyConnector ? ', mapping_generation' : ''}`)
   .order('company_entity_id').order('ds_id').order('account_id');
 if (ONLY_COMPANY_ID) q = q.eq('company_entity_id', ONLY_COMPANY_ID);
 const { data: accounts, error } = await q;
-if (error) throw new Error(`could not read windsor_linked_accounts: ${error.message}`);
+if (error) throw new Error(`could not read Windsor sync consent (apply the sync consent migration first): ${error.message}`);
 
 console.log(`${accounts.length} Windsor account(s); history ${HISTORY_MONTHS} months, `
   + `${MAX_HISTORY_WINDOWS} history window(s) per account, ${MAX_CALLS} call budget${DRY_RUN ? ', DRY RUN' : ''}`);

@@ -266,3 +266,60 @@ await test('a re-run is a no-op', async () => {
 });
 
 console.log(`\n${passed} passed`);
+
+// Windsor storage -> existing MCP query boundary. Real Windsor migrations and
+// sync transformations, synthetic Windsor responses and grant/session helpers.
+await test('Windsor explicit reports preserve text and same-day objects through tenant-scoped MCP reads', async () => {
+  const { syncAccount } = await import('../lib/windsor-sync-core.mjs');
+  const { createFakeSupabase } = await import('./lib/fake-supabase.mjs');
+  await db.exec(`
+    create table entities(id uuid primary key);
+    insert into entities values ('${A}'),('${B}');
+    create table auth.users(id uuid primary key);
+    create function is_admin_user() returns boolean language sql as $$ select true $$;
+    create function attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;
+    create table sync_jobs(id uuid primary key, job_type text check (job_type in ('test_connection','other')));
+    create table marketing_kpis_daily(platform text constraint marketing_kpis_daily_platform_check check (platform in ('tiktok_ads')));
+  `);
+  for (const name of ['20261102220000_windsor_connections', '20261103060000_windsor_sync', '20261103080000_windsor_any_connector']) {
+    await db.exec(readFileSync(`supabase/migrations/${name}.sql`, 'utf8'));
+  }
+  for (const [company, accountId] of [[A, 'KA'], [B, 'KB']]) {
+    const account = { id: `account-${accountId}`, company_entity_id: company, ds_id: 'klaviyo', account_id: accountId, sync_enabled: true };
+    const fake = createFakeSupabase(); fake.tables.set('windsor_linked_accounts', [account]);
+    const fetchImpl = async (url) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith('/fields')) return new Response('[]');
+      const fields = u.searchParams.get('fields');
+      const common = { account_id: accountId, date: '2026-11-01' };
+      const rows = fields.includes('campaign_report_delivered')
+        ? [{ ...common, campaign_id: 'c1', subject: `${accountId} first`, campaign_report_conversion_value: 10 },
+           { ...common, campaign_id: 'c2', subject: `${accountId} second`, campaign_report_conversion_value: 20 }]
+        : fields.includes('flow_id') ? [{ ...common, flow_id: 'f1', flow_message_id: 'm1', flow_status: 'live', flow_conversion_value: 3 }]
+        : [{ ...common, placed_order_value: 30 }];
+      return new Response(JSON.stringify({ data: rows }));
+    };
+    const result = await syncAccount({ supabase: fake, fetchImpl, key: 'synthetic-only', account,
+      now: new Date('2026-11-03T18:00:00Z'), historyMonths: 0, maxHistoryWindows: 0 });
+    assert.equal(result.status, 'success');
+    for (const row of fake.rows('klaviyo_performance_daily')) {
+      await db.query('insert into klaviyo_performance_daily select * from jsonb_populate_record(null::klaviyo_performance_daily, $1::jsonb)', [JSON.stringify({ ...row, id: crypto.randomUUID() })]);
+    }
+  }
+  await db.exec(`set test.company = '${A}'; set test.scopes = 'reports:read,data:read';`);
+  const sql = "select account_id,object_id,attributes->>'subject' as subject,revenue from klaviyo_performance_daily where report='campaign' order by object_id";
+  assert.deepEqual((await query(sql)).rows, [
+    { account_id: 'KA', object_id: 'c1', subject: 'KA first', revenue: 10 },
+    { account_id: 'KA', object_id: 'c2', subject: 'KA second', revenue: 20 },
+  ]);
+  assert.equal((await query(`select count(*)::int n from klaviyo_performance_daily where company_entity_id='${B}'`)).rows[0].n, 0);
+  await db.exec(`set test.company = '${B}'`);
+  assert.deepEqual((await query(sql)).rows.map(r => r.subject), ['KB first', 'KB second']);
+  await db.exec("set test.scopes = 'reports:read'");
+  await assert.rejects(query(sql), /insufficient_scope/);
+  await db.exec("set test.scopes = 'reports:read,data:read'");
+  await assert.rejects(query('delete from klaviyo_performance_daily returning *'), /SELECT|select|read.only|invalid_sql/);
+  await assert.rejects(query('select access_token from windsor_links'), /permission denied|not.*allowed|refused/);
+  // This test exercises existing access; no new MCP scope, grant or public RPC.
+});
+await db.close();

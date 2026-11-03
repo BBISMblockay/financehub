@@ -218,3 +218,30 @@ assert.equal(bSees.rows[0].n, 0, 'B never sees A\'s mapping');
 assert.equal((await db.query("select has_function_privilege('authenticated', 'public.windsor_field_mappings_rewind()', 'execute') x")).rows[0].x, false);
 
 console.log('windsor-sync-database: ok');
+
+// Consent rollout: only already-successful fixed datasets continue. New and
+// unsupported connections never become enabled through migration replay.
+await db.exec(`create function public.refresh_chat_schema_catalog() returns integer language sql as $$ select 0 $$;`);
+for (const [ds, acct, status] of [['tiktok', 'live-t', 'success'], ['klaviyo', 'live-k', 'success'], ['youtube', 'unknown-y', 'success'], ['tiktok', 'untested-t', null]]) {
+  await db.query("insert into windsor_linked_accounts(company_entity_id,link_id,ds_id,account_id,last_sync_status) values($1,'11111111-1111-1111-1111-111111111111',$2,$3,$4)", [A, ds, acct, status]);
+}
+let consent = await readFile(new URL('../../supabase/migrations/20261103201000_windsor_sync_consent.sql', import.meta.url), 'utf8');
+if (MUT === 'consentdefault') consent = consent.replace('boolean not null default false', 'boolean not null default true');
+if (MUT === 'consentbackfill') consent = consent.replace("and last_sync_status = 'success'", "and false");
+if (MUT === 'consentreplay') consent += "\nupdate windsor_linked_accounts set sync_enabled=true where ds_id in ('tiktok','klaviyo') and last_sync_status='success';";
+await db.exec(consent);
+const enabled = async () => (await db.query('select account_id from windsor_linked_accounts where sync_enabled order by account_id')).rows.map(r => r.account_id);
+assert.deepEqual(await enabled(), ['live-k', 'live-t']);
+await db.query("update windsor_linked_accounts set sync_enabled=false where account_id='live-t'");
+await db.exec(consent);
+assert.deepEqual(await enabled(), ['live-k'], 'migration replay never resumes a paused account');
+await db.query("insert into windsor_linked_accounts(company_entity_id,link_id,ds_id,account_id) values($1,'11111111-1111-1111-1111-111111111111','klaviyo','new-k')", [A]);
+assert.deepEqual(await enabled(), ['live-k'], 'even new fixed sources default paused');
+assert.equal(await verifyStatusOf('Windsor sync consent'), 'ok');
+await assert.rejects(asAdmin(A, true, () => db.query("update windsor_linked_accounts set sync_enabled=true")), /permission denied/);
+const ownConsent = await asAdmin(B, true, () => db.query('select account_id,sync_enabled from windsor_linked_accounts'));
+assert.deepEqual(ownConsent.rows.map(r => r.account_id), ['PB']);
+assert.equal(ownConsent.rows[0].sync_enabled, false);
+console.log('windsor consent: defaults, backfill, replay and tenant permissions passed');
+
+await db.close();
