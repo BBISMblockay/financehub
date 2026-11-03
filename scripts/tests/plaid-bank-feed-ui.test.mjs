@@ -46,6 +46,15 @@ const chart = [{ id: '1', name: 'Cash', type: 'Bank', connectionId: 'qbo-one' },
 const source = { id: 'source-one', display_name: 'Checking', source_type: 'bank', ingest_mode: 'plaid', qbo_connection_id: 'qbo-one', authoritative_from: '2026-09-01' };
 const transaction = { id: 'txn-one', origin: 'plaid', provider_status: 'posted', amount: 10, currency:'USD', description: 'Merchant', status: 'uncoded', accounting_treatment: 'unknown', txn_date: '2026-09-12' };
 function target(row, selector) { return { closest(value) { return value === selector ? this : value === '[data-bank-account]' || value === '[data-bank-exception]' ? row : null; } }; }
+// A change event from the hidden file input: closest() answers for the input
+// and for its account row, and the file carries text() the way a real File does.
+function fileTarget(row, text, name = 'export.csv') {
+  const input = { files: [{ name, text: async () => text }], value: name };
+  return { matches: (value) => value === '[data-bank-manual-file]',
+    closest(value) {
+    return value === '[data-bank-manual-file]' ? input : value === '[data-bank-account]' ? row : null;
+  } };
+}
 function query(data, writes, table) {
   let window = null;
   const q = { select() { return q; }, eq() { return q; }, in() { return q; }, gte() { return q; }, lte() { return q; }, not() { return q; }, order() { return q; }, range(start, end) { window = [start, end]; return q; }, limit() { return q; }, single() { return q; },
@@ -54,7 +63,7 @@ function query(data, writes, table) {
     then(resolve, reject) { const rows = data[table] || []; return Promise.resolve({ data: window ? rows.slice(window[0], window[1] + 1) : rows, error: null }).then(resolve, reject); } };
   return q;
 }
-function harness({ dirty = false, invokeError = null, syncResult = { exceptions: 0, batch_ids: ['batch-one'] }, exchangeResult = { connection_id: 'connection-one' },
+function harness({ dirty = false, invokeError = null, rpcResult = {}, syncResult = { exceptions: 0, batch_ids: ['batch-one'] }, exchangeResult = { connection_id: 'connection-one' },
   refreshResult = { account_id: 'account-one', requested: true },
   backfillResult = { account_id: 'account-one', start_date: '2026-10-19', end_date: '2026-11-03', examined: 9, imported: 4, batch_ids: ['batch-one'], exceptions: 0 },
   // Both relative to now, so no written-in date decides whether a feed reads
@@ -79,7 +88,16 @@ function harness({ dirty = false, invokeError = null, syncResult = { exceptions:
         : action === 'refresh_transactions' ? refreshResult : action === 'backfill_missing' ? backfillResult : {};
       return { data: result, error: null };
     } },
-    from: (table) => query(data, writes, table), rpc: async (name, args) => { calls.push({ rpc: name, args: clone(args) }); return { data: { source_id: source.id } }; },
+    from: (table) => query(data, writes, table),
+    rpc: async (name, args) => {
+      calls.push({ rpc: name, args: clone(args) });
+      if (Object.prototype.hasOwnProperty.call(rpcResult, name)) return { error: null, ...rpcResult[name] };
+      if (name === 'plaid_import_manual_days') {
+        return { data: { account_id: args.p_account_id, imported: args.p_rows.length,
+          start_date: args.p_rows[0]?.date, end_date: args.p_rows.at(-1)?.date, batch_ids: ['batch-one'] }, error: null };
+      }
+      return { data: { source_id: source.id }, error: null };
+    },
   };
   const window = { location: { href: 'https://silo.test/v2/transactions.html' }, history: { replaceState() {} },
     SiloFinanceDialog:{ask:async()=>true},
@@ -350,6 +368,146 @@ await test('after the add-on is known missing, an empty import stops recommendin
   await able.el('bankAccounts').fire('click', { target: target(able.row, '[data-bank-backfill]') });
   assert.match(able.statuses.at(-1).message, /ask the bank to re-fetch/i);
 });
+
+// ── Reading the days a stalled feed never delivered out of a bank export.
+// These rows reach the books with no provider record behind them, so the
+// parser refuses what it cannot read rather than guessing, and the sign
+// convention is made visible instead of assumed.
+const parse = (text, options) => {
+  const parsed = harness().bank.parseManualDays(text, options);
+  // The module runs in its own vm realm, so the objects it returns carry that
+  // realm's prototypes and assert/strict compares prototypes. Bring them over.
+  return JSON.parse(JSON.stringify(parsed));
+};
+
+await test('a bank export with separate debit and credit columns needs no decision about direction', () => {
+  const parsed = parse([
+    'Posting Date,Description,Debit,Credit',
+    '10/27/2026,"PREAUTHORIZED ACH DEBIT 8FIG","12,500.00",',
+    '10/28/2026,SHOPIFY TRANSFER,,"6,882.01"',
+    '10/30/2026,Comcast,$417.70,',
+  ].join('\n'));
+  assert.equal(parsed.paired, true, 'the file states the direction itself');
+  // Plaid states a depository amount as positive when money leaves; the
+  // debit column is money leaving, so it must come through positive.
+  assert.deepEqual(parsed.rows, [
+    { date: '2026-10-27', amount: 12500, name: 'PREAUTHORIZED ACH DEBIT 8FIG' },
+    { date: '2026-10-28', amount: -6882.01, name: 'SHOPIFY TRANSFER' },
+    { date: '2026-10-30', amount: 417.7, name: 'Comcast' },
+  ]);
+  assert.deepEqual([parsed.startDate, parsed.endDate], ['2026-10-27', '2026-10-30']);
+  assert.deepEqual([parsed.outflow, parsed.inflow], [2, 1]);
+});
+
+await test('a single signed amount column is read as given and can be flipped whole', () => {
+  const text = ['Date,Memo,Amount', '2026-10-27,ACH DEBIT,-100.00', '2026-10-28,DEPOSIT,250.00'].join('\n');
+  const asGiven = parse(text);
+  assert.equal(asGiven.paired, false, 'nothing in the file says which way it means');
+  assert.deepEqual(asGiven.rows.map((row) => row.amount), [-100, 250]);
+  const flipped = parse(text, { invert: true });
+  assert.deepEqual(flipped.rows.map((row) => row.amount), [100, -250]);
+  // Flipping a paired file would undo the direction the file stated, so it
+  // is deliberately ignored there.
+  const paired = parse(['Date,Memo,Debit,Credit', '2026-10-27,ACH,100.00,'].join('\n'), { invert: true });
+  assert.deepEqual(paired.rows.map((row) => row.amount), [100]);
+});
+
+await test('amounts written the way portals write them are read, and anything else is skipped', () => {
+  const parsed = parse([
+    'Date\tDescription\tAmount',
+    '2026-10-27\tBracketed outflow\t(1,234.56)',
+    '2026-10-27\tDollar sign\t$89.10',
+    '2026-10-27\tZero\t0.00',
+    '2026-10-27\tSub-cent\t10.005',
+    '2026-10-27\tNot a number\tpending',
+    '2026-10-27\t\t42.00',
+    '31/13/2026\tImpossible date\t42.00',
+  ].join('\n'));
+  assert.deepEqual(parsed.rows.map((row) => [row.name, row.amount]),
+    [['Bracketed outflow', -1234.56], ['Dollar sign', 89.1]]);
+  // A zero, a sub-cent amount, an unparseable amount, a blank description and
+  // an impossible date are all refused rather than coerced into the books.
+  assert.deepEqual(parsed.skipped.map((row) => row.why), ['amount', 'amount', 'amount', 'description', 'date']);
+});
+
+await test('a two-digit year is refused rather than guessed at a century', () => {
+  assert.throws(() => parse(['Date,Memo,Amount', '10/27/26,ACH,100.00'].join('\n')), /No usable rows/i);
+  // And the ISO and slash forms with a full year both work.
+  assert.equal(parse(['Date,Memo,Amount', '2026/10/27,ACH,100.00'].join('\n')).rows[0].date, '2026-10-27');
+});
+
+// "Transaction Date" matches the date pattern and the description pattern
+// both, and a bank export routinely pairs it with "Transaction Description".
+// Each header is claimed once, most specific field first, so the description
+// column cannot resolve back onto the date column and book dates as merchants.
+await test('a header that could match two fields is claimed by one of them only', () => {
+  const parsed = parse(['Transaction Date,Transaction Description,Amount',
+    '2026-10-27,ACH DEBIT ACME,100.00'].join('\n'));
+  assert.deepEqual(parsed.rows, [{ date: '2026-10-27', amount: 100, name: 'ACH DEBIT ACME' }]);
+});
+
+await test('a file SILO cannot read is refused by name, never partly imported', () => {
+  assert.throws(() => parse(''), /no rows/i);
+  assert.throws(() => parse(['Memo,Amount', 'ACH,100'].join('\n')), /no date column/i);
+  assert.throws(() => parse(['Date,Amount', '2026-10-27,100'].join('\n')), /no description column/i);
+  assert.throws(() => parse(['Date,Memo', '2026-10-27,ACH'].join('\n')), /no amount column/i);
+});
+
+await test('choosing a file writes nothing and sending it passes exactly what was shown', async () => {
+  const h = harness();
+  await h.controller.load();
+  const text = ['Posting Date,Description,Debit,Credit', '2026-10-27,ACH DEBIT,100.00,'].join('\n');
+  await h.el('bankAccounts').fire('change', { target: fileTarget(h.row, text, 'columbia.csv') });
+  assert.equal(h.calls.filter((call) => call.rpc === 'plaid_import_manual_days').length, 0,
+    'reading a file is not a write');
+  const html = h.el('bankAccounts').innerHTML;
+  assert.match(html, /1 row\(s\) read, 2026-10-27 to 2026-10-27/);
+  assert.match(html, /separate debit and credit columns/);
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-manual-send]') });
+  const call = h.calls.find((entry) => entry.rpc === 'plaid_import_manual_days');
+  assert.ok(call, 'sending calls the gated import');
+  assert.deepEqual(call.args, { p_account_id: 'account-one',
+    p_rows: [{ date: '2026-10-27', amount: 100, name: 'ACH DEBIT' }] });
+  assert.equal(h.statuses.at(-1).kind, 'pos');
+  assert.doesNotMatch(h.el('bankAccounts').innerHTML, /row\(s\) read/, 'the preview clears once sent');
+});
+
+await test('a signed file warns about direction and the flip reaches what is sent', async () => {
+  const h = harness();
+  await h.controller.load();
+  await h.el('bankAccounts').fire('change',
+    { target: fileTarget(h.row, ['Date,Memo,Amount', '2026-10-27,ACH,-100.00'].join('\n')) });
+  assert.match(h.el('bankAccounts').innerHTML, /Out of the account must be positive/);
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-manual-flip]') });
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-manual-send]') });
+  assert.deepEqual(h.calls.find((entry) => entry.rpc === 'plaid_import_manual_days').args.p_rows,
+    [{ date: '2026-10-27', amount: 100, name: 'ACH' }]);
+});
+
+await test('an import the database did not fully confirm never reports success', async () => {
+  for (const reply of [{ data: null }, { data: { account_id: 'account-two', imported: 1 } },
+    { data: { account_id: 'account-one', imported: 0 } }, { error: { message: 'Finance access required' } }]) {
+    const h = harness({ rpcResult: { plaid_import_manual_days: reply } });
+    await h.controller.load();
+    await h.el('bankAccounts').fire('change',
+      { target: fileTarget(h.row, ['Date,Memo,Debit,Credit', '2026-10-27,ACH,100.00,'].join('\n')) });
+    await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-manual-send]') });
+    assert.equal(h.statuses.at(-1).kind, 'neg');
+    assert.equal(h.changed, 0, 'nothing downstream is told the books moved');
+  }
+});
+
+await test('cancelling a read file leaves no trace and sends nothing', async () => {
+  const h = harness();
+  await h.controller.load();
+  await h.el('bankAccounts').fire('change',
+    { target: fileTarget(h.row, ['Date,Memo,Debit,Credit', '2026-10-27,ACH,100.00,'].join('\n')) });
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-manual-cancel]') });
+  assert.doesNotMatch(h.el('bankAccounts').innerHTML, /row\(s\) read/);
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-manual-send]') });
+  assert.equal(h.calls.filter((call) => call.rpc === 'plaid_import_manual_days').length, 0);
+});
+
 await test('a re-fetch failure that is not the missing add-on keeps the button', async () => {
   const h = harness({ refreshResult: { error: 'The bank is temporarily unavailable. Try again later.', code: 'INSTITUTION_DOWN' } });
   await h.controller.load();

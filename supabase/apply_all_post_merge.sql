@@ -19425,4 +19425,10 @@ $c$select (select count(*) from v_po_header_summary
 -- the windsor-broker edge function (/v2/windsor-test.html). Turns nothing on
 -- by itself. Deploy windsor-broker and set WINDSOR_API_KEY to use it.
 \i migrations/20261102220000_windsor_connections.sql
+-- Hand-entered days for a Plaid-fed account: a third origin that belongs to
+-- the account but carries no provider id, the gated RPC that creates one, and
+-- the claim that lets the feed take such a row over -- keeping its coding --
+-- when it finally delivers that day. Closes the gap PR #1100 could not: the
+-- provider itself having nothing for days the bank does have. No deploy.
+\i migrations/20261103070000_plaid_manual_days.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
