@@ -76,6 +76,9 @@ function query(data, writes, table, reads = null) {
     then(resolve, reject) {
       // Only the pending-row list is forced to an array; single()-shaped
       // fixtures elsewhere still come back exactly as written.
+      if (pendingFilter && data.stuck_pending_error) {
+        return Promise.resolve({ data: null, error: { message: data.stuck_pending_error } }).then(resolve, reject);
+      }
       const rows = pendingFilter
         ? (Array.isArray(data.stuck_pending) ? data.stuck_pending : [])
         : (data[table] || []);
@@ -90,13 +93,14 @@ function harness({ dirty = false, invokeError = null, rpcResult = {}, syncResult
   // as current: a feed that last delivered an hour ago, synced a minute ago.
   receivedAt = new Date(Date.now() - 3600_000).toISOString(),
   lastSyncedAt = new Date(Date.now() - 60_000).toISOString(),
-  stuckPending = [], dialogAnswer = true } = {}) {
+  stuckPending = [], stuckPendingError = null, dialogAnswer = true } = {}) {
   const d = dom(), calls = [], writes = [], statuses = [], opened = [], links = [], dialogs = [], reads = [], storageData = new Map();
   const data = {
     plaid_connections: [{ id: 'connection-one', environment: 'sandbox', status: 'active', institution_name: 'Test Bank' }],
     plaid_accounts: [{ id: 'account-one', connection_id: 'connection-one', type: 'depository', name: 'Checking', iso_currency_code: 'USD', source_id: source.id, last_synced_at: lastSyncedAt }],
     plaid_sync_exceptions: [], card_transactions: { batch_id: 'batch-one', provider_updated_at: receivedAt },
     stuck_pending: stuckPending,
+    stuck_pending_error: stuckPendingError,
   };
   const user = { id: 'user-one' }, company = { id: 'company-one' };
   const db = { auth: { getSession: async () => ({ data: { session: { user } } }) },
@@ -625,12 +629,30 @@ await test('only rows in a month still open are offered, because a frozen one co
   // person could do about it -- so the page must not offer it.
   const read = h.reads.find((entry) => entry.table === 'card_transactions' && entry.eq.provider_status === 'pending');
   assert.ok(read, 'the pending rows are read');
-  assert.match(read.select, /card_import_batches!inner\(status\)/, 'the read joins the parent month');
+  // Named, not bare: two foreign keys reach card_import_batches, and an
+  // unnamed embed is rejected outright -- which took the whole panel down
+  // with it in production on 2026-11-03.
+  assert.match(read.select, /card_import_batches!card_transactions_batch_id_fkey!inner\(status\)/,
+    'the read joins the parent month through a named relationship');
   // Array.from: the page builds its array inside the vm realm, whose
   // Array prototype is not this one's, which assert/strict compares.
-  assert.ok(read.in['card_import_batches.status'], "and filters on that month's status");
-  assert.deepEqual(Array.from(read.in['card_import_batches.status']), ['draft', 'categorized']);
+  assert.ok(read.in['batch.status'], "and filters on that month's status");
+  assert.deepEqual(Array.from(read.in['batch.status']), ['draft', 'categorized']);
   assert.equal(read.eq.status, 'excluded', 'and never anything that is in the books');
+});
+
+await test('if that read fails, the accounts still load -- it only decides what is offered', async () => {
+  // Production, 2026-11-03: this one read was rejected and it shared the
+  // throw with the accounts, so the whole panel went blank and the bank
+  // account rendered as an unconnected statement account. The clear is a
+  // convenience; the accounts, balances and coding queue are the page.
+  const h = harness({ ...abandoned, stuckPendingError: 'Could not embed because more than one relationship was found' });
+  await h.controller.load();
+  const html = h.el('bankAccounts').innerHTML;
+  assert.match(html, /data-bank-backfill/, 'the account and its actions are still there');
+  assert.doesNotMatch(html, /data-bank-clear-stuck/, 'but nothing is offered on a read that did not answer');
+  assert.ok(!h.statuses.some((entry) => /unavailable/i.test(entry.message)),
+    'and the page does not declare the bank feeds unavailable');
 });
 
 await test('a feed still delivering never offers to clear its pending rows', async () => {

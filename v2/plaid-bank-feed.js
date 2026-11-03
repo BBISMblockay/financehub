@@ -272,21 +272,29 @@
         // therefore make the button fail every time, with no way for the
         // person to fix it. Whether a row is really clearable stays the
         // database's call; this only has to not offer the impossible.
+        // Two foreign keys join these tables (batch_id, and the composite
+        // batch+company key), so the relationship MUST be named or the API
+        // cannot tell which was meant and rejects the whole request.
         db.from('card_transactions')
-          .select('plaid_account_id,external_transaction_id,txn_date,amount,description,card_import_batches!inner(status)')
+          .select('plaid_account_id,external_transaction_id,txn_date,amount,description,batch:card_import_batches!card_transactions_batch_id_fkey!inner(status)')
           .eq('company_entity_id', current.companyId).eq('origin', 'plaid')
           .eq('provider_status', 'pending').eq('status', 'excluded')
-          .in('card_import_batches.status', ['draft', 'categorized'])
+          .in('batch.status', ['draft', 'categorized'])
           .order('txn_date').limit(1000),
       ]);
-      for (const result of results) {
+      const [connectionResult, accountResult, exceptionResult, stuckResult] = results;
+      for (const result of [connectionResult, accountResult, exceptionResult]) {
         if (result.error) throw new Error(`Bank feeds are unavailable: ${result.error.message}`);
       }
       if (company()?.id !== current.companyId) throw new Error('Company changed. Refresh bank feeds.');
-      let stuckRows;
-      [connections, accounts, exceptions, stuckRows] = results.map((result) => result.data || []);
+      [connections, accounts, exceptions] = [connectionResult, accountResult, exceptionResult]
+        .map((result) => result.data || []);
+      // Advisory, and deliberately not fatal: this read only decides whether
+      // to OFFER clearing abandoned rows. Failing it must never cost the
+      // person their accounts, their balances or their coding queue, which
+      // is exactly what happened when it shared the throw above.
       stuckPending.clear();
-      for (const row of stuckRows) {
+      for (const row of (stuckResult.error ? [] : stuckResult.data || [])) {
         if (!row.plaid_account_id) continue;
         if (!stuckPending.has(row.plaid_account_id)) stuckPending.set(row.plaid_account_id, []);
         stuckPending.get(row.plaid_account_id).push(row);
