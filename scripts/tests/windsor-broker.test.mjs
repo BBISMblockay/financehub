@@ -392,3 +392,14 @@ test('field discovery returns readable dimensions and source-specific defaults f
   const denied = await call(handlerFor(w, fw), { action: 'field_catalog', linked_account_id: 'acc-b' });
   assert.equal(denied.status, 404);
 });
+
+
+test('preview only normalizes Facebook account aliases for Facebook', async () => {
+  for (const ds of ['youtube', 'facebook']) {
+    const w = world();
+    w.fake.tables.get('windsor_linked_accounts').push({ id: 'acc-a', company_entity_id: A, ds_id: ds, account_id: '42' });
+    const fw = fakeWindsor({ [`GET connectors.windsor.ai/${ds}`]: () => ({ body: [{ account_id: 'act_42', clicks: 1 }] }) });
+    const result = await call(handlerFor(w, fw), { action: 'preview', linked_account_id: 'acc-a', fields: 'clicks' });
+    assert.equal(result.status, ds === 'facebook' ? 200 : 409);
+  }
+});

@@ -239,7 +239,7 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       if (!r.ok) return json({ error: `Windsor answered ${r.status || 'nothing'}`, detail: r.detail }, 502);
       const rows = rowsOf(r.body);
       if (!rows) return json({ error: 'Windsor did not return a list of rows', shape: describeShape(r.body) }, 502);
-      const { kept, foreign, unattributed } = filterRowsToAccount(rows, own.row.account_id);
+      const { kept, foreign, unattributed } = filterRowsToAccount(rows, own.row.account_id, own.row.ds_id);
       if (foreign || unattributed) return json({ error: IDENTITY_ERROR, code: 'identity_unverified' }, 409);
       return json({
         connector: conn.value, fields: fields.value, date_preset: preset.value,

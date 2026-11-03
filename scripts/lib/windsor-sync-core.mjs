@@ -431,7 +431,7 @@ export async function fetchDataset({ key, fetchImpl, connector, accountId, datas
     }
     const rows = rowsOf(body);
     if (!rows) throw new Error(`${dataset.key}: not a list of rows (${describeShape(body)})`);
-    assertAccountRows(rows, accountId);
+    assertAccountRows(rows, accountId, connector);
     return { rows, dropped };
   }
   throw new Error(`${dataset.key}: too many refused fields`);
@@ -469,7 +469,7 @@ async function readOnce({ key, fetchImpl, connector, accountId, fields, from, to
   }
   const rows = rowsOf(body);
   if (!rows) return { error: `not a list of rows (${describeShape(body)})`, named: [] };
-  assertAccountRows(rows, accountId);
+  assertAccountRows(rows, accountId, connector);
   return { rows };
 }
 
@@ -623,7 +623,7 @@ const TIKTOK_COLUMN_FIELDS = ['impressions', 'clicks', 'spend', 'complete_paymen
 /** Rows that may be written for this account and window: this account's
  *  rows only, with a real date inside the window, one per identity. */
 export function prepareRows(rows, { accountId, from, to, dataset, ctx }) {
-  const { kept, foreign, unattributed } = filterRowsToAccount(rows, accountId);
+  const { kept, foreign, unattributed } = filterRowsToAccount(rows, accountId, ctx.dsId);
   if (foreign || unattributed) throw new Error('Windsor account identity could not be verified; window not saved');
   let outOfWindow = 0;
   let duplicates = 0;
@@ -653,7 +653,7 @@ export async function syncAccount({
   anyConnector = true,
 }) {
   const ctx = {
-    companyId: account.company_entity_id, accountId: String(account.account_id),
+    dsId: account.ds_id, companyId: account.company_entity_id, accountId: String(account.account_id),
     accountName: account.account_name ?? null, syncedAt: now.toISOString(), batchId,
   };
   const conn = connectorForSource(account.ds_id);

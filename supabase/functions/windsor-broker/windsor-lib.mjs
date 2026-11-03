@@ -233,14 +233,15 @@ export function planUpserts(accepted, existing, companyId) {
 
 /** Facebook ids come back with and without `act_`; Windsor documents both as
  *  the same account. Nothing else is normalised. */
-const normAccount = (v) => String(v ?? '').trim().replace(/^act_/, '');
+const normAccount = (v, source) => source === 'facebook'
+  ? String(v ?? '').trim().replace(/^act_/, '') : String(v ?? '').trim();
 
 /** Keep only rows for the one account the caller's company owns. A row with
  *  no account_id cannot be attributed and is dropped, not passed through:
  *  `select_accounts` is meant to restrict the read, but the boundary must not
  *  rest on a vendor parameter alone. */
-export function filterRowsToAccount(rows, accountId) {
-  const want = normAccount(accountId);
+export function filterRowsToAccount(rows, accountId, source) {
+  const want = normAccount(accountId, source);
   const kept = [];
   let foreign = 0;
   let unattributed = 0;
@@ -248,7 +249,7 @@ export function filterRowsToAccount(rows, accountId) {
     if (!r || typeof r !== 'object' || r.account_id === undefined || r.account_id === null || r.account_id === '') {
       unattributed += 1; continue;
     }
-    if (normAccount(r.account_id) !== want) { foreign += 1; continue; }
+    if (normAccount(r.account_id, source) !== want) { foreign += 1; continue; }
     kept.push(r);
   }
   return { kept, foreign, unattributed };
@@ -341,8 +342,8 @@ export const IDENTITY_ERROR = 'Windsor returned rows whose account identity coul
  * A selector is not evidence of ownership of a differently identified resource.
  * Do not include returned IDs or values in this error (they may be another tenant's).
  */
-export function assertAccountRows(rows, accountId) {
-  const { foreign, unattributed } = filterRowsToAccount(rows, accountId);
+export function assertAccountRows(rows, accountId, source) {
+  const { foreign, unattributed } = filterRowsToAccount(rows, accountId, source);
   if (foreign || unattributed) throw Object.assign(new Error(IDENTITY_ERROR), { code: 'identity_unverified' });
 }
 

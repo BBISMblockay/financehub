@@ -37,8 +37,8 @@ const libUrl = new URL('../lib/windsor-sync-core.mjs', import.meta.url);
 async function loadCore() {
   let src = fs.readFileSync(libUrl, 'utf8');
   const sub = (from, to) => { assert.ok(src.includes(from), `mutation ${MUT}: pattern missing`); src = src.split(from).join(to); };
-  if (MUT === 'identity') sub('assertAccountRows(rows, accountId);', '');
-  if (MUT === 'accountfilter') sub('const { kept, foreign, unattributed } = filterRowsToAccount(rows, accountId);', 'const kept = rows; const foreign = 0; const unattributed = 0;');
+  if (MUT === 'identity') sub('assertAccountRows(rows, accountId, connector);', '');
+  if (MUT === 'accountfilter') sub('const { kept, foreign, unattributed } = filterRowsToAccount(rows, accountId, ctx.dsId);', 'const kept = rows; const foreign = 0; const unattributed = 0;');
   if (MUT === 'payloadcompany') sub('const row = dataset.toRow({ ...r, date: day }, ctx);', 'const row = dataset.toRow({ ...r, date: day }, { ...ctx, companyId: r.company_entity_id ?? ctx.companyId });');
   if (MUT === 'selectaccounts') sub('date_from: from, date_to: to, select_accounts: accountId,', 'date_from: from, date_to: to,');
   if (MUT === 'resume') sub("if (w.kind === 'history') historyFrom = w.from;", '');
@@ -581,4 +581,17 @@ test('hunted merging cannot borrow another account metrics', () => {
     [[{ account_id: 'other', date: '2026-11-01', campaign_id: 'c', clicks: 999 }]]);
   assert.equal(result.rows[0].clicks, undefined);
   assert.equal(result.unmatched, 1);
+});
+
+
+test('Facebook account aliases are not applied to another source during sync', async () => {
+  for (const ds of ['youtube', 'facebook']) {
+    const account = { ...tiktokAcct, ds_id: ds, account_id: '42' };
+    const fake = world([account]);
+    const fw = fakeWindsor(() => [{ account_id: 'act_42', date: '2026-11-01', impressions: 2 }],
+      { [ds]: [{ id: 'account_id' }, { id: 'date' }, { id: 'impressions', type: 'NUMERIC' }] });
+    const result = await run(fake, fw, account);
+    assert.equal(result.status, ds === 'facebook' ? 'success' : 'error');
+    assert.equal(result.rows_written, ds === 'facebook' ? 1 : 0);
+  }
 });
