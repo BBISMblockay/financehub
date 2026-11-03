@@ -26,8 +26,8 @@
 --     way to learn -- that four of these feeds stopped months ago.
 --
 -- Measured 2026-11-03: 366 catalogued relations, 38 hidden, and only 134
--- carrying keywords, so 194 visible relations ranked on their name alone.
--- Sixty of them are seeded here.
+-- carrying keywords -- 11 of those hidden, so 205 of the 328 visible relations
+-- ranked on their name alone. Sixty of them are seeded here.
 --
 -- EVERY FIRST SENTENCE IS UNDER 140 CHARACTERS AND ENDS IN ". ". The index line
 -- keeps `description.split('. ')[0]` truncated at MAX_INDEX_SUMMARY_CHARS (140,
@@ -74,13 +74,15 @@ where relname in (
 ) and not is_hidden;
 
 -- ── 2. Business meaning for the relations that had none ────────────────────
-create temporary table _catalog_seed (
-  relname text primary key,
-  description text not null,
-  keywords text[] not null
-) on commit drop;
-
-insert into _catalog_seed (relname, description, keywords) values
+-- The seed is a CTE inside the single statement that uses it, deliberately. An
+-- earlier version of this file held it in a temp table declared `on commit
+-- drop`, which is correct under psql (this file is one transaction) and wrong
+-- everywhere else: a client that commits each statement separately drops the
+-- table between the insert and the update and fails with `relation
+-- "_catalog_seed" does not exist`. Blake hit exactly that applying it through
+-- the SQL editor. A migration must not depend on state that survives only
+-- inside one transaction, because the thing that applies it is not always psql.
+with seed (relname, description, keywords) as (values
 
 -- Ledger and accounting -----------------------------------------------------
 ('ledger_entries',
@@ -329,12 +331,12 @@ insert into _catalog_seed (relname, description, keywords) values
 ('sync_jobs',
  $d$$d$,
  array['sync','sync status','freshness','last sync','backfill','job','integration','stale','did it run'])
-;
+)
 
 -- Rule 1: keywords always. Rule 2: description only where it is null, so a
 -- curated one (sync_jobs' skip/partial-failure warning) survives. The empty
 -- string in the seed above is the shape that rule needs for sync_jobs -- it
--- carries keywords only, and coalesce below leaves its description alone.
+-- carries keywords only, and the case below leaves its description alone.
 update public.silo_chat_schema_catalog k
    set keywords = s.keywords,
        description = case
@@ -342,18 +344,45 @@ update public.silo_chat_schema_catalog k
          else nullif(btrim(s.description), '')
        end,
        updated_at = now()
-  from _catalog_seed s
+  from seed s
  where k.relname = s.relname;
 
--- Rule 3: a name that is not in the catalog is a typo, not a no-op.
+-- Rule 3: a name that is not in the catalog is a typo, not a no-op. The names
+-- are repeated here rather than read back from the seed, because the seed lives
+-- inside the statement above and nothing outside it can see it -- which is the
+-- point: this block stands on its own, whatever applies the file.
 do $$
 declare
   v_missing text[];
 begin
-  select array_agg(s.relname order by s.relname) into v_missing
-    from _catalog_seed s
+  select array_agg(r order by r) into v_missing
+    from unnest(array[
+    'ledger_entries', 'ledger_lines', 'silo_ledger_lines_v',
+    'accounting_accounts', 'accounting_coa_map',
+    'accounting_journal_register', 'journal_adjustments_v',
+    'journal_adjustment_lines', 'schedule_items', 'schedule_item_balances_v',
+    'fixed_asset_balances_v', 'card_transactions_v',
+    'card_coding_effective_lines', 'card_coding_suggestions_v',
+    'card_coding_rules', 'payroll_register_lines',
+    'payroll_register_monthly_v', 'payroll_employee_cost_v',
+    'payroll_department_cost_v', 'ar_invoices', 'ar_invoice_workbench_v',
+    'ar_customer_rollup_v', 'ar_contact_log', 'payment_requests_v',
+    'payment_request_activity_v', 'mail_items_v', 'v_po_header_summary',
+    'v_po_arrival', 'v_po_shipment_lines', 'incoming_shipment_lines',
+    'v_shipment_booking_summary', 'v_po_costing_summary',
+    'product_lead_time_v', 'reorder_plan_v', 'demand_coverage_base_v',
+    'shopify_draft_orders', 'shopify_payouts', 'shopify_attribution_days',
+    'silo_attribution_campaigns_v', 'search_console_query_rollup_v',
+    'facebook_page_insights_daily', 'instagram_account_insights_daily',
+    'wow_sales_daily_type_v', 'sales_exception_summary_v',
+    'shopify_channel_map', 'shopify_location_mappings', 'product_tags',
+    'inventory_workboard_mv', 'tasks_v', 'launch_tasks', 'profiles',
+    'entity_memberships', 'entities', 'comp_adjustment_requests_v',
+    'product_samples_v', 'customer_accounts_v', 'revenue_projection_history',
+    'silo_report_tieouts', 'silo_chat_saved_reports_v', 'sync_jobs'
+    ]) r
    where not exists (
-     select 1 from public.silo_chat_schema_catalog k where k.relname = s.relname
+     select 1 from public.silo_chat_schema_catalog k where k.relname = r
    );
   if v_missing is not null then
     raise exception 'chat catalog seed names absent from silo_chat_schema_catalog: %',

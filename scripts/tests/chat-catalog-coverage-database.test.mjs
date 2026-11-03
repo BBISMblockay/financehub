@@ -12,13 +12,17 @@
  *      allowlist;
  *   4. it reaches a relation it was not asked to touch.
  *
- * Runs on PGlite against a stand-in catalog. The whole file is executed as one
- * script, begin/commit included, because the seed lives in a temp table
- * declared `on commit drop`.
+ * Each statement is applied SEPARATELY, with begin/commit dropped, because that
+ * is how the SQL editor applies a file -- and the first version of this
+ * migration held its seed in a temp table declared `on commit drop`, which works
+ * under psql and fails with `relation "_catalog_seed" does not exist` under
+ * anything that commits per statement. Blake hit it on the real apply. The whole
+ * file in one transaction is strictly easier, so this covers both.
  */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
+import { splitSqlStatements } from '../lib/sql-statements.mjs';
 
 const db = new PGlite();
 const root = new URL('../../', import.meta.url);
@@ -99,7 +103,22 @@ await q(`insert into public.silo_chat_schema_catalog (relname, relkind, descript
          values ('sales_by_day', 'table', $1, array['sales'])`, [UNTOUCHED]);
 await q(`insert into public.silo_chat_schema_catalog (relname, relkind) values ('cash_forecast_items', 'table')`);
 
-const apply = async () => { await db.exec(sql); };
+/* One statement at a time, each committed on its own: no cross-statement
+   temporary state can hide here. */
+const apply = async () => {
+  for (const statement of splitSqlStatements(sql)) {
+    if (/^(begin|commit)$/i.test(statement.text.trim())) continue;
+    await db.exec(statement.text);
+  }
+};
+
+check('the migration carries no state between statements');
+// Comments are allowed to name the old shape; the SQL is not.
+const executable = original.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+assert.ok(!/create\s+(temporary|temp)\s+table/i.test(executable),
+  'a temp table does not survive a client that commits each statement');
+assert.ok(!/_catalog_seed/.test(executable),
+  'the seed must live inside the statement that uses it');
 await apply();
 
 const cat = (relname) => first('select * from public.silo_chat_schema_catalog where relname = $1', [relname]);
